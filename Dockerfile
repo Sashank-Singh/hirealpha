@@ -2,6 +2,11 @@
 # Select hire at runtime with HIREALPHA_BOT=friend|coworker|cofounder
 FROM oven/bun:1-slim
 
+# Coolify probes /healthz with curl/wget; slim image has neither.
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends curl \
+  && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 
 # Agent personalities + shared Spectrum helpers (imported by each bot)
