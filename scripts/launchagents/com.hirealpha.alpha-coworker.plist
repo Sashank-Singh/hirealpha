@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.hirealpha.alpha-coworker</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/sashanksingh/Library/Application Support/reflex/bun/bin/bun</string>
+    <string>src/index.ts</string>
+  </array>
+  <key>WorkingDirectory</key>
+  <string>/Users/sashanksingh/Projects/HireAlpha/spectrum/alpha-coworker</string>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>ThrottleInterval</key>
+  <integer>5</integer>
+  <key>StandardOutPath</key>
+  <string>/Users/sashanksingh/Projects/HireAlpha/spectrum/logs/alpha-coworker.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/sashanksingh/Projects/HireAlpha/spectrum/logs/alpha-coworker.err.log</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/Users/sashanksingh/Library/Application Support/reflex/bun/bin:/usr/local/bin:/usr/bin:/bin</string>
+    <key>SKIP_INTRO</key>
+    <string>1</string>
+  </dict>
+</dict>
+</plist>
