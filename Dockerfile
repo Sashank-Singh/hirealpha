@@ -10,15 +10,18 @@ COPY spectrum/shared ./spectrum/shared
 COPY spectrum/docker-entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
-# Install each bot's deps (separate package.json / lock)
+# Install each bot's deps (separate package.json / lock). Always WORKDIR /app
+# before COPY so relative destinations are not nested under the previous bot dir.
 COPY spectrum/alpha/package.json spectrum/alpha/bun.lock ./spectrum/alpha/
 WORKDIR /app/spectrum/alpha
 RUN bun install --frozen-lockfile --production
 
+WORKDIR /app
 COPY spectrum/alpha-coworker/package.json spectrum/alpha-coworker/bun.lock ./spectrum/alpha-coworker/
 WORKDIR /app/spectrum/alpha-coworker
 RUN bun install --frozen-lockfile --production
 
+WORKDIR /app
 COPY spectrum/alpha-cofounder/package.json spectrum/alpha-cofounder/bun.lock ./spectrum/alpha-cofounder/
 WORKDIR /app/spectrum/alpha-cofounder
 RUN bun install --frozen-lockfile --production
