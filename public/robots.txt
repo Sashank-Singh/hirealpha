@@ -1,0 +1,7 @@
+User-agent: *
+Allow: /
+Disallow: /app
+Disallow: /app/
+Disallow: /login
+
+Sitemap: https://hirealpha.com/sitemap.xml

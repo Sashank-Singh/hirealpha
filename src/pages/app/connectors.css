@@ -1,0 +1,107 @@
+.conn {
+  padding: 28px 28px 48px;
+  max-width: 1100px;
+}
+
+.conn__head {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-end;
+  margin-bottom: 24px;
+}
+
+.conn__head h1 {
+  font-family: 'Fraunces', Georgia, serif;
+  font-size: 2rem;
+  font-weight: 500;
+  letter-spacing: -0.03em;
+}
+
+.conn__head p {
+  color: #4d4843;
+  max-width: 52ch;
+  margin-top: 6px;
+  font-size: 15px;
+}
+
+.conn__stat {
+  background: #fff;
+  border: 2px solid #111;
+  border-radius: 16px;
+  padding: 12px 16px;
+  box-shadow: 3px 3px 0 #111;
+  text-align: center;
+  min-width: 88px;
+}
+
+.conn__stat strong {
+  display: block;
+  font-size: 1.5rem;
+  letter-spacing: -0.03em;
+}
+
+.conn__stat span {
+  font-size: 12px;
+  color: #7c756c;
+  font-weight: 650;
+}
+
+.conn__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 14px;
+}
+
+.conn__card {
+  background: #fff;
+  border: 2px solid #111;
+  border-radius: 18px;
+  padding: 16px;
+  display: grid;
+  grid-template-columns: 44px 1fr;
+  grid-template-rows: auto auto;
+  gap: 10px 12px;
+  box-shadow: 3px 3px 0 #111;
+}
+
+.conn__card--on {
+  box-shadow: 3px 3px 0 #1f7a6e;
+  border-color: #1f7a6e;
+}
+
+.conn__icon {
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+}
+
+.conn__body h2 {
+  font-size: 16px;
+  letter-spacing: -0.02em;
+}
+
+.conn__body p {
+  font-size: 13px;
+  color: #4d4843;
+  margin: 4px 0 8px;
+  line-height: 1.4;
+}
+
+.conn__cat {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 750;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #7c756c;
+  background: #f3efe8;
+  border-radius: 999px;
+  padding: 3px 8px;
+}
+
+.conn__card .btn {
+  grid-column: 1 / -1;
+  width: 100%;
+}

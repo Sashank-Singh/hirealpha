@@ -72,6 +72,42 @@ The phone demo cycles inbox → thread → typing bubbles for the focused hire.
 
 ---
 
+
+
+## Agents
+
+The product is three hireable contacts. Specs live in `src/agents/`.
+
+| Messages name | Number | Role |
+| --- | --- | --- |
+| `Alpha` | `+15550101001` | Friend / personal companion |
+| `Alpha (Coworker)` | `+15550101002` | Work colleague |
+| `Alpha(CoFounder)` | `+15550101003` | Startup partner |
+
+Each agent has:
+- `systemPrompt` for model behavior
+- `behavior` rules (tone, does, never, reply style)
+- a dedicated phone number for iMessage / SMS provisioning
+
+Chat goes through `POST /api/chat`. With `OPENAI_API_KEY` in `.env`, replies use the live model and that agent’s prompt. Without a key, the local runtime still follows each agent’s behavior rules.
+
+```bash
+cp .env.example .env
+# add OPENAI_API_KEY=...
+```
+
+## App
+
+After the marketing site, the product shell lives under `/app`.
+
+| Route | Purpose |
+| --- | --- |
+| `/login` | Email login / signup (session in `localStorage`) |
+| `/app/agents` | Chat with **Alpha**, **Alpha (Coworker)**, **Alpha(CoFounder)** |
+| `/app/connectors` | Connect / disconnect tools for all three agents |
+
+Auth and connector state are client-side for now. Swap `AuthContext` and connector toggles for a real API when ready.
+
 ## Stack
 
 | Layer | Choice |

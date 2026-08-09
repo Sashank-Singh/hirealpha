@@ -49,3 +49,8 @@ coverage/
 refs/
 .tmp/
 .cache/
+
+# Spectrum bots
+spectrum/**/node_modules/
+spectrum/**/data/
+spectrum/**/.env

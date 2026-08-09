@@ -1,0 +1,24 @@
+{
+  "name": "HireAlpha",
+  "short_name": "HireAlpha",
+  "description": "Hire Friend, Coworker, or Cofounder in iMessage. Three agents. Three numbers. $19/mo each.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#efebe4",
+  "theme_color": "#111111",
+  "lang": "en",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/apple-touch-icon.png",
+      "sizes": "180x180",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
+}

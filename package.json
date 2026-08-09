@@ -7,12 +7,17 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "spectrum": "bash scripts/start-spectrum.sh",
+    "spectrum:alpha": "bun --cwd spectrum/alpha start",
+    "spectrum:coworker": "bun --cwd spectrum/alpha-coworker start",
+    "spectrum:cofounder": "bun --cwd spectrum/alpha-cofounder start"
   },
   "dependencies": {
     "framer-motion": "^13.0.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
+    "react-router-dom": "^7.18.2",
     "simple-icons": "^13.21.0"
   },
   "devDependencies": {

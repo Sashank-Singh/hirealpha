@@ -1,0 +1,17 @@
+# HireAlpha
+
+> Hire Friend, Coworker, or Cofounder as AI agents in iMessage.
+> Three contacts. Three numbers. $19/mo each.
+
+## Product
+- Friend (`Alpha`) — personal companion
+- Coworker (`Alpha (Coworker)`) — work colleague
+- Cofounder (`Alpha(CoFounder)`) — startup partner
+
+## Site
+- Home: /
+- Waitlist: /#waitlist
+- FAQ: /#faq
+
+## Notes for LLMs
+HireAlpha is not a single chatbot with modes. Each hire is a distinct Messages contact with its own personality and phone number.
