@@ -3,6 +3,7 @@ import type { AgentDefinition, AgentId, ChatMessage, Msg } from './types'
 
 export type { AgentDefinition, AgentId, ChatMessage, Msg } from './types'
 export { ALPHA, ALPHA_COWORKER, ALPHA_COFOUNDER } from './definitions'
+export { SKILLS, skillsPromptBlock } from './skills'
 
 /** All hireable agents, product order */
 export const AGENTS: AgentDefinition[] = [ALPHA, ALPHA_COWORKER, ALPHA_COFOUNDER]

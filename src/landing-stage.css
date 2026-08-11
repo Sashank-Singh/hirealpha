@@ -1,0 +1,680 @@
+/* ─── Big Messages-stage redesign ─── */
+
+.btn--lg {
+  padding: 16px 32px;
+  font-size: 16px;
+}
+
+.land {
+  overflow-x: clip;
+}
+
+.stage {
+  position: relative;
+  /* Grow with content so the full phone is never chopped */
+  min-height: 100vh;
+  min-height: 100dvh;
+  /* Clear the fixed nav pill completely */
+  padding: calc(108px + env(safe-area-inset-top, 0px)) 24px 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 28px;
+  overflow: visible;
+  box-sizing: border-box;
+}
+
+.stage__sky {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1;
+  overflow: hidden;
+}
+
+.stage-bubble {
+  position: absolute;
+  z-index: 1;
+  display: none;
+  align-items: center;
+  gap: 10px;
+  max-width: 240px;
+  background: #fff;
+  border: 2.5px solid var(--ink);
+  border-radius: 22px;
+  padding: 12px 14px;
+  box-shadow: 5px 5px 0 var(--ink);
+  font-size: 14px;
+  font-weight: 650;
+  line-height: 1.3;
+  color: var(--ink);
+}
+
+.stage-bubble__tool {
+  flex-shrink: 0;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--accent-2);
+  background: #e8f5f1;
+  border: 1.5px solid rgba(31, 122, 110, 0.35);
+  border-radius: 999px;
+  padding: 4px 8px;
+}
+
+/* Wide screens only: floaters sit beside the phone, never near brand */
+@media (min-width: 1180px) {
+  .stage-bubble { display: flex; }
+  .stage-bubble--a { top: 58%; left: max(24px, calc(50% - 460px)); }
+  .stage-bubble--b { top: 48%; right: max(24px, calc(50% - 460px)); }
+  .stage-bubble--c { top: 72%; left: max(24px, calc(50% - 480px)); }
+  .stage-bubble--d { top: 66%; right: max(24px, calc(50% - 480px)); }
+}
+
+.stage__brand {
+  position: relative;
+  z-index: 4;
+  text-align: center;
+  max-width: min(900px, 94vw);
+  margin: 0 auto;
+  flex-shrink: 0;
+}
+
+.stage__wordmark {
+  font-family: var(--display);
+  font-size: clamp(3.4rem, 9vw, 6.25rem);
+  font-weight: 600;
+  letter-spacing: -0.05em;
+  line-height: 0.92;
+  margin: 0 0 18px;
+  color: var(--ink);
+}
+
+.stage__line {
+  font-family: var(--display);
+  font-size: clamp(1.45rem, 2.8vw, 2.25rem);
+  font-weight: 500;
+  letter-spacing: -0.03em;
+  line-height: 1.2;
+  color: var(--ink);
+  max-width: 22ch;
+  margin: 0 auto;
+}
+
+.stage__line em {
+  font-style: italic;
+  color: var(--accent);
+}
+
+.stage__cast {
+  position: relative;
+  z-index: 4;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+  flex-shrink: 0;
+  width: 100%;
+}
+
+.stage__nametag {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  background: #fff;
+  border: 2.5px solid var(--ink);
+  border-radius: 18px;
+  padding: 10px 18px 10px 10px;
+  box-shadow: 4px 4px 0 var(--ink);
+  transform: rotate(-1.5deg);
+  text-align: left;
+}
+
+.stage__nametag span {
+  display: block;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.stage__nametag strong {
+  font-family: var(--display);
+  font-size: 1.25rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--ink);
+}
+
+.stage__tabs {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.stage-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 2.5px solid var(--ink);
+  background: rgba(255, 255, 255, 0.92);
+  border-radius: 999px;
+  padding: 8px 16px 8px 8px;
+  cursor: pointer;
+  box-shadow: 3px 3px 0 var(--ink);
+  transition: transform 0.15s, background 0.15s, color 0.15s;
+}
+
+.stage-tab strong {
+  font-size: 14px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.stage-tab--on {
+  background: var(--ink);
+  color: #fff;
+  transform: translateY(-2px);
+}
+
+.stage__dock {
+  position: relative;
+  z-index: 4;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  text-align: center;
+  margin-top: 6px;
+}
+
+.stage__dock .btn--lg {
+  padding: 16px 32px;
+  font-size: 16px;
+}
+
+.stage__dock p {
+  font-size: 13px;
+  font-weight: 650;
+  color: var(--muted);
+}
+
+.stage__device {
+  position: relative;
+  z-index: 5;
+  flex-shrink: 0;
+  margin-top: 16px;
+  margin-bottom: 40px;
+}
+
+.stage__device .phone {
+  /* Fixed iPhone proportion — width only, height from aspect-ratio */
+  width: 336px;
+  max-width: min(336px, 88vw);
+  height: auto;
+  aspect-ratio: 312 / 640;
+  flex-shrink: 0;
+}
+
+.stage__device .phone__bezel {
+  border-radius: 48px;
+  padding: 11px;
+}
+
+.stage__device .phone__screen {
+  border-radius: 38px;
+}
+
+.stage__device .phone__island {
+  top: 9px;
+  width: 96px;
+  height: 28px;
+  border-radius: 18px;
+}
+
+.stage__device .ios-status {
+  grid-template-columns: minmax(0, 1fr) 104px minmax(0, 1fr);
+  padding: 12px 16px 4px;
+  min-height: 44px;
+}
+
+.stage__device .ios-status__island {
+  width: 104px;
+  height: 28px;
+}
+
+.stage__device .ios-status__time {
+  font-size: 12px;
+  padding-left: 6px;
+}
+
+/* Manifesto full bleed */
+.manifesto--bleed {
+  position: relative;
+  z-index: 1;
+  background: var(--ink);
+  color: #fff;
+  padding: clamp(72px, 12vh, 140px) 24px;
+  text-align: center;
+  max-width: none;
+  margin: 0;
+}
+
+.manifesto--bleed .manifesto__lead {
+  color: var(--accent);
+  font-size: 14px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  font-weight: 800;
+  margin-bottom: 18px;
+}
+
+.manifesto--bleed h2 {
+  font-family: var(--display);
+  font-size: clamp(2.8rem, 8vw, 5.5rem);
+  font-weight: 500;
+  letter-spacing: -0.04em;
+  line-height: 1.02;
+  max-width: 12ch;
+  margin: 0 auto 22px;
+  color: #fff;
+}
+
+.manifesto--bleed .manifesto__body {
+  font-size: clamp(1.05rem, 2vw, 1.35rem);
+  line-height: 1.55;
+  color: rgba(255, 255, 255, 0.88);
+  max-width: 42ch;
+  margin: 0 auto;
+}
+
+/* Cast / roles */
+.cast {
+  padding-top: 72px;
+  padding-bottom: 40px;
+}
+
+.cast__head {
+  text-align: center;
+  margin-bottom: 36px;
+}
+
+.cast__head h2 {
+  font-family: var(--display);
+  font-size: clamp(2.4rem, 5vw, 3.6rem);
+  font-weight: 500;
+  letter-spacing: -0.03em;
+  margin-bottom: 8px;
+}
+
+.cast__head p {
+  color: var(--ink-soft);
+  font-size: 17px;
+}
+
+.cast__stage {
+  width: min(1180px, calc(100% - 28px));
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: 1.4fr 0.7fr;
+  gap: 18px;
+  align-items: stretch;
+}
+
+.cast__hero {
+  border: 3px solid var(--ink);
+  border-radius: 36px;
+  padding: 40px 36px;
+  color: #fff;
+  box-shadow: 10px 10px 0 var(--ink);
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 28px;
+  align-items: center;
+  min-height: 340px;
+}
+
+.cast__face-plate {
+  background: #fff;
+  border-radius: 50%;
+  padding: 10px;
+  border: 3px solid rgba(255, 255, 255, 0.95);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.18);
+}
+
+.cast__hero .alpha-face circle:first-child {
+  stroke: var(--ink);
+}
+
+.cast__eyebrow {
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  opacity: 0.75;
+  margin-bottom: 6px;
+}
+
+.cast__hero-copy h3 {
+  font-family: var(--display);
+  font-size: clamp(2rem, 4vw, 3rem);
+  font-weight: 500;
+  letter-spacing: -0.03em;
+  margin-bottom: 6px;
+}
+
+.cast__role {
+  font-weight: 700;
+  margin-bottom: 12px;
+  opacity: 0.9;
+}
+
+.cast__hero-copy > p:last-of-type {
+  font-size: 16px;
+  line-height: 1.5;
+  opacity: 0.92;
+  max-width: 36ch;
+  margin-bottom: 20px;
+}
+
+.cast__preview {
+  background: #fff;
+  color: var(--ink);
+}
+
+.cast__rail {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.cast__pick {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  text-align: left;
+  background: rgba(255, 255, 255, 0.8);
+  border: 2.5px solid var(--ink);
+  border-radius: 24px;
+  padding: 16px;
+  cursor: pointer;
+  box-shadow: 4px 4px 0 var(--ink);
+  transition: transform 0.15s, background 0.15s;
+}
+
+.cast__pick span {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.cast__pick strong {
+  font-size: 18px;
+  font-weight: 800;
+}
+
+.cast__pick small {
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.cast__pick--on {
+  background: var(--ink);
+  color: #fff;
+  transform: translateX(4px);
+}
+
+.cast__pick--on small { color: rgba(255, 255, 255, 0.65); }
+
+/* Deed / actions wall */
+.deed {
+  padding-top: 40px;
+}
+
+.deed__intro {
+  text-align: center;
+  margin-bottom: 36px;
+}
+
+.deed__eyebrow {
+  display: inline-flex;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: 12px;
+}
+
+.deed__intro h2 {
+  font-family: var(--display);
+  font-size: clamp(2.2rem, 5vw, 3.4rem);
+  font-weight: 500;
+  letter-spacing: -0.03em;
+}
+
+.deed__wall {
+  width: min(1100px, calc(100% - 28px));
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 18px;
+  padding-bottom: 20px;
+}
+
+.deed-card {
+  background: #fff;
+  border: 2.5px solid var(--ink);
+  border-radius: 28px;
+  padding: 22px 22px 18px;
+  box-shadow: 6px 6px 0 var(--ink);
+  position: relative;
+}
+
+.deed-card--0 { transform: rotate(-1.2deg); }
+.deed-card--1 { transform: rotate(1.4deg); margin-top: 28px; }
+.deed-card--2 { transform: rotate(1deg); }
+.deed-card--0.deed-card--2,
+.deed-card--3 { transform: rotate(-1.6deg); margin-top: -8px; }
+
+.deed-card__meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.deed-card__meta strong {
+  display: block;
+  font-size: 15px;
+  font-weight: 800;
+}
+
+.deed-card__meta span {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--accent-2);
+}
+
+.deed-card > p {
+  font-family: var(--display);
+  font-size: 1.35rem;
+  font-weight: 500;
+  line-height: 1.25;
+  letter-spacing: -0.02em;
+}
+
+.deed-card__imsg {
+  margin-top: 16px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--imsg-blue);
+}
+
+/* Path */
+.path {
+  padding-top: 48px;
+  padding-bottom: 48px;
+}
+
+.path__title {
+  font-family: var(--display);
+  font-size: clamp(2rem, 4vw, 3rem);
+  font-weight: 500;
+  letter-spacing: -0.03em;
+  text-align: center;
+  margin-bottom: 28px;
+}
+
+.path__steps {
+  list-style: none;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 14px;
+}
+
+.path__steps li {
+  background: #fff;
+  border: 2.5px solid var(--ink);
+  border-radius: 22px;
+  padding: 22px 20px;
+  box-shadow: 4px 4px 0 var(--ink);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.path__steps strong {
+  font-family: var(--display);
+  font-style: italic;
+  font-size: 28px;
+  color: var(--accent);
+}
+
+.path__steps span {
+  font-size: 16px;
+  font-weight: 700;
+}
+
+/* Finale */
+.finale {
+  position: relative;
+  margin: 40px 16px 60px;
+  padding: clamp(56px, 10vh, 100px) 24px;
+  border: 3px solid var(--ink);
+  border-radius: 40px;
+  background: linear-gradient(160deg, #fff 0%, #f3efe7 55%, #e7f0f3 100%);
+  box-shadow: 12px 12px 0 var(--ink);
+  text-align: center;
+  overflow: hidden;
+}
+
+.finale__glow {
+  position: absolute;
+  inset: auto;
+  top: -20%;
+  left: 50%;
+  width: 480px;
+  height: 480px;
+  transform: translateX(-50%);
+  background: radial-gradient(circle, rgba(255, 90, 31, 0.22), transparent 65%);
+  pointer-events: none;
+}
+
+.finale .alpha-face {
+  margin: 0 auto 18px;
+  position: relative;
+  z-index: 1;
+}
+
+.finale h2 {
+  position: relative;
+  z-index: 1;
+  font-family: var(--display);
+  font-size: clamp(2.6rem, 6vw, 4.2rem);
+  font-weight: 500;
+  letter-spacing: -0.035em;
+  margin-bottom: 10px;
+}
+
+.finale > p {
+  position: relative;
+  z-index: 1;
+  color: var(--ink-soft);
+  font-size: 18px;
+  margin-bottom: 28px;
+}
+
+.finale__form {
+  position: relative;
+  z-index: 1;
+  max-width: 480px;
+  margin: 0 auto;
+}
+
+@media (max-width: 980px) {
+  .stage-bubble--a,
+  .stage-bubble--c { left: 2%; max-width: 44vw; }
+  .stage-bubble--b,
+  .stage-bubble--d { right: 2%; max-width: 44vw; font-size: 12px; }
+  .cast__stage { grid-template-columns: 1fr; }
+  .cast__hero {
+    grid-template-columns: 1fr;
+    text-align: center;
+    justify-items: center;
+  }
+  .cast__hero-copy > p:last-of-type { max-width: none; }
+  .deed__wall { grid-template-columns: 1fr; }
+  .deed-card--0,
+  .deed-card--1,
+  .deed-card--2,
+  .deed-card--3 {
+    transform: none;
+    margin-top: 0;
+  }
+  .path__steps { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 720px) {
+  .stage {
+    padding-top: calc(96px + env(safe-area-inset-top, 0px));
+    gap: 22px;
+  }
+  .stage__wordmark {
+    font-size: clamp(2.8rem, 13vw, 3.8rem);
+  }
+  .stage__line {
+    font-size: clamp(1.25rem, 5vw, 1.55rem);
+    max-width: 20ch;
+  }
+  .stage__cast {
+    gap: 16px;
+  }
+  .stage__device {
+    margin-top: 12px;
+    margin-bottom: 28px;
+  }
+  .stage__device .phone {
+    width: 300px;
+    max-width: min(300px, 86vw);
+  }
+}
+
+@media (min-width: 1100px) and (min-height: 900px) {
+  .stage__wordmark {
+    font-size: clamp(4.5rem, 8vw, 7rem);
+  }
+  .stage__line {
+    font-size: clamp(1.7rem, 2.4vw, 2.5rem);
+  }
+  /* Keep the same phone width — do not stretch on large desktops */
+  .stage__device .phone {
+    width: 336px;
+    max-width: 336px;
+  }
+}
