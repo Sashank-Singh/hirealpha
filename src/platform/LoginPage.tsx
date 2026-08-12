@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from 'react'
 import { Link, Navigate, useNavigate } from 'react-router-dom'
+import { ensureConnectorUser } from './api'
 import { getSession, signIn } from './roster'
 
 export function LoginPage() {
@@ -8,16 +9,26 @@ export function LoginPage() {
   const [email, setEmail] = useState('')
   const [emailMode, setEmailMode] = useState(false)
   const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
 
   if (existing) return <Navigate to="/app" replace />
 
-  function finish(nextEmail: string) {
-    signIn(nextEmail)
-    navigate('/app')
+  async function finish(nextEmail: string) {
+    setBusy(true)
+    setError('')
+    try {
+      signIn(nextEmail)
+      await ensureConnectorUser(nextEmail)
+      navigate('/app')
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Sign in failed')
+    } finally {
+      setBusy(false)
+    }
   }
 
   function onGoogle() {
-    finish('you@gmail.com')
+    void finish('you@gmail.com')
   }
 
   function onEmailSubmit(e: FormEvent) {
@@ -27,8 +38,7 @@ export function LoginPage() {
       setError('Enter a valid email.')
       return
     }
-    setError('')
-    finish(value)
+    void finish(value)
   }
 
   return (
@@ -39,13 +49,13 @@ export function LoginPage() {
         <p className="plat-auth__sub">Connect tools and context for the people you hired.</p>
 
         <div className="plat-auth__methods">
-          <button type="button" className="plat-btn plat-btn--block" onClick={onGoogle}>
+          <button type="button" className="plat-btn plat-btn--block" onClick={onGoogle} disabled={busy}>
             <GoogleMark />
             Continue with Google
           </button>
 
           {!emailMode ? (
-            <button type="button" className="plat-link plat-link--center" onClick={() => setEmailMode(true)}>
+            <button type="button" className="plat-link plat-link--center" onClick={() => setEmailMode(true)} disabled={busy}>
               Use email instead
             </button>
           ) : (
@@ -66,11 +76,12 @@ export function LoginPage() {
                 />
               </label>
               {error && <p className="plat-auth__error">{error}</p>}
-              <button type="submit" className="plat-btn plat-btn--block">
-                Continue with email
+              <button type="submit" className="plat-btn plat-btn--block" disabled={busy}>
+                {busy ? 'Signing in…' : 'Continue with email'}
               </button>
             </form>
           )}
+          {!emailMode && error && <p className="plat-auth__error">{error}</p>}
         </div>
 
         <p className="plat-auth__foot">
