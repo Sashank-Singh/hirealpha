@@ -155,7 +155,7 @@ export function LoginPage() {
                     setPhone(e.target.value)
                     if (error) setError('')
                   }}
-                  placeholder="+1 216 303 2166"
+                  placeholder="+1 555 010 9876"
                 />
               </label>
               {error && <p className="plat-auth__error">{error}</p>}

@@ -69,7 +69,7 @@ function PhoneLink({
           type="tel"
           value={phoneDraft}
           onChange={(e) => setPhoneDraft(e.target.value)}
-          placeholder="+1 216 303 2166"
+          placeholder="+1 555 010 9876"
         />
       </label>
       <button type="submit" className="plat-btn plat-btn--sm">
