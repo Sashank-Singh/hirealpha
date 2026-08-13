@@ -366,12 +366,12 @@ async function googleAccessToken(sql: SQL, userId: string): Promise<string | nul
 
 async function fetchGmail(access: string, query: string) {
   const listUrl = new URL('https://gmail.googleapis.com/gmail/v1/users/me/messages')
-  listUrl.searchParams.set('maxResults', '15')
+  listUrl.searchParams.set('maxResults', '100')
   listUrl.searchParams.set('q', query)
   const list = await fetch(listUrl, { headers: { Authorization: `Bearer ${access}` } })
   if (!list.ok) return `Gmail error ${list.status}`
   const data = (await list.json()) as { messages?: Array<{ id: string }> }
-  const ids = (data.messages || []).slice(0, 15)
+  const ids = (data.messages || []).slice(0, 100)
   const lines: string[] = []
   for (const m of ids) {
     const got = await fetch(
@@ -476,7 +476,7 @@ export async function runToolsForMessage(
     if (access) results.push(await fetchGmail(access, query))
     else {
       const c = await composioExecute(input.userId, 'GMAIL_FETCH_EMAILS', {
-        max_results: 15,
+        max_results: 100,
         query,
         verbose: false,
       })
