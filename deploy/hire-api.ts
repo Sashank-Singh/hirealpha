@@ -366,12 +366,12 @@ async function googleAccessToken(sql: SQL, userId: string): Promise<string | nul
 
 async function fetchGmail(access: string, query: string) {
   const listUrl = new URL('https://gmail.googleapis.com/gmail/v1/users/me/messages')
-  listUrl.searchParams.set('maxResults', '6')
+  listUrl.searchParams.set('maxResults', '15')
   listUrl.searchParams.set('q', query)
   const list = await fetch(listUrl, { headers: { Authorization: `Bearer ${access}` } })
   if (!list.ok) return `Gmail error ${list.status}`
   const data = (await list.json()) as { messages?: Array<{ id: string }> }
-  const ids = (data.messages || []).slice(0, 5)
+  const ids = (data.messages || []).slice(0, 15)
   const lines: string[] = []
   for (const m of ids) {
     const got = await fetch(
@@ -385,9 +385,9 @@ async function fetchGmail(access: string, query: string) {
     }
     const headers = msg.payload?.headers || []
     const h = (n: string) => headers.find((x) => x.name.toLowerCase() === n.toLowerCase())?.value || ''
-    lines.push(`- ${h('From')} | ${h('Subject')} | ${msg.snippet || ''}`)
+    lines.push(`- ${h('From')} | ${h('Date')} | ${h('Subject')} | ${msg.snippet || ''}`)
   }
-  return lines.length ? `Recent email:\n${lines.join('\n')}` : 'No matching email found.'
+  return lines.length ? `Email:\n${lines.join('\n')}` : 'No matching email found.'
 }
 
 async function fetchCalendar(access: string) {
@@ -411,6 +411,26 @@ async function fetchCalendar(access: string) {
     .join('\n')}`
 }
 
+/** Compact one-line-per-email rendering so the model sees the whole batch. */
+function formatEmailOverview(data: unknown): string {
+  const items = Array.isArray(data)
+    ? data
+    : Array.isArray((data as { messages?: unknown[] } | null)?.messages)
+      ? (data as { messages: unknown[] }).messages
+      : []
+  if (!items.length) return 'No emails matched the query.'
+  const lines = items.map((raw) => {
+    const m = (raw || {}) as Record<string, unknown>
+    const subject = String(m.subject ?? m.subject_header ?? '')
+    const from =
+      String(m.from ?? m.sender ?? m.from_email ?? m.sender_email ?? '').replace(/<[^>]+>/g, '').trim()
+    const date = String(m.date ?? m.internalDate ?? m.receivedAt ?? m.timestamp ?? '')
+    const snippet = String(m.snippet ?? m.body_preview ?? '')
+    return `- ${from || '?'} | ${date || '?'} | ${subject || '(no subject)'} | ${snippet}`
+  })
+  return `Important email:\n${lines.join('\n')}`
+}
+
 async function composioExecute(userId: string, tool: string, args: Record<string, unknown>) {
   const composio = composioClient()
   if (!composio) return null
@@ -423,6 +443,7 @@ async function composioExecute(userId: string, tool: string, args: Record<string
     if (!res?.successful || res.error) {
       return `Tool ${tool} failed: ${res.error || 'unknown error'}`
     }
+    if (tool === 'GMAIL_FETCH_EMAILS') return formatEmailOverview(res.data)
     const text = JSON.stringify(res.data ?? {})
     return text.slice(0, 4000)
   } catch (err) {
@@ -455,8 +476,9 @@ export async function runToolsForMessage(
     if (access) results.push(await fetchGmail(access, query))
     else {
       const c = await composioExecute(input.userId, 'GMAIL_FETCH_EMAILS', {
-        max_results: 6,
+        max_results: 15,
         query,
+        verbose: false,
       })
       if (c) results.push(c)
     }

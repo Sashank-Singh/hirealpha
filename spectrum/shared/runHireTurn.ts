@@ -96,7 +96,7 @@ export async function runHireTurn(input: {
   }
   if (toolResults.length) {
     extras.push(
-      `Live tool results (ground truth, use these, do not invent):\n${toolResults.join('\n\n')}`,
+      `Live tool results (ground truth, use these, do not invent):\n${toolResults.join('\n\n')}\n\nWhen email results are present: give a short overview of the batch (how many, themes), then call out the top 2-3 that matter most with a one-line reason each. Do not fixate on a single email.`,
     )
   } else if (live.hired && wantsLiveData(input.userText)) {
     extras.push(
