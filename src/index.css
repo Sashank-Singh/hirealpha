@@ -57,16 +57,50 @@ button, input { font: inherit; }
   opacity: 0.85;
   pointer-events: none;
 }
-.page-bg__sun {
+.orb {
   position: absolute;
-  top: 7%;
-  right: 12%;
-  width: 120px;
-  height: 120px;
   border-radius: 50%;
-  background: radial-gradient(circle at 35% 35%, #ffe7a8, #ffb457 55%, transparent 72%);
-  opacity: 0.9;
   pointer-events: none;
+  background:
+    radial-gradient(
+      circle at 32% 28%,
+      #fff8ee 0%,
+      #ffe3c0 18%,
+      #ffc184 46%,
+      #f09952 74%,
+      #e07a38 100%
+    );
+  filter: blur(1.2px);
+  box-shadow:
+    0 0 36px 10px rgba(255, 176, 106, 0.28),
+    inset -16px -20px 36px rgba(176, 78, 22, 0.14);
+  opacity: 0.86;
+}
+.orb--a {
+  top: 6%;
+  right: 11%;
+  width: 168px;
+  height: 168px;
+}
+.orb--b {
+  top: 42%;
+  left: 6%;
+  width: 92px;
+  height: 92px;
+  opacity: 0.78;
+}
+.orb--c {
+  top: 68%;
+  right: 16%;
+  width: 58px;
+  height: 58px;
+  opacity: 0.72;
+}
+
+@media (max-width: 720px) {
+  .orb--a { width: 120px; height: 120px; right: 4%; }
+  .orb--b { width: 64px; height: 64px; left: 4%; }
+  .orb--c { display: none; }
 }
 
 .btn {

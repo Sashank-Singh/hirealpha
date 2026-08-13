@@ -6,6 +6,7 @@ export type LiveProfile = {
   context: Record<string, string>
   connected: string[]
   email: string | null
+  name?: string | null
 }
 
 const EMPTY: LiveProfile = {
@@ -14,6 +15,7 @@ const EMPTY: LiveProfile = {
   context: {},
   connected: [],
   email: null,
+  name: null,
 }
 
 function apiBase() {

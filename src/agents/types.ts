@@ -48,4 +48,6 @@ export interface AgentDefinition {
 export interface ChatMessage {
   role: 'user' | 'assistant'
   content: string
+  /** epoch ms. Optional for backwards compat; set by spectrum memory. */
+  ts?: number
 }

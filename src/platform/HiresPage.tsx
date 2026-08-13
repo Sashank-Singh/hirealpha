@@ -52,9 +52,9 @@ function PhoneLink({
         e.preventDefault()
         if (!email) return
         setPhoneMsg('')
-        void apiSavePhone(email, phoneDraft)
+        void apiSavePhone(email, phoneDraft, getSession()?.name)
           .then(() => {
-            signIn(email, phoneDraft)
+            signIn(email, phoneDraft, getSession()?.name)
             setPhoneMsg('Saved. Text from this number.')
             onSaved()
           })

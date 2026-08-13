@@ -10,6 +10,7 @@ const CONTEXT_KEY = 'hirealpha-hire-context'
 export interface Session {
   email: string
   phone: string
+  name?: string
   signedInAt: string
 }
 
@@ -39,13 +40,19 @@ function writeJson(key: string, value: unknown) {
 export function getSession(): Session | null {
   const raw = readJson<Session | (Omit<Session, 'phone'> & { phone?: string }) | null>(SESSION_KEY, null)
   if (!raw) return null
-  return { email: raw.email, phone: raw.phone || '', signedInAt: raw.signedInAt }
+  return {
+    email: raw.email,
+    phone: raw.phone || '',
+    name: raw.name || undefined,
+    signedInAt: raw.signedInAt,
+  }
 }
 
-export function signIn(email: string, phone = ''): Session {
+export function signIn(email: string, phone = '', name?: string): Session {
   const session: Session = {
     email: email.trim().toLowerCase(),
     phone: phone.trim(),
+    name: name?.trim() || undefined,
     signedInAt: new Date().toISOString(),
   }
   writeJson(SESSION_KEY, session)
@@ -160,8 +167,11 @@ export async function hydrateFromServer(): Promise<void> {
   const session = getSession()
   if (!session?.email) return
   const data = await apiMe(session.email)
+  const serverName = data.user?.name || undefined
   if (data.user?.phone && data.user.phone !== session.phone) {
-    signIn(session.email, data.user.phone)
+    signIn(session.email, data.user.phone, serverName)
+  } else if (serverName && serverName !== session.name) {
+    signIn(session.email, session.phone, serverName)
   }
   if (data.roster?.length) {
     replaceRoster(data.roster)

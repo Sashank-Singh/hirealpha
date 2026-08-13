@@ -6,7 +6,8 @@ import {
 import { runAgentLocally } from '../../src/agents/runtime'
 import { skillsPromptBlock } from './skills'
 import { gmiChat } from './gmi'
-import { appendThread, loadThread } from './memory'
+import { appendThread, loadMemory, upsertFacts, pruneExpiredFacts, setSummary, trimHistory, MAX_RAW, type ThreadMemory } from './memory'
+import { extractFacts, summarizeOld } from './memoryMaintain'
 import { fetchLiveProfile, fetchLiveTools, formatHireContext } from './liveContext'
 
 export function splitBubbles(text: string): string[] {
@@ -44,14 +45,31 @@ function wantsLiveData(text: string) {
   )
 }
 
+function buildMemoryBlock(mem: ThreadMemory): string {
+  const facts = mem.facts.length
+    ? mem.facts.map((f) => `${f.key}: ${f.value}`).join('\n')
+    : ''
+  const summary = mem.summary.trim()
+  const parts: string[] = []
+  if (facts) parts.push(`## Known facts about this person\n${facts}`)
+  if (summary) parts.push(`## Memory of past conversations\n${summary}`)
+  return parts.join('\n\n')
+}
+
 export async function runHireTurn(input: {
   agentId: AgentId
   dataDir: string
   senderId: string
   userText: string
-}): Promise<{ reply: string; bubbles: string[]; source: 'gmi' | 'local' }> {
+}): Promise<{
+  reply: string
+  bubbles: string[]
+  source: 'gmi' | 'local'
+  authoritative: string[]
+}> {
   const agent = getAgent(input.agentId)
-  const history = loadThread(input.dataDir, input.senderId)
+  const mem = loadMemory(input.dataDir, input.senderId)
+  const history = mem.history
   const live = await fetchLiveProfile(input.senderId, agent.id)
   const toolResults =
     live.found && live.hired && wantsLiveData(input.userText)
@@ -68,6 +86,11 @@ export async function runHireTurn(input: {
       `They have a HireAlpha account (${live.email || 'signed in'}) but have not hired this person yet. Point them to hirealpha.chat/app to hire ${agent.name}.`,
     )
   } else {
+    if (live.name) {
+      extras.push(
+        `This person's name is ${live.name}. Use it naturally — address them by name when it fits.`,
+      )
+    }
     const ctx = formatHireContext(live.context)
     if (ctx) extras.push(ctx)
   }
@@ -81,9 +104,12 @@ export async function runHireTurn(input: {
     )
   }
 
+  const memoryBlock = buildMemoryBlock(mem)
+
   const system = [
     buildSystemPrompt(agent, live.connected),
     skillsPromptBlock(agent.id),
+    memoryBlock,
     extras.join('\n\n'),
   ]
     .filter(Boolean)
@@ -129,7 +155,49 @@ export async function runHireTurn(input: {
     { role: 'assistant', content: reply },
   ])
 
-  return { reply, bubbles: splitBubbles(reply), source }
+  const authoritative = live.found ? Object.keys(live.context) : []
+
+  return { reply, bubbles: splitBubbles(reply), source, authoritative }
+}
+
+/**
+ * Post-reply memory maintenance. Call AFTER bubbles are sent so it never
+ * delays the user's reply. Self-contained: prunes expired facts, extracts
+ * durable facts (supplementing, never overriding, dashboard ground truth),
+ * and rolls the summary when history grows past MAX_RAW. Any failure is
+ * logged and swallowed so it can't break the message loop.
+ */
+export async function runMemoryMaintenance(input: {
+  dataDir: string
+  senderId: string
+  agentId: AgentId
+  authoritative: string[]
+  userText: string
+  reply: string
+}): Promise<void> {
+  try {
+    pruneExpiredFacts(input.dataDir, input.senderId)
+
+    const mem = loadMemory(input.dataDir, input.senderId)
+    const facts = await extractFacts({
+      userText: input.userText,
+      reply: input.reply,
+      existing: mem.facts,
+      authoritative: input.authoritative,
+    })
+    if (facts.length) upsertFacts(input.dataDir, input.senderId, facts)
+
+    const after = loadMemory(input.dataDir, input.senderId)
+    if (after.history.length >= MAX_RAW) {
+      const keepLast = 8
+      const toFold = after.history.slice(0, after.history.length - keepLast)
+      const summary = await summarizeOld({ history: toFold, priorSummary: after.summary })
+      setSummary(input.dataDir, input.senderId, summary)
+      trimHistory(input.dataDir, input.senderId, keepLast)
+    }
+  } catch (err) {
+    console.warn(`[${input.agentId}] memory maintenance failed:`, err)
+  }
 }
 
 export { getAgent }

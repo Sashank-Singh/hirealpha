@@ -38,18 +38,16 @@ const AGENTS: Agent[] = [
     color: '#2a6f7a',
     mood: 'soft',
     pitch:
-      'Plans, venting, advice, and check ins. Remembers your story and texts like someone who actually knows you.',
-    preview: 'hey. you mentioned the interview. how are you feeling?',
+      'The friend who already knows your people. Texts first. Lives next to Mom in Messages.',
+    preview: 'Tuesday. while you were complaining about the rental car',
     time: '2m',
     unread: true,
     messages: [
-      { text: 'hey. you mentioned the interview. how are you feeling?', from: 'them' },
-      { text: "spiraling a bit. mostly how I'll come across.", from: 'me' },
-      {
-        text: 'Pick one anchor slide. When you blank, go back to it. That’s nerves, not skill.',
-        from: 'them',
-      },
-      { text: 'Want me to text you 10 minutes before?', from: 'them' },
+      { text: 'your sister lands Friday 7:40. you still haven’t picked dinner', from: 'them' },
+      { text: 'I was going to do Valencia', from: 'me' },
+      { text: 'she sat 14 hours. Valencia is a shout. I held the booth at the quiet one', from: 'them' },
+      { text: 'I never told you the landing time', from: 'me' },
+      { text: 'Tuesday. while you were complaining about the rental car', from: 'them' },
     ],
   },
   {
@@ -61,21 +59,22 @@ const AGENTS: Agent[] = [
     color: '#3b5bdb',
     mood: 'sharp',
     pitch:
-      'Standups, meeting prep, and follow ups. The teammate who already knows the project.',
-    preview: 'Standup bullets ready. Want the migration note?',
-    time: '11m',
+      'The teammate who already has the thread. Work happens in Messages, not another tab.',
+    preview: 'sent “I’ll bring the staging notes.” that’s you',
+    time: '4m',
     unread: true,
     messages: [
-      { text: 'Standup bullets ready. Want the migration note?', from: 'them' },
-      { text: 'Yes. And move my 3pm if it’s free Thursday.', from: 'me' },
+      { text: 'jordan just declined 3pm', from: 'me' },
+      { text: 'I asked him Thursday 2:30. he said yes. I didn’t put it on the calendar yet', from: 'them' },
+      { text: 'put it on. write it like me', from: 'me' },
       {
-        text: 'Thu, 2:30 PM',
+        text: 'I’ll bring the staging notes.',
         from: 'them',
         kind: 'action',
         app: 'Calendar',
-        title: 'Moved from 3:00 PM',
+        title: 'Thu 2:30 with Jordan',
       },
-      { text: 'Migration note is ready. You’re clear to paste.', from: 'them' },
+      { text: 'sent. that’s you, not a calendar invite', from: 'them' },
     ],
   },
   {
@@ -87,24 +86,15 @@ const AGENTS: Agent[] = [
     color: '#8b4513',
     mood: 'bold',
     pitch:
-      'Strategy, hiring opinions, fundraising pushback. Tells you what you need to hear.',
-    preview: 'Before that VP, are you closing yourself yet?',
-    time: '1h',
-    unread: false,
+      'The partner who texts you the decision you’re avoiding. Not a cheerleader.',
+    preview: '14 people came back. that’s the company. 18k is a costume',
+    time: '22m',
+    unread: true,
     messages: [
-      { text: 'Before that VP, are you closing yourself yet?', from: 'them' },
-      { text: 'Conversion is the stall. Deals drag forever.', from: 'me' },
-      {
-        text: 'Hire a senior AE first. VP sales before PMF burns cash and six months.',
-        from: 'them',
-      },
-      {
-        text: 'Pipeline notes from last week',
-        from: 'them',
-        kind: 'action',
-        app: 'Notion',
-        title: 'Fundraising doc',
-      },
+      { text: 'agency wants 18k for the site. we’d look like a real company', from: 'me' },
+      { text: 'we’d look real to people who don’t write checks', from: 'them' },
+      { text: 'then what do we look like', from: 'me' },
+      { text: '14 people came back this week. that’s the company. 18k is a costume', from: 'them' },
     ],
   },
 ]
@@ -158,36 +148,36 @@ const ACTIONS = [
   {
     who: 'Alpha',
     color: '#2a6f7a',
-    tool: 'Calendar',
-    text: 'Moved your 3pm to Thursday. You’re free for the interview prep.',
+    tool: 'Maps',
+    text: 'Held the booth at the quiet one. Valencia is a shout after a 14 hour flight.',
   },
   {
     who: 'Alpha (Coworker)',
     color: '#3b5bdb',
-    tool: 'Linear',
-    text: 'Pulled blocked tickets for standup. Three items, one owner each.',
+    tool: 'Calendar',
+    text: 'Asked Jordan first. Thu 2:30 is on the calendar. Wrote it like you.',
   },
   {
     who: 'Alpha(CoFounder)',
     color: '#8b4513',
     tool: 'Notion',
-    text: 'Grabbed the fundraising notes. Short version: raise after close rate climbs.',
+    text: 'The 18k site is a costume. 14 people came back. that’s the company.',
   },
   {
     who: 'Alpha',
     color: '#2a6f7a',
-    tool: 'Uber',
-    text: 'Car is 4 minutes out. I texted you the pin.',
+    tool: 'Messages',
+    text: 'I texted you first. That’s the job.',
   },
 ]
 
 const VOICES = [
-  { who: 'early access', text: 'I want Coworker to ping me before standup.' },
-  { who: 'founder note', text: 'We all have AI. Almost nobody has it in Messages.' },
-  { who: 'early access', text: 'If it can move my calendar from a text, I’m in.' },
-  { who: 'early access', text: 'Friend energy at 1am. Coworker energy at 9am.' },
-  { who: 'founder note', text: 'They should text you first. That’s the whole product.' },
-  { who: 'early access', text: 'Not another tab. A number in Messages.' },
+  { who: 'Alpha', text: 'Tuesday. while you were complaining about the rental car' },
+  { who: 'Alpha (Coworker)', text: 'I asked him Thursday 2:30. he said yes. I didn’t put it on the calendar yet' },
+  { who: 'Alpha(CoFounder)', text: 'we’d look real to people who don’t write checks' },
+  { who: 'Alpha', text: 'she sat 14 hours. Valencia is a shout. I held the booth at the quiet one' },
+  { who: 'Alpha (Coworker)', text: 'sent. that’s you, not a calendar invite' },
+  { who: 'Alpha(CoFounder)', text: '14 people came back this week. that’s the company. 18k is a costume' },
 ]
 
 const FAQS: { question: string; answer: string }[] = [
@@ -286,7 +276,7 @@ function Actions() {
 function Voices() {
   const loop = [...VOICES, ...VOICES]
   return (
-    <section className="voices" aria-label="Early access notes">
+    <section className="voices" aria-label="Sample texts from each hire">
       <div className="voices__label">they’ll text you like this</div>
       <div className="voices__marquee">
         <div className="voices__track">
@@ -821,7 +811,9 @@ export default function Landing() {
   return (
     <>
       <div className="page-bg" aria-hidden>
-        <div className="page-bg__sun" />
+        <span className="orb orb--a" />
+        <span className="orb orb--b" />
+        <span className="orb orb--c" />
         <div className="page-bg__hills" />
       </div>
 
@@ -857,7 +849,7 @@ export default function Landing() {
               transition={{ duration: 5.5, repeat: Infinity, ease: 'easeInOut' }}
             >
               <AlphaFace color="#2a6f7a" mood="soft" size={28} />
-              <span>hey. how are you feeling about tomorrow?</span>
+              <span>I held the booth. she sat 14 hours.</span>
             </motion.div>
             <motion.div
               className="stage-bubble stage-bubble--b"
@@ -865,7 +857,7 @@ export default function Landing() {
               transition={{ duration: 6.2, repeat: Infinity, ease: 'easeInOut', delay: 0.4 }}
             >
               <span className="stage-bubble__tool">Calendar</span>
-              <span>Moved 3pm → Thu 2:30</span>
+              <span>Thu 2:30 with Jordan. wrote it like you</span>
             </motion.div>
             <motion.div
               className="stage-bubble stage-bubble--c"
@@ -873,15 +865,15 @@ export default function Landing() {
               transition={{ duration: 4.8, repeat: Infinity, ease: 'easeInOut', delay: 0.8 }}
             >
               <AlphaFace color="#8b4513" mood="bold" size={28} />
-              <span>Before that VP, are you closing yourself yet?</span>
+              <span>18k is a costume. 14 people came back.</span>
             </motion.div>
             <motion.div
               className="stage-bubble stage-bubble--d"
               animate={{ y: [0, 8, 0], rotate: [-4, -7, -4] }}
               transition={{ duration: 5.8, repeat: Infinity, ease: 'easeInOut', delay: 0.2 }}
             >
-              <span className="stage-bubble__tool">Uber</span>
-              <span>Car is 4 min out. I sent the pin.</span>
+              <span className="stage-bubble__tool">Maps</span>
+              <span>the quiet one, not Valencia</span>
             </motion.div>
           </div>
 

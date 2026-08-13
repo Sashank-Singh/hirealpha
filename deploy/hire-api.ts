@@ -102,11 +102,13 @@ export async function ensureHireSchema(sql: SQL) {
     CREATE TABLE IF NOT EXISTS hire_users (
       id TEXT PRIMARY KEY,
       email TEXT NOT NULL UNIQUE,
+      name TEXT,
       phone_e164 TEXT UNIQUE,
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
     )
   `
+  await sql`ALTER TABLE hire_users ADD COLUMN IF NOT EXISTS name TEXT`
   await sql`
     CREATE TABLE IF NOT EXISTS hire_roster (
       user_id TEXT NOT NULL REFERENCES hire_users(id) ON DELETE CASCADE,
@@ -152,50 +154,65 @@ export async function ensureHireSchema(sql: SQL) {
     CREATE TABLE IF NOT EXISTS hire_login_tickets (
       ticket TEXT PRIMARY KEY,
       email TEXT NOT NULL,
+      name TEXT,
       phone_e164 TEXT,
       created_at TIMESTAMPTZ NOT NULL DEFAULT now()
     )
   `
+  await sql`ALTER TABLE hire_login_tickets ADD COLUMN IF NOT EXISTS name TEXT`
 }
 
 async function getUserByEmail(sql: SQL, email: string) {
   const rows = await sql`
-    SELECT id, email, phone_e164 AS phone FROM hire_users WHERE email = ${email} LIMIT 1
+    SELECT id, email, name, phone_e164 AS phone FROM hire_users WHERE email = ${email} LIMIT 1
   `
-  return (rows[0] as { id: string; email: string; phone: string | null } | undefined) ?? null
+  return (rows[0] as { id: string; email: string; name: string | null; phone: string | null } | undefined) ?? null
 }
 
 async function getUserByPhone(sql: SQL, phone: string) {
   const e164 = normalizePhone(phone)
   if (!e164) return null
   const rows = await sql`
-    SELECT id, email, phone_e164 AS phone FROM hire_users
+    SELECT id, email, name, phone_e164 AS phone FROM hire_users
     WHERE phone_e164 = ${e164}
        OR right(regexp_replace(phone_e164, '[^0-9]', '', 'g'), 10)
           = ${e164.replace(/\D/g, '').slice(-10)}
     LIMIT 1
   `
-  return (rows[0] as { id: string; email: string; phone: string | null } | undefined) ?? null
+  return (rows[0] as { id: string; email: string; name: string | null; phone: string | null } | undefined) ?? null
 }
 
-async function ensureUser(sql: SQL, email: string, phone?: string | null) {
+async function ensureUser(sql: SQL, email: string, phone?: string | null, name?: string | null) {
   const existing = await getUserByEmail(sql, email)
   const e164 = normalizePhone(phone || '')
+  const cleanName = name?.trim() ? name.trim() : null
   if (existing) {
+    let changed = false
     if (e164 && existing.phone !== e164) {
-      await sql`
-        UPDATE hire_users SET phone_e164 = ${e164}, updated_at = now() WHERE id = ${existing.id}
-      `
       existing.phone = e164
+      changed = true
+    }
+    if (cleanName && existing.name !== cleanName) {
+      existing.name = cleanName
+      changed = true
+    }
+    if (changed) {
+      await sql`
+        UPDATE hire_users SET
+          phone_e164 = ${existing.phone},
+          name = ${existing.name},
+          updated_at = now()
+        WHERE id = ${existing.id}
+      `
     }
     return existing
   }
   const id = crypto.randomUUID()
   await sql`
-    INSERT INTO hire_users (id, email, phone_e164)
-    VALUES (${id}, ${email}, ${e164})
+    INSERT INTO hire_users (id, email, name, phone_e164)
+    VALUES (${id}, ${email}, ${cleanName}, ${e164})
   `
-  return { id, email, phone: e164 }
+  return { id, email, name: cleanName, phone: e164 }
 }
 
 async function loadRoster(sql: SQL, userId: string): Promise<Persona[]> {
@@ -453,6 +470,7 @@ async function livePayload(sql: SQL, phone: string, persona: Persona) {
       context: {} as Record<string, string>,
       connected: [] as string[],
       email: null as string | null,
+      name: null as string | null,
     }
   }
   const roster = await loadRoster(sql, user.id)
@@ -461,7 +479,7 @@ async function livePayload(sql: SQL, phone: string, persona: Persona) {
   const connected = hired
     ? (await connectedForUser(sql, user.id)).filter((id) => !PERSONA_DENIED[persona].has(id))
     : []
-  return { found: true, hired, context, connected, email: user.email, userId: user.id }
+  return { found: true, hired, context, connected, email: user.email, name: user.name, userId: user.id }
 }
 
 export async function handleHireApi(req: Request, sql: SQL | null): Promise<Response | null> {
@@ -516,28 +534,28 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     const ticket = url.searchParams.get('ticket') || ''
     if (!ticket) return json({ error: 'ticket required' }, 400)
     const rows = await sql`
-      SELECT email, phone_e164 AS phone, created_at
+      SELECT email, name, phone_e164 AS phone, created_at
       FROM hire_login_tickets
       WHERE ticket = ${ticket}
       LIMIT 1
     `
-    const row = rows[0] as { email: string; phone: string | null; created_at: Date } | undefined
+    const row = rows[0] as { email: string; name: string | null; phone: string | null; created_at: Date } | undefined
     if (!row) return json({ error: 'Sign in expired. Try Google again.' }, 400)
     await sql`DELETE FROM hire_login_tickets WHERE ticket = ${ticket}`
     if (Date.now() - new Date(row.created_at).getTime() > 10 * 60 * 1000) {
       return json({ error: 'Sign in expired. Try Google again.' }, 400)
     }
-    return json({ email: row.email, phone: row.phone })
+    return json({ email: row.email, name: row.name, phone: row.phone })
   }
 
   if (path === '/api/me' && req.method === 'POST') {
-    const body = (await req.json().catch(() => ({}))) as { email?: string; phone?: string }
+    const body = (await req.json().catch(() => ({}))) as { email?: string; phone?: string; name?: string }
     const email = String(body.email || '')
       .trim()
       .toLowerCase()
     if (!email.includes('@')) return json({ error: 'Enter a valid email' }, 400)
     try {
-      const user = await ensureUser(sql, email, body.phone)
+      const user = await ensureUser(sql, email, body.phone, body.name)
       const roster = await loadRoster(sql, user.id)
       return json({ user, roster })
     } catch (err) {
@@ -565,13 +583,13 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
   }
 
   if (path === '/api/me/phone' && req.method === 'PUT') {
-    const body = (await req.json().catch(() => ({}))) as { email?: string; phone?: string }
+    const body = (await req.json().catch(() => ({}))) as { email?: string; phone?: string; name?: string }
     const email = String(body.email || '')
       .trim()
       .toLowerCase()
     const phone = normalizePhone(body.phone || '')
     if (!email.includes('@') || !phone) return json({ error: 'email and phone required' }, 400)
-    const user = await ensureUser(sql, email, phone)
+    const user = await ensureUser(sql, email, phone, body.name)
     return json({ user })
   }
 
@@ -710,16 +728,16 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
         headers: { Authorization: `Bearer ${tok.access_token}` },
       })
       if (!infoRes.ok) return json({ error: 'Could not read Google profile' }, 400)
-      const info = (await infoRes.json()) as { email?: string }
+      const info = (await infoRes.json()) as { email?: string; name?: string }
       const email = String(info.email || '')
         .trim()
         .toLowerCase()
       if (!email.includes('@')) return json({ error: 'Google did not return an email' }, 400)
-      const user = await ensureUser(sql, email)
+      const user = await ensureUser(sql, email, null, info.name)
       const ticket = crypto.randomUUID()
       await sql`
-        INSERT INTO hire_login_tickets (ticket, email, phone_e164)
-        VALUES (${ticket}, ${user.email}, ${user.phone})
+        INSERT INTO hire_login_tickets (ticket, email, name, phone_e164)
+        VALUES (${ticket}, ${user.email}, ${user.name}, ${user.phone})
       `
       return Response.redirect(`${appBase(req)}/app/login?google=${ticket}`, 302)
     }

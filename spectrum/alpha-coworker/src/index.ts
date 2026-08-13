@@ -2,7 +2,7 @@ import { Spectrum } from 'spectrum-ts'
 import { imessage } from '@spectrum-ts/imessage'
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { getAgent, runHireTurn } from '../../shared/runHireTurn'
+import { getAgent, runHireTurn, runMemoryMaintenance } from '../../shared/runHireTurn'
 import { startHealthServer } from '../../shared/health'
 
 const agentId = 'coworker' as const
@@ -50,8 +50,9 @@ for await (const [space, message] of app.messages) {
 
   try {
     await message.react('👍').catch(() => undefined)
+    await message.read().catch(() => undefined)
     await space.responding(async () => {
-      const { bubbles } = await runHireTurn({
+      const { bubbles, source, authoritative, reply } = await runHireTurn({
         agentId,
         dataDir,
         senderId,
@@ -60,6 +61,10 @@ for await (const [space, message] of app.messages) {
       for (let i = 0; i < bubbles.length; i++) {
         if (i === 0) await message.reply(bubbles[i]!)
         else await space.send(bubbles[i]!)
+      }
+      if (source === 'gmi') {
+        void runMemoryMaintenance({ dataDir, senderId, agentId, authoritative, userText, reply })
+          .catch(() => undefined)
       }
     })
   } catch (err) {

@@ -7,6 +7,7 @@ export function LoginPage() {
   const existing = getSession()
   const navigate = useNavigate()
   const [params, setParams] = useSearchParams()
+  const [name, setName] = useState(existing?.name || '')
   const [email, setEmail] = useState(existing?.email || '')
   const [phone, setPhone] = useState(existing?.phone || '')
   const [emailMode, setEmailMode] = useState(!!existing?.email && !existing?.phone)
@@ -27,9 +28,10 @@ export function LoginPage() {
     void apiExchangeGoogle(ticket)
       .then(async (data) => {
         setEmail(data.email)
+        if (data.name) setName(data.name)
         setGoogleUser(true)
         if (data.phone) {
-          signIn(data.email, data.phone)
+          signIn(data.email, data.phone, data.name)
           await hydrateFromServer().catch(() => undefined)
           navigate('/app')
           return
@@ -47,12 +49,12 @@ export function LoginPage() {
 
   if (existing?.email && existing.phone) return <Navigate to="/app" replace />
 
-  async function finish(nextEmail: string, nextPhone: string) {
+  async function finish(nextName: string, nextEmail: string, nextPhone: string) {
     setBusy(true)
     setError('')
     try {
-      await apiSignIn(nextEmail, nextPhone)
-      signIn(nextEmail, nextPhone)
+      await apiSignIn(nextEmail, nextPhone, nextName)
+      signIn(nextEmail, nextPhone, nextName)
       await hydrateFromServer().catch(() => undefined)
       navigate('/app')
     } catch (err) {
@@ -68,8 +70,13 @@ export function LoginPage() {
 
   function onEmailSubmit(e: FormEvent) {
     e.preventDefault()
+    const nextName = name.trim()
     const nextEmail = email.trim().toLowerCase()
     const nextPhone = phone.trim()
+    if (!nextName) {
+      setError('What should they call you?')
+      return
+    }
     if (!nextEmail || !nextEmail.includes('@')) {
       setError('Enter a valid email.')
       return
@@ -78,7 +85,7 @@ export function LoginPage() {
       setError('Enter the phone you text from in Messages, including area code.')
       return
     }
-    void finish(nextEmail, nextPhone)
+    void finish(nextName, nextEmail, nextPhone)
   }
 
   return (
@@ -88,7 +95,7 @@ export function LoginPage() {
         <h1>Sign in</h1>
         <p className="plat-auth__sub">
           {googleUser
-            ? 'Google is in. Add the phone you text the hires from so they can find you.'
+            ? 'Google is in. Add your name and the phone you text the hires from so they can find you.'
             : 'Hire people for your texts, then connect what they need.'}
         </p>
 
@@ -106,6 +113,20 @@ export function LoginPage() {
             </button>
           ) : (
             <form onSubmit={onEmailSubmit} className="plat-auth__form">
+              <label>
+                Your name
+                <input
+                  type="text"
+                  required
+                  autoComplete="name"
+                  value={name}
+                  onChange={(e) => {
+                    setName(e.target.value)
+                    if (error) setError('')
+                  }}
+                  placeholder="Sashank"
+                />
+              </label>
               {!googleUser && (
                 <label>
                   Email
@@ -139,7 +160,7 @@ export function LoginPage() {
               </label>
               {error && <p className="plat-auth__error">{error}</p>}
               <button type="submit" className="plat-btn plat-btn--block" disabled={busy}>
-                {busy ? 'Signing in…' : googleUser ? 'Save phone and continue' : 'Continue with email'}
+                {busy ? 'Signing in…' : googleUser ? 'Save and continue' : 'Continue with email'}
               </button>
             </form>
           )}
