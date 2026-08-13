@@ -3,10 +3,13 @@ import { Link, Navigate, useNavigate, useSearchParams } from 'react-router-dom'
 import { apiExchangeGoogle, apiSignIn } from './api'
 import { getSession, hydrateFromServer, signIn } from './roster'
 
+type AuthMode = 'signin' | 'signup'
+
 export function LoginPage() {
   const existing = getSession()
   const navigate = useNavigate()
   const [params, setParams] = useSearchParams()
+  const [mode, setMode] = useState<AuthMode>(existing?.name ? 'signin' : 'signup')
   const [name, setName] = useState(existing?.name || '')
   const [email, setEmail] = useState(existing?.email || '')
   const [phone, setPhone] = useState(existing?.phone || '')
@@ -73,7 +76,7 @@ export function LoginPage() {
     const nextName = name.trim()
     const nextEmail = email.trim().toLowerCase()
     const nextPhone = phone.trim()
-    if (!nextName) {
+    if (mode === 'signup' && !nextName) {
       setError('What should they call you?')
       return
     }
@@ -92,18 +95,20 @@ export function LoginPage() {
     <div className="plat plat--auth">
       <div className="plat-auth">
         <p className="plat-auth__brand">HireAlpha</p>
-        <h1>Sign in</h1>
+        <h1>{mode === 'signup' ? 'Sign up' : 'Sign in'}</h1>
         <p className="plat-auth__sub">
           {googleUser
             ? 'Google is in. Add your name and the phone you text the hires from so they can find you.'
-            : 'Hire people for your texts, then connect what they need.'}
+            : mode === 'signup'
+              ? 'Create your account. Hire people for your texts, then connect what they need.'
+              : 'Hire people for your texts, then connect what they need.'}
         </p>
 
         <div className="plat-auth__methods">
           {!googleUser && (
             <button type="button" className="plat-btn plat-btn--block" onClick={onGoogle} disabled={busy}>
               <GoogleMark />
-              {busy ? 'Signing in…' : 'Continue with Google'}
+              {busy ? 'Signing in…' : mode === 'signup' ? 'Sign up with Google' : 'Continue with Google'}
             </button>
           )}
 
@@ -113,20 +118,22 @@ export function LoginPage() {
             </button>
           ) : (
             <form onSubmit={onEmailSubmit} className="plat-auth__form">
-              <label>
-                Your name
-                <input
-                  type="text"
-                  required
-                  autoComplete="name"
-                  value={name}
-                  onChange={(e) => {
-                    setName(e.target.value)
-                    if (error) setError('')
-                  }}
-                  placeholder="Sashank"
-                />
-              </label>
+              {mode === 'signup' && (
+                <label>
+                  Your name
+                  <input
+                    type="text"
+                    required
+                    autoComplete="name"
+                    value={name}
+                    onChange={(e) => {
+                      setName(e.target.value)
+                      if (error) setError('')
+                    }}
+                    placeholder="Sashank"
+                  />
+                </label>
+              )}
               {!googleUser && (
                 <label>
                   Email
@@ -160,9 +167,19 @@ export function LoginPage() {
               </label>
               {error && <p className="plat-auth__error">{error}</p>}
               <button type="submit" className="plat-btn plat-btn--block" disabled={busy}>
-                {busy ? 'Signing in…' : googleUser ? 'Save and continue' : 'Continue with email'}
+                {busy ? 'Signing in…' : googleUser ? 'Save and continue' : mode === 'signup' ? 'Sign up' : 'Sign in'}
               </button>
             </form>
+          )}
+
+          {!googleUser && (
+            <button
+              type="button"
+              className="plat-link plat-link--center"
+              onClick={() => setMode((m) => (m === 'signup' ? 'signin' : 'signup'))}
+            >
+              {mode === 'signup' ? 'Already have an account? Sign in' : 'New here? Sign up'}
+            </button>
           )}
         </div>
 
