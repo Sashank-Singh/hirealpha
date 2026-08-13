@@ -2,6 +2,7 @@
  * HireAlpha live config + connectors API (Postgres).
  * Dashboard writes here. iMessage bots read here.
  */
+import { Composio } from '@composio/core'
 import type { SQL } from 'bun'
 
 export const PERSONAS = ['friend', 'coworker', 'cofounder'] as const
@@ -233,32 +234,21 @@ async function googleConnected(sql: SQL, userId: string) {
     : null
 }
 
-const COMPOSIO = 'https://backend.composio.dev/api/v3.1'
-
-async function composioFetch(path: string, init?: RequestInit) {
-  const key = composioKey()
-  if (!key) return null
-  return fetch(`${COMPOSIO}${path}`, {
-    ...init,
-    headers: {
-      'x-api-key': key,
-      Accept: 'application/json',
-      'Content-Type': 'application/json',
-      ...(init?.headers || {}),
-    },
-  })
+function composioClient(): Composio | null {
+  if (!composioKey()) return null
+  return new Composio({ allowTracking: false })
 }
 
 async function composioConnected(userId: string): Promise<string[]> {
-  const url = new URL(`${COMPOSIO}/connected_accounts`)
-  url.searchParams.append('user_ids', userId)
-  url.searchParams.append('statuses', 'ACTIVE')
-  url.searchParams.set('limit', '50')
-  const res = await composioFetch(url.pathname + url.search)
-  if (!res?.ok) return []
-  const data = (await res.json()) as { items?: Array<{ toolkit?: { slug?: string }; is_disabled?: boolean }> }
+  const composio = composioClient()
+  if (!composio) return []
+  const data = await composio.connectedAccounts.list({
+    userIds: [userId],
+    statuses: ['ACTIVE'],
+    limit: 50,
+  })
   return (data.items || [])
-    .filter((i) => !i.is_disabled)
+    .filter((i) => !i.isDisabled)
     .map((i) => (i.toolkit?.slug || '').toLowerCase())
     .filter(Boolean)
 }
@@ -289,59 +279,39 @@ async function composioAuthConfigId(sql: SQL, toolkit: string): Promise<string |
   `
   if (cached[0]?.auth_config_id) return String(cached[0].auth_config_id)
 
-  const listed = await composioFetch(`/auth_configs?toolkit_slug=${encodeURIComponent(toolkit)}`)
-  if (listed?.ok) {
-    const data = (await listed.json()) as {
-      items?: Array<{ id?: string; auth_config_id?: string }>
-    }
-    const id = data.items?.[0]?.id || data.items?.[0]?.auth_config_id
-    if (id) {
-      await sql`
-        INSERT INTO hire_composio_auth (toolkit, auth_config_id)
-        VALUES (${toolkit}, ${id})
-        ON CONFLICT (toolkit) DO UPDATE SET auth_config_id = excluded.auth_config_id
-      `
-      return id
-    }
+  const composio = composioClient()
+  if (!composio) return null
+
+  const listed = await composio.authConfigs.list({ toolkit })
+  const id = listed.items?.[0]?.id
+  if (id) {
+    await sql`
+      INSERT INTO hire_composio_auth (toolkit, auth_config_id)
+      VALUES (${toolkit}, ${id})
+      ON CONFLICT (toolkit) DO UPDATE SET auth_config_id = excluded.auth_config_id
+    `
+    return id
   }
 
-  const created = await composioFetch('/auth_configs', {
-    method: 'POST',
-    body: JSON.stringify({
-      toolkit: { slug: toolkit },
-      auth_config: { type: 'use_composio_managed_auth' },
-    }),
+  const created = await composio.authConfigs.create(toolkit, {
+    type: 'use_composio_managed_auth',
   })
-  if (!created?.ok) return null
-  const body = (await created.json()) as {
-    id?: string
-    auth_config?: { id?: string }
-    auth_config_id?: string
-  }
-  const id = body.id || body.auth_config?.id || body.auth_config_id
-  if (!id) return null
+  if (!created?.id) return null
   await sql`
     INSERT INTO hire_composio_auth (toolkit, auth_config_id)
-    VALUES (${toolkit}, ${id})
+    VALUES (${toolkit}, ${created.id})
     ON CONFLICT (toolkit) DO UPDATE SET auth_config_id = excluded.auth_config_id
   `
-  return id
+  return created.id
 }
 
 async function composioAuthorize(sql: SQL, userId: string, toolkit: string, callbackUrl: string) {
   const authConfigId = await composioAuthConfigId(sql, toolkit)
   if (!authConfigId) return null
-  const res = await composioFetch('/connected_accounts/link', {
-    method: 'POST',
-    body: JSON.stringify({
-      auth_config_id: authConfigId,
-      user_id: userId,
-      callback_url: callbackUrl,
-    }),
-  })
-  if (!res?.ok) return null
-  const body = (await res.json()) as { redirect_url?: string; redirectUrl?: string }
-  return body.redirect_url || body.redirectUrl || null
+  const composio = composioClient()
+  if (!composio) return null
+  const request = await composio.connectedAccounts.link(userId, authConfigId, { callbackUrl })
+  return request.redirectUrl || null
 }
 
 async function googleAccessToken(sql: SQL, userId: string): Promise<string | null> {
@@ -425,13 +395,13 @@ async function fetchCalendar(access: string) {
 }
 
 async function composioExecute(userId: string, tool: string, args: Record<string, unknown>) {
-  const res = await composioFetch(`/tools/execute/${tool}`, {
-    method: 'POST',
-    body: JSON.stringify({ user_id: userId, arguments: args }),
-  })
-  if (!res) return null
-  const text = await res.text()
-  if (!res.ok) return `Tool ${tool} failed (${res.status}): ${text.slice(0, 240)}`
+  const composio = composioClient()
+  if (!composio) return null
+  const res = await composio.tools.execute(tool, { userId, arguments: args })
+  if (!res?.successful || res.error) {
+    return `Tool ${tool} failed: ${res.error || 'unknown error'}`
+  }
+  const text = JSON.stringify(res.data ?? {})
   return text.slice(0, 4000)
 }
 
