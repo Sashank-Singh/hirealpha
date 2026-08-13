@@ -37,6 +37,9 @@ const GOOGLE_SCOPES = [
   'https://www.googleapis.com/auth/drive.readonly',
 ].join(' ')
 
+const LOGIN_SCOPES = 'openid email profile'
+const LOGIN_STATE_USER = 'login'
+
 export function normalizePhone(raw: string | null | undefined): string | null {
   if (!raw) return null
   const digits = raw.replace(/[^\d]/g, '')
@@ -142,6 +145,14 @@ export async function ensureHireSchema(sql: SQL) {
     CREATE TABLE IF NOT EXISTS hire_composio_auth (
       toolkit TEXT PRIMARY KEY,
       auth_config_id TEXT NOT NULL
+    )
+  `
+  await sql`
+    CREATE TABLE IF NOT EXISTS hire_login_tickets (
+      ticket TEXT PRIMARY KEY,
+      email TEXT NOT NULL,
+      phone_e164 TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
     )
   `
 }
@@ -509,6 +520,46 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     })
   }
 
+  if (path === '/api/auth/google' && req.method === 'GET') {
+    const creds = googleCreds()
+    if (!creds) {
+      return Response.redirect(`${appBase(req)}/app/login?error=google`, 302)
+    }
+    const state = crypto.randomUUID()
+    const afterLogin = `${appBase(req)}/app/login`
+    await sql`
+      INSERT INTO hire_oauth_state (state, user_id, redirect_after)
+      VALUES (${state}, ${LOGIN_STATE_USER}, ${afterLogin})
+    `
+    const auth = new URL('https://accounts.google.com/o/oauth2/v2/auth')
+    auth.searchParams.set('client_id', creds.clientId)
+    auth.searchParams.set('redirect_uri', `${appBase(req)}/api/oauth/google/callback`)
+    auth.searchParams.set('response_type', 'code')
+    auth.searchParams.set('scope', LOGIN_SCOPES)
+    auth.searchParams.set('access_type', 'online')
+    auth.searchParams.set('prompt', 'select_account')
+    auth.searchParams.set('state', state)
+    return Response.redirect(auth.toString(), 302)
+  }
+
+  if (path === '/api/auth/ticket' && req.method === 'GET') {
+    const ticket = url.searchParams.get('ticket') || ''
+    if (!ticket) return json({ error: 'ticket required' }, 400)
+    const rows = await sql`
+      SELECT email, phone_e164 AS phone, created_at
+      FROM hire_login_tickets
+      WHERE ticket = ${ticket}
+      LIMIT 1
+    `
+    const row = rows[0] as { email: string; phone: string | null; created_at: Date } | undefined
+    if (!row) return json({ error: 'Sign in expired. Try Google again.' }, 400)
+    await sql`DELETE FROM hire_login_tickets WHERE ticket = ${ticket}`
+    if (Date.now() - new Date(row.created_at).getTime() > 10 * 60 * 1000) {
+      return json({ error: 'Sign in expired. Try Google again.' }, 400)
+    }
+    return json({ email: row.email, phone: row.phone })
+  }
+
   if (path === '/api/me' && req.method === 'POST') {
     const body = (await req.json().catch(() => ({}))) as { email?: string; phone?: string }
     const email = String(body.email || '')
@@ -683,6 +734,26 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
       expires_in?: number
       scope?: string
     }
+
+    if (st.user_id === LOGIN_STATE_USER) {
+      const infoRes = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+        headers: { Authorization: `Bearer ${tok.access_token}` },
+      })
+      if (!infoRes.ok) return json({ error: 'Could not read Google profile' }, 400)
+      const info = (await infoRes.json()) as { email?: string }
+      const email = String(info.email || '')
+        .trim()
+        .toLowerCase()
+      if (!email.includes('@')) return json({ error: 'Google did not return an email' }, 400)
+      const user = await ensureUser(sql, email)
+      const ticket = crypto.randomUUID()
+      await sql`
+        INSERT INTO hire_login_tickets (ticket, email, phone_e164)
+        VALUES (${ticket}, ${user.email}, ${user.phone})
+      `
+      return Response.redirect(`${appBase(req)}/app/login?google=${ticket}`, 302)
+    }
+
     const expiresAt = new Date(Date.now() + (tok.expires_in || 3600) * 1000).toISOString()
     await sql`
       INSERT INTO hire_google_tokens (user_id, access_token, refresh_token, expires_at, scopes, updated_at)

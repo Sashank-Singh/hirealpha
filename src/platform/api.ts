@@ -12,6 +12,13 @@ async function parseJson<T>(res: Response): Promise<T> {
   }
 }
 
+export async function apiExchangeGoogle(ticket: string) {
+  const res = await fetch(`${API}/api/auth/ticket?ticket=${encodeURIComponent(ticket)}`)
+  const data = await parseJson<{ email?: string; phone?: string | null; error?: string }>(res)
+  if (!res.ok || !data.email) throw new Error(data.error || 'Google sign in failed')
+  return { email: data.email, phone: data.phone || '' }
+}
+
 export async function apiSignIn(email: string, phone: string) {
   const res = await fetch(`${API}/api/me`, {
     method: 'POST',

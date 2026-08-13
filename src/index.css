@@ -1824,7 +1824,7 @@ button, input { font: inherit; }
 }
 .plat-auth__methods { display: grid; gap: 12px; }
 .plat-auth__form { display: grid; gap: 12px; }
-.plat-auth__error { margin: 0; font-size: 13px; color: #b42318; }
+.plat-auth__error { margin: 12px 0 0; font-size: 13px; color: #b42318; }
 .plat-auth__foot { margin-top: 28px; }
 
 @media (max-width: 760px) {
