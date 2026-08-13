@@ -40,7 +40,7 @@ export function splitBubbles(text: string): string[] {
 }
 
 function wantsLiveData(text: string) {
-  return /\b(email|inbox|gmail|unread|mail|calendar|meeting|meetings|schedule|agenda|tomorrow|today|slack|notion|linear|github|drive|spotify)\b/i.test(
+  return /\b(e-?mails?|inbox|gmail|unread|calendar|meeting|meetings|schedule|agenda|tomorrow|today|slack|notion|linear|github|drive|spotify)\b/i.test(
     text,
   )
 }

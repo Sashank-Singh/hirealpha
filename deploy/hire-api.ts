@@ -423,7 +423,10 @@ async function composioExecute(userId: string, tool: string, args: Record<string
 }
 
 function wantsEmail(text: string) {
-  return /\b(email|inbox|gmail|unread|mail)\b/i.test(text)
+  return /\b(e-?mails?|inbox|gmail|unread)\b/i.test(text)
+}
+function wantsImportantEmail(text: string) {
+  return /\b(important|flagged|priority)\b/i.test(text)
 }
 function wantsCalendar(text: string) {
   return /\b(calendar|meeting|meetings|schedule|free time|what.?s on|agenda|tomorrow|today)\b/i.test(text)
@@ -438,12 +441,13 @@ export async function runToolsForMessage(
   const can = (id: string) => input.connected.includes(id) && !denied.has(id)
 
   if (wantsEmail(input.message) && can('gmail')) {
+    const query = wantsImportantEmail(input.message) ? 'is:important newer_than:14d' : 'newer_than:5d'
     const access = await googleAccessToken(sql, input.userId)
-    if (access) results.push(await fetchGmail(access, 'newer_than:5d'))
+    if (access) results.push(await fetchGmail(access, query))
     else {
       const c = await composioExecute(input.userId, 'GMAIL_FETCH_EMAILS', {
         max_results: 6,
-        query: 'newer_than:5d',
+        query,
       })
       if (c) results.push(c)
     }
