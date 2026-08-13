@@ -39,6 +39,24 @@ export function splitBubbles(text: string): string[] {
   return parts.slice(0, 3)
 }
 
+/** Drop model chain-of-thought that occasionally leaks into the reply text. */
+function stripReasoning(text: string): string {
+  const paras = text
+    .trim()
+    .split(/\n{2,}/)
+    .map((p) => p.trim())
+    .filter(Boolean)
+  const REASON = /(?:the (?:user|instructions)|instructions say|tool result|in context|connected as a tool|I (?:should|need to|have|will|am going|want to|can check the))|^Let me|^Wait,?|^First,?|^OK[,:]|^Alright[,:]|^So /i
+  let firstReal = 0
+  while (firstReal < paras.length) {
+    const p = paras[firstReal]
+    if (!p || !REASON.test(p)) break
+    firstReal++
+  }
+  const kept = paras.slice(firstReal)
+  return kept.length ? kept.join('\n\n') : text.trim()
+}
+
 function wantsLiveData(text: string) {
   return /\b(e-?mails?|inbox|gmail|unread|calendar|meeting|meetings|schedule|agenda|tomorrow|today|slack|notion|linear|github|drive|spotify)\b/i.test(
     text,
@@ -156,8 +174,9 @@ export async function runHireTurn(input: {
   ])
 
   const authoritative = live.found ? Object.keys(live.context) : []
+  const finalReply = stripReasoning(reply)
 
-  return { reply, bubbles: splitBubbles(reply), source, authoritative }
+  return { reply: finalReply, bubbles: splitBubbles(finalReply), source, authoritative }
 }
 
 /**
