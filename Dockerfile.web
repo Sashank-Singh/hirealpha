@@ -16,6 +16,7 @@ RUN apt-get update \
   && rm -rf /var/lib/apt/lists/*
 
 COPY deploy/web-server.ts ./web-server.ts
+COPY deploy/hire-api.ts ./hire-api.ts
 COPY --from=build /app/dist ./dist
 
 ENV PORT=80

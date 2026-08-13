@@ -1,15 +1,21 @@
+import { useEffect } from 'react'
 import { Link, NavLink, Navigate, Outlet, useNavigate } from 'react-router-dom'
-import { getSession, signOut } from './roster'
+import { getSession, hydrateFromServer, signOut } from './roster'
 
 export function RequireAuth() {
   const session = getSession()
-  if (!session) return <Navigate to="/app/login" replace />
+  if (!session?.email) return <Navigate to="/app/login" replace />
+  if (!session.phone) return <Navigate to="/app/login" replace />
   return <Outlet />
 }
 
 export function PlatformShell() {
   const session = getSession()
   const navigate = useNavigate()
+
+  useEffect(() => {
+    void hydrateFromServer().catch(() => undefined)
+  }, [session?.email])
 
   return (
     <div className="plat">
@@ -20,12 +26,14 @@ export function PlatformShell() {
           </Link>
           <nav className="plat__nav" aria-label="Workspace">
             <NavLink to="/app" end>
-              Roster
+              People
             </NavLink>
             <NavLink to="/app/shop">Hire</NavLink>
           </nav>
           <div className="plat__user">
-            <span className="plat__email">{session?.email}</span>
+            <span className="plat__email" title={session?.email}>
+              {session?.email}
+            </span>
             <button
               type="button"
               className="plat-link"

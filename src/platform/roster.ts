@@ -1,5 +1,6 @@
 import type { AgentId } from '../agents/types'
 import type { ConnectorId } from './connectors'
+import { apiMe, apiSaveContext, apiSaveRoster } from './api'
 
 const SESSION_KEY = 'hirealpha-session'
 const ROSTER_KEY = 'hirealpha-roster'
@@ -8,6 +9,7 @@ const CONTEXT_KEY = 'hirealpha-hire-context'
 
 export interface Session {
   email: string
+  phone: string
   signedInAt: string
 }
 
@@ -35,11 +37,17 @@ function writeJson(key: string, value: unknown) {
 }
 
 export function getSession(): Session | null {
-  return readJson<Session | null>(SESSION_KEY, null)
+  const raw = readJson<Session | (Omit<Session, 'phone'> & { phone?: string }) | null>(SESSION_KEY, null)
+  if (!raw) return null
+  return { email: raw.email, phone: raw.phone || '', signedInAt: raw.signedInAt }
 }
 
-export function signIn(email: string): Session {
-  const session: Session = { email: email.trim().toLowerCase(), signedInAt: new Date().toISOString() }
+export function signIn(email: string, phone = ''): Session {
+  const session: Session = {
+    email: email.trim().toLowerCase(),
+    phone: phone.trim(),
+    signedInAt: new Date().toISOString(),
+  }
   writeJson(SESSION_KEY, session)
   return session
 }
@@ -62,15 +70,36 @@ export function hasHire(agentId: AgentId): boolean {
   return getRoster().some((h) => h.agentId === agentId && h.status === 'active')
 }
 
+function persistRosterRemote() {
+  const session = getSession()
+  if (!session?.email) return
+  void apiSaveRoster(session.email, getActiveHireIds()).catch((err) => {
+    console.warn('[roster] save failed', err)
+  })
+}
+
 export function addHire(agentId: AgentId): HireEntitlement[] {
   const roster = getRoster().filter((h) => h.agentId !== agentId)
   roster.push({ agentId, status: 'active', hiredAt: new Date().toISOString() })
   writeJson(ROSTER_KEY, roster)
+  persistRosterRemote()
   return roster
 }
 
 export function removeHire(agentId: AgentId): HireEntitlement[] {
   const roster = getRoster().filter((h) => h.agentId !== agentId)
+  writeJson(ROSTER_KEY, roster)
+  persistRosterRemote()
+  return roster
+}
+
+export function replaceRoster(agentIds: AgentId[]): HireEntitlement[] {
+  const now = new Date().toISOString()
+  const roster: HireEntitlement[] = agentIds.map((agentId) => ({
+    agentId,
+    status: 'active',
+    hiredAt: now,
+  }))
   writeJson(ROSTER_KEY, roster)
   return roster
 }
@@ -81,6 +110,14 @@ export function getConnections(): ConnectionMap {
 
 export function setConnection(id: ConnectorId, connected: boolean): ConnectionMap {
   const next = { ...getConnections(), [id]: { connected, updatedAt: new Date().toISOString() } }
+  writeJson(CONNECTIONS_KEY, next)
+  return next
+}
+
+export function replaceConnections(ids: ConnectorId[]): ConnectionMap {
+  const next: ConnectionMap = {}
+  const now = new Date().toISOString()
+  for (const id of ids) next[id] = { connected: true, updatedAt: now }
   writeJson(CONNECTIONS_KEY, next)
   return next
 }
@@ -105,4 +142,34 @@ export function setHireContextField(agentId: AgentId, fieldId: string, value: st
   all[agentId] = current
   writeJson(CONTEXT_KEY, all)
   return current
+}
+
+export function replaceHireContext(map: HireContextMap) {
+  writeJson(CONTEXT_KEY, map)
+}
+
+export function persistHireContext(agentId: AgentId) {
+  const session = getSession()
+  if (!session?.email) return
+  void apiSaveContext(session.email, agentId, getHireContext(agentId)).catch((err) => {
+    console.warn('[context] save failed', err)
+  })
+}
+
+export async function hydrateFromServer(): Promise<void> {
+  const session = getSession()
+  if (!session?.email) return
+  const data = await apiMe(session.email)
+  if (data.user?.phone && data.user.phone !== session.phone) {
+    signIn(session.email, data.user.phone)
+  }
+  if (data.roster?.length) {
+    replaceRoster(data.roster)
+  } else if (getActiveHireIds().length) {
+    await apiSaveRoster(session.email, getActiveHireIds()).catch(() => undefined)
+  }
+  if (data.context && Object.keys(data.context).length) {
+    replaceHireContext(data.context)
+  }
+  replaceConnections(data.connected || [])
 }

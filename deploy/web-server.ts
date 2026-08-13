@@ -4,6 +4,7 @@
  */
 import { SQL } from 'bun'
 import { join } from 'node:path'
+import { ensureHireSchema, handleHireApi } from './hire-api'
 
 const PORT = Number(process.env.PORT || 80)
 const ROOT = process.env.STATIC_ROOT || join(import.meta.dir, 'dist')
@@ -25,6 +26,7 @@ async function ensureSchema() {
       created_at TIMESTAMPTZ NOT NULL DEFAULT now()
     )
   `
+  await ensureHireSchema(sql)
   console.log('[waitlist] table ready')
 }
 
@@ -133,6 +135,8 @@ Bun.serve({
       return new Response('ok', { headers: { 'Content-Type': 'text/plain' } })
     }
     if (url.pathname === '/api/waitlist') return handleWaitlist(req)
+    const hire = await handleHireApi(req, sql)
+    if (hire) return hire
     return serveStatic(url.pathname)
   },
 })

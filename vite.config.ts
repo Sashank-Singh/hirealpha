@@ -6,5 +6,11 @@ export default defineConfig({
   server: {
     port: 5173,
     open: false,
+    proxy: {
+      '/api': {
+        target: 'https://hirealpha.chat',
+        changeOrigin: true,
+      },
+    },
   },
 })

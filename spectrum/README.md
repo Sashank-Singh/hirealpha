@@ -31,7 +31,7 @@ Root `Dockerfile` builds all three hires. Set `HIREALPHA_BOT` per app:
 | HireAlpha-Coworker | `coworker` |
 | HireAlpha-Cofounder | `cofounder` |
 
-Required env (runtime): `PROJECT_ID`, `PROJECT_SECRET`, `GMI_API_KEY`, `GMI_BASE_URL`, `GMI_MODEL`, `SKIP_INTRO=1`, `HEALTH_PORT=3000`.
+Required env (runtime): `PROJECT_ID`, `PROJECT_SECRET`, `GMI_API_KEY`, `GMI_BASE_URL`, `GMI_MODEL`, `SKIP_INTRO=1`, `HEALTH_PORT=3000`, `HIREALPHA_API_URL=https://hirealpha.chat`, `HIREALPHA_INTERNAL_KEY` (same secret as HireAlpha-Web).
 
 Health: `GET /healthz` on port 3000.
 

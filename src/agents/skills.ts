@@ -10,7 +10,7 @@ export const SKILLS: Record<
   }
 > = {
   friend: {
-    tools: ['calendar.read', 'calendar.soft_book', 'maps', 'spotify'],
+    tools: ['gmail', 'calendar.read', 'calendar.soft_book', 'maps', 'spotify'],
     miniApps: ['pick_night', 'check_in', 'spiral_options'],
     deny: ['slack', 'linear', 'github', 'stripe', 'fundraising'],
   },
