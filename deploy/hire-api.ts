@@ -414,12 +414,21 @@ async function fetchCalendar(access: string) {
 async function composioExecute(userId: string, tool: string, args: Record<string, unknown>) {
   const composio = composioClient()
   if (!composio) return null
-  const res = await composio.tools.execute(tool, { userId, arguments: args })
-  if (!res?.successful || res.error) {
-    return `Tool ${tool} failed: ${res.error || 'unknown error'}`
+  try {
+    const res = await composio.tools.execute(tool, {
+      userId,
+      arguments: args,
+      dangerouslySkipVersionCheck: true,
+    })
+    if (!res?.successful || res.error) {
+      return `Tool ${tool} failed: ${res.error || 'unknown error'}`
+    }
+    const text = JSON.stringify(res.data ?? {})
+    return text.slice(0, 4000)
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    return `Tool ${tool} failed: ${msg.slice(0, 240)}`
   }
-  const text = JSON.stringify(res.data ?? {})
-  return text.slice(0, 4000)
 }
 
 function wantsEmail(text: string) {
