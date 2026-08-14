@@ -6,8 +6,15 @@ import type { ChatMessage } from '../../src/agents/types'
 export const MAX_RAW = 20
 /** Durable facts cap so the file can't grow unbounded. */
 export const MAX_FACTS = 60
-/** Drop a fact if it hasn't been re-confirmed in this many days. */
+/** Drop a fact if it hasn't been re-confirmed in this many days. Durable keys never expire. */
 export const FACT_TTL_DAYS = 30
+
+const DURABLE_KEY =
+  /^(preferred_name|people|timezone|check_ins|company|role_title|projects|standup_time|company_name|stage|weekly_focus|hard_nos|name|sister|partner|city|this_weeks_decision)|^(people|name|sister|partner|family|company|weekly|timezone)/i
+
+export function isDurableFactKey(key: string) {
+  return DURABLE_KEY.test(key)
+}
 
 export interface MemoryFact {
   key: string
@@ -117,14 +124,16 @@ export function upsertFacts(
   return next
 }
 
-/** Drop facts not re-confirmed within FACT_TTL_DAYS. */
+/** Drop facts not re-confirmed within FACT_TTL_DAYS. Names, people, timezone, and this week's decision never expire. */
 export function pruneExpiredFacts(
   dataDir: string,
   senderId: string,
 ): ThreadMemory {
   const mem = loadMemory(dataDir, senderId)
   const cutoff = Date.now() - FACT_TTL_DAYS * 24 * 60 * 60 * 1000
-  const facts = mem.facts.filter((f) => (f.lastSeen ?? f.ts) > cutoff)
+  const facts = mem.facts.filter(
+    (f) => isDurableFactKey(f.key) || (f.lastSeen ?? f.ts) > cutoff,
+  )
   if (facts.length === mem.facts.length) return mem
   const next: ThreadMemory = { ...mem, facts }
   writeMemory(dataDir, senderId, next)

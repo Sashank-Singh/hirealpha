@@ -1,4 +1,4 @@
-import { Spectrum } from 'spectrum-ts'
+import { Spectrum, app as appCard } from 'spectrum-ts'
 import { imessage } from '@spectrum-ts/imessage'
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
@@ -42,11 +42,12 @@ console.log(`[${agent.id}] listening as ${agent.imsgName} (${agent.phoneNumber})
 
 startReminderScheduler({
   persona: agent.id,
-  send: async (phone, text) => {
+  send: async (phone, text, card) => {
     const user = await im.user(phone)
     const space = await im.space.create(user)
     await space.responding(async () => {
       await space.send(text)
+      if (card) await space.send(appCard(card.url, { live: card.live }))
     })
   },
 })
@@ -77,7 +78,7 @@ for await (const [space, message] of app.messages) {
     await message.react('👍').catch(() => undefined)
     await message.read().catch(() => undefined)
     await space.responding(async () => {
-      const { bubbles, source, authoritative, reply } = await runHireTurn({
+      const { bubbles, source, authoritative, reply, card } = await runHireTurn({
         agentId,
         dataDir,
         senderId,
@@ -87,6 +88,7 @@ for await (const [space, message] of app.messages) {
         if (i === 0) await message.reply(bubbles[i]!)
         else await space.send(bubbles[i]!)
       }
+      if (card) await space.send(appCard(card.url, { live: card.live }))
       if (source === 'gmi') {
         void runMemoryMaintenance({ dataDir, senderId, agentId, authoritative, userText, reply })
           .catch(() => undefined)

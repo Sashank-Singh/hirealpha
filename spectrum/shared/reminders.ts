@@ -1,4 +1,11 @@
 import { gmiChat } from './gmi'
+import {
+  DIGEST_MARKER,
+  buildDigestBriefing,
+  isDigestRequest,
+  type MiniAppCard,
+} from './miniApps'
+import type { AgentId } from '../../src/agents/types'
 
 export type ReminderIntent =
   | { action: 'set'; text: string; localTime: string; recurrence: 'once' | 'daily' | 'weekly' }
@@ -370,14 +377,27 @@ export async function deleteReminder(id: string): Promise<boolean> {
 export function startReminderScheduler(opts: {
   persona: string
   pollMs?: number
-  send: (phone: string, text: string) => Promise<void>
+  send: (phone: string, text: string, card?: MiniAppCard) => Promise<void>
 }) {
   const pollMs = opts.pollMs ?? 30_000
   const timer = setInterval(async () => {
     try {
       const due = await fetchDueReminders(opts.persona)
       for (const r of due) {
-        await opts.send(r.phone, r.text)
+        let text = r.text
+        let card: MiniAppCard | undefined
+        if (isDigestRequest(r.text)) {
+          const brief = await buildDigestBriefing(r.phone, opts.persona as AgentId)
+          if (brief) {
+            text = brief.text
+            card = brief.card
+          } else {
+            text = r.text.slice(DIGEST_MARKER.length).trim() || 'Your daily brief.'
+          }
+        } else if (text.startsWith('[poke]')) {
+          text = text.slice('[poke]'.length).trim()
+        }
+        await opts.send(r.phone, text, card)
         const tz = r.timezone || 'America/Los_Angeles'
         const nextAt =
           r.recurrence === 'daily' || r.recurrence === 'weekly'

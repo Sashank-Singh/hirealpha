@@ -199,7 +199,7 @@ export function HiresPage() {
         <header className="plat-page__head">
           <h1>People</h1>
           <p>
-            {activeIds.length} hired, ${monthly}/mo. Text them from Messages when they are ready.
+            {activeIds.length} hired, ${monthly}/mo. Text them from Messages. The first text sends you a card to pick what you want them to do.
           </p>
         </header>
 

@@ -3,6 +3,7 @@
  * Dashboard writes here. iMessage bots read here.
  */
 import { Composio } from '@composio/core'
+import { createHmac, timingSafeEqual } from 'node:crypto'
 import type { SQL } from 'bun'
 
 export const PERSONAS = ['friend', 'coworker', 'cofounder'] as const
@@ -97,6 +98,59 @@ function internalOk(req: Request) {
   return auth === `Bearer ${key}`
 }
 
+/** How long a mini-app card URL token stays valid. */
+const MINI_TOKEN_TTL_MS = 7 * 24 * 60 * 60 * 1000
+
+interface MiniToken {
+  phone: string
+  persona: string
+  kind: string
+  exp: number
+}
+
+function miniTokenSecret(): string | null {
+  const key = process.env.HIREALPHA_INTERNAL_KEY || ''
+  return key || null
+}
+
+function signMiniToken(payload: string, secret: string): string {
+  return createHmac('sha256', secret).update(payload).digest('base64url')
+}
+
+/** Mint a signed, expiring identity token for a mini-app card URL. */
+function mintMiniToken(phone: string, persona: Persona, kind: string): string | null {
+  const secret = miniTokenSecret()
+  if (!secret) return null
+  const payload: MiniToken = { phone, persona, kind, exp: Date.now() + MINI_TOKEN_TTL_MS }
+  const encoded = Buffer.from(JSON.stringify(payload)).toString('base64url')
+  return `${encoded}.${signMiniToken(encoded, secret)}`
+}
+
+/** Verify + decode a mini-app token. Returns null when missing/invalid/expired. */
+function verifyMiniToken(token: string): MiniToken | null {
+  const secret = miniTokenSecret()
+  if (!secret) return null
+  const dot = token.lastIndexOf('.')
+  if (dot <= 0) return null
+  const encoded = token.slice(0, dot)
+  const sig = token.slice(dot + 1)
+  const expected = signMiniToken(encoded, secret)
+  const a = Buffer.from(sig)
+  const b = Buffer.from(expected)
+  if (a.length !== b.length || !timingSafeEqual(a, b)) return null
+  let payload: MiniToken
+  try {
+    payload = JSON.parse(Buffer.from(encoded, 'base64url').toString()) as MiniToken
+  } catch {
+    return null
+  }
+  if (!payload.phone || !payload.persona || !payload.kind || typeof payload.exp !== 'number') {
+    return null
+  }
+  if (payload.exp < Date.now()) return null
+  return payload
+}
+
 export async function ensureHireSchema(sql: SQL) {
   await sql`
     CREATE TABLE IF NOT EXISTS hire_users (
@@ -178,6 +232,19 @@ export async function ensureHireSchema(sql: SQL) {
     )
   `
   await sql`ALTER TABLE hire_login_tickets ADD COLUMN IF NOT EXISTS name TEXT`
+  await sql`ALTER TABLE hire_roster ADD COLUMN IF NOT EXISTS last_inbound_at TIMESTAMPTZ`
+  await sql`
+    CREATE TABLE IF NOT EXISTS hire_memories (
+      user_id TEXT NOT NULL REFERENCES hire_users(id) ON DELETE CASCADE,
+      persona TEXT NOT NULL,
+      key TEXT NOT NULL,
+      value TEXT NOT NULL,
+      durable BOOLEAN NOT NULL DEFAULT false,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      PRIMARY KEY (user_id, persona, key)
+    )
+  `
+  await sql`CREATE INDEX IF NOT EXISTS idx_hire_memories_user ON hire_memories (user_id, persona, durable, updated_at DESC)`
 }
 
 async function getUserByEmail(sql: SQL, email: string) {
@@ -266,6 +333,82 @@ async function loadContext(sql: SQL, userId: string, persona: Persona) {
     }
   }
   return (typeof fields === 'object' ? fields : {}) as Record<string, string>
+}
+
+export type MemoryRow = { key: string; value: string; durable: boolean; updatedAt?: string }
+
+const DURABLE_KEYS = new Set([
+  'preferred_name',
+  'people',
+  'timezone',
+  'check_ins',
+  'company',
+  'role_title',
+  'projects',
+  'standup_time',
+  'company_name',
+  'stage',
+  'weekly_focus',
+  'hard_nos',
+  'name',
+  'sister',
+  'sister_flight',
+  'partner',
+  'city',
+  'this_weeks_decision',
+])
+
+export function isDurableKey(key: string) {
+  const k = key.trim().toLowerCase()
+  if (DURABLE_KEYS.has(k)) return true
+  return /^(people|name|sister|partner|family|company|weekly|timezone)/.test(k)
+}
+
+async function loadMemories(sql: SQL, userId: string, persona: Persona, limit = 12): Promise<MemoryRow[]> {
+  const rows = await sql`
+    SELECT key, value, durable, updated_at AS "updatedAt"
+    FROM hire_memories
+    WHERE user_id = ${userId} AND persona = ${persona}
+    ORDER BY durable DESC, updated_at DESC
+    LIMIT ${limit}
+  `
+  return (rows as { key: string; value: string; durable: boolean; updatedAt: Date }[]).map((r) => ({
+    key: r.key,
+    value: r.value,
+    durable: !!r.durable,
+    updatedAt: r.updatedAt ? new Date(r.updatedAt).toISOString() : undefined,
+  }))
+}
+
+async function upsertMemories(
+  sql: SQL,
+  userId: string,
+  persona: Persona,
+  facts: Array<{ key: string; value: string; durable?: boolean }>,
+) {
+  for (const f of facts) {
+    const key = String(f.key || '')
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, '_')
+      .slice(0, 80)
+    const value = String(f.value || '').trim().slice(0, 500)
+    if (!key || !value) continue
+    const durable = f.durable ?? isDurableKey(key)
+    await sql`
+      INSERT INTO hire_memories (user_id, persona, key, value, durable, updated_at)
+      VALUES (${userId}, ${persona}, ${key}, ${value}, ${durable}, now())
+      ON CONFLICT (user_id, persona, key)
+      DO UPDATE SET value = excluded.value, durable = hire_memories.durable OR excluded.durable, updated_at = now()
+    `
+  }
+}
+
+async function syncContextMemories(sql: SQL, userId: string, persona: Persona, fields: Record<string, string>) {
+  const facts = Object.entries(fields)
+    .filter(([k, v]) => k !== 'setup' && typeof v === 'string' && v.trim())
+    .map(([key, value]) => ({ key, value: value.trim(), durable: true }))
+  if (facts.length) await upsertMemories(sql, userId, persona, facts)
 }
 
 async function googleConnected(sql: SQL, userId: string) {
@@ -489,7 +632,65 @@ function wantsImportantEmail(text: string) {
   return /\b(important|flagged|priority)\b/i.test(text)
 }
 function wantsCalendar(text: string) {
-  return /\b(calendar|meeting|meetings|schedule|free time|what.?s on|agenda|tomorrow|today)\b/i.test(text)
+  return /\b(calendar|meeting|meetings|schedule|free time|what.?s on|agenda|tomorrow|today|standup)\b/i.test(text)
+}
+function wantsMaps(text: string) {
+  return /\b(dinner|restaurant|tonight|date night|place|places|booth|maps|hangout|where (?:should|can) we)\b/i.test(
+    text,
+  )
+}
+function wantsSlack(text: string) {
+  return /\b(slack|thread|channel|#\w+)\b/i.test(text)
+}
+function wantsLinear(text: string) {
+  return /\b(linear|ticket|tickets|issue|issues|backlog|triage)\b/i.test(text)
+}
+function wantsNotion(text: string) {
+  return /\b(notion|wiki|doc|docs|notes?)\b/i.test(text)
+}
+function wantsDrive(text: string) {
+  return /\b(drive|deck|slides|spreadsheet|google doc)\b/i.test(text)
+}
+
+async function fetchDrive(access: string, query: string) {
+  const url = new URL('https://www.googleapis.com/drive/v3/files')
+  url.searchParams.set('pageSize', '8')
+  url.searchParams.set('orderBy', 'modifiedTime desc')
+  url.searchParams.set('fields', 'files(id,name,mimeType,modifiedTime)')
+  const q = query.replace(/['\\]/g, '').slice(0, 80)
+  url.searchParams.set(
+    'q',
+    q ? `trashed = false and name contains '${q}'` : 'trashed = false',
+  )
+  const res = await fetch(url, { headers: { Authorization: `Bearer ${access}` } })
+  if (!res.ok) return `Drive error ${res.status}`
+  const data = (await res.json()) as {
+    files?: Array<{ name?: string; mimeType?: string; modifiedTime?: string }>
+  }
+  const files = data.files || []
+  if (!files.length) return 'No matching Drive files.'
+  return `Drive files:\n${files
+    .map((f) => `- ${f.name || '(untitled)'} (${f.mimeType || '?'}) ${f.modifiedTime || ''}`)
+    .join('\n')}`
+}
+
+async function composioFirst(
+  userId: string,
+  slugs: string[],
+  args: Record<string, unknown>,
+): Promise<string | null> {
+  let last: string | null = null
+  for (const slug of slugs) {
+    const out = await composioExecute(userId, slug, args)
+    if (!out) continue
+    last = out
+    if (!/failed/i.test(out)) return out
+  }
+  return last
+}
+
+function notConnectedNote(tool: string) {
+  return `${tool} is not connected. Tell them to open hirealpha.chat/app, open this hire, and tap Connect. Do not pretend you already did the action.`
 }
 
 export async function runToolsForMessage(
@@ -499,6 +700,15 @@ export async function runToolsForMessage(
   const results: string[] = []
   const denied = PERSONA_DENIED[input.persona]
   const can = (id: string) => input.connected.includes(id) && !denied.has(id)
+  const asked = (id: string, hit: boolean) => {
+    if (!hit) return
+    if (can(id)) return
+    if (denied.has(id)) {
+      results.push(`${id} is off limits for this hire. Do not offer it.`)
+      return
+    }
+    results.push(notConnectedNote(id))
+  }
 
   if (wantsEmail(input.message) && can('gmail')) {
     const query = wantsImportantEmail(input.message) ? 'is:important newer_than:14d' : 'newer_than:5d'
@@ -512,7 +722,10 @@ export async function runToolsForMessage(
       })
       if (c) results.push(c)
     }
+  } else {
+    asked('gmail', wantsEmail(input.message))
   }
+
   if (wantsCalendar(input.message) && can('calendar')) {
     const access = await googleAccessToken(sql, input.userId)
     if (access) results.push(await fetchCalendar(access))
@@ -522,8 +735,468 @@ export async function runToolsForMessage(
       })
       if (c) results.push(c)
     }
+  } else {
+    asked('calendar', wantsCalendar(input.message))
   }
+
+  if (input.persona === 'friend') {
+    if (wantsMaps(input.message) && can('maps')) {
+      const q =
+        input.message.replace(/\b(tonight|dinner|restaurant|place|places|maps)\b/gi, ' ').trim().slice(0, 80) ||
+        'quiet restaurant nearby'
+      const c = await composioFirst(
+        input.userId,
+        ['GOOGLEMAPS_TEXT_SEARCH', 'GOOGLEMAPS_SEARCH_PLACES', 'GOOGLE_MAPS_SEARCH_PLACES'],
+        { query: q, q },
+      )
+      results.push(c || 'Maps is connected but the search failed. Say that honestly. Do not invent a restaurant.')
+    } else {
+      asked('maps', wantsMaps(input.message))
+    }
+  }
+
+  if (input.persona === 'coworker') {
+    if (wantsSlack(input.message) && can('slack')) {
+      const c = await composioFirst(
+        input.userId,
+        ['SLACK_SEARCH_MESSAGES', 'SLACK_LIST_CHANNELS', 'SLACK_FETCH_CONVERSATION_HISTORY'],
+        { query: input.message.slice(0, 80), limit: 8 },
+      )
+      results.push(c || 'Slack is connected but nothing came back. Say that. Do not invent a thread.')
+    } else {
+      asked('slack', wantsSlack(input.message))
+    }
+    if (wantsLinear(input.message) && can('linear')) {
+      const c = await composioFirst(
+        input.userId,
+        ['LINEAR_LIST_ISSUES', 'LINEAR_LIST_LINEAR_ISSUES', 'LINEAR_GET_ISSUES'],
+        { limit: 8 },
+      )
+      results.push(c || 'Linear is connected but nothing came back. Say that. Do not invent tickets.')
+    } else {
+      asked('linear', wantsLinear(input.message))
+    }
+  }
+
+  if (input.persona === 'cofounder') {
+    if (wantsNotion(input.message) && can('notion')) {
+      const c = await composioFirst(
+        input.userId,
+        ['NOTION_SEARCH', 'NOTION_SEARCH_NOTION_PAGE', 'NOTION_FETCH_DATA'],
+        { query: input.message.slice(0, 80) },
+      )
+      results.push(c || 'Notion is connected but the search failed. Say that. Do not invent a page.')
+    } else {
+      asked('notion', wantsNotion(input.message))
+    }
+    if (wantsDrive(input.message) && can('drive')) {
+      const access = await googleAccessToken(sql, input.userId)
+      if (access) results.push(await fetchDrive(access, input.message.slice(0, 40)))
+      else {
+        const c = await composioFirst(
+          input.userId,
+          ['GOOGLEDRIVE_LIST_FILES', 'GOOGLEDRIVE_FIND_FILE', 'GOOGLE_DRIVE_LIST_FILES'],
+          { pageSize: 8 },
+        )
+        results.push(c || 'Drive is connected but nothing came back. Say that. Do not invent a file.')
+      }
+    } else {
+      asked('drive', wantsDrive(input.message))
+    }
+  }
+
   return results
+}
+
+const PERSONA_LABEL: Record<Persona, string> = {
+  friend: 'Alpha',
+  coworker: 'Alpha (Coworker)',
+  cofounder: 'Alpha (CoFounder)',
+}
+
+function digestLines(block?: string): string[] {
+  if (!block) return []
+  return block.split('\n').filter((l) => l.startsWith('- '))
+}
+
+function formatCalTime(iso: string, timezone: string): string {
+  const allDay = !iso.includes('T')
+  const d = new Date(allDay ? `${iso}T00:00:00` : iso)
+  if (Number.isNaN(d.getTime())) return iso
+  if (allDay) return 'All day'
+  return new Intl.DateTimeFormat('en-US', {
+    timeZone: timezone,
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  }).format(d)
+}
+
+function formatMailLine(line: string): string {
+  const [from, , subject] = line.replace(/^-\s*/, '').split(' | ')
+  const s = (subject || '(no subject)').slice(0, 60)
+  return from ? `${s} · ${from}` : s
+}
+
+/**
+ * Morning-brief payload: today's calendar, important mail, and pending
+ * reminders for one hire. `text` is the plain-SMS briefing; the structured
+ * fields feed the in-Messages app card.
+ */
+async function digestPayload(
+  sql: SQL,
+  user: { id: string; timezone: string | null },
+  persona: Persona,
+) {
+  const tz = user.timezone || 'America/Los_Angeles'
+  const connected = (await connectedForUser(sql, user.id)).filter(
+    (id) => !PERSONA_DENIED[persona].has(id),
+  )
+  const results = await runToolsForMessage(sql, {
+    userId: user.id,
+    persona,
+    message: 'calendar today and important email',
+    connected,
+  })
+  const calendarBlock = results.find(
+    (t) => t.startsWith('Upcoming events:') || t.startsWith('No events'),
+  )
+  const emailBlock = results.find(
+    (t) =>
+      t.startsWith('Email:') ||
+      t.startsWith('Important email:') ||
+      t.startsWith('No matching email'),
+  )
+
+  const calendar = digestLines(calendarBlock).map((l) => {
+    const m = l.match(/^-\s+(\S+)\s+(.*)$/)
+    return m ? `${formatCalTime(m[1]!, tz)} · ${m[2]!}` : l.replace(/^-\s*/, '')
+  })
+  const emails = digestLines(emailBlock).slice(0, 5).map(formatMailLine)
+
+  const reminderRows = await sql`
+    SELECT text, scheduled_at AS "scheduledAt" FROM hire_reminders
+    WHERE user_id = ${user.id} AND persona = ${persona} AND status = 'pending'
+    ORDER BY scheduled_at ASC LIMIT 8
+  `
+  const reminders = (reminderRows as { text: string; scheduledAt: Date }[]).map((r) => ({
+    time: formatCalTime(new Date(r.scheduledAt).toISOString(), tz),
+    text: r.text.startsWith('[digest]')
+      ? r.text.slice(8).trim()
+      : r.text.startsWith('[poke]')
+        ? r.text.slice(6).trim()
+        : r.text,
+  }))
+
+  const dateLabel = new Date().toLocaleDateString('en-US', {
+    weekday: 'long',
+    month: 'long',
+    day: 'numeric',
+    timeZone: tz,
+  })
+
+  const section = (title: string, items: string[]) =>
+    items.length ? `${title}\n${items.map((i) => `- ${i}`).join('\n')}` : null
+
+  const text = [
+    `${PERSONA_LABEL[persona]} · Morning brief · ${dateLabel}`,
+    section('On your calendar', calendar),
+    section('Important mail', emails),
+    section('Reminders', reminders.map((r) => `${r.time} · ${r.text}`)),
+  ]
+    .filter(Boolean)
+    .join('\n\n')
+
+  return { date: dateLabel, calendar, emails, reminders, text }
+}
+
+/** Mini apps each hire can offer, mirroring src/agents/skills.ts. */
+const PERSONA_MINI_APPS: Record<Persona, string[]> = {
+  friend: ['digest', 'check_in', 'pick_night', 'spiral_options'],
+  coworker: ['digest', 'approve_send', 'pick_slot', 'standup_paste', 'linear_triage'],
+  cofounder: ['digest', 'kill_keep_park', 'hire_decision', 'weekly_focus', 'approve_investor_note'],
+}
+
+/** UTC offset in ms for an IANA zone at a given instant. */
+function tzOffsetMs(utcMs: number, timezone: string): number {
+  try {
+    const dtf = new Intl.DateTimeFormat('en-US', {
+      timeZone: timezone,
+      timeZoneName: 'longOffset',
+      hour12: false,
+    })
+    const part = dtf
+      .formatToParts(new Date(utcMs))
+      .find((p) => p.type === 'timeZoneName')?.value
+    const m = part?.match(/GMT([+-])(\d{2}):(\d{2})/)
+    if (!m) return 0
+    const sign = m[1] === '-' ? -1 : 1
+    return sign * (Number(m[2]) * 60 + Number(m[3])) * 60 * 1000
+  } catch {
+    return 0
+  }
+}
+
+/** Next local HH:MM (today or tomorrow) as a UTC ISO string for the given zone. */
+function nextLocalTimeUtc(timezone: string, hour: number, minute = 0): string {
+  const dtf = new Intl.DateTimeFormat('en-CA', {
+    timeZone: timezone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  })
+  const parts = dtf.formatToParts(new Date())
+  const get = (t: Intl.DateTimeFormatPartTypes) => parts.find((p) => p.type === t)?.value || '0'
+  const wallNow = Date.UTC(
+    Number(get('year')),
+    Number(get('month')) - 1,
+    Number(get('day')),
+    Number(get('hour')),
+    Number(get('minute')),
+    Number(get('second')),
+  )
+  let wall = Date.UTC(
+    Number(get('year')),
+    Number(get('month')) - 1,
+    Number(get('day')),
+    hour,
+    minute,
+    0,
+  )
+  if (wall <= wallNow) wall += 86_400_000
+  return new Date(wall - tzOffsetMs(wall, timezone)).toISOString()
+}
+
+/** weekday: 0 = Sunday ... 6 = Saturday */
+function nextWeekdayLocalUtc(timezone: string, weekday: number, hour: number, minute = 0): string {
+  const dtf = new Intl.DateTimeFormat('en-US', {
+    timeZone: timezone,
+    weekday: 'short',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  })
+  const parts = dtf.formatToParts(new Date())
+  const get = (t: Intl.DateTimeFormatPartTypes) => parts.find((p) => p.type === t)?.value || '0'
+  const dayMap: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 }
+  const today = dayMap[get('weekday')] ?? 0
+  const wallNow = Date.UTC(
+    Number(get('year')),
+    Number(get('month')) - 1,
+    Number(get('day')),
+    Number(get('hour')),
+    Number(get('minute')),
+    Number(get('second')),
+  )
+  let add = (weekday - today + 7) % 7
+  let wall = Date.UTC(
+    Number(get('year')),
+    Number(get('month')) - 1,
+    Number(get('day')),
+    hour,
+    minute,
+    0,
+  )
+  if (add === 0 && wall <= wallNow) add = 7
+  wall += add * 86_400_000
+  return new Date(wall - tzOffsetMs(wall, timezone)).toISOString()
+}
+
+function parseStandupClock(raw: string | undefined): { hour: number; minute: number } {
+  const m = (raw || '').match(/(\d{1,2})(?::(\d{2}))?\s*(am|pm)?/i)
+  if (!m) return { hour: 9, minute: 30 }
+  let h = Number(m[1])
+  const min = Number(m[2] || '0')
+  const ap = (m[3] || '').toLowerCase()
+  if (ap === 'pm' && h < 12) h += 12
+  if (ap === 'am' && h === 12) h = 0
+  if (!ap && h < 7) h += 12
+  return { hour: h, minute: min }
+}
+
+export const POKE_MARKER = '[poke]'
+
+async function armPokes(
+  sql: SQL,
+  user: { id: string; timezone: string | null },
+  persona: Persona,
+  context: Record<string, string>,
+) {
+  const existing = await sql`
+    SELECT id FROM hire_reminders
+    WHERE user_id = ${user.id} AND persona = ${persona} AND status = 'pending' AND text LIKE ${POKE_MARKER + '%'}
+    LIMIT 1
+  `
+  if (existing[0]) return
+  const tz = context.timezone || user.timezone || 'America/Los_Angeles'
+  if (persona === 'friend') {
+    await sql`
+      INSERT INTO hire_reminders (id, user_id, persona, text, scheduled_at, recurrence, timezone, status)
+      VALUES (
+        ${crypto.randomUUID()}, ${user.id}, ${persona},
+        ${POKE_MARKER + 'Want a 9pm debrief or space tonight?'},
+        ${nextLocalTimeUtc(tz, 21, 0)}, 'daily', ${tz}, 'pending'
+      )
+    `
+    return
+  }
+  if (persona === 'coworker') {
+    const clock = parseStandupClock(context.standup_time)
+    let minute = clock.minute - 12
+    let hour = clock.hour
+    if (minute < 0) {
+      minute += 60
+      hour = (hour + 23) % 24
+    }
+    await sql`
+      INSERT INTO hire_reminders (id, user_id, persona, text, scheduled_at, recurrence, timezone, status)
+      VALUES (
+        ${crypto.randomUUID()}, ${user.id}, ${persona},
+        ${POKE_MARKER + 'Standup in 12. Send raw notes if you want bullets.'},
+        ${nextLocalTimeUtc(tz, hour, minute)}, 'daily', ${tz}, 'pending'
+      )
+    `
+    return
+  }
+  const focus = (context.weekly_focus || '').trim().slice(0, 80)
+  const text = focus
+    ? `${POKE_MARKER}What's the real decision this week? You wrote: ${focus}`
+    : `${POKE_MARKER}What's the real decision this week?`
+  await sql`
+    INSERT INTO hire_reminders (id, user_id, persona, text, scheduled_at, recurrence, timezone, status)
+    VALUES (
+      ${crypto.randomUUID()}, ${user.id}, ${persona}, ${text},
+      ${nextWeekdayLocalUtc(tz, 0, 18, 0)}, 'weekly', ${tz}, 'pending'
+    )
+  `
+}
+
+async function touchInbound(sql: SQL, phone: string, persona: Persona) {
+  const user = await getUserByPhone(sql, phone)
+  if (!user) return { armed: false, first: false }
+  const rows = await sql`
+    SELECT last_inbound_at AS "lastInboundAt" FROM hire_roster
+    WHERE user_id = ${user.id} AND persona = ${persona} LIMIT 1
+  `
+  const row = rows[0] as { lastInboundAt: Date | null } | undefined
+  if (!row) return { armed: false, first: false }
+  const first = !row.lastInboundAt
+  await sql`
+    UPDATE hire_roster SET last_inbound_at = now()
+    WHERE user_id = ${user.id} AND persona = ${persona}
+  `
+  if (!first) return { armed: false, first: false }
+  const context = await loadContext(sql, user.id, persona)
+  await armPokes(sql, user, persona, context)
+  return { armed: true, first: true }
+}
+
+function splitList(raw: string | undefined) {
+  return (raw || '')
+    .split(/[,;\n]+/)
+    .map((s) => s.trim())
+    .filter(Boolean)
+}
+
+async function miniPayload(
+  sql: SQL,
+  user: { id: string; timezone: string | null },
+  persona: Persona,
+  kind: string,
+) {
+  const tz = user.timezone || 'America/Los_Angeles'
+  const context = await loadContext(sql, user.id, persona)
+  const connected = (await connectedForUser(sql, user.id)).filter((id) => !PERSONA_DENIED[persona].has(id))
+  const dateLabel = new Date().toLocaleDateString('en-US', {
+    weekday: 'long',
+    month: 'long',
+    day: 'numeric',
+    timeZone: tz,
+  })
+
+  if (kind === 'pick_night') {
+    const people = splitList(context.people)
+    const who = people[0] || 'whoever you are meeting'
+    let places: string[] = []
+    if (connected.includes('maps')) {
+      const c = await composioFirst(
+        user.id,
+        ['GOOGLEMAPS_TEXT_SEARCH', 'GOOGLEMAPS_SEARCH_PLACES', 'GOOGLE_MAPS_SEARCH_PLACES'],
+        { query: 'quiet restaurant nearby', q: 'quiet restaurant nearby' },
+      )
+      if (c && !/failed/i.test(c)) {
+        places = c
+          .split('\n')
+          .map((l) => l.replace(/^[-*]\s*/, '').trim())
+          .filter(Boolean)
+          .slice(0, 3)
+      }
+    }
+    const options = places.length
+      ? places
+      : [
+          `Quiet booth. ${who} can hear you.`,
+          'The loud one. Fun, then they cannot hear a thing.',
+        ]
+    const call = places[0] || 'Hold the quiet booth. Text me if you want the shouty one instead.'
+    const connectHint = connected.includes('maps')
+      ? []
+      : ['Maps is not connected. Open this hire at hirealpha.chat/app and tap Connect if you want a real place, not a vibe.']
+    const sections = [
+      { heading: 'Options', items: options },
+      { heading: 'The call', items: [call, ...connectHint] },
+    ]
+    const text = [`Tonight with ${who}.`, ...options.map((o) => `- ${o}`), `Call: ${call}`].join('\n')
+    return { kind, title: "Tonight's plan", date: dateLabel, sections, paste: text, text }
+  }
+
+  if (kind === 'standup_paste') {
+    const results = await runToolsForMessage(sql, {
+      userId: user.id,
+      persona,
+      message: 'calendar today standup',
+      connected,
+    })
+    const calendarBlock = results.find((t) => t.startsWith('Upcoming events:') || t.startsWith('No events'))
+    const calItems = digestLines(calendarBlock).map((l) => l.replace(/^-\s*/, '')).slice(0, 4)
+    const projects = splitList(context.projects)
+    const yesterday = projects[0] ? `${projects[0]} moved` : 'Ship what actually merged. No theater.'
+    const today = calItems[0] || (projects[1] ? `${projects[1]} today` : 'One thing on the critical path.')
+    const blocked = projects[2] || 'Name the person or the spec. Not "waiting."'
+    const paste = `Yesterday: ${yesterday}\nToday: ${today}\nBlocked: ${blocked}`
+    const sections = [
+      { heading: 'Paste this', items: [paste] },
+      { heading: 'On the calendar', items: calItems.length ? calItems : ['Nothing on calendar.'] },
+      { heading: 'Projects on file', items: projects.length ? projects : ['Add projects in Context so this is specific.'] },
+    ]
+    return { kind, title: 'Standup', date: dateLabel, sections, paste, text: paste }
+  }
+
+  if (kind === 'kill_keep_park') {
+    const focus = (context.weekly_focus || '').trim()
+    const nos = splitList(context.hard_nos)
+    const stage = (context.stage || '').trim()
+    const keep = focus || 'The thing that makes you a company this week, not a costume.'
+    const kill = nos[0] || 'Whatever looks real to people who do not write checks.'
+    const park = nos[1] || (stage ? `Park anything that is not ${stage}.` : 'Park the hire until the funnel is yours.')
+    const sections = [
+      { heading: 'Keep', items: [keep] },
+      { heading: 'Kill', items: [kill] },
+      { heading: 'Park', items: [park] },
+    ]
+    const paste = `Keep: ${keep}\nKill: ${kill}\nPark: ${park}`
+    return { kind, title: 'Kill · Keep · Park', date: dateLabel, sections, paste, text: paste }
+  }
+
+  return { kind, title: kind, date: dateLabel, sections: [], text: '' }
 }
 
 async function livePayload(sql: SQL, phone: string, persona: Persona) {
@@ -534,6 +1207,7 @@ async function livePayload(sql: SQL, phone: string, persona: Persona) {
       hired: false,
       context: {} as Record<string, string>,
       connected: [] as string[],
+      memories: [] as MemoryRow[],
       email: null as string | null,
       name: null as string | null,
       timezone: null as string | null,
@@ -545,11 +1219,13 @@ async function livePayload(sql: SQL, phone: string, persona: Persona) {
   const connected = hired
     ? (await connectedForUser(sql, user.id)).filter((id) => !PERSONA_DENIED[persona].has(id))
     : []
+  const memories = hired ? await loadMemories(sql, user.id, persona, 12) : []
   return {
     found: true,
     hired,
     context,
     connected,
+    memories,
     email: user.email,
     name: user.name,
     timezone: user.timezone,
@@ -652,9 +1328,13 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     if (!user) return json({ user: null, roster: [], context: {}, connected: [] })
     const roster = await loadRoster(sql, user.id)
     const context: Record<string, Record<string, string>> = {}
-    for (const p of roster) context[p] = await loadContext(sql, user.id, p)
+    const memory: Record<string, MemoryRow[]> = {}
+    for (const p of roster) {
+      context[p] = await loadContext(sql, user.id, p)
+      memory[p] = await loadMemories(sql, user.id, p, 40)
+    }
     const connected = await connectedForUser(sql, user.id)
-    return json({ user, roster, context, connected })
+    return json({ user, roster, context, connected, memory })
   }
 
   if (path === '/api/me/phone' && req.method === 'PUT') {
@@ -706,7 +1386,55 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
       ON CONFLICT (user_id, persona)
       DO UPDATE SET fields = ${fields}, updated_at = now()
     `
+    await syncContextMemories(sql, user.id, persona, fields)
     return json({ ok: true, fields })
+  }
+
+  const memoryMatch = path.match(/^\/api\/me\/hires\/([^/]+)\/memory$/)
+  if (memoryMatch && req.method === 'GET') {
+    const persona = memoryMatch[1]
+    if (!isPersona(persona)) return json({ error: 'Unknown hire' }, 400)
+    const email = String(url.searchParams.get('email') || '')
+      .trim()
+      .toLowerCase()
+    const user = await getUserByEmail(sql, email)
+    if (!user) return json({ error: 'Sign in first' }, 401)
+    return json({ memories: await loadMemories(sql, user.id, persona, 40) })
+  }
+  if (memoryMatch && req.method === 'PUT') {
+    const persona = memoryMatch[1]
+    if (!isPersona(persona)) return json({ error: 'Unknown hire' }, 400)
+    const body = (await req.json().catch(() => ({}))) as {
+      email?: string
+      facts?: Array<{ key?: string; value?: string; durable?: boolean }>
+    }
+    const email = String(body.email || '')
+      .trim()
+      .toLowerCase()
+    const user = await getUserByEmail(sql, email)
+    if (!user) return json({ error: 'Sign in first' }, 401)
+    const facts = (body.facts || [])
+      .filter((f) => f && f.key && f.value)
+      .map((f) => ({
+        key: String(f.key),
+        value: String(f.value),
+        durable: f.durable ?? isDurableKey(String(f.key)),
+      }))
+    await upsertMemories(sql, user.id, persona, facts)
+    return json({ ok: true, memories: await loadMemories(sql, user.id, persona, 40) })
+  }
+  if (memoryMatch && req.method === 'DELETE') {
+    const persona = memoryMatch[1]
+    if (!isPersona(persona)) return json({ error: 'Unknown hire' }, 400)
+    const email = String(url.searchParams.get('email') || '')
+      .trim()
+      .toLowerCase()
+    const key = String(url.searchParams.get('key') || '').trim()
+    const user = await getUserByEmail(sql, email)
+    if (!user) return json({ error: 'Sign in first' }, 401)
+    if (!key) return json({ error: 'key required' }, 400)
+    await sql`DELETE FROM hire_memories WHERE user_id = ${user.id} AND persona = ${persona} AND key = ${key}`
+    return json({ ok: true, memories: await loadMemories(sql, user.id, persona, 40) })
   }
 
   if (path.startsWith('/api/connect/') && req.method === 'GET') {
@@ -865,6 +1593,185 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
       connected: live.connected,
     })
     return json({ results })
+  }
+
+  if (path === '/api/internal/touch' && req.method === 'POST') {
+    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
+    const body = (await req.json().catch(() => ({}))) as { phone?: string; persona?: string }
+    if (!body.phone || !body.persona || !isPersona(body.persona)) {
+      return json({ error: 'phone and persona required' }, 400)
+    }
+    return json(await touchInbound(sql, body.phone, body.persona))
+  }
+
+  if (path === '/api/internal/memory' && req.method === 'POST') {
+    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
+    const body = (await req.json().catch(() => ({}))) as {
+      phone?: string
+      persona?: string
+      facts?: Array<{ key?: string; value?: string }>
+    }
+    if (!body.phone || !body.persona || !isPersona(body.persona)) {
+      return json({ error: 'phone and persona required' }, 400)
+    }
+    const user = await getUserByPhone(sql, body.phone)
+    if (!user) return json({ error: 'User not found' }, 404)
+    const facts = (body.facts || [])
+      .filter((f) => f && f.key && f.value)
+      .map((f) => ({ key: String(f.key), value: String(f.value) }))
+    await upsertMemories(sql, user.id, body.persona, facts)
+    return json({ ok: true, memories: await loadMemories(sql, user.id, body.persona, 12) })
+  }
+
+  if (path === '/api/internal/mini/run' && req.method === 'GET') {
+    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
+    const phone = url.searchParams.get('phone') || ''
+    const persona = url.searchParams.get('persona') || ''
+    const kind = url.searchParams.get('kind') || ''
+    if (!phone || !isPersona(persona) || !kind) {
+      return json({ error: 'phone, persona, and kind required' }, 400)
+    }
+    const user = await getUserByPhone(sql, phone)
+    if (!user) return json({ error: 'User not found' }, 404)
+    return json(await miniPayload(sql, user, persona, kind))
+  }
+
+  if (path === '/api/internal/mini/token' && req.method === 'GET') {
+    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
+    const phone = url.searchParams.get('phone') || ''
+    const persona = url.searchParams.get('persona') || ''
+    const kind = url.searchParams.get('kind') || ''
+    if (!phone || !isPersona(persona) || !kind) {
+      return json({ error: 'phone, persona, and kind required' }, 400)
+    }
+    const user = await getUserByPhone(sql, phone)
+    if (!user) return json({ error: 'User not found' }, 404)
+    const token = mintMiniToken(phone, persona, kind)
+    if (!token) return json({ error: 'Mini tokens not configured' }, 503)
+    return json({ token, url: `${appBase(req)}/app/mini/${persona}/${kind}?t=${token}` })
+  }
+
+  if (path === '/api/digest' && req.method === 'GET') {
+    const t = url.searchParams.get('t') || ''
+    const email = String(url.searchParams.get('email') || '')
+      .trim()
+      .toLowerCase()
+    const persona = url.searchParams.get('persona') || ''
+    if (!isPersona(persona)) return json({ error: 'persona required' }, 400)
+    let user: { id: string; email: string; name: string | null; timezone: string | null; phone: string | null } | null = null
+    if (t) {
+      const tok = verifyMiniToken(t)
+      if (!tok || tok.persona !== persona) {
+        return json({ error: 'This link expired. Sign in to keep using it.', code: 'token_invalid' }, 401)
+      }
+      user = await getUserByPhone(sql, tok.phone)
+    } else if (email.includes('@')) {
+      user = await getUserByEmail(sql, email)
+    } else {
+      return json({ error: 'email required' }, 400)
+    }
+    if (!user) return json({ error: 'No account found for that phone/email' }, 404)
+    const payload = await digestPayload(sql, user, persona)
+    return json({ ...payload, cardUrl: `${appBase(req)}/app/mini/${persona}/digest` })
+  }
+
+  if (path === '/api/mini' && req.method === 'GET') {
+    const t = url.searchParams.get('t') || ''
+    const email = String(url.searchParams.get('email') || '')
+      .trim()
+      .toLowerCase()
+    const persona = url.searchParams.get('persona') || ''
+    const kind = url.searchParams.get('kind') || ''
+    if (!isPersona(persona) || !kind) return json({ error: 'persona and kind required' }, 400)
+    let user: { id: string; email: string; name: string | null; timezone: string | null; phone: string | null } | null =
+      null
+    if (t) {
+      const tok = verifyMiniToken(t)
+      if (!tok || tok.persona !== persona) {
+        return json({ error: 'This link expired. Sign in to keep using it.', code: 'token_invalid' }, 401)
+      }
+      user = await getUserByPhone(sql, tok.phone)
+    } else if (email.includes('@')) {
+      user = await getUserByEmail(sql, email)
+    } else {
+      return json({ error: 'email required' }, 400)
+    }
+    if (!user) return json({ error: 'No account found for that phone/email' }, 404)
+    return json(await miniPayload(sql, user, persona, kind))
+  }
+
+  if (path === '/api/setup' && req.method === 'POST') {
+    const body = (await req.json().catch(() => ({}))) as {
+      email?: string
+      token?: string
+      persona?: string
+      feature?: string
+    }
+    const email = String(body.email || '')
+      .trim()
+      .toLowerCase()
+    const persona = body.persona || ''
+    const feature = body.feature || ''
+    if (!isPersona(persona)) return json({ error: 'persona required' }, 400)
+    if (!PERSONA_MINI_APPS[persona].includes(feature)) {
+      return json({ error: `Unknown feature for this hire: ${feature}` }, 400)
+    }
+    let user: { id: string; email: string; name: string | null; timezone: string | null; phone: string | null } | null = null
+    if (body.token) {
+      const tok = verifyMiniToken(body.token)
+      if (!tok || tok.persona !== persona) {
+        return json({ error: 'This link expired. Sign in to keep using it.', code: 'token_invalid' }, 401)
+      }
+      user = await getUserByPhone(sql, tok.phone)
+    } else if (email.includes('@')) {
+      user = await getUserByEmail(sql, email)
+    } else {
+      return json({ error: 'email required' }, 400)
+    }
+    if (!user) return json({ error: 'No account found for that phone/email' }, 404)
+
+    const fields = await loadContext(sql, user.id, persona)
+    const setup = Array.isArray(fields.setup)
+      ? (fields.setup as unknown[])
+      : (fields.setup as unknown) && typeof fields.setup === 'string'
+        ? (JSON.parse(fields.setup as string) as unknown[])
+        : []
+    const next = [...new Set([...setup.map(String), feature])]
+    await sql`
+      INSERT INTO hire_context (user_id, persona, fields, updated_at)
+      VALUES (${user.id}, ${persona}, ${JSON.stringify({ ...fields, setup: next })}, now())
+      ON CONFLICT (user_id, persona)
+      DO UPDATE SET fields = ${JSON.stringify({ ...fields, setup: next })}, updated_at = now()
+    `
+
+    if (feature === 'digest') {
+      const tz = user.timezone || 'America/Los_Angeles'
+      const existing = await sql`
+        SELECT id FROM hire_reminders
+        WHERE user_id = ${user.id} AND persona = ${persona} AND recurrence = 'daily'
+          AND text LIKE '[digest]%' LIMIT 1
+      `
+      if (!existing[0]) {
+        await sql`
+          INSERT INTO hire_reminders (id, user_id, persona, text, scheduled_at, recurrence, timezone, status)
+          VALUES (${crypto.randomUUID()}, ${user.id}, ${persona}, '[digest]Daily brief',
+            ${nextLocalTimeUtc(tz, 8, 0)}, 'daily', ${tz}, 'pending')
+        `
+      }
+    }
+
+    return json({ ok: true, feature, setup: next })
+  }
+
+  if (path === '/api/internal/digest' && req.method === 'GET') {
+    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
+    const phone = url.searchParams.get('phone') || ''
+    const persona = url.searchParams.get('persona') || ''
+    if (!phone || !isPersona(persona)) return json({ error: 'phone and persona required' }, 400)
+    const user = await getUserByPhone(sql, phone)
+    if (!user) return json({ error: 'User not found' }, 404)
+    const payload = await digestPayload(sql, user, persona)
+    return json({ ...payload, cardUrl: `${appBase(req)}/app/mini/${persona}/digest` })
   }
 
   if (path === '/api/internal/reminders' && req.method === 'POST') {

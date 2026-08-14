@@ -22,41 +22,41 @@ export function runAgentLocally(agent: AgentDefinition, userText: string): strin
 
   if (agent.id === 'friend') {
     if (/spiral|anxious|nervous|scared|panic/.test(lower)) {
-      return 'Okay. Name the fear in one line. Then we pick one small move, not the whole day.'
+      return 'Okay. Name the fear in one line. Then one small move, not the whole day.'
     }
-    if (/plan|tonight|weekend|hang/.test(lower)) {
-      return 'I’m in. What energy do you want: quiet, social, or somewhere in between?'
+    if (/plan|tonight|weekend|hang|dinner/.test(lower)) {
+      return 'What energy: quiet booth or loud. I can hold one.'
     }
     if (/advice|should i|what do i/.test(lower)) {
-      return 'I’ll give you the honest take. What are you optimizing for: peace, growth, or not regretting it?'
+      return 'Honest take. Peace, growth, or not regretting it?'
     }
-    return 'I’m here. Tell me the real part, not the polished version.'
+    return 'I’m here. The real part, not the polished version.'
   }
 
   if (agent.id === 'coworker') {
     if (/standup|stand up/.test(lower)) {
-      return 'Yesterday: [fill]. Today: [fill]. Blocked: [fill]. Send me the raw notes and I’ll tighten it.'
+      return 'Yesterday / today / blocked. Send the raw notes. I’ll tighten, you paste.'
     }
-    if (/meeting|agenda|prep/.test(lower)) {
-      return 'Goal, decisions needed, and pre-reads. Want a 5-line agenda draft?'
+    if (/meeting|agenda|prep|jordan|declined/.test(lower)) {
+      return 'I can ask them for a new time and write it like you, not like a calendar. Want that?'
     }
     if (/follow.?up|remind/.test(lower)) {
-      return 'I can draft the follow-up. Who owns it, what’s due, and by when?'
+      return 'Who owns it, what’s due, by when. I’ll draft it in your voice.'
     }
-    return 'Got it. Want bullets, a draft, or a blocker list first?'
+    return 'Bullets, a draft, or I move the calendar. Which.'
   }
 
   // cofounder
   if (/hire|vp|head of|ae|sales/.test(lower)) {
-    return 'Before the hire: is the bottleneck leads or conversion? That answer decides the seat.'
+    return 'Leads or conversion. That answer decides the seat. Not the title.'
   }
   if (/fundrais|investor|raise|seed|series/.test(lower)) {
-    return 'Why now, what changed, and what breaks if you don’t raise? Give me those three cold.'
+    return 'Why now, what changed, what breaks if you don’t. Three cold answers.'
   }
-  if (/pivot|focus|kill|priority/.test(lower)) {
-    return 'What ships this week that moves the company, not your anxiety? Cut the rest.'
+  if (/pivot|focus|kill|priority|agency|site|costume/.test(lower)) {
+    return 'What ships this week that is the company, not a costume. Cut the rest.'
   }
-  return 'Pushback first: what assumption in that plan is doing the most work?'
+  return 'What assumption is doing the most work. Say it so I can break it.'
 }
 
 export async function runAgent(input: RunAgentInput): Promise<RunAgentResult> {

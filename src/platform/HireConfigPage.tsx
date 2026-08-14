@@ -10,7 +10,7 @@ import {
   setupProgress,
   type ConnectorId,
 } from './connectors'
-import { apiConnectUrl, apiConnectorStatus } from './api'
+import { apiConnectUrl, apiConnectorStatus, apiDeleteMemory, apiHireMemory, apiSaveMemory, type HireMemory } from './api'
 import {
   connectedIds,
   getHireContext,
@@ -40,6 +40,9 @@ export function HireConfigPage() {
   const [connectError, setConnectError] = useState('')
   const [connecting, setConnecting] = useState<ConnectorId | null>(null)
   const [ready, setReady] = useState<{ google: boolean; composio: boolean } | null>(null)
+  const [memories, setMemories] = useState<HireMemory[]>([])
+  const [memKey, setMemKey] = useState('')
+  const [memValue, setMemValue] = useState('')
   const saveTimer = useRef<number | null>(null)
   const refresh = () => bump((n) => n + 1)
 
@@ -51,6 +54,14 @@ export function HireConfigPage() {
       .then(setReady)
       .catch(() => setReady({ google: false, composio: false }))
   }, [])
+
+  useEffect(() => {
+    const email = getSession()?.email
+    if (!email || !isAgentId(raw)) return
+    void apiHireMemory(email, raw)
+      .then((d) => setMemories(d.memories || []))
+      .catch(() => setMemories([]))
+  }, [raw])
 
   useEffect(() => {
     if (!params.get('connected')) return
@@ -234,6 +245,88 @@ export function HireConfigPage() {
           </div>
         </section>
       </div>
+
+      <section className="plat-memory">
+        <h2>Remembers</h2>
+        <p className="plat-hint">
+          What {agent.name} keeps. Names, people, timezone, and this week&apos;s decision do not expire. Edit or delete
+          anything that is wrong.
+        </p>
+        {memories.length ? (
+          <ul className="plat-memory-list">
+            {memories.map((m) => (
+              <li key={m.key}>
+                <label className="plat-field">
+                  <span>
+                    {m.key}
+                    {m.durable ? <small> durable</small> : null}
+                  </span>
+                  <input
+                    type="text"
+                    value={m.value}
+                    onChange={(e) => {
+                      const value = e.target.value
+                      setMemories((prev) => prev.map((x) => (x.key === m.key ? { ...x, value } : x)))
+                    }}
+                    onBlur={(e) => {
+                      const email = session?.email
+                      if (!email) return
+                      void apiSaveMemory(email, agentId, [{ key: m.key, value: e.target.value }]).catch(() => undefined)
+                    }}
+                  />
+                </label>
+                <button
+                  type="button"
+                  className="plat-link"
+                  onClick={() => {
+                    const email = session?.email
+                    if (!email) return
+                    void apiDeleteMemory(email, agentId, m.key)
+                      .then(setMemories)
+                      .catch(() => undefined)
+                  }}
+                >
+                  Forget
+                </button>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="plat-hint">Nothing stored yet. It fills in from Context and from what you text.</p>
+        )}
+        <div className="plat-memory-add">
+          <input
+            type="text"
+            placeholder="sister_flight"
+            value={memKey}
+            onChange={(e) => setMemKey(e.target.value)}
+          />
+          <input
+            type="text"
+            placeholder="Friday 7:40"
+            value={memValue}
+            onChange={(e) => setMemValue(e.target.value)}
+          />
+          <button
+            type="button"
+            className="plat-btn plat-btn--sm"
+            disabled={!memKey.trim() || !memValue.trim() || !session?.email}
+            onClick={() => {
+              const email = session?.email
+              if (!email) return
+              void apiSaveMemory(email, agentId, [{ key: memKey.trim(), value: memValue.trim() }])
+                .then((next) => {
+                  setMemories(next)
+                  setMemKey('')
+                  setMemValue('')
+                })
+                .catch(() => undefined)
+            }}
+          >
+            Remember
+          </button>
+        </div>
+      </section>
     </div>
   )
 }

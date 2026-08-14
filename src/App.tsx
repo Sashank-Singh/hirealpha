@@ -3,6 +3,7 @@ import Landing from './Landing'
 import { HireConfigPage } from './platform/HireConfigPage'
 import { HiresPage, ShopPage } from './platform/HiresPage'
 import { LoginPage } from './platform/LoginPage'
+import { MiniAppPage } from './platform/MiniAppPage'
 import { PlatformShell, RequireAuth } from './platform/PlatformShell'
 
 export default function App() {
@@ -11,6 +12,7 @@ export default function App() {
       <Routes>
         <Route path="/" element={<Landing />} />
         <Route path="/app/login" element={<LoginPage />} />
+        <Route path="/app/mini/:persona/:kind" element={<MiniAppPage />} />
         <Route path="/app" element={<RequireAuth />}>
           <Route element={<PlatformShell />}>
             <Route index element={<HiresPage />} />

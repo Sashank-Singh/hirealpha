@@ -42,6 +42,7 @@ export async function apiMe(email: string) {
     roster: AgentId[]
     context: Partial<Record<AgentId, Record<string, string>>>
     connected: ConnectorId[]
+    memory?: Partial<Record<AgentId, Array<{ key: string; value: string; durable: boolean }>>>
   }>(res)
 }
 
@@ -73,6 +74,33 @@ export async function apiSaveContext(email: string, agentId: AgentId, fields: Re
   if (!res.ok) throw new Error('Could not save context')
 }
 
+export type HireMemory = { key: string; value: string; durable: boolean }
+
+export async function apiHireMemory(email: string, agentId: AgentId) {
+  const res = await fetch(`${API}/api/me/hires/${agentId}/memory?email=${encodeURIComponent(email)}`)
+  if (!res.ok) throw new Error('Could not load memory')
+  return parseJson<{ memories: HireMemory[] }>(res)
+}
+
+export async function apiSaveMemory(email: string, agentId: AgentId, facts: Array<{ key: string; value: string }>) {
+  const res = await fetch(`${API}/api/me/hires/${agentId}/memory`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, facts }),
+  })
+  const data = await parseJson<{ memories?: HireMemory[]; error?: string }>(res)
+  if (!res.ok) throw new Error(data.error || 'Could not save memory')
+  return data.memories || []
+}
+
+export async function apiDeleteMemory(email: string, agentId: AgentId, key: string) {
+  const qs = new URLSearchParams({ email, key })
+  const res = await fetch(`${API}/api/me/hires/${agentId}/memory?${qs}`, { method: 'DELETE' })
+  const data = await parseJson<{ memories?: HireMemory[]; error?: string }>(res)
+  if (!res.ok) throw new Error(data.error || 'Could not delete memory')
+  return data.memories || []
+}
+
 export async function apiConnectorStatus() {
   const res = await fetch(`${API}/api/connectors/status`)
   if (!res.ok) return { google: false, composio: false }
@@ -96,4 +124,25 @@ export async function apiConnectUrl(input: {
     throw new Error(data.message || data.error || 'Connect is not configured yet')
   }
   return data.url
+}
+
+export async function apiSetup(input: {
+  persona: AgentId
+  feature: string
+  email?: string
+  token?: string
+}) {
+  const res = await fetch(`${API}/api/setup`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      persona: input.persona,
+      feature: input.feature,
+      email: input.email,
+      token: input.token,
+    }),
+  })
+  const data = await parseJson<{ ok?: boolean; setup?: string[]; error?: string; code?: string }>(res)
+  if (!res.ok) throw new Error(data.error || 'Could not set up that feature')
+  return data
 }

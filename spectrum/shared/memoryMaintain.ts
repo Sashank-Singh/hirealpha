@@ -25,7 +25,8 @@ Assistant: ${input.reply}
 Return a JSON object only, with no prose, in this exact shape:
 {"facts":[{"key":"kebab_case_short_key","value":"short value"}, ...]}
 
-Reuse an existing key if the fact already exists, otherwise invent a short kebab-case key. Omit anything not durable.
+Prefer durable keys when they fit: preferred_name, people, timezone, sister, sister_flight, partner, city, company, role_title, projects, standup_time, company_name, stage, weekly_focus, hard_nos, this_weeks_decision.
+Reuse an existing key if the fact already exists, otherwise invent a short kebab-case key. Omit anything not durable. Never expire names, people, timezone, or this week's decision.
 
 GROUND TRUTH — do not re-extract anything already known here:
 ${authLines}

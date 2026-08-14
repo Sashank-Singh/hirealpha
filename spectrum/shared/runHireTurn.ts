@@ -4,11 +4,11 @@ import {
   type AgentId,
 } from '../../src/agents'
 import { runAgentLocally } from '../../src/agents/runtime'
-import { skillsPromptBlock } from './skills'
+import { skillsPromptBlock, SKILLS } from './skills'
 import { gmiChat } from './gmi'
 import { appendThread, loadMemory, upsertFacts, pruneExpiredFacts, setSummary, trimHistory, MAX_RAW, type ThreadMemory } from './memory'
 import { extractFacts, summarizeOld } from './memoryMaintain'
-import { fetchLiveProfile, fetchLiveTools, formatHireContext } from './liveContext'
+import { fetchLiveProfile, fetchLiveTools, fetchMiniRun, formatHireContext, formatHireMemories, persistLiveFacts, touchInbound } from './liveContext'
 import {
   looksLikeReminder,
   parseReminderIntent,
@@ -16,6 +16,13 @@ import {
   listReminders,
   localTimeToUtc,
 } from './reminders'
+import {
+  DIGEST_MARKER,
+  detectMiniAppRequest,
+  looksLikeDigestIntent,
+  mintMiniAppCard,
+  type MiniAppCard,
+} from './miniApps'
 
 export function splitBubbles(text: string): string[] {
   const cleaned = text.replace(/\r/g, '').trim()
@@ -65,15 +72,60 @@ function stripReasoning(text: string): string {
 }
 
 function wantsLiveData(text: string) {
-  return /\b(e-?mails?|inbox|gmail|unread|calendar|meeting|meetings|schedule|agenda|tomorrow|today|slack|notion|linear|github|drive|spotify)\b/i.test(
+  return /\b(e-?mails?|inbox|mail|gmail|unread|calendar|meeting|meetings|schedule|agenda|tomorrow|today|slack|notion|linear|github|drive|spotify|dinner|restaurant|tonight|maps|place|places|ticket|backlog|triage|deck|wiki|look up|search)\b/i.test(
     text,
   )
 }
 
-function buildMemoryBlock(mem: ThreadMemory): string {
-  const facts = mem.facts.length
-    ? mem.facts.map((f) => `${f.key}: ${f.value}`).join('\n')
-    : ''
+const LIVE_MINI = new Set(['pick_night', 'standup_paste', 'kill_keep_park'])
+
+const TOOL_HINT: Record<string, string> = {
+  gmail: 'check my gmail inbox',
+  calendar: 'what is on my calendar today',
+  maps: 'quiet restaurant nearby tonight',
+  slack: 'check slack',
+  linear: 'linear issues backlog',
+  notion: 'search notion docs',
+  drive: 'list drive files',
+}
+
+async function pickLiveTool(
+  message: string,
+  connected: string[],
+  persona: AgentId,
+): Promise<string | null> {
+  const live = SKILLS[persona].executable.filter((t) => connected.includes(t))
+  if (!live.length) return null
+  try {
+    const raw = await gmiChat({
+      temperature: 0,
+      maxTokens: 40,
+      messages: [
+        {
+          role: 'system',
+          content: `Pick at most one live tool for this iMessage. Live tools: ${live.join(', ')}. Reply JSON only: {"tool":"${live[0]}"} or {"tool":"none"}. If they are just talking, pick none.`,
+        },
+        { role: 'user', content: message },
+      ],
+    })
+    const m = raw.match(/"tool"\s*:\s*"(\w+)"/)
+    const tool = m?.[1] || ''
+    if (!tool || tool === 'none' || !live.includes(tool)) return null
+    return tool
+  } catch {
+    return null
+  }
+}
+
+function buildMemoryBlock(
+  mem: ThreadMemory,
+  liveFacts: Array<{ key: string; value: string }>,
+): string {
+  const byKey = new Map<string, string>()
+  for (const f of mem.facts) byKey.set(f.key, f.value)
+  for (const f of liveFacts) byKey.set(f.key, f.value)
+  const merged = [...byKey.entries()].slice(0, 12)
+  const facts = merged.length ? merged.map(([k, v]) => `${k}: ${v}`).join('\n') : ''
   const summary = mem.summary.trim()
   const parts: string[] = []
   if (facts) parts.push(`## Known facts about this person\n${facts}`)
@@ -91,17 +143,20 @@ async function handleReminderMessage(input: {
   const intent = await parseReminderIntent(input.userText, input.timezone)
   if (intent.action === 'set') {
     const utc = localTimeToUtc(intent.localTime, input.timezone)
+    const text = looksLikeDigestIntent(intent.text)
+      ? `${DIGEST_MARKER}${intent.text}`
+      : intent.text
     const ok = await createReminder({
       phone: input.phone,
       persona: input.persona,
-      text: intent.text,
+      text,
       scheduledAt: utc,
       recurrence: intent.recurrence,
       timezone: input.timezone,
     })
     if (!ok) return "I couldn't save that reminder right now. Try again in a sec?"
     const when = intent.recurrence === 'once' ? '' : ` ${intent.recurrence}`
-    return `Got it — I'll remind you${when} at ${intent.localTime.slice(0, 16).replace('T', ' ')} (${input.timezone}): "${intent.text}".`
+    return `Got it. I'll remind you${when} at ${intent.localTime.slice(0, 16).replace('T', ' ')} (${input.timezone}): "${intent.text}".`
   }
   if (intent.action === 'list') {
     const items = await listReminders(input.phone, input.persona)
@@ -110,7 +165,8 @@ async function handleReminderMessage(input: {
     const lines = pending.map((r) => {
       const when = formatLocalAtSafe(r.scheduledAt, input.timezone)
       const rep = r.recurrence !== 'once' ? ` (${r.recurrence})` : ''
-      return `- ${when}${rep}: ${r.text}`
+      const label = r.text.replace(/^\[(poke|digest)\]/, '').trim()
+      return `- ${when}${rep}: ${label}`
     })
     return `Your reminders:\n${lines.join('\n')}`
   }
@@ -146,12 +202,18 @@ export async function runHireTurn(input: {
   bubbles: string[]
   source: 'gmi' | 'local'
   authoritative: string[]
+  card: MiniAppCard | null
 }> {
   const agent = getAgent(input.agentId)
   const mem = loadMemory(input.dataDir, input.senderId)
   const history = mem.history
+  const isFirst = history.length === 0
   const live = await fetchLiveProfile(input.senderId, agent.id)
   const timezone = live.context?.timezone || live.timezone || 'America/Los_Angeles'
+
+  if (live.hired) {
+    void touchInbound(input.senderId, agent.id)
+  }
 
   if (live.hired && looksLikeReminder(input.userText)) {
     const handled = await handleReminderMessage({
@@ -165,14 +227,33 @@ export async function runHireTurn(input: {
         { role: 'user', content: input.userText },
         { role: 'assistant', content: handled },
       ])
-      return { reply: handled, bubbles: splitBubbles(handled), source: 'gmi', authoritative: [] }
+      return { reply: handled, bubbles: splitBubbles(handled), source: 'gmi', authoritative: [], card: null }
     }
   }
 
-  const toolResults =
+  let toolResults =
     live.found && live.hired && wantsLiveData(input.userText)
       ? await fetchLiveTools(input.senderId, agent.id, input.userText)
       : []
+  if (
+    live.found &&
+    live.hired &&
+    !toolResults.length &&
+    /\b(check|look up|find|search|book|pull|inbox|mail|calendar|slack|linear|notion|drive|maps|dinner|place)\b/i.test(
+      input.userText,
+    )
+  ) {
+    const picked = await pickLiveTool(input.userText, live.connected, agent.id)
+    if (picked && TOOL_HINT[picked]) {
+      toolResults = await fetchLiveTools(input.senderId, agent.id, TOOL_HINT[picked])
+    }
+  }
+
+  const miniApp = live.hired
+    ? isFirst
+      ? { kind: 'menu' as const }
+      : detectMiniAppRequest(input.userText, agent.id)
+    : null
 
   const extras: string[] = []
   if (!live.found) {
@@ -186,11 +267,23 @@ export async function runHireTurn(input: {
   } else {
     if (live.name) {
       extras.push(
-        `This person's name is ${live.name}. Use it naturally — address them by name when it fits.`,
+        `This person's name is ${live.name}. Use it naturally. Address them by name when it fits.`,
       )
     }
     const ctx = formatHireContext(live.context)
     if (ctx) extras.push(ctx)
+    const remembered = formatHireMemories(live.memories)
+    if (remembered) extras.push(remembered)
+  }
+
+  let miniRun: { text?: string; paste?: string } | null = null
+  if (miniApp && LIVE_MINI.has(miniApp.kind)) {
+    miniRun = await fetchMiniRun(input.senderId, agent.id, miniApp.kind)
+    if (miniRun?.text || miniRun?.paste) {
+      extras.push(
+        `Live mini-app result for "${miniApp.kind}" (ground truth, put this in the text, do not invent a different answer):\n${miniRun.paste || miniRun.text}`,
+      )
+    }
   }
   if (toolResults.length) {
     extras.push(
@@ -201,12 +294,21 @@ export async function runHireTurn(input: {
       'They asked about a connected app, but no live data came back. If the tool is not in the connected list, tell them to open this hire at hirealpha.chat/app and tap Connect. Do not invent inbox or calendar contents.',
     )
   }
+  if (miniApp) {
+    extras.push(
+      miniApp.kind === 'menu'
+        ? 'A setup mini-app card is being delivered with your first reply. Introduce yourself briefly, then point them at the card and invite them to pick a feature. Keep your text short. The card carries the options.'
+        : LIVE_MINI.has(miniApp.kind)
+          ? `A mini-app card for "${miniApp.kind}" is also being delivered. Put the live mini-app result in your text. The card is extra.`
+          : `A mini-app card for "${miniApp.kind}" is being delivered with your reply. Keep your text short and offer the card in one line.`,
+    )
+  }
 
-  const memoryBlock = buildMemoryBlock(mem)
+  const memoryBlock = buildMemoryBlock(mem, live.memories || [])
 
   const system = [
     buildSystemPrompt(agent, live.connected),
-    skillsPromptBlock(agent.id),
+    skillsPromptBlock(agent.id, live.connected),
     memoryBlock,
     extras.join('\n\n'),
   ]
@@ -215,7 +317,6 @@ export async function runHireTurn(input: {
 
   let reply: string
   let source: 'gmi' | 'local' = 'gmi'
-  const isFirst = history.length === 0
 
   try {
     const firstHint = isFirst
@@ -255,8 +356,11 @@ export async function runHireTurn(input: {
 
   const authoritative = live.found ? Object.keys(live.context) : []
   const finalReply = stripReasoning(reply)
+  const card = miniApp
+    ? await mintMiniAppCard(input.senderId, agent.id, miniApp.kind, miniApp.query)
+    : null
 
-  return { reply: finalReply, bubbles: splitBubbles(finalReply), source, authoritative }
+  return { reply: finalReply, bubbles: splitBubbles(finalReply), source, authoritative, card }
 }
 
 /**
@@ -284,7 +388,14 @@ export async function runMemoryMaintenance(input: {
       existing: mem.facts,
       authoritative: input.authoritative,
     })
-    if (facts.length) upsertFacts(input.dataDir, input.senderId, facts)
+    if (facts.length) {
+      upsertFacts(input.dataDir, input.senderId, facts)
+      await persistLiveFacts(
+        input.senderId,
+        input.agentId,
+        facts.map((f) => ({ key: f.key, value: f.value })),
+      )
+    }
 
     const after = loadMemory(input.dataDir, input.senderId)
     if (after.history.length >= MAX_RAW) {

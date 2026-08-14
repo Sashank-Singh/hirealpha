@@ -1,4 +1,5 @@
 import { ALPHA, ALPHA_COFOUNDER, ALPHA_COWORKER } from './definitions'
+import { SKILLS } from './skills'
 import type { AgentDefinition, AgentId, ChatMessage, Msg } from './types'
 
 export type { AgentDefinition, AgentId, ChatMessage, Msg } from './types'
@@ -26,10 +27,11 @@ export function toChatMessages(thread: Msg[]): ChatMessage[] {
 }
 
 export function buildSystemPrompt(agent: AgentDefinition, connectedApps: string[] = []): string {
+  const live = SKILLS[agent.id].executable.filter((t) => connectedApps.includes(t))
   const tools =
-    connectedApps.length > 0
-      ? `\nConnected tools for this user: ${connectedApps.join(', ')}.\nYou may suggest using them. Do not claim you already completed an action unless the tool result is provided.`
-      : `\nNo tools connected yet. If an action needs Gmail, Calendar, Slack, etc., say what you would connect or check.`
+    live.length > 0
+      ? `\nLive tools for this user: ${live.join(', ')}.\nYou may use a tool result if one is provided. Do not claim you completed an action unless the tool result is in context.`
+      : `\nNo live tools connected yet. If they ask for Gmail, Calendar, or another tool this hire can run, tell them to open hirealpha.chat/app and tap Connect. Do not mime the action.`
 
   return `${agent.systemPrompt}\n${tools}`
 }

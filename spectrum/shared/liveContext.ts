@@ -5,6 +5,7 @@ export type LiveProfile = {
   hired: boolean
   context: Record<string, string>
   connected: string[]
+  memories: Array<{ key: string; value: string; durable?: boolean }>
   email: string | null
   name?: string | null
   timezone?: string | null
@@ -15,6 +16,7 @@ const EMPTY: LiveProfile = {
   hired: false,
   context: {},
   connected: [],
+  memories: [],
   email: null,
   name: null,
   timezone: null,
@@ -51,7 +53,14 @@ export async function fetchLiveProfile(phone: string, persona: AgentId): Promise
     const url = `${base}/api/internal/live?phone=${encodeURIComponent(phone)}&persona=${encodeURIComponent(persona)}`
     const res = await timedFetch(url, { headers: authHeaders() }, 8000)
     if (!res.ok) return EMPTY
-    return (await res.json()) as LiveProfile
+    const data = (await res.json()) as LiveProfile
+    return {
+      ...EMPTY,
+      ...data,
+      context: data.context || {},
+      connected: data.connected || [],
+      memories: data.memories || [],
+    }
   } catch (err) {
     console.warn('[live] profile lookup failed', err)
     return EMPTY
@@ -85,10 +94,84 @@ export async function fetchLiveTools(
   }
 }
 
+export async function persistLiveFacts(
+  phone: string,
+  persona: AgentId,
+  facts: Array<{ key: string; value: string }>,
+): Promise<void> {
+  const base = apiBase()
+  const key = process.env.HIREALPHA_INTERNAL_KEY || ''
+  if (!base || !key || !facts.length) return
+  try {
+    await timedFetch(
+      `${base}/api/internal/memory`,
+      {
+        method: 'POST',
+        headers: authHeaders(),
+        body: JSON.stringify({ phone, persona, facts }),
+      },
+      8000,
+    )
+  } catch (err) {
+    console.warn('[live] persist facts failed', err)
+  }
+}
+
+export async function touchInbound(phone: string, persona: AgentId): Promise<void> {
+  const base = apiBase()
+  const key = process.env.HIREALPHA_INTERNAL_KEY || ''
+  if (!base || !key) return
+  try {
+    await timedFetch(
+      `${base}/api/internal/touch`,
+      {
+        method: 'POST',
+        headers: authHeaders(),
+        body: JSON.stringify({ phone, persona }),
+      },
+      8000,
+    )
+  } catch (err) {
+    console.warn('[live] touch inbound failed', err)
+  }
+}
+
+export async function fetchMiniRun(
+  phone: string,
+  persona: AgentId,
+  kind: string,
+): Promise<{ text?: string; paste?: string; sections?: Array<{ heading: string; items: string[] }> } | null> {
+  const base = apiBase()
+  const key = process.env.HIREALPHA_INTERNAL_KEY || ''
+  if (!base || !key) return null
+  try {
+    const qs = new URLSearchParams({ phone, persona, kind })
+    const res = await timedFetch(`${base}/api/internal/mini/run?${qs}`, { headers: authHeaders() }, 15000)
+    if (!res.ok) return null
+    return (await res.json()) as { text?: string; paste?: string; sections?: Array<{ heading: string; items: string[] }> }
+  } catch (err) {
+    console.warn('[live] mini run failed', err)
+    return null
+  }
+}
+
 export function formatHireContext(fields: Record<string, string>): string {
   const lines = Object.entries(fields)
-    .filter(([, v]) => (v || '').trim())
-    .map(([k, v]) => `- ${k}: ${v.trim()}`)
+    .filter(([, v]) => {
+      if (v == null) return false
+      return typeof v === 'string' ? v.trim().length > 0 : true
+    })
+    .map(([k, v]) => `- ${k}: ${typeof v === 'string' ? v.trim() : JSON.stringify(v)}`)
   if (!lines.length) return ''
   return `Dashboard context for this person (treat as ground truth):\n${lines.join('\n')}`
+}
+
+export function formatHireMemories(
+  memories: Array<{ key: string; value: string; durable?: boolean }>,
+): string {
+  if (!memories.length) return ''
+  const lines = memories
+    .slice(0, 12)
+    .map((m) => `- ${m.key}: ${m.value}`)
+  return `What this hire remembers (durable facts, never guess past these):\n${lines.join('\n')}`
 }
