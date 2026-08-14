@@ -151,7 +151,7 @@ export async function runHireTurn(input: {
   const mem = loadMemory(input.dataDir, input.senderId)
   const history = mem.history
   const live = await fetchLiveProfile(input.senderId, agent.id)
-  const timezone = live.timezone || 'America/Los_Angeles'
+  const timezone = live.context?.timezone || live.timezone || 'America/Los_Angeles'
 
   if (live.hired && looksLikeReminder(input.userText)) {
     const handled = await handleReminderMessage({

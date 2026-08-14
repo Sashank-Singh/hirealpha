@@ -5,6 +5,7 @@ import type { AgentId } from '../agents/types'
 import { SKILLS } from '../agents/skills'
 import {
   CONTEXT_FIELDS,
+  TIMEZONES,
   connectorsForHire,
   setupProgress,
   type ConnectorId,
@@ -186,7 +187,24 @@ export function HireConfigPage() {
               <label key={f.id} className="plat-field">
                 <span>{f.label}</span>
                 <small>{f.hint}</small>
-                {f.multiline ? (
+                {f.timezone ? (
+                  <select
+                    value={context[f.id] ?? ''}
+                    onChange={(e) => {
+                      setHireContextField(agentId, f.id, e.target.value)
+                      scheduleSave()
+                      refresh()
+                    }}
+                    onBlur={() => persistHireContext(agentId)}
+                  >
+                    <option value="">Pick a timezone…</option>
+                    {TIMEZONES.map((tz) => (
+                      <option key={tz} value={tz}>
+                        {tz}
+                      </option>
+                    ))}
+                  </select>
+                ) : f.multiline ? (
                   <textarea
                     rows={3}
                     placeholder={f.placeholder}

@@ -5,28 +5,6 @@ import { getSession, hydrateFromServer, signIn } from './roster'
 
 type AuthMode = 'signin' | 'signup'
 
-const DEFAULT_TZ = Intl.DateTimeFormat().resolvedOptions().timeZone || 'America/Los_Angeles'
-
-function timezoneOptions(): string[] {
-  try {
-    const zones = Intl.supportedValuesOf('timeZone')
-    if (zones?.length) return zones
-  } catch {
-    /* fall through */
-  }
-  return [
-    'America/Los_Angeles',
-    'America/Denver',
-    'America/Chicago',
-    'America/New_York',
-    'Europe/London',
-    'Europe/Paris',
-    'Asia/Kolkata',
-    'Asia/Tokyo',
-    'Australia/Sydney',
-  ]
-}
-
 export function LoginPage() {
   const existing = getSession()
   const navigate = useNavigate()
@@ -35,7 +13,6 @@ export function LoginPage() {
   const [name, setName] = useState(existing?.name || '')
   const [email, setEmail] = useState(existing?.email || '')
   const [phone, setPhone] = useState(existing?.phone || '')
-  const [timezone, setTimezone] = useState(existing?.timezone || DEFAULT_TZ)
   const [emailMode, setEmailMode] = useState(!!existing?.email && !existing?.phone)
   const [googleUser, setGoogleUser] = useState(false)
   const [error, setError] = useState('')
@@ -57,7 +34,7 @@ export function LoginPage() {
         if (data.name) setName(data.name)
         setGoogleUser(true)
         if (data.phone) {
-          signIn(data.email, data.phone, data.name, timezone)
+          signIn(data.email, data.phone, data.name)
           await hydrateFromServer().catch(() => undefined)
           navigate('/app')
           return
@@ -71,16 +48,16 @@ export function LoginPage() {
         setBusy(false)
         setParams({}, { replace: true })
       })
-  }, [navigate, params, setParams, timezone])
+  }, [navigate, params, setParams])
 
   if (existing?.email && existing.phone) return <Navigate to="/app" replace />
 
-  async function finish(nextName: string, nextEmail: string, nextPhone: string, nextTz: string) {
+  async function finish(nextName: string, nextEmail: string, nextPhone: string) {
     setBusy(true)
     setError('')
     try {
-      await apiSignIn(nextEmail, nextPhone, nextName, nextTz)
-      signIn(nextEmail, nextPhone, nextName, nextTz)
+      await apiSignIn(nextEmail, nextPhone, nextName)
+      signIn(nextEmail, nextPhone, nextName)
       await hydrateFromServer().catch(() => undefined)
       navigate('/app')
     } catch (err) {
@@ -111,11 +88,7 @@ export function LoginPage() {
       setError('Enter the phone you text from in Messages, including area code.')
       return
     }
-    if (!timezone) {
-      setError('Pick your timezone.')
-      return
-    }
-    void finish(nextName, nextEmail, nextPhone, timezone)
+    void finish(nextName, nextEmail, nextPhone)
   }
 
   return (
@@ -125,7 +98,7 @@ export function LoginPage() {
         <h1>{mode === 'signup' ? 'Sign up' : 'Sign in'}</h1>
         <p className="plat-auth__sub">
           {googleUser
-            ? 'Google is in. Add your name, timezone, and the phone you text the hires from so they can find you.'
+            ? 'Google is in. Add your name and the phone you text the hires from so they can find you.'
             : mode === 'signup'
               ? 'Create your account. Hire people for your texts, then connect what they need.'
               : 'Hire people for your texts, then connect what they need.'}
@@ -191,23 +164,6 @@ export function LoginPage() {
                   }}
                   placeholder="+1 555 010 9876"
                 />
-              </label>
-              <label>
-                Timezone
-                <select
-                  required
-                  value={timezone}
-                  onChange={(e) => {
-                    setTimezone(e.target.value)
-                    if (error) setError('')
-                  }}
-                >
-                  {timezoneOptions().map((tz) => (
-                    <option key={tz} value={tz}>
-                      {tz}
-                    </option>
-                  ))}
-                </select>
               </label>
               {error && <p className="plat-auth__error">{error}</p>}
               <button type="submit" className="plat-btn plat-btn--block" disabled={busy}>

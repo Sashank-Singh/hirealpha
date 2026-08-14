@@ -97,7 +97,29 @@ export interface ContextField {
   hint: string
   placeholder: string
   multiline?: boolean
+  /** Renders a timezone <select> instead of a text input. */
+  timezone?: boolean
 }
+
+export const TIMEZONES: string[] = (() => {
+  try {
+    const zones = Intl.supportedValuesOf('timeZone')
+    if (zones?.length) return zones
+  } catch {
+    /* fall through */
+  }
+  return [
+    'America/Los_Angeles',
+    'America/Denver',
+    'America/Chicago',
+    'America/New_York',
+    'Europe/London',
+    'Europe/Paris',
+    'Asia/Kolkata',
+    'Asia/Tokyo',
+    'Australia/Sydney',
+  ]
+})()
 
 /** Context we ask for per hire. Only shown for bought hires. */
 export const CONTEXT_FIELDS: Record<AgentId, ContextField[]> = {
@@ -111,8 +133,9 @@ export const CONTEXT_FIELDS: Record<AgentId, ContextField[]> = {
     {
       id: 'timezone',
       label: 'Timezone',
-      hint: 'For check ins and plans.',
-      placeholder: 'e.g. America/Los_Angeles',
+      hint: 'For check ins, plans, and reminders.',
+      placeholder: 'America/Los_Angeles',
+      timezone: true,
     },
     {
       id: 'people',
@@ -143,6 +166,13 @@ export const CONTEXT_FIELDS: Record<AgentId, ContextField[]> = {
       placeholder: 'e.g. Founding engineer',
     },
     {
+      id: 'timezone',
+      label: 'Timezone',
+      hint: 'For standups, syncs, and reminders.',
+      placeholder: 'America/Los_Angeles',
+      timezone: true,
+    },
+    {
       id: 'projects',
       label: 'Active projects',
       hint: 'What Coworker should already know.',
@@ -168,6 +198,13 @@ export const CONTEXT_FIELDS: Record<AgentId, ContextField[]> = {
       label: 'Stage',
       hint: 'Pre seed, seed, PMF hunt, …',
       placeholder: 'e.g. Pre seed, building wedge',
+    },
+    {
+      id: 'timezone',
+      label: 'Timezone',
+      hint: 'For check-ins and reminders.',
+      placeholder: 'America/Los_Angeles',
+      timezone: true,
     },
     {
       id: 'weekly_focus',
