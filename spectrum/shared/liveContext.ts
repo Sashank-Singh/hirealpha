@@ -7,6 +7,7 @@ export type LiveProfile = {
   connected: string[]
   email: string | null
   name?: string | null
+  timezone?: string | null
 }
 
 const EMPTY: LiveProfile = {
@@ -16,6 +17,7 @@ const EMPTY: LiveProfile = {
   connected: [],
   email: null,
   name: null,
+  timezone: null,
 }
 
 function apiBase() {

@@ -103,12 +103,30 @@ export async function ensureHireSchema(sql: SQL) {
       id TEXT PRIMARY KEY,
       email TEXT NOT NULL UNIQUE,
       name TEXT,
+      timezone TEXT,
       phone_e164 TEXT UNIQUE,
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
     )
   `
   await sql`ALTER TABLE hire_users ADD COLUMN IF NOT EXISTS name TEXT`
+  await sql`ALTER TABLE hire_users ADD COLUMN IF NOT EXISTS timezone TEXT`
+  await sql`
+    CREATE TABLE IF NOT EXISTS hire_reminders (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES hire_users(id) ON DELETE CASCADE,
+      persona TEXT NOT NULL,
+      text TEXT NOT NULL,
+      scheduled_at TIMESTAMPTZ NOT NULL,
+      recurrence TEXT NOT NULL DEFAULT 'once',
+      timezone TEXT,
+      status TEXT NOT NULL DEFAULT 'pending',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `
+  await sql`ALTER TABLE hire_reminders ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ`
+  await sql`CREATE INDEX IF NOT EXISTS idx_hire_reminders_due ON hire_reminders (persona, status, scheduled_at)`
   await sql`
     CREATE TABLE IF NOT EXISTS hire_roster (
       user_id TEXT NOT NULL REFERENCES hire_users(id) ON DELETE CASCADE,
@@ -164,28 +182,35 @@ export async function ensureHireSchema(sql: SQL) {
 
 async function getUserByEmail(sql: SQL, email: string) {
   const rows = await sql`
-    SELECT id, email, name, phone_e164 AS phone FROM hire_users WHERE email = ${email} LIMIT 1
+    SELECT id, email, name, timezone, phone_e164 AS phone FROM hire_users WHERE email = ${email} LIMIT 1
   `
-  return (rows[0] as { id: string; email: string; name: string | null; phone: string | null } | undefined) ?? null
+  return (rows[0] as { id: string; email: string; name: string | null; timezone: string | null; phone: string | null } | undefined) ?? null
 }
 
 async function getUserByPhone(sql: SQL, phone: string) {
   const e164 = normalizePhone(phone)
   if (!e164) return null
   const rows = await sql`
-    SELECT id, email, name, phone_e164 AS phone FROM hire_users
+    SELECT id, email, name, timezone, phone_e164 AS phone FROM hire_users
     WHERE phone_e164 = ${e164}
        OR right(regexp_replace(phone_e164, '[^0-9]', '', 'g'), 10)
           = ${e164.replace(/\D/g, '').slice(-10)}
     LIMIT 1
   `
-  return (rows[0] as { id: string; email: string; name: string | null; phone: string | null } | undefined) ?? null
+  return (rows[0] as { id: string; email: string; name: string | null; timezone: string | null; phone: string | null } | undefined) ?? null
 }
 
-async function ensureUser(sql: SQL, email: string, phone?: string | null, name?: string | null) {
+async function ensureUser(
+  sql: SQL,
+  email: string,
+  phone?: string | null,
+  name?: string | null,
+  timezone?: string | null,
+) {
   const existing = await getUserByEmail(sql, email)
   const e164 = normalizePhone(phone || '')
   const cleanName = name?.trim() ? name.trim() : null
+  const cleanTz = timezone?.trim() ? timezone.trim() : null
   if (existing) {
     let changed = false
     if (e164 && existing.phone !== e164) {
@@ -196,11 +221,16 @@ async function ensureUser(sql: SQL, email: string, phone?: string | null, name?:
       existing.name = cleanName
       changed = true
     }
+    if (cleanTz && existing.timezone !== cleanTz) {
+      existing.timezone = cleanTz
+      changed = true
+    }
     if (changed) {
       await sql`
         UPDATE hire_users SET
           phone_e164 = ${existing.phone},
           name = ${existing.name},
+          timezone = ${existing.timezone},
           updated_at = now()
         WHERE id = ${existing.id}
       `
@@ -209,10 +239,10 @@ async function ensureUser(sql: SQL, email: string, phone?: string | null, name?:
   }
   const id = crypto.randomUUID()
   await sql`
-    INSERT INTO hire_users (id, email, name, phone_e164)
-    VALUES (${id}, ${email}, ${cleanName}, ${e164})
+    INSERT INTO hire_users (id, email, name, timezone, phone_e164)
+    VALUES (${id}, ${email}, ${cleanName}, ${cleanTz}, ${e164})
   `
-  return { id, email, name: cleanName, phone: e164 }
+  return { id, email, name: cleanName, timezone: cleanTz, phone: e164 }
 }
 
 async function loadRoster(sql: SQL, userId: string): Promise<Persona[]> {
@@ -506,6 +536,7 @@ async function livePayload(sql: SQL, phone: string, persona: Persona) {
       connected: [] as string[],
       email: null as string | null,
       name: null as string | null,
+      timezone: null as string | null,
     }
   }
   const roster = await loadRoster(sql, user.id)
@@ -514,7 +545,16 @@ async function livePayload(sql: SQL, phone: string, persona: Persona) {
   const connected = hired
     ? (await connectedForUser(sql, user.id)).filter((id) => !PERSONA_DENIED[persona].has(id))
     : []
-  return { found: true, hired, context, connected, email: user.email, name: user.name, userId: user.id }
+  return {
+    found: true,
+    hired,
+    context,
+    connected,
+    email: user.email,
+    name: user.name,
+    timezone: user.timezone,
+    userId: user.id,
+  }
 }
 
 export async function handleHireApi(req: Request, sql: SQL | null): Promise<Response | null> {
@@ -584,13 +624,13 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
   }
 
   if (path === '/api/me' && req.method === 'POST') {
-    const body = (await req.json().catch(() => ({}))) as { email?: string; phone?: string; name?: string }
+    const body = (await req.json().catch(() => ({}))) as { email?: string; phone?: string; name?: string; timezone?: string }
     const email = String(body.email || '')
       .trim()
       .toLowerCase()
     if (!email.includes('@')) return json({ error: 'Enter a valid email' }, 400)
     try {
-      const user = await ensureUser(sql, email, body.phone, body.name)
+      const user = await ensureUser(sql, email, body.phone, body.name, body.timezone)
       const roster = await loadRoster(sql, user.id)
       return json({ user, roster })
     } catch (err) {
@@ -618,13 +658,13 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
   }
 
   if (path === '/api/me/phone' && req.method === 'PUT') {
-    const body = (await req.json().catch(() => ({}))) as { email?: string; phone?: string; name?: string }
+    const body = (await req.json().catch(() => ({}))) as { email?: string; phone?: string; name?: string; timezone?: string }
     const email = String(body.email || '')
       .trim()
       .toLowerCase()
     const phone = normalizePhone(body.phone || '')
     if (!email.includes('@') || !phone) return json({ error: 'email and phone required' }, 400)
-    const user = await ensureUser(sql, email, phone, body.name)
+    const user = await ensureUser(sql, email, phone, body.name, body.timezone)
     return json({ user })
   }
 
@@ -825,6 +865,112 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
       connected: live.connected,
     })
     return json({ results })
+  }
+
+  if (path === '/api/internal/reminders' && req.method === 'POST') {
+    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
+    const body = (await req.json().catch(() => ({}))) as {
+      phone?: string
+      persona?: string
+      text?: string
+      scheduledAt?: string
+      recurrence?: string
+      timezone?: string
+    }
+    if (!body.phone || !body.persona || !isPersona(body.persona) || !body.text?.trim()) {
+      return json({ error: 'phone, persona, and text required' }, 400)
+    }
+    const at = new Date(body.scheduledAt || '')
+    if (Number.isNaN(at.getTime())) return json({ error: 'scheduledAt required' }, 400)
+    const user = await getUserByPhone(sql, body.phone)
+    if (!user) return json({ error: 'User not found' }, 404)
+    const recurrence = body.recurrence === 'daily' || body.recurrence === 'weekly' ? body.recurrence : 'once'
+    const id = crypto.randomUUID()
+    await sql`
+      INSERT INTO hire_reminders (id, user_id, persona, text, scheduled_at, recurrence, timezone, status)
+      VALUES (${id}, ${user.id}, ${body.persona}, ${body.text.trim()}, ${at.toISOString()}, ${recurrence}, ${body.timezone || null}, 'pending')
+    `
+    return json({ ok: true, reminder: { id, scheduledAt: at.toISOString(), recurrence, text: body.text.trim() } })
+  }
+
+  if (path === '/api/internal/reminders/due' && req.method === 'GET') {
+    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
+    const persona = url.searchParams.get('persona') || ''
+    if (!isPersona(persona)) return json({ error: 'persona required' }, 400)
+    const rows = await sql`
+      SELECT r.id, r.user_id AS "userId", u.phone_e164 AS phone, r.text, r.scheduled_at AS "scheduledAt", r.recurrence, r.timezone
+      FROM hire_reminders r
+      JOIN hire_users u ON u.id = r.user_id
+      WHERE r.persona = ${persona} AND r.status = 'pending' AND r.scheduled_at <= now()
+      ORDER BY r.scheduled_at ASC
+      LIMIT 25
+    `
+    const reminders = rows.map((r: { id: string; userId: string; phone: string; text: string; scheduledAt: Date; recurrence: string; timezone: string | null }) => ({
+      id: r.id,
+      userId: r.userId,
+      phone: r.phone,
+      text: r.text,
+      scheduledAt: new Date(r.scheduledAt).toISOString(),
+      recurrence: r.recurrence,
+      timezone: r.timezone,
+    }))
+    return json({ reminders })
+  }
+
+  if (path === '/api/internal/reminders/list' && req.method === 'GET') {
+    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
+    const phone = url.searchParams.get('phone') || ''
+    const persona = url.searchParams.get('persona') || ''
+    if (!phone || !isPersona(persona)) return json({ error: 'phone and persona required' }, 400)
+    const user = await getUserByPhone(sql, phone)
+    if (!user) return json({ reminders: [] })
+    const rows = await sql`
+      SELECT id, text, scheduled_at AS "scheduledAt", recurrence, status, timezone
+      FROM hire_reminders
+      WHERE user_id = ${user.id} AND persona = ${persona}
+      ORDER BY scheduled_at ASC
+      LIMIT 50
+    `
+    return json({
+      reminders: rows.map((r: { id: string; text: string; scheduledAt: Date; recurrence: string; status: string; timezone: string | null }) => ({
+        id: r.id,
+        text: r.text,
+        scheduledAt: new Date(r.scheduledAt).toISOString(),
+        recurrence: r.recurrence,
+        status: r.status,
+        timezone: r.timezone,
+      })),
+    })
+  }
+
+  const reminderDone = path.match(/^\/api\/internal\/reminders\/([^/]+)\/done$/)
+  if (reminderDone && req.method === 'POST') {
+    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
+    const body = (await req.json().catch(() => ({}))) as { nextAt?: string }
+    const rows = await sql`
+      SELECT id, recurrence FROM hire_reminders WHERE id = ${reminderDone[1]} LIMIT 1
+    `
+    const row = rows[0] as { id: string; recurrence: string } | undefined
+    if (!row) return json({ error: 'Reminder not found' }, 404)
+    if (row.recurrence !== 'once' && body.nextAt) {
+      const next = new Date(body.nextAt)
+      if (!Number.isNaN(next.getTime())) {
+        await sql`
+          UPDATE hire_reminders SET scheduled_at = ${next.toISOString()}, updated_at = now() WHERE id = ${row.id}
+        `
+        return json({ ok: true, rescheduled: true, nextAt: next.toISOString() })
+      }
+    }
+    await sql`UPDATE hire_reminders SET status = 'sent' WHERE id = ${row.id}`
+    return json({ ok: true, rescheduled: false })
+  }
+
+  if (path === '/api/internal/reminders' && req.method === 'DELETE') {
+    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
+    const id = url.searchParams.get('id') || ''
+    if (!id) return json({ error: 'id required' }, 400)
+    await sql`DELETE FROM hire_reminders WHERE id = ${id}`
+    return json({ ok: true })
   }
 
   return null

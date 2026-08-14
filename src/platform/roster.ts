@@ -11,6 +11,7 @@ export interface Session {
   email: string
   phone: string
   name?: string
+  timezone?: string
   signedInAt: string
 }
 
@@ -44,15 +45,17 @@ export function getSession(): Session | null {
     email: raw.email,
     phone: raw.phone || '',
     name: raw.name || undefined,
+    timezone: raw.timezone || undefined,
     signedInAt: raw.signedInAt,
   }
 }
 
-export function signIn(email: string, phone = '', name?: string): Session {
+export function signIn(email: string, phone = '', name?: string, timezone?: string): Session {
   const session: Session = {
     email: email.trim().toLowerCase(),
     phone: phone.trim(),
     name: name?.trim() || undefined,
+    timezone: timezone?.trim() || undefined,
     signedInAt: new Date().toISOString(),
   }
   writeJson(SESSION_KEY, session)
@@ -168,10 +171,10 @@ export async function hydrateFromServer(): Promise<void> {
   if (!session?.email) return
   const data = await apiMe(session.email)
   const serverName = data.user?.name || undefined
-  if (data.user?.phone && data.user.phone !== session.phone) {
-    signIn(session.email, data.user.phone, serverName)
-  } else if (serverName && serverName !== session.name) {
-    signIn(session.email, session.phone, serverName)
+  const serverTz = data.user?.timezone || undefined
+  const needsPhone = data.user?.phone && data.user.phone !== session.phone
+  if (needsPhone || (serverName && serverName !== session.name) || (serverTz && serverTz !== session.timezone)) {
+    signIn(session.email, data.user?.phone || session.phone, serverName, serverTz)
   }
   if (data.roster?.length) {
     replaceRoster(data.roster)

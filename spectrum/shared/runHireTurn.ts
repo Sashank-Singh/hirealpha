@@ -9,6 +9,13 @@ import { gmiChat } from './gmi'
 import { appendThread, loadMemory, upsertFacts, pruneExpiredFacts, setSummary, trimHistory, MAX_RAW, type ThreadMemory } from './memory'
 import { extractFacts, summarizeOld } from './memoryMaintain'
 import { fetchLiveProfile, fetchLiveTools, formatHireContext } from './liveContext'
+import {
+  looksLikeReminder,
+  parseReminderIntent,
+  createReminder,
+  listReminders,
+  localTimeToUtc,
+} from './reminders'
 
 export function splitBubbles(text: string): string[] {
   const cleaned = text.replace(/\r/g, '').trim()
@@ -74,6 +81,61 @@ function buildMemoryBlock(mem: ThreadMemory): string {
   return parts.join('\n\n')
 }
 
+/** Handle "remind me..." / "my reminders" / "cancel reminder" in one turn. */
+async function handleReminderMessage(input: {
+  phone: string
+  persona: string
+  userText: string
+  timezone: string
+}): Promise<string | null> {
+  const intent = await parseReminderIntent(input.userText, input.timezone)
+  if (intent.action === 'set') {
+    const utc = localTimeToUtc(intent.localTime, input.timezone)
+    const ok = await createReminder({
+      phone: input.phone,
+      persona: input.persona,
+      text: intent.text,
+      scheduledAt: utc,
+      recurrence: intent.recurrence,
+      timezone: input.timezone,
+    })
+    if (!ok) return "I couldn't save that reminder right now. Try again in a sec?"
+    const when = intent.recurrence === 'once' ? '' : ` ${intent.recurrence}`
+    return `Got it — I'll remind you${when} at ${intent.localTime.slice(0, 16).replace('T', ' ')} (${input.timezone}): "${intent.text}".`
+  }
+  if (intent.action === 'list') {
+    const items = await listReminders(input.phone, input.persona)
+    const pending = items.filter((r) => r.status === 'pending')
+    if (!pending.length) return "You don't have any reminders lined up right now."
+    const lines = pending.map((r) => {
+      const when = formatLocalAtSafe(r.scheduledAt, input.timezone)
+      const rep = r.recurrence !== 'once' ? ` (${r.recurrence})` : ''
+      return `- ${when}${rep}: ${r.text}`
+    })
+    return `Your reminders:\n${lines.join('\n')}`
+  }
+  if (intent.action === 'cancel') {
+    return "Tell me which reminder to remove (paste the time or text) and I'll kill it."
+  }
+  return null
+}
+
+function formatLocalAtSafe(utc: string, timezone: string): string {
+  try {
+    const dtf = new Intl.DateTimeFormat('en-US', {
+      timeZone: timezone,
+      month: 'short',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true,
+    })
+    return dtf.format(new Date(utc))
+  } catch {
+    return new Date(utc).toLocaleString()
+  }
+}
+
 export async function runHireTurn(input: {
   agentId: AgentId
   dataDir: string
@@ -89,6 +151,24 @@ export async function runHireTurn(input: {
   const mem = loadMemory(input.dataDir, input.senderId)
   const history = mem.history
   const live = await fetchLiveProfile(input.senderId, agent.id)
+  const timezone = live.timezone || 'America/Los_Angeles'
+
+  if (live.hired && looksLikeReminder(input.userText)) {
+    const handled = await handleReminderMessage({
+      phone: input.senderId,
+      persona: agent.id,
+      userText: input.userText,
+      timezone,
+    })
+    if (handled) {
+      appendThread(input.dataDir, input.senderId, [
+        { role: 'user', content: input.userText },
+        { role: 'assistant', content: handled },
+      ])
+      return { reply: handled, bubbles: splitBubbles(handled), source: 'gmi', authoritative: [] }
+    }
+  }
+
   const toolResults =
     live.found && live.hired && wantsLiveData(input.userText)
       ? await fetchLiveTools(input.senderId, agent.id, input.userText)

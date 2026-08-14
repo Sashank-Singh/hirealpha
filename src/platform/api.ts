@@ -19,14 +19,14 @@ export async function apiExchangeGoogle(ticket: string) {
   return { email: data.email, name: data.name || '', phone: data.phone || '' }
 }
 
-export async function apiSignIn(email: string, phone: string, name?: string) {
+export async function apiSignIn(email: string, phone: string, name?: string, timezone?: string) {
   const res = await fetch(`${API}/api/me`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email, phone, name }),
+    body: JSON.stringify({ email, phone, name, timezone }),
   })
   const data = await parseJson<{
-    user?: { id: string; email: string; name: string | null; phone: string | null }
+    user?: { id: string; email: string; name: string | null; timezone: string | null; phone: string | null }
     roster?: AgentId[]
     error?: string
   }>(res)
@@ -38,18 +38,18 @@ export async function apiMe(email: string) {
   const res = await fetch(`${API}/api/me?email=${encodeURIComponent(email)}`)
   if (!res.ok) throw new Error('Could not load account')
   return parseJson<{
-    user: { id: string; email: string; name: string | null; phone: string | null } | null
+    user: { id: string; email: string; name: string | null; timezone: string | null; phone: string | null } | null
     roster: AgentId[]
     context: Partial<Record<AgentId, Record<string, string>>>
     connected: ConnectorId[]
   }>(res)
 }
 
-export async function apiSavePhone(email: string, phone: string, name?: string) {
+export async function apiSavePhone(email: string, phone: string, name?: string, timezone?: string) {
   const res = await fetch(`${API}/api/me/phone`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email, phone, name }),
+    body: JSON.stringify({ email, phone, name, timezone }),
   })
   const data = await parseJson<{ error?: string }>(res)
   if (!res.ok) throw new Error(data.error || 'Could not save phone')
