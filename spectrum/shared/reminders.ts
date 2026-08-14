@@ -32,6 +32,74 @@ function parseRecurrence(v: unknown): 'once' | 'daily' | 'weekly' {
 }
 
 /**
+ * Deterministic parser for common relative/absolute times, so short requests
+ * like "remind me in 2 mins" work even if the LLM is slow or non-compliant.
+ * Returns a localTime ("YYYY-MM-DDTHH:MM:SS") or null.
+ */
+export function parseRelativeLocalTime(
+  userText: string,
+  timezone: string,
+  nowLocal: string,
+): string | null {
+  const now = new Date(`${nowLocal}Z`).getTime()
+  if (Number.isNaN(now)) return null
+  const m = userText.match(/\bin\s+(\d+)\s*(min|minute|mins|minutes|hr|hrs|hour|hours|sec|secs|second|seconds|day|days)\b/i)
+  if (m && m[2]) {
+    const n = Number(m[1])
+    const unit = m[2].toLowerCase()
+    let ms = 0
+    if (unit.startsWith('min')) ms = n * 60_000
+    else if (unit.startsWith('hr')) ms = n * 3_600_000
+    else if (unit.startsWith('sec')) ms = n * 1000
+    else if (unit.startsWith('day')) ms = n * 86_400_000
+    if (ms > 0) return new Date(now + ms).toISOString().slice(0, 19).replace('T', 'T')
+  }
+  const tm = userText.match(/\b(?:tomorrow|tmrw)\s+at\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b/i)
+  if (tm) {
+    let h = Number(tm[1])
+    const min = Number(tm[2] || '0')
+    const ap = (tm[3] || '').toLowerCase()
+    if (ap === 'pm' && h < 12) h += 12
+    if (ap === 'am' && h === 12) h = 0
+    const d = new Date(now + 86_400_000)
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}T${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}:00`
+  }
+  const am = userText.match(/\b(?:at|around)\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b/i)
+  if (am) {
+    let h = Number(am[1])
+    const min = Number(am[2] || '0')
+    const ap = (am[3] || '').toLowerCase()
+    if (ap === 'pm' && h < 12) h += 12
+    if (ap === 'am' && h === 12) h = 0
+    const d = new Date(now)
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}T${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}:00`
+  }
+  return null
+}
+
+/** Pull a JSON object out of a model reply that may be wrapped in prose/fences. */
+function extractJson(raw: string): Record<string, unknown> | null {
+  const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)```/)
+  const candidate = (fenced?.[1] || raw).trim()
+  if (!candidate) return null
+  try {
+    return JSON.parse(candidate) as Record<string, unknown>
+  } catch {
+    /* fall through */
+  }
+  const first = candidate.indexOf('{')
+  const last = candidate.lastIndexOf('}')
+  if (first !== -1 && last > first) {
+    try {
+      return JSON.parse(candidate.slice(first, last + 1)) as Record<string, unknown>
+    } catch {
+      return null
+    }
+  }
+  return null
+}
+
+/**
  * Ask the model to turn a message like "remind me tomorrow 9am to call the
  * dentist" into a structured intent with an absolute local wall-clock time.
  * Returns action 'none' if the model decides it isn't a reminder request.
@@ -42,6 +110,7 @@ export async function parseReminderIntent(
 ): Promise<ReminderIntent> {
   const tz = timezone || 'America/Los_Angeles'
   const nowLocal = formatLocalNow(tz)
+  const fallback = parseRelativeLocalTime(userText, tz, nowLocal)
   try {
     const raw = await gmiChat({
       temperature: 0,
@@ -55,11 +124,11 @@ export async function parseReminderIntent(
               '" and the current local time is ' +
               nowLocal +
               '.',
-            'Reply with ONLY valid JSON, no prose, no markdown. Shape:',
+            'Reply with ONLY a single JSON object, no prose, no markdown fences. Shape:',
             '{"action":"set"|"list"|"cancel"|"none","text":"reminder text",',
             '"localTime":"YYYY-MM-DDTHH:MM:SS" or "","recurrence":"once"|"daily"|"weekly"}',
             'Rules:',
-            '- "remind me to X" / "set a reminder for X" -> action set. text is X.',
+            '- "remind me to X" / "set a reminder for X" / "remind me in 2 mins" -> action set. text is X (or the whole request if no X given).',
             '- Resolve relative time ("tomorrow 9am", "in 2 hours", "every weekday 8am") to an absolute localTime for the NEXT occurrence.',
             '- If it repeats every day -> recurrence daily. Every week / specific weekday -> weekly. Otherwise once.',
             '- "what reminders" / "my reminders" -> action list.',
@@ -70,19 +139,28 @@ export async function parseReminderIntent(
         { role: 'user', content: userText },
       ],
     })
-    const parsed = JSON.parse(raw) as {
-      action?: string
-      text?: unknown
-      localTime?: unknown
-      recurrence?: unknown
+    const parsed = extractJson(raw)
+    if (!parsed) {
+      if (fallback) {
+        return {
+          action: 'set',
+          text: userText.replace(/\bremind me\b/i, '').trim() || 'Reminder',
+          localTime: fallback,
+          recurrence: 'once',
+        }
+      }
+      return { action: 'none' }
     }
-    const action = parsed.action || 'none'
+    const action = typeof parsed.action === 'string' ? parsed.action : 'none'
     if (action === 'set') {
-      const localTime = typeof parsed.localTime === 'string' ? parsed.localTime : ''
-      if (!isLocalTime(localTime)) return { action: 'none' }
+      const localTime =
+        typeof parsed.localTime === 'string' && isLocalTime(parsed.localTime)
+          ? parsed.localTime
+          : fallback
+      if (!localTime) return { action: 'none' }
       return {
         action: 'set',
-        text: String(parsed.text || '').trim() || 'Reminder',
+        text: String(parsed.text || '').trim() || userText.replace(/\bremind me\b/i, '').trim() || 'Reminder',
         localTime,
         recurrence: parseRecurrence(parsed.recurrence),
       }
@@ -91,6 +169,14 @@ export async function parseReminderIntent(
     if (action === 'cancel') return { action: 'cancel' }
     return { action: 'none' }
   } catch {
+    if (fallback) {
+      return {
+        action: 'set',
+        text: userText.replace(/\bremind me\b/i, '').trim() || 'Reminder',
+        localTime: fallback,
+        recurrence: 'once',
+      }
+    }
     return { action: 'none' }
   }
 }
