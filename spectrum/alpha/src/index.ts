@@ -3,6 +3,7 @@ import { imessage } from '@spectrum-ts/imessage'
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { getAgent, runHireTurn, runMemoryMaintenance } from '../../shared/runHireTurn'
+import { startReminderScheduler } from '../../shared/reminders'
 import { startHealthServer } from '../../shared/health'
 
 const agentId = 'friend' as const
@@ -39,8 +40,32 @@ if (introTo) {
 startHealthServer(agent.id)
 console.log(`[${agent.id}] listening as ${agent.imsgName} (${agent.phoneNumber})`)
 
+startReminderScheduler({
+  persona: agent.id,
+  send: async (phone, text) => {
+    const user = await im.user(phone)
+    const space = await im.space.create(user)
+    await space.responding(async () => {
+      await space.send(text)
+    })
+  },
+})
+
 for await (const [space, message] of app.messages) {
   if (message.direction === 'outbound') continue
+
+  if (message.content.type === 'read') {
+    try {
+      const target = message.content.target
+      console.log(
+        `[${agent.id}] ${message.sender?.id ?? 'reader'} read ${target.id} at ${message.timestamp.toISOString()}`,
+      )
+    } catch {
+      /* ignore */
+    }
+    continue
+  }
+
   if (message.content.type !== 'text') continue
 
   const userText = message.content.text.trim()
