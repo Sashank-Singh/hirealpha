@@ -1035,7 +1035,7 @@ async function fetchMapSearch(query: string, countryHint = '') {
     .replace(/\b(find|search|show|recommend|tonight|maps|hangout|near me|near us|nearby|near\b|around|where should we|where can we)\b/gi, ' ')
     .replace(/\s+/g, ' ')
     .trim()
-  if (!cleaned || /^(quiet|good|best)$/i.test(cleaned)) {
+  if (!cleaned || /^(quiet|good|best|eat|food|dinner|lunch|breakfast|coffee|drink|drink|hangout)$/i.test(cleaned)) {
     return 'Maps search needs a city, neighborhood, or address. Ask for a place in a specific area.'
   }
   try {
@@ -1982,14 +1982,11 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     let message = body.message || ''
     if (
       body.want === 'maps' &&
-      /near(?: me| us|by)?|around/i.test(message)
+      /near(?: me| us|by)?|around|where (?:should|can) we|tonight|dinner|lunch|breakfast|eat|food|restaurant|cafe|bar|coffee/i.test(message)
     ) {
       const city = live.memories.find((m) => m.key === 'city' && m.value)?.value
       if (city && !message.toLowerCase().includes(city.toLowerCase())) {
-        message = message
-          .replace(/\b(near me|near us|nearby|around)\b/gi, ` in ${city}`)
-          .replace(/\s*,\s*,/g, ',')
-          .trim()
+        message = `restaurants in ${city}`
       }
     }
     const results = await runToolsForMessage(sql, {
