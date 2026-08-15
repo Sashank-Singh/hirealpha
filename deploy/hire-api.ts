@@ -2019,9 +2019,12 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
 
     const fields = await loadContext(sql, user!.id, persona)
     const existing = parseSetupField(fields.setup)
-    const next = body.done === true && requested.length === 0
-      ? existing
-      : [...new Set([...existing, ...requested])]
+    const next =
+      body.done === true && requested.length > 0
+        ? [...new Set(requested)]
+        : body.done === true && requested.length === 0
+          ? existing
+          : [...new Set([...existing, ...requested])]
     const setupDone = body.done === true || fields.setup_done === true || fields.setup_done === 'true'
     await sql`
       INSERT INTO hire_context (user_id, persona, fields, updated_at)
