@@ -1138,16 +1138,12 @@ export async function runToolsForMessage(
   }
 
   if (input.persona === 'friend') {
-    if (input.want === 'maps') {
+    if (wantsMaps(input.message) || input.want === 'maps') {
       results.push(await fetchMapSearch(input.message, timezoneCountry(input.timezone)))
-    } else if (input.want !== 'web' && wantsMaps(input.message)) {
-      results.push(await fetchMapSearch(input.message, timezoneCountry(input.timezone)))
-    } else {
-      asked('maps', wantsMaps(input.message))
     }
   }
 
-  if (input.want === 'web' || (wantsWebSearch(input.message) && !wantsMaps(input.message))) {
+  if ((wantsWebSearch(input.message) && !wantsMaps(input.message) && input.want !== 'maps') || input.want === 'web') {
     results.push(await fetchWebSearch(input.message))
   }
 

@@ -62,12 +62,6 @@ function maybeToolIntent(text: string) {
   )
 }
 
-function toolsEmptyAndAppAsk(text: string) {
-  return /\b(e-?mails?|inbox|mail|gmail|unread|calendar|meeting|meetings|schedule|agenda|slack|linear|ticket|tickets|backlog|triage|notion|drive|deck|github)\b/i.test(
-    text,
-  )
-}
-
 /** Semantic gate: no exact keyword required. Decides maps vs web vs none. */
 async function classifyFreeLookup(
   message: string,
@@ -286,8 +280,9 @@ export async function runHireTurn(input: {
     }
   }
 
+  const setupDone = live.context && String(live.context.setup_done) === 'true'
   const miniApp = live.hired
-    ? isFirst
+    ? isFirst && !setupDone
       ? { kind: 'menu' as const }
       : detectMiniAppRequest(input.userText, agent.id)
     : null
@@ -335,13 +330,6 @@ export async function runHireTurn(input: {
   if (toolResults.length) {
     extras.push(
       `Live tool results (ground truth, use these, do not invent):\n${toolResults.join('\n\n')}\n\nWhen email results are present: give a short overview of the batch (how many, themes), then call out the top 2-3 that matter most with a one-line reason each. Do not fixate on a single email.`,
-    )
-  } else if (
-    live.hired &&
-    toolsEmptyAndAppAsk(input.userText)
-  ) {
-    extras.push(
-      'They asked about a connected app, but no live data came back. If the tool is not in the connected list, tell them to open this hire at hirealpha.chat/app and tap Connect. Do not invent inbox or calendar contents.',
     )
   }
   if (miniApp) {
