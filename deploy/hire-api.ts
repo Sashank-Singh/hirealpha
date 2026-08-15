@@ -1990,7 +1990,10 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     ) {
       const city = live.memories.find((m) => m.key === 'city' && m.value)?.value
       if (city && !message.toLowerCase().includes(city.toLowerCase())) {
-        message = `${message}, ${city}`
+        message = message
+          .replace(/\b(near me|near us|nearby|around)\b/gi, ` in ${city}`)
+          .replace(/\s*,\s*,/g, ',')
+          .trim()
       }
     }
     const results = await runToolsForMessage(sql, {
