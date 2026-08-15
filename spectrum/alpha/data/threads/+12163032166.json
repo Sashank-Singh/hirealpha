@@ -1,0 +1,12 @@
+{
+  "facts": [
+    {
+      "key": "city",
+      "value": "San Francisco",
+      "ts": 1786829531921,
+      "lastSeen": 1786829531921
+    }
+  ],
+  "summary": "Sashank lives in San Francisco. He likes Chinese food, especially chow mein. He eats at Halal City. He has a draft email to send to Stephen Levis.",
+  "history": []
+}

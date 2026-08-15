@@ -38,7 +38,7 @@ interface MiniPayload {
 const LIVE_MINI_KINDS = new Set(['digest', 'pick_night', 'standup_paste', 'kill_keep_park'])
 
 /** Feature kinds rendered by their own interactive component, not /api/mini. */
-const FEATURE_KINDS = new Set([
+export const FEATURE_KINDS = new Set([
   'open_loops',
   'meeting_mode',
   'decision_ledger',
@@ -47,7 +47,7 @@ const FEATURE_KINDS = new Set([
   'nutrition',
 ])
 
-interface MenuFeature {
+export interface MenuFeature {
   kind: string
   title: string
   emoji: string
@@ -55,7 +55,7 @@ interface MenuFeature {
   sample?: string
 }
 
-const MENU_FEATURES: Record<string, MenuFeature[]> = {
+export const MENU_FEATURES: Record<string, MenuFeature[]> = {
   friend: [
     { kind: 'digest', title: 'Morning brief', emoji: '☀️', blurb: 'Calendar, important mail, and reminders every morning.' },
     { kind: 'nutrition', title: 'Nutrition', emoji: '🥗', blurb: 'Snap a meal, see macros, hit your daily goals.', sample: 'i ate a chicken bowl' },
@@ -89,7 +89,7 @@ const MENU_FEATURES: Record<string, MenuFeature[]> = {
   ],
 }
 
-const KIND_TITLES: Record<string, { title: string; blurb: string }> = {
+export const KIND_TITLES: Record<string, { title: string; blurb: string }> = {
   menu: { title: 'What do you want from me?', blurb: 'Pick the features you want. You can change anytime.' },
   digest: { title: 'Morning brief', blurb: 'Your day at a glance — calendar, important mail, and reminders.' },
   approve_send: { title: 'Approve & send', blurb: 'Review the draft and approve it to send.' },

@@ -40,10 +40,11 @@ function stripReasoning(text: string): string {
     .map((p) => p.trim())
     .filter(Boolean)
   const REASON = /(?:the (?:user|instructions)|instructions say|tool result|in context|connected as a tool|I (?:should|need to|have|will|am going|want to|can check the))|^Let me|^Wait,?|^First,?|^OK[,:]|^Alright[,:]|^So /i
+  const UNPROFESSIONAL = /\b(I'm here\. The real part|not the polished version|the real me|raw and real|uncut version|no filter|unfiltered|straight talk|real talk|no BS|keeping it real|authentic self|unapologetically)\b/i
   let firstReal = 0
   while (firstReal < paras.length) {
     const p = paras[firstReal]
-    if (!p || !REASON.test(p)) break
+    if (!p || REASON.test(p) || UNPROFESSIONAL.test(p)) break
     firstReal++
   }
   const kept = paras.slice(firstReal)

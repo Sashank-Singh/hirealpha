@@ -29,6 +29,7 @@ export function PlatformShell() {
               People
             </NavLink>
             <NavLink to="/app/shop">Hire</NavLink>
+            <NavLink to="/app/features">Features</NavLink>
           </nav>
           <div className="plat__user">
             <span className="plat__email" title={session?.email}>
