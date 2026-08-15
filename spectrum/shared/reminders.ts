@@ -341,18 +341,24 @@ export async function fetchDueReminders(persona: string): Promise<DueReminder[]>
   }
 }
 
-export async function markReminderDone(id: string, nextAt?: string): Promise<boolean> {
+export async function markReminderDone(
+  id: string,
+  nextAt?: string,
+  revert = false,
+): Promise<{ claimed: boolean; rescheduled?: boolean }> {
   const base = apiBase()
-  if (!base) return false
+  if (!base) return { claimed: false }
   try {
     const res = await fetch(`${base}/api/internal/reminders/${encodeURIComponent(id)}/done`, {
       method: 'POST',
       headers: authHeaders(),
-      body: JSON.stringify(nextAt ? { nextAt } : {}),
+      body: JSON.stringify(nextAt ? { nextAt, revert } : { revert }),
     })
-    return res.ok
+    if (!res.ok) return { claimed: false }
+    const data = (await res.json()) as { claimed?: boolean; rescheduled?: boolean }
+    return { claimed: data.claimed !== false, rescheduled: data.rescheduled === true }
   } catch {
-    return false
+    return { claimed: false }
   }
 }
 
@@ -384,6 +390,18 @@ export function startReminderScheduler(opts: {
     try {
       const due = await fetchDueReminders(opts.persona)
       for (const r of due) {
+        const tz = r.timezone || 'America/Los_Angeles'
+        const nextAt =
+          r.recurrence === 'daily' || r.recurrence === 'weekly'
+            ? nextRecurrence(r.scheduledAt, r.recurrence, tz)
+            : undefined
+        // Atomically claim before sending so overlapping poll cycles (or
+        // slow sends) can never double-fire the same reminder.
+        const claim = await markReminderDone(r.id, nextAt)
+        if (!claim.claimed) {
+          console.warn(`[reminders:${opts.persona}] skip ${r.id} — claimed by another poll`)
+          continue
+        }
         let text = r.text
         let card: MiniAppCard | undefined
         if (isDigestRequest(r.text)) {
@@ -397,13 +415,15 @@ export function startReminderScheduler(opts: {
         } else if (text.startsWith('[poke]')) {
           text = text.slice('[poke]'.length).trim()
         }
-        await opts.send(r.phone, text, card)
-        const tz = r.timezone || 'America/Los_Angeles'
-        const nextAt =
-          r.recurrence === 'daily' || r.recurrence === 'weekly'
-            ? nextRecurrence(r.scheduledAt, r.recurrence, tz)
-            : undefined
-        await markReminderDone(r.id, nextAt)
+        // Revert the claim on a failed send so the reminder isn't silently
+        // dropped — the next poll will retry it instead of double-sending
+        // or losing it.
+        try {
+          await opts.send(r.phone, text, card)
+        } catch (err) {
+          console.warn(`[reminders:${opts.persona}] send failed for ${r.id}, reverting claim`, err)
+          await markReminderDone(r.id, undefined, true).catch(() => undefined)
+        }
       }
     } catch (err) {
       console.warn(`[reminders:${opts.persona}] scheduler error`, err)

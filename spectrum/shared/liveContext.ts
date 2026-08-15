@@ -85,7 +85,7 @@ export async function fetchLiveTools(
   const base = apiBase()
   const key = process.env.HIREALPHA_INTERNAL_KEY || ''
   if (!base || !key) return []
-  try {
+  const attempt = async (): Promise<string[]> => {
     const res = await timedFetch(
       `${base}/api/internal/live/tools`,
       {
@@ -98,6 +98,15 @@ export async function fetchLiveTools(
     if (!res.ok) return []
     const data = (await res.json()) as { results?: string[] }
     return data.results || []
+  }
+  try {
+    const first = await attempt()
+    // A connected user can briefly read as empty results while the backing
+    // tool (Gmail/Calendar) is mid-refresh. Retry once so a single empty
+    // response can't turn into a "can't see your inbox" reply.
+    if (first.length) return first
+    await new Promise((r) => setTimeout(r, 300))
+    return await attempt()
   } catch (err) {
     console.warn('[live] tools failed', err)
     return []

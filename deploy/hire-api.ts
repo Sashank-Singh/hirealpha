@@ -503,6 +503,34 @@ function todayWindowUtc(timezone: string): { start: Date; end: Date } {
   return { start: new Date(wallStart - offset), end: new Date(wallStart - offset + 86_400_000) }
 }
 
+/** Same wall-clock (in the user's zone) one day/week later, as a UTC ISO string. */
+function nextReminderAt(utcIso: string, recurrence: string, timezone: string): string {
+  const tz = timezone || 'America/Los_Angeles'
+  const dtf = new Intl.DateTimeFormat('en-CA', {
+    timeZone: tz,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  })
+  const at = new Date(utcIso)
+  const parts = dtf.formatToParts(at)
+  const get = (t: Intl.DateTimeFormatPartTypes) => parts.find((p) => p.type === t)?.value || ''
+  const wall = Date.UTC(
+    Number(get('year')),
+    Number(get('month')) - 1,
+    Number(get('day')),
+    Number(get('hour')),
+    Number(get('minute')),
+    Number(get('second')),
+  )
+  const nextWall = wall + (recurrence === 'weekly' ? 7 : 1) * 86_400_000
+  return new Date(nextWall - tzOffsetMs(nextWall, tz)).toISOString()
+}
+
 async function ensureUser(
   sql: SQL,
   email: string,
@@ -2819,23 +2847,45 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
   const reminderDone = path.match(/^\/api\/internal\/reminders\/([^/]+)\/done$/)
   if (reminderDone && req.method === 'POST') {
     if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
-    const body = (await req.json().catch(() => ({}))) as { nextAt?: string }
+    const body = (await req.json().catch(() => ({}))) as { nextAt?: string; revert?: boolean }
+    // Atomic claim: only a poll that updates a still-pending row wins, so an
+    // overlapping poll cycle can never double-fire the same reminder.
     const rows = await sql`
-      SELECT id, recurrence FROM hire_reminders WHERE id = ${reminderDone[1]} LIMIT 1
+      SELECT id, recurrence, timezone, scheduled_at AS "scheduledAt" FROM hire_reminders WHERE id = ${reminderDone[1]} LIMIT 1
     `
-    const row = rows[0] as { id: string; recurrence: string } | undefined
+    const row = rows[0] as
+      | { id: string; recurrence: string; timezone: string | null; scheduledAt: Date }
+      | undefined
     if (!row) return json({ error: 'Reminder not found' }, 404)
-    if (row.recurrence !== 'once' && body.nextAt) {
-      const next = new Date(body.nextAt)
-      if (!Number.isNaN(next.getTime())) {
-        await sql`
-          UPDATE hire_reminders SET scheduled_at = ${next.toISOString()}, updated_at = now() WHERE id = ${row.id}
-        `
-        return json({ ok: true, rescheduled: true, nextAt: next.toISOString() })
-      }
+    if (body.revert) {
+      // Send failed after claim — return to 'pending' so the next poll retries
+      // (same-time for once, current scheduled time for recurring).
+      await sql`UPDATE hire_reminders SET status = 'pending', updated_at = now() WHERE id = ${row.id}`
+      return json({ ok: true, claimed: true, reverted: true })
     }
-    await sql`UPDATE hire_reminders SET status = 'sent' WHERE id = ${row.id}`
-    return json({ ok: true, rescheduled: false })
+    if (row.recurrence !== 'once') {
+      const ts = new Date(row.scheduledAt).toISOString()
+      const nextAt =
+        body.nextAt && !Number.isNaN(new Date(body.nextAt).getTime())
+          ? body.nextAt
+          : nextReminderAt(ts, row.recurrence, row.timezone || 'America/Los_Angeles')
+      const upd = await sql`
+        UPDATE hire_reminders
+        SET scheduled_at = ${nextAt}, updated_at = now()
+        WHERE id = ${row.id} AND status = 'pending'
+      `
+      if (upd && (upd as { count?: number }).count === 0) {
+        return json({ ok: true, claimed: false, rescheduled: false })
+      }
+      return json({ ok: true, claimed: true, rescheduled: true, nextAt })
+    }
+    const upd = await sql`
+      UPDATE hire_reminders SET status = 'sent' WHERE id = ${row.id} AND status = 'pending'
+    `
+    if (upd && (upd as { count?: number }).count === 0) {
+      return json({ ok: true, claimed: false, rescheduled: false })
+    }
+    return json({ ok: true, claimed: true, rescheduled: false })
   }
 
   if (path === '/api/internal/reminders' && req.method === 'DELETE') {
