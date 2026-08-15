@@ -9,6 +9,7 @@ export type LiveProfile = {
   email: string | null
   name?: string | null
   timezone?: string | null
+  location?: { kind: string; label: string; label_text: string } | null
 }
 
 const EMPTY: LiveProfile = {

@@ -301,6 +301,11 @@ export async function runHireTurn(input: {
     }
     const ctx = formatHireContext(live.context)
     if (ctx) extras.push(ctx)
+    if (live.location && (live.location.label_text || live.location.label)) {
+      extras.push(
+        `They gave a safe ${live.location.label} label: "${live.location.label_text || live.location.label}". When replying about nearby places, say you searched near that, not that we know their exact coordinates.`,
+      )
+    }
     const remembered = formatHireMemories(live.memories)
     if (remembered) extras.push(remembered)
   }

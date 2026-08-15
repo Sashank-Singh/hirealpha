@@ -56,6 +56,56 @@ export async function apiSavePhone(email: string, phone: string, name?: string, 
   if (!res.ok) throw new Error(data.error || 'Could not save phone')
 }
 
+export type SavedLocation = {
+  kind: 'current' | 'home' | 'work'
+  latitude: number
+  longitude: number
+  accuracy_m: number | null
+  label: string
+  source: string | null
+  updated_at: string
+}
+
+export async function apiLocations(email: string) {
+  const res = await fetch(`${API}/api/me/locations?email=${encodeURIComponent(email)}`)
+  if (!res.ok) throw new Error('Could not load locations')
+  return parseJson<{ locations: SavedLocation[] }>(res)
+}
+
+export async function apiSaveLocation(input: {
+  email: string
+  kind: 'current' | 'home' | 'work'
+  latitude: number
+  longitude: number
+  accuracy_m?: number | null
+  label: string
+  source?: string
+}) {
+  const res = await fetch(`${API}/api/me/locations/${input.kind}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      email: input.email,
+      latitude: input.latitude,
+      longitude: input.longitude,
+      accuracy_m: input.accuracy_m ?? null,
+      label: input.label,
+      source: input.source || 'manual',
+    }),
+  })
+  const data = await parseJson<{ locations?: SavedLocation[]; error?: string }>(res)
+  if (!res.ok) throw new Error(data.error || 'Could not save location')
+  return data.locations || []
+}
+
+export async function apiDeleteLocation(email: string, kind: 'current' | 'home' | 'work') {
+  const qs = new URLSearchParams({ email })
+  const res = await fetch(`${API}/api/me/locations/${kind}?${qs}`, { method: 'DELETE' })
+  const data = await parseJson<{ locations?: SavedLocation[]; error?: string }>(res)
+  if (!res.ok) throw new Error(data.error || 'Could not delete location')
+  return data.locations || []
+}
+
 export async function apiSaveRoster(email: string, agentIds: AgentId[]) {
   const res = await fetch(`${API}/api/me/roster`, {
     method: 'PUT',

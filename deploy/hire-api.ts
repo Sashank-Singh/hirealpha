@@ -349,6 +349,90 @@ export async function ensureHireSchema(sql: SQL) {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
     )
   `
+
+  await sql`
+    CREATE TABLE IF NOT EXISTS hire_user_locations (
+      user_id TEXT NOT NULL REFERENCES hire_users(id) ON DELETE CASCADE,
+      kind TEXT NOT NULL CHECK (kind IN ('current', 'home', 'work')),
+      latitude DOUBLE PRECISION NOT NULL,
+      longitude DOUBLE PRECISION NOT NULL,
+      accuracy_m REAL,
+      label TEXT NOT NULL DEFAULT '',
+      source TEXT NOT NULL DEFAULT 'manual',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      PRIMARY KEY (user_id, kind)
+    )
+  `
+  await sql`CREATE INDEX IF NOT EXISTS idx_hire_user_locations_user ON hire_user_locations (user_id, updated_at DESC)`
+}
+
+type LocationRow = {
+  user_id: string
+  kind: 'current' | 'home' | 'work'
+  latitude: number
+  longitude: number
+  accuracy_m: number | null
+  label: string
+  source: string | null
+  updated_at: Date
+}
+
+const LOCATION_KINDS = new Set(['current', 'home', 'work'])
+
+async function loadLocations(sql: SQL, userId: string): Promise<LocationRow[]> {
+  const rows = await sql`
+    SELECT user_id, kind, latitude, longitude, accuracy_m, label, source, updated_at
+    FROM hire_user_locations
+    WHERE user_id = ${userId}
+    ORDER BY updated_at DESC
+  `
+  return rows as LocationRow[]
+}
+
+async function getLocation(sql: SQL, userId: string, kind: 'current' | 'home' | 'work') {
+  const rows = await sql`
+    SELECT user_id, kind, latitude, longitude, accuracy_m, label, source, updated_at
+    FROM hire_user_locations
+    WHERE user_id = ${userId} AND kind = ${kind}
+    LIMIT 1
+  `
+  return (rows[0] as LocationRow | undefined) ?? null
+}
+
+const CURRENT_LOCATION_HOURS = 24
+
+/** Server-side: pick the active location to bias map/data queries with. */
+async function pickActiveLocation(sql: SQL, userId: string): Promise<LocationRow | null> {
+  const locs = await loadLocations(sql, userId)
+  if (!locs.length) return null
+  const current = locs.find((l) => l.kind === 'current')
+  if (
+    current &&
+    Date.now() - new Date(current.updated_at).getTime() < CURRENT_LOCATION_HOURS * 60 * 60 * 1000
+  ) {
+    return current
+  }
+  return locs.find((l) => l.kind === 'home') || locs.find((l) => l.kind === 'work') || null
+}
+
+/** Safe label the bot may see; never contains raw coordinates. */
+function locationLabel(loc: LocationRow): string {
+  if (loc.kind === 'current') return 'current location'
+  if (loc.kind === 'home') return 'Home'
+  if (loc.kind === 'work') return 'Work'
+  return loc.label || 'known location'
+}
+
+function coordsUsable(lat: unknown, lng: unknown): lat is number {
+  return (
+    typeof lat === 'number' &&
+    Number.isFinite(lat) &&
+    typeof lng === 'number' &&
+    Number.isFinite(lng) &&
+    Math.abs(lat) <= 90 &&
+    Math.abs(lng) <= 180
+  )
 }
 
 async function getUserByEmail(sql: SQL, email: string) {
@@ -1030,7 +1114,11 @@ function timezoneCountry(tz?: string) {
   return tz && /^America\//.test(tz) ? 'us' : ''
 }
 
-async function fetchMapSearch(query: string, countryHint = '') {
+async function fetchMapSearch(query: string, countryHint = '', location: LocationRow | null = null) {
+  if (location && !/\b(?:near|around|in|at|by)\b/i.test(query)) {
+    const marker = locationLabel(location)
+    query = `${query} near ${marker}`
+  }
   const cleaned = query
     .replace(/\b(find|search|show|recommend|tonight|maps|hangout|near me|near us|nearby|near\b|around|where should we|where can we)\b/gi, ' ')
     .replace(/\s+/g, ' ')
@@ -1044,7 +1132,10 @@ async function fetchMapSearch(query: string, countryHint = '') {
     url.searchParams.set('format', 'jsonv2')
     url.searchParams.set('limit', '5')
     url.searchParams.set('dedupe', '1')
-    if (countryHint && !FOREIGN_PLACE.test(cleaned)) {
+    if (location && coordsUsable(location.latitude, location.longitude) && !FOREIGN_PLACE.test(cleaned)) {
+      url.searchParams.set('lat', String(location.latitude))
+      url.searchParams.set('lon', String(location.longitude))
+    } else if (countryHint && !FOREIGN_PLACE.test(cleaned)) {
       url.searchParams.set('countrycodes', countryHint)
     }
     const res = await fetchPublic(url, {
@@ -1093,6 +1184,7 @@ export async function runToolsForMessage(
     connected: string[]
     want?: 'maps' | 'web'
     timezone?: string
+    location?: LocationRow | null
   },
 ): Promise<string[]> {
   const results: string[] = []
@@ -1139,7 +1231,7 @@ export async function runToolsForMessage(
 
   if (input.persona === 'friend') {
     if (wantsMaps(input.message) || input.want === 'maps') {
-      results.push(await fetchMapSearch(input.message, timezoneCountry(input.timezone)))
+      results.push(await fetchMapSearch(input.message, timezoneCountry(input.timezone), input.location))
     }
   }
 
@@ -1612,6 +1704,7 @@ async function livePayload(sql: SQL, phone: string, persona: Persona) {
     ? (await connectedForUser(sql, user.id)).filter((id) => !PERSONA_DENIED[persona].has(id))
     : []
   const memories = hired ? await loadMemories(sql, user.id, persona, 12) : []
+  const active = hired ? await pickActiveLocation(sql, user.id) : null
   return {
     found: true,
     hired,
@@ -1622,6 +1715,9 @@ async function livePayload(sql: SQL, phone: string, persona: Persona) {
     name: user.name,
     timezone: user.timezone,
     userId: user.id,
+    location: active
+      ? { kind: active.kind, label: locationLabel(active), label_text: active.label }
+      : null,
   }
 }
 
@@ -1726,7 +1822,16 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
       memory[p] = await loadMemories(sql, user.id, p, 40)
     }
     const connected = await connectedForUser(sql, user.id)
-    return json({ user, roster, context, connected, memory })
+    const locations = (await loadLocations(sql, user.id)).map((l) => ({
+      kind: l.kind,
+      latitude: l.latitude,
+      longitude: l.longitude,
+      accuracy_m: l.accuracy_m,
+      label: l.label,
+      source: l.source,
+      updated_at: l.updated_at,
+    }))
+    return json({ user, roster, context, connected, memory, locations })
   }
 
   if (path === '/api/me/phone' && req.method === 'PUT') {
@@ -1756,6 +1861,89 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
       `
     }
     return json({ roster: ids })
+  }
+
+  if (path === '/api/me/locations' && req.method === 'GET') {
+    const email = String(url.searchParams.get('email') || '')
+      .trim()
+      .toLowerCase()
+    const user = await getUserByEmail(sql, email)
+    if (!user) return json({ error: 'Sign in first' }, 401)
+    const locations = (await loadLocations(sql, user.id)).map((l) => ({
+      kind: l.kind,
+      latitude: l.latitude,
+      longitude: l.longitude,
+      accuracy_m: l.accuracy_m,
+      label: l.label,
+      source: l.source,
+      updated_at: l.updated_at,
+    }))
+    return json({ locations })
+  }
+
+  const locationMatch = path.match(/^\/api\/me\/locations\/(current|home|work)$/)
+  if (locationMatch && req.method === 'PUT') {
+    const kind = locationMatch[1] as 'current' | 'home' | 'work'
+    const body = (await req.json().catch(() => ({}))) as {
+      email?: string
+      latitude?: number
+      longitude?: number
+      accuracy_m?: number | null
+      label?: string
+      source?: string
+    }
+    const user = await getUserByEmail(sql, String(body.email || '').trim().toLowerCase())
+    if (!user) return json({ error: 'Sign in first' }, 401)
+    const lat = Number(body.latitude)
+    const lng = Number(body.longitude)
+    if (!coordsUsable(lat, lng)) return json({ error: 'latitude and longitude required' }, 400)
+    const label = String(body.label || '').trim()
+    if (kind === 'home' || kind === 'work') {
+      if (!label) return json({ error: `${kind} needs a confirmed label` }, 400)
+    }
+    const accuracy = body.accuracy_m == null ? null : Math.max(0, Number(body.accuracy_m))
+    await sql`
+      INSERT INTO hire_user_locations (user_id, kind, latitude, longitude, accuracy_m, label, source, updated_at)
+      VALUES (${user.id}, ${kind}, ${lat}, ${lng}, ${accuracy}, ${label}, ${String(body.source || 'manual')}, now())
+      ON CONFLICT (user_id, kind)
+      DO UPDATE SET
+        latitude = excluded.latitude,
+        longitude = excluded.longitude,
+        accuracy_m = excluded.accuracy_m,
+        label = excluded.label,
+        source = excluded.source,
+        updated_at = now()
+    `
+    const locations = (await loadLocations(sql, user.id)).map((l) => ({
+      kind: l.kind,
+      latitude: l.latitude,
+      longitude: l.longitude,
+      accuracy_m: l.accuracy_m,
+      label: l.label,
+      source: l.source,
+      updated_at: l.updated_at,
+    }))
+    return json({ ok: true, locations })
+  }
+
+  if (locationMatch && req.method === 'DELETE') {
+    const kind = locationMatch[1] as 'current' | 'home' | 'work'
+    const email = String(url.searchParams.get('email') || '')
+      .trim()
+      .toLowerCase()
+    const user = await getUserByEmail(sql, email)
+    if (!user) return json({ error: 'Sign in first' }, 401)
+    await sql`DELETE FROM hire_user_locations WHERE user_id = ${user.id} AND kind = ${kind}`
+    const locations = (await loadLocations(sql, user.id)).map((l) => ({
+      kind: l.kind,
+      latitude: l.latitude,
+      longitude: l.longitude,
+      accuracy_m: l.accuracy_m,
+      label: l.label,
+      source: l.source,
+      updated_at: l.updated_at,
+    }))
+    return json({ ok: true, locations })
   }
 
   const contextMatch = path.match(/^\/api\/me\/hires\/([^/]+)\/context$/)
@@ -1996,6 +2184,7 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
       connected: live.connected,
       want: body.want === 'maps' || body.want === 'web' ? body.want : undefined,
       timezone: typeof live.context?.timezone === 'string' ? live.context.timezone : '',
+      location: live.location ? await getLocation(sql, live.userId, live.location.kind) : null,
     })
     return json({ results })
   }
