@@ -23,6 +23,12 @@ export type MiniAppKind =
   | 'weekly_focus'
   | 'approve_investor_note'
   | 'spiral_options'
+  | 'open_loops'
+  | 'meeting_mode'
+  | 'decision_ledger'
+  | 'relationship_radar'
+  | 'drop_zone'
+  | 'nutrition'
 
 export interface MiniAppCard {
   url: string
@@ -61,6 +67,12 @@ const PATTERNS: Partial<Record<MiniAppKind, RegExp>> = {
   weekly_focus: /\bweekly focus\b|\bthis week[’']?s focus\b|\bfocus (?:for|this) week\b|\bpriorities this week\b/i,
   approve_investor_note: /\binvestor (?:note|update)\b|\bterm sheet\b|\bfundrais(?:e|ing)\b/i,
   spiral_options: /\bspiral(?:ing)?\b|\boptions\b/i,
+  open_loops: /\bopen loop\b|\b(?:forgot|forget|remember) (?:to|that)\b|\b(?:owed|i owe|promised|told \w+ i.?d)\b|\bfollow[- ]?up (?:list|open)\b/i,
+  meeting_mode: /\b(?:meeting|call|1[-: ]?1|sync|interview)\b.{0,16}\b(?:prep|brief|debrief|notes|follow[- ]?up)\b|\bprep (?:me|for)\b|\bafter (?:the )?(?:meeting|call)\b/i,
+  decision_ledger: /\bdecision\b.{0,16}\b(?:log|record|ledger|journal)\b|\blog (?:that|this|a) decision\b|\bwhat did (?:we|i) decide\b/i,
+  relationship_radar: /\brelationship radar\b|\b(?:haven.?t|need to) (?:reach|touch|check) (?:out|in|base)\b|\bwho should i (?:follow|reach|check)\b/i,
+  drop_zone: /\bdrop zone\b|\bdump (?:this|that|it|a)\b|\bsave (?:this|that|it) for (?:later|me)\b|\broute (?:this|that|it)\b/i,
+  nutrition: /\b(?:what|how many) (?:did i eat|calories|protein|macros)\b|\b(?:log|track) (?:my )?(?:food|meal|lunch|dinner|breakfast|snack)\b|\bmacros?\b|\bcalorie\b|\bi ate\b/i,
 }
 
 export interface MiniAppRequest {

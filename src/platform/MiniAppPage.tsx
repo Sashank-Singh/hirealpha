@@ -2,8 +2,16 @@ import { useEffect, useState, type CSSProperties } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { getAgent } from '../agents'
 import type { AgentId } from '../agents/types'
-import { apiSetup } from './api'
+import { apiSetup, apiSetupStatus } from './api'
 import { getSession } from './roster'
+import {
+  DecisionLedgerApp,
+  DropZoneApp,
+  MeetingModeApp,
+  NutritionApp,
+  OpenLoopsApp,
+  RelationshipRadarApp,
+} from './FeatureMiniApps'
 
 interface DigestData {
   date?: string
@@ -29,6 +37,16 @@ interface MiniPayload {
 
 const LIVE_MINI_KINDS = new Set(['digest', 'pick_night', 'standup_paste', 'kill_keep_park'])
 
+/** Feature kinds rendered by their own interactive component, not /api/mini. */
+const FEATURE_KINDS = new Set([
+  'open_loops',
+  'meeting_mode',
+  'decision_ledger',
+  'relationship_radar',
+  'drop_zone',
+  'nutrition',
+])
+
 interface MenuFeature {
   kind: string
   title: string
@@ -40,12 +58,19 @@ interface MenuFeature {
 const MENU_FEATURES: Record<string, MenuFeature[]> = {
   friend: [
     { kind: 'digest', title: 'Morning brief', emoji: '☀️', blurb: 'Calendar, important mail, and reminders every morning.' },
+    { kind: 'nutrition', title: 'Nutrition', emoji: '🥗', blurb: 'Snap a meal, see macros, hit your daily goals.', sample: 'i ate a chicken bowl' },
+    { kind: 'open_loops', title: 'Open loops', emoji: '🪢', blurb: 'Track promises and follow-ups so nothing slips.' },
+    { kind: 'relationship_radar', title: 'Relationship radar', emoji: '📡', blurb: 'Know who to reach out to and when.' },
+    { kind: 'drop_zone', title: 'Drop zone', emoji: '📥', blurb: 'Dump anything messy. Alpha sorts it.' },
     { kind: 'check_in', title: 'Check-in', emoji: '👋', blurb: 'A quick pulse on how you are doing.' },
     { kind: 'pick_night', title: "Tonight's plan", emoji: '🌙', blurb: 'Plans, options, and a call on what to do.', sample: 'what should we do tonight' },
     { kind: 'spiral_options', title: 'Options', emoji: '🌀', blurb: 'Step back and look at the options.', sample: "i'm spiraling" },
   ],
   coworker: [
     { kind: 'digest', title: 'Morning brief', emoji: '☀️', blurb: 'Calendar, important mail, and reminders every morning.' },
+    { kind: 'meeting_mode', title: 'Meeting mode', emoji: '🗂️', blurb: 'Prepped before, wrapped after.', sample: 'prep me for the review' },
+    { kind: 'open_loops', title: 'Open loops', emoji: '🪢', blurb: 'Track commitments so nothing slips.' },
+    { kind: 'drop_zone', title: 'Drop zone', emoji: '📥', blurb: 'Dump anything messy. Alpha sorts it.' },
     { kind: 'approve_send', title: 'Approve & send', emoji: '✉️', blurb: 'Review drafts before they go out.', sample: 'approve the email' },
     { kind: 'pick_slot', title: 'Pick a slot', emoji: '🗓️', blurb: 'Compare times and pick what works.', sample: 'pick a slot for the review' },
     { kind: 'standup_paste', title: 'Standup', emoji: '📋', blurb: 'Raw notes in, tight standup out.', sample: 'standup' },
@@ -53,6 +78,10 @@ const MENU_FEATURES: Record<string, MenuFeature[]> = {
   ],
   cofounder: [
     { kind: 'digest', title: 'Morning brief', emoji: '☀️', blurb: 'Calendar, important mail, and reminders every morning.' },
+    { kind: 'decision_ledger', title: 'Decision ledger', emoji: '📜', blurb: 'Log big calls, revisit the reasoning.', sample: 'log a decision' },
+    { kind: 'relationship_radar', title: 'Relationship radar', emoji: '📡', blurb: 'Investors, candidates, partners — who to touch.' },
+    { kind: 'open_loops', title: 'Open loops', emoji: '🪢', blurb: 'Track commitments so nothing slips.' },
+    { kind: 'drop_zone', title: 'Drop zone', emoji: '📥', blurb: 'Dump anything messy. Alpha sorts it.' },
     { kind: 'weekly_focus', title: 'Weekly focus', emoji: '🧭', blurb: 'What to actually focus on this week.', sample: 'what is my weekly focus' },
     { kind: 'kill_keep_park', title: 'Kill · Keep · Park', emoji: '⚖️', blurb: 'Decide what to kill, keep, or park.', sample: 'kill keep park' },
     { kind: 'hire_decision', title: 'Hire decision', emoji: '🤝', blurb: 'The call on the candidate.', sample: 'should we hire them' },
@@ -61,7 +90,7 @@ const MENU_FEATURES: Record<string, MenuFeature[]> = {
 }
 
 const KIND_TITLES: Record<string, { title: string; blurb: string }> = {
-  menu: { title: 'What do you want from me?', blurb: 'Pick a feature and I will set it up. You can change anytime.' },
+  menu: { title: 'What do you want from me?', blurb: 'Pick the features you want. You can change anytime.' },
   digest: { title: 'Morning brief', blurb: 'Your day at a glance — calendar, important mail, and reminders.' },
   approve_send: { title: 'Approve & send', blurb: 'Review the draft and approve it to send.' },
   pick_slot: { title: 'Pick a slot', blurb: 'Compare meeting times and pick the one that works.' },
@@ -74,6 +103,12 @@ const KIND_TITLES: Record<string, { title: string; blurb: string }> = {
   weekly_focus: { title: 'Weekly focus', blurb: 'What to focus on this week.' },
   approve_investor_note: { title: 'Investor note', blurb: 'Review the note before it goes out.' },
   spiral_options: { title: 'Options', blurb: 'Step back and look at the options.' },
+  open_loops: { title: 'Open loops', blurb: 'Promises and follow-ups, so nothing slips.' },
+  meeting_mode: { title: 'Meeting mode', blurb: 'Prepped before, wrapped after.' },
+  decision_ledger: { title: 'Decision ledger', blurb: 'Big calls on record, reasoning intact.' },
+  relationship_radar: { title: 'Relationship radar', blurb: 'Who to reach out to, and when.' },
+  drop_zone: { title: 'Drop zone', blurb: 'Dump anything messy. Alpha sorts it.' },
+  nutrition: { title: 'Nutrition', blurb: 'Snap a meal, see the macros, hit your goals.' },
 }
 
 export function MiniAppPage() {
@@ -89,13 +124,17 @@ export function MiniAppPage() {
   const [mini, setMini] = useState<MiniPayload | null>(null)
   const [loading, setLoading] = useState(true)
   const [status, setStatus] = useState<'idle' | 'busy' | 'done' | 'error'>('idle')
-  const [picked, setPicked] = useState<MenuFeature | null>(null)
   const [setupError, setSetupError] = useState('')
   const [expired, setExpired] = useState(false)
+  const [selected, setSelected] = useState<string[]>([])
+  const [savedFeatures, setSavedFeatures] = useState<string[]>([])
+  const [setupDone, setSetupDone] = useState(false)
 
   const isDigest = kind === 'digest'
   const isMenu = kind === 'menu'
   const isLiveMini = LIVE_MINI_KINDS.has(kind || '')
+  const isFeature = FEATURE_KINDS.has(kind || '')
+  const isKnown = isLiveMini || isFeature || isMenu || isDigest
 
   useEffect(() => {
     let cancelled = false
@@ -146,18 +185,43 @@ export function MiniAppPage() {
   const authed = !!token || !!email
   const features = MENU_FEATURES[persona || ''] ?? []
 
-  async function choose(feature: MenuFeature) {
+  useEffect(() => {
+    let cancelled = false
+    if (!authed || !isMenu) return
+    apiSetupStatus({ persona: (persona as AgentId) || 'friend', email: email || undefined, token: token || undefined })
+      .then((st) => {
+        if (cancelled) return
+        setSavedFeatures(st.setup)
+        setSetupDone(st.setupDone)
+        setSelected(st.setup)
+      })
+      .catch(() => {
+        if (cancelled) return
+        setSetupError('Could not load your features. Please try again.')
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [authed, isMenu, persona, email, token])
+
+  function toggle(feature: MenuFeature) {
+    setSelected((prev) => (prev.includes(feature.kind) ? prev.filter((k) => k !== feature.kind) : [...prev, feature.kind]))
+  }
+
+  async function saveSetup() {
     if (!authed || status === 'busy') return
-    setPicked(feature)
     setStatus('busy')
     setSetupError('')
     try {
       await apiSetup({
         persona: (persona as AgentId) || 'friend',
-        feature: feature.kind,
+        features: selected,
+        done: true,
         email: email || undefined,
         token: token || undefined,
       })
+      setSavedFeatures(selected)
+      setSetupDone(true)
       setStatus('done')
     } catch (err) {
       const msg = err instanceof Error ? err.message : ''
@@ -170,6 +234,13 @@ export function MiniAppPage() {
     }
   }
 
+  function editSetup() {
+    setStatus('idle')
+    setSetupDone(false)
+  }
+
+  const allFeatures = MENU_FEATURES[(persona as AgentId) || 'friend'] ?? []
+
   return (
     <div className="mini" style={{ '--mini-accent': agent.color } as CSSProperties}>
       <div className="mini__card">
@@ -179,7 +250,7 @@ export function MiniAppPage() {
           </span>
           <div className="mini__who">
             <p className="mini__name">{agent.imsgName}</p>
-            <p className="mini__role">{isMenu ? 'Choose a feature' : isLiveMini ? kindInfo.title : agent.role}</p>
+            <p className="mini__role">{isMenu ? 'Your features' : isKnown ? kindInfo.title : agent.role}</p>
           </div>
           <span className="mini__brand">HireAlpha</span>
         </header>
@@ -204,52 +275,54 @@ export function MiniAppPage() {
 
         {authed && !expired && isMenu && (
           <div className="mini__body">
-            <p className="mini__blurb">Pick a feature and I will set it up. You can change anytime.</p>
-            {status === 'done' && picked ? (
+            {setupDone ? (
               <div className="mini__done">
-                <p className="mini__done-title">
-                  {picked.emoji} {picked.title}. Done.
-                </p>
+                <p className="mini__done-title">Your features are set up.</p>
                 <p className="mini__blurb">
-                  {picked.kind === 'digest'
-                    ? `${agent.imsgName} will text you a brief each morning at 8am.`
-                    : picked.sample
-                      ? `When you want it, text ${agent.imsgName}: “${picked.sample}”`
-                      : 'All set.'}
+                  {savedFeatures
+                    .map((k) => allFeatures.find((f) => f.kind === k))
+                    .filter(Boolean)
+                    .map((f) => `${f!.emoji} ${f!.title}`)
+                    .join(' · ') || 'Nothing enabled yet.'}
                 </p>
-                {picked.sample && (
-                  <a
-                    className="mini__cta"
-                    href={`sms:${agent.phoneNumber}?&body=${encodeURIComponent(picked.sample)}`}
-                  >
-                    Try it now
-                  </a>
-                )}
-                <button type="button" className="mini__again" onClick={() => setStatus('idle')}>
-                  Pick another
+                <button type="button" className="mini__again" onClick={editSetup}>
+                  Change features
                 </button>
               </div>
             ) : (
-              <div className="mini__menu">
-                {features.map((f) => (
-                  <button
-                    key={f.kind}
-                    type="button"
-                    className="mini__feature"
-                    disabled={status === 'busy'}
-                    onClick={() => void choose(f)}
-                  >
-                    <span className="mini__feature-emoji" aria-hidden>
-                      {f.emoji}
-                    </span>
-                    <span className="mini__feature-text">
-                      <span className="mini__feature-title">{f.title}</span>
-                      <span className="mini__feature-blurb">{f.blurb}</span>
-                    </span>
-                  </button>
-                ))}
-                {status === 'error' && <p className="mini__empty">{setupError}</p>}
-              </div>
+              <>
+                <p className="mini__blurb">Pick the features you want. You can change anytime.</p>
+                <div className="mini__menu">
+                  {features.map((f) => {
+                    const on = selected.includes(f.kind)
+                    return (
+                      <button
+                        key={f.kind}
+                        type="button"
+                        className={`mini__feature${on ? ' mini__feature--on' : ''}`}
+                        onClick={() => toggle(f)}
+                      >
+                        <span className="mini__feature-emoji" aria-hidden>
+                          {on ? '✓' : f.emoji}
+                        </span>
+                        <span className="mini__feature-text">
+                          <span className="mini__feature-title">{f.title}</span>
+                          <span className="mini__feature-blurb">{f.blurb}</span>
+                        </span>
+                      </button>
+                    )
+                  })}
+                  {status === 'error' && <p className="mini__empty">{setupError}</p>}
+                </div>
+                <button
+                  type="button"
+                  className="mini__cta"
+                  disabled={status === 'busy' || selected.length === 0}
+                  onClick={() => void saveSetup()}
+                >
+                  {status === 'busy' ? 'Saving…' : selected.length ? `Save ${selected.length} feature${selected.length === 1 ? '' : 's'}` : 'Select a feature'}
+                </button>
+              </>
             )}
           </div>
         )}
@@ -350,13 +423,31 @@ export function MiniAppPage() {
           </div>
         )}
 
-        {authed && !isMenu && !isLiveMini && (
+        {authed && !isMenu && !isKnown && (
           <div className="mini__body">
             <p className="mini__blurb">{kindInfo.blurb}</p>
             <p className="mini__hint">
               Text {agent.imsgName} back to keep going. This one is not live yet.
             </p>
           </div>
+        )}
+      {authed && !expired && isFeature && kind === 'open_loops' && (
+          <OpenLoopsApp auth={{ persona: (persona as AgentId) || 'friend', email: email || undefined, token: token || undefined }} />
+        )}
+        {authed && !expired && isFeature && kind === 'meeting_mode' && (
+          <MeetingModeApp auth={{ persona: (persona as AgentId) || 'friend', email: email || undefined, token: token || undefined }} />
+        )}
+        {authed && !expired && isFeature && kind === 'decision_ledger' && (
+          <DecisionLedgerApp auth={{ persona: (persona as AgentId) || 'friend', email: email || undefined, token: token || undefined }} />
+        )}
+        {authed && !expired && isFeature && kind === 'relationship_radar' && (
+          <RelationshipRadarApp auth={{ persona: (persona as AgentId) || 'friend', email: email || undefined, token: token || undefined }} />
+        )}
+        {authed && !expired && isFeature && kind === 'drop_zone' && (
+          <DropZoneApp auth={{ persona: (persona as AgentId) || 'friend', email: email || undefined, token: token || undefined }} />
+        )}
+        {authed && !expired && isFeature && kind === 'nutrition' && (
+          <NutritionApp auth={{ persona: (persona as AgentId) || 'friend', email: email || undefined, token: token || undefined }} />
         )}
       </div>
     </div>

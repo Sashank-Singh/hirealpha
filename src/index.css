@@ -2159,4 +2159,134 @@ button, input { font: inherit; }
 @media (prefers-color-scheme: dark) {
   .mini__feature { background: color-mix(in srgb, var(--mini-accent) 10%, #161618); }
   .mini__feature:hover { border-color: color-mix(in srgb, var(--mini-accent) 55%, #000); }
+  .mini__feature--on { border-color: var(--mini-accent); }
+  .mini__card-item { background: color-mix(in srgb, var(--mini-accent) 8%, #161618); }
+  .mini__macro { background: color-mix(in srgb, var(--mini-accent) 8%, #161618); }
+  .mini__photo { border-color: var(--border); background: color-mix(in srgb, var(--mini-accent) 8%, #161618); }
+  .mini__field input { border-color: var(--border); }
 }
+
+/* Feature mini-app components */
+.mini__feature--on {
+  border-color: var(--mini-accent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--mini-accent) 60%, transparent);
+}
+.mini__form { display: flex; gap: 8px; align-items: stretch; margin-top: 12px; }
+.mini__form-stack { display: grid; gap: 8px; margin-top: 12px; }
+.mini__input {
+  flex: 1;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--mini-accent) 6%, #fff);
+  color: var(--fg);
+  font: inherit;
+  font-size: 14px;
+}
+.mini__form input { flex: 1; }
+.mini__field { display: grid; gap: 4px; }
+.mini__field > span { font-size: 12px; color: var(--muted-fg); }
+.mini__field input { flex: none; width: 100%; }
+.mini__form-stack input { width: 100%; flex: none; }
+.mini__btn {
+  padding: 10px 16px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--mini-accent);
+  color: #fff;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: opacity 0.15s ease;
+}
+.mini__btn:disabled { opacity: 0.5; cursor: default; }
+.mini__select {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--mini-accent) 6%, #fff);
+  color: var(--fg);
+  font: inherit;
+  font-size: 14px;
+}
+.mini__textarea {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--mini-accent) 6%, #fff);
+  color: var(--fg);
+  font: inherit;
+  font-size: 14px;
+  resize: vertical;
+  min-height: 72px;
+}
+.mini__chip {
+  margin-top: 4px;
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: none;
+  color: var(--fg);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color 0.15s ease, opacity 0.15s ease;
+}
+.mini__chip:disabled { opacity: 0.5; cursor: default; }
+.mini__chip--green {
+  border-color: color-mix(in srgb, var(--mini-accent) 60%, transparent);
+  color: color-mix(in srgb, var(--mini-accent) 85%, #000);
+}
+.mini__row { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+.mini__row-main { display: grid; gap: 2px; min-width: 0; }
+.mini__row-title { font-weight: 600; font-size: 14px; }
+.mini__row-sub { font-size: 12px; color: var(--muted-fg); line-height: 1.4; }
+.mini__row-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.mini__row-muted { font-size: 12px; color: var(--muted-fg); }
+.mini__card-item {
+  display: grid;
+  gap: 4px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--mini-accent) 6%, #fff);
+}
+.mini__photo {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 12px;
+  padding: 18px 12px;
+  border: 1.5px dashed var(--border);
+  border-radius: 14px;
+  cursor: pointer;
+  text-align: center;
+  transition: border-color 0.15s ease;
+}
+.mini__photo:hover { border-color: var(--mini-accent); }
+.mini__photo input { display: none; }
+.mini__photo-label { font-size: 13px; font-weight: 600; color: var(--muted-fg); }
+.mini__macro-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+  margin-top: 4px;
+}
+.mini__macro {
+  display: grid;
+  gap: 6px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--mini-accent) 6%, #fff);
+}
+.mini__macro-head { display: flex; justify-content: space-between; align-items: baseline; gap: 6px; }
+.mini__macro-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted-fg); font-weight: 600; }
+.mini__macro-num { font-size: 13px; font-weight: 700; }
+.mini__macro-track { height: 6px; border-radius: 999px; background: color-mix(in srgb, var(--mini-accent) 14%, transparent); overflow: hidden; }
+.mini__macro-fill { height: 100%; border-radius: 999px; background: var(--mini-accent); transition: width 0.3s ease; }

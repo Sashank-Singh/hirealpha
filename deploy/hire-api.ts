@@ -245,6 +245,110 @@ export async function ensureHireSchema(sql: SQL) {
     )
   `
   await sql`CREATE INDEX IF NOT EXISTS idx_hire_memories_user ON hire_memories (user_id, persona, durable, updated_at DESC)`
+
+  await sql`
+    CREATE TABLE IF NOT EXISTS hire_loops (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES hire_users(id) ON DELETE CASCADE,
+      persona TEXT NOT NULL DEFAULT '',
+      title TEXT NOT NULL,
+      context TEXT NOT NULL DEFAULT '',
+      due_at TIMESTAMPTZ,
+      status TEXT NOT NULL DEFAULT 'open',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `
+  await sql`CREATE INDEX IF NOT EXISTS idx_hire_loops_user ON hire_loops (user_id, status, created_at DESC)`
+
+  await sql`
+    CREATE TABLE IF NOT EXISTS hire_decisions (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES hire_users(id) ON DELETE CASCADE,
+      persona TEXT NOT NULL DEFAULT '',
+      decision TEXT NOT NULL,
+      reason TEXT NOT NULL DEFAULT '',
+      evidence TEXT NOT NULL DEFAULT '',
+      owner TEXT NOT NULL DEFAULT '',
+      review_at TIMESTAMPTZ,
+      outcome TEXT,
+      status TEXT NOT NULL DEFAULT 'open',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `
+  await sql`CREATE INDEX IF NOT EXISTS idx_hire_decisions_user ON hire_decisions (user_id, status, created_at DESC)`
+
+  await sql`
+    CREATE TABLE IF NOT EXISTS hire_relationships (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES hire_users(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      kind TEXT NOT NULL DEFAULT 'other',
+      notes TEXT NOT NULL DEFAULT '',
+      cadence_days INTEGER NOT NULL DEFAULT 30,
+      last_touch_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `
+  await sql`CREATE INDEX IF NOT EXISTS idx_hire_relationships_user ON hire_relationships (user_id, updated_at DESC)`
+
+  await sql`
+    CREATE TABLE IF NOT EXISTS hire_dropzone (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES hire_users(id) ON DELETE CASCADE,
+      persona TEXT NOT NULL DEFAULT '',
+      content TEXT NOT NULL,
+      media_kind TEXT,
+      summary TEXT,
+      status TEXT NOT NULL DEFAULT 'new',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `
+  await sql`CREATE INDEX IF NOT EXISTS idx_hire_dropzone_user ON hire_dropzone (user_id, status, created_at DESC)`
+
+  await sql`
+    CREATE TABLE IF NOT EXISTS hire_meetings (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES hire_users(id) ON DELETE CASCADE,
+      title TEXT NOT NULL,
+      starts_at TIMESTAMPTZ,
+      phase TEXT NOT NULL DEFAULT 'prep',
+      briefing TEXT,
+      followups JSONB NOT NULL DEFAULT '[]'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `
+  await sql`CREATE INDEX IF NOT EXISTS idx_hire_meetings_user ON hire_meetings (user_id, created_at DESC)`
+
+  await sql`
+    CREATE TABLE IF NOT EXISTS hire_nutrition_logs (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES hire_users(id) ON DELETE CASCADE,
+      description TEXT NOT NULL,
+      image_url TEXT,
+      calories REAL NOT NULL DEFAULT 0,
+      protein REAL NOT NULL DEFAULT 0,
+      carbs REAL NOT NULL DEFAULT 0,
+      fat REAL NOT NULL DEFAULT 0,
+      eaten_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `
+  await sql`CREATE INDEX IF NOT EXISTS idx_hire_nutrition_user ON hire_nutrition_logs (user_id, eaten_at DESC)`
+
+  await sql`
+    CREATE TABLE IF NOT EXISTS hire_nutrition_goals (
+      user_id TEXT PRIMARY KEY REFERENCES hire_users(id) ON DELETE CASCADE,
+      calorie_goal REAL NOT NULL DEFAULT 2200,
+      protein_goal REAL NOT NULL DEFAULT 150,
+      carbs_goal REAL NOT NULL DEFAULT 220,
+      fat_goal REAL NOT NULL DEFAULT 70,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `
 }
 
 async function getUserByEmail(sql: SQL, email: string) {
@@ -265,6 +369,54 @@ async function getUserByPhone(sql: SQL, phone: string) {
     LIMIT 1
   `
   return (rows[0] as { id: string; email: string; name: string | null; timezone: string | null; phone: string | null } | undefined) ?? null
+}
+
+type AuthedUser = { id: string; email: string; name: string | null; timezone: string | null; phone: string | null }
+
+/** Resolve the caller from either a signed mini token or a session email. */
+async function resolveAuthedUser(
+  sql: SQL,
+  input: { token?: string; email?: string },
+): Promise<{ user: AuthedUser | null; error?: Response }> {
+  const email = String(input.email || '').trim().toLowerCase()
+  if (input.token) {
+    const tok = verifyMiniToken(input.token)
+    if (!tok) {
+      return {
+        user: null,
+        error: json({ error: 'This link expired. Sign in to keep using it.', code: 'token_invalid' }, 401),
+      }
+    }
+    const user = await getUserByPhone(sql, tok.phone)
+    if (!user) return { user: null, error: json({ error: 'No account found for that phone' }, 404) }
+    return { user }
+  }
+  if (email.includes('@')) {
+    const user = await getUserByEmail(sql, email)
+    if (!user) return { user: null, error: json({ error: 'No account found for that email' }, 404) }
+    return { user }
+  }
+  return { user: null, error: json({ error: 'email or token required' }, 400) }
+}
+
+function clampNum(v: unknown, fallback = 0): number {
+  const n = Number(v)
+  return Number.isFinite(n) ? n : fallback
+}
+
+/** Day window in the user's timezone as UTC [start,end] for "today". */
+function todayWindowUtc(timezone: string): { start: Date; end: Date } {
+  const tz = timezone || 'America/Los_Angeles'
+  const dtf = new Intl.DateTimeFormat('en-CA', {
+    timeZone: tz,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  })
+  const [y, mo, d] = dtf.format(new Date()).split('-').map(Number)
+  const wallStart = Date.UTC(y!, mo! - 1, d!)
+  const offset = tzOffsetMs(wallStart, tz)
+  return { start: new Date(wallStart - offset), end: new Date(wallStart - offset + 86_400_000) }
 }
 
 async function ensureUser(
@@ -333,6 +485,129 @@ async function loadContext(sql: SQL, userId: string, persona: Persona) {
     }
   }
   return (typeof fields === 'object' ? fields : {}) as Record<string, string>
+}
+
+/** Normalize the stored `setup` field (array, JSON string, or absent) into string[]. */
+function parseSetupField(raw: unknown): string[] {
+  if (Array.isArray(raw)) return raw.map(String).filter(Boolean)
+  if (typeof raw === 'string' && raw.trim()) {
+    try {
+      const parsed = JSON.parse(raw) as unknown
+      return Array.isArray(parsed) ? parsed.map(String).filter(Boolean) : []
+    } catch {
+      return []
+    }
+  }
+  return []
+}
+
+/** Model client config for nutrition macro estimation. */
+function nutritionModelConfig() {
+  const apiKey =
+    process.env.NUTRITION_API_KEY ||
+    process.env.GMI_API_KEY ||
+    process.env.OPENAI_API_KEY ||
+    ''
+  if (!apiKey) return null
+  const baseUrl = (
+    process.env.NUTRITION_BASE_URL ||
+    process.env.GMI_BASE_URL ||
+    process.env.OPENAI_BASE_URL ||
+    'https://api.openai.com/v1'
+  ).replace(/\/$/, '')
+  const model =
+    process.env.NUTRITION_MODEL ||
+    process.env.GMI_MODEL ||
+    process.env.HIREALPHA_MODEL ||
+    'gpt-4o-mini'
+  return { apiKey, baseUrl, model }
+}
+
+function extractJson(text: string): Record<string, unknown> | null {
+  const fence = text.match(/\{[\s\S]*\}/)
+  if (!fence) return null
+  try {
+    return JSON.parse(fence[0]) as Record<string, unknown>
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Estimate calories/protein/carbs/fat for a meal. Uses a vision model when an
+ * image is provided, otherwise estimates from the text description. Returns
+ * needsKey=true when no model key is configured so the UI can fall back to
+ * manual entry.
+ */
+async function estimateNutrition(
+  description: string,
+  imageBase64: string,
+): Promise<{
+  ok: boolean
+  needsKey?: boolean
+  calories?: number
+  protein?: number
+  carbs?: number
+  fat?: number
+  guess?: string
+  error?: string
+}> {
+  const cfg = nutritionModelConfig()
+  if (!cfg) return { ok: false, needsKey: true }
+  if (!description.trim() && !imageBase64) return { ok: false, error: 'Describe or photograph the meal first.' }
+
+  const system =
+    'You are a nutrition estimator. Estimate the macronutrients of the described meal. ' +
+    'Reply with JSON only: {"guess":"<short name>","calories":N,"protein":N,"carbs":N,"fat":N}. ' +
+    'protein/carbs/fat are grams, calories is kcal. Use realistic single-serving estimates.'
+
+  const userContent: unknown[] = imageBase64
+    ? [
+        { type: 'text', text: description.trim() || 'Estimate the macros of the meal in this photo.' },
+        { type: 'image_url', image_url: { url: `data:image/jpeg;base64,${imageBase64}` } },
+      ]
+    : [{ type: 'text', text: description.trim() }]
+
+  try {
+    const res = await fetch(`${cfg.baseUrl}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${cfg.apiKey}`,
+        'User-Agent': 'HireAlpha/0.1 (nutrition)',
+        Accept: 'application/json',
+      },
+      body: JSON.stringify({
+        model: cfg.model,
+        temperature: 0,
+        max_tokens: 160,
+        thinking: { type: 'disabled' },
+        messages: [
+          { role: 'system', content: system },
+          { role: 'user', content: userContent },
+        ],
+      }),
+    })
+    if (!res.ok) {
+      const t = await res.text().catch(() => '')
+      return { ok: false, error: `Estimator error ${res.status}: ${t.slice(0, 160)}` }
+    }
+    const data = (await res.json()) as { choices?: Array<{ message?: { content?: string } }> }
+    const content = data.choices?.[0]?.message?.content || ''
+    const parsed = extractJson(content)
+    if (!parsed) return { ok: false, error: 'Could not parse the estimate. Try a clearer description.' }
+    return {
+      ok: true,
+      guess: String(parsed.guess || description.slice(0, 60)),
+      calories: clampNum(parsed.calories),
+      protein: clampNum(parsed.protein),
+      carbs: clampNum(parsed.carbs),
+      fat: clampNum(parsed.fat),
+    }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    return { ok: false, error: msg.slice(0, 180) }
+  }
 }
 
 export type MemoryRow = { key: string; value: string; durable: boolean; updatedAt?: string }
@@ -912,9 +1187,9 @@ async function digestPayload(
 
 /** Mini apps each hire can offer, mirroring src/agents/skills.ts. */
 const PERSONA_MINI_APPS: Record<Persona, string[]> = {
-  friend: ['digest', 'check_in', 'pick_night', 'spiral_options'],
-  coworker: ['digest', 'approve_send', 'pick_slot', 'standup_paste', 'linear_triage'],
-  cofounder: ['digest', 'kill_keep_park', 'hire_decision', 'weekly_focus', 'approve_investor_note'],
+  friend: ['digest', 'check_in', 'pick_night', 'spiral_options', 'open_loops', 'relationship_radar', 'drop_zone', 'nutrition'],
+  coworker: ['digest', 'approve_send', 'pick_slot', 'standup_paste', 'linear_triage', 'open_loops', 'meeting_mode', 'drop_zone'],
+  cofounder: ['digest', 'kill_keep_park', 'hire_decision', 'weekly_focus', 'approve_investor_note', 'decision_ledger', 'relationship_radar', 'drop_zone', 'open_loops'],
 }
 
 /** UTC offset in ms for an IANA zone at a given instant. */
@@ -1700,67 +1975,414 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     return json(await miniPayload(sql, user, persona, kind))
   }
 
+  if (path === '/api/setup/status' && req.method === 'GET') {
+    const persona = url.searchParams.get('persona') || ''
+    if (!isPersona(persona)) return json({ error: 'persona required' }, 400)
+    const { user, error } = await resolveAuthedUser(sql, {
+      token: url.searchParams.get('t') || undefined,
+      email: url.searchParams.get('email') || undefined,
+    })
+    if (error) return error
+    const fields = await loadContext(sql, user!.id, persona)
+    const setup = parseSetupField(fields.setup)
+    return json({ setup, setupDone: fields.setup_done === true || fields.setup_done === 'true' })
+  }
+
   if (path === '/api/setup' && req.method === 'POST') {
     const body = (await req.json().catch(() => ({}))) as {
       email?: string
       token?: string
       persona?: string
       feature?: string
+      features?: unknown
+      done?: boolean
     }
-    const email = String(body.email || '')
-      .trim()
-      .toLowerCase()
     const persona = body.persona || ''
-    const feature = body.feature || ''
     if (!isPersona(persona)) return json({ error: 'persona required' }, 400)
-    if (!PERSONA_MINI_APPS[persona].includes(feature)) {
-      return json({ error: `Unknown feature for this hire: ${feature}` }, 400)
-    }
-    let user: { id: string; email: string; name: string | null; timezone: string | null; phone: string | null } | null = null
-    if (body.token) {
-      const tok = verifyMiniToken(body.token)
-      if (!tok || tok.persona !== persona) {
-        return json({ error: 'This link expired. Sign in to keep using it.', code: 'token_invalid' }, 401)
-      }
-      user = await getUserByPhone(sql, tok.phone)
-    } else if (email.includes('@')) {
-      user = await getUserByEmail(sql, email)
-    } else {
-      return json({ error: 'email required' }, 400)
-    }
-    if (!user) return json({ error: 'No account found for that phone/email' }, 404)
 
-    const fields = await loadContext(sql, user.id, persona)
-    const setup = Array.isArray(fields.setup)
-      ? (fields.setup as unknown[])
-      : (fields.setup as unknown) && typeof fields.setup === 'string'
-        ? (JSON.parse(fields.setup as string) as unknown[])
+    const requested = Array.isArray(body.features)
+      ? body.features.map(String)
+      : body.feature
+        ? [body.feature]
         : []
-    const next = [...new Set([...setup.map(String), feature])]
+    if (body.done !== true && requested.length === 0) {
+      return json({ error: 'feature or features required' }, 400)
+    }
+    for (const f of requested) {
+      if (!PERSONA_MINI_APPS[persona].includes(f)) {
+        return json({ error: `Unknown feature for this hire: ${f}` }, 400)
+      }
+    }
+
+    const { user, error } = await resolveAuthedUser(sql, { token: body.token, email: body.email })
+    if (error) return error
+
+    const fields = await loadContext(sql, user!.id, persona)
+    const existing = parseSetupField(fields.setup)
+    const next = body.done === true && requested.length === 0
+      ? existing
+      : [...new Set([...existing, ...requested])]
+    const setupDone = body.done === true || fields.setup_done === true || fields.setup_done === 'true'
     await sql`
       INSERT INTO hire_context (user_id, persona, fields, updated_at)
-      VALUES (${user.id}, ${persona}, ${JSON.stringify({ ...fields, setup: next })}, now())
+      VALUES (${user!.id}, ${persona}, ${JSON.stringify({ ...fields, setup: next, setup_done: setupDone })}, now())
       ON CONFLICT (user_id, persona)
-      DO UPDATE SET fields = ${JSON.stringify({ ...fields, setup: next })}, updated_at = now()
+      DO UPDATE SET fields = ${JSON.stringify({ ...fields, setup: next, setup_done: setupDone })}, updated_at = now()
     `
 
-    if (feature === 'digest') {
-      const tz = user.timezone || 'America/Los_Angeles'
-      const existing = await sql`
+    if (next.includes('digest')) {
+      const tz = user!.timezone || 'America/Los_Angeles'
+      const existingReminder = await sql`
         SELECT id FROM hire_reminders
-        WHERE user_id = ${user.id} AND persona = ${persona} AND recurrence = 'daily'
+        WHERE user_id = ${user!.id} AND persona = ${persona} AND recurrence = 'daily'
           AND text LIKE '[digest]%' LIMIT 1
       `
-      if (!existing[0]) {
+      if (!existingReminder[0]) {
         await sql`
           INSERT INTO hire_reminders (id, user_id, persona, text, scheduled_at, recurrence, timezone, status)
-          VALUES (${crypto.randomUUID()}, ${user.id}, ${persona}, '[digest]Daily brief',
+          VALUES (${crypto.randomUUID()}, ${user!.id}, ${persona}, '[digest]Daily brief',
             ${nextLocalTimeUtc(tz, 8, 0)}, 'daily', ${tz}, 'pending')
         `
       }
     }
 
-    return json({ ok: true, feature, setup: next })
+    return json({ ok: true, features: requested, setup: next, setupDone })
+  }
+
+  if (path === '/api/loops' && req.method === 'GET') {
+    const { user, error } = await resolveAuthedUser(sql, {
+      token: url.searchParams.get('t') || undefined,
+      email: url.searchParams.get('email') || undefined,
+    })
+    if (error) return error
+    const rows = await sql`
+      SELECT id, persona, title, context, due_at AS "dueAt", status,
+             created_at AS "createdAt"
+      FROM hire_loops WHERE user_id = ${user!.id}
+      ORDER BY (status = 'open') DESC, created_at DESC LIMIT 50
+    `
+    return json({ loops: rows })
+  }
+
+  if (path === '/api/loops' && req.method === 'POST') {
+    const body = (await req.json().catch(() => ({}))) as {
+      token?: string; email?: string; persona?: string
+      title?: string; context?: string; dueAt?: string
+    }
+    const title = String(body.title || '').trim().slice(0, 200)
+    if (!title) return json({ error: 'title required' }, 400)
+    const { user, error } = await resolveAuthedUser(sql, { token: body.token, email: body.email })
+    if (error) return error
+    const id = crypto.randomUUID()
+    await sql`
+      INSERT INTO hire_loops (id, user_id, persona, title, context, due_at)
+      VALUES (${id}, ${user!.id}, ${isPersona(body.persona || '') ? body.persona! : ''},
+        ${title}, ${String(body.context || '').slice(0, 500)},
+        ${body.dueAt ? new Date(body.dueAt).toISOString() : null})
+    `
+    return json({ ok: true, id })
+  }
+
+  if (path.startsWith('/api/loops/') && req.method === 'PATCH') {
+    const id = path.slice('/api/loops/'.length)
+    const body = (await req.json().catch(() => ({}))) as { token?: string; email?: string; status?: string }
+    const status = body.status === 'done' || body.status === 'snoozed' ? body.status : 'open'
+    const { user, error } = await resolveAuthedUser(sql, { token: body.token, email: body.email })
+    if (error) return error
+    await sql`
+      UPDATE hire_loops SET status = ${status}, updated_at = now()
+      WHERE id = ${id} AND user_id = ${user!.id}
+    `
+    return json({ ok: true })
+  }
+
+  if (path === '/api/decisions' && req.method === 'GET') {
+    const { user, error } = await resolveAuthedUser(sql, {
+      token: url.searchParams.get('t') || undefined,
+      email: url.searchParams.get('email') || undefined,
+    })
+    if (error) return error
+    const rows = await sql`
+      SELECT id, persona, decision, reason, evidence, owner, review_at AS "reviewAt",
+             outcome, status, created_at AS "createdAt"
+      FROM hire_decisions WHERE user_id = ${user!.id}
+      ORDER BY created_at DESC LIMIT 50
+    `
+    return json({ decisions: rows })
+  }
+
+  if (path === '/api/decisions' && req.method === 'POST') {
+    const body = (await req.json().catch(() => ({}))) as {
+      token?: string; email?: string; persona?: string
+      decision?: string; reason?: string; evidence?: string; owner?: string; reviewAt?: string
+    }
+    const decision = String(body.decision || '').trim().slice(0, 300)
+    if (!decision) return json({ error: 'decision required' }, 400)
+    const { user, error } = await resolveAuthedUser(sql, { token: body.token, email: body.email })
+    if (error) return error
+    const id = crypto.randomUUID()
+    await sql`
+      INSERT INTO hire_decisions (id, user_id, persona, decision, reason, evidence, owner, review_at)
+      VALUES (${id}, ${user!.id}, ${isPersona(body.persona || '') ? body.persona! : 'cofounder'},
+        ${decision}, ${String(body.reason || '').slice(0, 500)}, ${String(body.evidence || '').slice(0, 500)},
+        ${String(body.owner || '').slice(0, 120)}, ${body.reviewAt ? new Date(body.reviewAt).toISOString() : null})
+    `
+    return json({ ok: true, id })
+  }
+
+  if (path.startsWith('/api/decisions/') && req.method === 'PATCH') {
+    const id = path.slice('/api/decisions/'.length)
+    const body = (await req.json().catch(() => ({}))) as { token?: string; email?: string; outcome?: string }
+    const { user, error } = await resolveAuthedUser(sql, { token: body.token, email: body.email })
+    if (error) return error
+    await sql`
+      UPDATE hire_decisions
+      SET outcome = ${String(body.outcome || '').slice(0, 500)},
+          status = 'reviewed', updated_at = now()
+      WHERE id = ${id} AND user_id = ${user!.id}
+    `
+    return json({ ok: true })
+  }
+
+  if (path === '/api/relationships' && req.method === 'GET') {
+    const { user, error } = await resolveAuthedUser(sql, {
+      token: url.searchParams.get('t') || undefined,
+      email: url.searchParams.get('email') || undefined,
+    })
+    if (error) return error
+    const rows = await sql`
+      SELECT id, name, kind, notes, cadence_days AS "cadenceDays",
+             last_touch_at AS "lastTouchAt", updated_at AS "updatedAt"
+      FROM hire_relationships WHERE user_id = ${user!.id}
+      ORDER BY updated_at DESC LIMIT 60
+    `
+    return json({ relationships: rows })
+  }
+
+  if (path === '/api/relationships' && req.method === 'POST') {
+    const body = (await req.json().catch(() => ({}))) as {
+      token?: string; email?: string
+      name?: string; kind?: string; notes?: string; cadenceDays?: number
+    }
+    const name = String(body.name || '').trim().slice(0, 120)
+    if (!name) return json({ error: 'name required' }, 400)
+    const kind = ['personal', 'work', 'investor', 'candidate', 'partner', 'other'].includes(body.kind || '')
+      ? body.kind!
+      : 'other'
+    const { user, error } = await resolveAuthedUser(sql, { token: body.token, email: body.email })
+    if (error) return error
+    const id = crypto.randomUUID()
+    await sql`
+      INSERT INTO hire_relationships (id, user_id, name, kind, notes, cadence_days)
+      VALUES (${id}, ${user!.id}, ${name}, ${kind}, ${String(body.notes || '').slice(0, 500)},
+        ${Math.min(Math.max(clampNum(body.cadenceDays, 30), 1), 365)})
+    `
+    return json({ ok: true, id })
+  }
+
+  if (path.startsWith('/api/relationships/') && req.method === 'PATCH') {
+    const id = path.slice('/api/relationships/'.length)
+    const body = (await req.json().catch(() => ({}))) as { token?: string; email?: string; touch?: boolean }
+    const { user, error } = await resolveAuthedUser(sql, { token: body.token, email: body.email })
+    if (error) return error
+    if (body.touch) {
+      await sql`
+        UPDATE hire_relationships SET last_touch_at = now(), updated_at = now()
+        WHERE id = ${id} AND user_id = ${user!.id}
+      `
+    }
+    return json({ ok: true })
+  }
+
+  if (path === '/api/dropzone' && req.method === 'GET') {
+    const { user, error } = await resolveAuthedUser(sql, {
+      token: url.searchParams.get('t') || undefined,
+      email: url.searchParams.get('email') || undefined,
+    })
+    if (error) return error
+    const rows = await sql`
+      SELECT id, persona, content, media_kind AS "mediaKind", summary, status,
+             created_at AS "createdAt"
+      FROM hire_dropzone WHERE user_id = ${user!.id}
+      ORDER BY created_at DESC LIMIT 50
+    `
+    return json({ drops: rows })
+  }
+
+  if (path === '/api/dropzone' && req.method === 'POST') {
+    const body = (await req.json().catch(() => ({}))) as {
+      token?: string; email?: string; content?: string; mediaKind?: string
+    }
+    const content = String(body.content || '').trim().slice(0, 2000)
+    if (!content) return json({ error: 'content required' }, 400)
+    const { user, error } = await resolveAuthedUser(sql, { token: body.token, email: body.email })
+    if (error) return error
+    const id = crypto.randomUUID()
+    const mediaKind = ['image', 'voice', 'link', 'text'].includes(body.mediaKind || '') ? body.mediaKind! : null
+    await sql`
+      INSERT INTO hire_dropzone (id, user_id, persona, content, media_kind)
+      VALUES (${id}, ${user!.id}, '', ${content}, ${mediaKind})
+    `
+    return json({ ok: true, id })
+  }
+
+  if (path.startsWith('/api/dropzone/') && req.method === 'PATCH') {
+    const id = path.slice('/api/dropzone/'.length)
+    const body = (await req.json().catch(() => ({}))) as {
+      token?: string; email?: string; persona?: string; summary?: string; status?: string
+    }
+    const { user, error } = await resolveAuthedUser(sql, { token: body.token, email: body.email })
+    if (error) return error
+    const status = ['new', 'routed', 'done'].includes(body.status || '') ? body.status! : undefined
+    await sql`
+      UPDATE hire_dropzone
+      SET persona = COALESCE(${isPersona(body.persona || '') ? body.persona! : null}, persona),
+          summary = COALESCE(${body.summary ? String(body.summary).slice(0, 500) : null}, summary),
+          status = COALESCE(${status || null}, status)
+      WHERE id = ${id} AND user_id = ${user!.id}
+    `
+    return json({ ok: true })
+  }
+
+  if (path === '/api/meetings' && req.method === 'GET') {
+    const { user, error } = await resolveAuthedUser(sql, {
+      token: url.searchParams.get('t') || undefined,
+      email: url.searchParams.get('email') || undefined,
+    })
+    if (error) return error
+    const rows = await sql`
+      SELECT id, title, starts_at AS "startsAt", phase, briefing, followups,
+             created_at AS "createdAt"
+      FROM hire_meetings WHERE user_id = ${user!.id}
+      ORDER BY created_at DESC LIMIT 30
+    `
+    return json({ meetings: rows })
+  }
+
+  if (path === '/api/meetings' && req.method === 'POST') {
+    const body = (await req.json().catch(() => ({}))) as {
+      token?: string; email?: string; title?: string; startsAt?: string
+    }
+    const title = String(body.title || '').trim().slice(0, 200)
+    if (!title) return json({ error: 'title required' }, 400)
+    const { user, error } = await resolveAuthedUser(sql, { token: body.token, email: body.email })
+    if (error) return error
+    const id = crypto.randomUUID()
+    await sql`
+      INSERT INTO hire_meetings (id, user_id, title, starts_at)
+      VALUES (${id}, ${user!.id}, ${title}, ${body.startsAt ? new Date(body.startsAt).toISOString() : null})
+    `
+    return json({ ok: true, id })
+  }
+
+  if (path.startsWith('/api/meetings/') && req.method === 'PATCH') {
+    const id = path.slice('/api/meetings/'.length)
+    const body = (await req.json().catch(() => ({}))) as {
+      token?: string; email?: string; briefing?: string
+      followups?: unknown; phase?: string
+    }
+    const { user, error } = await resolveAuthedUser(sql, { token: body.token, email: body.email })
+    if (error) return error
+    const phase = body.phase === 'done' ? 'done' : body.phase === 'prep' ? 'prep' : undefined
+    await sql`
+      UPDATE hire_meetings
+      SET briefing = COALESCE(${body.briefing ? String(body.briefing).slice(0, 2000) : null}, briefing),
+          followups = COALESCE(${Array.isArray(body.followups) ? JSON.stringify(body.followups).slice(0, 4000) : null}::jsonb, followups),
+          phase = COALESCE(${phase || null}, phase),
+          updated_at = now()
+      WHERE id = ${id} AND user_id = ${user!.id}
+    `
+    return json({ ok: true })
+  }
+
+  if (path === '/api/nutrition' && req.method === 'GET') {
+    const { user, error } = await resolveAuthedUser(sql, {
+      token: url.searchParams.get('t') || undefined,
+      email: url.searchParams.get('email') || undefined,
+    })
+    if (error) return error
+    const goalRows = await sql`
+      SELECT calorie_goal AS "calorieGoal", protein_goal AS "proteinGoal",
+             carbs_goal AS "carbsGoal", fat_goal AS "fatGoal"
+      FROM hire_nutrition_goals WHERE user_id = ${user!.id} LIMIT 1
+    `
+    const goals = goalRows[0] as
+      | { calorieGoal: number; proteinGoal: number; carbsGoal: number; fatGoal: number }
+      | undefined
+    const { start, end } = todayWindowUtc(user!.timezone || 'America/Los_Angeles')
+    const logs = await sql`
+      SELECT id, description, image_url AS "imageUrl", calories, protein, carbs, fat,
+             eaten_at AS "eatenAt"
+      FROM hire_nutrition_logs
+      WHERE user_id = ${user!.id} AND eaten_at >= ${start.toISOString()} AND eaten_at < ${end.toISOString()}
+      ORDER BY eaten_at ASC
+    `
+    const totals = (logs as Array<{ calories: number; protein: number; carbs: number; fat: number }>).reduce(
+      (acc, l) => ({
+        calories: acc.calories + clampNum(l.calories),
+        protein: acc.protein + clampNum(l.protein),
+        carbs: acc.carbs + clampNum(l.carbs),
+        fat: acc.fat + clampNum(l.fat),
+      }),
+      { calories: 0, protein: 0, carbs: 0, fat: 0 },
+    )
+    return json({
+      goals: goals || { calorieGoal: 2200, proteinGoal: 150, carbsGoal: 220, fatGoal: 70 },
+      logs,
+      totals,
+    })
+  }
+
+  if (path === '/api/nutrition' && req.method === 'POST') {
+    const body = (await req.json().catch(() => ({}))) as {
+      token?: string; email?: string; description?: string
+      calories?: number; protein?: number; carbs?: number; fat?: number
+      eatenAt?: string; imageUrl?: string
+    }
+    const description = String(body.description || '').trim().slice(0, 300)
+    if (!description) return json({ error: 'description required' }, 400)
+    const { user, error } = await resolveAuthedUser(sql, { token: body.token, email: body.email })
+    if (error) return error
+    const id = crypto.randomUUID()
+    await sql`
+      INSERT INTO hire_nutrition_logs (id, user_id, description, image_url, calories, protein, carbs, fat, eaten_at)
+      VALUES (${id}, ${user!.id}, ${description}, ${body.imageUrl || null},
+        ${clampNum(body.calories)}, ${clampNum(body.protein)}, ${clampNum(body.carbs)}, ${clampNum(body.fat)},
+        ${body.eatenAt ? new Date(body.eatenAt).toISOString() : new Date().toISOString()})
+    `
+    return json({ ok: true, id })
+  }
+
+  if (path === '/api/nutrition/goals' && req.method === 'PUT') {
+    const body = (await req.json().catch(() => ({}))) as {
+      token?: string; email?: string
+      calorieGoal?: number; proteinGoal?: number; carbsGoal?: number; fatGoal?: number
+    }
+    const { user, error } = await resolveAuthedUser(sql, { token: body.token, email: body.email })
+    if (error) return error
+    const cal = clampNum(body.calorieGoal, 2200)
+    const pro = clampNum(body.proteinGoal, 150)
+    const carb = clampNum(body.carbsGoal, 220)
+    const fat = clampNum(body.fatGoal, 70)
+    await sql`
+      INSERT INTO hire_nutrition_goals (user_id, calorie_goal, protein_goal, carbs_goal, fat_goal)
+      VALUES (${user!.id}, ${cal}, ${pro}, ${carb}, ${fat})
+      ON CONFLICT (user_id)
+      DO UPDATE SET calorie_goal = ${cal}, protein_goal = ${pro}, carbs_goal = ${carb}, fat_goal = ${fat},
+        updated_at = now()
+    `
+    return json({ ok: true })
+  }
+
+  if (path === '/api/nutrition/analyze' && req.method === 'POST') {
+    const body = (await req.json().catch(() => ({}))) as {
+      token?: string; email?: string; description?: string; imageBase64?: string
+    }
+    const { user, error } = await resolveAuthedUser(sql, { token: body.token, email: body.email })
+    if (error) return error
+    void user
+    const estimate = await estimateNutrition(String(body.description || '').slice(0, 500), body.imageBase64 || '')
+    return json(estimate)
   }
 
   if (path === '/api/internal/digest' && req.method === 'GET') {
