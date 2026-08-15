@@ -155,6 +155,41 @@ export async function fetchMiniRun(
   }
 }
 
+export async function autoLogNutrition(
+  phone: string,
+  persona: AgentId,
+  description: string,
+): Promise<{ ok: boolean; logged?: boolean; guess?: string; calories?: number; protein?: number; carbs?: number; fat?: number; error?: string } | null> {
+  const base = apiBase()
+  const key = process.env.HIREALPHA_INTERNAL_KEY || ''
+  if (!base || !key) return null
+  try {
+    const res = await timedFetch(
+      `${base}/api/internal/nutrition`,
+      {
+        method: 'POST',
+        headers: authHeaders(),
+        body: JSON.stringify({ phone, persona, description: description.slice(0, 500) }),
+      },
+      25000,
+    )
+    if (!res.ok) return null
+    return (await res.json()) as {
+      ok: boolean
+      logged?: boolean
+      guess?: string
+      calories?: number
+      protein?: number
+      carbs?: number
+      fat?: number
+      error?: string
+    }
+  } catch (err) {
+    console.warn('[live] nutrition auto-log failed', err)
+    return null
+  }
+}
+
 export function formatHireContext(fields: Record<string, string>): string {
   const lines = Object.entries(fields)
     .filter(([, v]) => {

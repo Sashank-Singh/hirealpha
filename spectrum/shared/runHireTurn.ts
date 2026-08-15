@@ -8,7 +8,7 @@ import { skillsPromptBlock, SKILLS } from './skills'
 import { gmiChat } from './gmi'
 import { appendThread, loadMemory, upsertFacts, pruneExpiredFacts, setSummary, trimHistory, MAX_RAW, type ThreadMemory } from './memory'
 import { extractFacts, summarizeOld } from './memoryMaintain'
-import { fetchLiveProfile, fetchLiveTools, fetchMiniRun, formatHireContext, formatHireMemories, persistLiveFacts, touchInbound } from './liveContext'
+import { autoLogNutrition, fetchLiveProfile, fetchLiveTools, fetchMiniRun, formatHireContext, formatHireMemories, persistLiveFacts, touchInbound } from './liveContext'
 import {
   looksLikeReminder,
   parseReminderIntent,
@@ -54,6 +54,10 @@ function wantsLiveData(text: string) {
   return /\b(e-?mails?|inbox|mail|gmail|unread|calendar|meeting|meetings|schedule|agenda|tomorrow|today|slack|notion|linear|github|drive|spotify|dinner|restaurant|tonight|maps|place|places|ticket|backlog|triage|deck|wiki|look up|search)\b/i.test(
     text,
   )
+}
+
+function looksLikeNutritionLog(text: string) {
+  return /\b(i ate|i had|log|track|meal|breakfast|lunch|dinner|snack|food)\b/i.test(text)
 }
 
 const LIVE_MINI = new Set(['pick_night', 'standup_paste', 'kill_keep_park'])
@@ -262,6 +266,16 @@ export async function runHireTurn(input: {
       extras.push(
         `Live mini-app result for "${miniApp.kind}" (ground truth, put this in the text, do not invent a different answer):\n${miniRun.paste || miniRun.text}`,
       )
+    }
+  }
+  if (miniApp?.kind === 'nutrition' && looksLikeNutritionLog(input.userText)) {
+    const nutrition = await autoLogNutrition(input.senderId, agent.id, input.userText)
+    if (nutrition?.logged) {
+      extras.push(
+        `Nutrition was automatically logged as ${nutrition.guess || input.userText} (${nutrition.calories || 0} calories, ${nutrition.protein || 0}g protein, ${nutrition.carbs || 0}g carbs, ${nutrition.fat || 0}g fat). Confirm the log briefly in the reply; do not ask them to log it again.`,
+      )
+    } else if (nutrition?.error) {
+      extras.push('Nutrition auto-log failed. Do not claim the meal was logged; offer the Nutrition card instead.')
     }
   }
   if (toolResults.length) {

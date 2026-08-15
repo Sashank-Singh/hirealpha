@@ -2401,6 +2401,28 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     return json(estimate)
   }
 
+  if (path === '/api/internal/nutrition' && req.method === 'POST') {
+    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
+    const body = (await req.json().catch(() => ({}))) as {
+      phone?: string; persona?: string; description?: string
+    }
+    const description = String(body.description || '').trim().slice(0, 500)
+    if (!body.phone || !isPersona(body.persona || '') || !description) {
+      return json({ error: 'phone, persona, and description required' }, 400)
+    }
+    const user = await getUserByPhone(sql, body.phone)
+    if (!user) return json({ error: 'User not found' }, 404)
+    const estimate = await estimateNutrition(description, '')
+    if (!estimate.ok) return json(estimate)
+    const id = crypto.randomUUID()
+    await sql`
+      INSERT INTO hire_nutrition_logs (id, user_id, description, image_url, calories, protein, carbs, fat, eaten_at)
+      VALUES (${id}, ${user.id}, ${estimate.guess || description.slice(0, 300)}, NULL,
+        ${clampNum(estimate.calories)}, ${clampNum(estimate.protein)}, ${clampNum(estimate.carbs)}, ${clampNum(estimate.fat)}, now())
+    `
+    return json({ ...estimate, logged: true, id })
+  }
+
   if (path === '/api/internal/digest' && req.method === 'GET') {
     if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
     const phone = url.searchParams.get('phone') || ''
