@@ -72,11 +72,11 @@ for await (const [space, message] of app.messages) {
 
   const userText = message.content.text.trim()
   if (!userText) continue
-  if (!claimInbound(message.id)) {
+  const senderId = message.sender?.id ?? space.id
+  if (!claimInbound(senderId, userText, message.id)) {
     console.warn(`[${agent.id}] duplicate inbound skipped: ${message.id}`)
     continue
   }
-  const senderId = message.sender?.id ?? space.id
   console.log(`[${agent.id}] inbound from ${senderId}: ${userText.slice(0, 120)}`)
 
   try {

@@ -50,7 +50,7 @@ export async function fetchLiveProfile(phone: string, persona: AgentId): Promise
   const base = apiBase()
   const key = process.env.HIREALPHA_INTERNAL_KEY || ''
   if (!base || !key) return EMPTY
-  try {
+  const attempt = async (): Promise<LiveProfile> => {
     const url = `${base}/api/internal/live?phone=${encodeURIComponent(phone)}&persona=${encodeURIComponent(persona)}`
     const res = await timedFetch(url, { headers: authHeaders() }, 8000)
     if (!res.ok) return EMPTY
@@ -62,6 +62,14 @@ export async function fetchLiveProfile(phone: string, persona: AgentId): Promise
       connected: data.connected || [],
       memories: data.memories || [],
     }
+  }
+  try {
+    const first = await attempt()
+    // A sender already known to be hired can briefly read as not-found after a
+    // deploy. Retry once so one blip can't turn into a "sign in" reply.
+    if (first.found) return first
+    await new Promise((r) => setTimeout(r, 300))
+    return await attempt()
   } catch (err) {
     console.warn('[live] profile lookup failed', err)
     return EMPTY

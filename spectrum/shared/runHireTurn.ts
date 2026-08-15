@@ -333,6 +333,10 @@ export async function runHireTurn(input: {
     extras.push(
       `Live tool results (ground truth, use these, do not invent):\n${toolResults.join('\n\n')}\n\nWhen email results are present: give a short overview of the batch (how many, themes), then call out the top 2-3 that matter most with a one-line reason each. Do not fixate on a single email.`,
     )
+  } else if (live.hired && live.connected.length) {
+    extras.push(
+      `These tools are connected for this person: ${live.connected.join(', ')}. If they just asked about one of them, say it is connected and that the lookup came back empty, or offer to try again. Never say the tool is not connected.`,
+    )
   }
   if (miniApp) {
     extras.push(
