@@ -98,8 +98,59 @@ function contentType(path: string) {
   return 'application/octet-stream'
 }
 
+const MINI_META: Record<string, { title: string; description: string }> = {
+  menu: { title: 'Your HireAlpha features', description: 'Choose what this HireAlpha contact can help with.' },
+  digest: { title: 'Morning brief', description: 'Your calendar, important mail, and reminders in one place.' },
+  nutrition: { title: 'Nutrition', description: 'Log meals, estimate macros, and keep today’s totals.' },
+  open_loops: { title: 'Open loops', description: 'Track promises and follow-ups so nothing slips.' },
+  relationship_radar: { title: 'Relationship radar', description: 'See who to reach out to and when.' },
+  drop_zone: { title: 'Drop zone', description: 'Capture something messy and sort it later.' },
+  meeting_mode: { title: 'Meeting mode', description: 'Prep before the meeting and wrap it cleanly after.' },
+  decision_ledger: { title: 'Decision ledger', description: 'Record important calls and revisit the reasoning.' },
+  check_in: { title: 'Check-in', description: 'Take a quick pulse on how you are doing.' },
+  pick_night: { title: "Tonight's plan", description: 'Compare plans and decide what to do tonight.' },
+  spiral_options: { title: 'Options', description: 'Step back and look at the options.' },
+  approve_send: { title: 'Approve & send', description: 'Review a draft before it goes out.' },
+  pick_slot: { title: 'Pick a slot', description: 'Compare times and choose the one that works.' },
+  standup_paste: { title: 'Standup', description: 'Turn raw notes into a tight standup.' },
+  linear_triage: { title: 'Linear triage', description: 'Triage issues and backlog.' },
+  kill_keep_park: { title: 'Kill, keep, park', description: 'Decide what to kill, keep, or park.' },
+  hire_decision: { title: 'Hire decision', description: 'Pressure-test the candidate call.' },
+  weekly_focus: { title: 'Weekly focus', description: 'Choose what matters this week.' },
+  approve_investor_note: { title: 'Investor note', description: 'Review an investor update before it goes out.' },
+}
+
+function miniMeta(pathname: string) {
+  const match = pathname.match(/^\/app\/mini\/(friend|coworker|cofounder)\/([^/]+)/)
+  if (!match) return null
+  const persona = match[1] === 'friend' ? 'Alpha' : match[1] === 'coworker' ? 'Alpha (Coworker)' : 'Alpha (CoFounder)'
+  const feature = MINI_META[match[2]] || { title: 'HireAlpha', description: 'A live HireAlpha mini-app.' }
+  return { ...feature, title: `${feature.title} · ${persona}` }
+}
+
+async function miniIndex(pathname: string) {
+  const meta = miniMeta(pathname)
+  if (!meta) return null
+  const index = await Bun.file(join(ROOT, 'index.html')).text()
+  const safeTitle = meta.title.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+  const safeDescription = meta.description.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+  const withTitle = index.replace(/<title>[^<]*<\/title>/, `<title>${safeTitle}</title>`)
+  const withDescription = withTitle.replace(
+    /<meta\s+name="description"\s+content="[^"]*"\s*\/>/,
+    `<meta name="description" content="${safeDescription}" />`,
+  )
+  const og = `\n  <meta property="og:title" content="${safeTitle}" />\n  <meta property="og:description" content="${safeDescription}" />`
+  return withDescription.replace('</head>', `${og}\n  </head>`)
+}
+
 async function serveStatic(pathname: string) {
   const clean = pathname.split('?')[0] || '/'
+  const mini = await miniIndex(clean)
+  if (mini) {
+    return new Response(mini, {
+      headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-cache' },
+    })
+  }
   const rel = clean === '/' ? '/index.html' : clean
   const filePath = join(ROOT, rel)
   const file = Bun.file(filePath)

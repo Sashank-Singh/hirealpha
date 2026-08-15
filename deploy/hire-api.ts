@@ -927,6 +927,9 @@ function wantsMaps(text: string) {
     text,
   )
 }
+function wantsWebSearch(text: string) {
+  return /\b(search (?:the )?(?:web|internet|online)|web search|look online|look up|browse|for accuracy|latest news|news about)\b/i.test(text)
+}
 function wantsSlack(text: string) {
   return /\b(slack|thread|channel|#\w+)\b/i.test(text)
 }
@@ -960,6 +963,88 @@ async function fetchDrive(access: string, query: string) {
   return `Drive files:\n${files
     .map((f) => `- ${f.name || '(untitled)'} (${f.mimeType || '?'}) ${f.modifiedTime || ''}`)
     .join('\n')}`
+}
+
+function stripHtml(text: string) {
+  return text
+    .replace(/<script[\s\S]*?<\/script>/gi, '')
+    .replace(/<style[\s\S]*?<\/style>/gi, '')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function decodeHtml(text: string) {
+  return text
+    .replace(/&amp;/g, '&')
+    .replace(/&quot;/g, '"')
+    .replace(/&#x27;|&#39;/g, "'")
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+}
+
+async function fetchWebSearch(query: string) {
+  const q = query.trim().slice(0, 180)
+  if (!q) return 'Web search needs a query.'
+  try {
+    const url = new URL('https://html.duckduckgo.com/html/')
+    url.searchParams.set('q', q)
+    const res = await fetch(url, {
+      headers: { Accept: 'text/html', 'User-Agent': 'HireAlpha/1.0 (https://hirealpha.chat)' },
+      signal: AbortSignal.timeout(8000),
+    })
+    if (!res.ok) return `Web search unavailable (${res.status}).`
+    const html = await res.text()
+    const results: string[] = []
+    const pattern = /<a[^>]*class="result__a"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/gi
+    for (const match of html.matchAll(pattern)) {
+      let href = decodeHtml(match[1] || '')
+      try {
+        const parsed = new URL(href.startsWith('//') ? `https:${href}` : href)
+        href = parsed.searchParams.get('uddg') || href
+      } catch {
+        /* keep the original link */
+      }
+      const title = decodeHtml(stripHtml(match[2] || ''))
+      if (title && href) results.push(`- ${title}\n  ${href}`)
+      if (results.length >= 5) break
+    }
+    return results.length ? `Web results for "${q}":\n${results.join('\n')}` : 'No web results found.'
+  } catch {
+    return 'Web search unavailable right now.'
+  }
+}
+
+async function fetchMapSearch(query: string) {
+  const cleaned = query
+    .replace(/\b(tonight|dinner|restaurant|place|places|maps|hangout|near me|nearby|where should we|where can we)\b/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+  if (!cleaned || /^(quiet|good|best)$/i.test(cleaned)) {
+    return 'Maps search needs a city, neighborhood, or address. Ask for a place in a specific area.'
+  }
+  try {
+    const url = new URL('https://nominatim.openstreetmap.org/search')
+    url.searchParams.set('q', cleaned)
+    url.searchParams.set('format', 'jsonv2')
+    url.searchParams.set('limit', '5')
+    const res = await fetch(url, {
+      headers: { Accept: 'application/json', 'User-Agent': 'HireAlpha/1.0 (https://hirealpha.chat)' },
+      signal: AbortSignal.timeout(8000),
+    })
+    if (!res.ok) return `Maps search unavailable (${res.status}).`
+    const rows = (await res.json()) as Array<{ display_name?: string; lat?: string; lon?: string; type?: string }>
+    if (!rows.length) return `No map results found for "${cleaned}".`
+    return `Map results for "${cleaned}":\n${rows
+      .map((row) => {
+        const label = String(row.display_name || '').split(',').slice(0, 3).join(',')
+        const link = row.lat && row.lon ? `https://www.openstreetmap.org/?mlat=${row.lat}&mlon=${row.lon}#map=16/${row.lat}/${row.lon}` : ''
+        return `- ${label}${row.type ? ` (${row.type})` : ''}${link ? `\n  ${link}` : ''}`
+      })
+      .join('\n')}`
+  } catch {
+    return 'Maps search unavailable right now.'
+  }
 }
 
 async function composioFirst(
@@ -1028,19 +1113,15 @@ export async function runToolsForMessage(
   }
 
   if (input.persona === 'friend') {
-    if (wantsMaps(input.message) && can('maps')) {
-      const q =
-        input.message.replace(/\b(tonight|dinner|restaurant|place|places|maps)\b/gi, ' ').trim().slice(0, 80) ||
-        'quiet restaurant nearby'
-      const c = await composioFirst(
-        input.userId,
-        ['GOOGLEMAPS_TEXT_SEARCH', 'GOOGLEMAPS_SEARCH_PLACES', 'GOOGLE_MAPS_SEARCH_PLACES'],
-        { query: q, q },
-      )
-      results.push(c || 'Maps is connected but the search failed. Say that honestly. Do not invent a restaurant.')
+    if (wantsMaps(input.message)) {
+      results.push(await fetchMapSearch(input.message))
     } else {
       asked('maps', wantsMaps(input.message))
     }
+  }
+
+  if (wantsWebSearch(input.message) && !wantsMaps(input.message)) {
+    results.push(await fetchWebSearch(input.message))
   }
 
   if (input.persona === 'coworker') {

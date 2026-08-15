@@ -50,9 +50,11 @@ function canonTool(name: string) {
 export function skillsPromptBlock(agentId: AgentId, connected: string[] = []): string {
   const s = SKILLS[agentId]
   const connectedSet = new Set(connected.map(canonTool))
+  const freeLookupTools = new Set(['maps'])
   const live = s.executable.filter((t) => connectedSet.has(t))
-  const missing = s.executable.filter((t) => !connectedSet.has(t))
+  const missing = s.executable.filter((t) => !connectedSet.has(t) && !freeLookupTools.has(t))
   const lines = [
+    'Free live lookups available without a connector: web search and OpenStreetMap place search. Use their results when provided; do not claim they are unavailable.',
     live.length
       ? `Live tools you can actually use this turn: ${live.join(', ')}. Use a tool result if one is provided. Never invent a send, book, search, or file.`
       : 'No live tools are connected for this hire.',
