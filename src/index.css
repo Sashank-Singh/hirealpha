@@ -2290,3 +2290,186 @@ button, input { font: inherit; }
 .mini__macro-num { font-size: 13px; font-weight: 700; }
 .mini__macro-track { height: 6px; border-radius: 999px; background: color-mix(in srgb, var(--mini-accent) 14%, transparent); overflow: hidden; }
 .mini__macro-fill { height: 100%; border-radius: 999px; background: var(--mini-accent); transition: width 0.3s ease; }
+
+/* Expandable feature cards (platform) */
+.feat-persons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 18px;
+}
+.feat-person {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px 6px 6px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg);
+  color: var(--fg);
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 600;
+}
+.feat-person--on {
+  background: var(--feat-accent, var(--fg));
+  border-color: var(--feat-accent, var(--fg));
+  color: #fff;
+}
+.feat-person__mark {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+}
+.feat-agent {
+  margin: 0 0 16px;
+  color: var(--muted-fg);
+  font-size: 14px;
+}
+.feat-cards {
+  list-style: none;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  align-items: start;
+}
+.feat-card {
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--bg);
+  overflow: hidden;
+}
+.feat-card__head {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  background: none;
+  border: none;
+  color: var(--fg);
+  cursor: pointer;
+  text-align: left;
+}
+.feat-card--open .feat-card__head {
+  border-bottom: 1px solid var(--border);
+}
+.feat-card__emoji {
+  width: 34px;
+  height: 34px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  font-size: 13px;
+  font-weight: 700;
+  border-radius: 10px;
+  background: var(--muted-bg);
+}
+.feat-card__text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.feat-card__title {
+  font-size: 15px;
+  font-weight: 700;
+}
+.feat-card__blurb {
+  font-size: 13px;
+  color: var(--muted-fg);
+}
+.feat-card__body {
+  padding: 14px 16px 16px;
+}
+.feat-card__hint {
+  font-size: 13px;
+  color: var(--muted-fg);
+  margin-bottom: 12px;
+}
+.feat-card__full {
+  display: inline-block;
+  margin-top: 12px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--fg);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+/* Keep mini-app surfaces readable inside iMessage's dark webview. */
+.mini {
+  --mini-surface: #ffffff;
+  --mini-surface-raised: #f4f7f7;
+  --mini-text: #09090b;
+  --mini-muted: #626b70;
+  --mini-line: #d9e2e4;
+  --mini-track: #d5e2e4;
+  color-scheme: light;
+}
+.mini__macro,
+.mini__card-item,
+.mini__list li {
+  background: var(--mini-surface-raised);
+  border-color: var(--mini-line);
+  color: var(--mini-text);
+}
+.mini__macro-label,
+.mini__row-sub,
+.mini__field > span,
+.mini__hint,
+.mini__empty,
+.mini__photo-label {
+  color: var(--mini-muted);
+}
+.mini__macro-num,
+.mini__row-title,
+.mini__name,
+.mini__brand {
+  color: var(--mini-text);
+}
+.mini__macro-track {
+  background: var(--mini-track);
+}
+.mini__input,
+.mini__textarea,
+.mini__select {
+  background: var(--mini-surface);
+  border-color: var(--mini-line);
+  color: var(--mini-text);
+}
+.mini__input::placeholder,
+.mini__textarea::placeholder {
+  color: var(--mini-muted);
+  opacity: 0.9;
+}
+.mini__photo {
+  background: var(--mini-surface-raised);
+  border-color: var(--mini-line);
+}
+.mini__btn {
+  color: #ffffff;
+  background: var(--mini-accent);
+}
+
+@media (prefers-color-scheme: dark) {
+  .mini {
+    --mini-surface: #0d1011;
+    --mini-surface-raised: #171d1f;
+    --mini-text: #f5f7f7;
+    --mini-muted: #aab3b7;
+    --mini-line: #303a3d;
+    --mini-track: #344447;
+    color-scheme: dark;
+  }
+  .mini__macro,
+  .mini__card-item,
+  .mini__list li {
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.025);
+  }
+}
