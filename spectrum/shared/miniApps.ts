@@ -129,7 +129,9 @@ export function miniAppCard(
   kind: MiniAppKind,
   query?: Record<string, string>,
 ): MiniAppCard {
-  return { url: miniAppUrl(persona, kind, query), live: true }
+  // Keep the bubble tappable on iMessage. The live extension preview is
+  // clipped on some clients instead of expanding to the full mini-app.
+  return { url: miniAppUrl(persona, kind, query), live: false }
 }
 
 /**
@@ -172,7 +174,7 @@ export async function mintMiniAppCard(
   kind: MiniAppKind,
   query?: Record<string, string>,
 ): Promise<MiniAppCard> {
-  return { url: await mintMiniAppUrl(phone, persona, kind, query), live: true }
+  return { url: await mintMiniAppUrl(phone, persona, kind, query), live: false }
 }
 
 /**
