@@ -71,6 +71,7 @@ export async function fetchLiveTools(
   phone: string,
   persona: AgentId,
   message: string,
+  want?: 'maps' | 'web',
 ): Promise<string[]> {
   const base = apiBase()
   const key = process.env.HIREALPHA_INTERNAL_KEY || ''
@@ -81,7 +82,7 @@ export async function fetchLiveTools(
       {
         method: 'POST',
         headers: authHeaders(),
-        body: JSON.stringify({ phone, persona, message }),
+        body: JSON.stringify({ phone, persona, message, ...(want ? { want } : {}) }),
       },
       20000,
     )

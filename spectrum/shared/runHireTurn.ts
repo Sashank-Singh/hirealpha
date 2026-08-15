@@ -56,6 +56,44 @@ function wantsLiveData(text: string) {
   )
 }
 
+function maybeToolIntent(text: string) {
+  return /\b(near(?: by)?|around|where\b|recommend|suggest|show me|find|search|look(?:ing|ing for| up| it up)|dinner|lunch|breakfast|eat|food|restaurant|cafe|bar|coffee|spot|place|tonight|weekend|date night|hangout|movie|weather|news|latest|price|how much|delivery|takeout|reservation|book|maps?|directions)\b/i.test(
+    text,
+  )
+}
+
+function toolsEmptyAndAppAsk(text: string) {
+  return /\b(e-?mails?|inbox|mail|gmail|unread|calendar|meeting|meetings|schedule|agenda|slack|linear|ticket|tickets|backlog|triage|notion|drive|deck|github)\b/i.test(
+    text,
+  )
+}
+
+/** Semantic gate: no exact keyword required. Decides maps vs web vs none. */
+async function classifyFreeLookup(
+  message: string,
+): Promise<{ tool: 'maps' | 'web' | 'none'; query: string } | null> {
+  try {
+    const raw = await gmiChat({
+      temperature: 0,
+      maxTokens: 60,
+      messages: [
+        {
+          role: 'system',
+          content:
+            'You decide whether an iMessage wants a free live lookup (no app connector needed) and which one. MAPS = finding real places, venues, food, or transport nearby restaurants, cafes, bars, parks, directions, "near me", dinner spots. WEB = researching facts, news, prices, recipes, meanings, comparisons anything that needs the internet but is not about finding a location. If neither fits, or they are just chatting, pick none. Reply JSON only, exactly one of: {"tool":"maps"}, {"tool":"web"}, {"tool":"none"}. When tool is maps or web also include "query": the clean short search phrase you would type (e.g. {"tool":"maps","query":"restaurants in San Francisco"}).',
+        },
+        { role: 'user', content: message },
+      ],
+    })
+    const tool = (raw.match(/"tool"\s*:\s*"(maps|web|none)"/) || [])[1] || ''
+    if (!tool || tool === 'none') return { tool: 'none', query: '' }
+    const query = (raw.match(/"query"\s*:\s*"([^"]+)"/) || [])[1] || message
+    return { tool: tool as 'maps' | 'web', query }
+  } catch {
+    return null
+  }
+}
+
 function looksLikeNutritionLog(text: string) {
   return /\b(i ate|i had|log|track|meal|breakfast|lunch|dinner|snack|food)\b/i.test(text)
 }
@@ -232,6 +270,22 @@ export async function runHireTurn(input: {
     }
   }
 
+  if (live.found && live.hired && !toolResults.length && maybeToolIntent(input.userText)) {
+    const intent = await classifyFreeLookup(input.userText)
+    if (
+      intent &&
+      intent.tool !== 'none' &&
+      (intent.query || input.userText)
+    ) {
+      toolResults = await fetchLiveTools(
+        input.senderId,
+        agent.id,
+        intent.query || input.userText,
+        intent.tool,
+      )
+    }
+  }
+
   const miniApp = live.hired
     ? isFirst
       ? { kind: 'menu' as const }
@@ -282,7 +336,10 @@ export async function runHireTurn(input: {
     extras.push(
       `Live tool results (ground truth, use these, do not invent):\n${toolResults.join('\n\n')}\n\nWhen email results are present: give a short overview of the batch (how many, themes), then call out the top 2-3 that matter most with a one-line reason each. Do not fixate on a single email.`,
     )
-  } else if (live.hired && wantsLiveData(input.userText)) {
+  } else if (
+    live.hired &&
+    toolsEmptyAndAppAsk(input.userText)
+  ) {
     extras.push(
       'They asked about a connected app, but no live data came back. If the tool is not in the connected list, tell them to open this hire at hirealpha.chat/app and tap Connect. Do not invent inbox or calendar contents.',
     )

@@ -1024,7 +1024,13 @@ async function fetchWebSearch(query: string) {
   }
 }
 
-async function fetchMapSearch(query: string) {
+const FOREIGN_PLACE = /\b(bali|jakarta|thailand|indonesia|london|paris|tokyo|kyoto|athens|rome|madrid|berlin|amsterdam|sydney|melbourne|mumbai|delhi|bangkok|marrakech|dubai|singapore|hong\s?kong|europe|asia|africa|mexico city|canada|australia|india|france|italy|spain|germany|brazil|argentina|colombia|philippines|panama|uk|england|scotland|ireland)\b/i
+
+function timezoneCountry(tz?: string) {
+  return tz && /^America\//.test(tz) ? 'us' : ''
+}
+
+async function fetchMapSearch(query: string, countryHint = '') {
   const cleaned = query
     .replace(/\b(find|search|show|recommend|tonight|maps|hangout|near me|nearby|where should we|where can we)\b/gi, ' ')
     .replace(/\s+/g, ' ')
@@ -1037,6 +1043,10 @@ async function fetchMapSearch(query: string) {
     url.searchParams.set('q', cleaned)
     url.searchParams.set('format', 'jsonv2')
     url.searchParams.set('limit', '5')
+    url.searchParams.set('dedupe', '1')
+    if (countryHint && !FOREIGN_PLACE.test(cleaned)) {
+      url.searchParams.set('countrycodes', countryHint)
+    }
     const res = await fetchPublic(url, {
       headers: { Accept: 'application/json', 'User-Agent': 'HireAlpha/1.0 (https://hirealpha.chat)' },
     })
@@ -1076,7 +1086,14 @@ function notConnectedNote(tool: string) {
 
 export async function runToolsForMessage(
   sql: SQL,
-  input: { userId: string; persona: Persona; message: string; connected: string[] },
+  input: {
+    userId: string
+    persona: Persona
+    message: string
+    connected: string[]
+    want?: 'maps' | 'web'
+    timezone?: string
+  },
 ): Promise<string[]> {
   const results: string[] = []
   const denied = PERSONA_DENIED[input.persona]
@@ -1121,14 +1138,16 @@ export async function runToolsForMessage(
   }
 
   if (input.persona === 'friend') {
-    if (wantsMaps(input.message)) {
-      results.push(await fetchMapSearch(input.message))
+    if (input.want === 'maps') {
+      results.push(await fetchMapSearch(input.message, timezoneCountry(input.timezone)))
+    } else if (input.want !== 'web' && wantsMaps(input.message)) {
+      results.push(await fetchMapSearch(input.message, timezoneCountry(input.timezone)))
     } else {
       asked('maps', wantsMaps(input.message))
     }
   }
 
-  if (wantsWebSearch(input.message) && !wantsMaps(input.message)) {
+  if (input.want === 'web' || (wantsWebSearch(input.message) && !wantsMaps(input.message))) {
     results.push(await fetchWebSearch(input.message))
   }
 
@@ -1957,6 +1976,7 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
       phone?: string
       persona?: string
       message?: string
+      want?: string
     }
     if (!body.phone || !body.persona || !isPersona(body.persona)) {
       return json({ error: 'phone and persona required' }, 400)
@@ -1968,6 +1988,8 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
       persona: body.persona,
       message: body.message || '',
       connected: live.connected,
+      want: body.want === 'maps' || body.want === 'web' ? body.want : undefined,
+      timezone: typeof live.context?.timezone === 'string' ? live.context.timezone : '',
     })
     return json({ results })
   }
