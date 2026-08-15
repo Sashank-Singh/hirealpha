@@ -27,30 +27,9 @@ import {
 export function splitBubbles(text: string): string[] {
   const cleaned = text.replace(/\r/g, '').trim()
   if (!cleaned) return ['…']
-  const parts = cleaned
-    .split(/\n{2,}/)
-    .map((p) => p.trim())
-    .filter(Boolean)
-  if (parts.length <= 1) {
-    if (cleaned.length > 220) {
-      const sentences = cleaned.match(/[^.!?]+[.!?]+|[^.!?]+$/g) ?? [cleaned]
-      const chunks: string[] = []
-      let buf = ''
-      for (const s of sentences) {
-        const next = (buf + s).trim()
-        if (next.length > 180 && buf) {
-          chunks.push(buf.trim())
-          buf = s
-        } else {
-          buf = next
-        }
-      }
-      if (buf.trim()) chunks.push(buf.trim())
-      return chunks.slice(0, 3)
-    }
-    return [cleaned]
-  }
-  return parts.slice(0, 3)
+  // One inbound text should produce one text bubble. Splitting paragraphs into
+  // separate sends makes a single answer look like duplicate replies.
+  return [cleaned]
 }
 
 /** Drop model chain-of-thought that occasionally leaks into the reply text. */
