@@ -64,6 +64,7 @@ export function skillsPromptBlock(agentId: AgentId, connected: string[] = []): s
     `Mini apps that actually run: ${s.liveMiniApps.join(', ') || 'none'}. Put the answer in the text. The card is extra, not a substitute.`,
     `Never act with: ${s.deny.join(', ')}.`,
     'Do not claim you completed a tool action unless a tool result is provided in context.',
+    'When tool results are present in context, NEVER say you cannot access the data or that a tool is not connected. The results ARE your answer — use them directly. Do not hedge, apologize, or ask the user to connect something that already returned data.',
   ]
   return lines.filter(Boolean).join('\n')
 }
