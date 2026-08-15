@@ -928,7 +928,7 @@ function wantsMaps(text: string) {
   )
 }
 function wantsWebSearch(text: string) {
-  return /\b(search (?:the )?(?:web|internet|online)|web search|look online|look up|browse|for accuracy|latest news|news about)\b/i.test(text)
+  return /\b(search (?:the )?(?:web|internet|online)|web search|look online|look up|browse|for accuracy|latest news|news about|how (?:much|many|do|to|old|far)|what (?:is|are|was|were|does)|when (?:is|does|did|was)|where (?:is|are|was|did)|who (?:is|was|are)|why (?:is|does|did)|define|meaning of|price of|recipe for|nutrition(?:al)? (?:info|facts|value|content)|calories? in|protein in)\b/i.test(text)
 }
 function wantsSlack(text: string) {
   return /\b(slack|thread|channel|#\w+)\b/i.test(text)
