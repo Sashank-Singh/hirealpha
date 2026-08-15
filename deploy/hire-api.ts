@@ -501,26 +501,28 @@ function parseSetupField(raw: unknown): string[] {
   return []
 }
 
-/** Model client config for nutrition macro estimation. */
+/**
+ * Model config for nutrition macro estimation. Uses the same GMI setup the
+ * bots use (GMI_API_KEY / GMI_BASE_URL / GMI_MODEL) so no extra API key or
+ * third-party service is needed. Optionally overridable via NUTRITION_* vars.
+ */
 function nutritionModelConfig() {
   const apiKey =
-    process.env.NUTRITION_API_KEY ||
     process.env.GMI_API_KEY ||
-    process.env.OPENAI_API_KEY ||
-    ''
+    process.env.NUTRITION_API_KEY ||
+    process.env.HIREALPHA_API_KEY
   if (!apiKey) return null
   const baseUrl = (
     process.env.NUTRITION_BASE_URL ||
     process.env.GMI_BASE_URL ||
-    process.env.OPENAI_BASE_URL ||
-    'https://api.openai.com/v1'
+    'https://api.gmi-serving.com/v1'
   ).replace(/\/$/, '')
-  const model =
+  const textModel =
     process.env.NUTRITION_MODEL ||
     process.env.GMI_MODEL ||
-    process.env.HIREALPHA_MODEL ||
-    'gpt-4o-mini'
-  return { apiKey, baseUrl, model }
+    'deepseek-ai/DeepSeek-V4-Flash-0731'
+  const visionModel = process.env.NUTRITION_VISION_MODEL || 'MiniMaxAI/MiniMax-M3'
+  return { apiKey, baseUrl, textModel, visionModel }
 }
 
 function extractJson(text: string): Record<string, unknown> | null {
@@ -534,10 +536,10 @@ function extractJson(text: string): Record<string, unknown> | null {
 }
 
 /**
- * Estimate calories/protein/carbs/fat for a meal. Uses a vision model when an
- * image is provided, otherwise estimates from the text description. Returns
- * needsKey=true when no model key is configured so the UI can fall back to
- * manual entry.
+ * Estimate calories/protein/carbs/fat for a meal. Uses the same GMI setup as
+ * the bots — a vision model (MiniMax M3) for photos, the standard GMI model
+ * for text descriptions. Returns needsKey=true when no GMI key is configured
+ * so the UI can fall back to manual/description entry.
  */
 async function estimateNutrition(
   description: string,
@@ -556,6 +558,7 @@ async function estimateNutrition(
   if (!cfg) return { ok: false, needsKey: true }
   if (!description.trim() && !imageBase64) return { ok: false, error: 'Describe or photograph the meal first.' }
 
+  const model = imageBase64 ? cfg.visionModel : cfg.textModel
   const system =
     'You are a nutrition estimator. Estimate the macronutrients of the described meal. ' +
     'Reply with JSON only: {"guess":"<short name>","calories":N,"protein":N,"carbs":N,"fat":N}. ' +
@@ -578,10 +581,10 @@ async function estimateNutrition(
         Accept: 'application/json',
       },
       body: JSON.stringify({
-        model: cfg.model,
+        model,
+        reasoning_effort: 'none',
         temperature: 0,
-        max_tokens: 160,
-        thinking: { type: 'disabled' },
+        max_tokens: 320,
         messages: [
           { role: 'system', content: system },
           { role: 'user', content: userContent },

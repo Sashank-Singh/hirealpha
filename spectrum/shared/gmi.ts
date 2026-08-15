@@ -47,7 +47,7 @@ export async function gmiChat(options: GmiChatOptions): Promise<string> {
     },
     body: JSON.stringify({
       model,
-      thinking: { type: 'disabled' },
+      reasoning_effort: 'none',
       temperature: options.temperature ?? 0.7,
       max_tokens: options.maxTokens ?? 280,
       messages: options.messages,
