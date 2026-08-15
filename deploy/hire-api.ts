@@ -525,6 +525,16 @@ function nutritionModelConfig() {
   return { apiKey, baseUrl, textModel, visionModel }
 }
 
+/** Detect the image MIME type from base64 magic bytes (JPEG/PNG/WebP/GIF). */
+function imageMimeFromBase64(base64: string): string {
+  const head = base64.slice(0, 32)
+  if (head.startsWith('/9j/')) return 'image/jpeg'
+  if (head.startsWith('iVBORw0KGgo')) return 'image/png'
+  if (head.startsWith('UklGR')) return 'image/webp'
+  if (head.startsWith('R0lGOD')) return 'image/gif'
+  return 'image/jpeg'
+}
+
 function extractJson(text: string): Record<string, unknown> | null {
   const fence = text.match(/\{[\s\S]*\}/)
   if (!fence) return null
@@ -567,7 +577,7 @@ async function estimateNutrition(
   const userContent: unknown[] = imageBase64
     ? [
         { type: 'text', text: description.trim() || 'Estimate the macros of the meal in this photo.' },
-        { type: 'image_url', image_url: { url: `data:image/jpeg;base64,${imageBase64}` } },
+        { type: 'image_url', image_url: { url: `data:${imageMimeFromBase64(imageBase64)};base64,${imageBase64}` } },
       ]
     : [{ type: 'text', text: description.trim() }]
 
