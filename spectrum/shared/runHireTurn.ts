@@ -303,7 +303,7 @@ export async function runHireTurn(input: {
       : ''
     reply = await gmiChat({
       temperature: agent.temperature,
-      maxTokens: toolResults.length ? Math.max(agent.maxTokens, 700) : agent.maxTokens,
+      maxTokens: toolResults.length ? Math.max(agent.maxTokens, 700) : Math.max(agent.maxTokens, 320),
       messages: [
         { role: 'system', content: system + firstHint },
         ...history,

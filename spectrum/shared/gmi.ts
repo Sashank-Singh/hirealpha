@@ -64,7 +64,7 @@ export async function gmiChat(options: GmiChatOptions): Promise<string> {
     }>
   }
   const message = data.choices?.[0]?.message
-  const reply = (message?.content ?? '').trim()
+  const reply = (message?.content || message?.reasoning_content || '').trim()
   if (!reply) throw new Error('Empty GMI reply')
   return reply
 }
