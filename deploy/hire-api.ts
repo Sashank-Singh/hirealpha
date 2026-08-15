@@ -923,7 +923,7 @@ function wantsCalendar(text: string) {
   return /\b(calendar|meeting|meetings|schedule|free time|what.?s on|agenda|tomorrow|today|standup)\b/i.test(text)
 }
 function wantsMaps(text: string) {
-  return /\b(dinner|restaurants?|cafes?|bars?|tonight|date night|places?|booth|maps|hangout|where (?:should|can) we)\b/i.test(
+  return /\b(dinner|restaurants?|cafes?|bars?|coffee shops?|tonight|date night|places?|booth|maps|hangout|where (?:should|can) we)\b/i.test(
     text,
   )
 }
