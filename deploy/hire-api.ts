@@ -923,7 +923,7 @@ function wantsCalendar(text: string) {
   return /\b(calendar|meeting|meetings|schedule|free time|what.?s on|agenda|tomorrow|today|standup)\b/i.test(text)
 }
 function wantsMaps(text: string) {
-  return /\b(dinner|restaurant|tonight|date night|place|places|booth|maps|hangout|where (?:should|can) we)\b/i.test(
+  return /\b(dinner|restaurants?|cafes?|bars?|tonight|date night|places?|booth|maps|hangout|where (?:should|can) we)\b/i.test(
     text,
   )
 }
@@ -983,15 +983,24 @@ function decodeHtml(text: string) {
     .replace(/&gt;/g, '>')
 }
 
+async function fetchPublic(url: URL, init: RequestInit, timeoutMs = 8000) {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), timeoutMs)
+  try {
+    return await fetch(url, { ...init, signal: controller.signal })
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
 async function fetchWebSearch(query: string) {
   const q = query.trim().slice(0, 180)
   if (!q) return 'Web search needs a query.'
   try {
     const url = new URL('https://html.duckduckgo.com/html/')
     url.searchParams.set('q', q)
-    const res = await fetch(url, {
+    const res = await fetchPublic(url, {
       headers: { Accept: 'text/html', 'User-Agent': 'HireAlpha/1.0 (https://hirealpha.chat)' },
-      signal: AbortSignal.timeout(8000),
     })
     if (!res.ok) return `Web search unavailable (${res.status}).`
     const html = await res.text()
@@ -1017,7 +1026,7 @@ async function fetchWebSearch(query: string) {
 
 async function fetchMapSearch(query: string) {
   const cleaned = query
-    .replace(/\b(tonight|dinner|restaurant|place|places|maps|hangout|near me|nearby|where should we|where can we)\b/gi, ' ')
+    .replace(/\b(find|search|show|recommend|tonight|maps|hangout|near me|nearby|where should we|where can we)\b/gi, ' ')
     .replace(/\s+/g, ' ')
     .trim()
   if (!cleaned || /^(quiet|good|best)$/i.test(cleaned)) {
@@ -1028,9 +1037,8 @@ async function fetchMapSearch(query: string) {
     url.searchParams.set('q', cleaned)
     url.searchParams.set('format', 'jsonv2')
     url.searchParams.set('limit', '5')
-    const res = await fetch(url, {
+    const res = await fetchPublic(url, {
       headers: { Accept: 'application/json', 'User-Agent': 'HireAlpha/1.0 (https://hirealpha.chat)' },
-      signal: AbortSignal.timeout(8000),
     })
     if (!res.ok) return `Maps search unavailable (${res.status}).`
     const rows = (await res.json()) as Array<{ display_name?: string; lat?: string; lon?: string; type?: string }>
