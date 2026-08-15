@@ -1032,7 +1032,7 @@ function timezoneCountry(tz?: string) {
 
 async function fetchMapSearch(query: string, countryHint = '') {
   const cleaned = query
-    .replace(/\b(find|search|show|recommend|tonight|maps|hangout|near me|nearby|where should we|where can we)\b/gi, ' ')
+    .replace(/\b(find|search|show|recommend|tonight|maps|hangout|near me|near us|nearby|near\b|around|where should we|where can we)\b/gi, ' ')
     .replace(/\s+/g, ' ')
     .trim()
   if (!cleaned || /^(quiet|good|best)$/i.test(cleaned)) {
@@ -1983,10 +1983,20 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     }
     const live = await livePayload(sql, body.phone, body.persona)
     if (!live.found || !live.hired || !live.userId) return json({ results: [] })
+    let message = body.message || ''
+    if (
+      body.want === 'maps' &&
+      /near(?: me| us|by)?|around/i.test(message)
+    ) {
+      const city = live.memories.find((m) => m.key === 'city' && m.value)?.value
+      if (city && !message.toLowerCase().includes(city.toLowerCase())) {
+        message = `${message}, ${city}`
+      }
+    }
     const results = await runToolsForMessage(sql, {
       userId: live.userId,
       persona: body.persona,
-      message: body.message || '',
+      message,
       connected: live.connected,
       want: body.want === 'maps' || body.want === 'web' ? body.want : undefined,
       timezone: typeof live.context?.timezone === 'string' ? live.context.timezone : '',
