@@ -21,6 +21,18 @@ export function runAgentLocally(agent: AgentDefinition, userText: string): strin
   const lower = userText.toLowerCase()
 
   if (agent.id === 'friend') {
+    if (/email|draft|stephen|interested/.test(lower)) {
+      return `Here's a draft:
+
+Subject: Re: [Role]
+
+Hi Stephen,
+
+Thanks for reaching out. I'm interested in the opportunity and would love to learn more about the role and next steps. Please let me know a few times that work for a conversation.
+
+Best,
+Sashank`
+    }
     if (/spiral|anxious|nervous|scared|panic/.test(lower)) {
       return 'Okay. Name the fear in one line. Then one small move, not the whole day.'
     }
@@ -30,7 +42,7 @@ export function runAgentLocally(agent: AgentDefinition, userText: string): strin
     if (/advice|should i|what do i/.test(lower)) {
       return 'Honest take. Peace, growth, or not regretting it?'
     }
-    return 'I’m here. The real part, not the polished version.'
+    return "I'm here to help. Tell me what you need."
   }
 
   if (agent.id === 'coworker') {

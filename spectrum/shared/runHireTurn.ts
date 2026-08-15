@@ -315,7 +315,7 @@ export async function runHireTurn(input: {
     if (isFirst) {
       const intros: Record<AgentId, string> = {
         friend:
-          "Hey — I'm Alpha, your friend in texts. I'm here. What's going on?",
+          "Hey, I'm Alpha. I'm here to help.",
         coworker:
           "Alpha (Coworker) here. Send me the raw notes and I'll tighten them.",
         cofounder:

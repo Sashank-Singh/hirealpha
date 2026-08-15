@@ -47,6 +47,7 @@ export async function gmiChat(options: GmiChatOptions): Promise<string> {
     },
     body: JSON.stringify({
       model,
+      thinking: { type: 'disabled' },
       temperature: options.temperature ?? 0.7,
       max_tokens: options.maxTokens ?? 280,
       messages: options.messages,
@@ -64,7 +65,7 @@ export async function gmiChat(options: GmiChatOptions): Promise<string> {
     }>
   }
   const message = data.choices?.[0]?.message
-  const reply = (message?.content || message?.reasoning_content || '').trim()
+  const reply = (message?.content ?? '').trim()
   if (!reply) throw new Error('Empty GMI reply')
   return reply
 }
