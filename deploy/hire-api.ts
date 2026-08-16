@@ -353,6 +353,18 @@ export async function ensureHireSchema(sql: SQL) {
   await sql`CREATE INDEX IF NOT EXISTS idx_hire_meetings_user ON hire_meetings (user_id, created_at DESC)`
 
   await sql`
+    CREATE TABLE IF NOT EXISTS hire_nudge_log (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES hire_users(id) ON DELETE CASCADE,
+      persona TEXT NOT NULL,
+      nudge_key TEXT NOT NULL,
+      sent_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      UNIQUE (user_id, nudge_key)
+    )
+  `
+  await sql`CREATE INDEX IF NOT EXISTS idx_hire_nudge_log_user ON hire_nudge_log (user_id, persona, sent_at DESC)`
+
+  await sql`
     CREATE TABLE IF NOT EXISTS hire_nutrition_logs (
       id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL REFERENCES hire_users(id) ON DELETE CASCADE,
@@ -773,6 +785,21 @@ function weekDaysFromMonday(weekStart: string): string[] {
 
 function userMonday(user: { timezone?: string | null }, d = new Date()): string {
   return mondayOfDateStr(localDateStrInTz(d, user.timezone))
+}
+
+/** Date-only inputs become 9am in the user's timezone so "Thursday" stays Thursday. */
+function parseFlexibleWhen(raw: string | undefined, timezone: string): string | null {
+  const s = String(raw || '').trim()
+  if (!s) return null
+  const day = s.match(/^(\d{4}-\d{2}-\d{2})$/)
+  if (day) {
+    const [y, m, d] = day[1]!.split('-').map(Number)
+    const wall = Date.UTC(y || 1970, (m || 1) - 1, d || 1, 9, 0, 0)
+    return new Date(wall - tzOffsetMs(wall, timezone || 'America/Los_Angeles')).toISOString()
+  }
+  const at = new Date(s)
+  if (Number.isNaN(at.getTime())) return null
+  return at.toISOString()
 }
 
 /** Same wall-clock (in the user's zone) one day/week later, as a UTC ISO string. */
@@ -1257,10 +1284,10 @@ function startOfLocalDay(timezone: string, dayOffset = 0): Date {
   return new Date(Date.parse(`${ymd}T00:00:00Z`) + offsetMs)
 }
 
-async function fetchCalendar(
+async function fetchCalendarItems(
   access: string,
   opts?: { timeMin?: Date; timeMax?: Date; maxResults?: number },
-) {
+): Promise<Array<{ start: Date; title: string; description: string }>> {
   const now = opts?.timeMin || new Date()
   const end = opts?.timeMax || new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000)
   const url = new URL('https://www.googleapis.com/calendar/v3/calendars/primary/events')
@@ -1270,14 +1297,37 @@ async function fetchCalendar(
   url.searchParams.set('orderBy', 'startTime')
   url.searchParams.set('maxResults', String(opts?.maxResults || 8))
   const res = await fetch(url, { headers: { Authorization: `Bearer ${access}` } })
-  if (!res.ok) return `Calendar error ${res.status}`
+  if (!res.ok) return []
   const data = (await res.json()) as {
-    items?: Array<{ summary?: string; start?: { dateTime?: string; date?: string } }>
+    items?: Array<{
+      summary?: string
+      description?: string
+      start?: { dateTime?: string; date?: string }
+    }>
   }
-  const items = data.items || []
+  const out: Array<{ start: Date; title: string; description: string }> = []
+  for (const e of data.items || []) {
+    const raw = e.start?.dateTime
+    if (!raw) continue
+    const start = new Date(raw)
+    if (Number.isNaN(start.getTime())) continue
+    out.push({
+      start,
+      title: String(e.summary || 'Meeting').slice(0, 120),
+      description: String(e.description || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 240),
+    })
+  }
+  return out
+}
+
+async function fetchCalendar(
+  access: string,
+  opts?: { timeMin?: Date; timeMax?: Date; maxResults?: number },
+) {
+  const items = await fetchCalendarItems(access, opts)
   if (!items.length) return 'No events on the calendar in the next 7 days.'
   return `Upcoming events:\n${items
-    .map((e) => `- ${e.start?.dateTime || e.start?.date || '?'} ${e.summary || '(no title)'}`)
+    .map((e) => `- ${e.start.toISOString()} ${e.title}`)
     .join('\n')}`
 }
 
@@ -1902,6 +1952,7 @@ async function upsertContext(
     DO UPDATE SET fields = ${JSON.stringify(next)}, updated_at = now()
   `
   return next as Record<string, string>
+}
 
 async function ensureJudgeTick(
   sql: SQL,
@@ -2000,6 +2051,279 @@ function minutesAgo(iso: string | Date | null | undefined): number | null {
   const t = new Date(iso).getTime()
   if (Number.isNaN(t)) return null
   return Math.max(0, Math.round((Date.now() - t) / 60_000))
+}
+
+function inQuietHoursLocal(localTime: string, quietHours: string): boolean {
+  const m = quietHours.match(/^(\d{1,2}):(\d{2})\s*-\s*(\d{1,2}):(\d{2})$/)
+  if (!m) return false
+  const [lh, lm] = localTime.slice(11, 16).split(':').map(Number)
+  const now = (lh || 0) * 60 + (lm || 0)
+  const start = Number(m[1]) * 60 + Number(m[2])
+  const end = Number(m[3]) * 60 + Number(m[4])
+  if (start === end) return false
+  if (start < end) return now >= start && now < end
+  return now >= start || now < end
+}
+
+function localClock(timezone: string) {
+  const formatted = new Intl.DateTimeFormat('en-CA', {
+    timeZone: timezone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).format(new Date()).replace(', ', 'T')
+  const weekday = new Intl.DateTimeFormat('en-US', { timeZone: timezone, weekday: 'long' }).format(new Date())
+  return { localTime: formatted, weekday, today: localDateStrInTz(new Date(), timezone) }
+}
+
+function stripNudgeDashes(text: string) {
+  return text.replace(/[\u2013\u2014]/g, ',').replace(/\s+-\s+/g, '. ').trim()
+}
+
+function meetingWho(title: string) {
+  const withM = title.match(/\bwith\s+([^,:(/]+)/i)
+  if (withM?.[1]) return withM[1].trim().split(/\s+/).slice(0, 2).join(' ')
+  const cleaned = title
+    .replace(/\b(1\s*:\s*1|1-1|sync|meeting|call|zoom|standup|interview)\b/gi, ' ')
+    .replace(/[/|·,]+/g, ' ')
+    .trim()
+  const parts = cleaned.split(/\s+/).filter(Boolean)
+  return (parts[0] || title).slice(0, 40)
+}
+
+function loopNudgeText(title: string, weekday: string) {
+  const who = title.match(/\b(?:to|with|for)\s+([A-Za-z][A-Za-z'-]+)/)?.[1]
+  if (who) return `You told ${who} you'd get back by ${weekday}. It's ${weekday}.`
+  const clipped = title.replace(/\.$/, '').slice(0, 80)
+  return `${clipped}. That was due ${weekday}. It's ${weekday}.`
+}
+
+function decisionNudgeText(decision: string) {
+  const clipped = decision.replace(/\.$/, '').slice(0, 80)
+  const labeled = /^(the|a|an)\s/i.test(clipped) ? clipped : `the ${clipped}`
+  return `Decision review date hit. How did ${labeled} turn out?`
+}
+
+function meetingNudgeText(title: string, mins: number, deal: string) {
+  const who = meetingWho(title)
+  const wait = Math.max(1, mins)
+  const extra = deal || 'No brief on file. Go in with one question you actually need answered.'
+  return `Meeting with ${who} in ${wait} min. You never prepped. Here's the deal. ${extra}`
+}
+
+function slugNudge(raw: string) {
+  return raw.toLowerCase().replace(/[^a-z0-9]+/g, '').slice(0, 48) || 'x'
+}
+
+type EventNudge = {
+  phone: string
+  topic: string
+  key: string
+  text: string
+  urgent: boolean
+}
+
+function outboundNudgeBlock(
+  context: Record<string, string>,
+  lastInboundAt: Date | string | null,
+  timezone: string,
+  urgent: boolean,
+): string | null {
+  const { localTime, today } = localClock(timezone)
+  const pausedUntil = String(context.paused_until || '')
+  let proactive = String(context.proactive || 'on').toLowerCase()
+  if (proactive === 'paused' && pausedUntil && new Date(pausedUntil).getTime() < Date.now()) {
+    proactive = 'on'
+  }
+  if (proactive === 'off') return 'proactive off'
+  if (proactive === 'paused') return 'paused'
+  if (!urgent && inQuietHoursLocal(localTime, String(context.quiet_hours || '22:00-08:00'))) return 'quiet hours'
+  const inboundAgo = minutesAgo(lastInboundAt)
+  if (inboundAgo != null && inboundAgo < 20) return 'in conversation'
+  const unanswered = Math.max(0, Number(context.unanswered_proactive) || 0)
+  if (unanswered >= 2) return 'awaiting reply'
+  if (!urgent) {
+    const lastAgo = minutesAgo(context.last_proactive_at)
+    if (lastAgo != null && lastAgo < 60) return 'sent recently'
+    const unansweredToday =
+      String(context.last_proactive_day || '') === today ? Math.max(0, Number(context.unanswered_day_count) || 0) : 0
+    if (unansweredToday >= 1) return 'already pinged today'
+  }
+  return null
+}
+
+async function claimNudge(sql: SQL, userId: string, persona: Persona, key: string) {
+  const id = crypto.randomUUID()
+  const rows = await sql`
+    INSERT INTO hire_nudge_log (id, user_id, persona, nudge_key)
+    VALUES (${id}, ${userId}, ${persona}, ${key})
+    ON CONFLICT (user_id, nudge_key) DO NOTHING
+    RETURNING id
+  `
+  return !!rows[0]
+}
+
+async function collectEventNudgesForUser(
+  sql: SQL,
+  user: { id: string; phone: string | null; timezone: string | null; name?: string | null },
+  persona: Persona,
+): Promise<EventNudge | null> {
+  if (!user.phone) return null
+  const tz = user.timezone || 'America/Los_Angeles'
+  const context = await loadContext(sql, user.id, persona)
+  const inbound = await sql`
+    SELECT last_inbound_at AS "lastInboundAt" FROM hire_roster
+    WHERE user_id = ${user.id} AND persona = ${persona} LIMIT 1
+  `
+  const lastInboundAt = (inbound[0] as { lastInboundAt?: Date | null } | undefined)?.lastInboundAt || null
+  const { weekday, today } = localClock(tz)
+  const sent = await sql`
+    SELECT nudge_key AS "nudgeKey" FROM hire_nudge_log
+    WHERE user_id = ${user.id} AND sent_at > now() - interval '14 days'
+  `
+  const sentKeys = new Set((sent as Array<{ nudgeKey: string }>).map((r) => r.nudgeKey))
+  const candidates: Array<Omit<EventNudge, 'phone'> & { order: number }> = []
+  const roster = await loadRoster(sql, user.id)
+  const meetingOwner: Persona | null = roster.includes('coworker')
+    ? 'coworker'
+    : roster.includes('cofounder')
+      ? 'cofounder'
+      : null
+
+  const now = Date.now()
+  const meetFrom = new Date(now + 15 * 60_000)
+  const meetTo = new Date(now + 45 * 60_000)
+
+  const meetings = meetingOwner === persona
+    ? await sql`
+    SELECT id, title, starts_at AS "startsAt", phase, briefing
+    FROM hire_meetings
+    WHERE user_id = ${user.id}
+      AND starts_at >= ${meetFrom.toISOString()}
+      AND starts_at <= ${meetTo.toISOString()}
+      AND phase <> 'done'
+    ORDER BY starts_at ASC
+    LIMIT 4
+  `
+    : []
+  for (const m of meetings as Array<{ id: string; title: string; startsAt: Date; phase: string; briefing: string | null }>) {
+    const briefing = String(m.briefing || '').trim()
+    if (briefing) continue
+    const key = `meeting:${m.id}`
+    if (sentKeys.has(key)) continue
+    const mins = Math.max(1, Math.round((new Date(m.startsAt).getTime() - now) / 60_000))
+    candidates.push({
+      order: 0,
+      topic: 'meeting_soon',
+      key,
+      urgent: true,
+      text: stripNudgeDashes(meetingNudgeText(m.title, mins, '')),
+    })
+  }
+
+  if (meetingOwner === persona) {
+    try {
+      const access = await googleAccessToken(sql, user.id)
+      if (access) {
+        const events = await fetchCalendarItems(access, { timeMin: meetFrom, timeMax: meetTo, maxResults: 6 })
+        const prepped = new Set(
+          (meetings as Array<{ title: string; briefing: string | null }>).map((m) => m.title.trim().toLowerCase()),
+        )
+        for (const ev of events) {
+          if (prepped.has(ev.title.trim().toLowerCase())) continue
+          const key = `cal:${ev.start.toISOString().slice(0, 16)}:${slugNudge(ev.title)}`
+          if (sentKeys.has(key)) continue
+          const mins = Math.max(1, Math.round((ev.start.getTime() - now) / 60_000))
+          candidates.push({
+            order: 0,
+            topic: 'meeting_soon',
+            key,
+            urgent: true,
+            text: stripNudgeDashes(meetingNudgeText(ev.title, mins, ev.description)),
+          })
+        }
+      }
+    } catch (err) {
+      console.warn('[nudge] calendar scan failed', err)
+    }
+  }
+
+  const loops = await sql`
+    SELECT id, title, due_at AS "dueAt", persona FROM hire_loops
+    WHERE user_id = ${user.id} AND status = 'open' AND due_at IS NOT NULL
+    ORDER BY due_at ASC LIMIT 12
+  `
+  for (const loop of loops as Array<{ id: string; title: string; dueAt: Date; persona: string }>) {
+    const owner = isPersona(loop.persona) ? loop.persona : roster.includes('friend') ? 'friend' : persona
+    if (owner !== persona) continue
+    const dueDay = localDateStrInTz(new Date(loop.dueAt), tz)
+    if (dueDay !== today) continue
+    if (new Date(loop.dueAt).getTime() > now + 5 * 60_000) continue
+    const key = `loop:${loop.id}:${today}`
+    if (sentKeys.has(key)) continue
+    candidates.push({
+      order: 1,
+      topic: 'loop_due',
+      key,
+      urgent: false,
+      text: stripNudgeDashes(loopNudgeText(loop.title, weekday)),
+    })
+  }
+
+  if (persona === 'cofounder') {
+    const decisions = await sql`
+      SELECT id, decision, review_at AS "reviewAt" FROM hire_decisions
+      WHERE user_id = ${user.id} AND status = 'open' AND review_at IS NOT NULL AND review_at <= now()
+      ORDER BY review_at ASC LIMIT 8
+    `
+    for (const d of decisions as Array<{ id: string; decision: string; reviewAt: Date }>) {
+      const key = `decision:${d.id}`
+      if (sentKeys.has(key)) continue
+      candidates.push({
+        order: 2,
+        topic: 'decision_review',
+        key,
+        urgent: false,
+        text: stripNudgeDashes(decisionNudgeText(d.decision)),
+      })
+    }
+  }
+
+  candidates.sort((a, b) => a.order - b.order)
+  for (const c of candidates) {
+    const blocked = outboundNudgeBlock(context, lastInboundAt, tz, c.urgent)
+    if (blocked) {
+      console.log(`[nudge:${persona}] skip ${user.phone} ${c.topic}: ${blocked}`)
+      continue
+    }
+    const claimed = await claimNudge(sql, user.id, persona, c.key)
+    if (!claimed) continue
+    return { phone: user.phone, topic: c.topic, key: c.key, text: c.text, urgent: c.urgent }
+  }
+  return null
+}
+
+async function dueEventNudges(sql: SQL, persona: Persona): Promise<EventNudge[]> {
+  const rows = await sql`
+    SELECT u.id, u.phone_e164 AS phone, u.timezone, u.name
+    FROM hire_roster r
+    JOIN hire_users u ON u.id = r.user_id
+    WHERE r.persona = ${persona} AND u.phone_e164 IS NOT NULL
+    LIMIT 40
+  `
+  const out: EventNudge[] = []
+  for (const row of rows as Array<{ id: string; phone: string; timezone: string | null; name: string | null }>) {
+    try {
+      const nudge = await collectEventNudgesForUser(sql, row, persona)
+      if (nudge) out.push(nudge)
+    } catch (err) {
+      console.warn('[nudge] collect failed', err)
+    }
+  }
+  return out
 }
 
 async function judgmentStatePayload(
@@ -3016,11 +3340,12 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     const { user, error } = await resolveAuthedUser(sql, { token: body.token, email: body.email })
     if (error) return error
     const id = crypto.randomUUID()
+    const dueAt = parseFlexibleWhen(body.dueAt, user!.timezone || 'America/Los_Angeles')
     await sql`
       INSERT INTO hire_loops (id, user_id, persona, title, context, due_at)
       VALUES (${id}, ${user!.id}, ${isPersona(body.persona || '') ? body.persona! : ''},
         ${title}, ${String(body.context || '').slice(0, 500)},
-        ${body.dueAt ? new Date(body.dueAt).toISOString() : null})
+        ${dueAt})
     `
     return json({ ok: true, id })
   }
@@ -3063,11 +3388,12 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     const { user, error } = await resolveAuthedUser(sql, { token: body.token, email: body.email })
     if (error) return error
     const id = crypto.randomUUID()
+    const reviewAt = parseFlexibleWhen(body.reviewAt, user!.timezone || 'America/Los_Angeles')
     await sql`
       INSERT INTO hire_decisions (id, user_id, persona, decision, reason, evidence, owner, review_at)
       VALUES (${id}, ${user!.id}, ${isPersona(body.persona || '') ? body.persona! : 'cofounder'},
         ${decision}, ${String(body.reason || '').slice(0, 500)}, ${String(body.evidence || '').slice(0, 500)},
-        ${String(body.owner || '').slice(0, 120)}, ${body.reviewAt ? new Date(body.reviewAt).toISOString() : null})
+        ${String(body.owner || '').slice(0, 120)}, ${reviewAt})
     `
     return json({ ok: true, id })
   }
@@ -3210,9 +3536,10 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     const { user, error } = await resolveAuthedUser(sql, { token: body.token, email: body.email })
     if (error) return error
     const id = crypto.randomUUID()
+    const startsAt = parseFlexibleWhen(body.startsAt, user!.timezone || 'America/Los_Angeles')
     await sql`
       INSERT INTO hire_meetings (id, user_id, title, starts_at)
-      VALUES (${id}, ${user!.id}, ${title}, ${body.startsAt ? new Date(body.startsAt).toISOString() : null})
+      VALUES (${id}, ${user!.id}, ${title}, ${startsAt})
     `
     return json({ ok: true, id })
   }
@@ -3456,6 +3783,34 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     await armPokes(sql, user, persona, context)
     const payload = await judgmentStatePayload(sql, user, persona, tick)
     return json(payload)
+  }
+
+  if (path === '/api/internal/event-nudges' && req.method === 'GET') {
+    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
+    const persona = url.searchParams.get('persona') || ''
+    if (!isPersona(persona)) return json({ error: 'persona required' }, 400)
+    const nudges = await dueEventNudges(sql, persona)
+    return json({ nudges })
+  }
+
+  if (path === '/api/internal/event-nudges/revert' && req.method === 'POST') {
+    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
+    const body = (await req.json().catch(() => ({}))) as {
+      phone?: string
+      persona?: string
+      key?: string
+    }
+    const persona = body.persona || ''
+    if (!body.phone || !isPersona(persona) || !body.key) {
+      return json({ error: 'phone, persona, and key required' }, 400)
+    }
+    const user = await getUserByPhone(sql, body.phone)
+    if (!user) return json({ error: 'User not found' }, 404)
+    await sql`
+      DELETE FROM hire_nudge_log
+      WHERE user_id = ${user.id} AND persona = ${persona} AND nudge_key = ${body.key}
+    `
+    return json({ ok: true })
   }
 
   if (path === '/api/internal/proactive' && req.method === 'POST') {
