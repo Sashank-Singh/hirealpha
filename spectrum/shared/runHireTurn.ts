@@ -362,6 +362,13 @@ export async function runHireTurn(input: {
   let reply: string
   let source: 'gmi' | 'local' = 'gmi'
 
+  // Strip stale "not connected" assistant replies from history so the model
+  // can't pattern-match on them when tool results ARE present this turn.
+  const STALE_CONNECTED = /\b(not connected|isn't connected|not linked to a hirealpha|can't see your|sign in at hirealpha)\b/i
+  const cleanHistory = history.filter(
+    (m) => !(m.role === 'assistant' && STALE_CONNECTED.test(m.content)),
+  )
+
   try {
     const firstHint = isFirst
       ? '\nThis is their first message to you. Introduce yourself briefly in character, then answer.'
@@ -371,7 +378,7 @@ export async function runHireTurn(input: {
       maxTokens: toolResults.length ? Math.max(agent.maxTokens, 700) : Math.max(agent.maxTokens, 320),
       messages: [
         { role: 'system', content: system + firstHint },
-        ...history,
+        ...cleanHistory,
         { role: 'user', content: input.userText },
       ],
     })
@@ -393,13 +400,13 @@ export async function runHireTurn(input: {
     source = 'local'
   }
 
-  appendThread(input.dataDir, input.senderId, [
-    { role: 'user', content: input.userText },
-    { role: 'assistant', content: reply },
-  ])
-
   const authoritative = live.found ? Object.keys(live.context) : []
   const finalReply = stripReasoning(reply)
+
+  appendThread(input.dataDir, input.senderId, [
+    { role: 'user', content: input.userText },
+    { role: 'assistant', content: finalReply },
+  ])
   const card = miniApp
     ? await mintMiniAppCard(input.senderId, agent.id, miniApp.kind, miniApp.query)
     : null

@@ -8,5 +8,16 @@
     }
   ],
   "summary": "Sashank lives in San Francisco. He likes Chinese food, especially chow mein. He eats at Halal City. He has a draft email to send to Stephen Levis.",
-  "history": []
+  "history": [
+    {
+      "role": "user",
+      "content": "best coffee shops nearby",
+      "ts": 1786832477648
+    },
+    {
+      "role": "assistant",
+      "content": "I know you're in SF but not your exact spot.",
+      "ts": 1786832477648
+    }
+  ]
 }
