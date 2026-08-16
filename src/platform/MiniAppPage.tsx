@@ -17,6 +17,7 @@ import {
 import {
   GratitudeJournalApp,
   LearningQueueApp,
+  MirrorApp,
   NetworkingCrmApp,
   PipelineBoardApp,
   SleepTrackerApp,
@@ -68,6 +69,7 @@ export const FEATURE_KINDS = new Set([
   'pipeline_board',
   'gratitude_journal',
   'spending_snapshot',
+  'mirror',
 ])
 
 export interface MenuFeature {
@@ -90,6 +92,7 @@ export const MENU_FEATURES: Record<string, MenuFeature[]> = {
     { kind: 'weekly_review', title: 'Weekly review', emoji: '📅', blurb: 'What got done, what slipped, next week\'s focus.' },
     { kind: 'gratitude_journal', title: 'Gratitude', emoji: '🧘', blurb: 'One sentence a day. Patterns come later.' },
     { kind: 'spending_snapshot', title: 'Spending', emoji: '💰', blurb: 'Log spend, watch the weekly budget.' },
+    { kind: 'mirror', title: 'The mirror', emoji: '🪞', blurb: 'Here\'s what your life actually looks like — no spin.' },
     { kind: 'open_loops', title: 'Loose ends', emoji: '🪢', blurb: 'Promises and follow-ups, so nothing slips.' },
     { kind: 'relationship_radar', title: 'Stay in touch', emoji: '📡', blurb: 'Know who to reach out to and when.' },
     { kind: 'drop_zone', title: 'Save for later', emoji: '📥', blurb: 'Dump anything and Alpha sorts it later.' },
@@ -101,6 +104,7 @@ export const MENU_FEATURES: Record<string, MenuFeature[]> = {
     { kind: 'digest', title: 'Morning brief', emoji: '☀️', blurb: 'Calendar, important mail, and reminders every morning.' },
     { kind: 'meeting_mode', title: 'Meeting mode', emoji: '🗂️', blurb: 'Prepped before, wrapped after.', sample: 'prep me for the review' },
     { kind: 'learning_queue', title: 'Learning queue', emoji: '📚', blurb: 'Save articles, videos, podcasts. Play the next one.' },
+    { kind: 'mirror', title: 'The mirror', emoji: '🪞', blurb: 'Here\'s what your week actually looked like.' },
     { kind: 'weekly_review', title: 'Weekly review', emoji: '📅', blurb: 'What got done, what slipped, next week\'s focus.' },
     { kind: 'networking_crm', title: 'Networking', emoji: '🤝', blurb: 'People you met, what you talked about, when to follow up.' },
     { kind: 'open_loops', title: 'Loose ends', emoji: '🪢', blurb: 'Promises and follow-ups, so nothing slips.' },
@@ -113,6 +117,7 @@ export const MENU_FEATURES: Record<string, MenuFeature[]> = {
   cofounder: [
     { kind: 'digest', title: 'Morning brief', emoji: '☀️', blurb: 'Calendar, important mail, and reminders every morning.' },
     { kind: 'decision_ledger', title: 'Decisions', emoji: '📜', blurb: 'Log the call, revisit the reasoning later.', sample: 'log a decision' },
+    { kind: 'mirror', title: 'The mirror', emoji: '🪞', blurb: 'Your week at a glance — decisions, spend, habits.' },
     { kind: 'pipeline_board', title: 'Pipeline', emoji: '💼', blurb: 'Jobs, fundraising, leads. Move them through stages.' },
     { kind: 'networking_crm', title: 'Networking', emoji: '🤝', blurb: 'People you met, what you talked about, when to follow up.' },
     { kind: 'weekly_review', title: 'Weekly review', emoji: '📅', blurb: 'What got done, what slipped, next week\'s focus.' },
@@ -156,6 +161,7 @@ export const KIND_TITLES: Record<string, { title: string; blurb: string }> = {
   pipeline_board: { title: 'Pipeline', blurb: 'Jobs, fundraising, leads — by stage.' },
   gratitude_journal: { title: 'Gratitude', blurb: 'One sentence a day.' },
   spending_snapshot: { title: 'Spending', blurb: 'Log spend against a weekly budget.' },
+  mirror: { title: 'The mirror', blurb: 'Here\'s what your life actually looks like — no spin.' },
 }
 
 export function MiniAppPage() {
@@ -525,6 +531,9 @@ export function MiniAppPage() {
         )}
         {authed && !expired && isFeature && kind === 'spending_snapshot' && (
           <SpendingSnapshotApp auth={{ persona: (persona as AgentId) || 'friend', email: email || undefined, token: token || undefined }} />
+        )}
+        {authed && !expired && isFeature && kind === 'mirror' && (
+          <MirrorApp auth={{ persona: (persona as AgentId) || 'friend', email: email || undefined, token: token || undefined }} />
         )}
       </div>
     </div>

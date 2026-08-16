@@ -36,6 +36,11 @@ export type JudgmentState = {
   loops?: string[]
   calendar?: string[]
   mail?: string[]
+  weekly?: {
+    meals: number; calories: number; moodLogs: number; avgEnergy: number; habitChecks: number
+    sleepNights: number; avgSleepHours: number; spend: number; weeklyBudget: number
+    workouts: number; learningDone: number; gratitude: number
+  }
 }
 
 export type JudgmentResult = {
@@ -220,6 +225,7 @@ function personaVoice(persona: AgentId): string {
 
 function judgePrompt(state: JudgmentState): string {
   const evening = state.tick === 'evening' || state.tick === 'digest_evening'
+  const weeklyTick = state.tick === 'weekly'
   const moodMiss = state.mood && !state.mood.loggedToday
   const habitMiss = state.habits?.some((h) => !h.todayDone)
   return `${personaVoice(state.persona)}
@@ -230,10 +236,15 @@ ${JSON.stringify(state, null, 0)}
 
 Decide:
 - reachOut true only if ONE specific thing is worth a text right now
-- topic: a short slug (nutrition_gap, habit_risk, follow_up, sleep, digest, check_in, spend, loop, none)
+- topic: a short slug (nutrition_gap, habit_risk, follow_up, sleep, digest, check_in, spend, loop, weekly_recap, none)
 - message: 1-2 short sentences. Opinionated. No markdown, no lists, no hyphens or dashes. No taglines.
 - card: always null
 
+${
+  weeklyTick && state.weekly
+    ? `It is the weekly recap tick. The week is over. Send a short, specific recap of what the data shows: one or two real numbers (meals logged, avg sleep hours, habit checks, workouts, spend vs budget, mood logs) and ONE opinion about what that means for next week. Do not list every number. If the week has essentially no data (nearly everything is zero/empty), stay silent. End with one question they can answer in a text.`
+    : ''
+}
 ${evening && moodMiss
     ? 'It is evening and no mood is logged today. Users never log mood on their own. Reach out with a quick emoji check-in ("How did today land? 😄 🙂 😐 😔 😤"), one question, nothing else.'
     : ''}
@@ -313,7 +324,7 @@ export async function runJudgmentLoop(input: {
   }
   if (!decision?.reachOut || !decision.message) return null
   if (isBannedTagline(decision.message)) return null
-  if (state.lastProactiveTopic && decision.topic === state.lastProactiveTopic && tick !== 'digest') {
+  if (state.lastProactiveTopic && decision.topic === state.lastProactiveTopic && tick !== 'digest' && tick !== 'weekly') {
     return null
   }
 

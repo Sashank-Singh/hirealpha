@@ -18,6 +18,7 @@ import {
   apiLogSleep,
   apiLogSpend,
   apiLogWorkout,
+  apiMirror,
   apiPatchLearning,
   apiPatchPipeline,
   apiSaveWeeklyReview,
@@ -26,6 +27,7 @@ import {
   apiWeeklyReview,
   type GratitudeEntry,
   type LearningItem,
+  type MirrorSnapshot,
   type NetworkPerson,
   type PipelineItem,
   type SleepNight,
@@ -320,8 +322,159 @@ export function WeeklyReviewApp({ auth }: { auth: FeatureAuth }) {
   )
 }
 
-/* ---------------------------- Networking CRM ---------------------------- */
+/* ------------------------------ The Mirror ------------------------------ */
 
+export function MirrorApp({ auth }: { auth: FeatureAuth }) {
+  const a = useAuth(auth)
+  const [snap, setSnap] = useState<MirrorSnapshot | null>(null)
+  const [msg, setMsg] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  const load = useCallback(() => {
+    apiMirror(a).then(setSnap).catch(() => setMsg('Could not load your mirror.'))
+  }, [a.email, a.token])
+  useEffect(() => { load() }, [load])
+
+  const w = snap?.window
+  const moodAvg = w && w.moodLogs > 0 ? w.avgEnergy.toFixed(1) : '—'
+  const spendPct = w && w.weeklyBudget > 0 ? Math.round((w.spend / w.weeklyBudget) * 100) : 0
+  const lastMood = snap?.moodTrend.length ? snap.moodTrend[snap.moodTrend.length - 1] : null
+
+  const [doneText, setDoneText] = useState('')
+  const [slippedText, setSlippedText] = useState('')
+  const [focusText, setFocusText] = useState('')
+
+  async function saveReview(e: FormEvent) {
+    e.preventDefault()
+    if (busy || !snap) return
+    setBusy(true)
+    try {
+      await apiSaveWeeklyReview({ ...a, weekStart: snap.weekStart, doneText: doneText, slippedText: slippedText, focusText: focusText })
+      setMsg('Saved.')
+      load()
+    } catch {
+      setMsg('Could not save.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="ma">
+      <p className="ma-sub">Here's the shape of your week. The mirror shows what you've actually done — no spin.</p>
+      {w && (
+        <div className="ma-stats">
+          <div className="ma-stat"><b>{moodAvg}</b><span>energy</span></div>
+          <div className="ma-stat"><b>{w.sleepNights ? w.avgSleepHours : '—'}</b><span>sleep h</span></div>
+          <div className="ma-stat"><b>${Math.round(w.spend)}</b><span>{spendPct}% of budget</span></div>
+          <div className="ma-stat"><b>{w.habitChecks}</b><span>habit checks</span></div>
+          <div className="ma-stat"><b>{w.workouts}</b><span>workouts</span></div>
+          <div className="ma-stat"><b>{w.meals}</b><span>meals</span></div>
+        </div>
+      )}
+
+      {snap && (
+        <>
+          <section className="mini__section">
+            <h2>Mood</h2>
+            {snap.moodTrend.length ? (
+              <div className="mirror-mood-row">
+                {snap.moodTrend.slice(-7).map((m, i) => (
+                  <span key={i} className="mirror-mood" title={`${m.date} · energy ${m.energy}`}>{m.emoji}</span>
+                ))}
+              </div>
+            ) : (
+              <p className="mini__empty">No moods logged yet. Text your hire how you're feeling.</p>
+            )}
+            {lastMood && <p className="ma-sub">Last: {lastMood.emoji} on {fmtDay(lastMood.date)}</p>}
+          </section>
+
+          <section className="mini__section">
+            <h2>Sleep</h2>
+            {snap.sleepTrend.length ? (
+              <ul className="ma-list">
+                {snap.sleepTrend.slice(-7).map((n) => (
+                  <li key={n.date} className="ma-row">
+                    <span className="ma-title">{fmtDay(n.date)}</span>
+                    <span className="ma-row-main"><span className="ma-sub">{n.hours}h · quality {n.quality}/5</span></span>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="mini__empty">No sleep logged. Bedtime and wake are the two numbers that matter.</p>
+            )}
+          </section>
+
+          <section className="mini__section">
+            <h2>Spending</h2>
+            {snap.spendByCategory.length ? (
+              <ul className="ma-list">
+                {snap.spendByCategory.map((c) => (
+                  <li key={c.category} className="ma-row">
+                    <span className="ma-title">{c.category}</span>
+                    <span className="ma-row-main"><span className="ma-sub">${Math.round(c.amount)}</span></span>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="mini__empty">No spending logged this week.</p>
+            )}
+            <p className="ma-sub">Budget: ${w?.weeklyBudget || 400}/wk · {spendPct}% used</p>
+          </section>
+
+          <section className="mini__section">
+            <h2>Workouts & learning</h2>
+            {snap.prs.length ? (
+              <ul className="ma-list">
+                {snap.prs.map((p) => (
+                  <li key={p.exercise} className="ma-row">
+                    <span className="ma-title">{p.exercise}</span>
+                    <span className="ma-row-main"><span className="ma-sub">{p.weight} lb PR</span></span>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="mini__empty">No PRs yet.</p>
+            )}
+            <p className="ma-sub">
+              {w && w.learningQueued > 0
+                ? `Next up in your queue: ${snap.nextLearning || `one of ${w.learningQueued} saved items`}`
+                : 'Learning queue is empty.'}
+            </p>
+          </section>
+
+          <section className="mini__section">
+            <h2>Decisions</h2>
+            <p className="ma-sub">
+              {w && w.decisionsResolved > 0
+                ? `${w.decisionsResolved} decided · ${w.decisionsOpen} still open`
+                : 'No decisions logged yet.'}
+            </p>
+          </section>
+
+          <section className="mini__section">
+            <h2>Weekly review</h2>
+            <form className="ma-stack" onSubmit={saveReview}>
+              <label className="ma-label">What got done
+                <textarea className="ma-area" rows={2} value={doneText} onChange={(e) => setDoneText(e.target.value)} placeholder="Shipped, finished, showed up…" />
+              </label>
+              <label className="ma-label">What slipped
+                <textarea className="ma-area" rows={2} value={slippedText} onChange={(e) => setSlippedText(e.target.value)} placeholder="Missed, delayed, avoided…" />
+              </label>
+              <label className="ma-label">Next week focus
+                <textarea className="ma-area" rows={2} value={focusText} onChange={(e) => setFocusText(e.target.value)} placeholder="One thing that actually matters." />
+              </label>
+              <button className="ma-btn" type="submit" disabled={busy}>Save review</button>
+            </form>
+          </section>
+        </>
+      )}
+      {msg && <p className="mini__hint">{msg}</p>}
+    </div>
+  )
+}
+
+/* ---------------------------- Networking CRM ---------------------------- */
 export function NetworkingCrmApp({ auth }: { auth: FeatureAuth }) {
   const a = useAuth(auth)
   const [people, setPeople] = useState<NetworkPerson[]>([])

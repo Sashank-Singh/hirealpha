@@ -17,7 +17,7 @@ export const SKILLS: Record<
     miniApps: [
       'pick_night', 'check_in', 'spiral_options', 'open_loops', 'relationship_radar', 'drop_zone',
       'nutrition', 'habit_streak', 'mood_tracker', 'workout_log', 'learning_queue', 'weekly_review',
-      'sleep_tracker', 'gratitude_journal', 'spending_snapshot',
+      'sleep_tracker', 'gratitude_journal', 'spending_snapshot', 'mirror',
     ],
     liveMiniApps: ['pick_night'],
     deny: ['slack', 'linear', 'github', 'stripe', 'fundraising'],
@@ -36,7 +36,7 @@ export const SKILLS: Record<
     executable: ['gmail', 'calendar', 'slack', 'linear'],
     miniApps: [
       'approve_send', 'pick_slot', 'standup_paste', 'linear_triage', 'open_loops', 'meeting_mode', 'drop_zone',
-      'learning_queue', 'weekly_review', 'networking_crm',
+      'learning_queue', 'weekly_review', 'networking_crm', 'mirror',
     ],
     liveMiniApps: ['standup_paste'],
     deny: ['therapy_mode', 'fundraising_strategy', 'uber_lifestyle'],
@@ -47,6 +47,7 @@ export const SKILLS: Record<
     miniApps: [
       'kill_keep_park', 'hire_decision', 'weekly_review', 'approve_investor_note', 'decision_ledger',
       'relationship_radar', 'drop_zone', 'open_loops', 'networking_crm', 'pipeline_board', 'spending_snapshot',
+      'mirror',
     ],
     liveMiniApps: ['kill_keep_park'],
     deny: ['standup_scribe', 'friend_comfort', 'silent_ea'],

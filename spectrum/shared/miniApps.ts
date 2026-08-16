@@ -39,6 +39,7 @@ export type MiniAppKind =
   | 'pipeline_board'
   | 'gratitude_journal'
   | 'spending_snapshot'
+  | 'mirror'
 
 export interface MiniAppCard {
   url: string
@@ -99,6 +100,7 @@ const PATTERNS: Partial<Record<MiniAppKind, RegExp>> = {
   pipeline_board: /\bpipeline\b|\b(?:job|deal|lead) (?:board|pipeline|status)\b|\bmove .{0,20}to (?:interview|offer)\b/i,
   gratitude_journal: /\bgratitude\b|\b(?:i'?m|i am) grateful\b|\bgrateful for\b/i,
   spending_snapshot: /\bspending snapshot\b|\b(?:log|track) (?:my )?(?:spend|spending|expense)\b|\bhow much (?:did i|have i) spent\b|\bweekly budget\b/i,
+  mirror: /\bmirror\b|\blife dashboard\b|\bhow(?:'s| is) my life (?:going|looking)\b|\breflect on my (?:week|life)\b|\bshow me (?:the )?(?:week|life)\b/i,
 }
 
 export interface MiniAppRequest {

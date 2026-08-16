@@ -1851,15 +1851,16 @@ const PERSONA_MINI_APPS: Record<Persona, string[]> = {
   friend: [
     'digest', 'check_in', 'pick_night', 'spiral_options', 'open_loops', 'relationship_radar', 'drop_zone',
     'nutrition', 'habit_streak', 'mood_tracker', 'workout_log', 'learning_queue', 'weekly_review',
-    'sleep_tracker', 'gratitude_journal', 'spending_snapshot',
+    'sleep_tracker', 'gratitude_journal', 'spending_snapshot', 'mirror',
   ],
   coworker: [
     'digest', 'approve_send', 'pick_slot', 'standup_paste', 'linear_triage', 'open_loops', 'meeting_mode', 'drop_zone',
-    'learning_queue', 'weekly_review', 'networking_crm',
+    'learning_queue', 'weekly_review', 'networking_crm', 'mirror',
   ],
   cofounder: [
     'digest', 'kill_keep_park', 'hire_decision', 'weekly_review', 'approve_investor_note', 'decision_ledger',
     'relationship_radar', 'drop_zone', 'open_loops', 'networking_crm', 'pipeline_board', 'spending_snapshot',
+    'mirror',
   ],
 }
 
@@ -2031,6 +2032,7 @@ async function armPokes(
     }
     await ensureJudgeTick(sql, user.id, persona, `${JUDGE_MARKER}afternoon`, nextLocalTimeUtc(tz, 17, 0), 'daily', tz)
     await ensureJudgeTick(sql, user.id, persona, `${JUDGE_MARKER}evening`, nextLocalTimeUtc(tz, 21, 0), 'daily', tz)
+    await ensureJudgeTick(sql, user.id, persona, `${JUDGE_MARKER}weekly`, nextWeekdayLocalUtc(tz, 0, 19, 0), 'weekly', tz)
   } else if (persona === 'coworker') {
     const clock = parseStandupClock(context.standup_time)
     let minute = clock.minute - 12
@@ -2048,6 +2050,7 @@ async function armPokes(
       'daily',
       tz,
     )
+    await ensureJudgeTick(sql, user.id, persona, `${JUDGE_MARKER}weekly`, nextWeekdayLocalUtc(tz, 5, 17, 0), 'weekly', tz)
   } else {
     await ensureJudgeTick(
       sql,
@@ -2501,6 +2504,59 @@ async function judgmentStatePayload(
     proactive = 'on'
   }
 
+  let weekly: Record<string, number | string> | null = null
+  if (tick === 'weekly') {
+    const wkNutr = await sql`
+      SELECT count(*)::int AS meals, coalesce(sum(calories), 0)::real AS calories
+      FROM hire_nutrition_logs WHERE user_id = ${user.id} AND eaten_at >= ${weekStart}::date AND eaten_at < ${weekEnd}::date
+    `
+    const wkMoods = await sql`
+      SELECT count(*)::int AS logs, coalesce(avg(energy), 0)::real AS energy
+      FROM hire_moods WHERE user_id = ${user.id} AND created_at >= ${weekStart}::date AND created_at < ${weekEnd}::date
+    `
+    const wkHabits = await sql`
+      SELECT count(*)::int AS checks FROM hire_habit_logs
+      WHERE user_id = ${user.id} AND date >= ${weekStart} AND date < ${weekEnd}
+    `
+    const wkSleep = await sql`
+      SELECT bedtime, wake FROM hire_sleep
+      WHERE user_id = ${user.id} AND sleep_date >= ${weekStart} AND sleep_date < ${weekEnd}
+    `
+    let wkSleepHours = 0
+    const wkSleepRows = wkSleep as Array<{ bedtime: string; wake: string }>
+    if (wkSleepRows.length) {
+      wkSleepHours =
+        wkSleepRows.reduce((sum, r) => sum + sleepHoursBetween(r.bedtime, r.wake), 0) / wkSleepRows.length
+    }
+    const wkWorkouts = await sql`
+      SELECT count(*)::int AS n FROM hire_workouts
+      WHERE user_id = ${user.id} AND logged_at >= ${weekStart}::date AND logged_at < ${weekEnd}::date
+    `
+    const wkLearning = await sql`
+      SELECT count(*)::int AS n FROM hire_learning
+      WHERE user_id = ${user.id} AND status = 'done' AND created_at >= ${weekStart}::date AND created_at < ${weekEnd}::date
+    `
+    weekly = {
+      meals: Number((wkNutr[0] as { meals?: number })?.meals || 0),
+      calories: Math.round(Number((wkNutr[0] as { calories?: number })?.calories) || 0),
+      moodLogs: Number((wkMoods[0] as { logs?: number })?.logs || 0),
+      avgEnergy: Math.round((Number((wkMoods[0] as { energy?: number })?.energy) || 0) * 10) / 10,
+      habitChecks: Number((wkHabits[0] as { checks?: number })?.checks || 0),
+      sleepNights: wkSleepRows.length,
+      avgSleepHours: Math.round(wkSleepHours * 10) / 10,
+      spend: Math.round(Number((spendRow[0] as { total?: number })?.total) || 0),
+      weeklyBudget: Math.round(Number((budgetRow[0] as { weeklyBudget?: number })?.weeklyBudget) || 400),
+      workouts: Number((wkWorkouts[0] as { n?: number })?.n || 0),
+      learningDone: Number((wkLearning[0] as { n?: number })?.n || 0),
+      gratitude: 0,
+    }
+    const wkGratitude = await sql`
+      SELECT count(*)::int AS n FROM hire_gratitude
+      WHERE user_id = ${user.id} AND created_at >= ${weekStart}::date AND created_at < ${weekEnd}::date
+    `
+    weekly.gratitude = Number((wkGratitude[0] as { n?: number })?.n || 0)
+  }
+
   return {
     persona,
     name: user.name || null,
@@ -2536,6 +2592,7 @@ async function judgmentStatePayload(
     loops: (loops as Array<{ title: string }>).map((l) => l.title),
     calendar,
     mail,
+    ...(weekly ? { weekly } : {}),
   }
 }
 
@@ -4524,6 +4581,138 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
         focus_text = excluded.focus_text
     `
     return json({ ok: true })
+  }
+
+  /* ---- Mirror (life reflection dashboard) ---- */
+  if (path === '/api/mirror' && req.method === 'GET') {
+    const { user, error } = await resolveAuthedUser(sql, {
+      token: url.searchParams.get('t') || undefined,
+      email: url.searchParams.get('email') || undefined,
+    })
+    if (error) return error
+    const weekStart = userMonday(user!)
+    const weekEndStr = shiftDateStr(weekStart, 7)
+    const dayStart = shiftDateStr(weekStart, -14)
+
+    const nutr = await sql`
+      SELECT count(*)::int AS meals, coalesce(sum(calories), 0)::real AS calories
+      FROM hire_nutrition_logs WHERE user_id = ${user!.id} AND eaten_at >= ${weekStart}::date AND eaten_at < ${weekEndStr}::date
+    `
+    const moods = await sql`
+      SELECT count(*)::int AS logs, coalesce(avg(energy), 0)::real AS energy
+      FROM hire_moods WHERE user_id = ${user!.id} AND created_at >= ${weekStart}::date AND created_at < ${weekEndStr}::date
+    `
+    const habitRows = await sql`
+      SELECT id, name FROM hire_habits WHERE user_id = ${user!.id} ORDER BY created_at ASC LIMIT 12
+    `
+    const habitLogs = await sql`
+      SELECT habit_id AS "habitId", date FROM hire_habit_logs
+      WHERE user_id = ${user!.id} AND date >= ${weekStart} AND date < ${weekEndStr}
+    `
+    const habitChecks = (habitLogs as Array<{ habitId: string }>).length
+    const habitNames = (habitRows as Array<{ name: string }>).map((h) => h.name)
+    const sleep = await sql`
+      SELECT sleep_date AS "sleepDate", bedtime, wake, quality FROM hire_sleep
+      WHERE user_id = ${user!.id} AND sleep_date >= ${weekStart} AND sleep_date < ${weekEndStr}
+    `
+    let sleepHours = 0
+    const sleepRows = sleep as Array<{ sleepDate: string; bedtime: string; wake: string; quality: number }>
+    if (sleepRows.length) {
+      sleepHours = sleepRows.reduce((sum, r) => sum + sleepHoursBetween(r.bedtime, r.wake), 0) / sleepRows.length
+    }
+    const spend = await sql`
+      SELECT coalesce(sum(amount), 0)::real AS total FROM hire_spending
+      WHERE user_id = ${user!.id} AND spent_at >= ${weekStart}::date AND spent_at < ${weekEndStr}::date
+    `
+    const spendByCat = await sql`
+      SELECT category, coalesce(sum(amount), 0)::real AS amount FROM hire_spending
+      WHERE user_id = ${user!.id} AND spent_at >= ${weekStart}::date AND spent_at < ${weekEndStr}::date
+      GROUP BY category ORDER BY amount DESC
+    `
+    const budgetRow = await sql`SELECT weekly_budget AS "weeklyBudget" FROM hire_spending_budget WHERE user_id = ${user!.id}`
+    const workouts = await sql`
+      SELECT count(*)::int AS n FROM hire_workouts
+      WHERE user_id = ${user!.id} AND logged_at >= ${weekStart}::date AND logged_at < ${weekEndStr}::date
+    `
+    const prs = await sql`
+      SELECT exercise, max(weight) AS weight FROM hire_workouts
+      WHERE user_id = ${user!.id} AND weight > 0
+      GROUP BY exercise ORDER BY weight DESC LIMIT 5
+    `
+    const learning = await sql`
+      SELECT status, count(*)::int AS n, coalesce(sum(minutes), 0)::int AS mins FROM hire_learning
+      WHERE user_id = ${user!.id} GROUP BY status
+    `
+    const learningNext = await sql`
+      SELECT title FROM hire_learning WHERE user_id = ${user!.id} AND status = 'queued'
+      ORDER BY created_at ASC LIMIT 1
+    `
+    const gratitude = await sql`
+      SELECT count(*)::int AS n FROM hire_gratitude
+      WHERE user_id = ${user!.id} AND created_at >= ${weekStart}::date AND created_at < ${weekEndStr}::date
+    `
+    const decisions = await sql`
+      SELECT count(*) FILTER (WHERE outcome IS NULL)::int AS open,
+             count(*) FILTER (WHERE outcome IS NOT NULL)::int AS resolved
+      FROM hire_decisions WHERE user_id = ${user!.id}
+    `
+    const moodTrend = await sql`
+      SELECT emoji, energy, created_at AS "createdAt" FROM hire_moods
+      WHERE user_id = ${user!.id} AND created_at >= ${dayStart}::date
+      ORDER BY created_at ASC LIMIT 60
+    `
+    const sleepTrend = await sql`
+      SELECT sleep_date AS "sleepDate", bedtime, wake, quality FROM hire_sleep
+      WHERE user_id = ${user!.id} AND sleep_date >= ${dayStart} AND sleep_date < ${weekEndStr}
+      ORDER BY sleep_date ASC LIMIT 21
+    `
+    const reviews = await sql`
+      SELECT id, week_start AS "weekStart", done_text AS "doneText", slipped_text AS "slippedText",
+             focus_text AS "focusText", created_at AS "createdAt"
+      FROM hire_weekly_reviews WHERE user_id = ${user!.id}
+      ORDER BY week_start DESC LIMIT 4
+    `
+    const currentReview = (reviews as Array<{ weekStart: string }>).find((r) => r.weekStart === weekStart) || null
+    const lrn = learning as Array<{ status: string; n: number; mins: number }>
+    const queued = lrn.find((l) => l.status === 'queued')?.n || 0
+    const done = lrn.find((l) => l.status === 'done')?.n || 0
+
+    return json({
+      weekStart,
+      window: {
+        meals: Number((nutr[0] as { meals: number })?.meals || 0),
+        calories: Number((nutr[0] as { calories: number })?.calories || 0),
+        moodLogs: Number((moods[0] as { logs: number })?.logs || 0),
+        avgEnergy: Number((moods[0] as { energy: number })?.energy || 0),
+        habitChecks,
+        habits: habitNames,
+        sleepNights: sleepRows.length,
+        avgSleepHours: Math.round(sleepHours * 10) / 10,
+        spend: Number((spend[0] as { total: number })?.total || 0),
+        weeklyBudget: Math.round(Number((budgetRow[0] as { weeklyBudget?: number })?.weeklyBudget) || 400),
+        workouts: Number((workouts[0] as { n: number })?.n || 0),
+        learningQueued: queued,
+        learningDone: done,
+        gratitude: Number((gratitude[0] as { n: number })?.n || 0),
+        decisionsOpen: Number((decisions[0] as { open: number })?.open || 0),
+        decisionsResolved: Number((decisions[0] as { resolved: number })?.resolved || 0),
+      },
+      moodTrend: (moodTrend as Array<{ emoji: string; energy: number; createdAt: Date }>).map((m) => ({
+        emoji: m.emoji,
+        energy: m.energy,
+        date: String(m.createdAt).slice(0, 10),
+      })),
+      sleepTrend: sleepRows.map((r) => ({
+        date: String(r.sleepDate).slice(0, 10),
+        hours: sleepHoursBetween(r.bedtime, r.wake),
+        quality: r.quality,
+      })),
+      spendByCategory: spendByCat as Array<{ category: string; amount: number }>,
+      prs: (prs as Array<{ exercise: string; weight: number }>).map((p) => ({ exercise: p.exercise, weight: p.weight })),
+      nextLearning: (learningNext[0] as { title?: string } | undefined)?.title || null,
+      currentReview,
+      reviews,
+    })
   }
 
   /* ---- Networking CRM ---- */

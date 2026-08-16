@@ -491,6 +491,27 @@ export const apiSaveWeeklyReview = (a: {
   email?: string; token?: string; weekStart: string; doneText: string; slippedText: string; focusText: string
 }) => featurePost<{ ok: boolean }>('/api/weekly-review', { ...authParams(a), weekStart: a.weekStart, doneText: a.doneText, slippedText: a.slippedText, focusText: a.focusText })
 
+/* ---- Mirror (life reflection dashboard) ---- */
+export type MirrorSnapshot = {
+  weekStart: string
+  window: {
+    meals: number; calories: number; moodLogs: number; avgEnergy: number
+    habitChecks: number; habits: string[]; sleepNights: number; avgSleepHours: number
+    spend: number; weeklyBudget: number; workouts: number
+    learningQueued: number; learningDone: number; gratitude: number
+    decisionsOpen: number; decisionsResolved: number
+  }
+  moodTrend: Array<{ emoji: string; energy: number; date: string }>
+  sleepTrend: Array<{ date: string; hours: number; quality: number }>
+  spendByCategory: Array<{ category: string; amount: number }>
+  prs: Array<{ exercise: string; weight: number }>
+  nextLearning: string | null
+  currentReview: WeeklyReview | null
+  reviews: WeeklyReview[]
+}
+export const apiMirror = (a: { email?: string; token?: string }) =>
+  featureGet<MirrorSnapshot>('/api/mirror', authQuery(a))
+
 /* ---- Networking CRM ---- */
 export type NetworkPerson = {
   id: string; name: string; whereMet: string; context: string; lastTouch: string | null; cadenceDays: number; createdAt: string

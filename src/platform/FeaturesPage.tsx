@@ -18,6 +18,7 @@ import {
 import {
   GratitudeJournalApp,
   LearningQueueApp,
+  MirrorApp,
   NetworkingCrmApp,
   PipelineBoardApp,
   SleepTrackerApp,
@@ -44,6 +45,7 @@ const FEATURE_APPS: Record<string, ComponentType<{ auth: FeatureAuth }>> = {
   pipeline_board: PipelineBoardApp,
   gratitude_journal: GratitudeJournalApp,
   spending_snapshot: SpendingSnapshotApp,
+  mirror: MirrorApp,
 }
 
 function FeatureApp({ kind, auth }: { kind: string; auth: FeatureAuth }) {
