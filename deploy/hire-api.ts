@@ -4661,6 +4661,8 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
       WHERE user_id = ${user!.id} AND created_at >= ${dayStart}::date
       ORDER BY created_at ASC LIMIT 60
     `
+    const moodTrendRows = moodTrend as Array<{ emoji: string; energy: number; createdAt: Date }>
+    const tzMirror = user!.timezone || 'America/Los_Angeles'
     const sleepTrend = await sql`
       SELECT sleep_date AS "sleepDate", bedtime, wake, quality FROM hire_sleep
       WHERE user_id = ${user!.id} AND sleep_date >= ${dayStart} AND sleep_date < ${weekEndStr}
@@ -4697,10 +4699,10 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
         decisionsOpen: Number((decisions[0] as { open: number })?.open || 0),
         decisionsResolved: Number((decisions[0] as { resolved: number })?.resolved || 0),
       },
-      moodTrend: (moodTrend as Array<{ emoji: string; energy: number; createdAt: Date }>).map((m) => ({
+      moodTrend: moodTrendRows.map((m) => ({
         emoji: m.emoji,
         energy: m.energy,
-        date: String(m.createdAt).slice(0, 10),
+        date: localDateStrInTz(new Date(m.createdAt), tzMirror),
       })),
       sleepTrend: sleepRows.map((r) => ({
         date: String(r.sleepDate).slice(0, 10),
