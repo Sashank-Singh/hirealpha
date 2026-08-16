@@ -8,7 +8,7 @@ import { skillsPromptBlock, SKILLS } from './skills'
 import { gmiChat } from './gmi'
 import { appendThread, loadMemory, upsertFacts, pruneExpiredFacts, setSummary, trimHistory, MAX_RAW, type ThreadMemory } from './memory'
 import { extractFacts, summarizeOld } from './memoryMaintain'
-import { autoLogGratitude, autoLogNutrition, autoLogSleep, autoLogSpend, autoLogWorkout, fetchLiveProfile, fetchLiveTools, fetchMiniRun, formatHireContext, formatHireMemories, persistLiveFacts, touchInbound } from './liveContext'
+import { autoLogGratitude, autoLogHabit, autoLogMood, autoLogNutrition, autoLogSleep, autoLogSpend, autoLogWorkout, fetchLiveProfile, fetchLiveTools, fetchMiniRun, formatHireContext, formatHireMemories, persistLiveFacts, touchInbound } from './liveContext'
 import {
   looksLikeReminder,
   parseReminderIntent,
@@ -16,7 +16,7 @@ import {
   listReminders,
   localTimeToUtc,
 } from './reminders'
-import { setProactiveMode } from './judgment'
+import { setProactiveMode, fetchLastProactiveTopic } from './judgment'
 import {
   DIGEST_MARKER,
   detectMiniAppRequest,
@@ -26,31 +26,26 @@ import {
   buildDigestBriefing,
   type MiniAppCard,
 } from './miniApps'
+import { foldQuotes, isBannedTagline, dropBannedTaglines } from './outboundFilter'
+
+export { isBannedTagline } from './outboundFilter'
 
 export function splitBubbles(text: string): string[] {
-  const cleaned = text.replace(/\r/g, '').trim()
-  if (!cleaned) return ['…']
-  // One inbound text should produce one text bubble. Splitting paragraphs into
-  // separate sends makes a single answer look like duplicate replies.
+  const cleaned = sanitizeOutbound(text.replace(/\r/g, ''))
+  if (!cleaned) return []
   return [cleaned]
-}
-
-function foldQuotes(text: string): string {
-  return text.replace(/[\u2018\u2019\u02BC]/g, "'").replace(/[\u201C\u201D]/g, '"')
 }
 
 const REASON =
   /(?:the (?:user|instructions)|instructions say|tool result|in context|connected as a tool|I (?:should|need to|have|will|am going|want to|can check the))|^Let me|^Wait,?|^First,?|^OK[,:]|^Alright[,:]|^So /i
-const THEATER =
-  /\b(i'?m here\.?\s*the real part|not the polished version|your guy for the real stuff|the real me|raw and real|uncut version|no filter|unfiltered|straight talk|real talk|no bs|keeping it real|authentic self|unapologetically)\b/i
 const FIRST_MEET =
   /\b(good to meet you|nice to meet you|pleasure to meet you|great to meet you|glad to meet you)\b/gi
 
 function isTheaterCopy(text: string): boolean {
-  return THEATER.test(foldQuotes(text))
+  return isBannedTagline(text)
 }
 
-/** Drop leaked reasoning, persona theater, and first-meet lines for returning people. */
+/** Drop leaked reasoning, banned taglines, and first-meet lines for returning people. */
 function stripReasoning(text: string, returning = false): string {
   const paras = foldQuotes(text)
     .trim()
@@ -96,6 +91,13 @@ export function stripDashes(text: string): string {
   out = out.replace(/\s+([,.!?])/g, '$1')
   out = out.replace(/\0(\d+)\0/g, (_, i) => hold[Number(i)] || '')
   return out.trim()
+}
+
+/** Last pass before any iMessage send. */
+export function sanitizeOutbound(text: string): string {
+  const cleaned = stripDashes(dropBannedTaglines(text))
+  if (!cleaned || isBannedTagline(cleaned)) return ''
+  return cleaned
 }
 
 function wantsLiveData(text: string) {
@@ -156,6 +158,19 @@ function looksLikeGratitudeLog(text: string) {
 
 function looksLikeSpendLog(text: string) {
   return /\$\s*\d+|(?:spent|spend|paid|cost)\s+\$?\s*\d+/i.test(text)
+}
+
+function looksLikeMoodReply(text: string) {
+  const t = text.trim()
+  if (!t || t.length > 40) return false
+  if (/^[😄🙂😐😔😤]+$/.test(t)) return true
+  return /^(i'?m|i am)?\s*(good|fine|okay|ok|great|meh|tired|exhausted|sad|down|rough|bad|angry|stressed|frustrated|great!?)\b/i.test(t)
+}
+
+function looksLikeHabitDone(text: string) {
+  const t = text.trim().toLowerCase().replace(/[.!?]+$/, '')
+  if (!t || t.length > 30) return false
+  return /^(done|did|did it|yes|yeah|yep|y|ok|okay|sure|all done|did that)\b/.test(t)
 }
 
 const LIVE_MINI = new Set(['pick_night', 'standup_paste', 'kill_keep_park'])
@@ -483,7 +498,7 @@ export async function runHireTurn(input: {
   } else {
     if (isFirst) {
       extras.push(
-        `This is their first iMessage to you${live.name ? `. Their name is ${live.name}` : ''}. Introduce yourself once, briefly, in the same text as the answer. No persona theater. No second bubble.`,
+        `This is their first iMessage to you${live.name ? `. Their name is ${live.name}` : ''}. Introduce yourself once, briefly, in the same text as the answer. No taglines. No second bubble.`,
       )
     } else {
       extras.push(
@@ -557,6 +572,35 @@ export async function runHireTurn(input: {
       extras.push('Could not parse what they are grateful for. Do not claim it was logged. Tell them to open the Gratitude card.')
     }
   }
+  if (looksLikeMoodReply(input.userText)) {
+    const mood = await autoLogMood(input.senderId, agent.id, input.userText)
+    if (mood?.logged) {
+      extras.push(
+        `Mood was automatically logged as ${mood.emoji} (energy ${mood.energy}/5). Confirm briefly in the reply; do not ask them to log it again or pick another emoji.`,
+      )
+    } else if (mood?.error) {
+      extras.push('Mood auto-log did not recognize a mood emoji. Do not claim the mood was logged; if they clearly named a mood, tell them it is saved to the Mood tracker.')
+    }
+  }
+  const proactiveTopic = miniApp?.kind === 'habit_streak'
+    ? 'habit_streak'
+    : looksLikeHabitDone(input.userText)
+      ? (await fetchLastProactiveTopic(input.senderId, agent.id)).topic
+      : null
+  if (
+    !looksLikeMoodReply(input.userText) &&
+    looksLikeHabitDone(input.userText) &&
+    (proactiveTopic === 'habit_risk' || proactiveTopic === 'habit_streak' || /workout|done today|did .*\?/i.test(lastAssistant || ''))
+  ) {
+    const habit = await autoLogHabit(input.senderId, agent.id, input.userText)
+    if (habit?.logged) {
+      extras.push(
+        `${habit.habit} was marked done today. Confirm briefly; do not ask them to log it again.`,
+      )
+    } else {
+      extras.push('Habit auto-log could not find a matching habit. Do not claim it was logged.')
+    }
+  }
   if (miniApp?.kind === 'spending_snapshot' && looksLikeSpendLog(input.userText)) {
     const spend = await autoLogSpend(input.senderId, agent.id, input.userText)
     if (spend?.logged) {
@@ -618,7 +662,7 @@ export async function runHireTurn(input: {
 
   try {
     const firstHint = isFirst
-      ? '\nThis is their first iMessage to you. Introduce yourself once, briefly, in character, then answer in the same text. No persona theater. Do not send a second message.'
+      ? '\nThis is their first iMessage to you. Introduce yourself once, briefly, in character, then answer in the same text. No taglines. Do not send a second message.'
       : '\nThis is not their first text. Do not introduce yourself. Do not say good to meet you. Answer in one message.'
     reply = await gmiChat({
       temperature: agent.temperature,
@@ -658,7 +702,10 @@ export async function runHireTurn(input: {
     )
   if (briefIntent && digestText && (!finalReply || askedWhat)) finalReply = digestText
   if (!finalReply) finalReply = 'I hit a snag. Try that again?'
-  finalReply = stripDashes(finalReply)
+  finalReply = sanitizeOutbound(finalReply)
+  if (isBannedTagline(finalReply) || !finalReply.trim()) {
+    finalReply = briefIntent && digestText ? sanitizeOutbound(digestText) || 'On it. Give me one more beat.' : 'On it. Give me one more beat.'
+  }
   console.log(`[turn] raw reply (${reply.length} chars): ${reply.slice(0, 300)}`)
   console.log(`[turn] final reply (${finalReply.length} chars): ${finalReply.slice(0, 300)}`)
   console.log(`[turn] bubbles: ${splitBubbles(finalReply).length}`)

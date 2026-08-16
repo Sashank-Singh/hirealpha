@@ -18,6 +18,26 @@
       "role": "assistant",
       "content": "I know you're in SF but not your exact spot.",
       "ts": 1786832477648
+    },
+    {
+      "role": "user",
+      "content": "I ate 5 pcs wings from 7-11",
+      "ts": 1786847140687
+    },
+    {
+      "role": "user",
+      "content": "Debrief me",
+      "ts": 1786852849782
+    },
+    {
+      "role": "user",
+      "content": "I ate chocolate eclair from 7-11 and another 5pcs wings",
+      "ts": 1786856896246
+    },
+    {
+      "role": "user",
+      "content": "Debrief me",
+      "ts": 1786857981246
     }
   ]
 }

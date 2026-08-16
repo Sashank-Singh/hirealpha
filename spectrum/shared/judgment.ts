@@ -1,6 +1,7 @@
 import type { AgentId } from '../../src/agents/types'
 import { gmiChat } from './gmi'
 import type { MiniAppCard } from './miniApps'
+import { isBannedTagline } from './outboundFilter'
 
 export const JUDGE_MARKER = '[judge]'
 
@@ -28,6 +29,7 @@ export type JudgmentState = {
   unansweredToday?: number
   nutrition?: { calories: number; protein: number; calorieGoal: number; proteinGoal: number; meals: number }
   habits?: Array<{ name: string; streak: number; todayDone: boolean }>
+  mood?: { loggedToday: boolean; lastEmoji?: string | null; lastEnergy?: number | null }
   sleep?: { hours: number; quality: number; date: string } | null
   peopleDue?: Array<{ name: string; days: number; note?: string }>
   spend?: { weekTotal: number; weeklyBudget: number }
@@ -49,9 +51,6 @@ type JudgeDecision = {
   message: string
   card: string | null
 }
-
-const THEATER =
-  /\b(i'?m here\.?\s*the real part|not the polished version|unfiltered|no filter|keeping it real)\b/i
 
 function apiBase() {
   return (process.env.HIREALPHA_API_URL || '').replace(/\/$/, '')
@@ -92,6 +91,24 @@ export async function fetchJudgmentState(
   } catch (err) {
     console.warn('[judgment] state fetch failed', err)
     return null
+  }
+}
+
+export async function fetchLastProactiveTopic(
+  phone: string,
+  persona: AgentId,
+): Promise<{ topic: string | null; minutesAgo: number | null }> {
+  const base = apiBase()
+  const key = process.env.HIREALPHA_INTERNAL_KEY || ''
+  if (!base || !key) return { topic: null, minutesAgo: null }
+  try {
+    const qs = new URLSearchParams({ phone, persona })
+    const res = await timedFetch(`${base}/api/internal/last-proactive?${qs}`, { headers: authHeaders() }, 6000)
+    if (!res.ok) return { topic: null, minutesAgo: null }
+    return (await res.json()) as { topic: string | null; minutesAgo: number | null }
+  } catch (err) {
+    console.warn('[judgment] last-proactive fetch failed', err)
+    return { topic: null, minutesAgo: null }
   }
 }
 
@@ -202,6 +219,9 @@ function personaVoice(persona: AgentId): string {
 }
 
 function judgePrompt(state: JudgmentState): string {
+  const evening = state.tick === 'evening' || state.tick === 'digest_evening'
+  const moodMiss = state.mood && !state.mood.loggedToday
+  const habitMiss = state.habits?.some((h) => !h.todayDone)
   return `${personaVoice(state.persona)}
 You are considering whether to text first. This is not a briefing dump.
 
@@ -211,8 +231,17 @@ ${JSON.stringify(state, null, 0)}
 Decide:
 - reachOut true only if ONE specific thing is worth a text right now
 - topic: a short slug (nutrition_gap, habit_risk, follow_up, sleep, digest, check_in, spend, loop, none)
-- message: 1-2 short sentences. Opinionated. No markdown, no lists, no hyphens or dashes. No persona theater.
+- message: 1-2 short sentences. Opinionated. No markdown, no lists, no hyphens or dashes. No taglines.
 - card: always null
+
+${evening && moodMiss
+    ? 'It is evening and no mood is logged today. Users never log mood on their own. Reach out with a quick emoji check-in ("How did today land? 😄 🙂 😐 😔 😤"), one question, nothing else.'
+    : ''}
+${
+  habitMiss && !(evening && moodMiss)
+    ? `A habit is not done today (${state.habits!.filter((h) => !h.todayDone).map((h) => h.name).join(', ') || 'one of your habits'}). If it is a reasonable hour, reach out with ONE short ask ("Workout done today?"). One question, nothing else.`
+    : ''
+}
 
 Stay silent (reachOut false) if nothing is actually useful, if you would only send a generic check in, or if lastProactiveTopic is the same topic again.
 Stay silent if unansweredProactive is already 1 unless the thing is time sensitive and they can answer in a few words.
@@ -283,7 +312,7 @@ export async function runJudgmentLoop(input: {
     return null
   }
   if (!decision?.reachOut || !decision.message) return null
-  if (THEATER.test(decision.message)) return null
+  if (isBannedTagline(decision.message)) return null
   if (state.lastProactiveTopic && decision.topic === state.lastProactiveTopic && tick !== 'digest') {
     return null
   }

@@ -342,6 +342,7 @@ export type Meeting = {
   startsAt: string | null
   phase: string
   briefing: string | null
+  notes: string | null
   followups: Array<{ decision?: string; owner?: string; action?: string }>
   createdAt: string
 }
@@ -353,6 +354,13 @@ export const apiListMeetings = (a: { email?: string; token?: string }) => {
 }
 export const apiAddMeeting = (a: { email?: string; token?: string; title: string; startsAt?: string }) =>
   featurePost<{ ok: boolean; id: string }>('/api/meetings', { ...authParams(a), title: a.title, startsAt: a.startsAt })
+export const apiTranscribeMeeting = (a: {
+  email?: string; token?: string; id: string; audioBase64: string; mimeType?: string
+}) =>
+  featurePost<{ ok: boolean; error?: string; transcript?: string }>(
+    `/api/meetings/${a.id}/transcribe`,
+    { ...authParams(a), audioBase64: a.audioBase64, mimeType: a.mimeType },
+  )
 
 export type NutritionLog = {
   id: string
@@ -390,6 +398,12 @@ export const apiAnalyzeNutrition = (a: { email?: string; token?: string; descrip
     ok: boolean; needsKey?: boolean; calories?: number; protein?: number; carbs?: number; fat?: number
     guess?: string; error?: string
   }>('/api/nutrition/analyze', { ...authParams(a), description: a.description, imageBase64: a.imageBase64 })
+export const apiLogNutritionPhoto = (a: {
+  email?: string; token?: string; description?: string; imageBase64: string
+}) =>
+  featurePost<{
+    ok: boolean; id: string; imageUrl?: string; estimated?: boolean; needsKey?: boolean; error?: string
+  }>('/api/nutrition/photo', { ...authParams(a), description: a.description, imageBase64: a.imageBase64 })
 export const apiDeleteNutritionLog = (a: { email?: string; token?: string; id: string }) =>
   featurePost<{ ok: boolean }>(`/api/nutrition/${a.id}`, { ...authParams(a), _delete: true })
 

@@ -261,6 +261,45 @@ export async function autoLogGratitude(phone: string, persona: AgentId, text: st
   )
 }
 
+export async function autoLogMood(
+  phone: string,
+  persona: AgentId,
+  text: string,
+): Promise<{ ok?: boolean; logged?: boolean; error?: string; emoji?: string; energy?: number } | null> {
+  return autoLogText<{ ok?: boolean; logged?: boolean; error?: string; emoji?: string; energy?: number }>(
+    '/api/internal/moods',
+    phone,
+    persona,
+    text,
+  )
+}
+
+export async function autoLogHabit(
+  phone: string,
+  persona: AgentId,
+  text: string,
+): Promise<{ ok?: boolean; logged?: boolean; error?: string; habit?: string; date?: string } | null> {
+  const base = apiBase()
+  const key = process.env.HIREALPHA_INTERNAL_KEY || ''
+  if (!base || !key) return null
+  try {
+    const res = await timedFetch(
+      `${base}/api/internal/habits/done`,
+      {
+        method: 'POST',
+        headers: authHeaders(),
+        body: JSON.stringify({ phone, persona, text: text.slice(0, 300) }),
+      },
+      12000,
+    )
+    if (!res.ok) return null
+    return (await res.json()) as { ok?: boolean; logged?: boolean; error?: string; habit?: string; date?: string }
+  } catch (err) {
+    console.warn('[live] habit auto-log failed', err)
+    return null
+  }
+}
+
 export async function autoLogSpend(phone: string, persona: AgentId, text: string) {
   return autoLogText<{
     ok?: boolean; logged?: boolean; error?: string

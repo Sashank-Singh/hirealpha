@@ -2203,6 +2203,16 @@ button, input { font: inherit; }
   transition: opacity 0.15s ease;
 }
 .mini__btn:disabled { opacity: 0.5; cursor: default; }
+.mini__btn-sm { padding: 6px 12px; font-size: 12px; border-radius: 10px; }
+.mini__btn-danger { background: #ef4444; }
+.mini__row-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
+.mini__notes {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  white-space: pre-wrap;
+}
 .mini__select {
   padding: 10px 12px;
   border: 1px solid var(--border);
@@ -2392,6 +2402,10 @@ button, input { font: inherit; }
   padding: 12px 14px; border: 1px solid var(--border); border-radius: 12px;
   background: color-mix(in srgb, var(--mini-accent) 4%, var(--bg));
 }
+.nutr-meal-thumb {
+  width: 44px; height: 44px; border-radius: 10px; object-fit: cover;
+  flex-shrink: 0; border: 1px solid var(--border);
+}
 .nutr-meal-time { font-size: 11px; font-weight: 600; color: var(--muted-fg); white-space: nowrap; }
 .nutr-meal-info { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .nutr-meal-name { font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -2427,6 +2441,10 @@ button, input { font: inherit; }
   cursor: pointer; display: flex; align-items: center; justify-content: center;
 }
 .nutr-modal h3 { font-size: 18px; font-weight: 700; margin: 0; padding-right: 32px; }
+.nutr-modal-img {
+  width: 100%; max-height: 220px; border-radius: 12px; object-fit: cover;
+  border: 1px solid var(--border);
+}
 .nutr-modal-time { font-size: 12px; color: var(--muted-fg); }
 .nutr-modal-macros { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
 .nutr-modal-macro { display: flex; flex-direction: column; align-items: center; gap: 2px; }

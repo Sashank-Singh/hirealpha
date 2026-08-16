@@ -351,6 +351,7 @@ export async function ensureHireSchema(sql: SQL) {
     )
   `
   await sql`CREATE INDEX IF NOT EXISTS idx_hire_meetings_user ON hire_meetings (user_id, created_at DESC)`
+  await sql`ALTER TABLE hire_meetings ADD COLUMN IF NOT EXISTS notes TEXT`
 
   await sql`
     CREATE TABLE IF NOT EXISTS hire_nudge_log (
@@ -1031,6 +1032,39 @@ async function estimateNutrition(
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
     return { ok: false, error: msg.slice(0, 180) }
+  }
+}
+
+/**
+ * Self-hosted speech-to-text (faster-whisper-server, OpenAI-compatible).
+ * Configure via STT_URL (defaults to an internal whisper service name on the
+ * Coolify network) and STT_MODEL. Returns transcription text or throws.
+ */
+async function transcribeAudio(mimeType: string, audioBytes: Uint8Array): Promise<{ text: string }> {
+  const baseUrl = (process.env.STT_URL || 'http://whisper-hkwfzdglv38jeqhzxys4xkvd:8000/v1').replace(/\/$/, '')
+  const model = process.env.STT_MODEL || 'small'
+  const ctrl = new AbortController()
+  const t = setTimeout(() => ctrl.abort(), 120_000)
+  try {
+    const form = new FormData()
+    const ext = mimeType.includes('mpeg') ? 'mpeg' : mimeType.includes('webm') ? 'webm' : 'm4a'
+    form.append('file', new Blob([audioBytes], { type: mimeType }), `voice.${ext}`)
+    form.append('model', model)
+    const res = await fetch(`${baseUrl}/audio/transcriptions`, {
+      method: 'POST',
+      body: form,
+      signal: ctrl.signal,
+    })
+    if (!res.ok) {
+      const t2 = await res.text().catch(() => '')
+      throw new Error(`Whisper ${res.status}: ${t2.slice(0, 160)}`)
+    }
+    const data = (await res.json()) as { text?: string }
+    const text = String(data.text || '').trim()
+    if (!text) throw new Error('Whisper returned empty transcript')
+    return { text }
+  } finally {
+    clearTimeout(t)
   }
 }
 
@@ -1804,7 +1838,7 @@ async function digestPayload(
     section('Tomorrow', tomorrowCal),
     section('Important mail', emails),
     section('Reminders', reminders.map((r) => `${r.time} · ${r.text}`)),
-    section('Open loops', loops),
+    section('Loose ends', loops),
   ]
     .filter(Boolean)
     .join('\n\n')
@@ -2107,11 +2141,11 @@ function decisionNudgeText(decision: string) {
   return `Decision review date hit. How did ${labeled} turn out?`
 }
 
-function meetingNudgeText(title: string, mins: number, deal: string) {
+function meetingNudgeText(title: string, mins: number) {
   const who = meetingWho(title)
   const wait = Math.max(1, mins)
-  const extra = deal || 'No brief on file. Go in with one question you actually need answered.'
-  return `Meeting with ${who} in ${wait} min. You never prepped. Here's the deal. ${extra}`
+  const unit = wait === 1 ? 'min' : 'mins'
+  return `Meeting with ${who} in ${wait} ${unit}. Do you want to prep?`
 }
 
 function slugNudge(raw: string) {
@@ -2220,7 +2254,7 @@ async function collectEventNudgesForUser(
       topic: 'meeting_soon',
       key,
       urgent: true,
-      text: stripNudgeDashes(meetingNudgeText(m.title, mins, '')),
+      text: stripNudgeDashes(meetingNudgeText(m.title, mins)),
     })
   }
 
@@ -2242,7 +2276,7 @@ async function collectEventNudgesForUser(
             topic: 'meeting_soon',
             key,
             urgent: true,
-            text: stripNudgeDashes(meetingNudgeText(ev.title, mins, ev.description)),
+            text: stripNudgeDashes(meetingNudgeText(ev.title, mins)),
           })
         }
       }
@@ -2277,6 +2311,7 @@ async function collectEventNudgesForUser(
     const decisions = await sql`
       SELECT id, decision, review_at AS "reviewAt" FROM hire_decisions
       WHERE user_id = ${user.id} AND status = 'open' AND review_at IS NOT NULL AND review_at <= now()
+        AND (persona = ${persona} OR persona = '')
       ORDER BY review_at ASC LIMIT 8
     `
     for (const d of decisions as Array<{ id: string; decision: string; reviewAt: Date }>) {
@@ -2390,6 +2425,20 @@ async function judgmentStatePayload(
     return { name: h.name, streak, todayDone: dates.has(today) }
   })
 
+  const moodRows = await sql`
+    SELECT emoji, energy, created_at AS "createdAt"
+    FROM hire_moods WHERE user_id = ${user.id}
+    ORDER BY created_at DESC LIMIT 1
+  `
+  const moodRow = moodRows[0] as { emoji?: string; energy?: number; createdAt?: Date } | undefined
+  const mood = moodRow?.emoji
+    ? {
+        loggedToday: localDateStrInTz(new Date(moodRow.createdAt as Date), tz) === today,
+        lastEmoji: moodRow.emoji,
+        lastEnergy: moodRow.energy || null,
+      }
+    : null
+
   const sleepRows = await sql`
     SELECT sleep_date AS "sleepDate", bedtime, wake, quality
     FROM hire_sleep WHERE user_id = ${user.id}
@@ -2477,6 +2526,7 @@ async function judgmentStatePayload(
       meals: Number(n.meals) || 0,
     },
     habits,
+    mood,
     sleep,
     peopleDue: peopleDue.slice(0, 3),
     spend: {
@@ -3519,7 +3569,7 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     })
     if (error) return error
     const rows = await sql`
-      SELECT id, title, starts_at AS "startsAt", phase, briefing, followups,
+      SELECT id, title, starts_at AS "startsAt", phase, briefing, notes, followups,
              created_at AS "createdAt"
       FROM hire_meetings WHERE user_id = ${user!.id}
       ORDER BY created_at DESC LIMIT 30
@@ -3562,6 +3612,36 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
       WHERE id = ${id} AND user_id = ${user!.id}
     `
     return json({ ok: true })
+  }
+
+  if (path.startsWith('/api/meetings/') && path.endsWith('/transcribe') && req.method === 'POST') {
+    const id = path.slice('/api/meetings/'.length, -'/transcribe'.length)
+    const body = (await req.json({ maxSize: 24 * 1024 * 1024 }).catch(() => ({}))) as {
+      token?: string; email?: string; audioBase64?: string; mimeType?: string
+    }
+    const audio = body.audioBase64 ? Buffer.from(body.audioBase64, 'base64') : null
+    if (!audio || audio.length < 512) return json({ error: 'voice memo is required' }, 400)
+    const { user, error } = await resolveAuthedUser(sql, { token: body.token, email: body.email })
+    if (error) return error
+    const meets = await sql`SELECT id FROM hire_meetings WHERE id = ${id} AND user_id = ${user!.id} LIMIT 1`
+    if (!meets[0]) return json({ error: 'Meeting not found' }, 404)
+    let transcript: string
+    try {
+      const { text } = await transcribeAudio(body.mimeType || 'audio/m4a', audio)
+      transcript = text
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      return json({ ok: false, error: msg.slice(0, 200) }, 502)
+    }
+    const cur = await sql`SELECT notes FROM hire_meetings WHERE id = ${id} LIMIT 1`
+    const prev = String((cur[0] as { notes?: string } | undefined)?.notes || '').trim()
+    const notes = prev ? `${prev}\n\n${transcript}` : transcript
+    await sql`
+      UPDATE hire_meetings
+      SET notes = ${notes.slice(0, 6000)}, updated_at = now()
+      WHERE id = ${id} AND user_id = ${user!.id}
+    `
+    return json({ ok: true, transcript })
   }
 
   if (path === '/api/nutrition' && req.method === 'GET') {
@@ -3654,6 +3734,44 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     return json(estimate)
   }
 
+  if (path === '/api/nutrition/photo' && req.method === 'POST') {
+    // Always log the photo. Estimate macros only when a model key exists;
+    // otherwise the meal is still saved so it is never lost.
+    const body = (await req.json().catch(() => ({}))) as {
+      token?: string; email?: string; description?: string; imageBase64?: string
+    }
+    const imageBase64 = String(body.imageBase64 || '')
+    if (imageBase64.length < 64) return json({ error: 'Photo is required' }, 400)
+    const { user, error } = await resolveAuthedUser(sql, { token: body.token, email: body.email })
+    if (error) return error
+    const described = String(body.description || '').trim().slice(0, 300)
+    let estimate: Awaited<ReturnType<typeof estimateNutrition>> = { ok: false, needsKey: true }
+    if (nutritionModelConfig()) {
+      try {
+        estimate = await estimateNutrition(described || 'Estimate the macros of the meal in this photo.', imageBase64)
+      } catch {
+        estimate = { ok: false, error: 'Estimator unavailable' }
+      }
+    }
+    const id = crypto.randomUUID()
+    const detail = described || 'Meal from photo'
+    const imageUrl = `data:${imageMimeFromBase64(imageBase64)};base64,${imageBase64}`
+    const macros = estimate.ok
+      ? {
+          calories: clampNum(estimate.calories),
+          protein: clampNum(estimate.protein),
+          carbs: clampNum(estimate.carbs),
+          fat: clampNum(estimate.fat),
+        }
+      : { calories: 0, protein: 0, carbs: 0, fat: 0 }
+    await sql`
+      INSERT INTO hire_nutrition_logs (id, user_id, description, image_url, calories, protein, carbs, fat, eaten_at)
+      VALUES (${id}, ${user!.id}, ${estimate.ok ? (estimate.guess || detail) : `${detail} (estimate pending)`}, ${imageUrl},
+        ${macros.calories}, ${macros.protein}, ${macros.carbs}, ${macros.fat}, now())
+    `
+    return json({ ok: true, id, imageUrl, estimated: estimate.ok, needsKey: estimate.needsKey === true })
+  }
+
   if (path.startsWith('/api/nutrition/') && req.method === 'POST') {
     // Delete nutrition log: /api/nutrition/{id} with _delete body
     const body = (await req.json().catch(() => ({}))) as { token?: string; email?: string; _delete?: boolean }
@@ -3740,6 +3858,61 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     const id = crypto.randomUUID()
     await sql`INSERT INTO hire_gratitude (id, user_id, text) VALUES (${id}, ${user.id}, ${parsed})`
     return json({ ok: true, logged: true, id, text: parsed })
+  }
+
+  if (path === '/api/internal/moods' && req.method === 'POST') {
+    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
+    const body = (await req.json().catch(() => ({}))) as {
+      phone?: string; persona?: string; emoji?: string; energy?: number; text?: string; note?: string
+    }
+    if (!body.phone || !isPersona(body.persona || '')) {
+      return json({ error: 'phone and persona required' }, 400)
+    }
+    const user = await getUserByPhone(sql, body.phone)
+    if (!user) return json({ error: 'User not found' }, 404)
+    const parsed = parseMoodReply(body.emoji || body.text || '')
+    if (!parsed) return json({ ok: false, logged: false, error: 'Could not parse a mood' })
+    const tz = user.timezone || 'America/Los_Angeles'
+    const ds = localDateStrInTz(new Date(), tz)
+    const has = await sql`SELECT 1 FROM hire_moods WHERE user_id = ${user.id} AND created_at::date = ${ds} LIMIT 1`
+    if (has[0]) return json({ ok: true, logged: true, id: crypto.randomUUID(), ...parsed, existing: true })
+    const id = crypto.randomUUID()
+    await sql`
+      INSERT INTO hire_moods (id, user_id, emoji, energy, note)
+      VALUES (${id}, ${user.id}, ${parsed.emoji}, ${parsed.energy}, ${parsed.note})
+    `
+    return json({ ok: true, logged: true, id, ...parsed })
+  }
+
+  if (path === '/api/internal/habits/done' && req.method === 'POST') {
+    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
+    const body = (await req.json().catch(() => ({}))) as {
+      phone?: string; persona?: string; text?: string; date?: string
+    }
+    if (!body.phone || !isPersona(body.persona || '') || !String(body.text || '').trim()) {
+      return json({ error: 'phone, persona, and text required' }, 400)
+    }
+    const user = await getUserByPhone(sql, body.phone)
+    if (!user) return json({ error: 'User not found' }, 404)
+    const tz = user.timezone || 'America/Los_Angeles'
+    const dateStr = body.date || localDateStrInTz(new Date(), tz)
+    const rows = await sql`SELECT id, name FROM hire_habits WHERE user_id = ${user.id} ORDER BY created_at ASC LIMIT 12`
+    const text = String(body.text || '')
+    const match =
+      (rows as Array<{ id: string; name: string }>).find((h) =>
+        text.toLowerCase().includes(h.name.toLowerCase()) || h.name.toLowerCase().includes(text.toLowerCase()),
+      ) || (rows as Array<{ id: string; name: string }>)[0]
+    if (!match) return json({ ok: false, logged: false, error: 'No habits set up yet' })
+    const dup = await sql`
+      SELECT 1 FROM hire_habit_logs WHERE user_id = ${user.id} AND habit_id = ${match.id} AND date = ${dateStr} LIMIT 1
+    `
+    if (!dup[0]) {
+      await sql`
+        INSERT INTO hire_habit_logs (id, user_id, habit_id, date)
+        VALUES (${crypto.randomUUID()}, ${user.id}, ${match.id}, ${dateStr})
+      `
+    }
+    return json({ ok: true, logged: true, habit: match.name, done: true, date: dateStr })
   }
 
   if (path === '/api/internal/spending' && req.method === 'POST') {
@@ -3853,6 +4026,20 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
       proactive: fields.proactive || 'on',
       quietHours: fields.quiet_hours || '22:00-08:00',
       pausedUntil: fields.paused_until || null,
+    })
+  }
+
+  if (path === '/api/internal/last-proactive' && req.method === 'GET') {
+    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
+    const phone = url.searchParams.get('phone') || ''
+    const persona = url.searchParams.get('persona') || ''
+    if (!phone || !isPersona(persona)) return json({ error: 'phone and persona required' }, 400)
+    const user = await getUserByPhone(sql, phone)
+    if (!user) return json({ error: 'User not found' }, 404)
+    const fields = await loadContext(sql, user.id, persona)
+    return json({
+      topic: fields.last_proactive_topic || null,
+      minutesAgo: minutesAgo(fields.last_proactive_at),
     })
   }
 
@@ -4690,6 +4877,24 @@ function parseGratitudeText(text: string): string | null {
   const sentence = String(m?.[1] || '').trim().replace(/[.!?]+$/, '')
   if (sentence.length < 2) return null
   return sentence.slice(0, 280)
+}
+
+const MOOD_EMOJI_MAP: Array<[RegExp, string, number]> = [
+  [/😄|:\)+$|:D|great|awesome|amazing|good!/, '😄', 5],
+  [/🙂|:\)|good|fine|okay|ok$|alright/, '🙂', 4],
+  [/😐|meh|neutral|blah/, '😐', 3],
+  [/😔|:\(|sad|down|tired|exhausted|rough|bad|shitty|meh\s.*day/, '😔', 2],
+  [/😤|angry|frustrated|annoyed|pissed|stressed/, '😤', 2],
+]
+
+/** Deterministic mood parse for emoji or short-text check-in replies. */
+function parseMoodReply(text: string): { emoji: string; energy: number; note: string | null } | null {
+  const clean = String(text || '').trim()
+  if (!clean) return null
+  for (const [re, emoji, energy] of MOOD_EMOJI_MAP) {
+    if (re.test(clean)) return { emoji, energy, note: clean.length > 4 ? clean.slice(0, 200) : null }
+  }
+  return null
 }
 
 function parseSpendText(text: string): { amount: number; category: string; description: string } | null {

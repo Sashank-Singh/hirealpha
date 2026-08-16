@@ -2,7 +2,7 @@ import { Spectrum, app as appCard } from 'spectrum-ts'
 import { imessage } from '@spectrum-ts/imessage'
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { getAgent, runHireTurn, runMemoryMaintenance, stripDashes } from '../../shared/runHireTurn'
+import { getAgent, runHireTurn, runMemoryMaintenance, sanitizeOutbound } from '../../shared/runHireTurn'
 import { claimInbound } from '../../shared/inboundGuard'
 import { startReminderScheduler } from '../../shared/reminders'
 import { startHealthServer } from '../../shared/health'
@@ -47,7 +47,8 @@ startReminderScheduler({
     const user = await im.user(phone)
     const space = await im.space.create(user)
     await space.responding(async () => {
-      await space.send(stripDashes(text))
+      const cleaned = sanitizeOutbound(text)
+      if (cleaned) await space.send(cleaned)
       if (card) await space.send(appCard(card.url, { live: card.live }))
     })
   },
@@ -89,7 +90,12 @@ for await (const [space, message] of app.messages) {
         senderId,
         userText,
       })
-      const text = (bubbles[0] || reply || '…').trim()
+      const text = sanitizeOutbound(bubbles[0] || reply || '')
+      if (!text) {
+        console.warn(`[${agent.id}] dropped empty/banned outbound`)
+        if (card) await space.send(appCard(card.url, { live: card.live }))
+        return
+      }
       console.log(`[${agent.id}] sending 1 text, card: ${!!card}`)
       console.log(`[${agent.id}] bubble: ${JSON.stringify(text.slice(0, 200))}`)
       await message.reply(text)

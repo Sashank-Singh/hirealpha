@@ -1,5 +1,6 @@
 import { gmiChat } from './gmi'
 import { type MiniAppCard } from './miniApps'
+import { fetchDueEventNudges, revertEventNudge } from './eventNudges'
 import {
   freezeProactiveUntilReply,
   isJudgeTick,
@@ -390,6 +391,22 @@ export function startReminderScheduler(opts: {
   const pollMs = opts.pollMs ?? 30_000
   const timer = setInterval(async () => {
     try {
+      const nudges = await fetchDueEventNudges(opts.persona as AgentId)
+      for (const n of nudges) {
+        try {
+          await opts.send(n.phone, n.text)
+          await recordProactiveSent(n.phone, opts.persona as AgentId, n.topic)
+        } catch (err) {
+          if (isRecipientSendBlocked(err)) {
+            console.warn(`[reminders:${opts.persona}] recipient blocked ${n.phone}, freezing until reply`)
+            await freezeProactiveUntilReply(n.phone, opts.persona as AgentId)
+            continue
+          }
+          console.warn(`[reminders:${opts.persona}] nudge send failed, reverting ${n.key}`, err)
+          await revertEventNudge(n.phone, opts.persona as AgentId, n.key)
+        }
+      }
+
       const due = await fetchDueReminders(opts.persona)
       for (const r of due) {
         if (!r.phone) continue

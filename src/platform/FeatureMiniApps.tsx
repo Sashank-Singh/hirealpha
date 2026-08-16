@@ -19,12 +19,14 @@ import {
   apiListRelationships,
   apiLogMood,
   apiLogNutrition,
+  apiLogNutritionPhoto,
   apiNutritionToday,
   apiPatchLoop,
   apiReviewDecision,
   apiSetNutritionGoals,
   apiTouchRelationship,
   apiToggleHabit,
+  apiTranscribeMeeting,
   type Decision,
   type Drop,
   type Habit,
@@ -59,6 +61,7 @@ export function OpenLoopsApp({ auth }: { auth: FeatureAuth }) {
   const a = useAuthed(auth)
   const [loops, setLoops] = useState<OpenLoop[]>([])
   const [title, setTitle] = useState('')
+  const [due, setDue] = useState('')
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
 
@@ -76,8 +79,9 @@ export function OpenLoopsApp({ auth }: { auth: FeatureAuth }) {
     setBusy(true)
     setErr('')
     try {
-      await apiAddLoop({ ...a, title: title.trim() })
+      await apiAddLoop({ ...a, title: title.trim(), dueAt: due || undefined })
       setTitle('')
+      setDue('')
       load()
     } catch (error) {
       setErr(error instanceof Error ? error.message : 'Could not add that.')
@@ -96,13 +100,20 @@ export function OpenLoopsApp({ auth }: { auth: FeatureAuth }) {
 
   return (
     <div>
-      <form className="mini__form" onSubmit={add}>
+      <form className="mini__form mini__form-stack" onSubmit={add}>
         <input
           className="mini__input"
           value={title}
           onChange={(e) => setTitle(e.target.value)}
           placeholder="Something you said you'd do…"
           aria-label="New open loop"
+        />
+        <input
+          className="mini__input"
+          type="date"
+          value={due}
+          onChange={(e) => setDue(e.target.value)}
+          aria-label="Due date"
         />
         <button className="mini__btn" type="submit" disabled={busy || !title.trim()}>
           Add
@@ -157,6 +168,7 @@ export function DecisionLedgerApp({ auth }: { auth: FeatureAuth }) {
   const [decisions, setDecisions] = useState<Decision[]>([])
   const [decision, setDecision] = useState('')
   const [reason, setReason] = useState('')
+  const [reviewOn, setReviewOn] = useState('')
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
 
@@ -174,9 +186,10 @@ export function DecisionLedgerApp({ auth }: { auth: FeatureAuth }) {
     setBusy(true)
     setErr('')
     try {
-      await apiAddDecision({ ...a, decision: decision.trim(), reason: reason.trim() })
+      await apiAddDecision({ ...a, decision: decision.trim(), reason: reason.trim(), reviewAt: reviewOn || undefined })
       setDecision('')
       setReason('')
+      setReviewOn('')
       load()
     } catch (error) {
       setErr(error instanceof Error ? error.message : 'Could not save that.')
@@ -216,6 +229,13 @@ export function DecisionLedgerApp({ auth }: { auth: FeatureAuth }) {
           placeholder="Why (optional)"
           aria-label="Reason"
         />
+        <input
+          className="mini__input"
+          type="date"
+          value={reviewOn}
+          onChange={(e) => setReviewOn(e.target.value)}
+          aria-label="Review date"
+        />
         <button className="mini__btn" type="submit" disabled={busy || !decision.trim()}>
           Log it
         </button>
@@ -230,6 +250,9 @@ export function DecisionLedgerApp({ auth }: { auth: FeatureAuth }) {
               <li key={d.id} className="mini__card-item">
                 <span className="mini__row-title">{d.decision}</span>
                 {d.reason && <span className="mini__row-sub">{d.reason}</span>}
+                {d.reviewAt && d.status !== 'reviewed' && (
+                  <span className="mini__row-sub">Review {fmtWhen(d.reviewAt)}</span>
+                )}
                 <span className="mini__row-sub">
                   {d.status === 'reviewed' ? `Reviewed · ${d.outcome || ''}` : `Logged ${fmtWhen(d.createdAt)}`}
                 </span>
@@ -441,8 +464,18 @@ export function MeetingModeApp({ auth }: { auth: FeatureAuth }) {
   const a = useAuthed(auth)
   const [meetings, setMeetings] = useState<Meeting[]>([])
   const [title, setTitle] = useState('')
+  const [startsAt, setStartsAt] = useState('')
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
+  const [recording, setRecording] = useState(false)
+  const [recFor, setRecFor] = useState<string | null>(null)
+  const [transcribing, setTranscribing] = useState<string | null>(null)
+  const [styleErr, setStyleErr] = useState('')
+  const recRef = useRef<{ media: MediaRecorder | null; chunks: Blob[]; start: number }>({
+    media: null,
+    chunks: [],
+    start: 0,
+  })
 
   const load = useCallback(() => {
     apiListMeetings(a).then((d) => setMeetings(d.meetings)).catch(() => setErr('Could not load meetings.'))
@@ -458,8 +491,9 @@ export function MeetingModeApp({ auth }: { auth: FeatureAuth }) {
     setBusy(true)
     setErr('')
     try {
-      await apiAddMeeting({ ...a, title: title.trim() })
+      await apiAddMeeting({ ...a, title: title.trim(), startsAt: startsAt || undefined })
       setTitle('')
+      setStartsAt('')
       load()
     } catch (error) {
       setErr(error instanceof Error ? error.message : 'Could not add that.')
@@ -468,9 +502,107 @@ export function MeetingModeApp({ auth }: { auth: FeatureAuth }) {
     }
   }
 
+  async function startRec(meetingId: string, ev: { stopPropagation: () => void }) {
+    ev.stopPropagation()
+    setStyleErr('')
+    if (typeof window === 'undefined' || !navigator.mediaDevices?.getUserMedia) {
+      setStyleErr('Recording needs a supported browser (Safari/Chrome).')
+      return
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true },
+      })
+      const mimeType = MediaRecorder.isTypeSupported('audio/mp4') ? 'audio/mp4' : 'audio/webm'
+      const media = new MediaRecorder(stream, mimeType ? { mimeType } : undefined)
+      const chunks: Blob[] = []
+      media.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data) }
+      media.onstop = () => {
+        stream.getTracks().forEach((t) => t.stop())
+      }
+      media.start(1000)
+      recRef.current = { media, chunks, start: Date.now() }
+      setRecFor(meetingId)
+      setRecording(true)
+    } catch {
+      setStyleErr('Microphone unavailable.')
+    }
+  }
+
+  async function stopRec(meetingId: string) {
+    const rec = recRef.current
+    const cb = async () => {
+      if (!rec.media) return
+      return new Promise<Blob>((resolve) => {
+        rec.media!.onstop = () => {
+          rec.media = null
+          const blob = new Blob(rec.chunks, { type: rec.chunks[0]?.type || 'audio/mp4' })
+          rec.chunks = []
+          resolve(blob)
+        }
+        rec.media!.stop()
+      })
+    }
+    const blob = await cb()
+    if (!blob || blob.size < 512) {
+      setRecording(false)
+      setRecFor(null)
+      setStyleErr('Memo too short to transcribe.')
+      return
+    }
+    setRecording(false)
+    setRecFor(null)
+    setTranscribing(meetingId)
+    setErr('')
+    try {
+      const reader = new FileReader()
+      await new Promise<void>((resolve, reject) => {
+        reader.onload = () => resolve()
+        reader.onerror = () => reject(new Error('read failed'))
+        reader.readAsDataURL(blob)
+      })
+      const base64 = String(reader.result || '').split(',')[1] || ''
+      const res = await apiTranscribeMeeting({ ...a, id: meetingId, audioBase64: base64, mimeType: blob.type })
+      if (res.ok && res.transcript) {
+        load()
+      } else {
+        setErr(res.error || 'Transcription failed.')
+      }
+    } catch {
+      setErr('Could not read the memo.')
+    } finally {
+      setTranscribing(null)
+    }
+  }
+
+  function abortRec() {
+    const rec = recRef.current
+    if (rec.media) {
+      rec.media.onstop = null
+      rec.media.stop()
+      rec.media = null
+    }
+    rec.chunks = []
+    recRef.current = { media: null, chunks: [], start: 0 }
+    setRecording(false)
+    setRecFor(null)
+  }
+
+  const recordingElapsed = (start: number, now: number) => {
+    const s = Math.max(0, Math.round((now - start) / 1000))
+    return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
+  }
+
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    if (!recording) return
+    const t = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(t)
+  }, [recording])
+
   return (
     <div>
-      <form className="mini__form" onSubmit={add}>
+      <form className="mini__form mini__form-stack" onSubmit={add}>
         <input
           className="mini__input"
           value={title}
@@ -478,11 +610,19 @@ export function MeetingModeApp({ auth }: { auth: FeatureAuth }) {
           placeholder="Meeting you want prepped…"
           aria-label="Meeting title"
         />
+        <input
+          className="mini__input"
+          type="datetime-local"
+          value={startsAt}
+          onChange={(e) => setStartsAt(e.target.value)}
+          aria-label="Start time"
+        />
         <button className="mini__btn" type="submit" disabled={busy || !title.trim()}>
           Prep
         </button>
       </form>
       {err && <p className="mini__empty">{err}</p>}
+      {styleErr && <p className="mini__empty">{styleErr}</p>}
 
       <section className="mini__section">
         <h2>Meetings</h2>
@@ -490,14 +630,40 @@ export function MeetingModeApp({ auth }: { auth: FeatureAuth }) {
           <ul className="mini__list">
             {meetings.map((m) => (
               <li key={m.id} className="mini__card-item">
-                <span className="mini__row-title">{m.title}</span>
-                <span className="mini__row-sub">{m.phase === 'done' ? 'Wrapped' : 'Prepping'}</span>
+                <div className="mini__row-top">
+                  <span className="mini__row-title">{m.title}</span>
+                  <button
+                    type="button"
+                    className="mini__btn mini__btn-sm"
+                    disabled={transcribing === m.id || (recording && recFor !== m.id)}
+                    onClick={(e) => {
+                      if (recording && recFor === m.id) void stopRec(m.id)
+                      else if (!recording) void startRec(m.id, e)
+                    }}
+                  >
+                    {recording && recFor === m.id
+                      ? `● ${recordingElapsed(recRef.current.start, now)}`
+                      : transcribing === m.id
+                        ? '⏳'
+                        : '🎤 Memo'}
+                  </button>
+                </div>
+                <span className="mini__row-sub">
+                  {m.phase === 'done' ? 'Wrapped' : 'Prepping'}
+                  {m.startsAt ? ` · ${new Date(m.startsAt).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}` : ''}
+                </span>
                 {m.briefing && <span className="mini__row-sub">{m.briefing}</span>}
+                {m.notes && <span className="mini__row-sub mini__notes">{m.notes}</span>}
               </li>
             ))}
           </ul>
         ) : (
           <p className="mini__empty">No meetings yet. Add one to get a brief.</p>
+        )}
+        {recording && (
+          <button type="button" className="mini__btn mini__btn-danger" onClick={abortRec}>
+            Cancel recording
+          </button>
         )}
       </section>
     </div>
@@ -591,24 +757,14 @@ export function NutritionApp({ auth }: { auth: FeatureAuth }) {
   function pickImage(file: File | undefined) {
     if (!file) return
     setAnalyzing(true)
-    setMsg('Reading the plate…')
+    setMsg('Logging the photo…')
     const reader = new FileReader()
     reader.onload = async () => {
       const base64 = String(reader.result || '').split(',')[1] || ''
       try {
-        const est = await apiAnalyzeNutrition({ ...a, imageBase64: base64 })
-        if (est.needsKey) {
-          setMsg('Photo reading needs a model key. Describe the meal below instead.')
-        } else if (!est.ok) {
-          setMsg(est.error || 'Could not read that photo.')
-        } else {
-          await apiLogNutrition({
-            ...a, description: est.guess || 'Meal from photo',
-            calories: est.calories, protein: est.protein, carbs: est.carbs, fat: est.fat,
-          })
-          setMsg('')
-          load()
-        }
+        await apiLogNutritionPhoto({ ...a, description: desc.trim(), imageBase64: base64 })
+        setMsg('')
+        load()
       } catch {
         setMsg('Could not read that photo.')
       } finally {
@@ -783,6 +939,7 @@ export function NutritionApp({ auth }: { auth: FeatureAuth }) {
             {logs.map((l) => (
               <li key={l.id} className="nutr-meal-card" onClick={() => setSelectedMeal(l)}>
                 <div className="nutr-meal-time">{mealTime(l.eatenAt)}</div>
+                {l.imageUrl ? <img src={l.imageUrl} alt="" className="nutr-meal-thumb" loading="lazy" /> : null}
                 <div className="nutr-meal-info">
                   <span className="nutr-meal-name">{l.description}</span>
                   <span className="nutr-meal-macros">
@@ -805,6 +962,7 @@ export function NutritionApp({ auth }: { auth: FeatureAuth }) {
         <div className="nutr-modal-overlay" onClick={() => setSelectedMeal(null)}>
           <div className="nutr-modal" onClick={(e) => e.stopPropagation()}>
             <button className="nutr-modal-close" type="button" onClick={() => setSelectedMeal(null)}>×</button>
+            {selectedMeal.imageUrl ? <img src={selectedMeal.imageUrl} alt="" className="nutr-modal-img" /> : null}
             <h3>{selectedMeal.description}</h3>
             <span className="nutr-modal-time">{mealTime(selectedMeal.eatenAt)}</span>
             <div className="nutr-modal-macros">
