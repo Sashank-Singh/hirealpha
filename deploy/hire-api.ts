@@ -2770,6 +2770,18 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     return json(estimate)
   }
 
+  if (path.startsWith('/api/nutrition/') && req.method === 'POST') {
+    // Delete nutrition log: /api/nutrition/{id} with _delete body
+    const body = (await req.json().catch(() => ({}))) as { token?: string; email?: string; _delete?: boolean }
+    if (!body._delete) return json({ error: 'Not found' }, 404)
+    const logId = path.split('/')[3]
+    if (!logId) return json({ error: 'id required' }, 400)
+    const { user, error } = await resolveAuthedUser(sql, { token: body.token, email: body.email })
+    if (error) return error
+    await sql`DELETE FROM hire_nutrition_logs WHERE id = ${logId} AND user_id = ${user!.id}`
+    return json({ ok: true })
+  }
+
   if (path === '/api/internal/nutrition' && req.method === 'POST') {
     if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
     const body = (await req.json().catch(() => ({}))) as {

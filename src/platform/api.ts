@@ -390,6 +390,8 @@ export const apiAnalyzeNutrition = (a: { email?: string; token?: string; descrip
     ok: boolean; needsKey?: boolean; calories?: number; protein?: number; carbs?: number; fat?: number
     guess?: string; error?: string
   }>('/api/nutrition/analyze', { ...authParams(a), description: a.description, imageBase64: a.imageBase64 })
+export const apiDeleteNutritionLog = (a: { email?: string; token?: string; id: string }) =>
+  featurePost<{ ok: boolean }>(`/api/nutrition/${a.id}`, { ...authParams(a), _delete: true })
 
 /* ---- Habits ---- */
 export type Habit = {

@@ -9,6 +9,7 @@ import {
   apiAddRelationship,
   apiAnalyzeNutrition,
   apiDeleteHabit,
+  apiDeleteNutritionLog,
   apiListDecisions,
   apiListDrops,
   apiListHabits,
@@ -506,12 +507,8 @@ export function MeetingModeApp({ auth }: { auth: FeatureAuth }) {
 /* -------------------------------- Nutrition ----------------------------- */
 
 const QUICK_ADD = [
-  { label: '🥤 Water', desc: '1 glass of water', cal: 0, p: 0, c: 0, f: 0 },
+  { label: '💧 Water', desc: '1 glass of water', cal: 0, p: 0, c: 0, f: 0 },
   { label: '☕ Coffee', desc: '1 cup black coffee', cal: 5, p: 0, c: 0, f: 0 },
-  { label: '🍌 Banana', desc: '1 banana', cal: 105, p: 1, c: 27, f: 0 },
-  { label: '🥚 Eggs', desc: '2 eggs', cal: 156, p: 13, c: 1, f: 11 },
-  { label: '🍗 Chicken', desc: '4oz chicken breast', cal: 185, p: 35, c: 0, f: 4 },
-  { label: '🥗 Salad', desc: 'Mixed salad with dressing', cal: 120, p: 3, c: 8, f: 9 },
 ] as const
 
 function CalorieRing({ current, goal }: { current: number; goal: number }) {
@@ -519,7 +516,6 @@ function CalorieRing({ current, goal }: { current: number; goal: number }) {
   const r = 58
   const circ = 2 * Math.PI * r
   const offset = circ - (pct / 100) * circ
-  const remaining = Math.max(0, goal - current)
 
   return (
     <div className="nutr-ring-wrap">
@@ -536,8 +532,8 @@ function CalorieRing({ current, goal }: { current: number; goal: number }) {
         />
       </svg>
       <div className="nutr-ring-label">
-        <span className="nutr-ring-num">{remaining}</span>
-        <span className="nutr-ring-unit">left</span>
+        <span className="nutr-ring-num">{Math.round(current)}</span>
+        <span className="nutr-ring-unit">/ {goal} cal</span>
       </div>
     </div>
   )
@@ -570,6 +566,7 @@ export function NutritionApp({ auth }: { auth: FeatureAuth }) {
   const fileRef = useRef<HTMLInputElement | null>(null)
   const [showGoals, setShowGoals] = useState(false)
   const [goalInput, setGoalInput] = useState({ calories: 2200, protein: 150, carbs: 220, fat: 70 })
+  const [selectedMeal, setSelectedMeal] = useState<NutritionLog | null>(null)
 
   const load = useCallback(() => {
     apiNutritionToday(a)
@@ -667,6 +664,20 @@ export function NutritionApp({ auth }: { auth: FeatureAuth }) {
     }
   }
 
+  async function deleteMeal(id: string) {
+    if (busy) return
+    setBusy(true)
+    try {
+      await apiDeleteNutritionLog({ ...a, id })
+      setSelectedMeal(null)
+      load()
+    } catch {
+      setMsg('Could not delete.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const g = goals || { calorieGoal: 2200, proteinGoal: 150, carbsGoal: 220, fatGoal: 70 }
 
   async function saveGoals() {
@@ -701,12 +712,15 @@ export function NutritionApp({ auth }: { auth: FeatureAuth }) {
       </div>
 
       {/* Quick add */}
-      <div className="nutr-quick">
-        {QUICK_ADD.map((item) => (
-          <button key={item.label} className="nutr-quick-btn" type="button" disabled={busy} onClick={() => void quickAdd(item)}>
-            {item.label}
-          </button>
-        ))}
+      <div className="nutr-quick-section">
+        <span className="nutr-quick-label">Quick Add</span>
+        <div className="nutr-quick">
+          {QUICK_ADD.map((item) => (
+            <button key={item.label} className="nutr-quick-btn" type="button" disabled={busy} onClick={() => void quickAdd(item)}>
+              {item.label}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Input row */}
@@ -714,6 +728,7 @@ export function NutritionApp({ auth }: { auth: FeatureAuth }) {
         <label className="nutr-photo-btn">
           <input ref={fileRef} type="file" accept="image/*" onChange={(e) => pickImage(e.target.files?.[0])} aria-label="Photo of food" />
           <span>{analyzing ? '⏳' : '📷'}</span>
+          <span className="nutr-photo-text">Photo</span>
         </label>
         <form className="nutr-input-form" onSubmit={add}>
           <input
@@ -756,7 +771,7 @@ export function NutritionApp({ auth }: { auth: FeatureAuth }) {
         </div>
       ) : (
         <button type="button" className="nutr-edit-goals" onClick={() => setShowGoals(true)}>
-          ⚙ Goals
+          Goals
         </button>
       )}
 
@@ -766,7 +781,7 @@ export function NutritionApp({ auth }: { auth: FeatureAuth }) {
         {logs.length ? (
           <ul className="nutr-meal-list">
             {logs.map((l) => (
-              <li key={l.id} className="nutr-meal-card">
+              <li key={l.id} className="nutr-meal-card" onClick={() => setSelectedMeal(l)}>
                 <div className="nutr-meal-time">{mealTime(l.eatenAt)}</div>
                 <div className="nutr-meal-info">
                   <span className="nutr-meal-name">{l.description}</span>
@@ -774,6 +789,9 @@ export function NutritionApp({ auth }: { auth: FeatureAuth }) {
                     {Math.round(l.calories)} cal · {Math.round(l.protein)}p · {Math.round(l.carbs)}c · {Math.round(l.fat)}f
                   </span>
                 </div>
+                <button className="nutr-meal-delete" type="button" onClick={(e) => { e.stopPropagation(); void deleteMeal(l.id) }} title="Remove">
+                  ×
+                </button>
               </li>
             ))}
           </ul>
@@ -781,6 +799,54 @@ export function NutritionApp({ auth }: { auth: FeatureAuth }) {
           <p className="mini__empty">No meals logged yet.</p>
         )}
       </section>
+
+      {/* Meal detail modal */}
+      {selectedMeal && (
+        <div className="nutr-modal-overlay" onClick={() => setSelectedMeal(null)}>
+          <div className="nutr-modal" onClick={(e) => e.stopPropagation()}>
+            <button className="nutr-modal-close" type="button" onClick={() => setSelectedMeal(null)}>×</button>
+            <h3>{selectedMeal.description}</h3>
+            <span className="nutr-modal-time">{mealTime(selectedMeal.eatenAt)}</span>
+            <div className="nutr-modal-macros">
+              <div className="nutr-modal-macro">
+                <span className="nutr-modal-macro-val">{Math.round(selectedMeal.calories)}</span>
+                <span className="nutr-modal-macro-label">Calories</span>
+              </div>
+              <div className="nutr-modal-macro">
+                <span className="nutr-modal-macro-val" style={{ color: '#f97316' }}>{Math.round(selectedMeal.protein)}g</span>
+                <span className="nutr-modal-macro-label">Protein</span>
+              </div>
+              <div className="nutr-modal-macro">
+                <span className="nutr-modal-macro-val" style={{ color: '#3b82f6' }}>{Math.round(selectedMeal.carbs)}g</span>
+                <span className="nutr-modal-macro-label">Carbs</span>
+              </div>
+              <div className="nutr-modal-macro">
+                <span className="nutr-modal-macro-val" style={{ color: '#a855f7' }}>{Math.round(selectedMeal.fat)}g</span>
+                <span className="nutr-modal-macro-label">Fat</span>
+              </div>
+            </div>
+            <div className="nutr-modal-bar">
+              {(() => {
+                const total = selectedMeal.protein + selectedMeal.carbs + selectedMeal.fat
+                if (total === 0) return null
+                const pPct = (selectedMeal.protein / total) * 100
+                const cPct = (selectedMeal.carbs / total) * 100
+                const fPct = (selectedMeal.fat / total) * 100
+                return (
+                  <div className="nutr-modal-bar-inner">
+                    <div style={{ width: `${pPct}%`, background: '#f97316' }} />
+                    <div style={{ width: `${cPct}%`, background: '#3b82f6' }} />
+                    <div style={{ width: `${fPct}%`, background: '#a855f7' }} />
+                  </div>
+                )
+              })()}
+            </div>
+            <button className="nutr-modal-delete" type="button" onClick={() => void deleteMeal(selectedMeal.id)}>
+              Remove meal
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
