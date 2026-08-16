@@ -14,6 +14,16 @@ import {
   OpenLoopsApp,
   RelationshipRadarApp,
 } from './FeatureMiniApps'
+import {
+  GratitudeJournalApp,
+  LearningQueueApp,
+  NetworkingCrmApp,
+  PipelineBoardApp,
+  SleepTrackerApp,
+  SpendingSnapshotApp,
+  WeeklyReviewApp,
+  WorkoutLogApp,
+} from './LifeMiniApps'
 
 interface DigestData {
   date?: string
@@ -49,6 +59,15 @@ export const FEATURE_KINDS = new Set([
   'nutrition',
   'habit_streak',
   'mood_tracker',
+  'workout_log',
+  'learning_queue',
+  'weekly_review',
+  'weekly_focus',
+  'networking_crm',
+  'sleep_tracker',
+  'pipeline_board',
+  'gratitude_journal',
+  'spending_snapshot',
 ])
 
 export interface MenuFeature {
@@ -65,6 +84,12 @@ export const MENU_FEATURES: Record<string, MenuFeature[]> = {
     { kind: 'nutrition', title: 'Nutrition', emoji: '🥗', blurb: 'Snap a meal, see macros, hit your daily goals.', sample: 'i ate a chicken bowl' },
     { kind: 'habit_streak', title: 'Habits', emoji: '🔥', blurb: 'Build streaks. Track daily habits.' },
     { kind: 'mood_tracker', title: 'Mood', emoji: '😊', blurb: 'Log how you feel. Spot patterns over time.' },
+    { kind: 'workout_log', title: 'Workout log', emoji: '🏋️', blurb: 'Sets, reps, weight. Watch your PRs move.' },
+    { kind: 'sleep_tracker', title: 'Sleep', emoji: '🌱', blurb: 'Bedtime, wake, debt, and consistency.' },
+    { kind: 'learning_queue', title: 'Learning queue', emoji: '📚', blurb: 'Save articles, videos, podcasts. Play the next one.' },
+    { kind: 'weekly_review', title: 'Weekly review', emoji: '📅', blurb: 'What got done, what slipped, next week\'s focus.' },
+    { kind: 'gratitude_journal', title: 'Gratitude', emoji: '🧘', blurb: 'One sentence a day. Patterns come later.' },
+    { kind: 'spending_snapshot', title: 'Spending', emoji: '💰', blurb: 'Log spend, watch the weekly budget.' },
     { kind: 'open_loops', title: 'Open loops', emoji: '🪢', blurb: 'Track promises and follow-ups so nothing slips.' },
     { kind: 'relationship_radar', title: 'Relationship radar', emoji: '📡', blurb: 'Know who to reach out to and when.' },
     { kind: 'drop_zone', title: 'Drop zone', emoji: '📥', blurb: 'Dump anything messy. Alpha sorts it.' },
@@ -75,6 +100,9 @@ export const MENU_FEATURES: Record<string, MenuFeature[]> = {
   coworker: [
     { kind: 'digest', title: 'Morning brief', emoji: '☀️', blurb: 'Calendar, important mail, and reminders every morning.' },
     { kind: 'meeting_mode', title: 'Meeting mode', emoji: '🗂️', blurb: 'Prepped before, wrapped after.', sample: 'prep me for the review' },
+    { kind: 'learning_queue', title: 'Learning queue', emoji: '📚', blurb: 'Save articles, videos, podcasts. Play the next one.' },
+    { kind: 'weekly_review', title: 'Weekly review', emoji: '📅', blurb: 'What got done, what slipped, next week\'s focus.' },
+    { kind: 'networking_crm', title: 'Networking', emoji: '🤝', blurb: 'People you met, what you talked about, when to follow up.' },
     { kind: 'open_loops', title: 'Open loops', emoji: '🪢', blurb: 'Track commitments so nothing slips.' },
     { kind: 'drop_zone', title: 'Drop zone', emoji: '📥', blurb: 'Dump anything messy. Alpha sorts it.' },
     { kind: 'approve_send', title: 'Approve & send', emoji: '✉️', blurb: 'Review drafts before they go out.', sample: 'approve the email' },
@@ -85,10 +113,13 @@ export const MENU_FEATURES: Record<string, MenuFeature[]> = {
   cofounder: [
     { kind: 'digest', title: 'Morning brief', emoji: '☀️', blurb: 'Calendar, important mail, and reminders every morning.' },
     { kind: 'decision_ledger', title: 'Decision ledger', emoji: '📜', blurb: 'Log big calls, revisit the reasoning.', sample: 'log a decision' },
+    { kind: 'pipeline_board', title: 'Pipeline', emoji: '💼', blurb: 'Jobs, fundraising, leads. Move them through stages.' },
+    { kind: 'networking_crm', title: 'Networking', emoji: '🤝', blurb: 'People you met, what you talked about, when to follow up.' },
+    { kind: 'weekly_review', title: 'Weekly review', emoji: '📅', blurb: 'What got done, what slipped, next week\'s focus.' },
+    { kind: 'spending_snapshot', title: 'Spending', emoji: '💰', blurb: 'Log spend, watch the weekly budget.' },
     { kind: 'relationship_radar', title: 'Relationship radar', emoji: '📡', blurb: 'Investors, candidates, partners — who to touch.' },
     { kind: 'open_loops', title: 'Open loops', emoji: '🪢', blurb: 'Track commitments so nothing slips.' },
     { kind: 'drop_zone', title: 'Drop zone', emoji: '📥', blurb: 'Dump anything messy. Alpha sorts it.' },
-    { kind: 'weekly_focus', title: 'Weekly focus', emoji: '🧭', blurb: 'What to actually focus on this week.', sample: 'what is my weekly focus' },
     { kind: 'kill_keep_park', title: 'Kill · Keep · Park', emoji: '⚖️', blurb: 'Decide what to kill, keep, or park.', sample: 'kill keep park' },
     { kind: 'hire_decision', title: 'Hire decision', emoji: '🤝', blurb: 'The call on the candidate.', sample: 'should we hire them' },
     { kind: 'approve_investor_note', title: 'Investor note', emoji: '💼', blurb: 'Review the note before it goes out.', sample: 'review the investor note' },
@@ -107,6 +138,7 @@ export const KIND_TITLES: Record<string, { title: string; blurb: string }> = {
   kill_keep_park: { title: 'Kill · Keep · Park', blurb: 'Decide what to kill, keep, or park.' },
   hire_decision: { title: 'Hire decision', blurb: 'The call on the candidate.' },
   weekly_focus: { title: 'Weekly focus', blurb: 'What to focus on this week.' },
+  weekly_review: { title: 'Weekly review', blurb: 'What got done, what slipped, and next week\'s focus.' },
   approve_investor_note: { title: 'Investor note', blurb: 'Review the note before it goes out.' },
   spiral_options: { title: 'Options', blurb: 'Step back and look at the options.' },
   open_loops: { title: 'Open loops', blurb: 'Promises and follow-ups, so nothing slips.' },
@@ -117,6 +149,13 @@ export const KIND_TITLES: Record<string, { title: string; blurb: string }> = {
   nutrition: { title: 'Nutrition', blurb: 'Snap a meal, see the macros, hit your goals.' },
   habit_streak: { title: 'Habits', blurb: 'Build streaks. Track daily habits.' },
   mood_tracker: { title: 'Mood', blurb: 'Log how you feel. Spot patterns over time.' },
+  workout_log: { title: 'Workout log', blurb: 'Log lifts. Track PRs.' },
+  learning_queue: { title: 'Learning queue', blurb: 'Save what to read or watch next.' },
+  networking_crm: { title: 'Networking', blurb: 'People you met and when to follow up.' },
+  sleep_tracker: { title: 'Sleep', blurb: 'Bedtime, wake, and sleep debt.' },
+  pipeline_board: { title: 'Pipeline', blurb: 'Jobs, fundraising, leads — by stage.' },
+  gratitude_journal: { title: 'Gratitude', blurb: 'One sentence a day.' },
+  spending_snapshot: { title: 'Spending', blurb: 'Log spend against a weekly budget.' },
 }
 
 export function MiniAppPage() {
@@ -462,6 +501,30 @@ export function MiniAppPage() {
         )}
         {authed && !expired && isFeature && kind === 'mood_tracker' && (
           <MoodTrackerApp auth={{ persona: (persona as AgentId) || 'friend', email: email || undefined, token: token || undefined }} />
+        )}
+        {authed && !expired && isFeature && kind === 'workout_log' && (
+          <WorkoutLogApp auth={{ persona: (persona as AgentId) || 'friend', email: email || undefined, token: token || undefined }} />
+        )}
+        {authed && !expired && isFeature && kind === 'learning_queue' && (
+          <LearningQueueApp auth={{ persona: (persona as AgentId) || 'friend', email: email || undefined, token: token || undefined }} />
+        )}
+        {authed && !expired && isFeature && (kind === 'weekly_review' || kind === 'weekly_focus') && (
+          <WeeklyReviewApp auth={{ persona: (persona as AgentId) || 'friend', email: email || undefined, token: token || undefined }} />
+        )}
+        {authed && !expired && isFeature && kind === 'networking_crm' && (
+          <NetworkingCrmApp auth={{ persona: (persona as AgentId) || 'friend', email: email || undefined, token: token || undefined }} />
+        )}
+        {authed && !expired && isFeature && kind === 'sleep_tracker' && (
+          <SleepTrackerApp auth={{ persona: (persona as AgentId) || 'friend', email: email || undefined, token: token || undefined }} />
+        )}
+        {authed && !expired && isFeature && kind === 'pipeline_board' && (
+          <PipelineBoardApp auth={{ persona: (persona as AgentId) || 'friend', email: email || undefined, token: token || undefined }} />
+        )}
+        {authed && !expired && isFeature && kind === 'gratitude_journal' && (
+          <GratitudeJournalApp auth={{ persona: (persona as AgentId) || 'friend', email: email || undefined, token: token || undefined }} />
+        )}
+        {authed && !expired && isFeature && kind === 'spending_snapshot' && (
+          <SpendingSnapshotApp auth={{ persona: (persona as AgentId) || 'friend', email: email || undefined, token: token || undefined }} />
         )}
       </div>
     </div>

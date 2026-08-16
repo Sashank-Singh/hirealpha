@@ -9,6 +9,7 @@ export type LiveProfile = {
   email: string | null
   name?: string | null
   timezone?: string | null
+  lastInboundAt?: string | null
   location?: { kind: string; label: string; label_text: string } | null
 }
 
@@ -21,6 +22,7 @@ const EMPTY: LiveProfile = {
   email: null,
   name: null,
   timezone: null,
+  lastInboundAt: null,
 }
 
 function apiBase() {
@@ -207,6 +209,63 @@ export async function autoLogNutrition(
     console.warn('[live] nutrition auto-log failed', err)
     return null
   }
+}
+
+async function autoLogText<T extends { ok?: boolean; logged?: boolean; error?: string }>(
+  path: string,
+  phone: string,
+  persona: AgentId,
+  text: string,
+): Promise<T | null> {
+  const base = apiBase()
+  const key = process.env.HIREALPHA_INTERNAL_KEY || ''
+  if (!base || !key) return null
+  try {
+    const res = await timedFetch(
+      `${base}${path}`,
+      {
+        method: 'POST',
+        headers: authHeaders(),
+        body: JSON.stringify({ phone, persona, text: text.slice(0, 500) }),
+      },
+      12000,
+    )
+    if (!res.ok) return null
+    return (await res.json()) as T
+  } catch (err) {
+    console.warn(`[live] ${path} auto-log failed`, err)
+    return null
+  }
+}
+
+export async function autoLogWorkout(phone: string, persona: AgentId, text: string) {
+  return autoLogText<{
+    ok?: boolean; logged?: boolean; error?: string
+    exercise?: string; sets?: number; reps?: number; weight?: number
+  }>('/api/internal/workouts', phone, persona, text)
+}
+
+export async function autoLogSleep(phone: string, persona: AgentId, text: string) {
+  return autoLogText<{
+    ok?: boolean; logged?: boolean; error?: string
+    bedtime?: string; wake?: string; sleepDate?: string
+  }>('/api/internal/sleep', phone, persona, text)
+}
+
+export async function autoLogGratitude(phone: string, persona: AgentId, text: string) {
+  return autoLogText<{ ok?: boolean; logged?: boolean; error?: string; text?: string }>(
+    '/api/internal/gratitude',
+    phone,
+    persona,
+    text,
+  )
+}
+
+export async function autoLogSpend(phone: string, persona: AgentId, text: string) {
+  return autoLogText<{
+    ok?: boolean; logged?: boolean; error?: string
+    amount?: number; category?: string; description?: string
+  }>('/api/internal/spending', phone, persona, text)
 }
 
 export function formatHireContext(fields: Record<string, string>): string {

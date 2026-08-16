@@ -117,7 +117,17 @@ const MINI_META: Record<string, { title: string; description: string }> = {
   kill_keep_park: { title: 'Kill, keep, park', description: 'Decide what to kill, keep, or park.' },
   hire_decision: { title: 'Hire decision', description: 'Pressure-test the candidate call.' },
   weekly_focus: { title: 'Weekly focus', description: 'Choose what matters this week.' },
+  weekly_review: { title: 'Weekly review', description: 'What got done, what slipped, and next week’s focus.' },
   approve_investor_note: { title: 'Investor note', description: 'Review an investor update before it goes out.' },
+  habit_streak: { title: 'Habits', description: 'Build streaks and track daily habits.' },
+  mood_tracker: { title: 'Mood', description: 'Log how you feel and spot patterns.' },
+  workout_log: { title: 'Workout log', description: 'Log lifts and track PRs.' },
+  learning_queue: { title: 'Learning queue', description: 'Save articles, videos, and podcasts.' },
+  networking_crm: { title: 'Networking', description: 'People you met and when to follow up.' },
+  sleep_tracker: { title: 'Sleep', description: 'Bedtime, wake, and sleep debt.' },
+  pipeline_board: { title: 'Pipeline', description: 'Jobs, fundraising, and leads by stage.' },
+  gratitude_journal: { title: 'Gratitude', description: 'One sentence a day.' },
+  spending_snapshot: { title: 'Spending', description: 'Log spend against a weekly budget.' },
 }
 
 function miniMeta(pathname: string) {

@@ -2,7 +2,7 @@ import { Spectrum, app as appCard } from 'spectrum-ts'
 import { imessage } from '@spectrum-ts/imessage'
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { getAgent, runHireTurn, runMemoryMaintenance } from '../../shared/runHireTurn'
+import { getAgent, runHireTurn, runMemoryMaintenance, stripDashes } from '../../shared/runHireTurn'
 import { claimInbound } from '../../shared/inboundGuard'
 import { startReminderScheduler } from '../../shared/reminders'
 import { startHealthServer } from '../../shared/health'
@@ -13,7 +13,7 @@ const dataDir = join(import.meta.dir, '..', 'data')
 mkdirSync(dataDir, { recursive: true })
 
 const introTo =
-  process.env.SKIP_INTRO === '1' ? undefined : process.env.INTRO_TO || '+12163032166'
+  process.env.SKIP_INTRO === '1' ? undefined : process.env.INTRO_TO
 
 const app = await Spectrum({
   projectId: process.env.PROJECT_ID!,
@@ -29,7 +29,7 @@ if (introTo) {
     const space = await im.space.create(user)
     await space.responding(async () => {
       await space.send(
-        "Hey — I'm Alpha. You hired me as your friend in texts. Vent, plan, check in. I'm here.",
+        "Hey. I'm Alpha. You hired me as your friend in texts. Vent, plan, check in. I'm here.",
       )
     })
     console.log(`[${agent.id}] intro sent to ${introTo}`)
@@ -47,7 +47,7 @@ startReminderScheduler({
     const user = await im.user(phone)
     const space = await im.space.create(user)
     await space.responding(async () => {
-      await space.send(text)
+      await space.send(stripDashes(text))
       if (card) await space.send(appCard(card.url, { live: card.live }))
     })
   },
@@ -89,12 +89,10 @@ for await (const [space, message] of app.messages) {
         senderId,
         userText,
       })
-      console.log(`[${agent.id}] sending ${bubbles.length} text bubbles, card: ${!!card}`)
-      for (let i = 0; i < bubbles.length; i++) {
-        console.log(`[${agent.id}] bubble ${i}: ${JSON.stringify(bubbles[i]!.slice(0, 200))}`)
-        if (i === 0) await message.reply(bubbles[i]!)
-        else await space.send(bubbles[i]!)
-      }
+      const text = (bubbles[0] || reply || '…').trim()
+      console.log(`[${agent.id}] sending 1 text, card: ${!!card}`)
+      console.log(`[${agent.id}] bubble: ${JSON.stringify(text.slice(0, 200))}`)
+      await message.reply(text)
       if (card) {
         console.log(`[${agent.id}] sending card: ${card.url}`)
         await space.send(appCard(card.url, { live: card.live }))

@@ -8,7 +8,7 @@ import { skillsPromptBlock, SKILLS } from './skills'
 import { gmiChat } from './gmi'
 import { appendThread, loadMemory, upsertFacts, pruneExpiredFacts, setSummary, trimHistory, MAX_RAW, type ThreadMemory } from './memory'
 import { extractFacts, summarizeOld } from './memoryMaintain'
-import { autoLogNutrition, fetchLiveProfile, fetchLiveTools, fetchMiniRun, formatHireContext, formatHireMemories, persistLiveFacts, touchInbound } from './liveContext'
+import { autoLogGratitude, autoLogNutrition, autoLogSleep, autoLogSpend, autoLogWorkout, fetchLiveProfile, fetchLiveTools, fetchMiniRun, formatHireContext, formatHireMemories, persistLiveFacts, touchInbound } from './liveContext'
 import {
   looksLikeReminder,
   parseReminderIntent,
@@ -16,11 +16,14 @@ import {
   listReminders,
   localTimeToUtc,
 } from './reminders'
+import { setProactiveMode } from './judgment'
 import {
   DIGEST_MARKER,
   detectMiniAppRequest,
+  looksLikeAffirmedBrief,
   looksLikeDigestIntent,
   mintMiniAppCard,
+  buildDigestBriefing,
   type MiniAppCard,
 } from './miniApps'
 
@@ -32,26 +35,76 @@ export function splitBubbles(text: string): string[] {
   return [cleaned]
 }
 
-/** Drop model chain-of-thought that occasionally leaks into the reply text. */
-function stripReasoning(text: string): string {
-  const paras = text
+function foldQuotes(text: string): string {
+  return text.replace(/[\u2018\u2019\u02BC]/g, "'").replace(/[\u201C\u201D]/g, '"')
+}
+
+const REASON =
+  /(?:the (?:user|instructions)|instructions say|tool result|in context|connected as a tool|I (?:should|need to|have|will|am going|want to|can check the))|^Let me|^Wait,?|^First,?|^OK[,:]|^Alright[,:]|^So /i
+const THEATER =
+  /\b(i'?m here\.?\s*the real part|not the polished version|your guy for the real stuff|the real me|raw and real|uncut version|no filter|unfiltered|straight talk|real talk|no bs|keeping it real|authentic self|unapologetically)\b/i
+const FIRST_MEET =
+  /\b(good to meet you|nice to meet you|pleasure to meet you|great to meet you|glad to meet you)\b/gi
+
+function isTheaterCopy(text: string): boolean {
+  return THEATER.test(foldQuotes(text))
+}
+
+/** Drop leaked reasoning, persona theater, and first-meet lines for returning people. */
+function stripReasoning(text: string, returning = false): string {
+  const paras = foldQuotes(text)
     .trim()
     .split(/\n{2,}/)
     .map((p) => p.trim())
     .filter(Boolean)
-  const REASON = /(?:the (?:user|instructions)|instructions say|tool result|in context|connected as a tool|I (?:should|need to|have|will|am going|want to|can check the))|^Let me|^Wait,?|^First,?|^OK[,:]|^Alright[,:]|^So /i
-  const UNPROFESSIONAL = /\b(I'm here\. The real part|not the polished version|the real me|raw and real|uncut version|no filter|unfiltered|straight talk|real talk|no BS|keeping it real|authentic self|unapologetically)\b/i
   let firstReal = 0
   while (firstReal < paras.length && REASON.test(paras[firstReal]!)) firstReal++
-  const kept = paras.slice(firstReal).filter((p) => !UNPROFESSIONAL.test(p))
-  return kept.join('\n\n').trim() || 'I hit a snag. Try that again?'
+  const kept = paras
+    .slice(firstReal)
+    .filter((p) => !isTheaterCopy(p))
+    .map((p) => (returning ? p.replace(FIRST_MEET, '').replace(/\s{2,}/g, ' ').replace(/\s+([,.!?])/g, '$1').trim() : p))
+    .map((p) =>
+      returning
+        ? p
+            .replace(/^(hey\s+\w+[.,]?\s*)?(good to meet you|nice to meet you)[^.!?]*[.!?]?\s*/i, '')
+            .replace(/\bi'?m alpha,? your guy[^.!?]*[.!?]?\s*/i, '')
+            .trim()
+        : p,
+    )
+    .filter((p) => p.length > 8)
+  return kept.join('\n\n').trim()
+}
+
+/** Agents never send hyphens, en dashes, or em dashes. Keep URLs and emails intact. */
+export function stripDashes(text: string): string {
+  const hold: string[] = []
+  const stash = (s: string) => {
+    hold.push(s)
+    return `\0${hold.length - 1}\0`
+  }
+  let out = text
+    .replace(/https?:\/\/[^\s]+/gi, stash)
+    .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, stash)
+  out = out.replace(/[\u2014\u2015\u2013\u2212]/g, ', ')
+  out = out.replace(/(\S) - (\S)/g, '$1, $2')
+  out = out.replace(/^(\s*)[-*]\s+/gm, '$1')
+  for (let i = 0; i < 8 && /(\w)-(\w)/.test(out); i++) {
+    out = out.replace(/(\w)-(\w)/g, '$1 $2')
+  }
+  out = out.replace(/[ \t]{2,}/g, ' ')
+  out = out.replace(/,\s*,+/g, ',')
+  out = out.replace(/\s+([,.!?])/g, '$1')
+  out = out.replace(/\0(\d+)\0/g, (_, i) => hold[Number(i)] || '')
+  return out.trim()
 }
 
 function wantsLiveData(text: string) {
-  return /\b(e-?mails?|inbox|mail|gmail|unread|calendar|meeting|meetings|schedule|agenda|tomorrow|today|slack|notion|linear|github|drive|spotify|dinner|restaurant|tonight|maps|place|places|ticket|backlog|triage|deck|wiki|look up|search)\b/i.test(
+  return /\b(e-?mails?|inbox|mail|gmail|unread|calendar|meeting|meetings|schedule|agenda|tomorrow|today|slack|notion|linear|github|drive|spotify|dinner|restaurant|tonight|maps|place|places|ticket|backlog|triage|deck|wiki|look up|search|debrief|brief|recap|digest)\b/i.test(
     text,
   )
 }
+
+const BRIEF_TOOL_QUERY = 'calendar today tomorrow inbox important email debrief'
 
 function maybeToolIntent(text: string) {
   return /\b(near(?: by)?|around|where\b|recommend|suggest|show me|find|search|look(?:ing|ing for| up| it up)|dinner|lunch|breakfast|eat|food|restaurant|cafe|bar|coffee|spot|place|tonight|weekend|date night|hangout|movie|weather|news|latest|price|how much|delivery|takeout|reservation|book|maps?|directions)\b/i.test(
@@ -87,6 +140,22 @@ async function classifyFreeLookup(
 
 function looksLikeNutritionLog(text: string) {
   return /\b(i ate|i had|log|track|meal|breakfast|lunch|dinner|snack|food)\b/i.test(text)
+}
+
+function looksLikeWorkoutLog(text: string) {
+  return /\d+\s*[x×]\s*\d+|\d+\s*sets?\s*(?:of\s*)?\d+/i.test(text)
+}
+
+function looksLikeSleepLog(text: string) {
+  return /\d{1,2}(?::\d{2})?\s*(am|pm)?\s*(?:-|–|to|until)\s*\d{1,2}/i.test(text)
+}
+
+function looksLikeGratitudeLog(text: string) {
+  return /grateful(?:\s+for)?\s*[:\-]?\s*\S+/i.test(text)
+}
+
+function looksLikeSpendLog(text: string) {
+  return /\$\s*\d+|(?:spent|spend|paid|cost)\s+\$?\s*\d+/i.test(text)
 }
 
 const LIVE_MINI = new Set(['pick_night', 'standup_paste', 'kill_keep_park'])
@@ -145,6 +214,89 @@ function buildMemoryBlock(
   return parts.join('\n\n')
 }
 
+/** Handle stop/pause/resume proactive and quiet hours in one turn. */
+function looksLikeProactiveControl(text: string): boolean {
+  const t = foldQuotes(text)
+  return (
+    /\bquiet hours\b/i.test(t) ||
+    /\b(stop|pause|resume|enable|disable)\b.{0,40}\b(proactive|check[- ]?ins?|pokes?|outreach|reaching out)\b/i.test(t) ||
+    /\bproactive\b.{0,24}\b(off|on|pause|stop|resume)\b/i.test(t) ||
+    /\b(turn everything off|pause for today|kill switch)\b/i.test(t) ||
+    /\b(stop|don't) texting me first\b/i.test(t) ||
+    /\bdon't (text|message|ping) me (first|proactively)\b/i.test(t)
+  )
+}
+
+function parseQuietHours(text: string): string | null {
+  const m = foldQuotes(text).match(
+    /quiet hours?\s*(?:from\s*)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\s*(?:-|to|until)\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm)?/i,
+  )
+  if (!m) return null
+  const clock = (h: string, min: string | undefined, ap?: string) => {
+    let hour = Number(h)
+    const minute = Number(min || '0')
+    const mer = (ap || '').toLowerCase()
+    if (mer.startsWith('p') && hour < 12) hour += 12
+    if (mer.startsWith('a') && hour === 12) hour = 0
+    return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`
+  }
+  return `${clock(m[1] || '22', m[2], m[3])}-${clock(m[4] || '8', m[5], m[6])}`
+}
+
+function prettyQuietHours(raw: string): string {
+  const fmt = (hhmm: string) => {
+    const [h, m] = hhmm.split(':').map(Number)
+    const hour = h || 0
+    const mer = hour >= 12 ? 'pm' : 'am'
+    const h12 = hour % 12 || 12
+    return m ? `${h12}:${String(m).padStart(2, '0')}${mer}` : `${h12}${mer}`
+  }
+  const parts = raw.match(/^(\d{1,2}:\d{2})-(\d{1,2}:\d{2})$/)
+  if (!parts) return raw
+  return `${fmt(parts[1] || '')} to ${fmt(parts[2] || '')}`
+}
+
+async function handleProactiveControl(input: {
+  phone: string
+  persona: AgentId
+  userText: string
+}): Promise<string | null> {
+  if (!looksLikeProactiveControl(input.userText)) return null
+  const t = foldQuotes(input.userText)
+  const quiet = parseQuietHours(t)
+  const pauseToday = /\bpause for today\b/i.test(t)
+  const off =
+    (/\b(stop|turn(?: everything)? off|disable|kill switch)\b/i.test(t) ||
+      /\b(stop|don't) texting me first\b/i.test(t) ||
+      /\bdon't (text|message|ping) me (first|proactively)\b/i.test(t)) &&
+    !/\bresume\b/i.test(t) &&
+    !pauseToday
+  const resume = /\b(resume|turn(?: it| them| proactive)? (back )?on|enable)\b/i.test(t)
+  const pause = /\bpause\b/i.test(t) && !resume && !off
+
+  const patch: { proactive?: string; quietHours?: string; pauseToday?: boolean; pausedUntil?: string | null } = {}
+  if (quiet) patch.quietHours = quiet
+  if (off) patch.proactive = 'off'
+  else if (pauseToday) patch.pauseToday = true
+  else if (pause) {
+    patch.proactive = 'paused'
+    patch.pausedUntil = null
+  } else if (resume) {
+    patch.proactive = 'on'
+    patch.pausedUntil = null
+  }
+
+  if (!patch.proactive && !patch.quietHours && !patch.pauseToday) return null
+
+  const ok = await setProactiveMode(input.phone, input.persona, patch)
+  if (!ok) return "I couldn't change that right now. Try again in a sec?"
+  if (off) return "Got it. I won't text first anymore. Say resume proactive if you want me back."
+  if (pauseToday) return "Paused for today. I'll start again tomorrow."
+  if (pause) return 'Paused. Say resume proactive when you want check ins again.'
+  if (quiet && !resume) return `Quiet hours are ${prettyQuietHours(quiet)}. I won't text first inside that window.`
+  return "I'll text first again when something is actually useful. Quiet hours stay in place."
+}
+
 /** Handle "remind me..." / "my reminders" / "cancel reminder" in one turn. */
 async function handleReminderMessage(input: {
   phone: string
@@ -172,13 +324,13 @@ async function handleReminderMessage(input: {
   }
   if (intent.action === 'list') {
     const items = await listReminders(input.phone, input.persona)
-    const pending = items.filter((r) => r.status === 'pending')
+    const pending = items.filter((r) => r.status === 'pending' && !/^\[(judge|poke)\]/i.test(r.text))
     if (!pending.length) return "You don't have any reminders lined up right now."
     const lines = pending.map((r) => {
       const when = formatLocalAtSafe(r.scheduledAt, input.timezone)
       const rep = r.recurrence !== 'once' ? ` (${r.recurrence})` : ''
-      const label = r.text.replace(/^\[(poke|digest)\]/, '').trim()
-      return `- ${when}${rep}: ${label}`
+      const label = r.text.replace(/^\[(judge|poke|digest)\]/i, '').trim()
+      return `${when}${rep}: ${label}`
     })
     return `Your reminders:\n${lines.join('\n')}`
   }
@@ -219,12 +371,35 @@ export async function runHireTurn(input: {
   const agent = getAgent(input.agentId)
   const mem = loadMemory(input.dataDir, input.senderId)
   const history = mem.history
-  const isFirst = history.length === 0
   const live = await fetchLiveProfile(input.senderId, agent.id)
   const timezone = live.context?.timezone || live.timezone || 'America/Los_Angeles'
+  const setupDone = live.context && String(live.context.setup_done) === 'true'
+  // First iMessage to this hire: introduce once. Website name/setup does not
+  // count. lastInboundAt survives bot restarts when the local thread file is empty.
+  const textedBefore = !!(history.length || mem.summary.trim() || live.lastInboundAt)
+  const isFirst = !textedBefore
+  const lastAssistant = [...history].reverse().find((m) => m.role === 'assistant')?.content
+  const briefIntent =
+    looksLikeDigestIntent(input.userText) || looksLikeAffirmedBrief(input.userText, lastAssistant)
 
   if (live.hired) {
     void touchInbound(input.senderId, agent.id)
+  }
+
+  if (live.hired && looksLikeProactiveControl(input.userText)) {
+    const handled = await handleProactiveControl({
+      phone: input.senderId,
+      persona: agent.id,
+      userText: input.userText,
+    })
+    if (handled) {
+      const reply = stripDashes(handled)
+      appendThread(input.dataDir, input.senderId, [
+        { role: 'user', content: input.userText },
+        { role: 'assistant', content: reply },
+      ])
+      return { reply, bubbles: splitBubbles(reply), source: 'gmi', authoritative: [], card: null }
+    }
   }
 
   if (live.hired && looksLikeReminder(input.userText)) {
@@ -235,17 +410,28 @@ export async function runHireTurn(input: {
       timezone,
     })
     if (handled) {
+      const reply = stripDashes(handled)
       appendThread(input.dataDir, input.senderId, [
         { role: 'user', content: input.userText },
-        { role: 'assistant', content: handled },
+        { role: 'assistant', content: reply },
       ])
-      return { reply: handled, bubbles: splitBubbles(handled), source: 'gmi', authoritative: [], card: null }
+      return { reply, bubbles: splitBubbles(reply), source: 'gmi', authoritative: [], card: null }
     }
   }
 
+  let digestText: string | null = null
+  if (live.found && live.hired && briefIntent) {
+    const digest = await buildDigestBriefing(input.senderId, agent.id)
+    digestText = digest?.text?.trim() || null
+  }
+
   let toolResults =
-    live.found && live.hired && wantsLiveData(input.userText)
-      ? await fetchLiveTools(input.senderId, agent.id, input.userText)
+    live.found && live.hired && !digestText && (briefIntent || wantsLiveData(input.userText))
+      ? await fetchLiveTools(
+          input.senderId,
+          agent.id,
+          briefIntent ? BRIEF_TOOL_QUERY : input.userText,
+        )
       : []
   if (
     live.found &&
@@ -277,11 +463,12 @@ export async function runHireTurn(input: {
     }
   }
 
-  const setupDone = live.context && String(live.context.setup_done) === 'true'
   const miniApp = live.hired
-    ? isFirst && !setupDone
-      ? { kind: 'menu' as const }
-      : detectMiniAppRequest(input.userText, agent.id)
+    ? briefIntent
+      ? { kind: 'digest' as const }
+      : isFirst && !setupDone
+        ? { kind: 'menu' as const }
+        : detectMiniAppRequest(input.userText, agent.id)
     : null
 
   const extras: string[] = []
@@ -294,9 +481,20 @@ export async function runHireTurn(input: {
       `They have a HireAlpha account (${live.email || 'signed in'}) but have not hired this person yet. Point them to hirealpha.chat/app to hire ${agent.name}.`,
     )
   } else {
-    if (live.name) {
+    if (isFirst) {
       extras.push(
-        `This person's name is ${live.name}. Use it naturally. Address them by name when it fits.`,
+        `This is their first iMessage to you${live.name ? `. Their name is ${live.name}` : ''}. Introduce yourself once, briefly, in the same text as the answer. No persona theater. No second bubble.`,
+      )
+    } else {
+      extras.push(
+        `This is not their first text. You already know them${live.name ? ` (${live.name})` : ''}. Never introduce yourself. Never say good to meet you. Continue the thread.`,
+      )
+    }
+    if (briefIntent) {
+      extras.push(
+        isFirst
+          ? 'They asked for a brief/debrief on their first text. One short hello in the same message, then the full day wrap. Do not ask "debrief what."'
+          : 'They asked for a brief/debrief. That always means the full day wrap: what happened today, mail that matters, leftover tonight, tomorrow, reminders, and open loops / the backup list. Give it in one text. Do not ask "debrief what." Do not introduce yourself.',
       )
     }
     const ctx = formatHireContext(live.context)
@@ -329,7 +527,51 @@ export async function runHireTurn(input: {
       extras.push('Nutrition auto-log failed. Do not claim the meal was logged; offer the Nutrition card instead.')
     }
   }
-  if (toolResults.length) {
+  if (miniApp?.kind === 'workout_log' && looksLikeWorkoutLog(input.userText)) {
+    const workout = await autoLogWorkout(input.senderId, agent.id, input.userText)
+    if (workout?.logged) {
+      extras.push(
+        `Workout was automatically logged as ${workout.exercise} ${workout.sets}x${workout.reps}${workout.weight ? ` @ ${workout.weight}` : ''}. Confirm briefly; do not ask them to log it again.`,
+      )
+    } else {
+      extras.push('Could not parse a workout from that text. Do not claim it was logged. Tell them to open the Workout log card and enter exercise, sets, reps, and weight.')
+    }
+  }
+  if (miniApp?.kind === 'sleep_tracker') {
+    const sleep = await autoLogSleep(input.senderId, agent.id, input.userText)
+    if (sleep?.logged) {
+      extras.push(
+        `Sleep was automatically logged for last night, ${sleep.bedtime} to ${sleep.wake}. Confirm briefly; do not ask them to log it again.`,
+      )
+    } else {
+      extras.push('No bedtime/wake times found in the text. Do not claim sleep was logged. Tell them to open the Sleep card and tap Log last night.')
+    }
+  }
+  if (miniApp?.kind === 'gratitude_journal' && looksLikeGratitudeLog(input.userText)) {
+    const gratitude = await autoLogGratitude(input.senderId, agent.id, input.userText)
+    if (gratitude?.logged) {
+      extras.push(
+        `Gratitude was automatically logged: "${gratitude.text}". Confirm briefly; do not ask them to log it again.`,
+      )
+    } else {
+      extras.push('Could not parse what they are grateful for. Do not claim it was logged. Tell them to open the Gratitude card.')
+    }
+  }
+  if (miniApp?.kind === 'spending_snapshot' && looksLikeSpendLog(input.userText)) {
+    const spend = await autoLogSpend(input.senderId, agent.id, input.userText)
+    if (spend?.logged) {
+      extras.push(
+        `Spend was automatically logged: $${spend.amount} (${spend.category}${spend.description ? `, ${spend.description}` : ''}). Confirm briefly; do not ask them to log it again.`,
+      )
+    } else {
+      extras.push('Could not parse an amount to log. Do not claim spend was logged. Tell them to open the Spending card.')
+    }
+  }
+  if (digestText) {
+    extras.push(
+      `Live day wrap (ground truth, use this, do not invent):\n${digestText}\n\nWrite the debrief from this. Cover today, mail, tonight leftover, tomorrow, reminders, and open loops. One message. No intro.`,
+    )
+  } else if (toolResults.length) {
     extras.push(
       `Live tool results (ground truth, use these, do not invent):\n${toolResults.join('\n\n')}\n\nWhen email results are present: give a short overview of the batch (how many, themes), then call out the top 2-3 that matter most with a one-line reason each. Do not fixate on a single email.`,
     )
@@ -342,9 +584,11 @@ export async function runHireTurn(input: {
     extras.push(
       miniApp.kind === 'menu'
         ? 'A setup mini-app card is being delivered with your first reply. Introduce yourself briefly, then point them at the card and invite them to pick a feature. Keep your text short. The card carries the options.'
-        : LIVE_MINI.has(miniApp.kind)
-          ? `A mini-app card for "${miniApp.kind}" is also being delivered. Put the live mini-app result in your text. The card is extra.`
-          : `A mini-app card for "${miniApp.kind}" is being delivered with your reply. Keep your text short and offer the card in one line.`,
+        : miniApp.kind === 'digest'
+          ? 'A day-wrap card is being delivered. Put the full brief/debrief in your text. The card is extra. Do not keep the text short. Do not ask what they meant.'
+          : LIVE_MINI.has(miniApp.kind)
+            ? `A mini-app card for "${miniApp.kind}" is also being delivered. Put the live mini-app result in your text. The card is extra.`
+            : `A mini-app card for "${miniApp.kind}" is being delivered with your reply. Keep your text short and offer the card in one line.`,
     )
   }
 
@@ -365,17 +609,23 @@ export async function runHireTurn(input: {
   // Strip stale "not connected" assistant replies from history so the model
   // can't pattern-match on them when tool results ARE present this turn.
   const STALE_CONNECTED = /\b(not connected|isn't connected|not linked to a hirealpha|can't see your|sign in at hirealpha)\b/i
-  const cleanHistory = history.filter(
-    (m) => !(m.role === 'assistant' && STALE_CONNECTED.test(m.content)),
-  )
+  const cleanHistory = history.filter((m) => {
+    if (m.role !== 'assistant') return true
+    if (STALE_CONNECTED.test(m.content)) return false
+    if (isTheaterCopy(m.content)) return false
+    return true
+  })
 
   try {
     const firstHint = isFirst
-      ? '\nThis is their first message to you. Introduce yourself briefly in character, then answer.'
-      : ''
+      ? '\nThis is their first iMessage to you. Introduce yourself once, briefly, in character, then answer in the same text. No persona theater. Do not send a second message.'
+      : '\nThis is not their first text. Do not introduce yourself. Do not say good to meet you. Answer in one message.'
     reply = await gmiChat({
       temperature: agent.temperature,
-      maxTokens: toolResults.length ? Math.max(agent.maxTokens, 700) : Math.max(agent.maxTokens, 320),
+      maxTokens:
+        toolResults.length || digestText || briefIntent
+          ? Math.max(agent.maxTokens, 800)
+          : Math.max(agent.maxTokens, 320),
       messages: [
         { role: 'system', content: system + firstHint },
         ...cleanHistory,
@@ -401,7 +651,14 @@ export async function runHireTurn(input: {
   }
 
   const authoritative = live.found ? Object.keys(live.context) : []
-  const finalReply = stripReasoning(reply)
+  let finalReply = stripReasoning(reply, !isFirst)
+  const askedWhat =
+    /\bdebrief what\b|\bbrief what\b|\bwhich (?:one|debrief|brief)\b|\bgive me the thread\b|\bgood to meet you\b/i.test(
+      foldQuotes(finalReply || reply),
+    )
+  if (briefIntent && digestText && (!finalReply || askedWhat)) finalReply = digestText
+  if (!finalReply) finalReply = 'I hit a snag. Try that again?'
+  finalReply = stripDashes(finalReply)
   console.log(`[turn] raw reply (${reply.length} chars): ${reply.slice(0, 300)}`)
   console.log(`[turn] final reply (${finalReply.length} chars): ${finalReply.slice(0, 300)}`)
   console.log(`[turn] bubbles: ${splitBubbles(finalReply).length}`)

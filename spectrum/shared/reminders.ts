@@ -1,10 +1,12 @@
 import { gmiChat } from './gmi'
+import { type MiniAppCard } from './miniApps'
 import {
-  DIGEST_MARKER,
-  buildDigestBriefing,
-  isDigestRequest,
-  type MiniAppCard,
-} from './miniApps'
+  freezeProactiveUntilReply,
+  isJudgeTick,
+  isRecipientSendBlocked,
+  recordProactiveSent,
+  runJudgmentLoop,
+} from './judgment'
 import type { AgentId } from '../../src/agents/types'
 
 export type ReminderIntent =
@@ -390,6 +392,7 @@ export function startReminderScheduler(opts: {
     try {
       const due = await fetchDueReminders(opts.persona)
       for (const r of due) {
+        if (!r.phone) continue
         const tz = r.timezone || 'America/Los_Angeles'
         const nextAt =
           r.recurrence === 'daily' || r.recurrence === 'weekly'
@@ -404,23 +407,31 @@ export function startReminderScheduler(opts: {
         }
         let text = r.text
         let card: MiniAppCard | undefined
-        if (isDigestRequest(r.text)) {
-          const brief = await buildDigestBriefing(r.phone, opts.persona as AgentId)
-          if (brief) {
-            text = brief.text
-            card = brief.card
-          } else {
-            text = r.text.slice(DIGEST_MARKER.length).trim() || 'Your daily brief.'
-          }
-        } else if (text.startsWith('[poke]')) {
-          text = text.slice('[poke]'.length).trim()
+        let judgedTopic: string | undefined
+        if (isJudgeTick(r.text)) {
+          // Heartbeat only. Stay silent unless the judgment loop drafts a send.
+          const judged = await runJudgmentLoop({
+            phone: r.phone,
+            persona: opts.persona as AgentId,
+            reminderText: r.text,
+          })
+          if (!judged) continue
+          text = judged.text
+          judgedTopic = judged.topic
+          // Never attach a card on a proactive ping. Text + card is two
+          // sends and burns the unanswered iMessage quota.
         }
-        // Revert the claim on a failed send so the reminder isn't silently
-        // dropped — the next poll will retry it instead of double-sending
-        // or losing it.
         try {
           await opts.send(r.phone, text, card)
+          if (judgedTopic) {
+            await recordProactiveSent(r.phone, opts.persona as AgentId, judgedTopic)
+          }
         } catch (err) {
+          if (isRecipientSendBlocked(err)) {
+            console.warn(`[reminders:${opts.persona}] recipient blocked ${r.phone}, freezing until reply`)
+            await freezeProactiveUntilReply(r.phone, opts.persona as AgentId)
+            continue
+          }
           console.warn(`[reminders:${opts.persona}] send failed for ${r.id}, reverting claim`, err)
           await markReminderDone(r.id, undefined, true).catch(() => undefined)
         }

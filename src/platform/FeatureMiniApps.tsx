@@ -854,16 +854,36 @@ export function NutritionApp({ auth }: { auth: FeatureAuth }) {
 /* ------------------------------ Habit Streak Board ------------------------------ */
 
 const HABIT_EMOJIS = ['💪', '📚', '🧘', '🏃', '💧', '🍎', '😴', '🎯', '✍️', '🎵', '🧹', '💊'] as const
-const DAY_LETTERS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'] as const
 
-function last7Days(): string[] {
+function localDateStr(d = new Date()) {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
+function mondayOfLocal(d = new Date()): Date {
+  const x = new Date(d.getFullYear(), d.getMonth(), d.getDate())
+  const day = x.getDay()
+  const diff = day === 0 ? 6 : day - 1
+  x.setDate(x.getDate() - diff)
+  return x
+}
+
+function currentWeekDays(): string[] {
+  const monday = mondayOfLocal()
   const days: string[] = []
-  for (let i = 6; i >= 0; i--) {
-    const d = new Date()
-    d.setDate(d.getDate() - i)
-    days.push(d.toISOString().slice(0, 10))
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(monday)
+    d.setDate(d.getDate() + i)
+    days.push(localDateStr(d))
   }
   return days
+}
+
+function dayLetter(dateStr: string): string {
+  const [y, m, d] = dateStr.split('-').map(Number)
+  return ['S', 'M', 'T', 'W', 'T', 'F', 'S'][new Date(Date.UTC(y || 1970, (m || 1) - 1, d || 1)).getUTCDay()] || ''
 }
 
 export function HabitStreakApp({ auth }: { auth: FeatureAuth }) {
@@ -873,10 +893,13 @@ export function HabitStreakApp({ auth }: { auth: FeatureAuth }) {
   const [emoji, setEmoji] = useState('💪')
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState('')
-  const days = last7Days()
+  const [days, setDays] = useState<string[]>(() => currentWeekDays())
 
   const load = useCallback(() => {
-    apiListHabits(a).then((d) => setHabits(d.habits)).catch(() => setMsg('Could not load habits.'))
+    apiListHabits(a).then((d) => {
+      setHabits(d.habits)
+      if (d.weekDays?.length === 7) setDays(d.weekDays)
+    }).catch(() => setMsg('Could not load habits.'))
   }, [a.email, a.token])
 
   useEffect(() => { load() }, [load])
@@ -943,14 +966,14 @@ export function HabitStreakApp({ auth }: { auth: FeatureAuth }) {
                 <div className="habit-streak">🔥 <b>{h.streak}</b> day streak</div>
               </div>
               <div className="habit-days">
-                {days.map((d, i) => (
+                {days.map((d) => (
                   <button
                     key={d}
                     className={`habit-day${h.recentDays.includes(d) ? ' done' : ''}`}
                     type="button"
                     onClick={() => void toggle(h.id, d)}
                   >
-                    {DAY_LETTERS[i]}
+                    {dayLetter(d)}
                   </button>
                 ))}
               </div>

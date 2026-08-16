@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, type ComponentType } from 'react'
 import { Link } from 'react-router-dom'
 import { getAgent } from '../agents'
 import type { AgentId } from '../agents/types'
@@ -7,30 +7,48 @@ import { FEATURE_KINDS, KIND_TITLES, MENU_FEATURES, type MenuFeature } from './M
 import {
   DecisionLedgerApp,
   DropZoneApp,
+  HabitStreakApp,
   MeetingModeApp,
+  MoodTrackerApp,
   NutritionApp,
   OpenLoopsApp,
   RelationshipRadarApp,
   type FeatureAuth,
 } from './FeatureMiniApps'
+import {
+  GratitudeJournalApp,
+  LearningQueueApp,
+  NetworkingCrmApp,
+  PipelineBoardApp,
+  SleepTrackerApp,
+  SpendingSnapshotApp,
+  WeeklyReviewApp,
+  WorkoutLogApp,
+} from './LifeMiniApps'
+
+const FEATURE_APPS: Record<string, ComponentType<{ auth: FeatureAuth }>> = {
+  open_loops: OpenLoopsApp,
+  meeting_mode: MeetingModeApp,
+  decision_ledger: DecisionLedgerApp,
+  relationship_radar: RelationshipRadarApp,
+  drop_zone: DropZoneApp,
+  nutrition: NutritionApp,
+  habit_streak: HabitStreakApp,
+  mood_tracker: MoodTrackerApp,
+  workout_log: WorkoutLogApp,
+  learning_queue: LearningQueueApp,
+  weekly_review: WeeklyReviewApp,
+  weekly_focus: WeeklyReviewApp,
+  networking_crm: NetworkingCrmApp,
+  sleep_tracker: SleepTrackerApp,
+  pipeline_board: PipelineBoardApp,
+  gratitude_journal: GratitudeJournalApp,
+  spending_snapshot: SpendingSnapshotApp,
+}
 
 function FeatureApp({ kind, auth }: { kind: string; auth: FeatureAuth }) {
-  switch (kind) {
-    case 'open_loops':
-      return <OpenLoopsApp auth={auth} />
-    case 'meeting_mode':
-      return <MeetingModeApp auth={auth} />
-    case 'decision_ledger':
-      return <DecisionLedgerApp auth={auth} />
-    case 'relationship_radar':
-      return <RelationshipRadarApp auth={auth} />
-    case 'drop_zone':
-      return <DropZoneApp auth={auth} />
-    case 'nutrition':
-      return <NutritionApp auth={auth} />
-    default:
-      return null
-  }
+  const App = FEATURE_APPS[kind]
+  return App ? <App auth={auth} /> : null
 }
 
 function FeatureCard({ f, auth, persona }: { f: MenuFeature; auth: FeatureAuth; persona: string }) {

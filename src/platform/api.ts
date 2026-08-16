@@ -402,7 +402,11 @@ export const apiListHabits = (a: { email?: string; token?: string }) => {
   const qs = new URLSearchParams()
   if (a.token) qs.set('t', a.token)
   else if (a.email) qs.set('email', a.email)
-  return featureGet<{ habits: (Habit & { streak: number; recentDays: string[] })[] }>('/api/habits', qs)
+  return featureGet<{
+    habits: (Habit & { streak: number; recentDays: string[] })[]
+    weekDays?: string[]
+    weekStart?: string
+  }>('/api/habits', qs)
 }
 export const apiAddHabit = (a: { email?: string; token?: string; name: string; emoji?: string }) =>
   featurePost<{ ok: boolean; id: string }>('/api/habits', { ...authParams(a), name: a.name, emoji: a.emoji })
@@ -423,3 +427,121 @@ export const apiListMoods = (a: { email?: string; token?: string }) => {
 }
 export const apiLogMood = (a: { email?: string; token?: string; emoji: string; energy: number; note?: string }) =>
   featurePost<{ ok: boolean; id: string }>('/api/moods', { ...authParams(a), emoji: a.emoji, energy: a.energy, note: a.note })
+
+function authQuery(a: { email?: string; token?: string }) {
+  const qs = new URLSearchParams()
+  if (a.token) qs.set('t', a.token)
+  else if (a.email) qs.set('email', a.email)
+  return qs
+}
+
+/* ---- Workouts ---- */
+export type WorkoutLog = {
+  id: string; exercise: string; sets: number; reps: number; weight: number; notes: string | null; loggedAt: string
+}
+export type WorkoutPr = { exercise: string; weight: number; reps: number; loggedAt: string }
+export const apiListWorkouts = (a: { email?: string; token?: string }) =>
+  featureGet<{ logs: WorkoutLog[]; prs: WorkoutPr[] }>('/api/workouts', authQuery(a))
+export const apiLogWorkout = (a: {
+  email?: string; token?: string; exercise: string; sets: number; reps: number; weight?: number; notes?: string
+}) => featurePost<{ ok: boolean; id: string }>('/api/workouts', { ...authParams(a), exercise: a.exercise, sets: a.sets, reps: a.reps, weight: a.weight, notes: a.notes })
+export const apiDeleteWorkout = (a: { email?: string; token?: string; id: string }) =>
+  featurePost<{ ok: boolean }>(`/api/workouts/${a.id}`, { ...authParams(a), _delete: true })
+
+/* ---- Learning queue ---- */
+export type LearningItem = {
+  id: string; title: string; url: string | null; kind: string; minutes: number; status: string; createdAt: string
+}
+export const apiListLearning = (a: { email?: string; token?: string }) =>
+  featureGet<{ items: LearningItem[] }>('/api/learning', authQuery(a))
+export const apiAddLearning = (a: {
+  email?: string; token?: string; title: string; url?: string; kind?: string; minutes?: number
+}) => featurePost<{ ok: boolean; id: string }>('/api/learning', { ...authParams(a), title: a.title, url: a.url, kind: a.kind, minutes: a.minutes })
+export const apiPatchLearning = (a: { email?: string; token?: string; id: string; status?: string; _delete?: boolean }) =>
+  featurePost<{ ok: boolean }>(`/api/learning/${a.id}`, { ...authParams(a), status: a.status, _delete: a._delete })
+
+/* ---- Weekly review ---- */
+export type WeeklySnapshot = {
+  meals: number; calories: number; moodLogs: number; avgEnergy: number; habitChecks: number
+  sleepNights: number; avgSleepHours: number; spend: number; gratitude: number; followUpsDue: number
+}
+export type WeeklyReview = {
+  id: string; weekStart: string; doneText: string; slippedText: string; focusText: string; createdAt: string
+}
+export const apiWeeklyReview = (a: { email?: string; token?: string }) =>
+  featureGet<{ weekStart: string; snapshot: WeeklySnapshot; current: WeeklyReview | null; reviews: WeeklyReview[] }>(
+    '/api/weekly-review',
+    authQuery(a),
+  )
+export const apiSaveWeeklyReview = (a: {
+  email?: string; token?: string; weekStart: string; doneText: string; slippedText: string; focusText: string
+}) => featurePost<{ ok: boolean }>('/api/weekly-review', { ...authParams(a), weekStart: a.weekStart, doneText: a.doneText, slippedText: a.slippedText, focusText: a.focusText })
+
+/* ---- Networking CRM ---- */
+export type NetworkPerson = {
+  id: string; name: string; whereMet: string; context: string; lastTouch: string | null; cadenceDays: number; createdAt: string
+}
+export const apiListNetwork = (a: { email?: string; token?: string }) =>
+  featureGet<{ people: NetworkPerson[] }>('/api/network', authQuery(a))
+export const apiAddNetwork = (a: {
+  email?: string; token?: string; name: string; whereMet?: string; context?: string; cadenceDays?: number
+}) => featurePost<{ ok: boolean; id: string }>('/api/network', { ...authParams(a), name: a.name, whereMet: a.whereMet, context: a.context, cadenceDays: a.cadenceDays })
+export const apiTouchNetwork = (a: { email?: string; token?: string; id: string; context?: string; _delete?: boolean }) =>
+  featurePost<{ ok: boolean }>(`/api/network/${a.id}`, { ...authParams(a), context: a.context, _delete: a._delete })
+
+/* ---- Sleep ---- */
+export type SleepNight = {
+  id: string; sleepDate: string; bedtime: string; wake: string; quality: number; note: string | null; createdAt: string
+}
+export const apiListSleep = (a: { email?: string; token?: string }) =>
+  featureGet<{ nights: SleepNight[] }>('/api/sleep', authQuery(a))
+export const apiLogSleep = (a: {
+  email?: string; token?: string; sleepDate?: string; bedtime: string; wake: string; quality: number; note?: string
+}) => featurePost<{ ok: boolean }>('/api/sleep', { ...authParams(a), sleepDate: a.sleepDate, bedtime: a.bedtime, wake: a.wake, quality: a.quality, note: a.note })
+export const apiDeleteSleep = (a: { email?: string; token?: string; id: string }) =>
+  featurePost<{ ok: boolean }>(`/api/sleep/${a.id}`, { ...authParams(a), _delete: true })
+
+/* ---- Pipeline ---- */
+export type PipelineItem = {
+  id: string; title: string; company: string; stage: string; notes: string; createdAt: string; updatedAt: string
+}
+export const apiListPipeline = (a: { email?: string; token?: string }) =>
+  featureGet<{ items: PipelineItem[] }>('/api/pipeline', authQuery(a))
+export const apiAddPipeline = (a: {
+  email?: string; token?: string; title: string; company?: string; stage?: string; notes?: string
+}) => featurePost<{ ok: boolean; id: string }>('/api/pipeline', { ...authParams(a), title: a.title, company: a.company, stage: a.stage, notes: a.notes })
+export const apiPatchPipeline = (a: { email?: string; token?: string; id: string; stage?: string; _delete?: boolean }) =>
+  featurePost<{ ok: boolean }>(`/api/pipeline/${a.id}`, { ...authParams(a), stage: a.stage, _delete: a._delete })
+
+/* ---- Gratitude ---- */
+export type GratitudeEntry = { id: string; text: string; createdAt: string }
+export const apiListGratitude = (a: { email?: string; token?: string }) =>
+  featureGet<{ entries: GratitudeEntry[]; weekCount: number }>('/api/gratitude', authQuery(a))
+export const apiAddGratitude = (a: { email?: string; token?: string; text: string }) =>
+  featurePost<{ ok: boolean; id: string }>('/api/gratitude', { ...authParams(a), text: a.text })
+export const apiDeleteGratitude = (a: { email?: string; token?: string; id: string }) =>
+  featurePost<{ ok: boolean }>(`/api/gratitude/${a.id}`, { ...authParams(a), _delete: true })
+
+/* ---- Spending ---- */
+export type SpendLog = { id: string; amount: number; category: string; description: string; spentAt: string }
+export const apiListSpending = (a: { email?: string; token?: string }) =>
+  featureGet<{
+    logs: SpendLog[]; byCategory: Array<{ category: string; total: number }>
+    weekTotal: number; weeklyBudget: number; weekStart: string
+  }>('/api/spending', authQuery(a))
+export const apiLogSpend = (a: {
+  email?: string; token?: string; amount: number; category: string; description?: string
+}) => featurePost<{ ok: boolean; id: string }>('/api/spending', { ...authParams(a), amount: a.amount, category: a.category, description: a.description })
+export const apiSetSpendBudget = async (a: { email?: string; token?: string; weeklyBudget: number }) => {
+  const res = await fetch(`${API}/api/spending/budget`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ...authParams(a), weeklyBudget: a.weeklyBudget }),
+  })
+  const data = await parseJson<{ ok?: boolean; error?: string }>(res)
+  if (!res.ok) throw new Error(data.error || 'Request failed')
+  return data
+}
+export const apiDeleteSpend = (a: { email?: string; token?: string; id: string }) =>
+  featurePost<{ ok: boolean }>(`/api/spending/${a.id}`, { ...authParams(a), _delete: true })
+

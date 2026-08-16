@@ -29,6 +29,16 @@ export type MiniAppKind =
   | 'relationship_radar'
   | 'drop_zone'
   | 'nutrition'
+  | 'habit_streak'
+  | 'mood_tracker'
+  | 'workout_log'
+  | 'learning_queue'
+  | 'weekly_review'
+  | 'networking_crm'
+  | 'sleep_tracker'
+  | 'pipeline_board'
+  | 'gratitude_journal'
+  | 'spending_snapshot'
 
 export interface MiniAppCard {
   url: string
@@ -44,10 +54,16 @@ export interface MiniAppCard {
 export const DIGEST_MARKER = '[digest]'
 
 const DIGEST_INTENT =
-  /\b(morning|daily)\s+(brief|digest)\b|^brief me\b|^digest\b|^start my day\b/i
+  /\b(?:morning|daily|evening|night)\s+(?:brief|debrief|digest|recap)\b|\b(?:brief|debrief|recap)\s+me\b|\bdebrief\b|^brief\b|^digest\b|^start my day\b|\bcatch me up\b|\bwrap(?: me)? up\b|\bend of (?:the )?day\b|\beod\b|\bfull (?:day )?wrap\b/i
 
 export function looksLikeDigestIntent(text: string): boolean {
   return DIGEST_INTENT.test(text)
+}
+
+/** "yes" / "ok" after Alpha offered a debrief still means the full day wrap. */
+export function looksLikeAffirmedBrief(text: string, lastAssistant?: string): boolean {
+  if (!lastAssistant || !/\bdebrief\b/i.test(lastAssistant)) return false
+  return /^(yes|yeah|yep|y|ok|okay|sure|do it|please|go|debrief)\b/i.test(text.trim())
 }
 
 export function isDigestRequest(text: string): boolean {
@@ -73,6 +89,16 @@ const PATTERNS: Partial<Record<MiniAppKind, RegExp>> = {
   relationship_radar: /\brelationship radar\b|\b(?:haven.?t|need to) (?:reach|touch|check) (?:out|in|base)\b|\bwho should i (?:follow|reach|check)\b/i,
   drop_zone: /\bdrop zone\b|\bdump (?:this|that|it|a)\b|\bsave (?:this|that|it) for (?:later|me)\b|\broute (?:this|that|it)\b/i,
   nutrition: /\b(?:what|how many) (?:did i eat|calories|protein|macros)\b|\b(?:log|track) (?:my )?(?:food|meal|lunch|dinner|breakfast|snack)\b|\bmacros?\b|\bcalorie\b|\bi ate\b/i,
+  habit_streak: /\bhabit streak\b|\b(?:log|track) (?:my )?habits?\b|\bmark .{0,20}(?:done|habit)\b/i,
+  mood_tracker: /\b(?:log|track) (?:my )?mood\b|\bhow(?:'s| is) my (?:mood|energy)\b|\bmood tracker\b/i,
+  workout_log: /\bworkout log\b|\b(?:log|track) (?:my )?(?:workout|lift|gym|sets)\b|\bbench press\b|\bhow much (?:did i|can i) lift\b/i,
+  learning_queue: /\blearning queue\b|\bsave (?:this|that) (?:article|video|podcast|to (?:my )?queue)\b|\bwhat should i (?:read|watch|listen)\b/i,
+  weekly_review: /\bweekly (?:review|recap|focus)\b|\bhow was (?:my )?week\b|\bwhat (?:got done|slipped) this week\b/i,
+  networking_crm: /\bnetworking\b|\bi met\b|\bfollow up with\b|\bwho should i follow up\b/i,
+  sleep_tracker: /\bsleep tracker\b|\b(?:log|track) (?:my )?sleep\b|\bhow (?:did i|long did i) sleep\b|\bsleep debt\b/i,
+  pipeline_board: /\bpipeline\b|\b(?:job|deal|lead) (?:board|pipeline|status)\b|\bmove .{0,20}to (?:interview|offer)\b/i,
+  gratitude_journal: /\bgratitude\b|\b(?:i'?m|i am) grateful\b|\bgrateful for\b/i,
+  spending_snapshot: /\bspending snapshot\b|\b(?:log|track) (?:my )?(?:spend|spending|expense)\b|\bhow much (?:did i|have i) spent\b|\bweekly budget\b/i,
 }
 
 export interface MiniAppRequest {

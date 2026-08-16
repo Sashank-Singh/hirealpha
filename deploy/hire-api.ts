@@ -126,6 +126,35 @@ function mintMiniToken(phone: string, persona: Persona, kind: string): string | 
   return `${encoded}.${signMiniToken(encoded, secret)}`
 }
 
+/** Turn an existing unique index into a table UNIQUE constraint when missing. */
+async function ensureUniqueConstraint(
+  sql: SQL,
+  table: string,
+  constraint: string,
+  index: string,
+  columns: string,
+) {
+  const existing = await sql`
+    SELECT 1 FROM pg_constraint WHERE conname = ${constraint} LIMIT 1
+  `
+  if (existing.length) return
+  const unsafe = sql as SQL & { unsafe: (query: string) => Promise<unknown> }
+  try {
+    await unsafe.unsafe(
+      `ALTER TABLE ${table} ADD CONSTRAINT ${constraint} UNIQUE USING INDEX ${index}`,
+    )
+  } catch {
+    try {
+      await unsafe.unsafe(`ALTER TABLE ${table} ADD CONSTRAINT ${constraint} UNIQUE (${columns})`)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      if (!/already exists|duplicate/i.test(msg)) {
+        console.warn(`[hire] unique constraint ${constraint}`, msg)
+      }
+    }
+  }
+}
+
 /** Verify + decode a mini-app token. Returns null when missing/invalid/expired. */
 function verifyMiniToken(token: string): MiniToken | null {
   const secret = miniTokenSecret()
@@ -386,6 +415,121 @@ export async function ensureHireSchema(sql: SQL) {
   await sql`CREATE INDEX IF NOT EXISTS idx_hire_moods_user ON hire_moods (user_id, created_at DESC)`
 
   await sql`
+    CREATE TABLE IF NOT EXISTS hire_workouts (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES hire_users(id) ON DELETE CASCADE,
+      exercise TEXT NOT NULL,
+      sets INTEGER NOT NULL DEFAULT 1,
+      reps INTEGER NOT NULL DEFAULT 1,
+      weight REAL NOT NULL DEFAULT 0,
+      notes TEXT,
+      logged_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `
+  await sql`CREATE INDEX IF NOT EXISTS idx_hire_workouts_user ON hire_workouts (user_id, logged_at DESC)`
+
+  await sql`
+    CREATE TABLE IF NOT EXISTS hire_learning (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES hire_users(id) ON DELETE CASCADE,
+      title TEXT NOT NULL,
+      url TEXT,
+      kind TEXT NOT NULL DEFAULT 'article',
+      minutes INTEGER NOT NULL DEFAULT 10,
+      status TEXT NOT NULL DEFAULT 'queued',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `
+  await sql`CREATE INDEX IF NOT EXISTS idx_hire_learning_user ON hire_learning (user_id, created_at DESC)`
+
+  await sql`
+    CREATE TABLE IF NOT EXISTS hire_weekly_reviews (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES hire_users(id) ON DELETE CASCADE,
+      week_start TEXT NOT NULL,
+      done_text TEXT NOT NULL DEFAULT '',
+      slipped_text TEXT NOT NULL DEFAULT '',
+      focus_text TEXT NOT NULL DEFAULT '',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `
+  await sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_hire_weekly_reviews_week ON hire_weekly_reviews (user_id, week_start)`
+  await ensureUniqueConstraint(sql, 'hire_weekly_reviews', 'hire_weekly_reviews_user_week', 'idx_hire_weekly_reviews_week', 'user_id, week_start')
+
+  await sql`
+    CREATE TABLE IF NOT EXISTS hire_network (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES hire_users(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      where_met TEXT NOT NULL DEFAULT '',
+      context TEXT NOT NULL DEFAULT '',
+      last_touch TIMESTAMPTZ,
+      cadence_days INTEGER NOT NULL DEFAULT 14,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `
+  await sql`CREATE INDEX IF NOT EXISTS idx_hire_network_user ON hire_network (user_id, last_touch)`
+
+  await sql`
+    CREATE TABLE IF NOT EXISTS hire_sleep (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES hire_users(id) ON DELETE CASCADE,
+      sleep_date TEXT NOT NULL,
+      bedtime TEXT NOT NULL,
+      wake TEXT NOT NULL,
+      quality INTEGER NOT NULL DEFAULT 3,
+      note TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `
+  await sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_hire_sleep_day ON hire_sleep (user_id, sleep_date)`
+  await ensureUniqueConstraint(sql, 'hire_sleep', 'hire_sleep_user_night', 'idx_hire_sleep_day', 'user_id, sleep_date')
+
+  await sql`
+    CREATE TABLE IF NOT EXISTS hire_pipeline (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES hire_users(id) ON DELETE CASCADE,
+      title TEXT NOT NULL,
+      company TEXT NOT NULL DEFAULT '',
+      stage TEXT NOT NULL DEFAULT 'lead',
+      notes TEXT NOT NULL DEFAULT '',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `
+  await sql`CREATE INDEX IF NOT EXISTS idx_hire_pipeline_user ON hire_pipeline (user_id, updated_at DESC)`
+
+  await sql`
+    CREATE TABLE IF NOT EXISTS hire_gratitude (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES hire_users(id) ON DELETE CASCADE,
+      text TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `
+  await sql`CREATE INDEX IF NOT EXISTS idx_hire_gratitude_user ON hire_gratitude (user_id, created_at DESC)`
+
+  await sql`
+    CREATE TABLE IF NOT EXISTS hire_spending (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES hire_users(id) ON DELETE CASCADE,
+      amount REAL NOT NULL,
+      category TEXT NOT NULL DEFAULT 'other',
+      description TEXT NOT NULL DEFAULT '',
+      spent_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `
+  await sql`CREATE INDEX IF NOT EXISTS idx_hire_spending_user ON hire_spending (user_id, spent_at DESC)`
+
+  await sql`
+    CREATE TABLE IF NOT EXISTS hire_spending_budget (
+      user_id TEXT PRIMARY KEY REFERENCES hire_users(id) ON DELETE CASCADE,
+      weekly_budget REAL NOT NULL DEFAULT 400,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `
+
+  await sql`
     CREATE TABLE IF NOT EXISTS hire_user_locations (
       user_id TEXT NOT NULL REFERENCES hire_users(id) ON DELETE CASCADE,
       kind TEXT NOT NULL CHECK (kind IN ('current', 'home', 'work')),
@@ -470,27 +614,81 @@ function coordsUsable(lat: unknown, lng: unknown): lat is number {
   )
 }
 
+type AuthedUser = { id: string; email: string; name: string | null; timezone: string | null; phone: string | null }
+
 async function getUserByEmail(sql: SQL, email: string) {
   const rows = await sql`
     SELECT id, email, name, timezone, phone_e164 AS phone FROM hire_users WHERE email = ${email} LIMIT 1
   `
-  return (rows[0] as { id: string; email: string; name: string | null; timezone: string | null; phone: string | null } | undefined) ?? null
+  return (rows[0] as AuthedUser | undefined) ?? null
+}
+
+async function linkPhoneIfMissing(sql: SQL, user: AuthedUser, e164: string) {
+  if (user.phone || !e164) return user
+  try {
+    await sql`
+      UPDATE hire_users SET phone_e164 = ${e164}, updated_at = now()
+      WHERE id = ${user.id} AND phone_e164 IS NULL
+    `
+    user.phone = e164
+  } catch {
+    // Unique conflict: another account already owns this number.
+  }
+  return user
 }
 
 async function getUserByPhone(sql: SQL, phone: string) {
-  const e164 = normalizePhone(phone)
+  const raw = String(phone || '').trim()
+  if (raw.includes('@')) {
+    const byEmail = await getUserByEmail(sql, raw.toLowerCase())
+    if (byEmail) return byEmail
+  }
+  const e164 = normalizePhone(raw)
   if (!e164) return null
+  const last10 = e164.replace(/\D/g, '').slice(-10)
   const rows = await sql`
     SELECT id, email, name, timezone, phone_e164 AS phone FROM hire_users
     WHERE phone_e164 = ${e164}
-       OR right(regexp_replace(phone_e164, '[^0-9]', '', 'g'), 10)
-          = ${e164.replace(/\D/g, '').slice(-10)}
+       OR right(regexp_replace(coalesce(phone_e164, ''), '[^0-9]', '', 'g'), 10) = ${last10}
     LIMIT 1
   `
-  return (rows[0] as { id: string; email: string; name: string | null; timezone: string | null; phone: string | null } | undefined) ?? null
-}
+  const byPhone = (rows[0] as AuthedUser | undefined) ?? null
+  if (byPhone) return byPhone
 
-type AuthedUser = { id: string; email: string; name: string | null; timezone: string | null; phone: string | null }
+  const ticket = await sql`
+    SELECT email FROM hire_login_tickets
+    WHERE phone_e164 = ${e164}
+       OR right(regexp_replace(coalesce(phone_e164, ''), '[^0-9]', '', 'g'), 10) = ${last10}
+    ORDER BY created_at DESC
+    LIMIT 1
+  `
+  const ticketEmail = String((ticket[0] as { email?: string } | undefined)?.email || '')
+    .trim()
+    .toLowerCase()
+  if (ticketEmail.includes('@')) {
+    const fromTicket = await getUserByEmail(sql, ticketEmail)
+    if (fromTicket) return linkPhoneIfMissing(sql, fromTicket, e164)
+  }
+
+  const mem = await sql`
+    SELECT user_id AS id FROM hire_memories
+    WHERE key IN ('phone', 'phone_e164', 'imessage', 'email')
+      AND (
+        right(regexp_replace(value, '[^0-9]', '', 'g'), 10) = ${last10}
+        OR lower(btrim(value)) = ${raw.toLowerCase()}
+      )
+    LIMIT 1
+  `
+  const memId = (mem[0] as { id?: string } | undefined)?.id
+  if (memId) {
+    const urows = await sql`
+      SELECT id, email, name, timezone, phone_e164 AS phone FROM hire_users WHERE id = ${memId} LIMIT 1
+    `
+    const fromMem = (urows[0] as AuthedUser | undefined) ?? null
+    if (fromMem) return linkPhoneIfMissing(sql, fromMem, e164)
+  }
+  return null
+}
 
 /** Resolve the caller from either a signed mini token or a session email. */
 async function resolveAuthedUser(
@@ -536,6 +734,45 @@ function todayWindowUtc(timezone: string): { start: Date; end: Date } {
   const wallStart = Date.UTC(y!, mo! - 1, d!)
   const offset = tzOffsetMs(wallStart, tz)
   return { start: new Date(wallStart - offset), end: new Date(wallStart - offset + 86_400_000) }
+}
+
+function localDateStrInTz(d = new Date(), timezone?: string | null): string {
+  const tz = timezone || 'America/Los_Angeles'
+  try {
+    return new Intl.DateTimeFormat('en-CA', {
+      timeZone: tz,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(d)
+  } catch {
+    return new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'America/Los_Angeles',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(d)
+  }
+}
+
+function shiftDateStr(dateStr: string, days: number): string {
+  const [y, m, d] = dateStr.split('-').map(Number)
+  return new Date(Date.UTC(y || 1970, (m || 1) - 1, (d || 1) + days)).toISOString().slice(0, 10)
+}
+
+function mondayOfDateStr(dateStr: string): string {
+  const [y, m, d] = dateStr.split('-').map(Number)
+  const day = new Date(Date.UTC(y || 1970, (m || 1) - 1, d || 1)).getUTCDay()
+  const diff = day === 0 ? 6 : day - 1
+  return shiftDateStr(dateStr, -diff)
+}
+
+function weekDaysFromMonday(weekStart: string): string[] {
+  return Array.from({ length: 7 }, (_, i) => shiftDateStr(weekStart, i))
+}
+
+function userMonday(user: { timezone?: string | null }, d = new Date()): string {
+  return mondayOfDateStr(localDateStrInTz(d, user.timezone))
 }
 
 /** Same wall-clock (in the user's zone) one day/week later, as a UTC ISO string. */
@@ -998,15 +1235,40 @@ async function fetchGmail(access: string, query: string) {
   return lines.length ? `Email:\n${lines.join('\n')}` : 'No matching email found.'
 }
 
-async function fetchCalendar(access: string) {
-  const now = new Date()
-  const end = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000)
+function startOfLocalDay(timezone: string, dayOffset = 0): Date {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: timezone || 'UTC',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  }).formatToParts(new Date())
+  const get = (t: string) => parts.find((p) => p.type === t)?.value || '00'
+  const localNow = `${get('year')}-${get('month')}-${get('day')}T${get('hour')}:${get('minute')}:${get('second')}`
+  const ymd = new Date(
+    Date.UTC(Number(get('year')), Number(get('month')) - 1, Number(get('day')) + dayOffset),
+  )
+    .toISOString()
+    .slice(0, 10)
+  const offsetMs = Date.now() - Date.parse(localNow + 'Z')
+  return new Date(Date.parse(`${ymd}T00:00:00Z`) + offsetMs)
+}
+
+async function fetchCalendar(
+  access: string,
+  opts?: { timeMin?: Date; timeMax?: Date; maxResults?: number },
+) {
+  const now = opts?.timeMin || new Date()
+  const end = opts?.timeMax || new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000)
   const url = new URL('https://www.googleapis.com/calendar/v3/calendars/primary/events')
   url.searchParams.set('timeMin', now.toISOString())
   url.searchParams.set('timeMax', end.toISOString())
   url.searchParams.set('singleEvents', 'true')
   url.searchParams.set('orderBy', 'startTime')
-  url.searchParams.set('maxResults', '8')
+  url.searchParams.set('maxResults', String(opts?.maxResults || 8))
   const res = await fetch(url, { headers: { Authorization: `Bearer ${access}` } })
   if (!res.ok) return `Calendar error ${res.status}`
   const data = (await res.json()) as {
@@ -1061,13 +1323,13 @@ async function composioExecute(userId: string, tool: string, args: Record<string
 }
 
 function wantsEmail(text: string) {
-  return /\b(e-?mails?|inbox|gmail|unread)\b/i.test(text)
+  return /\b(e-?mails?|inbox|gmail|unread|debrief|digest|brief me)\b/i.test(text)
 }
 function wantsImportantEmail(text: string) {
-  return /\b(important|flagged|priority)\b/i.test(text)
+  return /\b(important|flagged|priority|debrief|digest|brief)\b/i.test(text)
 }
 function wantsCalendar(text: string) {
-  return /\b(calendar|meeting|meetings|schedule|free time|what.?s on|agenda|tomorrow|today|standup)\b/i.test(text)
+  return /\b(calendar|meeting|meetings|schedule|free time|what.?s on|agenda|tomorrow|today|standup|debrief|digest|brief)\b/i.test(text)
 }
 function wantsMaps(text: string) {
   return /\b(dinner|restaurants?|cafes?|bars?|coffee shops?|tonight|date night|places?|booth|maps|hangout|where (?:should|can) we)\b/i.test(
@@ -1264,7 +1526,12 @@ export async function runToolsForMessage(
   }
 
   if (wantsEmail(input.message) && can('gmail')) {
-    const query = wantsImportantEmail(input.message) ? 'is:important newer_than:14d' : 'newer_than:5d'
+    const query = /\b(debrief|digest|brief)\b/i.test(input.message)
+      ? '(newer_than:1d) OR (is:important newer_than:2d)'
+      : wantsImportantEmail(input.message)
+        ? 'is:important newer_than:14d'
+        : 'newer_than:5d'
+
     const access = await googleAccessToken(sql, input.userId)
     if (access) results.push(await fetchGmail(access, query))
     else {
@@ -1281,7 +1548,12 @@ export async function runToolsForMessage(
 
   if (wantsCalendar(input.message) && can('calendar')) {
     const access = await googleAccessToken(sql, input.userId)
-    if (access) results.push(await fetchCalendar(access))
+    const brief = /\b(debrief|digest|brief|today)\b/i.test(input.message)
+    const tz = input.timezone || 'America/Los_Angeles'
+    const calOpts = brief
+      ? { timeMin: startOfLocalDay(tz), timeMax: startOfLocalDay(tz, 2), maxResults: 20 }
+      : undefined
+    if (access) results.push(await fetchCalendar(access, calOpts))
     else {
       const c = await composioExecute(input.userId, 'GOOGLECALENDAR_FIND_EVENT', {
         max_results: 8,
@@ -1402,8 +1674,9 @@ async function digestPayload(
   const results = await runToolsForMessage(sql, {
     userId: user.id,
     persona,
-    message: 'calendar today and important email',
+    message: 'calendar today tomorrow inbox important email debrief',
     connected,
+    timezone: tz,
   })
   const calendarBlock = results.find(
     (t) => t.startsWith('Upcoming events:') || t.startsWith('No events'),
@@ -1415,25 +1688,19 @@ async function digestPayload(
       t.startsWith('No matching email'),
   )
 
-  const calendar = digestLines(calendarBlock).map((l) => {
-    const m = l.match(/^-\s+(\S+)\s+(.*)$/)
-    return m ? `${formatCalTime(m[1]!, tz)} · ${m[2]!}` : l.replace(/^-\s*/, '')
-  })
-  const emails = digestLines(emailBlock).slice(0, 5).map(formatMailLine)
+  const emails = digestLines(emailBlock).slice(0, 8).map(formatMailLine)
 
   const reminderRows = await sql`
     SELECT text, scheduled_at AS "scheduledAt" FROM hire_reminders
     WHERE user_id = ${user.id} AND persona = ${persona} AND status = 'pending'
     ORDER BY scheduled_at ASC LIMIT 8
   `
-  const reminders = (reminderRows as { text: string; scheduledAt: Date }[]).map((r) => ({
-    time: formatCalTime(new Date(r.scheduledAt).toISOString(), tz),
-    text: r.text.startsWith('[digest]')
-      ? r.text.slice(8).trim()
-      : r.text.startsWith('[poke]')
-        ? r.text.slice(6).trim()
-        : r.text,
-  }))
+  const reminders = (reminderRows as { text: string; scheduledAt: Date }[])
+    .filter((r) => !/^\[(judge|poke)\]/i.test(r.text))
+    .map((r) => ({
+      time: formatCalTime(new Date(r.scheduledAt).toISOString(), tz),
+      text: r.text.replace(/^\[digest\]/i, '').trim() || r.text,
+    }))
 
   const dateLabel = new Date().toLocaleDateString('en-US', {
     weekday: 'long',
@@ -1442,26 +1709,74 @@ async function digestPayload(
     timeZone: tz,
   })
 
+  const tomorrowYmd = startOfLocalDay(tz, 1).toLocaleDateString('en-CA', { timeZone: tz })
+  const eventYmd = (iso: string) => {
+    const raw = iso.includes('T') ? iso : `${iso}T12:00:00`
+    const d = new Date(raw)
+    return Number.isNaN(d.getTime()) ? '' : d.toLocaleDateString('en-CA', { timeZone: tz })
+  }
+  const todayCal: string[] = []
+  const tomorrowCal: string[] = []
+  for (const line of digestLines(calendarBlock)) {
+    const m = line.match(/^-\s+(\S+)\s+(.*)$/)
+    const label = m ? `${formatCalTime(m[1]!, tz)} · ${m[2]!}` : line.replace(/^-\s*/, '')
+    const day = m ? eventYmd(m[1]!) : ''
+    if (day === tomorrowYmd) tomorrowCal.push(label)
+    else todayCal.push(label)
+  }
+  const calendar = [...todayCal, ...tomorrowCal]
+
+  const loopRows = await sql`
+    SELECT title, due_at AS "dueAt" FROM hire_loops
+    WHERE user_id = ${user.id} AND status = 'open'
+    ORDER BY created_at DESC LIMIT 8
+  `
+  const loops = (loopRows as { title: string; dueAt: Date | null }[]).map((r) => {
+    const due = r.dueAt ? formatCalTime(new Date(r.dueAt).toISOString(), tz) : ''
+    return due ? `${r.title} · ${due}` : r.title
+  })
+
+  const hour = Number(
+    new Intl.DateTimeFormat('en-US', {
+      timeZone: tz,
+      hour: 'numeric',
+      hour12: false,
+    }).format(new Date()),
+  )
+  const wrapTitle = hour >= 16 ? 'Evening debrief' : 'Morning brief'
+
   const section = (title: string, items: string[]) =>
-    items.length ? `${title}\n${items.map((i) => `- ${i}`).join('\n')}` : null
+    items.length ? `${title}\n${items.join('\n')}` : null
 
   const text = [
-    `${PERSONA_LABEL[persona]} · Morning brief · ${dateLabel}`,
-    section('On your calendar', calendar),
+    `${PERSONA_LABEL[persona]} · ${wrapTitle} · ${dateLabel}`,
+    section('Today', todayCal),
+    section('Tomorrow', tomorrowCal),
     section('Important mail', emails),
     section('Reminders', reminders.map((r) => `${r.time} · ${r.text}`)),
+    section('Open loops', loops),
   ]
     .filter(Boolean)
     .join('\n\n')
 
-  return { date: dateLabel, calendar, emails, reminders, text }
+  return { date: dateLabel, calendar, emails, reminders, loops, tomorrow: tomorrowCal, text }
 }
 
 /** Mini apps each hire can offer, mirroring src/agents/skills.ts. */
 const PERSONA_MINI_APPS: Record<Persona, string[]> = {
-  friend: ['digest', 'check_in', 'pick_night', 'spiral_options', 'open_loops', 'relationship_radar', 'drop_zone', 'nutrition'],
-  coworker: ['digest', 'approve_send', 'pick_slot', 'standup_paste', 'linear_triage', 'open_loops', 'meeting_mode', 'drop_zone'],
-  cofounder: ['digest', 'kill_keep_park', 'hire_decision', 'weekly_focus', 'approve_investor_note', 'decision_ledger', 'relationship_radar', 'drop_zone', 'open_loops'],
+  friend: [
+    'digest', 'check_in', 'pick_night', 'spiral_options', 'open_loops', 'relationship_radar', 'drop_zone',
+    'nutrition', 'habit_streak', 'mood_tracker', 'workout_log', 'learning_queue', 'weekly_review',
+    'sleep_tracker', 'gratitude_journal', 'spending_snapshot',
+  ],
+  coworker: [
+    'digest', 'approve_send', 'pick_slot', 'standup_paste', 'linear_triage', 'open_loops', 'meeting_mode', 'drop_zone',
+    'learning_queue', 'weekly_review', 'networking_crm',
+  ],
+  cofounder: [
+    'digest', 'kill_keep_park', 'hire_decision', 'weekly_review', 'approve_investor_note', 'decision_ledger',
+    'relationship_radar', 'drop_zone', 'open_loops', 'networking_crm', 'pipeline_board', 'spending_snapshot',
+  ],
 }
 
 /** UTC offset in ms for an IANA zone at a given instant. */
@@ -1570,32 +1885,68 @@ function parseStandupClock(raw: string | undefined): { hour: number; minute: num
 }
 
 export const POKE_MARKER = '[poke]'
+export const JUDGE_MARKER = '[judge]'
 
+async function upsertContext(
+  sql: SQL,
+  userId: string,
+  persona: Persona,
+  patch: Record<string, unknown>,
+) {
+  const fields = await loadContext(sql, userId, persona)
+  const next = { ...fields, ...patch }
+  await sql`
+    INSERT INTO hire_context (user_id, persona, fields, updated_at)
+    VALUES (${userId}, ${persona}, ${JSON.stringify(next)}, now())
+    ON CONFLICT (user_id, persona)
+    DO UPDATE SET fields = ${JSON.stringify(next)}, updated_at = now()
+  `
+  return next as Record<string, string>
+
+async function ensureJudgeTick(
+  sql: SQL,
+  userId: string,
+  persona: Persona,
+  text: string,
+  scheduledAt: string,
+  recurrence: 'daily' | 'weekly',
+  timezone: string,
+) {
+  const existing = await sql`
+    SELECT id FROM hire_reminders
+    WHERE user_id = ${userId} AND persona = ${persona} AND text = ${text}
+      AND (status = 'pending' OR recurrence = ${recurrence})
+    LIMIT 1
+  `
+  if (existing[0]) return
+  await sql`
+    INSERT INTO hire_reminders (id, user_id, persona, text, scheduled_at, recurrence, timezone, status)
+    VALUES (${crypto.randomUUID()}, ${userId}, ${persona}, ${text}, ${scheduledAt}, ${recurrence}, ${timezone}, 'pending')
+  `
+}
+
+/** Heartbeats that wake the judgment loop. Canned poke copy is not sent. */
 async function armPokes(
   sql: SQL,
   user: { id: string; timezone: string | null },
   persona: Persona,
   context: Record<string, string>,
 ) {
-  const existing = await sql`
-    SELECT id FROM hire_reminders
-    WHERE user_id = ${user.id} AND persona = ${persona} AND status = 'pending' AND text LIKE ${POKE_MARKER + '%'}
-    LIMIT 1
-  `
-  if (existing[0]) return
   const tz = context.timezone || user.timezone || 'America/Los_Angeles'
   if (persona === 'friend') {
-    await sql`
-      INSERT INTO hire_reminders (id, user_id, persona, text, scheduled_at, recurrence, timezone, status)
-      VALUES (
-        ${crypto.randomUUID()}, ${user.id}, ${persona},
-        ${POKE_MARKER + 'Want a 9pm debrief or space tonight?'},
-        ${nextLocalTimeUtc(tz, 21, 0)}, 'daily', ${tz}, 'pending'
-      )
+    const digest = await sql`
+      SELECT id FROM hire_reminders
+      WHERE user_id = ${user.id} AND persona = ${persona}
+        AND text LIKE '[digest]%'
+        AND (status = 'pending' OR recurrence = 'daily')
+      LIMIT 1
     `
-    return
-  }
-  if (persona === 'coworker') {
+    if (!digest[0]) {
+      await ensureJudgeTick(sql, user.id, persona, `${JUDGE_MARKER}morning`, nextLocalTimeUtc(tz, 8, 0), 'daily', tz)
+    }
+    await ensureJudgeTick(sql, user.id, persona, `${JUDGE_MARKER}afternoon`, nextLocalTimeUtc(tz, 17, 0), 'daily', tz)
+    await ensureJudgeTick(sql, user.id, persona, `${JUDGE_MARKER}evening`, nextLocalTimeUtc(tz, 21, 0), 'daily', tz)
+  } else if (persona === 'coworker') {
     const clock = parseStandupClock(context.standup_time)
     let minute = clock.minute - 12
     let hour = clock.hour
@@ -1603,27 +1954,215 @@ async function armPokes(
       minute += 60
       hour = (hour + 23) % 24
     }
-    await sql`
-      INSERT INTO hire_reminders (id, user_id, persona, text, scheduled_at, recurrence, timezone, status)
-      VALUES (
-        ${crypto.randomUUID()}, ${user.id}, ${persona},
-        ${POKE_MARKER + 'Standup in 12. Send raw notes if you want bullets.'},
-        ${nextLocalTimeUtc(tz, hour, minute)}, 'daily', ${tz}, 'pending'
-      )
-    `
-    return
-  }
-  const focus = (context.weekly_focus || '').trim().slice(0, 80)
-  const text = focus
-    ? `${POKE_MARKER}What's the real decision this week? You wrote: ${focus}`
-    : `${POKE_MARKER}What's the real decision this week?`
-  await sql`
-    INSERT INTO hire_reminders (id, user_id, persona, text, scheduled_at, recurrence, timezone, status)
-    VALUES (
-      ${crypto.randomUUID()}, ${user.id}, ${persona}, ${text},
-      ${nextWeekdayLocalUtc(tz, 0, 18, 0)}, 'weekly', ${tz}, 'pending'
+    await ensureJudgeTick(
+      sql,
+      user.id,
+      persona,
+      `${JUDGE_MARKER}standup`,
+      nextLocalTimeUtc(tz, hour, minute),
+      'daily',
+      tz,
     )
+  } else {
+    await ensureJudgeTick(
+      sql,
+      user.id,
+      persona,
+      `${JUDGE_MARKER}weekly`,
+      nextWeekdayLocalUtc(tz, 0, 18, 0),
+      'weekly',
+      tz,
+    )
+  }
+  await sql`
+    DELETE FROM hire_reminders
+    WHERE user_id = ${user.id} AND persona = ${persona} AND text LIKE ${POKE_MARKER + '%'}
   `
+  if (!context.proactive || !context.quiet_hours) {
+    await upsertContext(sql, user.id, persona, {
+      proactive: context.proactive || 'on',
+      quiet_hours: context.quiet_hours || '22:00-08:00',
+    })
+  }
+}
+
+function sleepHoursBetween(bedtime: string, wake: string): number {
+  const [bh, bm] = bedtime.split(':').map(Number)
+  const [wh, wm] = wake.split(':').map(Number)
+  if ([bh, bm, wh, wm].some((n) => Number.isNaN(n))) return 0
+  let mins = (wh || 0) * 60 + (wm || 0) - ((bh || 0) * 60 + (bm || 0))
+  if (mins <= 0) mins += 24 * 60
+  return Math.round((mins / 60) * 10) / 10
+}
+
+function minutesAgo(iso: string | Date | null | undefined): number | null {
+  if (!iso) return null
+  const t = new Date(iso).getTime()
+  if (Number.isNaN(t)) return null
+  return Math.max(0, Math.round((Date.now() - t) / 60_000))
+}
+
+async function judgmentStatePayload(
+  sql: SQL,
+  user: { id: string; timezone: string | null; name?: string | null },
+  persona: Persona,
+  tick: string,
+) {
+  const tz = user.timezone || 'America/Los_Angeles'
+  const context = await loadContext(sql, user.id, persona)
+  const today = localDateStrInTz(new Date(), tz)
+  const weekStart = userMonday(user)
+  const weekEnd = shiftDateStr(weekStart, 7)
+  const localTime = new Intl.DateTimeFormat('en-CA', {
+    timeZone: tz,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).format(new Date()).replace(', ', 'T')
+  const weekday = new Intl.DateTimeFormat('en-US', { timeZone: tz, weekday: 'long' }).format(new Date())
+
+  const inbound = await sql`
+    SELECT last_inbound_at AS "lastInboundAt" FROM hire_roster
+    WHERE user_id = ${user.id} AND persona = ${persona} LIMIT 1
+  `
+  const lastInboundAt = (inbound[0] as { lastInboundAt?: Date | null } | undefined)?.lastInboundAt || null
+
+  const nutrGoals = await sql`
+    SELECT calorie_goal AS "calorieGoal", protein_goal AS "proteinGoal"
+    FROM hire_nutrition_goals WHERE user_id = ${user.id} LIMIT 1
+  `
+  const nutrToday = await sql`
+    SELECT count(*)::int AS meals, coalesce(sum(calories), 0)::real AS calories, coalesce(sum(protein), 0)::real AS protein
+    FROM hire_nutrition_logs
+    WHERE user_id = ${user.id} AND eaten_at >= ${today}::date AND eaten_at < ${shiftDateStr(today, 1)}::date
+  `
+  const g = (nutrGoals[0] as { calorieGoal?: number; proteinGoal?: number } | undefined) || {}
+  const n = (nutrToday[0] as { meals?: number; calories?: number; protein?: number } | undefined) || {}
+
+  const habitRows = await sql`
+    SELECT id, name FROM hire_habits WHERE user_id = ${user.id} ORDER BY created_at ASC LIMIT 12
+  `
+  const habitLogs = await sql`
+    SELECT habit_id AS "habitId", date FROM hire_habit_logs
+    WHERE user_id = ${user.id} AND date >= ${shiftDateStr(today, -14)}
+  `
+  const logMap = new Map<string, Set<string>>()
+  for (const lr of habitLogs as Array<{ habitId: string; date: string }>) {
+    if (!logMap.has(lr.habitId)) logMap.set(lr.habitId, new Set())
+    logMap.get(lr.habitId)!.add(String(lr.date).slice(0, 10))
+  }
+  const habits = (habitRows as Array<{ id: string; name: string }>).map((h) => {
+    const dates = logMap.get(h.id) || new Set()
+    let streak = 0
+    const startEmpty = !dates.has(today)
+    for (let i = startEmpty ? 1 : 0; i < 400; i++) {
+      const ds = shiftDateStr(today, -i)
+      if (dates.has(ds)) streak++
+      else break
+    }
+    return { name: h.name, streak, todayDone: dates.has(today) }
+  })
+
+  const sleepRows = await sql`
+    SELECT sleep_date AS "sleepDate", bedtime, wake, quality
+    FROM hire_sleep WHERE user_id = ${user.id}
+    ORDER BY sleep_date DESC LIMIT 1
+  `
+  const srow = sleepRows[0] as { sleepDate?: string; bedtime?: string; wake?: string; quality?: number } | undefined
+  const sleep = srow?.bedtime && srow?.wake
+    ? { hours: sleepHoursBetween(srow.bedtime, srow.wake), quality: srow.quality || 3, date: String(srow.sleepDate).slice(0, 10) }
+    : null
+
+  const duePeople = await sql`
+    SELECT name, context, last_touch AS "lastTouch", cadence_days AS "cadenceDays"
+    FROM hire_network WHERE user_id = ${user.id}
+    ORDER BY coalesce(last_touch, '1970-01-01'::timestamptz) ASC LIMIT 8
+  `
+  const peopleDue = (duePeople as Array<{ name: string; context: string; lastTouch: Date | null; cadenceDays: number }>)
+    .map((p) => {
+      const days = p.lastTouch ? Math.floor((Date.now() - new Date(p.lastTouch).getTime()) / 86400000) : 999
+      return { name: p.name, days, note: p.context || undefined, due: days >= (p.cadenceDays || 14) }
+    })
+    .filter((p) => p.due)
+    .slice(0, 3)
+    .map(({ name, days, note }) => ({ name, days, note }))
+
+  const radar = await sql`
+    SELECT name, last_touch_at AS "lastTouch", cadence_days AS "cadenceDays"
+    FROM hire_relationships WHERE user_id = ${user.id} LIMIT 8
+  `
+  for (const p of radar as Array<{ name: string; lastTouch: Date | null; cadenceDays: number }>) {
+    const days = p.lastTouch ? Math.floor((Date.now() - new Date(p.lastTouch).getTime()) / 86400000) : 999
+    if (days >= (p.cadenceDays || 14) && !peopleDue.some((x) => x.name === p.name)) {
+      peopleDue.push({ name: p.name, days })
+    }
+  }
+
+  const spendRow = await sql`
+    SELECT coalesce(sum(amount), 0)::real AS total FROM hire_spending
+    WHERE user_id = ${user.id} AND spent_at >= ${weekStart}::date AND spent_at < ${weekEnd}::date
+  `
+  const budgetRow = await sql`SELECT weekly_budget AS "weeklyBudget" FROM hire_spending_budget WHERE user_id = ${user.id}`
+  const loops = await sql`
+    SELECT title FROM hire_loops WHERE user_id = ${user.id} AND status = 'open' ORDER BY created_at DESC LIMIT 5
+  `
+
+  let calendar: string[] = []
+  let mail: string[] = []
+  if (tick === 'digest' || tick === 'morning') {
+    try {
+      const payload = await digestPayload(sql, user, persona)
+      calendar = (payload.calendar || []).slice(0, 4)
+      mail = (payload.emails || []).slice(0, 3)
+    } catch (err) {
+      console.warn('[judgment] digest slice failed', err)
+    }
+  }
+
+  const pausedUntil = String(context.paused_until || '')
+  let proactive = String(context.proactive || 'on')
+  if (proactive === 'paused' && pausedUntil && new Date(pausedUntil).getTime() < Date.now()) {
+    proactive = 'on'
+  }
+
+  return {
+    persona,
+    name: user.name || null,
+    localTime,
+    weekday,
+    timezone: tz,
+    tick,
+    proactive,
+    quietHours: String(context.quiet_hours || '22:00-08:00'),
+    lastInboundMinutesAgo: minutesAgo(lastInboundAt),
+    lastProactiveMinutesAgo: minutesAgo(context.last_proactive_at),
+    lastProactiveTopic: context.last_proactive_topic || null,
+    unansweredProactive: Math.max(0, Number(context.unanswered_proactive) || 0),
+    unansweredToday:
+      String(context.last_proactive_day || '') === today
+        ? Math.max(0, Number(context.unanswered_day_count) || 0)
+        : 0,
+    nutrition: {
+      calories: Math.round(Number(n.calories) || 0),
+      protein: Math.round(Number(n.protein) || 0),
+      calorieGoal: Math.round(Number(g.calorieGoal) || 2200),
+      proteinGoal: Math.round(Number(g.proteinGoal) || 150),
+      meals: Number(n.meals) || 0,
+    },
+    habits,
+    sleep,
+    peopleDue: peopleDue.slice(0, 3),
+    spend: {
+      weekTotal: Math.round(Number((spendRow[0] as { total?: number })?.total) || 0),
+      weeklyBudget: Math.round(Number((budgetRow[0] as { weeklyBudget?: number })?.weeklyBudget) || 400),
+    },
+    loops: (loops as Array<{ title: string }>).map((l) => l.title),
+    calendar,
+    mail,
+  }
 }
 
 async function touchInbound(sql: SQL, phone: string, persona: Persona) {
@@ -1640,10 +2179,13 @@ async function touchInbound(sql: SQL, phone: string, persona: Persona) {
     UPDATE hire_roster SET last_inbound_at = now()
     WHERE user_id = ${user.id} AND persona = ${persona}
   `
-  if (!first) return { armed: false, first: false }
   const context = await loadContext(sql, user.id, persona)
+  await upsertContext(sql, user.id, persona, {
+    unanswered_proactive: '0',
+    unanswered_day_count: '0',
+  })
   await armPokes(sql, user, persona, context)
-  return { armed: true, first: true }
+  return { armed: true, first }
 }
 
 function splitList(raw: string | undefined) {
@@ -1758,6 +2300,7 @@ async function livePayload(sql: SQL, phone: string, persona: Persona) {
       email: null as string | null,
       name: null as string | null,
       timezone: null as string | null,
+      lastInboundAt: null as string | null,
     }
   }
   const roster = await loadRoster(sql, user.id)
@@ -1768,6 +2311,15 @@ async function livePayload(sql: SQL, phone: string, persona: Persona) {
     : []
   const memories = hired ? await loadMemories(sql, user.id, persona, 12) : []
   const active = hired ? await pickActiveLocation(sql, user.id) : null
+  let lastInboundAt: string | null = null
+  if (hired) {
+    const inbound = await sql`
+      SELECT last_inbound_at AS "lastInboundAt" FROM hire_roster
+      WHERE user_id = ${user.id} AND persona = ${persona} LIMIT 1
+    `
+    const at = (inbound[0] as { lastInboundAt: Date | null } | undefined)?.lastInboundAt
+    lastInboundAt = at ? new Date(at).toISOString() : null
+  }
   return {
     found: true,
     hired,
@@ -1778,6 +2330,7 @@ async function livePayload(sql: SQL, phone: string, persona: Persona) {
     name: user.name,
     timezone: user.timezone,
     userId: user.id,
+    lastInboundAt,
     location: active
       ? { kind: active.kind, label: locationLabel(active), label_text: active.label }
       : null,
@@ -2429,6 +2982,10 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
             ${nextLocalTimeUtc(tz, 8, 0)}, 'daily', ${tz}, 'pending')
         `
       }
+      await sql`
+        DELETE FROM hire_reminders
+        WHERE user_id = ${user!.id} AND persona = ${persona} AND text = ${JUDGE_MARKER + 'morning'}
+      `
     }
 
     return json({ ok: true, features: requested, setup: next, setupDone })
@@ -2804,6 +3361,78 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     return json({ ...estimate, logged: true, id })
   }
 
+  if (path === '/api/internal/workouts' && req.method === 'POST') {
+    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
+    const body = (await req.json().catch(() => ({}))) as { phone?: string; persona?: string; text?: string }
+    if (!body.phone || !isPersona(body.persona || '') || !String(body.text || '').trim()) {
+      return json({ error: 'phone, persona, and text required' }, 400)
+    }
+    const user = await getUserByPhone(sql, body.phone)
+    if (!user) return json({ error: 'User not found' }, 404)
+    const parsed = parseWorkoutText(String(body.text))
+    if (!parsed) return json({ ok: false, logged: false, error: 'Could not parse workout' })
+    const id = crypto.randomUUID()
+    await sql`
+      INSERT INTO hire_workouts (id, user_id, exercise, sets, reps, weight, notes)
+      VALUES (${id}, ${user.id}, ${parsed.exercise}, ${parsed.sets}, ${parsed.reps}, ${parsed.weight}, NULL)
+    `
+    return json({ ok: true, logged: true, id, ...parsed })
+  }
+
+  if (path === '/api/internal/sleep' && req.method === 'POST') {
+    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
+    const body = (await req.json().catch(() => ({}))) as { phone?: string; persona?: string; text?: string }
+    if (!body.phone || !isPersona(body.persona || '') || !String(body.text || '').trim()) {
+      return json({ error: 'phone, persona, and text required' }, 400)
+    }
+    const user = await getUserByPhone(sql, body.phone)
+    if (!user) return json({ error: 'User not found' }, 404)
+    const parsed = parseSleepText(String(body.text))
+    if (!parsed) return json({ ok: false, logged: false, error: 'Could not parse sleep times' })
+    const sleepDate = shiftDateStr(localDateStrInTz(new Date(), user.timezone), -1)
+    const id = crypto.randomUUID()
+    await sql`
+      INSERT INTO hire_sleep (id, user_id, sleep_date, bedtime, wake, quality, note)
+      VALUES (${id}, ${user.id}, ${sleepDate}, ${parsed.bedtime}, ${parsed.wake}, 3, NULL)
+      ON CONFLICT (user_id, sleep_date) DO UPDATE SET
+        bedtime = excluded.bedtime, wake = excluded.wake
+    `
+    return json({ ok: true, logged: true, id, sleepDate, ...parsed })
+  }
+
+  if (path === '/api/internal/gratitude' && req.method === 'POST') {
+    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
+    const body = (await req.json().catch(() => ({}))) as { phone?: string; persona?: string; text?: string }
+    if (!body.phone || !isPersona(body.persona || '') || !String(body.text || '').trim()) {
+      return json({ error: 'phone, persona, and text required' }, 400)
+    }
+    const user = await getUserByPhone(sql, body.phone)
+    if (!user) return json({ error: 'User not found' }, 404)
+    const parsed = parseGratitudeText(String(body.text))
+    if (!parsed) return json({ ok: false, logged: false, error: 'Could not parse gratitude' })
+    const id = crypto.randomUUID()
+    await sql`INSERT INTO hire_gratitude (id, user_id, text) VALUES (${id}, ${user.id}, ${parsed})`
+    return json({ ok: true, logged: true, id, text: parsed })
+  }
+
+  if (path === '/api/internal/spending' && req.method === 'POST') {
+    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
+    const body = (await req.json().catch(() => ({}))) as { phone?: string; persona?: string; text?: string }
+    if (!body.phone || !isPersona(body.persona || '') || !String(body.text || '').trim()) {
+      return json({ error: 'phone, persona, and text required' }, 400)
+    }
+    const user = await getUserByPhone(sql, body.phone)
+    if (!user) return json({ error: 'User not found' }, 404)
+    const parsed = parseSpendText(String(body.text))
+    if (!parsed) return json({ ok: false, logged: false, error: 'Could not parse spend' })
+    const id = crypto.randomUUID()
+    await sql`
+      INSERT INTO hire_spending (id, user_id, amount, category, description)
+      VALUES (${id}, ${user.id}, ${parsed.amount}, ${parsed.category}, ${parsed.description})
+    `
+    return json({ ok: true, logged: true, id, ...parsed })
+  }
+
   if (path === '/api/internal/digest' && req.method === 'GET') {
     if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
     const phone = url.searchParams.get('phone') || ''
@@ -2813,6 +3442,100 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     if (!user) return json({ error: 'User not found' }, 404)
     const payload = await digestPayload(sql, user, persona)
     return json({ ...payload, cardUrl: `${appBase(req)}/app/mini/${persona}/digest` })
+  }
+
+  if (path === '/api/internal/judgment-state' && req.method === 'GET') {
+    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
+    const phone = url.searchParams.get('phone') || ''
+    const persona = url.searchParams.get('persona') || ''
+    const tick = url.searchParams.get('tick') || 'judge'
+    if (!phone || !isPersona(persona)) return json({ error: 'phone and persona required' }, 400)
+    const user = await getUserByPhone(sql, phone)
+    if (!user) return json({ error: 'User not found' }, 404)
+    const context = await loadContext(sql, user.id, persona)
+    await armPokes(sql, user, persona, context)
+    const payload = await judgmentStatePayload(sql, user, persona, tick)
+    return json(payload)
+  }
+
+  if (path === '/api/internal/proactive' && req.method === 'POST') {
+    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
+    const body = (await req.json().catch(() => ({}))) as {
+      phone?: string
+      persona?: string
+      proactive?: string
+      quietHours?: string
+      pausedUntil?: string | null
+      pauseToday?: boolean
+    }
+    const persona = body.persona || ''
+    if (!body.phone || !isPersona(persona)) {
+      return json({ error: 'phone and persona required' }, 400)
+    }
+    const user = await getUserByPhone(sql, body.phone)
+    if (!user) return json({ error: 'User not found' }, 404)
+    const patch: Record<string, unknown> = {}
+    const mode = String(body.proactive || '').toLowerCase()
+    if (mode === 'on' || mode === 'paused' || mode === 'off') patch.proactive = mode
+    const quiet = String(body.quietHours || '').trim()
+    if (/^\d{1,2}:\d{2}\s*-\s*\d{1,2}:\d{2}$/.test(quiet)) {
+      patch.quiet_hours = quiet.replace(/\s+/g, '')
+    }
+    if (body.pausedUntil === null || body.pausedUntil === '') {
+      patch.paused_until = ''
+    } else if (body.pausedUntil && !Number.isNaN(new Date(body.pausedUntil).getTime())) {
+      patch.paused_until = new Date(body.pausedUntil).toISOString()
+    }
+    if (mode === 'on' || mode === 'off') patch.paused_until = ''
+    if (body.pauseToday) {
+      patch.proactive = 'paused'
+      const tz = user.timezone || 'America/Los_Angeles'
+      patch.paused_until = nextLocalTimeUtc(tz, 0, 0)
+    }
+    const fields = await upsertContext(sql, user.id, persona, patch)
+    return json({
+      ok: true,
+      proactive: fields.proactive || 'on',
+      quietHours: fields.quiet_hours || '22:00-08:00',
+      pausedUntil: fields.paused_until || null,
+    })
+  }
+
+  if (path === '/api/internal/proactive/sent' && req.method === 'POST') {
+    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
+    const body = (await req.json().catch(() => ({}))) as {
+      phone?: string
+      persona?: string
+      topic?: string
+      freeze?: boolean
+    }
+    const persona = body.persona || ''
+    if (!body.phone || !isPersona(persona)) {
+      return json({ error: 'phone and persona required' }, 400)
+    }
+    const user = await getUserByPhone(sql, body.phone)
+    if (!user) return json({ error: 'User not found' }, 404)
+    const tz = user.timezone || 'America/Los_Angeles'
+    const today = localDateStrInTz(new Date(), tz)
+    const fields = await loadContext(sql, user.id, persona)
+    if (body.freeze) {
+      await upsertContext(sql, user.id, persona, {
+        unanswered_proactive: '2',
+        last_proactive_topic: 'blocked',
+      })
+      return json({ ok: true, frozen: true })
+    }
+    const prevUnanswered = Math.max(0, Number(fields.unanswered_proactive) || 0)
+    const sameDay = String(fields.last_proactive_day || '') === today
+    const dayCount = sameDay ? Math.max(0, Number(fields.unanswered_day_count) || 0) : 0
+    await upsertContext(sql, user.id, persona, {
+      last_proactive_at: new Date().toISOString(),
+      last_proactive_topic: String(body.topic || 'check_in').slice(0, 40),
+      last_proactive_day: today,
+      unanswered_proactive: String(prevUnanswered + 1),
+      unanswered_day_count: String(dayCount + 1),
+    })
+    return json({ ok: true })
   }
 
   if (path === '/api/internal/reminders' && req.method === 'POST') {
@@ -2954,12 +3677,14 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
       SELECT id, name, emoji, created_at AS "createdAt"
       FROM hire_habits WHERE user_id = ${user!.id} ORDER BY created_at ASC
     `
-    // Fetch last 7 days of logs for streak + recentDays
-    const sevenDaysAgo = new Date()
-    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7)
+    const tz = user!.timezone || 'America/Los_Angeles'
+    const today = localDateStrInTz(new Date(), tz)
+    const weekStart = mondayOfDateStr(today)
+    const weekDays = weekDaysFromMonday(weekStart)
+    const cutoff = shiftDateStr(today, -400)
     const logRows = await sql`
       SELECT habit_id AS "habitId", date FROM hire_habit_logs
-      WHERE user_id = ${user!.id} AND date >= ${sevenDaysAgo.toISOString().slice(0, 10)}
+      WHERE user_id = ${user!.id} AND date >= ${cutoff}
     `
     const logMap = new Map<string, Set<string>>()
     for (const lr of logRows as Array<{ habitId: string; date: string }>) {
@@ -2968,18 +3693,15 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     }
     const habits = (rows as Array<{ id: string; name: string; emoji: string; createdAt: string }>).map((h) => {
       const dates = logMap.get(h.id) || new Set()
-      // Calculate streak: count consecutive days ending today or yesterday
+      let cursor = dates.has(today) ? today : shiftDateStr(today, -1)
       let streak = 0
-      const today = new Date()
-      for (let i = 0; i < 365; i++) {
-        const d = new Date(today)
-        d.setDate(d.getDate() - i)
-        const ds = d.toISOString().slice(0, 10)
-        if (dates.has(ds)) { streak++ } else { break }
+      while (dates.has(cursor)) {
+        streak++
+        cursor = shiftDateStr(cursor, -1)
       }
-      return { ...h, streak, recentDays: [...dates].sort() }
+      return { ...h, streak, recentDays: weekDays.filter((d) => dates.has(d)) }
     })
-    return json({ habits })
+    return json({ habits, weekDays, weekStart })
   }
 
   if (path === '/api/habits' && req.method === 'POST') {
@@ -3065,5 +3787,576 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     return json({ ok: true, id })
   }
 
+  /* ---- Workouts ---- */
+  if (path === '/api/workouts' && req.method === 'GET') {
+    const { user, error } = await resolveAuthedUser(sql, {
+      token: url.searchParams.get('t') || undefined,
+      email: url.searchParams.get('email') || undefined,
+    })
+    if (error) return error
+    const logs = await sql`
+      SELECT id, exercise, sets, reps, weight, notes, logged_at AS "loggedAt"
+      FROM hire_workouts WHERE user_id = ${user!.id}
+      ORDER BY logged_at DESC LIMIT 40
+    `
+    const prRows = await sql`
+      SELECT DISTINCT ON (lower(exercise)) exercise, weight, reps, logged_at AS "loggedAt"
+      FROM hire_workouts WHERE user_id = ${user!.id} AND weight > 0
+      ORDER BY lower(exercise), weight DESC, reps DESC
+    `
+    return json({ logs, prs: prRows })
+  }
+
+  if (path === '/api/workouts' && req.method === 'POST') {
+    const body = (await req.json().catch(() => ({}))) as {
+      token?: string; email?: string; exercise?: string; sets?: number; reps?: number; weight?: number; notes?: string
+    }
+    const exercise = String(body.exercise || '').trim().slice(0, 80)
+    if (!exercise) return json({ error: 'exercise required' }, 400)
+    const { user, error } = await resolveAuthedUser(sql, { token: body.token, email: body.email })
+    if (error) return error
+    const id = crypto.randomUUID()
+    const sets = Math.max(1, Math.min(20, Math.round(body.sets || 1)))
+    const reps = Math.max(1, Math.min(100, Math.round(body.reps || 1)))
+    const weight = Math.max(0, Number(body.weight) || 0)
+    const notes = String(body.notes || '').trim().slice(0, 300) || null
+    await sql`
+      INSERT INTO hire_workouts (id, user_id, exercise, sets, reps, weight, notes)
+      VALUES (${id}, ${user!.id}, ${exercise}, ${sets}, ${reps}, ${weight}, ${notes})
+    `
+    return json({ ok: true, id })
+  }
+
+  if (path.startsWith('/api/workouts/') && req.method === 'POST') {
+    const body = (await req.json().catch(() => ({}))) as { token?: string; email?: string; _delete?: boolean }
+    if (!body._delete) return json({ error: 'Not found' }, 404)
+    const id = path.split('/')[3]
+    if (!id) return json({ error: 'id required' }, 400)
+    const { user, error } = await resolveAuthedUser(sql, { token: body.token, email: body.email })
+    if (error) return error
+    await sql`DELETE FROM hire_workouts WHERE id = ${id} AND user_id = ${user!.id}`
+    return json({ ok: true })
+  }
+
+  /* ---- Learning queue ---- */
+  if (path === '/api/learning' && req.method === 'GET') {
+    const { user, error } = await resolveAuthedUser(sql, {
+      token: url.searchParams.get('t') || undefined,
+      email: url.searchParams.get('email') || undefined,
+    })
+    if (error) return error
+    const items = await sql`
+      SELECT id, title, url, kind, minutes, status, created_at AS "createdAt"
+      FROM hire_learning WHERE user_id = ${user!.id}
+      ORDER BY CASE WHEN status = 'queued' THEN 0 ELSE 1 END, minutes ASC, created_at DESC
+    `
+    return json({ items })
+  }
+
+  if (path === '/api/learning' && req.method === 'POST') {
+    const body = (await req.json().catch(() => ({}))) as {
+      token?: string; email?: string; title?: string; url?: string; kind?: string; minutes?: number
+    }
+    const title = String(body.title || '').trim().slice(0, 160)
+    if (!title) return json({ error: 'title required' }, 400)
+    const { user, error } = await resolveAuthedUser(sql, { token: body.token, email: body.email })
+    if (error) return error
+    const kind = ['article', 'video', 'podcast'].includes(String(body.kind)) ? String(body.kind) : 'article'
+    const minutes = Math.max(1, Math.min(240, Math.round(body.minutes || 10)))
+    const itemUrl = String(body.url || '').trim().slice(0, 500) || null
+    const id = crypto.randomUUID()
+    await sql`
+      INSERT INTO hire_learning (id, user_id, title, url, kind, minutes)
+      VALUES (${id}, ${user!.id}, ${title}, ${itemUrl}, ${kind}, ${minutes})
+    `
+    return json({ ok: true, id })
+  }
+
+  if (path.startsWith('/api/learning/') && req.method === 'POST') {
+    const body = (await req.json().catch(() => ({}))) as {
+      token?: string; email?: string; _delete?: boolean; status?: string
+    }
+    const id = path.split('/')[3]
+    if (!id) return json({ error: 'id required' }, 400)
+    const { user, error } = await resolveAuthedUser(sql, { token: body.token, email: body.email })
+    if (error) return error
+    if (body._delete) {
+      await sql`DELETE FROM hire_learning WHERE id = ${id} AND user_id = ${user!.id}`
+      return json({ ok: true })
+    }
+    const status = body.status === 'done' ? 'done' : 'queued'
+    await sql`UPDATE hire_learning SET status = ${status} WHERE id = ${id} AND user_id = ${user!.id}`
+    return json({ ok: true })
+  }
+
+  /* ---- Weekly review ---- */
+  if (path === '/api/weekly-review' && req.method === 'GET') {
+    const { user, error } = await resolveAuthedUser(sql, {
+      token: url.searchParams.get('t') || undefined,
+      email: url.searchParams.get('email') || undefined,
+    })
+    if (error) return error
+    const weekStart = userMonday(user!)
+    const weekEndStr = shiftDateStr(weekStart, 7)
+
+    const nutr = await sql`
+      SELECT count(*)::int AS meals, coalesce(sum(calories), 0)::real AS calories
+      FROM hire_nutrition_logs WHERE user_id = ${user!.id} AND eaten_at >= ${weekStart}::date AND eaten_at < ${weekEndStr}::date
+    `
+    const moods = await sql`
+      SELECT count(*)::int AS logs, coalesce(avg(energy), 0)::real AS energy
+      FROM hire_moods WHERE user_id = ${user!.id} AND created_at >= ${weekStart}::date AND created_at < ${weekEndStr}::date
+    `
+    const habits = await sql`
+      SELECT count(*)::int AS checks FROM hire_habit_logs
+      WHERE user_id = ${user!.id} AND date >= ${weekStart} AND date < ${weekEndStr}
+    `
+    const sleep = await sql`
+      SELECT sleep_date AS "sleepDate", bedtime, wake FROM hire_sleep
+      WHERE user_id = ${user!.id} AND sleep_date >= ${weekStart} AND sleep_date < ${weekEndStr}
+    `
+    const spend = await sql`
+      SELECT coalesce(sum(amount), 0)::real AS total FROM hire_spending
+      WHERE user_id = ${user!.id} AND spent_at >= ${weekStart}::date AND spent_at < ${weekEndStr}::date
+    `
+    const gratitude = await sql`
+      SELECT count(*)::int AS n FROM hire_gratitude
+      WHERE user_id = ${user!.id} AND created_at >= ${weekStart}::date AND created_at < ${weekEndStr}::date
+    `
+    const duePeople = await sql`
+      SELECT count(*)::int AS n FROM hire_network
+      WHERE user_id = ${user!.id}
+        AND (last_touch IS NULL OR last_touch < now() - (cadence_days || ' days')::interval)
+    `
+
+    let sleepHours = 0
+    const sleepRows = sleep as Array<{ bedtime: string; wake: string }>
+    if (sleepRows.length) {
+      sleepHours = sleepRows.reduce((sum, r) => sum + sleepHoursBetween(r.bedtime, r.wake), 0) / sleepRows.length
+    }
+
+    const reviews = await sql`
+      SELECT id, week_start AS "weekStart", done_text AS "doneText", slipped_text AS "slippedText",
+             focus_text AS "focusText", created_at AS "createdAt"
+      FROM hire_weekly_reviews WHERE user_id = ${user!.id}
+      ORDER BY week_start DESC LIMIT 8
+    `
+    const current = (reviews as Array<{ weekStart: string }>).find((r) => r.weekStart === weekStart) || null
+
+    return json({
+      weekStart,
+      snapshot: {
+        meals: Number((nutr[0] as { meals: number })?.meals || 0),
+        calories: Number((nutr[0] as { calories: number })?.calories || 0),
+        moodLogs: Number((moods[0] as { logs: number })?.logs || 0),
+        avgEnergy: Number((moods[0] as { energy: number })?.energy || 0),
+        habitChecks: Number((habits[0] as { checks: number })?.checks || 0),
+        sleepNights: sleepRows.length,
+        avgSleepHours: Math.round(sleepHours * 10) / 10,
+        spend: Number((spend[0] as { total: number })?.total || 0),
+        gratitude: Number((gratitude[0] as { n: number })?.n || 0),
+        followUpsDue: Number((duePeople[0] as { n: number })?.n || 0),
+      },
+      current,
+      reviews,
+    })
+  }
+
+  if (path === '/api/weekly-review' && req.method === 'POST') {
+    const body = (await req.json().catch(() => ({}))) as {
+      token?: string; email?: string; weekStart?: string; doneText?: string; slippedText?: string; focusText?: string
+    }
+    const { user, error } = await resolveAuthedUser(sql, { token: body.token, email: body.email })
+    if (error) return error
+    const weekStart = String(body.weekStart || userMonday(user!)).slice(0, 10)
+    const doneText = String(body.doneText || '').trim().slice(0, 800)
+    const slippedText = String(body.slippedText || '').trim().slice(0, 800)
+    const focusText = String(body.focusText || '').trim().slice(0, 400)
+    const id = crypto.randomUUID()
+    await sql`
+      INSERT INTO hire_weekly_reviews (id, user_id, week_start, done_text, slipped_text, focus_text)
+      VALUES (${id}, ${user!.id}, ${weekStart}, ${doneText}, ${slippedText}, ${focusText})
+      ON CONFLICT (user_id, week_start) DO UPDATE SET
+        done_text = excluded.done_text,
+        slipped_text = excluded.slipped_text,
+        focus_text = excluded.focus_text
+    `
+    return json({ ok: true })
+  }
+
+  /* ---- Networking CRM ---- */
+  if (path === '/api/network' && req.method === 'GET') {
+    const { user, error } = await resolveAuthedUser(sql, {
+      token: url.searchParams.get('t') || undefined,
+      email: url.searchParams.get('email') || undefined,
+    })
+    if (error) return error
+    const people = await sql`
+      SELECT id, name, where_met AS "whereMet", context, last_touch AS "lastTouch",
+             cadence_days AS "cadenceDays", created_at AS "createdAt"
+      FROM hire_network WHERE user_id = ${user!.id}
+      ORDER BY coalesce(last_touch, '1970-01-01'::timestamptz) ASC
+    `
+    return json({ people })
+  }
+
+  if (path === '/api/network' && req.method === 'POST') {
+    const body = (await req.json().catch(() => ({}))) as {
+      token?: string; email?: string; name?: string; whereMet?: string; context?: string; cadenceDays?: number
+    }
+    const name = String(body.name || '').trim().slice(0, 80)
+    if (!name) return json({ error: 'name required' }, 400)
+    const { user, error } = await resolveAuthedUser(sql, { token: body.token, email: body.email })
+    if (error) return error
+    const id = crypto.randomUUID()
+    const whereMet = String(body.whereMet || '').trim().slice(0, 120)
+    const context = String(body.context || '').trim().slice(0, 400)
+    const cadenceDays = Math.max(3, Math.min(90, Math.round(body.cadenceDays || 14)))
+    await sql`
+      INSERT INTO hire_network (id, user_id, name, where_met, context, last_touch, cadence_days)
+      VALUES (${id}, ${user!.id}, ${name}, ${whereMet}, ${context}, now(), ${cadenceDays})
+    `
+    return json({ ok: true, id })
+  }
+
+  if (path.startsWith('/api/network/') && req.method === 'POST') {
+    const body = (await req.json().catch(() => ({}))) as {
+      token?: string; email?: string; _delete?: boolean; touch?: boolean; context?: string
+    }
+    const id = path.split('/')[3]
+    if (!id) return json({ error: 'id required' }, 400)
+    const { user, error } = await resolveAuthedUser(sql, { token: body.token, email: body.email })
+    if (error) return error
+    if (body._delete) {
+      await sql`DELETE FROM hire_network WHERE id = ${id} AND user_id = ${user!.id}`
+      return json({ ok: true })
+    }
+    const context = body.context != null ? String(body.context).trim().slice(0, 400) : null
+    if (context != null) {
+      await sql`UPDATE hire_network SET last_touch = now(), context = ${context} WHERE id = ${id} AND user_id = ${user!.id}`
+    } else {
+      await sql`UPDATE hire_network SET last_touch = now() WHERE id = ${id} AND user_id = ${user!.id}`
+    }
+    return json({ ok: true })
+  }
+
+  /* ---- Sleep ---- */
+  if (path === '/api/sleep' && req.method === 'GET') {
+    const { user, error } = await resolveAuthedUser(sql, {
+      token: url.searchParams.get('t') || undefined,
+      email: url.searchParams.get('email') || undefined,
+    })
+    if (error) return error
+    const nights = await sql`
+      SELECT id, sleep_date AS "sleepDate", bedtime, wake, quality, note, created_at AS "createdAt"
+      FROM hire_sleep WHERE user_id = ${user!.id}
+      ORDER BY sleep_date DESC LIMIT 21
+    `
+    return json({ nights })
+  }
+
+  if (path === '/api/sleep' && req.method === 'POST') {
+    const body = (await req.json().catch(() => ({}))) as {
+      token?: string; email?: string; sleepDate?: string; bedtime?: string; wake?: string; quality?: number; note?: string
+    }
+    const bedtime = String(body.bedtime || '').trim()
+    const wake = String(body.wake || '').trim()
+    if (!bedtime || !wake) return json({ error: 'bedtime and wake required' }, 400)
+    const { user, error } = await resolveAuthedUser(sql, { token: body.token, email: body.email })
+    if (error) return error
+    const sleepDate = String(body.sleepDate || shiftDateStr(localDateStrInTz(new Date(), user!.timezone), -1)).slice(0, 10)
+    const quality = Math.max(1, Math.min(5, Math.round(body.quality || 3)))
+    const note = String(body.note || '').trim().slice(0, 300) || null
+    const id = crypto.randomUUID()
+    await sql`
+      INSERT INTO hire_sleep (id, user_id, sleep_date, bedtime, wake, quality, note)
+      VALUES (${id}, ${user!.id}, ${sleepDate}, ${bedtime}, ${wake}, ${quality}, ${note})
+      ON CONFLICT (user_id, sleep_date) DO UPDATE SET
+        bedtime = excluded.bedtime, wake = excluded.wake, quality = excluded.quality, note = excluded.note
+    `
+    return json({ ok: true })
+  }
+
+  if (path.startsWith('/api/sleep/') && req.method === 'POST') {
+    const body = (await req.json().catch(() => ({}))) as { token?: string; email?: string; _delete?: boolean }
+    if (!body._delete) return json({ error: 'Not found' }, 404)
+    const id = path.split('/')[3]
+    if (!id) return json({ error: 'id required' }, 400)
+    const { user, error } = await resolveAuthedUser(sql, { token: body.token, email: body.email })
+    if (error) return error
+    await sql`DELETE FROM hire_sleep WHERE id = ${id} AND user_id = ${user!.id}`
+    return json({ ok: true })
+  }
+
+  /* ---- Pipeline ---- */
+  if (path === '/api/pipeline' && req.method === 'GET') {
+    const { user, error } = await resolveAuthedUser(sql, {
+      token: url.searchParams.get('t') || undefined,
+      email: url.searchParams.get('email') || undefined,
+    })
+    if (error) return error
+    const items = await sql`
+      SELECT id, title, company, stage, notes, created_at AS "createdAt", updated_at AS "updatedAt"
+      FROM hire_pipeline WHERE user_id = ${user!.id}
+      ORDER BY updated_at DESC
+    `
+    return json({ items })
+  }
+
+  if (path === '/api/pipeline' && req.method === 'POST') {
+    const body = (await req.json().catch(() => ({}))) as {
+      token?: string; email?: string; title?: string; company?: string; stage?: string; notes?: string
+    }
+    const title = String(body.title || '').trim().slice(0, 120)
+    if (!title) return json({ error: 'title required' }, 400)
+    const { user, error } = await resolveAuthedUser(sql, { token: body.token, email: body.email })
+    if (error) return error
+    const stage = PIPELINE_STAGES.includes(String(body.stage) as (typeof PIPELINE_STAGES)[number])
+      ? String(body.stage)
+      : 'lead'
+    const company = String(body.company || '').trim().slice(0, 80)
+    const notes = String(body.notes || '').trim().slice(0, 400)
+    const id = crypto.randomUUID()
+    await sql`
+      INSERT INTO hire_pipeline (id, user_id, title, company, stage, notes)
+      VALUES (${id}, ${user!.id}, ${title}, ${company}, ${stage}, ${notes})
+    `
+    return json({ ok: true, id })
+  }
+
+  if (path.startsWith('/api/pipeline/') && req.method === 'POST') {
+    const body = (await req.json().catch(() => ({}))) as {
+      token?: string; email?: string; _delete?: boolean; stage?: string; notes?: string
+    }
+    const id = path.split('/')[3]
+    if (!id) return json({ error: 'id required' }, 400)
+    const { user, error } = await resolveAuthedUser(sql, { token: body.token, email: body.email })
+    if (error) return error
+    if (body._delete) {
+      await sql`DELETE FROM hire_pipeline WHERE id = ${id} AND user_id = ${user!.id}`
+      return json({ ok: true })
+    }
+    const stage = PIPELINE_STAGES.includes(String(body.stage) as (typeof PIPELINE_STAGES)[number])
+      ? String(body.stage)
+      : null
+    if (stage) {
+      await sql`UPDATE hire_pipeline SET stage = ${stage}, updated_at = now() WHERE id = ${id} AND user_id = ${user!.id}`
+    }
+    return json({ ok: true })
+  }
+
+  /* ---- Gratitude ---- */
+  if (path === '/api/gratitude' && req.method === 'GET') {
+    const { user, error } = await resolveAuthedUser(sql, {
+      token: url.searchParams.get('t') || undefined,
+      email: url.searchParams.get('email') || undefined,
+    })
+    if (error) return error
+    const entries = await sql`
+      SELECT id, text, created_at AS "createdAt"
+      FROM hire_gratitude WHERE user_id = ${user!.id}
+      ORDER BY created_at DESC LIMIT 40
+    `
+    const monday = userMonday(user!)
+    const weekCount = await sql`
+      SELECT count(*)::int AS n FROM hire_gratitude
+      WHERE user_id = ${user!.id} AND created_at >= ${monday}::date
+    `
+    return json({ entries, weekCount: Number((weekCount[0] as { n: number })?.n || 0) })
+  }
+
+  if (path === '/api/gratitude' && req.method === 'POST') {
+    const body = (await req.json().catch(() => ({}))) as { token?: string; email?: string; text?: string }
+    const text = String(body.text || '').trim().slice(0, 280)
+    if (!text) return json({ error: 'text required' }, 400)
+    const { user, error } = await resolveAuthedUser(sql, { token: body.token, email: body.email })
+    if (error) return error
+    const id = crypto.randomUUID()
+    await sql`INSERT INTO hire_gratitude (id, user_id, text) VALUES (${id}, ${user!.id}, ${text})`
+    return json({ ok: true, id })
+  }
+
+  if (path.startsWith('/api/gratitude/') && req.method === 'POST') {
+    const body = (await req.json().catch(() => ({}))) as { token?: string; email?: string; _delete?: boolean }
+    if (!body._delete) return json({ error: 'Not found' }, 404)
+    const id = path.split('/')[3]
+    if (!id) return json({ error: 'id required' }, 400)
+    const { user, error } = await resolveAuthedUser(sql, { token: body.token, email: body.email })
+    if (error) return error
+    await sql`DELETE FROM hire_gratitude WHERE id = ${id} AND user_id = ${user!.id}`
+    return json({ ok: true })
+  }
+
+  /* ---- Spending ---- */
+  if (path === '/api/spending' && req.method === 'GET') {
+    const { user, error } = await resolveAuthedUser(sql, {
+      token: url.searchParams.get('t') || undefined,
+      email: url.searchParams.get('email') || undefined,
+    })
+    if (error) return error
+    const weekStart = userMonday(user!)
+    const weekEndStr = shiftDateStr(weekStart, 7)
+    const logs = await sql`
+      SELECT id, amount, category, description, spent_at AS "spentAt"
+      FROM hire_spending WHERE user_id = ${user!.id}
+      ORDER BY spent_at DESC LIMIT 40
+    `
+    const week = await sql`
+      SELECT category, coalesce(sum(amount), 0)::real AS total
+      FROM hire_spending
+      WHERE user_id = ${user!.id} AND spent_at >= ${weekStart}::date AND spent_at < ${weekEndStr}::date
+      GROUP BY category
+    `
+    const budgetRow = await sql`SELECT weekly_budget AS "weeklyBudget" FROM hire_spending_budget WHERE user_id = ${user!.id}`
+    const weeklyBudget = Number((budgetRow[0] as { weeklyBudget?: number })?.weeklyBudget || 400)
+    const weekTotal = (week as Array<{ total: number }>).reduce((s, r) => s + Number(r.total), 0)
+    return json({ logs, byCategory: week, weekTotal, weeklyBudget, weekStart })
+  }
+
+  if (path === '/api/spending' && req.method === 'POST') {
+    const body = (await req.json().catch(() => ({}))) as {
+      token?: string; email?: string; amount?: number; category?: string; description?: string
+    }
+    const amount = Number(body.amount)
+    if (!Number.isFinite(amount) || amount <= 0) return json({ error: 'amount required' }, 400)
+    const { user, error } = await resolveAuthedUser(sql, { token: body.token, email: body.email })
+    if (error) return error
+    const category = SPEND_CATEGORIES.includes(String(body.category) as (typeof SPEND_CATEGORIES)[number])
+      ? String(body.category)
+      : 'other'
+    const description = String(body.description || '').trim().slice(0, 160)
+    const id = crypto.randomUUID()
+    await sql`
+      INSERT INTO hire_spending (id, user_id, amount, category, description)
+      VALUES (${id}, ${user!.id}, ${amount}, ${category}, ${description})
+    `
+    return json({ ok: true, id })
+  }
+
+  if (path === '/api/spending/budget' && req.method === 'PUT') {
+    const body = (await req.json().catch(() => ({}))) as { token?: string; email?: string; weeklyBudget?: number }
+    const { user, error } = await resolveAuthedUser(sql, { token: body.token, email: body.email })
+    if (error) return error
+    const weeklyBudget = Math.max(10, Number(body.weeklyBudget) || 400)
+    await sql`
+      INSERT INTO hire_spending_budget (user_id, weekly_budget) VALUES (${user!.id}, ${weeklyBudget})
+      ON CONFLICT (user_id) DO UPDATE SET weekly_budget = excluded.weekly_budget, updated_at = now()
+    `
+    return json({ ok: true })
+  }
+
+  if (path.startsWith('/api/spending/') && req.method === 'POST') {
+    const body = (await req.json().catch(() => ({}))) as { token?: string; email?: string; _delete?: boolean }
+    if (!body._delete) return json({ error: 'Not found' }, 404)
+    const id = path.split('/')[3]
+    if (!id) return json({ error: 'id required' }, 400)
+    const { user, error } = await resolveAuthedUser(sql, { token: body.token, email: body.email })
+    if (error) return error
+    await sql`DELETE FROM hire_spending WHERE id = ${id} AND user_id = ${user!.id}`
+    return json({ ok: true })
+  }
+
   return null
+}
+
+const PIPELINE_STAGES = ['lead', 'active', 'interview', 'offer', 'won', 'lost'] as const
+const SPEND_CATEGORIES = ['food', 'transport', 'subscriptions', 'housing', 'fun', 'other'] as const
+
+function toHHMM(raw: string, mer: string | undefined): string | null {
+  const [hPart, mPart] = raw.split(':')
+  let h = Number(hPart)
+  const m = Number(mPart || '0')
+  if (!Number.isFinite(h) || !Number.isFinite(m) || h < 0 || h > 23 || m < 0 || m > 59) return null
+  const merL = (mer || '').toLowerCase()
+  if (merL === 'pm' && h < 12) h += 12
+  if (merL === 'am' && h === 12) h = 0
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`
+}
+
+function parseWorkoutText(text: string): { exercise: string; sets: number; reps: number; weight: number } | null {
+  const t = text.replace(/[’']/g, "'").trim()
+  const patterns: Array<RegExp> = [
+    /(?:log|track|logged)?\s*(?:my\s+)?(?:workout|lift|gym)?\s*(.+?)\s+(\d+)\s*[x×]\s*(\d+)(?:\s*[x×@]\s*|\s+@\s*|\s+at\s+|\s+)(\d+(?:\.\d+)?)(?:\s*(?:lbs?|pounds?))?\s*$/i,
+    /(\d+)\s*[x×]\s*(\d+)\s+(?:on\s+|of\s+)?(.+?)\s+(?:@|at)\s+(\d+(?:\.\d+)?)/i,
+    /(.+?)\s+(\d+)\s*sets?\s*(?:of\s*)?(\d+)\s*(?:reps?)?\s*(?:@|at|x)\s*(\d+(?:\.\d+)?)/i,
+  ]
+  for (const re of patterns) {
+    const m = t.match(re)
+    if (!m) continue
+    let exercise: string
+    let sets: number
+    let reps: number
+    let weight: number
+    if (re === patterns[1]) {
+      sets = Number(m[1])
+      reps = Number(m[2])
+      exercise = String(m[3] || '')
+      weight = Number(m[4])
+    } else {
+      exercise = String(m[1] || '')
+      sets = Number(m[2])
+      reps = Number(m[3])
+      weight = Number(m[4])
+    }
+    exercise = exercise
+      .replace(/^(log|track|logged)\s+(my\s+)?(workout|lift|gym)?\s*/i, '')
+      .replace(/\b(workout|lift|gym)\b/gi, '')
+      .trim()
+    if (exercise.length < 2 || !sets || !reps) continue
+    return {
+      exercise: exercise.slice(0, 80),
+      sets: Math.max(1, Math.min(20, Math.round(sets))),
+      reps: Math.max(1, Math.min(100, Math.round(reps))),
+      weight: Math.max(0, weight || 0),
+    }
+  }
+  return null
+}
+
+function parseSleepText(text: string): { bedtime: string; wake: string } | null {
+  const m = text.match(
+    /(\d{1,2}(?::\d{2})?)\s*(am|pm)?\s*(?:-|–|—|to|until)\s*(\d{1,2}(?::\d{2})?)\s*(am|pm)?/i,
+  )
+  if (!m) return null
+  let bedtime = toHHMM(m[1]!, m[2])
+  let wake = toHHMM(m[3]!, m[4])
+  if (!bedtime || !wake) return null
+  if (!m[2] && !m[4]) {
+    const bh = Number(m[1]!.split(':')[0])
+    const wh = Number(m[3]!.split(':')[0])
+    if (bh <= 12 && bh >= 8) bedtime = toHHMM(m[1]!, 'pm') || bedtime
+    if (wh <= 11) wake = toHHMM(m[3]!, 'am') || wake
+  }
+  return { bedtime, wake }
+}
+
+function parseGratitudeText(text: string): string | null {
+  const m = text.match(/(?:i(?:'m| am)\s+)?grateful(?:\s+for)?\s*[:\-]?\s*(.+)$/i)
+  const sentence = String(m?.[1] || '').trim().replace(/[.!?]+$/, '')
+  if (sentence.length < 2) return null
+  return sentence.slice(0, 280)
+}
+
+function parseSpendText(text: string): { amount: number; category: string; description: string } | null {
+  const m = text.match(/\$\s*(\d+(?:\.\d{1,2})?)|(?:spent|spend|paid|cost)\s+\$?\s*(\d+(?:\.\d{1,2})?)|(\d+(?:\.\d{1,2})?)\s*(?:bucks|dollars)/i)
+  const amount = Number(m?.[1] || m?.[2] || m?.[3])
+  if (!Number.isFinite(amount) || amount <= 0) return null
+  const lower = text.toLowerCase()
+  let category = 'other'
+  if (/\b(food|lunch|dinner|breakfast|coffee|uber\s*eats|doordash|restaurant|snack|grocer)/.test(lower)) category = 'food'
+  else if (/\b(uber|lyft|gas|transit|train|bus|parking|taxi)/.test(lower)) category = 'transport'
+  else if (/\b(netflix|spotify|subscription|prime|icloud)/.test(lower)) category = 'subscriptions'
+  else if (/\b(rent|mortgage|housing|utilities)/.test(lower)) category = 'housing'
+  else if (/\b(fun|movie|game|bar|drinks|concert)/.test(lower)) category = 'fun'
+  const description = text.replace(/^(log|track|logged)\s+(my\s+)?(spend|spending|expense)?\s*/i, '').trim().slice(0, 160)
+  return { amount, category, description }
+}
+
+function sleepHoursBetween(bedtime: string, wake: string): number {
+  const [bh, bm] = bedtime.split(':').map(Number)
+  const [wh, wm] = wake.split(':').map(Number)
+  if ([bh, bm, wh, wm].some((n) => Number.isNaN(n))) return 0
+  let mins = (wh * 60 + wm) - (bh * 60 + bm)
+  if (mins <= 0) mins += 24 * 60
+  return mins / 60
 }
