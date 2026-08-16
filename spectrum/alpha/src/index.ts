@@ -91,11 +91,14 @@ for await (const [space, message] of app.messages) {
       })
       console.log(`[${agent.id}] sending ${bubbles.length} text bubbles, card: ${!!card}`)
       for (let i = 0; i < bubbles.length; i++) {
-        console.log(`[${agent.id}] bubble ${i}: ${bubbles[i]!.slice(0, 120)}`)
+        console.log(`[${agent.id}] bubble ${i}: ${JSON.stringify(bubbles[i]!.slice(0, 200))}`)
         if (i === 0) await message.reply(bubbles[i]!)
         else await space.send(bubbles[i]!)
       }
-      if (card) await space.send(appCard(card.url, { live: card.live }))
+      if (card) {
+        console.log(`[${agent.id}] sending card: ${card.url}`)
+        await space.send(appCard(card.url, { live: card.live }))
+      }
       if (source === 'gmi') {
         void runMemoryMaintenance({ dataDir, senderId, agentId, authoritative, userText, reply })
           .catch(() => undefined)
