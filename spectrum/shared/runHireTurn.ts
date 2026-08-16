@@ -402,6 +402,9 @@ export async function runHireTurn(input: {
 
   const authoritative = live.found ? Object.keys(live.context) : []
   const finalReply = stripReasoning(reply)
+  console.log(`[turn] raw reply (${reply.length} chars): ${reply.slice(0, 300)}`)
+  console.log(`[turn] final reply (${finalReply.length} chars): ${finalReply.slice(0, 300)}`)
+  console.log(`[turn] bubbles: ${splitBubbles(finalReply).length}`)
 
   appendThread(input.dataDir, input.senderId, [
     { role: 'user', content: input.userText },

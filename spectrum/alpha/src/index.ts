@@ -89,7 +89,9 @@ for await (const [space, message] of app.messages) {
         senderId,
         userText,
       })
+      console.log(`[${agent.id}] sending ${bubbles.length} text bubbles, card: ${!!card}`)
       for (let i = 0; i < bubbles.length; i++) {
+        console.log(`[${agent.id}] bubble ${i}: ${bubbles[i]!.slice(0, 120)}`)
         if (i === 0) await message.reply(bubbles[i]!)
         else await space.send(bubbles[i]!)
       }
