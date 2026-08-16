@@ -7,7 +7,9 @@ import { getSession } from './roster'
 import {
   DecisionLedgerApp,
   DropZoneApp,
+  HabitStreakApp,
   MeetingModeApp,
+  MoodTrackerApp,
   NutritionApp,
   OpenLoopsApp,
   RelationshipRadarApp,
@@ -45,6 +47,8 @@ export const FEATURE_KINDS = new Set([
   'relationship_radar',
   'drop_zone',
   'nutrition',
+  'habit_streak',
+  'mood_tracker',
 ])
 
 export interface MenuFeature {
@@ -59,6 +63,8 @@ export const MENU_FEATURES: Record<string, MenuFeature[]> = {
   friend: [
     { kind: 'digest', title: 'Morning brief', emoji: '☀️', blurb: 'Calendar, important mail, and reminders every morning.' },
     { kind: 'nutrition', title: 'Nutrition', emoji: '🥗', blurb: 'Snap a meal, see macros, hit your daily goals.', sample: 'i ate a chicken bowl' },
+    { kind: 'habit_streak', title: 'Habits', emoji: '🔥', blurb: 'Build streaks. Track daily habits.' },
+    { kind: 'mood_tracker', title: 'Mood', emoji: '😊', blurb: 'Log how you feel. Spot patterns over time.' },
     { kind: 'open_loops', title: 'Open loops', emoji: '🪢', blurb: 'Track promises and follow-ups so nothing slips.' },
     { kind: 'relationship_radar', title: 'Relationship radar', emoji: '📡', blurb: 'Know who to reach out to and when.' },
     { kind: 'drop_zone', title: 'Drop zone', emoji: '📥', blurb: 'Dump anything messy. Alpha sorts it.' },
@@ -109,6 +115,8 @@ export const KIND_TITLES: Record<string, { title: string; blurb: string }> = {
   relationship_radar: { title: 'Relationship radar', blurb: 'Who to reach out to, and when.' },
   drop_zone: { title: 'Drop zone', blurb: 'Dump anything messy. Alpha sorts it.' },
   nutrition: { title: 'Nutrition', blurb: 'Snap a meal, see the macros, hit your goals.' },
+  habit_streak: { title: 'Habits', blurb: 'Build streaks. Track daily habits.' },
+  mood_tracker: { title: 'Mood', blurb: 'Log how you feel. Spot patterns over time.' },
 }
 
 export function MiniAppPage() {
@@ -448,6 +456,12 @@ export function MiniAppPage() {
         )}
         {authed && !expired && isFeature && kind === 'nutrition' && (
           <NutritionApp auth={{ persona: (persona as AgentId) || 'friend', email: email || undefined, token: token || undefined }} />
+        )}
+        {authed && !expired && isFeature && kind === 'habit_streak' && (
+          <HabitStreakApp auth={{ persona: (persona as AgentId) || 'friend', email: email || undefined, token: token || undefined }} />
+        )}
+        {authed && !expired && isFeature && kind === 'mood_tracker' && (
+          <MoodTrackerApp auth={{ persona: (persona as AgentId) || 'friend', email: email || undefined, token: token || undefined }} />
         )}
       </div>
     </div>

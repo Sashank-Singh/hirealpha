@@ -3,24 +3,32 @@ import type { AgentId } from '../agents/types'
 import {
   apiAddDecision,
   apiAddDrop,
+  apiAddHabit,
   apiAddLoop,
   apiAddMeeting,
   apiAddRelationship,
   apiAnalyzeNutrition,
+  apiDeleteHabit,
   apiListDecisions,
   apiListDrops,
+  apiListHabits,
   apiListLoops,
   apiListMeetings,
+  apiListMoods,
   apiListRelationships,
+  apiLogMood,
   apiLogNutrition,
   apiNutritionToday,
   apiPatchLoop,
   apiReviewDecision,
   apiSetNutritionGoals,
   apiTouchRelationship,
+  apiToggleHabit,
   type Decision,
   type Drop,
+  type Habit,
   type Meeting,
+  type MoodEntry,
   type NutritionGoals,
   type NutritionLog,
   type OpenLoop,
@@ -497,6 +505,59 @@ export function MeetingModeApp({ auth }: { auth: FeatureAuth }) {
 
 /* -------------------------------- Nutrition ----------------------------- */
 
+const QUICK_ADD = [
+  { label: '🥤 Water', desc: '1 glass of water', cal: 0, p: 0, c: 0, f: 0 },
+  { label: '☕ Coffee', desc: '1 cup black coffee', cal: 5, p: 0, c: 0, f: 0 },
+  { label: '🍌 Banana', desc: '1 banana', cal: 105, p: 1, c: 27, f: 0 },
+  { label: '🥚 Eggs', desc: '2 eggs', cal: 156, p: 13, c: 1, f: 11 },
+  { label: '🍗 Chicken', desc: '4oz chicken breast', cal: 185, p: 35, c: 0, f: 4 },
+  { label: '🥗 Salad', desc: 'Mixed salad with dressing', cal: 120, p: 3, c: 8, f: 9 },
+] as const
+
+function CalorieRing({ current, goal }: { current: number; goal: number }) {
+  const pct = goal > 0 ? Math.min(100, Math.round((current / goal) * 100)) : 0
+  const r = 58
+  const circ = 2 * Math.PI * r
+  const offset = circ - (pct / 100) * circ
+  const remaining = Math.max(0, goal - current)
+
+  return (
+    <div className="nutr-ring-wrap">
+      <svg className="nutr-ring" viewBox="0 0 132 132">
+        <circle cx="66" cy="66" r={r} fill="none" stroke="var(--border)" strokeWidth="10" />
+        <circle
+          cx="66" cy="66" r={r} fill="none"
+          stroke="var(--mini-accent, #22c55e)"
+          strokeWidth="10"
+          strokeLinecap="round"
+          strokeDasharray={circ}
+          strokeDashoffset={offset}
+          className="nutr-ring-progress"
+        />
+      </svg>
+      <div className="nutr-ring-label">
+        <span className="nutr-ring-num">{remaining}</span>
+        <span className="nutr-ring-unit">left</span>
+      </div>
+    </div>
+  )
+}
+
+function MacroPill({ label, current, goal, color }: { label: string; current: number; goal: number; color: string }) {
+  const pct = goal > 0 ? Math.min(100, Math.round((current / goal) * 100)) : 0
+  return (
+    <div className="nutr-pill">
+      <div className="nutr-pill-top">
+        <span className="nutr-pill-label" style={{ color }}>{label}</span>
+        <span className="nutr-pill-val">{Math.round(current)}<span className="nutr-pill-of">/{goal}g</span></span>
+      </div>
+      <div className="nutr-pill-track">
+        <div className="nutr-pill-fill" style={{ width: `${pct}%`, background: color }} />
+      </div>
+    </div>
+  )
+}
+
 export function NutritionApp({ auth }: { auth: FeatureAuth }) {
   const a = useAuthed(auth)
   const [goals, setGoals] = useState<NutritionGoals | null>(null)
@@ -528,9 +589,7 @@ export function NutritionApp({ auth }: { auth: FeatureAuth }) {
       .catch(() => setMsg('Could not load today.'))
   }, [a.email, a.token])
 
-  useEffect(() => {
-    load()
-  }, [load])
+  useEffect(() => { load() }, [load])
 
   function pickImage(file: File | undefined) {
     if (!file) return
@@ -547,12 +606,8 @@ export function NutritionApp({ auth }: { auth: FeatureAuth }) {
           setMsg(est.error || 'Could not read that photo.')
         } else {
           await apiLogNutrition({
-            ...a,
-            description: est.guess || 'Meal from photo',
-            calories: est.calories,
-            protein: est.protein,
-            carbs: est.carbs,
-            fat: est.fat,
+            ...a, description: est.guess || 'Meal from photo',
+            calories: est.calories, protein: est.protein, carbs: est.carbs, fat: est.fat,
           })
           setMsg('')
           load()
@@ -579,12 +634,8 @@ export function NutritionApp({ auth }: { auth: FeatureAuth }) {
         setMsg('Logged. Add a model key to auto-estimate macros.')
       } else if (est.ok) {
         await apiLogNutrition({
-          ...a,
-          description: est.guess || desc.trim(),
-          calories: est.calories,
-          protein: est.protein,
-          carbs: est.carbs,
-          fat: est.fat,
+          ...a, description: est.guess || desc.trim(),
+          calories: est.calories, protein: est.protein, carbs: est.carbs, fat: est.fat,
         })
         setMsg('')
       } else {
@@ -600,18 +651,31 @@ export function NutritionApp({ auth }: { auth: FeatureAuth }) {
     }
   }
 
+  async function quickAdd(item: typeof QUICK_ADD[number]) {
+    if (busy) return
+    setBusy(true)
+    try {
+      await apiLogNutrition({
+        ...a, description: item.desc,
+        calories: item.cal, protein: item.p, carbs: item.c, fat: item.f,
+      })
+      load()
+    } catch {
+      setMsg('Could not log that.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const g = goals || { calorieGoal: 2200, proteinGoal: 150, carbsGoal: 220, fatGoal: 70 }
-  const pct = (val: number, goal: number) => (goal > 0 ? Math.min(100, Math.round((val / goal) * 100)) : 0)
 
   async function saveGoals() {
     if (busy) return
     setBusy(true)
-    setMsg('')
     try {
       await apiSetNutritionGoals({ ...a, ...goalInput })
       load()
       setShowGoals(false)
-      setMsg('')
     } catch (error) {
       setMsg(error instanceof Error ? error.message : 'Could not save goals.')
     } finally {
@@ -619,133 +683,308 @@ export function NutritionApp({ auth }: { auth: FeatureAuth }) {
     }
   }
 
+  const mealTime = (iso: string) => {
+    const d = new Date(iso)
+    return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+  }
+
   return (
-    <div>
-      <div className="mini__macro-grid">
-        <MacroBar label="Calories" value={Math.round(totals.calories)} goal={g.calorieGoal} unit="" pct={pct(totals.calories, g.calorieGoal)} />
-        <MacroBar label="Protein" value={Math.round(totals.protein)} goal={g.proteinGoal} unit="g" pct={pct(totals.protein, g.proteinGoal)} />
-        <MacroBar label="Carbs" value={Math.round(totals.carbs)} goal={g.carbsGoal} unit="g" pct={pct(totals.carbs, g.carbsGoal)} />
-        <MacroBar label="Fat" value={Math.round(totals.fat)} goal={g.fatGoal} unit="g" pct={pct(totals.fat, g.fatGoal)} />
+    <div className="nutr">
+      {/* Hero ring + macro pills */}
+      <div className="nutr-hero">
+        <CalorieRing current={totals.calories} goal={g.calorieGoal} />
+        <div className="nutr-pills">
+          <MacroPill label="Protein" current={totals.protein} goal={g.proteinGoal} color="#f97316" />
+          <MacroPill label="Carbs" current={totals.carbs} goal={g.carbsGoal} color="#3b82f6" />
+          <MacroPill label="Fat" current={totals.fat} goal={g.fatGoal} color="#a855f7" />
+        </div>
       </div>
 
+      {/* Quick add */}
+      <div className="nutr-quick">
+        {QUICK_ADD.map((item) => (
+          <button key={item.label} className="nutr-quick-btn" type="button" disabled={busy} onClick={() => void quickAdd(item)}>
+            {item.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Input row */}
+      <div className="nutr-input-row">
+        <label className="nutr-photo-btn">
+          <input ref={fileRef} type="file" accept="image/*" onChange={(e) => pickImage(e.target.files?.[0])} aria-label="Photo of food" />
+          <span>{analyzing ? '⏳' : '📷'}</span>
+        </label>
+        <form className="nutr-input-form" onSubmit={add}>
+          <input
+            className="nutr-input"
+            value={desc}
+            onChange={(e) => setDesc(e.target.value)}
+            placeholder="What did you eat?"
+            aria-label="Meal description"
+          />
+          <button className="nutr-log-btn" type="submit" disabled={busy || !desc.trim()}>
+            Log
+          </button>
+        </form>
+      </div>
+      {msg && <p className="mini__hint">{msg}</p>}
+
+      {/* Goals toggle */}
       {showGoals ? (
-        <div className="mini__form-stack">
-          <label className="mini__field">
-            <span>Daily calories</span>
-            <input
-              className="mini__input"
-              type="number"
-              min={0}
-              value={goalInput.calories}
-              onChange={(e) => setGoalInput((p) => ({ ...p, calories: Number(e.target.value) || 0 }))}
-            />
-          </label>
-          <label className="mini__field">
-            <span>Protein (g)</span>
-            <input
-              className="mini__input"
-              type="number"
-              min={0}
-              value={goalInput.protein}
-              onChange={(e) => setGoalInput((p) => ({ ...p, protein: Number(e.target.value) || 0 }))}
-            />
-          </label>
-          <label className="mini__field">
-            <span>Carbs (g)</span>
-            <input
-              className="mini__input"
-              type="number"
-              min={0}
-              value={goalInput.carbs}
-              onChange={(e) => setGoalInput((p) => ({ ...p, carbs: Number(e.target.value) || 0 }))}
-            />
-          </label>
-          <label className="mini__field">
-            <span>Fat (g)</span>
-            <input
-              className="mini__input"
-              type="number"
-              min={0}
-              value={goalInput.fat}
-              onChange={(e) => setGoalInput((p) => ({ ...p, fat: Number(e.target.value) || 0 }))}
-            />
-          </label>
-          <div className="mini__row-actions">
-            <button type="button" className="mini__chip mini__chip--green" disabled={busy} onClick={() => void saveGoals()}>
-              Save goals
-            </button>
-            <button type="button" className="mini__chip" onClick={() => setShowGoals(false)}>
-              Cancel
-            </button>
+        <div className="nutr-goals-form">
+          <div className="nutr-goals-grid">
+            {(['calories', 'protein', 'carbs', 'fat'] as const).map((k) => {
+              const label = k === 'calories' ? 'Calories' : k.charAt(0).toUpperCase() + k.slice(1)
+              const val = k === 'calories' ? goalInput.calories : goalInput[k as 'protein' | 'carbs' | 'fat']
+              return (
+                <label key={k} className="nutr-goal-field">
+                  <span>{label}{k !== 'calories' ? ' (g)' : ''}</span>
+                  <input
+                    className="nutr-goal-input"
+                    type="number" min={0} value={val}
+                    onChange={(e) => setGoalInput((p) => ({ ...p, [k]: Number(e.target.value) || 0 }))}
+                  />
+                </label>
+              )
+            })}
+          </div>
+          <div className="nutr-goals-actions">
+            <button type="button" className="nutr-save-btn" disabled={busy} onClick={() => void saveGoals()}>Save</button>
+            <button type="button" className="nutr-cancel-btn" onClick={() => setShowGoals(false)}>Cancel</button>
           </div>
         </div>
       ) : (
-        <button type="button" className="mini__chip" onClick={() => setShowGoals(true)}>
-          Adjust daily goals
+        <button type="button" className="nutr-edit-goals" onClick={() => setShowGoals(true)}>
+          ⚙ Goals
         </button>
       )}
 
-      <label className="mini__photo">
-        <input
-          ref={fileRef}
-          type="file"
-          accept="image/*"
-          onChange={(e) => pickImage(e.target.files?.[0])}
-          aria-label="Photo of food"
-        />
-        <span className="mini__photo-label">{analyzing ? 'Reading…' : 'Snap or upload a photo'}</span>
-      </label>
-
-      <form className="mini__form" onSubmit={add}>
-        <input
-          className="mini__input"
-          value={desc}
-          onChange={(e) => setDesc(e.target.value)}
-          placeholder="Or describe it — 2 eggs, toast, coffee"
-          aria-label="Meal description"
-        />
-        <button className="mini__btn" type="submit" disabled={busy || !desc.trim()}>
-          Log
-        </button>
-      </form>
-      {msg && <p className="mini__hint">{msg}</p>}
-
-      <section className="mini__section">
-        <h2>Today</h2>
+      {/* Today's meals */}
+      <section className="nutr-meals">
+        <h3>Today</h3>
         {logs.length ? (
-          <ul className="mini__list">
+          <ul className="nutr-meal-list">
             {logs.map((l) => (
-              <li key={l.id} className="mini__row">
-                <span className="mini__row-main">
-                  <span className="mini__row-title">{l.description}</span>
-                  <span className="mini__row-sub">
-                    {Math.round(l.calories)} cal · {Math.round(l.protein)}p {Math.round(l.carbs)}c {Math.round(l.fat)}f
+              <li key={l.id} className="nutr-meal-card">
+                <div className="nutr-meal-time">{mealTime(l.eatenAt)}</div>
+                <div className="nutr-meal-info">
+                  <span className="nutr-meal-name">{l.description}</span>
+                  <span className="nutr-meal-macros">
+                    {Math.round(l.calories)} cal · {Math.round(l.protein)}p · {Math.round(l.carbs)}c · {Math.round(l.fat)}f
                   </span>
-                </span>
+                </div>
               </li>
             ))}
           </ul>
         ) : (
-          <p className="mini__empty">Nothing logged yet today.</p>
+          <p className="mini__empty">No meals logged yet.</p>
         )}
       </section>
     </div>
   )
 }
 
-function MacroBar({ label, value, goal, unit, pct }: { label: string; value: number; goal: number; unit: string; pct: number }) {
+/* ------------------------------ Habit Streak Board ------------------------------ */
+
+const HABIT_EMOJIS = ['💪', '📚', '🧘', '🏃', '💧', '🍎', '😴', '🎯', '✍️', '🎵', '🧹', '💊'] as const
+const DAY_LETTERS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'] as const
+
+function last7Days(): string[] {
+  const days: string[] = []
+  for (let i = 6; i >= 0; i--) {
+    const d = new Date()
+    d.setDate(d.getDate() - i)
+    days.push(d.toISOString().slice(0, 10))
+  }
+  return days
+}
+
+export function HabitStreakApp({ auth }: { auth: FeatureAuth }) {
+  const a = useAuthed(auth)
+  const [habits, setHabits] = useState<(Habit & { streak: number; recentDays: string[] })[]>([])
+  const [name, setName] = useState('')
+  const [emoji, setEmoji] = useState('💪')
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState('')
+  const days = last7Days()
+
+  const load = useCallback(() => {
+    apiListHabits(a).then((d) => setHabits(d.habits)).catch(() => setMsg('Could not load habits.'))
+  }, [a.email, a.token])
+
+  useEffect(() => { load() }, [load])
+
+  async function add(e: FormEvent) {
+    e.preventDefault()
+    if (!name.trim() || busy) return
+    setBusy(true)
+    try {
+      await apiAddHabit({ ...a, name: name.trim(), emoji })
+      setName('')
+      load()
+    } catch {
+      setMsg('Could not add habit.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function toggle(habitId: string, date: string) {
+    if (busy) return
+    setBusy(true)
+    try {
+      await apiToggleHabit({ ...a, habitId, date })
+      load()
+    } catch {
+      setMsg('Could not toggle.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function remove(habitId: string) {
+    if (busy) return
+    setBusy(true)
+    try {
+      await apiDeleteHabit({ ...a, habitId })
+      load()
+    } catch {
+      setMsg('Could not delete.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   return (
-    <div className="mini__macro">
-      <div className="mini__macro-head">
-        <span className="mini__macro-label">{label}</span>
-        <span className="mini__macro-num">
-          {value}/{goal}
-          {unit}
-        </span>
+    <div className="habit">
+      <form className="habit-add" onSubmit={add}>
+        <select className="nutr-goal-input" value={emoji} onChange={(e) => setEmoji(e.target.value)} style={{ width: 52, textAlign: 'center', fontSize: 18 }}>
+          {HABIT_EMOJIS.map((e) => <option key={e} value={e}>{e}</option>)}
+        </select>
+        <input value={name} onChange={(e) => setName(e.target.value)} placeholder="New habit…" aria-label="Habit name" />
+        <button className="habit-add-btn" type="submit" disabled={busy || !name.trim()}>Add</button>
+      </form>
+      {msg && <p className="mini__hint">{msg}</p>}
+
+      {habits.length ? (
+        <ul className="habit-list">
+          {habits.map((h) => (
+            <li key={h.id} className="habit-card">
+              <span className="habit-emoji">{h.emoji}</span>
+              <div className="habit-info">
+                <div className="habit-name">{h.name}</div>
+                <div className="habit-streak">🔥 <b>{h.streak}</b> day streak</div>
+              </div>
+              <div className="habit-days">
+                {days.map((d, i) => (
+                  <button
+                    key={d}
+                    className={`habit-day${h.recentDays.includes(d) ? ' done' : ''}`}
+                    type="button"
+                    onClick={() => void toggle(h.id, d)}
+                  >
+                    {DAY_LETTERS[i]}
+                  </button>
+                ))}
+              </div>
+              <button className="habit-delete" type="button" onClick={() => void remove(h.id)} title="Delete">×</button>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="mini__empty">No habits yet. Add one above.</p>
+      )}
+    </div>
+  )
+}
+
+/* ------------------------------ Mood & Energy Tracker ------------------------------ */
+
+const MOOD_EMOJIS = ['😄', '🙂', '😐', '😔', '😤'] as const
+
+export function MoodTrackerApp({ auth }: { auth: FeatureAuth }) {
+  const a = useAuthed(auth)
+  const [entries, setEntries] = useState<MoodEntry[]>([])
+  const [streak, setStreak] = useState(0)
+  const [selected, setSelected] = useState<string | null>(null)
+  const [energy, setEnergy] = useState(3)
+  const [note, setNote] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState('')
+
+  const load = useCallback(() => {
+    apiListMoods(a).then((d) => { setEntries(d.entries); setStreak(d.streak) }).catch(() => setMsg('Could not load moods.'))
+  }, [a.email, a.token])
+
+  useEffect(() => { load() }, [load])
+
+  async function save() {
+    if (!selected || busy) return
+    setBusy(true)
+    try {
+      await apiLogMood({ ...a, emoji: selected, energy, note: note.trim() || undefined })
+      setSelected(null)
+      setEnergy(3)
+      setNote('')
+      load()
+    } catch {
+      setMsg('Could not log mood.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const fmtTime = (iso: string) => {
+    const d = new Date(iso)
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) + ' ' +
+           d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+  }
+
+  return (
+    <div className="mood">
+      <div className="mood-emoji-row">
+        {MOOD_EMOJIS.map((e) => (
+          <button key={e} className={`mood-emoji-btn${selected === e ? ' selected' : ''}`} type="button" onClick={() => setSelected(e)}>
+            {e}
+          </button>
+        ))}
       </div>
-      <div className="mini__macro-track">
-        <div className="mini__macro-fill" style={{ width: `${pct}%` }} />
+
+      <div className="mood-energy">
+        <span className="mood-energy-label">Energy Level</span>
+        <input className="mood-energy-slider" type="range" min={1} max={5} value={energy} onChange={(e) => setEnergy(Number(e.target.value))} />
+        <span className="mood-energy-val">{energy}/5</span>
       </div>
+
+      <textarea className="mood-note" value={note} onChange={(e) => setNote(e.target.value)} placeholder="How are you feeling? (optional)" rows={2} />
+
+      <button className="mood-save" type="button" disabled={busy || !selected} onClick={() => void save()}>
+        Log mood
+      </button>
+      {msg && <p className="mini__hint">{msg}</p>}
+
+      {streak > 0 && <p className="mini__hint">🔥 {streak} day logging streak</p>}
+
+      {entries.length ? (
+        <section className="mood-history">
+          <h3>Recent</h3>
+          <ul className="mood-list">
+            {entries.map((e) => (
+              <li key={e.id} className="mood-entry">
+                <span className="mood-entry-emoji">{e.emoji}</span>
+                <div className="mood-entry-info">
+                  <span className="mood-entry-time">{fmtTime(e.createdAt)}</span>
+                  {e.note && <span className="mood-entry-note">{e.note}</span>}
+                </div>
+                <span className="mood-entry-energy">⚡ {e.energy}/5</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : (
+        <p className="mini__empty">No moods logged yet.</p>
+      )}
     </div>
   )
 }

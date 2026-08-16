@@ -351,6 +351,41 @@ export async function ensureHireSchema(sql: SQL) {
   `
 
   await sql`
+    CREATE TABLE IF NOT EXISTS hire_habits (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES hire_users(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      emoji TEXT NOT NULL DEFAULT '💪',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `
+  await sql`CREATE INDEX IF NOT EXISTS idx_hire_habits_user ON hire_habits (user_id)`
+
+  await sql`
+    CREATE TABLE IF NOT EXISTS hire_habit_logs (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES hire_users(id) ON DELETE CASCADE,
+      habit_id TEXT NOT NULL REFERENCES hire_habits(id) ON DELETE CASCADE,
+      date TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `
+  await sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_hire_habit_logs_unique ON hire_habit_logs (habit_id, date)`
+  await sql`CREATE INDEX IF NOT EXISTS idx_hire_habit_logs_user ON hire_habit_logs (user_id, date)`
+
+  await sql`
+    CREATE TABLE IF NOT EXISTS hire_moods (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES hire_users(id) ON DELETE CASCADE,
+      emoji TEXT NOT NULL,
+      energy INTEGER NOT NULL DEFAULT 3,
+      note TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `
+  await sql`CREATE INDEX IF NOT EXISTS idx_hire_moods_user ON hire_moods (user_id, created_at DESC)`
+
+  await sql`
     CREATE TABLE IF NOT EXISTS hire_user_locations (
       user_id TEXT NOT NULL REFERENCES hire_users(id) ON DELETE CASCADE,
       kind TEXT NOT NULL CHECK (kind IN ('current', 'home', 'work')),
@@ -2894,6 +2929,128 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     if (!id) return json({ error: 'id required' }, 400)
     await sql`DELETE FROM hire_reminders WHERE id = ${id}`
     return json({ ok: true })
+  }
+
+  /* ---- Habits ---- */
+  if (path === '/api/habits' && req.method === 'GET') {
+    const { user, error } = await resolveAuthedUser(sql, {
+      token: url.searchParams.get('t') || undefined,
+      email: url.searchParams.get('email') || undefined,
+    })
+    if (error) return error
+    const rows = await sql`
+      SELECT id, name, emoji, created_at AS "createdAt"
+      FROM hire_habits WHERE user_id = ${user!.id} ORDER BY created_at ASC
+    `
+    // Fetch last 7 days of logs for streak + recentDays
+    const sevenDaysAgo = new Date()
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7)
+    const logRows = await sql`
+      SELECT habit_id AS "habitId", date FROM hire_habit_logs
+      WHERE user_id = ${user!.id} AND date >= ${sevenDaysAgo.toISOString().slice(0, 10)}
+    `
+    const logMap = new Map<string, Set<string>>()
+    for (const lr of logRows as Array<{ habitId: string; date: string }>) {
+      if (!logMap.has(lr.habitId)) logMap.set(lr.habitId, new Set())
+      logMap.get(lr.habitId)!.add(lr.date.slice(0, 10))
+    }
+    const habits = (rows as Array<{ id: string; name: string; emoji: string; createdAt: string }>).map((h) => {
+      const dates = logMap.get(h.id) || new Set()
+      // Calculate streak: count consecutive days ending today or yesterday
+      let streak = 0
+      const today = new Date()
+      for (let i = 0; i < 365; i++) {
+        const d = new Date(today)
+        d.setDate(d.getDate() - i)
+        const ds = d.toISOString().slice(0, 10)
+        if (dates.has(ds)) { streak++ } else { break }
+      }
+      return { ...h, streak, recentDays: [...dates].sort() }
+    })
+    return json({ habits })
+  }
+
+  if (path === '/api/habits' && req.method === 'POST') {
+    const body = (await req.json().catch(() => ({}))) as {
+      token?: string; email?: string; name?: string; emoji?: string
+    }
+    const name = String(body.name || '').trim().slice(0, 100)
+    if (!name) return json({ error: 'name required' }, 400)
+    const { user, error } = await resolveAuthedUser(sql, { token: body.token, email: body.email })
+    if (error) return error
+    const id = crypto.randomUUID()
+    const emoji = String(body.emoji || '💪').slice(0, 8)
+    await sql`INSERT INTO hire_habits (id, user_id, name, emoji) VALUES (${id}, ${user!.id}, ${name}, ${emoji})`
+    return json({ ok: true, id })
+  }
+
+  if (path === '/api/habits/toggle' && req.method === 'POST') {
+    const body = (await req.json().catch(() => ({}))) as {
+      token?: string; email?: string; habitId?: string; date?: string
+    }
+    if (!body.habitId || !body.date) return json({ error: 'habitId and date required' }, 400)
+    const { user, error } = await resolveAuthedUser(sql, { token: body.token, email: body.email })
+    if (error) return error
+    const dateStr = body.date.slice(0, 10)
+    // Try to delete first; if nothing deleted, insert
+    const del = await sql`DELETE FROM hire_habit_logs WHERE user_id = ${user!.id} AND habit_id = ${body.habitId} AND date = ${dateStr}`
+    const done = !(del && (del as { count?: number }).count)
+    if (done) {
+      await sql`INSERT INTO hire_habit_logs (id, user_id, habit_id, date) VALUES (${crypto.randomUUID()}, ${user!.id}, ${body.habitId}, ${dateStr})`
+    }
+    return json({ ok: true, done })
+  }
+
+  if (path.startsWith('/api/habits/') && req.method === 'POST') {
+    // Delete habit: /api/habits/{id} with _delete body
+    const body = (await req.json().catch(() => ({}))) as { token?: string; email?: string; _delete?: boolean }
+    if (!body._delete) return json({ error: 'Not found' }, 404)
+    const habitId = path.split('/')[3]
+    if (!habitId) return json({ error: 'habitId required' }, 400)
+    const { user, error } = await resolveAuthedUser(sql, { token: body.token, email: body.email })
+    if (error) return error
+    await sql`DELETE FROM hire_habit_logs WHERE user_id = ${user!.id} AND habit_id = ${habitId}`
+    await sql`DELETE FROM hire_habits WHERE id = ${habitId} AND user_id = ${user!.id}`
+    return json({ ok: true })
+  }
+
+  /* ---- Moods ---- */
+  if (path === '/api/moods' && req.method === 'GET') {
+    const { user, error } = await resolveAuthedUser(sql, {
+      token: url.searchParams.get('t') || undefined,
+      email: url.searchParams.get('email') || undefined,
+    })
+    if (error) return error
+    const entries = await sql`
+      SELECT id, emoji, energy, note, created_at AS "createdAt"
+      FROM hire_moods WHERE user_id = ${user!.id}
+      ORDER BY created_at DESC LIMIT 30
+    `
+    // Streak: consecutive days with at least one mood entry
+    let streak = 0
+    const today = new Date()
+    for (let i = 0; i < 365; i++) {
+      const d = new Date(today)
+      d.setDate(d.getDate() - i)
+      const ds = d.toISOString().slice(0, 10)
+      const has = await sql`SELECT 1 FROM hire_moods WHERE user_id = ${user!.id} AND created_at::date = ${ds} LIMIT 1`
+      if (has.length > 0) { streak++ } else { break }
+    }
+    return json({ entries, streak })
+  }
+
+  if (path === '/api/moods' && req.method === 'POST') {
+    const body = (await req.json().catch(() => ({}))) as {
+      token?: string; email?: string; emoji?: string; energy?: number; note?: string
+    }
+    if (!body.emoji) return json({ error: 'emoji required' }, 400)
+    const { user, error } = await resolveAuthedUser(sql, { token: body.token, email: body.email })
+    if (error) return error
+    const id = crypto.randomUUID()
+    const energy = Math.max(1, Math.min(5, Math.round(body.energy || 3)))
+    const note = String(body.note || '').trim().slice(0, 500) || null
+    await sql`INSERT INTO hire_moods (id, user_id, emoji, energy, note) VALUES (${id}, ${user!.id}, ${body.emoji}, ${energy}, ${note})`
+    return json({ ok: true, id })
   }
 
   return null

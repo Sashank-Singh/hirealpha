@@ -2291,6 +2291,204 @@ button, input { font: inherit; }
 .mini__macro-track { height: 6px; border-radius: 999px; background: color-mix(in srgb, var(--mini-accent) 14%, transparent); overflow: hidden; }
 .mini__macro-fill { height: 100%; border-radius: 999px; background: var(--mini-accent); transition: width 0.3s ease; }
 
+/* ---- Nutrition redesign ---- */
+.nutr { display: flex; flex-direction: column; gap: 16px; }
+.nutr-hero { display: flex; align-items: center; gap: 20px; padding: 8px 0; }
+.nutr-ring-wrap { position: relative; flex-shrink: 0; width: 132px; height: 132px; }
+.nutr-ring { width: 100%; height: 100%; }
+.nutr-ring-progress { transition: stroke-dashoffset 0.6s ease; transform: rotate(-90deg); transform-origin: center; }
+.nutr-ring-label { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+.nutr-ring-num { font-size: 28px; font-weight: 800; line-height: 1; }
+.nutr-ring-unit { font-size: 11px; color: var(--muted-fg); text-transform: uppercase; letter-spacing: 0.05em; }
+.nutr-pills { flex: 1; display: flex; flex-direction: column; gap: 10px; }
+.nutr-pill { display: flex; flex-direction: column; gap: 4px; }
+.nutr-pill-top { display: flex; justify-content: space-between; align-items: baseline; }
+.nutr-pill-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; }
+.nutr-pill-val { font-size: 14px; font-weight: 700; }
+.nutr-pill-of { font-size: 11px; font-weight: 400; color: var(--muted-fg); }
+.nutr-pill-track { height: 5px; border-radius: 999px; background: var(--border); overflow: hidden; }
+.nutr-pill-fill { height: 100%; border-radius: 999px; transition: width 0.4s ease; }
+
+.nutr-quick { display: flex; gap: 6px; flex-wrap: wrap; }
+.nutr-quick-btn {
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg);
+  color: var(--fg);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+.nutr-quick-btn:hover { border-color: var(--mini-accent); background: color-mix(in srgb, var(--mini-accent) 8%, var(--bg)); }
+.nutr-quick-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.nutr-input-row { display: flex; gap: 8px; align-items: center; }
+.nutr-photo-btn {
+  display: flex; align-items: center; justify-content: center;
+  width: 42px; height: 42px; flex-shrink: 0;
+  border: 1px solid var(--border); border-radius: 12px;
+  background: var(--bg); cursor: pointer; font-size: 18px;
+  transition: border-color 0.15s;
+}
+.nutr-photo-btn:hover { border-color: var(--mini-accent); }
+.nutr-photo-btn input { display: none; }
+.nutr-input-form { flex: 1; display: flex; gap: 6px; }
+.nutr-input {
+  flex: 1; padding: 10px 14px;
+  border: 1px solid var(--border); border-radius: 12px;
+  background: var(--bg); color: var(--fg);
+  font-size: 14px; outline: none;
+}
+.nutr-input:focus { border-color: var(--mini-accent); }
+.nutr-log-btn {
+  padding: 10px 18px; border: none; border-radius: 12px;
+  background: var(--mini-accent, #22c55e); color: #fff;
+  font-size: 13px; font-weight: 700; cursor: pointer;
+  transition: opacity 0.15s;
+}
+.nutr-log-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.nutr-edit-goals {
+  align-self: flex-start;
+  padding: 6px 14px; border: 1px solid var(--border); border-radius: 999px;
+  background: transparent; color: var(--muted-fg); font-size: 12px; font-weight: 600;
+  cursor: pointer; transition: all 0.15s;
+}
+.nutr-edit-goals:hover { border-color: var(--fg); color: var(--fg); }
+
+.nutr-goals-form {
+  display: flex; flex-direction: column; gap: 12px;
+  padding: 14px; border: 1px solid var(--border); border-radius: 14px;
+  background: color-mix(in srgb, var(--mini-accent) 4%, var(--bg));
+}
+.nutr-goals-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.nutr-goal-field { display: flex; flex-direction: column; gap: 4px; }
+.nutr-goal-field span { font-size: 11px; font-weight: 600; color: var(--muted-fg); text-transform: uppercase; letter-spacing: 0.04em; }
+.nutr-goal-input {
+  padding: 8px 10px; border: 1px solid var(--border); border-radius: 10px;
+  background: var(--bg); color: var(--fg); font-size: 14px; font-weight: 600;
+  outline: none;
+}
+.nutr-goal-input:focus { border-color: var(--mini-accent); }
+.nutr-goals-actions { display: flex; gap: 8px; }
+.nutr-save-btn {
+  padding: 8px 16px; border: none; border-radius: 10px;
+  background: var(--mini-accent, #22c55e); color: #fff;
+  font-size: 13px; font-weight: 700; cursor: pointer;
+}
+.nutr-cancel-btn {
+  padding: 8px 16px; border: 1px solid var(--border); border-radius: 10px;
+  background: transparent; color: var(--muted-fg); font-size: 13px; font-weight: 600;
+  cursor: pointer;
+}
+
+.nutr-meals h3 { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted-fg); margin-bottom: 8px; }
+.nutr-meal-list { display: flex; flex-direction: column; gap: 6px; }
+.nutr-meal-card {
+  display: flex; gap: 12px; align-items: center;
+  padding: 12px 14px; border: 1px solid var(--border); border-radius: 12px;
+  background: color-mix(in srgb, var(--mini-accent) 4%, var(--bg));
+}
+.nutr-meal-time { font-size: 11px; font-weight: 600; color: var(--muted-fg); white-space: nowrap; }
+.nutr-meal-info { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.nutr-meal-name { font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.nutr-meal-macros { font-size: 12px; color: var(--muted-fg); }
+
+/* ---- Habit Streak Board ---- */
+.habit { display: flex; flex-direction: column; gap: 14px; }
+.habit-add { display: flex; gap: 6px; }
+.habit-add input {
+  flex: 1; padding: 10px 14px;
+  border: 1px solid var(--border); border-radius: 12px;
+  background: var(--bg); color: var(--fg); font-size: 14px; outline: none;
+}
+.habit-add input:focus { border-color: var(--mini-accent); }
+.habit-add-btn {
+  padding: 10px 18px; border: none; border-radius: 12px;
+  background: var(--mini-accent, #22c55e); color: #fff;
+  font-size: 13px; font-weight: 700; cursor: pointer;
+}
+.habit-add-btn:disabled { opacity: 0.5; }
+.habit-list { display: flex; flex-direction: column; gap: 8px; }
+.habit-card {
+  display: flex; align-items: center; gap: 12px;
+  padding: 14px; border: 1px solid var(--border); border-radius: 14px;
+  background: color-mix(in srgb, var(--mini-accent) 4%, var(--bg));
+}
+.habit-emoji { font-size: 28px; flex-shrink: 0; }
+.habit-info { flex: 1; min-width: 0; }
+.habit-name { font-size: 14px; font-weight: 700; }
+.habit-streak { font-size: 12px; color: var(--muted-fg); }
+.habit-streak b { color: var(--mini-accent, #22c55e); font-weight: 700; }
+.habit-days { display: flex; gap: 4px; flex-shrink: 0; }
+.habit-day {
+  width: 28px; height: 28px;
+  border-radius: 8px; border: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 11px; font-weight: 600; color: var(--muted-fg);
+  cursor: pointer; transition: all 0.15s;
+}
+.habit-day.done { background: var(--mini-accent, #22c55e); color: #fff; border-color: var(--mini-accent, #22c55e); }
+.habit-day:hover:not(.done) { border-color: var(--mini-accent); }
+.habit-delete {
+  padding: 4px 8px; border: none; border-radius: 8px;
+  background: transparent; color: var(--muted-fg); font-size: 16px;
+  cursor: pointer; transition: color 0.15s;
+}
+.habit-delete:hover { color: #ef4444; }
+
+/* ---- Mood & Energy ---- */
+.mood { display: flex; flex-direction: column; gap: 16px; }
+.mood-emoji-row { display: flex; gap: 8px; justify-content: center; }
+.mood-emoji-btn {
+  width: 52px; height: 52px; border-radius: 14px;
+  border: 2px solid var(--border); background: var(--bg);
+  font-size: 26px; cursor: pointer; transition: all 0.15s;
+  display: flex; align-items: center; justify-content: center;
+}
+.mood-emoji-btn.selected { border-color: var(--mini-accent); background: color-mix(in srgb, var(--mini-accent) 12%, var(--bg)); transform: scale(1.1); }
+.mood-emoji-btn:hover:not(.selected) { border-color: var(--muted-fg); }
+.mood-energy {
+  display: flex; flex-direction: column; gap: 8px;
+  padding: 14px; border: 1px solid var(--border); border-radius: 14px;
+}
+.mood-energy-label { font-size: 12px; font-weight: 700; color: var(--muted-fg); text-transform: uppercase; letter-spacing: 0.04em; }
+.mood-energy-slider {
+  width: 100%; height: 6px; appearance: none; background: var(--border);
+  border-radius: 999px; outline: none;
+}
+.mood-energy-slider::-webkit-slider-thumb {
+  appearance: none; width: 20px; height: 20px; border-radius: 50%;
+  background: var(--mini-accent, #22c55e); cursor: pointer; border: 2px solid #fff;
+}
+.mood-energy-val { text-align: center; font-size: 13px; font-weight: 700; }
+.mood-note {
+  padding: 10px 14px; border: 1px solid var(--border); border-radius: 12px;
+  background: var(--bg); color: var(--fg); font-size: 14px; outline: none;
+  resize: none; min-height: 60px;
+}
+.mood-note:focus { border-color: var(--mini-accent); }
+.mood-save {
+  padding: 12px; border: none; border-radius: 12px;
+  background: var(--mini-accent, #22c55e); color: #fff;
+  font-size: 14px; font-weight: 700; cursor: pointer;
+}
+.mood-save:disabled { opacity: 0.5; }
+.mood-history h3 { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted-fg); margin-bottom: 8px; }
+.mood-list { display: flex; flex-direction: column; gap: 6px; }
+.mood-entry {
+  display: flex; gap: 10px; align-items: center;
+  padding: 10px 14px; border: 1px solid var(--border); border-radius: 12px;
+}
+.mood-entry-emoji { font-size: 22px; flex-shrink: 0; }
+.mood-entry-info { flex: 1; }
+.mood-entry-time { font-size: 11px; color: var(--muted-fg); }
+.mood-entry-note { font-size: 13px; color: var(--fg); margin-top: 2px; }
+.mood-entry-energy { font-size: 12px; font-weight: 700; color: var(--mini-accent); }
+
 /* Expandable feature cards (platform) */
 .feat-persons {
   display: flex;

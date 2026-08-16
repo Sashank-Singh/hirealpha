@@ -390,3 +390,34 @@ export const apiAnalyzeNutrition = (a: { email?: string; token?: string; descrip
     ok: boolean; needsKey?: boolean; calories?: number; protein?: number; carbs?: number; fat?: number
     guess?: string; error?: string
   }>('/api/nutrition/analyze', { ...authParams(a), description: a.description, imageBase64: a.imageBase64 })
+
+/* ---- Habits ---- */
+export type Habit = {
+  id: string; name: string; emoji: string; createdAt: string
+}
+export type HabitLog = { id: string; habitId: string; date: string }
+export const apiListHabits = (a: { email?: string; token?: string }) => {
+  const qs = new URLSearchParams()
+  if (a.token) qs.set('t', a.token)
+  else if (a.email) qs.set('email', a.email)
+  return featureGet<{ habits: (Habit & { streak: number; recentDays: string[] })[] }>('/api/habits', qs)
+}
+export const apiAddHabit = (a: { email?: string; token?: string; name: string; emoji?: string }) =>
+  featurePost<{ ok: boolean; id: string }>('/api/habits', { ...authParams(a), name: a.name, emoji: a.emoji })
+export const apiToggleHabit = (a: { email?: string; token?: string; habitId: string; date: string }) =>
+  featurePost<{ ok: boolean; done: boolean }>('/api/habits/toggle', { ...authParams(a), habitId: a.habitId, date: a.date })
+export const apiDeleteHabit = (a: { email?: string; token?: string; habitId: string }) =>
+  featurePost<{ ok: boolean }>(`/api/habits/${a.habitId}`, { ...authParams(a), _delete: true })
+
+/* ---- Moods ---- */
+export type MoodEntry = {
+  id: string; emoji: string; energy: number; note: string | null; createdAt: string
+}
+export const apiListMoods = (a: { email?: string; token?: string }) => {
+  const qs = new URLSearchParams()
+  if (a.token) qs.set('t', a.token)
+  else if (a.email) qs.set('email', a.email)
+  return featureGet<{ entries: MoodEntry[]; streak: number }>('/api/moods', qs)
+}
+export const apiLogMood = (a: { email?: string; token?: string; emoji: string; energy: number; note?: string }) =>
+  featurePost<{ ok: boolean; id: string }>('/api/moods', { ...authParams(a), emoji: a.emoji, energy: a.energy, note: a.note })
