@@ -211,6 +211,151 @@ export async function autoLogNutrition(
   }
 }
 
+/**
+ * Log a food photo sent as an inbound image attachment. Same always-log
+ * semantics as the dashboard photo endpoint: the meal is saved even when no
+ * model key exists (estimate pending). `imageBase64` is raw base64 without a
+ * data: prefix; the server sniffs the mime from the bytes.
+ */
+export async function autoLogNutritionPhoto(
+  phone: string,
+  persona: AgentId,
+  imageBase64: string,
+  description?: string,
+): Promise<{ ok: boolean; logged?: boolean; estimated?: boolean; needsKey?: boolean; calories?: number; protein?: number; carbs?: number; fat?: number; error?: string } | null> {
+  const base = apiBase()
+  const key = process.env.HIREALPHA_INTERNAL_KEY || ''
+  if (!base || !key) return null
+  try {
+    const res = await timedFetch(
+      `${base}/api/internal/nutrition/photo`,
+      {
+        method: 'POST',
+        headers: authHeaders(),
+        body: JSON.stringify({
+          phone,
+          persona,
+          imageBase64: imageBase64.slice(0, 24 * 1024 * 1024),
+          ...(description ? { description: description.slice(0, 300) } : {}),
+        }),
+      },
+      45000,
+    )
+    if (!res.ok) return null
+    return (await res.json()) as {
+      ok: boolean
+      logged?: boolean
+      estimated?: boolean
+      needsKey?: boolean
+      calories?: number
+      protein?: number
+      carbs?: number
+      fat?: number
+      error?: string
+    }
+  } catch (err) {
+    console.warn('[live] nutrition photo auto-log failed', err)
+    return null
+  }
+}
+
+/**
+ * Walk inbound content and return the first image attachment (bare image, or
+ * inside an iMessage text+photo group).
+ */
+export function findInboundImage(content: {
+  type?: string
+  items?: Array<{ type?: string; content?: unknown }>
+  mimeType?: string
+  read?: () => Promise<Buffer>
+  [key: string]: unknown
+}): { read: () => Promise<Buffer>; mimeType: string } | null {
+  const walk = (c: {
+    type?: string
+    items?: Array<{ type?: string; content?: unknown }>
+    mimeType?: string
+    read?: () => Promise<Buffer>
+  }): { read: () => Promise<Buffer>; mimeType: string } | null => {
+    if (c.type === 'attachment' && typeof c.read === 'function' && /^image\//i.test(c.mimeType || '')) {
+      return { read: c.read as () => Promise<Buffer>, mimeType: c.mimeType || 'image/jpeg' }
+    }
+    if (c.type === 'group' && Array.isArray(c.items)) {
+      for (const item of c.items) {
+        const inner = item.content && typeof item.content === 'object' ? item.content : item
+        if (inner && typeof inner === 'object') {
+          const found = walk(inner as { type?: string; items?: Array<{ content?: unknown }>; mimeType?: string; read?: () => Promise<Buffer> })
+          if (found) return found
+        }
+      }
+    }
+    return null
+  }
+  return walk(content)
+}
+
+/** Extract the text portion of an inbound group (iMessage text + photo). */
+export function extractMessageText(content: {
+  type?: string
+  items?: Array<{ type?: string; content?: unknown; text?: string }>
+  text?: string
+  [key: string]: unknown
+}): string {
+  if (content.type === 'text' && typeof content.text === 'string') return content.text
+  if (content.type === 'group' && Array.isArray(content.items)) {
+    const parts: string[] = []
+    for (const item of content.items) {
+      const inner = (item.content && typeof item.content === 'object' ? item.content : item) as {
+        type?: string
+        text?: string
+        items?: Array<{ content?: unknown; text?: string }>
+      }
+      if (inner?.type === 'text' && typeof inner.text === 'string') parts.push(inner.text)
+    }
+    return parts.join(' ').trim()
+  }
+  return ''
+}
+
+/**
+ * Handle an inbound non-text message whose content may carry an image
+ * attachment (a bare image, or an iMessage text+photo group where one part is
+ * an attachment). Reads the first image, logs it to nutrition, and returns a
+ * short reply string, or null when there is no image / nothing was logged.
+ */
+export async function handleInboundPhoto(
+  phone: string,
+  persona: AgentId,
+  content: {
+    type?: string
+    items?: Array<{ type?: string; content?: unknown }>
+    mimeType?: string
+    read?: () => Promise<Buffer>
+    [key: string]: unknown
+  },
+  description?: string,
+): Promise<string | null> {
+  if (persona !== 'friend') return null
+  const image = findInboundImage(content)
+  if (!image) return null
+  try {
+    const buf = await image.read()
+    if (!buf || buf.length < 64) return null
+    const imageBase64 = buf.toString('base64')
+    const logged = await autoLogNutritionPhoto(phone, persona, imageBase64, description)
+    if (!logged?.logged) return null
+    if (logged.estimated && (logged.calories || 0) > 0) {
+      return `Logged your meal from the photo: ${logged.calories} cal, ${logged.protein || 0}g protein. Want me to note what it was?`
+    }
+    if (logged.needsKey) {
+      return 'Got it, that meal is saved. Add a GMI key in settings and I can estimate macros from photos.'
+    }
+    return 'Logged that meal from the photo. It\'s in your Nutrition log.'
+  } catch (err) {
+    console.warn('[live] photo read failed', err)
+    return null
+  }
+}
+
 async function autoLogText<T extends { ok?: boolean; logged?: boolean; error?: string }>(
   path: string,
   phone: string,

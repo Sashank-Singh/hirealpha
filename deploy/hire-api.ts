@@ -3863,6 +3863,47 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     return json({ ...estimate, logged: true, id })
   }
 
+  if (path === '/api/internal/nutrition/photo' && req.method === 'POST') {
+    // Bot-side photo upload: same always-log semantics as the dashboard
+    // /api/nutrition/photo, but authenticated by phone + internal key.
+    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
+    const body = (await req.json().catch(() => ({}))) as {
+      phone?: string; persona?: string; description?: string; imageBase64?: string
+    }
+    const imageBase64 = String(body.imageBase64 || '')
+    if (!body.phone || !isPersona(body.persona || '') || imageBase64.length < 64) {
+      return json({ error: 'phone, persona, and image required' }, 400)
+    }
+    const user = await getUserByPhone(sql, body.phone)
+    if (!user) return json({ error: 'User not found' }, 404)
+    const described = String(body.description || '').trim().slice(0, 300)
+    let estimate: Awaited<ReturnType<typeof estimateNutrition>> = { ok: false, needsKey: true }
+    if (nutritionModelConfig()) {
+      try {
+        estimate = await estimateNutrition(described || 'Estimate the macros of the meal in this photo.', imageBase64)
+      } catch {
+        estimate = { ok: false, error: 'Estimator unavailable' }
+      }
+    }
+    const id = crypto.randomUUID()
+    const detail = described || 'Meal from photo'
+    const imageUrl = `data:${imageMimeFromBase64(imageBase64)};base64,${imageBase64}`
+    const macros = estimate.ok
+      ? {
+          calories: clampNum(estimate.calories),
+          protein: clampNum(estimate.protein),
+          carbs: clampNum(estimate.carbs),
+          fat: clampNum(estimate.fat),
+        }
+      : { calories: 0, protein: 0, carbs: 0, fat: 0 }
+    await sql`
+      INSERT INTO hire_nutrition_logs (id, user_id, description, image_url, calories, protein, carbs, fat, eaten_at)
+      VALUES (${id}, ${user.id}, ${estimate.ok ? (estimate.guess || detail) : `${detail} (estimate pending)`}, ${imageUrl},
+        ${macros.calories}, ${macros.protein}, ${macros.carbs}, ${macros.fat}, now())
+    `
+    return json({ ok: true, logged: true, id, estimated: estimate.ok, needsKey: estimate.needsKey === true, ...macros })
+  }
+
   if (path === '/api/internal/workouts' && req.method === 'POST') {
     if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
     const body = (await req.json().catch(() => ({}))) as { phone?: string; persona?: string; text?: string }

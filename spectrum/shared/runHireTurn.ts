@@ -376,6 +376,8 @@ export async function runHireTurn(input: {
   dataDir: string
   senderId: string
   userText: string
+  /** Optional note appended to context, e.g. that an image was auto-logged. */
+  inboundNote?: string
 }): Promise<{
   reply: string
   bubbles: string[]
@@ -634,6 +636,9 @@ export async function runHireTurn(input: {
             ? `A mini-app card for "${miniApp.kind}" is also being delivered. Put the live mini-app result in your text. The card is extra.`
             : `A mini-app card for "${miniApp.kind}" is being delivered with your reply. Keep your text short and offer the card in one line.`,
     )
+  }
+  if (input.inboundNote) {
+    extras.push(input.inboundNote)
   }
 
   const memoryBlock = buildMemoryBlock(mem, live.memories || [])

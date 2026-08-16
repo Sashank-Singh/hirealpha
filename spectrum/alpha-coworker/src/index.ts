@@ -3,6 +3,7 @@ import { imessage } from '@spectrum-ts/imessage'
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { getAgent, runHireTurn, runMemoryMaintenance, sanitizeOutbound } from '../../shared/runHireTurn'
+import { extractMessageText, handleInboundPhoto } from '../../shared/liveContext'
 import { claimInbound } from '../../shared/inboundGuard'
 import { startReminderScheduler } from '../../shared/reminders'
 import { startHealthServer } from '../../shared/health'
@@ -69,7 +70,55 @@ for await (const [space, message] of app.messages) {
     continue
   }
 
-  if (message.content.type !== 'text') continue
+  if (message.content.type !== 'text') {
+    // Non-text: a bare food photo, or an iMessage text+photo group.
+    const senderId = message.sender?.id ?? space.id
+    try {
+      await message.react('👍').catch(() => undefined)
+      const photoReply = await handleInboundPhoto(senderId, agent.id, message.content)
+      const photoText = extractMessageText(message.content)
+      if (!photoReply && !photoText) continue
+      if (photoText) {
+        // Text came with the photo: run the normal turn with a note so the
+        // reply can acknowledge the logged meal.
+        if (!claimInbound(senderId, photoText, message.id)) {
+          console.warn(`[${agent.id}] duplicate inbound skipped: ${message.id}`)
+          continue
+        }
+        const note = photoReply
+          ? `The user sent a food photo with this message. It was auto-logged to nutrition and you just confirmed it in one line ("${photoReply}"). Do not log it again; answer their actual question.`
+          : ''
+        await space.responding(async () => {
+          const { bubbles, source, authoritative, reply, card } = await runHireTurn({
+            agentId,
+            dataDir,
+            senderId,
+            userText: photoText,
+            inboundNote: note,
+          })
+          const text = sanitizeOutbound(bubbles[0] || reply || '')
+          if (!text) {
+            if (card) await space.send(appCard(card.url, { live: card.live }))
+            return
+          }
+          await message.reply(text)
+          if (card) await space.send(appCard(card.url, { live: card.live }))
+          if (source === 'gmi') {
+            void runMemoryMaintenance({ dataDir, senderId, agentId, authoritative, userText: photoText, reply })
+              .catch(() => undefined)
+          }
+        })
+        continue
+      }
+      if (photoReply) {
+        const cleaned = sanitizeOutbound(photoReply)
+        if (cleaned) await message.reply(cleaned)
+      }
+    } catch (err) {
+      console.warn(`[${agent.id}] photo handling failed`, err)
+    }
+    continue
+  }
 
   const userText = message.content.text.trim()
   if (!userText) continue
