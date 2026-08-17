@@ -89,6 +89,8 @@ export const MENU_FEATURES: Record<string, MenuFeature[]> = {
     { kind: 'workout_log', title: 'Workout log', emoji: '🏋️', blurb: 'Sets, reps, weight. Watch your PRs move.' },
     { kind: 'sleep_tracker', title: 'Sleep', emoji: '🌱', blurb: 'Bedtime, wake, debt, and consistency.' },
     { kind: 'learning_queue', title: 'Learning queue', emoji: '📚', blurb: 'Save articles, videos, podcasts. Play the next one.' },
+    { kind: 'networking_crm', title: 'Networking', emoji: '🤝', blurb: 'People you met, what you talked about, when to follow up.' },
+    { kind: 'pipeline_board', title: 'Pipeline', emoji: '💼', blurb: 'Jobs, deals, leads. Move them through stages.' },
     { kind: 'weekly_review', title: 'Weekly review', emoji: '📅', blurb: 'What got done, what slipped, next week\'s focus.' },
     { kind: 'gratitude_journal', title: 'Gratitude', emoji: '🧘', blurb: 'One sentence a day. Patterns come later.' },
     { kind: 'spending_snapshot', title: 'Spending', emoji: '💰', blurb: 'Log spend, watch the weekly budget.' },

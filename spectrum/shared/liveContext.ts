@@ -452,6 +452,115 @@ export async function autoLogSpend(phone: string, persona: AgentId, text: string
   }>('/api/internal/spending', phone, persona, text)
 }
 
+/** Parse a name (and optional place) from networking phrases. Returns null if no name found. */
+function parseNetworkContact(text: string): { name?: string; place?: string } | null {
+  const SKIP = /^(a|an|the|someone|anybody|anyone|with|my|your|their|her|his|me|we|us|it|one|she|he|they|this|that)$/i
+  // "I met Sarah" / "I ran into John Smith at the conference"
+  const metRe = /\bi (?:met|ran into|bumped into)\s+([\w]+(?:\s+[\w]+)?)\b(?:\s+(?:at|from|in|via)\s+([\w][^.,!?\n]{0,40}))?/i
+  const metM = text.match(metRe)
+  if (metM) {
+    const name = (metM[1] ?? '').trim()
+    if (!name || SKIP.test(name)) return null
+    return {
+      name: name.replace(/\b\w/g, (c) => c.toUpperCase()),
+      place: (metM[2] ?? '').trim() || undefined,
+    }
+  }
+  // "add Sarah to [my] network[ing/contacts]"
+  const addRe = /\badd\s+([\w]+(?:\s+[\w]+)?)\s+to\s+(?:my\s+)?(?:network|networking|contacts)\b/i
+  const addM = text.match(addRe)
+  if (addM) {
+    const name = (addM[1] ?? '').trim()
+    if (!name || SKIP.test(name)) return null
+    return { name: name.replace(/\b\w/g, (c) => c.toUpperCase()) }
+  }
+  return null
+}
+
+/**
+ * Attempt to add a networking contact parsed from the message text.
+ * Returns null when no name can be parsed (card is still sent; nothing logged).
+ * Returns the API response otherwise; only set `logged: true` on confirmed save.
+ */
+export async function autoLogNetwork(
+  phone: string,
+  persona: AgentId,
+  text: string,
+): Promise<{ ok?: boolean; logged?: boolean; error?: string; name?: string; place?: string } | null> {
+  const parsed = parseNetworkContact(text)
+  if (!parsed?.name) return null
+
+  const base = apiBase()
+  const key = process.env.HIREALPHA_INTERNAL_KEY || ''
+  if (!base || !key) return { ok: false, logged: false, error: 'not configured', name: parsed.name, place: parsed.place }
+  try {
+    const res = await timedFetch(
+      `${base}/api/internal/network`,
+      {
+        method: 'POST',
+        headers: authHeaders(),
+        body: JSON.stringify({
+          phone,
+          persona,
+          text: text.slice(0, 500),
+          name: parsed.name,
+          place: parsed.place,
+        }),
+      },
+      12000,
+    )
+    if (!res.ok) return { ok: false, logged: false, error: `save failed (${res.status})`, name: parsed.name, place: parsed.place }
+    return (await res.json()) as { ok?: boolean; logged?: boolean; error?: string; name?: string; place?: string }
+  } catch (err) {
+    console.warn('[live] network auto-log failed', err)
+    return { ok: false, logged: false, error: 'save failed', name: parsed.name, place: parsed.place }
+  }
+}
+
+/**
+ * Attempt to save a URL from a learning queue message.
+ * Returns null when no URL is present (card is still sent; nothing saved).
+ * Returns the API response otherwise; only set `logged: true` on confirmed save.
+ */
+export async function autoSaveLearning(
+  phone: string,
+  persona: AgentId,
+  text: string,
+  extraTexts: string[] = [],
+): Promise<{ ok?: boolean; logged?: boolean; error?: string; title?: string; url?: string } | null> {
+  const urlMatch = [text, ...extraTexts].join('\n').match(/https?:\/\/\S+/i)
+  const url = urlMatch?.[0]?.replace(/[),.;]+$/, '')
+  if (!url) return null
+
+  const base = apiBase()
+  const key = process.env.HIREALPHA_INTERNAL_KEY || ''
+  if (!base || !key) return { ok: false, logged: false, error: 'not configured', url }
+  const stripped = text.replace(/https?:\/\/\S+/gi, '').trim()
+  const title = stripped.slice(0, 200) || undefined
+  try {
+    const res = await timedFetch(
+      `${base}/api/internal/learning`,
+      {
+        method: 'POST',
+        headers: authHeaders(),
+        body: JSON.stringify({
+          phone,
+          persona,
+          url,
+          ...(title ? { title } : {}),
+          text: text.slice(0, 500),
+        }),
+      },
+      12000,
+    )
+    if (!res.ok) return { ok: false, logged: false, error: `save failed (${res.status})`, url }
+    return (await res.json()) as { ok?: boolean; logged?: boolean; error?: string; title?: string; url?: string }
+  } catch (err) {
+    console.warn('[live] learning auto-save failed', err)
+    return { ok: false, logged: false, error: 'save failed', url }
+  }
+}
+
 export function formatHireContext(fields: Record<string, string>): string {
   const lines = Object.entries(fields)
     .filter(([, v]) => {

@@ -8,7 +8,7 @@ import { skillsPromptBlock, SKILLS } from './skills'
 import { gmiChat } from './gmi'
 import { appendThread, loadMemory, upsertFacts, pruneExpiredFacts, setSummary, trimHistory, MAX_RAW, type ThreadMemory } from './memory'
 import { extractFacts, summarizeOld } from './memoryMaintain'
-import { autoLogGratitude, autoLogHabit, autoLogMood, autoLogNutrition, autoLogSleep, autoLogSpend, autoLogWorkout, fetchLiveProfile, fetchLiveTools, fetchMiniRun, formatHireContext, formatHireMemories, persistLiveFacts, touchInbound } from './liveContext'
+import { autoLogGratitude, autoLogHabit, autoLogMood, autoLogNutrition, autoLogSleep, autoLogSpend, autoLogWorkout, autoLogNetwork, autoSaveLearning, fetchLiveProfile, fetchLiveTools, fetchMiniRun, formatHireContext, formatHireMemories, persistLiveFacts, touchInbound } from './liveContext'
 import {
   looksLikeReminder,
   parseReminderIntent,
@@ -23,6 +23,7 @@ import {
   looksLikeAffirmedBrief,
   looksLikeDigestIntent,
   mintMiniAppCard,
+  miniAppFallbackText,
   buildDigestBriefing,
   type MiniAppCard,
 } from './miniApps'
@@ -396,6 +397,7 @@ export async function runHireTurn(input: {
   const textedBefore = !!(history.length || mem.summary.trim() || live.lastInboundAt)
   const isFirst = !textedBefore
   const lastAssistant = [...history].reverse().find((m) => m.role === 'assistant')?.content
+  const recentUserTexts = history.filter((m) => m.role === 'user').slice(-6).map((m) => m.content)
   const briefIntent =
     looksLikeDigestIntent(input.userText) || looksLikeAffirmedBrief(input.userText, lastAssistant)
 
@@ -436,14 +438,24 @@ export async function runHireTurn(input: {
     }
   }
 
+  const miniApp = live.hired
+    ? briefIntent
+      ? { kind: 'digest' as const }
+      : isFirst && !setupDone
+        ? { kind: 'menu' as const }
+        : detectMiniAppRequest(input.userText, agent.id, recentUserTexts)
+    : null
+
   let digestText: string | null = null
   if (live.found && live.hired && briefIntent) {
     const digest = await buildDigestBriefing(input.senderId, agent.id)
     digestText = digest?.text?.trim() || null
   }
 
+  const skipFreeLookup = !!(miniApp && miniApp.kind !== 'pick_night' && miniApp.kind !== 'digest')
+
   let toolResults =
-    live.found && live.hired && !digestText && (briefIntent || wantsLiveData(input.userText))
+    live.found && live.hired && !digestText && (briefIntent || wantsLiveData(input.userText)) && !skipFreeLookup
       ? await fetchLiveTools(
           input.senderId,
           agent.id,
@@ -454,6 +466,7 @@ export async function runHireTurn(input: {
     live.found &&
     live.hired &&
     !toolResults.length &&
+    !skipFreeLookup &&
     /\b(check|look up|find|search|book|pull|inbox|mail|calendar|slack|linear|notion|drive|maps|dinner|place)\b/i.test(
       input.userText,
     )
@@ -464,7 +477,7 @@ export async function runHireTurn(input: {
     }
   }
 
-  if (live.found && live.hired && !toolResults.length && maybeToolIntent(input.userText)) {
+  if (live.found && live.hired && !toolResults.length && !skipFreeLookup && maybeToolIntent(input.userText)) {
     const intent = await classifyFreeLookup(input.userText)
     if (
       intent &&
@@ -479,14 +492,6 @@ export async function runHireTurn(input: {
       )
     }
   }
-
-  const miniApp = live.hired
-    ? briefIntent
-      ? { kind: 'digest' as const }
-      : isFirst && !setupDone
-        ? { kind: 'menu' as const }
-        : detectMiniAppRequest(input.userText, agent.id)
-    : null
 
   const extras: string[] = []
   if (!live.found) {
@@ -613,6 +618,27 @@ export async function runHireTurn(input: {
       extras.push('Could not parse an amount to log. Do not claim spend was logged. Tell them to open the Spending card.')
     }
   }
+  if (miniApp?.kind === 'networking_crm') {
+    const network = await autoLogNetwork(input.senderId, agent.id, input.userText)
+    if (network?.logged) {
+      extras.push(
+        `${network.name ? `"${network.name}"` : 'A contact'} was automatically added to the Networking CRM${network.place ? ` (met at "${network.place}")` : ''}. Confirm briefly; do not ask them to add it again.`,
+      )
+    } else if (network && !network.logged) {
+      extras.push('Contact was not saved. Do not claim it was logged. The Networking card is attached; they can add the person there.')
+    }
+    // If network is null, no name was parseable; card still delivered, say nothing about logging.
+  }
+  if (miniApp?.kind === 'learning_queue') {
+    const learning = await autoSaveLearning(input.senderId, agent.id, input.userText, recentUserTexts)
+    if (learning?.logged) {
+      extras.push(
+        `Saved to Learning Queue${learning.title ? `: "${learning.title}"` : ''}. Confirm briefly; do not ask them to save it again.`,
+      )
+    } else {
+      extras.push('Could not auto-save to Learning Queue. Do not claim it was saved. The Learning Queue card is attached; they can add it from there.')
+    }
+  }
   if (digestText) {
     extras.push(
       `Live day wrap (ground truth, use this, do not invent):\n${digestText}\n\nWrite the debrief from this. Cover today, mail, tonight leftover, tomorrow, reminders, and open loops. One message. No intro.`,
@@ -683,7 +709,9 @@ export async function runHireTurn(input: {
     })
   } catch (err) {
     console.warn(`[${agent.id}] GMI fallback:`, err)
-    if (isFirst) {
+    if (miniApp) {
+      reply = miniAppFallbackText(miniApp.kind)
+    } else if (isFirst) {
       const intros: Record<AgentId, string> = {
         friend:
           "Hey, I'm Alpha. I'm here to help.",
@@ -706,10 +734,17 @@ export async function runHireTurn(input: {
       foldQuotes(finalReply || reply),
     )
   if (briefIntent && digestText && (!finalReply || askedWhat)) finalReply = digestText
-  if (!finalReply) finalReply = 'I hit a snag. Try that again?'
+  if (!finalReply) {
+    finalReply = miniApp ? miniAppFallbackText(miniApp.kind) : 'I hit a snag. Try that again?'
+  }
   finalReply = sanitizeOutbound(finalReply)
   if (isBannedTagline(finalReply) || !finalReply.trim()) {
-    finalReply = briefIntent && digestText ? sanitizeOutbound(digestText) || 'On it. Give me one more beat.' : 'On it. Give me one more beat.'
+    finalReply =
+      briefIntent && digestText
+        ? sanitizeOutbound(digestText) || 'On it. Give me one more beat.'
+        : miniApp
+          ? miniAppFallbackText(miniApp.kind)
+          : 'On it. Give me one more beat.'
   }
   console.log(`[turn] raw reply (${reply.length} chars): ${reply.slice(0, 300)}`)
   console.log(`[turn] final reply (${finalReply.length} chars): ${finalReply.slice(0, 300)}`)

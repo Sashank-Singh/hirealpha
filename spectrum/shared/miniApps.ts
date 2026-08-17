@@ -71,7 +71,7 @@ export function isDigestRequest(text: string): boolean {
   return text.startsWith(DIGEST_MARKER)
 }
 
-const PATTERNS: Partial<Record<MiniAppKind, RegExp>> = {
+export const PATTERNS: Partial<Record<MiniAppKind, RegExp>> = {
   digest: DIGEST_INTENT,
   check_in: /\bcheck[\s-]?in\b/i,
   approve_send: /\bapprove\b|\bsend (?:that|this|the) (?:email|draft|note)\b|\bfire (?:that|this|the) (?:email|draft)\b|\bready to send\b/i,
@@ -88,24 +88,137 @@ const PATTERNS: Partial<Record<MiniAppKind, RegExp>> = {
   meeting_mode: /\b(?:meeting|call|1[-: ]?1|sync|interview)\b.{0,16}\b(?:prep|brief|debrief|notes|follow[- ]?up)\b|\bprep (?:me|for)\b|\bafter (?:the )?(?:meeting|call)\b/i,
   decision_ledger: /\bdecision\b.{0,16}\b(?:log|record|ledger|journal)\b|\blog (?:that|this|a) decision\b|\bwhat did (?:we|i) decide\b/i,
   relationship_radar: /\brelationship radar\b|\b(?:haven.?t|need to) (?:reach|touch|check) (?:out|in|base)\b|\bwho should i (?:follow|reach|check)\b/i,
-  drop_zone: /\bdrop zone\b|\bdump (?:this|that|it|a)\b|\bsave (?:this|that|it) for (?:later|me)\b|\broute (?:this|that|it)\b/i,
-  nutrition: /\b(?:what|how many) (?:did i eat|calories|protein|macros)\b|\b(?:log|track) (?:my )?(?:food|meal|lunch|dinner|breakfast|snack)\b|\bmacros?\b|\bcalorie\b|\bi ate\b/i,
-  habit_streak: /\bhabit streak\b|\b(?:log|track) (?:my )?habits?\b|\bmark .{0,20}(?:done|habit)\b/i,
-  mood_tracker: /\b(?:log|track) (?:my )?mood\b|\bhow(?:'s| is) my (?:mood|energy)\b|\bmood tracker\b/i,
-  workout_log: /\bworkout log\b|\b(?:log|track) (?:my )?(?:workout|lift|gym|sets)\b|\bbench press\b|\bhow much (?:did i|can i) lift\b/i,
-  learning_queue: /\blearning queue\b|\bsave (?:this|that) (?:article|video|podcast|to (?:my )?queue)\b|\bwhat should i (?:read|watch|listen)\b/i,
-  weekly_review: /\bweekly (?:review|recap|focus)\b|\bhow was (?:my )?week\b|\bwhat (?:got done|slipped) this week\b/i,
-  networking_crm: /\bnetworking\b|\bi met\b|\bfollow up with\b|\bwho should i follow up\b/i,
-  sleep_tracker: /\bsleep tracker\b|\b(?:log|track) (?:my )?sleep\b|\bhow (?:did i|long did i) sleep\b|\bsleep debt\b/i,
-  pipeline_board: /\bpipeline\b|\b(?:job|deal|lead) (?:board|pipeline|status)\b|\bmove .{0,20}to (?:interview|offer)\b/i,
-  gratitude_journal: /\bgratitude\b|\b(?:i'?m|i am) grateful\b|\bgrateful for\b/i,
-  spending_snapshot: /\bspending snapshot\b|\b(?:log|track) (?:my )?(?:spend|spending|expense)\b|\bhow much (?:did i|have i) spent\b|\bweekly budget\b/i,
-  mirror: /\bmirror\b|\blife dashboard\b|\bhow(?:'s| is) my life (?:going|looking)\b|\breflect on my (?:week|life)\b|\bshow me (?:the )?(?:week|life)\b/i,
+  // drop_zone intentionally does NOT match save+URL combos; the URL gate in detectMiniAppRequest routes those to learning_queue first
+  drop_zone: /\bdrop zone\b|\bdump (?:this|that|it|a)\b|\bsave (?:this |that |it )?for (?:later|me)\b|\broute (?:this|that|it)\b|\b(?:open|show|pull up|bring back) (?:my |the )?drop zone\b/i,
+  nutrition:
+    /\bnutrition\b|\b(?:what|how many) (?:did i eat|calories|protein|macros)\b|\b(?:log|track) (?:my )?(?:food|meal|lunch|dinner|breakfast|snack)\b|\bmacros?\b|\bcalorie\b|\bi ate\b|\b(?:open|show|pull up|bring back) (?:my |the )?nutrition\b/i,
+  // habit_streak: explicit name + reopen
+  habit_streak:
+    /\bhabit(?: streak| tracker)?\b|\b(?:log|track) (?:my )?habits?\b|\bmark .{0,20}(?:done|habit)\b|\b(?:open|show|pull up|bring back) (?:my )?habits?\b|\bmy streak\b/i,
+  // mood_tracker: explicit name + reopen + pull up mood
+  mood_tracker:
+    /\b(?:log|track) (?:my )?mood\b|\bhow(?:'s| is) my (?:mood|energy)\b|\bmood (?:tracker|check|log|card)\b|\bmood check\b|\b(?:open|show|pull up|bring back) (?:my |the )?mood(?: tracker)?\b/i,
+  // workout_log: explicit name + reopen + natural phrases
+  workout_log:
+    /\bworkout(?: log)?\b|\b(?:log|track) (?:my )?(?:workout|lift|gym|sets)\b|\bbench press\b|\bhow much (?:did i|can i) lift\b|\bi (?:worked out|went to the gym|lifted)\b|\b(?:open|show|pull up|bring back) (?:my )?workout(?: log)?\b|\bmy lifts\b/i,
+  // learning_queue: explicit name + reopen + save-article phrases (URL gate in detectMiniAppRequest handles URL+save)
+  learning_queue:
+    /\blearning queue\b|\bmy (?:reading |watch )?list\b|\bmy (?:learning )?queue\b|\bwhat should i (?:read|watch|listen)\b|\bsave (?:this|that) (?:article|video|podcast|link|post|thread)\b|\bsave this link\b|\badd (?:this|that|it) to (?:my )?(?:queue|reading list|watch list|learning)\b|\b(?:open|show|pull up|bring back) (?:my |the )?(?:learning(?: queue)?|reading list|queue)\b|\bwhat.?s in my (?:learning )?queue\b/i,
+  // weekly_review: explicit name + reopen + natural end-of-week phrases
+  weekly_review:
+    /\bweekly (?:review|recap|focus)\b|\bhow was (?:my )?week\b|\bwhat (?:got done|slipped) this week\b|\b(?:open|show|pull up|bring back) (?:my )?weekly review\b|\breview (?:my )?week\b|\bend of (?:the )?week\b/i,
+  // networking_crm: explicit name + reopen + natural contact phrases
+  networking_crm:
+    /\bnetwork(?:ing)?(?: crm)?\b|\bi (?:met|ran into|bumped into)\b|\badd .{1,30} to (?:my )?(?:network|contacts|networking)\b|\bfollow(?:ing)? up with\b|\bwho should i follow up\b|\breconnect with\b|\bneed to reach out to\b|\badd a contact\b|\bmy contacts\b|\bnew contact\b|\b(?:open|show|pull up|bring back) (?:my |the )?network(?:ing)?(?: crm)?\b/i,
+  // sleep_tracker: explicit name + reopen + natural phrases including "log last night"
+  sleep_tracker:
+    /\bsleep(?: tracker)?\b|\b(?:log|track) (?:my )?sleep\b|\bhow (?:did i|long did i) sleep\b|\bsleep debt\b|\bsleep last night\b|\blast night.{0,20}sleep\b|\bslept .{0,10}hours\b|\bwoke up at\b|\bbed(?:time)? at\b|\b(?:open|show|pull up|bring back) (?:my )?sleep(?: tracker)?\b/i,
+  // pipeline_board: explicit name + reopen + job/deal phrases
+  pipeline_board:
+    /\bpipeline(?: board)?\b|\b(?:job|deal|lead) (?:board|pipeline|status)\b|\bmove .{0,20}to (?:interview|offer)\b|\bapplication status\b|\bjob board\b|\b(?:open|show|pull up|bring back) (?:my )?pipeline\b/i,
+  // gratitude_journal: explicit name + reopen + natural phrases
+  gratitude_journal:
+    /\bgratitude(?: journal)?\b|\b(?:i'?m|i am) grateful\b|\bgrateful for\b|\blog (?:my )?gratitude\b|\b(?:open|show|pull up|bring back) (?:my )?gratitude(?: journal)?\b/i,
+  // spending_snapshot: explicit name + reopen + "I spent" + expense phrases
+  spending_snapshot:
+    /\bspending(?: snapshot| tracker)?\b|\b(?:log|track) (?:my )?(?:spend(?:ing)?|expense)\b|\bhow much (?:did i|have i) spent?\b|\bweekly budget\b|\bexpense log\b|\bi spent\b|\b(?:open|show|pull up|bring back) (?:my |the )?(?:spending|expenses?)\b/i,
+  // mirror: explicit name + reopen + life overview phrases
+  mirror:
+    /\bmirror\b|\blife dashboard\b|\bhow(?:'s| is) my life (?:going|looking)\b|\breflect on my (?:week|life)\b|\bshow me (?:the )?(?:week|life)\b|\blife overview\b|\bhow am i doing overall\b|\b(?:open|show|pull up|bring back) (?:my )?(?:mirror|life dashboard)\b/i,
 }
 
 export interface MiniAppRequest {
   kind: MiniAppKind
   query?: Record<string, string>
+}
+
+/** Short labels for local fallback copy. No hyphens or dashes. */
+const KIND_LABELS: Record<MiniAppKind, string> = {
+  menu: 'setup',
+  digest: 'day wrap',
+  approve_send: 'Approve and send',
+  pick_slot: 'Pick a slot',
+  pick_night: 'Tonight',
+  check_in: 'Check in',
+  standup_paste: 'Standup',
+  linear_triage: 'Linear triage',
+  kill_keep_park: 'Kill keep park',
+  hire_decision: 'Hire decision',
+  weekly_focus: 'Weekly focus',
+  approve_investor_note: 'Investor note',
+  spiral_options: 'Options',
+  open_loops: 'Loose ends',
+  meeting_mode: 'Meeting mode',
+  decision_ledger: 'Decisions',
+  relationship_radar: 'Stay in touch',
+  drop_zone: 'Drop zone',
+  nutrition: 'Nutrition',
+  habit_streak: 'Habits',
+  mood_tracker: 'Mood',
+  workout_log: 'Workout',
+  learning_queue: 'Learning Queue',
+  weekly_review: 'Weekly review',
+  networking_crm: 'Networking',
+  sleep_tracker: 'Sleep',
+  pipeline_board: 'Pipeline',
+  gratitude_journal: 'Gratitude',
+  spending_snapshot: 'Spending',
+  mirror: 'Mirror',
+}
+
+export function miniAppFallbackText(kind: MiniAppKind): string {
+  return `Here is your ${KIND_LABELS[kind] || 'mini app'} card.`
+}
+
+/**
+ * Names people type when they want the card back. Matched only after a summon
+ * verb ("pull up", "show me", "open") or a "… card" phrase.
+ */
+const SUMMON_NAMES: Partial<Record<MiniAppKind, RegExp>> = {
+  digest: /\b(?:morning |daily |evening )?(?:brief|digest|debrief)\b/i,
+  nutrition: /\bnutrition\b|\bfood log\b|\bmeal log\b|\bmacros?\b/i,
+  networking_crm: /\bnetwork(?:ing)?(?:\s*crm)?\b/i,
+  mood_tracker: /\bmood(?:\s*(?:tracker|check|log))?\b/i,
+  spending_snapshot: /\bspend(?:ing)?\b|\bexpenses?\b/i,
+  sleep_tracker: /\bsleep(?:\s*tracker)?\b/i,
+  workout_log: /\bworkout(?:\s*log)?\b|\blifts?\b/i,
+  habit_streak: /\bhabits?(?:\s*(?:streak|tracker))?\b/i,
+  weekly_review: /\bweekly review\b|\bweek(?:ly)? recap\b/i,
+  learning_queue: /\blearning(?:\s*queue)?\b|\breading list\b|\bwatch list\b/i,
+  pipeline_board: /\bpipeline(?:\s*board)?\b/i,
+  gratitude_journal: /\bgratitude(?:\s*journal)?\b/i,
+  drop_zone: /\bdrop zone\b|\bsave for later\b/i,
+  mirror: /\bmirror\b|\blife dashboard\b/i,
+  check_in: /\bcheck[\s-]?in\b/i,
+  pick_night: /\btonight\b|\bdate night\b/i,
+  open_loops: /\bopen loops?\b|\bloose ends\b/i,
+  relationship_radar: /\brelationship radar\b|\bstay in touch\b/i,
+}
+
+const SUMMON_VERB =
+  /\b(?:open|show(?:\s+me)?|pull\s+up|bring\s+(?:back|up)|gimme|give\s+me)\b/i
+const SHOW_CARD = /\bshow me (?:the |my |a )?.{0,40}?card\b/i
+const NAMED_CARD = /\b(?:the|my)\s+.{0,40}?\s+card\b/i
+const SAVE_INTENT =
+  /\b(?:save|queue|bookmark|for later|read later|watch later|catch up on|come back to)\b|\badd\b.{0,24}\b(?:queue|reading list|watch list|learning)\b/i
+
+export function looksLikeCardSummon(text: string): boolean {
+  return SUMMON_VERB.test(text) || SHOW_CARD.test(text) || NAMED_CARD.test(text)
+}
+
+export function findUrlInTexts(texts: string[]): string | undefined {
+  for (let i = texts.length - 1; i >= 0; i--) {
+    const m = texts[i]?.match(/https?:\/\/\S+/i)
+    if (m?.[0]) return m[0].replace(/[),.;]+$/, '')
+  }
+}
+
+function detectSummonedKind(text: string, allowed: MiniAppKind[]): MiniAppKind | null {
+  if (!looksLikeCardSummon(text)) return null
+  for (const kind of allowed) {
+    if (SUMMON_NAMES[kind]?.test(text)) return kind
+  }
+  return null
 }
 
 /** Kinds this hire may surface, product-order from skills.ts plus digest. */
@@ -118,8 +231,30 @@ function allowedKinds(persona: AgentId): MiniAppKind[] {
 export function detectMiniAppRequest(
   userText: string,
   persona: AgentId,
+  recentUserTexts: string[] = [],
 ): MiniAppRequest | null {
-  for (const kind of allowedKinds(persona)) {
+  const allowed = allowedKinds(persona)
+  const haystack = [userText, ...recentUserTexts].join('\n')
+
+  // A URL paired with any save/queue/bookmark intent always routes to learning_queue,
+  // regardless of where drop_zone falls in the persona ordering. The URL may live
+  // in this bubble or a recent one (rich link, then "save this link").
+  if (allowed.includes('learning_queue') && SAVE_INTENT.test(userText) && /https?:\/\/\S+/i.test(haystack)) {
+    return { kind: 'learning_queue' }
+  }
+  // Article/video/podcast language + save intent also routes to learning_queue even without a URL.
+  if (
+    allowed.includes('learning_queue') &&
+    /\b(?:article|video|podcast|blog post?|episode|link)\b/i.test(userText) &&
+    /\b(?:save|queue|bookmark|add|for later|read later|watch later)\b/i.test(userText)
+  ) {
+    return { kind: 'learning_queue' }
+  }
+
+  const summoned = detectSummonedKind(userText, allowed)
+  if (summoned) return { kind: summoned }
+
+  for (const kind of allowed) {
     if (PATTERNS[kind]?.test(userText)) return { kind }
   }
   return null

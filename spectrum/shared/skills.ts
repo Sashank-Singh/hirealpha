@@ -17,7 +17,7 @@ export const SKILLS: Record<
     miniApps: [
       'pick_night', 'check_in', 'spiral_options', 'open_loops', 'relationship_radar', 'drop_zone',
       'nutrition', 'habit_streak', 'mood_tracker', 'workout_log', 'learning_queue', 'weekly_review',
-      'sleep_tracker', 'gratitude_journal', 'spending_snapshot', 'mirror',
+      'networking_crm', 'pipeline_board', 'sleep_tracker', 'gratitude_journal', 'spending_snapshot', 'mirror',
     ],
     liveMiniApps: ['pick_night'],
     deny: ['slack', 'linear', 'github', 'stripe', 'fundraising'],

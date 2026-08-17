@@ -1851,7 +1851,7 @@ const PERSONA_MINI_APPS: Record<Persona, string[]> = {
   friend: [
     'digest', 'check_in', 'pick_night', 'spiral_options', 'open_loops', 'relationship_radar', 'drop_zone',
     'nutrition', 'habit_streak', 'mood_tracker', 'workout_log', 'learning_queue', 'weekly_review',
-    'sleep_tracker', 'gratitude_journal', 'spending_snapshot', 'mirror',
+    'networking_crm', 'pipeline_board', 'sleep_tracker', 'gratitude_journal', 'spending_snapshot', 'mirror',
   ],
   coworker: [
     'digest', 'approve_send', 'pick_slot', 'standup_paste', 'linear_triage', 'open_loops', 'meeting_mode', 'drop_zone',
@@ -4029,6 +4029,55 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
       VALUES (${id}, ${user.id}, ${parsed.amount}, ${parsed.category}, ${parsed.description})
     `
     return json({ ok: true, logged: true, id, ...parsed })
+  }
+
+  if (path === '/api/internal/learning' && req.method === 'POST') {
+    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
+    const body = (await req.json().catch(() => ({}))) as {
+      phone?: string; persona?: string; url?: string; title?: string; text?: string
+    }
+    const itemUrl = String(body.url || '').trim().slice(0, 500)
+    if (!body.phone || !isPersona(body.persona || '') || !itemUrl) {
+      return json({ error: 'phone, persona, and url required' }, 400)
+    }
+    const user = await getUserByPhone(sql, body.phone)
+    if (!user) return json({ error: 'User not found' }, 404)
+    let title = String(body.title || '').replace(/https?:\/\/\S+/gi, '').trim().slice(0, 160)
+    if (!title) {
+      try {
+        title = new URL(itemUrl).hostname.replace(/^www\./, '') || 'Saved link'
+      } catch {
+        title = 'Saved link'
+      }
+    }
+    const kind = /\b(youtube|vimeo|watch)\b/i.test(itemUrl) ? 'video' : /\b(spotify|podcast|anchor)\b/i.test(itemUrl) ? 'podcast' : 'article'
+    const id = crypto.randomUUID()
+    await sql`
+      INSERT INTO hire_learning (id, user_id, title, url, kind, minutes)
+      VALUES (${id}, ${user.id}, ${title}, ${itemUrl}, ${kind}, 10)
+    `
+    return json({ ok: true, logged: true, id, title, url: itemUrl, kind })
+  }
+
+  if (path === '/api/internal/network' && req.method === 'POST') {
+    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
+    const body = (await req.json().catch(() => ({}))) as {
+      phone?: string; persona?: string; name?: string; place?: string; text?: string
+    }
+    const name = String(body.name || '').trim().slice(0, 80)
+    if (!body.phone || !isPersona(body.persona || '') || !name) {
+      return json({ error: 'phone, persona, and name required' }, 400)
+    }
+    const user = await getUserByPhone(sql, body.phone)
+    if (!user) return json({ error: 'User not found' }, 404)
+    const whereMet = String(body.place || '').trim().slice(0, 120)
+    const context = String(body.text || '').trim().slice(0, 400)
+    const id = crypto.randomUUID()
+    await sql`
+      INSERT INTO hire_network (id, user_id, name, where_met, context, last_touch, cadence_days)
+      VALUES (${id}, ${user.id}, ${name}, ${whereMet}, ${context}, now(), 14)
+    `
+    return json({ ok: true, logged: true, id, name, place: whereMet })
   }
 
   if (path === '/api/internal/digest' && req.method === 'GET') {

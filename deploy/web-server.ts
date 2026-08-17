@@ -128,6 +128,7 @@ const MINI_META: Record<string, { title: string; description: string }> = {
   pipeline_board: { title: 'Pipeline', description: 'Jobs, fundraising, and leads by stage.' },
   gratitude_journal: { title: 'Gratitude', description: 'One sentence a day.' },
   spending_snapshot: { title: 'Spending', description: 'Log spend against a weekly budget.' },
+  mirror: { title: 'The mirror', description: 'Here is what your life actually looks like.' },
 }
 
 function miniMeta(pathname: string) {
