@@ -8,7 +8,7 @@
     "build": "tsc -b && vite build",
     "lint": "oxlint",
     "preview": "vite preview",
-    "test": "bun test spectrum/shared/**/*.test.ts",
+    "test": "bun test spectrum/shared/",
     "test:mini": "bun test spectrum/shared/miniApps.test.ts"
   },
   "dependencies": {
