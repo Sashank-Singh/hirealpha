@@ -556,43 +556,124 @@
   color: #fff;
   border-color: var(--ink);
 }
-.kit__grid {
-  width: min(1100px, calc(100% - 28px));
-  margin: 0 auto;
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 12px;
+.kit-deck {
+  position: relative;
 }
-.kit-tile {
+.kit-deck__track {
+  display: flex;
+  gap: 16px;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scroll-snap-type: x mandatory;
+  scroll-padding-inline: max(16px, calc(50vw - 160px));
+  padding: 10px max(16px, calc(50vw - 160px)) 18px;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  touch-action: pan-x;
+  outline: none;
+}
+.kit-deck__track::-webkit-scrollbar { display: none; }
+.kit-card {
+  flex: 0 0 min(78vw, 320px);
+  scroll-snap-align: center;
+  min-height: 240px;
   background: #fff;
   border: 2.5px solid var(--ink);
-  border-radius: 22px;
-  padding: 16px 16px 14px;
-  box-shadow: 4px 4px 0 var(--ink);
+  border-radius: 28px;
+  padding: 22px 22px 18px;
+  box-shadow: 6px 6px 0 var(--ink);
   display: grid;
-  gap: 6px;
-  justify-items: start;
+  align-content: start;
+  gap: 8px;
+  user-select: none;
 }
-.kit-tile__mark {
-  width: 36px;
-  height: 36px;
+.kit-card--on { transform: translateY(-4px); }
+.kit-card__mark {
+  width: 44px;
+  height: 44px;
   display: grid;
   place-items: center;
   border: 2px solid var(--ink);
   background: #fff;
+  margin-bottom: 6px;
 }
-.kit-tile__mark svg {
-  width: 20px;
-  height: 20px;
+.kit-card__mark svg {
+  width: 24px;
+  height: 24px;
 }
-.kit-tile strong {
-  font-size: 15px;
-  font-weight: 800;
+.kit-card strong {
+  font-family: var(--display);
+  font-size: 2rem;
+  font-weight: 500;
+  letter-spacing: -0.03em;
+  line-height: 1.05;
 }
-.kit-tile span:last-child {
-  font-size: 13px;
+.kit-card p {
+  font-size: 16px;
   color: var(--ink-soft);
-  line-height: 1.35;
+  line-height: 1.4;
+  max-width: 22ch;
+}
+.kit-card__count {
+  margin-top: auto;
+  padding-top: 18px;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+.kit-deck__nav {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  margin-top: 4px;
+}
+.kit-deck__nav p {
+  min-width: 10ch;
+  text-align: center;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink-soft);
+}
+.kit-deck__btn {
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  border: 2px solid var(--ink);
+  background: #fff;
+  box-shadow: 3px 3px 0 var(--ink);
+  cursor: pointer;
+}
+.kit-deck__btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+  box-shadow: none;
+}
+.kit-deck__dots {
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 12px;
+  padding: 0 16px;
+}
+.kit-deck__dots button {
+  width: 8px;
+  height: 8px;
+  padding: 0;
+  border: 0;
+  border-radius: 99px;
+  background: var(--ink);
+  opacity: 0.22;
+  cursor: pointer;
+}
+.kit-deck__dots button.is-on {
+  opacity: 1;
+  width: 18px;
+  background: var(--accent);
 }
 .kit__tools {
   width: min(1100px, calc(100% - 28px));
@@ -752,7 +833,6 @@
   }
   .cast__hero-copy > p:last-of-type { max-width: none; }
   .deed__wall { grid-template-columns: 1fr; }
-  .kit__grid { grid-template-columns: 1fr 1fr; }
   .deed-card--0,
   .deed-card--1,
   .deed-card--2,
@@ -786,7 +866,6 @@
     width: 300px;
     max-width: min(300px, 86vw);
   }
-  .kit__grid { grid-template-columns: 1fr; }
 }
 
 @media (min-width: 1100px) and (min-height: 900px) {

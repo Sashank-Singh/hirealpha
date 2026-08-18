@@ -257,6 +257,124 @@ const HIRE_APPS: Record<AgentId, { kind: string; title: string; blurb: string }[
   ],
 }
 
+function AppDeck({ hire, color }: { hire: AgentId; color: string }) {
+  const apps = HIRE_APPS[hire]
+  const scroller = useRef<HTMLDivElement>(null)
+  const [i, setI] = useState(0)
+
+  useEffect(() => {
+    setI(0)
+    scroller.current?.scrollTo({ left: 0 })
+  }, [hire])
+
+  const go = useCallback((n: number) => {
+    const next = Math.max(0, Math.min(apps.length - 1, n))
+    const el = scroller.current
+    const card = el?.children[next] as HTMLElement | undefined
+    card?.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' })
+    setI(next)
+  }, [apps.length])
+
+  function onScroll() {
+    const el = scroller.current
+    if (!el) return
+    const mid = el.scrollLeft + el.clientWidth / 2
+    let best = 0
+    let dist = Infinity
+    Array.from(el.children).forEach((node, idx) => {
+      const card = node as HTMLElement
+      const cx = card.offsetLeft + card.offsetWidth / 2
+      const d = Math.abs(cx - mid)
+      if (d < dist) {
+        dist = d
+        best = idx
+      }
+    })
+    setI(best)
+  }
+
+  return (
+    <div className="kit-deck">
+      <div
+        ref={scroller}
+        className="kit-deck__track"
+        onScroll={onScroll}
+        tabIndex={0}
+        role="list"
+        aria-label="Mini apps"
+        onKeyDown={(e) => {
+          if (e.key === 'ArrowRight') {
+            e.preventDefault()
+            go(i + 1)
+          }
+          if (e.key === 'ArrowLeft') {
+            e.preventDefault()
+            go(i - 1)
+          }
+        }}
+      >
+        {apps.map((app, n) => (
+          <article
+            key={`${hire}-${app.kind}`}
+            className={`kit-card${n === i ? ' kit-card--on' : ''}`}
+            role="listitem"
+            aria-current={n === i}
+          >
+            <span className="kit-card__mark" style={{ color }}>
+              <MiniAppIcon kind={app.kind} />
+            </span>
+            <strong>{app.title}</strong>
+            <p>{app.blurb}</p>
+            <span className="kit-card__count">
+              {n + 1} / {apps.length}
+            </span>
+          </article>
+        ))}
+      </div>
+      <div className="kit-deck__nav">
+        <button
+          type="button"
+          className="kit-deck__btn"
+          aria-label="Previous app"
+          disabled={i === 0}
+          onClick={() => go(i - 1)}
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
+            <path d="M15 6l-6 6 6 6" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </button>
+        <p>
+          Swipe {apps[i]?.title}
+        </p>
+        <button
+          type="button"
+          className="kit-deck__btn"
+          aria-label="Next app"
+          disabled={i === apps.length - 1}
+          onClick={() => go(i + 1)}
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
+            <path d="M9 6l6 6-6 6" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </button>
+      </div>
+      <div className="kit-deck__dots" role="tablist" aria-label="App cards">
+        {apps.map((app, n) => (
+          <button
+            key={app.kind}
+            type="button"
+            role="tab"
+            aria-label={app.title}
+            aria-selected={n === i}
+            className={n === i ? 'is-on' : ''}
+            onClick={() => go(n)}
+          />
+        ))}
+      </div>
+    </div>
+  )
+}
+
 function Apps({
   hire,
   onPick,
@@ -265,14 +383,13 @@ function Apps({
   onPick: (id: AgentId) => void
 }) {
   const agent = AGENTS.find((a) => a.id === hire)!
-  const apps = HIRE_APPS[hire]
   const tools = connectorsForHire(hire)
   return (
     <section className="kit section" id="apps" aria-labelledby="apps-heading">
       <div className="kit__intro container">
         <p className="deed__eyebrow">In Messages</p>
         <h2 id="apps-heading">Apps they open from a text.</h2>
-        <p>Nutrition, Today, Mirror, and the rest live in the thread. Connect Gmail and Calendar so the numbers are real.</p>
+        <p>Swipe the cards. Nutrition, Today, Mirror, and the rest live in the thread.</p>
       </div>
       <div className="kit__hires" role="tablist" aria-label="Apps by hire">
         {AGENTS.map((a) => (
@@ -290,24 +407,7 @@ function Apps({
           </button>
         ))}
       </div>
-      <div className="kit__grid">
-        {apps.map((app, i) => (
-          <motion.article
-            key={`${hire}-${app.kind}`}
-            className="kit-tile"
-            initial={{ opacity: 0, y: 16 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true, margin: '-40px' }}
-            transition={{ delay: Math.min(i, 8) * 0.04, duration: 0.35 }}
-          >
-            <span className="kit-tile__mark" style={{ color: agent.color }}>
-              <MiniAppIcon kind={app.kind} />
-            </span>
-            <strong>{app.title}</strong>
-            <span>{app.blurb}</span>
-          </motion.article>
-        ))}
-      </div>
+      <AppDeck hire={hire} color={agent.color} />
       <div className="kit__tools">
         <h3>Connectors {agent.name} can use</h3>
         <ul>
