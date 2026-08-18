@@ -1,14 +1,14 @@
 import type { AgentId } from '../../src/agents/types'
 import { gmiChat } from './gmi'
-import type { MiniAppCard } from './miniApps'
 import { isBannedTagline } from './outboundFilter'
+import { pickProactiveInsight, tapHint, type LifeCardKind } from './lifeState'
 
 export const JUDGE_MARKER = '[judge]'
 
-/** Photon: more than 2–3 unanswered follow-ups flags the line. Never send the 3rd. */
+/** Photon: more than 2 unanswered follow-ups flags the line. Never send the 3rd. */
 export const MAX_UNANSWERED_PROACTIVE = 2
-/** Don't burn the unanswered quota with morning + afternoon + evening in one day. */
-export const MAX_UNANSWERED_PER_DAY = 1
+/** Morning plus night. Interrupt only if they already replied or nothing went out yet. */
+export const MAX_UNANSWERED_PER_DAY = 2
 
 export function isJudgeTick(text: string): boolean {
   return text.startsWith(JUDGE_MARKER) || text.startsWith('[poke]') || text.startsWith('[digest]')
@@ -31,6 +31,8 @@ export type JudgmentState = {
   habits?: Array<{ name: string; streak: number; todayDone: boolean }>
   mood?: { loggedToday: boolean; lastEmoji?: string | null; lastEnergy?: number | null }
   sleep?: { hours: number; quality: number; date: string } | null
+  sleepWeek?: { nights: number; avgHours: number; shortNights: number }
+  workoutsToday?: number
   peopleDue?: Array<{ name: string; days: number; note?: string }>
   spend?: { weekTotal: number; weeklyBudget: number }
   loops?: string[]
@@ -47,7 +49,7 @@ export type JudgmentResult = {
   send: boolean
   topic: string
   text: string
-  card?: MiniAppCard
+  cardKind?: LifeCardKind | null
 }
 
 type JudgeDecision = {
@@ -223,45 +225,23 @@ function personaVoice(persona: AgentId): string {
   return 'You are Alpha, a hired friend in iMessage. Warm, specific, never clingy.'
 }
 
-function judgePrompt(state: JudgmentState): string {
-  const evening = state.tick === 'evening' || state.tick === 'digest_evening'
-  const weeklyTick = state.tick === 'weekly'
-  const moodMiss = state.mood && !state.mood.loggedToday
-  const habitMiss = state.habits?.some((h) => !h.todayDone)
+function judgePrompt(state: JudgmentState, insightLine: string, tap: string): string {
   return `${personaVoice(state.persona)}
 You are considering whether to text first. This is not a briefing dump.
 
-Ground truth (do not invent numbers or events):
+Computed life state (do not invent numbers or events):
 ${JSON.stringify(state, null, 0)}
 
-Decide:
-- reachOut true only if ONE specific thing is worth a text right now
-- topic: a short slug (nutrition_gap, habit_risk, follow_up, sleep, digest, check_in, spend, loop, weekly_recap, none)
-- message: 1-2 short sentences. Opinionated. No markdown, no lists, no hyphens or dashes. No taglines.
-- card: always null
+A deterministic read already picked the one thing worth saying:
+"${insightLine}"
+Tap they can answer with: "${tap}"
 
-${
-  weeklyTick && state.weekly
-    ? `It is the weekly recap tick. The week is over. Send a short, specific recap of what the data shows: one or two real numbers (meals logged, avg sleep hours, habit checks, workouts, spend vs budget, mood logs) and ONE opinion about what that means for next week. Do not list every number. If the week has essentially no data (nearly everything is zero/empty), stay silent. End with one question they can answer in a text.`
-    : ''
-}
-${evening && moodMiss
-    ? 'It is evening and no mood is logged today. Users never log mood on their own. Reach out with a quick emoji check-in ("How did today land? 😄 🙂 😐 😔 😤"), one question, nothing else.'
-    : ''}
-${
-  habitMiss && !(evening && moodMiss)
-    ? `A habit is not done today (${state.habits!.filter((h) => !h.todayDone).map((h) => h.name).join(', ') || 'one of your habits'}). If it is a reasonable hour, reach out with ONE short ask ("Workout done today?"). One question, nothing else.`
-    : ''
-}
+Rewrite that in your voice. Keep the exact numbers. 1-2 short sentences. No markdown, no lists, no hyphens or dashes. No taglines.
+End with the tap, so they can answer in one text.
+If the computed read is empty or generic, set reachOut false.
 
-Stay silent (reachOut false) if nothing is actually useful, if you would only send a generic check in, or if lastProactiveTopic is the same topic again.
-Stay silent if unansweredProactive is already 1 unless the thing is time sensitive and they can answer in a few words.
-
-A digest tick means morning is a good time. Prefer a 2 sentence wrap of THE one thing that matters today over silence, unless they were just talking or there is truly nothing.
-
-Never paste a calendar or inbox. Never say you are an AI.
-Never attach a card. Unanswered iMessage follow ups cannot include links or media.
-If you text, end with something they can answer in one text. Do not stack questions.
+topic: a short slug matching the computed topic
+card: always null here (the server attaches the card)
 
 Reply JSON only: {"reachOut":boolean,"topic":"slug","message":"text","card":null}`
 }
@@ -307,31 +287,50 @@ export async function runJudgmentLoop(input: {
     return null
   }
 
+  const insight = pickProactiveInsight(state, tick)
+  if (!insight) {
+    console.log(`[judgment:${input.persona}] skip ${input.phone}: no insight`)
+    return null
+  }
+  const unansweredToday = Number(state.unansweredToday) || 0
+  const unanswered = Number(state.unansweredProactive) || 0
+  if (insight.loop === 'interrupt' && unansweredToday > 0 && unanswered > 0) {
+    console.log(`[judgment:${input.persona}] skip ${input.phone}: save slot for night`)
+    return null
+  }
+  if (state.lastProactiveTopic && insight.topic === state.lastProactiveTopic && tick !== 'digest' && tick !== 'weekly' && tick !== 'morning') {
+    return null
+  }
+
+  const fallback = tapHint(insight)
   let decision: JudgeDecision | null = null
   try {
     const raw = await gmiChat({
       temperature: 0.4,
       maxTokens: 180,
       messages: [
-        { role: 'system', content: judgePrompt(state) },
-        { role: 'user', content: `Tick: ${tick}. Should you text? JSON only.` },
+        { role: 'system', content: judgePrompt(state, insight.line, insight.tap) },
+        { role: 'user', content: `Tick: ${tick}. Rewrite the computed read. JSON only.` },
       ],
     })
     decision = parseDecision(raw)
   } catch (err) {
-    console.warn(`[judgment:${input.persona}] llm failed`, err)
-    return null
-  }
-  if (!decision?.reachOut || !decision.message) return null
-  if (isBannedTagline(decision.message)) return null
-  if (state.lastProactiveTopic && decision.topic === state.lastProactiveTopic && tick !== 'digest' && tick !== 'weekly') {
-    return null
+    console.warn(`[judgment:${input.persona}] llm failed, using computed read`, err)
   }
 
-  let text = decision.message.replace(/[\u2013\u2014]/g, ',').replace(/\s+-\s+/g, '. ')
+  let text = (decision?.reachOut && decision.message ? decision.message : fallback)
+    .replace(/[\u2013\u2014]/g, ',')
+    .replace(/\s+-\s+/g, '. ')
+  if (isBannedTagline(text) || !text.trim()) text = fallback
   if (text.length > 420) text = text.slice(0, 417).trim() + '…'
 
-  // Photon: unanswered follow-ups cannot include links or media. A card is a
-  // second send and burns the unanswered quota. Text only until they reply.
-  return { send: true, topic: decision.topic, text }
+  const unanswered = Number(state.unansweredProactive) || 0
+  const attachCard = unanswered === 0 && !!insight.card
+
+  return {
+    send: true,
+    topic: decision?.topic || insight.topic,
+    text,
+    cardKind: attachCard ? insight.card : null,
+  }
 }

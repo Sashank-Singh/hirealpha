@@ -488,6 +488,8 @@ export type MirrorSnapshot = {
     spend: number; weeklyBudget: number; workouts: number
     learningQueued: number; learningDone: number; gratitude: number
     decisionsOpen: number; decisionsResolved: number
+    proteinToday?: number; proteinGoal?: number; caloriesToday?: number; calorieGoal?: number
+    lastNightHours?: number; shortNights?: number; workoutsToday?: number
   }
   moodTrend: Array<{ emoji: string; energy: number; date: string }>
   sleepTrend: Array<{ date: string; hours: number; quality: number }>

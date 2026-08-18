@@ -16,7 +16,8 @@ import {
   listReminders,
   localTimeToUtc,
 } from './reminders'
-import { setProactiveMode, fetchLastProactiveTopic } from './judgment'
+import { setProactiveMode, fetchLastProactiveTopic, fetchJudgmentState } from './judgment'
+import { formatLifeStateBlock } from './lifeState'
 import {
   DIGEST_MARKER,
   detectMiniAppRequest,
@@ -159,6 +160,11 @@ function looksLikeGratitudeLog(text: string) {
 
 function looksLikeSpendLog(text: string) {
   return /\$\s*\d+|(?:spent|spend|paid|cost)\s+\$?\s*\d+/i.test(text)
+}
+
+function looksLikeLifeTap(text: string) {
+  const t = text.trim().toLowerCase().replace(/[.!?]+$/, '')
+  return /^(eat|skip|later|ok|okay|done|send|in|out|log|yes|yeah)\b/.test(t)
 }
 
 function looksLikeMoodReply(text: string) {
@@ -531,6 +537,15 @@ export async function runHireTurn(input: {
     }
     const remembered = formatHireMemories(live.memories)
     if (remembered) extras.push(remembered)
+    if (agent.id === 'friend') {
+      const life = await fetchJudgmentState(input.senderId, agent.id, 'turn')
+      if (life) extras.push(formatLifeStateBlock(life))
+      if (looksLikeLifeTap(input.userText)) {
+        extras.push(
+          'They answered a tap from a previous text (eat, skip, later, done, send, in, out). Honor that using the life state numbers. If they said eat, tell them the protein number and one food. If they said skip, accept it. Do not claim you logged, booked, or sent anything unless a tool result says so.',
+        )
+      }
+    }
   }
 
   let miniRun: { text?: string; paste?: string } | null = null

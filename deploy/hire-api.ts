@@ -2577,12 +2577,28 @@ async function judgmentStatePayload(
   const sleepRows = await sql`
     SELECT sleep_date AS "sleepDate", bedtime, wake, quality
     FROM hire_sleep WHERE user_id = ${user.id}
-    ORDER BY sleep_date DESC LIMIT 1
+    ORDER BY sleep_date DESC LIMIT 7
   `
   const srow = sleepRows[0] as { sleepDate?: string; bedtime?: string; wake?: string; quality?: number } | undefined
   const sleep = srow?.bedtime && srow?.wake
     ? { hours: sleepHoursBetween(srow.bedtime, srow.wake), quality: srow.quality || 3, date: String(srow.sleepDate).slice(0, 10) }
     : null
+  const weekNights = (sleepRows as Array<{ bedtime?: string; wake?: string }>).filter((r) => r.bedtime && r.wake)
+  const weekHours = weekNights.map((r) => sleepHoursBetween(r.bedtime!, r.wake!))
+  const sleepWeek = weekHours.length
+    ? {
+        nights: weekHours.length,
+        avgHours: Math.round((weekHours.reduce((a, b) => a + b, 0) / weekHours.length) * 10) / 10,
+        shortNights: weekHours.filter((h) => h < 6.5).length,
+      }
+    : { nights: 0, avgHours: 0, shortNights: 0 }
+
+  const workoutTodayRows = await sql`
+    SELECT count(*)::int AS n FROM hire_workouts
+    WHERE user_id = ${user.id} AND logged_at >= ${today}::date AND logged_at < ${shiftDateStr(today, 1)}::date
+  `
+  const workoutsToday = Number((workoutTodayRows[0] as { n?: number })?.n || 0)
+
 
   const duePeople = await sql`
     SELECT name, context, last_touch AS "lastTouch", cadence_days AS "cadenceDays"
@@ -2620,7 +2636,7 @@ async function judgmentStatePayload(
 
   let calendar: string[] = []
   let mail: string[] = []
-  if (tick === 'digest' || tick === 'morning') {
+  if (tick === 'digest' || tick === 'morning' || tick === 'evening' || tick === 'night' || tick === 'digest_evening') {
     try {
       const payload = await digestPayload(sql, user, persona)
       calendar = (payload.calendar || []).slice(0, 4)
@@ -2716,6 +2732,8 @@ async function judgmentStatePayload(
     habits,
     mood,
     sleep,
+    sleepWeek,
+    workoutsToday,
     peopleDue: peopleDue.slice(0, 3),
     spend: {
       weekTotal: Math.round(Number((spendRow[0] as { total?: number })?.total) || 0),
@@ -4851,10 +4869,23 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     const weekStart = userMonday(user!)
     const weekEndStr = shiftDateStr(weekStart, 7)
     const dayStart = shiftDateStr(weekStart, -14)
+    const tzMirror = user!.timezone || 'America/Los_Angeles'
+    const todayMirror = localDateStrInTz(new Date(), tzMirror)
 
     const nutr = await sql`
       SELECT count(*)::int AS meals, coalesce(sum(calories), 0)::real AS calories
       FROM hire_nutrition_logs WHERE user_id = ${user!.id} AND eaten_at >= ${weekStart}::date AND eaten_at < ${weekEndStr}::date
+    `
+    const nutrToday = await sql`
+      SELECT coalesce(sum(protein), 0)::real AS protein, coalesce(sum(calories), 0)::real AS calories, count(*)::int AS meals
+      FROM hire_nutrition_logs WHERE user_id = ${user!.id} AND eaten_at >= ${todayMirror}::date AND eaten_at < ${shiftDateStr(todayMirror, 1)}::date
+    `
+    const nutrGoals = await sql`
+      SELECT protein_goal AS "proteinGoal", calorie_goal AS "calorieGoal" FROM hire_nutrition_goals WHERE user_id = ${user!.id} LIMIT 1
+    `
+    const workoutsTodayRows = await sql`
+      SELECT count(*)::int AS n FROM hire_workouts
+      WHERE user_id = ${user!.id} AND logged_at >= ${todayMirror}::date AND logged_at < ${shiftDateStr(todayMirror, 1)}::date
     `
     const moods = await sql`
       SELECT count(*)::int AS logs, coalesce(avg(energy), 0)::real AS energy
@@ -4920,7 +4951,6 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
       ORDER BY created_at ASC LIMIT 60
     `
     const moodTrendRows = moodTrend as Array<{ emoji: string; energy: number; createdAt: Date }>
-    const tzMirror = user!.timezone || 'America/Los_Angeles'
     const sleepTrend = await sql`
       SELECT sleep_date AS "sleepDate", bedtime, wake, quality FROM hire_sleep
       WHERE user_id = ${user!.id} AND sleep_date >= ${dayStart} AND sleep_date < ${weekEndStr}
@@ -4937,11 +4967,25 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     const queued = lrn.find((l) => l.status === 'queued')?.n || 0
     const done = lrn.find((l) => l.status === 'done')?.n || 0
 
+    const sortedSleep = [...sleepRows].sort((a, b) => String(a.sleepDate).localeCompare(String(b.sleepDate)))
+    const sleepHoursList = sortedSleep.map((r) => sleepHoursBetween(r.bedtime, r.wake))
+    const lastNightHours = sleepHoursList.length ? sleepHoursList[sleepHoursList.length - 1]! : 0
+    const shortNights = sleepHoursList.filter((h) => h < 6.5).length
+    const gToday = nutrGoals[0] as { proteinGoal?: number; calorieGoal?: number } | undefined
+    const nToday = nutrToday[0] as { protein?: number; calories?: number; meals?: number } | undefined
+
     return json({
       weekStart,
       window: {
         meals: Number((nutr[0] as { meals: number })?.meals || 0),
         calories: Number((nutr[0] as { calories: number })?.calories || 0),
+        proteinToday: Math.round(Number(nToday?.protein) || 0),
+        proteinGoal: Math.round(Number(gToday?.proteinGoal) || 150),
+        caloriesToday: Math.round(Number(nToday?.calories) || 0),
+        calorieGoal: Math.round(Number(gToday?.calorieGoal) || 2200),
+        lastNightHours: Math.round(lastNightHours * 10) / 10,
+        shortNights,
+        workoutsToday: Number((workoutsTodayRows[0] as { n?: number })?.n || 0),
         moodLogs: Number((moods[0] as { logs: number })?.logs || 0),
         avgEnergy: Number((moods[0] as { energy: number })?.energy || 0),
         habitChecks,

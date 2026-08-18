@@ -104,7 +104,7 @@ export const MENU_FEATURES: Record<string, MenuFeature[]> = {
     { kind: 'workout_log', title: 'Workout', emoji: '🏋️', blurb: 'Home or gym. Mon through Fri.' },
     { kind: 'sleep_tracker', title: 'Sleep', emoji: '🌱', blurb: 'Last night.' },
     { kind: 'spending_snapshot', title: 'Spending', emoji: '💰', blurb: 'This week\'s budget.' },
-    { kind: 'mirror', title: 'Mirror', emoji: '🪞', blurb: 'How life actually looks.' },
+    { kind: 'mirror', title: 'Mirror', emoji: '🪞', blurb: 'The read of your life.' },
     { kind: 'networking_crm', title: 'People', emoji: '🤝', blurb: 'Who to follow up.' },
     { kind: 'open_loops', title: 'Promises', emoji: '🪢', blurb: 'What you said you\'d do.' },
     { kind: 'digest', title: 'Today', emoji: '☀️', blurb: 'Calendar, mail, reminders.' },
@@ -200,7 +200,7 @@ const FRIEND_KIND_TITLES: Record<string, { title: string; blurb: string }> = {
   networking_crm: { title: 'People', blurb: 'Who to follow up.' },
   pick_night: { title: 'Tonight', blurb: 'What to do.' },
   learning_queue: { title: 'Learning', blurb: 'What to read or watch next.' },
-  mirror: { title: 'Mirror', blurb: 'How life actually looks.' },
+  mirror: { title: 'Mirror', blurb: 'The read of your life.' },
 }
 
 export function MiniAppPage() {

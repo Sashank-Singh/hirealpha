@@ -741,6 +741,38 @@ function mirrorNext(snap: MirrorSnapshot, focusText: string): {
   const today = localDateStr()
   const lastMood = snap.moodTrend.length ? snap.moodTrend[snap.moodTrend.length - 1] : null
   const moodToday = snap.moodTrend.some((m) => m.date.slice(0, 10) === today)
+  const lastNight = w.lastNightHours || 0
+  const shortNights = w.shortNights || 0
+  const protein = w.proteinToday || 0
+  const proteinGoal = w.proteinGoal || 150
+
+  if (lastNight > 0 && lastNight < 6.5 && (shortNights >= 2 || protein < 60)) {
+    const proteinBit = proteinGoal ? ` Protein is at ${Math.round(protein)} of ${Math.round(proteinGoal)}.` : ''
+    return {
+      hot: true,
+      kicker: 'The read',
+      title: `${lastNight}h last night${shortNights >= 2 ? `, ${shortNights} short nights this week` : ''}`,
+      hint: `Eat something with actual protein.${proteinBit} Skip the extra coffee.`,
+    }
+  }
+  if (w.weeklyBudget > 0 && w.spend > w.weeklyBudget && (w.workoutsToday === 0 || lastNight < 6.5)) {
+    return {
+      hot: true,
+      kicker: 'The leak',
+      title: `$${Math.round(w.spend - w.weeklyBudget)} over, and the week is thin`,
+      hint: snap.spendByCategory[0]
+        ? `${snap.spendByCategory[0].category} is the biggest slice. Sleep and gym are slipping with it.`
+        : 'Spend, sleep, and gym are moving together.',
+    }
+  }
+  if (proteinGoal > 0 && protein < 60 && (w.meals > 0 || lastNight > 0)) {
+    return {
+      hot: true,
+      kicker: 'The read',
+      title: `Protein is sitting at ${Math.round(protein)} of ${Math.round(proteinGoal)}`,
+      hint: 'Dinner is one chicken bowl away. Eat that.',
+    }
+  }
   if (!moodToday) {
     return {
       hot: true,

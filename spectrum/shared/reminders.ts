@@ -1,5 +1,5 @@
 import { gmiChat } from './gmi'
-import { type MiniAppCard } from './miniApps'
+import { mintMiniAppCard, type MiniAppCard } from './miniApps'
 import { fetchDueEventNudges, revertEventNudge } from './eventNudges'
 import {
   freezeProactiveUntilReply,
@@ -426,7 +426,6 @@ export function startReminderScheduler(opts: {
         let card: MiniAppCard | undefined
         let judgedTopic: string | undefined
         if (isJudgeTick(r.text)) {
-          // Heartbeat only. Stay silent unless the judgment loop drafts a send.
           const judged = await runJudgmentLoop({
             phone: r.phone,
             persona: opts.persona as AgentId,
@@ -435,8 +434,13 @@ export function startReminderScheduler(opts: {
           if (!judged) continue
           text = judged.text
           judgedTopic = judged.topic
-          // Never attach a card on a proactive ping. Text + card is two
-          // sends and burns the unanswered iMessage quota.
+          if (judged.cardKind) {
+            try {
+              card = await mintMiniAppCard(r.phone, opts.persona as AgentId, judged.cardKind)
+            } catch (err) {
+              console.warn(`[reminders:${opts.persona}] card mint failed`, err)
+            }
+          }
         }
         try {
           await opts.send(r.phone, text, card)
