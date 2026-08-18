@@ -81,6 +81,54 @@ function daysSince(iso: string | null) {
   return Math.floor((Date.now() - new Date(iso).getTime()) / 86400000)
 }
 
+function agoLabel(iso: string | null) {
+  const n = daysSince(iso)
+  if (n >= 999) return 'never'
+  if (n <= 0) return 'today'
+  if (n === 1) return 'yesterday'
+  return `${n}d ago`
+}
+
+function parseNetworkLine(line: string) {
+  const at = line.match(/^(.+?)\s+@\s+([^:]+)(?::\s*(.*))?$/)
+  if (at) return { name: at[1]!.trim(), whereMet: at[2]!.trim(), context: (at[3] || '').trim() }
+  const colon = line.match(/^([^:,]+)[,:]\s*(.+)$/)
+  if (colon) return { name: colon[1]!.trim(), whereMet: '', context: colon[2]!.trim() }
+  return { name: line.trim(), whereMet: '', context: '' }
+}
+
+function parsePipeLine(line: string) {
+  const at = line.match(/^(.+?)\s+@\s+(.+)$/)
+  if (at) return { title: at[1]!.trim(), company: at[2]!.trim() }
+  return { title: line.trim(), company: '' }
+}
+
+function isoToLocalDate(iso: string) {
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return iso.slice(0, 10)
+  return localDateStr(d)
+}
+
+function shiftLocalDate(dateStr: string, days: number) {
+  const [y, m, d] = dateStr.split('-').map(Number)
+  return localDateStr(new Date(y || 1970, (m || 1) - 1, (d || 1) + days))
+}
+
+function daysLeftInWeek(weekStart: string) {
+  if (!weekStart) return 0
+  const [y, m, d] = weekStart.split('-').map(Number)
+  const end = new Date(y || 1970, (m || 1) - 1, (d || 1) + 6)
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  return Math.max(0, Math.round((end.getTime() - today.getTime()) / 86400000))
+}
+
+function openHttp(url: string) {
+  const t = url.trim()
+  if (!t) return ''
+  return /^https?:\/\//i.test(t) ? t : `https://${t}`
+}
+
 /* ------------------------------ Workout Log ----------------------------- */
 
 export function WorkoutLogApp({ auth }: { auth: FeatureAuth }) {
@@ -93,26 +141,27 @@ export function WorkoutLogApp({ auth }: { auth: FeatureAuth }) {
   const [weight, setWeight] = useState('')
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState('')
+  const [showNew, setShowNew] = useState(false)
 
   const load = useCallback(() => {
     apiListWorkouts(a).then((d) => { setLogs(d.logs); setPrs(d.prs) }).catch(() => setMsg('Could not load workouts.'))
   }, [a.email, a.token])
   useEffect(() => { load() }, [load])
 
-  async function add(e: FormEvent) {
-    e.preventDefault()
-    if (!exercise.trim() || busy) return
+  const last = logs[0]
+  useEffect(() => {
+    if (!last) return
+    setExercise(last.exercise)
+    setSets(String(last.sets))
+    setReps(String(last.reps))
+    setWeight(last.weight ? String(last.weight) : '')
+  }, [last])
+
+  async function logSet(ex: string, s: number, r: number, w: number) {
+    if (!ex.trim() || busy) return
     setBusy(true)
     try {
-      await apiLogWorkout({
-        ...a,
-        exercise: exercise.trim(),
-        sets: Number(sets) || 1,
-        reps: Number(reps) || 1,
-        weight: Number(weight) || 0,
-      })
-      setExercise('')
-      setWeight('')
+      await apiLogWorkout({ ...a, exercise: ex.trim(), sets: s || 1, reps: r || 1, weight: w || 0 })
       load()
     } catch {
       setMsg('Could not log that.')
@@ -121,18 +170,64 @@ export function WorkoutLogApp({ auth }: { auth: FeatureAuth }) {
     }
   }
 
+  async function add(e: FormEvent) {
+    e.preventDefault()
+    await logSet(exercise, Number(sets) || 1, Number(reps) || 1, Number(weight) || 0)
+    setShowNew(false)
+  }
+
   const prMap = new Map(prs.map((p) => [p.exercise.toLowerCase(), p]))
+  const today = localDateStr()
+  const todayLogs = logs.filter((l) => isoToLocalDate(l.loggedAt) === today)
+  const recentNames = [...new Set(logs.map((l) => l.exercise))].slice(0, 5)
+  const lastWasToday = last ? isoToLocalDate(last.loggedAt) === today : false
+  const lastLine = last
+    ? `${last.sets}×${last.reps}${last.weight ? ` @ ${last.weight} lbs` : ''}`
+    : ''
 
   return (
     <div className="ma">
-      <form className="ma-form" onSubmit={add}>
-        <input className="ma-input" value={exercise} onChange={(e) => setExercise(e.target.value)} placeholder="Exercise (bench, squat…)" aria-label="Exercise" />
-        <input className="ma-input ma-input--sm" value={sets} onChange={(e) => setSets(e.target.value)} inputMode="numeric" aria-label="Sets" placeholder="Sets" />
-        <input className="ma-input ma-input--sm" value={reps} onChange={(e) => setReps(e.target.value)} inputMode="numeric" aria-label="Reps" placeholder="Reps" />
-        <input className="ma-input ma-input--sm" value={weight} onChange={(e) => setWeight(e.target.value)} inputMode="decimal" aria-label="Weight" placeholder="Lbs" />
-        <button className="ma-btn" type="submit" disabled={busy || !exercise.trim()}>Log</button>
-      </form>
-      {msg && <p className="mini__hint">{msg}</p>}
+      <div className="ma-hero">
+        <span className="ma-hero-kicker">{last ? (lastWasToday ? 'Last set' : fmtDay(last.loggedAt)) : 'Workout'}</span>
+        <span className="ma-hero-num">{last ? last.exercise : 'No lifts yet'}</span>
+        <span className="ma-hero-label">
+          {last
+            ? `${lastLine}${todayLogs.length ? `. ${todayLogs.length} today` : ''}`
+            : 'Log one set. Next time it is one tap.'}
+        </span>
+      </div>
+
+      {last && (
+        <button
+          className="ma-btn ma-btn--block"
+          type="button"
+          disabled={busy}
+          onClick={() => void logSet(last.exercise, last.sets, last.reps, last.weight)}
+        >
+          {lastWasToday ? 'Log another set' : 'Log it again'}
+        </button>
+      )}
+
+      {recentNames.length > 1 && (
+        <div className="ma-pills">
+          {recentNames.map((name) => {
+            const hit = logs.find((l) => l.exercise === name)
+            if (!hit) return null
+            return (
+              <button
+                key={name}
+                type="button"
+                className="ma-chip"
+                disabled={busy}
+                onClick={() => void logSet(hit.exercise, hit.sets, hit.reps, hit.weight)}
+              >
+                {name}
+              </button>
+            )
+          })}
+        </div>
+      )}
+
       {prs.length > 0 && (
         <div className="ma-pills">
           {prs.slice(0, 4).map((p) => (
@@ -140,16 +235,19 @@ export function WorkoutLogApp({ auth }: { auth: FeatureAuth }) {
           ))}
         </div>
       )}
+
+      {msg && <p className="mini__hint">{msg}</p>}
+
       {logs.length ? (
         <ul className="ma-list">
-          {logs.map((l) => {
+          {logs.slice(0, 8).map((l) => {
             const pr = prMap.get(l.exercise.toLowerCase())
             const isPr = pr && pr.weight === l.weight && pr.reps === l.reps
             return (
               <li key={l.id} className="ma-row">
                 <div className="ma-row-main">
-                  <span className="ma-title">{l.exercise}{isPr ? ' · PR' : ''}</span>
-                  <span className="ma-sub">{l.sets}×{l.reps}{l.weight ? ` @ ${l.weight} lbs` : ''} · {fmtDay(l.loggedAt)}</span>
+                  <span className="ma-title">{l.exercise}{isPr ? '  PR' : ''}</span>
+                  <span className="ma-sub">{l.sets}×{l.reps}{l.weight ? ` @ ${l.weight} lbs` : ''}  {fmtDay(l.loggedAt)}</span>
                 </div>
                 <button className="ma-x" type="button" onClick={() => void apiDeleteWorkout({ ...a, id: l.id }).then(load)} title="Remove">×</button>
               </li>
@@ -157,7 +255,20 @@ export function WorkoutLogApp({ auth }: { auth: FeatureAuth }) {
           })}
         </ul>
       ) : (
-        <p className="mini__empty">No lifts yet. Log a set above.</p>
+        <p className="mini__empty">Log one set. Next time it is one tap.</p>
+      )}
+
+      {logs.length > 0 && !showNew && (
+        <button className="ma-btn ma-btn--quiet ma-btn--block" type="button" onClick={() => setShowNew(true)}>New lift</button>
+      )}
+      {(logs.length === 0 || showNew) && (
+        <form className="ma-form" onSubmit={add}>
+          <input className="ma-input" value={exercise} onChange={(e) => setExercise(e.target.value)} placeholder="Exercise" aria-label="Exercise" />
+          <input className="ma-input ma-input--sm" value={sets} onChange={(e) => setSets(e.target.value)} inputMode="numeric" aria-label="Sets" placeholder="Sets" />
+          <input className="ma-input ma-input--sm" value={reps} onChange={(e) => setReps(e.target.value)} inputMode="numeric" aria-label="Reps" placeholder="Reps" />
+          <input className="ma-input ma-input--sm" value={weight} onChange={(e) => setWeight(e.target.value)} inputMode="decimal" aria-label="Weight" placeholder="Lbs" />
+          <button className="ma-btn" type="submit" disabled={busy || !exercise.trim()}>Log</button>
+        </form>
       )}
     </div>
   )
@@ -175,6 +286,7 @@ export function LearningQueueApp({ auth }: { auth: FeatureAuth }) {
   const [minutes, setMinutes] = useState('15')
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState('')
+  const [showAdd, setShowAdd] = useState(false)
 
   const load = useCallback(() => {
     apiListLearning(a).then((d) => setItems(d.items)).catch(() => setMsg('Could not load queue.'))
@@ -188,6 +300,7 @@ export function LearningQueueApp({ auth }: { auth: FeatureAuth }) {
     try {
       await apiAddLearning({ ...a, title: title.trim(), kind, minutes: Number(minutes) || 10 })
       setTitle('')
+      setShowAdd(false)
       load()
     } catch {
       setMsg('Could not add that.')
@@ -198,42 +311,83 @@ export function LearningQueueApp({ auth }: { auth: FeatureAuth }) {
 
   const queued = items.filter((i) => i.status !== 'done')
   const next = queued[0]
+  const queuedMin = queued.reduce((s, i) => s + (i.minutes || 0), 0)
+  const nextUrl = next?.url ? openHttp(next.url) : ''
+
+  async function markDone(id: string) {
+    if (busy) return
+    setBusy(true)
+    try {
+      await apiPatchLearning({ ...a, id, status: 'done' })
+      load()
+    } catch {
+      setMsg('Could not update.')
+    } finally {
+      setBusy(false)
+    }
+  }
 
   return (
     <div className="ma">
-      <form className="ma-form" onSubmit={add}>
-        <input className="ma-input" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Article, video, podcast…" aria-label="Title" />
-        <select className="ma-input ma-input--sm" value={kind} onChange={(e) => setKind(e.target.value)} aria-label="Kind">
-          {LEARN_KINDS.map((k) => <option key={k} value={k}>{k}</option>)}
-        </select>
-        <input className="ma-input ma-input--sm" value={minutes} onChange={(e) => setMinutes(e.target.value)} inputMode="numeric" aria-label="Minutes" placeholder="Min" />
-        <button className="ma-btn" type="submit" disabled={busy || !title.trim()}>Save</button>
-      </form>
-      {msg && <p className="mini__hint">{msg}</p>}
-      {next && (
-        <div className="ma-callout">
-          <span className="ma-callout-kicker">Next up · {next.minutes} min</span>
-          <strong>{next.title}</strong>
-          <span className="ma-sub">{next.kind}</span>
-        </div>
+      <div className="ma-hero">
+        <span className="ma-hero-kicker">{next ? `Next  ${next.minutes} min` : 'Queue'}</span>
+        <span className="ma-hero-num">{next ? next.title : 'Nothing queued'}</span>
+        <span className="ma-hero-label">
+          {next
+            ? `${next.kind}${queued.length > 1 ? `. ${queued.length - 1} more  ${queuedMin} min total` : ''}`
+            : 'Save one article. It becomes next up.'}
+        </span>
+      </div>
+
+      {next && nextUrl && (
+        <a className="ma-btn ma-btn--block" href={nextUrl} target="_blank" rel="noreferrer">
+          Play next
+        </a>
       )}
-      {items.length ? (
+      {next && !nextUrl && (
+        <button className="ma-btn ma-btn--block" type="button" disabled={busy} onClick={() => void markDone(next.id)}>
+          Mark done
+        </button>
+      )}
+      {next && nextUrl && (
+        <button className="ma-btn ma-btn--quiet ma-btn--block" type="button" disabled={busy} onClick={() => void markDone(next.id)}>
+          Done with this
+        </button>
+      )}
+
+      {msg && <p className="mini__hint">{msg}</p>}
+
+      {queued.length ? (
         <ul className="ma-list">
-          {items.map((i) => (
-            <li key={i.id} className={`ma-row${i.status === 'done' ? ' ma-row--done' : ''}`}>
+          {queued.map((i) => (
+            <li key={i.id} className="ma-row">
               <div className="ma-row-main">
                 <span className="ma-title">{i.title}</span>
-                <span className="ma-sub">{i.kind} · {i.minutes} min</span>
+                <span className="ma-sub">{i.kind}  {i.minutes} min</span>
               </div>
-              {i.status !== 'done' && (
-                <button className="ma-chip" type="button" onClick={() => void apiPatchLearning({ ...a, id: i.id, status: 'done' }).then(load)}>Done</button>
+              {i.id !== next?.id && (
+                <button className="ma-chip" type="button" disabled={busy} onClick={() => void markDone(i.id)}>Done</button>
               )}
               <button className="ma-x" type="button" onClick={() => void apiPatchLearning({ ...a, id: i.id, _delete: true }).then(load)} title="Remove">×</button>
             </li>
           ))}
         </ul>
       ) : (
-        <p className="mini__empty">Queue is empty. Save something to read or watch.</p>
+        <p className="mini__empty">Save one article. It becomes next up.</p>
+      )}
+
+      {items.length > 0 && !showAdd && (
+        <button className="ma-btn ma-btn--quiet ma-btn--block" type="button" onClick={() => setShowAdd(true)}>Save something</button>
+      )}
+      {(items.length === 0 || showAdd) && (
+        <form className="ma-form" onSubmit={add}>
+          <input className="ma-input" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Article, video, podcast" aria-label="Title" />
+          <select className="ma-input ma-input--sm" value={kind} onChange={(e) => setKind(e.target.value)} aria-label="Kind">
+            {LEARN_KINDS.map((k) => <option key={k} value={k}>{k}</option>)}
+          </select>
+          <input className="ma-input ma-input--sm" value={minutes} onChange={(e) => setMinutes(e.target.value)} inputMode="numeric" aria-label="Minutes" placeholder="Min" />
+          <button className="ma-btn" type="submit" disabled={busy || !title.trim()}>Save</button>
+        </form>
       )}
     </div>
   )
@@ -251,6 +405,7 @@ export function WeeklyReviewApp({ auth }: { auth: FeatureAuth }) {
   const [focusText, setFocusText] = useState('')
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState('')
+  const [showRest, setShowRest] = useState(false)
 
   const load = useCallback(() => {
     apiWeeklyReview(a).then((d) => {
@@ -281,29 +436,60 @@ export function WeeklyReviewApp({ auth }: { auth: FeatureAuth }) {
     }
   }
 
+  const insight = (() => {
+    if (!snap) return 'This week is still forming.'
+    if (snap.followUpsDue > 0) return `${snap.followUpsDue} follow ups waiting`
+    if (snap.avgSleepHours && snap.avgSleepHours < 7) return `Sleep averaged ${snap.avgSleepHours}h. That's the leak.`
+    if (snap.habitChecks === 0) return 'Habits went quiet this week.'
+    if (snap.avgEnergy && snap.avgEnergy < 3) return `Energy averaged ${snap.avgEnergy.toFixed(1)}. Protect next week.`
+    if (snap.meals === 0 && snap.sleepNights === 0) return 'Thin week. Log a few days so the review has teeth.'
+    return 'Week looks held together. Name the focus.'
+  })()
+  const savedFocus = focusText.trim()
+
   return (
     <div className="ma">
+      <div className="ma-hero">
+        <span className="ma-hero-kicker">{weekStart ? `Week of ${fmtDay(weekStart)}` : 'This week'}</span>
+        <span className="ma-hero-num">
+          {savedFocus
+            || (snap?.followUpsDue ? `${snap.followUpsDue} follow ups` : '')
+            || (snap?.avgSleepHours ? `${snap.avgSleepHours}h sleep` : '')
+            || 'Set this week'}
+        </span>
+        <span className="ma-hero-label">{savedFocus ? insight : snap ? insight : 'Numbers show up as you log the week.'}</span>
+      </div>
+
       {snap && (
         <div className="ma-stats">
-          <div className="ma-stat"><b>{snap.meals}</b><span>meals</span></div>
-          <div className="ma-stat"><b>{snap.avgEnergy ? snap.avgEnergy.toFixed(1) : '—'}</b><span>energy</span></div>
-          <div className="ma-stat"><b>{snap.avgSleepHours || '—'}</b><span>sleep h</span></div>
-          <div className="ma-stat"><b>${Math.round(snap.spend)}</b><span>spent</span></div>
           <div className="ma-stat"><b>{snap.habitChecks}</b><span>habits</span></div>
-          <div className="ma-stat"><b>{snap.followUpsDue}</b><span>follow-ups</span></div>
+          <div className="ma-stat"><b>{snap.followUpsDue}</b><span>follow ups</span></div>
+          <div className="ma-stat"><b>{snap.meals}</b><span>meals</span></div>
         </div>
       )}
+
       <form className="ma-stack" onSubmit={save}>
-        <label className="ma-label">What got done
-          <textarea className="ma-area" rows={2} value={doneText} onChange={(e) => setDoneText(e.target.value)} placeholder="Shipped, finished, showed up…" />
-        </label>
-        <label className="ma-label">What slipped
-          <textarea className="ma-area" rows={2} value={slippedText} onChange={(e) => setSlippedText(e.target.value)} placeholder="Missed, delayed, avoided…" />
-        </label>
         <label className="ma-label">Next week focus
           <textarea className="ma-area" rows={2} value={focusText} onChange={(e) => setFocusText(e.target.value)} placeholder="One thing that actually matters." />
         </label>
-        <button className="ma-btn" type="submit" disabled={busy}>Save review</button>
+        <button className="ma-btn ma-btn--block" type="submit" disabled={busy || !weekStart}>
+          {savedFocus ? 'Save focus' : 'Set focus'}
+        </button>
+        {!showRest && (
+          <button className="ma-btn ma-btn--quiet ma-btn--block" type="button" onClick={() => setShowRest(true)}>
+            What happened
+          </button>
+        )}
+        {showRest && (
+          <>
+            <label className="ma-label">What got done
+              <textarea className="ma-area" rows={2} value={doneText} onChange={(e) => setDoneText(e.target.value)} placeholder="Shipped, finished, showed up" />
+            </label>
+            <label className="ma-label">What slipped
+              <textarea className="ma-area" rows={2} value={slippedText} onChange={(e) => setSlippedText(e.target.value)} placeholder="Missed, delayed, avoided" />
+            </label>
+          </>
+        )}
       </form>
       {msg && <p className="mini__hint">{msg}</p>}
       {reviews.length > 0 && (
@@ -324,33 +510,83 @@ export function WeeklyReviewApp({ auth }: { auth: FeatureAuth }) {
 
 /* ------------------------------ The Mirror ------------------------------ */
 
+function mirrorNext(snap: MirrorSnapshot, focusText: string): {
+  hot: boolean; kicker: string; title: string; hint: string; wantFocus?: boolean
+} {
+  const w = snap.window
+  const today = localDateStr()
+  const lastMood = snap.moodTrend.length ? snap.moodTrend[snap.moodTrend.length - 1] : null
+  const moodToday = snap.moodTrend.some((m) => m.date.slice(0, 10) === today)
+  if (!moodToday) {
+    return {
+      hot: true,
+      kicker: 'Next',
+      title: 'Log how you feel',
+      hint: lastMood ? `Last ${lastMood.emoji} on ${fmtDay(lastMood.date)}` : 'Open Mood and tap a face.',
+    }
+  }
+  if (w.sleepNights === 0) {
+    return { hot: true, kicker: 'Next', title: 'Log last night', hint: 'Bedtime and wake. Two numbers.' }
+  }
+  if (w.weeklyBudget > 0 && w.spend > w.weeklyBudget) {
+    return {
+      hot: true,
+      kicker: 'Over budget',
+      title: `$${Math.round(w.spend - w.weeklyBudget)} over this week`,
+      hint: snap.spendByCategory[0] ? `${snap.spendByCategory[0].category} is the biggest slice.` : 'Open spending to see where.',
+    }
+  }
+  if (w.decisionsOpen > 0) {
+    return { hot: true, kicker: 'Next', title: 'Review a decision', hint: `${w.decisionsOpen} still open.` }
+  }
+  if (w.learningQueued > 0) {
+    return {
+      hot: true,
+      kicker: 'Next',
+      title: snap.nextLearning || 'Do one saved item',
+      hint: `${w.learningQueued} in the queue.`,
+    }
+  }
+  const focus = (snap.currentReview?.focusText || focusText).trim()
+  if (!focus) {
+    return { hot: true, kicker: 'Next', title: 'Set this week\'s focus', hint: 'One sentence is enough.', wantFocus: true }
+  }
+  return { hot: false, kicker: 'On track', title: focus, hint: 'Keep logging. The numbers stay honest.' }
+}
+
 export function MirrorApp({ auth }: { auth: FeatureAuth }) {
   const a = useAuth(auth)
   const [snap, setSnap] = useState<MirrorSnapshot | null>(null)
   const [msg, setMsg] = useState('')
   const [busy, setBusy] = useState(false)
+  const [focusText, setFocusText] = useState('')
 
   const load = useCallback(() => {
-    apiMirror(a).then(setSnap).catch(() => setMsg('Could not load your mirror.'))
+    apiMirror(a).then((d) => {
+      setSnap(d)
+      if (d.currentReview) setFocusText(d.currentReview.focusText)
+    }).catch(() => setMsg('Could not load your mirror.'))
   }, [a.email, a.token])
   useEffect(() => { load() }, [load])
 
   const w = snap?.window
-  const moodAvg = w && w.moodLogs > 0 ? w.avgEnergy.toFixed(1) : '—'
+  const moodAvg = w && w.moodLogs > 0 ? w.avgEnergy.toFixed(1) : 'none'
   const spendPct = w && w.weeklyBudget > 0 ? Math.round((w.spend / w.weeklyBudget) * 100) : 0
-  const lastMood = snap?.moodTrend.length ? snap.moodTrend[snap.moodTrend.length - 1] : null
+  const next = snap ? mirrorNext(snap, focusText) : null
 
-  const [doneText, setDoneText] = useState('')
-  const [slippedText, setSlippedText] = useState('')
-  const [focusText, setFocusText] = useState('')
-
-  async function saveReview(e: FormEvent) {
+  async function saveFocus(e: FormEvent) {
     e.preventDefault()
-    if (busy || !snap) return
+    if (busy || !snap || !focusText.trim()) return
     setBusy(true)
     try {
-      await apiSaveWeeklyReview({ ...a, weekStart: snap.weekStart, doneText: doneText, slippedText: slippedText, focusText: focusText })
-      setMsg('Saved.')
+      await apiSaveWeeklyReview({
+        ...a,
+        weekStart: snap.weekStart,
+        doneText: snap.currentReview?.doneText || '',
+        slippedText: snap.currentReview?.slippedText || '',
+        focusText: focusText.trim(),
+      })
+      setMsg('Focus saved.')
       load()
     } catch {
       setMsg('Could not save.')
@@ -361,113 +597,43 @@ export function MirrorApp({ auth }: { auth: FeatureAuth }) {
 
   return (
     <div className="ma">
-      <p className="ma-sub">Here's the shape of your week. The mirror shows what you've actually done — no spin.</p>
+      {!snap && !msg && <p className="mini__empty">The picture fills in as you log the week.</p>}
+      {next && (
+        <div className={`ma-callout${next.hot ? ' ma-callout--hot' : ''}`}>
+          <span className="ma-callout-kicker">{next.kicker}</span>
+          <strong>{next.title}</strong>
+          <span className="ma-sub">{next.hint}</span>
+          {'wantFocus' in next && next.wantFocus && (
+            <form className="ma-form" onSubmit={saveFocus}>
+              <input className="ma-input" value={focusText} onChange={(e) => setFocusText(e.target.value)} placeholder="One sentence for this week" aria-label="Weekly focus" />
+              <button className="ma-btn" type="submit" disabled={busy || !focusText.trim()}>Set</button>
+            </form>
+          )}
+        </div>
+      )}
       {w && (
         <div className="ma-stats">
           <div className="ma-stat"><b>{moodAvg}</b><span>energy</span></div>
-          <div className="ma-stat"><b>{w.sleepNights ? w.avgSleepHours : '—'}</b><span>sleep h</span></div>
-          <div className="ma-stat"><b>${Math.round(w.spend)}</b><span>{spendPct}% of budget</span></div>
-          <div className="ma-stat"><b>{w.habitChecks}</b><span>habit checks</span></div>
+          <div className="ma-stat"><b>{w.sleepNights ? w.avgSleepHours : 'none'}</b><span>sleep h</span></div>
+          <div className="ma-stat"><b>${Math.round(w.spend)}</b><span>{spendPct}% budget</span></div>
+          <div className="ma-stat"><b>{w.habitChecks}</b><span>habits</span></div>
           <div className="ma-stat"><b>{w.workouts}</b><span>workouts</span></div>
           <div className="ma-stat"><b>{w.meals}</b><span>meals</span></div>
         </div>
       )}
-
-      {snap && (
-        <>
-          <section className="mini__section">
-            <h2>Mood</h2>
-            {snap.moodTrend.length ? (
-              <div className="mirror-mood-row">
-                {snap.moodTrend.slice(-7).map((m, i) => (
-                  <span key={i} className="mirror-mood" title={`${m.date} · energy ${m.energy}`}>{m.emoji}</span>
-                ))}
-              </div>
-            ) : (
-              <p className="mini__empty">No moods logged yet. Text your hire how you're feeling.</p>
-            )}
-            {lastMood && <p className="ma-sub">Last: {lastMood.emoji} on {fmtDay(lastMood.date)}</p>}
-          </section>
-
-          <section className="mini__section">
-            <h2>Sleep</h2>
-            {snap.sleepTrend.length ? (
-              <ul className="ma-list">
-                {snap.sleepTrend.slice(-7).map((n) => (
-                  <li key={n.date} className="ma-row">
-                    <span className="ma-title">{fmtDay(n.date)}</span>
-                    <span className="ma-row-main"><span className="ma-sub">{n.hours}h · quality {n.quality}/5</span></span>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p className="mini__empty">No sleep logged. Bedtime and wake are the two numbers that matter.</p>
-            )}
-          </section>
-
-          <section className="mini__section">
-            <h2>Spending</h2>
-            {snap.spendByCategory.length ? (
-              <ul className="ma-list">
-                {snap.spendByCategory.map((c) => (
-                  <li key={c.category} className="ma-row">
-                    <span className="ma-title">{c.category}</span>
-                    <span className="ma-row-main"><span className="ma-sub">${Math.round(c.amount)}</span></span>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p className="mini__empty">No spending logged this week.</p>
-            )}
-            <p className="ma-sub">Budget: ${w?.weeklyBudget || 400}/wk · {spendPct}% used</p>
-          </section>
-
-          <section className="mini__section">
-            <h2>Workouts & learning</h2>
-            {snap.prs.length ? (
-              <ul className="ma-list">
-                {snap.prs.map((p) => (
-                  <li key={p.exercise} className="ma-row">
-                    <span className="ma-title">{p.exercise}</span>
-                    <span className="ma-row-main"><span className="ma-sub">{p.weight} lb PR</span></span>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p className="mini__empty">No PRs yet.</p>
-            )}
-            <p className="ma-sub">
-              {w && w.learningQueued > 0
-                ? `Next up in your queue: ${snap.nextLearning || `one of ${w.learningQueued} saved items`}`
-                : 'Learning queue is empty.'}
-            </p>
-          </section>
-
-          <section className="mini__section">
-            <h2>Decisions</h2>
-            <p className="ma-sub">
-              {w && w.decisionsResolved > 0
-                ? `${w.decisionsResolved} decided · ${w.decisionsOpen} still open`
-                : 'No decisions logged yet.'}
-            </p>
-          </section>
-
-          <section className="mini__section">
-            <h2>Weekly review</h2>
-            <form className="ma-stack" onSubmit={saveReview}>
-              <label className="ma-label">What got done
-                <textarea className="ma-area" rows={2} value={doneText} onChange={(e) => setDoneText(e.target.value)} placeholder="Shipped, finished, showed up…" />
-              </label>
-              <label className="ma-label">What slipped
-                <textarea className="ma-area" rows={2} value={slippedText} onChange={(e) => setSlippedText(e.target.value)} placeholder="Missed, delayed, avoided…" />
-              </label>
-              <label className="ma-label">Next week focus
-                <textarea className="ma-area" rows={2} value={focusText} onChange={(e) => setFocusText(e.target.value)} placeholder="One thing that actually matters." />
-              </label>
-              <button className="ma-btn" type="submit" disabled={busy}>Save review</button>
-            </form>
-          </section>
-        </>
+      {snap && snap.moodTrend.length > 0 && (
+        <div className="mirror-mood-row">
+          {snap.moodTrend.slice(-7).map((m, i) => (
+            <span key={i} className="mirror-mood" title={`${m.date} energy ${m.energy}`}>{m.emoji}</span>
+          ))}
+        </div>
+      )}
+      {snap && snap.spendByCategory.length > 0 && (
+        <div className="ma-pills">
+          {snap.spendByCategory.map((c) => (
+            <span key={c.category} className="ma-pill">{c.category} ${Math.round(c.amount)}</span>
+          ))}
+        </div>
       )}
       {msg && <p className="mini__hint">{msg}</p>}
     </div>
@@ -478,9 +644,7 @@ export function MirrorApp({ auth }: { auth: FeatureAuth }) {
 export function NetworkingCrmApp({ auth }: { auth: FeatureAuth }) {
   const a = useAuth(auth)
   const [people, setPeople] = useState<NetworkPerson[]>([])
-  const [name, setName] = useState('')
-  const [whereMet, setWhereMet] = useState('')
-  const [context, setContext] = useState('')
+  const [line, setLine] = useState('')
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState('')
 
@@ -491,11 +655,12 @@ export function NetworkingCrmApp({ auth }: { auth: FeatureAuth }) {
 
   async function add(e: FormEvent) {
     e.preventDefault()
-    if (!name.trim() || busy) return
+    if (!line.trim() || busy) return
     setBusy(true)
     try {
-      await apiAddNetwork({ ...a, name: name.trim(), whereMet: whereMet.trim(), context: context.trim() })
-      setName(''); setWhereMet(''); setContext('')
+      const parsed = parseNetworkLine(line.trim())
+      await apiAddNetwork({ ...a, name: parsed.name, whereMet: parsed.whereMet, context: parsed.context })
+      setLine('')
       load()
     } catch {
       setMsg('Could not add that.')
@@ -504,42 +669,70 @@ export function NetworkingCrmApp({ auth }: { auth: FeatureAuth }) {
     }
   }
 
-  const due = people.filter((p) => daysSince(p.lastTouch) >= p.cadenceDays)
+  async function talked(id: string) {
+    await apiTouchNetwork({ ...a, id }).catch(() => undefined)
+    load()
+  }
+
+  const ranked = people.slice().sort((x, y) => {
+    const xo = daysSince(x.lastTouch) - x.cadenceDays
+    const yo = daysSince(y.lastTouch) - y.cadenceDays
+    return yo - xo
+  })
+  const due = ranked.filter((p) => daysSince(p.lastTouch) >= p.cadenceDays)
+  const next = due[0]
+  const rest = ranked.filter((p) => p.id !== next?.id)
 
   return (
     <div className="ma">
-      <form className="ma-stack" onSubmit={add}>
-        <div className="ma-form">
-          <input className="ma-input" value={name} onChange={(e) => setName(e.target.value)} placeholder="Name" aria-label="Name" />
-          <input className="ma-input" value={whereMet} onChange={(e) => setWhereMet(e.target.value)} placeholder="Where you met" aria-label="Where" />
+      {next && (
+        <div className="ma-callout ma-callout--hot">
+          <span className="ma-callout-kicker">Text them today</span>
+          <strong>{next.name}</strong>
+          <span className="ma-sub">{next.context || next.whereMet || 'No last note'} · {agoLabel(next.lastTouch)}</span>
+          <div className="ma-callout-actions">
+            <button className="ma-btn" type="button" onClick={() => void talked(next.id)}>Talked</button>
+          </div>
         </div>
-        <input className="ma-input" value={context} onChange={(e) => setContext(e.target.value)} placeholder="What you talked about" aria-label="Context" />
-        <button className="ma-btn" type="submit" disabled={busy || !name.trim()}>Add</button>
+      )}
+      {!people.length && <p className="mini__empty">Type a name. Alpha will remind you to ping them.</p>}
+      {people.length > 0 && due.length === 0 && (
+        <div className="ma-callout">
+          <span className="ma-callout-kicker">All clear</span>
+          <strong>Nobody is due</strong>
+          <span className="ma-sub">Last notes stay on each person.</span>
+        </div>
+      )}
+      <form className="ma-form" onSubmit={add}>
+        <input
+          className="ma-input"
+          value={line}
+          onChange={(e) => setLine(e.target.value)}
+          placeholder="Priya @ dinner: hiring at Stripe"
+          aria-label="Person"
+        />
+        <button className="ma-btn" type="submit" disabled={busy || !line.trim()}>Add</button>
       </form>
       {msg && <p className="mini__hint">{msg}</p>}
-      {due.length > 0 && <p className="mini__hint">{due.length} follow-up{due.length === 1 ? '' : 's'} due.</p>}
-      {people.length ? (
+      {due.length > 1 && <p className="mini__hint">{due.length} people are due.</p>}
+      {rest.length > 0 && (
         <ul className="ma-list">
-          {people.map((p) => {
-            const days = daysSince(p.lastTouch)
-            const late = days >= p.cadenceDays
+          {rest.map((p) => {
+            const late = daysSince(p.lastTouch) >= p.cadenceDays
             return (
               <li key={p.id} className={`ma-row${late ? ' ma-row--warn' : ''}`}>
                 <div className="ma-row-main">
-                  <span className="ma-title">{p.name}</span>
-                  <span className="ma-sub">
-                    {p.whereMet ? `${p.whereMet} · ` : ''}{p.context || 'No note'}
-                    {' · '}{p.lastTouch ? `${days}d ago` : 'never'}
+                  <span className="ma-title">
+                    {p.name}
+                    {late && <span className="ma-badge">due</span>}
                   </span>
+                  <span className="ma-sub">{p.context || p.whereMet || 'No note yet'} · {agoLabel(p.lastTouch)}</span>
                 </div>
-                <button className="ma-chip" type="button" onClick={() => void apiTouchNetwork({ ...a, id: p.id }).then(load)}>Talked</button>
-                <button className="ma-x" type="button" onClick={() => void apiTouchNetwork({ ...a, id: p.id, _delete: true }).then(load)} title="Remove">×</button>
+                <button className="ma-chip" type="button" onClick={() => void talked(p.id)}>Talked</button>
               </li>
             )
           })}
         </ul>
-      ) : (
-        <p className="mini__empty">Log someone you met. Alpha will remind you to follow up.</p>
       )}
     </div>
   )
@@ -555,17 +748,27 @@ export function SleepTrackerApp({ auth }: { auth: FeatureAuth }) {
   const [quality, setQuality] = useState(3)
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState('')
+  const [showTimes, setShowTimes] = useState(false)
 
   const load = useCallback(() => {
     apiListSleep(a).then((d) => setNights(d.nights)).catch(() => setMsg('Could not load sleep.'))
   }, [a.email, a.token])
   useEffect(() => { load() }, [load])
 
+  const prev = nights[0]
+  useEffect(() => {
+    if (!prev) return
+    setBedtime(prev.bedtime)
+    setWake(prev.wake)
+    setQuality(prev.quality)
+  }, [prev])
+
   async function save() {
     if (busy) return
     setBusy(true)
     try {
       await apiLogSleep({ ...a, bedtime, wake, quality, sleepDate: lastNightDateStr() })
+      setShowTimes(false)
       load()
     } catch {
       setMsg('Could not log sleep.')
@@ -574,57 +777,92 @@ export function SleepTrackerApp({ auth }: { auth: FeatureAuth }) {
     }
   }
 
+  const lastNightKey = lastNightDateStr()
+  const lastNight = nights.find((n) => n.sleepDate.slice(0, 10) === lastNightKey)
   const last7 = nights.slice(0, 7)
   const avg = last7.length
     ? last7.reduce((s, n) => s + hoursBetween(n.bedtime, n.wake), 0) / last7.length
     : 0
   const debt = last7.reduce((s, n) => s + Math.max(0, 8 - hoursBetween(n.bedtime, n.wake)), 0)
+  const lastHours = lastNight ? hoursBetween(lastNight.bedtime, lastNight.wake) : 0
+  const previewHours = hoursBetween(bedtime, wake)
 
   return (
     <div className="ma">
-      <div className="ma-stats">
-        <div className="ma-stat"><b>{avg ? avg.toFixed(1) : '—'}</b><span>avg hours</span></div>
-        <div className="ma-stat"><b>{debt ? debt.toFixed(1) : '0'}</b><span>sleep debt</span></div>
-        <div className="ma-stat"><b>{last7.length}</b><span>nights</span></div>
+      <div className="ma-hero">
+        <span className="ma-hero-kicker">{lastNight ? 'Last night' : 'Not logged'}</span>
+        <span className="ma-hero-num">{lastNight ? `${lastHours}h` : 'Log last night'}</span>
+        <span className="ma-hero-label">
+          {lastNight
+            ? `Quality ${lastNight.quality}/5${avg ? `. Avg ${avg.toFixed(1)}h` : ''}${debt >= 2 ? `. ${debt.toFixed(1)}h debt` : ''}`
+            : nights.length
+              ? `Same as last time? ${previewHours}h  ${bedtime} to ${wake}`
+              : 'Bed and wake stick for next time.'}
+        </span>
       </div>
-      <div className="sleep-bars">
-        {last7.slice().reverse().map((n) => {
-          const h = hoursBetween(n.bedtime, n.wake)
-          return (
-            <div key={n.id} className="sleep-bar-col" title={`${n.sleepDate} ${h}h`}>
-              <div className="sleep-bar" style={{ height: `${Math.min(100, (h / 10) * 100)}%` }} />
-              <span>{n.sleepDate.slice(5)}</span>
-            </div>
-          )
-        })}
-      </div>
-      <div className="ma-form">
-        <label className="ma-label">Bed
-          <input className="ma-input" type="time" value={bedtime} onChange={(e) => setBedtime(e.target.value)} />
-        </label>
-        <label className="ma-label">Wake
-          <input className="ma-input" type="time" value={wake} onChange={(e) => setWake(e.target.value)} />
-        </label>
-        <label className="ma-label">Quality {quality}/5
-          <input className="mood-energy-slider" type="range" min={1} max={5} value={quality} onChange={(e) => setQuality(Number(e.target.value))} />
-        </label>
-      </div>
-      <button className="ma-btn" type="button" disabled={busy} onClick={() => void save()}>Log last night</button>
+
+      {last7.length > 0 && (
+        <div className="sleep-bars">
+          {last7.slice().reverse().map((n) => {
+            const h = hoursBetween(n.bedtime, n.wake)
+            return (
+              <div key={n.id} className="sleep-bar-col" title={`${n.sleepDate} ${h}h`}>
+                <div className="sleep-bar" style={{ height: `${Math.min(100, (h / 10) * 100)}%` }} />
+                <span>{String(Number(n.sleepDate.slice(8, 10)) || '')}</span>
+              </div>
+            )
+          })}
+        </div>
+      )}
+
+      {!lastNight && (
+        <button className="ma-btn ma-btn--block" type="button" disabled={busy} onClick={() => void save()}>
+          Log {previewHours}h last night
+        </button>
+      )}
+      {lastNight && !showTimes && (
+        <p className="ma-insight">Last night is in. Change times if it was off.</p>
+      )}
+
+      {(showTimes || nights.length === 0) && (
+        <div className="ma-form">
+          <label className="ma-label">Bed
+            <input className="ma-input" type="time" value={bedtime} onChange={(e) => setBedtime(e.target.value)} />
+          </label>
+          <label className="ma-label">Wake
+            <input className="ma-input" type="time" value={wake} onChange={(e) => setWake(e.target.value)} />
+          </label>
+          <label className="ma-label">Quality {quality}/5
+            <input className="mood-energy-slider" type="range" min={1} max={5} value={quality} onChange={(e) => setQuality(Number(e.target.value))} />
+          </label>
+        </div>
+      )}
+      {!showTimes && nights.length > 0 && (
+        <button className="ma-btn ma-btn--quiet ma-btn--block" type="button" onClick={() => setShowTimes(true)}>
+          Change times
+        </button>
+      )}
+      {lastNight && showTimes && (
+        <button className="ma-btn ma-btn--block" type="button" disabled={busy} onClick={() => void save()}>
+          Update last night
+        </button>
+      )}
+
       {msg && <p className="mini__hint">{msg}</p>}
       {nights.length ? (
         <ul className="ma-list">
-          {nights.map((n) => (
+          {nights.slice(0, 7).map((n) => (
             <li key={n.id} className="ma-row">
               <div className="ma-row-main">
-                <span className="ma-title">{fmtDay(n.sleepDate)} · {hoursBetween(n.bedtime, n.wake)}h</span>
-                <span className="ma-sub">{n.bedtime} → {n.wake} · quality {n.quality}/5</span>
+                <span className="ma-title">{fmtDay(n.sleepDate)}  {hoursBetween(n.bedtime, n.wake)}h</span>
+                <span className="ma-sub">{n.bedtime} to {n.wake}  quality {n.quality}/5</span>
               </div>
               <button className="ma-x" type="button" onClick={() => void apiDeleteSleep({ ...a, id: n.id }).then(load)} title="Remove">×</button>
             </li>
           ))}
         </ul>
       ) : (
-        <p className="mini__empty">No nights logged yet.</p>
+        <p className="mini__empty">Log last night. Bed and wake stick next time.</p>
       )}
     </div>
   )
@@ -641,11 +879,20 @@ const PIPE_STAGES = [
   { id: 'lost', label: 'Lost' },
 ] as const
 
+const PIPE_HEAT: Record<string, number> = { offer: 400, interview: 300, active: 200, lead: 100, won: -1, lost: -1 }
+
+function pipeAction(stage: string) {
+  if (stage === 'lead') return 'Reach out'
+  if (stage === 'active') return 'Move to interview'
+  if (stage === 'interview') return 'Move to offer'
+  if (stage === 'offer') return 'Mark won'
+  return 'Advance'
+}
+
 export function PipelineBoardApp({ auth }: { auth: FeatureAuth }) {
   const a = useAuth(auth)
   const [items, setItems] = useState<PipelineItem[]>([])
-  const [title, setTitle] = useState('')
-  const [company, setCompany] = useState('')
+  const [line, setLine] = useState('')
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState('')
 
@@ -656,11 +903,12 @@ export function PipelineBoardApp({ auth }: { auth: FeatureAuth }) {
 
   async function add(e: FormEvent) {
     e.preventDefault()
-    if (!title.trim() || busy) return
+    if (!line.trim() || busy) return
     setBusy(true)
     try {
-      await apiAddPipeline({ ...a, title: title.trim(), company: company.trim() })
-      setTitle(''); setCompany('')
+      const parsed = parsePipeLine(line.trim())
+      await apiAddPipeline({ ...a, title: parsed.title, company: parsed.company })
+      setLine('')
       load()
     } catch {
       setMsg('Could not add that.')
@@ -674,36 +922,65 @@ export function PipelineBoardApp({ auth }: { auth: FeatureAuth }) {
     return PIPE_STAGES[Math.min(PIPE_STAGES.length - 1, i + 1)]?.id || stage
   }
 
+  const live = items.filter((i) => i.stage !== 'won' && i.stage !== 'lost')
+  const hottest = live.slice().sort((x, y) => {
+    const hx = (PIPE_HEAT[x.stage] || 0) + daysSince(x.updatedAt)
+    const hy = (PIPE_HEAT[y.stage] || 0) + daysSince(y.updatedAt)
+    return hy - hx
+  })[0]
+  const rest = items.filter((i) => i.id !== hottest?.id)
+  const stagesWithCards = PIPE_STAGES.filter((s) => rest.some((i) => i.stage === s.id))
+
   return (
     <div className="ma">
+      {hottest && (
+        <div className="ma-callout ma-callout--hot">
+          <span className="ma-callout-kicker">{PIPE_STAGES.find((s) => s.id === hottest.stage)?.label} · hottest</span>
+          <strong>{hottest.title}</strong>
+          {hottest.company && <span className="ma-sub">{hottest.company}</span>}
+          {hottest.notes && <span className="ma-sub">{hottest.notes}</span>}
+          <div className="ma-callout-actions">
+            <button type="button" className="ma-btn" onClick={() => void apiPatchPipeline({ ...a, id: hottest.id, stage: nextStage(hottest.stage) }).then(load)}>
+              {pipeAction(hottest.stage)}
+            </button>
+            <button type="button" className="ma-chip" onClick={() => void apiPatchPipeline({ ...a, id: hottest.id, stage: 'lost' }).then(load)}>Lost</button>
+          </div>
+        </div>
+      )}
+      {!items.length && <p className="mini__empty">Add a deal, job, or round. The hottest one sits on top.</p>}
       <form className="ma-form" onSubmit={add}>
-        <input className="ma-input" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Deal, job, round…" aria-label="Title" />
-        <input className="ma-input" value={company} onChange={(e) => setCompany(e.target.value)} placeholder="Company" aria-label="Company" />
-        <button className="ma-btn" type="submit" disabled={busy || !title.trim()}>Add</button>
+        <input
+          className="ma-input"
+          value={line}
+          onChange={(e) => setLine(e.target.value)}
+          placeholder="PM @ Stripe"
+          aria-label="Deal"
+        />
+        <button className="ma-btn" type="submit" disabled={busy || !line.trim()}>Add</button>
       </form>
       {msg && <p className="mini__hint">{msg}</p>}
-      <div className="pipe-board">
-        {PIPE_STAGES.map((s) => {
-          const col = items.filter((i) => i.stage === s.id)
+      <div className="pipe-now">
+        {stagesWithCards.map((s) => {
+          const col = rest.filter((i) => i.stage === s.id)
           return (
-            <section key={s.id} className="pipe-col">
-              <h3>{s.label} <span>{col.length}</span></h3>
-              {col.map((i) => (
-                <article key={i.id} className="pipe-card">
-                  <strong>{i.title}</strong>
-                  {i.company && <span>{i.company}</span>}
-                  <div className="pipe-actions">
+            <div key={s.id}>
+              <div className="pipe-stage">{s.label} {col.length}</div>
+              <ul className="ma-list">
+                {col.map((i) => (
+                  <li key={i.id} className={`ma-row${s.id === 'lost' || s.id === 'won' ? ' ma-row--done' : ''}`}>
+                    <div className="ma-row-main">
+                      <span className="ma-title">{i.title}</span>
+                      <span className="ma-sub">{i.company || s.label}</span>
+                    </div>
                     {s.id !== 'won' && s.id !== 'lost' && (
-                      <button type="button" className="ma-chip" onClick={() => void apiPatchPipeline({ ...a, id: i.id, stage: nextStage(i.stage) }).then(load)}>Advance</button>
+                      <button type="button" className="ma-chip" onClick={() => void apiPatchPipeline({ ...a, id: i.id, stage: nextStage(i.stage) }).then(load)}>
+                        {pipeAction(i.stage)}
+                      </button>
                     )}
-                    {s.id !== 'lost' && s.id !== 'won' && (
-                      <button type="button" className="ma-chip" onClick={() => void apiPatchPipeline({ ...a, id: i.id, stage: 'lost' }).then(load)}>Lost</button>
-                    )}
-                    <button type="button" className="ma-x" onClick={() => void apiPatchPipeline({ ...a, id: i.id, _delete: true }).then(load)}>×</button>
-                  </div>
-                </article>
-              ))}
-            </section>
+                  </li>
+                ))}
+              </ul>
+            </div>
           )
         })}
       </div>
@@ -741,17 +1018,47 @@ export function GratitudeJournalApp({ auth }: { auth: FeatureAuth }) {
     }
   }
 
+  const today = localDateStr()
+  const todayEntries = entries.filter((e) => isoToLocalDate(e.createdAt) === today)
+  const days = new Set(entries.map((e) => isoToLocalDate(e.createdAt)))
+  let streak = 0
+  let cursor = days.has(today) ? today : shiftLocalDate(today, -1)
+  while (days.has(cursor)) {
+    streak++
+    cursor = shiftLocalDate(cursor, -1)
+  }
+  const wroteToday = todayEntries.length > 0
+
   return (
     <div className="ma">
-      <p className="mini__hint">{weekCount} {weekCount === 1 ? 'note' : 'notes'} this week.</p>
-      <form className="ma-stack" onSubmit={add}>
-        <textarea className="ma-area" rows={2} value={text} onChange={(e) => setText(e.target.value)} placeholder="One sentence. What are you grateful for?" />
-        <button className="ma-btn" type="submit" disabled={busy || !text.trim()}>Write it down</button>
+      <div className="ma-hero">
+        <span className="ma-hero-kicker">{wroteToday ? 'Logged today' : 'Not yet today'}</span>
+        <span className="ma-hero-num">
+          {streak > 0 ? `${streak} day streak` : `${weekCount} this week`}
+        </span>
+        <span className="ma-hero-label">
+          {wroteToday
+            ? todayEntries[0]?.text || `${weekCount} notes this week`
+            : 'One sentence. That is the whole practice.'}
+        </span>
+      </div>
+
+      <form className="ma-form" onSubmit={add}>
+        <input
+          className="ma-input"
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          placeholder={wroteToday ? 'Another one?' : 'What are you grateful for?'}
+          aria-label="Gratitude"
+        />
+        <button className="ma-btn" type="submit" disabled={busy || !text.trim()}>
+          {wroteToday ? 'Add' : 'Write it'}
+        </button>
       </form>
       {msg && <p className="mini__hint">{msg}</p>}
       {entries.length ? (
         <ul className="ma-list">
-          {entries.map((e) => (
+          {entries.slice(0, 8).map((e) => (
             <li key={e.id} className="ma-row">
               <div className="ma-row-main">
                 <span className="ma-title">{e.text}</span>
@@ -762,7 +1069,7 @@ export function GratitudeJournalApp({ auth }: { auth: FeatureAuth }) {
           ))}
         </ul>
       ) : (
-        <p className="mini__empty">Nothing yet. One sentence is enough.</p>
+        <p className="mini__empty">Write one sentence. That is the whole practice.</p>
       )}
     </div>
   )
@@ -778,13 +1085,14 @@ export function SpendingSnapshotApp({ auth }: { auth: FeatureAuth }) {
   const [byCategory, setByCategory] = useState<Array<{ category: string; total: number }>>([])
   const [weekTotal, setWeekTotal] = useState(0)
   const [budget, setBudget] = useState(400)
+  const [weekStart, setWeekStart] = useState('')
   const [budgetEdit, setBudgetEdit] = useState('')
   const [showBudget, setShowBudget] = useState(false)
   const [amount, setAmount] = useState('')
   const [category, setCategory] = useState('food')
-  const [description, setDescription] = useState('')
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState('')
+  const [showLog, setShowLog] = useState(false)
 
   const load = useCallback(() => {
     apiListSpending(a).then((d) => {
@@ -792,6 +1100,8 @@ export function SpendingSnapshotApp({ auth }: { auth: FeatureAuth }) {
       setByCategory(d.byCategory)
       setWeekTotal(d.weekTotal)
       setBudget(d.weeklyBudget)
+      setWeekStart(d.weekStart)
+      if (d.logs[0]?.category) setCategory(d.logs[0].category)
     }).catch(() => setMsg('Could not load spending.'))
   }, [a.email, a.token])
   useEffect(() => { load() }, [load])
@@ -802,8 +1112,9 @@ export function SpendingSnapshotApp({ auth }: { auth: FeatureAuth }) {
     if (!n || n <= 0 || busy) return
     setBusy(true)
     try {
-      await apiLogSpend({ ...a, amount: n, category, description: description.trim() })
-      setAmount(''); setDescription('')
+      await apiLogSpend({ ...a, amount: n, category })
+      setAmount('')
+      setShowLog(false)
       load()
     } catch {
       setMsg('Could not log that.')
@@ -812,15 +1123,30 @@ export function SpendingSnapshotApp({ auth }: { auth: FeatureAuth }) {
     }
   }
 
+  const left = budget - weekTotal
+  const over = left < 0
   const pct = budget > 0 ? Math.min(100, (weekTotal / budget) * 100) : 0
-  const over = weekTotal > budget
+  const remainDays = Math.max(1, daysLeftInWeek(weekStart) + 1)
+  const perDay = !over ? Math.round(Math.max(0, left) / remainDays) : 0
+  const last = logs[0]
+  const topCat = [...byCategory].sort((a, b) => b.total - a.total)[0]
 
   return (
     <div className="ma">
       <div className="spend-hero">
-        <div>
-          <span className="ma-sub">This week</span>
-          <div className="spend-total">${Math.round(weekTotal)} <span>/ ${Math.round(budget)}</span></div>
+        <div className="ma-hero">
+          <span className="ma-hero-kicker">{over ? 'Over budget' : 'This week'}</span>
+          <div className="spend-total">
+            {over ? `$${Math.round(-left)} over` : `$${Math.round(Math.max(0, left))} left`}
+            <span> / ${Math.round(budget)}</span>
+          </div>
+          <p className="ma-insight">
+            {over
+              ? `${topCat ? topCat.category : 'Spending'} is the leak.`
+              : logs.length
+                ? `$${perDay} a day left${topCat ? `. Most on ${topCat.category}` : ''}`
+                : 'Log the next spend. The week total fills in.'}
+          </p>
         </div>
         <button className="ma-chip" type="button" onClick={() => { setBudgetEdit(String(budget)); setShowBudget((v) => !v) }}>Budget</button>
       </div>
@@ -839,27 +1165,37 @@ export function SpendingSnapshotApp({ auth }: { auth: FeatureAuth }) {
           <div style={{ width: `${pct}%`, background: over ? '#ef4444' : 'var(--mini-accent, #22c55e)' }} />
         </div>
       </div>
-      {over && <p className="mini__hint">${Math.round(weekTotal - budget)} over budget this week.</p>}
       <div className="ma-pills">
-        {byCategory.map((c) => (
-          <span key={c.category} className="ma-pill">{c.category} ${Math.round(c.total)}</span>
+        {SPEND_CATS.map((c) => (
+          <button
+            key={c}
+            type="button"
+            className={`ma-chip${category === c ? ' ma-chip--on' : ''}`}
+            onClick={() => { setCategory(c); setShowLog(true) }}
+          >
+            {c}{byCategory.find((x) => x.category === c) ? ` $${Math.round(byCategory.find((x) => x.category === c)!.total)}` : ''}
+          </button>
         ))}
       </div>
-      <form className="ma-form" onSubmit={add}>
-        <input className="ma-input ma-input--sm" value={amount} onChange={(e) => setAmount(e.target.value)} inputMode="decimal" placeholder="$" aria-label="Amount" />
-        <select className="ma-input" value={category} onChange={(e) => setCategory(e.target.value)} aria-label="Category">
-          {SPEND_CATS.map((c) => <option key={c} value={c}>{c}</option>)}
-        </select>
-        <input className="ma-input" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="What for?" aria-label="Description" />
-        <button className="ma-btn" type="submit" disabled={busy || !amount}>Log</button>
-      </form>
+
+      {(showLog || logs.length === 0) ? (
+        <form className="ma-form" onSubmit={add}>
+          <input className="ma-input ma-input--sm" value={amount} onChange={(e) => setAmount(e.target.value)} inputMode="decimal" placeholder="$" aria-label="Amount" />
+          <button className="ma-btn" type="submit" disabled={busy || !amount}>Log {category}</button>
+        </form>
+      ) : (
+        <button className="ma-btn ma-btn--block" type="button" onClick={() => setShowLog(true)}>
+          {last ? `Log ${last.category}` : 'Log spend'}
+        </button>
+      )}
+
       {msg && <p className="mini__hint">{msg}</p>}
       {logs.length ? (
         <ul className="ma-list">
-          {logs.map((l) => (
+          {logs.slice(0, 8).map((l) => (
             <li key={l.id} className="ma-row">
               <div className="ma-row-main">
-                <span className="ma-title">${Number(l.amount).toFixed(2)} · {l.category}</span>
+                <span className="ma-title">${Number(l.amount).toFixed(2)}  {l.category}</span>
                 <span className="ma-sub">{l.description || fmtDay(l.spentAt)}</span>
               </div>
               <button className="ma-x" type="button" onClick={() => void apiDeleteSpend({ ...a, id: l.id }).then(load)} title="Remove">×</button>
@@ -867,7 +1203,7 @@ export function SpendingSnapshotApp({ auth }: { auth: FeatureAuth }) {
           ))}
         </ul>
       ) : (
-        <p className="mini__empty">No spend logged this week.</p>
+        <p className="mini__empty">Log the next spend. The week total fills in.</p>
       )}
     </div>
   )

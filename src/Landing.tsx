@@ -1,5 +1,6 @@
 import { motion, AnimatePresence } from 'framer-motion'
 import { useState, useEffect, useCallback, useRef, type FormEvent, type CSSProperties } from 'react'
+import { AlphaFace } from './AlphaFace'
 import './index.css'
 import './landing-stage.css'
 
@@ -207,38 +208,6 @@ const FAQS: { question: string; answer: string }[] = [
       'You get an invite email when spots open, then a number to save in Messages. No charge until you actually hire.',
   },
 ]
-
-function AlphaFace({
-  color,
-  mood = 'soft',
-  size = 40,
-}: {
-  color: string
-  mood?: 'soft' | 'sharp' | 'bold'
-  size?: number
-}) {
-  const eyeY = mood === 'bold' ? 14 : 15
-  const mouth =
-    mood === 'soft'
-      ? 'M16 28c3 3.5 9 3.5 12 0'
-      : mood === 'sharp'
-        ? 'M17 29h10'
-        : 'M15 27c4 5 10 5 14 0'
-  return (
-    <svg
-      className="alpha-face"
-      width={size}
-      height={size}
-      viewBox="0 0 44 44"
-      aria-hidden
-    >
-      <circle cx="22" cy="22" r="20" fill={color} stroke="#111" strokeWidth="2.5" />
-      <circle cx="15" cy={eyeY} r="2.2" fill="#fff" />
-      <circle cx="29" cy={eyeY} r="2.2" fill="#fff" />
-      <path d={mouth} fill="none" stroke="#fff" strokeWidth="2.4" strokeLinecap="round" />
-    </svg>
-  )
-}
 
 function Actions() {
   return (

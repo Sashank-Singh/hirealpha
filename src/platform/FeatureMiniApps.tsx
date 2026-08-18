@@ -4,8 +4,10 @@ import {
   apiAddDecision,
   apiAddDrop,
   apiAddHabit,
+  apiAddLearning,
   apiAddLoop,
   apiAddMeeting,
+  apiAddNetwork,
   apiAddRelationship,
   apiAnalyzeNutrition,
   apiDeleteHabit,
@@ -21,7 +23,9 @@ import {
   apiLogNutrition,
   apiLogNutritionPhoto,
   apiNutritionToday,
+  apiPatchDrop,
   apiPatchLoop,
+  apiPatchMeeting,
   apiReviewDecision,
   apiSetNutritionGoals,
   apiTouchRelationship,
@@ -51,19 +55,60 @@ function fmtWhen(iso: string | null | undefined): string {
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
 }
 
+function todayStr() {
+  const d = new Date()
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
+function daysSince(iso: string | null | undefined) {
+  if (!iso) return 999
+  return Math.floor((Date.now() - new Date(iso).getTime()) / 86400000)
+}
+
+function agoLabel(iso: string | null | undefined) {
+  const n = daysSince(iso)
+  if (n >= 999) return 'never'
+  if (n <= 0) return 'today'
+  if (n === 1) return 'yesterday'
+  return `${n}d ago`
+}
+
+function dueDay(iso: string | null | undefined) {
+  return iso ? iso.slice(0, 10) : null
+}
+
 function useAuthed(auth: FeatureAuth) {
   return { email: auth.email, token: auth.token }
 }
 
 /* ------------------------------ Open Loops ------------------------------ */
 
+function loopRank(l: OpenLoop, today: string) {
+  const d = dueDay(l.dueAt)
+  if (!d) return 2
+  if (d < today) return 0
+  if (d === today) return 1
+  return 3
+}
+
+function loopDueLabel(l: OpenLoop, today: string) {
+  const d = dueDay(l.dueAt)
+  if (!d) return 'no date'
+  if (d < today) return 'overdue'
+  if (d === today) return 'today'
+  return fmtWhen(l.dueAt)
+}
+
 export function OpenLoopsApp({ auth }: { auth: FeatureAuth }) {
   const a = useAuthed(auth)
   const [loops, setLoops] = useState<OpenLoop[]>([])
   const [title, setTitle] = useState('')
-  const [due, setDue] = useState('')
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
+  const today = todayStr()
 
   const load = useCallback(() => {
     apiListLoops(a).then((d) => setLoops(d.loops)).catch(() => setErr('Could not load loops.'))
@@ -79,9 +124,8 @@ export function OpenLoopsApp({ auth }: { auth: FeatureAuth }) {
     setBusy(true)
     setErr('')
     try {
-      await apiAddLoop({ ...a, title: title.trim(), dueAt: due || undefined })
+      await apiAddLoop({ ...a, persona: auth.persona, title: title.trim(), dueAt: today })
       setTitle('')
-      setDue('')
       load()
     } catch (error) {
       setErr(error instanceof Error ? error.message : 'Could not add that.')
@@ -95,67 +139,72 @@ export function OpenLoopsApp({ auth }: { auth: FeatureAuth }) {
     load()
   }
 
-  const open = loops.filter((l) => l.status === 'open')
-  const done = loops.filter((l) => l.status !== 'open')
+  const open = loops
+    .filter((l) => l.status === 'open')
+    .slice()
+    .sort((x, y) => loopRank(x, today) - loopRank(y, today))
+  const snoozed = loops.filter((l) => l.status === 'snoozed')
+  const dueNow = open.filter((l) => loopRank(l, today) <= 1)
+  const next = dueNow[0] || open[0]
 
   return (
-    <div>
-      <form className="mini__form mini__form-stack" onSubmit={add}>
+    <div className="ma">
+      {next && (
+        <div className={`ma-callout${loopRank(next, today) <= 1 ? ' ma-callout--hot' : ''}`}>
+          <span className="ma-callout-kicker">{loopDueLabel(next, today)}</span>
+          <strong>{next.title}</strong>
+          <div className="ma-callout-actions">
+            <button className="ma-btn" type="button" onClick={() => void setStatus(next.id, 'done')}>Close</button>
+            <button className="ma-chip" type="button" onClick={() => void setStatus(next.id, 'snoozed')}>Snooze</button>
+          </div>
+        </div>
+      )}
+      {!open.length && (
+        <p className="mini__empty">Add a promise. Due today sits on top.</p>
+      )}
+      <form className="ma-form" onSubmit={add}>
         <input
-          className="mini__input"
+          className="ma-input"
           value={title}
           onChange={(e) => setTitle(e.target.value)}
-          placeholder="Something you said you'd do…"
+          placeholder="Said I would send the deck"
           aria-label="New open loop"
         />
-        <input
-          className="mini__input"
-          type="date"
-          value={due}
-          onChange={(e) => setDue(e.target.value)}
-          aria-label="Due date"
-        />
-        <button className="mini__btn" type="submit" disabled={busy || !title.trim()}>
-          Add
-        </button>
+        <button className="ma-btn" type="submit" disabled={busy || !title.trim()}>Add</button>
       </form>
-      {err && <p className="mini__empty">{err}</p>}
-
-      <section className="mini__section">
-        <h2>Open</h2>
-        {open.length ? (
-          <ul className="mini__list">
-            {open.map((l) => (
-              <li key={l.id} className="mini__row">
-                <span className="mini__row-main">
-                  <span className="mini__row-title">{l.title}</span>
-                  {l.dueAt && <span className="mini__row-sub">due {fmtWhen(l.dueAt)}</span>}
-                </span>
-                <button className="mini__chip" type="button" onClick={() => setStatus(l.id, 'done')}>
-                  Done
-                </button>
+      {err && <p className="mini__hint">{err}</p>}
+      {open.length > 1 && (
+        <ul className="ma-list">
+          {open.filter((l) => l.id !== next?.id).map((l) => {
+            const hot = loopRank(l, today) <= 1
+            return (
+              <li key={l.id} className={`ma-row${hot ? ' ma-row--warn' : ''}`}>
+                <div className="ma-row-main">
+                  <span className="ma-title">
+                    {l.title}
+                    {hot && <span className="ma-badge">{loopDueLabel(l, today)}</span>}
+                  </span>
+                  {!hot && <span className="ma-sub">{loopDueLabel(l, today)}</span>}
+                </div>
+                <button className="ma-chip" type="button" onClick={() => void setStatus(l.id, 'done')}>Close</button>
+                <button className="ma-chip" type="button" onClick={() => void setStatus(l.id, 'snoozed')}>Snooze</button>
               </li>
-            ))}
-          </ul>
-        ) : (
-          <p className="mini__empty">No open loops. Nothing slipping.</p>
-        )}
-      </section>
-
-      {done.length > 0 && (
-        <section className="mini__section">
-          <h2>Closed</h2>
-          <ul className="mini__list">
-            {done.slice(0, 8).map((l) => (
-              <li key={l.id} className="mini__row mini__row-muted">
-                <span className="mini__row-title">{l.title}</span>
-                <button className="mini__chip" type="button" onClick={() => setStatus(l.id, 'open')}>
-                  Reopen
-                </button>
-              </li>
-            ))}
-          </ul>
-        </section>
+            )
+          })}
+        </ul>
+      )}
+      {snoozed.length > 0 && (
+        <ul className="ma-list">
+          {snoozed.slice(0, 6).map((l) => (
+            <li key={l.id} className="ma-row ma-row--done">
+              <div className="ma-row-main">
+                <span className="ma-title">{l.title}</span>
+                <span className="ma-sub">Snoozed</span>
+              </div>
+              <button className="ma-chip" type="button" onClick={() => void setStatus(l.id, 'open')}>Restore</button>
+            </li>
+          ))}
+        </ul>
       )}
     </div>
   )
@@ -163,12 +212,18 @@ export function OpenLoopsApp({ auth }: { auth: FeatureAuth }) {
 
 /* ---------------------------- Decision Ledger --------------------------- */
 
+function decisionRank(d: Decision) {
+  if (d.status === 'reviewed') return 3
+  const day = dueDay(d.reviewAt)
+  if (day && day <= todayStr()) return 0
+  if (d.reviewAt) return 1
+  return 2
+}
+
 export function DecisionLedgerApp({ auth }: { auth: FeatureAuth }) {
   const a = useAuthed(auth)
   const [decisions, setDecisions] = useState<Decision[]>([])
-  const [decision, setDecision] = useState('')
-  const [reason, setReason] = useState('')
-  const [reviewOn, setReviewOn] = useState('')
+  const [line, setLine] = useState('')
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
 
@@ -182,14 +237,27 @@ export function DecisionLedgerApp({ auth }: { auth: FeatureAuth }) {
 
   async function add(e: FormEvent) {
     e.preventDefault()
-    if (!decision.trim() || busy) return
+    if (!line.trim() || busy) return
     setBusy(true)
     setErr('')
     try {
-      await apiAddDecision({ ...a, decision: decision.trim(), reason: reason.trim(), reviewAt: reviewOn || undefined })
-      setDecision('')
-      setReason('')
-      setReviewOn('')
+      const raw = line.trim()
+      const split = raw.match(/^(.+?)\s+because\s+(.+)$/i)
+      const decision = split ? split[1].trim() : raw
+      const reason = split ? split[2].trim() : ''
+      const review = new Date()
+      review.setDate(review.getDate() + 7)
+      const y = review.getFullYear()
+      const m = String(review.getMonth() + 1).padStart(2, '0')
+      const day = String(review.getDate()).padStart(2, '0')
+      await apiAddDecision({
+        ...a,
+        persona: auth.persona,
+        decision,
+        reason,
+        reviewAt: `${y}-${m}-${day}`,
+      })
+      setLine('')
       load()
     } catch (error) {
       setErr(error instanceof Error ? error.message : 'Could not save that.')
@@ -212,67 +280,62 @@ export function DecisionLedgerApp({ auth }: { auth: FeatureAuth }) {
     }
   }
 
+  const ranked = decisions.slice().sort((x, y) => decisionRank(x) - decisionRank(y))
+  const next = ranked.find((d) => d.status !== 'reviewed')
+  const rest = ranked.filter((d) => d.id !== next?.id)
+
   return (
-    <div>
-      <form className="mini__form mini__form-stack" onSubmit={add}>
+    <div className="ma">
+      {next && (
+        <div className={`ma-callout${decisionRank(next) === 0 ? ' ma-callout--hot' : ''}`}>
+          <span className="ma-callout-kicker">
+            {decisionRank(next) === 0 ? 'Review today' : next.reviewAt ? `Review ${fmtWhen(next.reviewAt)}` : 'Still open'}
+          </span>
+          <strong>{next.decision}</strong>
+          {next.reason && <span className="ma-sub">{next.reason}</span>}
+          <div className="ma-callout-actions">
+            <button type="button" className="ma-btn" disabled={busy} onClick={() => void markOutcome(next.id, 'worked')}>
+              Worked
+            </button>
+            <button type="button" className="ma-chip" disabled={busy} onClick={() => void markOutcome(next.id, 'did not work')}>
+              Did not work
+            </button>
+          </div>
+        </div>
+      )}
+      {!decisions.length && <p className="mini__empty">Log the call in one line. Review sits on top in a week.</p>}
+      <form className="ma-form" onSubmit={add}>
         <input
-          className="mini__input"
-          value={decision}
-          onChange={(e) => setDecision(e.target.value)}
-          placeholder="The decision…"
+          className="ma-input"
+          value={line}
+          onChange={(e) => setLine(e.target.value)}
+          placeholder="Ship v2 this month because speed beats polish"
           aria-label="Decision"
         />
-        <input
-          className="mini__input"
-          value={reason}
-          onChange={(e) => setReason(e.target.value)}
-          placeholder="Why (optional)"
-          aria-label="Reason"
-        />
-        <input
-          className="mini__input"
-          type="date"
-          value={reviewOn}
-          onChange={(e) => setReviewOn(e.target.value)}
-          aria-label="Review date"
-        />
-        <button className="mini__btn" type="submit" disabled={busy || !decision.trim()}>
-          Log it
-        </button>
+        <button className="ma-btn" type="submit" disabled={busy || !line.trim()}>Log</button>
       </form>
-      {err && <p className="mini__empty">{err}</p>}
-
-      <section className="mini__section">
-        <h2>On the ledger</h2>
-        {decisions.length ? (
-          <ul className="mini__list">
-            {decisions.map((d) => (
-              <li key={d.id} className="mini__card-item">
-                <span className="mini__row-title">{d.decision}</span>
-                {d.reason && <span className="mini__row-sub">{d.reason}</span>}
-                {d.reviewAt && d.status !== 'reviewed' && (
-                  <span className="mini__row-sub">Review {fmtWhen(d.reviewAt)}</span>
-                )}
-                <span className="mini__row-sub">
-                  {d.status === 'reviewed' ? `Reviewed · ${d.outcome || ''}` : `Logged ${fmtWhen(d.createdAt)}`}
+      {err && <p className="mini__hint">{err}</p>}
+      {rest.length > 0 && (
+        <ul className="ma-list">
+          {rest.slice(0, 10).map((d) => (
+            <li key={d.id} className={`ma-row${d.status === 'reviewed' ? ' ma-row--done' : decisionRank(d) === 0 ? ' ma-row--warn' : ''}`}>
+              <div className="ma-row-main">
+                <span className="ma-title">{d.decision}</span>
+                <span className="ma-sub">
+                  {d.status === 'reviewed'
+                    ? `Reviewed · ${d.outcome || 'done'}`
+                    : d.reason || (d.reviewAt ? `Review ${fmtWhen(d.reviewAt)}` : `Logged ${fmtWhen(d.createdAt)}`)}
                 </span>
-                {d.status !== 'reviewed' && (
-                  <span className="mini__row-actions">
-                    <button type="button" className="mini__chip mini__chip--green" disabled={busy} onClick={() => void markOutcome(d.id, 'worked')}>
-                      Worked
-                    </button>
-                    <button type="button" className="mini__chip" disabled={busy} onClick={() => void markOutcome(d.id, 'did not work')}>
-                      Didn't work
-                    </button>
-                  </span>
-                )}
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p className="mini__empty">No decisions logged yet.</p>
-        )}
-      </section>
+              </div>
+              {d.status !== 'reviewed' && (
+                <button type="button" className="ma-chip" disabled={busy} onClick={() => void markOutcome(d.id, 'worked')}>
+                  Worked
+                </button>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   )
 }
@@ -283,9 +346,9 @@ export function RelationshipRadarApp({ auth }: { auth: FeatureAuth }) {
   const a = useAuthed(auth)
   const [people, setPeople] = useState<Relationship[]>([])
   const [name, setName] = useState('')
-  const [kind, setKind] = useState('personal')
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
+  const [justTouched, setJustTouched] = useState<string | null>(null)
 
   const load = useCallback(() => {
     apiListRelationships(a).then((d) => setPeople(d.relationships)).catch(() => setErr('Could not load people.'))
@@ -301,7 +364,13 @@ export function RelationshipRadarApp({ auth }: { auth: FeatureAuth }) {
     setBusy(true)
     setErr('')
     try {
-      await apiAddRelationship({ ...a, name: name.trim(), kind })
+      const raw = name.trim()
+      const split = raw.match(/^(.+?)\s+\((personal|work|investor|candidate|partner)\)$/i)
+      await apiAddRelationship({
+        ...a,
+        name: split ? split[1].trim() : raw,
+        kind: split ? split[2].toLowerCase() : 'personal',
+      })
       setName('')
       load()
     } catch (error) {
@@ -312,76 +381,73 @@ export function RelationshipRadarApp({ auth }: { auth: FeatureAuth }) {
   }
 
   async function touch(id: string) {
+    setJustTouched(id)
     await apiTouchRelationship({ ...a, id }).catch(() => undefined)
     load()
+    window.setTimeout(() => setJustTouched((cur) => (cur === id ? null : cur)), 800)
   }
 
-  const due = people.filter((p) => {
-    if (!p.lastTouchAt) return true
-    const days = (Date.now() - new Date(p.lastTouchAt).getTime()) / 86400000
-    return days >= p.cadenceDays
+  const ranked = people.slice().sort((x, y) => {
+    const xo = daysSince(x.lastTouchAt) - x.cadenceDays
+    const yo = daysSince(y.lastTouchAt) - y.cadenceDays
+    return yo - xo
   })
+  const overdue = ranked.filter((p) => daysSince(p.lastTouchAt) >= p.cadenceDays)
+  const next = overdue[0]
+  const rest = ranked.filter((p) => p.id !== next?.id)
 
   return (
-    <div>
-      <form className="mini__form" onSubmit={add}>
+    <div className="ma">
+      {next && (
+        <button type="button" className="ma-callout ma-callout--hot" onClick={() => void touch(next.id)}>
+          <span className="ma-callout-kicker">{justTouched === next.id ? 'Logged' : 'Overdue'}</span>
+          <strong>{next.name}</strong>
+          <span className="ma-sub">{next.kind} · {agoLabel(next.lastTouchAt)} · tap when you reach out</span>
+        </button>
+      )}
+      {!people.length && <p className="mini__empty">Add someone who matters. Tap them when you reach out.</p>}
+      {people.length > 0 && overdue.length === 0 && (
+        <div className="ma-callout">
+          <span className="ma-callout-kicker">All clear</span>
+          <strong>Nobody is overdue</strong>
+          <span className="ma-sub">Next ping is whenever cadence comes due.</span>
+        </div>
+      )}
+      <form className="ma-form" onSubmit={add}>
         <input
-          className="mini__input"
+          className="ma-input"
           value={name}
           onChange={(e) => setName(e.target.value)}
-          placeholder="Who matters?"
+          placeholder="Maya (investor)"
           aria-label="Person name"
         />
-        <select className="mini__input mini__select" value={kind} onChange={(e) => setKind(e.target.value)} aria-label="Kind">
-          <option value="personal">Personal</option>
-          <option value="work">Work</option>
-          <option value="investor">Investor</option>
-          <option value="candidate">Candidate</option>
-          <option value="partner">Partner</option>
-        </select>
-        <button className="mini__btn" type="submit" disabled={busy || !name.trim()}>
-          Add
-        </button>
+        <button className="ma-btn" type="submit" disabled={busy || !name.trim()}>Add</button>
       </form>
-      {err && <p className="mini__empty">{err}</p>}
-
-      <section className="mini__section">
-        <h2>Time to reach out</h2>
-        {due.length ? (
-          <ul className="mini__list">
-            {due.map((p) => (
-              <li key={p.id} className="mini__row">
-                <span className="mini__row-main">
-                  <span className="mini__row-title">{p.name}</span>
-                  <span className="mini__row-sub">
-                    {p.kind} · {p.lastTouchAt ? `last ${fmtWhen(p.lastTouchAt)}` : 'never touched'}
-                  </span>
-                </span>
-                <button className="mini__chip" type="button" onClick={() => touch(p.id)}>
-                  Touched
+      {err && <p className="mini__hint">{err}</p>}
+      {rest.length > 0 && (
+        <ul className="ma-list">
+          {rest.map((p) => {
+            const late = daysSince(p.lastTouchAt) >= p.cadenceDays
+            return (
+              <li key={p.id}>
+                <button
+                  type="button"
+                  className={`ma-row ma-row--tap${late ? ' ma-row--warn' : ''}`}
+                  onClick={() => void touch(p.id)}
+                >
+                  <div className="ma-row-main">
+                    <span className="ma-title">
+                      {p.name}
+                      {late && <span className="ma-badge">overdue</span>}
+                      {justTouched === p.id && <span className="ma-badge ma-badge--ok">logged</span>}
+                    </span>
+                    <span className="ma-sub">{p.kind} · {agoLabel(p.lastTouchAt)}</span>
+                  </div>
                 </button>
               </li>
-            ))}
-          </ul>
-        ) : (
-          <p className="mini__empty">Everyone's covered. Nice.</p>
-        )}
-      </section>
-
-      {people.length > due.length && (
-        <section className="mini__section">
-          <h2>Everyone</h2>
-          <ul className="mini__list">
-            {people.map((p) => (
-              <li key={p.id} className="mini__row mini__row-muted">
-                <span className="mini__row-main">
-                  <span className="mini__row-title">{p.name}</span>
-                  <span className="mini__row-sub">{p.kind}</span>
-                </span>
-              </li>
-            ))}
-          </ul>
-        </section>
+            )
+          })}
+        </ul>
       )}
     </div>
   )
@@ -389,12 +455,33 @@ export function RelationshipRadarApp({ auth }: { auth: FeatureAuth }) {
 
 /* ------------------------------ Alpha Drop Zone ------------------------- */
 
+type DropBucket = 'learning' | 'loop' | 'network'
+
+function guessDropBucket(text: string): DropBucket {
+  const t = text.toLowerCase()
+  if (/https?:\/\//i.test(text) || /\b(article|podcast|video|youtube|read|watch)\b/.test(t)) return 'learning'
+  if (/\b(met|coffee|intro|catch up|ping|from the)\b/.test(t)) return 'network'
+  return 'loop'
+}
+
+function nameFromDrop(text: string) {
+  const m = text.trim().match(/^([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)/)
+  return m?.[1] || text.trim().slice(0, 40)
+}
+
+const DROP_BUCKETS: Array<{ id: DropBucket; label: string }> = [
+  { id: 'loop', label: 'Loop' },
+  { id: 'learning', label: 'Learning' },
+  { id: 'network', label: 'Network' },
+]
+
 export function DropZoneApp({ auth }: { auth: FeatureAuth }) {
   const a = useAuthed(auth)
   const [drops, setDrops] = useState<Drop[]>([])
   const [content, setContent] = useState('')
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
+  const [filing, setFiling] = useState<string | null>(null)
 
   const load = useCallback(() => {
     apiListDrops(a).then((d) => setDrops(d.drops)).catch(() => setErr('Could not load drops.'))
@@ -420,40 +507,97 @@ export function DropZoneApp({ auth }: { auth: FeatureAuth }) {
     }
   }
 
+  async function fileDrop(drop: Drop, bucket: DropBucket) {
+    if (filing) return
+    setFiling(drop.id)
+    setErr('')
+    try {
+      if (bucket === 'learning') {
+        await apiAddLearning({ ...a, title: drop.content.slice(0, 120) })
+      } else if (bucket === 'loop') {
+        await apiAddLoop({ ...a, persona: auth.persona, title: drop.content.slice(0, 200), dueAt: todayStr() })
+      } else {
+        await apiAddNetwork({ ...a, name: nameFromDrop(drop.content), context: drop.content.slice(0, 400) })
+      }
+      await apiPatchDrop({ ...a, id: drop.id, status: 'routed', summary: bucket })
+      load()
+    } catch (error) {
+      setErr(error instanceof Error ? error.message : 'Could not file that.')
+    } finally {
+      setFiling(null)
+    }
+  }
+
+  const unsorted = drops.filter((d) => d.status === 'new')
+  const routed = drops.filter((d) => d.status !== 'new')
+  const next = unsorted[0]
+
   return (
-    <div>
-      <form className="mini__form mini__form-stack" onSubmit={add}>
-        <textarea
-          className="mini__input mini__textarea"
+    <div className="ma">
+      <form className="ma-form" onSubmit={add}>
+        <input
+          className="ma-input"
           value={content}
           onChange={(e) => setContent(e.target.value)}
-          placeholder="Dump anything here. A thought, a link, a task, an idea…"
+          placeholder="Dump a thought, link, or name"
           aria-label="Drop content"
-          rows={3}
         />
-        <button className="mini__btn" type="submit" disabled={busy || !content.trim()}>
-          Drop it
-        </button>
+        <button className="ma-btn" type="submit" disabled={busy || !content.trim()}>Drop</button>
       </form>
-      {err && <p className="mini__empty">{err}</p>}
-
-      <section className="mini__section">
-        <h2>In the zone</h2>
-        {drops.length ? (
-          <ul className="mini__list">
-            {drops.map((d) => (
-              <li key={d.id} className="mini__card-item">
-                <span className="mini__row-title">{d.content}</span>
-                <span className="mini__row-sub">
-                  {d.status === 'new' ? 'Unsorted' : d.status} · {fmtWhen(d.createdAt)}
-                </span>
+      {err && <p className="mini__hint">{err}</p>}
+      {!drops.length && <p className="mini__empty">Dump anything. Then file it as learning, a loop, or a person.</p>}
+      {next && (
+        <div className="ma-callout">
+          <span className="ma-callout-kicker">Suggested: {DROP_BUCKETS.find((b) => b.id === guessDropBucket(next.content))?.label}</span>
+          <strong>{next.content}</strong>
+          <div className="ma-callout-actions">
+            {DROP_BUCKETS.map((b) => {
+              const suggested = guessDropBucket(next.content) === b.id
+              return (
+                <button
+                  key={b.id}
+                  type="button"
+                  className={suggested ? 'ma-btn' : 'ma-chip'}
+                  disabled={filing === next.id}
+                  onClick={() => void fileDrop(next, b.id)}
+                >
+                  {suggested ? `File as ${b.label}` : b.label}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      )}
+      {unsorted.length > 1 && (
+        <ul className="ma-list">
+          {unsorted.filter((d) => d.id !== next?.id).map((d) => {
+            const guess = guessDropBucket(d.content)
+            return (
+              <li key={d.id} className="ma-row">
+                <div className="ma-row-main">
+                  <span className="ma-title">{d.content}</span>
+                  <span className="ma-sub">Suggested {guess}</span>
+                </div>
+                <button className="ma-chip ma-chip--on" type="button" disabled={filing === d.id} onClick={() => void fileDrop(d, guess)}>
+                  File
+                </button>
               </li>
-            ))}
-          </ul>
-        ) : (
-          <p className="mini__empty">Nothing dropped yet. Send anything messy.</p>
-        )}
-      </section>
+            )
+          })}
+        </ul>
+      )}
+      {routed.length > 0 && (
+        <ul className="ma-list">
+          {routed.slice(0, 6).map((d) => (
+            <li key={d.id} className="ma-row ma-row--done">
+              <div className="ma-row-main">
+                <span className="ma-title">{d.content}</span>
+                <span className="ma-sub">{d.summary || d.status} · {fmtWhen(d.createdAt)}</span>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   )
 }
@@ -464,7 +608,6 @@ export function MeetingModeApp({ auth }: { auth: FeatureAuth }) {
   const a = useAuthed(auth)
   const [meetings, setMeetings] = useState<Meeting[]>([])
   const [title, setTitle] = useState('')
-  const [startsAt, setStartsAt] = useState('')
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
   const [recording, setRecording] = useState(false)
@@ -491,9 +634,8 @@ export function MeetingModeApp({ auth }: { auth: FeatureAuth }) {
     setBusy(true)
     setErr('')
     try {
-      await apiAddMeeting({ ...a, title: title.trim(), startsAt: startsAt || undefined })
+      await apiAddMeeting({ ...a, title: title.trim() })
       setTitle('')
-      setStartsAt('')
       load()
     } catch (error) {
       setErr(error instanceof Error ? error.message : 'Could not add that.')
@@ -600,72 +742,103 @@ export function MeetingModeApp({ auth }: { auth: FeatureAuth }) {
     return () => clearInterval(t)
   }, [recording])
 
+  async function wrap(id: string) {
+    await apiPatchMeeting({ ...a, id, phase: 'done' }).catch(() => undefined)
+    load()
+  }
+
+  function whenLabel(iso: string | null) {
+    if (!iso) return 'No time set'
+    const d = new Date(iso)
+    if (Number.isNaN(d.getTime())) return ''
+    return d.toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+  }
+
+  const ranked = meetings.slice().sort((x, y) => {
+    const xd = x.phase === 'done' ? 1 : 0
+    const yd = y.phase === 'done' ? 1 : 0
+    if (xd !== yd) return xd - yd
+    const xt = x.startsAt ? new Date(x.startsAt).getTime() : Number.POSITIVE_INFINITY
+    const yt = y.startsAt ? new Date(y.startsAt).getTime() : Number.POSITIVE_INFINITY
+    return xt - yt
+  })
+  const next = ranked.find((m) => m.phase !== 'done') || ranked[0]
+  const rest = ranked.filter((m) => m.id !== next?.id)
+
+  function memoLabel(m: Meeting) {
+    if (recording && recFor === m.id) return `Stop ${recordingElapsed(recRef.current.start, now)}`
+    if (transcribing === m.id) return 'Transcribing'
+    return 'Memo'
+  }
+
   return (
-    <div>
-      <form className="mini__form mini__form-stack" onSubmit={add}>
+    <div className="ma">
+      {next && (
+        <div className={`ma-callout${next.phase !== 'done' ? ' ma-callout--hot' : ''}`}>
+          <span className="ma-callout-kicker">{next.phase === 'done' ? 'Wrapped' : 'Up next'}</span>
+          <strong>{next.title}</strong>
+          <span className="ma-sub">{whenLabel(next.startsAt)}</span>
+          {next.briefing && <span className="ma-sub">{next.briefing}</span>}
+          {next.notes && <span className="ma-sub">{next.notes}</span>}
+          <div className="ma-callout-actions">
+            <button
+              type="button"
+              className="ma-btn"
+              disabled={transcribing === next.id || (recording && recFor !== next.id)}
+              onClick={(e) => {
+                if (recording && recFor === next.id) void stopRec(next.id)
+                else if (!recording) void startRec(next.id, e)
+              }}
+            >
+              {memoLabel(next)}
+            </button>
+            {next.phase !== 'done' && (
+              <button type="button" className="ma-chip" onClick={() => void wrap(next.id)}>Wrap</button>
+            )}
+          </div>
+        </div>
+      )}
+      {!meetings.length && <p className="mini__empty">Name the meeting. Memo and wrap sit on top.</p>}
+      <form className="ma-form" onSubmit={add}>
         <input
-          className="mini__input"
+          className="ma-input"
           value={title}
           onChange={(e) => setTitle(e.target.value)}
-          placeholder="Meeting you want prepped…"
+          placeholder="Staff review"
           aria-label="Meeting title"
         />
-        <input
-          className="mini__input"
-          type="datetime-local"
-          value={startsAt}
-          onChange={(e) => setStartsAt(e.target.value)}
-          aria-label="Start time"
-        />
-        <button className="mini__btn" type="submit" disabled={busy || !title.trim()}>
-          Prep
-        </button>
+        <button className="ma-btn" type="submit" disabled={busy || !title.trim()}>Add</button>
       </form>
-      {err && <p className="mini__empty">{err}</p>}
-      {styleErr && <p className="mini__empty">{styleErr}</p>}
-
-      <section className="mini__section">
-        <h2>Meetings</h2>
-        {meetings.length ? (
-          <ul className="mini__list">
-            {meetings.map((m) => (
-              <li key={m.id} className="mini__card-item">
-                <div className="mini__row-top">
-                  <span className="mini__row-title">{m.title}</span>
-                  <button
-                    type="button"
-                    className="mini__btn mini__btn-sm"
-                    disabled={transcribing === m.id || (recording && recFor !== m.id)}
-                    onClick={(e) => {
-                      if (recording && recFor === m.id) void stopRec(m.id)
-                      else if (!recording) void startRec(m.id, e)
-                    }}
-                  >
-                    {recording && recFor === m.id
-                      ? `● ${recordingElapsed(recRef.current.start, now)}`
-                      : transcribing === m.id
-                        ? '⏳'
-                        : '🎤 Memo'}
-                  </button>
-                </div>
-                <span className="mini__row-sub">
-                  {m.phase === 'done' ? 'Wrapped' : 'Prepping'}
-                  {m.startsAt ? ` · ${new Date(m.startsAt).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}` : ''}
-                </span>
-                {m.briefing && <span className="mini__row-sub">{m.briefing}</span>}
-                {m.notes && <span className="mini__row-sub mini__notes">{m.notes}</span>}
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p className="mini__empty">No meetings yet. Add one to get a brief.</p>
-        )}
-        {recording && (
-          <button type="button" className="mini__btn mini__btn-danger" onClick={abortRec}>
-            Cancel recording
-          </button>
-        )}
-      </section>
+      {err && <p className="mini__hint">{err}</p>}
+      {styleErr && <p className="mini__hint">{styleErr}</p>}
+      {recording && (
+        <button type="button" className="ma-chip" onClick={abortRec}>Cancel recording</button>
+      )}
+      {rest.length > 0 && (
+        <ul className="ma-list">
+          {rest.map((m) => (
+            <li key={m.id} className={`ma-row${m.phase === 'done' ? ' ma-row--done' : ''}`}>
+              <div className="ma-row-main">
+                <span className="ma-title">{m.title}</span>
+                <span className="ma-sub">{m.phase === 'done' ? 'Wrapped' : whenLabel(m.startsAt)}</span>
+              </div>
+              {m.phase !== 'done' && (
+                <button
+                  type="button"
+                  className="ma-chip"
+                  disabled={transcribing === m.id || (recording && recFor !== m.id)}
+                  onClick={(e) => {
+                    if (recording && recFor === m.id) void stopRec(m.id)
+                    else if (!recording) void startRec(m.id, e)
+                  }}
+                >
+                  {memoLabel(m)}
+                </button>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   )
 }
@@ -835,6 +1008,17 @@ export function NutritionApp({ auth }: { auth: FeatureAuth }) {
   }
 
   const g = goals || { calorieGoal: 2200, proteinGoal: 150, carbsGoal: 220, fatGoal: 70 }
+  const proteinLeft = Math.max(0, g.proteinGoal - totals.protein)
+  const calLeft = Math.max(0, g.calorieGoal - totals.calories)
+  const hour = new Date().getHours()
+  const nextMeal = hour < 11 ? 'Breakfast' : hour < 15 ? 'Lunch' : hour < 21 ? 'Dinner' : 'Tonight'
+  const nutrInsight = logs.length === 0
+    ? `No meals yet. ${nextMeal} is the next log.`
+    : proteinLeft >= 20
+      ? `${Math.round(proteinLeft)}g protein left`
+      : totals.calories >= g.calorieGoal
+        ? 'Calories are at the goal.'
+        : `${Math.round(calLeft)} cal left. ${nextMeal} still fits.`
 
   async function saveGoals() {
     if (busy) return
@@ -866,6 +1050,7 @@ export function NutritionApp({ auth }: { auth: FeatureAuth }) {
           <MacroPill label="Fat" current={totals.fat} goal={g.fatGoal} color="#a855f7" />
         </div>
       </div>
+      <p className="nutr-insight">{nutrInsight}</p>
 
       {/* Quick add */}
       <div className="nutr-quick-section">
@@ -1044,6 +1229,12 @@ function dayLetter(dateStr: string): string {
   return ['S', 'M', 'T', 'W', 'T', 'F', 'S'][new Date(Date.UTC(y || 1970, (m || 1) - 1, d || 1)).getUTCDay()] || ''
 }
 
+function isoToLocalDate(iso: string) {
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return iso.slice(0, 10)
+  return localDateStr(d)
+}
+
 export function HabitStreakApp({ auth }: { auth: FeatureAuth }) {
   const a = useAuthed(auth)
   const [habits, setHabits] = useState<(Habit & { streak: number; recentDays: string[] })[]>([])
@@ -1052,6 +1243,7 @@ export function HabitStreakApp({ auth }: { auth: FeatureAuth }) {
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState('')
   const [days, setDays] = useState<string[]>(() => currentWeekDays())
+  const [showAdd, setShowAdd] = useState(false)
 
   const load = useCallback(() => {
     apiListHabits(a).then((d) => {
@@ -1069,6 +1261,7 @@ export function HabitStreakApp({ auth }: { auth: FeatureAuth }) {
     try {
       await apiAddHabit({ ...a, name: name.trim(), emoji })
       setName('')
+      setShowAdd(false)
       load()
     } catch {
       setMsg('Could not add habit.')
@@ -1084,7 +1277,7 @@ export function HabitStreakApp({ auth }: { auth: FeatureAuth }) {
       await apiToggleHabit({ ...a, habitId, date })
       load()
     } catch {
-      setMsg('Could not toggle.')
+      setMsg('Could not update.')
     } finally {
       setBusy(false)
     }
@@ -1103,45 +1296,100 @@ export function HabitStreakApp({ auth }: { auth: FeatureAuth }) {
     }
   }
 
+  const today = localDateStr()
+  const left = habits.filter((h) => !h.recentDays.includes(today))
+  const doneToday = habits.length - left.length
+  const bestStreak = habits.reduce((n, h) => Math.max(n, h.streak), 0)
+  const allDone = habits.length > 0 && left.length === 0
+
+  async function markRemaining() {
+    if (busy || left.length === 0) return
+    setBusy(true)
+    try {
+      await Promise.all(left.map((h) => apiToggleHabit({ ...a, habitId: h.id, date: today })))
+      load()
+    } catch {
+      setMsg('Could not update.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const addForm = (
+    <form className="habit-add" onSubmit={add}>
+      <select className="nutr-goal-input" value={emoji} onChange={(e) => setEmoji(e.target.value)} style={{ width: 52, textAlign: 'center', fontSize: 18 }} aria-label="Habit emoji">
+        {HABIT_EMOJIS.map((em) => <option key={em} value={em}>{em}</option>)}
+      </select>
+      <input value={name} onChange={(e) => setName(e.target.value)} placeholder="New habit" aria-label="Habit name" />
+      <button className="habit-add-btn" type="submit" disabled={busy || !name.trim()}>Add</button>
+    </form>
+  )
+
   return (
     <div className="habit">
-      <form className="habit-add" onSubmit={add}>
-        <select className="nutr-goal-input" value={emoji} onChange={(e) => setEmoji(e.target.value)} style={{ width: 52, textAlign: 'center', fontSize: 18 }}>
-          {HABIT_EMOJIS.map((e) => <option key={e} value={e}>{e}</option>)}
-        </select>
-        <input value={name} onChange={(e) => setName(e.target.value)} placeholder="New habit…" aria-label="Habit name" />
-        <button className="habit-add-btn" type="submit" disabled={busy || !name.trim()}>Add</button>
-      </form>
+      <div className="ma-hero">
+        <span className="ma-hero-kicker">Today</span>
+        <span className="ma-hero-num">
+          {habits.length === 0 ? 'Start a streak' : allDone ? 'All done' : `${doneToday} of ${habits.length}`}
+        </span>
+        <span className="ma-hero-label">
+          {habits.length === 0
+            ? 'Add one habit. Tap today to start.'
+            : allDone
+              ? bestStreak ? `Best streak ${bestStreak} days` : 'Come back tomorrow'
+              : left[0] ? `${left[0].name} is next` : 'Mark what you did'}
+        </span>
+      </div>
+
+      {left.length > 0 && (
+        <button className="ma-btn ma-btn--block" type="button" disabled={busy} onClick={() => void markRemaining()}>
+          {left.length === 1 ? `Mark ${left[0].name}` : 'Mark remaining'}
+        </button>
+      )}
+
       {msg && <p className="mini__hint">{msg}</p>}
 
       {habits.length ? (
         <ul className="habit-list">
-          {habits.map((h) => (
-            <li key={h.id} className="habit-card">
-              <span className="habit-emoji">{h.emoji}</span>
-              <div className="habit-info">
-                <div className="habit-name">{h.name}</div>
-                <div className="habit-streak">🔥 <b>{h.streak}</b> day streak</div>
-              </div>
-              <div className="habit-days">
-                {days.map((d) => (
-                  <button
-                    key={d}
-                    className={`habit-day${h.recentDays.includes(d) ? ' done' : ''}`}
-                    type="button"
-                    onClick={() => void toggle(h.id, d)}
-                  >
-                    {dayLetter(d)}
+          {habits.map((h) => {
+            const done = h.recentDays.includes(today)
+            return (
+              <li key={h.id} className="habit-card">
+                <span className="habit-emoji">{h.emoji}</span>
+                <div className="habit-info">
+                  <div className="habit-name">{h.name}</div>
+                  <div className="habit-streak">{h.streak ? `🔥 ${h.streak} day streak` : 'No streak yet'}</div>
+                </div>
+                <div className="habit-days">
+                  {days.map((d) => (
+                    <button
+                      key={d}
+                      className={`habit-day${h.recentDays.includes(d) ? ' done' : ''}${d === today ? ' today' : ''}`}
+                      type="button"
+                      onClick={() => void toggle(h.id, d)}
+                    >
+                      {dayLetter(d)}
+                    </button>
+                  ))}
+                </div>
+                {!done && (
+                  <button className="ma-chip ma-chip--go" type="button" disabled={busy} onClick={() => void toggle(h.id, today)}>
+                    Did it
                   </button>
-                ))}
-              </div>
-              <button className="habit-delete" type="button" onClick={() => void remove(h.id)} title="Delete">×</button>
-            </li>
-          ))}
+                )}
+                <button className="habit-delete" type="button" onClick={() => void remove(h.id)} title="Delete">×</button>
+              </li>
+            )
+          })}
         </ul>
       ) : (
-        <p className="mini__empty">No habits yet. Add one above.</p>
+        <p className="mini__empty">Add one habit. Tap today to start.</p>
       )}
+
+      {habits.length > 0 && !showAdd && (
+        <button className="ma-btn ma-btn--quiet ma-btn--block" type="button" onClick={() => setShowAdd(true)}>Add habit</button>
+      )}
+      {(habits.length === 0 || showAdd) && addForm}
     </div>
   )
 }
@@ -1149,14 +1397,22 @@ export function HabitStreakApp({ auth }: { auth: FeatureAuth }) {
 /* ------------------------------ Mood & Energy Tracker ------------------------------ */
 
 const MOOD_EMOJIS = ['😄', '🙂', '😐', '😔', '😤'] as const
+const MOOD_DAY_LETTERS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'] as const
+
+function last7LocalDates(): string[] {
+  const out: string[] = []
+  const now = new Date()
+  for (let i = 6; i >= 0; i--) {
+    out.push(localDateStr(new Date(now.getFullYear(), now.getMonth(), now.getDate() - i)))
+  }
+  return out
+}
 
 export function MoodTrackerApp({ auth }: { auth: FeatureAuth }) {
   const a = useAuthed(auth)
   const [entries, setEntries] = useState<MoodEntry[]>([])
   const [streak, setStreak] = useState(0)
-  const [selected, setSelected] = useState<string | null>(null)
   const [energy, setEnergy] = useState(3)
-  const [note, setNote] = useState('')
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState('')
 
@@ -1166,14 +1422,20 @@ export function MoodTrackerApp({ auth }: { auth: FeatureAuth }) {
 
   useEffect(() => { load() }, [load])
 
-  async function save() {
-    if (!selected || busy) return
+  const today = localDateStr()
+  const todayEntry = entries.find((e) => isoToLocalDate(e.createdAt) === today)
+  const last = entries[0]
+
+  useEffect(() => {
+    if (todayEntry) setEnergy(todayEntry.energy)
+    else if (last) setEnergy(last.energy)
+  }, [todayEntry, last])
+
+  async function logEmoji(emoji: string) {
+    if (busy) return
     setBusy(true)
     try {
-      await apiLogMood({ ...a, emoji: selected, energy, note: note.trim() || undefined })
-      setSelected(null)
-      setEnergy(3)
-      setNote('')
+      await apiLogMood({ ...a, emoji, energy })
       load()
     } catch {
       setMsg('Could not log mood.')
@@ -1182,55 +1444,85 @@ export function MoodTrackerApp({ auth }: { auth: FeatureAuth }) {
     }
   }
 
-  const fmtTime = (iso: string) => {
-    const d = new Date(iso)
-    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) + ' ' +
-           d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
-  }
+  const week = last7LocalDates()
+  const byDay = new Map<string, MoodEntry>()
+  for (const e of [...entries].reverse()) byDay.set(isoToLocalDate(e.createdAt), e)
+  const avgEnergy = entries.length
+    ? entries.slice(0, 7).reduce((s, e) => s + e.energy, 0) / Math.min(7, entries.length)
+    : 0
 
   return (
     <div className="mood">
+      <div className="ma-hero">
+        <span className="ma-hero-kicker">{todayEntry ? 'Today' : 'Not logged'}</span>
+        <span className="ma-hero-num">
+          {todayEntry ? `${todayEntry.emoji}  ${todayEntry.energy}/5` : 'How do you feel'}
+        </span>
+        <span className="ma-hero-label">
+          {streak > 0
+            ? `${streak} day streak${avgEnergy ? `. Avg energy ${avgEnergy.toFixed(1)}` : ''}`
+            : 'Tap a face. That is today\'s log.'}
+        </span>
+      </div>
+
       <div className="mood-emoji-row">
-        {MOOD_EMOJIS.map((e) => (
-          <button key={e} className={`mood-emoji-btn${selected === e ? ' selected' : ''}`} type="button" onClick={() => setSelected(e)}>
-            {e}
+        {MOOD_EMOJIS.map((em) => (
+          <button
+            key={em}
+            className={`mood-emoji-btn${todayEntry?.emoji === em ? ' selected' : ''}`}
+            type="button"
+            disabled={busy}
+            onClick={() => void logEmoji(em)}
+          >
+            {em}
           </button>
         ))}
       </div>
 
-      <div className="mood-energy">
-        <span className="mood-energy-label">Energy Level</span>
-        <input className="mood-energy-slider" type="range" min={1} max={5} value={energy} onChange={(e) => setEnergy(Number(e.target.value))} />
-        <span className="mood-energy-val">{energy}/5</span>
+      <div className="ma-pills" aria-label="Energy">
+        {[1, 2, 3, 4, 5].map((n) => (
+          <button
+            key={n}
+            type="button"
+            className={`ma-chip${energy === n ? ' ma-chip--on' : ''}`}
+            onClick={() => setEnergy(n)}
+          >
+            {n}
+          </button>
+        ))}
       </div>
 
-      <textarea className="mood-note" value={note} onChange={(e) => setNote(e.target.value)} placeholder="How are you feeling? (optional)" rows={2} />
-
-      <button className="mood-save" type="button" disabled={busy || !selected} onClick={() => void save()}>
-        Log mood
-      </button>
       {msg && <p className="mini__hint">{msg}</p>}
 
-      {streak > 0 && <p className="mini__hint">🔥 {streak} day logging streak</p>}
+      <div className="mood-strip">
+        {week.map((d) => {
+          const [y, m, day] = d.split('-').map(Number)
+          const letter = MOOD_DAY_LETTERS[new Date(y || 1970, (m || 1) - 1, day || 1).getDay()] || ''
+          const hit = byDay.get(d)
+          return (
+            <div key={d} className={`mood-strip-day${d === today ? ' is-today' : ''}`}>
+              <span className="mood-strip-emoji">{hit ? hit.emoji : '·'}</span>
+              <span className="mood-strip-label">{letter}</span>
+            </div>
+          )
+        })}
+      </div>
 
       {entries.length ? (
-        <section className="mood-history">
-          <h3>Recent</h3>
-          <ul className="mood-list">
-            {entries.map((e) => (
-              <li key={e.id} className="mood-entry">
-                <span className="mood-entry-emoji">{e.emoji}</span>
-                <div className="mood-entry-info">
-                  <span className="mood-entry-time">{fmtTime(e.createdAt)}</span>
-                  {e.note && <span className="mood-entry-note">{e.note}</span>}
-                </div>
-                <span className="mood-entry-energy">⚡ {e.energy}/5</span>
-              </li>
-            ))}
-          </ul>
-        </section>
+        <ul className="mood-list">
+          {entries.slice(0, 6).map((e) => (
+            <li key={e.id} className="mood-entry">
+              <span className="mood-entry-emoji">{e.emoji}</span>
+              <div className="mood-entry-info">
+                <span className="mood-entry-time">{fmtWhen(e.createdAt)}</span>
+                {e.note && <span className="mood-entry-note">{e.note}</span>}
+              </div>
+              <span className="mood-entry-energy">{e.energy}/5</span>
+            </li>
+          ))}
+        </ul>
       ) : (
-        <p className="mini__empty">No moods logged yet.</p>
+        <p className="mini__empty">Tap a face. That is today's log.</p>
       )}
     </div>
   )

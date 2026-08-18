@@ -335,6 +335,8 @@ export const apiListDrops = (a: { email?: string; token?: string }) => {
 }
 export const apiAddDrop = (a: { email?: string; token?: string; content: string; mediaKind?: string }) =>
   featurePost<{ ok: boolean; id: string }>('/api/dropzone', { ...authParams(a), content: a.content, mediaKind: a.mediaKind })
+export const apiPatchDrop = (a: { email?: string; token?: string; id: string; status?: string; summary?: string }) =>
+  featurePatch<{ ok: boolean }>(`/api/dropzone/${a.id}`, { ...authParams(a), status: a.status, summary: a.summary })
 
 export type Meeting = {
   id: string
@@ -354,6 +356,8 @@ export const apiListMeetings = (a: { email?: string; token?: string }) => {
 }
 export const apiAddMeeting = (a: { email?: string; token?: string; title: string; startsAt?: string }) =>
   featurePost<{ ok: boolean; id: string }>('/api/meetings', { ...authParams(a), title: a.title, startsAt: a.startsAt })
+export const apiPatchMeeting = (a: { email?: string; token?: string; id: string; phase?: string }) =>
+  featurePatch<{ ok: boolean }>(`/api/meetings/${a.id}`, { ...authParams(a), phase: a.phase })
 export const apiTranscribeMeeting = (a: {
   email?: string; token?: string; id: string; audioBase64: string; mimeType?: string
 }) =>

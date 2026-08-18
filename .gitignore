@@ -49,3 +49,9 @@ coverage/
 refs/
 .tmp/
 .cache/
+
+# Harness / runtime artifacts (never commit)
+index.js
+kg-core.cjs
+roster.json
+roster-backups/
