@@ -6,6 +6,7 @@ import { HiresPage, ShopPage } from './platform/HiresPage'
 import { LoginPage } from './platform/LoginPage'
 import { LocationPage } from './platform/LocationPage'
 import { MiniAppPage } from './platform/MiniAppPage'
+import { OnboardingPage } from './platform/OnboardingPage'
 import { PlatformShell, RequireAuth } from './platform/PlatformShell'
 
 export default function App() {
@@ -18,6 +19,7 @@ export default function App() {
         <Route path="/app" element={<RequireAuth />}>
           <Route element={<PlatformShell />}>
             <Route index element={<HiresPage />} />
+            <Route path="setup" element={<OnboardingPage />} />
             <Route path="shop" element={<ShopPage />} />
             <Route path="hires/:agentId" element={<HireConfigPage />} />
             <Route path="features" element={<FeaturesPage />} />

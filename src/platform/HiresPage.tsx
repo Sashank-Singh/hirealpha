@@ -4,6 +4,7 @@ import { AGENTS, getAgent } from '../agents'
 import type { AgentId } from '../agents/types'
 import { connectorsForHire, setupProgress } from './connectors'
 import { apiSavePhone } from './api'
+import { isOnboardingDone } from './onboarding'
 import {
   addHire,
   connectedIds,
@@ -135,6 +136,11 @@ export function HiresPage() {
   if (activeIds.length === 0) {
     return (
       <div className="plat-page">
+        {!isOnboardingDone() && (
+          <p className="onb-banner">
+            <Link to="/app/setup">Finish setting up Alpha</Link> — pick your first focus and control proactive messages.
+          </p>
+        )}
         <header className="plat-page__head">
           <h1>People</h1>
           <p>Hire someone for your texts. Each person gets their own number.</p>
@@ -196,6 +202,11 @@ export function HiresPage() {
   return (
     <div className="plat-page plat-page--split">
       <div>
+        {!isOnboardingDone() && (
+          <p className="onb-banner">
+            <Link to="/app/setup">Finish setting up Alpha</Link> — pick your first focus and control proactive messages.
+          </p>
+        )}
         <header className="plat-page__head">
           <h1>People</h1>
           <p>

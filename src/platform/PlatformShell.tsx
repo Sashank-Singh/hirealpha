@@ -30,6 +30,7 @@ export function PlatformShell() {
             </NavLink>
             <NavLink to="/app/shop">Hire</NavLink>
             <NavLink to="/app/features">Features</NavLink>
+            <NavLink to="/app/setup">Setup</NavLink>
             <NavLink to="/app/location">Location</NavLink>
           </nav>
           <div className="plat__user">
