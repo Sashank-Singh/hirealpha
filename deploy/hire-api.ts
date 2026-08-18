@@ -5,6 +5,13 @@
 import { Composio } from '@composio/core'
 import { createHmac, timingSafeEqual } from 'node:crypto'
 import type { SQL } from 'bun'
+import {
+  formatUpcomingEvents,
+  googleTokenHasScope,
+  parseComposioCalendarData,
+  parseGoogleCalendarItems,
+  type CalItem,
+} from './calendarEvents'
 
 export const PERSONAS = ['friend', 'coworker', 'cofounder'] as const
 export type Persona = (typeof PERSONAS)[number]
@@ -1390,18 +1397,23 @@ async function composioAuthorize(sql: SQL, userId: string, toolkit: string, call
   return request.redirectUrl || null
 }
 
-async function googleAccessToken(sql: SQL, userId: string): Promise<string | null> {
+async function googleAccessToken(
+  sql: SQL,
+  userId: string,
+  need?: 'gmail' | 'calendar' | 'drive',
+): Promise<string | null> {
   const creds = googleCreds()
   const rows = await sql`
-    SELECT access_token, refresh_token, expires_at FROM hire_google_tokens WHERE user_id = ${userId} LIMIT 1
+    SELECT access_token, refresh_token, expires_at, scopes FROM hire_google_tokens WHERE user_id = ${userId} LIMIT 1
   `
   const row = rows[0] as
-    | { access_token: string; refresh_token: string | null; expires_at: Date | null }
+    | { access_token: string; refresh_token: string | null; expires_at: Date | null; scopes: string | null }
     | undefined
   if (!row) return null
+  if (need && !googleTokenHasScope(String(row.scopes || ''), need)) return null
   const exp = row.expires_at ? new Date(row.expires_at).getTime() : 0
   if (exp > Date.now() + 60_000) return row.access_token
-  if (!creds || !row.refresh_token) return row.access_token
+  if (!creds || !row.refresh_token) return null
   const res = await fetch('https://oauth2.googleapis.com/token', {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -1478,7 +1490,7 @@ function startOfLocalDay(timezone: string, dayOffset = 0): Date {
 async function fetchCalendarItems(
   access: string,
   opts?: { timeMin?: Date; timeMax?: Date; maxResults?: number },
-): Promise<Array<{ start: Date; title: string; description: string }>> {
+): Promise<{ ok: true; items: CalItem[] } | { ok: false; status: number }> {
   const now = opts?.timeMin || new Date()
   const end = opts?.timeMax || new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000)
   const url = new URL('https://www.googleapis.com/calendar/v3/calendars/primary/events')
@@ -1488,7 +1500,10 @@ async function fetchCalendarItems(
   url.searchParams.set('orderBy', 'startTime')
   url.searchParams.set('maxResults', String(opts?.maxResults || 8))
   const res = await fetch(url, { headers: { Authorization: `Bearer ${access}` } })
-  if (!res.ok) return []
+  if (!res.ok) {
+    console.warn('[calendar] google list failed', res.status)
+    return { ok: false, status: res.status }
+  }
   const data = (await res.json()) as {
     items?: Array<{
       summary?: string
@@ -1496,30 +1511,58 @@ async function fetchCalendarItems(
       start?: { dateTime?: string; date?: string }
     }>
   }
-  const out: Array<{ start: Date; title: string; description: string }> = []
-  for (const e of data.items || []) {
-    const raw = e.start?.dateTime
-    if (!raw) continue
-    const start = new Date(raw)
-    if (Number.isNaN(start.getTime())) continue
-    out.push({
-      start,
-      title: String(e.summary || 'Meeting').slice(0, 120),
-      description: String(e.description || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 240),
-    })
-  }
-  return out
+  return { ok: true, items: parseGoogleCalendarItems(data.items || []) }
 }
 
-async function fetchCalendar(
-  access: string,
+async function fetchCalendarViaComposio(
+  userId: string,
   opts?: { timeMin?: Date; timeMax?: Date; maxResults?: number },
-) {
-  const items = await fetchCalendarItems(access, opts)
-  if (!items.length) return 'No events on the calendar in the next 7 days.'
-  return `Upcoming events:\n${items
-    .map((e) => `- ${e.start.toISOString()} ${e.title}`)
-    .join('\n')}`
+): Promise<string> {
+  const now = opts?.timeMin || new Date()
+  const end = opts?.timeMax || new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000)
+  const timeMin = now.toISOString()
+  const timeMax = end.toISOString()
+  const maxResults = opts?.maxResults || 8
+  const raw = await composioFirst(
+    userId,
+    ['GOOGLECALENDAR_EVENTS_LIST', 'GOOGLECALENDAR_FIND_EVENT'],
+    {
+      timeMin,
+      timeMax,
+      time_min: timeMin,
+      time_max: timeMax,
+      max_results: maxResults,
+      maxResults,
+      singleEvents: true,
+      single_events: true,
+      orderBy: 'startTime',
+      calendarId: 'primary',
+      calendar_id: 'primary',
+    },
+  )
+  if (!raw) return 'Calendar lookup failed. Do not invent events. Tell them to reconnect Calendar in Settings.'
+  if (raw.startsWith('Upcoming events:') || raw.startsWith('No events')) return raw
+  if (/failed/i.test(raw)) {
+    return 'Calendar lookup failed. Do not invent events. Tell them to reconnect Calendar in Settings.'
+  }
+  try {
+    return formatUpcomingEvents(parseComposioCalendarData(JSON.parse(raw)))
+  } catch {
+    return raw.slice(0, 4000)
+  }
+}
+
+async function loadCalendar(
+  sql: SQL,
+  userId: string,
+  opts?: { timeMin?: Date; timeMax?: Date; maxResults?: number },
+): Promise<string> {
+  const access = await googleAccessToken(sql, userId, 'calendar')
+  if (access) {
+    const got = await fetchCalendarItems(access, opts)
+    if (got.ok) return formatUpcomingEvents(got.items)
+  }
+  return fetchCalendarViaComposio(userId, opts)
 }
 
 /** Compact one-line-per-email rendering so the model sees the whole batch. */
@@ -1555,6 +1598,9 @@ async function composioExecute(userId: string, tool: string, args: Record<string
       return `Tool ${tool} failed: ${res.error || 'unknown error'}`
     }
     if (tool === 'GMAIL_FETCH_EMAILS') return formatEmailOverview(res.data)
+    if (tool === 'GOOGLECALENDAR_EVENTS_LIST' || tool === 'GOOGLECALENDAR_FIND_EVENT') {
+      return formatUpcomingEvents(parseComposioCalendarData(res.data))
+    }
     const text = JSON.stringify(res.data ?? {})
     return text.slice(0, 4000)
   } catch (err) {
@@ -1769,24 +1815,22 @@ export async function runToolsForMessage(
   const mailHit = wantsEmail(input.message)
   const calHit = wantsCalendar(input.message)
   if (mailHit && can('gmail') && calHit && can('calendar')) {
-    const access = await googleAccessToken(sql, input.userId)
     const query = /\b(debrief|digest|brief)\b/i.test(input.message)
       ? '(newer_than:1d) OR (is:important newer_than:2d)'
       : wantsImportantEmail(input.message)
         ? 'is:important newer_than:14d'
         : 'newer_than:5d'
-    const brief = /\b(debrief|digest|brief|today)\b/i.test(input.message)
+    const brief = /\b(debrief|digest|brief|today|calendar|agenda|schedule)\b/i.test(input.message)
     const tz = input.timezone || 'America/Los_Angeles'
     const calOpts = brief
       ? { timeMin: startOfLocalDay(tz), timeMax: startOfLocalDay(tz, 2), maxResults: 20 }
       : undefined
+    const gmailTok = await googleAccessToken(sql, input.userId, 'gmail')
     const [mail, cal] = await Promise.all([
-      access
-        ? fetchGmail(access, query, 8)
+      gmailTok
+        ? fetchGmail(gmailTok, query, 8)
         : composioExecute(input.userId, 'GMAIL_FETCH_EMAILS', { max_results: 8, query, verbose: false }),
-      access
-        ? fetchCalendar(access, calOpts)
-        : composioExecute(input.userId, 'GOOGLECALENDAR_FIND_EVENT', { max_results: 8 }),
+      loadCalendar(sql, input.userId, calOpts),
     ])
     if (mail) results.push(mail)
     if (cal) results.push(cal)
@@ -1797,7 +1841,7 @@ export async function runToolsForMessage(
         : wantsImportantEmail(input.message)
           ? 'is:important newer_than:14d'
           : 'newer_than:5d'
-      const access = await googleAccessToken(sql, input.userId)
+      const access = await googleAccessToken(sql, input.userId, 'gmail')
       if (access) results.push(await fetchGmail(access, query, 8))
       else {
         const c = await composioExecute(input.userId, 'GMAIL_FETCH_EMAILS', {
@@ -1812,19 +1856,12 @@ export async function runToolsForMessage(
     }
 
     if (calHit && can('calendar')) {
-      const access = await googleAccessToken(sql, input.userId)
-      const brief = /\b(debrief|digest|brief|today)\b/i.test(input.message)
+      const brief = /\b(debrief|digest|brief|today|calendar|agenda|schedule)\b/i.test(input.message)
       const tz = input.timezone || 'America/Los_Angeles'
       const calOpts = brief
         ? { timeMin: startOfLocalDay(tz), timeMax: startOfLocalDay(tz, 2), maxResults: 20 }
         : undefined
-      if (access) results.push(await fetchCalendar(access, calOpts))
-      else {
-        const c = await composioExecute(input.userId, 'GOOGLECALENDAR_FIND_EVENT', {
-          max_results: 8,
-        })
-        if (c) results.push(c)
-      }
+      results.push(await loadCalendar(sql, input.userId, calOpts))
     } else {
       asked('calendar', calHit)
     }
@@ -1875,7 +1912,7 @@ export async function runToolsForMessage(
       asked('notion', wantsNotion(input.message))
     }
     if (wantsDrive(input.message) && can('drive')) {
-      const access = await googleAccessToken(sql, input.userId)
+      const access = await googleAccessToken(sql, input.userId, 'drive')
       if (access) results.push(await fetchDrive(access, input.message.slice(0, 40)))
       else {
         const c = await composioFirst(
@@ -1989,22 +2026,25 @@ async function todayCalendarMeets(
   const tz = user.timezone || 'America/Los_Angeles'
   const connected = (await connectedForUser(sql, user.id)).filter((id) => !PERSONA_DENIED[persona].has(id))
   if (!connected.includes('calendar')) return []
-  const access = await googleAccessToken(sql, user.id)
+  const access = await googleAccessToken(sql, user.id, 'calendar')
   if (access) {
-    const items = await fetchCalendarItems(access, {
+    const got = await fetchCalendarItems(access, {
       timeMin: startOfLocalDay(tz),
       timeMax: startOfLocalDay(tz, 1),
       maxResults: 12,
     })
-    return items.map((e) => {
-      const parsed = parseCalMeet(e.title)
-      return {
-        time: formatCalTime(e.start.toISOString(), tz),
-        title: e.title,
-        who: parsed.who,
-        place: parsed.place,
-      }
-    })
+    if (got.ok) {
+      return got.items.map((e) => {
+        const parsed = parseCalMeet(e.title)
+        const when = e.allDay ? e.start.toISOString().slice(0, 10) : e.start.toISOString()
+        return {
+          time: formatCalTime(when, tz),
+          title: e.title,
+          who: parsed.who,
+          place: parsed.place,
+        }
+      })
+    }
   }
   const results = await withTimeout(
     runToolsForMessage(sql, {
@@ -2549,9 +2589,10 @@ async function collectEventNudgesForUser(
 
   if (meetingOwner === persona) {
     try {
-      const access = await googleAccessToken(sql, user.id)
+      const access = await googleAccessToken(sql, user.id, 'calendar')
       if (access) {
-        const events = await fetchCalendarItems(access, { timeMin: meetFrom, timeMax: meetTo, maxResults: 6 })
+        const got = await fetchCalendarItems(access, { timeMin: meetFrom, timeMax: meetTo, maxResults: 6 })
+        const events = got.ok ? got.items : []
         const prepped = new Set(
           (meetings as Array<{ title: string; briefing: string | null }>).map((m) => m.title.trim().toLowerCase()),
         )
