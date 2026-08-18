@@ -666,8 +666,13 @@ export async function runHireTurn(input: {
       `Live day wrap (ground truth, use this, do not invent):\n${digestText}\n\nWrite the debrief from this. Cover today, mail, tonight leftover, tomorrow, reminders, and open loops. One message. No intro.`,
     )
   } else if (toolResults.length) {
+    const calLive = toolResults.some((t) => t.startsWith('Upcoming events') || t.startsWith('No events'))
     extras.push(
-      `Live tool results (ground truth, use these, do not invent):\n${toolResults.join('\n\n')}\n\nWhen email results are present: give a short overview of the batch (how many, themes), then call out the top 2-3 that matter most with a one-line reason each. Do not fixate on a single email.`,
+      `Live tool results (ground truth, use these, do not invent):\n${toolResults.join('\n\n')}\n\n${
+        calLive
+          ? 'Calendar clocks in this block are already local. Repeat the printed time. Never convert Zulu or UTC. Never call a Meet or a phone a dinner, lunch, or drinks unless the title says that.\n\n'
+          : ''
+      }When email results are present: give a short overview of the batch (how many, themes), then call out the top 2-3 that matter most with a one-line reason each. Do not fixate on a single email.`,
     )
   } else if (live.hired && live.connected.length) {
     extras.push(

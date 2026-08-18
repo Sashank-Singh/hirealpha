@@ -6,10 +6,14 @@ import { Composio } from '@composio/core'
 import { createHmac, timingSafeEqual } from 'node:crypto'
 import type { SQL } from 'bun'
 import {
+  formatClock,
   formatUpcomingEvents,
   googleTokenHasScope,
+  hydrateCalItems,
   parseComposioCalendarData,
+  parseFormattedEventLine,
   parseGoogleCalendarItems,
+  serializeCalItems,
   type CalItem,
 } from './calendarEvents'
 import { COMPOSIO_READ, composioLooksFailed, formatComposioData } from './composioPlugins'
@@ -1499,6 +1503,7 @@ async function fetchCalendarItems(
   url.searchParams.set('timeMax', end.toISOString())
   url.searchParams.set('singleEvents', 'true')
   url.searchParams.set('orderBy', 'startTime')
+  url.searchParams.set('conferenceDataVersion', '1')
   url.searchParams.set('maxResults', String(opts?.maxResults || 8))
   const res = await fetch(url, { headers: { Authorization: `Bearer ${access}` } })
   if (!res.ok) {
@@ -1509,15 +1514,23 @@ async function fetchCalendarItems(
     items?: Array<{
       summary?: string
       description?: string
+      location?: string
+      hangoutLink?: string
       start?: { dateTime?: string; date?: string }
+      conferenceData?: { entryPoints?: Array<{ entryPointType?: string; uri?: string }> }
     }>
   }
   return { ok: true, items: parseGoogleCalendarItems(data.items || []) }
 }
 
+function isCalendarToolResult(t: string) {
+  return t.startsWith('Upcoming events') || t.startsWith('No events')
+}
+
 async function fetchCalendarViaComposio(
   userId: string,
   opts?: { timeMin?: Date; timeMax?: Date; maxResults?: number },
+  timezone = 'America/Los_Angeles',
 ): Promise<string> {
   const now = opts?.timeMin || new Date()
   const end = opts?.timeMax || new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000)
@@ -1542,12 +1555,16 @@ async function fetchCalendarViaComposio(
     },
   )
   if (!raw) return 'Calendar lookup failed. Do not invent events. Tell them to reconnect Calendar in Settings.'
-  if (raw.startsWith('Upcoming events:') || raw.startsWith('No events')) return raw
+  if (isCalendarToolResult(raw)) return raw
   if (/failed/i.test(raw)) {
     return 'Calendar lookup failed. Do not invent events. Tell them to reconnect Calendar in Settings.'
   }
   try {
-    return formatUpcomingEvents(parseComposioCalendarData(JSON.parse(raw)))
+    const parsed = JSON.parse(raw) as { __calItems?: Array<{ start: string; title: string; allDay?: boolean; kind?: string; rawStart?: string; description?: string }> }
+    if (Array.isArray(parsed.__calItems)) {
+      return formatUpcomingEvents(hydrateCalItems(parsed.__calItems), timezone)
+    }
+    return formatUpcomingEvents(parseComposioCalendarData(parsed), timezone)
   } catch {
     return raw.slice(0, 4000)
   }
@@ -1557,13 +1574,14 @@ async function loadCalendar(
   sql: SQL,
   userId: string,
   opts?: { timeMin?: Date; timeMax?: Date; maxResults?: number },
+  timezone = 'America/Los_Angeles',
 ): Promise<string> {
   const access = await googleAccessToken(sql, userId, 'calendar')
   if (access) {
     const got = await fetchCalendarItems(access, opts)
-    if (got.ok) return formatUpcomingEvents(got.items)
+    if (got.ok) return formatUpcomingEvents(got.items, timezone)
   }
-  return fetchCalendarViaComposio(userId, opts)
+  return fetchCalendarViaComposio(userId, opts, timezone)
 }
 
 /** Compact one-line-per-email rendering so the model sees the whole batch. */
@@ -1600,7 +1618,7 @@ async function composioExecute(userId: string, tool: string, args: Record<string
     }
     if (tool === 'GMAIL_FETCH_EMAILS') return formatEmailOverview(res.data)
     if (tool === 'GOOGLECALENDAR_EVENTS_LIST' || tool === 'GOOGLECALENDAR_FIND_EVENT') {
-      return formatUpcomingEvents(parseComposioCalendarData(res.data))
+      return JSON.stringify({ __calItems: serializeCalItems(parseComposioCalendarData(res.data)) })
     }
     const formatted = formatComposioData(res.data)
     return formatted || JSON.stringify(res.data ?? {}).slice(0, 4000)
@@ -1880,7 +1898,7 @@ export async function runToolsForMessage(
       : undefined
     const [mail, cal] = await Promise.all([
       loadGmail(sql, input.userId, mailQuery, 8),
-      loadCalendar(sql, input.userId, calOpts),
+      loadCalendar(sql, input.userId, calOpts, tz),
     ])
     if (mail) results.push(mail)
     if (cal) results.push(cal)
@@ -1897,7 +1915,7 @@ export async function runToolsForMessage(
       const calOpts = brief
         ? { timeMin: startOfLocalDay(tz), timeMax: startOfLocalDay(tz, 2), maxResults: 20 }
         : undefined
-      results.push(await loadCalendar(sql, input.userId, calOpts))
+      results.push(await loadCalendar(sql, input.userId, calOpts, tz))
     } else {
       askedAllowed('calendar', calHit)
     }
@@ -2029,20 +2047,20 @@ function parseCalendarMeets(
   const todayYmd = startOfLocalDay(tz).toLocaleDateString('en-CA', { timeZone: tz })
   const out: CalMeet[] = []
   for (const line of digestLines(calendarBlock)) {
-    const m = line.match(/^-\s+(\S+)\s+(.*)$/)
-    if (!m) continue
-    const iso = m[1]!
-    const title = m[2]!.trim()
+    const parsed = parseFormattedEventLine(line)
+    if (!parsed) continue
+    const iso = parsed.iso
+    const title = parsed.title
     const raw = iso.includes('T') ? iso : `${iso}T12:00:00`
     const d = new Date(raw)
     if (Number.isNaN(d.getTime())) continue
     const day = d.toLocaleDateString('en-CA', { timeZone: tz })
-    const parsed = parseCalMeet(title)
+    const meet = parseCalMeet(title)
     out.push({
-      time: formatCalTime(iso, tz),
+      time: parsed.clock || formatCalTime(iso, tz),
       title,
-      who: parsed.who,
-      place: parsed.place,
+      who: meet.who,
+      place: meet.place,
       day: day === tomorrowYmd ? 'tomorrow' : day === todayYmd ? 'today' : 'today',
     })
   }
@@ -2067,9 +2085,8 @@ async function todayCalendarMeets(
     if (got.ok) {
       return got.items.map((e) => {
         const parsed = parseCalMeet(e.title)
-        const when = e.allDay ? e.start.toISOString().slice(0, 10) : e.start.toISOString()
         return {
-          time: formatCalTime(when, tz),
+          time: e.allDay ? 'All day' : formatClock(e.start, tz),
           title: e.title,
           who: parsed.who,
           place: parsed.place,
@@ -2088,7 +2105,7 @@ async function todayCalendarMeets(
     6000,
     [] as string[],
   )
-  const calendarBlock = results.find((t) => t.startsWith('Upcoming events:') || t.startsWith('No events'))
+  const calendarBlock = results.find((t) => isCalendarToolResult(t))
   return parseCalendarMeets(calendarBlock, tz)
     .filter((e) => e.day === 'today')
     .map(({ time, title, who, place }) => ({ time, title, who, place }))
@@ -2119,9 +2136,7 @@ async function digestPayload(
     12000,
     [] as string[],
   )
-  const calendarBlock = results.find(
-    (t) => t.startsWith('Upcoming events:') || t.startsWith('No events'),
-  )
+  const calendarBlock = results.find((t) => isCalendarToolResult(t))
   const emailBlock = results.find(
     (t) =>
       t.startsWith('Email:') ||
@@ -2159,9 +2174,12 @@ async function digestPayload(
   const todayCal: string[] = []
   const tomorrowCal: string[] = []
   for (const line of digestLines(calendarBlock)) {
-    const m = line.match(/^-\s+(\S+)\s+(.*)$/)
-    const label = m ? `${formatCalTime(m[1]!, tz)} · ${m[2]!}` : line.replace(/^-\s*/, '')
-    const day = m ? eventYmd(m[1]!) : ''
+    const parsed = parseFormattedEventLine(line)
+    const iso = parsed?.iso
+    const clock = parsed?.clock || (iso ? formatCalTime(iso, tz) : '')
+    const rest = parsed ? [parsed.kind, parsed.title].filter(Boolean).join(' · ') : line.replace(/^-\s*/, '')
+    const label = clock ? `${clock} · ${rest}` : rest
+    const day = iso ? eventYmd(iso) : ''
     if (day === tomorrowYmd) tomorrowCal.push(label)
     else todayCal.push(label)
   }
@@ -3033,7 +3051,7 @@ async function miniPayload(
           [] as string[],
         )
       : []
-    const calendarBlock = calResults.find((t) => t.startsWith('Upcoming events:') || t.startsWith('No events'))
+    const calendarBlock = calResults.find((t) => isCalendarToolResult(t))
     const tonight = parseCalendarMeets(calendarBlock, tz).filter((e) => e.day === 'today')
     if (tonight.length) {
       const options = tonight.map((e) =>
@@ -3113,9 +3131,16 @@ async function miniPayload(
       persona,
       message: 'calendar today standup',
       connected,
+      timezone: tz,
     })
-    const calendarBlock = results.find((t) => t.startsWith('Upcoming events:') || t.startsWith('No events'))
-    const calItems = digestLines(calendarBlock).map((l) => l.replace(/^-\s*/, '')).slice(0, 4)
+    const calendarBlock = results.find((t) => isCalendarToolResult(t))
+    const calItems = digestLines(calendarBlock)
+      .map((l) => {
+        const p = parseFormattedEventLine(l)
+        if (!p) return l.replace(/^-\s*/, '')
+        return p.clock ? `${p.clock} ${p.title}` : p.title
+      })
+      .slice(0, 4)
     const projects = splitList(context.projects)
     const yesterday = projects[0] ? `${projects[0]} moved` : 'Ship what actually merged. No theater.'
     const today = calItems[0] || (projects[1] ? `${projects[1]} today` : 'One thing on the critical path.')

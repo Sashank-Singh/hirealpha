@@ -2,16 +2,48 @@ import { describe, expect, it } from 'bun:test'
 import {
   formatUpcomingEvents,
   googleTokenHasScope,
+  inferEventKind,
   parseComposioCalendarData,
+  parseFormattedEventLine,
   parseGoogleCalendarItems,
   parseGoogleEventStart,
 } from './calendarEvents'
 
 describe('calendar event parsing', () => {
   it('keeps timed events', () => {
-    const got = parseGoogleEventStart({ dateTime: '2026-08-18T19:00:00-07:00' })
+    const got = parseGoogleEventStart({ dateTime: '2026-08-18T12:30:00-07:00' })
     expect(got?.allDay).toBe(false)
-    expect(got?.start.toISOString()).toBe('2026-08-19T02:00:00.000Z')
+    expect(got?.rawStart).toBe('2026-08-18T12:30:00-07:00')
+    expect(got?.start.toISOString()).toBe('2026-08-18T19:30:00.000Z')
+  })
+
+  it('prints Pacific clock not Zulu dinner time', () => {
+    const items = parseGoogleCalendarItems([
+      {
+        summary: 'Sashank Singh and Amy Black, 12:30pm',
+        start: { dateTime: '2026-08-18T12:30:00-07:00' },
+        hangoutLink: 'https://meet.google.com/abc-defg-hij',
+      },
+      {
+        summary: 'Sashank Singh and McKenley Land, 1:30pm, +1 216',
+        start: { dateTime: '2026-08-18T13:30:00-07:00' },
+        location: '+1 2165550100',
+      },
+    ])
+    const block = formatUpcomingEvents(items, 'America/Los_Angeles')
+    expect(block).toContain('12:30 PM')
+    expect(block).toContain('1:30 PM')
+    expect(block).not.toMatch(/7:30/)
+    expect(block).not.toMatch(/8:30/)
+    expect(block).toContain('Google Meet')
+    expect(block).toContain('Phone call')
+    expect(block).toContain('Do not call these dinner')
+    const amy = block.split('\n').find((l) => l.includes('Amy Black'))
+    expect(amy).toBeTruthy()
+    const parsedAmy = parseFormattedEventLine(amy!)
+    expect(parsedAmy?.clock).toBe('12:30 PM')
+    expect(parsedAmy?.kind).toBe('Google Meet')
+    expect(parsedAmy?.title).toContain('Amy Black')
   })
 
   it('keeps all-day events that only have start.date', () => {
@@ -22,10 +54,16 @@ describe('calendar event parsing', () => {
     ])
     expect(items.map((e) => e.title)).toEqual(['Sister lands', 'Standup'])
     expect(items[0]?.allDay).toBe(true)
-    const block = formatUpcomingEvents(items)
-    expect(block).toContain('Upcoming events:')
-    expect(block).toContain('2026-08-18 Sister lands')
-    expect(block).toContain('Standup')
+    const block = formatUpcomingEvents(items, 'America/Los_Angeles')
+    expect(block).toContain('All day')
+    expect(block).toContain('Sister lands')
+  })
+
+  it('labels a Meet link as Google Meet, not dinner', () => {
+    expect(
+      inferEventKind({ hangoutLink: 'https://meet.google.com/aaa-bbbb-ccc', summary: 'Amy' }),
+    ).toBe('Google Meet')
+    expect(inferEventKind({ location: '+1 2165550100', summary: 'McKenley' })).toBe('Phone call')
   })
 
   it('reads Composio nested items including all-day', () => {
