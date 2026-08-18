@@ -10,6 +10,7 @@ import {
   setupProgress,
   type ConnectorId,
 } from './connectors'
+import { ConnectorLogo } from './ConnectorLogo'
 import { apiConnectUrl, apiConnectorStatus, apiDeleteMemory, apiHireMemory, apiSaveMemory, type HireMemory } from './api'
 import {
   connectedIds,
@@ -168,6 +169,7 @@ export function HireConfigPage() {
               const on = connected.includes(c.id)
               return (
                 <li key={c.id}>
+                  <ConnectorLogo id={c.id} />
                   <div>
                     <strong>{c.name}</strong>
                     <span>{c.blurb}</span>

@@ -9,6 +9,7 @@ import {
   apiSetNutritionGoals,
   apiSetSpendBudget,
 } from './api'
+import { ConnectorLogo } from './ConnectorLogo'
 import { connectorsForHire, type ConnectorId } from './connectors'
 import type { FeatureAuth } from './FeatureMiniApps'
 import { connectedIds, getSession, hydrateFromServer } from './roster'
@@ -103,21 +104,26 @@ function ConnectorSettings({ auth }: { auth: FeatureAuth }) {
     }
   }
 
+  const onCount = connectors.filter((c) => ids.includes(c.id)).length
+
   return (
     <section className="mini-set__block">
       <h2>Connectors</h2>
-      <p>Gmail, Calendar, Maps, and the rest. Connect on the website so this hire can use them in texts.</p>
+      <p>
+        {onCount}/{connectors.length} on. Tap Connect here. Open the website if a tool needs a longer setup.
+      </p>
       <Link className="ma-btn ma-btn--block" to={siteHref}>
         Open website
       </Link>
-      <ul className="habit-list">
+      <ul className="habit-list conn-list">
         {connectors.map((c) => {
           const on = ids.includes(c.id)
           return (
-            <li key={c.id} className="habit-card">
+            <li key={c.id} className="habit-card conn-row">
+              <ConnectorLogo id={c.id} />
               <div className="habit-info">
                 <div className="habit-name">{c.name}</div>
-                <div className="habit-streak">{on ? 'Connected' : c.blurb}</div>
+                <div className="habit-streak">{c.blurb}</div>
               </div>
               {on ? (
                 <span className="ma-chip">On</span>

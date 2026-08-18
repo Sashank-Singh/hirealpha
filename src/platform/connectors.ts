@@ -31,7 +31,7 @@ export const CONNECTOR_CATALOG: ConnectorDef[] = [
   },
   {
     id: 'calendar',
-    name: 'Calendar',
+    name: 'Google Calendar',
     blurb: 'Check free time and soft book plans.',
     toolMatchers: ['calendar'],
   },
@@ -61,7 +61,7 @@ export const CONNECTOR_CATALOG: ConnectorDef[] = [
   },
   {
     id: 'drive',
-    name: 'Drive',
+    name: 'Google Drive',
     blurb: 'Find decks and shared files.',
     toolMatchers: ['drive'],
   },
@@ -73,7 +73,7 @@ export const CONNECTOR_CATALOG: ConnectorDef[] = [
   },
   {
     id: 'maps',
-    name: 'Maps',
+    name: 'Google Maps',
     blurb: 'Pick places and get there.',
     toolMatchers: ['maps'],
   },
