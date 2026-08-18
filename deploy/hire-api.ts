@@ -276,6 +276,17 @@ export async function ensureHireSchema(sql: SQL) {
   await sql`CREATE INDEX IF NOT EXISTS idx_hire_memories_user ON hire_memories (user_id, persona, durable, updated_at DESC)`
 
   await sql`
+    CREATE TABLE IF NOT EXISTS hire_thread_memory (
+      persona TEXT NOT NULL,
+      sender_id TEXT NOT NULL,
+      payload JSONB NOT NULL,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      PRIMARY KEY (persona, sender_id)
+    )
+  `
+  await sql`CREATE INDEX IF NOT EXISTS idx_hire_thread_memory_updated ON hire_thread_memory (updated_at DESC)`
+
+  await sql`
     CREATE TABLE IF NOT EXISTS hire_loops (
       id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL REFERENCES hire_users(id) ON DELETE CASCADE,
@@ -3262,6 +3273,41 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
       .map((f) => ({ key: String(f.key), value: String(f.value) }))
     await upsertMemories(sql, user.id, body.persona, facts)
     return json({ ok: true, memories: await loadMemories(sql, user.id, body.persona, 12) })
+  }
+
+  if (path === '/api/internal/thread-memory' && req.method === 'GET') {
+    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
+    const persona = url.searchParams.get('persona') || ''
+    const senderId = (url.searchParams.get('senderId') || '').slice(0, 80)
+    if (!isPersona(persona) || !senderId) {
+      return json({ error: 'persona and senderId required' }, 400)
+    }
+    const rows = await sql`
+      SELECT payload FROM hire_thread_memory
+      WHERE persona = ${persona} AND sender_id = ${senderId}
+    `
+    return json({ thread: rows.length ? (rows[0].payload as Record<string, unknown> | null) : null })
+  }
+
+  if (path === '/api/internal/thread-memory' && req.method === 'PUT') {
+    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
+    const body = (await req.json().catch(() => ({}))) as {
+      persona?: string
+      senderId?: string
+      thread?: unknown
+    }
+    const persona = body.persona || ''
+    const senderId = (body.senderId || '').slice(0, 80)
+    if (!isPersona(persona) || !senderId || body.thread === null || body.thread === undefined) {
+      return json({ error: 'persona, senderId, and thread required' }, 400)
+    }
+    await sql`
+      INSERT INTO hire_thread_memory (persona, sender_id, payload, updated_at)
+      VALUES (${persona}, ${senderId}, ${JSON.stringify(body.thread)}, now())
+      ON CONFLICT (persona, sender_id)
+      DO UPDATE SET payload = EXCLUDED.payload, updated_at = now()
+    `
+    return json({ ok: true })
   }
 
   if (path === '/api/internal/mini/run' && req.method === 'GET') {

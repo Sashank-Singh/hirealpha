@@ -65,7 +65,68 @@ function normalize(raw: unknown): ThreadMemory {
   }
 }
 
-export function loadMemory(dataDir: string, senderId: string): ThreadMemory {
+/* ------------------------------------------------------------------ */
+/* Remote-backed storage (Postgres via HireAlpha internal API)         */
+/* ------------------------------------------------------------------ */
+
+/** How long a remote fetch is allowed to take before we fall back to the file cache. */
+const REMOTE_TIMEOUT_MS = 4000
+
+function remoteConfigured() {
+  return !!(process.env.HIREALPHA_API_URL && process.env.HIREALPHA_INTERNAL_KEY && process.env.HIREALPHA_BOT)
+}
+
+function remoteUrl(senderId: string) {
+  const base = (process.env.HIREALPHA_API_URL || '').replace(/\/$/, '')
+  const params = new URLSearchParams({ persona: process.env.HIREALPHA_BOT || '', senderId })
+  return `${base}/api/internal/thread-memory?${params}`
+}
+
+function remoteHeaders() {
+  return {
+    Authorization: `Bearer ${process.env.HIREALPHA_INTERNAL_KEY || ''}`,
+    'Content-Type': 'application/json',
+  }
+}
+
+/**
+ * In-process mirror of each thread. Seeded from the remote API (or the file
+ * cache if the API is unreachable) on first access, then kept fresh by every
+ * write. Reads never hit the network, so turns stay fast and consistent.
+ */
+const mirror = new Map<string, ThreadMemory>()
+
+async function loadRemoteThread(senderId: string): Promise<ThreadMemory | null> {
+  if (!remoteConfigured()) return null
+  try {
+    const res = await fetch(remoteUrl(senderId), {
+      headers: remoteHeaders(),
+      signal: AbortSignal.timeout(REMOTE_TIMEOUT_MS),
+    })
+    if (!res.ok) return null
+    const data = (await res.json()) as { thread?: unknown }
+    return data.thread && typeof data.thread === 'object' ? (data.thread as ThreadMemory) : null
+  } catch {
+    return null
+  }
+}
+
+async function saveRemoteThread(senderId: string, mem: ThreadMemory) {
+  if (!remoteConfigured()) return
+  try {
+    const res = await fetch(remoteUrl(senderId), {
+      method: 'PUT',
+      headers: remoteHeaders(),
+      body: JSON.stringify({ persona: process.env.HIREALPHA_BOT, senderId, thread: mem }),
+      signal: AbortSignal.timeout(REMOTE_TIMEOUT_MS),
+    })
+    if (!res.ok) console.warn(`[memory] remote save failed (${res.status}); file cache retained`)
+  } catch {
+    console.warn('[memory] remote save failed; file cache retained')
+  }
+}
+
+function readLocal(dataDir: string, senderId: string): ThreadMemory {
   const path = threadPath(dataDir, senderId)
   if (!existsSync(path)) return EMPTY
   try {
@@ -75,41 +136,62 @@ export function loadMemory(dataDir: string, senderId: string): ThreadMemory {
   }
 }
 
-function writeMemory(dataDir: string, senderId: string, mem: ThreadMemory) {
+function writeLocal(dataDir: string, senderId: string, mem: ThreadMemory) {
   const path = threadPath(dataDir, senderId)
   mkdirSync(dirname(path), { recursive: true })
   writeFileSync(path, JSON.stringify(mem, null, 2))
 }
 
+export async function loadMemory(dataDir: string, senderId: string): Promise<ThreadMemory> {
+  const cached = mirror.get(senderId)
+  if (cached) return cached
+  const remote = await loadRemoteThread(senderId)
+  if (remote) {
+    const mem = normalize(remote)
+    writeLocal(dataDir, senderId, mem)
+    mirror.set(senderId, mem)
+    return mem
+  }
+  const mem = readLocal(dataDir, senderId)
+  mirror.set(senderId, mem)
+  return mem
+}
+
+async function writeMemory(dataDir: string, senderId: string, mem: ThreadMemory) {
+  writeLocal(dataDir, senderId, mem)
+  mirror.set(senderId, mem)
+  await saveRemoteThread(senderId, mem)
+}
+
 /** Backwards-compat: raw history only. */
-export function loadThread(dataDir: string, senderId: string): ChatMessage[] {
-  return loadMemory(dataDir, senderId).history
+export async function loadThread(dataDir: string, senderId: string): Promise<ChatMessage[]> {
+  return (await loadMemory(dataDir, senderId)).history
 }
 
 /** Append messages (timestamped), trimming the raw tail. */
-export function appendThread(
+export async function appendThread(
   dataDir: string,
   senderId: string,
   messages: ChatMessage[],
-): ThreadMemory {
-  const mem = loadMemory(dataDir, senderId)
+): Promise<ThreadMemory> {
+  const mem = await loadMemory(dataDir, senderId)
   const now = Date.now()
   const stamped: ChatMessage[] = messages.map((m) => ({ ...m, ts: m.ts ?? now }))
   const next: ThreadMemory = {
     ...mem,
     history: [...mem.history, ...stamped].slice(-MAX_RAW),
   }
-  writeMemory(dataDir, senderId, next)
+  await writeMemory(dataDir, senderId, next)
   return next
 }
 
 /** Upsert durable facts. Re-mention drags `lastSeen` forward for expiry. */
-export function upsertFacts(
+export async function upsertFacts(
   dataDir: string,
   senderId: string,
   facts: MemoryFact[],
-): ThreadMemory {
-  const mem = loadMemory(dataDir, senderId)
+): Promise<ThreadMemory> {
+  const mem = await loadMemory(dataDir, senderId)
   const now = Date.now()
   const byKey = new Map(mem.facts.map((f) => [f.key, f]))
   for (const f of facts) {
@@ -120,46 +202,46 @@ export function upsertFacts(
     ...mem,
     facts: [...byKey.values()].slice(-MAX_FACTS),
   }
-  writeMemory(dataDir, senderId, next)
+  await writeMemory(dataDir, senderId, next)
   return next
 }
 
 /** Drop facts not re-confirmed within FACT_TTL_DAYS. Names, people, timezone, and this week's decision never expire. */
-export function pruneExpiredFacts(
+export async function pruneExpiredFacts(
   dataDir: string,
   senderId: string,
-): ThreadMemory {
-  const mem = loadMemory(dataDir, senderId)
+): Promise<ThreadMemory> {
+  const mem = await loadMemory(dataDir, senderId)
   const cutoff = Date.now() - FACT_TTL_DAYS * 24 * 60 * 60 * 1000
   const facts = mem.facts.filter(
     (f) => isDurableFactKey(f.key) || (f.lastSeen ?? f.ts) > cutoff,
   )
   if (facts.length === mem.facts.length) return mem
   const next: ThreadMemory = { ...mem, facts }
-  writeMemory(dataDir, senderId, next)
+  await writeMemory(dataDir, senderId, next)
   return next
 }
 
 /** Replace the rolling summary. */
-export function setSummary(
+export async function setSummary(
   dataDir: string,
   senderId: string,
   summary: string,
-): ThreadMemory {
-  const mem = loadMemory(dataDir, senderId)
+): Promise<ThreadMemory> {
+  const mem = await loadMemory(dataDir, senderId)
   const next: ThreadMemory = { ...mem, summary }
-  writeMemory(dataDir, senderId, next)
+  await writeMemory(dataDir, senderId, next)
   return next
 }
 
 /** Drop older raw messages that have already been folded into the summary. */
-export function trimHistory(
+export async function trimHistory(
   dataDir: string,
   senderId: string,
   keepLast: number,
-): ThreadMemory {
-  const mem = loadMemory(dataDir, senderId)
+): Promise<ThreadMemory> {
+  const mem = await loadMemory(dataDir, senderId)
   const next: ThreadMemory = { ...mem, history: mem.history.slice(-keepLast) }
-  writeMemory(dataDir, senderId, next)
+  await writeMemory(dataDir, senderId, next)
   return next
 }

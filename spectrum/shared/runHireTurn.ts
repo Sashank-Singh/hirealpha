@@ -387,7 +387,7 @@ export async function runHireTurn(input: {
   card: MiniAppCard | null
 }> {
   const agent = getAgent(input.agentId)
-  const mem = loadMemory(input.dataDir, input.senderId)
+  const mem = await loadMemory(input.dataDir, input.senderId)
   const history = mem.history
   const live = await fetchLiveProfile(input.senderId, agent.id)
   const timezone = live.context?.timezone || live.timezone || 'America/Los_Angeles'
@@ -412,7 +412,7 @@ export async function runHireTurn(input: {
     })
     if (handled) {
       const reply = stripDashes(handled)
-      appendThread(input.dataDir, input.senderId, [
+      await appendThread(input.dataDir, input.senderId, [
         { role: 'user', content: input.userText },
         { role: 'assistant', content: reply },
       ])
@@ -429,7 +429,7 @@ export async function runHireTurn(input: {
     })
     if (handled) {
       const reply = stripDashes(handled)
-      appendThread(input.dataDir, input.senderId, [
+      await appendThread(input.dataDir, input.senderId, [
         { role: 'user', content: input.userText },
         { role: 'assistant', content: reply },
       ])
@@ -444,7 +444,7 @@ export async function runHireTurn(input: {
     : null
 
   if (miniApp && (miniApp.kind === 'apps' || miniApp.kind === 'menu')) {
-    appendThread(input.dataDir, input.senderId, [{ role: 'user', content: input.userText }])
+    await appendThread(input.dataDir, input.senderId, [{ role: 'user', content: input.userText }])
     const card = await mintMiniAppCard(input.senderId, agent.id, miniApp.kind, miniApp.query)
     return { reply: '', bubbles: [], source: 'local', authoritative: [], card }
   }
@@ -753,7 +753,7 @@ export async function runHireTurn(input: {
   console.log(`[turn] final reply (${finalReply.length} chars): ${finalReply.slice(0, 300)}`)
   console.log(`[turn] bubbles: ${splitBubbles(finalReply).length}`)
 
-  appendThread(input.dataDir, input.senderId, [
+  await appendThread(input.dataDir, input.senderId, [
     { role: 'user', content: input.userText },
     { role: 'assistant', content: finalReply },
   ])
@@ -780,9 +780,9 @@ export async function runMemoryMaintenance(input: {
   reply: string
 }): Promise<void> {
   try {
-    pruneExpiredFacts(input.dataDir, input.senderId)
+    await pruneExpiredFacts(input.dataDir, input.senderId)
 
-    const mem = loadMemory(input.dataDir, input.senderId)
+    const mem = await loadMemory(input.dataDir, input.senderId)
     const facts = await extractFacts({
       userText: input.userText,
       reply: input.reply,
@@ -790,7 +790,7 @@ export async function runMemoryMaintenance(input: {
       authoritative: input.authoritative,
     })
     if (facts.length) {
-      upsertFacts(input.dataDir, input.senderId, facts)
+      await upsertFacts(input.dataDir, input.senderId, facts)
       await persistLiveFacts(
         input.senderId,
         input.agentId,
@@ -798,13 +798,13 @@ export async function runMemoryMaintenance(input: {
       )
     }
 
-    const after = loadMemory(input.dataDir, input.senderId)
+    const after = await loadMemory(input.dataDir, input.senderId)
     if (after.history.length >= MAX_RAW) {
       const keepLast = 8
       const toFold = after.history.slice(0, after.history.length - keepLast)
       const summary = await summarizeOld({ history: toFold, priorSummary: after.summary })
-      setSummary(input.dataDir, input.senderId, summary)
-      trimHistory(input.dataDir, input.senderId, keepLast)
+      await setSummary(input.dataDir, input.senderId, summary)
+      await trimHistory(input.dataDir, input.senderId, keepLast)
     }
   } catch (err) {
     console.warn(`[${input.agentId}] memory maintenance failed:`, err)
