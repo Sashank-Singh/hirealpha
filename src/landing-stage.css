@@ -509,6 +509,128 @@
   letter-spacing: -0.02em;
 }
 
+/* Apps in Messages */
+.kit {
+  padding-top: 28px;
+  padding-bottom: 20px;
+}
+.kit__intro {
+  text-align: center;
+  margin-bottom: 22px;
+}
+.kit__intro h2 {
+  font-family: var(--display);
+  font-size: clamp(2.2rem, 5vw, 3.4rem);
+  font-weight: 500;
+  letter-spacing: -0.03em;
+  margin-bottom: 10px;
+}
+.kit__intro p {
+  max-width: 42ch;
+  margin: 0 auto;
+  color: var(--ink-soft);
+  font-size: 17px;
+  line-height: 1.45;
+}
+.kit__hires {
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 22px;
+}
+.kit-hire {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px 8px 8px;
+  border: 2px solid var(--ink);
+  border-radius: 999px;
+  background: #fff;
+  font-weight: 800;
+  font-size: 14px;
+  cursor: pointer;
+}
+.kit-hire--on {
+  background: var(--tab, var(--ink));
+  color: #fff;
+  border-color: var(--ink);
+}
+.kit__grid {
+  width: min(1100px, calc(100% - 28px));
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+}
+.kit-tile {
+  background: #fff;
+  border: 2.5px solid var(--ink);
+  border-radius: 22px;
+  padding: 16px 16px 14px;
+  box-shadow: 4px 4px 0 var(--ink);
+  display: grid;
+  gap: 6px;
+  justify-items: start;
+}
+.kit-tile__mark {
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  border: 2px solid var(--ink);
+  background: #fff;
+}
+.kit-tile__mark svg {
+  width: 20px;
+  height: 20px;
+}
+.kit-tile strong {
+  font-size: 15px;
+  font-weight: 800;
+}
+.kit-tile span:last-child {
+  font-size: 13px;
+  color: var(--ink-soft);
+  line-height: 1.35;
+}
+.kit__tools {
+  width: min(1100px, calc(100% - 28px));
+  margin: 28px auto 0;
+}
+.kit__tools h3 {
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: 12px;
+}
+.kit__tools ul {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+}
+.kit__tools li {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  background: #fff;
+  border: 2px solid var(--ink);
+  border-radius: 999px;
+  padding: 6px 14px 6px 6px;
+  font-size: 13px;
+  font-weight: 800;
+}
+.kit__tools .conn-mark {
+  border-radius: 999px;
+  border-width: 2px;
+  border-color: var(--ink);
+}
+
 .deed-card__imsg {
   margin-top: 16px;
   font-size: 12px;
@@ -630,6 +752,7 @@
   }
   .cast__hero-copy > p:last-of-type { max-width: none; }
   .deed__wall { grid-template-columns: 1fr; }
+  .kit__grid { grid-template-columns: 1fr 1fr; }
   .deed-card--0,
   .deed-card--1,
   .deed-card--2,
@@ -663,6 +786,7 @@
     width: 300px;
     max-width: min(300px, 86vw);
   }
+  .kit__grid { grid-template-columns: 1fr; }
 }
 
 @media (min-width: 1100px) and (min-height: 900px) {

@@ -1,6 +1,9 @@
 import { motion, AnimatePresence } from 'framer-motion'
 import { useState, useEffect, useCallback, useRef, type FormEvent, type CSSProperties } from 'react'
 import { AlphaFace } from './AlphaFace'
+import { ConnectorLogo } from './platform/ConnectorLogo'
+import { connectorsForHire } from './platform/connectors'
+import { MiniAppIcon } from './platform/MiniAppIcons'
 import './index.css'
 import './landing-stage.css'
 
@@ -195,7 +198,7 @@ const FAQS: { question: string; answer: string }[] = [
   {
     question: 'When do connectors unlock?',
     answer:
-      'With early access. Gmail, Calendar, Slack, Notion, and the rest ship first for waitlist members. They are not live for everyone today.',
+      'In early access. Gmail, Calendar, Maps, Spotify, Slack, and the rest connect from Settings so the hire can use them in texts.',
   },
   {
     question: 'What do you do with my texts?',
@@ -208,6 +211,117 @@ const FAQS: { question: string; answer: string }[] = [
       'You get an invite email when spots open, then a number to save in Messages. No charge until you actually hire.',
   },
 ]
+
+const HIRE_APPS: Record<AgentId, { kind: string; title: string; blurb: string }[]> = {
+  friend: [
+    { kind: 'nutrition', title: 'Nutrition', blurb: 'Meals and macros from a text.' },
+    { kind: 'habit_streak', title: 'Habits', blurb: 'Today and the streak.' },
+    { kind: 'mood_tracker', title: 'Mood', blurb: 'How you feel.' },
+    { kind: 'workout_log', title: 'Workout', blurb: 'Home or gym. Mon through Fri.' },
+    { kind: 'sleep_tracker', title: 'Sleep', blurb: 'Last night.' },
+    { kind: 'spending_snapshot', title: 'Spending', blurb: "This week's budget." },
+    { kind: 'mirror', title: 'Mirror', blurb: 'The read of your life.' },
+    { kind: 'networking_crm', title: 'People', blurb: 'Who to follow up.' },
+    { kind: 'open_loops', title: 'Promises', blurb: "What you said you'd do." },
+    { kind: 'digest', title: 'Today', blurb: 'Calendar, mail, reminders.' },
+    { kind: 'learning_queue', title: 'Learning', blurb: 'What to read or watch next.' },
+    { kind: 'pick_night', title: 'Tonight', blurb: 'What to do.' },
+  ],
+  coworker: [
+    { kind: 'digest', title: 'Morning brief', blurb: 'Calendar, mail, reminders.' },
+    { kind: 'standup_paste', title: 'Standup', blurb: 'Raw notes in. Tight standup out.' },
+    { kind: 'meeting_mode', title: 'Meeting mode', blurb: 'Prepped before. Wrapped after.' },
+    { kind: 'weekly_review', title: 'Weekly review', blurb: 'What got done. What slipped.' },
+    { kind: 'pick_slot', title: 'Pick a slot', blurb: 'Compare times. Pick one.' },
+    { kind: 'approve_send', title: 'Approve and send', blurb: 'Drafts before they go out.' },
+    { kind: 'linear_triage', title: 'Linear triage', blurb: 'Issues and backlog, sorted.' },
+    { kind: 'learning_queue', title: 'Learning', blurb: 'Save the next read or watch.' },
+    { kind: 'networking_crm', title: 'Networking', blurb: 'People you met. When to follow up.' },
+    { kind: 'open_loops', title: 'Promises', blurb: "What you said you'd do." },
+    { kind: 'drop_zone', title: 'Save for later', blurb: 'Dump it. Sorted later.' },
+    { kind: 'mirror', title: 'Mirror', blurb: 'What the week actually looked like.' },
+  ],
+  cofounder: [
+    { kind: 'digest', title: 'Morning brief', blurb: 'Calendar, mail, reminders.' },
+    { kind: 'kill_keep_park', title: 'Kill Keep Park', blurb: 'What to kill, keep, or park.' },
+    { kind: 'hire_decision', title: 'Hire decision', blurb: 'The call on the candidate.' },
+    { kind: 'pipeline_board', title: 'Pipeline', blurb: 'Jobs, raises, leads by stage.' },
+    { kind: 'approve_investor_note', title: 'Investor note', blurb: 'Review it before it goes out.' },
+    { kind: 'decision_ledger', title: 'Decisions', blurb: 'The call, and why.' },
+    { kind: 'weekly_review', title: 'Weekly review', blurb: 'What got done. What slipped.' },
+    { kind: 'spending_snapshot', title: 'Spending', blurb: "This week's budget." },
+    { kind: 'networking_crm', title: 'Networking', blurb: 'People you met. When to follow up.' },
+    { kind: 'relationship_radar', title: 'Stay in touch', blurb: 'Who to ping, and when.' },
+    { kind: 'open_loops', title: 'Promises', blurb: "What you said you'd do." },
+    { kind: 'mirror', title: 'Mirror', blurb: 'The week without spin.' },
+  ],
+}
+
+function Apps({
+  hire,
+  onPick,
+}: {
+  hire: AgentId
+  onPick: (id: AgentId) => void
+}) {
+  const agent = AGENTS.find((a) => a.id === hire)!
+  const apps = HIRE_APPS[hire]
+  const tools = connectorsForHire(hire)
+  return (
+    <section className="kit section" id="apps" aria-labelledby="apps-heading">
+      <div className="kit__intro container">
+        <p className="deed__eyebrow">In Messages</p>
+        <h2 id="apps-heading">Apps they open from a text.</h2>
+        <p>Nutrition, Today, Mirror, and the rest live in the thread. Connect Gmail and Calendar so the numbers are real.</p>
+      </div>
+      <div className="kit__hires" role="tablist" aria-label="Apps by hire">
+        {AGENTS.map((a) => (
+          <button
+            key={a.id}
+            type="button"
+            role="tab"
+            aria-selected={hire === a.id}
+            className={`kit-hire${hire === a.id ? ' kit-hire--on' : ''}`}
+            style={{ '--tab': a.color } as CSSProperties}
+            onClick={() => onPick(a.id)}
+          >
+            <AlphaFace color={a.color} mood={a.mood} size={22} />
+            {a.name}
+          </button>
+        ))}
+      </div>
+      <div className="kit__grid">
+        {apps.map((app, i) => (
+          <motion.article
+            key={`${hire}-${app.kind}`}
+            className="kit-tile"
+            initial={{ opacity: 0, y: 16 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true, margin: '-40px' }}
+            transition={{ delay: Math.min(i, 8) * 0.04, duration: 0.35 }}
+          >
+            <span className="kit-tile__mark" style={{ color: agent.color }}>
+              <MiniAppIcon kind={app.kind} />
+            </span>
+            <strong>{app.title}</strong>
+            <span>{app.blurb}</span>
+          </motion.article>
+        ))}
+      </div>
+      <div className="kit__tools">
+        <h3>Connectors {agent.name} can use</h3>
+        <ul>
+          {tools.map((c) => (
+            <li key={c.id}>
+              <ConnectorLogo id={c.id} size={26} />
+              <span>{c.name}</span>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </section>
+  )
+}
 
 function Actions() {
   return (
@@ -796,6 +910,7 @@ export default function Landing() {
             <div className="nav__links">
               <a href="#why">Why</a>
               <a href="#roles">Hires</a>
+              <a href="#apps">Apps</a>
               <a href="#actions">Actions</a>
               <a href="#faq">FAQ</a>
               {/* <a href="/app" className="btn btn--ghost btn--sm">
@@ -973,6 +1088,14 @@ export default function Landing() {
           </div>
         </section>
 
+        <Apps
+          hire={focus}
+          onPick={(id) => {
+            setDemoPaused(true)
+            setFocus(id)
+          }}
+        />
+
         <Actions />
 
         <section className="path section" id="how" aria-labelledby="how-heading">
@@ -1036,6 +1159,7 @@ export default function Landing() {
           <nav className="footer__nav" aria-label="Footer">
             <a href="#why">Why</a>
             <a href="#roles">Hires</a>
+            <a href="#apps">Apps</a>
             <a href="#actions">Actions</a>
             <a href="#faq">FAQ</a>
             <a href="#waitlist">Early access</a>
