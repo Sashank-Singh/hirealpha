@@ -103,7 +103,7 @@ export function sanitizeOutbound(text: string): string {
 }
 
 function wantsLiveData(text: string) {
-  return /\b(e-?mails?|inbox|mail|gmail|unread|calendar|meeting|meetings|schedule|agenda|tomorrow|today|slack|notion|linear|github|drive|spotify|dinner|restaurant|tonight|maps|place|places|ticket|backlog|triage|deck|wiki|look up|search|debrief|brief|recap|digest)\b/i.test(
+  return /\b(e-?mails?|inbox|mail|gmail|unread|calendar|meeting|meetings|schedule|agenda|tomorrow|today|slack|notion|linear|github|drive|spotify|playlist|figma|stripe|revenue|dinner|restaurant|tonight|maps|place|places|ticket|backlog|triage|deck|wiki|look up|search|debrief|brief|recap|digest)\b/i.test(
     text,
   )
 }
@@ -190,6 +190,10 @@ const TOOL_HINT: Record<string, string> = {
   linear: 'linear issues backlog',
   notion: 'search notion docs',
   drive: 'list drive files',
+  github: 'github issues assigned to me',
+  figma: 'figma files',
+  spotify: 'what is playing on spotify',
+  stripe: 'stripe balance',
 }
 
 async function pickLiveTool(

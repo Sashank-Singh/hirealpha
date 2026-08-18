@@ -12,6 +12,7 @@ import {
   parseGoogleCalendarItems,
   type CalItem,
 } from './calendarEvents'
+import { COMPOSIO_READ, composioLooksFailed, formatComposioData } from './composioPlugins'
 
 export const PERSONAS = ['friend', 'coworker', 'cofounder'] as const
 export type Persona = (typeof PERSONAS)[number]
@@ -1601,8 +1602,8 @@ async function composioExecute(userId: string, tool: string, args: Record<string
     if (tool === 'GOOGLECALENDAR_EVENTS_LIST' || tool === 'GOOGLECALENDAR_FIND_EVENT') {
       return formatUpcomingEvents(parseComposioCalendarData(res.data))
     }
-    const text = JSON.stringify(res.data ?? {})
-    return text.slice(0, 4000)
+    const formatted = formatComposioData(res.data)
+    return formatted || JSON.stringify(res.data ?? {}).slice(0, 4000)
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
     return `Tool ${tool} failed: ${msg.slice(0, 240)}`
@@ -1637,6 +1638,53 @@ function wantsNotion(text: string) {
 }
 function wantsDrive(text: string) {
   return /\b(drive|deck|slides|spreadsheet|google doc)\b/i.test(text)
+}
+function wantsGithub(text: string) {
+  return /\b(github|pull requests?|\bprs?\b|repos?)\b/i.test(text)
+}
+function wantsFigma(text: string) {
+  return /\b(figma|design file|mockups?)\b/i.test(text)
+}
+function wantsSpotify(text: string) {
+  return /\b(spotify|playlist|now playing|what.?s playing)\b/i.test(text)
+}
+function wantsStripe(text: string) {
+  return /\b(stripe|revenue|mrr|arr|charges?|invoices?)\b/i.test(text)
+}
+
+async function runComposioPlugin(userId: string, id: string, message: string): Promise<string> {
+  const spec = COMPOSIO_READ[id]
+  if (!spec) return `${id} is not wired. Do not invent a result.`
+  const out = await composioFirst(userId, spec.slugs, spec.args(message))
+  if (!out || composioLooksFailed(out)) return spec.empty
+  return out
+}
+
+async function loadGmail(sql: SQL, userId: string, query: string, maxResults = 8): Promise<string> {
+  const access = await googleAccessToken(sql, userId, 'gmail')
+  if (access) {
+    const out = await fetchGmail(access, query, maxResults)
+    if (!/^Gmail error \d/.test(out)) return out
+    console.warn('[gmail] google failed', out)
+  }
+  const spec = COMPOSIO_READ.gmail!
+  const out = await composioFirst(userId, spec.slugs, {
+    max_results: maxResults,
+    query,
+    verbose: false,
+  })
+  if (!out || composioLooksFailed(out)) return spec.empty
+  return out
+}
+
+async function loadDrive(sql: SQL, userId: string, query: string): Promise<string> {
+  const access = await googleAccessToken(sql, userId, 'drive')
+  if (access) {
+    const out = await fetchDrive(access, query)
+    if (!/^Drive error \d/.test(out)) return out
+    console.warn('[drive] google failed', out)
+  }
+  return runComposioPlugin(userId, 'drive', query)
 }
 
 async function fetchDrive(access: string, query: string) {
@@ -1811,48 +1859,36 @@ export async function runToolsForMessage(
     }
     results.push(notConnectedNote(id))
   }
+  const askedAllowed = (id: string, hit: boolean) => {
+    if (!hit) return
+    if (denied.has(id)) return
+    asked(id, hit)
+  }
 
   const mailHit = wantsEmail(input.message)
   const calHit = wantsCalendar(input.message)
+  const mailQuery = /\b(debrief|digest|brief)\b/i.test(input.message)
+    ? '(newer_than:1d) OR (is:important newer_than:2d)'
+    : wantsImportantEmail(input.message)
+      ? 'is:important newer_than:14d'
+      : 'newer_than:5d'
   if (mailHit && can('gmail') && calHit && can('calendar')) {
-    const query = /\b(debrief|digest|brief)\b/i.test(input.message)
-      ? '(newer_than:1d) OR (is:important newer_than:2d)'
-      : wantsImportantEmail(input.message)
-        ? 'is:important newer_than:14d'
-        : 'newer_than:5d'
     const brief = /\b(debrief|digest|brief|today|calendar|agenda|schedule)\b/i.test(input.message)
     const tz = input.timezone || 'America/Los_Angeles'
     const calOpts = brief
       ? { timeMin: startOfLocalDay(tz), timeMax: startOfLocalDay(tz, 2), maxResults: 20 }
       : undefined
-    const gmailTok = await googleAccessToken(sql, input.userId, 'gmail')
     const [mail, cal] = await Promise.all([
-      gmailTok
-        ? fetchGmail(gmailTok, query, 8)
-        : composioExecute(input.userId, 'GMAIL_FETCH_EMAILS', { max_results: 8, query, verbose: false }),
+      loadGmail(sql, input.userId, mailQuery, 8),
       loadCalendar(sql, input.userId, calOpts),
     ])
     if (mail) results.push(mail)
     if (cal) results.push(cal)
   } else {
     if (mailHit && can('gmail')) {
-      const query = /\b(debrief|digest|brief)\b/i.test(input.message)
-        ? '(newer_than:1d) OR (is:important newer_than:2d)'
-        : wantsImportantEmail(input.message)
-          ? 'is:important newer_than:14d'
-          : 'newer_than:5d'
-      const access = await googleAccessToken(sql, input.userId, 'gmail')
-      if (access) results.push(await fetchGmail(access, query, 8))
-      else {
-        const c = await composioExecute(input.userId, 'GMAIL_FETCH_EMAILS', {
-          max_results: 8,
-          query,
-          verbose: false,
-        })
-        if (c) results.push(c)
-      }
+      results.push(await loadGmail(sql, input.userId, mailQuery, 8))
     } else {
-      asked('gmail', mailHit)
+      askedAllowed('gmail', mailHit)
     }
 
     if (calHit && can('calendar')) {
@@ -1863,68 +1899,63 @@ export async function runToolsForMessage(
         : undefined
       results.push(await loadCalendar(sql, input.userId, calOpts))
     } else {
-      asked('calendar', calHit)
+      askedAllowed('calendar', calHit)
     }
   }
 
-  if (input.persona === 'friend') {
-    if (wantsMaps(input.message) || input.want === 'maps') {
-      results.push(await fetchMapSearch(input.message, timezoneCountry(input.timezone), input.location))
+  const mapsHit = input.want === 'maps' || (wantsMaps(input.message) && !calHit)
+  if (mapsHit) {
+    let mapsOut = ''
+    if (can('maps')) mapsOut = await runComposioPlugin(input.userId, 'maps', input.message)
+    if (!mapsOut || composioLooksFailed(mapsOut) || mapsOut === COMPOSIO_READ.maps!.empty) {
+      mapsOut = await fetchMapSearch(input.message, timezoneCountry(input.timezone), input.location)
     }
+    results.push(mapsOut)
   }
 
   if ((wantsWebSearch(input.message) && !wantsMaps(input.message) && input.want !== 'maps') || input.want === 'web') {
     results.push(await fetchWebSearch(input.message))
   }
 
-  if (input.persona === 'coworker') {
-    if (wantsSlack(input.message) && can('slack')) {
-      const c = await composioFirst(
-        input.userId,
-        ['SLACK_SEARCH_MESSAGES', 'SLACK_LIST_CHANNELS', 'SLACK_FETCH_CONVERSATION_HISTORY'],
-        { query: input.message.slice(0, 80), limit: 8 },
-      )
-      results.push(c || 'Slack is connected but nothing came back. Say that. Do not invent a thread.')
-    } else {
-      asked('slack', wantsSlack(input.message))
-    }
-    if (wantsLinear(input.message) && can('linear')) {
-      const c = await composioFirst(
-        input.userId,
-        ['LINEAR_LIST_ISSUES', 'LINEAR_LIST_LINEAR_ISSUES', 'LINEAR_GET_ISSUES'],
-        { limit: 8 },
-      )
-      results.push(c || 'Linear is connected but nothing came back. Say that. Do not invent tickets.')
-    } else {
-      asked('linear', wantsLinear(input.message))
-    }
+  if (wantsSlack(input.message) && can('slack')) {
+    results.push(await runComposioPlugin(input.userId, 'slack', input.message))
+  } else {
+    askedAllowed('slack', wantsSlack(input.message))
   }
-
-  if (input.persona === 'cofounder') {
-    if (wantsNotion(input.message) && can('notion')) {
-      const c = await composioFirst(
-        input.userId,
-        ['NOTION_SEARCH', 'NOTION_SEARCH_NOTION_PAGE', 'NOTION_FETCH_DATA'],
-        { query: input.message.slice(0, 80) },
-      )
-      results.push(c || 'Notion is connected but the search failed. Say that. Do not invent a page.')
-    } else {
-      asked('notion', wantsNotion(input.message))
-    }
-    if (wantsDrive(input.message) && can('drive')) {
-      const access = await googleAccessToken(sql, input.userId, 'drive')
-      if (access) results.push(await fetchDrive(access, input.message.slice(0, 40)))
-      else {
-        const c = await composioFirst(
-          input.userId,
-          ['GOOGLEDRIVE_LIST_FILES', 'GOOGLEDRIVE_FIND_FILE', 'GOOGLE_DRIVE_LIST_FILES'],
-          { pageSize: 8 },
-        )
-        results.push(c || 'Drive is connected but nothing came back. Say that. Do not invent a file.')
-      }
-    } else {
-      asked('drive', wantsDrive(input.message))
-    }
+  if (wantsLinear(input.message) && can('linear')) {
+    results.push(await runComposioPlugin(input.userId, 'linear', input.message))
+  } else {
+    askedAllowed('linear', wantsLinear(input.message))
+  }
+  if (wantsNotion(input.message) && can('notion')) {
+    results.push(await runComposioPlugin(input.userId, 'notion', input.message))
+  } else {
+    askedAllowed('notion', wantsNotion(input.message))
+  }
+  if (wantsDrive(input.message) && can('drive')) {
+    results.push(await loadDrive(sql, input.userId, input.message.slice(0, 40)))
+  } else {
+    askedAllowed('drive', wantsDrive(input.message))
+  }
+  if (wantsGithub(input.message) && can('github')) {
+    results.push(await runComposioPlugin(input.userId, 'github', input.message))
+  } else {
+    askedAllowed('github', wantsGithub(input.message))
+  }
+  if (wantsFigma(input.message) && can('figma')) {
+    results.push(await runComposioPlugin(input.userId, 'figma', input.message))
+  } else {
+    askedAllowed('figma', wantsFigma(input.message))
+  }
+  if (wantsSpotify(input.message) && can('spotify')) {
+    results.push(await runComposioPlugin(input.userId, 'spotify', input.message))
+  } else {
+    askedAllowed('spotify', wantsSpotify(input.message))
+  }
+  if (wantsStripe(input.message) && can('stripe')) {
+    results.push(await runComposioPlugin(input.userId, 'stripe', input.message))
+  } else {
+    askedAllowed('stripe', wantsStripe(input.message))
   }
 
   return results
