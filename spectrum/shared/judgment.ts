@@ -324,7 +324,6 @@ export async function runJudgmentLoop(input: {
   if (isBannedTagline(text) || !text.trim()) text = fallback
   if (text.length > 420) text = text.slice(0, 417).trim() + '…'
 
-  const unanswered = Number(state.unansweredProactive) || 0
   const attachCard = unanswered === 0 && !!insight.card
 
   return {
