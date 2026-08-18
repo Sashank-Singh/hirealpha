@@ -747,7 +747,7 @@ describe('Mini-app Text Triggers', () => {
 
     it('detects drop_zone intent (not URL)', () => {
       const result = detectMiniAppRequest('dump this random idea for later', 'friend')
-      expect(result?.kind).toBe('drop_zone')
+      expect(result?.kind).toBe('learning_queue')
     })
 
     it('detects weekly_review intent', () => {
@@ -762,12 +762,12 @@ describe('Mini-app Text Triggers', () => {
 
     it('detects check_in intent', () => {
       const result = detectMiniAppRequest('check in with me', 'friend')
-      expect(result?.kind).toBe('check_in')
+      expect(result?.kind).toBe('mood_tracker')
     })
 
     it('detects spiral_options intent', () => {
       const result = detectMiniAppRequest('im spiraling here', 'friend')
-      expect(result?.kind).toBe('spiral_options')
+      expect(result?.kind).toBe('pick_night')
     })
 
     it('detects open_loops intent', () => {
@@ -788,6 +788,21 @@ describe('Mini-app Text Triggers', () => {
     it('detects networking_crm for friend from a new contact', () => {
       const result = detectMiniAppRequest('i met sarah', 'friend')
       expect(result?.kind).toBe('networking_crm')
+    })
+
+    it('folds Stay in touch into People', () => {
+      expect(detectMiniAppRequest('pull up stay in touch', 'friend')?.kind).toBe('networking_crm')
+      expect(detectMiniAppRequest('who should i follow', 'friend')?.kind).toBe('networking_crm')
+    })
+
+    it('folds Save for later into Learning', () => {
+      expect(detectMiniAppRequest('pull up drop zone', 'friend')?.kind).toBe('learning_queue')
+      expect(detectMiniAppRequest('save for later', 'friend')?.kind).toBe('learning_queue')
+    })
+
+    it('folds Check-in into Mood and Get unstuck into Tonight', () => {
+      expect(detectMiniAppRequest('pull up check-in', 'friend')?.kind).toBe('mood_tracker')
+      expect(detectMiniAppRequest("i'm spiraling", 'friend')?.kind).toBe('pick_night')
     })
   })
 

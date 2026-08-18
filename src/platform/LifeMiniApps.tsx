@@ -16,6 +16,7 @@ import {
   apiListSpending,
   apiListWorkouts,
   apiLogSleep,
+  apiPutMiniPrefs,
   apiLogSpend,
   apiLogWorkout,
   apiMirror,
@@ -38,6 +39,24 @@ import {
   type WorkoutPr,
 } from './api'
 import type { FeatureAuth } from './FeatureMiniApps'
+import {
+  defaultWorkoutWeekday,
+  isWeekend,
+  jsDayToWeekday,
+  movePrescription,
+  readWorkoutMoveCount,
+  readWorkoutPlace,
+  WORKOUT_DAY_LABELS,
+  WORKOUT_DAY_LETTERS,
+  WORKOUT_WEEKDAYS,
+  workoutSession,
+  writeWorkoutMoveCount,
+  writeWorkoutPlace,
+  type WorkoutMove,
+  type WorkoutMoveCount,
+  type WorkoutPlace,
+  type WorkoutWeekday,
+} from './workoutProgram'
 
 function useAuth(auth: FeatureAuth) {
   return { email: auth.email, token: auth.token }
@@ -74,6 +93,18 @@ function hoursBetween(bedtime: string, wake: string) {
   let mins = wh * 60 + wm - (bh * 60 + bm)
   if (mins <= 0) mins += 24 * 60
   return Math.round((mins / 60) * 10) / 10
+}
+
+function formatClock12(hhmm: string) {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(hhmm.trim())
+  if (!m) return hhmm
+  let h = Number(m[1])
+  const min = Number(m[2])
+  if (!Number.isFinite(h) || !Number.isFinite(min) || h > 23 || min > 59) return hhmm
+  const mer = h >= 12 ? 'PM' : 'AM'
+  h = h % 12
+  if (h === 0) h = 12
+  return `${h}:${String(min).padStart(2, '0')} ${mer}`
 }
 
 function daysSince(iso: string | null) {
@@ -131,10 +162,18 @@ function openHttp(url: string) {
 
 /* ------------------------------ Workout Log ----------------------------- */
 
+function lastWeightFor(logs: WorkoutLog[], name: string): number {
+  const hit = logs.find((l) => l.exercise.toLowerCase() === name.toLowerCase() && l.weight > 0)
+  return hit?.weight || 0
+}
+
 export function WorkoutLogApp({ auth }: { auth: FeatureAuth }) {
   const a = useAuth(auth)
   const [logs, setLogs] = useState<WorkoutLog[]>([])
   const [prs, setPrs] = useState<WorkoutPr[]>([])
+  const [place, setPlace] = useState<WorkoutPlace>(() => readWorkoutPlace())
+  const [moveCount, setMoveCount] = useState<WorkoutMoveCount>(() => readWorkoutMoveCount())
+  const [viewDay, setViewDay] = useState<WorkoutWeekday>(() => defaultWorkoutWeekday())
   const [exercise, setExercise] = useState('')
   const [sets, setSets] = useState('3')
   const [reps, setReps] = useState('8')
@@ -144,24 +183,59 @@ export function WorkoutLogApp({ auth }: { auth: FeatureAuth }) {
   const [showNew, setShowNew] = useState(false)
 
   const load = useCallback(() => {
-    apiListWorkouts(a).then((d) => { setLogs(d.logs); setPrs(d.prs) }).catch(() => setMsg('Could not load workouts.'))
+    apiListWorkouts(a)
+      .then((d) => {
+        setLogs(d.logs)
+        setPrs(d.prs)
+        if (d.workoutPlace === 'home' || d.workoutPlace === 'gym') {
+          setPlace(d.workoutPlace)
+          writeWorkoutPlace(d.workoutPlace)
+        }
+        if (d.workoutMoveCount === 4 || d.workoutMoveCount === 5 || d.workoutMoveCount === 6) {
+          setMoveCount(d.workoutMoveCount)
+          writeWorkoutMoveCount(d.workoutMoveCount)
+        }
+      })
+      .catch(() => setMsg('Could not load workouts.'))
   }, [a.email, a.token])
   useEffect(() => { load() }, [load])
 
-  const last = logs[0]
-  useEffect(() => {
-    if (!last) return
-    setExercise(last.exercise)
-    setSets(String(last.sets))
-    setReps(String(last.reps))
-    setWeight(last.weight ? String(last.weight) : '')
-  }, [last])
-
-  async function logSet(ex: string, s: number, r: number, w: number) {
-    if (!ex.trim() || busy) return
-    setBusy(true)
+  async function choosePlace(next: WorkoutPlace) {
+    setPlace(next)
+    writeWorkoutPlace(next)
     try {
-      await apiLogWorkout({ ...a, exercise: ex.trim(), sets: s || 1, reps: r || 1, weight: w || 0 })
+      await apiPutMiniPrefs({ ...a, workoutPlace: next })
+    } catch {
+      setMsg('Could not save place.')
+    }
+  }
+
+  async function chooseCount(next: WorkoutMoveCount) {
+    setMoveCount(next)
+    writeWorkoutMoveCount(next)
+    try {
+      await apiPutMiniPrefs({ ...a, workoutMoveCount: next })
+    } catch {
+      setMsg('Could not save moves.')
+    }
+  }
+
+  async function logMoves(moves: WorkoutMove[], sessionName: string) {
+    if (!moves.length || busy) return
+    setBusy(true)
+    setMsg('')
+    const notes = `${place === 'home' ? 'Home' : 'Gym'} ${sessionName}`
+    try {
+      for (const move of moves) {
+        await apiLogWorkout({
+          ...a,
+          exercise: move.name,
+          sets: move.sets,
+          reps: move.reps,
+          weight: lastWeightFor(logs, move.name),
+          notes,
+        })
+      }
       load()
     } catch {
       setMsg('Could not log that.')
@@ -170,126 +244,242 @@ export function WorkoutLogApp({ auth }: { auth: FeatureAuth }) {
     }
   }
 
-  async function add(e: FormEvent) {
-    e.preventDefault()
-    await logSet(exercise, Number(sets) || 1, Number(reps) || 1, Number(weight) || 0)
-    setShowNew(false)
+  async function unlogMove(name: string) {
+    const hit = logs.find(
+      (l) => isoToLocalDate(l.loggedAt) === localDateStr() && l.exercise.toLowerCase() === name.toLowerCase(),
+    )
+    if (!hit || busy) return
+    setBusy(true)
+    setMsg('')
+    try {
+      await apiDeleteWorkout({ ...a, id: hit.id })
+      load()
+    } catch {
+      setMsg('Could not update.')
+    } finally {
+      setBusy(false)
+    }
   }
 
-  const prMap = new Map(prs.map((p) => [p.exercise.toLowerCase(), p]))
+  async function add(e: FormEvent) {
+    e.preventDefault()
+    if (!exercise.trim() || busy) return
+    setBusy(true)
+    setMsg('')
+    try {
+      await apiLogWorkout({
+        ...a,
+        exercise: exercise.trim(),
+        sets: Number(sets) || 1,
+        reps: Number(reps) || 1,
+        weight: Number(weight) || 0,
+      })
+      setExercise('')
+      setShowNew(false)
+      load()
+    } catch {
+      setMsg('Could not log that.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const session = workoutSession(place, viewDay, moveCount)
   const today = localDateStr()
-  const todayLogs = logs.filter((l) => isoToLocalDate(l.loggedAt) === today)
-  const recentNames = [...new Set(logs.map((l) => l.exercise))].slice(0, 5)
-  const lastWasToday = last ? isoToLocalDate(last.loggedAt) === today : false
-  const lastLine = last
-    ? `${last.sets}×${last.reps}${last.weight ? ` @ ${last.weight} lbs` : ''}`
-    : ''
+  const todayWeekday = jsDayToWeekday(new Date().getDay())
+  const viewingToday = todayWeekday === viewDay
+  const weekend = isWeekend()
+  const todayNames = new Set(
+    logs.filter((l) => isoToLocalDate(l.loggedAt) === today).map((l) => l.exercise.toLowerCase()),
+  )
+  const left = session.moves.filter((m) => !todayNames.has(m.name.toLowerCase()))
+  const doneCount = session.moves.length - left.length
+  const allDone = left.length === 0
+  const prMap = new Map(prs.map((p) => [p.exercise.toLowerCase(), p]))
+  const placeLabel = place === 'home' ? 'Home' : 'Gym'
+  const sessionNames = new Set(session.moves.map((m) => m.name.toLowerCase()))
+  const history = logs.filter(
+    (l) => !(isoToLocalDate(l.loggedAt) === today && sessionNames.has(l.exercise.toLowerCase())),
+  )
+
+  let heroKicker = viewingToday ? 'Today' : session.dayLabel
+  let heroNum = session.name
+  let heroLabel = `${session.moves.length} moves. ${placeLabel}.`
+  if (weekend && viewDay === 1) {
+    heroKicker = 'Rest'
+    heroNum = 'Rest day'
+    heroLabel = `Monday is ${session.name}. ${placeLabel}.`
+  }
+  if (allDone) {
+    heroNum = 'All done'
+    heroLabel = `${session.name}. ${placeLabel}.`
+  } else if (doneCount > 0) {
+    heroNum = `${doneCount} of ${session.moves.length}`
+    heroLabel = left[0] ? `${left[0].name} is next` : heroLabel
+  }
+
+  const addForm = (
+    <form className="ma-form" onSubmit={add}>
+      <input className="ma-input" value={exercise} onChange={(e) => setExercise(e.target.value)} placeholder="Exercise" aria-label="Exercise" />
+      <input className="ma-input ma-input--sm" value={sets} onChange={(e) => setSets(e.target.value)} inputMode="numeric" aria-label="Sets" placeholder="Sets" />
+      <input className="ma-input ma-input--sm" value={reps} onChange={(e) => setReps(e.target.value)} inputMode="numeric" aria-label="Reps" placeholder="Reps" />
+      <input className="ma-input ma-input--sm" value={weight} onChange={(e) => setWeight(e.target.value)} inputMode="decimal" aria-label="Weight" placeholder="Lbs" />
+      <button className="ma-btn" type="submit" disabled={busy || !exercise.trim()}>Log</button>
+    </form>
+  )
 
   return (
-    <div className="ma">
+    <div className="ma workout">
       <div className="ma-hero">
-        <span className="ma-hero-kicker">{last ? (lastWasToday ? 'Last set' : fmtDay(last.loggedAt)) : 'Workout'}</span>
-        <span className="ma-hero-num">{last ? last.exercise : 'No lifts yet'}</span>
-        <span className="ma-hero-label">
-          {last
-            ? `${lastLine}${todayLogs.length ? `. ${todayLogs.length} today` : ''}`
-            : 'Log one set. Next time it is one tap.'}
-        </span>
+        <span className="ma-hero-kicker">{heroKicker}</span>
+        <span className="ma-hero-num">{heroNum}</span>
+        <span className="ma-hero-label">{heroLabel}</span>
       </div>
 
-      {last && (
+      <div className="wk-places">
+        <button
+          className={`wk-place${place === 'home' ? ' is-on' : ''}`}
+          type="button"
+          aria-pressed={place === 'home'}
+          onClick={() => void choosePlace('home')}
+        >
+          Home
+        </button>
+        <button
+          className={`wk-place${place === 'gym' ? ' is-on' : ''}`}
+          type="button"
+          aria-pressed={place === 'gym'}
+          onClick={() => void choosePlace('gym')}
+        >
+          Gym
+        </button>
+      </div>
+
+      <div className="wk-counts" role="group" aria-label="Moves per day">
+        {([4, 5, 6] as const).map((n) => (
+          <button
+            key={n}
+            className={`wk-place${moveCount === n ? ' is-on' : ''}`}
+            type="button"
+            aria-pressed={moveCount === n}
+            onClick={() => void chooseCount(n)}
+          >
+            {n}
+          </button>
+        ))}
+      </div>
+
+      <div className="wk-days" role="tablist" aria-label="Weekday">
+        {WORKOUT_WEEKDAYS.map((day) => (
+          <button
+            key={day}
+            className={`wk-day${viewDay === day ? ' is-on' : ''}${todayWeekday === day ? ' is-today' : ''}`}
+            type="button"
+            role="tab"
+            aria-selected={viewDay === day}
+            aria-label={WORKOUT_DAY_LABELS[day]}
+            onClick={() => setViewDay(day)}
+          >
+            {WORKOUT_DAY_LETTERS[day]}
+          </button>
+        ))}
+      </div>
+
+      {left.length > 0 && (
         <button
           className="ma-btn ma-btn--block"
           type="button"
           disabled={busy}
-          onClick={() => void logSet(last.exercise, last.sets, last.reps, last.weight)}
+          onClick={() => void logMoves(left, session.name)}
         >
-          {lastWasToday ? 'Log another set' : 'Log it again'}
+          {left.length === 1 ? `Mark ${left[0].name}` : 'Mark remaining'}
         </button>
-      )}
-
-      {recentNames.length > 1 && (
-        <div className="ma-pills">
-          {recentNames.map((name) => {
-            const hit = logs.find((l) => l.exercise === name)
-            if (!hit) return null
-            return (
-              <button
-                key={name}
-                type="button"
-                className="ma-chip"
-                disabled={busy}
-                onClick={() => void logSet(hit.exercise, hit.sets, hit.reps, hit.weight)}
-              >
-                {name}
-              </button>
-            )
-          })}
-        </div>
-      )}
-
-      {prs.length > 0 && (
-        <div className="ma-pills">
-          {prs.slice(0, 4).map((p) => (
-            <span key={p.exercise} className="ma-pill">PR {p.exercise} {Math.round(p.weight)}×{p.reps}</span>
-          ))}
-        </div>
       )}
 
       {msg && <p className="mini__hint">{msg}</p>}
 
-      {logs.length ? (
-        <ul className="ma-list">
-          {logs.slice(0, 8).map((l) => {
+      <ul className="habit-list">
+        {session.moves.map((move) => {
+          const done = todayNames.has(move.name.toLowerCase())
+          const load = lastWeightFor(logs, move.name)
+          const pr = prMap.get(move.name.toLowerCase())
+          return (
+            <li key={move.name} className="habit-card">
+              <div className="habit-info">
+                <div className="habit-name">{move.name}</div>
+                <div className="habit-streak">
+                  {movePrescription(move, load)}
+                  {pr ? `. PR ${Math.round(pr.weight)} × ${pr.reps}` : ''}
+                </div>
+              </div>
+              <button
+                className={`wk-act${done ? ' is-on' : ''}`}
+                type="button"
+                disabled={busy}
+                onClick={() => void (done ? unlogMove(move.name) : logMoves([move], session.name))}
+              >
+                {done ? 'Done' : 'Mark'}
+              </button>
+            </li>
+          )
+        })}
+      </ul>
+
+      {history.length > 0 && (
+        <ul className="habit-list">
+          {history.slice(0, 20).map((l) => {
             const pr = prMap.get(l.exercise.toLowerCase())
             const isPr = pr && pr.weight === l.weight && pr.reps === l.reps
             return (
-              <li key={l.id} className="ma-row">
-                <div className="ma-row-main">
-                  <span className="ma-title">{l.exercise}{isPr ? '  PR' : ''}</span>
-                  <span className="ma-sub">{l.sets}×{l.reps}{l.weight ? ` @ ${l.weight} lbs` : ''}  {fmtDay(l.loggedAt)}</span>
+              <li key={l.id} className="habit-card">
+                <div className="habit-info">
+                  <div className="habit-name">{l.exercise}{isPr ? ' PR' : ''}</div>
+                  <div className="habit-streak">
+                    {l.sets} × {l.reps}{l.weight ? ` @ ${l.weight}` : ''} {fmtDay(l.loggedAt)}
+                  </div>
                 </div>
-                <button className="ma-x" type="button" onClick={() => void apiDeleteWorkout({ ...a, id: l.id }).then(load)} title="Remove">×</button>
+                <button className="habit-delete" type="button" onClick={() => void apiDeleteWorkout({ ...a, id: l.id }).then(load)} title="Remove">×</button>
               </li>
             )
           })}
         </ul>
-      ) : (
-        <p className="mini__empty">Log one set. Next time it is one tap.</p>
       )}
 
-      {logs.length > 0 && !showNew && (
+      {!showNew && (
         <button className="ma-btn ma-btn--quiet ma-btn--block" type="button" onClick={() => setShowNew(true)}>New lift</button>
       )}
-      {(logs.length === 0 || showNew) && (
-        <form className="ma-form" onSubmit={add}>
-          <input className="ma-input" value={exercise} onChange={(e) => setExercise(e.target.value)} placeholder="Exercise" aria-label="Exercise" />
-          <input className="ma-input ma-input--sm" value={sets} onChange={(e) => setSets(e.target.value)} inputMode="numeric" aria-label="Sets" placeholder="Sets" />
-          <input className="ma-input ma-input--sm" value={reps} onChange={(e) => setReps(e.target.value)} inputMode="numeric" aria-label="Reps" placeholder="Reps" />
-          <input className="ma-input ma-input--sm" value={weight} onChange={(e) => setWeight(e.target.value)} inputMode="decimal" aria-label="Weight" placeholder="Lbs" />
-          <button className="ma-btn" type="submit" disabled={busy || !exercise.trim()}>Log</button>
-        </form>
-      )}
+      {showNew && addForm}
     </div>
   )
 }
 
 /* ----------------------------- Learning Queue --------------------------- */
 
-const LEARN_KINDS = ['article', 'video', 'podcast'] as const
+const LEARN_KINDS = [
+  { value: 'article', label: 'Article' },
+  { value: 'video', label: 'Video' },
+  { value: 'podcast', label: 'Podcast' },
+] as const
 
 export function LearningQueueApp({ auth }: { auth: FeatureAuth }) {
   const a = useAuth(auth)
   const [items, setItems] = useState<LearningItem[]>([])
   const [title, setTitle] = useState('')
   const [kind, setKind] = useState<string>('article')
-  const [minutes, setMinutes] = useState('15')
+  const [notes, setNotes] = useState('')
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState('')
   const [showAdd, setShowAdd] = useState(false)
 
   const load = useCallback(() => {
-    apiListLearning(a).then((d) => setItems(d.items)).catch(() => setMsg('Could not load queue.'))
+    apiListLearning(a)
+      .then((d) => {
+        setItems(d.items || [])
+        setMsg('')
+      })
+      .catch((err) =>
+        setMsg(err instanceof Error && err.message ? err.message : 'Could not load queue.'),
+      )
   }, [a.email, a.token])
   useEffect(() => { load() }, [load])
 
@@ -298,12 +488,22 @@ export function LearningQueueApp({ auth }: { auth: FeatureAuth }) {
     if (!title.trim() || busy) return
     setBusy(true)
     try {
-      await apiAddLearning({ ...a, title: title.trim(), kind, minutes: Number(minutes) || 10 })
+      const raw = title.trim()
+      const urlMatch = raw.match(/https?:\/\/\S+/i)?.[0]?.replace(/[),.;]+$/, '')
+      const cleanTitle = raw.replace(/https?:\/\/\S+/gi, '').trim() || urlMatch || 'Saved'
+      await apiAddLearning({
+        ...a,
+        title: cleanTitle.slice(0, 160),
+        url: urlMatch,
+        kind,
+        notes: notes.trim() || undefined,
+      })
       setTitle('')
+      setNotes('')
       setShowAdd(false)
       load()
-    } catch {
-      setMsg('Could not add that.')
+    } catch (err) {
+      setMsg(err instanceof Error && err.message ? err.message : 'Could not add that.')
     } finally {
       setBusy(false)
     }
@@ -311,8 +511,8 @@ export function LearningQueueApp({ auth }: { auth: FeatureAuth }) {
 
   const queued = items.filter((i) => i.status !== 'done')
   const next = queued[0]
-  const queuedMin = queued.reduce((s, i) => s + (i.minutes || 0), 0)
   const nextUrl = next?.url ? openHttp(next.url) : ''
+  const kindLabel = (k: string) => LEARN_KINDS.find((x) => x.value === k)?.label || k
 
   async function markDone(id: string) {
     if (busy) return
@@ -330,11 +530,11 @@ export function LearningQueueApp({ auth }: { auth: FeatureAuth }) {
   return (
     <div className="ma">
       <div className="ma-hero">
-        <span className="ma-hero-kicker">{next ? `Next  ${next.minutes} min` : 'Queue'}</span>
+        <span className="ma-hero-kicker">{next ? 'Next' : 'Queue'}</span>
         <span className="ma-hero-num">{next ? next.title : 'Nothing queued'}</span>
         <span className="ma-hero-label">
           {next
-            ? `${next.kind}${queued.length > 1 ? `. ${queued.length - 1} more  ${queuedMin} min total` : ''}`
+            ? `${kindLabel(next.kind)}${queued.length > 1 ? `. ${queued.length - 1} more` : ''}`
             : 'Save one article. It becomes next up.'}
         </span>
       </div>
@@ -355,15 +555,23 @@ export function LearningQueueApp({ auth }: { auth: FeatureAuth }) {
         </button>
       )}
 
-      {msg && <p className="mini__hint">{msg}</p>}
+      {msg && (
+        <p className="mini__hint">
+          {msg}{' '}
+          <button className="ma-btn ma-btn--quiet" type="button" onClick={load}>Retry</button>
+        </p>
+      )}
 
-      {queued.length ? (
+      {queued.length > 0 && (
         <ul className="ma-list">
           {queued.map((i) => (
             <li key={i.id} className="ma-row">
               <div className="ma-row-main">
                 <span className="ma-title">{i.title}</span>
-                <span className="ma-sub">{i.kind}  {i.minutes} min</span>
+                <span className="ma-sub">
+                  {kindLabel(i.kind)}
+                  {i.notes ? `. ${i.notes}` : ''}
+                </span>
               </div>
               {i.id !== next?.id && (
                 <button className="ma-chip" type="button" disabled={busy} onClick={() => void markDone(i.id)}>Done</button>
@@ -372,21 +580,37 @@ export function LearningQueueApp({ auth }: { auth: FeatureAuth }) {
             </li>
           ))}
         </ul>
-      ) : (
-        <p className="mini__empty">Save one article. It becomes next up.</p>
       )}
 
       {items.length > 0 && !showAdd && (
         <button className="ma-btn ma-btn--quiet ma-btn--block" type="button" onClick={() => setShowAdd(true)}>Save something</button>
       )}
       {(items.length === 0 || showAdd) && (
-        <form className="ma-form" onSubmit={add}>
-          <input className="ma-input" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Article, video, podcast" aria-label="Title" />
-          <select className="ma-input ma-input--sm" value={kind} onChange={(e) => setKind(e.target.value)} aria-label="Kind">
-            {LEARN_KINDS.map((k) => <option key={k} value={k}>{k}</option>)}
-          </select>
-          <input className="ma-input ma-input--sm" value={minutes} onChange={(e) => setMinutes(e.target.value)} inputMode="numeric" aria-label="Minutes" placeholder="Min" />
-          <button className="ma-btn" type="submit" disabled={busy || !title.trim()}>Save</button>
+        <form className="ma-stack" onSubmit={add}>
+          <input
+            className="ma-input"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            placeholder="Title or URL"
+            aria-label="Title or URL"
+          />
+          <label className="ma-field">
+            <span>Kind</span>
+            <select className="ma-input" value={kind} onChange={(e) => setKind(e.target.value)}>
+              {LEARN_KINDS.map((k) => (
+                <option key={k.value} value={k.value}>{k.label}</option>
+              ))}
+            </select>
+          </label>
+          <textarea
+            className="ma-area"
+            rows={3}
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            placeholder="Notes"
+            aria-label="Notes"
+          />
+          <button className="ma-btn ma-btn--block" type="submit" disabled={busy || !title.trim()}>Save</button>
         </form>
       )}
     </div>
@@ -647,6 +871,7 @@ export function NetworkingCrmApp({ auth }: { auth: FeatureAuth }) {
   const [line, setLine] = useState('')
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState('')
+  const [showAdd, setShowAdd] = useState(false)
 
   const load = useCallback(() => {
     apiListNetwork(a).then((d) => setPeople(d.people)).catch(() => setMsg('Could not load people.'))
@@ -661,6 +886,7 @@ export function NetworkingCrmApp({ auth }: { auth: FeatureAuth }) {
       const parsed = parseNetworkLine(line.trim())
       await apiAddNetwork({ ...a, name: parsed.name, whereMet: parsed.whereMet, context: parsed.context })
       setLine('')
+      setShowAdd(false)
       load()
     } catch {
       setMsg('Could not add that.')
@@ -703,16 +929,20 @@ export function NetworkingCrmApp({ auth }: { auth: FeatureAuth }) {
           <span className="ma-sub">Last notes stay on each person.</span>
         </div>
       )}
-      <form className="ma-form" onSubmit={add}>
-        <input
-          className="ma-input"
-          value={line}
-          onChange={(e) => setLine(e.target.value)}
-          placeholder="Priya @ dinner: hiring at Stripe"
-          aria-label="Person"
-        />
-        <button className="ma-btn" type="submit" disabled={busy || !line.trim()}>Add</button>
-      </form>
+      {(showAdd || !people.length) ? (
+        <form className="ma-form" onSubmit={add}>
+          <input
+            className="ma-input"
+            value={line}
+            onChange={(e) => setLine(e.target.value)}
+            placeholder="Priya @ dinner: hiring at Stripe"
+            aria-label="Person"
+          />
+          <button className="ma-btn" type="submit" disabled={busy || !line.trim()}>Add</button>
+        </form>
+      ) : (
+        <button className="ma-btn ma-btn--quiet" type="button" onClick={() => setShowAdd(true)}>Add a person</button>
+      )}
       {msg && <p className="mini__hint">{msg}</p>}
       {due.length > 1 && <p className="mini__hint">{due.length} people are due.</p>}
       {rest.length > 0 && (
@@ -751,17 +981,23 @@ export function SleepTrackerApp({ auth }: { auth: FeatureAuth }) {
   const [showTimes, setShowTimes] = useState(false)
 
   const load = useCallback(() => {
-    apiListSleep(a).then((d) => setNights(d.nights)).catch(() => setMsg('Could not load sleep.'))
+    apiListSleep(a)
+      .then((d) => {
+        setNights(d.nights)
+        const key = lastNightDateStr()
+        const logged = d.nights.find((n) => n.sleepDate.slice(0, 10) === key)
+        if (logged) {
+          setBedtime(logged.bedtime)
+          setWake(logged.wake)
+          setQuality(logged.quality)
+        } else {
+          if (d.sleepBedtime) setBedtime(d.sleepBedtime)
+          if (d.sleepWake) setWake(d.sleepWake)
+        }
+      })
+      .catch(() => setMsg('Could not load sleep.'))
   }, [a.email, a.token])
   useEffect(() => { load() }, [load])
-
-  const prev = nights[0]
-  useEffect(() => {
-    if (!prev) return
-    setBedtime(prev.bedtime)
-    setWake(prev.wake)
-    setQuality(prev.quality)
-  }, [prev])
 
   async function save() {
     if (busy) return
@@ -796,7 +1032,7 @@ export function SleepTrackerApp({ auth }: { auth: FeatureAuth }) {
           {lastNight
             ? `Quality ${lastNight.quality}/5${avg ? `. Avg ${avg.toFixed(1)}h` : ''}${debt >= 2 ? `. ${debt.toFixed(1)}h debt` : ''}`
             : nights.length
-              ? `Same as last time? ${previewHours}h  ${bedtime} to ${wake}`
+              ? `Same as last time? ${previewHours}h  ${formatClock12(bedtime)} to ${formatClock12(wake)}`
               : 'Bed and wake stick for next time.'}
         </span>
       </div>
@@ -851,11 +1087,11 @@ export function SleepTrackerApp({ auth }: { auth: FeatureAuth }) {
       {msg && <p className="mini__hint">{msg}</p>}
       {nights.length ? (
         <ul className="ma-list">
-          {nights.slice(0, 7).map((n) => (
+          {nights.slice(0, 21).map((n) => (
             <li key={n.id} className="ma-row">
               <div className="ma-row-main">
                 <span className="ma-title">{fmtDay(n.sleepDate)}  {hoursBetween(n.bedtime, n.wake)}h</span>
-                <span className="ma-sub">{n.bedtime} to {n.wake}  quality {n.quality}/5</span>
+                <span className="ma-sub">{formatClock12(n.bedtime)} to {formatClock12(n.wake)}  quality {n.quality}/5</span>
               </div>
               <button className="ma-x" type="button" onClick={() => void apiDeleteSleep({ ...a, id: n.id }).then(load)} title="Remove">×</button>
             </li>
@@ -895,6 +1131,7 @@ export function PipelineBoardApp({ auth }: { auth: FeatureAuth }) {
   const [line, setLine] = useState('')
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState('')
+  const [showAdd, setShowAdd] = useState(false)
 
   const load = useCallback(() => {
     apiListPipeline(a).then((d) => setItems(d.items)).catch(() => setMsg('Could not load pipeline.'))
@@ -909,6 +1146,7 @@ export function PipelineBoardApp({ auth }: { auth: FeatureAuth }) {
       const parsed = parsePipeLine(line.trim())
       await apiAddPipeline({ ...a, title: parsed.title, company: parsed.company })
       setLine('')
+      setShowAdd(false)
       load()
     } catch {
       setMsg('Could not add that.')
@@ -948,16 +1186,20 @@ export function PipelineBoardApp({ auth }: { auth: FeatureAuth }) {
         </div>
       )}
       {!items.length && <p className="mini__empty">Add a deal, job, or round. The hottest one sits on top.</p>}
-      <form className="ma-form" onSubmit={add}>
-        <input
-          className="ma-input"
-          value={line}
-          onChange={(e) => setLine(e.target.value)}
-          placeholder="PM @ Stripe"
-          aria-label="Deal"
-        />
-        <button className="ma-btn" type="submit" disabled={busy || !line.trim()}>Add</button>
-      </form>
+      {(showAdd || !items.length) ? (
+        <form className="ma-form" onSubmit={add}>
+          <input
+            className="ma-input"
+            value={line}
+            onChange={(e) => setLine(e.target.value)}
+            placeholder="PM @ Stripe"
+            aria-label="Deal"
+          />
+          <button className="ma-btn" type="submit" disabled={busy || !line.trim()}>Add</button>
+        </form>
+      ) : (
+        <button className="ma-btn ma-btn--quiet" type="button" onClick={() => setShowAdd(true)}>Add a deal</button>
+      )}
       {msg && <p className="mini__hint">{msg}</p>}
       <div className="pipe-now">
         {stagesWithCards.map((s) => {
@@ -1192,7 +1434,7 @@ export function SpendingSnapshotApp({ auth }: { auth: FeatureAuth }) {
       {msg && <p className="mini__hint">{msg}</p>}
       {logs.length ? (
         <ul className="ma-list">
-          {logs.slice(0, 8).map((l) => (
+          {logs.slice(0, 40).map((l) => (
             <li key={l.id} className="ma-row">
               <div className="ma-row-main">
                 <span className="ma-title">${Number(l.amount).toFixed(2)}  {l.category}</span>

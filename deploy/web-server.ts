@@ -103,7 +103,7 @@ const MINI_META: Record<string, { title: string; description: string }> = {
   apps: { title: 'Apps', description: 'Tap one to open it.' },
   digest: { title: 'Morning brief', description: 'Your calendar, important mail, and reminders in one place.' },
   nutrition: { title: 'Nutrition', description: 'Log meals, estimate macros, and keep today’s totals.' },
-  open_loops: { title: 'Loose ends', description: 'Track promises and follow-ups so nothing slips.' },
+  open_loops: { title: 'Promises', description: 'What you said you would do.' },
   relationship_radar: { title: 'Stay in touch', description: 'See who to reach out to and when.' },
   drop_zone: { title: 'Save for later', description: 'Capture something messy and sort it later.' },
   meeting_mode: { title: 'Meeting mode', description: 'Prep before the meeting and wrap it cleanly after.' },

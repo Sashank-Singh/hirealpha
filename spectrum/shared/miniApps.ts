@@ -150,7 +150,7 @@ const KIND_LABELS: Record<MiniAppKind, string> = {
   weekly_focus: 'Weekly focus',
   approve_investor_note: 'Investor note',
   spiral_options: 'Options',
-  open_loops: 'Loose ends',
+  open_loops: 'Promises',
   meeting_mode: 'Meeting mode',
   decision_ledger: 'Decisions',
   relationship_radar: 'Stay in touch',
@@ -181,7 +181,7 @@ const SUMMON_NAMES: Partial<Record<MiniAppKind, RegExp>> = {
   apps: /\b(?:apps|app store|store|mini[- ]?apps?)\b/i,
   digest: /\b(?:morning |daily |evening )?(?:brief|digest|debrief)\b/i,
   nutrition: /\bnutrition\b|\bfood log\b|\bmeal log\b|\bmacros?\b/i,
-  networking_crm: /\bnetwork(?:ing)?(?:\s*crm)?\b/i,
+  networking_crm: /\bnetwork(?:ing)?(?:\s*crm)?\b|\bpeople\b/i,
   mood_tracker: /\bmood(?:\s*(?:tracker|check|log))?\b/i,
   spending_snapshot: /\bspend(?:ing)?\b|\bexpenses?\b/i,
   sleep_tracker: /\bsleep(?:\s*tracker)?\b/i,
@@ -195,7 +195,7 @@ const SUMMON_NAMES: Partial<Record<MiniAppKind, RegExp>> = {
   mirror: /\bmirror\b|\blife dashboard\b/i,
   check_in: /\bcheck[\s-]?in\b/i,
   pick_night: /\btonight\b|\bdate night\b/i,
-  open_loops: /\bopen loops?\b|\bloose ends\b/i,
+  open_loops: /\bopen loops?\b|\bloose ends\b|\bpromises?\b/i,
   relationship_radar: /\brelationship radar\b|\bstay in touch\b/i,
 }
 
@@ -256,12 +256,25 @@ export function detectMiniAppRequest(
   }
 
   const summoned = detectSummonedKind(userText, allowed)
-  if (summoned) return { kind: summoned }
+  if (summoned) return { kind: canonicalMiniAppKind(persona, summoned) }
 
   for (const kind of allowed) {
-    if (PATTERNS[kind]?.test(userText)) return { kind }
+    if (PATTERNS[kind]?.test(userText)) return { kind: canonicalMiniAppKind(persona, kind) }
   }
   return null
+}
+
+/** Friend store folded duplicates into one surviving app. Other hires keep the originals. */
+const FRIEND_KIND_ALIASES: Partial<Record<MiniAppKind, MiniAppKind>> = {
+  relationship_radar: 'networking_crm',
+  drop_zone: 'learning_queue',
+  check_in: 'mood_tracker',
+  spiral_options: 'pick_night',
+}
+
+export function canonicalMiniAppKind(persona: AgentId, kind: MiniAppKind): MiniAppKind {
+  if (persona !== 'friend') return kind
+  return FRIEND_KIND_ALIASES[kind] ?? kind
 }
 
 function apiBase() {
@@ -282,6 +295,7 @@ export function miniAppUrl(
   kind: MiniAppKind,
   query?: Record<string, string>,
 ): string {
+  kind = canonicalMiniAppKind(persona, kind)
   const base = apiBase() || 'https://hirealpha.chat'
   const url = new URL(`${base}/app/mini/${persona}/${kind}`)
   if (query) {
@@ -312,6 +326,7 @@ export async function mintMiniAppUrl(
   kind: MiniAppKind,
   query?: Record<string, string>,
 ): Promise<string> {
+  kind = canonicalMiniAppKind(persona, kind)
   const base = apiBase()
   if (base) {
     try {

@@ -220,7 +220,15 @@ export async function apiSetupStatus(input: { persona: AgentId; email?: string; 
 
 /** Auth params shared by the feature mini-app endpoints. */
 function authParams(input: { email?: string; token?: string }) {
-  return { email: input.email, token: input.token }
+  if (input.email) return { email: input.email }
+  return { token: input.token }
+}
+
+function authQuery(a: { email?: string; token?: string }) {
+  const qs = new URLSearchParams()
+  if (a.email) qs.set('email', a.email)
+  else if (a.token) qs.set('t', a.token)
+  return qs
 }
 
 async function featurePost<T>(path: string, body: Record<string, unknown>): Promise<T> {
@@ -262,12 +270,8 @@ export type OpenLoop = {
   createdAt: string
 }
 
-export const apiListLoops = (a: { email?: string; token?: string }) => {
-  const qs = new URLSearchParams()
-  if (a.token) qs.set('t', a.token)
-  else if (a.email) qs.set('email', a.email)
-  return featureGet<{ loops: OpenLoop[] }>('/api/loops', qs)
-}
+export const apiListLoops = (a: { email?: string; token?: string }) =>
+  featureGet<{ loops: OpenLoop[] }>('/api/loops', authQuery(a))
 export const apiAddLoop = (a: { email?: string; token?: string; persona?: string; title: string; context?: string; dueAt?: string }) =>
   featurePost<{ ok: boolean; id: string }>('/api/loops', { ...authParams(a), persona: a.persona, title: a.title, context: a.context, dueAt: a.dueAt })
 export const apiPatchLoop = (a: { email?: string; token?: string; id: string; status: string }) =>
@@ -285,12 +289,8 @@ export type Decision = {
   status: string
   createdAt: string
 }
-export const apiListDecisions = (a: { email?: string; token?: string }) => {
-  const qs = new URLSearchParams()
-  if (a.token) qs.set('t', a.token)
-  else if (a.email) qs.set('email', a.email)
-  return featureGet<{ decisions: Decision[] }>('/api/decisions', qs)
-}
+export const apiListDecisions = (a: { email?: string; token?: string }) =>
+  featureGet<{ decisions: Decision[] }>('/api/decisions', authQuery(a))
 export const apiAddDecision = (a: {
   email?: string; token?: string; persona?: string; decision: string
   reason?: string; evidence?: string; owner?: string; reviewAt?: string
@@ -307,12 +307,8 @@ export type Relationship = {
   lastTouchAt: string | null
   updatedAt: string
 }
-export const apiListRelationships = (a: { email?: string; token?: string }) => {
-  const qs = new URLSearchParams()
-  if (a.token) qs.set('t', a.token)
-  else if (a.email) qs.set('email', a.email)
-  return featureGet<{ relationships: Relationship[] }>('/api/relationships', qs)
-}
+export const apiListRelationships = (a: { email?: string; token?: string }) =>
+  featureGet<{ relationships: Relationship[] }>('/api/relationships', authQuery(a))
 export const apiAddRelationship = (a: { email?: string; token?: string; name: string; kind?: string; notes?: string; cadenceDays?: number }) =>
   featurePost<{ ok: boolean; id: string }>('/api/relationships', { ...authParams(a), name: a.name, kind: a.kind, notes: a.notes, cadenceDays: a.cadenceDays })
 export const apiTouchRelationship = (a: { email?: string; token?: string; id: string }) =>
@@ -327,12 +323,8 @@ export type Drop = {
   status: string
   createdAt: string
 }
-export const apiListDrops = (a: { email?: string; token?: string }) => {
-  const qs = new URLSearchParams()
-  if (a.token) qs.set('t', a.token)
-  else if (a.email) qs.set('email', a.email)
-  return featureGet<{ drops: Drop[] }>('/api/dropzone', qs)
-}
+export const apiListDrops = (a: { email?: string; token?: string }) =>
+  featureGet<{ drops: Drop[] }>('/api/dropzone', authQuery(a))
 export const apiAddDrop = (a: { email?: string; token?: string; content: string; mediaKind?: string }) =>
   featurePost<{ ok: boolean; id: string }>('/api/dropzone', { ...authParams(a), content: a.content, mediaKind: a.mediaKind })
 export const apiPatchDrop = (a: { email?: string; token?: string; id: string; status?: string; summary?: string }) =>
@@ -348,12 +340,8 @@ export type Meeting = {
   followups: Array<{ decision?: string; owner?: string; action?: string }>
   createdAt: string
 }
-export const apiListMeetings = (a: { email?: string; token?: string }) => {
-  const qs = new URLSearchParams()
-  if (a.token) qs.set('t', a.token)
-  else if (a.email) qs.set('email', a.email)
-  return featureGet<{ meetings: Meeting[] }>('/api/meetings', qs)
-}
+export const apiListMeetings = (a: { email?: string; token?: string }) =>
+  featureGet<{ meetings: Meeting[] }>('/api/meetings', authQuery(a))
 export const apiAddMeeting = (a: { email?: string; token?: string; title: string; startsAt?: string }) =>
   featurePost<{ ok: boolean; id: string }>('/api/meetings', { ...authParams(a), title: a.title, startsAt: a.startsAt })
 export const apiPatchMeeting = (a: { email?: string; token?: string; id: string; phase?: string }) =>
@@ -377,25 +365,33 @@ export type NutritionLog = {
   eatenAt: string
 }
 export type NutritionGoals = { calorieGoal: number; proteinGoal: number; carbsGoal: number; fatGoal: number }
-export const apiNutritionToday = (a: { email?: string; token?: string }) => {
-  const qs = new URLSearchParams()
-  if (a.token) qs.set('t', a.token)
-  else if (a.email) qs.set('email', a.email)
-  return featureGet<{ goals: NutritionGoals; logs: NutritionLog[]; totals: { calories: number; protein: number; carbs: number; fat: number } }>('/api/nutrition', qs)
-}
+export const apiNutritionToday = (a: { email?: string; token?: string }) =>
+  featureGet<{
+    goals: NutritionGoals
+    logs: NutritionLog[]
+    history?: NutritionLog[]
+    totals: { calories: number; protein: number; carbs: number; fat: number }
+  }>('/api/nutrition', authQuery(a))
 export const apiLogNutrition = (a: {
   email?: string; token?: string; description: string
   calories?: number; protein?: number; carbs?: number; fat?: number; imageUrl?: string
 }) => featurePost<{ ok: boolean; id: string }>('/api/nutrition', { ...authParams(a), description: a.description, calories: a.calories, protein: a.protein, carbs: a.carbs, fat: a.fat, imageUrl: a.imageUrl })
 export const apiSetNutritionGoals = (a: { email?: string; token?: string } & Partial<NutritionGoals>) => {
-  const qs = new URLSearchParams()
-  if (a.token) qs.set('t', a.token)
-  else if (a.email) qs.set('email', a.email)
   return fetch(`${API}/api/nutrition/goals`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(a),
-  }).then((res) => parseJson<{ ok?: boolean; error?: string }>(res))
+    body: JSON.stringify({
+      ...authParams(a),
+      calorieGoal: a.calorieGoal,
+      proteinGoal: a.proteinGoal,
+      carbsGoal: a.carbsGoal,
+      fatGoal: a.fatGoal,
+    }),
+  }).then(async (res) => {
+    const data = await parseJson<{ ok?: boolean; error?: string }>(res)
+    if (!res.ok) throw new Error(data.error || 'Could not save goals')
+    return data
+  })
 }
 export const apiAnalyzeNutrition = (a: { email?: string; token?: string; description?: string; imageBase64?: string }) =>
   featurePost<{
@@ -416,16 +412,12 @@ export type Habit = {
   id: string; name: string; emoji: string; createdAt: string
 }
 export type HabitLog = { id: string; habitId: string; date: string }
-export const apiListHabits = (a: { email?: string; token?: string }) => {
-  const qs = new URLSearchParams()
-  if (a.token) qs.set('t', a.token)
-  else if (a.email) qs.set('email', a.email)
-  return featureGet<{
+export const apiListHabits = (a: { email?: string; token?: string }) =>
+  featureGet<{
     habits: (Habit & { streak: number; recentDays: string[] })[]
     weekDays?: string[]
     weekStart?: string
-  }>('/api/habits', qs)
-}
+  }>('/api/habits', authQuery(a))
 export const apiAddHabit = (a: { email?: string; token?: string; name: string; emoji?: string }) =>
   featurePost<{ ok: boolean; id: string }>('/api/habits', { ...authParams(a), name: a.name, emoji: a.emoji })
 export const apiToggleHabit = (a: { email?: string; token?: string; habitId: string; date: string }) =>
@@ -437,21 +429,10 @@ export const apiDeleteHabit = (a: { email?: string; token?: string; habitId: str
 export type MoodEntry = {
   id: string; emoji: string; energy: number; note: string | null; createdAt: string
 }
-export const apiListMoods = (a: { email?: string; token?: string }) => {
-  const qs = new URLSearchParams()
-  if (a.token) qs.set('t', a.token)
-  else if (a.email) qs.set('email', a.email)
-  return featureGet<{ entries: MoodEntry[]; streak: number }>('/api/moods', qs)
-}
+export const apiListMoods = (a: { email?: string; token?: string }) =>
+  featureGet<{ entries: MoodEntry[]; streak: number }>('/api/moods', authQuery(a))
 export const apiLogMood = (a: { email?: string; token?: string; emoji: string; energy: number; note?: string }) =>
   featurePost<{ ok: boolean; id: string }>('/api/moods', { ...authParams(a), emoji: a.emoji, energy: a.energy, note: a.note })
-
-function authQuery(a: { email?: string; token?: string }) {
-  const qs = new URLSearchParams()
-  if (a.token) qs.set('t', a.token)
-  else if (a.email) qs.set('email', a.email)
-  return qs
-}
 
 /* ---- Workouts ---- */
 export type WorkoutLog = {
@@ -459,7 +440,10 @@ export type WorkoutLog = {
 }
 export type WorkoutPr = { exercise: string; weight: number; reps: number; loggedAt: string }
 export const apiListWorkouts = (a: { email?: string; token?: string }) =>
-  featureGet<{ logs: WorkoutLog[]; prs: WorkoutPr[] }>('/api/workouts', authQuery(a))
+  featureGet<{ logs: WorkoutLog[]; prs: WorkoutPr[]; workoutPlace?: 'home' | 'gym'; workoutMoveCount?: 4 | 5 | 6 }>(
+    '/api/workouts',
+    authQuery(a),
+  )
 export const apiLogWorkout = (a: {
   email?: string; token?: string; exercise: string; sets: number; reps: number; weight?: number; notes?: string
 }) => featurePost<{ ok: boolean; id: string }>('/api/workouts', { ...authParams(a), exercise: a.exercise, sets: a.sets, reps: a.reps, weight: a.weight, notes: a.notes })
@@ -468,13 +452,13 @@ export const apiDeleteWorkout = (a: { email?: string; token?: string; id: string
 
 /* ---- Learning queue ---- */
 export type LearningItem = {
-  id: string; title: string; url: string | null; kind: string; minutes: number; status: string; createdAt: string
+  id: string; title: string; url: string | null; kind: string; minutes: number; notes?: string | null; status: string; createdAt: string
 }
 export const apiListLearning = (a: { email?: string; token?: string }) =>
   featureGet<{ items: LearningItem[] }>('/api/learning', authQuery(a))
 export const apiAddLearning = (a: {
-  email?: string; token?: string; title: string; url?: string; kind?: string; minutes?: number
-}) => featurePost<{ ok: boolean; id: string }>('/api/learning', { ...authParams(a), title: a.title, url: a.url, kind: a.kind, minutes: a.minutes })
+  email?: string; token?: string; title: string; url?: string; kind?: string; minutes?: number; notes?: string
+}) => featurePost<{ ok: boolean; id: string }>('/api/learning', { ...authParams(a), title: a.title, url: a.url, kind: a.kind, minutes: a.minutes, notes: a.notes })
 export const apiPatchLearning = (a: { email?: string; token?: string; id: string; status?: string; _delete?: boolean }) =>
   featurePost<{ ok: boolean }>(`/api/learning/${a.id}`, { ...authParams(a), status: a.status, _delete: a._delete })
 
@@ -533,7 +517,7 @@ export type SleepNight = {
   id: string; sleepDate: string; bedtime: string; wake: string; quality: number; note: string | null; createdAt: string
 }
 export const apiListSleep = (a: { email?: string; token?: string }) =>
-  featureGet<{ nights: SleepNight[] }>('/api/sleep', authQuery(a))
+  featureGet<{ nights: SleepNight[]; sleepBedtime?: string; sleepWake?: string }>('/api/sleep', authQuery(a))
 export const apiLogSleep = (a: {
   email?: string; token?: string; sleepDate?: string; bedtime: string; wake: string; quality: number; note?: string
 }) => featurePost<{ ok: boolean }>('/api/sleep', { ...authParams(a), sleepDate: a.sleepDate, bedtime: a.bedtime, wake: a.wake, quality: a.quality, note: a.note })
@@ -583,4 +567,32 @@ export const apiSetSpendBudget = async (a: { email?: string; token?: string; wee
 }
 export const apiDeleteSpend = (a: { email?: string; token?: string; id: string }) =>
   featurePost<{ ok: boolean }>(`/api/spending/${a.id}`, { ...authParams(a), _delete: true })
+
+/* ---- Mini app prefs (workout place, move count, usual sleep times) ---- */
+export type MiniPrefs = {
+  workoutPlace: 'home' | 'gym'
+  workoutMoveCount: 4 | 5 | 6
+  sleepBedtime: string
+  sleepWake: string
+}
+export const apiGetMiniPrefs = (a: { email?: string; token?: string }) =>
+  featureGet<MiniPrefs>('/api/mini-prefs', authQuery(a))
+export const apiPutMiniPrefs = async (
+  a: { email?: string; token?: string } & Partial<MiniPrefs>,
+) => {
+  const res = await fetch(`${API}/api/mini-prefs`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      ...authParams(a),
+      workoutPlace: a.workoutPlace,
+      workoutMoveCount: a.workoutMoveCount,
+      sleepBedtime: a.sleepBedtime,
+      sleepWake: a.sleepWake,
+    }),
+  })
+  const data = await parseJson<MiniPrefs & { ok?: boolean; error?: string }>(res)
+  if (!res.ok) throw new Error(data.error || 'Could not save settings')
+  return data
+}
 

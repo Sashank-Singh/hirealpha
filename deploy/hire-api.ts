@@ -180,6 +180,56 @@ function verifyMiniToken(token: string): MiniToken | null {
   return payload
 }
 
+/** How long a signed web-session token stays valid. */
+const SESSION_TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000
+
+interface SessionToken {
+  email: string
+  exp: number
+}
+
+/** HMAC secret for signed web sessions. Falls back to the mini-token secret. */
+function sessionTokenSecret(): string | null {
+  const dedicated = process.env.HIREALPHA_SESSION_SECRET || ''
+  return dedicated || miniTokenSecret()
+}
+
+function signSessionToken(payload: string, secret: string): string {
+  return createHmac('sha256', secret).update(payload).digest('base64url')
+}
+
+/** Mint a signed, expiring web-session token bound to an email. */
+function mintSessionToken(email: string): string | null {
+  const secret = sessionTokenSecret()
+  if (!secret) return null
+  const payload: SessionToken = { email, exp: Date.now() + SESSION_TOKEN_TTL_MS }
+  const encoded = Buffer.from(JSON.stringify(payload)).toString('base64url')
+  return `${encoded}.${signSessionToken(encoded, secret)}`
+}
+
+/** Verify + decode a web-session token. Returns null when missing/invalid/expired. */
+function verifySessionToken(token: string): SessionToken | null {
+  const secret = sessionTokenSecret()
+  if (!secret) return null
+  const dot = token.lastIndexOf('.')
+  if (dot <= 0) return null
+  const encoded = token.slice(0, dot)
+  const sig = token.slice(dot + 1)
+  const expected = signSessionToken(encoded, secret)
+  const a = Buffer.from(sig)
+  const b = Buffer.from(expected)
+  if (a.length !== b.length || !timingSafeEqual(a, b)) return null
+  let payload: SessionToken
+  try {
+    payload = JSON.parse(Buffer.from(encoded, 'base64url').toString()) as SessionToken
+  } catch {
+    return null
+  }
+  if (typeof payload.email !== 'string' || typeof payload.exp !== 'number') return null
+  if (payload.exp < Date.now()) return null
+  return payload
+}
+
 export async function ensureHireSchema(sql: SQL) {
   await sql`
     CREATE TABLE IF NOT EXISTS hire_users (
@@ -454,6 +504,7 @@ export async function ensureHireSchema(sql: SQL) {
     )
   `
   await sql`CREATE INDEX IF NOT EXISTS idx_hire_learning_user ON hire_learning (user_id, created_at DESC)`
+  await sql`ALTER TABLE hire_learning ADD COLUMN IF NOT EXISTS notes TEXT`
 
   await sql`
     CREATE TABLE IF NOT EXISTS hire_weekly_reviews (
@@ -557,6 +608,18 @@ export async function ensureHireSchema(sql: SQL) {
     )
   `
   await sql`CREATE INDEX IF NOT EXISTS idx_hire_user_locations_user ON hire_user_locations (user_id, updated_at DESC)`
+
+  await sql`
+    CREATE TABLE IF NOT EXISTS hire_mini_prefs (
+      user_id TEXT PRIMARY KEY REFERENCES hire_users(id) ON DELETE CASCADE,
+      workout_place TEXT NOT NULL DEFAULT 'gym',
+      workout_move_count INTEGER NOT NULL DEFAULT 4,
+      sleep_bedtime TEXT NOT NULL DEFAULT '23:00',
+      sleep_wake TEXT NOT NULL DEFAULT '07:00',
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `
+  await sql`ALTER TABLE hire_mini_prefs ADD COLUMN IF NOT EXISTS workout_move_count INTEGER NOT NULL DEFAULT 4`
 }
 
 type LocationRow = {
@@ -590,6 +653,61 @@ async function getLocation(sql: SQL, userId: string, kind: 'current' | 'home' | 
     LIMIT 1
   `
   return (rows[0] as LocationRow | undefined) ?? null
+}
+
+type MiniPrefs = {
+  workoutPlace: 'home' | 'gym'
+  workoutMoveCount: 4 | 5 | 6
+  sleepBedtime: string
+  sleepWake: string
+}
+
+function isClock(v: string): boolean {
+  return /^\d{2}:\d{2}$/.test(v)
+}
+
+function clampWorkoutMoveCount(v: unknown): 4 | 5 | 6 {
+  const n = typeof v === 'number' ? v : Number(v)
+  return n === 5 || n === 6 ? n : 4
+}
+
+async function loadMiniPrefs(sql: SQL, userId: string): Promise<MiniPrefs> {
+  const rows = await sql`
+    SELECT workout_place AS "workoutPlace", workout_move_count AS "workoutMoveCount",
+           sleep_bedtime AS "sleepBedtime", sleep_wake AS "sleepWake"
+    FROM hire_mini_prefs WHERE user_id = ${userId} LIMIT 1
+  `
+  const row = rows[0] as (MiniPrefs & { workoutMoveCount?: unknown }) | undefined
+  const place = row?.workoutPlace === 'home' ? 'home' : 'gym'
+  return {
+    workoutPlace: place,
+    workoutMoveCount: clampWorkoutMoveCount(row?.workoutMoveCount),
+    sleepBedtime: isClock(row?.sleepBedtime || '') ? row!.sleepBedtime : '23:00',
+    sleepWake: isClock(row?.sleepWake || '') ? row!.sleepWake : '07:00',
+  }
+}
+
+async function saveMiniPrefs(sql: SQL, userId: string, patch: Partial<MiniPrefs>): Promise<MiniPrefs> {
+  const cur = await loadMiniPrefs(sql, userId)
+  const next: MiniPrefs = {
+    workoutPlace: patch.workoutPlace === 'home' || patch.workoutPlace === 'gym' ? patch.workoutPlace : cur.workoutPlace,
+    workoutMoveCount: patch.workoutMoveCount === 4 || patch.workoutMoveCount === 5 || patch.workoutMoveCount === 6
+      ? patch.workoutMoveCount
+      : cur.workoutMoveCount,
+    sleepBedtime: isClock(patch.sleepBedtime || '') ? patch.sleepBedtime! : cur.sleepBedtime,
+    sleepWake: isClock(patch.sleepWake || '') ? patch.sleepWake! : cur.sleepWake,
+  }
+  await sql`
+    INSERT INTO hire_mini_prefs (user_id, workout_place, workout_move_count, sleep_bedtime, sleep_wake, updated_at)
+    VALUES (${userId}, ${next.workoutPlace}, ${next.workoutMoveCount}, ${next.sleepBedtime}, ${next.sleepWake}, now())
+    ON CONFLICT (user_id) DO UPDATE SET
+      workout_place = excluded.workout_place,
+      workout_move_count = excluded.workout_move_count,
+      sleep_bedtime = excluded.sleep_bedtime,
+      sleep_wake = excluded.sleep_wake,
+      updated_at = now()
+  `
+  return next
 }
 
 const CURRENT_LOCATION_HOURS = 24
@@ -703,30 +821,44 @@ async function getUserByPhone(sql: SQL, phone: string) {
   return null
 }
 
-/** Resolve the caller from either a signed mini token or a session email. */
+/** Resolve the caller from a signed web session, a signed mini token, or a session email. */
 async function resolveAuthedUser(
   sql: SQL,
-  input: { token?: string; email?: string },
+  input: { token?: string; session?: string; email?: string },
 ): Promise<{ user: AuthedUser | null; error?: Response }> {
   const email = String(input.email || '').trim().toLowerCase()
-  if (input.token) {
-    const tok = verifyMiniToken(input.token)
-    if (!tok) {
+  if (input.session) {
+    const ses = verifySessionToken(input.session)
+    if (!ses) {
       return {
         user: null,
-        error: json({ error: 'This link expired. Sign in to keep using it.', code: 'token_invalid' }, 401),
+        error: json({ error: 'Session expired. Sign in again.', code: 'session_invalid' }, 401),
       }
     }
-    const user = await getUserByPhone(sql, tok.phone)
-    if (!user) return { user: null, error: json({ error: 'No account found for that phone' }, 404) }
+    const user = await getUserByEmail(sql, ses.email)
+    if (!user) return { user: null, error: json({ error: 'No account found for that email' }, 404) }
     return { user }
+  }
+  if (input.token) {
+    const tok = verifyMiniToken(input.token)
+    if (tok) {
+      const user = await getUserByPhone(sql, tok.phone)
+      if (!user) return { user: null, error: json({ error: 'No account found for that phone' }, 404) }
+      return { user }
+    }
   }
   if (email.includes('@')) {
     const user = await getUserByEmail(sql, email)
     if (!user) return { user: null, error: json({ error: 'No account found for that email' }, 404) }
     return { user }
   }
-  return { user: null, error: json({ error: 'email or token required' }, 400) }
+  if (input.token) {
+    return {
+      user: null,
+      error: json({ error: 'This link expired. Sign in to keep using it.', code: 'token_invalid' }, 401),
+    }
+  }
+  return { user: null, error: json({ error: 'session or token required' }, 400) }
 }
 
 function clampNum(v: unknown, fallback = 0): number {
@@ -1838,7 +1970,7 @@ async function digestPayload(
     section('Tomorrow', tomorrowCal),
     section('Important mail', emails),
     section('Reminders', reminders.map((r) => `${r.time} · ${r.text}`)),
-    section('Loose ends', loops),
+    section('Promises', loops),
   ]
     .filter(Boolean)
     .join('\n\n')
@@ -3346,6 +3478,7 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     if (!isPersona(persona)) return json({ error: 'persona required' }, 400)
     const { user, error } = await resolveAuthedUser(sql, {
       token: url.searchParams.get('t') || undefined,
+      session: url.searchParams.get('s') || undefined,
       email: url.searchParams.get('email') || undefined,
     })
     if (error) return error
@@ -3380,7 +3513,7 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
       }
     }
 
-    const { user, error } = await resolveAuthedUser(sql, { token: body.token, email: body.email })
+    const { user, error } = await resolveAuthedUser(sql, { token: body.token, session: body.session, email: body.email })
     if (error) return error
 
     const fields = await loadContext(sql, user!.id, persona)
@@ -3425,6 +3558,7 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
   if (path === '/api/loops' && req.method === 'GET') {
     const { user, error } = await resolveAuthedUser(sql, {
       token: url.searchParams.get('t') || undefined,
+      session: url.searchParams.get('s') || undefined,
       email: url.searchParams.get('email') || undefined,
     })
     if (error) return error
@@ -3444,7 +3578,7 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     }
     const title = String(body.title || '').trim().slice(0, 200)
     if (!title) return json({ error: 'title required' }, 400)
-    const { user, error } = await resolveAuthedUser(sql, { token: body.token, email: body.email })
+    const { user, error } = await resolveAuthedUser(sql, { token: body.token, session: body.session, email: body.email })
     if (error) return error
     const id = crypto.randomUUID()
     const dueAt = parseFlexibleWhen(body.dueAt, user!.timezone || 'America/Los_Angeles')
@@ -3461,7 +3595,7 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     const id = path.slice('/api/loops/'.length)
     const body = (await req.json().catch(() => ({}))) as { token?: string; email?: string; status?: string }
     const status = body.status === 'done' || body.status === 'snoozed' ? body.status : 'open'
-    const { user, error } = await resolveAuthedUser(sql, { token: body.token, email: body.email })
+    const { user, error } = await resolveAuthedUser(sql, { token: body.token, session: body.session, email: body.email })
     if (error) return error
     await sql`
       UPDATE hire_loops SET status = ${status}, updated_at = now()
@@ -3473,6 +3607,7 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
   if (path === '/api/decisions' && req.method === 'GET') {
     const { user, error } = await resolveAuthedUser(sql, {
       token: url.searchParams.get('t') || undefined,
+      session: url.searchParams.get('s') || undefined,
       email: url.searchParams.get('email') || undefined,
     })
     if (error) return error
@@ -3492,7 +3627,7 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     }
     const decision = String(body.decision || '').trim().slice(0, 300)
     if (!decision) return json({ error: 'decision required' }, 400)
-    const { user, error } = await resolveAuthedUser(sql, { token: body.token, email: body.email })
+    const { user, error } = await resolveAuthedUser(sql, { token: body.token, session: body.session, email: body.email })
     if (error) return error
     const id = crypto.randomUUID()
     const reviewAt = parseFlexibleWhen(body.reviewAt, user!.timezone || 'America/Los_Angeles')
@@ -3508,7 +3643,7 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
   if (path.startsWith('/api/decisions/') && req.method === 'PATCH') {
     const id = path.slice('/api/decisions/'.length)
     const body = (await req.json().catch(() => ({}))) as { token?: string; email?: string; outcome?: string }
-    const { user, error } = await resolveAuthedUser(sql, { token: body.token, email: body.email })
+    const { user, error } = await resolveAuthedUser(sql, { token: body.token, session: body.session, email: body.email })
     if (error) return error
     await sql`
       UPDATE hire_decisions
@@ -3522,6 +3657,7 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
   if (path === '/api/relationships' && req.method === 'GET') {
     const { user, error } = await resolveAuthedUser(sql, {
       token: url.searchParams.get('t') || undefined,
+      session: url.searchParams.get('s') || undefined,
       email: url.searchParams.get('email') || undefined,
     })
     if (error) return error
@@ -3544,7 +3680,7 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     const kind = ['personal', 'work', 'investor', 'candidate', 'partner', 'other'].includes(body.kind || '')
       ? body.kind!
       : 'other'
-    const { user, error } = await resolveAuthedUser(sql, { token: body.token, email: body.email })
+    const { user, error } = await resolveAuthedUser(sql, { token: body.token, session: body.session, email: body.email })
     if (error) return error
     const id = crypto.randomUUID()
     await sql`
@@ -3558,7 +3694,7 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
   if (path.startsWith('/api/relationships/') && req.method === 'PATCH') {
     const id = path.slice('/api/relationships/'.length)
     const body = (await req.json().catch(() => ({}))) as { token?: string; email?: string; touch?: boolean }
-    const { user, error } = await resolveAuthedUser(sql, { token: body.token, email: body.email })
+    const { user, error } = await resolveAuthedUser(sql, { token: body.token, session: body.session, email: body.email })
     if (error) return error
     if (body.touch) {
       await sql`
@@ -3572,6 +3708,7 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
   if (path === '/api/dropzone' && req.method === 'GET') {
     const { user, error } = await resolveAuthedUser(sql, {
       token: url.searchParams.get('t') || undefined,
+      session: url.searchParams.get('s') || undefined,
       email: url.searchParams.get('email') || undefined,
     })
     if (error) return error
@@ -3590,7 +3727,7 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     }
     const content = String(body.content || '').trim().slice(0, 2000)
     if (!content) return json({ error: 'content required' }, 400)
-    const { user, error } = await resolveAuthedUser(sql, { token: body.token, email: body.email })
+    const { user, error } = await resolveAuthedUser(sql, { token: body.token, session: body.session, email: body.email })
     if (error) return error
     const id = crypto.randomUUID()
     const mediaKind = ['image', 'voice', 'link', 'text'].includes(body.mediaKind || '') ? body.mediaKind! : null
@@ -3606,7 +3743,7 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     const body = (await req.json().catch(() => ({}))) as {
       token?: string; email?: string; persona?: string; summary?: string; status?: string
     }
-    const { user, error } = await resolveAuthedUser(sql, { token: body.token, email: body.email })
+    const { user, error } = await resolveAuthedUser(sql, { token: body.token, session: body.session, email: body.email })
     if (error) return error
     const status = ['new', 'routed', 'done'].includes(body.status || '') ? body.status! : undefined
     await sql`
@@ -3622,6 +3759,7 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
   if (path === '/api/meetings' && req.method === 'GET') {
     const { user, error } = await resolveAuthedUser(sql, {
       token: url.searchParams.get('t') || undefined,
+      session: url.searchParams.get('s') || undefined,
       email: url.searchParams.get('email') || undefined,
     })
     if (error) return error
@@ -3640,7 +3778,7 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     }
     const title = String(body.title || '').trim().slice(0, 200)
     if (!title) return json({ error: 'title required' }, 400)
-    const { user, error } = await resolveAuthedUser(sql, { token: body.token, email: body.email })
+    const { user, error } = await resolveAuthedUser(sql, { token: body.token, session: body.session, email: body.email })
     if (error) return error
     const id = crypto.randomUUID()
     const startsAt = parseFlexibleWhen(body.startsAt, user!.timezone || 'America/Los_Angeles')
@@ -3657,7 +3795,7 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
       token?: string; email?: string; briefing?: string
       followups?: unknown; phase?: string
     }
-    const { user, error } = await resolveAuthedUser(sql, { token: body.token, email: body.email })
+    const { user, error } = await resolveAuthedUser(sql, { token: body.token, session: body.session, email: body.email })
     if (error) return error
     const phase = body.phase === 'done' ? 'done' : body.phase === 'prep' ? 'prep' : undefined
     await sql`
@@ -3678,7 +3816,7 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     }
     const audio = body.audioBase64 ? Buffer.from(body.audioBase64, 'base64') : null
     if (!audio || audio.length < 512) return json({ error: 'voice memo is required' }, 400)
-    const { user, error } = await resolveAuthedUser(sql, { token: body.token, email: body.email })
+    const { user, error } = await resolveAuthedUser(sql, { token: body.token, session: body.session, email: body.email })
     if (error) return error
     const meets = await sql`SELECT id FROM hire_meetings WHERE id = ${id} AND user_id = ${user!.id} LIMIT 1`
     if (!meets[0]) return json({ error: 'Meeting not found' }, 404)
@@ -3704,6 +3842,7 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
   if (path === '/api/nutrition' && req.method === 'GET') {
     const { user, error } = await resolveAuthedUser(sql, {
       token: url.searchParams.get('t') || undefined,
+      session: url.searchParams.get('s') || undefined,
       email: url.searchParams.get('email') || undefined,
     })
     if (error) return error
@@ -3723,6 +3862,17 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
       WHERE user_id = ${user!.id} AND eaten_at >= ${start.toISOString()} AND eaten_at < ${end.toISOString()}
       ORDER BY eaten_at ASC
     `
+    const historyFrom = new Date(start.getTime() - 14 * 86_400_000)
+    const history = await sql`
+      SELECT id, description, image_url AS "imageUrl", calories, protein, carbs, fat,
+             eaten_at AS "eatenAt"
+      FROM hire_nutrition_logs
+      WHERE user_id = ${user!.id}
+        AND eaten_at >= ${historyFrom.toISOString()}
+        AND eaten_at < ${start.toISOString()}
+      ORDER BY eaten_at DESC
+      LIMIT 40
+    `
     const totals = (logs as Array<{ calories: number; protein: number; carbs: number; fat: number }>).reduce(
       (acc, l) => ({
         calories: acc.calories + clampNum(l.calories),
@@ -3735,6 +3885,7 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     return json({
       goals: goals || { calorieGoal: 2200, proteinGoal: 150, carbsGoal: 220, fatGoal: 70 },
       logs,
+      history,
       totals,
     })
   }
@@ -3747,7 +3898,7 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     }
     const description = String(body.description || '').trim().slice(0, 300)
     if (!description) return json({ error: 'description required' }, 400)
-    const { user, error } = await resolveAuthedUser(sql, { token: body.token, email: body.email })
+    const { user, error } = await resolveAuthedUser(sql, { token: body.token, session: body.session, email: body.email })
     if (error) return error
     const id = crypto.randomUUID()
     await sql`
@@ -3764,7 +3915,7 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
       token?: string; email?: string
       calorieGoal?: number; proteinGoal?: number; carbsGoal?: number; fatGoal?: number
     }
-    const { user, error } = await resolveAuthedUser(sql, { token: body.token, email: body.email })
+    const { user, error } = await resolveAuthedUser(sql, { token: body.token, session: body.session, email: body.email })
     if (error) return error
     const cal = clampNum(body.calorieGoal, 2200)
     const pro = clampNum(body.proteinGoal, 150)
@@ -3784,7 +3935,7 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     const body = (await req.json().catch(() => ({}))) as {
       token?: string; email?: string; description?: string; imageBase64?: string
     }
-    const { user, error } = await resolveAuthedUser(sql, { token: body.token, email: body.email })
+    const { user, error } = await resolveAuthedUser(sql, { token: body.token, session: body.session, email: body.email })
     if (error) return error
     void user
     const estimate = await estimateNutrition(String(body.description || '').slice(0, 500), body.imageBase64 || '')
@@ -3799,7 +3950,7 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     }
     const imageBase64 = String(body.imageBase64 || '')
     if (imageBase64.length < 64) return json({ error: 'Photo is required' }, 400)
-    const { user, error } = await resolveAuthedUser(sql, { token: body.token, email: body.email })
+    const { user, error } = await resolveAuthedUser(sql, { token: body.token, session: body.session, email: body.email })
     if (error) return error
     const described = String(body.description || '').trim().slice(0, 300)
     let estimate: Awaited<ReturnType<typeof estimateNutrition>> = { ok: false, needsKey: true }
@@ -3835,7 +3986,7 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     if (!body._delete) return json({ error: 'Not found' }, 404)
     const logId = path.split('/')[3]
     if (!logId) return json({ error: 'id required' }, 400)
-    const { user, error } = await resolveAuthedUser(sql, { token: body.token, email: body.email })
+    const { user, error } = await resolveAuthedUser(sql, { token: body.token, session: body.session, email: body.email })
     if (error) return error
     await sql`DELETE FROM hire_nutrition_logs WHERE id = ${logId} AND user_id = ${user!.id}`
     return json({ ok: true })
@@ -4359,6 +4510,7 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
   if (path === '/api/habits' && req.method === 'GET') {
     const { user, error } = await resolveAuthedUser(sql, {
       token: url.searchParams.get('t') || undefined,
+      session: url.searchParams.get('s') || undefined,
       email: url.searchParams.get('email') || undefined,
     })
     if (error) return error
@@ -4399,7 +4551,7 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     }
     const name = String(body.name || '').trim().slice(0, 100)
     if (!name) return json({ error: 'name required' }, 400)
-    const { user, error } = await resolveAuthedUser(sql, { token: body.token, email: body.email })
+    const { user, error } = await resolveAuthedUser(sql, { token: body.token, session: body.session, email: body.email })
     if (error) return error
     const id = crypto.randomUUID()
     const emoji = String(body.emoji || '💪').slice(0, 8)
@@ -4412,7 +4564,7 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
       token?: string; email?: string; habitId?: string; date?: string
     }
     if (!body.habitId || !body.date) return json({ error: 'habitId and date required' }, 400)
-    const { user, error } = await resolveAuthedUser(sql, { token: body.token, email: body.email })
+    const { user, error } = await resolveAuthedUser(sql, { token: body.token, session: body.session, email: body.email })
     if (error) return error
     const dateStr = body.date.slice(0, 10)
     // Try to delete first; if nothing deleted, insert
@@ -4430,7 +4582,7 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     if (!body._delete) return json({ error: 'Not found' }, 404)
     const habitId = path.split('/')[3]
     if (!habitId) return json({ error: 'habitId required' }, 400)
-    const { user, error } = await resolveAuthedUser(sql, { token: body.token, email: body.email })
+    const { user, error } = await resolveAuthedUser(sql, { token: body.token, session: body.session, email: body.email })
     if (error) return error
     await sql`DELETE FROM hire_habit_logs WHERE user_id = ${user!.id} AND habit_id = ${habitId}`
     await sql`DELETE FROM hire_habits WHERE id = ${habitId} AND user_id = ${user!.id}`
@@ -4441,6 +4593,7 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
   if (path === '/api/moods' && req.method === 'GET') {
     const { user, error } = await resolveAuthedUser(sql, {
       token: url.searchParams.get('t') || undefined,
+      session: url.searchParams.get('s') || undefined,
       email: url.searchParams.get('email') || undefined,
     })
     if (error) return error
@@ -4449,15 +4602,17 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
       FROM hire_moods WHERE user_id = ${user!.id}
       ORDER BY created_at DESC LIMIT 30
     `
-    // Streak: consecutive days with at least one mood entry
+    const tz = user!.timezone || 'America/Los_Angeles'
+    const days = new Set(
+      (entries as Array<{ createdAt: Date | string }>).map((e) =>
+        localDateStrInTz(new Date(e.createdAt), tz),
+      ),
+    )
     let streak = 0
-    const today = new Date()
-    for (let i = 0; i < 365; i++) {
-      const d = new Date(today)
-      d.setDate(d.getDate() - i)
-      const ds = d.toISOString().slice(0, 10)
-      const has = await sql`SELECT 1 FROM hire_moods WHERE user_id = ${user!.id} AND created_at::date = ${ds} LIMIT 1`
-      if (has.length > 0) { streak++ } else { break }
+    let cursor = localDateStrInTz(new Date(), tz)
+    while (days.has(cursor) && streak < 30) {
+      streak++
+      cursor = shiftDateStr(cursor, -1)
     }
     return json({ entries, streak })
   }
@@ -4467,11 +4622,18 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
       token?: string; email?: string; emoji?: string; energy?: number; note?: string
     }
     if (!body.emoji) return json({ error: 'emoji required' }, 400)
-    const { user, error } = await resolveAuthedUser(sql, { token: body.token, email: body.email })
+    const { user, error } = await resolveAuthedUser(sql, { token: body.token, session: body.session, email: body.email })
     if (error) return error
     const id = crypto.randomUUID()
     const energy = Math.max(1, Math.min(5, Math.round(body.energy || 3)))
     const note = String(body.note || '').trim().slice(0, 500) || null
+    const { start, end } = todayWindowUtc(user!.timezone || 'America/Los_Angeles')
+    await sql`
+      DELETE FROM hire_moods
+      WHERE user_id = ${user!.id}
+        AND created_at >= ${start.toISOString()}
+        AND created_at < ${end.toISOString()}
+    `
     await sql`INSERT INTO hire_moods (id, user_id, emoji, energy, note) VALUES (${id}, ${user!.id}, ${body.emoji}, ${energy}, ${note})`
     return json({ ok: true, id })
   }
@@ -4480,6 +4642,7 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
   if (path === '/api/workouts' && req.method === 'GET') {
     const { user, error } = await resolveAuthedUser(sql, {
       token: url.searchParams.get('t') || undefined,
+      session: url.searchParams.get('s') || undefined,
       email: url.searchParams.get('email') || undefined,
     })
     if (error) return error
@@ -4493,7 +4656,8 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
       FROM hire_workouts WHERE user_id = ${user!.id} AND weight > 0
       ORDER BY lower(exercise), weight DESC, reps DESC
     `
-    return json({ logs, prs: prRows })
+    const prefs = await loadMiniPrefs(sql, user!.id)
+    return json({ logs, prs: prRows, workoutPlace: prefs.workoutPlace, workoutMoveCount: prefs.workoutMoveCount })
   }
 
   if (path === '/api/workouts' && req.method === 'POST') {
@@ -4502,7 +4666,7 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     }
     const exercise = String(body.exercise || '').trim().slice(0, 80)
     if (!exercise) return json({ error: 'exercise required' }, 400)
-    const { user, error } = await resolveAuthedUser(sql, { token: body.token, email: body.email })
+    const { user, error } = await resolveAuthedUser(sql, { token: body.token, session: body.session, email: body.email })
     if (error) return error
     const id = crypto.randomUUID()
     const sets = Math.max(1, Math.min(20, Math.round(body.sets || 1)))
@@ -4521,7 +4685,7 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     if (!body._delete) return json({ error: 'Not found' }, 404)
     const id = path.split('/')[3]
     if (!id) return json({ error: 'id required' }, 400)
-    const { user, error } = await resolveAuthedUser(sql, { token: body.token, email: body.email })
+    const { user, error } = await resolveAuthedUser(sql, { token: body.token, session: body.session, email: body.email })
     if (error) return error
     await sql`DELETE FROM hire_workouts WHERE id = ${id} AND user_id = ${user!.id}`
     return json({ ok: true })
@@ -4531,11 +4695,12 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
   if (path === '/api/learning' && req.method === 'GET') {
     const { user, error } = await resolveAuthedUser(sql, {
       token: url.searchParams.get('t') || undefined,
+      session: url.searchParams.get('s') || undefined,
       email: url.searchParams.get('email') || undefined,
     })
     if (error) return error
     const items = await sql`
-      SELECT id, title, url, kind, minutes, status, created_at AS "createdAt"
+      SELECT id, title, url, kind, minutes, notes, status, created_at AS "createdAt"
       FROM hire_learning WHERE user_id = ${user!.id}
       ORDER BY CASE WHEN status = 'queued' THEN 0 ELSE 1 END, minutes ASC, created_at DESC
     `
@@ -4544,19 +4709,20 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
 
   if (path === '/api/learning' && req.method === 'POST') {
     const body = (await req.json().catch(() => ({}))) as {
-      token?: string; email?: string; title?: string; url?: string; kind?: string; minutes?: number
+      token?: string; email?: string; title?: string; url?: string; kind?: string; minutes?: number; notes?: string
     }
     const title = String(body.title || '').trim().slice(0, 160)
     if (!title) return json({ error: 'title required' }, 400)
-    const { user, error } = await resolveAuthedUser(sql, { token: body.token, email: body.email })
+    const { user, error } = await resolveAuthedUser(sql, { token: body.token, session: body.session, email: body.email })
     if (error) return error
     const kind = ['article', 'video', 'podcast'].includes(String(body.kind)) ? String(body.kind) : 'article'
     const minutes = Math.max(1, Math.min(240, Math.round(body.minutes || 10)))
     const itemUrl = String(body.url || '').trim().slice(0, 500) || null
+    const notes = String(body.notes || '').trim().slice(0, 500) || null
     const id = crypto.randomUUID()
     await sql`
-      INSERT INTO hire_learning (id, user_id, title, url, kind, minutes)
-      VALUES (${id}, ${user!.id}, ${title}, ${itemUrl}, ${kind}, ${minutes})
+      INSERT INTO hire_learning (id, user_id, title, url, kind, minutes, notes)
+      VALUES (${id}, ${user!.id}, ${title}, ${itemUrl}, ${kind}, ${minutes}, ${notes})
     `
     return json({ ok: true, id })
   }
@@ -4567,7 +4733,7 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     }
     const id = path.split('/')[3]
     if (!id) return json({ error: 'id required' }, 400)
-    const { user, error } = await resolveAuthedUser(sql, { token: body.token, email: body.email })
+    const { user, error } = await resolveAuthedUser(sql, { token: body.token, session: body.session, email: body.email })
     if (error) return error
     if (body._delete) {
       await sql`DELETE FROM hire_learning WHERE id = ${id} AND user_id = ${user!.id}`
@@ -4582,6 +4748,7 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
   if (path === '/api/weekly-review' && req.method === 'GET') {
     const { user, error } = await resolveAuthedUser(sql, {
       token: url.searchParams.get('t') || undefined,
+      session: url.searchParams.get('s') || undefined,
       email: url.searchParams.get('email') || undefined,
     })
     if (error) return error
@@ -4655,7 +4822,7 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     const body = (await req.json().catch(() => ({}))) as {
       token?: string; email?: string; weekStart?: string; doneText?: string; slippedText?: string; focusText?: string
     }
-    const { user, error } = await resolveAuthedUser(sql, { token: body.token, email: body.email })
+    const { user, error } = await resolveAuthedUser(sql, { token: body.token, session: body.session, email: body.email })
     if (error) return error
     const weekStart = String(body.weekStart || userMonday(user!)).slice(0, 10)
     const doneText = String(body.doneText || '').trim().slice(0, 800)
@@ -4677,6 +4844,7 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
   if (path === '/api/mirror' && req.method === 'GET') {
     const { user, error } = await resolveAuthedUser(sql, {
       token: url.searchParams.get('t') || undefined,
+      session: url.searchParams.get('s') || undefined,
       email: url.searchParams.get('email') || undefined,
     })
     if (error) return error
@@ -4811,6 +4979,7 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
   if (path === '/api/network' && req.method === 'GET') {
     const { user, error } = await resolveAuthedUser(sql, {
       token: url.searchParams.get('t') || undefined,
+      session: url.searchParams.get('s') || undefined,
       email: url.searchParams.get('email') || undefined,
     })
     if (error) return error
@@ -4829,7 +4998,7 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     }
     const name = String(body.name || '').trim().slice(0, 80)
     if (!name) return json({ error: 'name required' }, 400)
-    const { user, error } = await resolveAuthedUser(sql, { token: body.token, email: body.email })
+    const { user, error } = await resolveAuthedUser(sql, { token: body.token, session: body.session, email: body.email })
     if (error) return error
     const id = crypto.randomUUID()
     const whereMet = String(body.whereMet || '').trim().slice(0, 120)
@@ -4848,7 +5017,7 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     }
     const id = path.split('/')[3]
     if (!id) return json({ error: 'id required' }, 400)
-    const { user, error } = await resolveAuthedUser(sql, { token: body.token, email: body.email })
+    const { user, error } = await resolveAuthedUser(sql, { token: body.token, session: body.session, email: body.email })
     if (error) return error
     if (body._delete) {
       await sql`DELETE FROM hire_network WHERE id = ${id} AND user_id = ${user!.id}`
@@ -4867,6 +5036,7 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
   if (path === '/api/sleep' && req.method === 'GET') {
     const { user, error } = await resolveAuthedUser(sql, {
       token: url.searchParams.get('t') || undefined,
+      session: url.searchParams.get('s') || undefined,
       email: url.searchParams.get('email') || undefined,
     })
     if (error) return error
@@ -4875,7 +5045,8 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
       FROM hire_sleep WHERE user_id = ${user!.id}
       ORDER BY sleep_date DESC LIMIT 21
     `
-    return json({ nights })
+    const prefs = await loadMiniPrefs(sql, user!.id)
+    return json({ nights, sleepBedtime: prefs.sleepBedtime, sleepWake: prefs.sleepWake })
   }
 
   if (path === '/api/sleep' && req.method === 'POST') {
@@ -4885,7 +5056,7 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     const bedtime = String(body.bedtime || '').trim()
     const wake = String(body.wake || '').trim()
     if (!bedtime || !wake) return json({ error: 'bedtime and wake required' }, 400)
-    const { user, error } = await resolveAuthedUser(sql, { token: body.token, email: body.email })
+    const { user, error } = await resolveAuthedUser(sql, { token: body.token, session: body.session, email: body.email })
     if (error) return error
     const sleepDate = String(body.sleepDate || shiftDateStr(localDateStrInTz(new Date(), user!.timezone), -1)).slice(0, 10)
     const quality = Math.max(1, Math.min(5, Math.round(body.quality || 3)))
@@ -4897,6 +5068,9 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
       ON CONFLICT (user_id, sleep_date) DO UPDATE SET
         bedtime = excluded.bedtime, wake = excluded.wake, quality = excluded.quality, note = excluded.note
     `
+    if (isClock(bedtime) && isClock(wake)) {
+      await saveMiniPrefs(sql, user!.id, { sleepBedtime: bedtime, sleepWake: wake })
+    }
     return json({ ok: true })
   }
 
@@ -4905,7 +5079,7 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     if (!body._delete) return json({ error: 'Not found' }, 404)
     const id = path.split('/')[3]
     if (!id) return json({ error: 'id required' }, 400)
-    const { user, error } = await resolveAuthedUser(sql, { token: body.token, email: body.email })
+    const { user, error } = await resolveAuthedUser(sql, { token: body.token, session: body.session, email: body.email })
     if (error) return error
     await sql`DELETE FROM hire_sleep WHERE id = ${id} AND user_id = ${user!.id}`
     return json({ ok: true })
@@ -4915,6 +5089,7 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
   if (path === '/api/pipeline' && req.method === 'GET') {
     const { user, error } = await resolveAuthedUser(sql, {
       token: url.searchParams.get('t') || undefined,
+      session: url.searchParams.get('s') || undefined,
       email: url.searchParams.get('email') || undefined,
     })
     if (error) return error
@@ -4932,7 +5107,7 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     }
     const title = String(body.title || '').trim().slice(0, 120)
     if (!title) return json({ error: 'title required' }, 400)
-    const { user, error } = await resolveAuthedUser(sql, { token: body.token, email: body.email })
+    const { user, error } = await resolveAuthedUser(sql, { token: body.token, session: body.session, email: body.email })
     if (error) return error
     const stage = PIPELINE_STAGES.includes(String(body.stage) as (typeof PIPELINE_STAGES)[number])
       ? String(body.stage)
@@ -4953,7 +5128,7 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     }
     const id = path.split('/')[3]
     if (!id) return json({ error: 'id required' }, 400)
-    const { user, error } = await resolveAuthedUser(sql, { token: body.token, email: body.email })
+    const { user, error } = await resolveAuthedUser(sql, { token: body.token, session: body.session, email: body.email })
     if (error) return error
     if (body._delete) {
       await sql`DELETE FROM hire_pipeline WHERE id = ${id} AND user_id = ${user!.id}`
@@ -4972,6 +5147,7 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
   if (path === '/api/gratitude' && req.method === 'GET') {
     const { user, error } = await resolveAuthedUser(sql, {
       token: url.searchParams.get('t') || undefined,
+      session: url.searchParams.get('s') || undefined,
       email: url.searchParams.get('email') || undefined,
     })
     if (error) return error
@@ -4992,7 +5168,7 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     const body = (await req.json().catch(() => ({}))) as { token?: string; email?: string; text?: string }
     const text = String(body.text || '').trim().slice(0, 280)
     if (!text) return json({ error: 'text required' }, 400)
-    const { user, error } = await resolveAuthedUser(sql, { token: body.token, email: body.email })
+    const { user, error } = await resolveAuthedUser(sql, { token: body.token, session: body.session, email: body.email })
     if (error) return error
     const id = crypto.randomUUID()
     await sql`INSERT INTO hire_gratitude (id, user_id, text) VALUES (${id}, ${user!.id}, ${text})`
@@ -5004,7 +5180,7 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     if (!body._delete) return json({ error: 'Not found' }, 404)
     const id = path.split('/')[3]
     if (!id) return json({ error: 'id required' }, 400)
-    const { user, error } = await resolveAuthedUser(sql, { token: body.token, email: body.email })
+    const { user, error } = await resolveAuthedUser(sql, { token: body.token, session: body.session, email: body.email })
     if (error) return error
     await sql`DELETE FROM hire_gratitude WHERE id = ${id} AND user_id = ${user!.id}`
     return json({ ok: true })
@@ -5014,6 +5190,7 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
   if (path === '/api/spending' && req.method === 'GET') {
     const { user, error } = await resolveAuthedUser(sql, {
       token: url.searchParams.get('t') || undefined,
+      session: url.searchParams.get('s') || undefined,
       email: url.searchParams.get('email') || undefined,
     })
     if (error) return error
@@ -5042,7 +5219,7 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     }
     const amount = Number(body.amount)
     if (!Number.isFinite(amount) || amount <= 0) return json({ error: 'amount required' }, 400)
-    const { user, error } = await resolveAuthedUser(sql, { token: body.token, email: body.email })
+    const { user, error } = await resolveAuthedUser(sql, { token: body.token, session: body.session, email: body.email })
     if (error) return error
     const category = SPEND_CATEGORIES.includes(String(body.category) as (typeof SPEND_CATEGORIES)[number])
       ? String(body.category)
@@ -5058,7 +5235,7 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
 
   if (path === '/api/spending/budget' && req.method === 'PUT') {
     const body = (await req.json().catch(() => ({}))) as { token?: string; email?: string; weeklyBudget?: number }
-    const { user, error } = await resolveAuthedUser(sql, { token: body.token, email: body.email })
+    const { user, error } = await resolveAuthedUser(sql, { token: body.token, session: body.session, email: body.email })
     if (error) return error
     const weeklyBudget = Math.max(10, Number(body.weeklyBudget) || 400)
     await sql`
@@ -5073,10 +5250,40 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     if (!body._delete) return json({ error: 'Not found' }, 404)
     const id = path.split('/')[3]
     if (!id) return json({ error: 'id required' }, 400)
-    const { user, error } = await resolveAuthedUser(sql, { token: body.token, email: body.email })
+    const { user, error } = await resolveAuthedUser(sql, { token: body.token, session: body.session, email: body.email })
     if (error) return error
     await sql`DELETE FROM hire_spending WHERE id = ${id} AND user_id = ${user!.id}`
     return json({ ok: true })
+  }
+
+  if (path === '/api/mini-prefs' && req.method === 'GET') {
+    const { user, error } = await resolveAuthedUser(sql, {
+      token: url.searchParams.get('t') || undefined,
+      session: url.searchParams.get('s') || undefined,
+      email: url.searchParams.get('email') || undefined,
+    })
+    if (error) return error
+    const prefs = await loadMiniPrefs(sql, user!.id)
+    return json(prefs)
+  }
+
+  if (path === '/api/mini-prefs' && req.method === 'PUT') {
+    const body = (await req.json().catch(() => ({}))) as {
+      token?: string; email?: string
+      workoutPlace?: string; workoutMoveCount?: number
+      sleepBedtime?: string; sleepWake?: string
+    }
+    const { user, error } = await resolveAuthedUser(sql, { token: body.token, session: body.session, email: body.email })
+    if (error) return error
+    const prefs = await saveMiniPrefs(sql, user!.id, {
+      workoutPlace: body.workoutPlace === 'home' || body.workoutPlace === 'gym' ? body.workoutPlace : undefined,
+      workoutMoveCount: body.workoutMoveCount === 4 || body.workoutMoveCount === 5 || body.workoutMoveCount === 6
+        ? body.workoutMoveCount
+        : undefined,
+      sleepBedtime: body.sleepBedtime,
+      sleepWake: body.sleepWake,
+    })
+    return json({ ok: true, ...prefs })
   }
 
   return null

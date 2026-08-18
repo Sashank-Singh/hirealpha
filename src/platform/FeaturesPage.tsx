@@ -4,6 +4,7 @@ import { getAgent } from '../agents'
 import type { AgentId } from '../agents/types'
 import { getActiveHireIds, getSession } from './roster'
 import { FEATURE_KINDS, KIND_TITLES, MENU_FEATURES, type MenuFeature } from './MiniAppPage'
+import { MiniAppIcon } from './MiniAppIcons'
 import {
   DecisionLedgerApp,
   DropZoneApp,
@@ -65,7 +66,7 @@ function FeatureCard({ f, auth, persona }: { f: MenuFeature; auth: FeatureAuth; 
         onClick={() => setOpen((o) => !o)}
       >
         <span className="feat-card__emoji" aria-hidden>
-          {open ? '−' : f.emoji}
+          {open ? '−' : <MiniAppIcon kind={f.kind} />}
         </span>
         <span className="feat-card__text">
           <span className="feat-card__title">{f.title}</span>

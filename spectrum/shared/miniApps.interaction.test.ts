@@ -137,7 +137,7 @@ describe('Mini-app Interaction Tests: Full Flow', () => {
 
       const text2 = 'dump this random idea'
       const result2 = detectMiniAppRequest(text2, persona)
-      expect(result2?.kind).toBe('drop_zone')
+      expect(result2?.kind).toBe('learning_queue')
     })
 
     it('learning_queue: auto-save with specific article save language', async () => {
@@ -418,9 +418,9 @@ describe('Mini-app Interaction Tests: Full Flow', () => {
       }
     })
 
-    it('plain save without URL or article keyword routes to drop_zone', () => {
+    it('plain save without URL or article keyword routes to learning_queue on friend', () => {
       const result = detectMiniAppRequest('dump this idea for later', 'friend')
-      expect(result?.kind).toBe('drop_zone')
+      expect(result?.kind).toBe('learning_queue')
     })
   })
 
@@ -483,7 +483,7 @@ describe('Mini-app Interaction Tests: Full Flow', () => {
         expect(openLoops?.kind).toBe('open_loops')
 
         const dropZone = detectMiniAppRequest('dump this for later', persona)
-        expect(dropZone?.kind).toBe('drop_zone')
+        expect(dropZone?.kind).toBe(persona === 'friend' ? 'learning_queue' : 'drop_zone')
       }
     })
 

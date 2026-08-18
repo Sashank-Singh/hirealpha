@@ -108,6 +108,7 @@ export function OpenLoopsApp({ auth }: { auth: FeatureAuth }) {
   const [title, setTitle] = useState('')
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
+  const [showAdd, setShowAdd] = useState(false)
   const today = todayStr()
 
   const load = useCallback(() => {
@@ -126,6 +127,7 @@ export function OpenLoopsApp({ auth }: { auth: FeatureAuth }) {
     try {
       await apiAddLoop({ ...a, persona: auth.persona, title: title.trim(), dueAt: today })
       setTitle('')
+      setShowAdd(false)
       load()
     } catch (error) {
       setErr(error instanceof Error ? error.message : 'Could not add that.')
@@ -162,16 +164,20 @@ export function OpenLoopsApp({ auth }: { auth: FeatureAuth }) {
       {!open.length && (
         <p className="mini__empty">Add a promise. Due today sits on top.</p>
       )}
-      <form className="ma-form" onSubmit={add}>
-        <input
-          className="ma-input"
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          placeholder="Said I would send the deck"
-          aria-label="New open loop"
-        />
-        <button className="ma-btn" type="submit" disabled={busy || !title.trim()}>Add</button>
-      </form>
+      {(showAdd || !loops.length) ? (
+        <form className="ma-form" onSubmit={add}>
+          <input
+            className="ma-input"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            placeholder="Said I would send the deck"
+            aria-label="New open loop"
+          />
+          <button className="ma-btn" type="submit" disabled={busy || !title.trim()}>Add</button>
+        </form>
+      ) : (
+        <button className="ma-btn ma-btn--quiet" type="button" onClick={() => setShowAdd(true)}>Add a promise</button>
+      )}
       {err && <p className="mini__hint">{err}</p>}
       {open.length > 1 && (
         <ul className="ma-list">
@@ -187,7 +193,6 @@ export function OpenLoopsApp({ auth }: { auth: FeatureAuth }) {
                   {!hot && <span className="ma-sub">{loopDueLabel(l, today)}</span>}
                 </div>
                 <button className="ma-chip" type="button" onClick={() => void setStatus(l.id, 'done')}>Close</button>
-                <button className="ma-chip" type="button" onClick={() => void setStatus(l.id, 'snoozed')}>Snooze</button>
               </li>
             )
           })}
@@ -226,6 +231,7 @@ export function DecisionLedgerApp({ auth }: { auth: FeatureAuth }) {
   const [line, setLine] = useState('')
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
+  const [showAdd, setShowAdd] = useState(false)
 
   const load = useCallback(() => {
     apiListDecisions(a).then((d) => setDecisions(d.decisions)).catch(() => setErr('Could not load decisions.'))
@@ -258,6 +264,7 @@ export function DecisionLedgerApp({ auth }: { auth: FeatureAuth }) {
         reviewAt: `${y}-${m}-${day}`,
       })
       setLine('')
+      setShowAdd(false)
       load()
     } catch (error) {
       setErr(error instanceof Error ? error.message : 'Could not save that.')
@@ -304,16 +311,20 @@ export function DecisionLedgerApp({ auth }: { auth: FeatureAuth }) {
         </div>
       )}
       {!decisions.length && <p className="mini__empty">Log the call in one line. Review sits on top in a week.</p>}
-      <form className="ma-form" onSubmit={add}>
-        <input
-          className="ma-input"
-          value={line}
-          onChange={(e) => setLine(e.target.value)}
-          placeholder="Ship v2 this month because speed beats polish"
-          aria-label="Decision"
-        />
-        <button className="ma-btn" type="submit" disabled={busy || !line.trim()}>Log</button>
-      </form>
+      {(showAdd || !decisions.length) ? (
+        <form className="ma-form" onSubmit={add}>
+          <input
+            className="ma-input"
+            value={line}
+            onChange={(e) => setLine(e.target.value)}
+            placeholder="Ship v2 this month because speed beats polish"
+            aria-label="Decision"
+          />
+          <button className="ma-btn" type="submit" disabled={busy || !line.trim()}>Log</button>
+        </form>
+      ) : (
+        <button className="ma-btn ma-btn--quiet" type="button" onClick={() => setShowAdd(true)}>Log another</button>
+      )}
       {err && <p className="mini__hint">{err}</p>}
       {rest.length > 0 && (
         <ul className="ma-list">
@@ -349,6 +360,7 @@ export function RelationshipRadarApp({ auth }: { auth: FeatureAuth }) {
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
   const [justTouched, setJustTouched] = useState<string | null>(null)
+  const [showAdd, setShowAdd] = useState(false)
 
   const load = useCallback(() => {
     apiListRelationships(a).then((d) => setPeople(d.relationships)).catch(() => setErr('Could not load people.'))
@@ -372,6 +384,7 @@ export function RelationshipRadarApp({ auth }: { auth: FeatureAuth }) {
         kind: split ? split[2].toLowerCase() : 'personal',
       })
       setName('')
+      setShowAdd(false)
       load()
     } catch (error) {
       setErr(error instanceof Error ? error.message : 'Could not add that.')
@@ -413,16 +426,20 @@ export function RelationshipRadarApp({ auth }: { auth: FeatureAuth }) {
           <span className="ma-sub">Next ping is whenever cadence comes due.</span>
         </div>
       )}
-      <form className="ma-form" onSubmit={add}>
-        <input
-          className="ma-input"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          placeholder="Maya (investor)"
-          aria-label="Person name"
-        />
-        <button className="ma-btn" type="submit" disabled={busy || !name.trim()}>Add</button>
-      </form>
+      {(showAdd || !people.length) ? (
+        <form className="ma-form" onSubmit={add}>
+          <input
+            className="ma-input"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="Maya (investor)"
+            aria-label="Person name"
+          />
+          <button className="ma-btn" type="submit" disabled={busy || !name.trim()}>Add</button>
+        </form>
+      ) : (
+        <button className="ma-btn ma-btn--quiet" type="button" onClick={() => setShowAdd(true)}>Add someone</button>
+      )}
       {err && <p className="mini__hint">{err}</p>}
       {rest.length > 0 && (
         <ul className="ma-list">
@@ -443,6 +460,7 @@ export function RelationshipRadarApp({ auth }: { auth: FeatureAuth }) {
                     </span>
                     <span className="ma-sub">{p.kind} · {agoLabel(p.lastTouchAt)}</span>
                   </div>
+                  <span className="ma-chip">{justTouched === p.id ? 'Logged' : 'Talked'}</span>
                 </button>
               </li>
             )
@@ -534,17 +552,6 @@ export function DropZoneApp({ auth }: { auth: FeatureAuth }) {
 
   return (
     <div className="ma">
-      <form className="ma-form" onSubmit={add}>
-        <input
-          className="ma-input"
-          value={content}
-          onChange={(e) => setContent(e.target.value)}
-          placeholder="Dump a thought, link, or name"
-          aria-label="Drop content"
-        />
-        <button className="ma-btn" type="submit" disabled={busy || !content.trim()}>Drop</button>
-      </form>
-      {err && <p className="mini__hint">{err}</p>}
       {!drops.length && <p className="mini__empty">Dump anything. Then file it as learning, a loop, or a person.</p>}
       {next && (
         <div className="ma-callout">
@@ -568,6 +575,17 @@ export function DropZoneApp({ auth }: { auth: FeatureAuth }) {
           </div>
         </div>
       )}
+      <form className="ma-form" onSubmit={add}>
+        <input
+          className="ma-input"
+          value={content}
+          onChange={(e) => setContent(e.target.value)}
+          placeholder="Dump a thought, link, or name"
+          aria-label="Drop content"
+        />
+        <button className="ma-btn" type="submit" disabled={busy || !content.trim()}>Drop</button>
+      </form>
+      {err && <p className="mini__hint">{err}</p>}
       {unsorted.length > 1 && (
         <ul className="ma-list">
           {unsorted.filter((d) => d.id !== next?.id).map((d) => {
@@ -614,6 +632,7 @@ export function MeetingModeApp({ auth }: { auth: FeatureAuth }) {
   const [recFor, setRecFor] = useState<string | null>(null)
   const [transcribing, setTranscribing] = useState<string | null>(null)
   const [styleErr, setStyleErr] = useState('')
+  const [showAdd, setShowAdd] = useState(false)
   const recRef = useRef<{ media: MediaRecorder | null; chunks: Blob[]; start: number }>({
     media: null,
     chunks: [],
@@ -636,6 +655,7 @@ export function MeetingModeApp({ auth }: { auth: FeatureAuth }) {
     try {
       await apiAddMeeting({ ...a, title: title.trim() })
       setTitle('')
+      setShowAdd(false)
       load()
     } catch (error) {
       setErr(error instanceof Error ? error.message : 'Could not add that.')
@@ -799,16 +819,20 @@ export function MeetingModeApp({ auth }: { auth: FeatureAuth }) {
         </div>
       )}
       {!meetings.length && <p className="mini__empty">Name the meeting. Memo and wrap sit on top.</p>}
-      <form className="ma-form" onSubmit={add}>
-        <input
-          className="ma-input"
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          placeholder="Staff review"
-          aria-label="Meeting title"
-        />
-        <button className="ma-btn" type="submit" disabled={busy || !title.trim()}>Add</button>
-      </form>
+      {(showAdd || !meetings.length) ? (
+        <form className="ma-form" onSubmit={add}>
+          <input
+            className="ma-input"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            placeholder="Staff review"
+            aria-label="Meeting title"
+          />
+          <button className="ma-btn" type="submit" disabled={busy || !title.trim()}>Add</button>
+        </form>
+      ) : (
+        <button className="ma-btn ma-btn--quiet" type="button" onClick={() => setShowAdd(true)}>Add a meeting</button>
+      )}
       {err && <p className="mini__hint">{err}</p>}
       {styleErr && <p className="mini__hint">{styleErr}</p>}
       {recording && (
@@ -846,8 +870,8 @@ export function MeetingModeApp({ auth }: { auth: FeatureAuth }) {
 /* -------------------------------- Nutrition ----------------------------- */
 
 const QUICK_ADD = [
-  { label: '💧 Water', desc: '1 glass of water', cal: 0, p: 0, c: 0, f: 0 },
-  { label: '☕ Coffee', desc: '1 cup black coffee', cal: 5, p: 0, c: 0, f: 0 },
+  { label: 'Water', desc: '1 glass of water', cal: 0, p: 0, c: 0, f: 0 },
+  { label: 'Coffee', desc: '1 cup black coffee', cal: 5, p: 0, c: 0, f: 0 },
 ] as const
 
 function CalorieRing({ current, goal }: { current: number; goal: number }) {
@@ -878,25 +902,51 @@ function CalorieRing({ current, goal }: { current: number; goal: number }) {
   )
 }
 
-function MacroPill({ label, current, goal, color }: { label: string; current: number; goal: number; color: string }) {
+function MacroPill({ label, current, goal }: { label: string; current: number; goal: number }) {
   const pct = goal > 0 ? Math.min(100, Math.round((current / goal) * 100)) : 0
   return (
     <div className="nutr-pill">
       <div className="nutr-pill-top">
-        <span className="nutr-pill-label" style={{ color }}>{label}</span>
-        <span className="nutr-pill-val">{Math.round(current)}<span className="nutr-pill-of">/{goal}g</span></span>
+        <span className="nutr-pill-label">{label}</span>
+        <span className="nutr-pill-val">{Math.round(current)}<span className="nutr-pill-of"> / {goal}g</span></span>
       </div>
       <div className="nutr-pill-track">
-        <div className="nutr-pill-fill" style={{ width: `${pct}%`, background: color }} />
+        <div className="nutr-pill-fill" style={{ width: `${pct}%` }} />
       </div>
     </div>
   )
+}
+
+function groupNutritionHistory(logs: NutritionLog[]): Array<{ day: string; label: string; meals: NutritionLog[] }> {
+  const byDay = new Map<string, NutritionLog[]>()
+  for (const l of logs) {
+    const d = new Date(l.eatenAt)
+    const key = Number.isNaN(d.getTime())
+      ? l.eatenAt.slice(0, 10)
+      : `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+    const arr = byDay.get(key)
+    if (arr) arr.push(l)
+    else byDay.set(key, [l])
+  }
+  return [...byDay.entries()].map(([day, meals]) => {
+    const [y, m, d] = day.split('-').map(Number)
+    return {
+      day,
+      meals,
+      label: new Date(y || 1970, (m || 1) - 1, d || 1).toLocaleDateString('en-US', {
+        weekday: 'short',
+        month: 'short',
+        day: 'numeric',
+      }),
+    }
+  })
 }
 
 export function NutritionApp({ auth }: { auth: FeatureAuth }) {
   const a = useAuthed(auth)
   const [goals, setGoals] = useState<NutritionGoals | null>(null)
   const [logs, setLogs] = useState<NutritionLog[]>([])
+  const [history, setHistory] = useState<NutritionLog[]>([])
   const [totals, setTotals] = useState({ calories: 0, protein: 0, carbs: 0, fat: 0 })
   const [desc, setDesc] = useState('')
   const [busy, setBusy] = useState(false)
@@ -912,6 +962,7 @@ export function NutritionApp({ auth }: { auth: FeatureAuth }) {
       .then((d) => {
         setGoals(d.goals)
         setLogs(d.logs)
+        setHistory(d.history || [])
         setTotals(d.totals)
         if (d.goals) {
           setGoalInput({
@@ -1024,7 +1075,13 @@ export function NutritionApp({ auth }: { auth: FeatureAuth }) {
     if (busy) return
     setBusy(true)
     try {
-      await apiSetNutritionGoals({ ...a, ...goalInput })
+      await apiSetNutritionGoals({
+        ...a,
+        calorieGoal: goalInput.calories,
+        proteinGoal: goalInput.protein,
+        carbsGoal: goalInput.carbs,
+        fatGoal: goalInput.fat,
+      })
       load()
       setShowGoals(false)
     } catch (error) {
@@ -1039,22 +1096,24 @@ export function NutritionApp({ auth }: { auth: FeatureAuth }) {
     return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
   }
 
+  const historyDays = groupNutritionHistory(history)
+
   return (
-    <div className="nutr">
+    <div className="ma nutr">
       {/* Hero ring + macro pills */}
       <div className="nutr-hero">
         <CalorieRing current={totals.calories} goal={g.calorieGoal} />
         <div className="nutr-pills">
-          <MacroPill label="Protein" current={totals.protein} goal={g.proteinGoal} color="#f97316" />
-          <MacroPill label="Carbs" current={totals.carbs} goal={g.carbsGoal} color="#3b82f6" />
-          <MacroPill label="Fat" current={totals.fat} goal={g.fatGoal} color="#a855f7" />
+          <MacroPill label="Protein" current={totals.protein} goal={g.proteinGoal} />
+          <MacroPill label="Carbs" current={totals.carbs} goal={g.carbsGoal} />
+          <MacroPill label="Fat" current={totals.fat} goal={g.fatGoal} />
         </div>
       </div>
       <p className="nutr-insight">{nutrInsight}</p>
 
       {/* Quick add */}
       <div className="nutr-quick-section">
-        <span className="nutr-quick-label">Quick Add</span>
+        <span className="nutr-quick-label">Quick</span>
         <div className="nutr-quick">
           {QUICK_ADD.map((item) => (
             <button key={item.label} className="nutr-quick-btn" type="button" disabled={busy} onClick={() => void quickAdd(item)}>
@@ -1068,8 +1127,7 @@ export function NutritionApp({ auth }: { auth: FeatureAuth }) {
       <div className="nutr-input-row">
         <label className="nutr-photo-btn">
           <input ref={fileRef} type="file" accept="image/*" onChange={(e) => pickImage(e.target.files?.[0])} aria-label="Photo of food" />
-          <span>{analyzing ? '⏳' : '📷'}</span>
-          <span className="nutr-photo-text">Photo</span>
+          <span className="nutr-photo-text">{analyzing ? 'Wait' : 'Photo'}</span>
         </label>
         <form className="nutr-input-form" onSubmit={add}>
           <input
@@ -1142,6 +1200,34 @@ export function NutritionApp({ auth }: { auth: FeatureAuth }) {
         )}
       </section>
 
+      {historyDays.length > 0 && (
+        <section className="nutr-meals">
+          <h3>Earlier</h3>
+          {historyDays.map(({ day, label, meals }) => (
+            <div key={day}>
+              <p className="nutr-earlier-day">{label}</p>
+              <ul className="nutr-meal-list">
+                {meals.map((l) => (
+                  <li key={l.id} className="nutr-meal-card" onClick={() => setSelectedMeal(l)}>
+                    <div className="nutr-meal-time">{mealTime(l.eatenAt)}</div>
+                    {l.imageUrl ? <img src={l.imageUrl} alt="" className="nutr-meal-thumb" loading="lazy" /> : null}
+                    <div className="nutr-meal-info">
+                      <span className="nutr-meal-name">{l.description}</span>
+                      <span className="nutr-meal-macros">
+                        {Math.round(l.calories)} cal · {Math.round(l.protein)}p · {Math.round(l.carbs)}c · {Math.round(l.fat)}f
+                      </span>
+                    </div>
+                    <button className="nutr-meal-delete" type="button" onClick={(e) => { e.stopPropagation(); void deleteMeal(l.id) }} title="Remove">
+                      ×
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
+        </section>
+      )}
+
       {/* Meal detail modal */}
       {selectedMeal && (
         <div className="nutr-modal-overlay" onClick={() => setSelectedMeal(null)}>
@@ -1156,15 +1242,15 @@ export function NutritionApp({ auth }: { auth: FeatureAuth }) {
                 <span className="nutr-modal-macro-label">Calories</span>
               </div>
               <div className="nutr-modal-macro">
-                <span className="nutr-modal-macro-val" style={{ color: '#f97316' }}>{Math.round(selectedMeal.protein)}g</span>
+                <span className="nutr-modal-macro-val">{Math.round(selectedMeal.protein)}g</span>
                 <span className="nutr-modal-macro-label">Protein</span>
               </div>
               <div className="nutr-modal-macro">
-                <span className="nutr-modal-macro-val" style={{ color: '#3b82f6' }}>{Math.round(selectedMeal.carbs)}g</span>
+                <span className="nutr-modal-macro-val">{Math.round(selectedMeal.carbs)}g</span>
                 <span className="nutr-modal-macro-label">Carbs</span>
               </div>
               <div className="nutr-modal-macro">
-                <span className="nutr-modal-macro-val" style={{ color: '#a855f7' }}>{Math.round(selectedMeal.fat)}g</span>
+                <span className="nutr-modal-macro-val">{Math.round(selectedMeal.fat)}g</span>
                 <span className="nutr-modal-macro-label">Fat</span>
               </div>
             </div>
@@ -1177,9 +1263,9 @@ export function NutritionApp({ auth }: { auth: FeatureAuth }) {
                 const fPct = (selectedMeal.fat / total) * 100
                 return (
                   <div className="nutr-modal-bar-inner">
-                    <div style={{ width: `${pPct}%`, background: '#f97316' }} />
-                    <div style={{ width: `${cPct}%`, background: '#3b82f6' }} />
-                    <div style={{ width: `${fPct}%`, background: '#a855f7' }} />
+                    <div style={{ width: `${pPct}%` }} />
+                    <div style={{ width: `${cPct}%` }} />
+                    <div style={{ width: `${fPct}%` }} />
                   </div>
                 )
               })()}
@@ -1196,7 +1282,6 @@ export function NutritionApp({ auth }: { auth: FeatureAuth }) {
 
 /* ------------------------------ Habit Streak Board ------------------------------ */
 
-const HABIT_EMOJIS = ['💪', '📚', '🧘', '🏃', '💧', '🍎', '😴', '🎯', '✍️', '🎵', '🧹', '💊'] as const
 
 function localDateStr(d = new Date()) {
   const y = d.getFullYear()
@@ -1239,7 +1324,6 @@ export function HabitStreakApp({ auth }: { auth: FeatureAuth }) {
   const a = useAuthed(auth)
   const [habits, setHabits] = useState<(Habit & { streak: number; recentDays: string[] })[]>([])
   const [name, setName] = useState('')
-  const [emoji, setEmoji] = useState('💪')
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState('')
   const [days, setDays] = useState<string[]>(() => currentWeekDays())
@@ -1259,7 +1343,7 @@ export function HabitStreakApp({ auth }: { auth: FeatureAuth }) {
     if (!name.trim() || busy) return
     setBusy(true)
     try {
-      await apiAddHabit({ ...a, name: name.trim(), emoji })
+      await apiAddHabit({ ...a, name: name.trim(), emoji: '·' })
       setName('')
       setShowAdd(false)
       load()
@@ -1316,17 +1400,14 @@ export function HabitStreakApp({ auth }: { auth: FeatureAuth }) {
   }
 
   const addForm = (
-    <form className="habit-add" onSubmit={add}>
-      <select className="nutr-goal-input" value={emoji} onChange={(e) => setEmoji(e.target.value)} style={{ width: 52, textAlign: 'center', fontSize: 18 }} aria-label="Habit emoji">
-        {HABIT_EMOJIS.map((em) => <option key={em} value={em}>{em}</option>)}
-      </select>
-      <input value={name} onChange={(e) => setName(e.target.value)} placeholder="New habit" aria-label="Habit name" />
-      <button className="habit-add-btn" type="submit" disabled={busy || !name.trim()}>Add</button>
+    <form className="ma-form" onSubmit={add}>
+      <input className="ma-input" value={name} onChange={(e) => setName(e.target.value)} placeholder="New habit" aria-label="Habit name" />
+      <button className="ma-btn" type="submit" disabled={busy || !name.trim()}>Add</button>
     </form>
   )
 
   return (
-    <div className="habit">
+    <div className="ma habit">
       <div className="ma-hero">
         <span className="ma-hero-kicker">Today</span>
         <span className="ma-hero-num">
@@ -1355,10 +1436,9 @@ export function HabitStreakApp({ auth }: { auth: FeatureAuth }) {
             const done = h.recentDays.includes(today)
             return (
               <li key={h.id} className="habit-card">
-                <span className="habit-emoji">{h.emoji}</span>
                 <div className="habit-info">
                   <div className="habit-name">{h.name}</div>
-                  <div className="habit-streak">{h.streak ? `🔥 ${h.streak} day streak` : 'No streak yet'}</div>
+                  <div className="habit-streak">{h.streak ? `${h.streak} day streak` : 'No streak yet'}</div>
                 </div>
                 <div className="habit-days">
                   {days.map((d) => (
@@ -1372,12 +1452,16 @@ export function HabitStreakApp({ auth }: { auth: FeatureAuth }) {
                     </button>
                   ))}
                 </div>
-                {!done && (
-                  <button className="ma-chip ma-chip--go" type="button" disabled={busy} onClick={() => void toggle(h.id, today)}>
-                    Did it
+                {!done ? (
+                  <button className="ma-chip" type="button" disabled={busy} onClick={() => void toggle(h.id, today)}>
+                    Mark
+                  </button>
+                ) : (
+                  <button className="ma-chip ma-chip--on" type="button" disabled={busy} onClick={() => void toggle(h.id, today)}>
+                    Done
                   </button>
                 )}
-                <button className="habit-delete" type="button" onClick={() => void remove(h.id)} title="Delete">×</button>
+                <button className="habit-delete" type="button" onClick={() => void remove(h.id)} title="Remove">×</button>
               </li>
             )
           })}
@@ -1396,7 +1480,13 @@ export function HabitStreakApp({ auth }: { auth: FeatureAuth }) {
 
 /* ------------------------------ Mood & Energy Tracker ------------------------------ */
 
-const MOOD_EMOJIS = ['😄', '🙂', '😐', '😔', '😤'] as const
+const MOOD_CHOICES = [
+  { emoji: '😄', label: 'Good' },
+  { emoji: '🙂', label: 'Okay' },
+  { emoji: '😐', label: 'Low' },
+  { emoji: '😔', label: 'Off' },
+  { emoji: '😤', label: 'Hot' },
+] as const
 const MOOD_DAY_LETTERS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'] as const
 
 function last7LocalDates(): string[] {
@@ -1417,7 +1507,15 @@ export function MoodTrackerApp({ auth }: { auth: FeatureAuth }) {
   const [msg, setMsg] = useState('')
 
   const load = useCallback(() => {
-    apiListMoods(a).then((d) => { setEntries(d.entries); setStreak(d.streak) }).catch(() => setMsg('Could not load moods.'))
+    apiListMoods(a)
+      .then((d) => {
+        setEntries(d.entries || [])
+        setStreak(d.streak || 0)
+        setMsg('')
+      })
+      .catch((err) =>
+        setMsg(err instanceof Error && err.message ? err.message : 'Could not load moods.'),
+      )
   }, [a.email, a.token])
 
   useEffect(() => { load() }, [load])
@@ -1444,6 +1542,20 @@ export function MoodTrackerApp({ auth }: { auth: FeatureAuth }) {
     }
   }
 
+  async function pickEnergy(n: number) {
+    setEnergy(n)
+    if (!todayEntry || busy) return
+    setBusy(true)
+    try {
+      await apiLogMood({ ...a, emoji: todayEntry.emoji, energy: n })
+      load()
+    } catch {
+      setMsg('Could not log energy.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const week = last7LocalDates()
   const byDay = new Map<string, MoodEntry>()
   for (const e of [...entries].reverse()) byDay.set(isoToLocalDate(e.createdAt), e)
@@ -1452,47 +1564,58 @@ export function MoodTrackerApp({ auth }: { auth: FeatureAuth }) {
     : 0
 
   return (
-    <div className="mood">
+    <div className="ma mood">
       <div className="ma-hero">
         <span className="ma-hero-kicker">{todayEntry ? 'Today' : 'Not logged'}</span>
         <span className="ma-hero-num">
-          {todayEntry ? `${todayEntry.emoji}  ${todayEntry.energy}/5` : 'How do you feel'}
+          {todayEntry
+            ? (MOOD_CHOICES.find((c) => c.emoji === todayEntry.emoji)?.label || todayEntry.emoji)
+            : 'How do you feel'}
         </span>
         <span className="ma-hero-label">
           {streak > 0
             ? `${streak} day streak${avgEnergy ? `. Avg energy ${avgEnergy.toFixed(1)}` : ''}`
-            : 'Tap a face. That is today\'s log.'}
+            : todayEntry
+              ? `Energy ${todayEntry.energy}/5`
+              : 'Tap a mood.'}
         </span>
       </div>
 
       <div className="mood-emoji-row">
-        {MOOD_EMOJIS.map((em) => (
+        {MOOD_CHOICES.map((choice) => (
           <button
-            key={em}
-            className={`mood-emoji-btn${todayEntry?.emoji === em ? ' selected' : ''}`}
+            key={choice.emoji}
+            className={`mood-emoji-btn${todayEntry?.emoji === choice.emoji ? ' selected' : ''}`}
             type="button"
             disabled={busy}
-            onClick={() => void logEmoji(em)}
+            onClick={() => void logEmoji(choice.emoji)}
           >
-            {em}
+            {choice.label}
           </button>
         ))}
       </div>
 
-      <div className="ma-pills" aria-label="Energy">
+      <span className="ma-hero-kicker">Energy</span>
+      <div className="mood-energy-row" aria-label="Energy">
         {[1, 2, 3, 4, 5].map((n) => (
           <button
             key={n}
             type="button"
             className={`ma-chip${energy === n ? ' ma-chip--on' : ''}`}
-            onClick={() => setEnergy(n)}
+            disabled={busy}
+            onClick={() => void pickEnergy(n)}
           >
             {n}
           </button>
         ))}
       </div>
 
-      {msg && <p className="mini__hint">{msg}</p>}
+      {msg && (
+        <p className="mini__hint">
+          {msg}{' '}
+          <button className="ma-btn ma-btn--quiet" type="button" onClick={load}>Retry</button>
+        </p>
+      )}
 
       <div className="mood-strip">
         {week.map((d) => {
@@ -1508,9 +1631,9 @@ export function MoodTrackerApp({ auth }: { auth: FeatureAuth }) {
         })}
       </div>
 
-      {entries.length ? (
+      {entries.length > 0 && (
         <ul className="mood-list">
-          {entries.slice(0, 6).map((e) => (
+          {entries.slice(0, 14).map((e) => (
             <li key={e.id} className="mood-entry">
               <span className="mood-entry-emoji">{e.emoji}</span>
               <div className="mood-entry-info">
@@ -1521,8 +1644,6 @@ export function MoodTrackerApp({ auth }: { auth: FeatureAuth }) {
             </li>
           ))}
         </ul>
-      ) : (
-        <p className="mini__empty">Tap a face. That is today's log.</p>
       )}
     </div>
   )
