@@ -629,42 +629,6 @@
   opacity: 0.22;
   cursor: default;
 }
-.kit__tools {
-  width: min(1100px, calc(100% - 28px));
-  margin: 28px auto 0;
-}
-.kit__tools h3 {
-  font-size: 12px;
-  font-weight: 800;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--accent);
-  margin-bottom: 12px;
-}
-.kit__tools ul {
-  list-style: none;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  margin: 0;
-  padding: 0;
-}
-.kit__tools li {
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  background: #fff;
-  border: 2px solid var(--ink);
-  border-radius: 999px;
-  padding: 6px 14px 6px 6px;
-  font-size: 13px;
-  font-weight: 800;
-}
-.kit__tools .conn-mark {
-  border-radius: 999px;
-  border-width: 2px;
-  border-color: var(--ink);
-}
 
 .deed-card__imsg {
   margin-top: 16px;

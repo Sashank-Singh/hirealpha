@@ -1,8 +1,6 @@
 import { motion, AnimatePresence } from 'framer-motion'
 import { useState, useEffect, useCallback, useRef, type FormEvent, type CSSProperties } from 'react'
 import { AlphaFace } from './AlphaFace'
-import { ConnectorLogo } from './platform/ConnectorLogo'
-import { connectorsForHire } from './platform/connectors'
 import './index.css'
 import './landing-stage.css'
 
@@ -358,8 +356,6 @@ function Apps({
   hire: AgentId
   onPick: (id: AgentId) => void
 }) {
-  const agent = AGENTS.find((a) => a.id === hire)!
-  const tools = connectorsForHire(hire)
   return (
     <section className="kit section" id="apps" aria-labelledby="apps-heading">
       <div className="kit__intro container">
@@ -384,17 +380,6 @@ function Apps({
         ))}
       </div>
       <AppDeck hire={hire} />
-      <div className="kit__tools">
-        <h3>Connectors {agent.name} can use</h3>
-        <ul>
-          {tools.map((c) => (
-            <li key={c.id}>
-              <ConnectorLogo id={c.id} size={26} />
-              <span>{c.name}</span>
-            </li>
-          ))}
-        </ul>
-      </div>
     </section>
   )
 }
