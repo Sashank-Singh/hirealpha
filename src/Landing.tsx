@@ -3,7 +3,6 @@ import { useState, useEffect, useCallback, useRef, type FormEvent, type CSSPrope
 import { AlphaFace } from './AlphaFace'
 import { ConnectorLogo } from './platform/ConnectorLogo'
 import { connectorsForHire } from './platform/connectors'
-import { MiniAppIcon } from './platform/MiniAppIcons'
 import './index.css'
 import './landing-stage.css'
 
@@ -257,7 +256,7 @@ const HIRE_APPS: Record<AgentId, { kind: string; title: string; blurb: string }[
   ],
 }
 
-function AppDeck({ hire, color }: { hire: AgentId; color: string }) {
+function AppDeck({ hire }: { hire: AgentId }) {
   const apps = HIRE_APPS[hire]
   const scroller = useRef<HTMLDivElement>(null)
   const [i, setI] = useState(0)
@@ -320,14 +319,8 @@ function AppDeck({ hire, color }: { hire: AgentId; color: string }) {
             role="listitem"
             aria-current={n === i}
           >
-            <span className="kit-card__mark" style={{ color }}>
-              <MiniAppIcon kind={app.kind} />
-            </span>
             <strong>{app.title}</strong>
             <p>{app.blurb}</p>
-            <span className="kit-card__count">
-              {n + 1} / {apps.length}
-            </span>
           </article>
         ))}
       </div>
@@ -339,12 +332,10 @@ function AppDeck({ hire, color }: { hire: AgentId; color: string }) {
           disabled={i === 0}
           onClick={() => go(i - 1)}
         >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
-            <path d="M15 6l-6 6 6 6" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
+          ←
         </button>
         <p>
-          Swipe {apps[i]?.title}
+          {String(i + 1).padStart(2, '0')} / {String(apps.length).padStart(2, '0')}
         </p>
         <button
           type="button"
@@ -353,23 +344,8 @@ function AppDeck({ hire, color }: { hire: AgentId; color: string }) {
           disabled={i === apps.length - 1}
           onClick={() => go(i + 1)}
         >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
-            <path d="M9 6l6 6-6 6" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
+          →
         </button>
-      </div>
-      <div className="kit-deck__dots" role="tablist" aria-label="App cards">
-        {apps.map((app, n) => (
-          <button
-            key={app.kind}
-            type="button"
-            role="tab"
-            aria-label={app.title}
-            aria-selected={n === i}
-            className={n === i ? 'is-on' : ''}
-            onClick={() => go(n)}
-          />
-        ))}
       </div>
     </div>
   )
@@ -389,7 +365,7 @@ function Apps({
       <div className="kit__intro container">
         <p className="deed__eyebrow">In Messages</p>
         <h2 id="apps-heading">Apps they open from a text.</h2>
-        <p>Swipe the cards. Nutrition, Today, Mirror, and the rest live in the thread.</p>
+        <p>Swipe through. Nutrition, Today, Mirror, and the rest live in the thread.</p>
       </div>
       <div className="kit__hires" role="tablist" aria-label="Apps by hire">
         {AGENTS.map((a) => (
@@ -407,7 +383,7 @@ function Apps({
           </button>
         ))}
       </div>
-      <AppDeck hire={hire} color={agent.color} />
+      <AppDeck hire={hire} />
       <div className="kit__tools">
         <h3>Connectors {agent.name} can use</h3>
         <ul>
