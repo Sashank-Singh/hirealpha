@@ -1,8 +1,8 @@
 import { useEffect, useState, type CSSProperties } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
+import { AlphaFace, type AlphaFaceMood } from '../AlphaFace'
 import { getAgent } from '../agents'
 import type { AgentId } from '../agents/types'
-import { apiSetup, apiSetupStatus } from './api'
 import { getSession } from './roster'
 import {
   DecisionLedgerApp,
@@ -49,6 +49,12 @@ interface MiniPayload {
 }
 
 const LIVE_MINI_KINDS = new Set(['digest', 'pick_night', 'standup_paste', 'kill_keep_park'])
+
+const FACE_MOOD: Record<AgentId, AlphaFaceMood> = {
+  friend: 'soft',
+  coworker: 'sharp',
+  cofounder: 'bold',
+}
 
 /** Feature kinds rendered by their own interactive component, not /api/mini. */
 export const FEATURE_KINDS = new Set([
@@ -133,8 +139,28 @@ export const MENU_FEATURES: Record<string, MenuFeature[]> = {
   ],
 }
 
+
+export const APP_STORE_GROUPS: Record<string, { label: string; kinds: string[] }[]> = {
+  friend: [
+    { label: 'Life', kinds: ['nutrition', 'habit_streak', 'mood_tracker', 'workout_log', 'sleep_tracker', 'gratitude_journal', 'spending_snapshot', 'mirror'] },
+    { label: 'People', kinds: ['networking_crm', 'relationship_radar', 'open_loops', 'drop_zone'] },
+    { label: 'Day', kinds: ['digest', 'weekly_review', 'learning_queue', 'pipeline_board', 'pick_night', 'check_in', 'spiral_options'] },
+  ],
+  coworker: [
+    { label: 'Day', kinds: ['digest', 'standup_paste', 'meeting_mode', 'weekly_review', 'pick_slot'] },
+    { label: 'Work', kinds: ['approve_send', 'linear_triage', 'learning_queue'] },
+    { label: 'People', kinds: ['networking_crm', 'open_loops', 'drop_zone', 'mirror'] },
+  ],
+  cofounder: [
+    { label: 'Work', kinds: ['pipeline_board', 'kill_keep_park', 'hire_decision', 'approve_investor_note', 'weekly_review', 'spending_snapshot'] },
+    { label: 'People', kinds: ['networking_crm', 'relationship_radar', 'open_loops', 'drop_zone'] },
+    { label: 'Day', kinds: ['digest', 'decision_ledger', 'mirror'] },
+  ],
+}
+
 export const KIND_TITLES: Record<string, { title: string; blurb: string }> = {
-  menu: { title: 'What do you want from me?', blurb: 'Pick the features you want. You can change anytime.' },
+  menu: { title: 'Apps', blurb: 'Tap one to open it.' },
+  apps: { title: 'Apps', blurb: 'Tap one to open it.' },
   digest: { title: 'Morning brief', blurb: 'Your day at a glance — calendar, important mail, and reminders.' },
   approve_send: { title: 'Approve & send', blurb: 'Review the draft and approve it to send.' },
   pick_slot: { title: 'Pick a slot', blurb: 'Compare meeting times and pick the one that works.' },
@@ -178,18 +204,14 @@ export function MiniAppPage() {
   const [data, setData] = useState<DigestData | null>(null)
   const [mini, setMini] = useState<MiniPayload | null>(null)
   const [loading, setLoading] = useState(true)
-  const [status, setStatus] = useState<'idle' | 'busy' | 'done' | 'error'>('idle')
-  const [setupError, setSetupError] = useState('')
   const [expired, setExpired] = useState(false)
-  const [selected, setSelected] = useState<string[]>([])
-  const [savedFeatures, setSavedFeatures] = useState<string[]>([])
-  const [setupDone, setSetupDone] = useState(false)
 
   const isDigest = kind === 'digest'
   const isMenu = kind === 'menu'
+  const isApps = kind === 'apps' || isMenu
   const isLiveMini = LIVE_MINI_KINDS.has(kind || '')
   const isFeature = FEATURE_KINDS.has(kind || '')
-  const isKnown = isLiveMini || isFeature || isMenu || isDigest
+  const isKnown = isLiveMini || isFeature || isApps || isDigest
 
   useEffect(() => {
     let cancelled = false
@@ -239,75 +261,48 @@ export function MiniAppPage() {
   const email = getSession()?.email
   const authed = !!token || !!email
   const features = MENU_FEATURES[persona || ''] ?? []
-
-  useEffect(() => {
-    let cancelled = false
-    if (!authed || !isMenu) return
-    apiSetupStatus({ persona: (persona as AgentId) || 'friend', email: email || undefined, token: token || undefined })
-      .then((st) => {
-        if (cancelled) return
-        setSavedFeatures(st.setup)
-        setSetupDone(st.setupDone)
-        setSelected(st.setup)
-      })
-      .catch(() => {
-        if (cancelled) return
-        setSetupError('Could not load your features. Please try again.')
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [authed, isMenu, persona, email, token])
-
-  function toggle(feature: MenuFeature) {
-    setSelected((prev) => (prev.includes(feature.kind) ? prev.filter((k) => k !== feature.kind) : [...prev, feature.kind]))
-  }
-
-  async function saveSetup() {
-    if (!authed || status === 'busy') return
-    setStatus('busy')
-    setSetupError('')
-    try {
-      await apiSetup({
-        persona: (persona as AgentId) || 'friend',
-        features: selected,
-        done: true,
-        email: email || undefined,
-        token: token || undefined,
-      })
-      setSavedFeatures(selected)
-      setSetupDone(true)
-      setStatus('done')
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : ''
-      if (/expired/i.test(msg)) {
-        setExpired(true)
-      } else {
-        setStatus('error')
-        setSetupError(msg || 'Could not set that up right now.')
-      }
-    }
-  }
-
-  function editSetup() {
-    setStatus('idle')
-    setSetupDone(false)
-  }
-
-  const allFeatures = MENU_FEATURES[(persona as AgentId) || 'friend'] ?? []
+  const storeGroups = (APP_STORE_GROUPS[persona || ''] ?? []).map((group) => ({
+    ...group,
+    items: group.kinds
+      .map((k) => features.find((f) => f.kind === k))
+      .filter((f): f is MenuFeature => !!f),
+  })).filter((g) => g.items.length > 0)
+  const search = searchParams.toString()
+  const q = search ? `?${search}` : ''
+  const appsHref = `/app/mini/${persona || 'friend'}/apps${q}`
+  const openHref = (featureKind: string) => `/app/mini/${persona || 'friend'}/${featureKind}${q}`
 
   return (
     <div className="mini" style={{ '--mini-accent': agent.color } as CSSProperties}>
       <div className="mini__card">
         <header className="mini__head">
-          <span className="mini__avatar" aria-hidden>
-            {agent.initial}
+          {!isApps && (
+            <Link className="mini__nav" to={appsHref} aria-label="Back to all apps">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path
+                  d="M15 6l-6 6 6 6"
+                  stroke="currentColor"
+                  strokeWidth="2.25"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            </Link>
+          )}
+          <span className="mini__avatar">
+            <AlphaFace color={agent.color} mood={FACE_MOOD[agent.id]} size={42} />
           </span>
           <div className="mini__who">
             <p className="mini__name">{agent.imsgName}</p>
-            <p className="mini__role">{isMenu ? 'Your features' : isKnown ? kindInfo.title : agent.role}</p>
+            <p className="mini__role">{isApps ? 'Apps' : isKnown ? kindInfo.title : agent.role}</p>
           </div>
-          <span className="mini__brand">HireAlpha</span>
+          {isApps ? (
+            <span className="mini__brand">Alpha</span>
+          ) : (
+            <Link className="mini__back" to={appsHref}>
+              All apps
+            </Link>
+          )}
         </header>
 
         {!authed && (
@@ -328,57 +323,22 @@ export function MiniAppPage() {
           </div>
         )}
 
-        {authed && !expired && isMenu && (
+        {authed && !expired && isApps && (
           <div className="mini__body">
-            {setupDone ? (
-              <div className="mini__done">
-                <p className="mini__done-title">Your features are set up.</p>
-                <p className="mini__blurb">
-                  {savedFeatures
-                    .map((k) => allFeatures.find((f) => f.kind === k))
-                    .filter(Boolean)
-                    .map((f) => `${f!.emoji} ${f!.title}`)
-                    .join(' · ') || 'Nothing enabled yet.'}
-                </p>
-                <button type="button" className="mini__again" onClick={editSetup}>
-                  Change features
-                </button>
-              </div>
-            ) : (
-              <>
-                <p className="mini__blurb">Pick the features you want. You can change anytime.</p>
-                <div className="mini__menu">
-                  {features.map((f) => {
-                    const on = selected.includes(f.kind)
-                    return (
-                      <button
-                        key={f.kind}
-                        type="button"
-                        className={`mini__feature${on ? ' mini__feature--on' : ''}`}
-                        onClick={() => toggle(f)}
-                      >
-                        <span className="mini__feature-emoji" aria-hidden>
-                          {on ? '✓' : f.emoji}
-                        </span>
-                        <span className="mini__feature-text">
-                          <span className="mini__feature-title">{f.title}</span>
-                          <span className="mini__feature-blurb">{f.blurb}</span>
-                        </span>
-                      </button>
-                    )
-                  })}
-                  {status === 'error' && <p className="mini__empty">{setupError}</p>}
-                </div>
-                <button
-                  type="button"
-                  className="mini__cta"
-                  disabled={status === 'busy' || selected.length === 0}
-                  onClick={() => void saveSetup()}
-                >
-                  {status === 'busy' ? 'Saving…' : selected.length ? `Save ${selected.length} feature${selected.length === 1 ? '' : 's'}` : 'Select a feature'}
-                </button>
-              </>
-            )}
+            <p className="mini__blurb">Tap one to open it.</p>
+            <div className="mini-store">
+              {storeGroups.map((group) => (
+                <section key={group.label} className="mini-store__group">
+                  <h2 className="mini-store__label">{group.label}</h2>
+                  {group.items.map((f) => (
+                    <Link key={f.kind} className="mini-store__row" to={openHref(f.kind)}>
+                      <span className="mini-store__title">{f.title}</span>
+                      <span className="mini-store__hint">{f.blurb}</span>
+                    </Link>
+                  ))}
+                </section>
+              ))}
+            </div>
           </div>
         )}
 
@@ -478,7 +438,7 @@ export function MiniAppPage() {
           </div>
         )}
 
-        {authed && !isMenu && !isKnown && (
+        {authed && !isApps && !isKnown && (
           <div className="mini__body">
             <p className="mini__blurb">{kindInfo.blurb}</p>
             <p className="mini__hint">

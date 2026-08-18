@@ -649,6 +649,26 @@ export const MINI_APP_TEXT_TRIGGERS: Record<
       negative: [],
     },
   },
+  apps: {
+    personas: ['friend', 'coworker', 'cofounder'],
+    triggers: {
+      explicit: [
+        'apps',
+        'app store',
+        'my apps',
+        'open apps',
+        'show apps',
+        'pull up apps',
+        'bring back my apps',
+        'show me the apps card',
+      ],
+      natural: [
+        'mini apps',
+        'open the app store',
+      ],
+      negative: ['apply', 'store the leftovers'],
+    },
+  },
 }
 
 describe('Mini-app Text Triggers', () => {
@@ -663,6 +683,18 @@ describe('Mini-app Text Triggers', () => {
   })
 
   describe('detectMiniAppRequest: friend persona', () => {
+
+    it('opens the apps store from apps / app store / open apps', () => {
+      for (const text of ['apps', 'app store', 'open apps', 'show me the apps card', 'pull up apps']) {
+        const result = detectMiniAppRequest(text, 'friend')
+        expect(result?.kind).toBe('apps')
+      }
+    })
+
+    it('still opens networking instead of the store', () => {
+      expect(detectMiniAppRequest('Pull up networking', 'friend')?.kind).toBe('networking_crm')
+    })
+
     it('detects digest intent', () => {
       const result = detectMiniAppRequest('give me the morning brief', 'friend')
       expect(result?.kind).toBe('digest')

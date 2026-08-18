@@ -99,7 +99,8 @@ function contentType(path: string) {
 }
 
 const MINI_META: Record<string, { title: string; description: string }> = {
-  menu: { title: 'Your HireAlpha features', description: 'Choose what this HireAlpha contact can help with.' },
+  menu: { title: 'Apps', description: 'Tap one to open it.' },
+  apps: { title: 'Apps', description: 'Tap one to open it.' },
   digest: { title: 'Morning brief', description: 'Your calendar, important mail, and reminders in one place.' },
   nutrition: { title: 'Nutrition', description: 'Log meals, estimate macros, and keep today’s totals.' },
   open_loops: { title: 'Loose ends', description: 'Track promises and follow-ups so nothing slips.' },

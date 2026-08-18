@@ -11,6 +11,7 @@ import { SKILLS } from './skills'
 
 export type MiniAppKind =
   | 'menu'
+  | 'apps'
   | 'digest'
   | 'approve_send'
   | 'pick_slot'
@@ -72,6 +73,7 @@ export function isDigestRequest(text: string): boolean {
 }
 
 export const PATTERNS: Partial<Record<MiniAppKind, RegExp>> = {
+  apps: /^(?:apps|store)$|\b(?:app store|mini[- ]?apps?|my apps)\b|\b(?:open|show|pull up|bring back) (?:my |the )?(?:apps|app store|store)\b|\bapps\b/i,
   digest: DIGEST_INTENT,
   check_in: /\bcheck[\s-]?in\b/i,
   approve_send: /\bapprove\b|\bsend (?:that|this|the) (?:email|draft|note)\b|\bfire (?:that|this|the) (?:email|draft)\b|\bready to send\b/i,
@@ -135,6 +137,7 @@ export interface MiniAppRequest {
 /** Short labels for local fallback copy. No hyphens or dashes. */
 const KIND_LABELS: Record<MiniAppKind, string> = {
   menu: 'setup',
+  apps: 'Apps',
   digest: 'day wrap',
   approve_send: 'Approve and send',
   pick_slot: 'Pick a slot',
@@ -175,6 +178,7 @@ export function miniAppFallbackText(kind: MiniAppKind): string {
  * verb ("pull up", "show me", "open") or a "… card" phrase.
  */
 const SUMMON_NAMES: Partial<Record<MiniAppKind, RegExp>> = {
+  apps: /\b(?:apps|app store|store|mini[- ]?apps?)\b/i,
   digest: /\b(?:morning |daily |evening )?(?:brief|digest|debrief)\b/i,
   nutrition: /\bnutrition\b|\bfood log\b|\bmeal log\b|\bmacros?\b/i,
   networking_crm: /\bnetwork(?:ing)?(?:\s*crm)?\b/i,
@@ -224,7 +228,7 @@ function detectSummonedKind(text: string, allowed: MiniAppKind[]): MiniAppKind |
 /** Kinds this hire may surface, product-order from skills.ts plus digest. */
 function allowedKinds(persona: AgentId): MiniAppKind[] {
   const named = SKILLS[persona]?.miniApps ?? []
-  return ['digest', ...named.filter((k): k is MiniAppKind => k in PATTERNS)]
+  return ['digest', 'apps', ...named.filter((k): k is MiniAppKind => k in PATTERNS)]
 }
 
 /** Cheap regex gate so we only attach a card when the message asks for one. */
@@ -346,7 +350,7 @@ export async function mintMiniAppCard(
  * picks are stored via /api/setup so the bot sees them as context.
  */
 export async function onboardingCard(phone: string, persona: AgentId): Promise<MiniAppCard> {
-  return mintMiniAppCard(phone, persona, 'menu')
+  return mintMiniAppCard(phone, persona, 'apps')
 }
 
 /**

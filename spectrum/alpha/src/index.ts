@@ -141,8 +141,12 @@ for await (const [space, message] of app.messages) {
       })
       const text = sanitizeOutbound(bubbles[0] || reply || '')
       if (!text) {
-        console.warn(`[${agent.id}] dropped empty/banned outbound`)
-        if (card) await space.send(appCard(card.url, { live: card.live }))
+        if (card) {
+          console.log(`[${agent.id}] sending card only: ${card.url}`)
+          await space.send(appCard(card.url, { live: card.live }))
+        } else {
+          console.warn(`[${agent.id}] dropped empty/banned outbound`)
+        }
         return
       }
       console.log(`[${agent.id}] sending 1 text, card: ${!!card}`)

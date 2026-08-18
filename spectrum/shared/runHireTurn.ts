@@ -391,7 +391,6 @@ export async function runHireTurn(input: {
   const history = mem.history
   const live = await fetchLiveProfile(input.senderId, agent.id)
   const timezone = live.context?.timezone || live.timezone || 'America/Los_Angeles'
-  const setupDone = live.context && String(live.context.setup_done) === 'true'
   // First iMessage to this hire: introduce once. Website name/setup does not
   // count. lastInboundAt survives bot restarts when the local thread file is empty.
   const textedBefore = !!(history.length || mem.summary.trim() || live.lastInboundAt)
@@ -441,10 +440,14 @@ export async function runHireTurn(input: {
   const miniApp = live.hired
     ? briefIntent
       ? { kind: 'digest' as const }
-      : isFirst && !setupDone
-        ? { kind: 'menu' as const }
-        : detectMiniAppRequest(input.userText, agent.id, recentUserTexts)
+      : detectMiniAppRequest(input.userText, agent.id, recentUserTexts)
     : null
+
+  if (miniApp && (miniApp.kind === 'apps' || miniApp.kind === 'menu')) {
+    appendThread(input.dataDir, input.senderId, [{ role: 'user', content: input.userText }])
+    const card = await mintMiniAppCard(input.senderId, agent.id, miniApp.kind, miniApp.query)
+    return { reply: '', bubbles: [], source: 'local', authoritative: [], card }
+  }
 
   let digestText: string | null = null
   if (live.found && live.hired && briefIntent) {
@@ -654,8 +657,8 @@ export async function runHireTurn(input: {
   }
   if (miniApp) {
     extras.push(
-      miniApp.kind === 'menu'
-        ? 'A setup mini-app card is being delivered with your first reply. Introduce yourself briefly, then point them at the card and invite them to pick a feature. Keep your text short. The card carries the options.'
+      miniApp.kind === 'apps' || miniApp.kind === 'menu'
+        ? 'An apps card is being delivered. Tell them to tap the one they want. Keep your text short. The card is the list.'
         : miniApp.kind === 'digest'
           ? 'A day-wrap card is being delivered. Put the full brief/debrief in your text. The card is extra. Do not keep the text short. Do not ask what they meant.'
           : LIVE_MINI.has(miniApp.kind)
