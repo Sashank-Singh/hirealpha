@@ -12,6 +12,7 @@ WORKDIR /app
 # Agent personalities + shared Spectrum helpers (imported by each bot)
 COPY src/agents ./src/agents
 COPY spectrum/shared ./spectrum/shared
+COPY deploy/timezones.ts ./deploy/timezones.ts
 COPY spectrum/docker-entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 

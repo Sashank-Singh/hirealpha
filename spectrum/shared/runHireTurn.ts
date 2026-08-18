@@ -28,7 +28,7 @@ import {
   buildDigestBriefing,
   type MiniAppCard,
 } from './miniApps'
-import { foldQuotes, isBannedTagline, dropBannedTaglines } from './outboundFilter'
+import { pickUserTimezone, timezoneFromText } from '../../deploy/timezones'
 
 export { isBannedTagline } from './outboundFilter'
 
@@ -400,7 +400,16 @@ export async function runHireTurn(input: {
   const mem = loadMemory(input.dataDir, input.senderId)
   const history = mem.history
   const live = await fetchLiveProfile(input.senderId, agent.id)
-  const timezone = live.context?.timezone || live.timezone || 'America/Los_Angeles'
+  const spokenTz = timezoneFromText(input.userText)
+  if (spokenTz && live.hired) {
+    void persistLiveFacts(input.senderId, agent.id, [{ key: 'timezone', value: spokenTz }])
+  }
+  const timezone = pickUserTimezone({
+    message: input.userText,
+    userTz: live.timezone,
+    contextTz: live.context?.timezone,
+    memoryTz: live.memories.find((m) => m.key === 'timezone')?.value,
+  })
   // First iMessage to this hire: introduce once. Website name/setup does not
   // count. lastInboundAt survives bot restarts when the local thread file is empty.
   const textedBefore = !!(history.length || mem.summary.trim() || live.lastInboundAt)
@@ -670,7 +679,7 @@ export async function runHireTurn(input: {
     extras.push(
       `Live tool results (ground truth, use these, do not invent):\n${toolResults.join('\n\n')}\n\n${
         calLive
-          ? 'Calendar clocks in this block are already local. Repeat the printed time. Never convert Zulu or UTC. Never call a Meet or a phone a dinner, lunch, or drinks unless the title says that.\n\n'
+          ? 'Calendar clocks in this block are already local. Repeat the printed time and the zone letters (PST, PDT, EST, EDT, BST, GMT, UTC). Never convert to a different zone. Never call a Meet or a phone a dinner, lunch, or drinks unless the title says that.\n\n'
           : ''
       }When email results are present: give a short overview of the batch (how many, themes), then call out the top 2-3 that matter most with a one-line reason each. Do not fixate on a single email.`,
     )

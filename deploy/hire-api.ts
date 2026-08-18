@@ -17,6 +17,12 @@ import {
   type CalItem,
 } from './calendarEvents'
 import { COMPOSIO_READ, composioLooksFailed, formatComposioData } from './composioPlugins'
+import {
+  pickUserTimezone,
+  resolveIanaTimezone,
+  timezoneFromCoords,
+  timezoneFromText,
+} from './timezones'
 
 export const PERSONAS = ['friend', 'coworker', 'cofounder'] as const
 export type Persona = (typeof PERSONAS)[number]
@@ -996,7 +1002,7 @@ async function ensureUser(
   const existing = await getUserByEmail(sql, email)
   const e164 = normalizePhone(phone || '')
   const cleanName = name?.trim() ? name.trim() : null
-  const cleanTz = timezone?.trim() ? timezone.trim() : null
+  const cleanTz = resolveIanaTimezone(timezone)
   if (existing) {
     let changed = false
     if (e164 && existing.phone !== e164) {
@@ -1029,6 +1035,17 @@ async function ensureUser(
     VALUES (${id}, ${email}, ${cleanName}, ${cleanTz}, ${e164})
   `
   return { id, email, name: cleanName, timezone: cleanTz, phone: e164 }
+}
+
+async function rememberUserTimezone(sql: SQL, userId: string, raw: string, persona?: Persona) {
+  const tz = resolveIanaTimezone(raw)
+  if (!tz) return null
+  await sql`UPDATE hire_users SET timezone = ${tz}, updated_at = now() WHERE id = ${userId}`
+  if (persona) {
+    const ctx = await loadContext(sql, userId, persona)
+    if (ctx.timezone !== tz) await upsertContext(sql, userId, persona, { timezone: tz })
+  }
+  return tz
 }
 
 async function loadRoster(sql: SQL, userId: string): Promise<Persona[]> {
@@ -1789,7 +1806,10 @@ async function fetchWebSearch(query: string) {
 const FOREIGN_PLACE = /\b(bali|jakarta|thailand|indonesia|london|paris|tokyo|kyoto|athens|rome|madrid|berlin|amsterdam|sydney|melbourne|mumbai|delhi|bangkok|marrakech|dubai|singapore|hong\s?kong|europe|asia|africa|mexico city|canada|australia|india|france|italy|spain|germany|brazil|argentina|colombia|philippines|panama|uk|england|scotland|ireland)\b/i
 
 function timezoneCountry(tz?: string) {
-  return tz && /^America\//.test(tz) ? 'us' : ''
+  if (!tz) return ''
+  if (/^America\//.test(tz)) return 'us'
+  if (tz === 'Europe/London' || tz === 'UTC') return 'gb'
+  return ''
 }
 
 async function fetchMapSearch(query: string, countryHint = '', location: LocationRow | null = null) {
@@ -3415,6 +3435,10 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
         source = excluded.source,
         updated_at = now()
     `
+    if (kind === 'current') {
+      const geo = timezoneFromCoords(lat, lng)
+      if (geo) await rememberUserTimezone(sql, user.id, geo)
+    }
     const locations = (await loadLocations(sql, user.id)).map((l) => ({
       kind: l.kind,
       latitude: l.latitude,
@@ -3678,14 +3702,31 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
         message = `restaurants in ${city}`
       }
     }
+    const loc = live.location ? await getLocation(sql, live.userId, live.location.kind) : null
+    const locFresh = !!(
+      loc &&
+      loc.kind === 'current' &&
+      Date.now() - new Date(loc.updated_at).getTime() < CURRENT_LOCATION_HOURS * 60 * 60 * 1000
+    )
+    const tz = pickUserTimezone({
+      message,
+      userTz: live.timezone,
+      contextTz: typeof live.context?.timezone === 'string' ? live.context.timezone : '',
+      memoryTz: live.memories.find((m) => m.key === 'timezone')?.value,
+      latitude: loc?.latitude,
+      longitude: loc?.longitude,
+      locationFresh: locFresh,
+    })
+    const spokenTz = timezoneFromText(message)
+    if (spokenTz) await rememberUserTimezone(sql, live.userId, spokenTz, body.persona)
     const results = await runToolsForMessage(sql, {
       userId: live.userId,
       persona: body.persona,
       message,
       connected: live.connected,
       want: body.want === 'maps' || body.want === 'web' ? body.want : undefined,
-      timezone: typeof live.context?.timezone === 'string' ? live.context.timezone : '',
-      location: live.location ? await getLocation(sql, live.userId, live.location.kind) : null,
+      timezone: tz,
+      location: loc,
     })
     return json({ results })
   }
@@ -3715,6 +3756,8 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
       .filter((f) => f && f.key && f.value)
       .map((f) => ({ key: String(f.key), value: String(f.value) }))
     await upsertMemories(sql, user.id, body.persona, facts)
+    const tzFact = facts.find((f) => f.key.toLowerCase() === 'timezone')
+    if (tzFact) await rememberUserTimezone(sql, user.id, tzFact.value, body.persona)
     return json({ ok: true, memories: await loadMemories(sql, user.id, body.persona, 12) })
   }
 

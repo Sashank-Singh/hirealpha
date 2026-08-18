@@ -1,4 +1,4 @@
-/** Google Calendar event start: timed (`dateTime`) or all-day (`date`). */
+import { formatZoneAbbrev } from './timezones'
 
 export type CalItem = {
   start: Date
@@ -114,14 +114,16 @@ export function formatDayLabel(d: Date, timezone: string, now = new Date()): str
 
 export function formatUpcomingEvents(items: CalItem[], timezone = 'America/Los_Angeles'): string {
   if (!items.length) return 'No events on the calendar in the next 7 days.'
+  const sample = items.find((e) => !e.allDay)?.start || new Date()
+  const abbrev = formatZoneAbbrev(sample, timezone)
   const lines = items.map((e) => {
-    const clock = e.allDay ? 'All day' : formatClock(e.start, timezone)
+    const clock = e.allDay ? 'All day' : `${formatClock(e.start, timezone)} ${formatZoneAbbrev(e.start, timezone)}`
     const day = formatDayLabel(e.start, timezone)
     const when = e.allDay ? e.rawStart || e.start.toISOString().slice(0, 10) : e.rawStart || e.start.toISOString()
     return `- ${when} ${clock} ${day} local · ${e.kind} · ${e.title}`
   })
   return [
-    `Upcoming events. Clocks are already local (${timezone}). Repeat the printed time. Do not convert from Zulu or UTC. Do not call these dinner, lunch, or drinks unless the title says that.`,
+    `Upcoming events. Clocks are already local (${timezone}, ${abbrev}). Repeat the printed clock and the zone letters (PST, PDT, EST, EDT, BST, GMT, UTC). Do not convert to a different zone. Do not call these dinner, lunch, or drinks unless the title says that.`,
     ...lines,
   ].join('\n')
 }
@@ -219,15 +221,15 @@ export function parseFormattedEventLine(line: string): {
 } | null {
   const trimmed = line.trim().replace(/^-\s*/, '')
   const neu = trimmed.match(
-    /^(\S+)\s+(All day|\d{1,2}:\d{2} [AP]M)\s+(today|tomorrow|.+?)\s+local · (.+?) · (.+)$/i,
+    /^(\S+)\s+(All day|\d{1,2}:\d{2} [AP]M)(?:\s+(PST|PDT|EST|EDT|CST|CDT|MST|MDT|BST|GMT|UTC|GMT[+\-]?\d+))?\s+(today|tomorrow|.+?)\s+local · (.+?) · (.+)$/i,
   )
   if (neu) {
     return {
       iso: neu[1]!,
       clock: neu[2],
-      dayLabel: neu[3],
-      kind: neu[4]!.trim(),
-      title: neu[5]!.trim(),
+      dayLabel: neu[4],
+      kind: neu[5]!.trim(),
+      title: neu[6]!.trim(),
     }
   }
   const old = trimmed.match(/^(\S+)\s+(.*)$/)
