@@ -192,6 +192,7 @@ await ensureSchema()
 Bun.serve({
   port: PORT,
   hostname: '0.0.0.0',
+  idleTimeout: 60,
   async fetch(req) {
     const url = new URL(req.url)
     if (url.pathname === '/healthz') {

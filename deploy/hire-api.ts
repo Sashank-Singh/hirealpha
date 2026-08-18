@@ -25,6 +25,17 @@ export const UI_TO_COMPOSIO: Record<string, string> = {
   stripe: 'stripe',
 }
 
+const COMPOSIO_SLUG_ALIASES: Record<string, string> = {
+  googlemaps: 'maps',
+  google_maps: 'maps',
+  'google-maps': 'maps',
+  googlecalendar: 'calendar',
+  google_calendar: 'calendar',
+  googledrive: 'drive',
+  google_drive: 'drive',
+  google_gmail: 'gmail',
+}
+
 export const PERSONA_DENIED: Record<Persona, ReadonlySet<string>> = {
   friend: new Set(['slack', 'linear', 'github', 'stripe', 'figma', 'notion']),
   coworker: new Set(['spotify', 'uber']),
@@ -1297,15 +1308,23 @@ function composioClient(): Composio | null {
 async function composioConnected(userId: string): Promise<string[]> {
   const composio = composioClient()
   if (!composio) return []
-  const data = await composio.connectedAccounts.list({
-    userIds: [userId],
-    statuses: ['ACTIVE'],
-    limit: 50,
-  })
-  return (data.items || [])
-    .filter((i) => !i.isDisabled)
-    .map((i) => (i.toolkit?.slug || '').toLowerCase())
-    .filter(Boolean)
+  try {
+    const data = await Promise.race([
+      composio.connectedAccounts.list({
+        userIds: [userId],
+        statuses: ['ACTIVE'],
+        limit: 50,
+      }),
+      new Promise<never>((_, reject) => setTimeout(() => reject(new Error('composio list timeout')), 4000)),
+    ])
+    return (data.items || [])
+      .filter((i) => !i.isDisabled)
+      .map((i) => (i.toolkit?.slug || '').toLowerCase())
+      .filter(Boolean)
+  } catch (err) {
+    console.warn('[composio] connected list failed', err)
+    return []
+  }
 }
 
 function googleUiConnected(scopes: string): string[] {
@@ -1321,7 +1340,9 @@ async function connectedForUser(sql: SQL, userId: string): Promise<string[]> {
   const set = new Set<string>()
   if (g) googleUiConnected(g.scopes).forEach((id) => set.add(id))
   for (const slug of c) {
-    const ui = Object.entries(UI_TO_COMPOSIO).find(([, v]) => v === slug)?.[0]
+    const ui =
+      COMPOSIO_SLUG_ALIASES[slug] ||
+      Object.entries(UI_TO_COMPOSIO).find(([, v]) => v === slug)?.[0]
     if (ui) set.add(ui)
     else set.add(slug)
   }
@@ -1402,29 +1423,33 @@ async function googleAccessToken(sql: SQL, userId: string): Promise<string | nul
   return tok.access_token
 }
 
-async function fetchGmail(access: string, query: string) {
+async function fetchGmail(access: string, query: string, maxResults = 8) {
+  const cap = Math.max(1, Math.min(20, maxResults))
   const listUrl = new URL('https://gmail.googleapis.com/gmail/v1/users/me/messages')
-  listUrl.searchParams.set('maxResults', '100')
+  listUrl.searchParams.set('maxResults', String(cap))
   listUrl.searchParams.set('q', query)
   const list = await fetch(listUrl, { headers: { Authorization: `Bearer ${access}` } })
   if (!list.ok) return `Gmail error ${list.status}`
   const data = (await list.json()) as { messages?: Array<{ id: string }> }
-  const ids = (data.messages || []).slice(0, 100)
-  const lines: string[] = []
-  for (const m of ids) {
-    const got = await fetch(
-      `https://gmail.googleapis.com/gmail/v1/users/me/messages/${m.id}?format=metadata&metadataHeaders=Subject&metadataHeaders=From&metadataHeaders=Date`,
-      { headers: { Authorization: `Bearer ${access}` } },
+  const ids = (data.messages || []).slice(0, cap)
+  const lines = (
+    await Promise.all(
+      ids.map(async (m) => {
+        const got = await fetch(
+          `https://gmail.googleapis.com/gmail/v1/users/me/messages/${m.id}?format=metadata&metadataHeaders=Subject&metadataHeaders=From&metadataHeaders=Date`,
+          { headers: { Authorization: `Bearer ${access}` } },
+        )
+        if (!got.ok) return null
+        const msg = (await got.json()) as {
+          snippet?: string
+          payload?: { headers?: Array<{ name: string; value: string }> }
+        }
+        const headers = msg.payload?.headers || []
+        const h = (n: string) => headers.find((x) => x.name.toLowerCase() === n.toLowerCase())?.value || ''
+        return `- ${h('From')} | ${h('Date')} | ${h('Subject')} | ${msg.snippet || ''}`
+      }),
     )
-    if (!got.ok) continue
-    const msg = (await got.json()) as {
-      snippet?: string
-      payload?: { headers?: Array<{ name: string; value: string }> }
-    }
-    const headers = msg.payload?.headers || []
-    const h = (n: string) => headers.find((x) => x.name.toLowerCase() === n.toLowerCase())?.value || ''
-    lines.push(`- ${h('From')} | ${h('Date')} | ${h('Subject')} | ${msg.snippet || ''}`)
-  }
+  ).filter((line): line is string => !!line)
   return lines.length ? `Email:\n${lines.join('\n')}` : 'No matching email found.'
 }
 
@@ -1741,43 +1766,68 @@ export async function runToolsForMessage(
     results.push(notConnectedNote(id))
   }
 
-  if (wantsEmail(input.message) && can('gmail')) {
+  const mailHit = wantsEmail(input.message)
+  const calHit = wantsCalendar(input.message)
+  if (mailHit && can('gmail') && calHit && can('calendar')) {
+    const access = await googleAccessToken(sql, input.userId)
     const query = /\b(debrief|digest|brief)\b/i.test(input.message)
       ? '(newer_than:1d) OR (is:important newer_than:2d)'
       : wantsImportantEmail(input.message)
         ? 'is:important newer_than:14d'
         : 'newer_than:5d'
-
-    const access = await googleAccessToken(sql, input.userId)
-    if (access) results.push(await fetchGmail(access, query))
-    else {
-      const c = await composioExecute(input.userId, 'GMAIL_FETCH_EMAILS', {
-        max_results: 100,
-        query,
-        verbose: false,
-      })
-      if (c) results.push(c)
-    }
-  } else {
-    asked('gmail', wantsEmail(input.message))
-  }
-
-  if (wantsCalendar(input.message) && can('calendar')) {
-    const access = await googleAccessToken(sql, input.userId)
     const brief = /\b(debrief|digest|brief|today)\b/i.test(input.message)
     const tz = input.timezone || 'America/Los_Angeles'
     const calOpts = brief
       ? { timeMin: startOfLocalDay(tz), timeMax: startOfLocalDay(tz, 2), maxResults: 20 }
       : undefined
-    if (access) results.push(await fetchCalendar(access, calOpts))
-    else {
-      const c = await composioExecute(input.userId, 'GOOGLECALENDAR_FIND_EVENT', {
-        max_results: 8,
-      })
-      if (c) results.push(c)
-    }
+    const [mail, cal] = await Promise.all([
+      access
+        ? fetchGmail(access, query, 8)
+        : composioExecute(input.userId, 'GMAIL_FETCH_EMAILS', { max_results: 8, query, verbose: false }),
+      access
+        ? fetchCalendar(access, calOpts)
+        : composioExecute(input.userId, 'GOOGLECALENDAR_FIND_EVENT', { max_results: 8 }),
+    ])
+    if (mail) results.push(mail)
+    if (cal) results.push(cal)
   } else {
-    asked('calendar', wantsCalendar(input.message))
+    if (mailHit && can('gmail')) {
+      const query = /\b(debrief|digest|brief)\b/i.test(input.message)
+        ? '(newer_than:1d) OR (is:important newer_than:2d)'
+        : wantsImportantEmail(input.message)
+          ? 'is:important newer_than:14d'
+          : 'newer_than:5d'
+      const access = await googleAccessToken(sql, input.userId)
+      if (access) results.push(await fetchGmail(access, query, 8))
+      else {
+        const c = await composioExecute(input.userId, 'GMAIL_FETCH_EMAILS', {
+          max_results: 8,
+          query,
+          verbose: false,
+        })
+        if (c) results.push(c)
+      }
+    } else {
+      asked('gmail', mailHit)
+    }
+
+    if (calHit && can('calendar')) {
+      const access = await googleAccessToken(sql, input.userId)
+      const brief = /\b(debrief|digest|brief|today)\b/i.test(input.message)
+      const tz = input.timezone || 'America/Los_Angeles'
+      const calOpts = brief
+        ? { timeMin: startOfLocalDay(tz), timeMax: startOfLocalDay(tz, 2), maxResults: 20 }
+        : undefined
+      if (access) results.push(await fetchCalendar(access, calOpts))
+      else {
+        const c = await composioExecute(input.userId, 'GOOGLECALENDAR_FIND_EVENT', {
+          max_results: 8,
+        })
+        if (c) results.push(c)
+      }
+    } else {
+      asked('calendar', calHit)
+    }
   }
 
   if (input.persona === 'friend') {
@@ -1873,6 +1923,106 @@ function formatMailLine(line: string): string {
   return from ? `${s} · ${from}` : s
 }
 
+function withTimeout<T>(p: Promise<T>, ms: number, fallback: T): Promise<T> {
+  return new Promise((resolve) => {
+    const t = setTimeout(() => resolve(fallback), ms)
+    p.then((v) => {
+      clearTimeout(t)
+      resolve(v)
+    }).catch(() => {
+      clearTimeout(t)
+      resolve(fallback)
+    })
+  })
+}
+
+function parseCalMeet(title: string): { who: string; place: string } {
+  const t = title.replace(/\s+/g, ' ').trim()
+  const at = t.match(
+    /^(?:meet(?:ing)?(?:\s+with)?|call(?:\s+with)?|coffee|lunch|dinner|drinks|hang(?:out)?)\s+(.+?)\s+at\s+(.+)$/i,
+  )
+  if (at) return { who: at[1]!.trim(), place: at[2]!.trim() }
+  const withAt = t.match(/^(.+?)\s+at\s+(.+)$/i)
+  if (withAt) {
+    const who = withAt[1]!.replace(/^(?:meet(?:ing)?|call)\s+(?:with\s+)?/i, '').trim()
+    return { who: who || withAt[1]!.trim(), place: withAt[2]!.trim() }
+  }
+  const who = t.replace(/^(?:meet(?:ing)?|call)\s+(?:with\s+)?/i, '').trim()
+  return { who: who || t, place: '' }
+}
+
+type CalMeet = { time: string; title: string; who: string; place: string; day: 'today' | 'tomorrow' }
+
+function parseCalendarMeets(
+  calendarBlock: string | undefined,
+  tz: string,
+): CalMeet[] {
+  const tomorrowYmd = startOfLocalDay(tz, 1).toLocaleDateString('en-CA', { timeZone: tz })
+  const todayYmd = startOfLocalDay(tz).toLocaleDateString('en-CA', { timeZone: tz })
+  const out: CalMeet[] = []
+  for (const line of digestLines(calendarBlock)) {
+    const m = line.match(/^-\s+(\S+)\s+(.*)$/)
+    if (!m) continue
+    const iso = m[1]!
+    const title = m[2]!.trim()
+    const raw = iso.includes('T') ? iso : `${iso}T12:00:00`
+    const d = new Date(raw)
+    if (Number.isNaN(d.getTime())) continue
+    const day = d.toLocaleDateString('en-CA', { timeZone: tz })
+    const parsed = parseCalMeet(title)
+    out.push({
+      time: formatCalTime(iso, tz),
+      title,
+      who: parsed.who,
+      place: parsed.place,
+      day: day === tomorrowYmd ? 'tomorrow' : day === todayYmd ? 'today' : 'today',
+    })
+  }
+  return out
+}
+
+async function todayCalendarMeets(
+  sql: SQL,
+  user: { id: string; timezone: string | null },
+  persona: Persona,
+): Promise<Array<{ time: string; title: string; who: string; place: string }>> {
+  const tz = user.timezone || 'America/Los_Angeles'
+  const connected = (await connectedForUser(sql, user.id)).filter((id) => !PERSONA_DENIED[persona].has(id))
+  if (!connected.includes('calendar')) return []
+  const access = await googleAccessToken(sql, user.id)
+  if (access) {
+    const items = await fetchCalendarItems(access, {
+      timeMin: startOfLocalDay(tz),
+      timeMax: startOfLocalDay(tz, 1),
+      maxResults: 12,
+    })
+    return items.map((e) => {
+      const parsed = parseCalMeet(e.title)
+      return {
+        time: formatCalTime(e.start.toISOString(), tz),
+        title: e.title,
+        who: parsed.who,
+        place: parsed.place,
+      }
+    })
+  }
+  const results = await withTimeout(
+    runToolsForMessage(sql, {
+      userId: user.id,
+      persona,
+      message: 'calendar today',
+      connected,
+      timezone: tz,
+    }),
+    6000,
+    [] as string[],
+  )
+  const calendarBlock = results.find((t) => t.startsWith('Upcoming events:') || t.startsWith('No events'))
+  return parseCalendarMeets(calendarBlock, tz)
+    .filter((e) => e.day === 'today')
+    .map(({ time, title, who, place }) => ({ time, title, who, place }))
+}
+
 /**
  * Morning-brief payload: today's calendar, important mail, and pending
  * reminders for one hire. `text` is the plain-SMS briefing; the structured
@@ -1887,13 +2037,17 @@ async function digestPayload(
   const connected = (await connectedForUser(sql, user.id)).filter(
     (id) => !PERSONA_DENIED[persona].has(id),
   )
-  const results = await runToolsForMessage(sql, {
-    userId: user.id,
-    persona,
-    message: 'calendar today tomorrow inbox important email debrief',
-    connected,
-    timezone: tz,
-  })
+  const results = await withTimeout(
+    runToolsForMessage(sql, {
+      userId: user.id,
+      persona,
+      message: 'calendar today tomorrow inbox important email debrief',
+      connected,
+      timezone: tz,
+    }),
+    12000,
+    [] as string[],
+  )
   const calendarBlock = results.find(
     (t) => t.startsWith('Upcoming events:') || t.startsWith('No events'),
   )
@@ -2794,13 +2948,49 @@ async function miniPayload(
 
   if (kind === 'pick_night') {
     const people = splitList(context.people)
-    const who = people[0] || 'whoever you are meeting'
+    const calResults = connected.includes('calendar')
+      ? await withTimeout(
+          runToolsForMessage(sql, {
+            userId: user.id,
+            persona,
+            message: 'calendar today tonight',
+            connected,
+            timezone: tz,
+          }),
+          8000,
+          [] as string[],
+        )
+      : []
+    const calendarBlock = calResults.find((t) => t.startsWith('Upcoming events:') || t.startsWith('No events'))
+    const tonight = parseCalendarMeets(calendarBlock, tz).filter((e) => e.day === 'today')
+    if (tonight.length) {
+      const options = tonight.map((e) =>
+        e.place ? `${e.time} · ${e.who} at ${e.place}` : `${e.time} · ${e.title}`,
+      )
+      const first = tonight[0]!
+      const call = first.place
+        ? `Hold ${first.place}${first.who ? ` with ${first.who}` : ''}. Text me if that changes.`
+        : `You're on ${first.title}. Text me if that changes.`
+      const sections = [
+        { heading: 'On the calendar', items: options },
+        { heading: 'The call', items: [call] },
+      ]
+      const text = [`Tonight.`, ...options.map((o) => `- ${o}`), `Call: ${call}`].join('\n')
+      return { kind, title: "Tonight's plan", date: dateLabel, sections, paste: text, text }
+    }
+
+    const loc = await pickActiveLocation(sql, user.id)
+    const who = tonight[0]?.who || people[0] || 'whoever you are meeting'
     let places: string[] = []
     if (connected.includes('maps')) {
-      const c = await composioFirst(
-        user.id,
-        ['GOOGLEMAPS_TEXT_SEARCH', 'GOOGLEMAPS_SEARCH_PLACES', 'GOOGLE_MAPS_SEARCH_PLACES'],
-        { query: 'quiet restaurant nearby', q: 'quiet restaurant nearby' },
+      const c = await withTimeout(
+        composioFirst(
+          user.id,
+          ['GOOGLEMAPS_TEXT_SEARCH', 'GOOGLEMAPS_SEARCH_PLACES', 'GOOGLE_MAPS_SEARCH_PLACES'],
+          { query: 'quiet restaurant nearby', q: 'quiet restaurant nearby' },
+        ),
+        6000,
+        null,
       )
       if (c && !/failed/i.test(c)) {
         places = c
@@ -2810,16 +3000,33 @@ async function miniPayload(
           .slice(0, 3)
       }
     }
+    if (!places.length) {
+      const osm = await fetchMapSearch('quiet restaurant nearby', timezoneCountry(tz), loc)
+      if (osm.startsWith('Map results')) {
+        places = osm
+          .split('\n')
+          .filter((l) => l.startsWith('- '))
+          .map((l) => l.replace(/^-\s*/, '').split('\n')[0]!.trim())
+          .slice(0, 3)
+      }
+    }
     const options = places.length
       ? places
-      : [
-          `Quiet booth. ${who} can hear you.`,
-          'The loud one. Fun, then they cannot hear a thing.',
-        ]
-    const call = places[0] || 'Hold the quiet booth. Text me if you want the shouty one instead.'
-    const connectHint = connected.includes('maps')
-      ? []
-      : ['Maps is not connected. Open this hire at hirealpha.chat/app and tap Connect if you want a real place, not a vibe.']
+      : connected.includes('calendar')
+        ? ['Nothing on the calendar after now.']
+        : [
+            `Quiet booth. ${who} can hear you.`,
+            'The loud one. Fun, then they cannot hear a thing.',
+          ]
+    const call = places[0]
+      ? `Hold ${places[0]}. Text me if you want a different cut.`
+      : connected.includes('calendar')
+        ? 'Text a neighborhood if you want a real place.'
+        : 'Hold the quiet booth. Text me if you want the shouty one instead.'
+    const connectHint =
+      connected.includes('calendar') || connected.includes('maps') || places.length
+        ? []
+        : ['Calendar is not showing events. Open hirealpha.chat/app, open this hire, and tap Connect on Calendar.']
     const sections = [
       { heading: 'Options', items: options },
       { heading: 'The call', items: [call, ...connectHint] },
@@ -3462,8 +3669,29 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
       return json({ error: 'email required' }, 400)
     }
     if (!user) return json({ error: 'No account found for that phone/email' }, 404)
-    const payload = await digestPayload(sql, user, persona)
-    return json({ ...payload, cardUrl: `${appBase(req)}/app/mini/${persona}/digest` })
+    try {
+      const payload = await digestPayload(sql, user, persona)
+      return json({ ...payload, cardUrl: `${appBase(req)}/app/mini/${persona}/digest` })
+    } catch (err) {
+      console.warn('[digest] payload failed', err)
+      const tz = user.timezone || 'America/Los_Angeles'
+      const date = new Date().toLocaleDateString('en-US', {
+        weekday: 'long',
+        month: 'long',
+        day: 'numeric',
+        timeZone: tz,
+      })
+      return json({
+        date,
+        calendar: [],
+        emails: [],
+        reminders: [],
+        loops: [],
+        tomorrow: [],
+        text: `${date}. Calendar and mail did not load. Open again in a minute.`,
+        cardUrl: `${appBase(req)}/app/mini/${persona}/digest`,
+      })
+    }
   }
 
   if (path === '/api/mini' && req.method === 'GET') {
@@ -5033,7 +5261,11 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
       FROM hire_network WHERE user_id = ${user!.id}
       ORDER BY coalesce(last_touch, '1970-01-01'::timestamptz) ASC
     `
-    return json({ people })
+    const persona = url.searchParams.get('persona') || 'friend'
+    const today = isPersona(persona)
+      ? await todayCalendarMeets(sql, user!, persona).catch(() => [])
+      : []
+    return json({ people, today })
   }
 
   if (path === '/api/network' && req.method === 'POST') {

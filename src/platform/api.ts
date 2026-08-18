@@ -224,10 +224,11 @@ function authParams(input: { email?: string; token?: string }) {
   return { token: input.token }
 }
 
-function authQuery(a: { email?: string; token?: string }) {
+function authQuery(a: { email?: string; token?: string; persona?: string }) {
   const qs = new URLSearchParams()
   if (a.email) qs.set('email', a.email)
   else if (a.token) qs.set('t', a.token)
+  if (a.persona) qs.set('persona', a.persona)
   return qs
 }
 
@@ -506,8 +507,9 @@ export const apiMirror = (a: { email?: string; token?: string }) =>
 export type NetworkPerson = {
   id: string; name: string; whereMet: string; context: string; lastTouch: string | null; cadenceDays: number; createdAt: string
 }
-export const apiListNetwork = (a: { email?: string; token?: string }) =>
-  featureGet<{ people: NetworkPerson[] }>('/api/network', authQuery(a))
+export type NetworkToday = { time: string; title: string; who: string; place: string }
+export const apiListNetwork = (a: { email?: string; token?: string; persona?: string }) =>
+  featureGet<{ people: NetworkPerson[]; today?: NetworkToday[] }>('/api/network', authQuery(a))
 export const apiAddNetwork = (a: {
   email?: string; token?: string; name: string; whereMet?: string; context?: string; cadenceDays?: number
 }) => featurePost<{ ok: boolean; id: string }>('/api/network', { ...authParams(a), name: a.name, whereMet: a.whereMet, context: a.context, cadenceDays: a.cadenceDays })

@@ -30,6 +30,7 @@ import {
   type LearningItem,
   type MirrorSnapshot,
   type NetworkPerson,
+  type NetworkToday,
   type PipelineItem,
   type SleepNight,
   type SpendLog,
@@ -59,7 +60,7 @@ import {
 } from './workoutProgram'
 
 function useAuth(auth: FeatureAuth) {
-  return { email: auth.email, token: auth.token }
+  return { email: auth.email, token: auth.token, persona: auth.persona }
 }
 
 function fmtDay(iso: string | null | undefined) {
@@ -121,10 +122,18 @@ function agoLabel(iso: string | null) {
 }
 
 function parseNetworkLine(line: string) {
+  const meet = line.match(/^(?:meet(?:ing)?(?:\s+with)?)\s+(.+?)(?:\s+at\s+(.+))?$/i)
+  if (meet?.[1] && !/^(meet|meeting|call)$/i.test(meet[1].trim())) {
+    return { name: meet[1].trim(), whereMet: (meet[2] || '').trim(), context: '' }
+  }
   const at = line.match(/^(.+?)\s+@\s+([^:]+)(?::\s*(.*))?$/)
   if (at) return { name: at[1]!.trim(), whereMet: at[2]!.trim(), context: (at[3] || '').trim() }
   const colon = line.match(/^([^:,]+)[,:]\s*(.+)$/)
-  if (colon) return { name: colon[1]!.trim(), whereMet: '', context: colon[2]!.trim() }
+  if (colon && !/^(meet|meeting|call|coffee|lunch|dinner)$/i.test(colon[1]!.trim())) {
+    return { name: colon[1]!.trim(), whereMet: '', context: colon[2]!.trim() }
+  }
+  const place = line.match(/^(.+?)\s+at\s+(.+)$/i)
+  if (place) return { name: place[1]!.trim(), whereMet: place[2]!.trim(), context: '' }
   return { name: line.trim(), whereMet: '', context: '' }
 }
 
@@ -900,14 +909,20 @@ export function MirrorApp({ auth }: { auth: FeatureAuth }) {
 export function NetworkingCrmApp({ auth }: { auth: FeatureAuth }) {
   const a = useAuth(auth)
   const [people, setPeople] = useState<NetworkPerson[]>([])
+  const [today, setToday] = useState<NetworkToday[]>([])
   const [line, setLine] = useState('')
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState('')
   const [showAdd, setShowAdd] = useState(false)
 
   const load = useCallback(() => {
-    apiListNetwork(a).then((d) => setPeople(d.people)).catch(() => setMsg('Could not load people.'))
-  }, [a.email, a.token])
+    apiListNetwork(a)
+      .then((d) => {
+        setPeople(d.people)
+        setToday(d.today || [])
+      })
+      .catch(() => setMsg('Could not load people.'))
+  }, [a.email, a.token, a.persona])
   useEffect(() => { load() }, [load])
 
   async function add(e: FormEvent) {
@@ -932,18 +947,31 @@ export function NetworkingCrmApp({ auth }: { auth: FeatureAuth }) {
     load()
   }
 
-  const ranked = people.slice().sort((x, y) => {
+  const genericName = /^(meet|meeting|call|coffee|lunch|dinner|hang)$/i
+  const contacts = people.filter((p) => !genericName.test(p.name.trim()))
+  const ranked = contacts.slice().sort((x, y) => {
     const xo = daysSince(x.lastTouch) - x.cadenceDays
     const yo = daysSince(y.lastTouch) - y.cadenceDays
     return yo - xo
   })
   const due = ranked.filter((p) => daysSince(p.lastTouch) >= p.cadenceDays)
   const next = due[0]
+  const seeing = today[0]
   const rest = ranked.filter((p) => p.id !== next?.id)
+  const later = today.slice(1)
 
   return (
     <div className="ma">
-      {next && (
+      {seeing && (
+        <div className="ma-callout ma-callout--hot">
+          <span className="ma-callout-kicker">Seeing today</span>
+          <strong>{seeing.who || seeing.title}</strong>
+          <span className="ma-sub">
+            {[seeing.time, seeing.place].filter(Boolean).join(' · ') || seeing.title}
+          </span>
+        </div>
+      )}
+      {!seeing && next && (
         <div className="ma-callout ma-callout--hot">
           <span className="ma-callout-kicker">Text them today</span>
           <strong>{next.name}</strong>
@@ -953,15 +981,15 @@ export function NetworkingCrmApp({ auth }: { auth: FeatureAuth }) {
           </div>
         </div>
       )}
-      {!people.length && <p className="mini__empty">Type a name. Alpha will remind you to ping them.</p>}
-      {people.length > 0 && due.length === 0 && (
+      {!seeing && !contacts.length && <p className="mini__empty">Type a name. Alpha will remind you to ping them.</p>}
+      {!seeing && contacts.length > 0 && due.length === 0 && (
         <div className="ma-callout">
           <span className="ma-callout-kicker">All clear</span>
           <strong>Nobody is due</strong>
           <span className="ma-sub">Last notes stay on each person.</span>
         </div>
       )}
-      {(showAdd || !people.length) ? (
+      {(showAdd || !contacts.length) ? (
         <form className="ma-form" onSubmit={add}>
           <input
             className="ma-input"
@@ -977,8 +1005,28 @@ export function NetworkingCrmApp({ auth }: { auth: FeatureAuth }) {
       )}
       {msg && <p className="mini__hint">{msg}</p>}
       {due.length > 1 && <p className="mini__hint">{due.length} people are due.</p>}
-      {rest.length > 0 && (
+      {(later.length > 0 || rest.length > 0) && (
         <ul className="ma-list">
+          {later.map((e, i) => (
+            <li key={`cal-${i}`} className="ma-row">
+              <div className="ma-row-main">
+                <span className="ma-title">{e.who || e.title}</span>
+                <span className="ma-sub">{[e.time, e.place].filter(Boolean).join(' · ') || e.title}</span>
+              </div>
+            </li>
+          ))}
+          {seeing && next && (
+            <li key={next.id} className="ma-row ma-row--warn">
+              <div className="ma-row-main">
+                <span className="ma-title">
+                  {next.name}
+                  <span className="ma-badge">due</span>
+                </span>
+                <span className="ma-sub">{next.context || next.whereMet || 'No note yet'} · {agoLabel(next.lastTouch)}</span>
+              </div>
+              <button className="ma-chip" type="button" onClick={() => void talked(next.id)}>Talked</button>
+            </li>
+          )}
           {rest.map((p) => {
             const late = daysSince(p.lastTouch) >= p.cadenceDays
             return (
