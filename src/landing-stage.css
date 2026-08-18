@@ -561,12 +561,12 @@
 }
 .kit-deck__track {
   display: flex;
-  gap: 48px;
+  gap: 18px;
   overflow-x: auto;
   overscroll-behavior-x: contain;
   scroll-snap-type: x mandatory;
-  scroll-padding-inline: max(24px, calc(50vw - 200px));
-  padding: 8px max(24px, calc(50vw - 200px)) 4px;
+  scroll-padding-inline: max(24px, calc(50vw - 180px));
+  padding: 12px max(24px, calc(50vw - 180px)) 20px;
   -webkit-overflow-scrolling: touch;
   scrollbar-width: none;
   touch-action: pan-x;
@@ -574,22 +574,25 @@
 }
 .kit-deck__track::-webkit-scrollbar { display: none; }
 .kit-card {
-  flex: 0 0 min(72vw, 400px);
+  flex: 0 0 min(78vw, 360px);
   scroll-snap-align: center;
-  background: none;
-  border: 0;
-  padding: 12px 0 20px;
+  background: #fff;
+  border: 2.5px solid var(--ink);
+  border-radius: 28px;
+  box-shadow: 4px 4px 0 var(--ink);
+  padding: 28px 28px 32px;
+  min-height: 176px;
   display: grid;
   align-content: start;
   gap: 10px;
   user-select: none;
-  opacity: 0.22;
+  opacity: 0.38;
   transition: opacity 0.2s ease;
 }
 .kit-card--on { opacity: 1; }
 .kit-card strong {
   font-family: var(--display);
-  font-size: clamp(2.6rem, 7vw, 4.2rem);
+  font-size: clamp(2.2rem, 6vw, 3.4rem);
   font-weight: 500;
   letter-spacing: -0.04em;
   line-height: 0.95;
