@@ -2,18 +2,39 @@ import { describe, expect, it } from 'bun:test'
 import { extractGmailBody, importantMailQuery, type GmailMimePart } from './gmailHelpers'
 
 describe('importantMailQuery', () => {
-  it('always requires is:important', () => {
-    const q = importantMailQuery('2d')
-    expect(q).toContain('is:important')
+  it('includes is:inbox', () => {
+    expect(importantMailQuery('2d')).toContain('is:inbox')
   })
 
-  it('excludes all junk categories', () => {
+  it('excludes junk categories: promotions, social, forums, spam', () => {
     const q = importantMailQuery('16h')
     expect(q).toContain('-category:promotions')
     expect(q).toContain('-category:social')
     expect(q).toContain('-category:forums')
-    expect(q).toContain('-category:updates')
     expect(q).toContain('-is:spam')
+  })
+
+  it('does NOT exclude category:updates (transactional mail must reach brief)', () => {
+    // Banking, shipping, GitHub, receipts all arrive as category:updates.
+    // Removing them from the query was the root cause of missed need-to-know mail.
+    expect(importantMailQuery('2d')).not.toContain('-category:updates')
+  })
+
+  it('includes is:important in the OR group so Gmail Priority Inbox mail still shows', () => {
+    expect(importantMailQuery('2d')).toContain('is:important')
+  })
+
+  it('includes category:primary in the OR group so Primary tab mail shows', () => {
+    expect(importantMailQuery('2d')).toContain('category:primary')
+  })
+
+  it('includes is:starred in the OR group so starred mail always shows', () => {
+    expect(importantMailQuery('2d')).toContain('is:starred')
+  })
+
+  it('wraps qualifiers in an OR group', () => {
+    const q = importantMailQuery('2d')
+    expect(q).toContain('(is:important OR category:primary OR is:starred)')
   })
 
   it('includes the requested timespan', () => {
@@ -22,18 +43,8 @@ describe('importantMailQuery', () => {
     expect(importantMailQuery('16h')).toContain('newer_than:16h')
   })
 
-  it('does not use bare is:unread (would include junk unread)', () => {
-    const q = importantMailQuery('2d')
-    // Must not have unread without also requiring important — the whole point of the filter
-    expect(q).not.toContain('is:unread')
-  })
-
-  it('does not include category:primary (too broad)', () => {
-    expect(importantMailQuery('2d')).not.toContain('category:primary')
-  })
-
-  it('includes is:inbox', () => {
-    expect(importantMailQuery('2d')).toContain('is:inbox')
+  it('does not use bare is:unread', () => {
+    expect(importantMailQuery('2d')).not.toContain('is:unread')
   })
 })
 

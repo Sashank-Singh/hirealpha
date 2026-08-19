@@ -5,11 +5,14 @@
 
 /**
  * Shared important-mail Gmail query.
- * Strictly requires is:important; excludes all promotional/social/forum/update categories.
+ * Excludes junk (promotions, social, forums, spam) without hiding need-to-know mail.
+ * category:updates is intentionally NOT excluded so transactional mail (shipping,
+ * banking, GitHub, calendar invites, receipts) reaches the brief.
+ * Mail qualifies if it is starred, Gmail-prioritised, or lands in Primary.
  * timespan should be Gmail-style like '2d', '16h', '12h'.
  */
 export function importantMailQuery(timespan: string): string {
-  return `is:inbox is:important -category:promotions -category:social -category:forums -category:updates -is:spam newer_than:${timespan}`
+  return `is:inbox -is:spam -category:promotions -category:social -category:forums (is:important OR category:primary OR is:starred) newer_than:${timespan}`
 }
 
 /** Recursive MIME part for Gmail full-format messages. */
