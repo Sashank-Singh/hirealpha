@@ -122,7 +122,6 @@ export const FRIEND_APP_ALIASES = APP_ALIASES
 
 export const MENU_FEATURES: Record<string, MenuFeature[]> = {
   friend: [
-    { kind: 'next_move', title: 'Next', emoji: '▶️', blurb: 'The one thing to do now.' },
     { kind: 'nutrition', title: 'Nutrition', emoji: '🥗', blurb: 'Meals and macros.', sample: 'i ate a chicken bowl' },
     { kind: 'habit_streak', title: 'Habits', emoji: '🔥', blurb: 'Today and streaks.' },
     { kind: 'workout_log', title: 'Workout', emoji: '🏋️', blurb: 'Home or gym. Mon through Fri.' },
@@ -152,7 +151,7 @@ export const MENU_FEATURES: Record<string, MenuFeature[]> = {
 
 export const APP_STORE_GROUPS: Record<string, { label: string; kinds: string[] }[]> = {
   friend: [
-    { label: 'Brief', kinds: ['next_move', 'digest', 'pick_night'] },
+    { label: 'Brief', kinds: ['digest', 'pick_night'] },
     { label: 'Body', kinds: ['nutrition', 'workout_log', 'sleep_tracker', 'habit_streak'] },
     { label: 'Money', kinds: ['spending_snapshot'] },
     { label: 'People', kinds: ['networking_crm'] },
@@ -297,7 +296,7 @@ export function MiniAppPage() {
   const briefKind = new Date().getHours() < 16 ? 'digest' : 'pick_night'
   const storeGroups = (APP_STORE_GROUPS[persona || ''] ?? []).map((group) => ({
     ...group,
-    items: (persona === 'friend' && group.label === 'Brief' ? ['next_move', briefKind] : group.kinds)
+    items: (persona === 'friend' && group.label === 'Brief' ? [briefKind] : group.kinds)
       .map((k) => features.find((f) => f.kind === k))
       .filter((f): f is MenuFeature => !!f),
   })).filter((g) => g.items.length > 0)
