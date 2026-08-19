@@ -515,9 +515,10 @@ export const apiMirror = (a: { email?: string; token?: string }) =>
 export type NetworkPerson = {
   id: string; name: string; whereMet: string; context: string; lastTouch: string | null; cadenceDays: number; createdAt: string
 }
-export type NetworkToday = { time: string; title: string; who: string; place: string }
+export type NetworkToday = { time: string; title: string; who: string; place: string; kind: string }
+export type NetworkStay = { title: string; place: string }
 export const apiListNetwork = (a: { email?: string; token?: string; persona?: string }) =>
-  featureGet<{ people: NetworkPerson[]; today?: NetworkToday[] }>('/api/network', authQuery(a))
+  featureGet<{ people: NetworkPerson[]; today?: NetworkToday[]; stay?: NetworkStay | null; calendarConnected?: boolean }>('/api/network', authQuery(a))
 export const apiAddNetwork = (a: {
   email?: string; token?: string; name: string; whereMet?: string; context?: string; cadenceDays?: number
 }) => featurePost<{ ok: boolean; id: string }>('/api/network', { ...authParams(a), name: a.name, whereMet: a.whereMet, context: a.context, cadenceDays: a.cadenceDays })
@@ -526,7 +527,7 @@ export const apiTouchNetwork = (a: { email?: string; token?: string; id: string;
 
 /* ---- Sleep ---- */
 export type SleepNight = {
-  id: string; sleepDate: string; bedtime: string; wake: string; quality: number; note: string | null; createdAt: string
+  id: string; sleepDate: string; bedtime: string; wake: string; quality: number; note: string | null; source?: string | null; createdAt: string
 }
 export const apiListSleep = (a: { email?: string; token?: string }) =>
   featureGet<{ nights: SleepNight[]; sleepBedtime?: string; sleepWake?: string }>('/api/sleep', authQuery(a))
@@ -535,6 +536,12 @@ export const apiLogSleep = (a: {
 }) => featurePost<{ ok: boolean }>('/api/sleep', { ...authParams(a), sleepDate: a.sleepDate, bedtime: a.bedtime, wake: a.wake, quality: a.quality, note: a.note })
 export const apiDeleteSleep = (a: { email?: string; token?: string; id: string }) =>
   featurePost<{ ok: boolean }>(`/api/sleep/${a.id}`, { ...authParams(a), _delete: true })
+export const apiIngestSleep = (a: {
+  token?: string; email?: string; sleepDate?: string; bedtime: string; wake: string; source?: string
+}) => featurePost<{ ok: boolean; sleepDate?: string; bedtime?: string; wake?: string }>(
+  '/api/sleep/ingest',
+  { ...authParams(a), sleepDate: a.sleepDate, bedtime: a.bedtime, wake: a.wake, source: a.source || 'apple_health' },
+)
 
 /* ---- Pipeline ---- */
 export type PipelineItem = {

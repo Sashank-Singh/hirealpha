@@ -6,10 +6,12 @@ import { Composio } from '@composio/core'
 import { createHmac, timingSafeEqual } from 'node:crypto'
 import type { SQL } from 'bun'
 import {
+  extractOtherPerson,
   formatClock,
   formatUpcomingEvents,
   googleTokenHasScope,
   hydrateCalItems,
+  isHotelStayEvent,
   isWalkIn,
   parseComposioCalendarData,
   parseFormattedEventLine,
@@ -597,6 +599,7 @@ export async function ensureHireSchema(sql: SQL) {
   `
   await sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_hire_sleep_day ON hire_sleep (user_id, sleep_date)`
   await ensureUniqueConstraint(sql, 'hire_sleep', 'hire_sleep_user_night', 'idx_hire_sleep_day', 'user_id, sleep_date')
+  await sql`ALTER TABLE hire_sleep ADD COLUMN IF NOT EXISTS source TEXT`
 
   await sql`
     CREATE TABLE IF NOT EXISTS hire_pipeline (
@@ -2107,32 +2110,53 @@ function parseCalendarMeets(
   return out
 }
 
+type TodayMeet = { time: string; title: string; who: string; place: string; kind: string }
+type TodayResult = { meets: TodayMeet[]; stay: { title: string; place: string } | null; calendarConnected: boolean }
+
 async function todayCalendarMeets(
   sql: SQL,
-  user: { id: string; timezone: string | null },
+  user: { id: string; timezone: string | null; name?: string | null },
   persona: Persona,
-): Promise<Array<{ time: string; title: string; who: string; place: string }>> {
+): Promise<TodayResult> {
   const tz = user.timezone || 'America/Los_Angeles'
   const connected = (await connectedForUser(sql, user.id)).filter((id) => !PERSONA_DENIED[persona].has(id))
-  if (!connected.includes('calendar')) return []
+  const calendarConnected = connected.includes('calendar')
+  if (!calendarConnected) return { meets: [], stay: null, calendarConnected: false }
+
+  const myName = user.name || null
+
+  function itemsToResult(items: CalItem[]): TodayResult {
+    let stay: { title: string; place: string } | null = null
+    const meets: TodayMeet[] = []
+    for (const e of items) {
+      if (e.allDay) {
+        if (isHotelStayEvent(e) && !stay) {
+          const calParsed = parseCalMeet(e.title)
+          stay = { title: e.title, place: calParsed.place }
+        }
+        continue
+      }
+      const who = extractOtherPerson(e.title, myName)
+      const calParsed = parseCalMeet(e.title)
+      meets.push({
+        time: formatClock(e.start, tz),
+        title: e.title,
+        who: who || calParsed.who || e.title,
+        place: calParsed.place,
+        kind: e.kind,
+      })
+    }
+    return { meets, stay, calendarConnected: true }
+  }
+
   const access = await googleAccessToken(sql, user.id, 'calendar')
   if (access) {
     const got = await fetchCalendarItems(access, {
       timeMin: startOfLocalDay(tz),
       timeMax: startOfLocalDay(tz, 1),
-      maxResults: 12,
+      maxResults: 16,
     })
-    if (got.ok) {
-      return got.items.map((e) => {
-        const parsed = parseCalMeet(e.title)
-        return {
-          time: e.allDay ? 'All day' : formatClock(e.start, tz),
-          title: e.title,
-          who: parsed.who,
-          place: parsed.place,
-        }
-      })
-    }
+    if (got.ok) return itemsToResult(got.items)
   }
   const results = await withTimeout(
     runToolsForMessage(sql, {
@@ -2146,9 +2170,15 @@ async function todayCalendarMeets(
     [] as string[],
   )
   const calendarBlock = results.find((t) => isCalendarToolResult(t))
-  return parseCalendarMeets(calendarBlock, tz)
-    .filter((e) => e.day === 'today')
-    .map(({ time, title, who, place }) => ({ time, title, who, place }))
+  const calMeets = parseCalendarMeets(calendarBlock, tz).filter((e) => e.day === 'today')
+  const meets: TodayMeet[] = calMeets.map(({ time, title, who, place }) => ({
+    time,
+    title,
+    who: extractOtherPerson(title, myName) || who || title,
+    place,
+    kind: 'Meeting',
+  }))
+  return { meets, stay: null, calendarConnected: true }
 }
 
 /**
@@ -3088,9 +3118,45 @@ async function miniPayload(
   })
 
   if (kind === 'pick_night') {
-    const people = splitList(context.people)
-    const calResults = connected.includes('calendar')
-      ? await withTimeout(
+    const nowMs = Date.now()
+
+    interface TonightEvent {
+      time: string
+      title: string
+      who: string
+      meetKind: string
+      allDay: boolean
+      startMs: number
+    }
+
+    const allTodayEvents: TonightEvent[] = []
+
+    if (connected.includes('calendar')) {
+      // Try direct Google Calendar first (fastest, most structured)
+      const access = await googleAccessToken(sql, user.id, 'calendar')
+      if (access) {
+        const got = await fetchCalendarItems(access, {
+          timeMin: startOfLocalDay(tz),
+          timeMax: startOfLocalDay(tz, 1),
+          maxResults: 12,
+        })
+        if (got.ok) {
+          for (const e of got.items) {
+            const meet = parseCalMeet(e.title)
+            allTodayEvents.push({
+              time: e.allDay ? 'All day' : formatClock(e.start, tz),
+              title: e.title,
+              who: meet.who,
+              meetKind: e.kind,
+              allDay: e.allDay,
+              startMs: e.start.getTime(),
+            })
+          }
+        }
+      }
+      // Fallback: query through composio/runTools if direct fetch returned nothing
+      if (!allTodayEvents.length) {
+        const calResults = await withTimeout(
           runToolsForMessage(sql, {
             userId: user.id,
             persona,
@@ -3101,79 +3167,61 @@ async function miniPayload(
           8000,
           [] as string[],
         )
-      : []
-    const calendarBlock = calResults.find((t) => isCalendarToolResult(t))
-    const tonight = parseCalendarMeets(calendarBlock, tz).filter((e) => e.day === 'today')
-    if (tonight.length) {
-      const options = tonight.map((e) =>
-        e.place ? `${e.time} · ${e.who} at ${e.place}` : `${e.time} · ${e.title}`,
-      )
-      const first = tonight[0]!
-      const call = first.place
-        ? `Hold ${first.place}${first.who ? ` with ${first.who}` : ''}. Text me if that changes.`
-        : `You're on ${first.title}. Text me if that changes.`
-      const sections = [
-        { heading: 'On the calendar', items: options },
-        { heading: 'The call', items: [call] },
-      ]
-      const text = [`Tonight.`, ...options.map((o) => `- ${o}`), `Call: ${call}`].join('\n')
-      return { kind, title: "Tonight's plan", date: dateLabel, sections, paste: text, text }
+        const calendarBlock = calResults.find((t) => isCalendarToolResult(t))
+        const todayYmd = startOfLocalDay(tz).toLocaleDateString('en-CA', { timeZone: tz })
+        for (const line of digestLines(calendarBlock)) {
+          const parsed = parseFormattedEventLine(line)
+          if (!parsed) continue
+          const isAllDay = parsed.clock === 'All day'
+          const raw = parsed.iso.includes('T') ? parsed.iso : `${parsed.iso}T12:00:00`
+          const d = new Date(raw)
+          if (Number.isNaN(d.getTime())) continue
+          if (d.toLocaleDateString('en-CA', { timeZone: tz }) !== todayYmd) continue
+          const meet = parseCalMeet(parsed.title)
+          allTodayEvents.push({
+            time: parsed.clock || formatCalTime(parsed.iso, tz),
+            title: parsed.title,
+            who: meet.who,
+            meetKind: parsed.kind || 'Meeting',
+            allDay: isAllDay,
+            startMs: d.getTime(),
+          })
+        }
+      }
     }
 
-    const loc = await pickActiveLocation(sql, user.id)
-    const who = tonight[0]?.who || people[0] || 'whoever you are meeting'
-    let places: string[] = []
-    if (connected.includes('maps')) {
-      const c = await withTimeout(
-        composioFirst(
-          user.id,
-          ['GOOGLEMAPS_TEXT_SEARCH', 'GOOGLEMAPS_SEARCH_PLACES', 'GOOGLE_MAPS_SEARCH_PLACES'],
-          { query: 'quiet restaurant nearby', q: 'quiet restaurant nearby' },
-        ),
-        6000,
-        null,
+    // All-day events = where you are (hotel, travel), not things you attend
+    const locationEvents = allTodayEvents.filter((e) => e.allDay)
+
+    // Timed events remaining tonight (5 min grace for just-started events)
+    const remainingEvents = allTodayEvents
+      .filter((e) => !e.allDay && e.startMs >= nowMs - 5 * 60_000)
+      .sort((a, b) => a.startMs - b.startMs)
+
+    const sections: Array<{ heading: string; items: string[] }> = []
+
+    if (locationEvents.length) {
+      const locs = locationEvents.map((e) =>
+        e.title
+          .replace(/^(?:stay(?:ing)?|checked?\s*in)\s+at\s+/i, '')
+          .replace(/^at\s+/i, '')
+          .trim(),
       )
-      if (c && !/failed/i.test(c)) {
-        places = c
-          .split('\n')
-          .map((l) => l.replace(/^[-*]\s*/, '').trim())
-          .filter(Boolean)
-          .slice(0, 3)
-      }
+      sections.push({ heading: 'Where you are', items: locs })
     }
-    if (!places.length) {
-      const osm = await fetchMapSearch('quiet restaurant nearby', timezoneCountry(tz), loc)
-      if (osm.startsWith('Map results')) {
-        places = osm
-          .split('\n')
-          .filter((l) => l.startsWith('- '))
-          .map((l) => l.replace(/^-\s*/, '').split('\n')[0]!.trim())
-          .slice(0, 3)
-      }
+
+    if (remainingEvents.length) {
+      const lines = remainingEvents.map((e) => `${e.time}  ${e.who || e.title}  ${e.meetKind}`)
+      sections.push({ heading: "What's on tonight", items: lines })
+    } else {
+      const emptyMsg = connected.includes('calendar')
+        ? 'Nothing left on the calendar tonight.'
+        : 'Calendar is not connected. Tap Settings to add it.'
+      sections.push({ heading: 'Tonight', items: [emptyMsg] })
     }
-    const options = places.length
-      ? places
-      : connected.includes('calendar')
-        ? ['Nothing on the calendar after now.']
-        : [
-            `Quiet booth. ${who} can hear you.`,
-            'The loud one. Fun, then they cannot hear a thing.',
-          ]
-    const call = places[0]
-      ? `Hold ${places[0]}. Text me if you want a different cut.`
-      : connected.includes('calendar')
-        ? 'Text a neighborhood if you want a real place.'
-        : 'Hold the quiet booth. Text me if you want the shouty one instead.'
-    const connectHint =
-      connected.includes('calendar') || connected.includes('maps') || places.length
-        ? []
-        : ['Calendar is not showing events. Open hirealpha.chat/app, open this hire, and tap Connect on Calendar.']
-    const sections = [
-      { heading: 'Options', items: options },
-      { heading: 'The call', items: [call, ...connectHint] },
-    ]
-    const text = [`Tonight with ${who}.`, ...options.map((o) => `- ${o}`), `Call: ${call}`].join('\n')
-    return { kind, title: "Tonight's plan", date: dateLabel, sections, paste: text, text }
+
+    const text = remainingEvents.map((e) => `${e.time} ${e.who || e.title}`).join('\n')
+    return { kind, title: 'Tonight', date: dateLabel, sections, text }
   }
 
   if (kind === 'standup_paste') {
@@ -6214,10 +6262,10 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
       ORDER BY coalesce(last_touch, '1970-01-01'::timestamptz) ASC
     `
     const persona = url.searchParams.get('persona') || 'friend'
-    const today = isPersona(persona)
-      ? await todayCalendarMeets(sql, user!, persona).catch(() => [])
-      : []
-    return json({ people, today })
+    const calResult = isPersona(persona)
+      ? await todayCalendarMeets(sql, user!, persona).catch(() => ({ meets: [], stay: null, calendarConnected: false }))
+      : { meets: [], stay: null, calendarConnected: false }
+    return json({ people, today: calResult.meets, stay: calResult.stay, calendarConnected: calResult.calendarConnected })
   }
 
   if (path === '/api/network' && req.method === 'POST') {
@@ -6269,7 +6317,7 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     })
     if (error) return error
     const nights = await sql`
-      SELECT id, sleep_date AS "sleepDate", bedtime, wake, quality, note, created_at AS "createdAt"
+      SELECT id, sleep_date AS "sleepDate", bedtime, wake, quality, note, source, created_at AS "createdAt"
       FROM hire_sleep WHERE user_id = ${user!.id}
       ORDER BY sleep_date DESC LIMIT 21
     `
@@ -6303,6 +6351,33 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
   }
 
   if (path.startsWith('/api/sleep/') && req.method === 'POST') {
+    const sleepSegment = path.split('/')[3]
+
+    if (sleepSegment === 'ingest') {
+      const body = (await req.json().catch(() => ({}))) as {
+        token?: string; email?: string; session?: string
+        sleepDate?: string; bedtime?: string; wake?: string; hours?: number; source?: string
+      }
+      const bedtime = String(body.bedtime || '').trim()
+      const wake = String(body.wake || '').trim()
+      if (!isClock(bedtime) || !isClock(wake)) return json({ error: 'bedtime and wake required as HH:MM' }, 400)
+      const { user, error } = await resolveAuthedUser(sql, { token: body.token, session: body.session, email: body.email })
+      if (error) return error
+      const sleepDate = String(body.sleepDate || shiftDateStr(localDateStrInTz(new Date(), user!.timezone), -1)).slice(0, 10)
+      const source = String(body.source || 'apple_health').slice(0, 40)
+      const id = crypto.randomUUID()
+      await sql`
+        INSERT INTO hire_sleep (id, user_id, sleep_date, bedtime, wake, quality, note, source)
+        VALUES (${id}, ${user!.id}, ${sleepDate}, ${bedtime}, ${wake}, 3, NULL, ${source})
+        ON CONFLICT (user_id, sleep_date) DO UPDATE SET
+          bedtime = excluded.bedtime, wake = excluded.wake, source = excluded.source
+      `
+      if (isClock(bedtime) && isClock(wake)) {
+        await saveMiniPrefs(sql, user!.id, { sleepBedtime: bedtime, sleepWake: wake })
+      }
+      return json({ ok: true, sleepDate, bedtime, wake })
+    }
+
     const body = (await req.json().catch(() => ({}))) as { token?: string; email?: string; _delete?: boolean }
     if (!body._delete) return json({ error: 'Not found' }, 404)
     const id = path.split('/')[3]

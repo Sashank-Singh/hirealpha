@@ -1391,7 +1391,6 @@ export function NutritionApp({ auth }: { auth: FeatureAuth }) {
 
 /* ------------------------------ Habit Streak Board ------------------------------ */
 
-
 function localDateStr(d = new Date()) {
   const y = d.getFullYear()
   const m = String(d.getMonth() + 1).padStart(2, '0')
@@ -1418,20 +1417,18 @@ function currentWeekDays(): string[] {
   return days
 }
 
-function dayLetter(dateStr: string): string {
-  const [y, m, d] = dateStr.split('-').map(Number)
-  return ['S', 'M', 'T', 'W', 'T', 'F', 'S'][new Date(Date.UTC(y || 1970, (m || 1) - 1, d || 1)).getUTCDay()] || ''
-}
-
 function isoToLocalDate(iso: string) {
   const d = new Date(iso)
   if (Number.isNaN(d.getTime())) return iso.slice(0, 10)
   return localDateStr(d)
 }
 
+export { buildHabitHeatmap } from './habitHeatmap'
+import { buildHabitHeatmap as _buildHabitHeatmap } from './habitHeatmap'
+
 export function HabitStreakApp({ auth }: { auth: FeatureAuth }) {
   const a = useAuthed(auth)
-  const [habits, setHabits] = useState<(Habit & { streak: number; recentDays: string[] })[]>([])
+  const [habits, setHabits] = useState<(Habit & { streak: number; recentDays: string[]; logDates?: string[] })[]>([])
   const [name, setName] = useState('')
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState('')
@@ -1495,7 +1492,7 @@ export function HabitStreakApp({ auth }: { auth: FeatureAuth }) {
   const bestStreak = habits.reduce((n, h) => Math.max(n, h.streak), 0)
   const allDone = habits.length > 0 && left.length === 0
 
-  async function markRemaining() {
+  async function checkOffRemaining() {
     if (busy || left.length === 0) return
     setBusy(true)
     try {
@@ -1507,6 +1504,9 @@ export function HabitStreakApp({ auth }: { auth: FeatureAuth }) {
       setBusy(false)
     }
   }
+
+  const heatmapCols = _buildHabitHeatmap(habits)
+  const hasLogDates = habits.some((h) => (h.logDates?.length ?? 0) > 0)
 
   const addForm = (
     <form className="ma-form" onSubmit={add}>
@@ -1527,13 +1527,30 @@ export function HabitStreakApp({ auth }: { auth: FeatureAuth }) {
             ? 'Add one habit. Tap today to start.'
             : allDone
               ? bestStreak ? `Best streak ${bestStreak} days` : 'Come back tomorrow'
-              : left[0] ? `${left[0].name} is next` : 'Mark what you did'}
+              : left[0] ? `${left[0].name} is next` : 'Check off what you did'}
         </span>
       </div>
 
+      {hasLogDates && habits.length > 0 && (
+        <div className="habit-heatmap" aria-label="12-week completion history" role="img">
+          {heatmapCols.map((col, wi) => (
+            <div key={wi} className="habit-heatmap-col">
+              {col.map((cell) => (
+                <div
+                  key={cell.date}
+                  className={`habit-heatmap-cell${cell.level < 0 ? ' future' : ''}`}
+                  data-level={cell.level < 0 ? undefined : cell.level}
+                  title={cell.level >= 0 ? cell.date : undefined}
+                />
+              ))}
+            </div>
+          ))}
+        </div>
+      )}
+
       {left.length > 0 && (
-        <button className="ma-btn ma-btn--block" type="button" disabled={busy} onClick={() => void markRemaining()}>
-          {left.length === 1 ? `Mark ${left[0].name}` : 'Mark remaining'}
+        <button className="ma-btn ma-btn--block" type="button" disabled={busy} onClick={() => void checkOffRemaining()}>
+          {left.length === 1 && left[0] ? `Done with ${left[0].name}` : 'Check off the rest'}
         </button>
       )}
 
@@ -1547,36 +1564,38 @@ export function HabitStreakApp({ auth }: { auth: FeatureAuth }) {
               <li key={h.id} className="habit-card">
                 <div className="habit-info">
                   <div className="habit-name">{h.name}</div>
-                  <div className="habit-streak">{h.streak ? `${h.streak} day streak` : 'No streak yet'}</div>
+                  <div className="habit-streak">{h.streak ? `${h.streak} day streak` : 'None yet'}</div>
+                  <div className="habit-week" aria-label="This week">
+                    {days.map((d) => (
+                      <button
+                        key={d}
+                        className={`habit-week-sq${h.recentDays.includes(d) ? ' done' : ''}${d === today ? ' today' : ''}`}
+                        type="button"
+                        aria-label={d === today ? 'Today' : d}
+                        aria-pressed={h.recentDays.includes(d)}
+                        onClick={() => void toggle(h.id, d)}
+                      />
+                    ))}
+                  </div>
                 </div>
-                <div className="habit-days">
-                  {days.map((d) => (
-                    <button
-                      key={d}
-                      className={`habit-day${h.recentDays.includes(d) ? ' done' : ''}${d === today ? ' today' : ''}`}
-                      type="button"
-                      onClick={() => void toggle(h.id, d)}
-                    >
-                      {dayLetter(d)}
+                <div className="habit-actions">
+                  {!done ? (
+                    <button className="ma-chip" type="button" disabled={busy} onClick={() => void toggle(h.id, today)}>
+                      Done
                     </button>
-                  ))}
+                  ) : (
+                    <button className="ma-chip ma-chip--on" type="button" disabled={busy} onClick={() => void toggle(h.id, today)}>
+                      Done
+                    </button>
+                  )}
+                  <button className="habit-delete" type="button" onClick={() => void remove(h.id)} title="Remove" aria-label="Remove habit">×</button>
                 </div>
-                {!done ? (
-                  <button className="ma-chip" type="button" disabled={busy} onClick={() => void toggle(h.id, today)}>
-                    Mark
-                  </button>
-                ) : (
-                  <button className="ma-chip ma-chip--on" type="button" disabled={busy} onClick={() => void toggle(h.id, today)}>
-                    Done
-                  </button>
-                )}
-                <button className="habit-delete" type="button" onClick={() => void remove(h.id)} title="Remove">×</button>
               </li>
             )
           })}
         </ul>
       ) : (
-        <p className="mini__empty">Add one habit. Tap today to start.</p>
+        <p className="mini__empty">Add one habit. Tap Done each day to build a streak.</p>
       )}
 
       {habits.length > 0 && !showAdd && (
