@@ -1718,6 +1718,96 @@ async function runComposioPlugin(userId: string, id: string, message: string): P
   return out
 }
 
+/** Structured Gmail fetch: returns message id + headers, no text formatting. */
+async function fetchGmailRich(
+  access: string,
+  query: string,
+  maxResults = 8,
+): Promise<Array<{ id: string; from: string; date: string; subject: string; snippet: string }>> {
+  const cap = Math.max(1, Math.min(20, maxResults))
+  const listUrl = new URL('https://gmail.googleapis.com/gmail/v1/users/me/messages')
+  listUrl.searchParams.set('maxResults', String(cap))
+  listUrl.searchParams.set('q', query)
+  const list = await fetch(listUrl, { headers: { Authorization: `Bearer ${access}` } })
+  if (!list.ok) return []
+  const data = (await list.json()) as { messages?: Array<{ id: string }> }
+  const ids = (data.messages || []).slice(0, cap)
+  const results = (
+    await Promise.all(
+      ids.map(async (m) => {
+        const got = await fetch(
+          `https://gmail.googleapis.com/gmail/v1/users/me/messages/${m.id}?format=metadata&metadataHeaders=Subject&metadataHeaders=From&metadataHeaders=Date`,
+          { headers: { Authorization: `Bearer ${access}` } },
+        )
+        if (!got.ok) return null
+        const msg = (await got.json()) as {
+          snippet?: string
+          payload?: { headers?: Array<{ name: string; value: string }> }
+        }
+        const headers = msg.payload?.headers || []
+        const h = (n: string) => headers.find((x) => x.name.toLowerCase() === n.toLowerCase())?.value || ''
+        return { id: m.id, from: h('From'), date: h('Date'), subject: h('Subject'), snippet: msg.snippet || '' }
+      }),
+    )
+  ).filter((item): item is NonNullable<typeof item> => !!item)
+  return results
+}
+
+/** Like loadGmail but returns structured items with Gmail message IDs. Falls back to [] if Google token unavailable. */
+async function loadGmailRich(
+  sql: SQL,
+  userId: string,
+  query: string,
+  maxResults = 8,
+): Promise<Array<{ id: string; from: string; date: string; subject: string; snippet: string }>> {
+  try {
+    const access = await googleAccessToken(sql, userId, 'gmail')
+    if (!access) return []
+    return await fetchGmailRich(access, query, maxResults)
+  } catch {
+    return []
+  }
+}
+
+/** Recursive MIME part for Gmail full-format messages. */
+interface GmailMimePart {
+  mimeType?: string
+  body?: { data?: string; size?: number }
+  parts?: GmailMimePart[]
+}
+
+/** Decode Gmail base64url-encoded body data. */
+function decodeGmailBody(s: string): string {
+  try {
+    const b64 = s.replace(/-/g, '+').replace(/_/g, '/')
+    return Buffer.from(b64, 'base64').toString('utf-8')
+  } catch {
+    return ''
+  }
+}
+
+/** Walk MIME parts to extract text/plain and text/html bodies. */
+function extractGmailBody(part?: GmailMimePart): { text: string; html: string } {
+  if (!part) return { text: '', html: '' }
+  if (part.mimeType === 'text/html' && part.body?.data) {
+    return { text: '', html: decodeGmailBody(part.body.data) }
+  }
+  if (part.mimeType === 'text/plain' && part.body?.data) {
+    return { text: decodeGmailBody(part.body.data), html: '' }
+  }
+  if (part.parts?.length) {
+    let text = ''
+    let html = ''
+    for (const sub of part.parts) {
+      const r = extractGmailBody(sub)
+      if (!text && r.text) text = r.text
+      if (!html && r.html) html = r.html
+    }
+    return { text, html }
+  }
+  return { text: '', html: '' }
+}
+
 async function loadGmail(sql: SQL, userId: string, query: string, maxResults = 8): Promise<string> {
   const access = await googleAccessToken(sql, userId, 'gmail')
   if (access) {
@@ -2052,6 +2142,12 @@ function formatMailLine(line: string): string {
   return from ? `${s} · ${from}` : s
 }
 
+function formatMailLineFromParts(from: string, subject: string): string {
+  const cleanFrom = from.replace(/<[^>]+>/g, '').trim()
+  const s = (subject || '(no subject)').slice(0, 60)
+  return cleanFrom ? `${s} · ${cleanFrom}` : s
+}
+
 function withTimeout<T>(p: Promise<T>, ms: number, fallback: T): Promise<T> {
   return new Promise((resolve) => {
     const t = setTimeout(() => resolve(fallback), ms)
@@ -2245,9 +2341,35 @@ async function digestPayload(
   // The brief is a read-only view; calendar is already in todayCal.
   const events: Array<{ id: string; label: string }> = []
 
-  // Email: try direct Gmail first (important + medium), fall back to composio.
+  // Email: try direct Gmail rich fetch first (returns IDs), fall back to text-only, then composio.
+  let finalEmailItems: Array<{ id: string; label: string }> = []
   let finalEmails: string[] = []
-  if (connected.includes('calendar')) {
+
+  if (connected.includes('gmail')) {
+    try {
+      const richItems = await withTimeout(
+        loadGmailRich(
+          sql,
+          user.id,
+          'newer_than:16h is:inbox (is:important OR is:starred OR category:primary) -is:spam -is:promotions',
+          8,
+        ),
+        6000,
+        [] as Array<{ id: string; from: string; date: string; subject: string; snippet: string }>,
+      )
+      if (richItems.length) {
+        finalEmailItems = richItems.map((m) => ({
+          id: m.id,
+          label: formatMailLineFromParts(m.from, m.subject),
+        }))
+        finalEmails = finalEmailItems.map((e) => e.label)
+      }
+    } catch {
+      // best-effort
+    }
+  }
+  // Text-only fallback (no IDs) when rich fetch returned nothing
+  if (!finalEmails.length && connected.includes('calendar')) {
     try {
       const mailBlock = await withTimeout(
         loadGmail(
@@ -2341,7 +2463,7 @@ async function digestPayload(
     .join('\n\n')
 
   // calendar = today events only (tomorrow is separate)
-  return { date: dateLabel, calendar: todayCal, emails: finalEmails, reminders, loops, tomorrow: tomorrowCal, events, text, brief }
+  return { date: dateLabel, calendar: todayCal, emails: finalEmails, emailItems: finalEmailItems, reminders, loops, tomorrow: tomorrowCal, events, text, brief }
 }
 
 /** Mini apps each hire can offer, mirroring src/agents/skills.ts. */
@@ -3258,15 +3380,28 @@ async function miniPayload(
       .sort((a, b) => a.startMs - b.startMs)
 
     // Mail since morning: important + medium, last 12 hours, not spam or promos
-    let mailLines: string[] = []
-    if (connected.includes('calendar')) {
+    let mailItems: Array<{ id: string; label: string }> = []
+    if (connected.includes('gmail')) {
+      try {
+        const richMail = await withTimeout(
+          loadGmailRich(sql, user.id, 'newer_than:12h is:inbox (is:important OR is:starred OR category:primary) -is:spam -is:promotions', 6),
+          5000,
+          [] as Array<{ id: string; from: string; date: string; subject: string; snippet: string }>,
+        )
+        mailItems = richMail.map((m) => ({ id: m.id, label: formatMailLineFromParts(m.from, m.subject) }))
+      } catch {
+        // best-effort
+      }
+    }
+    if (!mailItems.length && connected.includes('calendar')) {
       try {
         const mailBlock = await withTimeout(
           loadGmail(sql, user.id, 'newer_than:12h is:inbox (is:important OR is:starred OR category:primary) -is:spam -is:promotions', 6),
           5000,
           '',
         )
-        mailLines = digestLines(mailBlock).slice(0, 5).map(formatMailLine)
+        const textLines = digestLines(mailBlock).slice(0, 5).map(formatMailLine)
+        mailItems = textLines.map((label, i) => ({ id: `text-${i}`, label }))
       } catch {
         // mail is best-effort
       }
@@ -3274,7 +3409,7 @@ async function miniPayload(
 
     const formatEvent = (e: EveningEvent) => `${e.time}  ${e.who || e.title}  ${e.meetKind}`
 
-    const sections: Array<{ heading: string; items: string[] }> = []
+    const sections: Array<{ heading: string; items: string[]; emailMeta?: Array<{ id: string }> }> = []
 
     if (locationEvents.length) {
       const locs = locationEvents.map((e) =>
@@ -3298,8 +3433,12 @@ async function miniPayload(
       sections.push({ heading: 'Left this evening', items: ['Calendar is not connected. Tap Settings to add it.'] })
     }
 
-    if (mailLines.length) {
-      sections.push({ heading: 'Mail since this morning', items: mailLines })
+    if (mailItems.length) {
+      sections.push({
+        heading: 'Mail since this morning',
+        items: mailItems.map((m) => m.label),
+        emailMeta: mailItems.map((m) => ({ id: m.id })),
+      })
     }
 
     if (tomorrowEvents.length) {
@@ -3763,6 +3902,7 @@ type NextRow = {
   end?: string
   sms?: string
   openKind?: string
+  messageId?: string
 }
 
 async function buildNextStack(
@@ -3806,17 +3946,33 @@ async function buildNextStack(
 
   if (connected.includes('gmail')) {
     try {
-      const mail = await loadGmail(sql, user.id, '(is:important OR is:unread) newer_than:2d', 3)
-      for (const m of parseGmailOverview(mail)) {
+      const richMail = await loadGmailRich(sql, user.id, '(is:important OR is:unread) newer_than:2d', 3)
+      for (const m of richMail.slice(0, 3)) {
         items.push({
-          id: m.id,
+          id: `mail-${m.id}`,
           kicker: 'Mail',
-          title: m.subject,
-          hint: m.from,
+          title: m.subject || '(no subject)',
+          hint: m.from.replace(/<[^>]+>/g, '').trim(),
           action: 'open',
           doLabel: 'Read',
           openKind: 'digest',
+          messageId: m.id,
         })
+      }
+      // Fallback to text-only if rich returned nothing
+      if (!richMail.length) {
+        const mail = await loadGmail(sql, user.id, '(is:important OR is:unread) newer_than:2d', 3)
+        for (const m of parseGmailOverview(mail)) {
+          items.push({
+            id: m.id,
+            kicker: 'Mail',
+            title: m.subject,
+            hint: m.from,
+            action: 'open',
+            doLabel: 'Read',
+            openKind: 'digest',
+          })
+        }
       }
     } catch (err) {
       console.warn('[work/next] mail failed', err)
@@ -4504,6 +4660,49 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     const token = mintMiniToken(phone, persona, kind)
     if (!token) return json({ error: 'Mini tokens not configured' }, 503)
     return json({ token, url: `${appBase(req)}/app/mini/${persona}/${kind}?t=${token}` })
+  }
+
+  if (path.startsWith('/api/mail/') && req.method === 'GET') {
+    const msgId = path.slice('/api/mail/'.length).replace(/[^a-zA-Z0-9_-]/g, '')
+    if (!msgId) return json({ ok: false, error: 'Message ID required' }, 400)
+    const { user, error: authErr } = await resolveAuthedUser(sql, {
+      token: url.searchParams.get('t') || undefined,
+      session: url.searchParams.get('s') || undefined,
+      email: url.searchParams.get('email') || undefined,
+    })
+    if (authErr) return authErr
+    const access = await googleAccessToken(sql, user!.id, 'gmail')
+    if (!access) {
+      return json({
+        ok: false,
+        error: 'Gmail is not connected. Reconnect it in Settings to read full messages.',
+      })
+    }
+    const gmailRes = await fetch(
+      `https://gmail.googleapis.com/gmail/v1/users/me/messages/${encodeURIComponent(msgId)}?format=full`,
+      { headers: { Authorization: `Bearer ${access}` } },
+    )
+    if (!gmailRes.ok) {
+      if (gmailRes.status === 404) return json({ ok: false, error: 'Message not found.' })
+      return json({ ok: false, error: `Gmail returned ${gmailRes.status}. Try again.` })
+    }
+    const gmailMsg = (await gmailRes.json()) as {
+      snippet?: string
+      payload?: GmailMimePart & { headers?: Array<{ name: string; value: string }> }
+    }
+    const headers = gmailMsg.payload?.headers || []
+    const h = (n: string) => headers.find((x) => x.name.toLowerCase() === n.toLowerCase())?.value || ''
+    const { text: bodyText, html: bodyHtml } = extractGmailBody(gmailMsg.payload)
+    return json({
+      ok: true,
+      messageId: msgId,
+      subject: h('subject'),
+      from: h('from'),
+      date: h('date'),
+      bodyText,
+      bodyHtml,
+      snippet: gmailMsg.snippet || '',
+    })
   }
 
   if (path === '/api/digest' && req.method === 'GET') {

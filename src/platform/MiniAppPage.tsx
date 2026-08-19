@@ -126,7 +126,8 @@ export const MENU_FEATURES: Record<string, MenuFeature[]> = {
     { kind: 'sleep_tracker', title: 'Sleep', emoji: '🌱', blurb: 'Last night.' },
     { kind: 'spending_snapshot', title: 'Spending', emoji: '💰', blurb: 'This week\'s budget.' },
     { kind: 'networking_crm', title: 'People', emoji: '🤝', blurb: 'Who to follow up.' },
-    { kind: 'pick_night', title: 'Tonight', emoji: '🌙', blurb: 'What to do.', sample: 'what should we do tonight' },
+    { kind: 'digest', title: 'Morning brief', emoji: '☀️', blurb: 'Overnight mail, calendar through today, and tomorrow at a glance.', sample: 'morning brief' },
+    { kind: 'pick_night', title: 'Evening brief', emoji: '🌙', blurb: 'Wind down today, mail since morning, and tomorrow.' },
   ],
   coworker: [
     { kind: 'next_move', title: 'Next', emoji: '▶️', blurb: 'The one thing to do now.' },
@@ -152,7 +153,7 @@ export const APP_STORE_GROUPS: Record<string, { label: string; kinds: string[] }
     { label: 'Body', kinds: ['nutrition', 'workout_log', 'sleep_tracker', 'habit_streak'] },
     { label: 'Money', kinds: ['spending_snapshot'] },
     { label: 'People', kinds: ['networking_crm'] },
-    { label: 'Night', kinds: ['pick_night'] },
+    { label: 'Brief', kinds: ['digest', 'pick_night'] },
   ],
   coworker: [
     { label: 'Now', kinds: ['next_move'] },
@@ -289,9 +290,10 @@ export function MiniAppPage() {
   const miniAccent = agent.color
   const miniAccentFg = '#f4f4f5'
   const features = MENU_FEATURES[persona || ''] ?? []
+  const briefKind = new Date().getHours() < 16 ? 'digest' : 'pick_night'
   const storeGroups = (APP_STORE_GROUPS[persona || ''] ?? []).map((group) => ({
     ...group,
-    items: group.kinds
+    items: (persona === 'friend' && group.label === 'Brief' ? [briefKind] : group.kinds)
       .map((k) => features.find((f) => f.kind === k))
       .filter((f): f is MenuFeature => !!f),
   })).filter((g) => g.items.length > 0)

@@ -626,6 +626,7 @@ export type NextItem = {
   sms?: string
   href?: string
   openKind?: string
+  messageId?: string
 }
 
 async function fallbackNextStack(a: { email?: string; token?: string; persona?: string }) {
@@ -726,6 +727,33 @@ export const apiDayEvents = (a: { email?: string; token?: string; persona?: stri
   featureGet<{
     events: Array<{ id: string; title: string; start: string; label: string }>
   }>('/api/work/day', authQuery(a))
+
+/* ---- Mail reader ---- */
+export type MailMessage = {
+  ok: boolean
+  messageId?: string
+  subject?: string
+  from?: string
+  date?: string
+  bodyText?: string
+  bodyHtml?: string
+  snippet?: string
+  error?: string
+}
+
+export const apiGetMailMessage = (a: { email?: string; token?: string; messageId: string }) => {
+  const qs = new URLSearchParams()
+  if (a.email) qs.set('email', a.email)
+  else if (a.token) qs.set('t', a.token)
+  return fetch(`/api/mail/${encodeURIComponent(a.messageId)}?${qs}`).then(async (res) => {
+    const text = await res.text()
+    try {
+      return JSON.parse(text) as MailMessage
+    } catch {
+      return { ok: false, error: 'Request failed' } as MailMessage
+    }
+  })
+}
 
 /* ---- Mini app prefs (workout place, move count, usual sleep times) ---- */
 export type MiniPrefs = {
