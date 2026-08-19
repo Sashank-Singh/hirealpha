@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'bun:test'
 import {
+  extractOtherPerson,
   formatUpcomingEvents,
   googleTokenHasScope,
   inferEventKind,
+  isHotelStayEvent,
   isWalkIn,
   parseComposioCalendarData,
   parseFormattedEventLine,
@@ -83,6 +85,53 @@ describe('calendar event parsing', () => {
   it('does not treat a Google login token as a calendar token', () => {
     expect(googleTokenHasScope('openid email profile', 'calendar')).toBe(false)
     expect(googleTokenHasScope('https://www.googleapis.com/auth/calendar.events', 'calendar')).toBe(true)
+  })
+})
+
+describe('extractOtherPerson', () => {
+  it('extracts the non-owner name from "X and Y" titles', () => {
+    expect(extractOtherPerson('Sashank Singh and Amy Black', 'Sashank Singh')).toBe('Amy Black')
+    expect(extractOtherPerson('Sashank Singh and McKenley Land', 'Sashank Singh')).toBe('McKenley Land')
+  })
+
+  it('handles reversed order', () => {
+    expect(extractOtherPerson('Amy Black and Sashank Singh', 'Sashank Singh')).toBe('Amy Black')
+  })
+
+  it('strips trailing time and phone info', () => {
+    expect(extractOtherPerson('Sashank Singh and Amy Black, 12:30pm', 'Sashank Singh')).toBe('Amy Black')
+    expect(extractOtherPerson('Sashank Singh and McKenley Land, 1:30pm, +1 216', 'Sashank Singh')).toBe('McKenley Land')
+  })
+
+  it('strips trailing at-place from "and" pattern', () => {
+    expect(extractOtherPerson('Sashank Singh and Amy Black at Coffee Bar', 'Sashank Singh')).toBe('Amy Black')
+  })
+
+  it('falls back to stripping meet/call prefix when no and-pattern', () => {
+    expect(extractOtherPerson('Meeting with Amy Black', 'Sashank Singh')).toBe('Amy Black')
+    expect(extractOtherPerson('Call with McKenley', null)).toBe('McKenley')
+  })
+
+  it('returns right side when no myName given', () => {
+    expect(extractOtherPerson('Alice and Bob', null)).toBe('Bob')
+  })
+})
+
+describe('isHotelStayEvent', () => {
+  it('flags all-day hotel/stay events', () => {
+    expect(isHotelStayEvent({ title: 'Stay at Music City Hotel', allDay: true })).toBe(true)
+    expect(isHotelStayEvent({ title: 'Hotel check-in', allDay: true })).toBe(true)
+    expect(isHotelStayEvent({ title: 'Flight to NYC', allDay: true })).toBe(true)
+    expect(isHotelStayEvent({ title: 'OOO - vacation', allDay: true })).toBe(true)
+  })
+
+  it('does not flag timed events', () => {
+    expect(isHotelStayEvent({ title: 'Stay at Music City Hotel', allDay: false })).toBe(false)
+  })
+
+  it('does not flag ordinary all-day events that are about people', () => {
+    expect(isHotelStayEvent({ title: 'Sister lands', allDay: true })).toBe(false)
+    expect(isHotelStayEvent({ title: 'Mithil birthday', allDay: true })).toBe(false)
   })
 })
 

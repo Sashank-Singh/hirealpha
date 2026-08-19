@@ -267,28 +267,40 @@ export function isWalkIn(start: string, now = Date.now()): boolean {
   return Number.isFinite(t) && t > now && t - now < 45 * 60 * 1000
 }
 
-export type NextCalEvent = { id: string; title: string; start: string; allDay: boolean }
+const STAY_RE =
+  /\b(hotel|stay|check[- ]?in|check[- ]?out|flight|airport|ooo|out of office|vacation|holiday|layover|transit|airbnb|bnb|depart|arrives?|arrival|departure|cruise|resort|inn|motel|lodge)\b/i
 
-/** Remaining meetings for Next: next 48 hours, not only the next 45 minutes. */
-export function selectNextEvents(
-  events: NextCalEvent[],
-  now = Date.now(),
-  horizonMs = 48 * 3600_000,
-): NextCalEvent[] {
-  const upcoming = events
-    .map((e) => {
-      const raw = e.start.includes('T') || e.allDay === false ? e.start : `${e.start}T12:00:00`
-      const t = new Date(raw).getTime()
-      return { e, t }
-    })
-    .filter(({ t }) => Number.isFinite(t) && t >= now - 5 * 60_000 && t <= now + horizonMs)
-    .sort((a, b) => a.t - b.t)
-  const timed = upcoming.filter(({ e }) => !e.allDay).slice(0, 3).map(({ e }) => e)
-  if (timed.length) return timed
-  return upcoming.filter(({ e }) => e.allDay).slice(0, 2).map(({ e }) => e)
+/** Returns true if an all-day event looks like a travel/hotel/stay entry rather than a person meeting. */
+export function isHotelStayEvent(e: { title: string; allDay: boolean }): boolean {
+  if (!e.allDay) return false
+  return STAY_RE.test(e.title)
 }
 
-export function isWalkIn(start: string, now = Date.now()): boolean {
-  const t = new Date(start).getTime()
-  return Number.isFinite(t) && t > now && t - now < 45 * 60 * 1000
+/**
+ * Given a calendar title like "Sashank Singh and Amy Black, 12:30pm"
+ * and the user's own display name, extract only the other person's name.
+ * Falls back gracefully when the pattern does not match.
+ */
+export function extractOtherPerson(title: string, myName: string | null): string {
+  const clean = title
+    .replace(/,\s*\+?[\d()\s.+\-]{6,}.*$/, '')
+    .replace(/,\s*\d{1,2}:\d{2}\s*(am|pm)?.*$/i, '')
+    .replace(/\s+at\s+.+$/i, '')
+    .trim()
+
+  const andMatch = clean.match(/^(.+?)\s+and\s+(.+)$/i)
+  if (andMatch) {
+    const left = andMatch[1]!.trim()
+    const right = andMatch[2]!.trim()
+    if (myName) {
+      const myFirst = myName.split(' ')[0]!.toLowerCase()
+      if (left.toLowerCase().startsWith(myFirst)) return right
+      if (right.toLowerCase().startsWith(myFirst)) return left
+    }
+    return right
+  }
+
+  return clean
+    .replace(/^(?:meet(?:ing)?(?:\s+with)?|call(?:\s+with)?|coffee\s+with|lunch\s+with|dinner\s+with)\s+/i, '')
+    .trim() || clean
 }

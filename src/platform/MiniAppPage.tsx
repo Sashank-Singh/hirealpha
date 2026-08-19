@@ -170,7 +170,7 @@ export const KIND_TITLES: Record<string, { title: string; blurb: string }> = {
   next_move: { title: 'Next', blurb: 'The one thing to do now.' },
   approve_send: { title: 'Approve & send', blurb: 'Review the draft and approve it to send.' },
   pick_slot: { title: 'Pick a slot', blurb: 'Compare meeting times and pick the one that works.' },
-  pick_night: { title: 'Pick the night', blurb: 'Plans, options, and a call on what to do.' },
+  pick_night: { title: 'Tonight', blurb: 'What is left on the calendar tonight.' },
   check_in: { title: 'Check-in', blurb: 'A quick pulse on how you are doing.' },
   standup_paste: { title: 'Standup', blurb: 'Your standup notes, tightened up.' },
   linear_triage: { title: 'Linear triage', blurb: 'Issues and backlog, triaged.' },
@@ -538,7 +538,7 @@ export function MiniAppPage() {
           <div className="mini__body">
             {mini?.date && (
               <div className="ma-hero">
-                <span className="ma-hero-kicker">Ready</span>
+                <span className="ma-hero-kicker">{kind === 'pick_night' ? 'Tonight' : 'Ready'}</span>
                 <p className="mini__date">{mini.date}</p>
               </div>
             )}
@@ -558,11 +558,8 @@ export function MiniAppPage() {
                 )}
               </section>
             ))}
-            {mini?.paste && (
-              <p className="mini__hint">Paste-ready. Text {agent.imsgName} if you want a different cut.</p>
-            )}
-            {kind === 'pick_night' && (
-              <PickSlotApp auth={{ persona: (persona as AgentId) || 'friend', email: email || undefined, token: token || undefined }} />
+            {mini?.paste && kind !== 'pick_night' && (
+              <p className="mini__hint">Text {agent.imsgName} to keep going.</p>
             )}
           </div>
         )}
