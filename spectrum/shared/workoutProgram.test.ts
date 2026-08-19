@@ -69,10 +69,14 @@ describe('workout programs', () => {
     expect(defaultWorkoutWeekday(new Date('2026-08-16T12:00:00'))).toBe(1)
   })
 
-  it('prints compact set prescriptions without dashes', () => {
-    expect(restLabel(120)).toBe('2 min rest')
+  it('prints readable set prescriptions with full words', () => {
+    expect(restLabel(120)).toBe('2 minutes rest')
+    expect(restLabel(60)).toBe('60 seconds rest')
     expect(movePrescription({ name: 'Bench press', sets: 4, reps: 6, restSec: 90 }, 185)).toBe(
-      '4 × 6 @ 185. 90s rest',
+      '4 sets of 6 reps at 185 lbs. 90 seconds rest',
+    )
+    expect(movePrescription({ name: 'Dumbbell row', sets: 4, reps: 10, restSec: 75 })).toBe(
+      '4 sets of 10 reps. 75 seconds rest',
     )
   })
 })

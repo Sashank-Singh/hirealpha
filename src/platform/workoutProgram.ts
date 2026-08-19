@@ -250,12 +250,19 @@ export function writeWorkoutMoveCount(count: WorkoutMoveCount) {
 }
 
 export function restLabel(restSec: number): string {
-  if (restSec >= 120 && restSec % 60 === 0) return `${restSec / 60} min rest`
-  return `${restSec}s rest`
+  if (restSec >= 120 && restSec % 60 === 0) {
+    const m = restSec / 60
+    return `${m} minute${m === 1 ? '' : 's'} rest`
+  }
+  return `${restSec} seconds rest`
+}
+
+export function setsRepsLabel(sets: number, reps: number): string {
+  return `${sets} set${sets === 1 ? '' : 's'} of ${reps} rep${reps === 1 ? '' : 's'}`
 }
 
 export function movePrescription(move: WorkoutMove, weight = 0): string {
-  const lift = `${move.sets} × ${move.reps}`
-  const load = weight > 0 ? ` @ ${weight}` : ''
+  const lift = setsRepsLabel(move.sets, move.reps)
+  const load = weight > 0 ? ` at ${weight} lbs` : ''
   return `${lift}${load}. ${restLabel(move.restSec)}`
 }

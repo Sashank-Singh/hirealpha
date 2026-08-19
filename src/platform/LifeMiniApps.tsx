@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
 import {
   apiAddGratitude,
@@ -55,6 +55,7 @@ import {
   workoutSession,
   writeWorkoutMoveCount,
   writeWorkoutPlace,
+  setsRepsLabel,
   type WorkoutMove,
   type WorkoutMoveCount,
   type WorkoutPlace,
@@ -173,6 +174,54 @@ function openHttp(url: string) {
 
 /* ------------------------------ Workout Log ----------------------------- */
 
+const EXERCISE_DEMO_CACHE_KEY = 'hire.exercise.demo.v1'
+const EXERCISE_DEMO_TTL = 7 * 24 * 60 * 60 * 1000
+
+type DemoCacheEntry = { url: string | null; at: number }
+type DemoCache = Record<string, DemoCacheEntry>
+
+function readDemoCache(): DemoCache {
+  try { return JSON.parse(localStorage.getItem(EXERCISE_DEMO_CACHE_KEY) || '{}') as DemoCache } catch { return {} }
+}
+
+function writeDemoCache(cache: DemoCache) {
+  try { localStorage.setItem(EXERCISE_DEMO_CACHE_KEY, JSON.stringify(cache)) } catch { /* ignore */ }
+}
+
+async function fetchExerciseDemo(name: string): Promise<string | null> {
+  const cache = readDemoCache()
+  const key = name.toLowerCase()
+  const entry = cache[key]
+  if (entry && Date.now() - entry.at < EXERCISE_DEMO_TTL) return entry.url
+
+  try {
+    const searchRes = await fetch(
+      `https://wger.de/api/v2/exercise/search/?term=${encodeURIComponent(name)}&language=english&format=json`,
+      { signal: AbortSignal.timeout(7000) },
+    )
+    if (!searchRes.ok) throw new Error('search failed')
+    const searchData = await searchRes.json() as { suggestions: Array<{ data: { base_id: number } }> }
+    const baseId = searchData.suggestions[0]?.data?.base_id
+    if (!baseId) {
+      writeDemoCache({ ...readDemoCache(), [key]: { url: null, at: Date.now() } })
+      return null
+    }
+
+    const imgRes = await fetch(
+      `https://wger.de/api/v2/exerciseimage/?exercise_base=${baseId}&is_main=True&format=json`,
+      { signal: AbortSignal.timeout(7000) },
+    )
+    if (!imgRes.ok) throw new Error('images failed')
+    const imgData = await imgRes.json() as { results: Array<{ image: string }> }
+    const url = imgData.results[0]?.image ?? null
+    writeDemoCache({ ...readDemoCache(), [key]: { url, at: Date.now() } })
+    return url
+  } catch {
+    writeDemoCache({ ...readDemoCache(), [key]: { url: null, at: Date.now() } })
+    return null
+  }
+}
+
 function lastWeightFor(logs: WorkoutLog[], name: string): number {
   const hit = logs.find((l) => l.exercise.toLowerCase() === name.toLowerCase() && l.weight > 0)
   return hit?.weight || 0
@@ -192,6 +241,9 @@ export function WorkoutLogApp({ auth }: { auth: FeatureAuth }) {
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState('')
   const [showNew, setShowNew] = useState(false)
+  const [demoExercise, setDemoExercise] = useState<string | null>(null)
+  const [demoUrls, setDemoUrls] = useState<Record<string, string | null>>({})
+  const fetchingRef = useRef(new Set<string>())
 
   const load = useCallback(() => {
     apiListWorkouts(a)
@@ -295,6 +347,20 @@ export function WorkoutLogApp({ auth }: { auth: FeatureAuth }) {
     }
   }
 
+  async function handleDemoToggle(name: string) {
+    if (demoExercise === name) {
+      setDemoExercise(null)
+      return
+    }
+    setDemoExercise(name)
+    const key = name.toLowerCase()
+    if (key in demoUrls || fetchingRef.current.has(key)) return
+    fetchingRef.current.add(key)
+    const url = await fetchExerciseDemo(name)
+    fetchingRef.current.delete(key)
+    setDemoUrls((prev) => ({ ...prev, [key]: url }))
+  }
+
   const session = workoutSession(place, viewDay, moveCount)
   const today = localDateStr()
   const todayWeekday = jsDayToWeekday(new Date().getDay())
@@ -347,53 +413,55 @@ export function WorkoutLogApp({ auth }: { auth: FeatureAuth }) {
         <span className="ma-hero-label">{heroLabel}</span>
       </div>
 
-      <div className="wk-places">
-        <button
-          className={`wk-place${place === 'home' ? ' is-on' : ''}`}
-          type="button"
-          aria-pressed={place === 'home'}
-          onClick={() => void choosePlace('home')}
-        >
-          Home
-        </button>
-        <button
-          className={`wk-place${place === 'gym' ? ' is-on' : ''}`}
-          type="button"
-          aria-pressed={place === 'gym'}
-          onClick={() => void choosePlace('gym')}
-        >
-          Gym
-        </button>
-      </div>
-
-      <div className="wk-counts" role="group" aria-label="Moves per day">
-        {([4, 5, 6] as const).map((n) => (
+      <div className="wk-controls">
+        <div className="wk-places">
           <button
-            key={n}
-            className={`wk-place${moveCount === n ? ' is-on' : ''}`}
+            className={`wk-place${place === 'home' ? ' is-on' : ''}`}
             type="button"
-            aria-pressed={moveCount === n}
-            onClick={() => void chooseCount(n)}
+            aria-pressed={place === 'home'}
+            onClick={() => void choosePlace('home')}
           >
-            {n}
+            Home
           </button>
-        ))}
-      </div>
-
-      <div className="wk-days" role="tablist" aria-label="Weekday">
-        {WORKOUT_WEEKDAYS.map((day) => (
           <button
-            key={day}
-            className={`wk-day${viewDay === day ? ' is-on' : ''}${todayWeekday === day ? ' is-today' : ''}`}
+            className={`wk-place${place === 'gym' ? ' is-on' : ''}`}
             type="button"
-            role="tab"
-            aria-selected={viewDay === day}
-            aria-label={WORKOUT_DAY_LABELS[day]}
-            onClick={() => setViewDay(day)}
+            aria-pressed={place === 'gym'}
+            onClick={() => void choosePlace('gym')}
           >
-            {WORKOUT_DAY_LETTERS[day]}
+            Gym
           </button>
-        ))}
+        </div>
+
+        <div className="wk-counts" role="group" aria-label="Moves per day">
+          {([4, 5, 6] as const).map((n) => (
+            <button
+              key={n}
+              className={`wk-place${moveCount === n ? ' is-on' : ''}`}
+              type="button"
+              aria-pressed={moveCount === n}
+              onClick={() => void chooseCount(n)}
+            >
+              {n}
+            </button>
+          ))}
+        </div>
+
+        <div className="wk-days" role="tablist" aria-label="Weekday">
+          {WORKOUT_WEEKDAYS.map((day) => (
+            <button
+              key={day}
+              className={`wk-day${viewDay === day ? ' is-on' : ''}${todayWeekday === day ? ' is-today' : ''}`}
+              type="button"
+              role="tab"
+              aria-selected={viewDay === day}
+              aria-label={WORKOUT_DAY_LABELS[day]}
+              onClick={() => setViewDay(day)}
+            >
+              {WORKOUT_DAY_LETTERS[day]}
+            </button>
+          ))}
+        </div>
       </div>
 
       {left.length > 0 && (
@@ -403,7 +471,7 @@ export function WorkoutLogApp({ auth }: { auth: FeatureAuth }) {
           disabled={busy}
           onClick={() => void logMoves(left, session.name)}
         >
-          {left.length === 1 ? `Mark ${left[0].name}` : 'Mark remaining'}
+          Done for today
         </button>
       )}
 
@@ -412,15 +480,27 @@ export function WorkoutLogApp({ auth }: { auth: FeatureAuth }) {
       <ul className="habit-list">
         {session.moves.map((move) => {
           const done = todayNames.has(move.name.toLowerCase())
-          const load = lastWeightFor(logs, move.name)
+          const lw = lastWeightFor(logs, move.name)
           const pr = prMap.get(move.name.toLowerCase())
+          const isExpanded = demoExercise === move.name
+          const demoKey = move.name.toLowerCase()
+          const demoFetched = demoKey in demoUrls
+          const demoUrl = demoUrls[demoKey]
+          const demoLoading = isExpanded && !demoFetched
           return (
-            <li key={move.name} className="habit-card">
+            <li key={move.name} className={`habit-card wk-card${isExpanded ? ' is-expanded' : ''}`}>
               <div className="habit-info">
-                <div className="habit-name">{move.name}</div>
+                <button
+                  className="wk-name-btn"
+                  type="button"
+                  aria-expanded={isExpanded}
+                  onClick={() => void handleDemoToggle(move.name)}
+                >
+                  {move.name}
+                </button>
                 <div className="habit-streak">
-                  {movePrescription(move, load)}
-                  {pr ? `. PR ${Math.round(pr.weight)} × ${pr.reps}` : ''}
+                  {movePrescription(move, lw)}
+                  {pr ? `. PR ${Math.round(pr.weight)} x ${pr.reps}` : ''}
                 </div>
               </div>
               <button
@@ -429,8 +509,24 @@ export function WorkoutLogApp({ auth }: { auth: FeatureAuth }) {
                 disabled={busy}
                 onClick={() => void (done ? unlogMove(move.name) : logMoves([move], session.name))}
               >
-                {done ? 'Done' : 'Mark'}
+                Done
               </button>
+              {isExpanded && (
+                <div className="wk-demo">
+                  {demoLoading && <span className="wk-demo-hint">Loading...</span>}
+                  {!demoLoading && demoUrl && (
+                    <img
+                      className="wk-demo-img"
+                      src={demoUrl}
+                      alt={`How to do ${move.name}`}
+                      loading="lazy"
+                    />
+                  )}
+                  {!demoLoading && demoFetched && !demoUrl && (
+                    <span className="wk-demo-hint">No demo for this lift</span>
+                  )}
+                </div>
+              )}
             </li>
           )
         })}
@@ -446,7 +542,7 @@ export function WorkoutLogApp({ auth }: { auth: FeatureAuth }) {
                 <div className="habit-info">
                   <div className="habit-name">{l.exercise}{isPr ? ' PR' : ''}</div>
                   <div className="habit-streak">
-                    {l.sets} × {l.reps}{l.weight ? ` @ ${l.weight}` : ''} {fmtDay(l.loggedAt)}
+                    {setsRepsLabel(l.sets, l.reps)}{l.weight ? ` at ${l.weight} lbs` : ''} {fmtDay(l.loggedAt)}
                   </div>
                 </div>
                 <button className="habit-delete" type="button" onClick={() => void apiDeleteWorkout({ ...a, id: l.id }).then(load)} title="Remove">×</button>
