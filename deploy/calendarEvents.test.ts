@@ -3,10 +3,12 @@ import {
   formatUpcomingEvents,
   googleTokenHasScope,
   inferEventKind,
+  isWalkIn,
   parseComposioCalendarData,
   parseFormattedEventLine,
   parseGoogleCalendarItems,
   parseGoogleEventStart,
+  selectNextEvents,
 } from './calendarEvents'
 
 describe('calendar event parsing', () => {
@@ -81,5 +83,27 @@ describe('calendar event parsing', () => {
   it('does not treat a Google login token as a calendar token', () => {
     expect(googleTokenHasScope('openid email profile', 'calendar')).toBe(false)
     expect(googleTokenHasScope('https://www.googleapis.com/auth/calendar.events', 'calendar')).toBe(true)
+  })
+})
+
+describe('next stack calendar picks', () => {
+  it('keeps a meeting hours away, not only the next 45 minutes', () => {
+    const now = Date.parse('2026-08-18T21:00:00-07:00')
+    const events = [
+      { id: '1', title: 'Amy', start: '2026-08-18T12:30:00-07:00', allDay: false },
+      { id: '2', title: 'Standup tomorrow', start: '2026-08-19T09:30:00-07:00', allDay: false },
+    ]
+    expect(selectNextEvents(events, now).map((e) => e.title)).toEqual(['Standup tomorrow'])
+    expect(isWalkIn('2026-08-18T21:20:00-07:00', now)).toBe(true)
+    expect(isWalkIn('2026-08-19T09:30:00-07:00', now)).toBe(false)
+  })
+
+  it('does not require a 45 minute walk in to show the next event', () => {
+    const now = Date.parse('2026-08-18T10:00:00-07:00')
+    const events = [
+      { id: '1', title: 'Amy', start: '2026-08-18T12:30:00-07:00', allDay: false },
+      { id: '2', title: 'McKenley', start: '2026-08-18T13:30:00-07:00', allDay: false },
+    ]
+    expect(selectNextEvents(events, now).map((e) => e.title)).toEqual(['Amy', 'McKenley'])
   })
 })

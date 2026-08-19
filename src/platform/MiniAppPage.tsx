@@ -27,12 +27,22 @@ import {
   WorkoutLogApp,
 } from './LifeMiniApps'
 import { MiniAppIcon } from './MiniAppIcons'
+import {
+  NextMoveApp,
+  ApproveSendApp,
+  PickSlotApp,
+  LinearTriageApp,
+  HireDecisionApp,
+  InvestorNoteApp,
+} from './WorkMiniApps'
+import { apiRsvpEvent } from './api'
 
 interface DigestData {
   date?: string
   calendar?: string[]
   emails?: string[]
   reminders?: Array<{ time?: string; text?: string }>
+  events?: Array<{ id: string; label: string }>
   error?: string
 }
 
@@ -60,6 +70,7 @@ const FACE_MOOD: Record<AgentId, AlphaFaceMood> = {
 
 /** Feature kinds rendered by their own interactive component, not /api/mini. */
 export const FEATURE_KINDS = new Set([
+  'next_move',
   'open_loops',
   'meeting_mode',
   'decision_ledger',
@@ -78,6 +89,11 @@ export const FEATURE_KINDS = new Set([
   'gratitude_journal',
   'spending_snapshot',
   'mirror',
+  'approve_send',
+  'pick_slot',
+  'linear_triage',
+  'hire_decision',
+  'approve_investor_note',
 ])
 
 export interface MenuFeature {
@@ -88,76 +104,62 @@ export interface MenuFeature {
   sample?: string
 }
 
-/** Friend store aliases: old kinds still open, they land on the surviving app. */
-export const FRIEND_APP_ALIASES: Record<string, string> = {
+/** Old kinds still open; they land on the surviving app. */
+export const APP_ALIASES: Record<string, string> = {
   relationship_radar: 'networking_crm',
-  drop_zone: 'learning_queue',
-  check_in: 'mood_tracker',
-  spiral_options: 'pick_night',
+  drop_zone: 'next_move',
+  check_in: 'mirror',
+  weekly_focus: 'weekly_review',
+  spiral_options: 'next_move',
+  gratitude_journal: 'habit_streak',
 }
+export const FRIEND_APP_ALIASES = APP_ALIASES
 
 export const MENU_FEATURES: Record<string, MenuFeature[]> = {
   friend: [
+    { kind: 'next_move', title: 'Next', emoji: '▶️', blurb: 'The one thing to do now.' },
     { kind: 'nutrition', title: 'Nutrition', emoji: '🥗', blurb: 'Meals and macros.', sample: 'i ate a chicken bowl' },
     { kind: 'habit_streak', title: 'Habits', emoji: '🔥', blurb: 'Today and streaks.' },
-    { kind: 'mood_tracker', title: 'Mood', emoji: '😊', blurb: 'How you feel.' },
     { kind: 'workout_log', title: 'Workout', emoji: '🏋️', blurb: 'Home or gym. Mon through Fri.' },
     { kind: 'sleep_tracker', title: 'Sleep', emoji: '🌱', blurb: 'Last night.' },
     { kind: 'spending_snapshot', title: 'Spending', emoji: '💰', blurb: 'This week\'s budget.' },
-    { kind: 'mirror', title: 'Mirror', emoji: '🪞', blurb: 'The read of your life.' },
     { kind: 'networking_crm', title: 'People', emoji: '🤝', blurb: 'Who to follow up.' },
-    { kind: 'open_loops', title: 'Promises', emoji: '🪢', blurb: 'What you said you\'d do.' },
-    { kind: 'digest', title: 'Today', emoji: '☀️', blurb: 'Calendar, mail, reminders.' },
-    { kind: 'learning_queue', title: 'Learning', emoji: '📚', blurb: 'What to read or watch next.' },
     { kind: 'pick_night', title: 'Tonight', emoji: '🌙', blurb: 'What to do.', sample: 'what should we do tonight' },
   ],
   coworker: [
-    { kind: 'digest', title: 'Morning brief', emoji: '☀️', blurb: 'Calendar, important mail, and reminders every morning.' },
+    { kind: 'next_move', title: 'Next', emoji: '▶️', blurb: 'The one thing to do now.' },
     { kind: 'meeting_mode', title: 'Meeting mode', emoji: '🗂️', blurb: 'Prepped before, wrapped after.', sample: 'prep me for the review' },
-    { kind: 'learning_queue', title: 'Learning queue', emoji: '📚', blurb: 'Save articles, videos, podcasts. Play the next one.' },
-    { kind: 'mirror', title: 'The mirror', emoji: '🪞', blurb: 'Here\'s what your week actually looked like.' },
-    { kind: 'weekly_review', title: 'Weekly review', emoji: '📅', blurb: 'What got done, what slipped, next week\'s focus.' },
-    { kind: 'networking_crm', title: 'Networking', emoji: '🤝', blurb: 'People you met, what you talked about, when to follow up.' },
-    { kind: 'open_loops', title: 'Promises', emoji: '🪢', blurb: 'What you said you would do.' },
-    { kind: 'drop_zone', title: 'Save for later', emoji: '📥', blurb: 'Dump anything and Alpha sorts it later.' },
     { kind: 'approve_send', title: 'Approve & send', emoji: '✉️', blurb: 'Review drafts before they go out.', sample: 'approve the email' },
     { kind: 'pick_slot', title: 'Pick a slot', emoji: '🗓️', blurb: 'Compare times and pick what works.', sample: 'pick a slot for the review' },
-    { kind: 'standup_paste', title: 'Standup', emoji: '📋', blurb: 'Raw notes in, tight standup out.', sample: 'standup' },
     { kind: 'linear_triage', title: 'Linear triage', emoji: '🎯', blurb: 'Issues and backlog, triaged.', sample: 'triage the backlog' },
+    { kind: 'standup_paste', title: 'Standup', emoji: '📋', blurb: 'Raw notes in, tight standup out.', sample: 'standup' },
   ],
   cofounder: [
-    { kind: 'digest', title: 'Morning brief', emoji: '☀️', blurb: 'Calendar, important mail, and reminders every morning.' },
-    { kind: 'decision_ledger', title: 'Decisions', emoji: '📜', blurb: 'Log the call, revisit the reasoning later.', sample: 'log a decision' },
-    { kind: 'mirror', title: 'The mirror', emoji: '🪞', blurb: 'Your week at a glance. Decisions, spend, habits.' },
+    { kind: 'next_move', title: 'Next', emoji: '▶️', blurb: 'The one thing to do now.' },
     { kind: 'pipeline_board', title: 'Pipeline', emoji: '💼', blurb: 'Jobs, fundraising, leads. Move them through stages.' },
-    { kind: 'networking_crm', title: 'Networking', emoji: '🤝', blurb: 'People you met, what you talked about, when to follow up.' },
-    { kind: 'weekly_review', title: 'Weekly review', emoji: '📅', blurb: 'What got done, what slipped, next week\'s focus.' },
-    { kind: 'spending_snapshot', title: 'Spending', emoji: '💰', blurb: 'Log spend, watch the weekly budget.' },
-    { kind: 'relationship_radar', title: 'Stay in touch', emoji: '📡', blurb: 'Investors, candidates, partners. Who to ping.' },
-    { kind: 'open_loops', title: 'Promises', emoji: '🪢', blurb: 'What you said you would do.' },
-    { kind: 'drop_zone', title: 'Save for later', emoji: '📥', blurb: 'Dump anything and Alpha sorts it later.' },
-    { kind: 'kill_keep_park', title: 'Kill · Keep · Park', emoji: '⚖️', blurb: 'Decide what to kill, keep, or park.', sample: 'kill keep park' },
-    { kind: 'hire_decision', title: 'Hire decision', emoji: '🤝', blurb: 'The call on the candidate.', sample: 'should we hire them' },
+    { kind: 'decision_ledger', title: 'Decisions', emoji: '📜', blurb: 'Log the call, revisit the reasoning later.', sample: 'log a decision' },
+    { kind: 'networking_crm', title: 'People', emoji: '🤝', blurb: 'People you met, when to follow up.' },
     { kind: 'approve_investor_note', title: 'Investor note', emoji: '💼', blurb: 'Review the note before it goes out.', sample: 'review the investor note' },
+    { kind: 'hire_decision', title: 'Hire decision', emoji: '🤝', blurb: 'The call on the candidate.', sample: 'should we hire them' },
   ],
 }
 
-
 export const APP_STORE_GROUPS: Record<string, { label: string; kinds: string[] }[]> = {
   friend: [
-    { label: 'Life', kinds: ['nutrition', 'habit_streak', 'mood_tracker', 'workout_log', 'sleep_tracker', 'spending_snapshot', 'mirror'] },
-    { label: 'People', kinds: ['networking_crm', 'open_loops'] },
-    { label: 'Day', kinds: ['digest', 'learning_queue', 'pick_night'] },
+    { label: 'Now', kinds: ['next_move'] },
+    { label: 'Body', kinds: ['nutrition', 'workout_log', 'sleep_tracker', 'habit_streak'] },
+    { label: 'Money', kinds: ['spending_snapshot'] },
+    { label: 'People', kinds: ['networking_crm'] },
+    { label: 'Night', kinds: ['pick_night'] },
   ],
   coworker: [
-    { label: 'Day', kinds: ['digest', 'standup_paste', 'meeting_mode', 'weekly_review', 'pick_slot'] },
-    { label: 'Work', kinds: ['approve_send', 'linear_triage', 'learning_queue'] },
-    { label: 'People', kinds: ['networking_crm', 'open_loops', 'drop_zone', 'mirror'] },
+    { label: 'Now', kinds: ['next_move'] },
+    { label: 'Work', kinds: ['meeting_mode', 'approve_send', 'pick_slot', 'linear_triage', 'standup_paste'] },
   ],
   cofounder: [
-    { label: 'Work', kinds: ['pipeline_board', 'kill_keep_park', 'hire_decision', 'approve_investor_note', 'weekly_review', 'spending_snapshot'] },
-    { label: 'People', kinds: ['networking_crm', 'relationship_radar', 'open_loops', 'drop_zone'] },
-    { label: 'Day', kinds: ['digest', 'decision_ledger', 'mirror'] },
+    { label: 'Now', kinds: ['next_move'] },
+    { label: 'Work', kinds: ['pipeline_board', 'decision_ledger', 'hire_decision', 'approve_investor_note'] },
+    { label: 'People', kinds: ['networking_crm'] },
   ],
 }
 
@@ -165,6 +167,7 @@ export const KIND_TITLES: Record<string, { title: string; blurb: string }> = {
   menu: { title: 'Apps', blurb: 'Tap one to open it.' },
   apps: { title: 'Apps', blurb: 'Tap one to open it.' },
   digest: { title: 'Morning brief', blurb: 'Your day at a glance. Calendar, important mail, and reminders.' },
+  next_move: { title: 'Next', blurb: 'The one thing to do now.' },
   approve_send: { title: 'Approve & send', blurb: 'Review the draft and approve it to send.' },
   pick_slot: { title: 'Pick a slot', blurb: 'Compare meeting times and pick the one that works.' },
   pick_night: { title: 'Pick the night', blurb: 'Plans, options, and a call on what to do.' },
@@ -196,11 +199,55 @@ export const KIND_TITLES: Record<string, { title: string; blurb: string }> = {
 }
 
 const FRIEND_KIND_TITLES: Record<string, { title: string; blurb: string }> = {
+  next_move: { title: 'Next', blurb: 'The one thing to do now.' },
   digest: { title: 'Today', blurb: 'Calendar, mail, reminders.' },
   networking_crm: { title: 'People', blurb: 'Who to follow up.' },
   pick_night: { title: 'Tonight', blurb: 'What to do.' },
   learning_queue: { title: 'Learning', blurb: 'What to read or watch next.' },
   mirror: { title: 'Mirror', blurb: 'The read of your life.' },
+}
+
+function DigestEvents({
+  events,
+  auth,
+}: {
+  events: Array<{ id: string; label: string }>
+  auth: { email?: string; token?: string }
+}) {
+  const [done, setDone] = useState<Record<string, string>>({})
+  const [busy, setBusy] = useState<string | null>(null)
+
+  async function rsvp(eventId: string, response: 'accepted' | 'declined') {
+    if (busy) return
+    setBusy(eventId)
+    try {
+      const res = await apiRsvpEvent({ ...auth, eventId, response })
+      setDone((d) => ({ ...d, [eventId]: res.ok ? (response === 'accepted' ? 'Yes' : 'No') : (res.error || 'Failed') }))
+    } catch (err) {
+      setDone((d) => ({ ...d, [eventId]: err instanceof Error ? err.message : 'Could not RSVP.' }))
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  return (
+    <ul className="mini__list">
+      {events.map((e) => (
+        <li key={e.id}>
+          <div>{e.label}</div>
+          <div className="ma-callout-actions">
+            <button className="ma-chip" type="button" disabled={busy === e.id} onClick={() => void rsvp(e.id, 'accepted')}>
+              Yes
+            </button>
+            <button className="ma-chip" type="button" disabled={busy === e.id} onClick={() => void rsvp(e.id, 'declined')}>
+              No
+            </button>
+            {done[e.id] && <span className="ma-sub">{done[e.id]}</span>}
+          </div>
+        </li>
+      ))}
+    </ul>
+  )
 }
 
 export function MiniAppPage() {
@@ -292,10 +339,10 @@ export function MiniAppPage() {
   const q = search ? `?${search}` : ''
   const appsHref = `/app/mini/${persona || 'friend'}/apps${q}`
   const openHref = (featureKind: string) => `/app/mini/${persona || 'friend'}/${featureKind}${q}`
-  const aliasKind = persona === 'friend' && kind ? FRIEND_APP_ALIASES[kind] : undefined
+  const aliasKind = kind ? APP_ALIASES[kind] : undefined
 
   if (aliasKind) {
-    return <Navigate to={`/app/mini/friend/${aliasKind}${q}`} replace />
+    return <Navigate to={`/app/mini/${persona || 'friend'}/${aliasKind}${q}`} replace />
   }
 
   return (
@@ -325,7 +372,7 @@ export function MiniAppPage() {
             </p>
           </div>
           <div className="mini__head-actions">
-            {!isApps && (
+            {!isApps && kind !== 'next_move' && (
               <Link className="mini__back" to={appsHref} onClick={() => setSettingsOpen(false)}>
                 All apps
               </Link>
@@ -429,7 +476,12 @@ export function MiniAppPage() {
 
             <section className="mini__section">
               <h2>On your calendar</h2>
-              {data?.calendar?.length ? (
+              {data?.events?.length ? (
+                <DigestEvents
+                  events={data.events}
+                  auth={{ email: email || undefined, token: token || undefined }}
+                />
+              ) : data?.calendar?.length ? (
                 <ul className="mini__list">
                   {data.calendar.map((c, i) => (
                     <li key={i}>{c}</li>
@@ -509,6 +561,9 @@ export function MiniAppPage() {
             {mini?.paste && (
               <p className="mini__hint">Paste-ready. Text {agent.imsgName} if you want a different cut.</p>
             )}
+            {kind === 'pick_night' && (
+              <PickSlotApp auth={{ persona: (persona as AgentId) || 'friend', email: email || undefined, token: token || undefined }} />
+            )}
           </div>
         )}
 
@@ -572,6 +627,24 @@ export function MiniAppPage() {
             )}
             {kind === 'mirror' && (
               <MirrorApp auth={{ persona: (persona as AgentId) || 'friend', email: email || undefined, token: token || undefined }} />
+            )}
+            {kind === 'next_move' && (
+              <NextMoveApp auth={{ persona: (persona as AgentId) || 'friend', email: email || undefined, token: token || undefined }} />
+            )}
+            {kind === 'approve_send' && (
+              <ApproveSendApp auth={{ persona: (persona as AgentId) || 'friend', email: email || undefined, token: token || undefined }} />
+            )}
+            {kind === 'pick_slot' && (
+              <PickSlotApp auth={{ persona: (persona as AgentId) || 'friend', email: email || undefined, token: token || undefined }} />
+            )}
+            {kind === 'linear_triage' && (
+              <LinearTriageApp auth={{ persona: (persona as AgentId) || 'friend', email: email || undefined, token: token || undefined }} />
+            )}
+            {kind === 'hire_decision' && (
+              <HireDecisionApp auth={{ persona: (persona as AgentId) || 'friend', email: email || undefined, token: token || undefined }} />
+            )}
+            {kind === 'approve_investor_note' && (
+              <InvestorNoteApp auth={{ persona: (persona as AgentId) || 'friend', email: email || undefined, token: token || undefined }} />
             )}
           </div>
         )}

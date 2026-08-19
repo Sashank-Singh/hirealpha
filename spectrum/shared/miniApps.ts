@@ -41,6 +41,7 @@ export type MiniAppKind =
   | 'gratitude_journal'
   | 'spending_snapshot'
   | 'mirror'
+  | 'next_move'
 
 export interface MiniAppCard {
   url: string
@@ -75,7 +76,9 @@ export function isDigestRequest(text: string): boolean {
 export const PATTERNS: Partial<Record<MiniAppKind, RegExp>> = {
   apps: /^(?:apps|store)$|\b(?:app store|mini[- ]?apps?|my apps)\b|\b(?:open|show|pull up|bring back) (?:my |the )?(?:apps|app store|store)\b|\bapps\b/i,
   digest: DIGEST_INTENT,
-  check_in: /\bcheck[\s-]?in\b/i,
+  next_move:
+    /\b(?:what(?:'?s| is) next|next move|do this now|clear (?:my )?inbox)\b|\b(?:open|show|pull up|bring back) (?:my |the )?next\b/i,
+  check_in: /\b(?:quick )?check[\s-]?in\b/i,
   approve_send: /\bapprove\b|\bsend (?:that|this|the) (?:email|draft|note)\b|\bfire (?:that|this|the) (?:email|draft)\b|\bready to send\b/i,
   pick_slot: /\b(?:pick|find|suggest|choose)\b.{0,20}\b(?:slot|time|window)\b|\bwhen should we\b|\bwhat time works\b/i,
   pick_night: /\btonight\b|\bwhat should we do\b|\bdinner plans\b|\bdate night\b|\b(?:pick|plan)\b.{0,24}\b(?:movie|place|restaurant|hang)\b/i,
@@ -85,7 +88,7 @@ export const PATTERNS: Partial<Record<MiniAppKind, RegExp>> = {
   hire_decision: /\bhire\b.{0,16}\b(?:decision|call)\b|\bhire or pass\b|\bshould we hire\b|\bmake the (?:hiring )?call\b/i,
   weekly_focus: /\bweekly focus\b|\bthis week[’']?s focus\b|\bfocus (?:for|this) week\b|\bpriorities this week\b/i,
   approve_investor_note: /\binvestor (?:note|update)\b|\bterm sheet\b|\bfundrais(?:e|ing)\b/i,
-  spiral_options: /\bspiral(?:ing)?\b|\boptions\b/i,
+  spiral_options: /\bspiral(?:ing)?\b/i,
   open_loops: /\bopen loop\b|\b(?:forgot|forget|remember) (?:to|that)\b|\b(?:owed|i owe|promised|told \w+ i.?d)\b|\bfollow[- ]?up (?:list|open)\b/i,
   meeting_mode: /\b(?:meeting|call|1[-: ]?1|sync|interview)\b.{0,16}\b(?:prep|brief|debrief|notes|follow[- ]?up)\b|\bprep (?:me|for)\b|\bafter (?:the )?(?:meeting|call)\b/i,
   decision_ledger: /\bdecision\b.{0,16}\b(?:log|record|ledger|journal)\b|\blog (?:that|this|a) decision\b|\bwhat did (?:we|i) decide\b/i,
@@ -167,6 +170,7 @@ const KIND_LABELS: Record<MiniAppKind, string> = {
   gratitude_journal: 'Gratitude',
   spending_snapshot: 'Spending',
   mirror: 'Mirror',
+  next_move: 'Next',
 }
 
 export function miniAppFallbackText(kind: MiniAppKind): string {
@@ -197,6 +201,11 @@ const SUMMON_NAMES: Partial<Record<MiniAppKind, RegExp>> = {
   pick_night: /\btonight\b|\bdate night\b/i,
   open_loops: /\bopen loops?\b|\bloose ends\b|\bpromises?\b/i,
   relationship_radar: /\brelationship radar\b|\bstay in touch\b/i,
+  next_move: /\bnext(?:\s*move)?\b|\bdo this now\b/i,
+  approve_send: /\bapprove(?: and send)?\b|\bsend (?:that|this|the) (?:email|draft)\b/i,
+  pick_slot: /\bpick (?:a )?slot\b|\bfind a time\b/i,
+  linear_triage: /\blinear\b|\btriage\b/i,
+  meeting_mode: /\bmeeting mode\b/i,
 }
 
 const SUMMON_VERB =
@@ -264,17 +273,18 @@ export function detectMiniAppRequest(
   return null
 }
 
-/** Friend store folded duplicates into one surviving app. Other hires keep the originals. */
-const FRIEND_KIND_ALIASES: Partial<Record<MiniAppKind, MiniAppKind>> = {
+/** Dead kinds still resolve so old card URLs and regexes land on a living app. */
+const KIND_ALIASES: Partial<Record<MiniAppKind, MiniAppKind>> = {
   relationship_radar: 'networking_crm',
-  drop_zone: 'learning_queue',
-  check_in: 'mood_tracker',
-  spiral_options: 'pick_night',
+  drop_zone: 'next_move',
+  check_in: 'mirror',
+  weekly_focus: 'weekly_review',
+  spiral_options: 'next_move',
+  gratitude_journal: 'habit_streak',
 }
 
-export function canonicalMiniAppKind(persona: AgentId, kind: MiniAppKind): MiniAppKind {
-  if (persona !== 'friend') return kind
-  return FRIEND_KIND_ALIASES[kind] ?? kind
+export function canonicalMiniAppKind(_persona: AgentId, kind: MiniAppKind): MiniAppKind {
+  return KIND_ALIASES[kind] ?? kind
 }
 
 function apiBase() {
@@ -365,7 +375,7 @@ export async function mintMiniAppCard(
  * picks are stored via /api/setup so the bot sees them as context.
  */
 export async function onboardingCard(phone: string, persona: AgentId): Promise<MiniAppCard> {
-  return mintMiniAppCard(phone, persona, 'apps')
+  return mintMiniAppCard(phone, persona, 'next_move')
 }
 
 /**

@@ -10,9 +10,11 @@ import {
   formatUpcomingEvents,
   googleTokenHasScope,
   hydrateCalItems,
+  isWalkIn,
   parseComposioCalendarData,
   parseFormattedEventLine,
   parseGoogleCalendarItems,
+  selectNextEvents,
   serializeCalItems,
   type CalItem,
 } from './calendarEvents'
@@ -64,6 +66,8 @@ const GOOGLE_SCOPES = [
   'openid',
   'email',
   'https://www.googleapis.com/auth/gmail.readonly',
+  'https://www.googleapis.com/auth/gmail.send',
+  'https://www.googleapis.com/auth/gmail.compose',
   'https://www.googleapis.com/auth/calendar.events',
   'https://www.googleapis.com/auth/drive.readonly',
 ].join(' ')
@@ -431,6 +435,22 @@ export async function ensureHireSchema(sql: SQL) {
   `
   await sql`CREATE INDEX IF NOT EXISTS idx_hire_meetings_user ON hire_meetings (user_id, created_at DESC)`
   await sql`ALTER TABLE hire_meetings ADD COLUMN IF NOT EXISTS notes TEXT`
+
+  await sql`
+    CREATE TABLE IF NOT EXISTS hire_drafts (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES hire_users(id) ON DELETE CASCADE,
+      persona TEXT NOT NULL DEFAULT '',
+      kind TEXT NOT NULL DEFAULT 'email',
+      to_addr TEXT NOT NULL DEFAULT '',
+      subject TEXT NOT NULL DEFAULT '',
+      body TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'pending',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `
+  await sql`CREATE INDEX IF NOT EXISTS idx_hire_drafts_user ON hire_drafts (user_id, status, created_at DESC)`
 
   await sql`
     CREATE TABLE IF NOT EXISTS hire_nudge_log (
@@ -2204,6 +2224,17 @@ async function digestPayload(
     else todayCal.push(label)
   }
   const calendar = [...todayCal, ...tomorrowCal]
+  const rawEvents = await googleEventsRaw(sql, user.id, {
+    timeMin: startOfLocalDay(tz),
+    timeMax: startOfLocalDay(tz, 1),
+    maxResults: 12,
+  })
+  const events = rawEvents.map((e) => ({
+    id: e.id,
+    label: e.allDay
+      ? `All day · ${e.title}`
+      : `${formatCalTime(e.start, tz)} · ${e.title}`,
+  }))
 
   const loopRows = await sql`
     SELECT title, due_at AS "dueAt" FROM hire_loops
@@ -2238,24 +2269,24 @@ async function digestPayload(
     .filter(Boolean)
     .join('\n\n')
 
-  return { date: dateLabel, calendar, emails, reminders, loops, tomorrow: tomorrowCal, text }
+  return { date: dateLabel, calendar, emails, reminders, loops, tomorrow: tomorrowCal, events, text }
 }
 
 /** Mini apps each hire can offer, mirroring src/agents/skills.ts. */
 const PERSONA_MINI_APPS: Record<Persona, string[]> = {
   friend: [
-    'digest', 'check_in', 'pick_night', 'spiral_options', 'open_loops', 'relationship_radar', 'drop_zone',
+    'digest', 'next_move', 'check_in', 'pick_night', 'open_loops', 'drop_zone',
     'nutrition', 'habit_streak', 'mood_tracker', 'workout_log', 'learning_queue', 'weekly_review',
-    'networking_crm', 'pipeline_board', 'sleep_tracker', 'gratitude_journal', 'spending_snapshot', 'mirror',
+    'networking_crm', 'sleep_tracker', 'spending_snapshot', 'mirror', 'gratitude_journal', 'spiral_options', 'relationship_radar',
   ],
   coworker: [
-    'digest', 'approve_send', 'pick_slot', 'standup_paste', 'linear_triage', 'open_loops', 'meeting_mode', 'drop_zone',
-    'learning_queue', 'weekly_review', 'networking_crm', 'mirror',
+    'digest', 'next_move', 'approve_send', 'pick_slot', 'standup_paste', 'linear_triage', 'open_loops',
+    'meeting_mode', 'drop_zone', 'learning_queue', 'weekly_review', 'networking_crm',
   ],
   cofounder: [
-    'digest', 'kill_keep_park', 'hire_decision', 'weekly_review', 'approve_investor_note', 'decision_ledger',
-    'relationship_radar', 'drop_zone', 'open_loops', 'networking_crm', 'pipeline_board', 'spending_snapshot',
-    'mirror',
+    'digest', 'next_move', 'kill_keep_park', 'hire_decision', 'weekly_review', 'approve_investor_note',
+    'decision_ledger', 'relationship_radar', 'drop_zone', 'open_loops', 'networking_crm', 'pipeline_board',
+    'spending_snapshot',
   ],
 }
 
@@ -3149,7 +3180,7 @@ async function miniPayload(
     const results = await runToolsForMessage(sql, {
       userId: user.id,
       persona,
-      message: 'calendar today standup',
+      message: 'calendar today standup github pull requests linear issues',
       connected,
       timezone: tz,
     })
@@ -3161,33 +3192,51 @@ async function miniPayload(
         return p.clock ? `${p.clock} ${p.title}` : p.title
       })
       .slice(0, 4)
-    const projects = splitList(context.projects)
-    const yesterday = projects[0] ? `${projects[0]} moved` : 'Ship what actually merged. No theater.'
-    const today = calItems[0] || (projects[1] ? `${projects[1]} today` : 'One thing on the critical path.')
-    const blocked = projects[2] || 'Name the person or the spec. Not "waiting."'
+    const gh = results.find((t) => /^github/i.test(t) || t.startsWith('- ') && /pull|pr\b|merged/i.test(t))
+    const lin = results.find((t) => /linear/i.test(t) || (t.startsWith('- ') && /\b[A-Z]{2,}-\d+/.test(t)))
+    const ghLines = digestLines(gh).slice(0, 3).map((l) => l.replace(/^-\s*/, ''))
+    const linLines = digestLines(lin).slice(0, 4).map((l) => l.replace(/^-\s*/, ''))
+    const yesterday = ghLines[0] || 'Nothing merged that I can see. Do not invent work.'
+    const today = calItems[0] || linLines[0] || 'Nothing on calendar. Name the one Linear issue.'
+    const blocked = linLines.find((l) => /block/i.test(l)) || 'None named in Linear.'
     const paste = `Yesterday: ${yesterday}\nToday: ${today}\nBlocked: ${blocked}`
     const sections = [
       { heading: 'Paste this', items: [paste] },
       { heading: 'On the calendar', items: calItems.length ? calItems : ['Nothing on calendar.'] },
-      { heading: 'Projects on file', items: projects.length ? projects : ['Add projects in Context so this is specific.'] },
+      { heading: 'GitHub', items: ghLines.length ? ghLines : ['Connect GitHub for merged PRs.'] },
+      { heading: 'Linear', items: linLines.length ? linLines : ['Connect Linear for issues.'] },
     ]
     return { kind, title: 'Standup', date: dateLabel, sections, paste, text: paste }
   }
 
   if (kind === 'kill_keep_park') {
-    const focus = (context.weekly_focus || '').trim()
-    const nos = splitList(context.hard_nos)
-    const stage = (context.stage || '').trim()
-    const keep = focus || 'The thing that makes you a company this week, not a costume.'
-    const kill = nos[0] || 'Whatever looks real to people who do not write checks.'
-    const park = nos[1] || (stage ? `Park anything that is not ${stage}.` : 'Park the hire until the funnel is yours.')
+    const pipes = (await sql`
+      SELECT id, title, company, stage, notes, updated_at AS "updatedAt"
+      FROM hire_pipeline WHERE user_id = ${user.id}
+      ORDER BY updated_at DESC LIMIT 20
+    `) as Array<{ id: string; title: string; company: string; stage: string; notes: string; updatedAt: Date }>
+    const live = pipes.filter((p) => p.stage !== 'won' && p.stage !== 'lost')
+    const keepRow = live.find((p) => p.stage === 'offer' || p.stage === 'interview') || live[0]
+    const killRow = live.find((p) => p.stage === 'lead' && p.id !== keepRow?.id)
+    const parkRow = live.find((p) => p.id !== keepRow?.id && p.id !== killRow?.id)
+    const keep = keepRow
+      ? `${keepRow.title}${keepRow.company ? ` @ ${keepRow.company}` : ''} (${keepRow.stage})`
+      : (context.weekly_focus || '').trim() || 'Nothing on pipeline. Add a deal first.'
+    const kill = killRow
+      ? `${killRow.title}${killRow.company ? ` @ ${killRow.company}` : ''} — stale ${killRow.stage}`
+      : 'No stale lead to kill.'
+    const park = parkRow
+      ? `${parkRow.title} — park until ${keepRow ? keepRow.title : 'the keep'} moves`
+      : 'Nothing to park.'
     const sections = [
       { heading: 'Keep', items: [keep] },
       { heading: 'Kill', items: [kill] },
       { heading: 'Park', items: [park] },
     ]
     const paste = `Keep: ${keep}\nKill: ${kill}\nPark: ${park}`
-    return { kind, title: 'Kill · Keep · Park', date: dateLabel, sections, paste, text: paste }
+    return { kind, title: 'Kill · Keep · Park', date: dateLabel, sections, paste, text: paste, pipeline: {
+      keepId: keepRow?.id, killId: killRow?.id, parkId: parkRow?.id,
+    } }
   }
 
   return { kind, title: kind, date: dateLabel, sections: [], text: '' }
@@ -3240,6 +3289,539 @@ async function livePayload(sql: SQL, phone: string, persona: Persona) {
       ? { kind: active.kind, label: locationLabel(active), label_text: active.label }
       : null,
   }
+}
+
+function rfc822Raw(to: string, subject: string, body: string) {
+  const raw = [`To: ${to}`, `Subject: ${subject}`, 'MIME-Version: 1.0', 'Content-Type: text/plain; charset=utf-8', '', body].join('\r\n')
+  return Buffer.from(raw).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+}
+
+async function gmailSendMessage(
+  sql: SQL,
+  userId: string,
+  draft: { to: string; subject: string; body: string },
+): Promise<{ ok: boolean; error?: string }> {
+  const access = await googleAccessToken(sql, userId, 'gmail')
+  if (access) {
+    const res = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${access}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ raw: rfc822Raw(draft.to, draft.subject, draft.body) }),
+    })
+    if (res.ok) return { ok: true }
+    const err = await res.text().catch(() => '')
+    if (res.status !== 403 && res.status !== 401) {
+      return { ok: false, error: `Gmail send failed (${res.status}). ${err.slice(0, 120)}` }
+    }
+  }
+  const out = await composioFirst(
+    userId,
+    ['GMAIL_SEND_EMAIL', 'GMAIL_SEND_MESSAGE', 'GMAIL_CREATE_EMAIL_DRAFT'],
+    {
+      to: draft.to,
+      recipient_email: draft.to,
+      subject: draft.subject,
+      body: draft.body,
+      message: draft.body,
+    },
+  )
+  if (out && !/failed/i.test(out)) return { ok: true }
+  return {
+    ok: false,
+    error: 'Could not send. Reconnect Gmail and allow send, or Connect Gmail in Settings.',
+  }
+}
+
+function calItemsToNextRows(items: CalItem[], prefix: string) {
+  return items.map((e, i) => ({
+    id: `${prefix}-${e.rawStart || e.start.toISOString()}-${i}`,
+    title: e.title,
+    start: e.allDay ? e.rawStart || e.start.toISOString().slice(0, 10) : e.rawStart || e.start.toISOString(),
+    end: '',
+    allDay: e.allDay,
+  }))
+}
+
+async function googleEventsRaw(
+  sql: SQL,
+  userId: string,
+  opts: { timeMin: Date; timeMax: Date; maxResults?: number },
+): Promise<Array<{ id: string; title: string; start: string; end: string; allDay: boolean }>> {
+  const access = await googleAccessToken(sql, userId, 'calendar')
+  if (access) {
+    const got = await fetchCalendarItems(access, opts)
+    if (got.ok) return calItemsToNextRows(got.items, 'g')
+  }
+  const now = opts.timeMin
+  const end = opts.timeMax
+  const timeMin = now.toISOString()
+  const timeMax = end.toISOString()
+  const maxResults = opts.maxResults || 12
+  const raw = await composioFirst(
+    userId,
+    ['GOOGLECALENDAR_EVENTS_LIST', 'GOOGLECALENDAR_FIND_EVENT'],
+    {
+      timeMin,
+      timeMax,
+      time_min: timeMin,
+      time_max: timeMax,
+      max_results: maxResults,
+      maxResults,
+      singleEvents: true,
+      single_events: true,
+      orderBy: 'startTime',
+      calendarId: 'primary',
+      calendar_id: 'primary',
+    },
+  )
+  if (!raw || /failed/i.test(raw)) return []
+  try {
+    const parsed = JSON.parse(raw) as { __calItems?: Array<{ start: string; title: string; allDay?: boolean; kind?: string; rawStart?: string; description?: string }> }
+    if (Array.isArray(parsed.__calItems)) return calItemsToNextRows(hydrateCalItems(parsed.__calItems), 'c')
+    return calItemsToNextRows(parseComposioCalendarData(parsed), 'c')
+  } catch {
+    return []
+  }
+}
+
+function parseGmailOverview(block: string) {
+  return block
+    .split('\n')
+    .filter((l) => l.startsWith('- '))
+    .slice(0, 2)
+    .map((line, i) => {
+      const parts = line.replace(/^-\s*/, '').split(' | ')
+      const from = (parts[0] || '').replace(/<[^>]+>/g, '').trim()
+      const subject = (parts[2] || parts[1] || '(no subject)').trim()
+      return { id: `mail-${i}-${subject.slice(0, 40)}`, from, subject }
+    })
+    .filter((m) => (m.subject && m.subject !== '(no subject)') || m.from)
+}
+
+function localHourParts(iso: string, timezone: string) {
+  const d = new Date(iso)
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: timezone,
+    weekday: 'short',
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  }).formatToParts(d)
+  const get = (t: string) => parts.find((p) => p.type === t)?.value || ''
+  return `${get('weekday')} ${get('hour')}:${get('minute')} ${get('dayPeriod')}`
+}
+
+async function findFreeSlots(
+  sql: SQL,
+  userId: string,
+  timezone: string,
+): Promise<Array<{ start: string; end: string; label: string }>> {
+  const access = await googleAccessToken(sql, userId, 'calendar')
+  if (!access) return []
+  const now = new Date()
+  const end = new Date(now.getTime() + 5 * 24 * 60 * 60 * 1000)
+  const res = await fetch('https://www.googleapis.com/calendar/v3/freeBusy', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${access}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      timeMin: now.toISOString(),
+      timeMax: end.toISOString(),
+      items: [{ id: 'primary' }],
+    }),
+  })
+  if (!res.ok) return []
+  const data = (await res.json()) as {
+    calendars?: { primary?: { busy?: Array<{ start: string; end: string }> } }
+  }
+  const busy = (data.calendars?.primary?.busy || []).map((b) => ({
+    start: new Date(b.start).getTime(),
+    end: new Date(b.end).getTime(),
+  }))
+  const slots: Array<{ start: string; end: string; label: string }> = []
+  const cursor = new Date(now)
+  cursor.setMinutes(cursor.getMinutes() < 30 ? 30 : 60, 0, 0)
+  while (slots.length < 3 && cursor.getTime() < end.getTime()) {
+    const hour = Number(
+      new Intl.DateTimeFormat('en-US', { timeZone: timezone, hour: 'numeric', hour12: false }).format(cursor),
+    )
+    const startMs = cursor.getTime()
+    const endMs = startMs + 30 * 60 * 1000
+    const overlap = busy.some((b) => startMs < b.end && endMs > b.start)
+    if (hour >= 9 && hour < 17 && !overlap) {
+      const startIso = new Date(startMs).toISOString()
+      const endIso = new Date(endMs).toISOString()
+      slots.push({ start: startIso, end: endIso, label: localHourParts(startIso, timezone) })
+    }
+    cursor.setMinutes(cursor.getMinutes() + 30)
+  }
+  return slots
+}
+
+async function calendarHold(
+  sql: SQL,
+  userId: string,
+  input: { title: string; start: string; end: string },
+): Promise<{ ok: boolean; error?: string; eventId?: string }> {
+  const access = await googleAccessToken(sql, userId, 'calendar')
+  if (!access) {
+    const out = await composioFirst(
+      userId,
+      ['GOOGLECALENDAR_CREATE_EVENT', 'GOOGLECALENDAR_EVENTS_INSERT'],
+      {
+        summary: input.title,
+        start_datetime: input.start,
+        end_datetime: input.end,
+        start: { dateTime: input.start },
+        end: { dateTime: input.end },
+      },
+    )
+    if (out && !/failed/i.test(out)) return { ok: true }
+    return { ok: false, error: 'Calendar is not connected.' }
+  }
+  const res = await fetch('https://www.googleapis.com/calendar/v3/calendars/primary/events', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${access}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      summary: input.title,
+      start: { dateTime: input.start },
+      end: { dateTime: input.end },
+      status: 'tentative',
+    }),
+  })
+  if (!res.ok) return { ok: false, error: `Calendar hold failed (${res.status}).` }
+  const data = (await res.json()) as { id?: string }
+  return { ok: true, eventId: data.id }
+}
+
+function walkLinearIssues(data: unknown, out: Array<{ id: string; identifier: string; title: string; state?: string; team?: string }> = []) {
+  if (out.length >= 12 || data == null) return out
+  if (Array.isArray(data)) {
+    for (const item of data) walkLinearIssues(item, out)
+    return out
+  }
+  if (typeof data !== 'object') return out
+  const o = data as Record<string, unknown>
+  const id = String(o.id || o.issueId || o.issue_id || '')
+  const title = String(o.title || o.name || '')
+  const identifier = String(o.identifier || o.number || o.key || '')
+  if (id && title) {
+    const state = typeof o.state === 'object' && o.state
+      ? String((o.state as { name?: string }).name || '')
+      : String(o.state || o.status || '')
+    const team = typeof o.team === 'object' && o.team
+      ? String((o.team as { name?: string }).name || '')
+      : String(o.team || '')
+    if (!out.some((x) => x.id === id)) out.push({ id, identifier: identifier || title.slice(0, 8), title, state, team })
+    return out
+  }
+  for (const v of Object.values(o)) walkLinearIssues(v, out)
+  return out
+}
+
+async function listLinearIssues(userId: string) {
+  const composio = composioClient()
+  if (!composio) return { issues: [] as ReturnType<typeof walkLinearIssues>, needConnect: true }
+  for (const slug of ['LINEAR_LIST_ISSUES', 'LINEAR_LIST_LINEAR_ISSUES', 'LINEAR_GET_ISSUES']) {
+    try {
+      const res = await composio.tools.execute(slug, {
+        userId,
+        arguments: { limit: 12 },
+        dangerouslySkipVersionCheck: true,
+      })
+      if (!res?.successful) continue
+      const issues = walkLinearIssues(res.data)
+      if (issues.length) return { issues, needConnect: false }
+    } catch {
+      /* try next slug */
+    }
+  }
+  return { issues: [] as ReturnType<typeof walkLinearIssues>, needConnect: false }
+}
+
+async function linearWrite(userId: string, id: string, action: 'done' | 'later' | 'cancel') {
+  const state = action === 'done' ? 'Done' : action === 'cancel' ? 'Canceled' : 'Backlog'
+  const out = await composioFirst(
+    userId,
+    ['LINEAR_UPDATE_ISSUE', 'LINEAR_UPDATE_ISSUE_STATUS', 'LINEAR_MARK_ISSUE_AS_DONE'],
+    { id, issueId: id, issue_id: id, state, status: state },
+  )
+  return !!(out && !/failed/i.test(out))
+}
+
+async function suggestedMailDrafts(sql: SQL, userId: string) {
+  const access = await googleAccessToken(sql, userId, 'gmail')
+  if (!access) return [] as Array<{ toAddr: string; subject: string; body: string }>
+  const listUrl = new URL('https://gmail.googleapis.com/gmail/v1/users/me/messages')
+  listUrl.searchParams.set('maxResults', '5')
+  listUrl.searchParams.set('q', 'is:unread newer_than:5d')
+  const list = await fetch(listUrl, { headers: { Authorization: `Bearer ${access}` } })
+  if (!list.ok) return []
+  const data = (await list.json()) as { messages?: Array<{ id: string }> }
+  const out: Array<{ toAddr: string; subject: string; body: string }> = []
+  for (const m of (data.messages || []).slice(0, 3)) {
+    const got = await fetch(
+      `https://gmail.googleapis.com/gmail/v1/users/me/messages/${m.id}?format=metadata&metadataHeaders=Subject&metadataHeaders=From`,
+      { headers: { Authorization: `Bearer ${access}` } },
+    )
+    if (!got.ok) continue
+    const msg = (await got.json()) as {
+      snippet?: string
+      payload?: { headers?: Array<{ name: string; value: string }> }
+    }
+    const h = (n: string) => msg.payload?.headers?.find((x) => x.name.toLowerCase() === n.toLowerCase())?.value || ''
+    const from = h('From')
+    const email = from.match(/<([^>]+)>/)?.[1] || from
+    const subject = h('Subject') || '(no subject)'
+    if (!email) continue
+    out.push({
+      toAddr: email,
+      subject: subject.startsWith('Re:') ? subject : `Re: ${subject}`,
+      body: '',
+    })
+  }
+  return out
+}
+
+async function investorNoteBody(sql: SQL, userId: string) {
+  const pipes = (await sql`
+    SELECT title, company, stage FROM hire_pipeline WHERE user_id = ${userId}
+    ORDER BY updated_at DESC LIMIT 8
+  `) as Array<{ title: string; company: string; stage: string }>
+  const decisions = (await sql`
+    SELECT decision, reason FROM hire_decisions WHERE user_id = ${userId}
+    ORDER BY created_at DESC LIMIT 5
+  `) as Array<{ decision: string; reason: string }>
+  const spend = await sql`
+    SELECT coalesce(sum(amount), 0)::float AS n FROM hire_spending
+    WHERE user_id = ${userId} AND spent_at >= date_trunc('week', now())
+  `
+  const weekSpend = Number((spend[0] as { n?: number } | undefined)?.n || 0)
+  const live = pipes.filter((p) => p.stage !== 'lost')
+  const lines = [
+    'Update',
+    '',
+    live.length ? `Pipeline: ${live.map((p) => `${p.title}${p.company ? ` @ ${p.company}` : ''} (${p.stage})`).join('; ')}` : 'Pipeline: quiet this week.',
+    `Spend this week: $${Math.round(weekSpend)}.`,
+    decisions[0] ? `Call: ${decisions[0].decision}${decisions[0].reason ? ` because ${decisions[0].reason}` : ''}.` : '',
+    '',
+    'Ask:',
+  ]
+  return lines.filter(Boolean).join('\n')
+}
+
+type NextRow = {
+  id: string
+  kicker: string
+  title: string
+  hint?: string
+  hot?: boolean
+  action: string
+  doLabel?: string
+  draftId?: string
+  loopId?: string
+  personId?: string
+  issueId?: string
+  eventId?: string
+  pipelineId?: string
+  stage?: string
+  start?: string
+  end?: string
+  sms?: string
+  openKind?: string
+}
+
+async function buildNextStack(
+  sql: SQL,
+  user: { id: string; timezone: string | null },
+  persona: Persona,
+): Promise<{ items: NextRow[]; connected: string[]; missing: string[] }> {
+  const tz = pickUserTimezone({ userTz: user.timezone })
+  const connected = (await connectedForUser(sql, user.id)).filter((id) => !PERSONA_DENIED[persona].has(id))
+  const want = persona === 'friend' ? ['gmail', 'calendar'] : persona === 'coworker' ? ['gmail', 'calendar', 'linear'] : ['gmail', 'calendar']
+  const missing = want.filter((id) => !connected.includes(id))
+  const items: NextRow[] = []
+  const now = Date.now()
+
+  let events: Array<{ id: string; title: string; start: string; end: string; allDay: boolean }> = []
+  if (connected.includes('calendar')) {
+    try {
+      events = await googleEventsRaw(sql, user.id, {
+        timeMin: new Date(now - 5 * 60_000),
+        timeMax: startOfLocalDay(tz, 2),
+        maxResults: 12,
+      })
+    } catch (err) {
+      console.warn('[work/next] calendar failed', err)
+    }
+  }
+  for (const ev of selectNextEvents(events, now)) {
+    const walk = !ev.allDay && isWalkIn(ev.start, now)
+    items.push({
+      id: `meet-${ev.id}`,
+      kicker: walk ? 'Now' : ev.allDay ? 'All day' : 'Next',
+      title: ev.title,
+      hint: ev.allDay ? 'On the calendar' : localHourParts(ev.start, tz),
+      hot: walk,
+      action: 'open',
+      doLabel: walk ? 'Prep' : 'Open',
+      openKind: persona === 'coworker' ? 'meeting_mode' : 'digest',
+      eventId: ev.id,
+    })
+  }
+
+  if (connected.includes('gmail')) {
+    try {
+      const mail = await loadGmail(sql, user.id, '(is:important OR is:unread) newer_than:2d', 3)
+      for (const m of parseGmailOverview(mail)) {
+        items.push({
+          id: m.id,
+          kicker: 'Mail',
+          title: m.subject,
+          hint: m.from,
+          action: 'open',
+          doLabel: 'Read',
+          openKind: 'digest',
+        })
+      }
+    } catch (err) {
+      console.warn('[work/next] mail failed', err)
+    }
+  }
+
+  let drafts: Array<{ id: string; toAddr: string; subject: string }> = []
+  try {
+    drafts = (await sql`
+      SELECT id, to_addr AS "toAddr", subject FROM hire_drafts
+      WHERE user_id = ${user.id} AND status = 'pending'
+      ORDER BY created_at DESC LIMIT 3
+    `) as Array<{ id: string; toAddr: string; subject: string }>
+  } catch {
+    drafts = []
+  }
+  for (const d of drafts) {
+    items.push({
+      id: `draft-${d.id}`,
+      kicker: 'Send',
+      title: d.subject || 'Draft',
+      hint: d.toAddr,
+      hot: true,
+      action: 'send',
+      doLabel: 'Send',
+      draftId: d.id,
+    })
+  }
+
+  let loops: Array<{ id: string; title: string; dueAt: Date | null }> = []
+  try {
+    loops = (await sql`
+      SELECT id, title, due_at AS "dueAt" FROM hire_loops
+      WHERE user_id = ${user.id} AND status = 'open'
+      ORDER BY due_at ASC NULLS LAST LIMIT 6
+    `) as Array<{ id: string; title: string; dueAt: Date | null }>
+  } catch (err) {
+    console.warn('[work/next] loops failed', err)
+  }
+  const dueLoop = loops.find((l) => l.dueAt && new Date(l.dueAt).getTime() <= now + 12 * 60 * 60 * 1000) || loops[0]
+  if (dueLoop) {
+    items.push({
+      id: `loop-${dueLoop.id}`,
+      kicker: 'Promise',
+      title: dueLoop.title,
+      hint: dueLoop.dueAt ? 'Due' : 'Open',
+      hot: true,
+      action: 'loop',
+      doLabel: 'Close',
+      loopId: dueLoop.id,
+    })
+  }
+
+  let people: Array<{ id: string; name: string; context: string; lastTouch: Date | null; cadenceDays: number }> = []
+  try {
+    people = (await sql`
+      SELECT id, name, context, last_touch AS "lastTouch", cadence_days AS "cadenceDays"
+      FROM hire_network WHERE user_id = ${user.id}
+      ORDER BY coalesce(last_touch, '1970-01-01'::timestamptz) ASC LIMIT 12
+    `) as Array<{ id: string; name: string; context: string; lastTouch: Date | null; cadenceDays: number }>
+  } catch (err) {
+    console.warn('[work/next] network failed', err)
+  }
+  const overdue = people.find((p) => {
+    const last = p.lastTouch ? new Date(p.lastTouch).getTime() : 0
+    return (Date.now() - last) / 86400000 >= (p.cadenceDays || 14)
+  })
+  if (overdue) {
+    const draft = `Hey ${overdue.name.split(' ')[0]} — ${overdue.context || 'wanted to reconnect'}`
+    items.push({
+      id: `person-${overdue.id}`,
+      kicker: 'Ping',
+      title: overdue.name,
+      hint: overdue.context || 'Overdue',
+      hot: true,
+      action: 'person',
+      doLabel: 'Talked',
+      personId: overdue.id,
+      sms: `sms:&body=${encodeURIComponent(draft)}`,
+    })
+  }
+
+  if (persona === 'coworker' && connected.includes('linear')) {
+    const lin = await listLinearIssues(user.id)
+    if (lin.issues[0]) {
+      items.push({
+        id: `lin-${lin.issues[0].id}`,
+        kicker: 'Linear',
+        title: lin.issues[0].title,
+        hint: lin.issues[0].identifier,
+        action: 'linear',
+        doLabel: 'Later',
+        issueId: lin.issues[0].id,
+      })
+    }
+  }
+
+  if (persona === 'cofounder') {
+    const pipe = (await sql`
+      SELECT id, title, stage FROM hire_pipeline
+      WHERE user_id = ${user.id} AND stage NOT IN ('won', 'lost')
+      ORDER BY updated_at DESC LIMIT 1
+    `) as Array<{ id: string; title: string; stage: string }>
+    if (pipe[0]) {
+      const nextStage = pipe[0].stage === 'lead' ? 'active' : pipe[0].stage === 'active' ? 'interview' : pipe[0].stage === 'interview' ? 'offer' : 'won'
+      items.push({
+        id: `pipe-${pipe[0].id}`,
+        kicker: pipe[0].stage,
+        title: pipe[0].title,
+        action: 'pipeline',
+        doLabel: 'Advance',
+        pipelineId: pipe[0].id,
+        stage: nextStage,
+      })
+    }
+  }
+
+  if (persona === 'friend') {
+    const hour = Number(new Intl.DateTimeFormat('en-US', { timeZone: tz, hour: 'numeric', hour12: false }).format(new Date()))
+    if (hour < 12) {
+      const lastNight = await sql`
+        SELECT id FROM hire_sleep
+        WHERE user_id = ${user.id} AND sleep_date = (current_date - 1)
+        LIMIT 1
+      `
+      if (!lastNight[0]) {
+        items.push({
+          id: 'sleep-last',
+          kicker: 'Morning',
+          title: 'Log last night',
+          hint: 'Two numbers. Bed and wake.',
+          action: 'open',
+          doLabel: 'Log',
+          openKind: 'sleep_tracker',
+        })
+      }
+    }
+  }
+
+  return { items, connected, missing }
 }
 
 export async function handleHireApi(req: Request, sql: SQL | null): Promise<Response | null> {
@@ -3834,6 +4416,222 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     }
   }
 
+  if (path === '/api/work/next' && req.method === 'GET') {
+    const persona = url.searchParams.get('persona') || ''
+    if (!isPersona(persona)) return json({ error: 'persona required' }, 400)
+    const { user, error } = await resolveAuthedUser(sql, {
+      token: url.searchParams.get('t') || undefined,
+      session: url.searchParams.get('s') || undefined,
+      email: url.searchParams.get('email') || undefined,
+    })
+    if (error) return error
+    try {
+      return json(await buildNextStack(sql, user!, persona))
+    } catch (err) {
+      console.warn('[work/next] failed', err)
+      return json({ items: [], connected: [], missing: ['gmail', 'calendar'], error: 'Could not load Next.' }, 200)
+    }
+  }
+
+  if (path === '/api/work/drafts' && req.method === 'GET') {
+    const persona = url.searchParams.get('persona') || ''
+    const kind = url.searchParams.get('kind') || ''
+    const { user, error } = await resolveAuthedUser(sql, {
+      token: url.searchParams.get('t') || undefined,
+      session: url.searchParams.get('s') || undefined,
+      email: url.searchParams.get('email') || undefined,
+    })
+    if (error) return error
+    const connected = await connectedForUser(sql, user!.id)
+    const drafts = (await sql`
+      SELECT id, kind, to_addr AS "toAddr", subject, body, status, created_at AS "createdAt"
+      FROM hire_drafts WHERE user_id = ${user!.id}
+      ${kind ? sql`AND kind = ${kind}` : sql``}
+      ORDER BY created_at DESC LIMIT 20
+    `) as Array<{ id: string; kind: string; toAddr: string; subject: string; body: string; status: string; createdAt: Date }>
+    let rows = drafts
+    if (!rows.some((d) => d.status === 'pending')) {
+      const suggested = await suggestedMailDrafts(sql, user!.id)
+      for (const s of suggested) {
+        const id = crypto.randomUUID()
+        await sql`
+          INSERT INTO hire_drafts (id, user_id, persona, kind, to_addr, subject, body)
+          VALUES (${id}, ${user!.id}, ${isPersona(persona) ? persona : ''}, 'email', ${s.toAddr}, ${s.subject}, ${s.body})
+        `
+      }
+      if (suggested.length) {
+        rows = (await sql`
+          SELECT id, kind, to_addr AS "toAddr", subject, body, status, created_at AS "createdAt"
+          FROM hire_drafts WHERE user_id = ${user!.id}
+          ORDER BY created_at DESC LIMIT 20
+        `) as typeof drafts
+      }
+    }
+    const investorDraft = kind === 'investor' || persona === 'cofounder'
+      ? { subject: 'Investor update', body: await investorNoteBody(sql, user!.id) }
+      : undefined
+    return json({
+      drafts: rows,
+      needConnect: !connected.includes('gmail'),
+      investorDraft,
+    })
+  }
+
+  if (path === '/api/work/drafts' && req.method === 'POST') {
+    const body = (await req.json().catch(() => ({}))) as {
+      token?: string; session?: string; email?: string; persona?: string
+      kind?: string; toAddr?: string; subject?: string; body?: string
+    }
+    const { user, error } = await resolveAuthedUser(sql, { token: body.token, session: body.session, email: body.email })
+    if (error) return error
+    const id = crypto.randomUUID()
+    await sql`
+      INSERT INTO hire_drafts (id, user_id, persona, kind, to_addr, subject, body)
+      VALUES (
+        ${id}, ${user!.id}, ${isPersona(body.persona || '') ? body.persona! : ''},
+        ${String(body.kind || 'email').slice(0, 40)},
+        ${String(body.toAddr || '').slice(0, 200)},
+        ${String(body.subject || '').slice(0, 200)},
+        ${String(body.body || '').slice(0, 8000)}
+      )
+    `
+    return json({ ok: true, id })
+  }
+
+  if (path === '/api/work/send' && req.method === 'POST') {
+    const body = (await req.json().catch(() => ({}))) as {
+      token?: string; session?: string; email?: string; id?: string
+      toAddr?: string; subject?: string; body?: string
+    }
+    const { user, error } = await resolveAuthedUser(sql, { token: body.token, session: body.session, email: body.email })
+    if (error) return error
+    let toAddr = String(body.toAddr || '').trim()
+    let subject = String(body.subject || '').trim()
+    let text = String(body.body || '')
+    if (body.id) {
+      const rows = await sql`
+        SELECT to_addr, subject, body FROM hire_drafts WHERE id = ${body.id} AND user_id = ${user!.id} LIMIT 1
+      `
+      const row = rows[0] as { to_addr: string; subject: string; body: string } | undefined
+      if (row) {
+        toAddr = toAddr || row.to_addr
+        subject = subject || row.subject
+        text = text || row.body
+      }
+    }
+    if (!toAddr || !subject) return json({ ok: false, error: 'To and subject required' }, 400)
+    const sent = await gmailSendMessage(sql, user!.id, { to: toAddr, subject, body: text })
+    if (!sent.ok) return json({ ok: false, error: sent.error }, 400)
+    if (body.id) {
+      await sql`UPDATE hire_drafts SET status = 'sent', updated_at = now() WHERE id = ${body.id} AND user_id = ${user!.id}`
+    }
+    return json({ ok: true })
+  }
+
+  if (path === '/api/work/slots' && req.method === 'GET') {
+    const { user, error } = await resolveAuthedUser(sql, {
+      token: url.searchParams.get('t') || undefined,
+      session: url.searchParams.get('s') || undefined,
+      email: url.searchParams.get('email') || undefined,
+    })
+    if (error) return error
+    const connected = await connectedForUser(sql, user!.id)
+    const slots = connected.includes('calendar')
+      ? await findFreeSlots(sql, user!.id, user!.timezone || 'America/Los_Angeles')
+      : []
+    return json({ slots, needConnect: !connected.includes('calendar') })
+  }
+
+  if (path === '/api/work/hold' && req.method === 'POST') {
+    const body = (await req.json().catch(() => ({}))) as {
+      token?: string; email?: string; title?: string; start?: string; end?: string
+    }
+    const { user, error } = await resolveAuthedUser(sql, { token: body.token, session: body.session, email: body.email })
+    if (error) return error
+    const start = String(body.start || '')
+    const end = String(body.end || '')
+    if (!start || !end) return json({ ok: false, error: 'start and end required' }, 400)
+    const held = await calendarHold(sql, user!.id, {
+      title: String(body.title || 'Hold').slice(0, 160),
+      start,
+      end,
+    })
+    return json(held, held.ok ? 200 : 400)
+  }
+
+  if (path === '/api/work/linear' && req.method === 'GET') {
+    const { user, error } = await resolveAuthedUser(sql, {
+      token: url.searchParams.get('t') || undefined,
+      session: url.searchParams.get('s') || undefined,
+      email: url.searchParams.get('email') || undefined,
+    })
+    if (error) return error
+    const connected = await connectedForUser(sql, user!.id)
+    if (!connected.includes('linear')) return json({ issues: [], needConnect: true })
+    const lin = await listLinearIssues(user!.id)
+    return json({ issues: lin.issues, needConnect: lin.needConnect })
+  }
+
+  if (path === '/api/work/linear' && req.method === 'POST') {
+    const body = (await req.json().catch(() => ({}))) as {
+      token?: string; email?: string; id?: string; action?: string
+    }
+    const { user, error } = await resolveAuthedUser(sql, { token: body.token, session: body.session, email: body.email })
+    if (error) return error
+    const id = String(body.id || '')
+    const action = body.action === 'done' || body.action === 'cancel' ? body.action : 'later'
+    if (!id) return json({ ok: false, error: 'id required' }, 400)
+    const ok = await linearWrite(user!.id, id, action)
+    return json({ ok, error: ok ? undefined : 'Linear did not update. Check the connector.' }, ok ? 200 : 400)
+  }
+
+  if (path === '/api/work/rsvp' && req.method === 'POST') {
+    const body = (await req.json().catch(() => ({}))) as {
+      token?: string; email?: string; eventId?: string; response?: string
+    }
+    const { user, error } = await resolveAuthedUser(sql, { token: body.token, session: body.session, email: body.email })
+    if (error) return error
+    const eventId = String(body.eventId || '')
+    if (!eventId) return json({ ok: false, error: 'eventId required' }, 400)
+    const access = await googleAccessToken(sql, user!.id, 'calendar')
+    if (!access) return json({ ok: false, error: 'Calendar is not connected.' }, 400)
+    const res = await fetch(
+      `https://www.googleapis.com/calendar/v3/calendars/primary/events/${encodeURIComponent(eventId)}?sendUpdates=all`,
+      {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${access}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          attendees: [{ email: user!.email, responseStatus: body.response === 'declined' ? 'declined' : 'accepted' }],
+        }),
+      },
+    )
+    return json({ ok: res.ok, error: res.ok ? undefined : `RSVP failed (${res.status}).` }, res.ok ? 200 : 400)
+  }
+
+  if (path === '/api/work/day' && req.method === 'GET') {
+    const persona = url.searchParams.get('persona') || 'coworker'
+    const { user, error } = await resolveAuthedUser(sql, {
+      token: url.searchParams.get('t') || undefined,
+      session: url.searchParams.get('s') || undefined,
+      email: url.searchParams.get('email') || undefined,
+    })
+    if (error) return error
+    const tz = user!.timezone || 'America/Los_Angeles'
+    const events = await googleEventsRaw(sql, user!.id, {
+      timeMin: startOfLocalDay(tz),
+      timeMax: startOfLocalDay(tz, 1),
+      maxResults: 12,
+    })
+    return json({
+      events: events.map((e) => ({
+        id: e.id,
+        title: e.title,
+        start: e.start,
+        label: e.allDay ? 'All day' : localHourParts(e.start, tz),
+      })),
+    })
+  }
+
   if (path === '/api/mini' && req.method === 'GET') {
     const t = url.searchParams.get('t') || ''
     const email = String(url.searchParams.get('email') || '')
@@ -3979,14 +4777,26 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
 
   if (path.startsWith('/api/loops/') && req.method === 'PATCH') {
     const id = path.slice('/api/loops/'.length)
-    const body = (await req.json().catch(() => ({}))) as { token?: string; email?: string; status?: string }
+    const body = (await req.json().catch(() => ({}))) as {
+      token?: string; email?: string; status?: string; dueAt?: string
+    }
     const status = body.status === 'done' || body.status === 'snoozed' ? body.status : 'open'
     const { user, error } = await resolveAuthedUser(sql, { token: body.token, session: body.session, email: body.email })
     if (error) return error
-    await sql`
-      UPDATE hire_loops SET status = ${status}, updated_at = now()
-      WHERE id = ${id} AND user_id = ${user!.id}
-    `
+    const dueAt = body.dueAt
+      ? parseFlexibleWhen(body.dueAt, user!.timezone || 'America/Los_Angeles')
+      : undefined
+    if (dueAt) {
+      await sql`
+        UPDATE hire_loops SET status = ${status}, due_at = ${dueAt}, updated_at = now()
+        WHERE id = ${id} AND user_id = ${user!.id}
+      `
+    } else {
+      await sql`
+        UPDATE hire_loops SET status = ${status}, updated_at = now()
+        WHERE id = ${id} AND user_id = ${user!.id}
+      `
+    }
     return json({ ok: true })
   }
 
@@ -4926,7 +5736,9 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
         streak++
         cursor = shiftDateStr(cursor, -1)
       }
-      return { ...h, streak, recentDays: weekDays.filter((d) => dates.has(d)) }
+      const cutoff12w = shiftDateStr(today, -84)
+      const logDates = [...dates].filter((d) => d >= cutoff12w).sort()
+      return { ...h, streak, recentDays: weekDays.filter((d) => dates.has(d)), logDates }
     })
     return json({ habits, weekDays, weekStart })
   }
@@ -5702,6 +6514,7 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     return json({ ok: true, ...prefs })
   }
 
+  if (path.startsWith('/api/')) return json({ error: 'Not found' }, 404)
   return null
 }
 

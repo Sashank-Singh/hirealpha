@@ -15,11 +15,11 @@ export const SKILLS: Record<
     tools: ['gmail', 'calendar.read', 'calendar.soft_book', 'maps', 'spotify'],
     executable: ['gmail', 'calendar', 'maps', 'spotify'],
     miniApps: [
-      'pick_night', 'check_in', 'spiral_options', 'open_loops', 'relationship_radar', 'drop_zone',
+      'next_move', 'pick_night', 'check_in', 'open_loops', 'drop_zone',
       'nutrition', 'habit_streak', 'mood_tracker', 'workout_log', 'learning_queue', 'weekly_review',
-      'networking_crm', 'pipeline_board', 'sleep_tracker', 'gratitude_journal', 'spending_snapshot', 'mirror',
+      'networking_crm', 'sleep_tracker', 'spending_snapshot', 'mirror', 'gratitude_journal', 'spiral_options', 'relationship_radar',
     ],
-    liveMiniApps: ['pick_night'],
+    liveMiniApps: ['next_move', 'pick_night'],
     deny: ['slack', 'linear', 'github', 'stripe', 'fundraising'],
   },
   coworker: {
@@ -35,21 +35,20 @@ export const SKILLS: Record<
     ],
     executable: ['gmail', 'calendar', 'slack', 'linear', 'notion', 'github', 'drive', 'figma'],
     miniApps: [
-      'approve_send', 'pick_slot', 'standup_paste', 'linear_triage', 'open_loops', 'meeting_mode', 'drop_zone',
-      'learning_queue', 'weekly_review', 'networking_crm', 'mirror',
+      'next_move', 'approve_send', 'pick_slot', 'standup_paste', 'linear_triage', 'open_loops', 'meeting_mode',
+      'drop_zone', 'learning_queue', 'weekly_review', 'networking_crm',
     ],
-    liveMiniApps: ['standup_paste'],
+    liveMiniApps: ['next_move', 'standup_paste', 'approve_send', 'pick_slot', 'linear_triage'],
     deny: ['therapy_mode', 'fundraising_strategy', 'uber_lifestyle'],
   },
   cofounder: {
     tools: ['notion', 'drive', 'stripe.glance', 'calendar.light', 'gmail.draft'],
     executable: ['gmail', 'calendar', 'notion', 'drive', 'stripe'],
     miniApps: [
-      'kill_keep_park', 'hire_decision', 'weekly_review', 'approve_investor_note', 'decision_ledger',
+      'next_move', 'kill_keep_park', 'hire_decision', 'weekly_review', 'approve_investor_note', 'decision_ledger',
       'relationship_radar', 'drop_zone', 'open_loops', 'networking_crm', 'pipeline_board', 'spending_snapshot',
-      'mirror',
     ],
-    liveMiniApps: ['kill_keep_park'],
+    liveMiniApps: ['next_move', 'kill_keep_park', 'hire_decision', 'approve_investor_note'],
     deny: ['standup_scribe', 'friend_comfort', 'silent_ea'],
   },
 }

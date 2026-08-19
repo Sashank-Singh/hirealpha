@@ -240,3 +240,55 @@ export function parseFormattedEventLine(line: string): {
 export function googleTokenHasScope(scopes: string, need: 'gmail' | 'calendar' | 'drive'): boolean {
   return scopes.toLowerCase().includes(need)
 }
+
+export type NextCalEvent = { id: string; title: string; start: string; allDay: boolean }
+
+/** Remaining meetings for Next: next 48 hours, not only the next 45 minutes. */
+export function selectNextEvents(
+  events: NextCalEvent[],
+  now = Date.now(),
+  horizonMs = 48 * 3600_000,
+): NextCalEvent[] {
+  const upcoming = events
+    .map((e) => {
+      const raw = e.start.includes('T') || e.allDay === false ? e.start : `${e.start}T12:00:00`
+      const t = new Date(raw).getTime()
+      return { e, t }
+    })
+    .filter(({ t }) => Number.isFinite(t) && t >= now - 5 * 60_000 && t <= now + horizonMs)
+    .sort((a, b) => a.t - b.t)
+  const timed = upcoming.filter(({ e }) => !e.allDay).slice(0, 3).map(({ e }) => e)
+  if (timed.length) return timed
+  return upcoming.filter(({ e }) => e.allDay).slice(0, 2).map(({ e }) => e)
+}
+
+export function isWalkIn(start: string, now = Date.now()): boolean {
+  const t = new Date(start).getTime()
+  return Number.isFinite(t) && t > now && t - now < 45 * 60 * 1000
+}
+
+export type NextCalEvent = { id: string; title: string; start: string; allDay: boolean }
+
+/** Remaining meetings for Next: next 48 hours, not only the next 45 minutes. */
+export function selectNextEvents(
+  events: NextCalEvent[],
+  now = Date.now(),
+  horizonMs = 48 * 3600_000,
+): NextCalEvent[] {
+  const upcoming = events
+    .map((e) => {
+      const raw = e.start.includes('T') || e.allDay === false ? e.start : `${e.start}T12:00:00`
+      const t = new Date(raw).getTime()
+      return { e, t }
+    })
+    .filter(({ t }) => Number.isFinite(t) && t >= now - 5 * 60_000 && t <= now + horizonMs)
+    .sort((a, b) => a.t - b.t)
+  const timed = upcoming.filter(({ e }) => !e.allDay).slice(0, 3).map(({ e }) => e)
+  if (timed.length) return timed
+  return upcoming.filter(({ e }) => e.allDay).slice(0, 2).map(({ e }) => e)
+}
+
+export function isWalkIn(start: string, now = Date.now()): boolean {
+  const t = new Date(start).getTime()
+  return Number.isFinite(t) && t > now && t - now < 45 * 60 * 1000
+}

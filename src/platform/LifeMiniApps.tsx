@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
+import { Link } from 'react-router-dom'
 import {
   apiAddGratitude,
   apiAddLearning,
@@ -744,7 +745,7 @@ export function WeeklyReviewApp({ auth }: { auth: FeatureAuth }) {
 /* ------------------------------ The Mirror ------------------------------ */
 
 function mirrorNext(snap: MirrorSnapshot, focusText: string): {
-  hot: boolean; kicker: string; title: string; hint: string; wantFocus?: boolean
+  hot: boolean; kicker: string; title: string; hint: string; wantFocus?: boolean; openKind?: string
 } {
   const w = snap.window
   const today = localDateStr()
@@ -762,6 +763,7 @@ function mirrorNext(snap: MirrorSnapshot, focusText: string): {
       kicker: 'The read',
       title: `${lastNight}h last night${shortNights >= 2 ? `, ${shortNights} short nights this week` : ''}`,
       hint: `Eat something with actual protein.${proteinBit} Skip the extra coffee.`,
+      openKind: 'nutrition',
     }
   }
   if (w.weeklyBudget > 0 && w.spend > w.weeklyBudget && (w.workoutsToday === 0 || lastNight < 6.5)) {
@@ -772,6 +774,7 @@ function mirrorNext(snap: MirrorSnapshot, focusText: string): {
       hint: snap.spendByCategory[0]
         ? `${snap.spendByCategory[0].category} is the biggest slice. Sleep and gym are slipping with it.`
         : 'Spend, sleep, and gym are moving together.',
+      openKind: 'spending_snapshot',
     }
   }
   if (proteinGoal > 0 && protein < 60 && (w.meals > 0 || lastNight > 0)) {
@@ -780,6 +783,7 @@ function mirrorNext(snap: MirrorSnapshot, focusText: string): {
       kicker: 'The read',
       title: `Protein is sitting at ${Math.round(protein)} of ${Math.round(proteinGoal)}`,
       hint: 'Dinner is one chicken bowl away. Eat that.',
+      openKind: 'nutrition',
     }
   }
   if (!moodToday) {
@@ -788,10 +792,11 @@ function mirrorNext(snap: MirrorSnapshot, focusText: string): {
       kicker: 'Next',
       title: 'Log how you feel',
       hint: lastMood ? `Last ${lastMood.emoji} on ${fmtDay(lastMood.date)}` : 'Open Mood and tap a face.',
+      openKind: 'mood_tracker',
     }
   }
   if (w.sleepNights === 0) {
-    return { hot: true, kicker: 'Next', title: 'Log last night', hint: 'Bedtime and wake. Two numbers.' }
+    return { hot: true, kicker: 'Next', title: 'Log last night', hint: 'Bedtime and wake. Two numbers.', openKind: 'sleep_tracker' }
   }
   if (w.weeklyBudget > 0 && w.spend > w.weeklyBudget) {
     return {
@@ -799,10 +804,11 @@ function mirrorNext(snap: MirrorSnapshot, focusText: string): {
       kicker: 'Over budget',
       title: `$${Math.round(w.spend - w.weeklyBudget)} over this week`,
       hint: snap.spendByCategory[0] ? `${snap.spendByCategory[0].category} is the biggest slice.` : 'Open spending to see where.',
+      openKind: 'spending_snapshot',
     }
   }
   if (w.decisionsOpen > 0) {
-    return { hot: true, kicker: 'Next', title: 'Review a decision', hint: `${w.decisionsOpen} still open.` }
+    return { hot: true, kicker: 'Next', title: 'Review a decision', hint: `${w.decisionsOpen} still open.`, openKind: 'decision_ledger' }
   }
   if (w.learningQueued > 0) {
     return {
@@ -810,6 +816,7 @@ function mirrorNext(snap: MirrorSnapshot, focusText: string): {
       kicker: 'Next',
       title: snap.nextLearning || 'Do one saved item',
       hint: `${w.learningQueued} in the queue.`,
+      openKind: 'learning_queue',
     }
   }
   const focus = (snap.currentReview?.focusText || focusText).trim()
@@ -868,6 +875,11 @@ export function MirrorApp({ auth }: { auth: FeatureAuth }) {
           <span className="ma-callout-kicker">{next.kicker}</span>
           <strong>{next.title}</strong>
           <span className="ma-sub">{next.hint}</span>
+          {next.openKind && (
+            <div className="ma-callout-actions">
+              <Link className="ma-btn" to={`/app/mini/${auth.persona}/${next.openKind}`}>Open</Link>
+            </div>
+          )}
           {'wantFocus' in next && next.wantFocus && (
             <form className="ma-form" onSubmit={saveFocus}>
               <input className="ma-input" value={focusText} onChange={(e) => setFocusText(e.target.value)} placeholder="One sentence for this week" aria-label="Weekly focus" />
@@ -906,6 +918,10 @@ export function MirrorApp({ auth }: { auth: FeatureAuth }) {
 }
 
 /* ---------------------------- Networking CRM ---------------------------- */
+function smsDraft(name: string) {
+  return `sms:&body=${encodeURIComponent(`Hey ${name} — checking in.`)}`
+}
+
 export function NetworkingCrmApp({ auth }: { auth: FeatureAuth }) {
   const a = useAuth(auth)
   const [people, setPeople] = useState<NetworkPerson[]>([])
@@ -914,6 +930,7 @@ export function NetworkingCrmApp({ auth }: { auth: FeatureAuth }) {
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState('')
   const [showAdd, setShowAdd] = useState(false)
+  const [note, setNote] = useState('')
 
   const load = useCallback(() => {
     apiListNetwork(a)
@@ -943,7 +960,8 @@ export function NetworkingCrmApp({ auth }: { auth: FeatureAuth }) {
   }
 
   async function talked(id: string) {
-    await apiTouchNetwork({ ...a, id }).catch(() => undefined)
+    await apiTouchNetwork({ ...a, id, context: note.trim() || undefined }).catch(() => undefined)
+    setNote('')
     load()
   }
 
@@ -976,8 +994,16 @@ export function NetworkingCrmApp({ auth }: { auth: FeatureAuth }) {
           <span className="ma-callout-kicker">Text them today</span>
           <strong>{next.name}</strong>
           <span className="ma-sub">{next.context || next.whereMet || 'No last note'} · {agoLabel(next.lastTouch)}</span>
+          <input
+            className="ma-input"
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            placeholder="What did you talk about?"
+            aria-label="Note"
+          />
           <div className="ma-callout-actions">
-            <button className="ma-btn" type="button" onClick={() => void talked(next.id)}>Talked</button>
+            <a className="ma-btn" href={smsDraft(next.name)}>Text</a>
+            <button className="ma-chip" type="button" onClick={() => void talked(next.id)}>Talked</button>
           </div>
         </div>
       )}
@@ -1025,6 +1051,7 @@ export function NetworkingCrmApp({ auth }: { auth: FeatureAuth }) {
                 <span className="ma-sub">{next.context || next.whereMet || 'No note yet'} · {agoLabel(next.lastTouch)}</span>
               </div>
               <button className="ma-chip" type="button" onClick={() => void talked(next.id)}>Talked</button>
+              <a className="ma-chip" href={smsDraft(next.name)}>Text</a>
             </li>
           )}
           {rest.map((p) => {
@@ -1039,6 +1066,7 @@ export function NetworkingCrmApp({ auth }: { auth: FeatureAuth }) {
                   <span className="ma-sub">{p.context || p.whereMet || 'No note yet'} · {agoLabel(p.lastTouch)}</span>
                 </div>
                 <button className="ma-chip" type="button" onClick={() => void talked(p.id)}>Talked</button>
+                {late && <a className="ma-chip" href={smsDraft(p.name)}>Text</a>}
               </li>
             )
           })}

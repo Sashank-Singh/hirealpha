@@ -3,12 +3,20 @@ import type { ConnectorId } from './connectors'
 
 const API = ''
 
+function looksLikeHtml(text: string, res: Response) {
+  const type = res.headers.get('content-type') || ''
+  return type.includes('text/html') || /^\s*<!doctype html/i.test(text) || /^\s*<html[\s>]/i.test(text)
+}
+
 async function parseJson<T>(res: Response): Promise<T> {
   const text = await res.text()
+  if (looksLikeHtml(text, res)) {
+    throw new Error('Could not load this. Try again in a minute.')
+  }
   try {
     return JSON.parse(text) as T
   } catch {
-    throw new Error(text.slice(0, 180) || `Request failed (${res.status})`)
+    throw new Error(`Request failed (${res.status})`)
   }
 }
 
@@ -275,8 +283,8 @@ export const apiListLoops = (a: { email?: string; token?: string }) =>
   featureGet<{ loops: OpenLoop[] }>('/api/loops', authQuery(a))
 export const apiAddLoop = (a: { email?: string; token?: string; persona?: string; title: string; context?: string; dueAt?: string }) =>
   featurePost<{ ok: boolean; id: string }>('/api/loops', { ...authParams(a), persona: a.persona, title: a.title, context: a.context, dueAt: a.dueAt })
-export const apiPatchLoop = (a: { email?: string; token?: string; id: string; status: string }) =>
-  featurePatch<{ ok: boolean }>(`/api/loops/${a.id}`, { ...authParams(a), status: a.status })
+export const apiPatchLoop = (a: { email?: string; token?: string; id: string; status: string; dueAt?: string }) =>
+  featurePatch<{ ok: boolean }>(`/api/loops/${a.id}`, { ...authParams(a), status: a.status, dueAt: a.dueAt })
 
 export type Decision = {
   id: string
@@ -415,7 +423,7 @@ export type Habit = {
 export type HabitLog = { id: string; habitId: string; date: string }
 export const apiListHabits = (a: { email?: string; token?: string }) =>
   featureGet<{
-    habits: (Habit & { streak: number; recentDays: string[] })[]
+    habits: (Habit & { streak: number; recentDays: string[]; logDates?: string[] })[]
     weekDays?: string[]
     weekStart?: string
   }>('/api/habits', authQuery(a))
@@ -571,6 +579,146 @@ export const apiSetSpendBudget = async (a: { email?: string; token?: string; wee
 }
 export const apiDeleteSpend = (a: { email?: string; token?: string; id: string }) =>
   featurePost<{ ok: boolean }>(`/api/spending/${a.id}`, { ...authParams(a), _delete: true })
+
+/* ---- Work cards: Next, send, slots, Linear ---- */
+export type WorkDraft = {
+  id: string
+  kind: string
+  toAddr: string
+  subject: string
+  body: string
+  status: string
+  createdAt: string
+}
+export type SlotOption = { start: string; end: string; label: string; title?: string }
+export type LinearIssue = {
+  id: string
+  identifier: string
+  title: string
+  state?: string
+  team?: string
+  url?: string
+}
+export type NextItem = {
+  id: string
+  kicker: string
+  title: string
+  hint?: string
+  hot?: boolean
+  action: 'send' | 'hold' | 'loop' | 'person' | 'linear' | 'rsvp' | 'pipeline' | 'open'
+  doLabel?: string
+  draftId?: string
+  loopId?: string
+  personId?: string
+  issueId?: string
+  eventId?: string
+  pipelineId?: string
+  stage?: string
+  start?: string
+  end?: string
+  sms?: string
+  href?: string
+  openKind?: string
+}
+
+async function fallbackNextStack(a: { email?: string; token?: string; persona?: string }) {
+  const items: NextItem[] = []
+  const [loopsRes, peopleRes] = await Promise.all([
+    apiListLoops(a).catch(() => ({ loops: [] as OpenLoop[] })),
+    apiListNetwork(a).catch(() => ({ people: [] as NetworkPerson[] })),
+  ])
+  const now = Date.now()
+  const open = (loopsRes.loops || []).filter((l) => l.status === 'open')
+  const due = open.find((l) => l.dueAt && new Date(l.dueAt).getTime() <= now + 12 * 60 * 60 * 1000) || open[0]
+  if (due) {
+    items.push({
+      id: `loop-${due.id}`,
+      kicker: 'Promise',
+      title: due.title,
+      hint: due.dueAt ? 'Due' : 'Open',
+      hot: true,
+      action: 'loop',
+      doLabel: 'Close',
+      loopId: due.id,
+    })
+  }
+  const overdue = (peopleRes.people || []).find((p) => {
+    const last = p.lastTouch ? new Date(p.lastTouch).getTime() : 0
+    return (Date.now() - last) / 86400000 >= (p.cadenceDays || 14)
+  })
+  if (overdue) {
+    items.push({
+      id: `person-${overdue.id}`,
+      kicker: 'Ping',
+      title: overdue.name,
+      hint: overdue.context || 'Overdue',
+      hot: true,
+      action: 'person',
+      doLabel: 'Talked',
+      personId: overdue.id,
+      sms: `sms:&body=${encodeURIComponent(`Hey ${overdue.name.split(' ')[0] || overdue.name} — checking in.`)}`,
+    })
+  }
+  let connected: string[] = []
+  if (a.email) {
+    const me = await apiMe(a.email).catch(() => null)
+    connected = me?.connected || []
+  }
+  const want = a.persona === 'coworker' ? ['gmail', 'calendar', 'linear'] : ['gmail', 'calendar']
+  return { items, connected, missing: want.filter((id) => !connected.includes(id)) }
+}
+
+export const apiNextStack = async (a: { email?: string; token?: string; persona?: string }) => {
+  try {
+    return await featureGet<{ items: NextItem[]; connected: string[]; missing: string[] }>('/api/work/next', authQuery(a))
+  } catch {
+    return fallbackNextStack(a)
+  }
+}
+export const apiListWorkDrafts = (a: { email?: string; token?: string; persona?: string; kind?: string }) => {
+  const qs = authQuery(a)
+  if (a.kind) qs.set('kind', a.kind)
+  return featureGet<{
+    drafts: WorkDraft[]
+    needConnect?: boolean
+    investorDraft?: { subject: string; body: string }
+  }>('/api/work/drafts', qs)
+}
+export const apiSaveWorkDraft = (a: {
+  email?: string; token?: string; persona?: string
+  kind?: string; toAddr: string; subject: string; body: string
+}) => featurePost<{ ok: boolean; id: string }>('/api/work/drafts', {
+  ...authParams(a), persona: a.persona, kind: a.kind, toAddr: a.toAddr, subject: a.subject, body: a.body,
+})
+export const apiSendDraft = (a: {
+  email?: string; token?: string; persona?: string
+  id?: string; toAddr?: string; subject?: string; body?: string
+}) => featurePost<{ ok: boolean; error?: string }>('/api/work/send', {
+  ...authParams(a), persona: a.persona, id: a.id, toAddr: a.toAddr, subject: a.subject, body: a.body,
+})
+export const apiListSlots = (a: { email?: string; token?: string; persona?: string }) =>
+  featureGet<{ slots: SlotOption[]; needConnect?: boolean }>('/api/work/slots', authQuery(a))
+export const apiHoldSlot = (a: {
+  email?: string; token?: string; persona?: string; title: string; start: string; end: string
+}) => featurePost<{ ok: boolean; error?: string; eventId?: string }>('/api/work/hold', {
+  ...authParams(a), persona: a.persona, title: a.title, start: a.start, end: a.end,
+})
+export const apiListLinear = (a: { email?: string; token?: string; persona?: string }) =>
+  featureGet<{ issues: LinearIssue[]; needConnect?: boolean }>('/api/work/linear', authQuery(a))
+export const apiLinearAction = (a: {
+  email?: string; token?: string; persona?: string; id: string; action: 'done' | 'later' | 'cancel'
+}) => featurePost<{ ok: boolean; error?: string }>('/api/work/linear', {
+  ...authParams(a), persona: a.persona, id: a.id, action: a.action,
+})
+export const apiRsvpEvent = (a: {
+  email?: string; token?: string; eventId: string; response: 'accepted' | 'declined'
+}) => featurePost<{ ok: boolean; error?: string }>('/api/work/rsvp', {
+  ...authParams(a), eventId: a.eventId, response: a.response,
+})
+export const apiDayEvents = (a: { email?: string; token?: string; persona?: string }) =>
+  featureGet<{
+    events: Array<{ id: string; title: string; start: string; label: string }>
+  }>('/api/work/day', authQuery(a))
 
 /* ---- Mini app prefs (workout place, move count, usual sleep times) ---- */
 export type MiniPrefs = {

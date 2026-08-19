@@ -27,8 +27,17 @@ import {
   WeeklyReviewApp,
   WorkoutLogApp,
 } from './LifeMiniApps'
+import {
+  ApproveSendApp,
+  HireDecisionApp,
+  InvestorNoteApp,
+  LinearTriageApp,
+  NextMoveApp,
+  PickSlotApp,
+} from './WorkMiniApps'
 
 const FEATURE_APPS: Record<string, ComponentType<{ auth: FeatureAuth }>> = {
+  next_move: NextMoveApp,
   open_loops: OpenLoopsApp,
   meeting_mode: MeetingModeApp,
   decision_ledger: DecisionLedgerApp,
@@ -47,6 +56,11 @@ const FEATURE_APPS: Record<string, ComponentType<{ auth: FeatureAuth }>> = {
   gratitude_journal: GratitudeJournalApp,
   spending_snapshot: SpendingSnapshotApp,
   mirror: MirrorApp,
+  approve_send: ApproveSendApp,
+  pick_slot: PickSlotApp,
+  linear_triage: LinearTriageApp,
+  hire_decision: HireDecisionApp,
+  approve_investor_note: InvestorNoteApp,
 }
 
 function FeatureApp({ kind, auth }: { kind: string; auth: FeatureAuth }) {

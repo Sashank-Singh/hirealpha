@@ -49,6 +49,25 @@ export const MINI_APP_TEXT_TRIGGERS: Record<
       negative: ['remind me to brief tomorrow', 'brief case'], // not intent
     },
   },
+  next_move: {
+    personas: ['friend', 'coworker', 'cofounder'],
+    triggers: {
+      explicit: [
+        'next move',
+        'what is next',
+        'do this now',
+        'open my next',
+        'show next',
+        'pull up next',
+        'bring back my next',
+      ],
+      natural: [
+        "what's next",
+        'clear my inbox',
+      ],
+      negative: ['next week'],
+    },
+  },
   check_in: {
     personas: ['friend'],
     triggers: {
@@ -732,7 +751,7 @@ describe('Mini-app Text Triggers', () => {
 
     it('detects gratitude_journal intent', () => {
       const result = detectMiniAppRequest('grateful for my team', 'friend')
-      expect(result?.kind).toBe('gratitude_journal')
+      expect(result?.kind).toBe('habit_streak')
     })
 
     it('detects learning_queue intent with URL', () => {
@@ -747,7 +766,7 @@ describe('Mini-app Text Triggers', () => {
 
     it('detects drop_zone intent (not URL)', () => {
       const result = detectMiniAppRequest('dump this random idea for later', 'friend')
-      expect(result?.kind).toBe('learning_queue')
+      expect(result?.kind).toBe('next_move')
     })
 
     it('detects weekly_review intent', () => {
@@ -762,12 +781,12 @@ describe('Mini-app Text Triggers', () => {
 
     it('detects check_in intent', () => {
       const result = detectMiniAppRequest('check in with me', 'friend')
-      expect(result?.kind).toBe('mood_tracker')
+      expect(result?.kind).toBe('mirror')
     })
 
     it('detects spiral_options intent', () => {
       const result = detectMiniAppRequest('im spiraling here', 'friend')
-      expect(result?.kind).toBe('pick_night')
+      expect(result?.kind).toBe('next_move')
     })
 
     it('detects open_loops intent', () => {
@@ -795,14 +814,14 @@ describe('Mini-app Text Triggers', () => {
       expect(detectMiniAppRequest('who should i follow', 'friend')?.kind).toBe('networking_crm')
     })
 
-    it('folds Save for later into Learning', () => {
-      expect(detectMiniAppRequest('pull up drop zone', 'friend')?.kind).toBe('learning_queue')
-      expect(detectMiniAppRequest('save for later', 'friend')?.kind).toBe('learning_queue')
+    it('folds Save for later into Next', () => {
+      expect(detectMiniAppRequest('pull up drop zone', 'friend')?.kind).toBe('next_move')
+      expect(detectMiniAppRequest('save for later', 'friend')?.kind).toBe('next_move')
     })
 
-    it('folds Check-in into Mood and Get unstuck into Tonight', () => {
-      expect(detectMiniAppRequest('pull up check-in', 'friend')?.kind).toBe('mood_tracker')
-      expect(detectMiniAppRequest("i'm spiraling", 'friend')?.kind).toBe('pick_night')
+    it('folds Check-in into Mirror and Get unstuck into Next', () => {
+      expect(detectMiniAppRequest('pull up check-in', 'friend')?.kind).toBe('mirror')
+      expect(detectMiniAppRequest("i'm spiraling", 'friend')?.kind).toBe('next_move')
     })
   })
 
@@ -859,7 +878,7 @@ describe('Mini-app Text Triggers', () => {
 
     it('detects mirror intent', () => {
       const result = detectMiniAppRequest('how am i doing overall', 'coworker')
-      expect(result?.kind).toBe('mirror')
+      expect(result).toBeNull()
     })
 
     it('rejects nutrition for coworker', () => {
@@ -891,8 +910,8 @@ describe('Mini-app Text Triggers', () => {
       ['Pull up habits', 'habit_streak'],
       ['Pull up weekly review', 'weekly_review'],
       ['Pull up learning queue', 'learning_queue'],
-      ['Pull up pipeline', 'pipeline_board'],
-      ['Pull up gratitude', 'gratitude_journal'],
+      ['Pull up next', 'next_move'],
+      ['Pull up gratitude', 'habit_streak'],
       ['Pull up mirror', 'mirror'],
       ['Save this link', 'learning_queue'],
     ]
@@ -961,7 +980,7 @@ describe('Mini-app Text Triggers', () => {
 
     it('detects mirror intent', () => {
       const result = detectMiniAppRequest('life overview check', 'cofounder')
-      expect(result?.kind).toBe('mirror')
+      expect(result).toBeNull()
     })
 
     it('detects weekly_review intent', () => {
@@ -1032,12 +1051,11 @@ describe('Mini-app Text Triggers', () => {
     it('recognizes reopen phrases for all apps', () => {
       const apps: Array<[MiniAppKind, AgentId, string]> = [
         ['habit_streak', 'friend', 'open my habits'],
-        ['gratitude_journal', 'friend', 'pull up gratitude'],
+        ['habit_streak', 'friend', 'pull up gratitude'],
         ['learning_queue', 'friend', 'bring back my learning'],
         ['weekly_review', 'friend', 'open my weekly review'],
         ['networking_crm', 'coworker', 'show my networking'],
-        ['drop_zone', 'coworker', 'pull up drop zone'],
-        ['mirror', 'coworker', 'bring back my mirror'],
+        ['next_move', 'coworker', 'pull up drop zone'],
       ]
       for (const [kind, persona, text] of apps) {
         const result = detectMiniAppRequest(text, persona)

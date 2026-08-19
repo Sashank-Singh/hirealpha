@@ -97,10 +97,10 @@ describe('Mini-app Interaction Tests: Full Flow', () => {
       const text = 'grateful for my team today'
 
       const detected = detectMiniAppRequest(text, persona)
-      expect(detected?.kind).toBe('gratitude_journal')
+      expect(detected?.kind).toBe('habit_streak')
 
       const card = await mintMiniAppCard('5551234567', persona, 'gratitude_journal')
-      expect(card.url).toContain('/app/mini/friend/gratitude_journal')
+      expect(card.url).toContain('/app/mini/friend/habit_streak')
 
       expect(typeof autoLogGratitude).toBe('function')
     })
@@ -137,7 +137,7 @@ describe('Mini-app Interaction Tests: Full Flow', () => {
 
       const text2 = 'dump this random idea'
       const result2 = detectMiniAppRequest(text2, persona)
-      expect(result2?.kind).toBe('learning_queue')
+      expect(result2?.kind).toBe('next_move')
     })
 
     it('learning_queue: auto-save with specific article save language', async () => {
@@ -418,9 +418,9 @@ describe('Mini-app Interaction Tests: Full Flow', () => {
       }
     })
 
-    it('plain save without URL or article keyword routes to learning_queue on friend', () => {
+    it('plain save without URL or article keyword routes to Next', () => {
       const result = detectMiniAppRequest('dump this idea for later', 'friend')
-      expect(result?.kind).toBe('learning_queue')
+      expect(result?.kind).toBe('next_move')
     })
   })
 
@@ -483,7 +483,7 @@ describe('Mini-app Interaction Tests: Full Flow', () => {
         expect(openLoops?.kind).toBe('open_loops')
 
         const dropZone = detectMiniAppRequest('dump this for later', persona)
-        expect(dropZone?.kind).toBe(persona === 'friend' ? 'learning_queue' : 'drop_zone')
+        expect(dropZone?.kind).toBe('next_move')
       }
     })
 
@@ -496,13 +496,10 @@ describe('Mini-app Interaction Tests: Full Flow', () => {
       }
     })
 
-    it('mirror available to all personas', () => {
-      const personas: AgentId[] = ['friend', 'coworker', 'cofounder']
-
-      for (const persona of personas) {
-        const result = detectMiniAppRequest('mirror', persona)
-        expect(result?.kind).toBe('mirror')
-      }
+    it('mirror available to friend', () => {
+      expect(detectMiniAppRequest('mirror', 'friend')?.kind).toBe('mirror')
+      expect(detectMiniAppRequest('mirror', 'coworker')).toBeNull()
+      expect(detectMiniAppRequest('mirror', 'cofounder')).toBeNull()
     })
   })
 

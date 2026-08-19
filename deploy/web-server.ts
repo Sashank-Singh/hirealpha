@@ -102,6 +102,7 @@ const MINI_META: Record<string, { title: string; description: string }> = {
   menu: { title: 'Apps', description: 'Tap one to open it.' },
   apps: { title: 'Apps', description: 'Tap one to open it.' },
   digest: { title: 'Morning brief', description: 'Your calendar, important mail, and reminders in one place.' },
+  next_move: { title: 'Next', description: 'One ranked action. Do it, snooze it, or skip it.' },
   nutrition: { title: 'Nutrition', description: 'Log meals, estimate macros, and keep today’s totals.' },
   open_loops: { title: 'Promises', description: 'What you said you would do.' },
   relationship_radar: { title: 'Stay in touch', description: 'See who to reach out to and when.' },
@@ -201,6 +202,7 @@ Bun.serve({
     if (url.pathname === '/api/waitlist') return handleWaitlist(req)
     const hire = await handleHireApi(req, sql)
     if (hire) return hire
+    if (url.pathname.startsWith('/api/')) return json({ error: 'Not found' }, 404)
     return serveStatic(url.pathname)
   },
 })

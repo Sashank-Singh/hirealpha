@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
+import { Link } from 'react-router-dom'
 import type { AgentId } from '../agents/types'
 import {
   apiAddDecision,
@@ -10,6 +11,7 @@ import {
   apiAddNetwork,
   apiAddRelationship,
   apiAnalyzeNutrition,
+  apiDayEvents,
   apiDeleteHabit,
   apiDeleteNutritionLog,
   apiListDecisions,
@@ -27,6 +29,7 @@ import {
   apiPatchLoop,
   apiPatchMeeting,
   apiReviewDecision,
+  apiSaveWorkDraft,
   apiSetNutritionGoals,
   apiTouchRelationship,
   apiToggleHabit,
@@ -141,6 +144,14 @@ export function OpenLoopsApp({ auth }: { auth: FeatureAuth }) {
     load()
   }
 
+  async function snooze(id: string) {
+    const due = new Date()
+    due.setDate(due.getDate() + 1)
+    due.setHours(9, 0, 0, 0)
+    await apiPatchLoop({ ...a, id, status: 'open', dueAt: due.toISOString() }).catch(() => undefined)
+    load()
+  }
+
   const open = loops
     .filter((l) => l.status === 'open')
     .slice()
@@ -157,7 +168,7 @@ export function OpenLoopsApp({ auth }: { auth: FeatureAuth }) {
           <strong>{next.title}</strong>
           <div className="ma-callout-actions">
             <button className="ma-btn" type="button" onClick={() => void setStatus(next.id, 'done')}>Close</button>
-            <button className="ma-chip" type="button" onClick={() => void setStatus(next.id, 'snoozed')}>Snooze</button>
+            <button className="ma-chip" type="button" onClick={() => void snooze(next.id)}>Snooze</button>
           </div>
         </div>
       )}
@@ -633,6 +644,7 @@ export function MeetingModeApp({ auth }: { auth: FeatureAuth }) {
   const [transcribing, setTranscribing] = useState<string | null>(null)
   const [styleErr, setStyleErr] = useState('')
   const [showAdd, setShowAdd] = useState(false)
+  const [recapHref, setRecapHref] = useState('')
   const recRef = useRef<{ media: MediaRecorder | null; chunks: Blob[]; start: number }>({
     media: null,
     chunks: [],
@@ -640,8 +652,23 @@ export function MeetingModeApp({ auth }: { auth: FeatureAuth }) {
   })
 
   const load = useCallback(() => {
-    apiListMeetings(a).then((d) => setMeetings(d.meetings)).catch(() => setErr('Could not load meetings.'))
-  }, [a.email, a.token])
+    Promise.all([
+      apiListMeetings(a),
+      apiDayEvents({ ...a, persona: auth.persona }).catch(() => ({ events: [] as Array<{ id: string; title: string; start: string; label: string }> })),
+    ])
+      .then(async ([d, day]) => {
+        let rows = d.meetings
+        if (!rows.length && day.events?.length) {
+          for (const e of day.events.slice(0, 6)) {
+            await apiAddMeeting({ ...a, title: e.title, startsAt: e.start }).catch(() => undefined)
+          }
+          const again = await apiListMeetings(a).catch(() => ({ meetings: rows }))
+          rows = again.meetings
+        }
+        setMeetings(rows)
+      })
+      .catch(() => setErr('Could not load meetings.'))
+  }, [a.email, a.token, auth.persona])
 
   useEffect(() => {
     load()
@@ -763,7 +790,18 @@ export function MeetingModeApp({ auth }: { auth: FeatureAuth }) {
   }, [recording])
 
   async function wrap(id: string) {
+    const m = meetings.find((row) => row.id === id)
     await apiPatchMeeting({ ...a, id, phase: 'done' }).catch(() => undefined)
+    const recap = [m?.briefing, m?.notes].filter(Boolean).join('\n\n') || `Wrapped ${m?.title || 'the meeting'}.`
+    await apiSaveWorkDraft({
+      ...a,
+      persona: auth.persona,
+      kind: 'email',
+      toAddr: '',
+      subject: `Recap: ${m?.title || 'meeting'}`,
+      body: recap,
+    }).catch(() => undefined)
+    setRecapHref(`/app/mini/${auth.persona}/approve_send`)
     load()
   }
 
@@ -814,6 +852,9 @@ export function MeetingModeApp({ auth }: { auth: FeatureAuth }) {
             </button>
             {next.phase !== 'done' && (
               <button type="button" className="ma-chip" onClick={() => void wrap(next.id)}>Wrap</button>
+            )}
+            {recapHref && (
+              <Link className="ma-chip" to={recapHref}>Send recap</Link>
             )}
           </div>
         </div>
@@ -956,6 +997,14 @@ export function NutritionApp({ auth }: { auth: FeatureAuth }) {
   const [showGoals, setShowGoals] = useState(false)
   const [goalInput, setGoalInput] = useState({ calories: 2200, protein: 150, carbs: 220, fat: 70 })
   const [selectedMeal, setSelectedMeal] = useState<NutritionLog | null>(null)
+  const [pending, setPending] = useState<{
+    description: string
+    calories: number
+    protein: number
+    carbs: number
+    fat: number
+    imageBase64?: string
+  } | null>(null)
 
   const load = useCallback(() => {
     apiNutritionToday(a)
@@ -981,14 +1030,33 @@ export function NutritionApp({ auth }: { auth: FeatureAuth }) {
   function pickImage(file: File | undefined) {
     if (!file) return
     setAnalyzing(true)
-    setMsg('Logging the photo…')
+    setMsg('Reading the photo…')
     const reader = new FileReader()
     reader.onload = async () => {
       const base64 = String(reader.result || '').split(',')[1] || ''
       try {
-        await apiLogNutritionPhoto({ ...a, description: desc.trim(), imageBase64: base64 })
-        setMsg('')
-        load()
+        const est = await apiAnalyzeNutrition({
+          ...a,
+          description: desc.trim() || 'meal from photo',
+          imageBase64: base64,
+        })
+        if (est.needsKey) {
+          await apiLogNutritionPhoto({ ...a, description: desc.trim(), imageBase64: base64 })
+          setMsg('Logged. Add a model key to auto-estimate macros.')
+          load()
+        } else if (est.ok) {
+          setPending({
+            description: est.guess || desc.trim() || 'meal from photo',
+            calories: est.calories || 0,
+            protein: est.protein || 0,
+            carbs: est.carbs || 0,
+            fat: est.fat || 0,
+            imageBase64: base64,
+          })
+          setMsg('Confirm macros, then log.')
+        } else {
+          setMsg(est.error || 'Could not estimate that photo.')
+        }
       } catch {
         setMsg('Could not read that photo.')
       } finally {
@@ -1009,17 +1077,45 @@ export function NutritionApp({ auth }: { auth: FeatureAuth }) {
       if (est.needsKey) {
         await apiLogNutrition({ ...a, description: desc.trim() })
         setMsg('Logged. Add a model key to auto-estimate macros.')
+        setDesc('')
+        load()
       } else if (est.ok) {
-        await apiLogNutrition({
-          ...a, description: est.guess || desc.trim(),
-          calories: est.calories, protein: est.protein, carbs: est.carbs, fat: est.fat,
+        setPending({
+          description: est.guess || desc.trim(),
+          calories: est.calories || 0,
+          protein: est.protein || 0,
+          carbs: est.carbs || 0,
+          fat: est.fat || 0,
         })
-        setMsg('')
+        setMsg('Confirm macros, then log.')
       } else {
         await apiLogNutrition({ ...a, description: desc.trim() })
         setMsg(est.error || 'Logged without a macro estimate.')
+        setDesc('')
+        load()
       }
+    } catch {
+      setMsg('Could not log that.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function confirmPending() {
+    if (!pending || busy) return
+    setBusy(true)
+    try {
+      await apiLogNutrition({
+        ...a,
+        description: pending.description,
+        calories: pending.calories,
+        protein: pending.protein,
+        carbs: pending.carbs,
+        fat: pending.fat,
+      })
+      setPending(null)
       setDesc('')
+      setMsg('')
       load()
     } catch {
       setMsg('Could not log that.')
@@ -1138,10 +1234,23 @@ export function NutritionApp({ auth }: { auth: FeatureAuth }) {
             aria-label="Meal description"
           />
           <button className="nutr-log-btn" type="submit" disabled={busy || !desc.trim()}>
-            Log
+            Estimate
           </button>
         </form>
       </div>
+      {pending && (
+        <div className="ma-callout">
+          <span className="ma-callout-kicker">Confirm</span>
+          <strong>{pending.description}</strong>
+          <span className="ma-sub">
+            {Math.round(pending.calories)} cal · {Math.round(pending.protein)}p · {Math.round(pending.carbs)}c · {Math.round(pending.fat)}f
+          </span>
+          <div className="ma-callout-actions">
+            <button className="ma-btn" type="button" disabled={busy} onClick={() => void confirmPending()}>Log</button>
+            <button className="ma-chip" type="button" onClick={() => { setPending(null); setMsg('') }}>Skip</button>
+          </div>
+        </div>
+      )}
       {msg && <p className="mini__hint">{msg}</p>}
 
       {/* Goals toggle */}
