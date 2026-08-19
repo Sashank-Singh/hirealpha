@@ -3038,8 +3038,8 @@ button.ma-callout, button.ma-row {
 .wk-controls {
   display: flex;
   flex-direction: column;
-  gap: 5px;
-  padding: 5px 0 6px;
+  gap: 8px;
+  padding: 8px 0 10px;
   border-top: 1px solid var(--border);
   border-bottom: 1px solid var(--border);
 }
@@ -3047,43 +3047,74 @@ button.ma-callout, button.ma-row {
 .wk-counts,
 .wk-days {
   display: grid;
-  gap: 5px;
+  gap: 0;
   width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  background: transparent;
 }
 .wk-places { grid-template-columns: 1fr 1fr; }
 .wk-counts { grid-template-columns: 1fr 1fr 1fr; }
 .wk-days { grid-template-columns: repeat(5, 1fr); }
 .wk-place,
-.wk-day,
-.wk-act {
-  border: 1px solid var(--border);
+.wk-day {
+  border: 0;
+  border-right: 1px solid var(--border);
+  border-radius: 0;
   background: transparent;
   color: var(--muted-fg);
   font: inherit;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
   cursor: pointer;
-  border-radius: 7px;
-  transition: background 0.1s, color 0.1s, border-color 0.1s;
   min-width: 0;
+  height: 36px;
+  padding: 0 4px;
+  text-align: center;
+  box-sizing: border-box;
+  transition: background 0.1s, color 0.1s;
 }
-.wk-place { padding: 7px 4px; text-align: center; }
-.wk-day { padding: 7px 4px; text-align: center; }
-.wk-act { padding: 6px 10px; white-space: nowrap; flex: none; font-size: 12px; font-weight: 700; color: var(--fg); border-color: var(--fg); border-radius: 999px; }
-.wk-day.is-today { border-color: var(--fg); color: var(--fg); }
+.wk-places > :last-child,
+.wk-counts > :last-child,
+.wk-days > :last-child {
+  border-right: 0;
+}
+.wk-day.is-today {
+  color: var(--fg);
+}
 .wk-place.is-on,
 .wk-day.is-on {
   background: var(--mini-accent);
-  border-color: var(--mini-accent);
   color: var(--mini-accent-fg, #f4f4f5);
+}
+.wk-act {
+  border: 1px solid var(--fg);
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  border-radius: 10px;
+  min-width: 64px;
+  min-height: 40px;
+  padding: 8px 14px;
+  flex: none;
+  align-self: center;
+  white-space: nowrap;
+  box-sizing: border-box;
+  transition: background 0.1s, color 0.1s, border-color 0.1s;
 }
 .wk-act.is-on {
   background: var(--mini-accent);
   border-color: var(--mini-accent);
   color: var(--mini-accent-fg, #f4f4f5);
 }
-.ma.workout .habit-card { flex-wrap: nowrap; }
+.ma.workout { gap: 10px; }
+.ma.workout .habit-card { flex-wrap: nowrap; align-items: center; }
 .ma.workout .habit-card.is-expanded { flex-wrap: wrap; align-items: flex-start; }
+.ma.workout .habit-streak { margin-bottom: 0; color: #e0e0e0; }
 
 /* Exercise name as tap target */
 .wk-name-btn {

@@ -261,7 +261,7 @@ function WorkoutSettings({ auth }: { auth: FeatureAuth }) {
   return (
     <section className="mini-set__block">
       <h2>Workout</h2>
-      <p>Monday through Friday plan. Home is bodyweight and dumbbells. Gym is barbell and machines.</p>
+      <p>Monday through Friday plan. Home is bodyweight only. Gym is barbell and machines.</p>
       <div className="wk-places">
         <button className={`wk-place${place === 'home' ? ' is-on' : ''}`} type="button" onClick={() => void pick('home')}>
           Home

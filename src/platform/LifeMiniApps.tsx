@@ -61,6 +61,7 @@ import {
   type WorkoutPlace,
   type WorkoutWeekday,
 } from './workoutProgram'
+import { exerciseDemoUrl } from './exerciseDemos'
 
 function useAuth(auth: FeatureAuth) {
   return { email: auth.email, token: auth.token, persona: auth.persona }
@@ -174,112 +175,6 @@ function openHttp(url: string) {
 
 /* ------------------------------ Workout Log ----------------------------- */
 
-// v3: clears old null-poisoned caches from v1/v2 (wger search was CORS-blocked)
-const EXERCISE_DEMO_CACHE_KEY = 'hire.exercise.demo.v3'
-const EXERCISE_DEMO_TTL = 7 * 24 * 60 * 60 * 1000
-
-type DemoCacheEntry = { url: string | null; at: number }
-type DemoCache = Record<string, DemoCacheEntry>
-
-function readDemoCache(): DemoCache {
-  try { return JSON.parse(localStorage.getItem(EXERCISE_DEMO_CACHE_KEY) || '{}') as DemoCache } catch { return {} }
-}
-
-function writeDemoCache(cache: DemoCache) {
-  try { localStorage.setItem(EXERCISE_DEMO_CACHE_KEY, JSON.stringify(cache)) } catch { /* ignore */ }
-}
-
-// Static name -> wger media URL map. All URLs verified 200 OK.
-// img src cross-origin loading is not subject to CORS; only fetch() is.
-const EXERCISE_DEMO_MAP: Record<string, string> = {
-  'bench press':             'https://wger.de/media/exercise-images/192/Bench-press-1.png',
-  'overhead press':          'https://wger.de/media/exercise-images/1893/7dbad19e-0616-41fd-9d7d-3e21649c0eea.png',
-  'incline dumbbell press':  'https://wger.de/media/exercise-images/1968/cd92e973-a0d9-4e5f-9011-5369012598d3.png',
-  'incline bench':           'https://wger.de/media/exercise-images/192/Bench-press-1.png',
-  'tricep pushdown':         'https://wger.de/media/exercise-images/805/7a437824-e2cc-46e1-804a-674f0ea31d25.png',
-  'lateral raise':           'https://wger.de/media/exercise-images/1654/aa724a58-b3b5-4522-b278-1155416236a5.jpg',
-  'cable fly':               'https://wger.de/media/exercise-images/1922/eb750ee5-3220-4128-aef1-5e2f1ccff40a.webp',
-  'barbell row':             'https://wger.de/media/exercise-images/81/a751a438-ae2d-4751-8d61-cef0e9292174.png',
-  'lat pulldown':            'https://wger.de/media/exercise-images/1127/4942b7c0-6bda-4983-88e5-86547c3d445e.png',
-  'seated cable row':        'https://wger.de/media/exercise-images/1117/2555c4c3-a84d-47db-b83b-cbf721f12e45.png',
-  'dumbbell curl':           'https://wger.de/media/exercise-images/1192/651a4535-8210-4dbd-8f06-61d95fdd9963.png',
-  'face pull':               'https://wger.de/media/exercise-images/1639/8927346e-f5ca-4795-bdf1-5ac9309401e7.webp',
-  'hammer curl':             'https://wger.de/media/exercise-images/86/Bicep-hammer-curl-1.png',
-  'back squat':              'https://wger.de/media/exercise-images/1963/db285682-1ab3-4be0-ae00-5117ecce1ee6.png',
-  'romanian deadlift':       'https://wger.de/media/exercise-images/1652/0306c8c0-70cc-45d4-92de-6fa72ceaa834.webp',
-  'leg press':               'https://wger.de/media/exercise-images/371/d2136f96-3a43-4d4c-9944-1919c4ca1ce1.webp',
-  'calf raise':              'https://wger.de/media/exercise-images/1243/53d4fabe-c994-4907-873f-8d82813a9832.png',
-  'leg extension':           'https://wger.de/media/exercise-images/369/78c915d1-e46d-4d30-8124-65d68664c3ef.png',
-  'hanging knee raise':      'https://wger.de/media/exercise-images/978/d3ffe51f-7eb8-4cc9-9eae-105847af3005.png',
-  'pull ups':                'https://wger.de/media/exercise-images/475/b0554016-16fd-4dbe-be47-a2a17d16ae0e.jpg',
-  'seated dumbbell press':   'https://wger.de/media/exercise-images/1968/cd92e973-a0d9-4e5f-9011-5369012598d3.png',
-  'chest supported row':     'https://wger.de/media/exercise-images/1283/e7262f70-7512-408a-8d00-4c499ef632fc.jpg',
-  'deadlift':                'https://wger.de/media/exercise-images/1003/772d6e47-3865-4944-9255-7435d0b06782.png',
-  'bulgarian split squat':   'https://wger.de/media/exercise-images/988/6283b258-a4d7-4833-84f7-a38987022d3d.png',
-  'leg curl':                'https://wger.de/media/exercise-images/154/lying-leg-curl-machine-large-1.png',
-  'walking lunge':           'https://wger.de/media/exercise-images/113/Walking-lunges-1.png',
-  'hip abductor':            'https://wger.de/media/exercise-images/1748/923a3ff7-c269-49bd-9f03-697151a40f06.jpg',
-  'push ups':                'https://wger.de/media/exercise-images/2529/e97b7a36-3414-4c4f-9d66-fe37182e829b.png',
-  'pike push ups':           'https://wger.de/media/exercise-images/454/447f3c17-405f-46e0-b138-65c2a8caaab0.png',
-  'dumbbell floor press':    'https://wger.de/media/exercise-images/1084/91dd5a95-1c45-46f2-a074-de41b6ad599b.jpg',
-  'bench dips':              'https://wger.de/media/exercise-images/83/Bench-dips-1.png',
-  'diamond push ups':        'https://wger.de/media/exercise-images/1086/b2ee8d9b-0480-4992-8494-c223b37c2696.jpg',
-  'dumbbell row':            'https://wger.de/media/exercise-images/1637/a1fbe83a-a3e5-49f6-a2c2-5d5b533c2be8.png',
-  'rear delt raise':         'https://wger.de/media/exercise-images/1098/fa5328a2-64cb-4afb-a283-b3d948ddaf3f.jpg',
-  'superman':                'https://wger.de/media/exercise-images/1348/a3769120-2445-49f2-97d3-afc1238bfc2a.webp',
-  'dumbbell pullover':       'https://wger.de/media/exercise-images/161/b9b1803e-2817-40bf-8ac7-e398ca86d8b4.png',
-  'goblet squat':            'https://wger.de/media/exercise-images/203/1c052351-2af0-4227-aeb0-244008e4b0a8.jpeg',
-  'dumbbell rdl':            'https://wger.de/media/exercise-images/1652/0306c8c0-70cc-45d4-92de-6fa72ceaa834.webp',
-  'reverse lunge':           'https://wger.de/media/exercise-images/999/d0931eb3-8db0-4049-bb08-aa4036072056.jfif',
-  'glute bridge':            'https://wger.de/media/exercise-images/1642/a81ad922-caf5-47f8-99b4-640cb0717436.webp',
-  'wall sit':                'https://wger.de/media/exercise-images/1100/ab203e0c-8220-4537-987c-871eb259d687.jpg',
-  'split squat':             'https://wger.de/media/exercise-images/988/6283b258-a4d7-4833-84f7-a38987022d3d.png',
-  'single leg rdl':          'https://wger.de/media/exercise-images/1652/0306c8c0-70cc-45d4-92de-6fa72ceaa834.webp',
-  'hip thrust':              'https://wger.de/media/exercise-images/1642/a81ad922-caf5-47f8-99b4-640cb0717436.webp',
-  'plank':                   'https://wger.de/media/exercise-images/458/b7bd9c28-9f1d-4647-bd17-ab6a3adf5770.png',
-  'dumbbell overhead press': 'https://wger.de/media/exercise-images/1968/cd92e973-a0d9-4e5f-9011-5369012598d3.png',
-}
-
-async function fetchExerciseDemo(name: string): Promise<string | null> {
-  const key = name.toLowerCase().trim()
-
-  // Static map: instant, no fetch, no CORS. Covers every programmed lift.
-  const staticUrl = EXERCISE_DEMO_MAP[key]
-  if (staticUrl) return staticUrl
-
-  // Custom exercises: try versioned cache, then wger search as best-effort
-  const cache = readDemoCache()
-  const entry = cache[key]
-  if (entry && Date.now() - entry.at < EXERCISE_DEMO_TTL) return entry.url
-
-  try {
-    const searchRes = await fetch(
-      `https://wger.de/api/v2/exercise/search/?term=${encodeURIComponent(name)}&language=english&format=json`,
-      { signal: AbortSignal.timeout(7000) },
-    )
-    if (!searchRes.ok) throw new Error('search failed')
-    const searchData = await searchRes.json() as { suggestions: Array<{ data: { base_id: number } }> }
-    const baseId = searchData.suggestions[0]?.data?.base_id
-    if (!baseId) {
-      writeDemoCache({ ...readDemoCache(), [key]: { url: null, at: Date.now() } })
-      return null
-    }
-
-    const imgRes = await fetch(
-      `https://wger.de/api/v2/exerciseimage/?exercise_base=${baseId}&is_main=True&format=json`,
-      { signal: AbortSignal.timeout(7000) },
-    )
-    if (!imgRes.ok) throw new Error('images failed')
-    const imgData = await imgRes.json() as { results: Array<{ image: string }> }
-    const url = imgData.results[0]?.image ?? null
-    writeDemoCache({ ...readDemoCache(), [key]: { url, at: Date.now() } })
-    return url
-  } catch {
-    writeDemoCache({ ...readDemoCache(), [key]: { url: null, at: Date.now() } })
-    return null
-  }
-}
-
 function lastWeightFor(logs: WorkoutLog[], name: string): number {
   const hit = logs.find((l) => l.exercise.toLowerCase() === name.toLowerCase() && l.weight > 0)
   return hit?.weight || 0
@@ -301,7 +196,6 @@ export function WorkoutLogApp({ auth }: { auth: FeatureAuth }) {
   const [showNew, setShowNew] = useState(false)
   const [demoExercise, setDemoExercise] = useState<string | null>(null)
   const [demoUrls, setDemoUrls] = useState<Record<string, string | null>>({})
-  const fetchingRef = useRef(new Set<string>())
 
   const load = useCallback(() => {
     apiListWorkouts(a)
@@ -405,18 +299,14 @@ export function WorkoutLogApp({ auth }: { auth: FeatureAuth }) {
     }
   }
 
-  async function handleDemoToggle(name: string) {
+  function handleDemoToggle(name: string) {
     if (demoExercise === name) {
       setDemoExercise(null)
       return
     }
-    setDemoExercise(name)
     const key = name.toLowerCase()
-    if (key in demoUrls || fetchingRef.current.has(key)) return
-    fetchingRef.current.add(key)
-    const url = await fetchExerciseDemo(name)
-    fetchingRef.current.delete(key)
-    setDemoUrls((prev) => ({ ...prev, [key]: url }))
+    setDemoUrls((prev) => (key in prev ? prev : { ...prev, [key]: exerciseDemoUrl(name) }))
+    setDemoExercise(name)
   }
 
   const session = workoutSession(place, viewDay, moveCount)
@@ -552,7 +442,7 @@ export function WorkoutLogApp({ auth }: { auth: FeatureAuth }) {
                   className="wk-name-btn"
                   type="button"
                   aria-expanded={isExpanded}
-                  onClick={() => void handleDemoToggle(move.name)}
+                  onClick={() => handleDemoToggle(move.name)}
                 >
                   {move.name}
                 </button>
@@ -578,6 +468,7 @@ export function WorkoutLogApp({ auth }: { auth: FeatureAuth }) {
                       src={demoUrl}
                       alt={`How to do ${move.name}`}
                       loading="lazy"
+                      onError={() => setDemoUrls((prev) => ({ ...prev, [demoKey]: null }))}
                     />
                   )}
                   {!demoLoading && demoFetched && !demoUrl && (

@@ -9,6 +9,7 @@ import {
   restLabel,
   workoutSession,
 } from '../../src/platform/workoutProgram'
+import { exerciseDemoUrl } from '../../src/platform/exerciseDemos'
 
 describe('workout programs', () => {
   it('has home and gym sessions for Monday through Friday', () => {
@@ -61,6 +62,71 @@ describe('workout programs', () => {
     expect(workoutSession('gym', 3).name).toBe('Legs')
     expect(workoutSession('gym', 4).name).toBe('Upper')
     expect(workoutSession('gym', 5).name).toBe('Lower')
+  })
+
+  it('keeps home days bodyweight only', () => {
+    const gear = /\b(dumbbell|barbell|bench|cable|machine|goblet|kettle|smith|pulldown|pushdown)\b/i
+    expect(workoutSession('home', 1).name).toBe('Push')
+    expect(workoutSession('home', 2).name).toBe('Pull')
+    expect(workoutSession('home', 3).name).toBe('Legs')
+    expect(workoutSession('home', 4).name).toBe('Upper')
+    expect(workoutSession('home', 5).name).toBe('Lower')
+    expect(WORKOUT_PROGRAMS.home[1].moves.map((m) => m.name)).toEqual([
+      'Push ups',
+      'Pike push ups',
+      'Diamond push ups',
+      'Wide push ups',
+      'Hindu push ups',
+      'Decline push ups',
+    ])
+    expect(WORKOUT_PROGRAMS.home[2].moves.map((m) => m.name)).toEqual([
+      'Superman',
+      'Glute kickback',
+      'Cobra',
+      'Back extension',
+      'Glute bridge',
+      'Plank',
+    ])
+    expect(WORKOUT_PROGRAMS.home[3].moves.map((m) => m.name)).toEqual([
+      'Squat',
+      'Reverse lunge',
+      'Glute bridge',
+      'Jump squat',
+      'Calf raise',
+      'Split squat',
+    ])
+    expect(WORKOUT_PROGRAMS.home[4].moves.map((m) => m.name)).toEqual([
+      'Push ups',
+      'Pike push ups',
+      'Superman',
+      'Diamond push ups',
+      'Glute kickback',
+      'Plank',
+    ])
+    expect(WORKOUT_PROGRAMS.home[5].moves.map((m) => m.name)).toEqual([
+      'Reverse lunge',
+      'Single leg glute bridge',
+      'Split squat',
+      'Calf raise',
+      'Walking lunge',
+      'Plank',
+    ])
+    for (const day of WORKOUT_WEEKDAYS) {
+      for (const move of WORKOUT_PROGRAMS.home[day].moves) {
+        expect(move.name).not.toMatch(gear)
+      }
+    }
+  })
+
+  it('has a local demo for every programmed lift', () => {
+    for (const place of ['home', 'gym'] as const) {
+      for (const day of WORKOUT_WEEKDAYS) {
+        for (const move of WORKOUT_PROGRAMS[place][day].moves) {
+          const url = exerciseDemoUrl(move.name) ?? ''
+          expect(`${move.name}:${url}`).toMatch(/:\/workout\//)
+        }
+      }
+    }
   })
 
   it('treats Saturday and Sunday as rest', () => {
