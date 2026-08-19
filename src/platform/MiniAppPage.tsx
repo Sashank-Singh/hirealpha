@@ -35,12 +35,14 @@ import {
   HireDecisionApp,
   InvestorNoteApp,
 } from './WorkMiniApps'
+import { EmailReader } from './EmailReader'
 
 
 interface DigestData {
   date?: string
   calendar?: string[]
   emails?: string[]
+  emailItems?: Array<{ id: string; label: string }>
   reminders?: Array<{ time?: string; text?: string }>
   events?: Array<{ id: string; label: string }>
   tomorrow?: string[]
@@ -51,6 +53,7 @@ interface DigestData {
 interface MiniSection {
   heading: string
   items: string[]
+  emailMeta?: Array<{ id: string }>
 }
 
 interface MiniPayload {
@@ -228,6 +231,8 @@ export function MiniAppPage() {
   const [expired, setExpired] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [settingsTick, setSettingsTick] = useState(0)
+  const [openEmailId, setOpenEmailId] = useState<string | null>(null)
+  const [openEmailLabel, setOpenEmailLabel] = useState<string | undefined>(undefined)
 
   const isDigest = kind === 'digest'
   const isMenu = kind === 'menu'
@@ -464,11 +469,24 @@ export function MiniAppPage() {
 
             <section className="mini__section">
               <h2>Mail</h2>
-              {data?.emails?.length ? (
+              {(data?.emailItems?.length || data?.emails?.length) ? (
                 <ul className="mini__list">
-                  {data.emails.map((e, i) => (
-                    <li key={i}>{e}</li>
-                  ))}
+                  {data?.emailItems?.length
+                    ? data.emailItems.map((e) => (
+                        <li
+                          key={e.id}
+                          className={e.id && !e.id.startsWith('text-') ? 'mail-row' : undefined}
+                          onClick={e.id && !e.id.startsWith('text-') ? () => { setOpenEmailId(e.id); setOpenEmailLabel(e.label) } : undefined}
+                          role={e.id && !e.id.startsWith('text-') ? 'button' : undefined}
+                          tabIndex={e.id && !e.id.startsWith('text-') ? 0 : undefined}
+                          onKeyDown={e.id && !e.id.startsWith('text-') ? (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { setOpenEmailId(e.id); setOpenEmailLabel(e.label) } } : undefined}
+                        >
+                          {e.label}
+                        </li>
+                      ))
+                    : data!.emails!.map((e, i) => (
+                        <li key={i}>{e}</li>
+                      ))}
                 </ul>
               ) : (
                 <p className="mini__empty">Nothing flagged.</p>
@@ -515,11 +533,23 @@ export function MiniAppPage() {
                 <h2>{s.heading}</h2>
                 {s.items?.length ? (
                   <ul className="mini__list">
-                    {s.items.map((item, i) => (
-                      <li key={i} style={{ whiteSpace: 'pre-wrap' }}>
-                        {item}
-                      </li>
-                    ))}
+                    {s.items.map((item, i) => {
+                      const emailId = s.emailMeta?.[i]?.id
+                      const isClickable = !!emailId && !emailId.startsWith('text-')
+                      return (
+                        <li
+                          key={i}
+                          style={{ whiteSpace: 'pre-wrap' }}
+                          className={isClickable ? 'mail-row' : undefined}
+                          onClick={isClickable ? () => { setOpenEmailId(emailId); setOpenEmailLabel(item) } : undefined}
+                          role={isClickable ? 'button' : undefined}
+                          tabIndex={isClickable ? 0 : undefined}
+                          onKeyDown={isClickable ? (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { setOpenEmailId(emailId); setOpenEmailLabel(item) } } : undefined}
+                        >
+                          {item}
+                        </li>
+                      )
+                    })}
                   </ul>
                 ) : (
                   <p className="mini__empty">Nothing here yet.</p>
@@ -614,6 +644,15 @@ export function MiniAppPage() {
           </div>
         )}
       </div>
+      {openEmailId && (
+        <EmailReader
+          messageId={openEmailId}
+          label={openEmailLabel}
+          auth={{ email: email || undefined, token: token || undefined }}
+          persona={(persona as AgentId) || 'friend'}
+          onClose={() => { setOpenEmailId(null); setOpenEmailLabel(undefined) }}
+        />
+      )}
     </div>
   )
 }

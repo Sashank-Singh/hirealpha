@@ -22,6 +22,7 @@ import {
   type WorkDraft,
 } from './api'
 import type { FeatureAuth } from './FeatureMiniApps'
+import { EmailReader } from './EmailReader'
 
 function useAuth(auth: FeatureAuth) {
   return { email: auth.email, token: auth.token, persona: auth.persona }
@@ -47,6 +48,8 @@ export function NextMoveApp({ auth }: { auth: FeatureAuth }) {
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState('')
   const [doneId, setDoneId] = useState<string | null>(null)
+  const [openEmailId, setOpenEmailId] = useState<string | null>(null)
+  const [openEmailLabel, setOpenEmailLabel] = useState<string | undefined>(undefined)
 
   const load = useCallback(() => {
     apiNextStack(a)
@@ -115,17 +118,22 @@ export function NextMoveApp({ auth }: { auth: FeatureAuth }) {
           <strong>{top.title}</strong>
           {top.hint && <span className="ma-sub">{top.hint}</span>}
           <div className="ma-callout-actions">
+            {top.messageId && (
+              <button className="ma-btn" type="button" onClick={() => { setOpenEmailId(top.messageId!); setOpenEmailLabel(top.title) }}>
+                Read
+              </button>
+            )}
             {top.sms && (
               <a className="ma-btn" href={top.sms}>
                 {top.doLabel || 'Text'}
               </a>
             )}
-            {!top.sms && itemHref(auth.persona, top) && top.action === 'open' && (
+            {!top.sms && !top.messageId && itemHref(auth.persona, top) && top.action === 'open' && (
               <Link className="ma-btn" to={itemHref(auth.persona, top)}>
                 {top.doLabel || 'Open'}
               </Link>
             )}
-            {top.action !== 'open' && (
+            {top.action !== 'open' && !top.messageId && (
               <button className="ma-btn" type="button" disabled={busy} onClick={() => void doItem(top)}>
                 {doneId === top.id ? 'Done' : top.doLabel || 'Do'}
               </button>
@@ -154,18 +162,39 @@ export function NextMoveApp({ auth }: { auth: FeatureAuth }) {
       {msg && <p className="mini__hint">{msg}</p>}
       {rest.length > 0 && (
         <ul className="ma-list">
-          {rest.map((item) => (
-            <li key={item.id} className="ma-row">
-              <div className="ma-row-main">
-                <span className="ma-title">{item.title}</span>
-                <span className="ma-sub">{item.kicker}{item.hint ? ` · ${item.hint}` : ''}</span>
-              </div>
-              <button className="ma-chip" type="button" disabled={busy} onClick={() => void doItem(item)}>
-                {item.doLabel || 'Do'}
-              </button>
-            </li>
-          ))}
+          {rest.map((item) => {
+            const isMailItem = !!item.messageId
+            return (
+              <li
+                key={item.id}
+                className={`ma-row${isMailItem ? ' mail-row' : ''}`}
+                onClick={isMailItem ? () => { setOpenEmailId(item.messageId!); setOpenEmailLabel(item.title) } : undefined}
+                role={isMailItem ? 'button' : undefined}
+                tabIndex={isMailItem ? 0 : undefined}
+                onKeyDown={isMailItem ? (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { setOpenEmailId(item.messageId!); setOpenEmailLabel(item.title) } } : undefined}
+              >
+                <div className="ma-row-main">
+                  <span className="ma-title">{item.title}</span>
+                  <span className="ma-sub">{item.kicker}{item.hint ? ` · ${item.hint}` : ''}</span>
+                </div>
+                {!isMailItem && (
+                  <button className="ma-chip" type="button" disabled={busy} onClick={() => void doItem(item)}>
+                    {item.doLabel || 'Do'}
+                  </button>
+                )}
+              </li>
+            )
+          })}
         </ul>
+      )}
+      {openEmailId && (
+        <EmailReader
+          messageId={openEmailId}
+          label={openEmailLabel}
+          auth={a}
+          persona={auth.persona}
+          onClose={() => { setOpenEmailId(null); setOpenEmailLabel(undefined) }}
+        />
       )}
     </div>
   )
