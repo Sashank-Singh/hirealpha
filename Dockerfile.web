@@ -21,6 +21,7 @@ COPY deploy/hire-api.ts ./hire-api.ts
 COPY deploy/calendarEvents.ts ./calendarEvents.ts
 COPY deploy/composioPlugins.ts ./composioPlugins.ts
 COPY deploy/timezones.ts ./timezones.ts
+COPY deploy/gmailHelpers.ts ./gmailHelpers.ts
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 

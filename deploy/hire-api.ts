@@ -27,6 +27,12 @@ import {
   timezoneFromCoords,
   timezoneFromText,
 } from './timezones'
+import {
+  decodeGmailBody,
+  extractGmailBody,
+  importantMailQuery,
+  type GmailMimePart,
+} from './gmailHelpers'
 
 export const PERSONAS = ['friend', 'coworker', 'cofounder'] as const
 export type Persona = (typeof PERSONAS)[number]
@@ -1769,45 +1775,6 @@ async function loadGmailRich(
   }
 }
 
-/** Recursive MIME part for Gmail full-format messages. */
-interface GmailMimePart {
-  mimeType?: string
-  body?: { data?: string; size?: number }
-  parts?: GmailMimePart[]
-}
-
-/** Decode Gmail base64url-encoded body data. */
-function decodeGmailBody(s: string): string {
-  try {
-    const b64 = s.replace(/-/g, '+').replace(/_/g, '/')
-    return Buffer.from(b64, 'base64').toString('utf-8')
-  } catch {
-    return ''
-  }
-}
-
-/** Walk MIME parts to extract text/plain and text/html bodies. */
-function extractGmailBody(part?: GmailMimePart): { text: string; html: string } {
-  if (!part) return { text: '', html: '' }
-  if (part.mimeType === 'text/html' && part.body?.data) {
-    return { text: '', html: decodeGmailBody(part.body.data) }
-  }
-  if (part.mimeType === 'text/plain' && part.body?.data) {
-    return { text: decodeGmailBody(part.body.data), html: '' }
-  }
-  if (part.parts?.length) {
-    let text = ''
-    let html = ''
-    for (const sub of part.parts) {
-      const r = extractGmailBody(sub)
-      if (!text && r.text) text = r.text
-      if (!html && r.html) html = r.html
-    }
-    return { text, html }
-  }
-  return { text: '', html: '' }
-}
-
 async function loadGmail(sql: SQL, userId: string, query: string, maxResults = 8): Promise<string> {
   const access = await googleAccessToken(sql, userId, 'gmail')
   if (access) {
@@ -2351,8 +2318,8 @@ async function digestPayload(
         loadGmailRich(
           sql,
           user.id,
-          'newer_than:16h is:inbox (is:important OR is:starred OR category:primary) -is:spam -is:promotions',
-          8,
+          importantMailQuery('16h'),
+          5,
         ),
         6000,
         [] as Array<{ id: string; from: string; date: string; subject: string; snippet: string }>,
@@ -2369,14 +2336,14 @@ async function digestPayload(
     }
   }
   // Text-only fallback (no IDs) when rich fetch returned nothing
-  if (!finalEmails.length && connected.includes('calendar')) {
+  if (!finalEmails.length && connected.includes('gmail')) {
     try {
       const mailBlock = await withTimeout(
         loadGmail(
           sql,
           user.id,
-          'newer_than:16h is:inbox (is:important OR is:starred OR category:primary) -is:spam -is:promotions',
-          8,
+          importantMailQuery('16h'),
+          5,
         ),
         6000,
         '',
@@ -3384,7 +3351,7 @@ async function miniPayload(
     if (connected.includes('gmail')) {
       try {
         const richMail = await withTimeout(
-          loadGmailRich(sql, user.id, 'newer_than:12h is:inbox (is:important OR is:starred OR category:primary) -is:spam -is:promotions', 6),
+          loadGmailRich(sql, user.id, importantMailQuery('12h'), 5),
           5000,
           [] as Array<{ id: string; from: string; date: string; subject: string; snippet: string }>,
         )
@@ -3393,10 +3360,10 @@ async function miniPayload(
         // best-effort
       }
     }
-    if (!mailItems.length && connected.includes('calendar')) {
+    if (!mailItems.length && connected.includes('gmail')) {
       try {
         const mailBlock = await withTimeout(
-          loadGmail(sql, user.id, 'newer_than:12h is:inbox (is:important OR is:starred OR category:primary) -is:spam -is:promotions', 6),
+          loadGmail(sql, user.id, importantMailQuery('12h'), 5),
           5000,
           '',
         )
@@ -3946,7 +3913,7 @@ async function buildNextStack(
 
   if (connected.includes('gmail')) {
     try {
-      const richMail = await loadGmailRich(sql, user.id, '(is:important OR is:unread) newer_than:2d', 3)
+      const richMail = await loadGmailRich(sql, user.id, importantMailQuery('2d'), 5)
       for (const m of richMail.slice(0, 3)) {
         items.push({
           id: `mail-${m.id}`,
@@ -3961,7 +3928,7 @@ async function buildNextStack(
       }
       // Fallback to text-only if rich returned nothing
       if (!richMail.length) {
-        const mail = await loadGmail(sql, user.id, '(is:important OR is:unread) newer_than:2d', 3)
+        const mail = await loadGmail(sql, user.id, importantMailQuery('2d'), 5)
         for (const m of parseGmailOverview(mail)) {
           items.push({
             id: m.id,
