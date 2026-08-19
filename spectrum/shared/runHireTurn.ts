@@ -28,6 +28,7 @@ import {
   buildDigestBriefing,
   type MiniAppCard,
 } from './miniApps'
+import { foldQuotes, isBannedTagline, dropBannedTaglines } from './outboundFilter'
 import { pickUserTimezone, timezoneFromText } from '../../deploy/timezones'
 
 export { isBannedTagline } from './outboundFilter'
