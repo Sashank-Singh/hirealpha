@@ -1,7 +1,6 @@
 import { motion, AnimatePresence } from 'framer-motion'
 import { useState, useEffect, useCallback, useRef, type FormEvent, type CSSProperties } from 'react'
 import { AlphaFace } from './AlphaFace'
-import './index.css'
 import './landing-stage.css'
 
 type AgentId = 'friend' | 'coworker' | 'cofounder'
