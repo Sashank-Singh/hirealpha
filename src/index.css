@@ -2015,14 +2015,14 @@ button, input { font: inherit; }
 
 /* Mini-app pages (opened inside iMessage via the Spectrum launcher) */
 .mini {
-  --bg: #000000;
+  --bg: #141414;
   --fg: #f4f4f4;
-  --muted-fg: #8d8d8d;
-  --border: #2e2e2e;
+  --muted-fg: #a8b8b5;
+  --border: #3a3a3a;
   --mini-accent-fg: #f4f4f5;
   --mini-font: 'Space Mono', ui-monospace, Menlo, monospace;
   min-height: 100dvh;
-  background: #000;
+  background: var(--bg);
   color: var(--fg);
   font-family: var(--mini-font);
   font-variant-ligatures: none;
@@ -3052,13 +3052,13 @@ button.ma-callout, button.ma-row {
 }
 .ma.workout .habit-card { flex-wrap: nowrap; }
 
-/* Mini theme lock: black, Space Mono, hairlines. Keep dark. */
+/* Mini theme lock: charcoal matte, Space Mono, hairlines. Keep dark. */
 .mini {
-  --mini-surface: #000000;
-  --mini-surface-raised: #000000;
+  --mini-surface: #141414;
+  --mini-surface-raised: #141414;
   --mini-text: #f4f4f4;
-  --mini-muted: #8d8d8d;
-  --mini-line: #2e2e2e;
+  --mini-muted: #a8b8b5;
+  --mini-line: #3a3a3a;
   --mini-track: #1c1c1c;
   --mini-accent-fg: #f4f4f5;
   color-scheme: dark;
@@ -3160,7 +3160,7 @@ button.ma-callout, button.ma-row {
   display: grid;
   place-items: center;
   border: 1px solid var(--border);
-  background: #0a0a0a;
+  background: var(--bg);
 }
 .conn-list .conn-row { flex-wrap: nowrap; border-radius: 0; }
 .conn-row .habit-info { min-width: 0; }
