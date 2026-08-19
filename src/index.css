@@ -3038,14 +3038,21 @@ button.ma-callout, button.ma-row {
 .wk-controls {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  padding: 10px 0;
+  gap: 5px;
+  padding: 5px 0 6px;
   border-top: 1px solid var(--border);
   border-bottom: 1px solid var(--border);
 }
-.wk-places { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; }
-.wk-counts { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 5px; }
-.wk-days { display: grid; grid-template-columns: repeat(5, 1fr); gap: 5px; }
+.wk-places,
+.wk-counts,
+.wk-days {
+  display: grid;
+  gap: 5px;
+  width: 100%;
+}
+.wk-places { grid-template-columns: 1fr 1fr; }
+.wk-counts { grid-template-columns: 1fr 1fr 1fr; }
+.wk-days { grid-template-columns: repeat(5, 1fr); }
 .wk-place,
 .wk-day,
 .wk-act {
@@ -3058,9 +3065,10 @@ button.ma-callout, button.ma-row {
   cursor: pointer;
   border-radius: 7px;
   transition: background 0.1s, color 0.1s, border-color 0.1s;
+  min-width: 0;
 }
-.wk-place { padding: 7px 10px; }
-.wk-day { padding: 7px 0; }
+.wk-place { padding: 7px 4px; text-align: center; }
+.wk-day { padding: 7px 4px; text-align: center; }
 .wk-act { padding: 6px 10px; white-space: nowrap; flex: none; font-size: 12px; font-weight: 700; color: var(--fg); border-color: var(--fg); border-radius: 999px; }
 .wk-day.is-today { border-color: var(--fg); color: var(--fg); }
 .wk-place.is-on,
