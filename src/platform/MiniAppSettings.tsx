@@ -104,7 +104,8 @@ function ConnectorSettings({ auth }: { auth: FeatureAuth }) {
     }
   }
 
-  const onCount = connectors.filter((c) => ids.includes(c.id)).length
+  // noAuth connectors always count as on
+  const onCount = connectors.filter((c) => c.noAuth || ids.includes(c.id)).length
 
   return (
     <section className="mini-set__block">
@@ -115,9 +116,9 @@ function ConnectorSettings({ auth }: { auth: FeatureAuth }) {
       <Link className="ma-btn ma-btn--block" to={siteHref}>
         Open website
       </Link>
-      <ul className="habit-list conn-list">
+      <ul className="habit-list conn-list conn-list--scroll">
         {connectors.map((c) => {
-          const on = ids.includes(c.id)
+          const on = c.noAuth || ids.includes(c.id)
           return (
             <li key={c.id} className="habit-card conn-row">
               <ConnectorLogo id={c.id} />
@@ -126,7 +127,7 @@ function ConnectorSettings({ auth }: { auth: FeatureAuth }) {
                 <div className="habit-streak">{c.blurb}</div>
               </div>
               {on ? (
-                <span className="ma-chip">On</span>
+                <span className="ma-chip">{c.noAuth ? 'On' : 'On'}</span>
               ) : (
                 <button
                   className="wk-act"

@@ -20,6 +20,11 @@ export interface ConnectorDef {
   blurb: string
   /** Tool id prefixes / exact tools that map to this connector */
   toolMatchers: string[]
+  /**
+   * True when the tool works without an OAuth connection (e.g. OSM-backed Maps).
+   * Show "On" badge and skip the Connect button; never show a dead connect flow.
+   */
+  noAuth?: boolean
 }
 
 export const CONNECTOR_CATALOG: ConnectorDef[] = [
@@ -76,6 +81,7 @@ export const CONNECTOR_CATALOG: ConnectorDef[] = [
     name: 'Google Maps',
     blurb: 'Pick places and get there.',
     toolMatchers: ['maps'],
+    noAuth: true,
   },
   {
     id: 'spotify',

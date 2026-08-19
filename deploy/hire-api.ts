@@ -3190,8 +3190,10 @@ async function miniPayload(
       }
     }
 
-    // All-day events = where you are (hotel, travel), not things you attend
-    const locationEvents = allTodayEvents.filter((e) => e.allDay)
+    // Hotel/travel all-day events = where you are. Other all-day events (birthdays, deadlines) are skipped.
+    const locationEvents = allTodayEvents.filter((e) =>
+      isHotelStayEvent({ title: e.title, allDay: e.allDay }),
+    )
 
     // Timed events remaining tonight (5 min grace for just-started events)
     const remainingEvents = allTodayEvents
@@ -3211,7 +3213,10 @@ async function miniPayload(
     }
 
     if (remainingEvents.length) {
-      const lines = remainingEvents.map((e) => `${e.time}  ${e.who || e.title}  ${e.meetKind}`)
+      const lines = remainingEvents.map((e) => {
+        const name = extractOtherPerson(e.title, null) || e.who || e.title
+        return `${e.time}  ${name}  ${e.meetKind}`
+      })
       sections.push({ heading: "What's on tonight", items: lines })
     } else {
       const emptyMsg = connected.includes('calendar')
@@ -3220,7 +3225,9 @@ async function miniPayload(
       sections.push({ heading: 'Tonight', items: [emptyMsg] })
     }
 
-    const text = remainingEvents.map((e) => `${e.time} ${e.who || e.title}`).join('\n')
+    const text = remainingEvents
+      .map((e) => `${e.time} ${extractOtherPerson(e.title, null) || e.who || e.title}`)
+      .join('\n')
     return { kind, title: 'Tonight', date: dateLabel, sections, text }
   }
 

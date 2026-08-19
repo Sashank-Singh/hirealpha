@@ -31,6 +31,7 @@ import {
   type LearningItem,
   type MirrorSnapshot,
   type NetworkPerson,
+  type NetworkStay,
   type NetworkToday,
   type PipelineItem,
   type SleepNight,
@@ -919,24 +920,42 @@ export function MirrorApp({ auth }: { auth: FeatureAuth }) {
 
 /* ---------------------------- Networking CRM ---------------------------- */
 function smsDraft(name: string) {
-  return `sms:&body=${encodeURIComponent(`Hey ${name} — checking in.`)}`
+  return `sms:&body=${encodeURIComponent(`Hey ${name}, checking in.`)}`
+}
+
+function kindLabel(kind: string): string {
+  if (kind === 'Google Meet') return 'Google Meet'
+  if (kind === 'Phone call') return 'Call'
+  if (kind === 'In person') return 'In person'
+  return kind || 'Meeting'
+}
+
+function kindBadgeClass(kind: string): string {
+  if (kind === 'Google Meet') return 'ma-kind-badge ma-kind-badge--meet'
+  if (kind === 'Phone call') return 'ma-kind-badge ma-kind-badge--call'
+  if (kind === 'In person') return 'ma-kind-badge ma-kind-badge--person'
+  return 'ma-kind-badge'
 }
 
 export function NetworkingCrmApp({ auth }: { auth: FeatureAuth }) {
   const a = useAuth(auth)
   const [people, setPeople] = useState<NetworkPerson[]>([])
   const [today, setToday] = useState<NetworkToday[]>([])
+  const [stay, setStay] = useState<NetworkStay | null>(null)
+  const [calendarConnected, setCalendarConnected] = useState<boolean | null>(null)
   const [line, setLine] = useState('')
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState('')
   const [showAdd, setShowAdd] = useState(false)
-  const [note, setNote] = useState('')
+  const [logNotes, setLogNotes] = useState<Record<string, string>>({})
 
   const load = useCallback(() => {
     apiListNetwork(a)
       .then((d) => {
         setPeople(d.people)
         setToday(d.today || [])
+        setStay(d.stay ?? null)
+        setCalendarConnected(d.calendarConnected ?? null)
       })
       .catch(() => setMsg('Could not load people.'))
   }, [a.email, a.token, a.persona])
@@ -959,9 +978,19 @@ export function NetworkingCrmApp({ auth }: { auth: FeatureAuth }) {
     }
   }
 
-  async function talked(id: string) {
-    await apiTouchNetwork({ ...a, id, context: note.trim() || undefined }).catch(() => undefined)
-    setNote('')
+  async function talked(id: string, note?: string) {
+    await apiTouchNetwork({ ...a, id, context: note?.trim() || undefined }).catch(() => undefined)
+    setLogNotes((prev) => { const n = { ...prev }; delete n[id]; return n })
+    load()
+  }
+
+  async function logCalPerson(name: string, note?: string) {
+    const existing = people.find((p) => p.name.toLowerCase() === name.toLowerCase())
+    if (existing) {
+      await apiTouchNetwork({ ...a, id: existing.id, context: note?.trim() || undefined }).catch(() => undefined)
+    } else {
+      await apiAddNetwork({ ...a, name, whereMet: 'Calendar', context: note?.trim() || '' }).catch(() => undefined)
+    }
     load()
   }
 
@@ -973,48 +1002,150 @@ export function NetworkingCrmApp({ auth }: { auth: FeatureAuth }) {
     return yo - xo
   })
   const due = ranked.filter((p) => daysSince(p.lastTouch) >= p.cadenceDays)
-  const next = due[0]
-  const seeing = today[0]
-  const rest = ranked.filter((p) => p.id !== next?.id)
-  const later = today.slice(1)
+  const inPersonToday = today.filter((e) => e.kind === 'In person')
+  const remoteToday = today.filter((e) => e.kind !== 'In person')
 
   return (
     <div className="ma">
-      {seeing && (
-        <div className="ma-callout ma-callout--hot">
-          <span className="ma-callout-kicker">Seeing today</span>
-          <strong>{seeing.who || seeing.title}</strong>
-          <span className="ma-sub">
-            {[seeing.time, seeing.place].filter(Boolean).join(' · ') || seeing.title}
-          </span>
+
+      {/* Where you are chip */}
+      {stay && (
+        <div className="ma-where-chip">
+          <span className="ma-where-label">Where you are</span>
+          <span className="ma-where-title">{stay.title}</span>
+          {stay.place && <span className="ma-where-sub">{stay.place}</span>}
         </div>
       )}
-      {!seeing && next && (
-        <div className="ma-callout ma-callout--hot">
-          <span className="ma-callout-kicker">Text them today</span>
-          <strong>{next.name}</strong>
-          <span className="ma-sub">{next.context || next.whereMet || 'No last note'} · {agoLabel(next.lastTouch)}</span>
-          <input
-            className="ma-input"
-            value={note}
-            onChange={(e) => setNote(e.target.value)}
-            placeholder="What did you talk about?"
-            aria-label="Note"
-          />
-          <div className="ma-callout-actions">
-            <a className="ma-btn" href={smsDraft(next.name)}>Text</a>
-            <button className="ma-chip" type="button" onClick={() => void talked(next.id)}>Talked</button>
+
+      {/* In person today */}
+      {inPersonToday.length > 0 && (
+        <section className="ma-section">
+          <span className="ma-section-label">Seeing today</span>
+          {inPersonToday.map((e, i) => {
+            const noteKey = `cal-${i}`
+            return (
+              <div key={noteKey} className="ma-callout ma-callout--hot">
+                <div className="ma-callout-row">
+                  <strong>{e.who || e.title}</strong>
+                  <span className={kindBadgeClass(e.kind)}>{kindLabel(e.kind)}</span>
+                </div>
+                <span className="ma-sub">{[e.time, e.place].filter(Boolean).join(' · ')}</span>
+                <div className="ma-callout-actions">
+                  <button
+                    className="ma-chip"
+                    type="button"
+                    onClick={() => void logCalPerson(e.who || e.title, logNotes[noteKey])}
+                  >
+                    Log
+                  </button>
+                </div>
+              </div>
+            )
+          })}
+        </section>
+      )}
+
+      {/* Remote meetings today (Meet / Call) */}
+      {remoteToday.length > 0 && (
+        <section className="ma-section">
+          <span className="ma-section-label">On the calendar</span>
+          <ul className="ma-list">
+            {remoteToday.map((e, i) => {
+              const noteKey = `remote-${i}`
+              return (
+                <li key={noteKey} className="ma-row">
+                  <div className="ma-row-main">
+                    <span className="ma-title">
+                      {e.who || e.title}
+                      <span className={kindBadgeClass(e.kind)}>{kindLabel(e.kind)}</span>
+                    </span>
+                    <span className="ma-sub">{e.time}{e.place ? ` · ${e.place}` : ''}</span>
+                  </div>
+                  <button
+                    className="ma-chip"
+                    type="button"
+                    onClick={() => void logCalPerson(e.who || e.title, logNotes[noteKey])}
+                  >
+                    Log
+                  </button>
+                </li>
+              )
+            })}
+          </ul>
+        </section>
+      )}
+
+      {/* No calendar connected */}
+      {calendarConnected === false && today.length === 0 && (
+        <div className="ma-callout">
+          <span className="ma-callout-kicker">Connect Calendar</span>
+          <strong>See who you are meeting</strong>
+          <span className="ma-sub">Go to Settings and connect your Google Calendar to see today's people here.</span>
+        </div>
+      )}
+
+      {/* Overdue outreach callout */}
+      {due.length > 0 && (
+        <section className="ma-section">
+          <span className="ma-section-label">Reach out</span>
+          <div className="ma-callout ma-callout--hot">
+            <strong>{due[0]!.name}</strong>
+            <span className="ma-sub">{due[0]!.context || due[0]!.whereMet || 'No note yet'} · {agoLabel(due[0]!.lastTouch)}</span>
+            <input
+              className="ma-input"
+              value={logNotes[due[0]!.id] || ''}
+              onChange={(ev) => setLogNotes((prev) => ({ ...prev, [due[0]!.id]: ev.target.value }))}
+              placeholder="What did you talk about?"
+              aria-label="Note"
+            />
+            <div className="ma-callout-actions">
+              <a className="ma-btn" href={smsDraft(due[0]!.name)}>Text</a>
+              <button className="ma-chip" type="button" onClick={() => void talked(due[0]!.id, logNotes[due[0]!.id])}>Talked</button>
+            </div>
           </div>
-        </div>
+          {due.length > 1 && (
+            <p className="mini__hint">{due.length - 1} more {due.length === 2 ? 'person is' : 'people are'} due.</p>
+          )}
+        </section>
       )}
-      {!seeing && !contacts.length && <p className="mini__empty">Type a name. Alpha will remind you to ping them.</p>}
-      {!seeing && contacts.length > 0 && due.length === 0 && (
+
+      {/* All clear */}
+      {contacts.length > 0 && due.length === 0 && (
         <div className="ma-callout">
           <span className="ma-callout-kicker">All clear</span>
           <strong>Nobody is due</strong>
-          <span className="ma-sub">Last notes stay on each person.</span>
+          <span className="ma-sub">Keep touching base. Last notes stay on each person.</span>
         </div>
       )}
+
+      {/* Empty state (no CRM and no calendar events) */}
+      {!contacts.length && today.length === 0 && calendarConnected !== false && (
+        <p className="mini__empty">Type a name below. Alpha will remind you when to follow up.</p>
+      )}
+
+      {/* People roster */}
+      {contacts.length > 0 && (
+        <ul className="ma-list">
+          {ranked.map((p) => {
+            const late = daysSince(p.lastTouch) >= p.cadenceDays
+            return (
+              <li key={p.id} className={`ma-row${late ? ' ma-row--warn' : ''}`}>
+                <div className="ma-row-main">
+                  <span className="ma-title">
+                    {p.name}
+                    {late && <span className="ma-badge">due</span>}
+                  </span>
+                  <span className="ma-sub">{p.context || p.whereMet || 'No note yet'} · {agoLabel(p.lastTouch)}</span>
+                </div>
+                <button className="ma-chip" type="button" onClick={() => void talked(p.id, logNotes[p.id])}>Talked</button>
+                {late && <a className="ma-chip" href={smsDraft(p.name)}>Text</a>}
+              </li>
+            )
+          })}
+        </ul>
+      )}
+
+      {/* Add form */}
       {(showAdd || !contacts.length) ? (
         <form className="ma-form" onSubmit={add}>
           <input
@@ -1029,54 +1160,20 @@ export function NetworkingCrmApp({ auth }: { auth: FeatureAuth }) {
       ) : (
         <button className="ma-btn ma-btn--quiet" type="button" onClick={() => setShowAdd(true)}>Add a person</button>
       )}
+
       {msg && <p className="mini__hint">{msg}</p>}
-      {due.length > 1 && <p className="mini__hint">{due.length} people are due.</p>}
-      {(later.length > 0 || rest.length > 0) && (
-        <ul className="ma-list">
-          {later.map((e, i) => (
-            <li key={`cal-${i}`} className="ma-row">
-              <div className="ma-row-main">
-                <span className="ma-title">{e.who || e.title}</span>
-                <span className="ma-sub">{[e.time, e.place].filter(Boolean).join(' · ') || e.title}</span>
-              </div>
-            </li>
-          ))}
-          {seeing && next && (
-            <li key={next.id} className="ma-row ma-row--warn">
-              <div className="ma-row-main">
-                <span className="ma-title">
-                  {next.name}
-                  <span className="ma-badge">due</span>
-                </span>
-                <span className="ma-sub">{next.context || next.whereMet || 'No note yet'} · {agoLabel(next.lastTouch)}</span>
-              </div>
-              <button className="ma-chip" type="button" onClick={() => void talked(next.id)}>Talked</button>
-              <a className="ma-chip" href={smsDraft(next.name)}>Text</a>
-            </li>
-          )}
-          {rest.map((p) => {
-            const late = daysSince(p.lastTouch) >= p.cadenceDays
-            return (
-              <li key={p.id} className={`ma-row${late ? ' ma-row--warn' : ''}`}>
-                <div className="ma-row-main">
-                  <span className="ma-title">
-                    {p.name}
-                    {late && <span className="ma-badge">due</span>}
-                  </span>
-                  <span className="ma-sub">{p.context || p.whereMet || 'No note yet'} · {agoLabel(p.lastTouch)}</span>
-                </div>
-                <button className="ma-chip" type="button" onClick={() => void talked(p.id)}>Talked</button>
-                {late && <a className="ma-chip" href={smsDraft(p.name)}>Text</a>}
-              </li>
-            )
-          })}
-        </ul>
-      )}
     </div>
   )
 }
 
 /* ----------------------------- Sleep Tracker ---------------------------- */
+
+const SHORTCUT_URL = 'https://www.icloud.com/shortcuts/hirealpha-sleep'
+
+function sleepSourceLabel(source?: string | null) {
+  if (source === 'apple_health') return 'Apple Health'
+  return null
+}
 
 export function SleepTrackerApp({ auth }: { auth: FeatureAuth }) {
   const a = useAuth(auth)
@@ -1087,6 +1184,8 @@ export function SleepTrackerApp({ auth }: { auth: FeatureAuth }) {
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState('')
   const [showTimes, setShowTimes] = useState(false)
+  const [showShortcut, setShowShortcut] = useState(false)
+  const [copied, setCopied] = useState(false)
 
   const load = useCallback(() => {
     apiListSleep(a)
@@ -1121,6 +1220,14 @@ export function SleepTrackerApp({ auth }: { auth: FeatureAuth }) {
     }
   }
 
+  function copyToken() {
+    if (!a.token) return
+    void navigator.clipboard.writeText(a.token).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    })
+  }
+
   const lastNightKey = lastNightDateStr()
   const lastNight = nights.find((n) => n.sleepDate.slice(0, 10) === lastNightKey)
   const last7 = nights.slice(0, 7)
@@ -1130,18 +1237,22 @@ export function SleepTrackerApp({ auth }: { auth: FeatureAuth }) {
   const debt = last7.reduce((s, n) => s + Math.max(0, 8 - hoursBetween(n.bedtime, n.wake)), 0)
   const lastHours = lastNight ? hoursBetween(lastNight.bedtime, lastNight.wake) : 0
   const previewHours = hoursBetween(bedtime, wake)
+  const fromHealth = sleepSourceLabel(lastNight?.source)
 
   return (
     <div className="ma">
       <div className="ma-hero">
-        <span className="ma-hero-kicker">{lastNight ? 'Last night' : 'Not logged'}</span>
+        <span className="ma-hero-kicker">
+          {lastNight ? 'Last night' : 'Not logged'}
+          {fromHealth && <span className="ma-badge" style={{ marginLeft: 6 }}>{fromHealth}</span>}
+        </span>
         <span className="ma-hero-num">{lastNight ? `${lastHours}h` : 'Log last night'}</span>
         <span className="ma-hero-label">
           {lastNight
-            ? `Quality ${lastNight.quality}/5${avg ? `. Avg ${avg.toFixed(1)}h` : ''}${debt >= 2 ? `. ${debt.toFixed(1)}h debt` : ''}`
+            ? `${formatClock12(lastNight.bedtime)} to ${formatClock12(lastNight.wake)}${avg ? `  Avg ${avg.toFixed(1)}h` : ''}${debt >= 2 ? `  ${debt.toFixed(1)}h debt` : ''}`
             : nights.length
               ? `Same as last time? ${previewHours}h  ${formatClock12(bedtime)} to ${formatClock12(wake)}`
-              : 'Bed and wake stick for next time.'}
+              : 'Connect Apple Health or log manually below.'}
         </span>
       </div>
 
@@ -1160,12 +1271,52 @@ export function SleepTrackerApp({ auth }: { auth: FeatureAuth }) {
       )}
 
       {!lastNight && (
-        <button className="ma-btn ma-btn--block" type="button" disabled={busy} onClick={() => void save()}>
-          Log {previewHours}h last night
-        </button>
+        <>
+          <button className="ma-btn ma-btn--block" type="button" disabled={busy} onClick={() => void save()}>
+            Log {previewHours}h last night
+          </button>
+          <button
+            className="ma-btn ma-btn--quiet ma-btn--block"
+            type="button"
+            onClick={() => setShowShortcut((v) => !v)}
+          >
+            {showShortcut ? 'Hide setup' : 'Auto from Apple Health'}
+          </button>
+          {showShortcut && (
+            <div className="ma-callout">
+              <span className="ma-callout-kicker">iOS Shortcut setup</span>
+              <strong>Run once on your iPhone</strong>
+              <span className="ma-sub">
+                1. Install the HireAlpha Sleep Shortcut from the link below.
+                2. Tap Copy Token and paste it into the Shortcut when prompted.
+                3. Run the Shortcut each morning or set it to run automatically at 7 AM.
+                It reads last night from Apple Health and sends it here. No typing required.
+              </span>
+              <div className="ma-callout-actions">
+                <a
+                  className="ma-btn"
+                  href={SHORTCUT_URL}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Get Shortcut
+                </a>
+                {a.token && (
+                  <button className="ma-chip" type="button" onClick={copyToken}>
+                    {copied ? 'Copied' : 'Copy Token'}
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+        </>
       )}
+
       {lastNight && !showTimes && (
-        <p className="ma-insight">Last night is in. Change times if it was off.</p>
+        <p className="ma-insight">
+          {fromHealth ? `Pulled from ${fromHealth} automatically.` : 'Last night is in.'}{' '}
+          Change times if it was off.
+        </p>
       )}
 
       {(showTimes || nights.length === 0) && (
@@ -1195,15 +1346,21 @@ export function SleepTrackerApp({ auth }: { auth: FeatureAuth }) {
       {msg && <p className="mini__hint">{msg}</p>}
       {nights.length ? (
         <ul className="ma-list">
-          {nights.slice(0, 21).map((n) => (
-            <li key={n.id} className="ma-row">
-              <div className="ma-row-main">
-                <span className="ma-title">{fmtDay(n.sleepDate)}  {hoursBetween(n.bedtime, n.wake)}h</span>
-                <span className="ma-sub">{formatClock12(n.bedtime)} to {formatClock12(n.wake)}  quality {n.quality}/5</span>
-              </div>
-              <button className="ma-x" type="button" onClick={() => void apiDeleteSleep({ ...a, id: n.id }).then(load)} title="Remove">×</button>
-            </li>
-          ))}
+          {nights.slice(0, 21).map((n) => {
+            const srcLabel = sleepSourceLabel(n.source)
+            return (
+              <li key={n.id} className="ma-row">
+                <div className="ma-row-main">
+                  <span className="ma-title">
+                    {fmtDay(n.sleepDate)}  {hoursBetween(n.bedtime, n.wake)}h
+                    {srcLabel && <span className="ma-badge" style={{ marginLeft: 4, fontSize: '0.7em' }}>{srcLabel}</span>}
+                  </span>
+                  <span className="ma-sub">{formatClock12(n.bedtime)} to {formatClock12(n.wake)}  quality {n.quality}/5</span>
+                </div>
+                <button className="ma-x" type="button" onClick={() => void apiDeleteSleep({ ...a, id: n.id }).then(load)} title="Remove">×</button>
+              </li>
+            )
+          })}
         </ul>
       ) : (
         <p className="mini__empty">Log last night. Bed and wake stick next time.</p>

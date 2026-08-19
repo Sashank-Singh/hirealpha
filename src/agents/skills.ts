@@ -12,8 +12,8 @@ export const SKILLS: Record<
   }
 > = {
   friend: {
-    tools: ['gmail', 'calendar.read', 'calendar.soft_book', 'maps', 'spotify'],
-    executable: ['gmail', 'calendar', 'maps', 'spotify'],
+    tools: ['gmail', 'calendar.read', 'calendar.soft_book', 'drive', 'maps'],
+    executable: ['gmail', 'calendar', 'drive', 'maps'],
     miniApps: [
       'next_move', 'pick_night', 'check_in', 'open_loops', 'drop_zone',
       'nutrition', 'habit_streak', 'mood_tracker', 'workout_log', 'learning_queue', 'weekly_review',
@@ -61,9 +61,11 @@ function canonTool(name: string) {
 export function skillsPromptBlock(agentId: AgentId, connected: string[] = []): string {
   const s = SKILLS[agentId]
   const connectedSet = new Set(connected.map(canonTool))
+  const freeLookupTools = new Set(['maps'])
   const live = s.executable.filter((t) => connectedSet.has(t))
-  const missing = s.executable.filter((t) => !connectedSet.has(t))
+  const missing = s.executable.filter((t) => !connectedSet.has(t) && !freeLookupTools.has(t))
   const lines = [
+    'Free live lookups available without a connector: web search and OpenStreetMap place search. Use their results when provided; do not claim they are unavailable.',
     live.length
       ? `Live tools you can actually use this turn: ${live.join(', ')}. Use a tool result if one is provided. Never invent a send, book, search, or file.`
       : 'No live tools are connected for this hire.',
@@ -73,6 +75,7 @@ export function skillsPromptBlock(agentId: AgentId, connected: string[] = []): s
     `Mini apps that actually run: ${s.liveMiniApps.join(', ') || 'none'}. Put the answer in the text. The card is extra, not a substitute.`,
     `Never act with: ${s.deny.join(', ')}.`,
     'Do not claim you completed a tool action unless a tool result is provided in context.',
+    'When tool results are present in context, NEVER say you cannot access the data or that a tool is not connected. The results ARE your answer — use them directly. Do not hedge, apologize, or ask the user to connect something that already returned data.',
   ]
   return lines.filter(Boolean).join('\n')
 }
