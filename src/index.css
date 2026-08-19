@@ -3210,6 +3210,7 @@ button.ma-callout, button.ma-row {
 .mini-set__field {
   display: grid;
   gap: 4px;
+  min-width: 0;
 }
 .mini-set__grid span,
 .mini-set__field span {
@@ -3221,6 +3222,7 @@ button.ma-callout, button.ma-row {
 }
 .mini-set input {
   width: 100%;
+  min-width: 0;
   background: var(--bg);
   color: var(--fg);
   border: 1px solid var(--border);
