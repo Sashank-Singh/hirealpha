@@ -152,11 +152,10 @@ export const MENU_FEATURES: Record<string, MenuFeature[]> = {
 
 export const APP_STORE_GROUPS: Record<string, { label: string; kinds: string[] }[]> = {
   friend: [
-    { label: 'Now', kinds: ['next_move'] },
+    { label: 'Brief', kinds: ['next_move', 'digest', 'pick_night'] },
     { label: 'Body', kinds: ['nutrition', 'workout_log', 'sleep_tracker', 'habit_streak'] },
     { label: 'Money', kinds: ['spending_snapshot'] },
     { label: 'People', kinds: ['networking_crm'] },
-    { label: 'Brief', kinds: ['digest', 'pick_night'] },
   ],
   coworker: [
     { label: 'Now', kinds: ['next_move'] },
@@ -298,7 +297,7 @@ export function MiniAppPage() {
   const briefKind = new Date().getHours() < 16 ? 'digest' : 'pick_night'
   const storeGroups = (APP_STORE_GROUPS[persona || ''] ?? []).map((group) => ({
     ...group,
-    items: (persona === 'friend' && group.label === 'Brief' ? [briefKind] : group.kinds)
+    items: (persona === 'friend' && group.label === 'Brief' ? ['next_move', briefKind] : group.kinds)
       .map((k) => features.find((f) => f.kind === k))
       .filter((f): f is MenuFeature => !!f),
   })).filter((g) => g.items.length > 0)
