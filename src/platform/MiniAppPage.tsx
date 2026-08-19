@@ -43,6 +43,8 @@ interface DigestData {
   emails?: string[]
   reminders?: Array<{ time?: string; text?: string }>
   events?: Array<{ id: string; label: string }>
+  tomorrow?: string[]
+  brief?: 'morning' | 'evening'
   error?: string
 }
 
@@ -166,11 +168,11 @@ export const APP_STORE_GROUPS: Record<string, { label: string; kinds: string[] }
 export const KIND_TITLES: Record<string, { title: string; blurb: string }> = {
   menu: { title: 'Apps', blurb: 'Tap one to open it.' },
   apps: { title: 'Apps', blurb: 'Tap one to open it.' },
-  digest: { title: 'Morning brief', blurb: 'Your day at a glance. Calendar, important mail, and reminders.' },
+  digest: { title: 'Morning brief', blurb: 'Calendar, overnight mail, and tomorrow at a glance.' },
   next_move: { title: 'Next', blurb: 'The one thing to do now.' },
   approve_send: { title: 'Approve & send', blurb: 'Review the draft and approve it to send.' },
   pick_slot: { title: 'Pick a slot', blurb: 'Compare meeting times and pick the one that works.' },
-  pick_night: { title: 'Tonight', blurb: 'What is left on the calendar tonight.' },
+  pick_night: { title: 'Evening brief', blurb: 'What happened, what is left, and what is on tomorrow.' },
   check_in: { title: 'Check-in', blurb: 'A quick pulse on how you are doing.' },
   standup_paste: { title: 'Standup', blurb: 'Your standup notes, tightened up.' },
   linear_triage: { title: 'Linear triage', blurb: 'Issues and backlog, triaged.' },
@@ -200,9 +202,9 @@ export const KIND_TITLES: Record<string, { title: string; blurb: string }> = {
 
 const FRIEND_KIND_TITLES: Record<string, { title: string; blurb: string }> = {
   next_move: { title: 'Next', blurb: 'The one thing to do now.' },
-  digest: { title: 'Today', blurb: 'Calendar, mail, reminders.' },
+  digest: { title: 'Morning brief', blurb: 'Calendar, mail, and tomorrow.' },
   networking_crm: { title: 'People', blurb: 'Who to follow up.' },
-  pick_night: { title: 'Tonight', blurb: 'What to do.' },
+  pick_night: { title: 'Evening brief', blurb: 'What happened and what is left.' },
   learning_queue: { title: 'Learning', blurb: 'What to read or watch next.' },
   mirror: { title: 'Mirror', blurb: 'The read of your life.' },
 }
@@ -470,30 +472,38 @@ export function MiniAppPage() {
         {authed && !expired && !settingsOpen && isDigest && !loading && !data?.error && (
           <div className="mini__body">
             <div className="ma-hero">
-              <span className="ma-hero-kicker">Today</span>
+              <span className="ma-hero-kicker">
+                {data?.brief === 'evening' ? 'Evening' : 'Morning'}
+              </span>
               <p className="mini__date">{data?.date}</p>
             </div>
 
             <section className="mini__section">
-              <h2>On your calendar</h2>
-              {data?.events?.length ? (
-                <DigestEvents
-                  events={data.events}
-                  auth={{ email: email || undefined, token: token || undefined }}
-                />
-              ) : data?.calendar?.length ? (
+              <h2>Today</h2>
+              {data?.calendar?.length ? (
                 <ul className="mini__list">
                   {data.calendar.map((c, i) => (
                     <li key={i}>{c}</li>
                   ))}
                 </ul>
               ) : (
-                <p className="mini__empty">Nothing scheduled.</p>
+                <p className="mini__empty">Nothing on the calendar.</p>
               )}
             </section>
 
+            {(data?.tomorrow?.length ?? 0) > 0 && (
+              <section className="mini__section">
+                <h2>Tomorrow</h2>
+                <ul className="mini__list">
+                  {data!.tomorrow!.map((c, i) => (
+                    <li key={i}>{c}</li>
+                  ))}
+                </ul>
+              </section>
+            )}
+
             <section className="mini__section">
-              <h2>Important mail</h2>
+              <h2>Mail</h2>
               {data?.emails?.length ? (
                 <ul className="mini__list">
                   {data.emails.map((e, i) => (
@@ -505,9 +515,9 @@ export function MiniAppPage() {
               )}
             </section>
 
-            <section className="mini__section">
-              <h2>Reminders</h2>
-              {data?.reminders?.length ? (
+            {data?.reminders?.length ? (
+              <section className="mini__section">
+                <h2>Reminders</h2>
                 <ul className="mini__list">
                   {data.reminders.map((r, i) => (
                     <li key={i}>
@@ -515,10 +525,8 @@ export function MiniAppPage() {
                     </li>
                   ))}
                 </ul>
-              ) : (
-                <p className="mini__empty">No reminders lined up.</p>
-              )}
-            </section>
+              </section>
+            ) : null}
           </div>
         )}
 
@@ -538,7 +546,7 @@ export function MiniAppPage() {
           <div className="mini__body">
             {mini?.date && (
               <div className="ma-hero">
-                <span className="ma-hero-kicker">{kind === 'pick_night' ? 'Tonight' : 'Ready'}</span>
+                <span className="ma-hero-kicker">{kind === 'pick_night' ? 'Evening' : 'Ready'}</span>
                 <p className="mini__date">{mini.date}</p>
               </div>
             )}

@@ -2182,9 +2182,10 @@ async function todayCalendarMeets(
 }
 
 /**
- * Morning-brief payload: today's calendar, important mail, and pending
- * reminders for one hire. `text` is the plain-SMS briefing; the structured
- * fields feed the in-Messages app card.
+ * Morning/evening-brief payload: calendar (direct Google, no error strings),
+ * important + medium mail, reminders. `brief` tells the frontend which variant.
+ * Calendar uses fetchCalendarItems directly so "Calendar is not connected" error
+ * strings never leak into the event list.
  */
 async function digestPayload(
   sql: SQL,
@@ -2195,26 +2196,96 @@ async function digestPayload(
   const connected = (await connectedForUser(sql, user.id)).filter(
     (id) => !PERSONA_DENIED[persona].has(id),
   )
-  const results = await withTimeout(
-    runToolsForMessage(sql, {
-      userId: user.id,
-      persona,
-      message: 'calendar today tomorrow inbox important email debrief',
-      connected,
-      timezone: tz,
-    }),
-    12000,
-    [] as string[],
-  )
-  const calendarBlock = results.find((t) => isCalendarToolResult(t))
-  const emailBlock = results.find(
-    (t) =>
-      t.startsWith('Email:') ||
-      t.startsWith('Important email:') ||
-      t.startsWith('No matching email'),
-  )
 
-  const emails = digestLines(emailBlock).slice(0, 8).map(formatMailLine)
+  const todayStart = startOfLocalDay(tz)
+  const tomorrowStart = startOfLocalDay(tz, 1)
+  const dayAfterStart = startOfLocalDay(tz, 2)
+  const todayYmd = todayStart.toLocaleDateString('en-CA', { timeZone: tz })
+  const tomorrowYmd = tomorrowStart.toLocaleDateString('en-CA', { timeZone: tz })
+
+  // Fetch calendar directly — never via runToolsForMessage which can return
+  // "Calendar is not connected" error strings that pollute the event list.
+  const todayCalItems: CalItem[] = []
+  const tomorrowCalItems: CalItem[] = []
+
+  if (connected.includes('calendar')) {
+    const access = await googleAccessToken(sql, user.id, 'calendar')
+    if (access) {
+      const got = await fetchCalendarItems(access, {
+        timeMin: todayStart,
+        timeMax: dayAfterStart,
+        maxResults: 20,
+      })
+      if (got.ok) {
+        for (const e of got.items) {
+          const ymd = e.start.toLocaleDateString('en-CA', { timeZone: tz })
+          if (ymd === todayYmd) todayCalItems.push(e)
+          else if (ymd === tomorrowYmd) tomorrowCalItems.push(e)
+        }
+      }
+    }
+  }
+
+  // Format a CalItem as a human label: name extracted, meeting type appended.
+  const formatCalItem = (e: CalItem): string => {
+    const name = extractOtherPerson(e.title, null) || e.title
+    if (e.allDay) {
+      if (isHotelStayEvent(e)) {
+        return `You are at ${name.replace(/^(?:stay(?:ing)?|checked?\s*in)\s+at\s+/i, '').replace(/^at\s+/i, '').trim()}`
+      }
+      return `All day · ${name}`
+    }
+    return `${formatClock(e.start, tz)} · ${name} · ${e.kind}`
+  }
+
+  const todayCal = todayCalItems.map(formatCalItem)
+  const tomorrowCal = tomorrowCalItems.filter((e) => !isHotelStayEvent(e)).map(formatCalItem)
+
+  // Pass empty events[] so the frontend never shows Yes/No RSVP buttons.
+  // The brief is a read-only view; calendar is already in todayCal.
+  const events: Array<{ id: string; label: string }> = []
+
+  // Email: try direct Gmail first (important + medium), fall back to composio.
+  let finalEmails: string[] = []
+  if (connected.includes('calendar')) {
+    try {
+      const mailBlock = await withTimeout(
+        loadGmail(
+          sql,
+          user.id,
+          'newer_than:16h is:inbox (is:important OR is:starred OR category:primary) -is:spam -is:promotions',
+          8,
+        ),
+        6000,
+        '',
+      )
+      finalEmails = digestLines(mailBlock).slice(0, 8).map(formatMailLine)
+    } catch {
+      // best-effort
+    }
+  }
+  // Composio fallback for email
+  if (!finalEmails.length) {
+    try {
+      const emailResults = await withTimeout(
+        runToolsForMessage(sql, {
+          userId: user.id,
+          persona,
+          message: 'inbox important email',
+          connected,
+          timezone: tz,
+        }),
+        8000,
+        [] as string[],
+      )
+      const emailBlock = emailResults.find(
+        (t) => t.startsWith('Email:') || t.startsWith('Important email:'),
+      )
+      finalEmails = digestLines(emailBlock).slice(0, 8).map(formatMailLine)
+    } catch {
+      // best-effort
+    }
+  }
 
   const reminderRows = await sql`
     SELECT text, scheduled_at AS "scheduledAt" FROM hire_reminders
@@ -2228,44 +2299,6 @@ async function digestPayload(
       text: r.text.replace(/^\[digest\]/i, '').trim() || r.text,
     }))
 
-  const dateLabel = new Date().toLocaleDateString('en-US', {
-    weekday: 'long',
-    month: 'long',
-    day: 'numeric',
-    timeZone: tz,
-  })
-
-  const tomorrowYmd = startOfLocalDay(tz, 1).toLocaleDateString('en-CA', { timeZone: tz })
-  const eventYmd = (iso: string) => {
-    const raw = iso.includes('T') ? iso : `${iso}T12:00:00`
-    const d = new Date(raw)
-    return Number.isNaN(d.getTime()) ? '' : d.toLocaleDateString('en-CA', { timeZone: tz })
-  }
-  const todayCal: string[] = []
-  const tomorrowCal: string[] = []
-  for (const line of digestLines(calendarBlock)) {
-    const parsed = parseFormattedEventLine(line)
-    const iso = parsed?.iso
-    const clock = parsed?.clock || (iso ? formatCalTime(iso, tz) : '')
-    const rest = parsed ? [parsed.kind, parsed.title].filter(Boolean).join(' · ') : line.replace(/^-\s*/, '')
-    const label = clock ? `${clock} · ${rest}` : rest
-    const day = iso ? eventYmd(iso) : ''
-    if (day === tomorrowYmd) tomorrowCal.push(label)
-    else todayCal.push(label)
-  }
-  const calendar = [...todayCal, ...tomorrowCal]
-  const rawEvents = await googleEventsRaw(sql, user.id, {
-    timeMin: startOfLocalDay(tz),
-    timeMax: startOfLocalDay(tz, 1),
-    maxResults: 12,
-  })
-  const events = rawEvents.map((e) => ({
-    id: e.id,
-    label: e.allDay
-      ? `All day · ${e.title}`
-      : `${formatCalTime(e.start, tz)} · ${e.title}`,
-  }))
-
   const loopRows = await sql`
     SELECT title, due_at AS "dueAt" FROM hire_loops
     WHERE user_id = ${user.id} AND status = 'open'
@@ -2276,6 +2309,13 @@ async function digestPayload(
     return due ? `${r.title} · ${due}` : r.title
   })
 
+  const dateLabel = new Date().toLocaleDateString('en-US', {
+    weekday: 'long',
+    month: 'long',
+    day: 'numeric',
+    timeZone: tz,
+  })
+
   const hour = Number(
     new Intl.DateTimeFormat('en-US', {
       timeZone: tz,
@@ -2283,7 +2323,8 @@ async function digestPayload(
       hour12: false,
     }).format(new Date()),
   )
-  const wrapTitle = hour >= 16 ? 'Evening debrief' : 'Morning brief'
+  const brief = hour >= 16 ? 'evening' : 'morning'
+  const wrapTitle = brief === 'evening' ? 'Evening brief' : 'Morning brief'
 
   const section = (title: string, items: string[]) =>
     items.length ? `${title}\n${items.join('\n')}` : null
@@ -2292,14 +2333,15 @@ async function digestPayload(
     `${PERSONA_LABEL[persona]} · ${wrapTitle} · ${dateLabel}`,
     section('Today', todayCal),
     section('Tomorrow', tomorrowCal),
-    section('Important mail', emails),
+    section('Important mail', finalEmails),
     section('Reminders', reminders.map((r) => `${r.time} · ${r.text}`)),
     section('Promises', loops),
   ]
     .filter(Boolean)
     .join('\n\n')
 
-  return { date: dateLabel, calendar, emails, reminders, loops, tomorrow: tomorrowCal, events, text }
+  // calendar = today events only (tomorrow is separate)
+  return { date: dateLabel, calendar: todayCal, emails: finalEmails, reminders, loops, tomorrow: tomorrowCal, events, text, brief }
 }
 
 /** Mini apps each hire can offer, mirroring src/agents/skills.ts. */
@@ -3118,49 +3160,59 @@ async function miniPayload(
   })
 
   if (kind === 'pick_night') {
+    // Evening brief: what happened today, what's left, mail since morning, tomorrow.
     const nowMs = Date.now()
+    const todayStart = startOfLocalDay(tz)
+    const tomorrowStart = startOfLocalDay(tz, 1)
+    const dayAfterStart = startOfLocalDay(tz, 2)
+    const todayYmd = todayStart.toLocaleDateString('en-CA', { timeZone: tz })
+    const tomorrowYmd = tomorrowStart.toLocaleDateString('en-CA', { timeZone: tz })
 
-    interface TonightEvent {
+    interface EveningEvent {
       time: string
       title: string
       who: string
       meetKind: string
       allDay: boolean
       startMs: number
+      dayYmd: string
     }
 
-    const allTodayEvents: TonightEvent[] = []
+    const allEvents: EveningEvent[] = []
+
+    function pushCalItems(items: CalItem[]) {
+      for (const e of items) {
+        const ymd = e.start.toLocaleDateString('en-CA', { timeZone: tz })
+        allEvents.push({
+          time: e.allDay ? 'All day' : formatClock(e.start, tz),
+          title: e.title,
+          who: extractOtherPerson(e.title, null) || parseCalMeet(e.title).who,
+          meetKind: e.kind,
+          allDay: e.allDay,
+          startMs: e.start.getTime(),
+          dayYmd: ymd,
+        })
+      }
+    }
 
     if (connected.includes('calendar')) {
-      // Try direct Google Calendar first (fastest, most structured)
+      // Try direct Google Calendar first: fetch today + tomorrow together
       const access = await googleAccessToken(sql, user.id, 'calendar')
       if (access) {
         const got = await fetchCalendarItems(access, {
-          timeMin: startOfLocalDay(tz),
-          timeMax: startOfLocalDay(tz, 1),
-          maxResults: 12,
+          timeMin: todayStart,
+          timeMax: dayAfterStart,
+          maxResults: 20,
         })
-        if (got.ok) {
-          for (const e of got.items) {
-            const meet = parseCalMeet(e.title)
-            allTodayEvents.push({
-              time: e.allDay ? 'All day' : formatClock(e.start, tz),
-              title: e.title,
-              who: meet.who,
-              meetKind: e.kind,
-              allDay: e.allDay,
-              startMs: e.start.getTime(),
-            })
-          }
-        }
+        if (got.ok) pushCalItems(got.items)
       }
-      // Fallback: query through composio/runTools if direct fetch returned nothing
-      if (!allTodayEvents.length) {
+      // Fallback via composio/runTools if direct fetch returned nothing
+      if (!allEvents.length) {
         const calResults = await withTimeout(
           runToolsForMessage(sql, {
             userId: user.id,
             persona,
-            message: 'calendar today tonight',
+            message: 'calendar today tomorrow',
             connected,
             timezone: tz,
           }),
@@ -3168,37 +3220,59 @@ async function miniPayload(
           [] as string[],
         )
         const calendarBlock = calResults.find((t) => isCalendarToolResult(t))
-        const todayYmd = startOfLocalDay(tz).toLocaleDateString('en-CA', { timeZone: tz })
         for (const line of digestLines(calendarBlock)) {
           const parsed = parseFormattedEventLine(line)
           if (!parsed) continue
-          const isAllDay = parsed.clock === 'All day'
           const raw = parsed.iso.includes('T') ? parsed.iso : `${parsed.iso}T12:00:00`
           const d = new Date(raw)
           if (Number.isNaN(d.getTime())) continue
-          if (d.toLocaleDateString('en-CA', { timeZone: tz }) !== todayYmd) continue
-          const meet = parseCalMeet(parsed.title)
-          allTodayEvents.push({
+          const ymd = d.toLocaleDateString('en-CA', { timeZone: tz })
+          if (ymd !== todayYmd && ymd !== tomorrowYmd) continue
+          allEvents.push({
             time: parsed.clock || formatCalTime(parsed.iso, tz),
             title: parsed.title,
-            who: meet.who,
+            who: extractOtherPerson(parsed.title, null) || parseCalMeet(parsed.title).who,
             meetKind: parsed.kind || 'Meeting',
-            allDay: isAllDay,
+            allDay: parsed.clock === 'All day',
             startMs: d.getTime(),
+            dayYmd: ymd,
           })
         }
       }
     }
 
-    // Hotel/travel all-day events = where you are. Other all-day events (birthdays, deadlines) are skipped.
-    const locationEvents = allTodayEvents.filter((e) =>
+    const todayEvents = allEvents.filter((e) => e.dayYmd === todayYmd)
+    const tomorrowEvents = allEvents.filter((e) => e.dayYmd === tomorrowYmd && !e.allDay)
+
+    // Hotel/travel all-day = where you are
+    const locationEvents = todayEvents.filter((e) =>
       isHotelStayEvent({ title: e.title, allDay: e.allDay }),
     )
-
-    // Timed events remaining tonight (5 min grace for just-started events)
-    const remainingEvents = allTodayEvents
+    // Past timed events today (recap)
+    const pastEvents = todayEvents
+      .filter((e) => !e.allDay && e.startMs < nowMs - 5 * 60_000)
+      .sort((a, b) => a.startMs - b.startMs)
+    // Remaining timed events today
+    const remainingEvents = todayEvents
       .filter((e) => !e.allDay && e.startMs >= nowMs - 5 * 60_000)
       .sort((a, b) => a.startMs - b.startMs)
+
+    // Mail since morning: important + medium, last 12 hours, not spam or promos
+    let mailLines: string[] = []
+    if (connected.includes('calendar')) {
+      try {
+        const mailBlock = await withTimeout(
+          loadGmail(sql, user.id, 'newer_than:12h is:inbox (is:important OR is:starred OR category:primary) -is:spam -is:promotions', 6),
+          5000,
+          '',
+        )
+        mailLines = digestLines(mailBlock).slice(0, 5).map(formatMailLine)
+      } catch {
+        // mail is best-effort
+      }
+    }
+
+    const formatEvent = (e: EveningEvent) => `${e.time}  ${e.who || e.title}  ${e.meetKind}`
 
     const sections: Array<{ heading: string; items: string[] }> = []
 
@@ -3212,23 +3286,29 @@ async function miniPayload(
       sections.push({ heading: 'Where you are', items: locs })
     }
 
-    if (remainingEvents.length) {
-      const lines = remainingEvents.map((e) => {
-        const name = extractOtherPerson(e.title, null) || e.who || e.title
-        return `${e.time}  ${name}  ${e.meetKind}`
-      })
-      sections.push({ heading: "What's on tonight", items: lines })
-    } else {
-      const emptyMsg = connected.includes('calendar')
-        ? 'Nothing left on the calendar tonight.'
-        : 'Calendar is not connected. Tap Settings to add it.'
-      sections.push({ heading: 'Tonight', items: [emptyMsg] })
+    if (pastEvents.length) {
+      sections.push({ heading: 'Earlier today', items: pastEvents.map(formatEvent) })
     }
 
-    const text = remainingEvents
-      .map((e) => `${e.time} ${extractOtherPerson(e.title, null) || e.who || e.title}`)
-      .join('\n')
-    return { kind, title: 'Tonight', date: dateLabel, sections, text }
+    if (remainingEvents.length) {
+      sections.push({ heading: 'Left this evening', items: remainingEvents.map(formatEvent) })
+    } else if (connected.includes('calendar')) {
+      sections.push({ heading: 'Left this evening', items: ['Nothing left on the calendar.'] })
+    } else {
+      sections.push({ heading: 'Left this evening', items: ['Calendar is not connected. Tap Settings to add it.'] })
+    }
+
+    if (mailLines.length) {
+      sections.push({ heading: 'Mail since this morning', items: mailLines })
+    }
+
+    if (tomorrowEvents.length) {
+      sections.push({ heading: 'Tomorrow', items: tomorrowEvents.slice(0, 5).map(formatEvent) })
+    } else if (connected.includes('calendar')) {
+      sections.push({ heading: 'Tomorrow', items: ['Nothing on the calendar.'] })
+    }
+
+    return { kind, title: 'Evening brief', date: dateLabel, sections, text: '' }
   }
 
   if (kind === 'standup_paste') {
