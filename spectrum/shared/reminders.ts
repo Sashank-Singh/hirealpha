@@ -1,5 +1,5 @@
 import { gmiChat } from './gmi'
-import { mintMiniAppCard, type MiniAppCard } from './miniApps'
+import { buildDigestBriefing, mintMiniAppCard, type MiniAppCard } from './miniApps'
 import { fetchDueEventNudges, revertEventNudge } from './eventNudges'
 import {
   freezeProactiveUntilReply,
@@ -436,7 +436,20 @@ export function startReminderScheduler(opts: {
           judgedTopic = judged.topic
           if (judged.cardKind) {
             try {
-              card = await mintMiniAppCard(r.phone, opts.persona as AgentId, judged.cardKind)
+              if (judged.cardKind === 'digest') {
+                const briefing = await buildDigestBriefing(r.phone, opts.persona as AgentId)
+                if (briefing) {
+                  card = briefing.card
+                  const preview = briefing.preview?.trim()
+                  if (preview) {
+                    text = `${judged.text}\n\n${preview}`.slice(0, 700)
+                  }
+                } else {
+                  card = await mintMiniAppCard(r.phone, opts.persona as AgentId, judged.cardKind)
+                }
+              } else {
+                card = await mintMiniAppCard(r.phone, opts.persona as AgentId, judged.cardKind)
+              }
             } catch (err) {
               console.warn(`[reminders:${opts.persona}] card mint failed`, err)
             }

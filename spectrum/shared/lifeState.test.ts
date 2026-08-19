@@ -73,4 +73,34 @@ describe('life state insights', () => {
     expect(hit?.card).toBe('pick_night')
     expect(hit?.tap.toLowerCase()).toContain('in')
   })
+
+  it('does not treat an older sleep row as last night', () => {
+    const insights = computeLifeInsights(
+      base({
+        localTime: '2026-08-19T08:00',
+        sleep: { hours: 5, quality: 2, date: '2026-08-17' },
+      }),
+    )
+    const sleep = insights.find((i) => i.topic === 'sleep')
+    expect(sleep).toBeUndefined()
+    const block = formatLifeStateBlock(
+      base({
+        localTime: '2026-08-19T08:00',
+        sleep: { hours: 5, quality: 2, date: '2026-08-17' },
+      }),
+    )
+    expect(block).toContain('Sleep: no last night log.')
+    expect(block).not.toContain('5h')
+  })
+
+  it('does quote last night when sleepDate is yesterday local', () => {
+    const insights = computeLifeInsights(
+      base({
+        localTime: '2026-08-19T08:00',
+        sleep: { hours: 5, quality: 2, date: '2026-08-18' },
+      }),
+    )
+    const sleep = insights.find((i) => i.topic === 'sleep')
+    expect(sleep?.line).toContain('5h last night')
+  })
 })

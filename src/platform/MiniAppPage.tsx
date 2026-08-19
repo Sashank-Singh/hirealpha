@@ -42,7 +42,7 @@ interface DigestData {
   date?: string
   calendar?: string[]
   emails?: string[]
-  emailItems?: Array<{ id: string; label: string }>
+  emailItems?: Array<{ id: string; label: string; snippet?: string }>
   reminders?: Array<{ time?: string; text?: string }>
   events?: Array<{ id: string; label: string }>
   tomorrow?: string[]
@@ -53,7 +53,7 @@ interface DigestData {
 interface MiniSection {
   heading: string
   items: string[]
-  emailMeta?: Array<{ id: string }>
+  emailMeta?: Array<{ id: string; snippet?: string }>
 }
 
 interface MiniPayload {
@@ -231,6 +231,13 @@ export function MiniAppPage() {
   const [settingsTick, setSettingsTick] = useState(0)
   const [openEmailId, setOpenEmailId] = useState<string | null>(null)
   const [openEmailLabel, setOpenEmailLabel] = useState<string | undefined>(undefined)
+  const [openEmailSummary, setOpenEmailSummary] = useState<string | undefined>(undefined)
+
+  function openMail(id: string, label: string, snippet?: string) {
+    setOpenEmailId(id)
+    setOpenEmailLabel(label)
+    setOpenEmailSummary(snippet)
+  }
 
   const isDigest = kind === 'digest'
   const isMenu = kind === 'menu'
@@ -470,24 +477,28 @@ export function MiniAppPage() {
               {(data?.emailItems?.length || data?.emails?.length) ? (
                 <ul className="mini__list">
                   {data?.emailItems?.length
-                    ? data.emailItems.map((e) => (
-                        <li
-                          key={e.id}
-                          className={e.id && !e.id.startsWith('text-') ? 'mail-row' : undefined}
-                          onClick={e.id && !e.id.startsWith('text-') ? () => { setOpenEmailId(e.id); setOpenEmailLabel(e.label) } : undefined}
-                          role={e.id && !e.id.startsWith('text-') ? 'button' : undefined}
-                          tabIndex={e.id && !e.id.startsWith('text-') ? 0 : undefined}
-                          onKeyDown={e.id && !e.id.startsWith('text-') ? (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { setOpenEmailId(e.id); setOpenEmailLabel(e.label) } } : undefined}
-                        >
-                          {e.label}
-                        </li>
-                      ))
+                    ? data.emailItems.map((e) => {
+                        const tappable = !!(e.id && !e.id.startsWith('text-'))
+                        return (
+                          <li
+                            key={e.id}
+                            className={tappable ? 'mail-row' : undefined}
+                            onClick={tappable ? () => openMail(e.id, e.label, e.snippet) : undefined}
+                            role={tappable ? 'button' : undefined}
+                            tabIndex={tappable ? 0 : undefined}
+                            onKeyDown={tappable ? (ev) => { if (ev.key === 'Enter' || ev.key === ' ') openMail(e.id, e.label, e.snippet) } : undefined}
+                          >
+                            <span className="mail-row-label">{e.label}</span>
+                            {e.snippet ? <span className="mail-row-snip">{e.snippet}</span> : null}
+                          </li>
+                        )
+                      })
                     : data!.emails!.map((e, i) => (
                         <li key={i}>{e}</li>
                       ))}
                 </ul>
               ) : (
-                <p className="mini__empty">Nothing flagged.</p>
+                <p className="mini__empty">No important mail</p>
               )}
             </section>
 
@@ -533,18 +544,20 @@ export function MiniAppPage() {
                   <ul className="mini__list">
                     {s.items.map((item, i) => {
                       const emailId = s.emailMeta?.[i]?.id
+                      const snippet = s.emailMeta?.[i]?.snippet
                       const isClickable = !!emailId && !emailId.startsWith('text-')
                       return (
                         <li
                           key={i}
                           style={{ whiteSpace: 'pre-wrap' }}
                           className={isClickable ? 'mail-row' : undefined}
-                          onClick={isClickable ? () => { setOpenEmailId(emailId); setOpenEmailLabel(item) } : undefined}
+                          onClick={isClickable ? () => openMail(emailId, item, snippet) : undefined}
                           role={isClickable ? 'button' : undefined}
                           tabIndex={isClickable ? 0 : undefined}
-                          onKeyDown={isClickable ? (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { setOpenEmailId(emailId); setOpenEmailLabel(item) } } : undefined}
+                          onKeyDown={isClickable ? (ev) => { if (ev.key === 'Enter' || ev.key === ' ') openMail(emailId, item, snippet) } : undefined}
                         >
-                          {item}
+                          <span className="mail-row-label">{item}</span>
+                          {snippet ? <span className="mail-row-snip">{snippet}</span> : null}
                         </li>
                       )
                     })}
@@ -646,9 +659,10 @@ export function MiniAppPage() {
         <EmailReader
           messageId={openEmailId}
           label={openEmailLabel}
+          summary={openEmailSummary}
           auth={{ email: email || undefined, token: token || undefined }}
           persona={(persona as AgentId) || 'friend'}
-          onClose={() => { setOpenEmailId(null); setOpenEmailLabel(undefined) }}
+          onClose={() => { setOpenEmailId(null); setOpenEmailLabel(undefined); setOpenEmailSummary(undefined) }}
         />
       )}
     </div>

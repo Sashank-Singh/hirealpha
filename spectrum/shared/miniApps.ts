@@ -386,7 +386,7 @@ export async function onboardingCard(phone: string, persona: AgentId): Promise<M
 export async function buildDigestBriefing(
   phone: string,
   persona: AgentId,
-): Promise<{ text: string; card: MiniAppCard } | null> {
+): Promise<{ text: string; preview?: string; card: MiniAppCard } | null> {
   const base = apiBase()
   if (!base) return null
   try {
@@ -395,11 +395,12 @@ export async function buildDigestBriefing(
       { headers: authHeaders() },
     )
     if (!res.ok) return null
-    const data = (await res.json()) as { text?: string; cardUrl?: string }
+    const data = (await res.json()) as { text?: string; preview?: string; cardUrl?: string }
     const text = data.text?.trim()
     if (!text) return null
     return {
       text,
+      preview: data.preview?.trim() || undefined,
       card: await mintMiniAppCard(phone, persona, 'digest'),
     }
   } catch (err) {

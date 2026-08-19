@@ -304,3 +304,30 @@ export function extractOtherPerson(title: string, myName: string | null): string
     .replace(/^(?:meet(?:ing)?(?:\s+with)?|call(?:\s+with)?|coffee\s+with|lunch\s+with|dinner\s+with)\s+/i, '')
     .trim() || clean
 }
+
+/** Timed events through 8:00 PM local. All day stays. */
+export function eventStartsByEightPm(e: { start: Date; allDay: boolean }, timezone: string): boolean {
+  if (e.allDay) return true
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: timezone,
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: false,
+  }).formatToParts(e.start)
+  let hour = Number(parts.find((p) => p.type === 'hour')?.value || 0)
+  const minute = Number(parts.find((p) => p.type === 'minute')?.value || 0)
+  if (hour === 24) hour = 0
+  return hour < 20 || (hour === 20 && minute === 0)
+}
+
+/** Brief line: other person's name, not "Sashank Singh and Amy Black". */
+export function formatDigestEventLabel(e: CalItem, timezone: string, myName: string | null): string {
+  const name = extractOtherPerson(e.title, myName) || e.title
+  if (e.allDay) {
+    if (isHotelStayEvent(e)) {
+      return `You are at ${name.replace(/^(?:stay(?:ing)?|checked?\s*in)\s+at\s+/i, '').replace(/^at\s+/i, '').trim()}`
+    }
+    return `All day · ${name}`
+  }
+  return `${formatClock(e.start, timezone)} · ${name} · ${e.kind}`
+}

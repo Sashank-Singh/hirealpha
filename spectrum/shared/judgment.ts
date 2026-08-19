@@ -236,6 +236,8 @@ A deterministic read already picked the one thing worth saying:
 "${insightLine}"
 Tap they can answer with: "${tap}"
 
+Sleep hours are last night only. If sleep is null they have not logged the night that just ended. Do not quote older nights. Do not invent hours.
+
 Rewrite that in your voice. Keep the exact numbers. 1-2 short sentences. No markdown, no lists, no hyphens or dashes. No taglines.
 End with the tap, so they can answer in one text.
 If the computed read is empty or generic, set reachOut false.

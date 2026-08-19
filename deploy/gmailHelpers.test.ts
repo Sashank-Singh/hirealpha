@@ -1,40 +1,34 @@
 import { describe, expect, it } from 'bun:test'
-import { extractGmailBody, importantMailQuery, type GmailMimePart } from './gmailHelpers'
+import {
+  extractGmailBody,
+  formatBriefPreview,
+  importantMailQuery,
+  mailJudgePrompt,
+  parseMailJudgeKeepIds,
+  type GmailMimePart,
+  type MailJudgeItem,
+} from './gmailHelpers'
 
 describe('importantMailQuery', () => {
-  it('includes is:inbox', () => {
-    expect(importantMailQuery('2d')).toContain('is:inbox')
-  })
-
-  it('excludes junk categories: promotions, social, forums, spam', () => {
+  it('fetches recent inbox minus promotions spam social forums', () => {
     const q = importantMailQuery('16h')
+    expect(q).toContain('is:inbox')
+    expect(q).toContain('-is:spam')
     expect(q).toContain('-category:promotions')
     expect(q).toContain('-category:social')
     expect(q).toContain('-category:forums')
-    expect(q).toContain('-is:spam')
+    expect(q).toContain('newer_than:16h')
   })
 
-  it('does NOT exclude category:updates (transactional mail must reach brief)', () => {
-    // Banking, shipping, GitHub, receipts all arrive as category:updates.
-    // Removing them from the query was the root cause of missed need-to-know mail.
-    expect(importantMailQuery('2d')).not.toContain('-category:updates')
-  })
-
-  it('includes is:important in the OR group so Gmail Priority Inbox mail still shows', () => {
-    expect(importantMailQuery('2d')).toContain('is:important')
-  })
-
-  it('includes category:primary in the OR group so Primary tab mail shows', () => {
-    expect(importantMailQuery('2d')).toContain('category:primary')
-  })
-
-  it('includes is:starred in the OR group so starred mail always shows', () => {
-    expect(importantMailQuery('2d')).toContain('is:starred')
-  })
-
-  it('wraps qualifiers in an OR group', () => {
+  it('does NOT require Gmail important, starred, or Primary', () => {
     const q = importantMailQuery('2d')
-    expect(q).toContain('(is:important OR category:primary OR is:starred)')
+    expect(q).not.toContain('is:important')
+    expect(q).not.toContain('is:starred')
+    expect(q).not.toContain('category:primary')
+  })
+
+  it('does NOT exclude category:updates', () => {
+    expect(importantMailQuery('2d')).not.toContain('-category:updates')
   })
 
   it('includes the requested timespan', () => {
@@ -45,6 +39,80 @@ describe('importantMailQuery', () => {
 
   it('does not use bare is:unread', () => {
     expect(importantMailQuery('2d')).not.toContain('is:unread')
+  })
+})
+
+const sampleMail: MailJudgeItem[] = [
+  {
+    id: 'job-1',
+    from: 'Jobright Job Alert',
+    subject: 'JOB ID 12239: Software Engineer jobs you might like',
+    snippet: 'New roles matched your profile',
+  },
+  {
+    id: 'human-1',
+    from: 'Amy Black <amy@example.com>',
+    subject: 'Can we move coffee to 3',
+    snippet: 'I am free after standup if that still works',
+  },
+  {
+    id: 'li-jobs',
+    from: 'LinkedIn Job Alerts',
+    subject: 'AI Engineer at HockeyStack',
+    snippet: 'Jobs you might like this week',
+  },
+]
+
+describe('mail judge', () => {
+  it('writes a judge prompt with from subject snippet, not a sender denylist', () => {
+    const prompt = mailJudgePrompt(sampleMail)
+    const instructions = prompt.slice(0, prompt.indexOf('1. From:'))
+    expect(prompt).toContain('Amy Black')
+    expect(prompt).toContain('Can we move coffee to 3')
+    expect(prompt).toContain('I am free after standup')
+    expect(instructions.toLowerCase()).not.toContain('jobright')
+    expect(instructions.toLowerCase()).not.toContain('linkedin job')
+    expect(instructions.toLowerCase()).not.toContain('regex')
+    expect(instructions).not.toContain('is:starred')
+    expect(instructions).not.toContain('is:important')
+  })
+
+  it('keeps only ids the model numbered as useful', () => {
+    const keep = parseMailJudgeKeepIds('{"keep":[2]}', sampleMail)
+    expect(keep).toEqual(['human-1'])
+  })
+
+  it('drops the whole batch when the model keeps none', () => {
+    expect(parseMailJudgeKeepIds('{"keep":[]}', sampleMail)).toEqual([])
+  })
+
+  it('accepts raw gmail ids if the model returns them', () => {
+    expect(parseMailJudgeKeepIds('{"keep":["human-1"]}', sampleMail)).toEqual(['human-1'])
+  })
+
+  it('ignores unknown numbers and junk json', () => {
+    expect(parseMailJudgeKeepIds('{"keep":[99]}', sampleMail)).toEqual([])
+    expect(parseMailJudgeKeepIds('not json', sampleMail)).toEqual([])
+  })
+})
+
+describe('formatBriefPreview', () => {
+  it('lists event labels and mail subjects, not a slogan', () => {
+    const text = formatBriefPreview({
+      calendar: ['12:30 PM · Amy Black · Google Meet'],
+      emails: ['Can we move coffee to 3 · Amy Black'],
+      tomorrow: ['9:00 AM · Standup · Google Meet'],
+    })
+    expect(text).toContain('Amy Black')
+    expect(text).toContain('Can we move coffee to 3')
+    expect(text).toContain('Tomorrow:')
+    expect(text.toLowerCase()).not.toContain('your calendar, important mail')
+  })
+
+  it('uses a clear empty mail line', () => {
+    const text = formatBriefPreview({ calendar: [], emails: [] })
+    expect(text).toContain('Nothing on the calendar.')
+    expect(text).toContain('No important mail')
   })
 })
 
@@ -122,7 +190,6 @@ describe('extractGmailBody', () => {
     }
     const result = extractGmailBody(part)
     expect(result.html).toBe('<p>HTML wins</p>')
-    // text is also available
     expect(result.text).toBe('Plain only')
   })
 })

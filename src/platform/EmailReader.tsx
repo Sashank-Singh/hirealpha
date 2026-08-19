@@ -44,12 +44,14 @@ interface EmailReaderProps {
   messageId: string
   /** Fallback label shown while loading */
   label?: string
+  /** Gmail snippet shown while the body loads */
+  summary?: string
   auth: { email?: string; token?: string }
   persona?: string
   onClose: () => void
 }
 
-export function EmailReader({ messageId, label, auth, persona, onClose }: EmailReaderProps) {
+export function EmailReader({ messageId, label, summary, auth, persona, onClose }: EmailReaderProps) {
   const [msg, setMsg] = useState<MailMessage | null>(null)
   const [loading, setLoading] = useState(true)
 
@@ -74,7 +76,15 @@ export function EmailReader({ messageId, label, auth, persona, onClose }: EmailR
         </button>
 
         {loading && (
-          <p className="mini__blurb email-reader-loading">Loading message…</p>
+          <div className="email-reader-loading-block">
+            <p className="mini__blurb email-reader-loading">Loading message…</p>
+            {summary ? (
+              <>
+                <p className="email-reader-kicker">Summary</p>
+                <p className="email-reader-text">{summary}</p>
+              </>
+            ) : null}
+          </div>
         )}
 
         {!loading && msg && !msg.ok && (

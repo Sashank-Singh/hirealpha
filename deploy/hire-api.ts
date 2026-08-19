@@ -7,7 +7,9 @@ import { createHmac, timingSafeEqual } from 'node:crypto'
 import type { SQL } from 'bun'
 import {
   extractOtherPerson,
+  eventStartsByEightPm,
   formatClock,
+  formatDigestEventLabel,
   formatUpcomingEvents,
   googleTokenHasScope,
   hydrateCalItems,
@@ -28,10 +30,16 @@ import {
   timezoneFromText,
 } from './timezones'
 import {
+  cleanMailSnippet,
   decodeGmailBody,
   extractGmailBody,
+  formatBriefPreview,
   importantMailQuery,
+  mailJudgePrompt,
+  MAIL_JUDGE_SYSTEM,
+  parseMailJudgeKeepIds,
   type GmailMimePart,
+  type MailJudgeItem,
 } from './gmailHelpers'
 
 export const PERSONAS = ['friend', 'coworker', 'cofounder'] as const
@@ -2250,9 +2258,65 @@ async function todayCalendarMeets(
  * Calendar uses fetchCalendarItems directly so "Calendar is not connected" error
  * strings never leak into the event list.
  */
+async function gmiBriefChat(system: string, user: string, maxTokens = 180): Promise<string | null> {
+  const cfg = nutritionModelConfig()
+  if (!cfg) return null
+  try {
+    const raw = await withTimeout(
+      (async () => {
+        const res = await fetch(`${cfg.baseUrl}/chat/completions`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${cfg.apiKey}`,
+            'User-Agent': 'HireAlpha/0.1 (brief-mail)',
+            Accept: 'application/json',
+          },
+          body: JSON.stringify({
+            model: cfg.textModel,
+            reasoning_effort: 'none',
+            temperature: 0.1,
+            max_tokens: maxTokens,
+            messages: [
+              { role: 'system', content: system },
+              { role: 'user', content: user },
+            ],
+          }),
+        })
+        if (!res.ok) return ''
+        const data = (await res.json()) as { choices?: Array<{ message?: { content?: string } }> }
+        return (data.choices?.[0]?.message?.content || '').trim()
+      })(),
+      5000,
+      '',
+    )
+    return raw || null
+  } catch {
+    return null
+  }
+}
+
+/** Model judges a recent inbox batch. Empty on failure so we never dump promo. */
+async function judgeBriefMail<T extends { id: string; from: string; subject: string; snippet?: string }>(
+  items: T[],
+  limit = 5,
+): Promise<T[]> {
+  if (!items.length) return []
+  const batch: MailJudgeItem[] = items.slice(0, 12).map((m) => ({
+    id: m.id,
+    from: m.from,
+    subject: m.subject,
+    snippet: m.snippet || '',
+  }))
+  const raw = await gmiBriefChat(MAIL_JUDGE_SYSTEM, mailJudgePrompt(batch))
+  if (!raw) return []
+  const keep = new Set(parseMailJudgeKeepIds(raw, batch))
+  return items.filter((m) => keep.has(m.id)).slice(0, limit)
+}
+
 async function digestPayload(
   sql: SQL,
-  user: { id: string; timezone: string | null },
+  user: { id: string; timezone: string | null; name?: string | null },
   persona: Persona,
 ) {
   const tz = user.timezone || 'America/Los_Angeles'
@@ -2289,27 +2353,20 @@ async function digestPayload(
     }
   }
 
-  // Format a CalItem as a human label: name extracted, meeting type appended.
-  const formatCalItem = (e: CalItem): string => {
-    const name = extractOtherPerson(e.title, null) || e.title
-    if (e.allDay) {
-      if (isHotelStayEvent(e)) {
-        return `You are at ${name.replace(/^(?:stay(?:ing)?|checked?\s*in)\s+at\s+/i, '').replace(/^at\s+/i, '').trim()}`
-      }
-      return `All day · ${name}`
-    }
-    return `${formatClock(e.start, tz)} · ${name} · ${e.kind}`
-  }
-
-  const todayCal = todayCalItems.map(formatCalItem)
-  const tomorrowCal = tomorrowCalItems.filter((e) => !isHotelStayEvent(e)).map(formatCalItem)
+  const myName = user.name || null
+  const todayCal = todayCalItems
+    .filter((e) => eventStartsByEightPm(e, tz))
+    .map((e) => formatDigestEventLabel(e, tz, myName))
+  const tomorrowCal = tomorrowCalItems
+    .filter((e) => !isHotelStayEvent(e))
+    .map((e) => formatDigestEventLabel(e, tz, myName))
 
   // Pass empty events[] so the frontend never shows Yes/No RSVP buttons.
   // The brief is a read-only view; calendar is already in todayCal.
   const events: Array<{ id: string; label: string }> = []
 
-  // Email: try direct Gmail rich fetch first (returns IDs), fall back to text-only, then composio.
-  let finalEmailItems: Array<{ id: string; label: string }> = []
+  // Email: modest recent inbox, then a model judges what is actually useful.
+  let finalEmailItems: Array<{ id: string; label: string; snippet?: string }> = []
   let finalEmails: string[] = []
 
   if (connected.includes('gmail')) {
@@ -2319,15 +2376,17 @@ async function digestPayload(
           sql,
           user.id,
           importantMailQuery('16h'),
-          5,
+          12,
         ),
         6000,
         [] as Array<{ id: string; from: string; date: string; subject: string; snippet: string }>,
       )
-      if (richItems.length) {
-        finalEmailItems = richItems.map((m) => ({
+      const kept = await judgeBriefMail(richItems, 5)
+      if (kept.length) {
+        finalEmailItems = kept.map((m) => ({
           id: m.id,
           label: formatMailLineFromParts(m.from, m.subject),
+          snippet: cleanMailSnippet(m.snippet),
         }))
         finalEmails = finalEmailItems.map((e) => e.label)
       }
@@ -2335,7 +2394,6 @@ async function digestPayload(
       // best-effort
     }
   }
-  // Text-only fallback (no IDs) when rich fetch returned nothing
   if (!finalEmails.length && connected.includes('gmail')) {
     try {
       const mailBlock = await withTimeout(
@@ -2343,34 +2401,22 @@ async function digestPayload(
           sql,
           user.id,
           importantMailQuery('16h'),
-          5,
+          12,
         ),
         6000,
         '',
       )
-      finalEmails = digestLines(mailBlock).slice(0, 8).map(formatMailLine)
-    } catch {
-      // best-effort
-    }
-  }
-  // Composio fallback for email
-  if (!finalEmails.length) {
-    try {
-      const emailResults = await withTimeout(
-        runToolsForMessage(sql, {
-          userId: user.id,
-          persona,
-          message: 'inbox important email',
-          connected,
-          timezone: tz,
-        }),
-        8000,
-        [] as string[],
-      )
-      const emailBlock = emailResults.find(
-        (t) => t.startsWith('Email:') || t.startsWith('Important email:'),
-      )
-      finalEmails = digestLines(emailBlock).slice(0, 8).map(formatMailLine)
+      const rows = digestLines(mailBlock).map((line, i) => {
+        const [from, , subject] = line.replace(/^-\s*/, '').split(' | ')
+        return {
+          id: `text-${i}`,
+          from: from || '',
+          subject: subject || formatMailLine(line),
+          snippet: '',
+        }
+      })
+      const kept = await judgeBriefMail(rows, 5)
+      finalEmails = kept.map((m) => formatMailLineFromParts(m.from, m.subject))
     } catch {
       // best-effort
     }
@@ -2418,19 +2464,23 @@ async function digestPayload(
   const section = (title: string, items: string[]) =>
     items.length ? `${title}\n${items.join('\n')}` : null
 
+  const mailSection = finalEmails.length ? section('Important mail', finalEmails) : 'Important mail\nNo important mail'
+
   const text = [
     `${PERSONA_LABEL[persona]} · ${wrapTitle} · ${dateLabel}`,
-    section('Today', todayCal),
+    section('Today', todayCal) || 'Today\nNothing on the calendar.',
     section('Tomorrow', tomorrowCal),
-    section('Important mail', finalEmails),
+    mailSection,
     section('Reminders', reminders.map((r) => `${r.time} · ${r.text}`)),
     section('Promises', loops),
   ]
     .filter(Boolean)
     .join('\n\n')
 
+  const preview = formatBriefPreview({ calendar: todayCal, emails: finalEmails, tomorrow: tomorrowCal })
+
   // calendar = today events only (tomorrow is separate)
-  return { date: dateLabel, calendar: todayCal, emails: finalEmails, emailItems: finalEmailItems, reminders, loops, tomorrow: tomorrowCal, events, text, brief }
+  return { date: dateLabel, calendar: todayCal, emails: finalEmails, emailItems: finalEmailItems, reminders, loops, tomorrow: tomorrowCal, events, text, preview, brief }
 }
 
 /** Mini apps each hire can offer, mirroring src/agents/skills.ts. */
@@ -3030,14 +3080,17 @@ async function judgmentStatePayload(
       }
     : null
 
+  const lastNight = shiftDateStr(today, -1)
   const sleepRows = await sql`
     SELECT sleep_date AS "sleepDate", bedtime, wake, quality
     FROM hire_sleep WHERE user_id = ${user.id}
     ORDER BY sleep_date DESC LIMIT 7
   `
-  const srow = sleepRows[0] as { sleepDate?: string; bedtime?: string; wake?: string; quality?: number } | undefined
-  const sleep = srow?.bedtime && srow?.wake
-    ? { hours: sleepHoursBetween(srow.bedtime, srow.wake), quality: srow.quality || 3, date: String(srow.sleepDate).slice(0, 10) }
+  const srow = (sleepRows as Array<{ sleepDate?: string; bedtime?: string; wake?: string; quality?: number }>).find(
+    (r) => String(r.sleepDate || '').slice(0, 10) === lastNight && r.bedtime && r.wake,
+  )
+  const sleep = srow
+    ? { hours: sleepHoursBetween(srow.bedtime!, srow.wake!), quality: srow.quality || 3, date: lastNight }
     : null
   const weekNights = (sleepRows as Array<{ bedtime?: string; wake?: string }>).filter((r) => r.bedtime && r.wake)
   const weekHours = weekNights.map((r) => sleepHoursBetween(r.bedtime!, r.wake!))
@@ -3275,7 +3328,7 @@ async function miniPayload(
         allEvents.push({
           time: e.allDay ? 'All day' : formatClock(e.start, tz),
           title: e.title,
-          who: extractOtherPerson(e.title, null) || parseCalMeet(e.title).who,
+          who: extractOtherPerson(e.title, user.name || null) || parseCalMeet(e.title).who,
           meetKind: e.kind,
           allDay: e.allDay,
           startMs: e.start.getTime(),
@@ -3320,7 +3373,7 @@ async function miniPayload(
           allEvents.push({
             time: parsed.clock || formatCalTime(parsed.iso, tz),
             title: parsed.title,
-            who: extractOtherPerson(parsed.title, null) || parseCalMeet(parsed.title).who,
+            who: extractOtherPerson(parsed.title, user.name || null) || parseCalMeet(parsed.title).who,
             meetKind: parsed.kind || 'Meeting',
             allDay: parsed.clock === 'All day',
             startMs: d.getTime(),
@@ -3346,37 +3399,29 @@ async function miniPayload(
       .filter((e) => !e.allDay && e.startMs >= nowMs - 5 * 60_000)
       .sort((a, b) => a.startMs - b.startMs)
 
-    // Mail since morning: important + medium, last 12 hours, not spam or promos
-    let mailItems: Array<{ id: string; label: string }> = []
+    // Mail since morning: recent inbox minus Promotions, then a model judges.
+    let mailItems: Array<{ id: string; label: string; snippet?: string }> = []
     if (connected.includes('gmail')) {
       try {
         const richMail = await withTimeout(
-          loadGmailRich(sql, user.id, importantMailQuery('12h'), 5),
+          loadGmailRich(sql, user.id, importantMailQuery('12h'), 12),
           5000,
           [] as Array<{ id: string; from: string; date: string; subject: string; snippet: string }>,
         )
-        mailItems = richMail.map((m) => ({ id: m.id, label: formatMailLineFromParts(m.from, m.subject) }))
+        const kept = await judgeBriefMail(richMail, 5)
+        mailItems = kept.map((m) => ({
+          id: m.id,
+          label: formatMailLineFromParts(m.from, m.subject),
+          snippet: cleanMailSnippet(m.snippet),
+        }))
       } catch {
         // best-effort
-      }
-    }
-    if (!mailItems.length && connected.includes('gmail')) {
-      try {
-        const mailBlock = await withTimeout(
-          loadGmail(sql, user.id, importantMailQuery('12h'), 5),
-          5000,
-          '',
-        )
-        const textLines = digestLines(mailBlock).slice(0, 5).map(formatMailLine)
-        mailItems = textLines.map((label, i) => ({ id: `text-${i}`, label }))
-      } catch {
-        // mail is best-effort
       }
     }
 
     const formatEvent = (e: EveningEvent) => `${e.time}  ${e.who || e.title}  ${e.meetKind}`
 
-    const sections: Array<{ heading: string; items: string[]; emailMeta?: Array<{ id: string }> }> = []
+    const sections: Array<{ heading: string; items: string[]; emailMeta?: Array<{ id: string; snippet?: string }> }> = []
 
     if (locationEvents.length) {
       const locs = locationEvents.map((e) =>
@@ -3404,8 +3449,10 @@ async function miniPayload(
       sections.push({
         heading: 'Mail since this morning',
         items: mailItems.map((m) => m.label),
-        emailMeta: mailItems.map((m) => ({ id: m.id })),
+        emailMeta: mailItems.map((m) => ({ id: m.id, snippet: m.snippet })),
       })
+    } else {
+      sections.push({ heading: 'Mail since this morning', items: ['No important mail'] })
     }
 
     if (tomorrowEvents.length) {
@@ -3913,33 +3960,19 @@ async function buildNextStack(
 
   if (connected.includes('gmail')) {
     try {
-      const richMail = await loadGmailRich(sql, user.id, importantMailQuery('2d'), 5)
-      for (const m of richMail.slice(0, 3)) {
+      const richMail = await loadGmailRich(sql, user.id, importantMailQuery('2d'), 12)
+      const keptMail = await judgeBriefMail(richMail, 3)
+      for (const m of keptMail) {
         items.push({
           id: `mail-${m.id}`,
           kicker: 'Mail',
           title: m.subject || '(no subject)',
-          hint: m.from.replace(/<[^>]+>/g, '').trim(),
+          hint: cleanMailSnippet(m.snippet) || m.from.replace(/<[^>]+>/g, '').trim(),
           action: 'open',
           doLabel: 'Read',
           openKind: 'digest',
           messageId: m.id,
         })
-      }
-      // Fallback to text-only if rich returned nothing
-      if (!richMail.length) {
-        const mail = await loadGmail(sql, user.id, importantMailQuery('2d'), 5)
-        for (const m of parseGmailOverview(mail)) {
-          items.push({
-            id: m.id,
-            kicker: 'Mail',
-            title: m.subject,
-            hint: m.from,
-            action: 'open',
-            doLabel: 'Read',
-            openKind: 'digest',
-          })
-        }
       }
     } catch (err) {
       console.warn('[work/next] mail failed', err)
@@ -4080,6 +4113,39 @@ async function buildNextStack(
   }
 
   return { items, connected, missing }
+}
+
+/** Signed mini-app URL preview for iMessage OG. Real events and mail, not a slogan. */
+export async function miniCardOgDescription(
+  sql: SQL,
+  token: string,
+  persona: string,
+  kind: string,
+): Promise<string | null> {
+  if (!isPersona(persona)) return null
+  const tok = verifyMiniToken(token)
+  if (!tok || tok.persona !== persona) return null
+  const user = await getUserByPhone(sql, tok.phone)
+  if (!user) return null
+  try {
+    if (kind === 'digest') {
+      const payload = await digestPayload(sql, user, persona)
+      return String(payload.preview || '').trim() || null
+    }
+    if (kind === 'pick_night') {
+      const payload = await miniPayload(sql, user, persona, 'pick_night')
+      const sections = (payload as { sections?: Array<{ heading: string; items?: string[] }> }).sections || []
+      const lines = sections
+        .flatMap((s) => (s.items || []).slice(0, 3))
+        .filter((item) => item && !/^no important mail$/i.test(item) && !/^nothing /i.test(item))
+        .slice(0, 6)
+      if (!lines.length) return 'No important mail'
+      return lines.join('\n').slice(0, 320)
+    }
+  } catch (err) {
+    console.warn('[mini] og preview failed', err)
+  }
+  return null
 }
 
 export async function handleHireApi(req: Request, sql: SQL | null): Promise<Response | null> {

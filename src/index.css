@@ -3276,6 +3276,24 @@ button.ma-callout, button.ma-row {
   .email-reader-close { background: #27272a; }
 }
 .email-reader-loading { margin: 8px 0; }
+.email-reader-loading-block { display: flex; flex-direction: column; gap: 8px; }
+.email-reader-kicker {
+  margin: 0;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted-fg);
+}
+.mail-row-label { display: block; }
+.mail-row-snip {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--muted-fg);
+  line-height: 1.4;
+}
 .email-reader-err { display: flex; flex-direction: column; gap: 10px; }
 .email-reader-connect { margin-top: 4px; align-self: flex-start; }
 .email-reader-fallback-label { font-size: 13px; color: var(--muted-fg); margin: 0; }

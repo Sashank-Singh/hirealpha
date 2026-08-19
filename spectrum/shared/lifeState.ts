@@ -60,6 +60,24 @@ function fmtHours(n: number): string {
   return Number.isInteger(x) ? String(x) : x.toFixed(1)
 }
 
+/** Yesterday's YYYY-MM-DD from a local ISO like 2026-08-19T08:00. */
+export function lastNightDateFromLocalTime(localTime?: string): string | null {
+  const m = String(localTime || '').match(/^(\d{4})-(\d{2})-(\d{2})/)
+  if (!m) return null
+  const utc = Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]) - 1)
+  return new Date(utc).toISOString().slice(0, 10)
+}
+
+/** True only when sleepDate is the calendar night that just ended. */
+export function isLastNightSleep(
+  sleep: { hours?: number; date?: string } | null | undefined,
+  localTime?: string,
+): boolean {
+  const expected = lastNightDateFromLocalTime(localTime)
+  const date = String(sleep?.date || '').slice(0, 10)
+  return !!expected && date === expected && (sleep?.hours || 0) > 0
+}
+
 /** Ranked, computed facts. Copy has no hyphens. Numbers come from logs, never invented. */
 export function computeLifeInsights(state: LifeState): LifeInsight[] {
   const out: LifeInsight[] = []
@@ -74,8 +92,8 @@ export function computeLifeInsights(state: LifeState): LifeInsight[] {
   const calorieGoal = Math.round(n?.calorieGoal || 2200)
   const proteinLeft = Math.max(0, proteinGoal - protein)
   const shortNights = week?.shortNights || 0
-  const lastHours = sleep?.hours || 0
-  const sleepLastNight = !!sleep?.date
+  const sleepLastNight = isLastNightSleep(sleep, state.localTime)
+  const lastHours = sleepLastNight ? sleep?.hours || 0 : 0
   const workoutsToday = state.workoutsToday || 0
   const calendar = state.calendar || []
   const calendarEmpty = calendar.length === 0
@@ -258,7 +276,7 @@ export function pickProactiveInsight(state: LifeState, tick: string): LifeInsigh
     if (!morning) return null
     const hasSignal =
       (state.calendar && state.calendar.length > 0) ||
-      !!state.sleep?.hours ||
+      isLastNightSleep(state.sleep, state.localTime) ||
       (state.nutrition?.meals || 0) > 0 ||
       (state.loops && state.loops.length > 0) ||
       (state.peopleDue && state.peopleDue.length > 0) ||
@@ -281,7 +299,7 @@ export function formatLifeStateBlock(state: LifeState): string {
   const lines: string[] = [
     '## Life right now (ground truth from their logs. Use these numbers. Do not invent.)',
   ]
-  if (sleep?.hours) {
+  if (isLastNightSleep(sleep, state.localTime) && sleep?.hours) {
     lines.push(
       `Sleep: last night ${fmtHours(sleep.hours)}h, quality ${sleep.quality}/5.${
         week?.shortNights

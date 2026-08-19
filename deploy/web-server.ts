@@ -4,7 +4,7 @@
  */
 import { SQL } from 'bun'
 import { join } from 'node:path'
-import { ensureHireSchema, handleHireApi } from './hire-api'
+import { ensureHireSchema, handleHireApi, miniCardOgDescription } from './hire-api'
 
 const PORT = Number(process.env.PORT || 80)
 const ROOT = process.env.STATIC_ROOT || join(import.meta.dir, 'dist')
@@ -101,7 +101,7 @@ function contentType(path: string) {
 const MINI_META: Record<string, { title: string; description: string }> = {
   menu: { title: 'Apps', description: 'Tap one to open it.' },
   apps: { title: 'Apps', description: 'Tap one to open it.' },
-  digest: { title: 'Morning brief', description: 'Your calendar, important mail, and reminders in one place.' },
+  digest: { title: 'Morning brief', description: 'Tap to open the brief.' },
   next_move: { title: 'Next', description: 'One ranked action. Do it, snooze it, or skip it.' },
   nutrition: { title: 'Nutrition', description: 'Log meals, estimate macros, and keep today’s totals.' },
   open_loops: { title: 'Promises', description: 'What you said you would do.' },
@@ -141,9 +141,19 @@ function miniMeta(pathname: string) {
   return { ...feature, title: `${feature.title} · ${persona}` }
 }
 
-async function miniIndex(pathname: string) {
+async function miniIndex(pathname: string, search = '') {
   const meta = miniMeta(pathname)
   if (!meta) return null
+  const match = pathname.match(/^\/app\/mini\/(friend|coworker|cofounder)\/([^/]+)/)
+  const token = new URLSearchParams(search.startsWith('?') ? search.slice(1) : search).get('t') || ''
+  if (sql && match && token && (match[2] === 'digest' || match[2] === 'pick_night')) {
+    try {
+      const live = await miniCardOgDescription(sql, token, match[1]!, match[2]!)
+      if (live) meta.description = live
+    } catch (err) {
+      console.warn('[web] mini og preview failed', err)
+    }
+  }
   const index = await Bun.file(join(ROOT, 'index.html')).text()
   const safeTitle = meta.title.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
   const safeDescription = meta.description.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
@@ -156,9 +166,9 @@ async function miniIndex(pathname: string) {
   return withDescription.replace('</head>', `${og}\n  </head>`)
 }
 
-async function serveStatic(pathname: string) {
+async function serveStatic(pathname: string, search = '') {
   const clean = pathname.split('?')[0] || '/'
-  const mini = await miniIndex(clean)
+  const mini = await miniIndex(clean, search)
   if (mini) {
     return new Response(mini, {
       headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-cache' },
@@ -203,7 +213,7 @@ Bun.serve({
     const hire = await handleHireApi(req, sql)
     if (hire) return hire
     if (url.pathname.startsWith('/api/')) return json({ error: 'Not found' }, 404)
-    return serveStatic(url.pathname)
+    return serveStatic(url.pathname, url.search)
   },
 })
 

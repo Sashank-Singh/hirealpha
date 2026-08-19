@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'bun:test'
 import {
   extractOtherPerson,
+  eventStartsByEightPm,
+  formatDigestEventLabel,
   formatUpcomingEvents,
   googleTokenHasScope,
   inferEventKind,
@@ -154,5 +156,33 @@ describe('next stack calendar picks', () => {
       { id: '2', title: 'McKenley', start: '2026-08-18T13:30:00-07:00', allDay: false },
     ]
     expect(selectNextEvents(events, now).map((e) => e.title)).toEqual(['Amy', 'McKenley'])
+  })
+})
+
+describe('formatDigestEventLabel', () => {
+  it('shows the other person, not both names', () => {
+    const items = parseGoogleCalendarItems([
+      {
+        summary: 'Sashank Singh and Amy Black, 12:30pm',
+        start: { dateTime: '2026-08-18T12:30:00-07:00' },
+        hangoutLink: 'https://meet.google.com/abc-defg-hij',
+      },
+    ])
+    const label = formatDigestEventLabel(items[0]!, 'America/Los_Angeles', 'Sashank Singh')
+    expect(label).toContain('Amy Black')
+    expect(label).toContain('12:30 PM')
+    expect(label).not.toContain('Sashank Singh and Amy Black')
+  })
+})
+
+describe('eventStartsByEightPm', () => {
+  it('keeps events through 8pm local and drops later', () => {
+    const early = { start: new Date('2026-08-18T19:00:00-07:00'), allDay: false }
+    const eight = { start: new Date('2026-08-18T20:00:00-07:00'), allDay: false }
+    const late = { start: new Date('2026-08-18T21:00:00-07:00'), allDay: false }
+    expect(eventStartsByEightPm(early, 'America/Los_Angeles')).toBe(true)
+    expect(eventStartsByEightPm(eight, 'America/Los_Angeles')).toBe(true)
+    expect(eventStartsByEightPm(late, 'America/Los_Angeles')).toBe(false)
+    expect(eventStartsByEightPm({ start: new Date(), allDay: true }, 'America/Los_Angeles')).toBe(true)
   })
 })
