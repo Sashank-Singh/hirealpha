@@ -35,7 +35,7 @@ import {
   HireDecisionApp,
   InvestorNoteApp,
 } from './WorkMiniApps'
-import { apiRsvpEvent } from './api'
+
 
 interface DigestData {
   date?: string
@@ -209,48 +209,6 @@ const FRIEND_KIND_TITLES: Record<string, { title: string; blurb: string }> = {
   mirror: { title: 'Mirror', blurb: 'The read of your life.' },
 }
 
-function DigestEvents({
-  events,
-  auth,
-}: {
-  events: Array<{ id: string; label: string }>
-  auth: { email?: string; token?: string }
-}) {
-  const [done, setDone] = useState<Record<string, string>>({})
-  const [busy, setBusy] = useState<string | null>(null)
-
-  async function rsvp(eventId: string, response: 'accepted' | 'declined') {
-    if (busy) return
-    setBusy(eventId)
-    try {
-      const res = await apiRsvpEvent({ ...auth, eventId, response })
-      setDone((d) => ({ ...d, [eventId]: res.ok ? (response === 'accepted' ? 'Yes' : 'No') : (res.error || 'Failed') }))
-    } catch (err) {
-      setDone((d) => ({ ...d, [eventId]: err instanceof Error ? err.message : 'Could not RSVP.' }))
-    } finally {
-      setBusy(null)
-    }
-  }
-
-  return (
-    <ul className="mini__list">
-      {events.map((e) => (
-        <li key={e.id}>
-          <div>{e.label}</div>
-          <div className="ma-callout-actions">
-            <button className="ma-chip" type="button" disabled={busy === e.id} onClick={() => void rsvp(e.id, 'accepted')}>
-              Yes
-            </button>
-            <button className="ma-chip" type="button" disabled={busy === e.id} onClick={() => void rsvp(e.id, 'declined')}>
-              No
-            </button>
-            {done[e.id] && <span className="ma-sub">{done[e.id]}</span>}
-          </div>
-        </li>
-      ))}
-    </ul>
-  )
-}
 
 export function MiniAppPage() {
   const { persona, kind } = useParams()
