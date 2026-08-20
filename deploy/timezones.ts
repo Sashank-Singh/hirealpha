@@ -129,6 +129,75 @@ export function formatNowForAgent(timezone: string, now = new Date()): string {
   return `Today is ${weekday}, ${date}. Local time ${time} ${zone}. This is today. Do not guess the weekday or date.`
 }
 
+/** Convert a wall clock in `timezone` to a UTC Date. */
+export function wallTimeToUtc(ymd: string, hour: number, minute: number, timezone: string): Date {
+  const pad = (n: number) => String(n).padStart(2, '0')
+  const naive = `${ymd}T${pad(hour)}:${pad(minute)}:00`
+  const utcGuess = new Date(`${naive}Z`)
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: timezone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).formatToParts(utcGuess)
+  const get = (t: string) => Number(parts.find((p) => p.type === t)?.value || 0)
+  let h = get('hour')
+  if (h === 24) h = 0
+  const asLocal = Date.UTC(get('year'), get('month') - 1, get('day'), h, get('minute'))
+  const wanted = Date.UTC(
+    Number(ymd.slice(0, 4)),
+    Number(ymd.slice(5, 7)) - 1,
+    Number(ymd.slice(8, 10)),
+    hour,
+    minute,
+  )
+  return new Date(utcGuess.getTime() + (wanted - asLocal))
+}
+
+/** Parse ISO or spoken "tomorrow 3pm" into a UTC instant in the user's zone. */
+export function parseSpokenWhen(raw: string, timezone: string, now = new Date()): Date | null {
+  const s = String(raw || '').trim()
+  if (!s) return null
+  const tz = resolveIanaTimezone(timezone) || 'America/Los_Angeles'
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(s)) {
+    if (/Z|[+-]\d{2}:\d{2}$/.test(s)) {
+      const d = new Date(s)
+      return Number.isNaN(d.getTime()) ? null : d
+    }
+    const ymd = s.slice(0, 10)
+    const hour = Number(s.slice(11, 13))
+    const minute = Number(s.slice(14, 16) || 0)
+    return wallTimeToUtc(ymd, hour, minute, tz)
+  }
+  const lower = s.toLowerCase()
+  const timeM = lower.match(/(\d{1,2})(?::(\d{2}))?\s*(am|pm)?/i)
+  if (!timeM) {
+    const d = new Date(s)
+    return Number.isNaN(d.getTime()) ? null : d
+  }
+  let hour = Number(timeM[1])
+  const minute = Number(timeM[2] || 0)
+  const ap = (timeM[3] || '').toLowerCase()
+  if (ap === 'pm' && hour < 12) hour += 12
+  if (ap === 'am' && hour === 12) hour = 0
+  if (!ap && hour <= 7) hour += 12
+  let ymd = new Intl.DateTimeFormat('en-CA', {
+    timeZone: tz,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(now)
+  if (/\btomorrow\b/.test(lower)) {
+    const [y, m, d] = ymd.split('-').map(Number)
+    ymd = new Date(Date.UTC(y || 1970, (m || 1) - 1, (d || 1) + 1)).toISOString().slice(0, 10)
+  }
+  const out = wallTimeToUtc(ymd, hour, minute, tz)
+  return Number.isNaN(out.getTime()) ? null : out
+}
+
 export function formatZoneAbbrev(d: Date, timezone: string): string {
   const parts = new Intl.DateTimeFormat('en-US', {
     timeZone: timezone,

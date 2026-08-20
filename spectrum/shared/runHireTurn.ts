@@ -8,7 +8,7 @@ import { skillsPromptBlock, SKILLS } from './skills'
 import { gmiChat } from './gmi'
 import { appendThread, loadMemory, upsertFacts, pruneExpiredFacts, setSummary, trimHistory, MAX_RAW, type ThreadMemory } from './memory'
 import { extractFacts, summarizeOld } from './memoryMaintain'
-import { autoLogGratitude, autoLogHabit, autoLogMood, autoLogNutrition, autoLogSleep, autoLogSpend, autoLogWorkout, autoLogNetwork, autoSaveLearning, fetchLiveProfile, fetchLiveTools, fetchMiniRun, formatHireContext, formatHireMemories, persistLiveFacts, touchInbound } from './liveContext'
+import { autoLogGratitude, autoLogHabit, autoLogMood, autoLogNutrition, autoLogSleep, autoLogSpend, autoLogWorkout, autoLogNetwork, autoSaveLearning, fetchLiveProfile, fetchLiveTools, fetchMiniRun, formatHireContext, formatHireMemories, persistLiveFacts, proposeLiveDraft, touchInbound } from './liveContext'
 import {
   looksLikeReminder,
   parseReminderIntent,
@@ -27,9 +27,17 @@ import {
   miniAppFallbackText,
   buildDigestBriefing,
   type MiniAppCard,
+  type MiniAppKind,
 } from './miniApps'
 import { foldQuotes, isBannedTagline, dropBannedTaglines } from './outboundFilter'
 import { formatNowForAgent, pickUserTimezone, timezoneFromText } from '../../deploy/timezones'
+import {
+  matchTextPerson,
+  parseDraftCall,
+  parseToolCall,
+  stripToolDirectives,
+  TOOL_LOOP_INSTRUCTIONS,
+} from './toolLoop'
 
 export { isBannedTagline } from './outboundFilter'
 
@@ -477,46 +485,42 @@ export async function runHireTurn(input: {
 
   const skipFreeLookup = !!(miniApp && miniApp.kind !== 'pick_night' && miniApp.kind !== 'digest')
 
-  let toolResults =
-    live.found && live.hired && !digestText && (briefIntent || wantsLiveData(input.userText)) && !skipFreeLookup
-      ? await fetchLiveTools(
-          input.senderId,
-          agent.id,
-          briefIntent ? BRIEF_TOOL_QUERY : input.userText,
-        )
-      : []
-  if (
-    live.found &&
-    live.hired &&
-    !toolResults.length &&
-    !skipFreeLookup &&
-    /\b(check|look up|find|search|book|pull|inbox|mail|calendar|slack|linear|notion|drive|maps|dinner|place)\b/i.test(
-      input.userText,
-    )
-  ) {
-    const picked = await pickLiveTool(input.userText, live.connected, agent.id)
-    if (picked && TOOL_HINT[picked]) {
-      toolResults = await fetchLiveTools(input.senderId, agent.id, TOOL_HINT[picked])
-    }
-  }
-
-  if (live.found && live.hired && !toolResults.length && !skipFreeLookup && maybeToolIntent(input.userText)) {
-    const intent = await classifyFreeLookup(input.userText)
-    if (
-      intent &&
-      intent.tool !== 'none' &&
-      (intent.query || input.userText)
-    ) {
+  let toolResults: string[] = []
+  if (live.found && live.hired && !digestText && !skipFreeLookup) {
+    if (agent.id !== 'friend' && (briefIntent || wantsLiveData(input.userText))) {
       toolResults = await fetchLiveTools(
         input.senderId,
         agent.id,
-        intent.query || input.userText,
-        intent.tool,
+        briefIntent ? BRIEF_TOOL_QUERY : input.userText,
       )
+      if (
+        !toolResults.length &&
+        /\b(check|look up|find|search|book|pull|inbox|mail|calendar|slack|linear|notion|drive|maps|dinner|place)\b/i.test(
+          input.userText,
+        )
+      ) {
+        const picked = await pickLiveTool(input.userText, live.connected, agent.id)
+        if (picked && TOOL_HINT[picked]) {
+          toolResults = await fetchLiveTools(input.senderId, agent.id, TOOL_HINT[picked])
+        }
+      }
+    }
+    if (!toolResults.length && maybeToolIntent(input.userText)) {
+      const intent = await classifyFreeLookup(input.userText)
+      if (intent && intent.tool !== 'none' && (intent.query || input.userText)) {
+        toolResults = await fetchLiveTools(
+          input.senderId,
+          agent.id,
+          intent.query || input.userText,
+          intent.tool,
+        )
+      }
     }
   }
 
   const extras: string[] = []
+  let confirmKind: MiniAppKind | null = null
+  let confirmQuery: Record<string, string> | undefined
   if (!live.found) {
     extras.push(
       'This sender is not linked to a HireAlpha account yet. If they ask about email, calendar, or personal setup, tell them to sign in at hirealpha.chat/app with the same phone they are texting from.',
@@ -555,6 +559,17 @@ export async function runHireTurn(input: {
     if (agent.id === 'friend') {
       const life = await fetchJudgmentState(input.senderId, agent.id, 'turn')
       if (life) extras.push(formatLifeStateBlock(life))
+      extras.push(TOOL_LOOP_INSTRUCTIONS)
+      const textPerson = matchTextPerson(input.userText, [
+        ...(life?.peoplePhones || []),
+        ...(life?.peopleDue || []),
+      ])
+      if (textPerson) {
+        extras.push(
+          `They want to text ${textPerson.name}. Number on file: ${textPerson.phone}. Tell them to tap Text on the People card. Never claim you sent a text.`,
+        )
+        confirmKind = 'networking_crm'
+      }
       if (looksLikeLifeTap(input.userText)) {
         extras.push(
           'They answered a tap from a previous text (eat, skip, later, done, send, in, out). Honor that using the life state numbers. If they said eat, tell them the protein number and one food. If they said skip, accept it. Do not claim you logged, booked, or sent anything unless a tool result says so.',
@@ -733,18 +748,103 @@ export async function runHireTurn(input: {
     const firstHint = isFirst
       ? '\nThis is their first iMessage to you. Introduce yourself once, briefly, in character, then answer in the same text. No taglines. Do not send a second message.'
       : '\nThis is not their first text. Do not introduce yourself. Do not say good to meet you. Answer in one message.'
-    reply = await gmiChat({
-      temperature: agent.temperature,
-      maxTokens:
-        toolResults.length || digestText || briefIntent
-          ? Math.max(agent.maxTokens, 800)
-          : Math.max(agent.maxTokens, 320),
-      messages: [
-        { role: 'system', content: system + firstHint },
-        ...cleanHistory,
-        { role: 'user', content: input.userText },
-      ],
-    })
+    const maxTokens =
+      toolResults.length || digestText || briefIntent || agent.id === 'friend'
+        ? Math.max(agent.maxTokens, 800)
+        : Math.max(agent.maxTokens, 320)
+    const baseMessages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
+      { role: 'system', content: system + firstHint },
+      ...cleanHistory,
+      { role: 'user', content: input.userText },
+    ]
+    if (live.hired && agent.id === 'friend') {
+      const loopMessages = [...baseMessages]
+      let rounds = toolResults.length ? 1 : 0
+      for (; rounds < 3; rounds++) {
+        reply = await gmiChat({
+          temperature: agent.temperature,
+          maxTokens,
+          messages: loopMessages,
+        })
+        const tool = parseToolCall(reply)
+        const draft = parseDraftCall(reply)
+        if (tool) {
+          const got = await fetchLiveTools(input.senderId, agent.id, tool.query, tool.tool)
+          const block = got.length
+            ? got.join('\n\n')
+            : `Lookup for ${tool.tool} came back empty. Do not invent.`
+          loopMessages.push(
+            { role: 'assistant', content: stripToolDirectives(reply) || 'Looking that up.' },
+            { role: 'user', content: `Tool result for ${tool.tool} (ground truth, use this):\n${block}` },
+          )
+          continue
+        }
+        if (draft) {
+          const proposed =
+            draft.type === 'mail'
+              ? await proposeLiveDraft(input.senderId, agent.id, {
+                  kind: 'mail',
+                  to: draft.to,
+                  subject: draft.subject,
+                  body: draft.body,
+                })
+              : draft.type === 'reply'
+                ? await proposeLiveDraft(input.senderId, agent.id, {
+                    kind: 'reply',
+                    messageId: draft.id,
+                    body: draft.body,
+                  })
+                : await proposeLiveDraft(input.senderId, agent.id, {
+                    kind: 'event',
+                    title: draft.title,
+                    start: draft.start,
+                    end: draft.end,
+                  })
+          if (proposed.ok && proposed.id) {
+            confirmKind = draft.type === 'event' ? 'pick_slot' : 'approve_send'
+            confirmQuery = { draft: proposed.id }
+            loopMessages.push(
+              {
+                role: 'assistant',
+                content: stripToolDirectives(reply) || 'Draft is ready.',
+              },
+              {
+                role: 'user',
+                content:
+                  'Draft is saved. A confirm card is attached. Tell them to tap Send or Book. Never claim you sent or booked.',
+              },
+            )
+            reply = await gmiChat({
+              temperature: agent.temperature,
+              maxTokens: Math.max(agent.maxTokens, 320),
+              messages: loopMessages,
+            })
+          } else {
+            loopMessages.push(
+              { role: 'assistant', content: stripToolDirectives(reply) || 'Could not save that draft.' },
+              {
+                role: 'user',
+                content: `Draft did not save. ${proposed.error || 'Try again.'} Do not claim you sent or booked.`,
+              },
+            )
+            reply = await gmiChat({
+              temperature: agent.temperature,
+              maxTokens: Math.max(agent.maxTokens, 320),
+              messages: loopMessages,
+            })
+          }
+        }
+        reply = stripToolDirectives(reply)
+        break
+      }
+      reply = stripToolDirectives(reply)
+    } else {
+      reply = await gmiChat({
+        temperature: agent.temperature,
+        maxTokens,
+        messages: baseMessages,
+      })
+    }
   } catch (err) {
     console.warn(`[${agent.id}] GMI fallback:`, err)
     if (miniApp) {
@@ -792,8 +892,10 @@ export async function runHireTurn(input: {
     { role: 'user', content: input.userText },
     { role: 'assistant', content: finalReply },
   ])
-  const card = miniApp
-    ? await mintMiniAppCard(input.senderId, agent.id, miniApp.kind, miniApp.query)
+  const cardKind = confirmKind || miniApp?.kind || null
+  const cardQuery = confirmQuery || miniApp?.query
+  const card = cardKind
+    ? await mintMiniAppCard(input.senderId, agent.id, cardKind, cardQuery)
     : null
 
   return { reply: finalReply, bubbles: splitBubbles(finalReply), source, authoritative, card }

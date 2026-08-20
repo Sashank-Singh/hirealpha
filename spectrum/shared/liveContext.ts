@@ -82,7 +82,7 @@ export async function fetchLiveTools(
   phone: string,
   persona: AgentId,
   message: string,
-  want?: 'maps' | 'web',
+  want?: 'maps' | 'web' | 'gmail' | 'calendar' | 'drive',
 ): Promise<string[]> {
   const base = apiBase()
   const key = process.env.HIREALPHA_INTERNAL_KEY || ''
@@ -112,6 +112,36 @@ export async function fetchLiveTools(
   } catch (err) {
     console.warn('[live] tools failed', err)
     return []
+  }
+}
+
+export async function proposeLiveDraft(
+  phone: string,
+  persona: AgentId,
+  draft:
+    | { kind: 'mail'; to: string; subject: string; body: string }
+    | { kind: 'reply'; messageId: string; body: string }
+    | { kind: 'event'; title: string; start: string; end: string },
+): Promise<{ ok: boolean; id?: string; kind?: string; error?: string }> {
+  const base = apiBase()
+  const key = process.env.HIREALPHA_INTERNAL_KEY || ''
+  if (!base || !key) return { ok: false, error: 'API not configured' }
+  try {
+    const res = await timedFetch(
+      `${base}/api/internal/propose`,
+      {
+        method: 'POST',
+        headers: authHeaders(),
+        body: JSON.stringify({ phone, persona, ...draft }),
+      },
+      12000,
+    )
+    const data = (await res.json().catch(() => ({}))) as { ok?: boolean; id?: string; kind?: string; error?: string }
+    if (!res.ok) return { ok: false, error: data.error || `propose failed (${res.status})` }
+    return { ok: !!data.ok, id: data.id, kind: data.kind, error: data.error }
+  } catch (err) {
+    console.warn('[live] propose failed', err)
+    return { ok: false, error: 'Could not save the draft.' }
   }
 }
 

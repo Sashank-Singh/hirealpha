@@ -40,6 +40,23 @@ describe('life state insights', () => {
     expect(block).toContain('It is Tuesday, a session day')
   })
 
+  it('prints workout name, mail, and people phones for the world model', () => {
+    const block = formatLifeStateBlock(
+      base({
+        workoutToday: { name: 'Tuesday Pull', place: 'home bodyweight' },
+        mail: ['id=abc | Recap · Maya'],
+        calendar: ['3:00 PM · Amy Black · Google Meet'],
+        peopleDue: [{ name: 'Maya', days: 11, phone: '+12163032166' }],
+        peoplePhones: [{ name: 'Maya', phone: '+12163032166' }],
+      }),
+    )
+    expect(block).toContain('Today is Tuesday Pull, home bodyweight')
+    expect(block).toContain('id=abc | Recap · Maya')
+    expect(block).toContain('3:00 PM · Amy Black · Google Meet')
+    expect(block).toContain('Maya (11 days, +12163032166)')
+    expect(block).toContain('People you can text: Maya +12163032166')
+  })
+
   it('morning tick synthesizes calendar plus risk', () => {
     const hit = pickProactiveInsight(base({ calendar: ['Standup 10am'] }), 'morning')
     expect(hit?.loop).toBe('morning')

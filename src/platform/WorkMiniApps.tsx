@@ -202,7 +202,7 @@ export function NextMoveApp({ auth }: { auth: FeatureAuth }) {
 
 /* --------------------------- Approve and send -------------------------- */
 
-export function ApproveSendApp({ auth }: { auth: FeatureAuth }) {
+export function ApproveSendApp({ auth, draftId }: { auth: FeatureAuth; draftId?: string }) {
   const a = useAuth(auth)
   const [drafts, setDrafts] = useState<WorkDraft[]>([])
   const [needConnect, setNeedConnect] = useState(false)
@@ -218,7 +218,9 @@ export function ApproveSendApp({ auth }: { auth: FeatureAuth }) {
       .then((d) => {
         setDrafts(d.drafts || [])
         setNeedConnect(!!d.needConnect)
-        const next = (d.drafts || []).find((x) => x.status !== 'sent')
+        const next =
+          (d.drafts || []).find((x) => draftId && x.id === draftId) ||
+          (d.drafts || []).find((x) => x.status !== 'sent' && x.kind !== 'event')
         if (next) {
           setTo(next.toAddr)
           setSubject(next.subject)
@@ -226,10 +228,12 @@ export function ApproveSendApp({ auth }: { auth: FeatureAuth }) {
         }
       })
       .catch((err) => setMsg(err instanceof Error ? err.message : 'Could not load drafts.'))
-  }, [a.email, a.token, a.persona])
+  }, [a.email, a.token, a.persona, draftId])
   useEffect(() => { load() }, [load])
 
-  const current = drafts.find((d) => d.status !== 'sent')
+  const current =
+    drafts.find((d) => draftId && d.id === draftId) ||
+    drafts.find((d) => d.status !== 'sent' && d.kind !== 'event')
 
   async function send(e: FormEvent) {
     e.preventDefault()
@@ -265,7 +269,7 @@ export function ApproveSendApp({ auth }: { auth: FeatureAuth }) {
         <span className="ma-hero-kicker">{sent ? 'Sent' : current ? 'Draft' : 'New'}</span>
         <span className="ma-hero-num">{sent ? 'It went' : current?.subject || 'Write it, then send'}</span>
         <span className="ma-hero-label">
-          {needConnect ? 'Gmail is not connected for send.' : 'Edit, then Send. It actually goes.'}
+          {needConnect ? 'Gmail is not connected for send.' : current?.kind === 'reply' ? 'Reply is ready. Edit, then Send.' : 'Edit, then Send. It actually goes.'}
         </span>
       </div>
       {needConnect && (
@@ -294,46 +298,72 @@ export function ApproveSendApp({ auth }: { auth: FeatureAuth }) {
 
 /* ------------------------------ Pick a slot ---------------------------- */
 
-export function PickSlotApp({ auth }: { auth: FeatureAuth }) {
+export function PickSlotApp({ auth, draftId }: { auth: FeatureAuth; draftId?: string }) {
   const a = useAuth(auth)
   const [slots, setSlots] = useState<SlotOption[]>([])
+  const [proposed, setProposed] = useState<WorkDraft | null>(null)
   const [needConnect, setNeedConnect] = useState(false)
   const [busy, setBusy] = useState(false)
   const [held, setHeld] = useState<string | null>(null)
   const [msg, setMsg] = useState('')
 
   const load = useCallback(() => {
-    apiListSlots(a)
-      .then((d) => {
+    Promise.all([
+      apiListSlots(a),
+      apiListWorkDrafts({ ...a, kind: 'event' }).catch(() => ({ drafts: [] as WorkDraft[] })),
+    ])
+      .then(([d, drafts]) => {
         setSlots(d.slots || [])
         setNeedConnect(!!d.needConnect)
+        const next =
+          (drafts.drafts || []).find((x) => draftId && x.id === draftId) ||
+          (drafts.drafts || []).find((x) => x.status !== 'sent' && x.startAt && x.endAt)
+        setProposed(next || null)
       })
       .catch((err) => setMsg(err instanceof Error ? err.message : 'Could not load times.'))
-  }, [a.email, a.token, a.persona])
+  }, [a.email, a.token, a.persona, draftId])
   useEffect(() => { load() }, [load])
 
-  async function hold(slot: SlotOption) {
+  async function hold(slot: { title?: string; start: string; end: string; id?: string }) {
     if (busy) return
     setBusy(true)
     setMsg('')
     try {
-      const res = await apiHoldSlot({ ...a, title: slot.title || 'Hold', start: slot.start, end: slot.end })
-      if (!res.ok) throw new Error(res.error || 'Could not hold. Connect Calendar.')
+      const res = await apiHoldSlot({
+        ...a,
+        title: slot.title || proposed?.subject || 'Hold',
+        start: slot.start,
+        end: slot.end,
+        id: slot.id,
+      })
+      if (!res.ok) throw new Error(res.error || 'Could not book. Connect Calendar.')
       setHeld(slot.start)
     } catch (err) {
-      setMsg(err instanceof Error ? err.message : 'Could not hold that time.')
+      setMsg(err instanceof Error ? err.message : 'Could not book that time.')
     } finally {
       setBusy(false)
     }
   }
 
+  const proposedLabel = proposed?.startAt
+    ? new Date(proposed.startAt).toLocaleString(undefined, { weekday: 'short', hour: 'numeric', minute: '2-digit' })
+    : ''
+
   return (
     <div className="ma">
       <div className="ma-hero">
-        <span className="ma-hero-kicker">Openings</span>
-        <span className="ma-hero-num">{held ? 'Held' : slots[0]?.label || 'No openings'}</span>
+        <span className="ma-hero-kicker">{proposed ? 'Proposed' : 'Openings'}</span>
+        <span className="ma-hero-num">
+          {held ? 'Booked' : proposed?.subject || slots[0]?.label || 'No openings'}
+        </span>
         <span className="ma-hero-label">
-          {needConnect ? 'Calendar is not connected.' : held ? 'Tentative is on the calendar.' : 'Tap Hold. It writes a tentative event.'}
+          {needConnect
+            ? 'Calendar is not connected.'
+            : held
+              ? 'Tentative is on the calendar.'
+              : proposed
+                ? 'Tap Book. It writes a tentative event. It is not booked until you tap.'
+                : 'Tap Hold. It writes a tentative event.'}
         </span>
       </div>
       {needConnect && (
@@ -342,6 +372,20 @@ export function PickSlotApp({ auth }: { auth: FeatureAuth }) {
         </Link>
       )}
       {msg && <p className="mini__hint">{msg}</p>}
+      {proposed && proposed.startAt && proposed.endAt && (
+        <div className="ma-callout">
+          <strong>{proposed.subject || 'Hold'}</strong>
+          <span className="ma-sub">{proposedLabel}</span>
+          <button
+            className="ma-btn ma-btn--block"
+            type="button"
+            disabled={busy || !!held}
+            onClick={() => void hold({ title: proposed.subject, start: proposed.startAt!, end: proposed.endAt!, id: proposed.id })}
+          >
+            {held ? 'Booked' : busy ? 'Booking' : 'Book'}
+          </button>
+        </div>
+      )}
       <ul className="ma-list">
         {slots.map((s) => (
           <li key={s.start} className={`ma-row${held === s.start ? ' ma-row--done' : ''}`}>

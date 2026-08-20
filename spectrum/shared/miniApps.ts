@@ -349,7 +349,14 @@ export async function mintMiniAppUrl(
       clearTimeout(t)
       if (res.ok) {
         const data = (await res.json()) as { url?: string }
-        if (data.url) return data.url
+        if (data.url) {
+          if (query) {
+            const minted = new URL(data.url)
+            for (const [k, v] of Object.entries(query)) minted.searchParams.set(k, v)
+            return minted.toString()
+          }
+          return data.url
+        }
       }
     } catch (err) {
       console.warn('[miniApps] token mint failed, falling back to unsigned URL', err)

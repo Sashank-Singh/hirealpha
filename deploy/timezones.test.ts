@@ -2,6 +2,7 @@ import { describe, expect, it } from 'bun:test'
 import {
   formatNowForAgent,
   formatZoneAbbrev,
+  parseSpokenWhen,
   pickUserTimezone,
   resolveIanaTimezone,
   timezoneFromCoords,
@@ -83,5 +84,14 @@ describe('user timezone', () => {
     expect(line).toMatch(/8:47 AM/)
     expect(line).toMatch(/PDT|GMT-7/)
     expect(line).not.toMatch(/[\u2013\u2014]/)
+  })
+
+  it('parses tomorrow 3pm in Pacific time', () => {
+    const now = new Date('2026-08-20T18:00:00.000Z')
+    const hit = parseSpokenWhen('tomorrow 3pm', 'America/Los_Angeles', now)
+    expect(hit).toBeTruthy()
+    expect(hit!.toISOString()).toBe('2026-08-21T22:00:00.000Z')
+    const isoLocal = parseSpokenWhen('2026-08-21T15:00', 'America/Los_Angeles', now)
+    expect(isoLocal!.toISOString()).toBe('2026-08-21T22:00:00.000Z')
   })
 })

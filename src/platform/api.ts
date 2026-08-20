@@ -630,6 +630,10 @@ export type WorkDraft = {
   body: string
   status: string
   createdAt: string
+  threadId?: string
+  inReplyTo?: string
+  startAt?: string
+  endAt?: string
 }
 export type SlotOption = { start: string; end: string; label: string; title?: string }
 export type LinearIssue = {
@@ -741,9 +745,9 @@ export const apiSendDraft = (a: {
 export const apiListSlots = (a: { email?: string; token?: string; persona?: string }) =>
   featureGet<{ slots: SlotOption[]; needConnect?: boolean }>('/api/work/slots', authQuery(a))
 export const apiHoldSlot = (a: {
-  email?: string; token?: string; persona?: string; title: string; start: string; end: string
+  email?: string; token?: string; persona?: string; title: string; start: string; end: string; id?: string
 }) => featurePost<{ ok: boolean; error?: string; eventId?: string }>('/api/work/hold', {
-  ...authParams(a), persona: a.persona, title: a.title, start: a.start, end: a.end,
+  ...authParams(a), persona: a.persona, title: a.title, start: a.start, end: a.end, id: a.id,
 })
 export const apiListLinear = (a: { email?: string; token?: string; persona?: string }) =>
   featureGet<{ issues: LinearIssue[]; needConnect?: boolean }>('/api/work/linear', authQuery(a))

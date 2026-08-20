@@ -10,7 +10,9 @@ export type LifeState = {
   sleep?: { hours: number; quality: number; date: string } | null
   sleepWeek?: { nights: number; avgHours: number; shortNights: number }
   workoutsToday?: number
-  peopleDue?: Array<{ name: string; days: number; note?: string }>
+  workoutToday?: { name: string; place: string; rest?: boolean }
+  peopleDue?: Array<{ name: string; days: number; note?: string; phone?: string }>
+  peoplePhones?: Array<{ name: string; phone: string }>
   spend?: { weekTotal: number; weeklyBudget: number }
   loops?: string[]
   calendar?: string[]
@@ -364,21 +366,37 @@ export function formatLifeStateBlock(state: LifeState): string {
   if (state.spend) {
     lines.push(`Spend this week: $${Math.round(state.spend.weekTotal)} of $${Math.round(state.spend.weeklyBudget)}.`)
   }
-  lines.push(
-    `Workout today: ${state.workoutsToday || 0} lifts logged.${
-      isWeekday(state)
-        ? ` It is ${state.weekday || 'a weekday'}, a session day.`
-        : ` It is ${state.weekday || 'the weekend'}. Rest is fine.`
-    }`,
-  )
+  const session = state.workoutToday
+  const sessionBit = session
+    ? session.rest
+      ? ` Today is ${session.name}. Rest is fine.`
+      : ` Today is ${session.name}, ${session.place}.`
+    : isWeekday(state)
+      ? ` It is ${state.weekday || 'a weekday'}, a session day.`
+      : ` It is ${state.weekday || 'the weekend'}. Rest is fine.`
+  lines.push(`Workout today: ${state.workoutsToday || 0} lifts logged.${sessionBit}`)
   if (state.loops?.length) lines.push(`Promises still open: ${state.loops.slice(0, 3).join('; ')}.`)
   if (state.peopleDue?.length) {
     lines.push(
-      `People due: ${state.peopleDue.map((p) => `${p.name} (${p.days} days)`).join(', ')}.`,
+      `People due: ${state.peopleDue
+        .map((p) => `${p.name} (${p.days} days${p.phone ? `, ${p.phone}` : ''})`)
+        .join(', ')}.`,
     )
   }
-  if (state.calendar?.length) lines.push(`Calendar: ${state.calendar.slice(0, 3).join('; ')}.`)
-  else lines.push('Calendar: empty or not connected.')
+  if (state.peoplePhones?.length) {
+    lines.push(
+      `People you can text: ${state.peoplePhones.map((p) => `${p.name} ${p.phone}`).join(', ')}. If they say text a name, use that number. Tell them to tap Text on the People card. Never claim you sent a text.`,
+    )
+  }
+  if (state.calendar?.length) lines.push(`Calendar next 8 hours: ${state.calendar.slice(0, 6).join('; ')}.`)
+  else lines.push('Calendar next 8 hours: empty or not connected. Do not invent events.')
+  if (state.mail?.length) {
+    lines.push(
+      `Judged mail: ${state.mail.slice(0, 3).join('; ')}. Use the id= value if they want a reply. Do not invent mail.`,
+    )
+  } else {
+    lines.push('Judged mail: empty or not connected. Do not invent mail.')
+  }
   if (top.length) {
     lines.push(`At risk, computed: ${top.map((i) => i.line).join(' ')}`)
     lines.push(`If they ask what to eat, what to do tonight, or say they are exhausted, answer from this block. Offer a tap: ${top[0]!.tap}`)

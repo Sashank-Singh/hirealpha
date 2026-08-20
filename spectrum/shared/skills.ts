@@ -19,7 +19,7 @@ export const SKILLS: Record<
       'nutrition', 'habit_streak', 'mood_tracker', 'workout_log', 'learning_queue', 'weekly_review',
       'networking_crm', 'sleep_tracker', 'spending_snapshot', 'mirror', 'gratitude_journal', 'spiral_options', 'relationship_radar',
     ],
-    liveMiniApps: ['digest', 'pick_night', 'drop_zone'],
+    liveMiniApps: ['digest', 'pick_night', 'drop_zone', 'approve_send', 'pick_slot'],
     deny: ['slack', 'linear', 'github', 'stripe', 'fundraising'],
   },
   coworker: {
@@ -74,6 +74,7 @@ export function skillsPromptBlock(agentId: AgentId, connected: string[] = []): s
     `Mini apps that actually run: ${s.liveMiniApps.join(', ') || 'none'}. Put the answer in the text. The card is extra, not a substitute.`,
     `Never act with: ${s.deny.join(', ')}.`,
     'Do not claim you completed a tool action unless a tool result is provided in context.',
+    'Never say you sent mail, booked a calendar event, or texted someone. Writes need a card tap: Send, Book, or Text.',
     'When tool results are present in context, NEVER say you cannot access the data or that a tool is not connected. The results ARE your answer — use them directly. Do not hedge, apologize, or ask the user to connect something that already returned data.',
   ]
   return lines.filter(Boolean).join('\n')

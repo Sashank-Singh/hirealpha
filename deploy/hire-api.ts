@@ -24,6 +24,7 @@ import {
 } from './calendarEvents'
 import { COMPOSIO_READ, composioLooksFailed, formatComposioData } from './composioPlugins'
 import {
+  parseSpokenWhen,
   pickUserTimezone,
   resolveIanaTimezone,
   timezoneFromCoords,
@@ -466,6 +467,10 @@ export async function ensureHireSchema(sql: SQL) {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
     )
   `
+  await sql`ALTER TABLE hire_drafts ADD COLUMN IF NOT EXISTS thread_id TEXT NOT NULL DEFAULT ''`
+  await sql`ALTER TABLE hire_drafts ADD COLUMN IF NOT EXISTS in_reply_to TEXT NOT NULL DEFAULT ''`
+  await sql`ALTER TABLE hire_drafts ADD COLUMN IF NOT EXISTS start_at TEXT NOT NULL DEFAULT ''`
+  await sql`ALTER TABLE hire_drafts ADD COLUMN IF NOT EXISTS end_at TEXT NOT NULL DEFAULT ''`
   await sql`CREATE INDEX IF NOT EXISTS idx_hire_drafts_user ON hire_drafts (user_id, status, created_at DESC)`
 
   await sql`
@@ -1971,7 +1976,7 @@ export async function runToolsForMessage(
     persona: Persona
     message: string
     connected: string[]
-    want?: 'maps' | 'web'
+    want?: 'maps' | 'web' | 'gmail' | 'calendar' | 'drive'
     timezone?: string
     location?: LocationRow | null
   },
@@ -1994,8 +1999,8 @@ export async function runToolsForMessage(
     asked(id, hit)
   }
 
-  const mailHit = wantsEmail(input.message)
-  const calHit = wantsCalendar(input.message)
+  const mailHit = input.want === 'gmail' || wantsEmail(input.message)
+  const calHit = input.want === 'calendar' || wantsCalendar(input.message)
   const mailQuery = /\b(debrief|digest|brief)\b/i.test(input.message)
     ? '(newer_than:1d) OR (is:important newer_than:2d)'
     : wantsImportantEmail(input.message)
@@ -2061,10 +2066,11 @@ export async function runToolsForMessage(
   } else {
     askedAllowed('notion', wantsNotion(input.message))
   }
-  if (wantsDrive(input.message) && can('drive')) {
+  const driveHit = input.want === 'drive' || wantsDrive(input.message)
+  if (driveHit && can('drive')) {
     results.push(await loadDrive(sql, input.userId, input.message.slice(0, 40)))
   } else {
-    askedAllowed('drive', wantsDrive(input.message))
+    askedAllowed('drive', driveHit)
   }
   if (wantsGithub(input.message) && can('github')) {
     results.push(await runComposioPlugin(input.userId, 'github', input.message))
@@ -2492,6 +2498,7 @@ const PERSONA_MINI_APPS: Record<Persona, string[]> = {
     'digest', 'next_move', 'check_in', 'pick_night', 'open_loops', 'drop_zone',
     'nutrition', 'habit_streak', 'mood_tracker', 'workout_log', 'learning_queue', 'weekly_review',
     'networking_crm', 'sleep_tracker', 'spending_snapshot', 'mirror', 'gratitude_journal', 'spiral_options', 'relationship_radar',
+    'approve_send', 'pick_slot',
   ],
   coworker: [
     'digest', 'next_move', 'approve_send', 'pick_slot', 'standup_paste', 'linear_triage', 'open_loops',
@@ -3005,6 +3012,83 @@ async function dueEventNudges(sql: SQL, persona: Persona): Promise<EventNudge[]>
   return out
 }
 
+const WORKOUT_DAY_NAME: Record<string, string> = {
+  Monday: 'Push',
+  Tuesday: 'Pull',
+  Wednesday: 'Legs',
+  Thursday: 'Upper',
+  Friday: 'Lower',
+}
+
+function workoutTodayLabel(weekday: string, place: 'home' | 'gym'): { name: string; place: string; rest?: boolean } {
+  const name = WORKOUT_DAY_NAME[weekday]
+  if (!name) return { name: `${weekday} rest`, place: place === 'home' ? 'home bodyweight' : 'gym', rest: true }
+  return {
+    name: `${weekday} ${name}`,
+    place: place === 'home' ? 'home bodyweight' : 'gym',
+  }
+}
+
+function emailFromFromHeader(from: string): string {
+  const angle = from.match(/<([^>]+)>/)
+  if (angle?.[1]) return angle[1].trim()
+  const bare = from.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i)
+  return bare?.[0]?.trim() || ''
+}
+
+async function loadWorldCalendar(
+  sql: SQL,
+  user: { id: string; name?: string | null },
+  tz: string,
+): Promise<string[]> {
+  const now = new Date()
+  const until = new Date(now.getTime() + 8 * 60 * 60 * 1000)
+  const myName = user.name || null
+  const access = await googleAccessToken(sql, user.id, 'calendar')
+  if (access) {
+    const got = await fetchCalendarItems(access, { timeMin: now, timeMax: until, maxResults: 8 })
+    if (got.ok) return got.items.map((e) => formatDigestEventLabel(e, tz, myName))
+  }
+  const rows = await googleEventsRaw(sql, user.id, { timeMin: now, timeMax: until, maxResults: 8 })
+  return rows.map((e) => {
+    const start = e.allDay ? 'All day' : formatClock(new Date(e.start), tz)
+    return `${start} · ${e.title}`
+  })
+}
+
+async function loadWorldMail(sql: SQL, userId: string): Promise<string[]> {
+  const rich = await loadGmailRich(sql, userId, importantMailQuery('16h'), 12)
+  if (!rich.length) return []
+  const kept = await judgeBriefMail(rich, 3)
+  return kept.map((m) => `id=${m.id} | ${formatMailLineFromParts(m.from, m.subject)}`)
+}
+
+async function gmailReplyMeta(
+  sql: SQL,
+  userId: string,
+  messageId: string,
+): Promise<{ to: string; subject: string; threadId: string; inReplyTo: string } | null> {
+  const access = await googleAccessToken(sql, userId, 'gmail')
+  if (!access) return null
+  const res = await fetch(
+    `https://gmail.googleapis.com/gmail/v1/users/me/messages/${encodeURIComponent(messageId)}?format=metadata&metadataHeaders=From&metadataHeaders=Subject&metadataHeaders=Message-ID`,
+    { headers: { Authorization: `Bearer ${access}` } },
+  )
+  if (!res.ok) return null
+  const data = (await res.json()) as {
+    threadId?: string
+    payload?: { headers?: Array<{ name: string; value: string }> }
+  }
+  const headers = data.payload?.headers || []
+  const h = (n: string) => headers.find((x) => x.name.toLowerCase() === n.toLowerCase())?.value || ''
+  const to = emailFromFromHeader(h('From'))
+  const subjectRaw = h('Subject') || 'Re: '
+  const subject = /^re:/i.test(subjectRaw) ? subjectRaw : `Re: ${subjectRaw}`
+  const inReplyTo = h('Message-ID') || h('Message-Id')
+  if (!to) return null
+  return { to, subject, threadId: data.threadId || '', inReplyTo }
+}
+
 async function judgmentStatePayload(
   sql: SQL,
   user: { id: string; timezone: string | null; name?: string | null },
@@ -3110,6 +3194,8 @@ async function judgmentStatePayload(
     WHERE user_id = ${user.id} AND logged_at >= ${today}::date AND logged_at < ${shiftDateStr(today, 1)}::date
   `
   const workoutsToday = Number((workoutTodayRows[0] as { n?: number })?.n || 0)
+  const prefs = await loadMiniPrefs(sql, user.id)
+  const workoutToday = workoutTodayLabel(weekday, prefs.workoutPlace)
 
 
   const duePeople = await sql`
@@ -3121,11 +3207,28 @@ async function judgmentStatePayload(
     .map((p) => {
       const days = p.lastTouch ? Math.floor((Date.now() - new Date(p.lastTouch).getTime()) / 86400000) : 999
       const bits = [p.phone, p.context].filter(Boolean)
-      return { name: p.name, days, note: bits.join('. ') || undefined, due: days >= (p.cadenceDays || 14) }
+      return {
+        name: p.name,
+        days,
+        note: bits.join('. ') || undefined,
+        due: days >= (p.cadenceDays || 14),
+        phone: p.phone || undefined,
+      }
     })
     .filter((p) => p.due)
     .slice(0, 3)
-    .map(({ name, days, note }) => ({ name, days, note }))
+    .map(({ name, days, note, phone }) => ({ name, days, note, phone }))
+
+  const phoneRows = await sql`
+    SELECT name, phone FROM hire_network
+    WHERE user_id = ${user.id} AND coalesce(phone, '') <> ''
+    ORDER BY coalesce(last_touch, '1970-01-01'::timestamptz) DESC
+    LIMIT 12
+  `
+  const peoplePhones = (phoneRows as Array<{ name: string; phone: string }>).map((p) => ({
+    name: p.name,
+    phone: p.phone,
+  }))
 
   const radar = await sql`
     SELECT name, last_touch_at AS "lastTouch", cadence_days AS "cadenceDays"
@@ -3149,14 +3252,34 @@ async function judgmentStatePayload(
 
   let calendar: string[] = []
   let mail: string[] = []
-  if (tick === 'digest' || tick === 'morning' || tick === 'evening' || tick === 'night' || tick === 'digest_evening') {
-    try {
+  const digestTick =
+    tick === 'digest' || tick === 'morning' || tick === 'evening' || tick === 'night' || tick === 'digest_evening'
+  try {
+    if (digestTick) {
       const payload = await digestPayload(sql, user, persona)
       calendar = (payload.calendar || []).slice(0, 4)
       mail = (payload.emails || []).slice(0, 3)
-    } catch (err) {
-      console.warn('[judgment] digest slice failed', err)
+    } else {
+      const connected = await connectedForUser(sql, user.id)
+      const jobs: Array<Promise<void>> = []
+      if (connected.includes('calendar')) {
+        jobs.push(
+          withTimeout(loadWorldCalendar(sql, user, tz), 5000, [] as string[]).then((rows) => {
+            calendar = rows
+          }),
+        )
+      }
+      if (connected.includes('gmail')) {
+        jobs.push(
+          withTimeout(loadWorldMail(sql, user.id), 8000, [] as string[]).then((rows) => {
+            mail = rows
+          }),
+        )
+      }
+      if (jobs.length) await Promise.all(jobs)
     }
+  } catch (err) {
+    console.warn('[judgment] world model slice failed', err)
   }
 
   const pausedUntil = String(context.paused_until || '')
@@ -3247,7 +3370,9 @@ async function judgmentStatePayload(
     sleep,
     sleepWeek,
     workoutsToday,
+    workoutToday,
     peopleDue: peopleDue.slice(0, 3),
+    peoplePhones,
     spend: {
       weekTotal: Math.round(Number((spendRow[0] as { total?: number })?.total) || 0),
       weeklyBudget: Math.round(Number((budgetRow[0] as { weeklyBudget?: number })?.weeklyBudget) || 400),
@@ -3583,22 +3708,36 @@ async function livePayload(sql: SQL, phone: string, persona: Persona) {
   }
 }
 
-function rfc822Raw(to: string, subject: string, body: string) {
-  const raw = [`To: ${to}`, `Subject: ${subject}`, 'MIME-Version: 1.0', 'Content-Type: text/plain; charset=utf-8', '', body].join('\r\n')
+function rfc822Raw(
+  to: string,
+  subject: string,
+  body: string,
+  extra?: { inReplyTo?: string },
+) {
+  const headers = [`To: ${to}`, `Subject: ${subject}`, 'MIME-Version: 1.0', 'Content-Type: text/plain; charset=utf-8']
+  const replyTo = extra?.inReplyTo?.trim()
+  if (replyTo) {
+    headers.push(`In-Reply-To: ${replyTo}`, `References: ${replyTo}`)
+  }
+  const raw = [...headers, '', body].join('\r\n')
   return Buffer.from(raw).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
 }
 
 async function gmailSendMessage(
   sql: SQL,
   userId: string,
-  draft: { to: string; subject: string; body: string },
+  draft: { to: string; subject: string; body: string; threadId?: string; inReplyTo?: string },
 ): Promise<{ ok: boolean; error?: string }> {
   const access = await googleAccessToken(sql, userId, 'gmail')
   if (access) {
+    const payload: { raw: string; threadId?: string } = {
+      raw: rfc822Raw(draft.to, draft.subject, draft.body, { inReplyTo: draft.inReplyTo }),
+    }
+    if (draft.threadId) payload.threadId = draft.threadId
     const res = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {
       method: 'POST',
       headers: { Authorization: `Bearer ${access}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ raw: rfc822Raw(draft.to, draft.subject, draft.body) }),
+      body: JSON.stringify(payload),
     })
     if (res.ok) return { ok: true }
     const err = await res.text().catch(() => '')
@@ -3615,6 +3754,8 @@ async function gmailSendMessage(
       subject: draft.subject,
       body: draft.body,
       message: draft.body,
+      thread_id: draft.threadId,
+      threadId: draft.threadId,
     },
   )
   if (out && !/failed/i.test(out)) return { ok: true }
@@ -4629,16 +4770,85 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     })
     const spokenTz = timezoneFromText(message)
     if (spokenTz) await rememberUserTimezone(sql, live.userId, spokenTz, body.persona)
+    const want =
+      body.want === 'maps' ||
+      body.want === 'web' ||
+      body.want === 'gmail' ||
+      body.want === 'calendar' ||
+      body.want === 'drive'
+        ? body.want
+        : undefined
     const results = await runToolsForMessage(sql, {
       userId: live.userId,
       persona: body.persona,
       message,
       connected: live.connected,
-      want: body.want === 'maps' || body.want === 'web' ? body.want : undefined,
+      want,
       timezone: tz,
       location: loc,
     })
     return json({ results })
+  }
+
+  if (path === '/api/internal/propose' && req.method === 'POST') {
+    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
+    const body = (await req.json().catch(() => ({}))) as {
+      phone?: string
+      persona?: string
+      kind?: string
+      to?: string
+      subject?: string
+      body?: string
+      messageId?: string
+      title?: string
+      start?: string
+      end?: string
+    }
+    if (!body.phone || !body.persona || !isPersona(body.persona)) {
+      return json({ error: 'phone and persona required' }, 400)
+    }
+    const live = await livePayload(sql, body.phone, body.persona)
+    if (!live.found || !live.hired || !live.userId) return json({ ok: false, error: 'not hired' }, 404)
+    const tz = live.timezone || 'America/Los_Angeles'
+    const id = crypto.randomUUID()
+    const kind = body.kind === 'event' || body.kind === 'reply' ? body.kind : 'email'
+    let toAddr = String(body.to || '').slice(0, 200)
+    let subject = String(body.subject || body.title || '').slice(0, 200)
+    let text = String(body.body || '').slice(0, 8000)
+    let threadId = ''
+    let inReplyTo = ''
+    let startAt = ''
+    let endAt = ''
+    if (kind === 'reply') {
+      const meta = await gmailReplyMeta(sql, live.userId, String(body.messageId || '').trim())
+      if (!meta) return json({ ok: false, error: 'Could not load that mail to reply.' }, 400)
+      toAddr = meta.to
+      subject = meta.subject
+      threadId = meta.threadId
+      inReplyTo = meta.inReplyTo
+      if (!text) return json({ ok: false, error: 'Reply body required' }, 400)
+    } else if (kind === 'event') {
+      const start = parseSpokenWhen(String(body.start || ''), tz) || new Date(Date.now() + 60 * 60 * 1000)
+      const endParsed = parseSpokenWhen(String(body.end || ''), tz)
+      const end = endParsed && endParsed.getTime() > start.getTime()
+        ? endParsed
+        : new Date(start.getTime() + 30 * 60 * 1000)
+      startAt = start.toISOString()
+      endAt = end.toISOString()
+      subject = String(body.title || subject || 'Hold').slice(0, 160)
+    } else if (!toAddr || !subject) {
+      return json({ ok: false, error: 'to and subject required' }, 400)
+    }
+    await sql`
+      INSERT INTO hire_drafts (
+        id, user_id, persona, kind, to_addr, subject, body, thread_id, in_reply_to, start_at, end_at
+      )
+      VALUES (
+        ${id}, ${live.userId}, ${body.persona}, ${kind},
+        ${toAddr}, ${subject}, ${text}, ${threadId}, ${inReplyTo}, ${startAt}, ${endAt}
+      )
+    `
+    return json({ ok: true, id, kind: kind === 'event' ? 'event' : 'email' })
   }
 
   if (path === '/api/internal/touch' && req.method === 'POST') {
@@ -4815,13 +5025,17 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     if (error) return error
     const connected = await connectedForUser(sql, user!.id)
     const drafts = (await sql`
-      SELECT id, kind, to_addr AS "toAddr", subject, body, status, created_at AS "createdAt"
+      SELECT id, kind, to_addr AS "toAddr", subject, body, status, created_at AS "createdAt",
+        thread_id AS "threadId", in_reply_to AS "inReplyTo", start_at AS "startAt", end_at AS "endAt"
       FROM hire_drafts WHERE user_id = ${user!.id}
       ${kind ? sql`AND kind = ${kind}` : sql``}
       ORDER BY created_at DESC LIMIT 20
-    `) as Array<{ id: string; kind: string; toAddr: string; subject: string; body: string; status: string; createdAt: Date }>
+    `) as Array<{
+      id: string; kind: string; toAddr: string; subject: string; body: string; status: string; createdAt: Date
+      threadId?: string; inReplyTo?: string; startAt?: string; endAt?: string
+    }>
     let rows = drafts
-    if (!rows.some((d) => d.status === 'pending')) {
+    if (kind !== 'event' && !rows.some((d) => d.status === 'pending')) {
       const suggested = await suggestedMailDrafts(sql, user!.id)
       for (const s of suggested) {
         const id = crypto.randomUUID()
@@ -4832,7 +5046,8 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
       }
       if (suggested.length) {
         rows = (await sql`
-          SELECT id, kind, to_addr AS "toAddr", subject, body, status, created_at AS "createdAt"
+          SELECT id, kind, to_addr AS "toAddr", subject, body, status, created_at AS "createdAt",
+            thread_id AS "threadId", in_reply_to AS "inReplyTo", start_at AS "startAt", end_at AS "endAt"
           FROM hire_drafts WHERE user_id = ${user!.id}
           ORDER BY created_at DESC LIMIT 20
         `) as typeof drafts
@@ -4879,19 +5094,31 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     let toAddr = String(body.toAddr || '').trim()
     let subject = String(body.subject || '').trim()
     let text = String(body.body || '')
+    let threadId = ''
+    let inReplyTo = ''
     if (body.id) {
       const rows = await sql`
-        SELECT to_addr, subject, body FROM hire_drafts WHERE id = ${body.id} AND user_id = ${user!.id} LIMIT 1
+        SELECT to_addr, subject, body, thread_id, in_reply_to FROM hire_drafts WHERE id = ${body.id} AND user_id = ${user!.id} LIMIT 1
       `
-      const row = rows[0] as { to_addr: string; subject: string; body: string } | undefined
+      const row = rows[0] as {
+        to_addr: string; subject: string; body: string; thread_id?: string; in_reply_to?: string
+      } | undefined
       if (row) {
         toAddr = toAddr || row.to_addr
         subject = subject || row.subject
         text = text || row.body
+        threadId = row.thread_id || ''
+        inReplyTo = row.in_reply_to || ''
       }
     }
     if (!toAddr || !subject) return json({ ok: false, error: 'To and subject required' }, 400)
-    const sent = await gmailSendMessage(sql, user!.id, { to: toAddr, subject, body: text })
+    const sent = await gmailSendMessage(sql, user!.id, {
+      to: toAddr,
+      subject,
+      body: text,
+      threadId: threadId || undefined,
+      inReplyTo: inReplyTo || undefined,
+    })
     if (!sent.ok) return json({ ok: false, error: sent.error }, 400)
     if (body.id) {
       await sql`UPDATE hire_drafts SET status = 'sent', updated_at = now() WHERE id = ${body.id} AND user_id = ${user!.id}`
@@ -4915,18 +5142,29 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
 
   if (path === '/api/work/hold' && req.method === 'POST') {
     const body = (await req.json().catch(() => ({}))) as {
-      token?: string; email?: string; title?: string; start?: string; end?: string
+      token?: string; email?: string; session?: string; title?: string; start?: string; end?: string; id?: string
     }
     const { user, error } = await resolveAuthedUser(sql, { token: body.token, session: body.session, email: body.email })
     if (error) return error
-    const start = String(body.start || '')
-    const end = String(body.end || '')
+    let title = String(body.title || 'Hold').slice(0, 160)
+    let start = String(body.start || '')
+    let end = String(body.end || '')
+    if (body.id) {
+      const rows = await sql`
+        SELECT subject, start_at, end_at FROM hire_drafts WHERE id = ${body.id} AND user_id = ${user!.id} LIMIT 1
+      `
+      const row = rows[0] as { subject?: string; start_at?: string; end_at?: string } | undefined
+      if (row) {
+        title = title === 'Hold' ? String(row.subject || title) : title
+        start = start || String(row.start_at || '')
+        end = end || String(row.end_at || '')
+      }
+    }
     if (!start || !end) return json({ ok: false, error: 'start and end required' }, 400)
-    const held = await calendarHold(sql, user!.id, {
-      title: String(body.title || 'Hold').slice(0, 160),
-      start,
-      end,
-    })
+    const held = await calendarHold(sql, user!.id, { title, start, end })
+    if (held.ok && body.id) {
+      await sql`UPDATE hire_drafts SET status = 'sent', updated_at = now() WHERE id = ${body.id} AND user_id = ${user!.id}`
+    }
     return json(held, held.ok ? 200 : 400)
   }
 

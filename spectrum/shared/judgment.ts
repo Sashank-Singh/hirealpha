@@ -33,7 +33,9 @@ export type JudgmentState = {
   sleep?: { hours: number; quality: number; date: string } | null
   sleepWeek?: { nights: number; avgHours: number; shortNights: number }
   workoutsToday?: number
-  peopleDue?: Array<{ name: string; days: number; note?: string }>
+  workoutToday?: { name: string; place: string; rest?: boolean }
+  peopleDue?: Array<{ name: string; days: number; note?: string; phone?: string }>
+  peoplePhones?: Array<{ name: string; phone: string }>
   spend?: { weekTotal: number; weeklyBudget: number }
   loops?: string[]
   calendar?: string[]
@@ -92,7 +94,7 @@ export async function fetchJudgmentState(
   if (!base || !key) return null
   try {
     const qs = new URLSearchParams({ phone, persona, tick })
-    const res = await timedFetch(`${base}/api/internal/judgment-state?${qs}`, { headers: authHeaders() }, 12000)
+    const res = await timedFetch(`${base}/api/internal/judgment-state?${qs}`, { headers: authHeaders() }, 18000)
     if (!res.ok) return null
     return (await res.json()) as JudgmentState
   } catch (err) {

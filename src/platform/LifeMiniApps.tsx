@@ -1285,12 +1285,15 @@ export function NetworkingCrmApp({ auth }: { auth: FeatureAuth }) {
                         {p.contactEmail && (
                           <a className="ma-chip" href={`mailto:${p.contactEmail}`}>Email</a>
                         )}
+                        {(edit.phone || p.phone) && (
+                          <a className="ma-chip" href={smsHref(p.name, edit.phone || p.phone)}>Text</a>
+                        )}
                       </div>
                     </div>
                   )}
                 </div>
                 <button className="ma-chip" type="button" onClick={() => void talked(p.id, logNotes[p.id])}>Talked</button>
-                {late && <a className="ma-chip" href={smsHref(p.name, p.phone)}>Text</a>}
+                {p.phone && <a className="ma-chip" href={smsHref(p.name, p.phone)}>Text</a>}
                 {telHref(p.phone) && <a className="ma-chip" href={telHref(p.phone)}>Call</a>}
               </li>
             )

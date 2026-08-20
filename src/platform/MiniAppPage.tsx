@@ -154,8 +154,8 @@ export const MENU_FEATURES: Record<string, MenuFeature[]> = {
 export const APP_STORE_GROUPS: Record<string, { label: string; kinds: string[] }[]> = {
   friend: [
     { label: 'Brief', kinds: ['digest', 'pick_night'] },
-    { label: 'Later', kinds: ['drop_zone'] },
     { label: 'Body', kinds: ['nutrition', 'workout_log', 'sleep_tracker', 'habit_streak'] },
+    { label: 'Later', kinds: ['drop_zone'] },
     { label: 'Money', kinds: ['spending_snapshot'] },
     { label: 'People', kinds: ['networking_crm'] },
   ],
@@ -645,10 +645,16 @@ export function MiniAppPage() {
               <NextMoveApp auth={{ persona: (persona as AgentId) || 'friend', email: email || undefined, token: token || undefined }} />
             )}
             {kind === 'approve_send' && (
-              <ApproveSendApp auth={{ persona: (persona as AgentId) || 'friend', email: email || undefined, token: token || undefined }} />
+              <ApproveSendApp
+                auth={{ persona: (persona as AgentId) || 'friend', email: email || undefined, token: token || undefined }}
+                draftId={searchParams.get('draft') || undefined}
+              />
             )}
             {kind === 'pick_slot' && (
-              <PickSlotApp auth={{ persona: (persona as AgentId) || 'friend', email: email || undefined, token: token || undefined }} />
+              <PickSlotApp
+                auth={{ persona: (persona as AgentId) || 'friend', email: email || undefined, token: token || undefined }}
+                draftId={searchParams.get('draft') || undefined}
+              />
             )}
             {kind === 'linear_triage' && (
               <LinearTriageApp auth={{ persona: (persona as AgentId) || 'friend', email: email || undefined, token: token || undefined }} />
