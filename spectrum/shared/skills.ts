@@ -75,6 +75,9 @@ export function skillsPromptBlock(agentId: AgentId, connected: string[] = []): s
     `Never act with: ${s.deny.join(', ')}.`,
     'Do not claim you completed a tool action unless a tool result is provided in context.',
     'Never say you sent mail, booked a calendar event, or texted someone. Writes need a card tap: Send, Book, or Text.',
+    agentId === 'friend'
+      ? 'If they ask to prep for a person or meeting, stitch calendar, People notes, and the mail thread into one text. Do not ask them to pull pieces.'
+      : '',
     'When tool results are present in context, NEVER say you cannot access the data or that a tool is not connected. The results ARE your answer — use them directly. Do not hedge, apologize, or ask the user to connect something that already returned data.',
   ]
   return lines.filter(Boolean).join('\n')

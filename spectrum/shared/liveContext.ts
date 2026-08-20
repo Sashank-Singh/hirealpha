@@ -115,6 +115,41 @@ export async function fetchLiveTools(
   }
 }
 
+export type PrepBundle = {
+  text: string
+  draft?:
+    | { kind: 'mail'; to: string; subject: string; body: string }
+    | { kind: 'reply'; messageId: string; body: string }
+}
+
+export async function fetchPrepBundle(
+  phone: string,
+  persona: AgentId,
+  query: string,
+): Promise<PrepBundle | null> {
+  const base = apiBase()
+  const key = process.env.HIREALPHA_INTERNAL_KEY || ''
+  if (!base || !key) return null
+  try {
+    const res = await timedFetch(
+      `${base}/api/internal/prep`,
+      {
+        method: 'POST',
+        headers: authHeaders(),
+        body: JSON.stringify({ phone, persona, query }),
+      },
+      20000,
+    )
+    if (!res.ok) return null
+    const data = (await res.json()) as PrepBundle & { ok?: boolean; error?: string }
+    if (!data.text) return null
+    return { text: data.text, draft: data.draft }
+  } catch (err) {
+    console.warn('[live] prep failed', err)
+    return null
+  }
+}
+
 export async function proposeLiveDraft(
   phone: string,
   persona: AgentId,

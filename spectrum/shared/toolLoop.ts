@@ -10,6 +10,8 @@ export type PersonHit = { name: string; phone?: string; email?: string }
 
 export const TOOL_LOOP_INSTRUCTIONS = `You can send mail, create calendar events, and follow up. Do not mime those. If a draft card is already attached, tell them to tap Send, Book, or Text. Never say you already sent, booked, or texted.
 
+If they asked you to prep for a person or meeting, the Prep bundle is already stitched: calendar, People notes, and the mail thread. Write that as one prep. Do not ask them to pull pieces. If a Send card is attached, tell them to tap Send.
+
 If you still need a lookup that is not in Life right now, output exactly one line and stop:
 TOOL maps <query>
 TOOL web <query>
@@ -58,8 +60,33 @@ export function looksLikeFollowUp(text: string) {
   )
 }
 
+export function looksLikePrep(text: string) {
+  return /\bprep(?: me)?(?: for)?\b|\bget me ready\b|\bbrief me (?:on|for)\b|\bread me in (?:on|for)\b/i.test(
+    text,
+  )
+}
+
+export function prepTarget(text: string): string | null {
+  const m = String(text || '').match(
+    /\b(?:prep(?: me)?(?: for)?|get me ready for|brief me (?:on|for)|read me in (?:on|for))\s+(?:the |my |our |this )?(.+?)$/i,
+  )
+  if (!m?.[1]) return null
+  const cleaned = m[1]
+    .replace(/\b(meeting|call|1-?1|sync|interview|today|tomorrow)\b/gi, ' ')
+    .replace(/\bwith\b/gi, ' ')
+    .replace(/[.?!]+$/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+  return cleaned || m[1].replace(/[.?!]+$/g, '').trim()
+}
+
 export function wantsOperatorWrite(text: string) {
-  return looksLikeMailWrite(text) || looksLikeEventWrite(text) || looksLikeFollowUp(text)
+  return (
+    looksLikeMailWrite(text) ||
+    looksLikeEventWrite(text) ||
+    looksLikeFollowUp(text) ||
+    looksLikePrep(text)
+  )
 }
 
 export function parseToolCall(text: string): { tool: LiveTool; query: string } | null {
@@ -106,7 +133,7 @@ export function stripToolDirectives(text: string): string {
 
 function nameFromText(text: string): string | null {
   const m = String(text || '').match(
-    /\b(?:follow(?:ing)? up(?: with)?|reach out to|check in with|ping|reconnect with|text|sms|email|message|mail)\s+([A-Za-z][\w'.-]{1,40})/i,
+    /\b(?:follow(?:ing)? up(?: with)?|reach out to|check in with|ping|reconnect with|text|sms|email|message|mail|prep(?: me)?(?: for)?|get me ready for|brief me (?:on|for))\s+(?:the |my |our )?(?:1-?1 with )?([A-Za-z][\w'.-]{1,40})/i,
   )
   if (m?.[1]) return m[1].replace(/['.]+$/g, '')
   const send = String(text || '').match(/\b(?:send|email)\s+([A-Za-z][\w'.-]{1,40})\b/i)

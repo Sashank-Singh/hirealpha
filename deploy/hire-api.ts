@@ -3089,6 +3089,199 @@ async function gmailReplyMeta(
   return { to, subject, threadId: data.threadId || '', inReplyTo }
 }
 
+function prepNeedle(query: string): string {
+  const raw = String(query || '').trim()
+  const m = raw.match(
+    /\b(?:prep(?: me)?(?: for)?|get me ready for|brief me (?:on|for)|read me in (?:on|for))\s+(?:the |my |our |this )?(.+?)$/i,
+  )
+  const rest = m?.[1] || raw
+  const cleaned = rest
+    .replace(/\b(meeting|call|1-?1|sync|interview|today|tomorrow)\b/gi, ' ')
+    .replace(/\bwith\b/gi, ' ')
+    .replace(/[.?!]+$/g, '')
+    .replace(/["()]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+  return (cleaned || rest.replace(/[.?!]+$/g, '').trim()).slice(0, 80)
+}
+
+function prepHayMatch(hay: string, needle: string) {
+  const n = needle.toLowerCase().trim()
+  const h = hay.toLowerCase()
+  if (!n || n.length < 2) return false
+  const variants = [n, n.replace(/1-1/g, '1:1'), n.replace(/1:1/g, '1-1')]
+  if (variants.some((v) => h.includes(v))) return true
+  const nFirst = n.split(/\s+/).find((w) => w.length >= 3) || n.split(/\s+/)[0] || ''
+  if (nFirst.length >= 2 && h.includes(nFirst)) return true
+  const hFirst = h.split(/\s+/)[0] || ''
+  return hFirst.length >= 3 && n.includes(hFirst)
+}
+
+function firstNameOf(name: string) {
+  return (name.split(/\s+/)[0] || name).trim()
+}
+
+async function loadGmailMessageBody(sql: SQL, userId: string, messageId: string): Promise<string> {
+  const access = await googleAccessToken(sql, userId, 'gmail')
+  if (!access) return ''
+  const res = await fetch(
+    `https://gmail.googleapis.com/gmail/v1/users/me/messages/${encodeURIComponent(messageId)}?format=full`,
+    { headers: { Authorization: `Bearer ${access}` } },
+  )
+  if (!res.ok) return ''
+  const data = (await res.json()) as { snippet?: string; payload?: GmailMimePart }
+  const { text, html } = extractGmailBody(data.payload)
+  const raw = (text || stripHtml(html) || data.snippet || '').replace(/\s+/g, ' ').trim()
+  return raw.slice(0, 800)
+}
+
+async function buildPrepBundle(
+  sql: SQL,
+  user: { id: string; name?: string | null; timezone: string | null },
+  query: string,
+): Promise<{
+  text: string
+  draft?:
+    | { kind: 'mail'; to: string; subject: string; body: string }
+    | { kind: 'reply'; messageId: string; body: string }
+} | null> {
+  const needle = prepNeedle(query)
+  const tz = user.timezone || 'America/Los_Angeles'
+  const myName = user.name || null
+  const now = new Date()
+  const until = new Date(now.getTime() + 48 * 60 * 60 * 1000)
+
+  const peopleRows = await sql`
+    SELECT name, phone, email, context, where_met AS "whereMet"
+    FROM hire_network WHERE user_id = ${user.id}
+    ORDER BY coalesce(last_touch, '1970-01-01'::timestamptz) DESC
+    LIMIT 40
+  `
+  const people = peopleRows as Array<{
+    name: string
+    phone: string
+    email: string
+    context: string
+    whereMet: string
+  }>
+  const person =
+    people.find((p) => needle && prepHayMatch(p.name, needle)) ||
+    people.find((p) => needle && prepHayMatch(needle, p.name)) ||
+    null
+
+  const searchName = person?.name || needle
+
+  let eventLabel = ''
+  let eventTitle = ''
+  const access = await googleAccessToken(sql, user.id, 'calendar')
+  if (access) {
+    const got = await withTimeout(
+      fetchCalendarItems(access, { timeMin: now, timeMax: until, maxResults: 20 }),
+      6000,
+      { ok: false as const, status: 0 },
+    )
+    if (got.ok) {
+      const hit =
+        got.items.find((e) => {
+          if (isHotelStayEvent(e) && !prepHayMatch(e.title, searchName)) return false
+          return prepHayMatch(e.title, searchName) || prepHayMatch(e.description || '', searchName)
+        }) ||
+        (!needle
+          ? got.items.find((e) => !e.allDay && !isHotelStayEvent(e))
+          : undefined)
+      if (hit) {
+        eventTitle = extractOtherPerson(hit.title, myName) || hit.title
+        eventLabel = formatDigestEventLabel(hit, tz, myName)
+      }
+    }
+  }
+  if (!eventLabel) {
+    const rows = await withTimeout(
+      googleEventsRaw(sql, user.id, { timeMin: now, timeMax: until, maxResults: 20 }),
+      6000,
+      [] as Array<{ id: string; title: string; start: string; end: string; allDay: boolean }>,
+    )
+    const hit = rows.find((e) => prepHayMatch(e.title, searchName) && !e.allDay)
+    if (hit) {
+      eventTitle = hit.title
+      const start = formatClock(new Date(hit.start), tz)
+      eventLabel = `${start} · ${hit.title}`
+    }
+  }
+
+  const meetingRows = await sql`
+    SELECT title, notes, briefing
+    FROM hire_meetings
+    WHERE user_id = ${user.id}
+    ORDER BY created_at DESC
+    LIMIT 20
+  `
+  const meeting = (meetingRows as Array<{ title: string; notes: string | null; briefing: string | null }>).find(
+    (m) => prepHayMatch(m.title, searchName) && (m.notes || m.briefing),
+  )
+  const peopleNote = [person?.whereMet ? `Met at ${person.whereMet}` : '', person?.context || '']
+    .filter(Boolean)
+    .join('. ')
+  const meetingNote = String(meeting?.notes || meeting?.briefing || '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 400)
+
+  let threadLine = 'none in the last 90 days'
+  let threadId = ''
+  const email = (person?.email || '').trim()
+  const gmailQ = email
+    ? `(from:${email} OR to:${email}) newer_than:90d`
+    : searchName
+      ? `"${searchName.replace(/"/g, '')}" newer_than:90d`
+      : ''
+  if (gmailQ) {
+    const rich = await withTimeout(loadGmailRich(sql, user.id, gmailQ, 5), 8000, [])
+    const mail = rich[0]
+    if (mail) {
+      threadId = mail.id
+      const body = await withTimeout(loadGmailMessageBody(sql, user.id, mail.id), 6000, '')
+      const last = (body || mail.snippet || '').replace(/\s+/g, ' ').trim().slice(0, 220)
+      threadLine = `${mail.subject || 'Mail'} · ${mail.from || 'unknown'}. Last: ${last || 'empty'}`
+    }
+  }
+
+  const who = person?.name || eventTitle || needle || 'that meeting'
+  const lines = [
+    `Prep for ${who}`,
+    `When: ${eventLabel || 'nothing on the next two days that matches'}`,
+    `People note: ${peopleNote || 'none on file'}`,
+    meetingNote ? `Meeting notes: ${meetingNote}` : '',
+    `Thread: ${threadLine}`,
+  ].filter(Boolean)
+
+  const hasAnything = !!(person || eventLabel || peopleNote || meetingNote || threadId)
+  if (!hasAnything) return null
+
+  const first = firstNameOf(who)
+  const whenBit = eventTitle || 'this'
+  let draft:
+    | { kind: 'mail'; to: string; subject: string; body: string }
+    | { kind: 'reply'; messageId: string; body: string }
+    | undefined
+  if (threadId) {
+    draft = {
+      kind: 'reply',
+      messageId: threadId,
+      body: `Thanks ${first}. I am set for ${whenBit}.`,
+    }
+  } else if (email) {
+    draft = {
+      kind: 'mail',
+      to: email,
+      subject: eventTitle ? `Ahead of ${eventTitle}` : 'Checking in',
+      body: `Hey ${first}, looking forward to ${whenBit}.`,
+    }
+  }
+
+  return { text: lines.join('\n'), draft }
+}
+
 async function judgmentStatePayload(
   sql: SQL,
   user: { id: string; timezone: string | null; name?: string | null },
@@ -4850,6 +5043,27 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
       )
     `
     return json({ ok: true, id, kind: kind === 'event' ? 'event' : 'email' })
+  }
+
+  if (path === '/api/internal/prep' && req.method === 'POST') {
+    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
+    const body = (await req.json().catch(() => ({}))) as {
+      phone?: string
+      persona?: string
+      query?: string
+    }
+    if (!body.phone || !body.persona || !isPersona(body.persona)) {
+      return json({ error: 'phone and persona required' }, 400)
+    }
+    const live = await livePayload(sql, body.phone, body.persona)
+    if (!live.found || !live.hired || !live.userId) return json({ ok: false, error: 'not hired' }, 404)
+    const bundle = await buildPrepBundle(
+      sql,
+      { id: live.userId, name: live.name, timezone: live.timezone },
+      String(body.query || ''),
+    )
+    if (!bundle) return json({ ok: false, text: '' })
+    return json({ ok: true, ...bundle })
   }
 
   if (path === '/api/internal/touch' && req.method === 'POST') {

@@ -3,6 +3,7 @@ import {
   looksLikeEventWrite,
   looksLikeFollowUp,
   looksLikeMailWrite,
+  looksLikePrep,
   matchPerson,
   matchTextPerson,
   parseDraftCall,
@@ -10,6 +11,7 @@ import {
   parsePlannerTool,
   parseToolCall,
   pingMail,
+  prepTarget,
   stripToolDirectives,
   wantsOperatorWrite,
 } from './toolLoop'
@@ -78,6 +80,16 @@ describe('operator writes', () => {
     expect(looksLikeFollowUp('follow up with Maya')).toBe(true)
     expect(looksLikeFollowUp('ping Sam')).toBe(true)
     expect(wantsOperatorWrite('what is today')).toBe(false)
+    expect(looksLikePrep('prep me for Amy')).toBe(true)
+    expect(looksLikePrep('get me ready for the review')).toBe(true)
+    expect(looksLikePrep('brief me on Amy')).toBe(true)
+    expect(wantsOperatorWrite('prep me for Amy')).toBe(true)
+    expect(prepTarget('prep me for Amy')).toBe('Amy')
+    expect(prepTarget('prep me for my 1-1 with Amy Black')).toBe('Amy Black')
+    expect(prepTarget('get me ready for the review')).toBe('review')
+    expect(
+      matchPerson('prep me for Amy', [{ name: 'Amy Black', email: 'amy@x.com' }])?.email,
+    ).toBe('amy@x.com')
   })
 
   it('matches follow up to email and drafts a ping', () => {

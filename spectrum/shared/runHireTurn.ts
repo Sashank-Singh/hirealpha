@@ -8,7 +8,7 @@ import { skillsPromptBlock, SKILLS } from './skills'
 import { gmiChat } from './gmi'
 import { appendThread, loadMemory, upsertFacts, pruneExpiredFacts, setSummary, trimHistory, MAX_RAW, type ThreadMemory } from './memory'
 import { extractFacts, summarizeOld } from './memoryMaintain'
-import { autoLogGratitude, autoLogHabit, autoLogMood, autoLogNutrition, autoLogSleep, autoLogSpend, autoLogWorkout, autoLogNetwork, autoSaveLearning, fetchLiveProfile, fetchLiveTools, fetchMiniRun, formatHireContext, formatHireMemories, persistLiveFacts, proposeLiveDraft, touchInbound } from './liveContext'
+import { autoLogGratitude, autoLogHabit, autoLogMood, autoLogNutrition, autoLogSleep, autoLogSpend, autoLogWorkout, autoLogNetwork, autoSaveLearning, fetchLiveProfile, fetchLiveTools, fetchMiniRun, fetchPrepBundle, formatHireContext, formatHireMemories, persistLiveFacts, proposeLiveDraft, touchInbound } from './liveContext'
 import {
   looksLikeReminder,
   parseReminderIntent,
@@ -35,7 +35,9 @@ import {
   looksLikeEventWrite,
   looksLikeFollowUp,
   looksLikeMailWrite,
+  looksLikePrep,
   matchPerson,
+  prepTarget,
   parseDraftCall,
   parseExtractedWrite,
   parsePlannerTool,
@@ -672,7 +674,12 @@ export async function runHireTurn(input: {
       extras.push('Could not parse an amount to log. Do not claim spend was logged. Tell them to open the Spending card.')
     }
   }
-  if (miniApp?.kind === 'networking_crm' && !looksLikeFollowUp(input.userText) && !looksLikeMailWrite(input.userText)) {
+  if (
+    miniApp?.kind === 'networking_crm' &&
+    !looksLikeFollowUp(input.userText) &&
+    !looksLikeMailWrite(input.userText) &&
+    !looksLikePrep(input.userText)
+  ) {
     const network = await autoLogNetwork(input.senderId, agent.id, input.userText)
     if (network?.logged) {
       extras.push(
@@ -704,7 +711,52 @@ export async function runHireTurn(input: {
       ...(friendLife?.peopleDue || []),
     ]
     const smsAsk = /\b(?:text|sms)\b/i.test(input.userText)
-    if (writeIntent) {
+    let prepLoaded = false
+    if (looksLikePrep(input.userText)) {
+      const prep = await fetchPrepBundle(
+        input.senderId,
+        agent.id,
+        prepTarget(input.userText) || input.userText,
+      )
+      if (prep?.text) {
+        prepLoaded = true
+        extras.push(
+          `Prep bundle (ground truth, stitch this into one iMessage. Do not ask them to pull the calendar, notes, or thread separately):\n${prep.text}\n\nWrite who, when, last note, what the thread said, and what to say. If a Send card is attached, tell them to tap Send. Never claim you sent.`,
+        )
+      } else {
+        extras.push(
+          'Prep lookup came back empty. Say you could not find that person, event, notes, or thread. Do not invent. Offer to try a different name.',
+        )
+      }
+      if (prep?.draft?.kind === 'reply' && prep.draft.messageId) {
+        const proposed = await saveFriendDraft(input.senderId, agent.id, {
+          type: 'reply',
+          id: prep.draft.messageId,
+          body: prep.draft.body,
+        })
+        if (proposed.ok && proposed.id) {
+          confirmKind = 'approve_send'
+          confirmQuery = { draft: proposed.id }
+          extras.push(
+            'A confirm card is attached for the mail. Tell them to tap Send. Never claim you sent.',
+          )
+        }
+      } else if (prep?.draft?.kind === 'mail' && prep.draft.to) {
+        const proposed = await saveFriendDraft(input.senderId, agent.id, {
+          type: 'mail',
+          to: prep.draft.to,
+          subject: prep.draft.subject,
+          body: prep.draft.body,
+        })
+        if (proposed.ok && proposed.id) {
+          confirmKind = 'approve_send'
+          confirmQuery = { draft: proposed.id }
+          extras.push(
+            'A confirm card is attached for the mail. Tell them to tap Send. Never claim you sent.',
+          )
+        }
+      }
+    } else if (writeIntent) {
       let draft: DraftCall | null = null
       const person = matchPerson(input.userText, people)
       if (looksLikeFollowUp(input.userText) && !looksLikeEventWrite(input.userText)) {
@@ -754,7 +806,7 @@ export async function runHireTurn(input: {
     ]
       .filter(Boolean)
       .join('\n')
-    if (!skipFreeLookup) {
+    if (!skipFreeLookup && !prepLoaded) {
       for (; roundsUsed < 3; roundsUsed++) {
         const next = await planNextTool(input.userText, already)
         if (!next) break
