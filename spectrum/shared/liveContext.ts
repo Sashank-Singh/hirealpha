@@ -150,6 +150,42 @@ export async function fetchPrepBundle(
   }
 }
 
+export type WeekBundle = {
+  text: string
+  wroteReview?: boolean
+  spendOver?: boolean
+  ping?: { name: string; email?: string; phone?: string }
+}
+
+export async function fetchWeekBundle(phone: string, persona: AgentId): Promise<WeekBundle | null> {
+  const base = apiBase()
+  const key = process.env.HIREALPHA_INTERNAL_KEY || ''
+  if (!base || !key) return null
+  try {
+    const res = await timedFetch(
+      `${base}/api/internal/week`,
+      {
+        method: 'POST',
+        headers: authHeaders(),
+        body: JSON.stringify({ phone, persona }),
+      },
+      20000,
+    )
+    if (!res.ok) return null
+    const data = (await res.json()) as WeekBundle & { ok?: boolean }
+    if (!data.text) return null
+    return {
+      text: data.text,
+      wroteReview: !!data.wroteReview,
+      spendOver: !!data.spendOver,
+      ping: data.ping,
+    }
+  } catch (err) {
+    console.warn('[live] week failed', err)
+    return null
+  }
+}
+
 export async function proposeLiveDraft(
   phone: string,
   persona: AgentId,
@@ -512,8 +548,9 @@ export async function autoLogHabit(
 
 export async function autoLogSpend(phone: string, persona: AgentId, text: string) {
   return autoLogText<{
-    ok?: boolean; logged?: boolean; error?: string
+    ok?: boolean; logged?: boolean; error?: string; overCap?: boolean
     amount?: number; category?: string; description?: string
+    weekTotal?: number; weeklyBudget?: number
   }>('/api/internal/spending', phone, persona, text)
 }
 

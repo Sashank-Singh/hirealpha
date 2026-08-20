@@ -2,6 +2,7 @@ import type { AgentId } from '../../src/agents/types'
 import { gmiChat } from './gmi'
 import { isBannedTagline } from './outboundFilter'
 import { pickProactiveInsight, tapHint, type LifeCardKind } from './lifeState'
+import { fetchWeekBundle } from './liveContext'
 
 export const JUDGE_MARKER = '[judge]'
 
@@ -291,6 +292,18 @@ export async function runJudgmentLoop(input: {
   if (blocked) {
     console.log(`[judgment:${input.persona}] skip ${input.phone}: ${blocked}`)
     return null
+  }
+
+  if (tick === 'weekly' && input.persona === 'friend') {
+    const week = await fetchWeekBundle(input.phone, input.persona)
+    if (week?.text) {
+      return {
+        send: true,
+        topic: 'weekly_recap',
+        text: week.text.replace(/[\u2013\u2014]/g, ',').replace(/\s+-\s+/g, '. ').slice(0, 700),
+        cardKind: week.spendOver ? 'spending_snapshot' : 'weekly_review',
+      }
+    }
   }
 
   const insight = pickProactiveInsight(state, tick)

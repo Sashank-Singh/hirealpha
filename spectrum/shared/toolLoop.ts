@@ -12,6 +12,8 @@ export const TOOL_LOOP_INSTRUCTIONS = `You can send mail, create calendar events
 
 If they asked you to prep for a person or meeting, the Prep bundle is already stitched: calendar, People notes, and the mail thread. Write that as one prep. Do not ask them to pull pieces. If a Send card is attached, tell them to tap Send.
 
+If they asked you to run the week, the weekly review is already written from logs. Put it in the text. Do not ask them to fill the card. If a Send or Spending card is attached, that is public or money: tell them to tap. Never send or spend on your own.
+
 If you still need a lookup that is not in Life right now, output exactly one line and stop:
 TOOL maps <query>
 TOOL web <query>
@@ -78,6 +80,20 @@ export function prepTarget(text: string): string | null {
     .replace(/\s+/g, ' ')
     .trim()
   return cleaned || m[1].replace(/[.?!]+$/g, '').trim()
+}
+
+export function looksLikeWeekRun(text: string) {
+  const t = String(text || '')
+  if (/\b(?:open|show|pull up|bring back)\b.{0,24}\bweekly review\b/i.test(t)) return false
+  return (
+    /\brun (?:my |the )?week\b/i.test(t) ||
+    /\bhandle (?:my |the )?week\b/i.test(t) ||
+    /\bdo (?:my )?week(?: for me)?\b/i.test(t) ||
+    /\bhow was (?:my )?week\b/i.test(t) ||
+    /\bwhat (?:got done|slipped) this week\b/i.test(t) ||
+    /\breview (?:my )?week\b/i.test(t) ||
+    /\bend of (?:the )?week\b/i.test(t)
+  )
 }
 
 export function wantsOperatorWrite(text: string) {

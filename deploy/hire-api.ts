@@ -42,6 +42,7 @@ import {
   type GmailMimePart,
   type MailJudgeItem,
 } from './gmailHelpers'
+import { composeWeekReview, spendWouldBreakCap, type WeekSnap } from './weekRun'
 
 export const PERSONAS = ['friend', 'coworker', 'cofounder'] as const
 export type Persona = (typeof PERSONAS)[number]
@@ -2936,6 +2937,39 @@ async function collectEventNudgesForUser(
     }
   }
 
+  if (persona === 'friend') {
+    try {
+      const access = await googleAccessToken(sql, user.id, 'calendar')
+      if (access) {
+        const got = await fetchCalendarItems(access, { timeMin: meetFrom, timeMax: meetTo, maxResults: 6 })
+        const events = got.ok ? got.items.filter((e) => !e.allDay && !isHotelStayEvent(e)) : []
+        for (const ev of events) {
+          const key = `cal:${ev.start.toISOString().slice(0, 16)}:${slugNudge(ev.title)}`
+          if (sentKeys.has(key)) continue
+          const mins = Math.max(1, Math.round((ev.start.getTime() - now) / 60_000))
+          const who = meetingWho(ev.title)
+          const prep = await withTimeout(
+            buildPrepBundle(sql, { id: user.id, name: user.name, timezone: tz }, who),
+            7000,
+            null,
+          )
+          const body = prep?.text
+            ? `Meeting with ${who} in ${mins} mins.\n${prep.text}`
+            : `Meeting with ${who} in ${mins} mins.`
+          candidates.push({
+            order: 0,
+            topic: 'meeting_soon',
+            key,
+            urgent: true,
+            text: stripNudgeDashes(body).slice(0, 500),
+          })
+        }
+      }
+    } catch (err) {
+      console.warn('[nudge] friend calendar scan failed', err)
+    }
+  }
+
   const loops = await sql`
     SELECT id, title, due_at AS "dueAt", persona FROM hire_loops
     WHERE user_id = ${user.id} AND status = 'open' AND due_at IS NOT NULL
@@ -3280,6 +3314,106 @@ async function buildPrepBundle(
   }
 
   return { text: lines.join('\n'), draft }
+}
+
+async function loadWeekSnapshot(sql: SQL, userId: string, weekStart: string): Promise<WeekSnap> {
+  const weekEnd = shiftDateStr(weekStart, 7)
+  const nutr = await sql`
+    SELECT count(*)::int AS meals FROM hire_nutrition_logs
+    WHERE user_id = ${userId} AND eaten_at >= ${weekStart}::date AND eaten_at < ${weekEnd}::date
+  `
+  const habits = await sql`
+    SELECT count(*)::int AS checks FROM hire_habit_logs
+    WHERE user_id = ${userId} AND date >= ${weekStart} AND date < ${weekEnd}
+  `
+  const sleep = await sql`
+    SELECT bedtime, wake FROM hire_sleep
+    WHERE user_id = ${userId} AND sleep_date >= ${weekStart} AND sleep_date < ${weekEnd}
+  `
+  const sleepRows = sleep as Array<{ bedtime: string; wake: string }>
+  const avgSleepHours = sleepRows.length
+    ? Math.round(
+        (sleepRows.reduce((sum, r) => sum + sleepHoursBetween(r.bedtime, r.wake), 0) / sleepRows.length) * 10,
+      ) / 10
+    : 0
+  const spend = await sql`
+    SELECT coalesce(sum(amount), 0)::real AS total FROM hire_spending
+    WHERE user_id = ${userId} AND spent_at >= ${weekStart}::date AND spent_at < ${weekEnd}::date
+  `
+  const budget = await sql`SELECT weekly_budget AS "weeklyBudget" FROM hire_spending_budget WHERE user_id = ${userId}`
+  const workouts = await sql`
+    SELECT count(*)::int AS n FROM hire_workouts
+    WHERE user_id = ${userId} AND logged_at >= ${weekStart}::date AND logged_at < ${weekEnd}::date
+  `
+  const gratitude = await sql`
+    SELECT count(*)::int AS n FROM hire_gratitude
+    WHERE user_id = ${userId} AND created_at >= ${weekStart}::date AND created_at < ${weekEnd}::date
+  `
+  const duePeople = await sql`
+    SELECT count(*)::int AS n FROM hire_network
+    WHERE user_id = ${userId}
+      AND (last_touch IS NULL OR last_touch < now() - (cadence_days || ' days')::interval)
+  `
+  return {
+    meals: Number((nutr[0] as { meals?: number })?.meals || 0),
+    habitChecks: Number((habits[0] as { checks?: number })?.checks || 0),
+    sleepNights: sleepRows.length,
+    avgSleepHours,
+    workouts: Number((workouts[0] as { n?: number })?.n || 0),
+    spend: Number((spend[0] as { total?: number })?.total || 0),
+    weeklyBudget: Math.round(Number((budget[0] as { weeklyBudget?: number })?.weeklyBudget) || 400),
+    followUpsDue: Number((duePeople[0] as { n?: number })?.n || 0),
+    gratitude: Number((gratitude[0] as { n?: number })?.n || 0),
+  }
+}
+
+async function buildWeekBundle(
+  sql: SQL,
+  user: { id: string; name?: string | null; timezone: string | null },
+): Promise<{
+  text: string
+  wroteReview: boolean
+  spendOver: boolean
+  ping?: { name: string; email?: string; phone?: string }
+}> {
+  const weekStart = userMonday(user)
+  const snap = await loadWeekSnapshot(sql, user.id, weekStart)
+  const wrote = composeWeekReview(snap)
+  const existing = await sql`
+    SELECT id, done_text AS "doneText" FROM hire_weekly_reviews
+    WHERE user_id = ${user.id} AND week_start = ${weekStart} LIMIT 1
+  `
+  const row = existing[0] as { id: string; doneText?: string } | undefined
+  let wroteReview = false
+  if (!row) {
+    const id = crypto.randomUUID()
+    await sql`
+      INSERT INTO hire_weekly_reviews (id, user_id, week_start, done_text, slipped_text, focus_text)
+      VALUES (${id}, ${user.id}, ${weekStart}, ${wrote.doneText}, ${wrote.slippedText}, ${wrote.focusText})
+    `
+    wroteReview = true
+  }
+  const due = await sql`
+    SELECT name, phone, email FROM hire_network
+    WHERE user_id = ${user.id}
+      AND (last_touch IS NULL OR last_touch < now() - (cadence_days || ' days')::interval)
+    ORDER BY coalesce(last_touch, '1970-01-01'::timestamptz) ASC
+    LIMIT 1
+  `
+  const pingRow = due[0] as { name: string; phone: string; email: string } | undefined
+  const ping = pingRow
+    ? {
+        name: pingRow.name,
+        email: pingRow.email || undefined,
+        phone: pingRow.phone || undefined,
+      }
+    : undefined
+  return {
+    text: wrote.text,
+    wroteReview,
+    spendOver: snap.weeklyBudget > 0 && snap.spend > snap.weeklyBudget,
+    ping: ping?.email || ping?.phone ? ping : undefined,
+  }
 }
 
 async function judgmentStatePayload(
@@ -5066,6 +5200,25 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     return json({ ok: true, ...bundle })
   }
 
+  if (path === '/api/internal/week' && req.method === 'POST') {
+    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
+    const body = (await req.json().catch(() => ({}))) as {
+      phone?: string
+      persona?: string
+    }
+    if (!body.phone || !body.persona || !isPersona(body.persona)) {
+      return json({ error: 'phone and persona required' }, 400)
+    }
+    const live = await livePayload(sql, body.phone, body.persona)
+    if (!live.found || !live.hired || !live.userId) return json({ ok: false, error: 'not hired' }, 404)
+    const bundle = await buildWeekBundle(sql, {
+      id: live.userId,
+      name: live.name,
+      timezone: live.timezone,
+    })
+    return json({ ok: true, ...bundle })
+  }
+
   if (path === '/api/internal/touch' && req.method === 'POST') {
     if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
     const body = (await req.json().catch(() => ({}))) as { phone?: string; persona?: string }
@@ -6194,6 +6347,25 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     if (!user) return json({ error: 'User not found' }, 404)
     const parsed = parseSpendText(String(body.text))
     if (!parsed) return json({ ok: false, logged: false, error: 'Could not parse spend' })
+    const weekStart = userMonday(user)
+    const weekEnd = shiftDateStr(weekStart, 7)
+    const spent = await sql`
+      SELECT coalesce(sum(amount), 0)::real AS total FROM hire_spending
+      WHERE user_id = ${user.id} AND spent_at >= ${weekStart}::date AND spent_at < ${weekEnd}::date
+    `
+    const budget = await sql`SELECT weekly_budget AS "weeklyBudget" FROM hire_spending_budget WHERE user_id = ${user.id}`
+    const weekTotal = Number((spent[0] as { total?: number })?.total || 0)
+    const weeklyBudget = Math.round(Number((budget[0] as { weeklyBudget?: number })?.weeklyBudget) || 400)
+    if (spendWouldBreakCap(weekTotal, weeklyBudget, parsed.amount)) {
+      return json({
+        ok: false,
+        logged: false,
+        overCap: true,
+        amount: parsed.amount,
+        weekTotal,
+        weeklyBudget,
+      })
+    }
     const id = crypto.randomUUID()
     await sql`
       INSERT INTO hire_spending (id, user_id, amount, category, description)

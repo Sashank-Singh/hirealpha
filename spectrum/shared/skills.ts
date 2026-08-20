@@ -76,7 +76,7 @@ export function skillsPromptBlock(agentId: AgentId, connected: string[] = []): s
     'Do not claim you completed a tool action unless a tool result is provided in context.',
     'Never say you sent mail, booked a calendar event, or texted someone. Writes need a card tap: Send, Book, or Text.',
     agentId === 'friend'
-      ? 'If they ask to prep for a person or meeting, stitch calendar, People notes, and the mail thread into one text. Do not ask them to pull pieces.'
+      ? 'If they ask to prep for a person, stitch calendar, People notes, and the mail thread into one text. If they ask to run the week, the weekly review is already written from logs. Private logs can save themselves. Mail, texts, calendar, and money over the spend cap still need a tap. Do not ask them to pull pieces or fill the card.'
       : '',
     'When tool results are present in context, NEVER say you cannot access the data or that a tool is not connected. The results ARE your answer — use them directly. Do not hedge, apologize, or ask the user to connect something that already returned data.',
   ]

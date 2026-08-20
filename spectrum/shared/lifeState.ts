@@ -36,6 +36,7 @@ export type LifeCardKind = Extract<
   | 'networking_crm'
   | 'pick_night'
   | 'mirror'
+  | 'weekly_review'
 >
 
 export type LifeInsight = {

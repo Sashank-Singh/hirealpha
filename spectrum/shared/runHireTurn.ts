@@ -8,7 +8,7 @@ import { skillsPromptBlock, SKILLS } from './skills'
 import { gmiChat } from './gmi'
 import { appendThread, loadMemory, upsertFacts, pruneExpiredFacts, setSummary, trimHistory, MAX_RAW, type ThreadMemory } from './memory'
 import { extractFacts, summarizeOld } from './memoryMaintain'
-import { autoLogGratitude, autoLogHabit, autoLogMood, autoLogNutrition, autoLogSleep, autoLogSpend, autoLogWorkout, autoLogNetwork, autoSaveLearning, fetchLiveProfile, fetchLiveTools, fetchMiniRun, fetchPrepBundle, formatHireContext, formatHireMemories, persistLiveFacts, proposeLiveDraft, touchInbound } from './liveContext'
+import { autoLogGratitude, autoLogHabit, autoLogMood, autoLogNutrition, autoLogSleep, autoLogSpend, autoLogWorkout, autoLogNetwork, autoSaveLearning, fetchLiveProfile, fetchLiveTools, fetchMiniRun, fetchPrepBundle, fetchWeekBundle, formatHireContext, formatHireMemories, persistLiveFacts, proposeLiveDraft, touchInbound } from './liveContext'
 import {
   looksLikeReminder,
   parseReminderIntent,
@@ -36,6 +36,7 @@ import {
   looksLikeFollowUp,
   looksLikeMailWrite,
   looksLikePrep,
+  looksLikeWeekRun,
   matchPerson,
   prepTarget,
   parseDraftCall,
@@ -670,6 +671,10 @@ export async function runHireTurn(input: {
       extras.push(
         `Spend was automatically logged: $${spend.amount} (${spend.category}${spend.description ? `, ${spend.description}` : ''}). Confirm briefly; do not ask them to log it again.`,
       )
+    } else if (spend && 'overCap' in spend && spend.overCap) {
+      extras.push(
+        `That spend would break the weekly cap ($${Math.round(Number(spend.weekTotal) || 0)} of $${Math.round(Number(spend.weeklyBudget) || 0)}, plus $${spend.amount}). Do not log it. Tell them to tap the Spending card if they still want it on the book. Never claim it was logged.`,
+      )
     } else {
       extras.push('Could not parse an amount to log. Do not claim spend was logged. Tell them to open the Spending card.')
     }
@@ -712,7 +717,43 @@ export async function runHireTurn(input: {
     ]
     const smsAsk = /\b(?:text|sms)\b/i.test(input.userText)
     let prepLoaded = false
-    if (looksLikePrep(input.userText)) {
+    const weekAsk =
+      looksLikeWeekRun(input.userText) ||
+      (miniApp?.kind === 'weekly_review' && !/\b(?:open|show|pull up|bring back)\b/i.test(input.userText))
+    if (weekAsk) {
+      const week = await fetchWeekBundle(input.senderId, agent.id)
+      if (week?.text) {
+        prepLoaded = true
+        extras.push(
+          `Week bundle (ground truth, already saved. Stitch into one iMessage. Do not ask them to fill the weekly review card):\n${week.text}`,
+        )
+      } else {
+        extras.push('Week lookup came back empty. Do not invent a review. Offer to try again.')
+      }
+      if (week?.spendOver) {
+        confirmKind = 'spending_snapshot'
+        extras.push(
+          'They are over the weekly spend cap. Money needs a tap. Tell them to open Spending. Do not log more spend. Never move money.',
+        )
+      } else if (week?.ping?.email) {
+        const draft = pingMail({ name: week.ping.name, email: week.ping.email, phone: week.ping.phone })
+        if (draft) {
+          const proposed = await saveFriendDraft(input.senderId, agent.id, draft)
+          if (proposed.ok && proposed.id) {
+            confirmKind = 'approve_send'
+            confirmQuery = { draft: proposed.id }
+            extras.push(
+              `A follow up for ${week.ping.name} is public, so a Send card is attached. Tell them to tap Send. Never claim you sent.`,
+            )
+          }
+        }
+      } else if (week?.ping?.phone) {
+        confirmKind = 'networking_crm'
+        extras.push(
+          `They are due to ping ${week.ping.name}. Number on file: ${week.ping.phone}. That is public, so tell them to tap Text. Never claim you sent a text.`,
+        )
+      }
+    } else if (looksLikePrep(input.userText)) {
       const prep = await fetchPrepBundle(
         input.senderId,
         agent.id,
