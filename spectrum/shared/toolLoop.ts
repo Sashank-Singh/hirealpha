@@ -6,27 +6,61 @@ export type DraftCall =
   | { type: 'reply'; id: string; body: string }
   | { type: 'event'; title: string; start: string; end: string }
 
-export const TOOL_LOOP_INSTRUCTIONS = `World model (Life right now) already has weekday, next 8 hours of calendar, judged mail, workout name, and people phones. Use it. Do not invent.
+export type PersonHit = { name: string; phone?: string; email?: string }
 
-If you need a lookup that is not in that block, output exactly one line and stop:
+export const TOOL_LOOP_INSTRUCTIONS = `You can send mail, create calendar events, and follow up. Do not mime those. If a draft card is already attached, tell them to tap Send, Book, or Text. Never say you already sent, booked, or texted.
+
+If you still need a lookup that is not in Life right now, output exactly one line and stop:
 TOOL maps <query>
 TOOL web <query>
 TOOL gmail <query>
 TOOL calendar <query>
 TOOL drive <query>
 
-If they want mail sent or a calendar event created, do not send or book it. Output one line:
+If no card is attached yet and they want mail or a calendar event, output one line:
 DRAFT_MAIL to=email@x.com | subject=Subject | body=The mail on one line
 DRAFT_REPLY id=<gmail id from the mail lines> | body=The reply on one line
-DRAFT_EVENT title=Title | start=2026-08-21T15:00 | end=2026-08-21T15:30
+DRAFT_EVENT title=Title | start=2026-08-21T15:00 | end=2026-08-21T15:30`
 
-Then one short sentence telling them to tap Send or Book on the card. Never say you sent, booked, or texted.`
-
-const TOOL_RE = /^\s*TOOL\s+(maps|web|gmail|calendar|drive)\s+(.+)\s*$/im
-const DRAFT_MAIL_RE = /^\s*DRAFT_MAIL\s+to=([^|]+)\|\s*subject=([^|]+)\|\s*body=(.+)$/im
-const DRAFT_REPLY_RE = /^\s*DRAFT_REPLY\s+id=([^|]+)\|\s*body=(.+)$/im
-const DRAFT_EVENT_RE = /^\s*DRAFT_EVENT\s+title=([^|]+)\|\s*start=([^|]+)(?:\|\s*end=(.+))?$/im
+const TOOL_RE = /\bTOOL\s+(maps|web|gmail|calendar|drive)\s+(.+?)(?:\n|$)/i
+const DRAFT_MAIL_RE = /\bDRAFT_MAIL\s+to=([^|]+)\|\s*subject=([^|]+)\|\s*body=(.+)/i
+const DRAFT_REPLY_RE = /\bDRAFT_REPLY\s+id=([^|]+)\|\s*body=(.+)/i
+const DRAFT_EVENT_RE = /\bDRAFT_EVENT\s+title=([^|]+)\|\s*start=([^|\n]+)(?:\|\s*end=([^\n]+))?/i
 const DIRECTIVE_RE = /^\s*(?:TOOL\s+(?:maps|web|gmail|calendar|drive)|DRAFT_(?:MAIL|REPLY|EVENT))\b.*$/gim
+
+export function looksLikeMailWrite(text: string) {
+  const t = String(text || '')
+  return (
+    /\b(send|draft|write|fire)\b.{0,48}\b(e-?mail|mail|gmail|note)\b/i.test(t) ||
+    /\b(e-?mail|mail)\s+(?:to|them|her|him)\b/i.test(t) ||
+    /\breply (?:to|all)\b/i.test(t) ||
+    /\b(?:send|email)\s+[A-Za-z][\w'.-]{1,40}\b/i.test(t)
+  )
+}
+
+export function looksLikeEventWrite(text: string) {
+  const t = String(text || '')
+  return (
+    /\b(add|put|create|book|hold|schedule|make)\b.{0,48}\b(calendar|event|meeting|call|slot|hold)\b/i.test(t) ||
+    /\bon (?:my )?calendar\b/i.test(t) ||
+    /\bbook (?:me |a )?(?:slot|time|meeting|call)\b/i.test(t)
+  )
+}
+
+export function looksLikeFollowUp(text: string) {
+  const t = String(text || '')
+  return (
+    /\bfollow(?:ing)? up\b/i.test(t) ||
+    /\breach out\b/i.test(t) ||
+    /\bcheck in with\b/i.test(t) ||
+    /\breconnect with\b/i.test(t) ||
+    /\b(?:ping|text|sms)\s+[A-Za-z][\w'.-]{1,40}\b/i.test(t)
+  )
+}
+
+export function wantsOperatorWrite(text: string) {
+  return looksLikeMailWrite(text) || looksLikeEventWrite(text) || looksLikeFollowUp(text)
+}
 
 export function parseToolCall(text: string): { tool: LiveTool; query: string } | null {
   const m = String(text || '').match(TOOL_RE)
@@ -64,25 +98,83 @@ export function parseDraftCall(text: string): DraftCall | null {
 export function stripToolDirectives(text: string): string {
   return String(text || '')
     .replace(DIRECTIVE_RE, '')
+    .replace(/\bDRAFT_(?:MAIL|REPLY|EVENT)\b[^\n]*/gi, '')
+    .replace(/\bTOOL\s+(?:maps|web|gmail|calendar|drive)\s+[^\n]*/gi, '')
     .replace(/\n{3,}/g, '\n\n')
     .trim()
 }
 
-export function matchTextPerson(
-  text: string,
-  people: Array<{ name: string; phone?: string }>,
-): { name: string; phone: string } | null {
+function nameFromText(text: string): string | null {
   const m = String(text || '').match(
-    /\b(?:text|sms|imessage|ping|message)\s+([A-Za-z][\w'.-]{1,40})/i,
+    /\b(?:follow(?:ing)? up(?: with)?|reach out to|check in with|ping|reconnect with|text|sms|email|message|mail)\s+([A-Za-z][\w'.-]{1,40})/i,
   )
-  if (!m) return null
-  const q = (m[1] || '').replace(/['.]+$/g, '').toLowerCase()
-  if (!q || q === 'me' || q === 'them') return null
+  if (m?.[1]) return m[1].replace(/['.]+$/g, '')
+  const send = String(text || '').match(/\b(?:send|email)\s+([A-Za-z][\w'.-]{1,40})\b/i)
+  return send?.[1]?.replace(/['.]+$/g, '') || null
+}
+
+export function matchPerson(text: string, people: PersonHit[]): PersonHit | null {
+  const q = (nameFromText(text) || '').toLowerCase()
+  if (!q || q === 'me' || q === 'them' || q === 'him' || q === 'her') return null
   const hit = people.find((p) => {
-    if (!p.phone) return false
     const name = p.name.toLowerCase()
     const first = name.split(/\s+/)[0] || name
     return name === q || first === q || name.startsWith(q)
   })
+  return hit || null
+}
+
+export function matchTextPerson(
+  text: string,
+  people: Array<{ name: string; phone?: string; email?: string }>,
+): { name: string; phone: string } | null {
+  const hit = matchPerson(text, people)
   return hit?.phone ? { name: hit.name, phone: hit.phone } : null
+}
+
+export function pingMail(person: PersonHit): DraftCall | null {
+  const to = (person.email || '').trim()
+  if (!to) return null
+  const first = person.name.split(/\s+/)[0] || person.name
+  return {
+    type: 'mail',
+    to,
+    subject: `Checking in`,
+    body: `Hey ${first}, checking in. How are things on your end?`,
+  }
+}
+
+export function parsePlannerTool(raw: string): { tool: LiveTool; query: string } | null {
+  const tool = (String(raw || '').match(/"tool"\s*:\s*"(maps|web|gmail|calendar|drive|none)"/) || [])[1]
+  if (!tool || tool === 'none') return null
+  const query = (String(raw || '').match(/"query"\s*:\s*"([^"]+)"/) || [])[1] || ''
+  if (!query.trim()) return null
+  return { tool: tool as LiveTool, query: query.trim() }
+}
+
+export function parseExtractedWrite(raw: string): DraftCall | null {
+  const action = (String(raw || '').match(/"action"\s*:\s*"(mail|reply|event|none)"/) || [])[1]
+  if (!action || action === 'none') return null
+  const field = (key: string) => {
+    const m = String(raw || '').match(new RegExp(`"${key}"\\s*:\\s*"([^"]*)"`))
+    return (m?.[1] || '').trim()
+  }
+  if (action === 'mail') {
+    const to = field('to')
+    const subject = field('subject')
+    const body = field('body')
+    if (to && subject) return { type: 'mail', to, subject, body }
+  }
+  if (action === 'reply') {
+    const id = field('id')
+    const body = field('body')
+    if (id && body) return { type: 'reply', id, body }
+  }
+  if (action === 'event') {
+    const title = field('title')
+    const start = field('start')
+    const end = field('end')
+    if (title && start) return { type: 'event', title, start, end }
+  }
+  return null
 }

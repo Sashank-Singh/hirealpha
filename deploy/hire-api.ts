@@ -3220,14 +3220,15 @@ async function judgmentStatePayload(
     .map(({ name, days, note, phone }) => ({ name, days, note, phone }))
 
   const phoneRows = await sql`
-    SELECT name, phone FROM hire_network
-    WHERE user_id = ${user.id} AND coalesce(phone, '') <> ''
+    SELECT name, phone, email FROM hire_network
+    WHERE user_id = ${user.id} AND (coalesce(phone, '') <> '' OR coalesce(email, '') <> '')
     ORDER BY coalesce(last_touch, '1970-01-01'::timestamptz) DESC
     LIMIT 12
   `
-  const peoplePhones = (phoneRows as Array<{ name: string; phone: string }>).map((p) => ({
+  const peoplePhones = (phoneRows as Array<{ name: string; phone: string; email: string }>).map((p) => ({
     name: p.name,
-    phone: p.phone,
+    phone: p.phone || undefined,
+    email: p.email || undefined,
   }))
 
   const radar = await sql`

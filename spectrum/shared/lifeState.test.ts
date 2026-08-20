@@ -54,7 +54,7 @@ describe('life state insights', () => {
     expect(block).toContain('id=abc | Recap · Maya')
     expect(block).toContain('3:00 PM · Amy Black · Google Meet')
     expect(block).toContain('Maya (11 days, +12163032166)')
-    expect(block).toContain('People you can text: Maya +12163032166')
+    expect(block).toContain('People you can text or email: Maya +12163032166')
   })
 
   it('morning tick synthesizes calendar plus risk', () => {

@@ -34,8 +34,8 @@ export type JudgmentState = {
   sleepWeek?: { nights: number; avgHours: number; shortNights: number }
   workoutsToday?: number
   workoutToday?: { name: string; place: string; rest?: boolean }
-  peopleDue?: Array<{ name: string; days: number; note?: string; phone?: string }>
-  peoplePhones?: Array<{ name: string; phone: string }>
+  peopleDue?: Array<{ name: string; days: number; note?: string; phone?: string; email?: string }>
+  peoplePhones?: Array<{ name: string; phone?: string; email?: string }>
   spend?: { weekTotal: number; weeklyBudget: number }
   loops?: string[]
   calendar?: string[]

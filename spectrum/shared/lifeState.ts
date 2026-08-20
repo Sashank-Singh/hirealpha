@@ -11,8 +11,8 @@ export type LifeState = {
   sleepWeek?: { nights: number; avgHours: number; shortNights: number }
   workoutsToday?: number
   workoutToday?: { name: string; place: string; rest?: boolean }
-  peopleDue?: Array<{ name: string; days: number; note?: string; phone?: string }>
-  peoplePhones?: Array<{ name: string; phone: string }>
+  peopleDue?: Array<{ name: string; days: number; note?: string; phone?: string; email?: string }>
+  peoplePhones?: Array<{ name: string; phone?: string; email?: string }>
   spend?: { weekTotal: number; weeklyBudget: number }
   loops?: string[]
   calendar?: string[]
@@ -385,7 +385,9 @@ export function formatLifeStateBlock(state: LifeState): string {
   }
   if (state.peoplePhones?.length) {
     lines.push(
-      `People you can text: ${state.peoplePhones.map((p) => `${p.name} ${p.phone}`).join(', ')}. If they say text a name, use that number. Tell them to tap Text on the People card. Never claim you sent a text.`,
+      `People you can text or email: ${state.peoplePhones
+        .map((p) => [p.name, p.phone, p.email].filter(Boolean).join(' '))
+        .join(', ')}. If they say text a name, use the number. If they say email or follow up, use the email. Tell them to tap Send, Book, or Text. Never claim you sent a text.`,
     )
   }
   if (state.calendar?.length) lines.push(`Calendar next 8 hours: ${state.calendar.slice(0, 6).join('; ')}.`)

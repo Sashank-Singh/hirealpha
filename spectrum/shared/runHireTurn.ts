@@ -32,11 +32,20 @@ import {
 import { foldQuotes, isBannedTagline, dropBannedTaglines } from './outboundFilter'
 import { formatNowForAgent, pickUserTimezone, timezoneFromText } from '../../deploy/timezones'
 import {
-  matchTextPerson,
+  looksLikeEventWrite,
+  looksLikeFollowUp,
+  looksLikeMailWrite,
+  matchPerson,
   parseDraftCall,
+  parseExtractedWrite,
+  parsePlannerTool,
   parseToolCall,
+  pingMail,
   stripToolDirectives,
+  wantsOperatorWrite,
   TOOL_LOOP_INSTRUCTIONS,
+  type DraftCall,
+  type PersonHit,
 } from './toolLoop'
 
 export { isBannedTagline } from './outboundFilter'
@@ -483,7 +492,13 @@ export async function runHireTurn(input: {
     digestText = digest?.text?.trim() || null
   }
 
-  const skipFreeLookup = !!(miniApp && miniApp.kind !== 'pick_night' && miniApp.kind !== 'digest')
+  const writeIntent = wantsOperatorWrite(input.userText)
+  const skipFreeLookup = !!(
+    miniApp &&
+    miniApp.kind !== 'pick_night' &&
+    miniApp.kind !== 'digest' &&
+    !writeIntent
+  )
 
   let toolResults: string[] = []
   if (live.found && live.hired && !digestText && !skipFreeLookup) {
@@ -521,6 +536,7 @@ export async function runHireTurn(input: {
   const extras: string[] = []
   let confirmKind: MiniAppKind | null = null
   let confirmQuery: Record<string, string> | undefined
+  let friendLife: Awaited<ReturnType<typeof fetchJudgmentState>> = null
   if (!live.found) {
     extras.push(
       'This sender is not linked to a HireAlpha account yet. If they ask about email, calendar, or personal setup, tell them to sign in at hirealpha.chat/app with the same phone they are texting from.',
@@ -557,19 +573,9 @@ export async function runHireTurn(input: {
     const remembered = formatHireMemories(live.memories)
     if (remembered) extras.push(remembered)
     if (agent.id === 'friend') {
-      const life = await fetchJudgmentState(input.senderId, agent.id, 'turn')
-      if (life) extras.push(formatLifeStateBlock(life))
+      friendLife = await fetchJudgmentState(input.senderId, agent.id, 'turn')
+      if (friendLife) extras.push(formatLifeStateBlock(friendLife))
       extras.push(TOOL_LOOP_INSTRUCTIONS)
-      const textPerson = matchTextPerson(input.userText, [
-        ...(life?.peoplePhones || []),
-        ...(life?.peopleDue || []),
-      ])
-      if (textPerson) {
-        extras.push(
-          `They want to text ${textPerson.name}. Number on file: ${textPerson.phone}. Tell them to tap Text on the People card. Never claim you sent a text.`,
-        )
-        confirmKind = 'networking_crm'
-      }
       if (looksLikeLifeTap(input.userText)) {
         extras.push(
           'They answered a tap from a previous text (eat, skip, later, done, send, in, out). Honor that using the life state numbers. If they said eat, tell them the protein number and one food. If they said skip, accept it. Do not claim you logged, booked, or sent anything unless a tool result says so.',
@@ -666,7 +672,7 @@ export async function runHireTurn(input: {
       extras.push('Could not parse an amount to log. Do not claim spend was logged. Tell them to open the Spending card.')
     }
   }
-  if (miniApp?.kind === 'networking_crm') {
+  if (miniApp?.kind === 'networking_crm' && !looksLikeFollowUp(input.userText) && !looksLikeMailWrite(input.userText)) {
     const network = await autoLogNetwork(input.senderId, agent.id, input.userText)
     if (network?.logged) {
       extras.push(
@@ -687,6 +693,81 @@ export async function runHireTurn(input: {
       extras.push('Could not auto-save to Learning Queue. Do not claim it was saved. The Learning Queue card is attached; they can add it from there.')
     }
   }
+  if (
+    live.found &&
+    live.hired &&
+    agent.id === 'friend' &&
+    !digestText
+  ) {
+    const people: PersonHit[] = [
+      ...(friendLife?.peoplePhones || []),
+      ...(friendLife?.peopleDue || []),
+    ]
+    const smsAsk = /\b(?:text|sms)\b/i.test(input.userText)
+    if (writeIntent) {
+      let draft: DraftCall | null = null
+      const person = matchPerson(input.userText, people)
+      if (looksLikeFollowUp(input.userText) && !looksLikeEventWrite(input.userText)) {
+        if (smsAsk && person?.phone) {
+          confirmKind = 'networking_crm'
+          extras.push(
+            `They want to text ${person.name}. Number on file: ${person.phone}. Tell them to tap Text on the People card. Never claim you sent a text.`,
+          )
+        } else if (person?.email) {
+          draft = looksLikeMailWrite(input.userText)
+            ? (await extractFriendWrite(input.userText, people, friendLife?.mail || [], timezone)) || pingMail(person)
+            : pingMail(person)
+        } else if (person?.phone) {
+          confirmKind = 'networking_crm'
+          extras.push(
+            `They want to follow up with ${person.name}. Number on file: ${person.phone}. Tell them to tap Text on the People card. Never claim you sent a text.`,
+          )
+        }
+      }
+      if (!draft && !confirmKind && (looksLikeMailWrite(input.userText) || looksLikeEventWrite(input.userText))) {
+        draft = await extractFriendWrite(input.userText, people, friendLife?.mail || [], timezone)
+        if (draft?.type === 'mail' && !draft.to.includes('@') && person?.email) {
+          draft = { ...draft, to: person.email }
+        }
+      }
+      if (draft) {
+        const proposed = await saveFriendDraft(input.senderId, agent.id, draft)
+        if (proposed.ok && proposed.id) {
+          confirmKind = draft.type === 'event' ? 'pick_slot' : 'approve_send'
+          confirmQuery = { draft: proposed.id }
+          extras.push(
+            `A confirm card is attached for ${draft.type === 'event' ? 'the calendar event' : 'the mail'}. Tell them to tap ${draft.type === 'event' ? 'Book' : 'Send'}. Never claim you sent or booked.`,
+          )
+        } else {
+          extras.push(
+            `Could not save that draft. ${proposed.error || 'Try again.'} Do not claim you sent or booked.`,
+          )
+        }
+      }
+    }
+
+    let roundsUsed = toolResults.length ? 1 : 0
+    let already = [
+      (friendLife?.calendar || []).join('; '),
+      (friendLife?.mail || []).join('; '),
+      toolResults.join('\n'),
+    ]
+      .filter(Boolean)
+      .join('\n')
+    if (!skipFreeLookup) {
+      for (; roundsUsed < 3; roundsUsed++) {
+        const next = await planNextTool(input.userText, already)
+        if (!next) break
+        const got = await fetchLiveTools(input.senderId, agent.id, next.query, next.tool)
+        const block = got.length
+          ? got.join('\n\n')
+          : `Lookup for ${next.tool} came back empty. Do not invent.`
+        toolResults.push(block)
+        already = `${already}\n${block}`
+      }
+    }
+  }
+
   if (digestText) {
     extras.push(
       `Live day wrap (ground truth, use this, do not invent):\n${digestText}\n\nWrite the debrief from this. Cover today, mail, tonight leftover, tomorrow, reminders, and open loops. One message. No intro.`,
@@ -759,83 +840,46 @@ export async function runHireTurn(input: {
     ]
     if (live.hired && agent.id === 'friend') {
       const loopMessages = [...baseMessages]
-      let rounds = toolResults.length ? 1 : 0
-      for (; rounds < 3; rounds++) {
+      reply = await gmiChat({
+        temperature: agent.temperature,
+        maxTokens,
+        messages: loopMessages,
+      })
+      const leftoverTool = parseToolCall(reply)
+      const leftoverDraft = parseDraftCall(reply)
+      if (leftoverTool && !digestText) {
+        const got = await fetchLiveTools(input.senderId, agent.id, leftoverTool.query, leftoverTool.tool)
+        const block = got.length
+          ? got.join('\n\n')
+          : `Lookup for ${leftoverTool.tool} came back empty. Do not invent.`
+        loopMessages.push(
+          { role: 'assistant', content: stripToolDirectives(reply) || 'Looking that up.' },
+          { role: 'user', content: `Tool result for ${leftoverTool.tool} (ground truth, use this):\n${block}` },
+        )
         reply = await gmiChat({
           temperature: agent.temperature,
           maxTokens,
           messages: loopMessages,
         })
-        const tool = parseToolCall(reply)
-        const draft = parseDraftCall(reply)
-        if (tool) {
-          const got = await fetchLiveTools(input.senderId, agent.id, tool.query, tool.tool)
-          const block = got.length
-            ? got.join('\n\n')
-            : `Lookup for ${tool.tool} came back empty. Do not invent.`
+      } else if (leftoverDraft && !confirmKind) {
+        const proposed = await saveFriendDraft(input.senderId, agent.id, leftoverDraft)
+        if (proposed.ok && proposed.id) {
+          confirmKind = leftoverDraft.type === 'event' ? 'pick_slot' : 'approve_send'
+          confirmQuery = { draft: proposed.id }
           loopMessages.push(
-            { role: 'assistant', content: stripToolDirectives(reply) || 'Looking that up.' },
-            { role: 'user', content: `Tool result for ${tool.tool} (ground truth, use this):\n${block}` },
+            { role: 'assistant', content: stripToolDirectives(reply) || 'Draft is ready.' },
+            {
+              role: 'user',
+              content:
+                'Draft is saved. A confirm card is attached. Tell them to tap Send or Book. Never claim you sent or booked.',
+            },
           )
-          continue
+          reply = await gmiChat({
+            temperature: agent.temperature,
+            maxTokens: Math.max(agent.maxTokens, 320),
+            messages: loopMessages,
+          })
         }
-        if (draft) {
-          const proposed =
-            draft.type === 'mail'
-              ? await proposeLiveDraft(input.senderId, agent.id, {
-                  kind: 'mail',
-                  to: draft.to,
-                  subject: draft.subject,
-                  body: draft.body,
-                })
-              : draft.type === 'reply'
-                ? await proposeLiveDraft(input.senderId, agent.id, {
-                    kind: 'reply',
-                    messageId: draft.id,
-                    body: draft.body,
-                  })
-                : await proposeLiveDraft(input.senderId, agent.id, {
-                    kind: 'event',
-                    title: draft.title,
-                    start: draft.start,
-                    end: draft.end,
-                  })
-          if (proposed.ok && proposed.id) {
-            confirmKind = draft.type === 'event' ? 'pick_slot' : 'approve_send'
-            confirmQuery = { draft: proposed.id }
-            loopMessages.push(
-              {
-                role: 'assistant',
-                content: stripToolDirectives(reply) || 'Draft is ready.',
-              },
-              {
-                role: 'user',
-                content:
-                  'Draft is saved. A confirm card is attached. Tell them to tap Send or Book. Never claim you sent or booked.',
-              },
-            )
-            reply = await gmiChat({
-              temperature: agent.temperature,
-              maxTokens: Math.max(agent.maxTokens, 320),
-              messages: loopMessages,
-            })
-          } else {
-            loopMessages.push(
-              { role: 'assistant', content: stripToolDirectives(reply) || 'Could not save that draft.' },
-              {
-                role: 'user',
-                content: `Draft did not save. ${proposed.error || 'Try again.'} Do not claim you sent or booked.`,
-              },
-            )
-            reply = await gmiChat({
-              temperature: agent.temperature,
-              maxTokens: Math.max(agent.maxTokens, 320),
-              messages: loopMessages,
-            })
-          }
-        }
-        reply = stripToolDirectives(reply)
-        break
       }
       reply = stripToolDirectives(reply)
     } else {
@@ -899,6 +943,95 @@ export async function runHireTurn(input: {
     : null
 
   return { reply: finalReply, bubbles: splitBubbles(finalReply), source, authoritative, card }
+}
+
+async function planNextTool(
+  userText: string,
+  already: string,
+): Promise<{ tool: 'maps' | 'web' | 'gmail' | 'calendar' | 'drive'; query: string } | null> {
+  try {
+    const raw = await gmiChat({
+      temperature: 0,
+      maxTokens: 80,
+      messages: [
+        {
+          role: 'system',
+          content:
+            'Decide if another live lookup is needed before answering this iMessage. JSON only, exactly one of {"tool":"maps","query":"..."}, {"tool":"web","query":"..."}, {"tool":"gmail","query":"..."}, {"tool":"calendar","query":"..."}, {"tool":"drive","query":"..."}, {"tool":"none"}. Use none if calendar, mail, or people are already in context, they are only chatting, or they only asked to send mail, book, or follow up.',
+        },
+        {
+          role: 'user',
+          content: `Message: ${userText}\nAlready have:\n${already.slice(0, 1200) || '(none)'}`,
+        },
+      ],
+    })
+    return parsePlannerTool(raw)
+  } catch {
+    return null
+  }
+}
+
+async function extractFriendWrite(
+  userText: string,
+  people: PersonHit[],
+  mail: string[],
+  timezone: string,
+): Promise<DraftCall | null> {
+  try {
+    const roster = people
+      .map((p) => `${p.name} phone=${p.phone || ''} email=${p.email || ''}`)
+      .join('; ')
+    const raw = await gmiChat({
+      temperature: 0,
+      maxTokens: 220,
+      messages: [
+        {
+          role: 'system',
+          content: `Extract a mail send, mail reply, or calendar event from one iMessage. JSON only: {"action":"mail","to":"","subject":"","body":""} or {"action":"reply","id":"","body":""} or {"action":"event","title":"","start":"","end":""} or {"action":"none"}. Use the People roster for email addresses. Use judged mail id= for replies. Event times are in ${timezone}. start can be ISO like 2026-08-21T15:00 or spoken tomorrow 3pm. No markdown.`,
+        },
+        {
+          role: 'user',
+          content: `People: ${roster || 'none'}\nMail: ${mail.join('; ') || 'none'}\nMessage: ${userText}`,
+        },
+      ],
+    })
+    const hit = parseExtractedWrite(raw)
+    if (hit?.type === 'mail' && !hit.to.includes('@')) {
+      const p = matchPerson(`email ${hit.to}`, people) || matchPerson(userText, people)
+      if (p?.email) return { ...hit, to: p.email }
+    }
+    return hit
+  } catch {
+    return null
+  }
+}
+
+async function saveFriendDraft(
+  phone: string,
+  persona: AgentId,
+  draft: DraftCall,
+): Promise<{ ok: boolean; id?: string; error?: string }> {
+  if (draft.type === 'mail') {
+    return proposeLiveDraft(phone, persona, {
+      kind: 'mail',
+      to: draft.to,
+      subject: draft.subject,
+      body: draft.body,
+    })
+  }
+  if (draft.type === 'reply') {
+    return proposeLiveDraft(phone, persona, {
+      kind: 'reply',
+      messageId: draft.id,
+      body: draft.body,
+    })
+  }
+  return proposeLiveDraft(phone, persona, {
+    kind: 'event',
+    title: draft.title,
+    start: draft.start,
+    end: draft.end,
+  })
 }
 
 /**
