@@ -38,7 +38,9 @@ import {
   looksLikePrep,
   looksLikeWeekRun,
   classifyHardStop,
+  classifyHumanLimit,
   hardStopInstruction,
+  humanLimitInstruction,
   matchPerson,
   prepTarget,
   parseDraftCall,
@@ -499,6 +501,7 @@ export async function runHireTurn(input: {
 
   const writeIntent = wantsOperatorWrite(input.userText)
   const hardStop = classifyHardStop(input.userText)
+  const humanLimit = classifyHumanLimit(input.userText)
   const skipFreeLookup = !!(
     miniApp &&
     miniApp.kind !== 'pick_night' &&
@@ -590,6 +593,12 @@ export async function runHireTurn(input: {
     }
   }
   if (hardStop) extras.push(hardStopInstruction(hardStop))
+  if (humanLimit) {
+    const taughtTaste = [...(live.memories || []).map((m) => m.key), ...Object.keys(live.context || {})].some((k) =>
+      /style|taste|aesthetic|fashion|vibe|look/i.test(k),
+    )
+    extras.push(humanLimitInstruction(humanLimit, taughtTaste))
+  }
 
   let miniRun: { text?: string; paste?: string } | null = null
   if (miniApp && LIVE_MINI.has(miniApp.kind)) {
@@ -724,7 +733,7 @@ export async function runHireTurn(input: {
     const weekAsk =
       looksLikeWeekRun(input.userText) ||
       (miniApp?.kind === 'weekly_review' && !/\b(?:open|show|pull up|bring back)\b/i.test(input.userText))
-    if (!hardStop && weekAsk) {
+    if (!hardStop && humanLimit !== 'grief' && weekAsk) {
       const week = await fetchWeekBundle(input.senderId, agent.id)
       if (week?.text) {
         prepLoaded = true
@@ -757,7 +766,7 @@ export async function runHireTurn(input: {
           `They are due to ping ${week.ping.name}. Number on file: ${week.ping.phone}. That is public, so tell them to tap Text. Never claim you sent a text.`,
         )
       }
-    } else if (!hardStop && looksLikePrep(input.userText)) {
+    } else if (!hardStop && humanLimit !== 'grief' && looksLikePrep(input.userText)) {
       const prep = await fetchPrepBundle(
         input.senderId,
         agent.id,
@@ -801,7 +810,7 @@ export async function runHireTurn(input: {
           )
         }
       }
-    } else if (!hardStop && writeIntent) {
+    } else if (!hardStop && humanLimit !== 'grief' && humanLimit !== 'negotiation' && writeIntent) {
       let draft: DraftCall | null = null
       const person = matchPerson(input.userText, people)
       if (looksLikeFollowUp(input.userText) && !looksLikeEventWrite(input.userText)) {
@@ -851,7 +860,7 @@ export async function runHireTurn(input: {
     ]
       .filter(Boolean)
       .join('\n')
-    if (!skipFreeLookup && !prepLoaded && !hardStop) {
+    if (!skipFreeLookup && !prepLoaded && !hardStop && humanLimit !== 'grief') {
       for (; roundsUsed < 3; roundsUsed++) {
         const next = await planNextTool(input.userText, already)
         if (!next) break
@@ -958,7 +967,7 @@ export async function runHireTurn(input: {
           maxTokens,
           messages: loopMessages,
         })
-      } else if (leftoverDraft && !confirmKind && !hardStop) {
+      } else if (leftoverDraft && !confirmKind && !hardStop && humanLimit !== 'grief' && humanLimit !== 'negotiation') {
         const proposed = await saveFriendDraft(input.senderId, agent.id, leftoverDraft)
         if (proposed.ok && proposed.id) {
           confirmKind = leftoverDraft.type === 'event' ? 'pick_slot' : 'approve_send'

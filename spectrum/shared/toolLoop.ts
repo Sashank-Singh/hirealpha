@@ -15,6 +15,7 @@ If they asked you to prep for a person or meeting, the Prep bundle is already st
 If they asked you to run the week, the weekly review is already written from logs. Put it in the text. Do not ask them to fill the card. If a Send or Spending card is attached, that is public or money: tell them to tap. Never send or spend on your own.
 
 Never diagnose. Never give legal advice. Never move money. If they asked for those, refuse in one text. Do not attach Send.
+Never replace them in grief, a live negotiation, or taste you have not been taught. Listen. Prep. Ask. Do not close. Do not invent who they are.
 
 If you still need a lookup that is not in Life right now, output exactly one line and stop:
 TOOL maps <query>
@@ -156,6 +157,64 @@ export function hardStopInstruction(kind: HardStop) {
     return 'HARD STOP: health diagnosis. Do not name a disease, a dose, or a prescription. Do not claim it is nothing. Tell them you cannot diagnose. If it is urgent, tell them to get a clinician. You can still log meals, sleep, and mood.'
   }
   return 'HARD STOP: high stakes legal. Do not say what the law is. Do not draft a binding contract, NDA, will, or lease as advice. Do not send it. Tell them to talk to a lawyer. You can still prep them for a meeting with one.'
+}
+
+export type HumanLimit = 'grief' | 'negotiation' | 'taste'
+
+export function looksLikeGrief(text: string) {
+  const t = String(text || '')
+  if (/\b(deadline|deadlift|dead inside|phone died|battery died)\b/i.test(t)) return false
+  return (
+    /\b(passed away|funeral|grieving|in mourning|memorial service)\b/i.test(t) ||
+    /\b(my|our) (mom|dad|mother|father|brother|sister|partner|wife|husband|kid|child|friend)\b.{0,32}\b(died|dead|passed)\b/i.test(
+      t,
+    ) ||
+    /\b(died|passed)\b.{0,32}\b(mom|dad|mother|father|brother|sister|partner|wife|husband)\b/i.test(t) ||
+    /\bi lost my (mom|dad|mother|father|brother|sister|partner|wife|husband|kid|child)\b/i.test(t)
+  )
+}
+
+export function looksLikeNegotiationClose(text: string) {
+  const t = String(text || '')
+  if (looksLikePrep(t)) return false
+  return (
+    /\bnegotiate (?:this|that|the|it) for me\b/i.test(t) ||
+    /\b(?:handle|close|take) (?:the )?(?:deal|offer|negotiation) for me\b/i.test(t) ||
+    /\byou (?:negotiate|close) (?:it|this|the deal)\b/i.test(t) ||
+    /\bcounter (?:the )?offer for me\b/i.test(t) ||
+    /\btalk them down for me\b/i.test(t)
+  )
+}
+
+export function looksLikeUntaughtTaste(text: string) {
+  const t = String(text || '')
+  if (/\bpick (?:a |the )?(?:restaurant|place|spot|dinner)\b/i.test(t)) return false
+  return (
+    /\bwhich (?:one |place )?(?:is|looks) (?:cooler|better|more me|my vibe)\b/i.test(t) ||
+    /\bpick (?:my|a) (?:vibe|aesthetic|look|style|taste)\b/i.test(t) ||
+    /\bwhat(?:'s| is) my (?:taste|style|aesthetic)\b/i.test(t) ||
+    /\bmake me (?:cool|tasteful)\b/i.test(t)
+  )
+}
+
+export function classifyHumanLimit(text: string): HumanLimit | null {
+  if (looksLikeGrief(text)) return 'grief'
+  if (looksLikeNegotiationClose(text)) return 'negotiation'
+  if (looksLikeUntaughtTaste(text)) return 'taste'
+  return null
+}
+
+export function humanLimitInstruction(kind: HumanLimit, taughtTaste = false) {
+  if (kind === 'grief') {
+    return 'HUMAN LIMIT: grief. Be a friend. Listen. Do not replace the people who know them. Do not do therapy. Do not claim you are enough. Do not run the week, send mail, or ping anyone. If they need a human in the room, say that plainly. Stay with them in the text.'
+  }
+  if (kind === 'negotiation') {
+    return 'HUMAN LIMIT: negotiation. You cannot replace them in the room. Prep talking points if they asked for prep. Do not send the offer, the counter, or close. Do not attach Send. Tell them they have to take the conversation.'
+  }
+  if (taughtTaste) {
+    return 'HUMAN LIMIT: taste. Use only preferences already in memory. Do not invent a new house style. If memory is thin, give two options, not a fake identity.'
+  }
+  return 'HUMAN LIMIT: taste you have not taught. Do not invent who they are. Do not pick a house style. Ask one question or give two options. Never claim this is their taste.'
 }
 
 export function wantsOperatorWrite(text: string) {

@@ -7,7 +7,11 @@ import {
   looksLikeHealthDiagnosis,
   looksLikeHighStakesLegal,
   looksLikeMoneyMovement,
+  looksLikeGrief,
+  looksLikeNegotiationClose,
+  looksLikeUntaughtTaste,
   classifyHardStop,
+  classifyHumanLimit,
   matchPerson,
   matchTextPerson,
   parseDraftCall,
@@ -149,5 +153,28 @@ describe('hard stops', () => {
     expect(looksLikeHighStakesLegal('draft a will and send it')).toBe(true)
     expect(looksLikeHighStakesLegal('prep me for Amy')).toBe(false)
     expect(classifyHardStop('sue them tomorrow')).toBe('legal')
+  })
+})
+
+describe('human limits', () => {
+  it('stays a friend in grief and does not treat a deadline as death', () => {
+    expect(looksLikeGrief('my dad died this morning')).toBe(true)
+    expect(looksLikeGrief('the funeral is Thursday')).toBe(true)
+    expect(looksLikeGrief('the deadline is Thursday')).toBe(false)
+    expect(classifyHumanLimit('I lost my mom')).toBe('grief')
+  })
+
+  it('will not close a negotiation for them, and still lets prep through', () => {
+    expect(looksLikeNegotiationClose('close the deal for me')).toBe(true)
+    expect(looksLikeNegotiationClose('negotiate this for me')).toBe(true)
+    expect(looksLikeNegotiationClose('prep me for the offer')).toBe(false)
+    expect(classifyHumanLimit('handle the negotiation for me')).toBe('negotiation')
+  })
+
+  it('will not invent taste, and still lets a restaurant lookup through', () => {
+    expect(looksLikeUntaughtTaste('pick my aesthetic')).toBe(true)
+    expect(looksLikeUntaughtTaste("what's my taste")).toBe(true)
+    expect(looksLikeUntaughtTaste('pick a restaurant')).toBe(false)
+    expect(classifyHumanLimit('which one looks more me')).toBe('taste')
   })
 })
