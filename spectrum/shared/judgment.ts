@@ -229,6 +229,8 @@ function judgePrompt(state: JudgmentState, insightLine: string, tap: string): st
   return `${personaVoice(state.persona)}
 You are considering whether to text first. This is not a briefing dump.
 
+Right now it is ${state.weekday} at ${String(state.localTime || '').slice(11, 16) || 'unknown'} in ${state.timezone}. That is today. Do not guess the weekday.
+
 Computed life state (do not invent numbers or events):
 ${JSON.stringify(state, null, 0)}
 

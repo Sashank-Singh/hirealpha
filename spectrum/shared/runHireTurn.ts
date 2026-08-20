@@ -29,7 +29,7 @@ import {
   type MiniAppCard,
 } from './miniApps'
 import { foldQuotes, isBannedTagline, dropBannedTaglines } from './outboundFilter'
-import { pickUserTimezone, timezoneFromText } from '../../deploy/timezones'
+import { formatNowForAgent, pickUserTimezone, timezoneFromText } from '../../deploy/timezones'
 
 export { isBannedTagline } from './outboundFilter'
 
@@ -526,6 +526,7 @@ export async function runHireTurn(input: {
       `They have a HireAlpha account (${live.email || 'signed in'}) but have not hired this person yet. Point them to hirealpha.chat/app to hire ${agent.name}.`,
     )
   } else {
+    extras.push(formatNowForAgent(timezone))
     if (isFirst) {
       extras.push(
         `This is their first iMessage to you${live.name ? `. Their name is ${live.name}` : ''}. Introduce yourself once, briefly, in the same text as the answer. No taglines. No second bubble.`,

@@ -90,7 +90,6 @@ export function computeLifeInsights(state: LifeState): LifeInsight[] {
   const proteinGoal = Math.round(n?.proteinGoal || 150)
   const calories = Math.round(n?.calories || 0)
   const calorieGoal = Math.round(n?.calorieGoal || 2200)
-  const proteinLeft = Math.max(0, proteinGoal - protein)
   const shortNights = week?.shortNights || 0
   const sleepLastNight = isLastNightSleep(sleep, state.localTime)
   const lastHours = sleepLastNight ? sleep?.hours || 0 : 0
@@ -131,6 +130,18 @@ export function computeLifeInsights(state: LifeState): LifeInsight[] {
       loop: 'interrupt',
       line: `Protein is sitting at ${protein} of ${proteinGoal}. ${rec}`,
       tap: 'Reply eat, skip, or later.',
+      card: 'nutrition',
+    })
+  }
+
+  if (n && calorieGoal > 0 && calories > calorieGoal) {
+    const over = calories - calorieGoal
+    out.push({
+      topic: 'calorie_over',
+      severity: 70,
+      loop: 'interrupt',
+      line: `You're ${over} calories over your ${calorieGoal} target today.`,
+      tap: 'Reply wrap, later, or skip.',
       card: 'nutrition',
     })
   }
@@ -239,7 +250,7 @@ export function computeLifeInsights(state: LifeState): LifeInsight[] {
     loop: 'night',
     line: [
       sleepLastNight && lastHours > 0 ? `Last night was ${fmtHours(lastHours)}h.` : '',
-      proteinGoal > 0 ? `Protein landed at ${protein} of ${proteinGoal}.` : '',
+      n && proteinGoal > 0 ? `Protein landed at ${protein} of ${proteinGoal}.` : '',
       nightRec,
     ]
       .filter(Boolean)
@@ -290,6 +301,32 @@ export function pickProactiveInsight(state: LifeState, tick: string): LifeInsigh
   return interrupt || null
 }
 
+function clockLine(state: LifeState): string {
+  const weekday = String(state.weekday || '').trim()
+  const m = String(state.localTime || '').match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/)
+  if (!m) return weekday ? `Today is ${weekday}. This is today. Do not guess the weekday.` : ''
+  const months = [
+    'January',
+    'February',
+    'March',
+    'April',
+    'May',
+    'June',
+    'July',
+    'August',
+    'September',
+    'October',
+    'November',
+    'December',
+  ]
+  const hour = Number(m[4])
+  const ap = hour >= 12 ? 'PM' : 'AM'
+  const h12 = hour % 12 || 12
+  const date = `${months[Number(m[2]) - 1]} ${Number(m[3])}, ${m[1]}`
+  const day = weekday || 'unknown'
+  return `Today is ${day}, ${date}. Local time ${h12}:${m[5]} ${ap}. This is today. Do not guess the weekday.`
+}
+
 export function formatLifeStateBlock(state: LifeState): string {
   const insights = computeLifeInsights(state)
   const top = insights.filter((i) => i.loop === 'interrupt').slice(0, 3)
@@ -299,6 +336,8 @@ export function formatLifeStateBlock(state: LifeState): string {
   const lines: string[] = [
     '## Life right now (ground truth from their logs. Use these numbers. Do not invent.)',
   ]
+  const nowLine = clockLine(state)
+  if (nowLine) lines.push(nowLine)
   if (isLastNightSleep(sleep, state.localTime) && sleep?.hours) {
     lines.push(
       `Sleep: last night ${fmtHours(sleep.hours)}h, quality ${sleep.quality}/5.${
@@ -326,7 +365,11 @@ export function formatLifeStateBlock(state: LifeState): string {
     lines.push(`Spend this week: $${Math.round(state.spend.weekTotal)} of $${Math.round(state.spend.weeklyBudget)}.`)
   }
   lines.push(
-    `Workout today: ${state.workoutsToday || 0} lifts logged.${isWeekday(state) ? ' This is a weekday session day.' : ' Weekend, rest is fine.'}`,
+    `Workout today: ${state.workoutsToday || 0} lifts logged.${
+      isWeekday(state)
+        ? ` It is ${state.weekday || 'a weekday'}, a session day.`
+        : ` It is ${state.weekday || 'the weekend'}. Rest is fine.`
+    }`,
   )
   if (state.loops?.length) lines.push(`Promises still open: ${state.loops.slice(0, 3).join('; ')}.`)
   if (state.peopleDue?.length) {

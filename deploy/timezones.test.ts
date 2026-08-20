@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'bun:test'
 import {
+  formatNowForAgent,
   formatZoneAbbrev,
   pickUserTimezone,
   resolveIanaTimezone,
@@ -73,5 +74,14 @@ describe('user timezone', () => {
     expect(utc).toContain('7:30 PM')
     expect(utc).toContain('UTC')
     expect(formatZoneAbbrev(amy[0]!.start, 'UTC')).toBe('UTC')
+  })
+
+  it('tells the model the local weekday and date', () => {
+    const line = formatNowForAgent('America/Los_Angeles', new Date('2026-08-20T15:47:00.000Z'))
+    expect(line).toContain('Thursday')
+    expect(line).toContain('August 20, 2026')
+    expect(line).toMatch(/8:47 AM/)
+    expect(line).toMatch(/PDT|GMT-7/)
+    expect(line).not.toMatch(/[\u2013\u2014]/)
   })
 })

@@ -106,6 +106,29 @@ export function pickUserTimezone(opts: {
   )
 }
 
+/** Ground-truth clock for the model. No guessed weekday. */
+export function formatNowForAgent(timezone: string, now = new Date()): string {
+  const tz = resolveIanaTimezone(timezone) || 'America/Los_Angeles'
+  const weekday = new Intl.DateTimeFormat('en-US', { timeZone: tz, weekday: 'long' }).format(now)
+  const date = new Intl.DateTimeFormat('en-US', {
+    timeZone: tz,
+    month: 'long',
+    day: 'numeric',
+    year: 'numeric',
+  }).format(now)
+  const time = new Intl.DateTimeFormat('en-US', {
+    timeZone: tz,
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  })
+    .format(now)
+    .replace(/\u202f/g, ' ')
+    .replace(/\u00a0/g, ' ')
+  const zone = formatZoneAbbrev(now, tz)
+  return `Today is ${weekday}, ${date}. Local time ${time} ${zone}. This is today. Do not guess the weekday or date.`
+}
+
 export function formatZoneAbbrev(d: Date, timezone: string): string {
   const parts = new Intl.DateTimeFormat('en-US', {
     timeZone: timezone,

@@ -35,6 +35,9 @@ describe('life state insights', () => {
     expect(block).toContain('40g protein of 150')
     expect(block).toContain('Maya (11 days)')
     expect(block).toContain('Do not invent')
+    expect(block).toContain('Today is Tuesday, August 18, 2026')
+    expect(block).toContain('3:00 PM')
+    expect(block).toContain('It is Tuesday, a session day')
   })
 
   it('morning tick synthesizes calendar plus risk', () => {
@@ -102,5 +105,28 @@ describe('life state insights', () => {
     )
     const sleep = insights.find((i) => i.topic === 'sleep')
     expect(sleep?.line).toContain('5h last night')
+  })
+
+  it('does not fabricate protein numbers in the night debrief without nutrition logs', () => {
+    const insights = computeLifeInsights(base({ nutrition: undefined }))
+    const night = insights.find((i) => i.loop === 'night')
+    expect(night?.line).not.toContain('Protein landed at')
+    expect(night?.line).not.toContain('0 of 150')
+  })
+
+  it('surfaces an over-budget calorie day', () => {
+    const insights = computeLifeInsights(
+      base({ nutrition: { calories: 2800, protein: 120, calorieGoal: 2200, proteinGoal: 150, meals: 3 } }),
+    )
+    const cal = insights.find((i) => i.topic === 'calorie_over')
+    expect(cal?.line).toContain('600 calories over')
+    expect(cal?.line).toContain('2200')
+  })
+
+  it('stays silent about calories when under or at goal', () => {
+    const insights = computeLifeInsights(
+      base({ nutrition: { calories: 2000, protein: 120, calorieGoal: 2200, proteinGoal: 150, meals: 3 } }),
+    )
+    expect(insights.find((i) => i.topic === 'calorie_over')).toBeUndefined()
   })
 })
