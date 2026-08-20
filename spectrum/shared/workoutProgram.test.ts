@@ -129,6 +129,17 @@ describe('workout programs', () => {
     }
   })
 
+  it('treats Pushups and Push ups as the same demo', () => {
+    const push = exerciseDemoUrl('Push ups')
+    expect(push).toContain('/workout/push-ups.gif')
+    expect(exerciseDemoUrl('Pushups')).toBe(push)
+    expect(exerciseDemoUrl('push-ups')).toBe(push)
+    const wide = exerciseDemoUrl('Wide push ups')
+    expect(wide).toContain('/workout/wide-push-ups.gif')
+    expect(exerciseDemoUrl('wide push ups')).toBe(wide)
+    expect(exerciseDemoUrl('wide push-ups')).toBe(wide)
+  })
+
   it('treats Saturday and Sunday as rest', () => {
     expect(jsDayToWeekday(0)).toBeNull()
     expect(jsDayToWeekday(6)).toBeNull()
