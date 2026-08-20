@@ -112,7 +112,6 @@ export interface MenuFeature {
 /** Old kinds still open; they land on the surviving app. */
 export const APP_ALIASES: Record<string, string> = {
   relationship_radar: 'networking_crm',
-  drop_zone: 'next_move',
   check_in: 'mirror',
   weekly_focus: 'weekly_review',
   spiral_options: 'next_move',
@@ -130,6 +129,7 @@ export const MENU_FEATURES: Record<string, MenuFeature[]> = {
     { kind: 'networking_crm', title: 'People', emoji: '🤝', blurb: 'Who to follow up.' },
     { kind: 'digest', title: 'Morning brief', emoji: '☀️', blurb: 'Overnight mail, calendar through today, and tomorrow at a glance.', sample: 'morning brief' },
     { kind: 'pick_night', title: 'Evening brief', emoji: '🌙', blurb: 'Wind down today, mail since morning, and tomorrow.' },
+    { kind: 'drop_zone', title: 'Save for later', emoji: '📥', blurb: 'Dump anything and Alpha sorts it later.', sample: 'save for later' },
   ],
   coworker: [
     { kind: 'next_move', title: 'Next', emoji: '▶️', blurb: 'The one thing to do now.' },
@@ -138,6 +138,7 @@ export const MENU_FEATURES: Record<string, MenuFeature[]> = {
     { kind: 'pick_slot', title: 'Pick a slot', emoji: '🗓️', blurb: 'Compare times and pick what works.', sample: 'pick a slot for the review' },
     { kind: 'linear_triage', title: 'Linear triage', emoji: '🎯', blurb: 'Issues and backlog, triaged.', sample: 'triage the backlog' },
     { kind: 'standup_paste', title: 'Standup', emoji: '📋', blurb: 'Raw notes in, tight standup out.', sample: 'standup' },
+    { kind: 'drop_zone', title: 'Save for later', emoji: '📥', blurb: 'Dump anything and Alpha sorts it later.', sample: 'save for later' },
   ],
   cofounder: [
     { kind: 'next_move', title: 'Next', emoji: '▶️', blurb: 'The one thing to do now.' },
@@ -146,12 +147,14 @@ export const MENU_FEATURES: Record<string, MenuFeature[]> = {
     { kind: 'networking_crm', title: 'People', emoji: '🤝', blurb: 'People you met, when to follow up.' },
     { kind: 'approve_investor_note', title: 'Investor note', emoji: '💼', blurb: 'Review the note before it goes out.', sample: 'review the investor note' },
     { kind: 'hire_decision', title: 'Hire decision', emoji: '🤝', blurb: 'The call on the candidate.', sample: 'should we hire them' },
+    { kind: 'drop_zone', title: 'Save for later', emoji: '📥', blurb: 'Dump anything and Alpha sorts it later.', sample: 'save for later' },
   ],
 }
 
 export const APP_STORE_GROUPS: Record<string, { label: string; kinds: string[] }[]> = {
   friend: [
     { label: 'Brief', kinds: ['digest', 'pick_night'] },
+    { label: 'Later', kinds: ['drop_zone'] },
     { label: 'Body', kinds: ['nutrition', 'workout_log', 'sleep_tracker', 'habit_streak'] },
     { label: 'Money', kinds: ['spending_snapshot'] },
     { label: 'People', kinds: ['networking_crm'] },
@@ -159,11 +162,13 @@ export const APP_STORE_GROUPS: Record<string, { label: string; kinds: string[] }
   coworker: [
     { label: 'Now', kinds: ['next_move'] },
     { label: 'Work', kinds: ['meeting_mode', 'approve_send', 'pick_slot', 'linear_triage', 'standup_paste'] },
+    { label: 'Later', kinds: ['drop_zone'] },
   ],
   cofounder: [
     { label: 'Now', kinds: ['next_move'] },
     { label: 'Work', kinds: ['pipeline_board', 'decision_ledger', 'hire_decision', 'approve_investor_note'] },
     { label: 'People', kinds: ['networking_crm'] },
+    { label: 'Later', kinds: ['drop_zone'] },
   ],
 }
 
@@ -209,6 +214,7 @@ const FRIEND_KIND_TITLES: Record<string, { title: string; blurb: string }> = {
   pick_night: { title: 'Evening brief', blurb: 'What happened and what is left.' },
   learning_queue: { title: 'Learning', blurb: 'What to read or watch next.' },
   mirror: { title: 'Mirror', blurb: 'The read of your life.' },
+  drop_zone: { title: 'Save for later', blurb: 'Dump anything and Alpha sorts it later.' },
 }
 
 
@@ -248,6 +254,7 @@ export function MiniAppPage() {
 
   useEffect(() => {
     setSettingsOpen(false)
+    setExpired(false)
   }, [kind])
 
   useEffect(() => {

@@ -766,7 +766,7 @@ describe('Mini-app Text Triggers', () => {
 
     it('detects drop_zone intent (not URL)', () => {
       const result = detectMiniAppRequest('dump this random idea for later', 'friend')
-      expect(result?.kind).toBe('next_move')
+      expect(result?.kind).toBe('drop_zone')
     })
 
     it('detects weekly_review intent', () => {
@@ -814,9 +814,9 @@ describe('Mini-app Text Triggers', () => {
       expect(detectMiniAppRequest('who should i follow', 'friend')?.kind).toBe('networking_crm')
     })
 
-    it('folds Save for later into Next', () => {
-      expect(detectMiniAppRequest('pull up drop zone', 'friend')?.kind).toBe('next_move')
-      expect(detectMiniAppRequest('save for later', 'friend')?.kind).toBe('next_move')
+    it('opens Save for later from drop zone phrases', () => {
+      expect(detectMiniAppRequest('pull up drop zone', 'friend')?.kind).toBe('drop_zone')
+      expect(detectMiniAppRequest('save for later', 'friend')?.kind).toBe('drop_zone')
     })
 
     it('folds Check-in into Mirror and Get unstuck into Next', () => {
@@ -1055,7 +1055,7 @@ describe('Mini-app Text Triggers', () => {
         ['learning_queue', 'friend', 'bring back my learning'],
         ['weekly_review', 'friend', 'open my weekly review'],
         ['networking_crm', 'coworker', 'show my networking'],
-        ['next_move', 'coworker', 'pull up drop zone'],
+        ['drop_zone', 'coworker', 'pull up drop zone'],
       ]
       for (const [kind, persona, text] of apps) {
         const result = detectMiniAppRequest(text, persona)

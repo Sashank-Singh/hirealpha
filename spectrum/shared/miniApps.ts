@@ -157,7 +157,7 @@ const KIND_LABELS: Record<MiniAppKind, string> = {
   meeting_mode: 'Meeting mode',
   decision_ledger: 'Decisions',
   relationship_radar: 'Stay in touch',
-  drop_zone: 'Drop zone',
+  drop_zone: 'Save for later',
   nutrition: 'Nutrition',
   habit_streak: 'Habits',
   mood_tracker: 'Mood',
@@ -276,7 +276,6 @@ export function detectMiniAppRequest(
 /** Dead kinds still resolve so old card URLs and regexes land on a living app. */
 const KIND_ALIASES: Partial<Record<MiniAppKind, MiniAppKind>> = {
   relationship_radar: 'networking_crm',
-  drop_zone: 'next_move',
   check_in: 'mirror',
   weekly_focus: 'weekly_review',
   spiral_options: 'next_move',

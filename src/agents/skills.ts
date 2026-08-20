@@ -19,7 +19,7 @@ export const SKILLS: Record<
       'nutrition', 'habit_streak', 'mood_tracker', 'workout_log', 'learning_queue', 'weekly_review',
       'networking_crm', 'sleep_tracker', 'spending_snapshot', 'mirror', 'gratitude_journal', 'spiral_options', 'relationship_radar',
     ],
-    liveMiniApps: ['next_move', 'digest', 'pick_night'],
+    liveMiniApps: ['digest', 'pick_night', 'drop_zone'],
     deny: ['slack', 'linear', 'github', 'stripe', 'fundraising'],
   },
   coworker: {
