@@ -1,10 +1,15 @@
 /** Read-only Composio tool slugs and compact rendering for live iMessage tools. */
 
+/** True for values that JSON.stringify to something meaningfully "empty". */
+function isEmptyPayload(raw: string): boolean {
+  return raw === '{}' || raw === 'null' || raw === '[]' || raw === '""'
+}
+
 export function formatComposioData(data: unknown, limit = 12): string {
   const lines = collectLabels(data, limit)
   if (lines.length) return lines.map((l) => `- ${l}`).join('\n')
   const raw = JSON.stringify(data ?? {})
-  if (raw === '{}' || raw === 'null') return ''
+  if (isEmptyPayload(raw)) return ''
   return raw.slice(0, 4000)
 }
 
@@ -30,18 +35,26 @@ const LABEL_KEYS = [
   'status',
 ]
 
-function collectLabels(data: unknown, limit: number, depth = 0, out: string[] = []): string[] {
+function collectLabels(data: unknown, limit: number, depth = 0, out: string[] = [], seen = new Set<string>()): string[] {
   if (out.length >= limit || data == null || depth > 6) return out
   if (Array.isArray(data)) {
     for (const item of data) {
-      collectLabels(item, limit, depth + 1, out)
+      collectLabels(item, limit, depth + 1, out, seen)
       if (out.length >= limit) break
     }
     return out
   }
   if (typeof data !== 'object') {
-    const s = String(data).trim()
-    if (s && s.length < 220) out.push(s)
+    let s: string
+    try {
+      s = String(data).trim()
+    } catch {
+      return out
+    }
+    if (s && s.length < 220 && !seen.has(s)) {
+      seen.add(s)
+      out.push(s)
+    }
     return out
   }
   const o = data as Record<string, unknown>
@@ -51,14 +64,33 @@ function collectLabels(data: unknown, limit: number, depth = 0, out: string[] = 
     if (typeof v === 'string' && v.trim()) bits.push(v.trim().slice(0, 160))
     else if (typeof v === 'number') bits.push(String(v))
   }
-  if (bits.length) out.push(bits.slice(0, 3).join(' · '))
-  else {
+  if (bits.length) {
+    const label = bits.slice(0, 3).join(' · ')
+    if (!seen.has(label)) {
+      seen.add(label)
+      out.push(label)
+    }
+  } else {
     for (const v of Object.values(o)) {
-      collectLabels(v, limit, depth + 1, out)
+      collectLabels(v, limit, depth + 1, out, seen)
       if (out.length >= limit) break
     }
   }
   return out
+}
+
+/** Trim and cap a user message before it goes into any external query param. */
+function cleanMessage(message: string, max: number): string {
+  return String(message || '').trim().slice(0, max)
+}
+
+/**
+ * Escape a value for Google Drive's `q` query language, where string
+ * literals are wrapped in single quotes. Unescaped `'` or `\` in the raw
+ * message would otherwise break the query or change its meaning.
+ */
+function escapeDriveQueryValue(value: string): string {
+  return value.replace(/\\/g, '\\\\').replace(/'/g, "\\'")
 }
 
 export const COMPOSIO_READ: Record<
@@ -78,7 +110,10 @@ export const COMPOSIO_READ: Record<
   },
   slack: {
     slugs: ['SLACK_SEARCH_MESSAGES', 'SLACK_LIST_CHANNELS', 'SLACK_FETCH_CONVERSATION_HISTORY'],
-    args: (message) => ({ query: message.slice(0, 80), limit: 8 }),
+    args: (message) => {
+      const q = cleanMessage(message, 80)
+      return { query: q || 'has:link OR has:reaction', limit: 8 }
+    },
     empty: 'Slack is connected but nothing came back. Say that. Do not invent a thread.',
   },
   linear: {
@@ -88,12 +123,19 @@ export const COMPOSIO_READ: Record<
   },
   notion: {
     slugs: ['NOTION_SEARCH', 'NOTION_SEARCH_NOTION_PAGE', 'NOTION_FETCH_DATA'],
-    args: (message) => ({ query: message.slice(0, 80) }),
+    args: (message) => {
+      const q = cleanMessage(message, 80)
+      return { query: q || undefined }
+    },
     empty: 'Notion is connected but the search failed. Say that. Do not invent a page.',
   },
   drive: {
     slugs: ['GOOGLEDRIVE_LIST_FILES', 'GOOGLEDRIVE_FIND_FILE', 'GOOGLE_DRIVE_LIST_FILES'],
-    args: (message) => ({ pageSize: 8, q: message.slice(0, 40), query: message.slice(0, 40) }),
+    args: (message) => {
+      const raw = cleanMessage(message, 40)
+      const q = raw ? `fullText contains '${escapeDriveQueryValue(raw)}'` : "trashed = false"
+      return { pageSize: 8, q, query: raw }
+    },
     empty: 'Drive is connected but nothing came back. Say that. Do not invent a file.',
   },
   github: {
@@ -116,7 +158,10 @@ export const COMPOSIO_READ: Record<
       'SPOTIFY_GET_RECENTLY_PLAYED_TRACKS',
       'SPOTIFY_SEARCH_FOR_ITEM',
     ],
-    args: (message) => ({ limit: 8, q: message.slice(0, 60), type: 'track,playlist' }),
+    args: (message) => {
+      const q = cleanMessage(message, 60)
+      return { limit: 8, q: q || undefined, type: 'track,playlist' }
+    },
     empty: 'Spotify is connected but nothing came back. Say that. Do not invent a song.',
   },
   stripe: {
@@ -127,7 +172,7 @@ export const COMPOSIO_READ: Record<
   maps: {
     slugs: ['GOOGLEMAPS_TEXT_SEARCH', 'GOOGLEMAPS_SEARCH_PLACES', 'GOOGLE_MAPS_SEARCH_PLACES'],
     args: (message) => {
-      const q = message.slice(0, 80) || 'quiet restaurant nearby'
+      const q = cleanMessage(message, 80) || 'quiet restaurant nearby'
       return { query: q, q }
     },
     empty: 'Maps is connected but nothing came back.',

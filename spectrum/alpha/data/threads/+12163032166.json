@@ -7,37 +7,47 @@
       "lastSeen": 1786829531921
     }
   ],
-  "summary": "Sashank lives in San Francisco. He likes Chinese food, especially chow mein. He eats at Halal City. He has a draft email to send to Stephen Levis.",
+  "summary": "Sashank lives in San Francisco, likes Chinese food (especially chow mein), and eats at Halal City. He has a draft email to send to Stephen Levis. He recently ate 5 pieces of wings and a chocolate eclair from 7-Eleven, and asked for a debrief and networking suggestions; the assistant suggested coffee shops like Sightglass or Blue Bottle and venues like The Interval. Sashank asked to see his spending card, but the assistant noted accounts aren't connected and directed him to hirealpha.chat/app to link them.",
   "history": [
     {
       "role": "user",
-      "content": "best coffee shops nearby",
-      "ts": 1786832477648
+      "content": "Pull up learning queue",
+      "ts": 1786991314599
     },
     {
       "role": "assistant",
-      "content": "I know you're in SF but not your exact spot.",
-      "ts": 1786832477648
+      "content": "I don't have your learning queue pulled up yet, that needs your apps connected.",
+      "ts": 1786991314599
     },
     {
       "role": "user",
-      "content": "I ate 5 pcs wings from 7-11",
-      "ts": 1786847140687
+      "content": "Pull up relationship radar",
+      "ts": 1786991346815
+    },
+    {
+      "role": "assistant",
+      "content": "I can't tap into your contacts or messages to run a relationship radar unless you connect them. Open hirealpha.chat/app and hit Connect, then I can actually dig in.",
+      "ts": 1786991346815
     },
     {
       "role": "user",
-      "content": "Debrief me",
-      "ts": 1786852849782
+      "content": "•\tPull up gratitude",
+      "ts": 1786991377064
+    },
+    {
+      "role": "assistant",
+      "content": "You just demolished 10 wings and an eclair from 7 Eleven and you're asking for gratitude. I love that.\n\nToday, you fed yourself, you're thinking about networking, and you're checking in with yourself. That's a solid baseline. The eclair was a good call by the way.",
+      "ts": 1786991377064
     },
     {
       "role": "user",
-      "content": "I ate chocolate eclair from 7-11 and another 5pcs wings",
-      "ts": 1786856896246
+      "content": "Pull up workout",
+      "ts": 1786991418018
     },
     {
-      "role": "user",
-      "content": "Debrief me",
-      "ts": 1786857981246
+      "role": "assistant",
+      "content": "No workout tracker linked yet, so I can't see your reps or splits. If you want, I can throw together a simple at home routine you can do after all those wings. Or we can find a gym near you.",
+      "ts": 1786991418018
     }
   ]
 }

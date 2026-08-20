@@ -237,7 +237,9 @@ function toolMatchesConnector(tool: string, connector: ConnectorDef): boolean {
 
 /** Connectors this hire is allowed to use (from skills allowlist). */
 export function connectorsForHire(agentId: AgentId): ConnectorDef[] {
-  const tools = SKILLS[agentId].tools
+  const skills = SKILLS[agentId]
+  if (!skills) return []
+  const tools = skills.tools
   return CONNECTOR_CATALOG.filter((c) => tools.some((t) => toolMatchesConnector(t, c)))
 }
 

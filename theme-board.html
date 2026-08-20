@@ -1,0 +1,464 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>HireAlpha mini-app themes</title>
+  <style>
+    :root {
+      --page: #111;
+      --page-fg: #f2f2f2;
+      --page-muted: #8a8a8a;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; background: var(--page); color: var(--page-fg); }
+    body {
+      font: 14px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    .top {
+      position: sticky; top: 0; z-index: 5;
+      background: color-mix(in srgb, var(--page) 92%, transparent);
+      backdrop-filter: blur(12px);
+      padding: 18px 22px 14px;
+      border-bottom: 1px solid #222;
+    }
+    .top h1 { margin: 0 0 6px; font-size: 18px; font-weight: 650; letter-spacing: -0.02em; }
+    .top p { margin: 0 0 12px; color: var(--page-muted); max-width: 720px; }
+    .picks { display: flex; flex-wrap: wrap; gap: 8px; }
+    .picks button {
+      appearance: none; border: 1px solid #333; background: #1a1a1a; color: #eee;
+      padding: 8px 12px; border-radius: 999px; cursor: pointer; font: inherit;
+    }
+    .picks button[aria-pressed="true"] { border-color: #fff; background: #fff; color: #111; }
+
+    .board {
+      padding: 22px;
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+      gap: 18px;
+    }
+
+    /* Shared phone chrome. Theme tokens live on [data-theme]. */
+    [data-theme] {
+      --bg: #fff;
+      --card: #fff;
+      --fg: #111;
+      --muted: #71717a;
+      --line: #ececef;
+      --accent: #14b8a6;
+      --accent-fg: #fff;
+      --radius: 16px;
+      --pad: 14px;
+      --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
+      --display: inherit;
+      --weight: 800;
+      --kicker-track: 0.04em;
+    }
+
+    [data-theme="paper"] {
+      --bg: #efe8dc;
+      --card: #f7f1e6;
+      --fg: #1c1712;
+      --muted: #7a7064;
+      --line: #ddd3c4;
+      --accent: #1c1712;
+      --accent-fg: #f7f1e6;
+      --radius: 4px;
+      --font: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+      --display: "Iowan Old Style", Georgia, serif;
+      --weight: 700;
+      --kicker-track: 0.12em;
+    }
+    [data-theme="carbon"] {
+      --bg: #0a0a0b;
+      --card: #121214;
+      --fg: #f4f4f5;
+      --muted: #a1a1aa;
+      --line: #27272a;
+      --accent: #2a6f7a;
+      --accent-fg: #f4f4f5;
+      --radius: 16px;
+      --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
+      --display: inherit;
+    }
+    [data-hire="friend"] { --accent: #2a6f7a; --accent-fg: #f4f4f5; }
+    [data-hire="coworker"] { --accent: #3b5bdb; --accent-fg: #f4f4f5; }
+    [data-hire="cofounder"] { --accent: #8b4513; --accent-fg: #f4f4f5; }
+    [data-theme="atlas"] {
+      --bg: #f4f5f2;
+      --card: #ffffff;
+      --fg: #0e1a2b;
+      --muted: #5b6573;
+      --line: #d7dce3;
+      --accent: #12325c;
+      --accent-fg: #ffffff;
+      --radius: 2px;
+      --font: "News Gothic MT", "Avenir Next Condensed", "Arial Narrow", sans-serif;
+      --display: "News Gothic MT", "Arial Narrow", sans-serif;
+      --weight: 800;
+      --kicker-track: 0.16em;
+    }
+    [data-theme="signal"] {
+      --bg: #111111;
+      --card: #111111;
+      --fg: #f7f7f7;
+      --muted: #9c9c9c;
+      --line: #2c2c2c;
+      --accent: #f5c400;
+      --accent-fg: #111;
+      --radius: 0;
+      --font: "IBM Plex Mono", "SF Mono", ui-monospace, Menlo, monospace;
+      --display: "Helvetica Neue", Helvetica, Arial, sans-serif;
+      --weight: 800;
+      --kicker-track: 0.18em;
+    }
+    [data-theme="mist"] {
+      --bg: #e7eef4;
+      --card: #ffffff;
+      --fg: #1b2430;
+      --muted: #6a7788;
+      --line: #d3dde7;
+      --accent: #3f7a6c;
+      --accent-fg: #fff;
+      --radius: 24px;
+      --font: "Avenir Next", "Nunito Sans", "Segoe UI", sans-serif;
+      --display: "Avenir Next", "Nunito Sans", sans-serif;
+      --weight: 700;
+    }
+
+    .phone {
+      background: var(--bg);
+      color: var(--fg);
+      font-family: var(--font);
+      border: 1px solid #2a2a2a;
+      min-height: 560px;
+      padding: 18px 16px 22px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .head {
+      display: flex; align-items: center; gap: 8px;
+      padding-bottom: 10px; border-bottom: 1px solid var(--line);
+    }
+    .back, .all { color: var(--accent); font-weight: 650; font-size: 13px; text-decoration: none; }
+    .all { margin-left: auto; }
+    .face {
+      width: 34px; height: 34px; border-radius: 50%;
+      background: var(--accent); color: var(--accent-fg);
+      display: grid; place-items: center; flex: none;
+    }
+    .face svg { display: block; }
+    .who { min-width: 0; }
+    .who b { display: block; font-size: 14px; line-height: 1.1; }
+    .who span { color: var(--muted); font-size: 12px; }
+
+    .kicker {
+      font-size: 10px; font-weight: 700; color: var(--muted);
+      letter-spacing: var(--kicker-track); text-transform: uppercase;
+    }
+    .hero { font-family: var(--display); font-size: 26px; font-weight: var(--weight); line-height: 1.1; letter-spacing: -0.03em; }
+    .hint { font-size: 13px; color: var(--muted); }
+
+    .row {
+      display: flex; align-items: center; gap: 10px;
+      padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--radius);
+      background: var(--card);
+    }
+    .row b { display: block; font-size: 14px; }
+    .row small { color: var(--muted); font-size: 12px; }
+    .grow { flex: 1; min-width: 0; }
+    .chip {
+      border: 1px solid var(--line); background: transparent; color: var(--fg);
+      border-radius: calc(var(--radius) * 0.8); padding: 6px 10px; font-size: 12px; font-weight: 650;
+    }
+    .chip.on { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
+    .btn {
+      display: block; width: 100%; text-align: center; text-decoration: none;
+      background: var(--accent); color: var(--accent-fg); border: 0;
+      border-radius: var(--radius); padding: 11px 12px; font-weight: 700; font-size: 13px;
+    }
+    .btn.quiet { background: transparent; color: var(--accent); border: 1px solid var(--line); }
+    .pills { display: flex; gap: 6px; flex-wrap: wrap; }
+    .mark {
+      width: 32px; height: 32px; border-radius: calc(var(--radius) * 0.7);
+      display: grid; place-items: center; background: color-mix(in srgb, var(--fg) 6%, transparent);
+      flex: none; color: var(--fg);
+    }
+    .mark svg { width: 16px; height: 16px; }
+    .input, .area, select.input {
+      width: 100%; border: 1px solid var(--line); background: var(--card); color: var(--fg);
+      border-radius: var(--radius); padding: 10px 12px; font: inherit;
+    }
+    .area { min-height: 64px; resize: none; }
+    .split { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .strip { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+    .day {
+      border: 1px solid var(--line); border-radius: calc(var(--radius) * 0.7);
+      text-align: center; padding: 8px 0 6px; font-size: 11px; color: var(--muted);
+    }
+    .day b { display: block; color: var(--fg); font-size: 13px; margin-bottom: 2px; }
+    .day.today { border-color: var(--fg); }
+    .macros { display: grid; gap: 6px; }
+    .bar { height: 6px; border-radius: 99px; background: color-mix(in srgb, var(--accent) 16%, transparent); overflow: hidden; }
+    .bar > i { display: block; height: 100%; background: var(--accent); }
+    .ring-wrap { display: flex; gap: 14px; align-items: center; }
+    .meta { font-size: 12px; color: var(--muted); }
+    .stack { display: flex; flex-direction: column; gap: 8px; }
+    [data-theme="signal"] .phone { border-color: #3a3a3a; }
+    [data-theme="signal"] .row, [data-theme="signal"] .chip, [data-theme="signal"] .day { border-width: 1.5px; }
+    [data-theme="paper"] .hero { font-style: italic; font-weight: 600; }
+    [data-theme="atlas"] .kicker { font-size: 9px; }
+    [data-theme="mist"] .hero { font-size: 28px; font-weight: 600; }
+  </style>
+</head>
+<body>
+  <div class="top">
+    <h1>One theme. Hire color does the rest.</h1>
+    <p>Same screens for every mini-app. Alpha is teal green, Coworker is royal blue, Cofounder is brown. Click a hire. Everything restyles together. Reply Friend, Coworker, or Cofounder if you want that one locked in CSS.</p>
+    <div class="picks" role="tablist">
+      <button type="button" data-hire="friend" aria-pressed="true">Alpha  #2a6f7a</button>
+      <button type="button" data-hire="coworker" aria-pressed="false">Coworker  #3b5bdb</button>
+      <button type="button" data-hire="cofounder" aria-pressed="false">Cofounder  #8b4513</button>
+    </div>
+  </div>
+
+  <div class="board" data-theme="carbon" data-hire="friend" id="board">
+
+    <section class="phone">
+      <header class="head">
+        <span class="back">‹</span>
+        <span class="face" aria-hidden><svg width="20" height="20" viewBox="0 0 20 20"><circle cx="7" cy="8" r="1.4" fill="currentColor"/><circle cx="13" cy="8" r="1.4" fill="currentColor"/><path d="M6.5 12.5c1.4 1.6 5.6 1.6 7 0" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></span>
+        <div class="who"><b>Alpha</b><span>Apps</span></div>
+      </header>
+      <div class="kicker">Life</div>
+      <div class="row"><span class="mark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4.6 10h14.8M6.2 10c.5 6.6 2.6 9.8 5.8 9.8s5.3-3.2 5.8-9.8M9.2 6.4c.8-.8 5.8-.8 6.6 0"/></svg></span><div class="grow"><b>Nutrition</b><small>Meals and macros.</small></div><span class="chip">Open</span></div>
+      <div class="row"><span class="mark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="8"/><path d="M8.6 12.2l2.3 2.3 4.6-5"/></svg></span><div class="grow"><b>Habits</b><small>Today and streaks.</small></div><span class="chip">Open</span></div>
+      <div class="row"><span class="mark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="8"/><path d="M9 14.4c.9 1.4 5.1 1.4 6 0"/></svg></span><div class="grow"><b>Mood</b><small>How you feel.</small></div><span class="chip">Open</span></div>
+      <div class="kicker">People</div>
+      <div class="row"><span class="mark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="9" cy="8.6" r="2.3"/><path d="M4.8 16.8c.3-2.6 1.8-4 4.2-4s3.9 1.4 4.2 4"/></svg></span><div class="grow"><b>People</b><small>Who to follow up.</small></div><span class="chip">Open</span></div>
+      <div class="kicker">Day</div>
+      <div class="row"><span class="mark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="4.6" y="6.2" width="14.8" height="13.2" rx="2"/><path d="M4.6 10.2h14.8"/></svg></span><div class="grow"><b>Today</b><small>Calendar, mail, reminders.</small></div><span class="chip">Open</span></div>
+    </section>
+
+    <section class="phone">
+      <header class="head">
+        <span class="back">‹</span>
+        <span class="face" aria-hidden><svg width="20" height="20" viewBox="0 0 20 20"><circle cx="7" cy="8" r="1.4" fill="currentColor"/><circle cx="13" cy="8" r="1.4" fill="currentColor"/><path d="M6.5 12.5c1.4 1.6 5.6 1.6 7 0" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></span>
+        <div class="who"><b>Alpha</b><span>Nutrition</span></div>
+        <span class="all">All apps</span>
+      </header>
+      <div class="ring-wrap">
+        <svg width="92" height="92" viewBox="0 0 92 92">
+          <circle cx="46" cy="46" r="34" fill="none" stroke="var(--line)" stroke-width="8"/>
+          <circle cx="46" cy="46" r="34" fill="none" stroke="var(--accent)" stroke-width="8" stroke-linecap="round" stroke-dasharray="160 214" transform="rotate(-90 46 46)"/>
+        </svg>
+        <div>
+          <div class="kicker">Today</div>
+          <div class="hero">1,420</div>
+          <div class="hint">of 2,200 kcal</div>
+        </div>
+      </div>
+      <div class="macros">
+        <div class="meta">Protein 92 / 150</div>
+        <div class="bar"><i style="width:61%"></i></div>
+        <div class="meta">Carbs 140 / 220</div>
+        <div class="bar"><i style="width:64%"></i></div>
+        <div class="meta">Fat 48 / 70</div>
+        <div class="bar"><i style="width:69%"></i></div>
+      </div>
+      <div class="row"><div class="grow"><b>Chicken bowl</b><small>Lunch · 640 kcal</small></div></div>
+      <button class="btn" type="button">Log a meal</button>
+    </section>
+
+    <section class="phone">
+      <header class="head">
+        <span class="back">‹</span>
+        <span class="face" aria-hidden><svg width="20" height="20" viewBox="0 0 20 20"><circle cx="7" cy="8" r="1.4" fill="currentColor"/><circle cx="13" cy="8" r="1.4" fill="currentColor"/><path d="M6.5 12.5c1.4 1.6 5.6 1.6 7 0" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></span>
+        <div class="who"><b>Alpha</b><span>Habits</span></div>
+        <span class="all">All apps</span>
+      </header>
+      <div class="kicker">Today</div>
+      <div class="hero">2 of 3</div>
+      <div class="hint">Gym is the one left.</div>
+      <div class="row"><div class="grow"><b>Gym</b><small>4 day streak</small></div><span class="chip">Mark</span></div>
+      <div class="row"><div class="grow"><b>Read</b><small>12 day streak</small></div><span class="chip on">Done</span></div>
+      <div class="row"><div class="grow"><b>Walk</b><small>2 day streak</small></div><span class="chip on">Done</span></div>
+    </section>
+
+    <section class="phone">
+      <header class="head">
+        <span class="back">‹</span>
+        <span class="face" aria-hidden><svg width="20" height="20" viewBox="0 0 20 20"><circle cx="7" cy="8" r="1.4" fill="currentColor"/><circle cx="13" cy="8" r="1.4" fill="currentColor"/><path d="M6.5 12.5c1.4 1.6 5.6 1.6 7 0" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></span>
+        <div class="who"><b>Alpha</b><span>Mood</span></div>
+        <span class="all">All apps</span>
+      </header>
+      <div class="kicker">Not logged</div>
+      <div class="hero">How do you feel</div>
+      <div class="hint">Tap a face.</div>
+      <div class="pills">
+        <span class="chip">Good</span><span class="chip on">Okay</span><span class="chip">Low</span><span class="chip">Off</span><span class="chip">Hot</span>
+      </div>
+      <div class="kicker">Energy</div>
+      <div class="pills">
+        <span class="chip">1</span><span class="chip">2</span><span class="chip on">3</span><span class="chip">4</span><span class="chip">5</span>
+      </div>
+      <div class="strip">
+        <div class="day"><b>·</b>W</div><div class="day"><b>·</b>T</div><div class="day"><b>·</b>F</div><div class="day"><b>·</b>S</div><div class="day"><b>·</b>S</div><div class="day"><b>·</b>M</div><div class="day today"><b>·</b>T</div>
+      </div>
+    </section>
+
+    <section class="phone">
+      <header class="head">
+        <span class="back">‹</span>
+        <span class="face" aria-hidden><svg width="20" height="20" viewBox="0 0 20 20"><circle cx="7" cy="8" r="1.4" fill="currentColor"/><circle cx="13" cy="8" r="1.4" fill="currentColor"/><path d="M6.5 12.5c1.4 1.6 5.6 1.6 7 0" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></span>
+        <div class="who"><b>Alpha</b><span>Workout</span></div>
+        <span class="all">All apps</span>
+      </header>
+      <div class="kicker">Last</div>
+      <div class="hero">Bench 185</div>
+      <div class="hint">5 × 5. PR is 195.</div>
+      <button class="btn" type="button">Log it again</button>
+      <div class="row"><div class="grow"><b>Squat 225</b><small>3 × 5 · yesterday</small></div></div>
+      <div class="row"><div class="grow"><b>Row 135</b><small>4 × 8 · Mon</small></div></div>
+    </section>
+
+    <section class="phone">
+      <header class="head">
+        <span class="back">‹</span>
+        <span class="face" aria-hidden><svg width="20" height="20" viewBox="0 0 20 20"><circle cx="7" cy="8" r="1.4" fill="currentColor"/><circle cx="13" cy="8" r="1.4" fill="currentColor"/><path d="M6.5 12.5c1.4 1.6 5.6 1.6 7 0" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></span>
+        <div class="who"><b>Alpha</b><span>Sleep</span></div>
+        <span class="all">All apps</span>
+      </header>
+      <div class="kicker">Last night</div>
+      <div class="hero">7.2 h</div>
+      <div class="hint">Bed 11:20. Up 6:32. Debt 0.8 h.</div>
+      <div class="strip">
+        <div class="day"><b>6</b>W</div><div class="day"><b>7</b>T</div><div class="day"><b>5</b>F</div><div class="day"><b>8</b>S</div><div class="day"><b>8</b>S</div><div class="day"><b>6</b>M</div><div class="day today"><b>7</b>T</div>
+      </div>
+      <button class="btn quiet" type="button">Log last night</button>
+    </section>
+
+    <section class="phone">
+      <header class="head">
+        <span class="back">‹</span>
+        <span class="face" aria-hidden><svg width="20" height="20" viewBox="0 0 20 20"><circle cx="7" cy="8" r="1.4" fill="currentColor"/><circle cx="13" cy="8" r="1.4" fill="currentColor"/><path d="M6.5 12.5c1.4 1.6 5.6 1.6 7 0" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></span>
+        <div class="who"><b>Alpha</b><span>Spending</span></div>
+        <span class="all">All apps</span>
+      </header>
+      <div class="kicker">This week</div>
+      <div class="hero">$84</div>
+      <div class="hint">of $150. Lunch is the slice.</div>
+      <div class="bar"><i style="width:56%"></i></div>
+      <div class="row"><div class="grow"><b>$12.50 lunch</b><small>Today</small></div></div>
+      <div class="row"><div class="grow"><b>$42 groceries</b><small>Mon</small></div></div>
+      <button class="btn" type="button">Log spend</button>
+    </section>
+
+    <section class="phone">
+      <header class="head">
+        <span class="back">‹</span>
+        <span class="face" aria-hidden><svg width="20" height="20" viewBox="0 0 20 20"><circle cx="7" cy="8" r="1.4" fill="currentColor"/><circle cx="13" cy="8" r="1.4" fill="currentColor"/><path d="M6.5 12.5c1.4 1.6 5.6 1.6 7 0" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></span>
+        <div class="who"><b>Alpha</b><span>Mirror</span></div>
+        <span class="all">All apps</span>
+      </header>
+      <div class="kicker">Next</div>
+      <div class="hero">Call Sarah</div>
+      <div class="hint">Due today. Sleep was thin. Spend is fine.</div>
+      <div class="row"><div class="grow"><b>Sleep</b><small>6.1 h avg</small></div></div>
+      <div class="row"><div class="grow"><b>Mood</b><small>Energy 3.2</small></div></div>
+      <div class="row"><div class="grow"><b>Habits</b><small>11 checks</small></div></div>
+    </section>
+
+    <section class="phone">
+      <header class="head">
+        <span class="back">‹</span>
+        <span class="face" aria-hidden><svg width="20" height="20" viewBox="0 0 20 20"><circle cx="7" cy="8" r="1.4" fill="currentColor"/><circle cx="13" cy="8" r="1.4" fill="currentColor"/><path d="M6.5 12.5c1.4 1.6 5.6 1.6 7 0" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></span>
+        <div class="who"><b>Alpha</b><span>People</span></div>
+        <span class="all">All apps</span>
+      </header>
+      <div class="kicker">Due</div>
+      <div class="hero">Sarah Chen</div>
+      <div class="hint">Mixer last week. Follow up today.</div>
+      <div class="pills"><span class="chip on">Talked</span><span class="chip">Snooze</span></div>
+      <div class="row"><div class="grow"><b>Priya</b><small>Due Thu</small></div></div>
+      <div class="row"><div class="grow"><b>Omar</b><small>Due next week</small></div></div>
+    </section>
+
+    <section class="phone">
+      <header class="head">
+        <span class="back">‹</span>
+        <span class="face" aria-hidden><svg width="20" height="20" viewBox="0 0 20 20"><circle cx="7" cy="8" r="1.4" fill="currentColor"/><circle cx="13" cy="8" r="1.4" fill="currentColor"/><path d="M6.5 12.5c1.4 1.6 5.6 1.6 7 0" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></span>
+        <div class="who"><b>Alpha</b><span>Promises</span></div>
+        <span class="all">All apps</span>
+      </header>
+      <div class="kicker">Due</div>
+      <div class="hero">Call Mom</div>
+      <div class="hint">You said Sunday. It is Tuesday.</div>
+      <div class="pills"><span class="chip on">Close</span><span class="chip">Snooze</span></div>
+      <div class="row"><div class="grow"><b>Send deck</b><small>Tomorrow</small></div></div>
+    </section>
+
+    <section class="phone">
+      <header class="head">
+        <span class="back">‹</span>
+        <span class="face" aria-hidden><svg width="20" height="20" viewBox="0 0 20 20"><circle cx="7" cy="8" r="1.4" fill="currentColor"/><circle cx="13" cy="8" r="1.4" fill="currentColor"/><path d="M6.5 12.5c1.4 1.6 5.6 1.6 7 0" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></span>
+        <div class="who"><b>Alpha</b><span>Today</span></div>
+        <span class="all">All apps</span>
+      </header>
+      <div class="kicker">Today</div>
+      <div class="hero">Tue 18</div>
+      <div class="hint">3 on the calendar. 1 flagged mail.</div>
+      <div class="row"><div class="grow"><b>9:30 Design review</b><small>Calendar</small></div></div>
+      <div class="row"><div class="grow"><b>Invoice from Stripe</b><small>Mail</small></div></div>
+      <div class="row"><div class="grow"><b>Call Sarah</b><small>Reminder</small></div></div>
+    </section>
+
+    <section class="phone">
+      <header class="head">
+        <span class="back">‹</span>
+        <span class="face" aria-hidden><svg width="20" height="20" viewBox="0 0 20 20"><circle cx="7" cy="8" r="1.4" fill="currentColor"/><circle cx="13" cy="8" r="1.4" fill="currentColor"/><path d="M6.5 12.5c1.4 1.6 5.6 1.6 7 0" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></span>
+        <div class="who"><b>Alpha</b><span>Learning</span></div>
+        <span class="all">All apps</span>
+      </header>
+      <div class="kicker">Queue</div>
+      <div class="hero">Nothing queued</div>
+      <div class="hint">Save one article. It becomes next up.</div>
+      <div class="stack">
+        <input class="input" placeholder="Title or URL" />
+        <select class="input"><option>Article</option><option>Video</option><option>Podcast</option></select>
+        <textarea class="area" placeholder="Notes"></textarea>
+        <button class="btn" type="button">Save</button>
+      </div>
+    </section>
+
+    <section class="phone">
+      <header class="head">
+        <span class="back">‹</span>
+        <span class="face" aria-hidden><svg width="20" height="20" viewBox="0 0 20 20"><circle cx="7" cy="8" r="1.4" fill="currentColor"/><circle cx="13" cy="8" r="1.4" fill="currentColor"/><path d="M6.5 12.5c1.4 1.6 5.6 1.6 7 0" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></span>
+        <div class="who"><b>Alpha</b><span>Tonight</span></div>
+        <span class="all">All apps</span>
+      </header>
+      <div class="kicker">Call</div>
+      <div class="hero">Stay in</div>
+      <div class="hint">Rain after 8. Kitchen is already a plan.</div>
+      <div class="row"><div class="grow"><b>Stay in</b><small>Cook, early night</small></div><span class="chip on">Pick</span></div>
+      <div class="row"><div class="grow"><b>Walk the lake</b><small>If it clears</small></div></div>
+      <div class="row"><div class="grow"><b>Movie at home</b><small>Low effort</small></div></div>
+    </section>
+
+  </div>
+
+  <script>
+    const board = document.getElementById("board");
+    const buttons = [...document.querySelectorAll(".picks button")];
+    buttons.forEach((btn) => {
+      btn.addEventListener("click", () => {
+        board.dataset.hire = btn.dataset.hire;
+        buttons.forEach((b) => b.setAttribute("aria-pressed", String(b === btn)));
+      });
+    });
+  </script>
+</body>
+</html>

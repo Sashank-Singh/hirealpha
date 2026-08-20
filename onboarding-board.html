@@ -1,0 +1,544 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>HireAlpha onboarding</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --page: #070707;
+      --page-fg: #f2f2f2;
+      --page-muted: #8a8a8a;
+      --bg: #000;
+      --fg: #f4f4f4;
+      --muted: #8d8d8d;
+      --line: #2e2e2e;
+      --accent: #2a6f7a;
+      --accent-fg: #f4f4f5;
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    html, body { margin: 0; background: var(--page); color: var(--page-fg); }
+    body {
+      font: 13px/1.4 "Space Mono", ui-monospace, monospace;
+      font-variant-ligatures: none;
+    }
+    button, input, select, textarea { font: inherit; appearance: none; border-radius: 0; }
+    button { cursor: pointer; }
+    a { color: inherit; }
+
+    .top {
+      position: sticky; top: 0; z-index: 5;
+      background: color-mix(in srgb, var(--page) 92%, transparent);
+      backdrop-filter: blur(12px);
+      padding: 18px 22px 14px;
+      border-bottom: 1px solid #1c1c1c;
+    }
+    .top h1 { margin: 0 0 6px; font-size: 18px; font-weight: 700; }
+    .top p { margin: 0 0 12px; color: var(--page-muted); max-width: 820px; }
+    .jumps { display: flex; flex-wrap: wrap; gap: 8px; }
+    .jumps a {
+      color: #ddd; text-decoration: none;
+      border: 1px solid #333; padding: 7px 11px; background: #141414;
+    }
+    .jumps a:hover, .jumps a:focus { border-color: var(--accent); color: var(--accent); outline: none; }
+
+    .strip {
+      display: flex; gap: 16px; overflow-x: auto;
+      padding: 22px;
+      scroll-snap-type: x proximity;
+    }
+    .phone {
+      flex: none;
+      width: 390px;
+      min-height: 720px;
+      background: var(--bg);
+      color: var(--fg);
+      border: 1px solid #222;
+      padding: 18px 16px 22px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      scroll-snap-align: start;
+    }
+    .phone * { border-radius: 0; }
+    .phone .face { border-radius: 50%; }
+
+    .head {
+      display: flex; align-items: center; gap: 8px;
+      padding-bottom: 10px; border-bottom: 1px solid var(--line);
+    }
+    .back, .all { color: var(--accent); font-weight: 700; font-size: 13px; text-decoration: none; }
+    .all { margin-left: auto; }
+    .face {
+      width: 34px; height: 34px;
+      background: var(--accent); color: var(--accent-fg);
+      display: grid; place-items: center; flex: none;
+    }
+    .who b { display: block; font-size: 14px; line-height: 1.15; }
+    .who span { color: var(--muted); font-size: 12px; }
+
+    .kicker {
+      font-size: 10px; font-weight: 700; color: var(--muted);
+      letter-spacing: 0.16em; text-transform: uppercase;
+    }
+    .hero { font-size: 22px; font-weight: 700; line-height: 1.15; }
+    .hint { font-size: 12px; color: var(--muted); line-height: 1.45; }
+    .bar {
+      height: 6px; background: #1a1a1a; border: 1px solid var(--line);
+    }
+    .bar > i { display: block; height: 100%; background: var(--accent); }
+
+    .row {
+      display: flex; align-items: center; gap: 10px;
+      padding: 10px 12px; border: 1px solid var(--line);
+    }
+    .row b { display: block; font-size: 13px; }
+    .row small { color: var(--muted); font-size: 11px; line-height: 1.35; }
+    .grow { flex: 1; min-width: 0; }
+
+    .field { display: grid; gap: 6px; }
+    .field span { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; }
+    .field input, .field select, .field textarea {
+      background: #0a0a0a; color: var(--fg);
+      border: 1px solid var(--line); padding: 10px 12px;
+    }
+    .field textarea { min-height: 56px; resize: vertical; }
+
+    .chip {
+      border: 1px solid var(--line); background: transparent; color: var(--fg);
+      padding: 8px 10px; font-size: 12px; font-weight: 700;
+    }
+    .chip.on { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
+    .chips { display: flex; flex-wrap: wrap; gap: 8px; }
+
+    .btn {
+      display: block; width: 100%; text-align: center; text-decoration: none;
+      background: var(--accent); color: var(--accent-fg); border: 0;
+      padding: 12px; font-weight: 700; font-size: 13px;
+    }
+    .btn[disabled] { opacity: 0.35; pointer-events: none; }
+    .ghost {
+      display: block; width: 100%; text-align: center; text-decoration: none;
+      background: transparent; color: var(--fg);
+      border: 1px solid var(--line); padding: 12px; font-weight: 700; font-size: 13px;
+    }
+    .link {
+      display: block; text-align: center; color: var(--muted);
+      text-decoration: none; font-size: 12px; padding: 4px;
+    }
+    .actions { display: grid; gap: 8px; margin-top: auto; }
+
+    .note {
+      border: 1px solid var(--line); padding: 10px 12px;
+      font-size: 12px; color: var(--muted); display: none;
+    }
+    .note.show { display: block; }
+
+    .conn small { display: block; margin-top: 4px; }
+    .state { font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+    .switch {
+      width: 36px; height: 20px; border: 1px solid var(--line);
+      background: #111; position: relative; flex: none;
+    }
+    .switch.on { background: var(--accent); border-color: var(--accent); }
+    .switch i {
+      position: absolute; top: 2px; left: 2px; width: 14px; height: 14px;
+      background: var(--fg);
+    }
+    .switch.on i { left: 18px; background: var(--accent-fg); }
+
+    .sum li {
+      display: flex; justify-content: space-between; gap: 12px;
+      padding: 8px 0; border-bottom: 1px solid var(--line);
+      list-style: none;
+    }
+    .sum { margin: 0; padding: 0; }
+    .sum span { color: var(--muted); }
+    .pick { align-items: flex-start; }
+    .pick .chip { margin-top: 2px; }
+    .time-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .ampm { display: flex; gap: 8px; }
+  </style>
+</head>
+<body>
+  <header class="top">
+    <h1>Onboarding flow</h1>
+    <p>Stage 0 contract, Stage 1 required setup (about 90 seconds), then Stage 2 optional profile. Click a step or walk the phones left to right. Preview only. Production setup is unchanged.</p>
+    <nav class="jumps">
+      <a href="#s0">0 Contract</a>
+      <a href="#s1">1 Identity</a>
+      <a href="#s2">2 Location</a>
+      <a href="#s3">3 Home and work</a>
+      <a href="#s4">4 Time</a>
+      <a href="#s5">5 Priorities</a>
+      <a href="#s6">6 First action</a>
+      <a href="#s7">7 Connectors</a>
+      <a href="#s8">8 Proactive</a>
+      <a href="#s9">9 Profile</a>
+      <a href="#s10">Done</a>
+    </nav>
+  </header>
+
+  <div class="strip">
+
+    <section class="phone" id="s0">
+      <header class="head">
+        <span class="back">‹</span>
+        <span class="face" aria-hidden><svg width="20" height="20" viewBox="0 0 20 20"><circle cx="7" cy="8" r="1.4" fill="currentColor"/><circle cx="13" cy="8" r="1.4" fill="currentColor"/><path d="M6.5 12.5c1.4 1.6 5.6 1.6 7 0" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></span>
+        <div class="who"><b>Alpha</b><span>Setup</span></div>
+        <span class="all">Skip</span>
+      </header>
+      <div class="kicker">Stage 0</div>
+      <div class="hero">Alpha works better when it knows your context.</div>
+      <p class="hint">We use your location for nearby recommendations, weather, directions, and plans. You choose what Alpha can access. You can update or remove it in Settings at any time.</p>
+      <p class="hint">Permissions are not requested until you tap allow on the next screens.</p>
+      <div class="note" id="collect">Location is used on the server for map and weather lookups. Alpha sees a safe label like “near Work in San Francisco”, never your exact coordinates.</div>
+      <div class="actions">
+        <a class="btn" href="#s1">Set up Alpha</a>
+        <button class="ghost" type="button" onclick="document.getElementById('collect').classList.toggle('show')">See what will be collected</button>
+        <a class="link" href="#s10">Skip for now</a>
+      </div>
+    </section>
+
+    <section class="phone" id="s1">
+      <header class="head">
+        <a class="back" href="#s0">‹</a>
+        <span class="face" aria-hidden><svg width="20" height="20" viewBox="0 0 20 20"><circle cx="7" cy="8" r="1.4" fill="currentColor"/><circle cx="13" cy="8" r="1.4" fill="currentColor"/><path d="M6.5 12.5c1.4 1.6 5.6 1.6 7 0" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></span>
+        <div class="who"><b>Alpha</b><span>Identity</span></div>
+        <span class="all">1 of 8</span>
+      </header>
+      <div class="kicker">Required</div>
+      <div class="bar"><i style="width:12.5%"></i></div>
+      <div class="hero">What should we call you?</div>
+      <label class="field"><span>Name</span><input value="Sashank" /></label>
+      <label class="field"><span>Pronouns optional</span><input placeholder="they/them" /></label>
+      <label class="field"><span>Help with most optional</span><input placeholder="Keeping my week on track" /></label>
+      <p class="hint">Progress is saved after every step.</p>
+      <div class="actions">
+        <a class="btn" href="#s2">Continue</a>
+        <a class="link" href="#s9">Finish later</a>
+      </div>
+    </section>
+
+    <section class="phone" id="s2">
+      <header class="head">
+        <a class="back" href="#s1">‹</a>
+        <span class="face" aria-hidden><svg width="20" height="20" viewBox="0 0 20 20"><circle cx="7" cy="8" r="1.4" fill="currentColor"/><circle cx="13" cy="8" r="1.4" fill="currentColor"/><path d="M6.5 12.5c1.4 1.6 5.6 1.6 7 0" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></span>
+        <div class="who"><b>Alpha</b><span>Location</span></div>
+        <span class="all">2 of 8</span>
+      </header>
+      <div class="kicker">Required</div>
+      <div class="bar"><i style="width:25%"></i></div>
+      <div class="hero">Allow location so Alpha can find places near you.</div>
+      <p class="hint">Used for local weather, nearby food, and plans around where you are. GPS starts only after you tap allow. A city or address also works.</p>
+      <div class="actions">
+        <a class="btn" href="#s2b">Allow current location</a>
+        <label class="field"><span>Or enter a city, neighborhood, or address</span><input placeholder="SoMa, San Francisco" /></label>
+        <a class="ghost" href="#s2b">Use this instead</a>
+        <a class="link" href="#s9">Finish later</a>
+      </div>
+    </section>
+
+    <section class="phone" id="s2b">
+      <header class="head">
+        <a class="back" href="#s2">‹</a>
+        <span class="face" aria-hidden><svg width="20" height="20" viewBox="0 0 20 20"><circle cx="7" cy="8" r="1.4" fill="currentColor"/><circle cx="13" cy="8" r="1.4" fill="currentColor"/><path d="M6.5 12.5c1.4 1.6 5.6 1.6 7 0" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></span>
+        <div class="who"><b>Alpha</b><span>Location</span></div>
+        <span class="all">2 of 8</span>
+      </header>
+      <div class="kicker">Confirm</div>
+      <div class="hero">That is SoMa, San Francisco. Right?</div>
+      <p class="hint">Detected with 12m accuracy. You can fix the label. Raw coordinates never reach chat, only this label.</p>
+      <label class="field"><span>Place label</span><input value="SoMa, San Francisco" /></label>
+      <div class="actions">
+        <a class="btn" href="#s3">Save current location</a>
+        <a class="link" href="#s2">Change</a>
+      </div>
+    </section>
+
+    <section class="phone" id="s3">
+      <header class="head">
+        <a class="back" href="#s2b">‹</a>
+        <span class="face" aria-hidden><svg width="20" height="20" viewBox="0 0 20 20"><circle cx="7" cy="8" r="1.4" fill="currentColor"/><circle cx="13" cy="8" r="1.4" fill="currentColor"/><path d="M6.5 12.5c1.4 1.6 5.6 1.6 7 0" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></span>
+        <div class="who"><b>Alpha</b><span>Home and work</span></div>
+        <span class="all">3 of 8</span>
+      </header>
+      <div class="kicker">Required</div>
+      <div class="bar"><i style="width:37.5%"></i></div>
+      <div class="hero">Save this as Home, or use a different address?</div>
+      <p class="hint">Current: SoMa, San Francisco. Alpha never assumes Home or Work. Only what you save.</p>
+      <div class="chips">
+        <button class="chip on" type="button">Save as Home</button>
+        <button class="chip" type="button">Save as Work</button>
+      </div>
+      <label class="field"><span>Different address</span><input placeholder="Financial District" /></label>
+      <div class="actions">
+        <a class="btn" href="#s4">Continue</a>
+        <a class="link" href="#s4">Skip Home and Work</a>
+      </div>
+    </section>
+
+    <section class="phone" id="s4">
+      <header class="head">
+        <a class="back" href="#s3">‹</a>
+        <span class="face" aria-hidden><svg width="20" height="20" viewBox="0 0 20 20"><circle cx="7" cy="8" r="1.4" fill="currentColor"/><circle cx="13" cy="8" r="1.4" fill="currentColor"/><path d="M6.5 12.5c1.4 1.6 5.6 1.6 7 0" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></span>
+        <div class="who"><b>Alpha</b><span>Time</span></div>
+        <span class="all">4 of 8</span>
+      </header>
+      <div class="kicker">Required</div>
+      <div class="bar"><i style="width:50%"></i></div>
+      <div class="hero">Quiet hours and how Alpha talks.</div>
+      <label class="field"><span>Timezone</span><input value="Pacific Time" /></label>
+      <div class="time-row">
+        <label class="field">
+          <span>Quiet start</span>
+          <input value="10:00" />
+          <div class="ampm chips" data-one>
+            <button class="chip" type="button">AM</button>
+            <button class="chip on" type="button">PM</button>
+          </div>
+        </label>
+        <label class="field">
+          <span>Quiet end</span>
+          <input value="8:00" />
+          <div class="ampm chips" data-one>
+            <button class="chip on" type="button">AM</button>
+            <button class="chip" type="button">PM</button>
+          </div>
+        </label>
+      </div>
+      <p class="hint">Alpha never sends a proactive message outside these hours. Default 10:00 PM to 8:00 AM.</p>
+      <div class="kicker">Response style</div>
+      <div class="chips" data-one>
+        <button class="chip" type="button">Concise</button>
+        <button class="chip on" type="button">Balanced</button>
+        <button class="chip" type="button">Chatty</button>
+      </div>
+      <div class="kicker">Ask follow ups when info is missing?</div>
+      <div class="chips" data-one>
+        <button class="chip on" type="button">Yes</button>
+        <button class="chip" type="button">No</button>
+      </div>
+      <div class="actions">
+        <a class="btn" href="#s5">Continue</a>
+        <a class="link" href="#s9">Finish later</a>
+      </div>
+    </section>
+
+    <section class="phone" id="s5">
+      <header class="head">
+        <a class="back" href="#s4">‹</a>
+        <span class="face" aria-hidden><svg width="20" height="20" viewBox="0 0 20 20"><circle cx="7" cy="8" r="1.4" fill="currentColor"/><circle cx="13" cy="8" r="1.4" fill="currentColor"/><path d="M6.5 12.5c1.4 1.6 5.6 1.6 7 0" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></span>
+        <div class="who"><b>Alpha</b><span>Priorities</span></div>
+        <span class="all">5 of 8</span>
+      </header>
+      <div class="kicker">Required</div>
+      <div class="bar"><i style="width:62.5%"></i></div>
+      <div class="hero">What should Alpha help with first?</div>
+      <p class="hint">Pick up to three. Your first pick is the first thing Alpha proves in the next step. The rest stay available. You can change this later.</p>
+      <div class="chips" data-max="3" style="display:grid; gap:8px;">
+        <div class="row pick">
+          <div class="grow"><b>Food and restaurants</b><small>Nearby coffee, dinner, and places that fit where you are.</small></div>
+          <button class="chip on" type="button">On</button>
+        </div>
+        <div class="row pick">
+          <div class="grow"><b>Plans and dates</b><small>One plan for tonight or the weekend, not a list of ideas.</small></div>
+          <button class="chip" type="button">Pick</button>
+        </div>
+        <div class="row pick">
+          <div class="grow"><b>Travel and directions</b><small>Routes from the location you saved, labeled Home, Work, or current.</small></div>
+          <button class="chip" type="button">Pick</button>
+        </div>
+        <div class="row pick">
+          <div class="grow"><b>Reminders and routines</b><small>Turn a promise like call Mom Sunday into something that actually fires.</small></div>
+          <button class="chip on" type="button">On</button>
+        </div>
+        <div class="row pick">
+          <div class="grow"><b>Emotional support</b><small>Check ins on rough days. No scripts.</small></div>
+          <button class="chip" type="button">Pick</button>
+        </div>
+        <div class="row pick">
+          <div class="grow"><b>Email and calendar</b><small>Mail and meetings in your texts after you connect them.</small></div>
+          <button class="chip" type="button">Pick</button>
+        </div>
+        <div class="row pick">
+          <div class="grow"><b>Fitness and nutrition</b><small>Meals, macros, and the workout plan. Opens that card first.</small></div>
+          <button class="chip on" type="button">On</button>
+        </div>
+      </div>
+      <div class="actions">
+        <a class="btn" href="#s6">Continue</a>
+        <a class="link" href="#s9">Finish later</a>
+      </div>
+    </section>
+
+    <section class="phone" id="s6">
+      <header class="head">
+        <a class="back" href="#s5">‹</a>
+        <span class="face" aria-hidden><svg width="20" height="20" viewBox="0 0 20 20"><circle cx="7" cy="8" r="1.4" fill="currentColor"/><circle cx="13" cy="8" r="1.4" fill="currentColor"/><path d="M6.5 12.5c1.4 1.6 5.6 1.6 7 0" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></span>
+        <div class="who"><b>Alpha</b><span>First action</span></div>
+        <span class="all">6 of 8</span>
+      </header>
+      <div class="kicker">Proof</div>
+      <div class="bar"><i style="width:75%"></i></div>
+      <div class="hero">Find a coffee shop near you</div>
+      <p class="hint">Alpha searches near the location you saved and texts back one answer. The closest place that fits. Not a menu.</p>
+      <div class="row">
+        <div class="grow"><b>Sightglass Coffee</b><small>0.3 mi. Used current location.</small></div>
+        <span class="chip">Open</span>
+      </div>
+      <p class="hint">If you picked nutrition instead, this step opens the Nutrition card.</p>
+      <div class="actions">
+        <a class="btn" href="#s7">Continue</a>
+      </div>
+    </section>
+
+    <section class="phone" id="s7">
+      <header class="head">
+        <a class="back" href="#s6">‹</a>
+        <span class="face" aria-hidden><svg width="20" height="20" viewBox="0 0 20 20"><circle cx="7" cy="8" r="1.4" fill="currentColor"/><circle cx="13" cy="8" r="1.4" fill="currentColor"/><path d="M6.5 12.5c1.4 1.6 5.6 1.6 7 0" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></span>
+        <div class="who"><b>Alpha</b><span>Connectors</span></div>
+        <span class="all">7 of 8</span>
+      </header>
+      <div class="kicker">Upfront</div>
+      <div class="bar"><i style="width:87.5%"></i></div>
+      <div class="hero">Connect the tools Alpha will actually use.</div>
+      <p class="hint">Nothing is marked connected unless the connection is confirmed. Failed or skipped cards do not block setup.</p>
+      <div class="row conn">
+        <div class="grow">
+          <b>Gmail <span class="state">Not connected</span></b>
+          <small>Read and write. Revoke any time in Settings. Mail that matters shows up in texts.</small>
+        </div>
+        <button class="chip" type="button">Connect</button>
+      </div>
+      <div class="row conn">
+        <div class="grow">
+          <b>Calendar <span class="state">Not connected</span></b>
+          <small>Read only. So Alpha can brief your day without guessing.</small>
+        </div>
+        <button class="chip" type="button">Connect</button>
+      </div>
+      <div class="row conn">
+        <div class="grow">
+          <b>Maps <span class="state">Not connected</span></b>
+          <small>Read only. Nearby search uses this, not a guess from chat.</small>
+        </div>
+        <button class="chip" type="button">Connect</button>
+      </div>
+      <div class="actions">
+        <a class="btn" href="#s8">Connect all</a>
+        <a class="link" href="#s8">Skip for now</a>
+      </div>
+    </section>
+
+    <section class="phone" id="s8">
+      <header class="head">
+        <a class="back" href="#s7">‹</a>
+        <span class="face" aria-hidden><svg width="20" height="20" viewBox="0 0 20 20"><circle cx="7" cy="8" r="1.4" fill="currentColor"/><circle cx="13" cy="8" r="1.4" fill="currentColor"/><path d="M6.5 12.5c1.4 1.6 5.6 1.6 7 0" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></span>
+        <div class="who"><b>Alpha</b><span>Proactive</span></div>
+        <span class="all">8 of 8</span>
+      </header>
+      <div class="kicker">Controls</div>
+      <div class="bar"><i style="width:100%"></i></div>
+      <div class="hero">Control how proactive Alpha is.</div>
+      <p class="hint">Nothing fires until you say so, and never outside quiet hours 10:00 PM to 8:00 AM.</p>
+      <div class="row">
+        <div class="grow"><b>Proactive messages</b><small>Check ins, reminders, digests.</small></div>
+        <span class="switch on"><i></i></span>
+      </div>
+      <div class="kicker">Check in frequency</div>
+      <div class="chips" data-one>
+        <button class="chip" type="button">Off</button>
+        <button class="chip on" type="button">Weekly</button>
+        <button class="chip" type="button">Daily</button>
+      </div>
+      <div class="row">
+        <div class="grow"><b>Daily digest</b><small>One morning brief.</small></div>
+        <span class="switch on"><i></i></span>
+      </div>
+      <p class="hint">Next scheduled: a light check in this weekend, plus the morning brief.</p>
+      <div class="chips">
+        <button class="chip" type="button">Pause for today</button>
+        <button class="chip" type="button">Turn everything off</button>
+      </div>
+      <div class="actions">
+        <a class="btn" href="#s9">Continue</a>
+        <a class="link" href="#s10">Finish later</a>
+      </div>
+    </section>
+
+    <section class="phone" id="s9">
+      <header class="head">
+        <a class="back" href="#s8">‹</a>
+        <span class="face" aria-hidden><svg width="20" height="20" viewBox="0 0 20 20"><circle cx="7" cy="8" r="1.4" fill="currentColor"/><circle cx="13" cy="8" r="1.4" fill="currentColor"/><path d="M6.5 12.5c1.4 1.6 5.6 1.6 7 0" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></span>
+        <div class="who"><b>Alpha</b><span>Profile</span></div>
+        <span class="all">Later</span>
+      </header>
+      <div class="kicker">Stage 2 optional</div>
+      <div class="bar"><i style="width:20%"></i></div>
+      <div class="hero">Complete the profile</div>
+      <p class="hint">2 of 10 fields. Every field explains what it unlocks. Skip anything.</p>
+      <label class="field"><span>Favorite cuisines</span><input placeholder="Thai, Mexican, pizza" /><small class="hint">So Alpha can recommend places you will like.</small></label>
+      <label class="field"><span>Dietary restrictions</span><input placeholder="Vegetarian, no shellfish" /><small class="hint">Alpha skips places that do not work for you.</small></label>
+      <label class="field"><span>Important people</span><textarea placeholder="Mom, Alex"></textarea><small class="hint">Alpha helps you stay in touch with the people you name.</small></label>
+      <div class="actions">
+        <a class="btn" href="#s10">Finish setup</a>
+        <a class="link" href="#s10">Finish later</a>
+      </div>
+    </section>
+
+    <section class="phone" id="s10">
+      <header class="head">
+        <a class="back" href="#s9">‹</a>
+        <span class="face" aria-hidden><svg width="20" height="20" viewBox="0 0 20 20"><circle cx="7" cy="8" r="1.4" fill="currentColor"/><circle cx="13" cy="8" r="1.4" fill="currentColor"/><path d="M6.5 12.5c1.4 1.6 5.6 1.6 7 0" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></span>
+        <div class="who"><b>Alpha</b><span>Ready</span></div>
+        <span class="all">Done</span>
+      </header>
+      <div class="kicker">All set</div>
+      <div class="hero">Hey Sashank. Alpha is ready.</div>
+      <p class="hint">Useful from the first conversation. Change anything here or in Settings any time.</p>
+      <ul class="sum">
+        <li><span>Location</span><strong>SoMa, San Francisco</strong></li>
+        <li><span>Home</span><strong>SoMa, San Francisco</strong></li>
+        <li><span>First focus</span><strong>Food and restaurants</strong></li>
+        <li><span>Proactive</span><strong>On, weekly</strong></li>
+      </ul>
+      <div class="actions">
+        <a class="btn" href="#s0">Open workspace</a>
+        <a class="ghost" href="#s8">Adjust proactive controls</a>
+        <a class="link" href="#s2">Manage locations</a>
+      </div>
+    </section>
+
+  </div>
+
+  <script>
+    document.querySelectorAll('.chips').forEach((group) => {
+      group.addEventListener('click', (e) => {
+        const btn = e.target.closest('.chip')
+        if (!btn || !group.contains(btn)) return
+        if (group.dataset.one != null) {
+          group.querySelectorAll('.chip').forEach((c) => c.classList.toggle('on', c === btn))
+          return
+        }
+        const max = Number(group.dataset.max || 0)
+        if (btn.classList.contains('on')) {
+          btn.classList.remove('on')
+          if (btn.closest('.pick')) btn.textContent = 'Pick'
+          return
+        }
+        if (max && group.querySelectorAll('.chip.on').length >= max) return
+        btn.classList.add('on')
+        if (btn.closest('.pick')) btn.textContent = 'On'
+      })
+    })
+    document.querySelectorAll('.switch').forEach((el) => {
+      el.addEventListener('click', () => el.classList.toggle('on'))
+    })
+  </script>
+</body>
+</html>

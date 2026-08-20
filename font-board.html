@@ -1,0 +1,324 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>HireAlpha fonts</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&family=Red+Hat+Mono:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --page: #070707;
+      --page-fg: #f2f2f2;
+      --page-muted: #8a8a8a;
+      --bg: #000;
+      --fg: #f4f4f4;
+      --muted: #8d8d8d;
+      --line: #2e2e2e;
+      --accent: #F8C301;
+      --accent-fg: #000;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; background: var(--page); color: var(--page-fg); }
+    body {
+      font: 14px/1.4 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
+    }
+    button { font: inherit; appearance: none; border-radius: 0; }
+
+    .top {
+      position: sticky; top: 0; z-index: 5;
+      background: color-mix(in srgb, var(--page) 92%, transparent);
+      backdrop-filter: blur(12px);
+      padding: 18px 22px 14px;
+      border-bottom: 1px solid #1c1c1c;
+    }
+    .top h1 { margin: 0 0 6px; font-size: 18px; font-weight: 650; letter-spacing: -0.02em; }
+    .top p { margin: 0 0 12px; color: var(--page-muted); max-width: 760px; }
+    .jumps { display: flex; flex-wrap: wrap; gap: 8px; }
+    .jumps a {
+      color: #ddd; text-decoration: none;
+      border: 1px solid #333; padding: 7px 11px; background: #141414;
+    }
+    .jumps a:hover { border-color: var(--accent); color: var(--accent); }
+
+    .variant { padding: 28px 22px 8px; border-top: 1px solid #1a1a1a; }
+    .variant:first-of-type { border-top: 0; }
+    .variant-head { margin: 0 0 14px; }
+    .variant-head h2 { margin: 0; font-size: 20px; font-weight: 650; letter-spacing: -0.02em; }
+    .variant-head p { margin: 4px 0 0; color: var(--page-muted); font-size: 13px; }
+    .phones {
+      display: flex; gap: 16px; overflow-x: auto;
+      padding-bottom: 22px;
+    }
+
+    .phone {
+      flex: none;
+      width: 390px;
+      min-height: 620px;
+      background: var(--bg);
+      color: var(--fg);
+      border: 1px solid #222;
+      border-radius: 0;
+      padding: 18px 16px 22px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      font-variant-ligatures: none;
+      font-feature-settings: "calt" 0;
+    }
+    .phone *:not(.face) { border-radius: 0; }
+
+    .head {
+      display: flex; align-items: center; gap: 8px;
+      padding-bottom: 10px; border-bottom: 1px solid var(--line);
+    }
+    .back, .all { color: var(--accent); font-weight: 650; font-size: 13px; }
+    .all { margin-left: auto; }
+    .face {
+      width: 34px; height: 34px; border-radius: 50%;
+      background: var(--accent); color: var(--accent-fg);
+      display: grid; place-items: center; flex: none;
+    }
+    .face svg { display: block; }
+    .who { min-width: 0; }
+    .who b { display: block; font-size: 14px; line-height: 1.15; font-weight: 700; }
+    .who span { color: var(--muted); font-size: 12px; }
+
+    .kicker {
+      font-size: 10px; font-weight: 700; color: var(--muted);
+      letter-spacing: 0.16em; text-transform: uppercase;
+    }
+    .hero { font-size: 28px; font-weight: 700; line-height: 1.08; letter-spacing: -0.03em; }
+    .hint { font-size: 13px; color: var(--muted); line-height: 1.4; }
+    .left { color: var(--fg); }
+
+    .row {
+      display: flex; align-items: center; gap: 10px;
+      padding: 10px 12px; border: 1px solid var(--line);
+    }
+    .row b { display: block; font-size: 14px; font-weight: 600; }
+    .row small { color: var(--muted); font-size: 12px; line-height: 1.35; }
+    .grow { flex: 1; min-width: 0; }
+    .mark {
+      width: 32px; height: 32px; flex: none;
+      display: grid; place-items: center;
+      border: 1px solid var(--line); color: var(--fg);
+    }
+    .mark svg { width: 16px; height: 16px; }
+
+    .chip {
+      border: 1px solid var(--line); background: transparent; color: var(--fg);
+      padding: 6px 10px; font-size: 12px; font-weight: 650; line-height: 1;
+    }
+    .chip.on { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
+    .btn {
+      display: block; width: 100%; text-align: center;
+      background: var(--accent); color: var(--accent-fg); border: 0;
+      padding: 12px; font-weight: 700; font-size: 13px;
+    }
+
+    .pills { display: flex; gap: 6px; flex-wrap: wrap; }
+    .energy { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; }
+    .energy .chip { text-align: center; padding: 10px 0; }
+    .strip { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+    .day {
+      border: 1px solid var(--line);
+      text-align: center; padding: 10px 0 8px; font-size: 11px; color: var(--muted);
+    }
+    .day i {
+      display: block; width: 5px; height: 5px; margin: 0 auto 6px;
+      background: #6a6a6a;
+    }
+    .day.today { border-color: #fff; color: var(--fg); }
+    .day.today i { background: var(--accent); }
+
+    .macros { display: grid; gap: 6px; }
+    .meta { font-size: 12px; color: var(--muted); }
+    .bar { height: 6px; background: #1c1c1c; border: 1px solid var(--line); }
+    .bar > i { display: block; height: 100%; background: var(--accent); }
+
+    .ring-wrap { display: flex; gap: 14px; align-items: center; }
+    .habits { display: flex; flex-direction: column; }
+    .habits .row { border-left: 0; border-right: 0; border-radius: 0; }
+    .habits .row + .row { border-top: 0; }
+    .habits .row:first-child { border-top: 1px solid var(--line); }
+
+    .group { display: flex; flex-direction: column; gap: 6px; }
+  </style>
+</head>
+<body>
+  <div class="top">
+    <h1>HireAlpha fonts</h1>
+    <p>Same black, yellow, grey, and sharp geometry as the screenshot. Only the typeface changes. Production is unchanged until you pick one.</p>
+    <nav class="jumps" id="jumps"></nav>
+  </div>
+
+  <div id="board"></div>
+
+  <template id="phones">
+    <div class="phones">
+      <section class="phone">
+        <header class="head">
+          <span class="back">‹</span>
+          <span class="face" aria-hidden><svg width="20" height="20" viewBox="0 0 20 20"><circle cx="7" cy="8" r="1.4" fill="currentColor"/><circle cx="13" cy="8" r="1.4" fill="currentColor"/><path d="M6.5 12.5c1.4 1.6 5.6 1.6 7 0" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></span>
+          <div class="who"><b>Alpha</b><span>Apps</span></div>
+        </header>
+        <div class="group">
+          <div class="kicker">Life</div>
+          <div class="row"><span class="mark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4.6 10h14.8M6.2 10c.5 6.6 2.6 9.8 5.8 9.8s5.3-3.2 5.8-9.8M9.2 6.4c.8-.8 5.8-.8 6.6 0"/></svg></span><div class="grow"><b>Nutrition</b><small>Meals and macros.</small></div><span class="chip">Open</span></div>
+          <div class="row"><span class="mark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="8"/><path d="M8.6 12.2l2.3 2.3 4.6-5"/></svg></span><div class="grow"><b>Habits</b><small>Today and streaks.</small></div><span class="chip">Open</span></div>
+          <div class="row"><span class="mark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="8"/><path d="M9 14.4c.9 1.4 5.1 1.4 6 0"/></svg></span><div class="grow"><b>Mood</b><small>How you feel.</small></div><span class="chip">Open</span></div>
+        </div>
+        <div class="group">
+          <div class="kicker">People</div>
+          <div class="row"><span class="mark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="9" cy="8.6" r="2.3"/><path d="M4.8 16.8c.3-2.6 1.8-4 4.2-4s3.9 1.4 4.2 4"/></svg></span><div class="grow"><b>People</b><small>Who to follow up.</small></div><span class="chip">Open</span></div>
+        </div>
+        <div class="group">
+          <div class="kicker">Day</div>
+          <div class="row"><span class="mark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="4.6" y="6.2" width="14.8" height="13.2"/><path d="M4.6 10.2h14.8"/><path d="M8.2 4.6v3"/><path d="M15.8 4.6v3"/></svg></span><div class="grow"><b>Today</b><small>Calendar, mail, reminders.</small></div><span class="chip">Open</span></div>
+        </div>
+      </section>
+
+      <section class="phone">
+        <header class="head">
+          <span class="back">‹</span>
+          <span class="face" aria-hidden><svg width="20" height="20" viewBox="0 0 20 20"><circle cx="7" cy="8" r="1.4" fill="currentColor"/><circle cx="13" cy="8" r="1.4" fill="currentColor"/><path d="M6.5 12.5c1.4 1.6 5.6 1.6 7 0" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></span>
+          <div class="who"><b>Alpha</b><span>Nutrition</span></div>
+          <span class="all">All apps</span>
+        </header>
+        <div class="ring-wrap">
+          <svg width="92" height="92" viewBox="0 0 92 92" aria-hidden>
+            <circle cx="46" cy="46" r="34" fill="none" stroke="var(--line)" stroke-width="8"/>
+            <circle cx="46" cy="46" r="34" fill="none" stroke="var(--accent)" stroke-width="8" stroke-dasharray="137 214" transform="rotate(-90 46 46)"/>
+          </svg>
+          <div>
+            <div class="kicker">Today</div>
+            <div class="hero">1,420</div>
+            <div class="hint">of 2,200 kcal</div>
+          </div>
+        </div>
+        <div class="macros">
+          <div class="meta">Protein 92 / 150</div>
+          <div class="bar"><i style="width:61%"></i></div>
+          <div class="meta">Carbs 140 / 220</div>
+          <div class="bar"><i style="width:64%"></i></div>
+          <div class="meta">Fat 48 / 70</div>
+          <div class="bar"><i style="width:69%"></i></div>
+        </div>
+        <div class="row"><div class="grow"><b>Chicken bowl</b><small>Lunch · 640 kcal</small></div></div>
+        <button class="btn" type="button">Log a meal</button>
+      </section>
+
+      <section class="phone">
+        <header class="head">
+          <span class="back">‹</span>
+          <span class="face" aria-hidden><svg width="20" height="20" viewBox="0 0 20 20"><circle cx="7" cy="8" r="1.4" fill="currentColor"/><circle cx="13" cy="8" r="1.4" fill="currentColor"/><path d="M6.5 12.5c1.4 1.6 5.6 1.6 7 0" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></span>
+          <div class="who"><b>Alpha</b><span>Habits</span></div>
+          <span class="all">All apps</span>
+        </header>
+        <div class="kicker">Today</div>
+        <div class="hero">2 of 3</div>
+        <div class="left">Gym is the one left</div>
+        <div class="habits">
+          <div class="row"><div class="grow"><b>Gym</b><small>4 day streak</small></div><span class="chip">Mark</span></div>
+          <div class="row"><div class="grow"><b>Read</b><small>12 day streak</small></div><span class="chip on">Done</span></div>
+          <div class="row"><div class="grow"><b>Walk</b><small>2 day streak</small></div><span class="chip on">Done</span></div>
+        </div>
+      </section>
+
+      <section class="phone">
+        <header class="head">
+          <span class="back">‹</span>
+          <span class="face" aria-hidden><svg width="20" height="20" viewBox="0 0 20 20"><circle cx="7" cy="8" r="1.4" fill="currentColor"/><circle cx="13" cy="8" r="1.4" fill="currentColor"/><path d="M6.5 12.5c1.4 1.6 5.6 1.6 7 0" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></span>
+          <div class="who"><b>Alpha</b><span>Mood</span></div>
+          <span class="all">All apps</span>
+        </header>
+        <div class="hero">How do you feel</div>
+        <div class="hint">Tap a face.</div>
+        <div class="pills">
+          <span class="chip">Good</span><span class="chip on">Okay</span><span class="chip">Low</span><span class="chip">Off</span><span class="chip">Hot</span>
+        </div>
+        <div class="kicker">Energy</div>
+        <div class="energy">
+          <span class="chip">1</span><span class="chip">2</span><span class="chip on">3</span><span class="chip">4</span><span class="chip">5</span>
+        </div>
+        <div class="strip">
+          <div class="day"><i></i>W</div>
+          <div class="day"><i></i>T</div>
+          <div class="day"><i></i>F</div>
+          <div class="day"><i></i>S</div>
+          <div class="day"><i></i>S</div>
+          <div class="day"><i></i>M</div>
+          <div class="day today"><i></i>T</div>
+        </div>
+      </section>
+    </div>
+  </template>
+
+  <script>
+    const fonts = [
+      {
+        id: "current",
+        name: "Current",
+        feel: "Live mini-app stack. SF Pro on Apple, system UI everywhere else. Proportional, not mono.",
+        family: '-apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif',
+      },
+      {
+        id: "ibm",
+        name: "IBM Plex Mono",
+        feel: "Neutral technical. Reads like a spec sheet at every size.",
+        family: '"IBM Plex Mono", ui-monospace, monospace',
+      },
+      {
+        id: "jetbrains",
+        name: "JetBrains Mono",
+        feel: "Coding default. Clearest small blurbs, slightly softer heroes.",
+        family: '"JetBrains Mono", ui-monospace, monospace',
+      },
+      {
+        id: "space",
+        name: "Space Mono",
+        feel: "Wider and more instructional. Biggest poster presence in the row.",
+        family: '"Space Mono", ui-monospace, monospace',
+      },
+      {
+        id: "geist",
+        name: "Geist Mono",
+        feel: "Softer, more product. Same mono grid with less machine bite.",
+        family: '"Geist Mono", ui-monospace, monospace',
+      },
+      {
+        id: "redhat",
+        name: "Red Hat Mono",
+        feel: "Open, rounder strokes. The one that most clearly differs at display size.",
+        family: '"Red Hat Mono", ui-monospace, monospace',
+      },
+    ];
+
+    const board = document.getElementById("board");
+    const jumps = document.getElementById("jumps");
+    const tpl = document.getElementById("phones");
+
+    for (const font of fonts) {
+      const a = document.createElement("a");
+      a.href = "#" + font.id;
+      a.textContent = font.name;
+      jumps.appendChild(a);
+
+      const section = document.createElement("section");
+      section.className = "variant";
+      section.id = font.id;
+      section.innerHTML =
+        '<div class="variant-head"><h2></h2><p></p></div>';
+      section.querySelector("h2").textContent = font.name;
+      section.querySelector("p").textContent = font.feel;
+      section.appendChild(tpl.content.cloneNode(true));
+      section.querySelectorAll(".phone").forEach((phone) => {
+        phone.style.fontFamily = font.family;
+      });
+      board.appendChild(section);
+    }
+  </script>
+</body>
+</html>

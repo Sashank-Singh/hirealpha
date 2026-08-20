@@ -118,10 +118,18 @@ export function upsertFacts(
   }
   const next: ThreadMemory = {
     ...mem,
-    facts: [...byKey.values()].slice(-MAX_FACTS),
+    facts: capFacts([...byKey.values()]),
   }
   writeMemory(dataDir, senderId, next)
   return next
+}
+
+/** Keep every durable fact and only trim non-durable overflow so the file can't grow unbounded. */
+function capFacts(facts: MemoryFact[]): MemoryFact[] {
+  const durable = facts.filter((f) => isDurableFactKey(f.key))
+  const room = Math.max(0, MAX_FACTS - durable.length)
+  const overflow = facts.filter((f) => !isDurableFactKey(f.key)).slice(-room)
+  return [...overflow, ...durable]
 }
 
 /** Drop facts not re-confirmed within FACT_TTL_DAYS. Names, people, timezone, and this week's decision never expire. */

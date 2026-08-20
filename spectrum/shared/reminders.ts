@@ -59,7 +59,7 @@ export function parseRelativeLocalTime(
     const unit = m[2].toLowerCase()
     let ms = 0
     if (unit.startsWith('min')) ms = n * 60_000
-    else if (unit.startsWith('hr')) ms = n * 3_600_000
+    else if (unit.startsWith('hr') || unit.startsWith('hour')) ms = n * 3_600_000
     else if (unit.startsWith('sec')) ms = n * 1000
     else if (unit.startsWith('day')) ms = n * 86_400_000
     if (ms > 0) return new Date(now + ms).toISOString().slice(0, 19).replace('T', 'T')
