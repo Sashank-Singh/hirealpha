@@ -4,6 +4,10 @@ import {
   looksLikeFollowUp,
   looksLikeMailWrite,
   looksLikePrep,
+  looksLikeHealthDiagnosis,
+  looksLikeHighStakesLegal,
+  looksLikeMoneyMovement,
+  classifyHardStop,
   matchPerson,
   matchTextPerson,
   parseDraftCall,
@@ -121,5 +125,29 @@ describe('operator writes', () => {
       start: 'tomorrow 3pm',
       end: '',
     })
+  })
+})
+
+describe('hard stops', () => {
+  it('blocks money movement but not a spend log', () => {
+    expect(looksLikeMoneyMovement('venmo Maya $50')).toBe(true)
+    expect(looksLikeMoneyMovement('send $40 to Maya')).toBe(true)
+    expect(looksLikeMoneyMovement('pay the invoice')).toBe(true)
+    expect(looksLikeMoneyMovement('I spent $40 on lunch')).toBe(false)
+    expect(classifyHardStop('wire them $200')).toBe('money')
+  })
+
+  it('blocks diagnosis but not a meal log', () => {
+    expect(looksLikeHealthDiagnosis('do I have covid')).toBe(true)
+    expect(looksLikeHealthDiagnosis('diagnose this rash')).toBe(true)
+    expect(looksLikeHealthDiagnosis('I ate a chicken bowl')).toBe(false)
+    expect(classifyHardStop('is this cancer')).toBe('health')
+  })
+
+  it('blocks legal advice but not meeting prep', () => {
+    expect(looksLikeHighStakesLegal('is this NDA legally binding')).toBe(true)
+    expect(looksLikeHighStakesLegal('draft a will and send it')).toBe(true)
+    expect(looksLikeHighStakesLegal('prep me for Amy')).toBe(false)
+    expect(classifyHardStop('sue them tomorrow')).toBe('legal')
   })
 })

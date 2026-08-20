@@ -75,6 +75,7 @@ export function skillsPromptBlock(agentId: AgentId, connected: string[] = []): s
     `Never act with: ${s.deny.join(', ')}.`,
     'Do not claim you completed a tool action unless a tool result is provided in context.',
     'Never say you sent mail, booked a calendar event, or texted someone. Writes need a card tap: Send, Book, or Text.',
+    'Never diagnose. Never give legal advice. Never venmo, wire, charge a card, or otherwise move money.',
     agentId === 'friend'
       ? 'If they ask to prep for a person, stitch calendar, People notes, and the mail thread into one text. If they ask to run the week, the weekly review is already written from logs. Private logs can save themselves. Mail, texts, calendar, and money over the spend cap still need a tap. Do not ask them to pull pieces or fill the card.'
       : '',

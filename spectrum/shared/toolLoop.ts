@@ -14,6 +14,8 @@ If they asked you to prep for a person or meeting, the Prep bundle is already st
 
 If they asked you to run the week, the weekly review is already written from logs. Put it in the text. Do not ask them to fill the card. If a Send or Spending card is attached, that is public or money: tell them to tap. Never send or spend on your own.
 
+Never diagnose. Never give legal advice. Never move money. If they asked for those, refuse in one text. Do not attach Send.
+
 If you still need a lookup that is not in Life right now, output exactly one line and stop:
 TOOL maps <query>
 TOOL web <query>
@@ -94,6 +96,66 @@ export function looksLikeWeekRun(text: string) {
     /\breview (?:my )?week\b/i.test(t) ||
     /\bend of (?:the )?week\b/i.test(t)
   )
+}
+
+export type HardStop = 'legal' | 'health' | 'money'
+
+export function looksLikeMoneyMovement(text: string) {
+  const t = String(text || '')
+  if (/\bi (?:spent|paid|got charged)\b/i.test(t) && !/\b(venmo|zelle|paypal|wire|send money)\b/i.test(t)) {
+    return false
+  }
+  return (
+    (/\b(venmo|zelle|paypal|cash app|apple cash|wise)\b/i.test(t) &&
+      /\$\s*\d|\bpay\b|\bsend\b|\btransfer\b/.test(t)) ||
+    /\b(send|wire|transfer)\s+(?:them |her |him |me )?(?:\$\s*\d+|money)\b/i.test(t) ||
+    /\bsend money\b|\bmove money\b|\bwire money\b/i.test(t) ||
+    /\bpay (?:the )?(?:invoice|bill|rent|landlord)\b/i.test(t) ||
+    /\b(?:charge|refund) (?:the )?(?:card|customer|stripe)\b/i.test(t) ||
+    /\bstripe (?:charge|payout|transfer|refund)\b/i.test(t)
+  )
+}
+
+export function looksLikeHealthDiagnosis(text: string) {
+  const t = String(text || '')
+  return (
+    /\bdiagnos(?:e|is|ing)\b/i.test(t) ||
+    /\bprescri(?:be|ption)\b/i.test(t) ||
+    /\b(do i have|is this|could this be|what(?:'s| is) wrong with (?:me|my))\b.{0,48}\b(cancer|covid|infection|disease|std|clot|stroke|heart attack|pneumonia|ulcer|tumor)\b/i.test(
+      t,
+    ) ||
+    /\b(what disease|which disease|is it cancer)\b/i.test(t)
+  )
+}
+
+export function looksLikeHighStakesLegal(text: string) {
+  const t = String(text || '')
+  if (looksLikePrep(t) && !/\b(legal advice|is this legal|sue|lawsuit)\b/i.test(t)) return false
+  return (
+    /\b(?:sue|lawsuit|litigation|malpractice)\b/i.test(t) ||
+    /\b(?:is (?:this|that|it) legal|legally binding|enforceable)\b/i.test(t) ||
+    /\blegal advice\b|\battorney\b/i.test(t) ||
+    /\b(?:write|draft|send)\b.{0,32}\b(?:nda|will|trust|lease|subpoena)\b/i.test(t) ||
+    /\bpower of attorney\b|\bretainer agreement\b/i.test(t) ||
+    /\bimmigration (?:status|case|lawyer)\b/i.test(t)
+  )
+}
+
+export function classifyHardStop(text: string): HardStop | null {
+  if (looksLikeMoneyMovement(text)) return 'money'
+  if (looksLikeHealthDiagnosis(text)) return 'health'
+  if (looksLikeHighStakesLegal(text)) return 'legal'
+  return null
+}
+
+export function hardStopInstruction(kind: HardStop) {
+  if (kind === 'money') {
+    return 'HARD STOP: unsupervised money movement. Do not venmo, wire, charge a card, pay an invoice, or send money. Do not attach Send for a payment. Logging spend they already made is fine only under the cap. Tell them you cannot move money. They have to do it themselves.'
+  }
+  if (kind === 'health') {
+    return 'HARD STOP: health diagnosis. Do not name a disease, a dose, or a prescription. Do not claim it is nothing. Tell them you cannot diagnose. If it is urgent, tell them to get a clinician. You can still log meals, sleep, and mood.'
+  }
+  return 'HARD STOP: high stakes legal. Do not say what the law is. Do not draft a binding contract, NDA, will, or lease as advice. Do not send it. Tell them to talk to a lawyer. You can still prep them for a meeting with one.'
 }
 
 export function wantsOperatorWrite(text: string) {

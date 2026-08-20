@@ -37,6 +37,8 @@ import {
   looksLikeMailWrite,
   looksLikePrep,
   looksLikeWeekRun,
+  classifyHardStop,
+  hardStopInstruction,
   matchPerson,
   prepTarget,
   parseDraftCall,
@@ -496,6 +498,7 @@ export async function runHireTurn(input: {
   }
 
   const writeIntent = wantsOperatorWrite(input.userText)
+  const hardStop = classifyHardStop(input.userText)
   const skipFreeLookup = !!(
     miniApp &&
     miniApp.kind !== 'pick_night' &&
@@ -586,6 +589,7 @@ export async function runHireTurn(input: {
       }
     }
   }
+  if (hardStop) extras.push(hardStopInstruction(hardStop))
 
   let miniRun: { text?: string; paste?: string } | null = null
   if (miniApp && LIVE_MINI.has(miniApp.kind)) {
@@ -665,7 +669,7 @@ export async function runHireTurn(input: {
       extras.push('Habit auto-log could not find a matching habit. Do not claim it was logged.')
     }
   }
-  if (miniApp?.kind === 'spending_snapshot' && looksLikeSpendLog(input.userText)) {
+  if (miniApp?.kind === 'spending_snapshot' && looksLikeSpendLog(input.userText) && hardStop !== 'money') {
     const spend = await autoLogSpend(input.senderId, agent.id, input.userText)
     if (spend?.logged) {
       extras.push(
@@ -720,7 +724,7 @@ export async function runHireTurn(input: {
     const weekAsk =
       looksLikeWeekRun(input.userText) ||
       (miniApp?.kind === 'weekly_review' && !/\b(?:open|show|pull up|bring back)\b/i.test(input.userText))
-    if (weekAsk) {
+    if (!hardStop && weekAsk) {
       const week = await fetchWeekBundle(input.senderId, agent.id)
       if (week?.text) {
         prepLoaded = true
@@ -753,7 +757,7 @@ export async function runHireTurn(input: {
           `They are due to ping ${week.ping.name}. Number on file: ${week.ping.phone}. That is public, so tell them to tap Text. Never claim you sent a text.`,
         )
       }
-    } else if (looksLikePrep(input.userText)) {
+    } else if (!hardStop && looksLikePrep(input.userText)) {
       const prep = await fetchPrepBundle(
         input.senderId,
         agent.id,
@@ -797,7 +801,7 @@ export async function runHireTurn(input: {
           )
         }
       }
-    } else if (writeIntent) {
+    } else if (!hardStop && writeIntent) {
       let draft: DraftCall | null = null
       const person = matchPerson(input.userText, people)
       if (looksLikeFollowUp(input.userText) && !looksLikeEventWrite(input.userText)) {
@@ -847,7 +851,7 @@ export async function runHireTurn(input: {
     ]
       .filter(Boolean)
       .join('\n')
-    if (!skipFreeLookup && !prepLoaded) {
+    if (!skipFreeLookup && !prepLoaded && !hardStop) {
       for (; roundsUsed < 3; roundsUsed++) {
         const next = await planNextTool(input.userText, already)
         if (!next) break
@@ -954,7 +958,7 @@ export async function runHireTurn(input: {
           maxTokens,
           messages: loopMessages,
         })
-      } else if (leftoverDraft && !confirmKind) {
+      } else if (leftoverDraft && !confirmKind && !hardStop) {
         const proposed = await saveFriendDraft(input.senderId, agent.id, leftoverDraft)
         if (proposed.ok && proposed.id) {
           confirmKind = leftoverDraft.type === 'event' ? 'pick_slot' : 'approve_send'
