@@ -26,6 +26,7 @@ import {
   apiSaveWeeklyReview,
   apiSetSpendBudget,
   apiTouchNetwork,
+  apiSaveNetwork,
   apiWeeklyReview,
   type GratitudeEntry,
   type LearningItem,
@@ -964,8 +965,19 @@ export function MirrorApp({ auth }: { auth: FeatureAuth }) {
 }
 
 /* ---------------------------- Networking CRM ---------------------------- */
-function smsDraft(name: string) {
-  return `sms:&body=${encodeURIComponent(`Hey ${name}, checking in.`)}`
+function smsHref(name: string, phone?: string) {
+  const body = encodeURIComponent(`Hey ${name.split(/\s+/)[0] || name}, checking in.`)
+  const digits = (phone || '').replace(/[^\d+]/g, '')
+  return digits ? `sms:${digits}?body=${body}` : `sms:?body=${body}`
+}
+
+function telHref(phone?: string) {
+  const digits = (phone || '').replace(/[^\d+]/g, '')
+  return digits ? `tel:${digits}` : ''
+}
+
+function personBits(p: { company?: string; phone?: string; contactEmail?: string; context?: string; whereMet?: string; lastTouch: string | null }) {
+  return [p.company, p.phone, p.contactEmail, p.context || p.whereMet || 'No note yet', agoLabel(p.lastTouch)].filter(Boolean).join(' · ')
 }
 
 function kindLabel(kind: string): string {
@@ -989,9 +1001,14 @@ export function NetworkingCrmApp({ auth }: { auth: FeatureAuth }) {
   const [stay, setStay] = useState<NetworkStay | null>(null)
   const [calendarConnected, setCalendarConnected] = useState<boolean | null>(null)
   const [line, setLine] = useState('')
+  const [phone, setPhone] = useState('')
+  const [contactEmail, setContactEmail] = useState('')
+  const [company, setCompany] = useState('')
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState('')
   const [showAdd, setShowAdd] = useState(false)
+  const [openId, setOpenId] = useState<string | null>(null)
+  const [edit, setEdit] = useState({ name: '', phone: '', contactEmail: '', company: '', whereMet: '', context: '' })
   const [logNotes, setLogNotes] = useState<Record<string, string>>({})
 
   const load = useCallback(() => {
@@ -1012,12 +1029,58 @@ export function NetworkingCrmApp({ auth }: { auth: FeatureAuth }) {
     setBusy(true)
     try {
       const parsed = parseNetworkLine(line.trim())
-      await apiAddNetwork({ ...a, name: parsed.name, whereMet: parsed.whereMet, context: parsed.context })
+      await apiAddNetwork({
+        ...a,
+        name: parsed.name,
+        whereMet: parsed.whereMet,
+        context: parsed.context,
+        phone: phone.trim(),
+        contactEmail: contactEmail.trim(),
+        company: company.trim(),
+      })
       setLine('')
+      setPhone('')
+      setContactEmail('')
+      setCompany('')
       setShowAdd(false)
       load()
     } catch {
       setMsg('Could not add that.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  function openPerson(p: NetworkPerson) {
+    setOpenId(p.id)
+    setEdit({
+      name: p.name,
+      phone: p.phone || '',
+      contactEmail: p.contactEmail || '',
+      company: p.company || '',
+      whereMet: p.whereMet || '',
+      context: p.context || '',
+    })
+  }
+
+  async function savePerson(id: string) {
+    if (!edit.name.trim() || busy) return
+    setBusy(true)
+    try {
+      await apiSaveNetwork({
+        ...a,
+        id,
+        name: edit.name.trim(),
+        phone: edit.phone.trim(),
+        contactEmail: edit.contactEmail.trim(),
+        company: edit.company.trim(),
+        whereMet: edit.whereMet.trim(),
+        context: edit.context.trim(),
+      })
+      setOpenId(null)
+      load()
+    } catch {
+      setMsg('Could not save that.')
     } finally {
       setBusy(false)
     }
@@ -1135,7 +1198,7 @@ export function NetworkingCrmApp({ auth }: { auth: FeatureAuth }) {
           <span className="ma-section-label">Reach out</span>
           <div className="ma-callout ma-callout--hot">
             <strong>{due[0]!.name}</strong>
-            <span className="ma-sub">{due[0]!.context || due[0]!.whereMet || 'No note yet'} · {agoLabel(due[0]!.lastTouch)}</span>
+            <span className="ma-sub">{personBits(due[0]!)}</span>
             <input
               className="ma-input"
               value={logNotes[due[0]!.id] || ''}
@@ -1144,7 +1207,10 @@ export function NetworkingCrmApp({ auth }: { auth: FeatureAuth }) {
               aria-label="Note"
             />
             <div className="ma-callout-actions">
-              <a className="ma-btn" href={smsDraft(due[0]!.name)}>Text</a>
+              <a className="ma-btn" href={smsHref(due[0]!.name, due[0]!.phone)}>Text</a>
+              {telHref(due[0]!.phone) && (
+                <a className="ma-chip" href={telHref(due[0]!.phone)}>Call</a>
+              )}
               <button className="ma-chip" type="button" onClick={() => void talked(due[0]!.id, logNotes[due[0]!.id])}>Talked</button>
             </div>
           </div>
@@ -1173,33 +1239,91 @@ export function NetworkingCrmApp({ auth }: { auth: FeatureAuth }) {
         <ul className="ma-list">
           {ranked.map((p) => {
             const late = daysSince(p.lastTouch) >= p.cadenceDays
+            const open = openId === p.id
             return (
               <li key={p.id} className={`ma-row${late ? ' ma-row--warn' : ''}`}>
                 <div className="ma-row-main">
-                  <span className="ma-title">
-                    {p.name}
-                    {late && <span className="ma-badge">due</span>}
-                  </span>
-                  <span className="ma-sub">{p.context || p.whereMet || 'No note yet'} · {agoLabel(p.lastTouch)}</span>
+                  <button className="wk-name-btn" type="button" onClick={() => (open ? setOpenId(null) : openPerson(p))}>
+                    <span className="ma-title">
+                      {p.name}
+                      {late && <span className="ma-badge">due</span>}
+                    </span>
+                  </button>
+                  <span className="ma-sub">{personBits(p)}</span>
+                  {open && (
+                    <div className="ma-stack" style={{ marginTop: 8 }}>
+                      <label className="ma-field">
+                        <span>Name</span>
+                        <input className="ma-input" value={edit.name} onChange={(e) => setEdit({ ...edit, name: e.target.value })} />
+                      </label>
+                      <div className="ma-form-split">
+                        <label className="ma-field">
+                          <span>Phone</span>
+                          <input className="ma-input" value={edit.phone} onChange={(e) => setEdit({ ...edit, phone: e.target.value })} inputMode="tel" />
+                        </label>
+                        <label className="ma-field">
+                          <span>Email</span>
+                          <input className="ma-input" value={edit.contactEmail} onChange={(e) => setEdit({ ...edit, contactEmail: e.target.value })} inputMode="email" />
+                        </label>
+                      </div>
+                      <label className="ma-field">
+                        <span>Company</span>
+                        <input className="ma-input" value={edit.company} onChange={(e) => setEdit({ ...edit, company: e.target.value })} />
+                      </label>
+                      <label className="ma-field">
+                        <span>Where you met</span>
+                        <input className="ma-input" value={edit.whereMet} onChange={(e) => setEdit({ ...edit, whereMet: e.target.value })} />
+                      </label>
+                      <label className="ma-field">
+                        <span>Note</span>
+                        <input className="ma-input" value={edit.context} onChange={(e) => setEdit({ ...edit, context: e.target.value })} />
+                      </label>
+                      <div className="ma-callout-actions">
+                        <button className="ma-btn" type="button" disabled={busy || !edit.name.trim()} onClick={() => void savePerson(p.id)}>
+                          Save
+                        </button>
+                        {p.contactEmail && (
+                          <a className="ma-chip" href={`mailto:${p.contactEmail}`}>Email</a>
+                        )}
+                      </div>
+                    </div>
+                  )}
                 </div>
                 <button className="ma-chip" type="button" onClick={() => void talked(p.id, logNotes[p.id])}>Talked</button>
-                {late && <a className="ma-chip" href={smsDraft(p.name)}>Text</a>}
+                {late && <a className="ma-chip" href={smsHref(p.name, p.phone)}>Text</a>}
+                {telHref(p.phone) && <a className="ma-chip" href={telHref(p.phone)}>Call</a>}
               </li>
             )
           })}
         </ul>
       )}
 
-      {/* Add form */}
       {(showAdd || !contacts.length) ? (
-        <form className="ma-form" onSubmit={add}>
-          <input
-            className="ma-input"
-            value={line}
-            onChange={(e) => setLine(e.target.value)}
-            placeholder="Priya @ dinner: hiring at Stripe"
-            aria-label="Person"
-          />
+        <form className="ma-stack" onSubmit={add}>
+          <label className="ma-field">
+            <span>Name</span>
+            <input
+              className="ma-input"
+              value={line}
+              onChange={(e) => setLine(e.target.value)}
+              placeholder="Priya @ dinner: hiring at Stripe"
+              aria-label="Person"
+            />
+          </label>
+          <div className="ma-form-split">
+            <label className="ma-field">
+              <span>Phone</span>
+              <input className="ma-input" value={phone} onChange={(e) => setPhone(e.target.value)} inputMode="tel" placeholder="4155550100" />
+            </label>
+            <label className="ma-field">
+              <span>Email</span>
+              <input className="ma-input" value={contactEmail} onChange={(e) => setContactEmail(e.target.value)} inputMode="email" placeholder="priya@stripe.com" />
+            </label>
+          </div>
+          <label className="ma-field">
+            <span>Company</span>
+            <input className="ma-input" value={company} onChange={(e) => setCompany(e.target.value)} placeholder="Stripe" />
+          </label>
           <button className="ma-btn" type="submit" disabled={busy || !line.trim()}>Add</button>
         </form>
       ) : (

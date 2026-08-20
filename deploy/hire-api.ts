@@ -598,6 +598,9 @@ export async function ensureHireSchema(sql: SQL) {
     )
   `
   await sql`CREATE INDEX IF NOT EXISTS idx_hire_network_user ON hire_network (user_id, last_touch)`
+  await sql`ALTER TABLE hire_network ADD COLUMN IF NOT EXISTS phone TEXT NOT NULL DEFAULT ''`
+  await sql`ALTER TABLE hire_network ADD COLUMN IF NOT EXISTS email TEXT NOT NULL DEFAULT ''`
+  await sql`ALTER TABLE hire_network ADD COLUMN IF NOT EXISTS company TEXT NOT NULL DEFAULT ''`
 
   await sql`
     CREATE TABLE IF NOT EXISTS hire_sleep (
@@ -3110,14 +3113,15 @@ async function judgmentStatePayload(
 
 
   const duePeople = await sql`
-    SELECT name, context, last_touch AS "lastTouch", cadence_days AS "cadenceDays"
+    SELECT name, context, phone, last_touch AS "lastTouch", cadence_days AS "cadenceDays"
     FROM hire_network WHERE user_id = ${user.id}
     ORDER BY coalesce(last_touch, '1970-01-01'::timestamptz) ASC LIMIT 8
   `
-  const peopleDue = (duePeople as Array<{ name: string; context: string; lastTouch: Date | null; cadenceDays: number }>)
+  const peopleDue = (duePeople as Array<{ name: string; context: string; phone: string; lastTouch: Date | null; cadenceDays: number }>)
     .map((p) => {
       const days = p.lastTouch ? Math.floor((Date.now() - new Date(p.lastTouch).getTime()) / 86400000) : 999
-      return { name: p.name, days, note: p.context || undefined, due: days >= (p.cadenceDays || 14) }
+      const bits = [p.phone, p.context].filter(Boolean)
+      return { name: p.name, days, note: bits.join('. ') || undefined, due: days >= (p.cadenceDays || 14) }
     })
     .filter((p) => p.due)
     .slice(0, 3)
@@ -6576,7 +6580,8 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     if (error) return error
     const people = await sql`
       SELECT id, name, where_met AS "whereMet", context, last_touch AS "lastTouch",
-             cadence_days AS "cadenceDays", created_at AS "createdAt"
+             cadence_days AS "cadenceDays", created_at AS "createdAt",
+             phone, email AS "contactEmail", company
       FROM hire_network WHERE user_id = ${user!.id}
       ORDER BY coalesce(last_touch, '1970-01-01'::timestamptz) ASC
     `
@@ -6589,7 +6594,8 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
 
   if (path === '/api/network' && req.method === 'POST') {
     const body = (await req.json().catch(() => ({}))) as {
-      token?: string; email?: string; name?: string; whereMet?: string; context?: string; cadenceDays?: number
+      token?: string; session?: string; email?: string; name?: string; whereMet?: string; context?: string
+      cadenceDays?: number; phone?: string; contactEmail?: string; company?: string
     }
     const name = String(body.name || '').trim().slice(0, 80)
     if (!name) return json({ error: 'name required' }, 400)
@@ -6599,16 +6605,21 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     const whereMet = String(body.whereMet || '').trim().slice(0, 120)
     const context = String(body.context || '').trim().slice(0, 400)
     const cadenceDays = Math.max(3, Math.min(90, Math.round(body.cadenceDays || 14)))
+    const phone = String(body.phone || '').trim().slice(0, 40)
+    const contactEmail = String(body.contactEmail || '').trim().slice(0, 120)
+    const company = String(body.company || '').trim().slice(0, 120)
     await sql`
-      INSERT INTO hire_network (id, user_id, name, where_met, context, last_touch, cadence_days)
-      VALUES (${id}, ${user!.id}, ${name}, ${whereMet}, ${context}, now(), ${cadenceDays})
+      INSERT INTO hire_network (id, user_id, name, where_met, context, last_touch, cadence_days, phone, email, company)
+      VALUES (${id}, ${user!.id}, ${name}, ${whereMet}, ${context}, now(), ${cadenceDays}, ${phone}, ${contactEmail}, ${company})
     `
     return json({ ok: true, id })
   }
 
   if (path.startsWith('/api/network/') && req.method === 'POST') {
     const body = (await req.json().catch(() => ({}))) as {
-      token?: string; email?: string; _delete?: boolean; touch?: boolean; context?: string
+      token?: string; session?: string; email?: string; _delete?: boolean; touch?: boolean; context?: string
+      name?: string; phone?: string; contactEmail?: string; company?: string; whereMet?: string
+      cadenceDays?: number; save?: boolean
     }
     const id = path.split('/')[3]
     if (!id) return json({ error: 'id required' }, 400)
@@ -6616,6 +6627,23 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     if (error) return error
     if (body._delete) {
       await sql`DELETE FROM hire_network WHERE id = ${id} AND user_id = ${user!.id}`
+      return json({ ok: true })
+    }
+    if (body.save) {
+      const name = String(body.name || '').trim().slice(0, 80)
+      if (!name) return json({ error: 'name required' }, 400)
+      const phone = String(body.phone || '').trim().slice(0, 40)
+      const contactEmail = String(body.contactEmail || '').trim().slice(0, 120)
+      const company = String(body.company || '').trim().slice(0, 120)
+      const whereMet = String(body.whereMet || '').trim().slice(0, 120)
+      const context = String(body.context || '').trim().slice(0, 400)
+      const cadenceDays = Math.max(3, Math.min(90, Math.round(body.cadenceDays || 14)))
+      await sql`
+        UPDATE hire_network
+        SET name = ${name}, phone = ${phone}, email = ${contactEmail}, company = ${company},
+            where_met = ${whereMet}, context = ${context}, cadence_days = ${cadenceDays}
+        WHERE id = ${id} AND user_id = ${user!.id}
+      `
       return json({ ok: true })
     }
     const context = body.context != null ? String(body.context).trim().slice(0, 400) : null

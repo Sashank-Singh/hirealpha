@@ -513,7 +513,16 @@ export const apiMirror = (a: { email?: string; token?: string }) =>
 
 /* ---- Networking CRM ---- */
 export type NetworkPerson = {
-  id: string; name: string; whereMet: string; context: string; lastTouch: string | null; cadenceDays: number; createdAt: string
+  id: string
+  name: string
+  whereMet: string
+  context: string
+  lastTouch: string | null
+  cadenceDays: number
+  createdAt: string
+  phone?: string
+  contactEmail?: string
+  company?: string
 }
 export type NetworkToday = { time: string; title: string; who: string; place: string; kind: string }
 export type NetworkStay = { title: string; place: string }
@@ -521,9 +530,34 @@ export const apiListNetwork = (a: { email?: string; token?: string; persona?: st
   featureGet<{ people: NetworkPerson[]; today?: NetworkToday[]; stay?: NetworkStay | null; calendarConnected?: boolean }>('/api/network', authQuery(a))
 export const apiAddNetwork = (a: {
   email?: string; token?: string; name: string; whereMet?: string; context?: string; cadenceDays?: number
-}) => featurePost<{ ok: boolean; id: string }>('/api/network', { ...authParams(a), name: a.name, whereMet: a.whereMet, context: a.context, cadenceDays: a.cadenceDays })
+  phone?: string; contactEmail?: string; company?: string
+}) => featurePost<{ ok: boolean; id: string }>('/api/network', {
+  ...authParams(a),
+  name: a.name,
+  whereMet: a.whereMet,
+  context: a.context,
+  cadenceDays: a.cadenceDays,
+  phone: a.phone,
+  contactEmail: a.contactEmail,
+  company: a.company,
+})
 export const apiTouchNetwork = (a: { email?: string; token?: string; id: string; context?: string; _delete?: boolean }) =>
   featurePost<{ ok: boolean }>(`/api/network/${a.id}`, { ...authParams(a), context: a.context, _delete: a._delete })
+export const apiSaveNetwork = (a: {
+  email?: string; token?: string; id: string
+  name: string; phone?: string; contactEmail?: string; company?: string
+  whereMet?: string; context?: string; cadenceDays?: number
+}) => featurePost<{ ok: boolean }>(`/api/network/${a.id}`, {
+  ...authParams(a),
+  save: true,
+  name: a.name,
+  phone: a.phone,
+  contactEmail: a.contactEmail,
+  company: a.company,
+  whereMet: a.whereMet,
+  context: a.context,
+  cadenceDays: a.cadenceDays,
+})
 
 /* ---- Sleep ---- */
 export type SleepNight = {
