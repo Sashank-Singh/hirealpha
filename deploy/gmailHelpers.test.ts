@@ -12,6 +12,7 @@ import {
   classifyBriefMail,
   groupBriefMail,
   groupMailByKind,
+  cleanMailSnippet,
   isNoiseMail,
   mailHasDeadline,
   mailKindLabel,
@@ -367,6 +368,16 @@ describe('snapMailKind', () => {
 
   it('tolerates a vocabulary that was stored unnormalised', () => {
     expect(snapMailKind('take home', ['Take Homes'])).toBe('take-home')
+  })
+})
+
+describe('cleanMailSnippet', () => {
+  it('decodes html entities a person would have typed', () => {
+    expect(cleanMailSnippet("I&#39;ll get you submitted &#8212; done")).toBe("I'll get you submitted — done")
+  })
+
+  it('strips inline image refs and collapses whitespace', () => {
+    expect(cleanMailSnippet('line one [cid:image001.png@01DD3184]\n\n  line  two ')).toBe('line one line two')
   })
 })
 

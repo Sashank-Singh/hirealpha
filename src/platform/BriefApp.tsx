@@ -272,23 +272,20 @@ function NeedsYouRow({
   creds,
   onOpenMail,
   onGone,
+  notify,
 }: {
   item: NeedsYouItem
   creds: Creds
   onOpenMail: (id: string, label: string, snippet?: string) => void
   onGone: () => void
+  notify: (msg: string) => void
 }) {
   const [busy, setBusy] = useState(false)
   const bits = mailBits(item.label)
   const tappable = !!(item.id && !item.id.startsWith('text-'))
 
-  const run = async (fn: () => Promise<unknown>) => {
-    setBusy(true)
-    try {
-      await fn()
-    } catch {
-      // Persistence is fire and forget; the UI moves regardless.
-    }
+  const fail = (err: unknown) => {
+    notify(err instanceof Error && err.message ? err.message : 'Could not reach Alpha just now')
   }
 
   return (
@@ -309,27 +306,30 @@ function NeedsYouRow({
       </div>
       <TriageActions
         busy={busy}
-        onDone={() =>
-          run(async () => {
-            onGone()
-            await apiTriageMail({ ...creds, id: item.id, action: 'done' as MailTriageAction })
-          })
-        }
+        onDone={() => {
+          onGone()
+          apiTriageMail({ ...creds, id: item.id, action: 'done' as MailTriageAction }).catch(fail)
+        }}
         onDraft={
           tappable
-            ? () =>
-                run(async () => {
-                  await apiDraftMailReply({ ...creds, id: item.id })
-                  onOpenMail(item.id, item.label, item.snippet)
-                })
+            ? () => {
+                setBusy(true)
+                apiDraftMailReply({ ...creds, id: item.id })
+                  .then(() => {
+                    notify('Reply draft saved')
+                    onOpenMail(item.id, item.label, item.snippet)
+                  })
+                  .catch((err) => {
+                    setBusy(false)
+                    fail(err)
+                  })
+              }
             : undefined
         }
-        onSkip={() =>
-          run(async () => {
-            onGone()
-            await apiTriageMail({ ...creds, id: item.id, action: 'skip' as MailTriageAction })
-          })
-        }
+        onSkip={() => {
+          onGone()
+          apiTriageMail({ ...creds, id: item.id, action: 'skip' as MailTriageAction }).catch(fail)
+        }}
       />
     </li>
   )
@@ -339,25 +339,30 @@ function PileRow({
   e,
   creds,
   onOpenMail,
+  notify,
 }: {
   e: BriefAsk
   creds: Creds
   onOpenMail: (id: string, label: string, snippet?: string) => void
+  notify: (msg: string) => void
 }) {
   const [busy, setBusy] = useState(false)
   const [gone, setGone] = useState(false)
   const tappable = !!(e.id && !e.id.startsWith('text-'))
   const bits = mailBits(e.label)
   if (gone) return null
-  const run = async (action: MailTriageAction) => {
+
+  const triage = (action: MailTriageAction) => {
     setBusy(true)
-    setGone(action !== 'drafted')
-    try {
-      await apiTriageMail({ ...creds, id: e.id, action })
-    } catch {
-      // best effort
-    }
+    if (action !== 'drafted') setGone(true)
+    apiTriageMail({ ...creds, id: e.id, action })
+      .catch((err) => {
+        setGone(false)
+        notify(err instanceof Error && err.message ? err.message : 'Could not reach Alpha just now')
+      })
+      .finally(() => setBusy(false))
   }
+
   return (
     <li className={tappable ? 'brief-pile-row brief-ask--tap' : 'brief-pile-row'}>
       <div
@@ -374,21 +379,24 @@ function PileRow({
       </div>
       <TriageActions
         busy={busy}
-        onDone={() => void run('done')}
+        onDone={() => triage('done')}
         onDraft={
           tappable
-            ? () =>
-                void (async () => {
-                  try {
-                    await apiDraftMailReply({ ...creds, id: e.id })
+            ? () => {
+                setBusy(true)
+                apiDraftMailReply({ ...creds, id: e.id })
+                  .then(() => {
+                    notify('Reply draft saved')
                     onOpenMail(e.id, e.label, e.snippet)
-                  } catch {
-                    setGone(false)
-                  }
-                })()
+                  })
+                  .catch((err) => {
+                    notify(err instanceof Error && err.message ? err.message : 'Could not draft a reply')
+                  })
+                  .finally(() => setBusy(false))
+              }
             : undefined
         }
-        onSkip={() => void run('skip')}
+        onSkip={() => triage('skip')}
       />
     </li>
   )
@@ -403,23 +411,18 @@ function ReminderRow({
   r: { id?: string; time?: string; text?: string }
   creds: Creds
   onGone: () => void
-  notify: (msg: string, undo?: () => void) => void
+  notify: (msg: string) => void
 }) {
   const [busy, setBusy] = useState(false)
-  const act = async (action: 'done' | 'snooze', undoMsg: string) => {
+  const act = async (action: 'done' | 'snooze') => {
     if (!r.id || busy) return
     setBusy(true)
     onGone()
     try {
       await apiReminderAction({ ...creds, id: r.id, action, hours: 1 })
-      if (action === 'snooze') {
-        notify(undoMsg, () => {
-          // Best effort restore of the local row; server keeps the new time.
-          notify(`${r.text} snoozed`)
-        })
-      }
-    } catch {
-      notify('Could not reach that reminder')
+      if (action === 'snooze') notify('Snoozed an hour')
+    } catch (err) {
+      notify(err instanceof Error && err.message ? err.message : 'Could not reach that reminder')
     }
   }
   return (
@@ -427,15 +430,10 @@ function ReminderRow({
       <span className="brief-rem-time">{r.time}</span>
       <span className="brief-rem-text">{r.text}</span>
       <span className="brief-triage">
-        <button className="brief-tap brief-tap--done" type="button" disabled={busy || !r.id} onClick={() => void act('done', '')}>
+        <button className="brief-tap brief-tap--done" type="button" disabled={busy || !r.id} onClick={() => void act('done')}>
           Done
         </button>
-        <button
-          className="brief-tap"
-          type="button"
-          disabled={busy || !r.id}
-          onClick={() => void act('snooze', 'Snoozed an hour')}
-        >
+        <button className="brief-tap" type="button" disabled={busy || !r.id} onClick={() => void act('snooze')}>
           Snooze
         </button>
       </span>
@@ -501,10 +499,12 @@ function CarryOver({
   items,
   creds,
   onGone,
+  notify,
 }: {
   items: CarryOverItem[]
   creds: Creds
   onGone: (id: string) => void
+  notify: (msg: string) => void
 }) {
   const [busy, setBusy] = useState('')
   const move = async (id: string, status: 'done' | 'open', pushTomorrow: boolean) => {
@@ -520,8 +520,8 @@ function CarryOver({
       } else {
         await apiPatchLoop({ ...creds, id, status })
       }
-    } catch {
-      // best effort
+    } catch (err) {
+      notify(err instanceof Error && err.message ? err.message : 'Could not save that')
     } finally {
       setBusy('')
     }
@@ -767,7 +767,7 @@ export function BriefApp({
           <ul className="brief-asks">
             {isEvening
               ? eveMail.map((e) => (
-                  <PileRow key={e.id || e.label} e={e} creds={creds} onOpenMail={onOpenMail} />
+                  <PileRow key={e.id || e.label} e={e} creds={creds} onOpenMail={onOpenMail} notify={notify} />
                 ))
               : needsYou.map((item) => (
                   <NeedsYouRow
@@ -776,6 +776,7 @@ export function BriefApp({
                     creds={creds}
                     onOpenMail={onOpenMail}
                     onGone={() => setNeedsYou((prev) => prev.filter((x) => x.id !== item.id))}
+                    notify={notify}
                   />
                 ))}
           </ul>
@@ -794,7 +795,12 @@ export function BriefApp({
       )}
 
       {isEvening && carry.length > 0 && (
-        <CarryOver items={carry} creds={creds} onGone={(id) => setCarry((prev) => prev.filter((c) => c.id !== id))} />
+        <CarryOver
+          items={carry}
+          creds={creds}
+          onGone={(id) => setCarry((prev) => prev.filter((c) => c.id !== id))}
+          notify={notify}
+        />
       )}
 
       {!isEvening && reminders.length > 0 && (
@@ -851,7 +857,7 @@ export function BriefApp({
                   {open && (
                     <ul className="brief-asks brief-pile-items">
                       {g.items.map((e) => (
-                        <PileRow key={e.id || e.label} e={e} creds={creds} onOpenMail={onOpenMail} />
+                        <PileRow key={e.id || e.label} e={e} creds={creds} onOpenMail={onOpenMail} notify={notify} />
                       ))}
                     </ul>
                   )}

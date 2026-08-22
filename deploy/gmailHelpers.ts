@@ -413,8 +413,23 @@ export function topNeedsYou<
     .slice(0, Math.max(1, limit))
 }
 
+const SNIPPET_ENTITIES: Record<string, string> = {
+  amp: '&',
+  lt: '<',
+  gt: '>',
+  quot: '"',
+  nbsp: ' ',
+  apos: "'",
+}
+
 export function cleanMailSnippet(raw: string): string {
-  return raw.replace(/\s+/g, ' ').replace(/&nbsp;/gi, ' ').trim().slice(0, 140)
+  return raw
+    .replace(/\[cid:[^\]]+\]/g, '')
+    .replace(/&#(\d+);/g, (_, n) => String.fromCodePoint(Number(n)))
+    .replace(/&([a-z]+);/gi, (m, name) => SNIPPET_ENTITIES[String(name).toLowerCase()] ?? m)
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 140)
 }
 
 /** Compact iMessage / OG body for a morning brief. No hyphens or dashes. */

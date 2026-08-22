@@ -44,6 +44,10 @@ img, svg { display: block; max-width: 100%; }
 a { color: inherit; text-decoration: none; }
 button, input { font: inherit; }
 
+/* Held while a route's chunk arrives. It draws nothing on purpose — the page
+ * background is already correct, so there is no flash to cover. */
+.route-boot { min-height: 100dvh; }
+
 .container { width: min(1140px, calc(100% - 36px)); margin: 0 auto; }
 .section { padding: 88px 0; }
 
@@ -4065,10 +4069,10 @@ a.brief-fact { cursor: pointer; }
 .brief-pile-row,
 .brief-carry-row {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  padding: 10px 12px;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  padding: 12px;
   border: 1px solid var(--border);
   border-radius: 12px;
 }
@@ -4078,7 +4082,6 @@ a.brief-fact { cursor: pointer; }
   flex-direction: column;
   gap: 2px;
   min-width: 0;
-  flex: 1;
 }
 .brief-ny-reasons { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 3px; }
 .brief-ny-chip {
@@ -4091,7 +4094,7 @@ a.brief-fact { cursor: pointer; }
   border-radius: 999px;
   padding: 2px 8px;
 }
-.brief-triage { display: flex; gap: 6px; flex: none; }
+.brief-triage { display: flex; gap: 6px; }
 .brief-tap {
   border: 1px solid var(--border);
   background: none;
@@ -4138,8 +4141,9 @@ a.brief-fact { cursor: pointer; }
 
 .brief-rem-row {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 10px;
+  gap: 8px 10px;
   font-size: 14px;
   font-weight: 600;
 }

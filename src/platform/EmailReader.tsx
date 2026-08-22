@@ -40,6 +40,37 @@ function fmtEmailFrom(raw: string | undefined): string {
   return name || raw
 }
 
+const EMAIL_ENTITIES: Record<string, string> = {
+  amp: '&',
+  lt: '<',
+  gt: '>',
+  quot: '"',
+  nbsp: ' ',
+  apos: "'",
+}
+
+function decodeEntities(text: string): string {
+  return text
+    .replace(/&#(\d+);/g, (_, n) => String.fromCodePoint(Number(n)))
+    .replace(/&#x([0-9a-f]+);/gi, (_, n) => String.fromCodePoint(parseInt(n, 16)))
+    .replace(/&([a-z]+);/gi, (m, name) => EMAIL_ENTITIES[String(name).toLowerCase()] ?? m)
+}
+
+/**
+ * Plain-text mail arrives full of client artifacts: inline image refs, URLs the
+ * client already linkified wrapped in angle brackets, HTML entities, and the
+ * double blank lines Outlook inserts between every paragraph. Clean those so a
+ * thread reads like something a person wrote.
+ */
+export function cleanEmailBody(text: string): string {
+  return decodeEntities(text)
+    .replace(/\[cid:[^\]]+\]/g, '')
+    .replace(/(\b[\w.-]+\.[a-z]{2,}(?:\/\S*)?)<(https?:\/\/[^>]+)>/gi, '$2')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .replace(/^\s+|\s+$/g, '')
+}
+
 interface EmailReaderProps {
   messageId: string
   /** Fallback label shown while loading */
@@ -115,9 +146,9 @@ export function EmailReader({ messageId, label, summary, auth, persona, onClose 
                 dangerouslySetInnerHTML={{ __html: sanitizedHtml }}
               />
             ) : bodyText ? (
-              <pre className="email-reader-text">{bodyText}</pre>
+              <pre className="email-reader-text">{cleanEmailBody(bodyText)}</pre>
             ) : msg.snippet ? (
-              <p className="email-reader-text">{msg.snippet}</p>
+              <p className="email-reader-text">{cleanEmailBody(msg.snippet)}</p>
             ) : (
               <p className="mini__empty">No body content.</p>
             )}
