@@ -252,15 +252,15 @@ function TriageActions({
 }) {
   return (
     <span className="brief-triage">
-      <button className="brief-tap brief-tap--done" type="button" disabled={busy} onClick={onDone}>
+      <button className="brief-tap brief-tap--done" type="button" disabled={busy} onClick={(e) => { e.stopPropagation(); onDone() }}>
         Done
       </button>
       {onDraft && (
-        <button className="brief-tap brief-tap--draft" type="button" disabled={busy} onClick={onDraft}>
+        <button className="brief-tap brief-tap--draft" type="button" disabled={busy} onClick={(e) => { e.stopPropagation(); onDraft() }}>
           Draft reply
         </button>
       )}
-      <button className="brief-tap brief-tap--skip" type="button" disabled={busy} onClick={onSkip}>
+      <button className="brief-tap brief-tap--skip" type="button" disabled={busy} onClick={(e) => { e.stopPropagation(); onSkip() }}>
         Skip
       </button>
     </span>
