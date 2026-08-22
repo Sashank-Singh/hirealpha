@@ -3346,6 +3346,55 @@ button.ma-callout, button.ma-row {
   white-space: pre-wrap; word-break: break-word; margin: 0;
   font-family: inherit;
 }
+/* Generated reply, editable before send. Sits under the message it answers. */
+.reply-compose {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 4px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+.reply-compose-title {
+  margin: 0;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted-fg);
+}
+.reply-compose .mini__input { width: 100%; }
+.reply-compose-actions { display: flex; gap: 10px; align-items: center; }
+.reply-compose-cancel {
+  background: color-mix(in srgb, var(--fg) 12%, transparent);
+  color: var(--fg);
+}
+.reply-compose-msg { margin: 0; font-size: 13px; color: var(--muted-fg); }
+/* Ask Alpha to rework the reply: quick chips plus a free-text instruction. */
+.reply-ask {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--border);
+}
+.reply-ask-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.reply-ask-chip {
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: none;
+  color: var(--fg);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.reply-ask-chip:hover { border-color: var(--mini-accent); }
+.reply-ask-chip:disabled { opacity: 0.5; cursor: default; }
+.reply-ask-row { display: flex; gap: 8px; align-items: center; }
+.reply-ask-row .mini__input { width: 100%; }
+.reply-ask-msg { margin: 0; font-size: 13px; color: var(--muted-fg); }
 /* Make mail rows in lists tappable */
 .mini__list li.mail-row { cursor: pointer; }
 .mini__list li.mail-row:hover { background: color-mix(in srgb, var(--mini-accent, #22c55e) 8%, var(--bg)); border-color: color-mix(in srgb, var(--mini-accent, #22c55e) 20%, var(--border)); }
@@ -3581,11 +3630,14 @@ button.ma-callout, button.ma-row {
   color: var(--muted-fg);
 }
 
+/* Launcher tiles, not labeled boxes: this row opens other mini apps, and a
+   filled rounded square with a glyph under a small label is the shape people
+   already know to tap. Outline icons in outlined boxes read as captions. */
 .home-dock {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   gap: 6px;
-  padding-top: 4px;
+  padding-top: 10px;
   margin-top: 4px;
   border-top: 1px solid var(--border);
 }
@@ -3593,25 +3645,31 @@ button.ma-callout, button.ma-row {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 4px;
-  padding: 10px 4px;
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  background: var(--bg);
+  gap: 7px;
+  padding: 2px 4px 4px;
+  background: none;
   text-decoration: none;
   color: var(--fg);
   font-size: 10px;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  transition: transform 0.12s, border-color 0.15s, background 0.15s;
+  -webkit-tap-highlight-color: transparent;
 }
-.home-dock-btn:active { transform: scale(0.94); }
-.home-dock-btn:hover {
-  border-color: var(--mini-accent);
-  background: color-mix(in srgb, var(--mini-accent) 8%, var(--bg));
+.home-dock-btn:hover .home-dock-icon { filter: brightness(1.12); }
+.home-dock-btn:active .home-dock-icon { transform: scale(0.88); filter: brightness(1.25); }
+.home-dock-icon {
+  display: grid;
+  place-items: center;
+  width: 54px;
+  height: 54px;
+  border-radius: 16px;
+  background: var(--mini-accent);
+  color: var(--mini-accent-fg, #f4f4f5);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.22), 0 4px 12px rgb(0 0 0 / 0.35);
+  transition: transform 0.12s, filter 0.12s;
 }
-.home-dock-icon { font-size: 20px; line-height: 1; }
+.home-dock-icon svg { width: 24px; height: 24px; }
 
 .home-msg { text-align: center; }
 
@@ -3783,13 +3841,6 @@ button.ma-callout, button.ma-row {
   color: var(--muted-fg);
 }
 .home-receipt-val { font-size: 14px; font-weight: 600; text-align: right; }
-
-.home-dock-icon {
-  display: grid;
-  place-items: center;
-  color: var(--mini-accent, #2a6f7a);
-}
-.home-dock-icon svg { width: 18px; height: 18px; }
 
 .mini__body--home-screen { padding-bottom: 0; }
 
@@ -4112,7 +4163,7 @@ a.brief-fact { cursor: pointer; }
   color: var(--mini-accent-fg, #fff);
 }
 .brief-tap--skip { color: var(--muted-fg); }
-.brief-day li .brief-tap { grid-column: 2; justify-self: start; margin-top: -8px; }
+.brief-day li .brief-tap { grid-column: 2; justify-self: start; margin-top: 4px; }
 
 .brief-piles { display: flex; flex-direction: column; gap: 6px; }
 .brief-pile { border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }

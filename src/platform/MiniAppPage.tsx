@@ -38,6 +38,7 @@ import {
   InvestorNoteApp,
 } from './WorkMiniApps'
 import { EmailReader } from './EmailReader'
+import type { ReplyDraft } from './api'
 
 
 interface DigestData {
@@ -53,6 +54,10 @@ interface DigestData {
   brief?: 'morning' | 'evening'
   story?: import('./briefStory').BriefStory
   error?: string
+  /* The server answered before the brief finished assembling. Not an error: the
+   * load is still running behind that response, so the right move is to come
+   * back for it rather than to tell the user anything. */
+  pending?: boolean
 }
 
 interface MiniSection {
@@ -245,17 +250,27 @@ export function MiniAppPage() {
   const [data, setData] = useState<DigestData | null>(null)
   const [mini, setMini] = useState<MiniPayload | null>(null)
   const [loading, setLoading] = useState(true)
+  const [digestTries, setDigestTries] = useState(0)
   const [expired, setExpired] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [settingsTick, setSettingsTick] = useState(0)
   const [openEmailId, setOpenEmailId] = useState<string | null>(null)
   const [openEmailLabel, setOpenEmailLabel] = useState<string | undefined>(undefined)
   const [openEmailSummary, setOpenEmailSummary] = useState<string | undefined>(undefined)
+  const [openDraft, setOpenDraft] = useState<ReplyDraft | null>(null)
 
   function openMail(id: string, label: string, snippet?: string) {
     setOpenEmailId(id)
     setOpenEmailLabel(label)
     setOpenEmailSummary(snippet)
+    setOpenDraft(null)
+  }
+
+  function openReplyDraft(id: string, label: string, snippet: string | undefined, draft: ReplyDraft) {
+    setOpenEmailId(id)
+    setOpenEmailLabel(label)
+    setOpenEmailSummary(snippet)
+    setOpenDraft(draft)
   }
 
   const isDigest = kind === 'digest'
@@ -285,6 +300,7 @@ export function MiniAppPage() {
       }
     }
     setLoading(true)
+    setDigestTries(0)
     const qs = new URLSearchParams({ persona: persona || '' })
     if (token) qs.set('t', token)
     else qs.set('email', getSession()?.email || '')
@@ -314,6 +330,32 @@ export function MiniAppPage() {
       cancelled = true
     }
   }, [kind, persona, token, isDigest, isLiveMini])
+
+  /* The brief is the heaviest read in the app — two calendars, the inbox, and a
+   * model pass over the mail. The server stops waiting after a couple of seconds
+   * and says `pending` instead of holding the request open, so come back for it
+   * quietly. The work is already running server-side; this only waits for it to
+   * land in the cache, which is why a few short tries beat one long stare. */
+  useEffect(() => {
+    if (!isDigest || !data?.pending || digestTries >= 4) return
+    let cancelled = false
+    const timer = setTimeout(() => {
+      setDigestTries((n) => n + 1)
+      const qs = new URLSearchParams({ persona: persona || '' })
+      if (token) qs.set('t', token)
+      else qs.set('email', getSession()?.email || '')
+      fetch(`/api/digest?${qs}`)
+        .then((res) => (res.ok ? (res.json() as Promise<DigestData>) : Promise.reject(new Error('brief'))))
+        .then((d) => {
+          if (!cancelled) setData(d)
+        })
+        .catch(() => {})
+    }, 1600)
+    return () => {
+      cancelled = true
+      clearTimeout(timer)
+    }
+  }, [isDigest, data?.pending, digestTries, persona, token])
 
   const email = getSession()?.email
   const authed = !!token || !!email
@@ -486,7 +528,21 @@ export function MiniAppPage() {
           </div>
         )}
 
-        {authed && !expired && !settingsOpen && isDigest && !loading && !data?.error && (
+        {/* Still assembling. Reads as one continuous load while the retries run,
+          * and only asks for a tap once they are spent — an empty BriefApp here
+          * would look like a day with nothing in it. */}
+        {authed && !expired && !settingsOpen && isDigest && !loading && !data?.error && data?.pending && (
+          <div className="mini__body">
+            <p className="mini__blurb">Pulling your day together…</p>
+            {digestTries >= 4 && (
+              <button className="mini__btn" type="button" onClick={() => setDigestTries(0)}>
+                Keep waiting
+              </button>
+            )}
+          </div>
+        )}
+
+        {authed && !expired && !settingsOpen && isDigest && !loading && !data?.error && !data?.pending && (
           <div className="mini__body">
             <BriefApp
               auth={{
@@ -496,6 +552,7 @@ export function MiniAppPage() {
               }}
               data={data}
               onOpenMail={openMail}
+              onOpenDraft={openReplyDraft}
             />
           </div>
         )}
@@ -523,6 +580,7 @@ export function MiniAppPage() {
               data={null}
               evening={mini}
               onOpenMail={openMail}
+              onOpenDraft={openReplyDraft}
             />
           </div>
         )}
@@ -674,7 +732,13 @@ export function MiniAppPage() {
           summary={openEmailSummary}
           auth={{ email: email || undefined, token: token || undefined }}
           persona={(persona as AgentId) || 'friend'}
-          onClose={() => { setOpenEmailId(null); setOpenEmailLabel(undefined); setOpenEmailSummary(undefined) }}
+          draft={openDraft}
+          onClose={() => {
+            setOpenEmailId(null)
+            setOpenEmailLabel(undefined)
+            setOpenEmailSummary(undefined)
+            setOpenDraft(null)
+          }}
         />
       )}
     </div>

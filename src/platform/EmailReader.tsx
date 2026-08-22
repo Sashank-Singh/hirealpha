@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react'
-import type { MailMessage } from './api'
-import { apiGetMailMessage } from './api'
+import { useEffect, useState, type FormEvent } from 'react'
+import type { MailMessage, ReplyDraft } from './api'
+import { apiGetMailMessage, apiRewriteDraft, apiSendDraft } from './api'
 
 /** Strip dangerous HTML constructs from an email body before rendering. */
 function sanitizeEmailHtml(html: string): string {
@@ -71,6 +71,14 @@ export function cleanEmailBody(text: string): string {
     .replace(/^\s+|\s+$/g, '')
 }
 
+/** Quick ways to have Alpha rework the reply; each maps to a natural instruction. */
+const ASK_CHIPS = [
+  { label: 'Shorter', instruction: 'Make it shorter' },
+  { label: 'More formal', instruction: 'Make it more formal' },
+  { label: 'Warmer', instruction: 'Make it warmer and friendlier' },
+  { label: 'Add a question', instruction: 'Add a closing question' },
+]
+
 interface EmailReaderProps {
   messageId: string
   /** Fallback label shown while loading */
@@ -79,12 +87,22 @@ interface EmailReaderProps {
   summary?: string
   auth: { email?: string; token?: string }
   persona?: string
+  /** A generated reply to review: when present, a compose panel renders below the message. */
+  draft?: ReplyDraft | null
   onClose: () => void
 }
 
-export function EmailReader({ messageId, label, summary, auth, persona, onClose }: EmailReaderProps) {
+export function EmailReader({ messageId, label, summary, auth, persona, onClose, draft }: EmailReaderProps) {
   const [msg, setMsg] = useState<MailMessage | null>(null)
   const [loading, setLoading] = useState(true)
+  const [to, setTo] = useState(draft?.toAddr || '')
+  const [subject, setSubject] = useState(draft?.subject || '')
+  const [body, setBody] = useState(draft?.body || '')
+  const [busy, setBusy] = useState(false)
+  const [composeMsg, setComposeMsg] = useState('')
+  const [askText, setAskText] = useState('')
+  const [adjustBusy, setAdjustBusy] = useState(false)
+  const [adjustMsg, setAdjustMsg] = useState('')
 
   useEffect(() => {
     let cancelled = false
@@ -94,6 +112,58 @@ export function EmailReader({ messageId, label, summary, auth, persona, onClose 
       .finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
   }, [messageId])
+
+  // A different message's draft arriving should reset the composer, not leave
+  // stale text behind.
+  useEffect(() => {
+    if (!draft) return
+    setTo(draft.toAddr)
+    setSubject(draft.subject)
+    setBody(draft.body)
+    setComposeMsg('')
+    setAdjustMsg('')
+    setAskText('')
+  }, [draft])
+
+  async function adjust(raw: string) {
+    const instruction = raw.trim()
+    if (!instruction || adjustBusy || !draft) return
+    setAdjustBusy(true)
+    setAdjustMsg('')
+    try {
+      const res = await apiRewriteDraft({ ...auth, id: draft.id, instruction })
+      if (!res.ok) throw new Error(res.error || 'Alpha could not adjust it right now.')
+      setBody(res.body)
+      setAskText('')
+      setAdjustMsg('Updated.')
+    } catch (err) {
+      setAdjustMsg(err instanceof Error ? err.message : 'Could not adjust.')
+    } finally {
+      setAdjustBusy(false)
+    }
+  }
+
+  async function sendReply(e: FormEvent) {
+    e.preventDefault()
+    if (busy) return
+    setBusy(true)
+    setComposeMsg('')
+    try {
+      const res = await apiSendDraft({
+        ...auth,
+        id: draft?.id,
+        toAddr: to.trim(),
+        subject: subject.trim(),
+        body,
+      })
+      if (!res.ok) throw new Error(res.error || 'Send failed. Reconnect Gmail with send access.')
+      onClose()
+    } catch (err) {
+      setComposeMsg(err instanceof Error ? err.message : 'Could not send.')
+    } finally {
+      setBusy(false)
+    }
+  }
 
   const sanitizedHtml = msg?.ok && msg.bodyHtml ? sanitizeEmailHtml(msg.bodyHtml) : ''
   const bodyText = msg?.ok ? (msg.bodyText || '') : ''
@@ -153,6 +223,83 @@ export function EmailReader({ messageId, label, summary, auth, persona, onClose 
               <p className="mini__empty">No body content.</p>
             )}
           </div>
+        )}
+
+        {draft && (
+          <>
+            <form className="reply-compose" onSubmit={sendReply}>
+              <h4 className="reply-compose-title">Reply draft</h4>
+            <input
+              className="mini__input"
+              value={to}
+              onChange={(e) => setTo(e.target.value)}
+              placeholder="To"
+              aria-label="To"
+            />
+            <input
+              className="mini__input"
+              value={subject}
+              onChange={(e) => setSubject(e.target.value)}
+              placeholder="Subject"
+              aria-label="Subject"
+            />
+            <textarea
+              className="mini__textarea"
+              value={body}
+              onChange={(e) => setBody(e.target.value)}
+              placeholder="Write your reply…"
+              aria-label="Reply body"
+            />
+            <div className="reply-compose-actions">
+              <button className="mini__btn" type="submit" disabled={busy || !to.trim() || !subject.trim()}>
+                {busy ? 'Sending…' : 'Send'}
+              </button>
+              <button className="mini__btn reply-compose-cancel" type="button" onClick={onClose} disabled={busy}>
+                Cancel
+              </button>
+            </div>
+            {composeMsg && <p className="reply-compose-msg">{composeMsg}</p>}
+          </form>
+          <div className="reply-ask">
+            <div className="reply-ask-chips">
+              {ASK_CHIPS.map((c) => (
+                <button
+                  key={c.label}
+                  type="button"
+                  className="reply-ask-chip"
+                  disabled={adjustBusy}
+                  onClick={() => adjust(c.instruction)}
+                >
+                  {c.label}
+                </button>
+              ))}
+            </div>
+            <div className="reply-ask-row">
+              <input
+                className="mini__input"
+                value={askText}
+                onChange={(e) => setAskText(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault()
+                    adjust(askText)
+                  }
+                }}
+                placeholder="Ask Alpha to adjust…"
+                aria-label="Ask Alpha to adjust the draft"
+              />
+              <button
+                className="mini__btn"
+                type="button"
+                disabled={adjustBusy || !askText.trim()}
+                onClick={() => adjust(askText)}
+              >
+                {adjustBusy ? 'Adjusting…' : 'Adjust'}
+              </button>
+            </div>
+            {adjustMsg && <p className="reply-ask-msg">{adjustMsg}</p>}
+            </div>
+          </>
         )}
       </div>
     </div>
