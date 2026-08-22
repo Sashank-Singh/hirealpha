@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import {
   apiListNetwork,
@@ -11,16 +11,17 @@ import {
 } from './api'
 import type { FeatureAuth } from './FeatureMiniApps'
 import { MiniAppIcon } from './MiniAppIcons'
-import { mailGroupHeading } from './briefStory'
 import {
   dayStamp,
   duePeopleFrom,
+  homeFetchPlan,
   localYmd,
   mergeMeets,
   pickHomeAction,
   pickLastNight,
   shiftYmd,
 } from './home'
+import { readHomeCache, writeHomeCache } from './homeCache'
 import { isPersonMeetSuggestion } from './peopleMeets'
 import { SpendBar, SpendSwatch } from './SpendCharts'
 import { aggregateSpend } from './spendChart'
@@ -51,11 +52,6 @@ function formatClock12(hhmm: string) {
   return `${h12}:${String(m).padStart(2, '0')} ${am ? 'AM' : 'PM'}`
 }
 
-function senderName(from: string) {
-  const name = from.replace(/<[^>]+>/, '').replace(/"/g, '').trim()
-  return name.split(/[\s@]/)[0] || from
-}
-
 const DOCK = [
   { kind: 'body', iconKind: 'body', label: 'Body' },
   { kind: 'networking_crm', iconKind: 'networking_crm', label: 'People' },
@@ -69,7 +65,19 @@ export function HomeApp({ auth }: { auth: FeatureAuth }) {
   const suffix = q ? `?${q}` : ''
   const miniLink = (kind: string) => `/app/mini/${auth.persona}/${kind}${suffix}`
 
-  const [snap, setSnap] = useState<HomeSnapshot | null>(null)
+  /* Who this device's cached snapshot belongs to. Held stable so it can sit in a
+   * dependency list without re-running everything on each render. */
+  const who = useMemo(
+    () => ({ email: auth.email, token: auth.token, persona: auth.persona }),
+    [auth.email, auth.token, auth.persona],
+  )
+
+  /* Paint today's last answer immediately if this device has one, so reopening
+   * home is instant and the network only ever refreshes what is already there.
+   * Yesterday's copy is refused by the cache, not by this. */
+  const [snap, setSnap] = useState<HomeSnapshot | null>(() =>
+    readHomeCache<HomeSnapshot>(who, localYmd(), Date.now()),
+  )
   const [nights, setNights] = useState<SleepNight[]>([])
   const [people, setPeople] = useState<NetworkPerson[]>([])
   const [todayMeets, setTodayMeets] = useState<NetworkToday[]>([])
@@ -80,27 +88,40 @@ export function HomeApp({ auth }: { auth: FeatureAuth }) {
   const load = useCallback(() => {
     setLoading(true)
     setWorldTries(0)
-    const creds = { email: auth.email, token: auth.token, persona: auth.persona }
-    /* Three requests, and the page used to wait for all three — so home painted
-     * at the speed of /api/network, which stops to read the calendar. Each one
-     * now lands on its own; the screen is the home call, and the other two fill
-     * in the People rows and the Nights chart when they arrive. */
+    /* One request paints the screen. The other two are fallbacks for fields the
+     * snapshot usually carries, so they are asked for only when it came back
+     * without them — /api/network took 1.3–2.7 s and its calendar half reads the
+     * same cache /api/home does, so on a normal open it cost the page seconds to
+     * confirm what home already said. Waiting for home before deciding costs the
+     * fallback path one round trip and the common path nothing. */
     apiHome({ email: auth.email, token: auth.token })
       .then((d) => {
         setSnap(d)
         setMsg('')
+        writeHomeCache(auth, d, localYmd(), Date.now())
+        return d as HomeSnapshot | null
       })
-      .catch(() => setMsg('Could not load home.'))
+      .catch(() => {
+        setMsg('Could not load home.')
+        return null
+      })
+      .then((d) => {
+        const plan = homeFetchPlan(d)
+        if (plan.sleep) {
+          apiListSleep({ email: auth.email, token: auth.token })
+            .then((sleep) => setNights(sleep.nights || []))
+            .catch(() => {})
+        }
+        if (plan.people) {
+          apiListNetwork({ email: auth.email, token: auth.token, persona: auth.persona })
+            .then((net) => {
+              setPeople(net.people || [])
+              setTodayMeets(net.today || [])
+            })
+            .catch(() => {})
+        }
+      })
       .finally(() => setLoading(false))
-    apiListSleep({ email: auth.email, token: auth.token })
-      .then((sleep) => setNights(sleep.nights || []))
-      .catch(() => {})
-    apiListNetwork(creds)
-      .then((net) => {
-        setPeople(net.people || [])
-        setTodayMeets(net.today || [])
-      })
-      .catch(() => {})
   }, [auth.email, auth.token, auth.persona])
 
   useEffect(() => {
@@ -116,13 +137,16 @@ export function HomeApp({ auth }: { auth: FeatureAuth }) {
     const timer = setTimeout(() => {
       setWorldTries((n) => n + 1)
       apiHome({ email: auth.email, token: auth.token })
-        .then(setSnap)
+        .then((d) => {
+          setSnap(d)
+          writeHomeCache(auth, d, localYmd(), Date.now())
+        })
         .catch(() => {})
     }, 1800)
     return () => clearTimeout(timer)
-  }, [snap?.worldPending, worldTries, auth.email, auth.token])
+  }, [snap?.worldPending, worldTries, auth.email, auth.token, auth.persona])
 
-  if (loading && !snap && nights.length === 0 && todayMeets.length === 0) {
+  if (loading && !snap) {
     return (
       <div className="home-screen home-screen--loading">
         <div className="home-day-kicker home-shimmer">Loading today</div>
@@ -252,36 +276,7 @@ export function HomeApp({ auth }: { auth: FeatureAuth }) {
         </section>
       )}
 
-      {mailGroups.length > 0 ? (
-        <section className="home-block">
-          <h3 className="home-section-title">Mail</h3>
-          {mailGroups.map((g) => (
-            <div key={g.kind} className="home-mail-group">
-              <h4 className="home-mail-kind">{mailGroupHeading(g.kind, g.count, g.label)}</h4>
-              <ul className="home-plain-list">
-                {g.items.map((m) => (
-                  <li key={m.id}>
-                    <span className="home-plain-time">{senderName(m.from)}</span>
-                    <span>{m.subject || 'No subject'}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ))}
-        </section>
-      ) : mail.length > 0 ? (
-        <section className="home-block">
-          <h3 className="home-section-title">Mail</h3>
-          <ul className="home-plain-list">
-            {mail.map((m, i) => (
-              <li key={`${m.subject}-${i}`}>
-                <span className="home-plain-time">{senderName(m.from)}</span>
-                <span>{m.subject || 'No subject'}</span>
-              </li>
-            ))}
-          </ul>
-        </section>
-      ) : null}
+      {/* Mail lives in the brief now; Home keeps the count chip only. */}
 
       <section className="home-block" aria-label="Receipts">
         <h3 className="home-section-title">Body</h3>

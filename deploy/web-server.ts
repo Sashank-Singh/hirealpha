@@ -3,6 +3,7 @@
  * Stores emails in HireAlpha Postgres (Coolify).
  */
 import { SQL } from 'bun'
+import { brotliCompressSync, constants as zlibConstants } from 'node:zlib'
 import { join } from 'node:path'
 import { ensureHireSchema, handleHireApi, miniCardOgDescription } from './hire-api'
 
@@ -17,6 +18,142 @@ const DATABASE_URL = process.env.DATABASE_URL || ''
 const sql = DATABASE_URL
   ? new SQL(DATABASE_URL, { max: 12, idleTimeout: 30, connectionTimeout: 10 })
   : null
+
+/* ---- Compression ----
+ * Nothing in front of this server was compressing, so a phone opening a mini
+ * app downloaded 731 kB of JavaScript and CSS that squeezes to about 145 kB.
+ * Assets are content-hashed and the process restarts on every deploy, so the
+ * compressed bytes are held in memory by path: the first request pays, and
+ * every request after it is a map lookup. */
+const COMPRESSIBLE = /\.(js|mjs|css|html|json|svg|txt|map|webmanifest)$/i
+const HASHED_ASSET = /-[A-Za-z0-9_-]{8,}\.[a-z0-9]+$/
+const MIN_COMPRESS_BYTES = 1024
+const MAX_CACHED_BYTES = 4 * 1024 * 1024
+const encodedAssets = new Map<string, Uint8Array>()
+
+/* Bun has shipped node:zlib brotli for a while, but this server is the only
+ * thing standing between a user and a blank page — feature-detect rather than
+ * assume, and fall back to gzip if it ever goes missing. */
+const BROTLI_OK = (() => {
+  try {
+    brotliCompressSync(Buffer.from('x'.repeat(64)))
+    return true
+  } catch (err) {
+    console.warn('[web] brotli unavailable, using gzip only', err)
+    return false
+  }
+})()
+
+function wantsEncoding(req: Request): 'br' | 'gzip' | null {
+  const accept = (req.headers.get('accept-encoding') || '').toLowerCase()
+  if (BROTLI_OK && accept.includes('br')) return 'br'
+  if (accept.includes('gzip')) return 'gzip'
+  return null
+}
+
+function squeeze(bytes: Uint8Array, enc: 'br' | 'gzip', quality: number) {
+  if (enc === 'gzip') return Bun.gzipSync(bytes, { level: 6 })
+  return new Uint8Array(
+    brotliCompressSync(bytes, {
+      params: {
+        [zlibConstants.BROTLI_PARAM_QUALITY]: quality,
+        [zlibConstants.BROTLI_PARAM_SIZE_HINT]: bytes.length,
+      },
+    }),
+  )
+}
+
+function bytesResponse(body: Uint8Array, type: string, cache: string, enc?: 'br' | 'gzip') {
+  const headers: Record<string, string> = {
+    'Content-Type': type,
+    'Cache-Control': cache,
+    // Without this a shared cache can hand compressed bytes to a client that
+    // did not ask for them.
+    Vary: 'Accept-Encoding',
+  }
+  if (enc) headers['Content-Encoding'] = enc
+  return new Response(body, { headers })
+}
+
+/**
+ * Compress if the client asked and the body is big enough to be worth it.
+ * `cacheKey` is set for files on disk, which are immutable for the life of the
+ * process; dynamic HTML passes none and gets a cheaper brotli level instead.
+ */
+function textResponse(req: Request, bytes: Uint8Array, type: string, cache: string, cacheKey?: string) {
+  const enc = bytes.length >= MIN_COMPRESS_BYTES ? wantsEncoding(req) : null
+  if (!enc) return bytesResponse(bytes, type, cache)
+  const key = cacheKey ? `${cacheKey}|${enc}` : ''
+  const hit = key ? encodedAssets.get(key) : undefined
+  if (hit) return bytesResponse(hit, type, cache, enc)
+  const out = squeeze(bytes, enc, cacheKey ? 6 : 4)
+  if (key && out.length <= MAX_CACHED_BYTES) encodedAssets.set(key, out)
+  return bytesResponse(out, type, cache, enc)
+}
+
+/** API payloads are dynamic, so they are compressed but never cached. */
+async function squeezeJson(req: Request, res: Response) {
+  if (res.status !== 200) return res
+  if (!(res.headers.get('content-type') || '').includes('application/json')) return res
+  const enc = wantsEncoding(req)
+  if (!enc) return res
+  const raw = new Uint8Array(await res.arrayBuffer())
+  const headers = new Headers(res.headers)
+  headers.set('Vary', 'Accept-Encoding')
+  if (raw.length < MIN_COMPRESS_BYTES) return new Response(raw, { status: res.status, headers })
+  headers.set('Content-Encoding', enc)
+  return new Response(squeeze(raw, enc, 4), { status: res.status, headers })
+}
+
+/* ---- Route chunks ----
+ * The app is split per route, which on its own would trade bytes for a round
+ * trip: the browser cannot know it needs the mini-app chunk until the entry
+ * chunk has downloaded and parsed. The build manifest lets this server say so
+ * in the HTML instead, so both download at once. */
+type ManifestNode = { file: string; css?: string[]; imports?: string[]; isEntry?: boolean }
+let manifest: Record<string, ManifestNode> | null = null
+
+async function loadManifest() {
+  try {
+    manifest = JSON.parse(await Bun.file(join(ROOT, '.vite/manifest.json')).text())
+    console.log(`[web] build manifest ready (${Object.keys(manifest || {}).length} entries)`)
+  } catch {
+    manifest = null
+    console.warn('[web] no build manifest — route preload hints disabled')
+  }
+}
+
+function routeChunk(pathname: string): string | null {
+  if (pathname.startsWith('/app/mini/')) return 'src/platform/MiniAppPage.tsx'
+  if (pathname === '/app/login') return 'src/platform/LoginPage.tsx'
+  if (pathname.startsWith('/app')) return 'src/platform/PlatformShell.tsx'
+  if (pathname === '/') return 'src/Landing.tsx'
+  return null
+}
+
+function preloadTags(pathname: string) {
+  const key = routeChunk(pathname)
+  if (!key || !manifest) return ''
+  const seen = new Set<string>()
+  const js: string[] = []
+  const css: string[] = []
+  const walk = (k: string) => {
+    if (seen.has(k)) return
+    seen.add(k)
+    const node = manifest![k]
+    // The entry chunk and its CSS are already linked in the HTML; a lazy
+    // chunk lists it as an import, so stop there rather than repeat it.
+    if (!node || node.isEntry) return
+    js.push(node.file)
+    for (const c of node.css || []) css.push(c)
+    for (const i of node.imports || []) walk(i)
+  }
+  walk(key)
+  return [
+    ...css.map((f) => `<link rel="stylesheet" href="/${f}" />`),
+    ...js.map((f) => `<link rel="modulepreload" crossorigin href="/${f}" />`),
+  ].join('\n    ')
+}
 
 async function ensureSchema() {
   if (!sql) {
@@ -146,64 +283,101 @@ function miniMeta(pathname: string) {
   return { ...feature, title: `${feature.title} · ${persona}` }
 }
 
-async function miniIndex(pathname: string, search = '') {
-  const meta = miniMeta(pathname)
-  if (!meta) return null
-  const match = pathname.match(/^\/app\/mini\/(friend|coworker|cofounder)\/([^/]+)/)
-  const token = new URLSearchParams(search.startsWith('?') ? search.slice(1) : search).get('t') || ''
-  if (sql && match && token && (match[2] === 'digest' || match[2] === 'pick_night')) {
-    try {
-      const live = await miniCardOgDescription(sql, token, match[1]!, match[2]!)
-      if (live) meta.description = live
-    } catch (err) {
-      console.warn('[web] mini og preview failed', err)
-    }
-  }
-  const index = await Bun.file(join(ROOT, 'index.html')).text()
-  const safeTitle = meta.title.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
-  const safeDescription = meta.description.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
-  const withTitle = index.replace(/<title>[^<]*<\/title>/, `<title>${safeTitle}</title>`)
-  const withDescription = withTitle.replace(
-    /<meta\s+name="description"\s+content="[^"]*"\s*\/>/,
-    `<meta name="description" content="${safeDescription}" />`,
-  )
-  const og = `\n  <meta property="og:title" content="${safeTitle}" />\n  <meta property="og:description" content="${safeDescription}" />`
-  return withDescription.replace('</head>', `${og}\n  </head>`)
+function escapeAttr(value: string) {
+  return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 }
 
-async function serveStatic(pathname: string, search = '') {
-  const clean = pathname.split('?')[0] || '/'
-  const mini = await miniIndex(clean, search)
-  if (mini) {
-    return new Response(mini, {
-      headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-cache' },
-    })
-  }
-  const rel = clean === '/' ? '/index.html' : clean
-  const filePath = join(ROOT, rel)
-  const file = Bun.file(filePath)
-  if (await file.exists()) {
-    return new Response(file, {
-      headers: {
-        'Content-Type': contentType(rel),
-        'Cache-Control': rel.match(/\.(js|css|png|jpg|jpeg|gif|svg|ico|webp|woff2?)$/)
-          ? 'public, max-age=604800'
-          : 'no-cache',
-      },
-    })
-  }
+/** index.html changes only on deploy, and a deploy restarts this process. */
+let shellHtml: string | null = null
+async function appShell() {
+  if (shellHtml === null) shellHtml = await Bun.file(join(ROOT, 'index.html')).text()
+  return shellHtml
+}
 
-  // SPA fallback
-  const index = Bun.file(join(ROOT, 'index.html'))
-  if (await index.exists()) {
-    return new Response(index, {
-      headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-cache' },
-    })
+/**
+ * The app shell for a route: per-app title and OG text where we have them, the
+ * route's chunk preloaded, and — for the mini apps, which are dark — the page
+ * background set before any JavaScript runs, so the hold before first paint is
+ * the app's own color rather than a white flash.
+ */
+async function pageHtml(pathname: string, search = '') {
+  let html = await appShell()
+  const match = pathname.match(/^\/app\/mini\/(friend|coworker|cofounder)\/([^/]+)/)
+  const meta = miniMeta(pathname)
+  if (meta) {
+    const token = new URLSearchParams(search.startsWith('?') ? search.slice(1) : search).get('t') || ''
+    if (sql && match && token && (match[2] === 'digest' || match[2] === 'pick_night')) {
+      try {
+        const live = await miniCardOgDescription(sql, token, match[1]!, match[2]!)
+        if (live) meta.description = live
+      } catch (err) {
+        console.warn('[web] mini og preview failed', err)
+      }
+    }
+    const safeTitle = escapeAttr(meta.title)
+    const safeDescription = escapeAttr(meta.description)
+    html = html
+      .replace(/<title>[^<]*<\/title>/, `<title>${safeTitle}</title>`)
+      .replace(
+        /<meta\s+name="description"\s+content="[^"]*"\s*\/>/,
+        `<meta name="description" content="${safeDescription}" />`,
+      )
+      .replace(
+        '</head>',
+        `\n  <meta property="og:title" content="${safeTitle}" />\n  <meta property="og:description" content="${safeDescription}" />\n  </head>`,
+      )
   }
-  return new Response('Not found', { status: 404 })
+  const head = [
+    match ? '<style>body{background:#141414}</style>' : '',
+    preloadTags(pathname),
+  ].filter(Boolean)
+  if (head.length) html = html.replace('</head>', `${head.join('\n    ')}\n  </head>`)
+  return html
+}
+
+async function staticAsset(req: Request, rel: string) {
+  const type = contentType(rel)
+  const cache = rel.match(/\.(js|css|png|jpg|jpeg|gif|svg|ico|webp|woff2?)$/)
+    ? // Content-hashed names can never mean anything else, so let them stick.
+      HASHED_ASSET.test(rel)
+      ? 'public, max-age=31536000, immutable'
+      : 'public, max-age=604800'
+    : 'no-cache'
+  if (COMPRESSIBLE.test(rel)) {
+    // A cache hit means the file existed when we read it, so skip the stat.
+    const enc = wantsEncoding(req)
+    const hit = enc ? encodedAssets.get(`${rel}|${enc}`) : undefined
+    if (hit && enc) return bytesResponse(hit, type, cache, enc)
+  }
+  const file = Bun.file(join(ROOT, rel))
+  if (!(await file.exists())) return null
+  if (COMPRESSIBLE.test(rel)) {
+    return textResponse(req, new Uint8Array(await file.arrayBuffer()), type, cache, rel)
+  }
+  return new Response(file, { headers: { 'Content-Type': type, 'Cache-Control': cache } })
+}
+
+async function serveStatic(req: Request, pathname: string, search = '') {
+  const clean = pathname.split('?')[0] || '/'
+  if (clean !== '/' && !clean.endsWith('.html')) {
+    const asset = await staticAsset(req, clean)
+    if (asset) return asset
+  }
+  // The shell, either because this is an app route or as the SPA fallback.
+  try {
+    return textResponse(
+      req,
+      new TextEncoder().encode(await pageHtml(clean, search)),
+      'text/html; charset=utf-8',
+      'no-cache',
+    )
+  } catch {
+    return new Response('Not found', { status: 404 })
+  }
 }
 
 await ensureSchema()
+await loadManifest()
 
 Bun.serve({
   port: PORT,
@@ -216,10 +390,10 @@ Bun.serve({
     }
     if (url.pathname === '/api/waitlist') return handleWaitlist(req)
     const hire = await handleHireApi(req, sql)
-    if (hire) return hire
+    if (hire) return squeezeJson(req, hire)
     if (url.pathname.startsWith('/api/')) return json({ error: 'Not found' }, 404)
-    return serveStatic(url.pathname, url.search)
+    return serveStatic(req, url.pathname, url.search)
   },
 })
 
-console.log(`[web] listening on :${PORT} root=${ROOT}`)
+console.log(`[web] listening on :${PORT} root=${ROOT} compression=${BROTLI_OK ? 'br+gzip' : 'gzip'}`)

@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { mergeMeets, pickHomeAction, pickLastNight, type HomeSlice } from './home'
+import { homeFetchPlan, mergeMeets, pickHomeAction, pickLastNight, type HomeSlice } from './home'
 
 const base: HomeSlice = {
   hour: 7,
@@ -108,5 +108,35 @@ describe('mergeMeets', () => {
   test('fills empty primary from today calendar', () => {
     const out = mergeMeets([], [{ time: '4:00 PM', title: 'Amy' }])
     expect(out).toEqual([{ time: '4:00 PM', title: 'Amy' }])
+  })
+})
+
+describe('homeFetchPlan', () => {
+  test('skips both when the snapshot already answered', () => {
+    expect(homeFetchPlan({ home: { lastNight: { logged: true }, peopleDue: [{ name: 'Amy' }] } })).toEqual({
+      sleep: false,
+      people: false,
+    })
+  })
+
+  test('asks for sleep only when last night is unlogged', () => {
+    expect(homeFetchPlan({ home: { lastNight: { logged: false }, peopleDue: [{ name: 'Amy' }] } })).toEqual({
+      sleep: true,
+      people: false,
+    })
+  })
+
+  test('asks for people only when the snapshot has none due', () => {
+    expect(homeFetchPlan({ home: { lastNight: { logged: true }, peopleDue: [] } })).toEqual({
+      sleep: false,
+      people: true,
+    })
+  })
+
+  test('asks for both with no snapshot, or a snapshot missing the fields', () => {
+    expect(homeFetchPlan(null)).toEqual({ sleep: true, people: true })
+    expect(homeFetchPlan(undefined)).toEqual({ sleep: true, people: true })
+    expect(homeFetchPlan({})).toEqual({ sleep: true, people: true })
+    expect(homeFetchPlan({ home: {} })).toEqual({ sleep: true, people: true })
   })
 })

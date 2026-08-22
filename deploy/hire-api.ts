@@ -58,6 +58,7 @@ import {
   type MailKindItem,
 } from './gmailHelpers'
 import { extractJsonObject, extractNumericFields, modelReplyText } from './modelJson'
+import { notModified, revalidateCacheControl, weakEtag } from './httpCache'
 import { createStaleCache } from './staleCache'
 import { composeWeekReview, spendWouldBreakCap, type WeekSnap } from './weekRun'
 
@@ -130,17 +131,42 @@ function isPersona(v: string): v is Persona {
   return (PERSONAS as readonly string[]).includes(v)
 }
 
+const CORS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+}
+
 function json(data: unknown, status = 200, extra?: HeadersInit) {
   return new Response(JSON.stringify(data), {
     status,
     headers: {
       'Content-Type': 'application/json',
       'Cache-Control': 'no-store',
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+      ...CORS,
       ...extra,
     },
+  })
+}
+
+/**
+ * A read the client is allowed to revalidate instead of re-fetching. Reopening
+ * an app usually means the same bytes, and an `If-None-Match` that matches ends
+ * as a 304 with no body — the payload here is ~20 kB. `stale-while-revalidate`
+ * then lets the browser paint the copy it already has and refresh behind it.
+ *
+ * `swr` is passed 0 when the answer is knowingly incomplete: the client refetches
+ * within two seconds in that case, and a stale hit would defeat it.
+ */
+function jsonRevalidated(req: Request, swrSeconds: number, data: unknown) {
+  const body = JSON.stringify(data)
+  const etag = weakEtag(body)
+  const cache = revalidateCacheControl(swrSeconds)
+  if (notModified(req.headers.get('if-none-match'), etag)) {
+    return new Response(null, { status: 304, headers: { ETag: etag, 'Cache-Control': cache, ...CORS } })
+  }
+  return new Response(body, {
+    headers: { 'Content-Type': 'application/json', ETag: etag, 'Cache-Control': cache, ...CORS },
   })
 }
 
@@ -770,6 +796,25 @@ async function loadMailSenderSignals(
     // A missing or mid-migration table must not take the brief down.
   }
   return out
+}
+
+/**
+ * Gmail ids the user already triaged out of the brief. Done, skip, and drafted
+ * all mean the same thing for ranking: this mail had its chance. Kept for 21
+ * days so a newsletter skipped once stays gone without growing forever.
+ */
+async function triagedMailIds(sql: SQL, userId: string): Promise<Set<string>> {
+  try {
+    const rows = await sql`
+      SELECT DISTINCT gmail_id FROM hire_mail_feedback
+      WHERE user_id = ${userId}
+        AND action IN ('done', 'skip', 'drafted')
+        AND created_at > now() - interval '21 days'
+    `
+    return new Set((rows as Array<{ gmail_id: string }>).map((r) => r.gmail_id).filter(Boolean))
+  } catch {
+    return new Set()
+  }
 }
 
 /** Kinds this user's mail keeps producing, most used first. Offered to the judge. */
@@ -2774,12 +2819,16 @@ async function digestPayload(
     const vocab = await loadMailKindVocab(sql, user.id)
     const verdicts = await judgeMailBatch(richItems, vocab)
     const labelled: MailKindItem[] = richItems.map((m) => ({ ...m, kind: verdicts.get(m.id)?.kind }))
+    // Mail the user already handled leaves both Needs You and the piles. This
+    // is what makes Done and Skip stick instead of popping back on reload.
+    const doneIds = await triagedMailIds(sql, user.id)
+    const visible: MailKindItem[] = labelled.filter((m) => !doneIds.has(m.id))
     // Needs You: the three mails most likely to need the user today, scored on
     // ask language, deadlines, judged kind, and their own reply history. Lead
     // items leave the piles so nothing shows twice.
     const signals = await loadMailSenderSignals(sql, user.id)
     const leads = topNeedsYou(
-      labelled.filter((m) => m.id && !m.id.startsWith('text-')),
+      visible.filter((m) => m.id && !m.id.startsWith('text-')),
       (key) => signals.get(key),
       3,
     ).filter((m) => m.score >= 55)
@@ -2792,7 +2841,7 @@ async function digestPayload(
       reasons: m.reasons,
     }))
     const grouped = groupMailByKind(
-      labelled.filter((m) => !leadIds.has(m.id)),
+      visible.filter((m) => !leadIds.has(m.id)),
       { vocab },
     )
     mailGroups = grouped.map((g) => ({
@@ -4511,7 +4560,8 @@ async function miniPayload(
           5000,
           [] as Array<{ id: string; from: string; date: string; subject: string; snippet: string }>,
         )
-        const kept = await judgeBriefMail(richMail, 5)
+        const doneIdsE = await triagedMailIds(sql, user.id)
+        const kept = (await judgeBriefMail(richMail, 5)).filter((m) => !doneIdsE.has(m.id))
         mailItems = kept.map((m) => ({
           id: m.id,
           label: formatMailLineFromParts(m.from, m.subject),
@@ -6272,6 +6322,16 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
         subject = h('Subject')
         const { text } = extractGmailBody(data.payload)
         original = (text || data.snippet || '').slice(0, 600)
+      }
+    }
+    // Accounts that read Gmail through Composio have no direct token here; the
+    // connector can still hand back the one message a reply needs.
+    if (!toAddr) {
+      const viaComposio = await composioMailBody(user!.id, msgId)
+      if (viaComposio) {
+        toAddr = senderKey(viaComposio.from || '')
+        subject = viaComposio.subject || ''
+        original = (viaComposio.bodyText || viaComposio.snippet || '').slice(0, 600)
       }
     }
     if (!toAddr) return json({ error: 'Could not read this message. Open it and reply from there.' }, 404)
@@ -8195,7 +8255,10 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     const world = await homeWorldCache.read(`${user!.id}|${tzLocal}`, () => loadHomeWorld(sql, user!, tzLocal))
     const { upcoming, mail, mailGroups } = world.value ?? EMPTY_HOME_WORLD
 
-    return json({
+    /* A repeat open is usually the same bytes, so let the browser revalidate
+     * rather than re-download — unless the world slice is still filling in, in
+     * which case the client's own refetch must not be answered from a cache. */
+    return jsonRevalidated(req, world.pending ? 0 : 60, {
       weekStart,
       // The calendar and inbox are still loading, so what the client has is
       // incomplete: one quiet refetch fills it in.

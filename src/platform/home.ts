@@ -106,6 +106,26 @@ export function duePeopleFrom(
     .map(({ name, days, phone }) => ({ name, days, phone }))
 }
 
+/**
+ * Which of home's two supporting calls are actually needed for this snapshot.
+ *
+ * `/api/sleep` and `/api/network` exist here only as fallbacks: last night comes
+ * from the snapshot when it is logged, and the people-due rows come from the
+ * snapshot when it has any. Firing them regardless cost home a 1.3–2.7 s request
+ * to learn nothing — `/api/network`'s calendar half reads the very same cache
+ * `/api/home` does, so it cannot know anything home does not.
+ */
+export function homeFetchPlan(snap: {
+  home?: { lastNight?: { logged?: boolean }; peopleDue?: unknown[] }
+} | null | undefined) {
+  const home = snap?.home
+  return {
+    // No snapshot at all means the fallbacks are all we have.
+    sleep: !home || !home.lastNight?.logged,
+    people: !home || !home.peopleDue?.length,
+  }
+}
+
 export function pickHomeAction(s: HomeSlice): HomeAction {
   const morning = s.hour < 11
   const evening = s.hour >= 18
