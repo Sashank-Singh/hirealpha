@@ -241,4 +241,48 @@ describe('createStaleCache', () => {
     calls[1]!.resolve('two')
     expect((await second).value).toBe('two')
   })
+
+  it('lets one read wait longer than the cache default', async () => {
+    const clock = fakeClock()
+    const { load, calls } = deferredLoader<string>()
+    const cache = createStaleCache<string>({ ttlMs: 1000, maxWaitMs: 100, now: clock.now, sleep: clock.sleep })
+
+    const read = cache.read('u1', () => load('u1'), 500)
+    await settle()
+    // Past the cache's own 100ms wait, and this reader is still holding on.
+    clock.advance(100)
+    await settle()
+    calls[0]!.resolve('slow but worth it')
+    expect(await read).toEqual({ value: 'slow but worth it', fresh: true, pending: false })
+  })
+
+  it('lets one read wait less than the cache default', async () => {
+    const clock = fakeClock()
+    const { load } = deferredLoader<string>()
+    const cache = createStaleCache<string>({ ttlMs: 1000, maxWaitMs: 5000, now: clock.now, sleep: clock.sleep })
+
+    const read = cache.read('u1', () => load('u1'), 100)
+    await settle()
+    clock.advance(100)
+    expect(await read).toEqual({ value: null, fresh: false, pending: true })
+  })
+
+  it('shares one load between readers that disagree about the wait', async () => {
+    const clock = fakeClock()
+    const { load, calls } = deferredLoader<string>()
+    const cache = createStaleCache<string>({ ttlMs: 1000, maxWaitMs: 100, now: clock.now, sleep: clock.sleep })
+
+    const impatient = cache.read('u1', () => load('u1'), 50)
+    const patient = cache.read('u1', () => load('u1'), 5000)
+    await settle()
+    clock.advance(50)
+    expect(await impatient).toEqual({ value: null, fresh: false, pending: true })
+
+    clock.advance(1000)
+    calls[0]!.resolve('arrived')
+    expect(await patient).toEqual({ value: 'arrived', fresh: true, pending: false })
+    // One fetch, two answers — which is what makes sharing a cache across
+    // screens with different patience worth doing.
+    expect(calls).toHaveLength(1)
+  })
 })

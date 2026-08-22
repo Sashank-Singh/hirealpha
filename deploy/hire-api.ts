@@ -47,8 +47,8 @@ import {
   groupBriefMail,
   groupMailByKind,
   mailTally,
+  pickReplyTarget,
   scoreMail,
-  senderKey,
   topNeedsYou,
   type ComposioMailBody,
   type ComposioMailItem,
@@ -56,6 +56,7 @@ import {
   type MailJudgeItem,
   type MailJudgeVerdict,
   type MailKindItem,
+  type ReplyRead,
 } from './gmailHelpers'
 import { extractJsonObject, extractNumericFields, modelReplyText } from './modelJson'
 import { notModified, revalidateCacheControl, weakEtag } from './httpCache'
@@ -2025,6 +2026,25 @@ async function composioMailBody(userId: string, msgId: string): Promise<Composio
 }
 
 /**
+ * The header half of one message through Composio. Separate from
+ * composioMailBody because that one insists on a body — right for a reader,
+ * wrong for a draft, which only needs a From line. A connector that returns
+ * headers but no body used to fail a reply outright.
+ */
+async function composioMailHeaders(userId: string, msgId: string): Promise<ComposioMailBody | null> {
+  const byId = await composioExecuteData(userId, 'GMAIL_FETCH_MESSAGE_BY_MESSAGE_ID', {
+    message_id: msgId,
+    user_id: 'me',
+    format: 'full',
+  })
+  const direct = byId == null ? null : parseComposioMailBody(byId, msgId)
+  if (direct?.from) return direct
+  const listed = await composioMailData(userId, { max_results: 25, query: 'newer_than:14d', verbose: true })
+  if (listed == null) return direct
+  return parseComposioMailBody(listed, msgId) || direct
+}
+
+/**
  * Like loadGmail but returns structured items with Gmail message IDs. Google
  * first, then Composio for accounts connected that way — without the fallback
  * those accounts show an empty inbox on home and in the brief while Settings
@@ -2683,10 +2703,15 @@ const homeWorldCache = createStaleCache<HomeWorld>({
  * pull, a model pass over the mail, and a dozen small queries, all inside one
  * request that used to run them serially. Four minutes stays honest about mail
  * that landed since the last look; past that the refresh runs behind whatever
- * is already on screen. */
+ * is already on screen.
+ *
+ * maxWaitMs is a floor on how long a first open can feel slow, not a deadline on
+ * the work — the load keeps running into the cache after the wait expires, so a
+ * short wait plus a retry a couple of seconds later gets the brief on screen
+ * sooner than one nine-second stare at a spinner ever did. */
 const digestCache = createStaleCache<Awaited<ReturnType<typeof digestPayload>>>({
   ttlMs: 240_000,
-  maxWaitMs: 9_000,
+  maxWaitMs: 2_500,
   failureCooldownMs: 20_000,
   maxEntries: 200,
   onError: (key, err) => console.warn('[digest] load failed', key, err),
@@ -2786,7 +2811,14 @@ async function digestPayload(
   // (vocab, triaged ids, sender signals) go out alongside the inbox pull rather
   // than queueing behind it.
   const [calToday, tomorrowCalItems, mail] = await Promise.all([
-    todayCalendarMeets(sql, user, persona),
+    /* Shared with home and the People list. The brief is reached from home's
+     * dock, so by the time it is opened this is usually a warm hit and today's
+     * calendar costs nothing instead of another second on Google. The long wait
+     * is for the cold case: unlike home, the brief cannot paint around a missing
+     * calendar, and a 2.5s timeout here would cache an empty day for a TTL. */
+    todayMeetsCache
+      .read(`${user.id}|${persona}`, () => todayCalendarMeets(sql, user, persona), 8000)
+      .then((r) => r.value ?? EMPTY_TODAY_RESULT),
     (async () => {
       const items: CalItem[] = []
       try {
@@ -6284,10 +6316,11 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     try {
       const brief = await digestCache.read(`${user!.id}|${persona}`, () => digestPayload(sql, user!, persona))
       if (!brief.value) {
-        return json(
-          { error: 'Your brief is still being pulled together. Open it again in a moment.', pending: true },
-          200,
-        )
+        /* Not an error — the load is still running behind this response and will
+         * be in the cache shortly. Saying `error` here made the client stop and
+         * tell the user to reopen the screen by hand; `pending` alone lets it
+         * come back on its own. Never cached, or the retry reads this. */
+        return json({ pending: true, note: 'Pulling your day together.' }, 200)
       }
       // A stale hit refreshing behind the response must not be served from the
       // browser cache on the next open, or the refresh would never be seen.
@@ -6361,57 +6394,108 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     if (!msgId) return json({ error: 'id required' }, 400)
     const { user, error } = await resolveAuthedUser(sql, { token: body.token, session: body.session, email: body.email })
     if (error) return error
+    if (/^text-\d+$/.test(msgId)) {
+      return json({ error: 'This one came from a text only fallback, so there is no message to reply to.' }, 404)
+    }
+    /* A reply needs a From address. Everything else — subject, a body to quote —
+     * is nice to have, so each read below is allowed to contribute only what it
+     * has and we stop as soon as an address turns up. The old version demanded a
+     * full body read and refused to draft when a connector handed back headers
+     * alone, which is the common Composio shape. */
+    const reads: ReplyRead[] = []
     const access = await googleAccessToken(sql, user!.id, 'gmail')
-    let toAddr = ''
-    let subject = ''
-    let original = ''
     if (access) {
       const res = await fetch(
         `https://gmail.googleapis.com/gmail/v1/users/me/messages/${encodeURIComponent(msgId)}?format=full`,
         { headers: { Authorization: `Bearer ${access}` } },
-      )
-      if (res.ok) {
-        const data = (await res.json()) as {
+      ).catch(() => null)
+      if (res?.ok) {
+        const data = (await res.json().catch(() => null)) as {
           snippet?: string
           payload?: GmailMimePart & { headers?: Array<{ name: string; value: string }> }
-        }
+        } | null
         const h = (n: string) =>
-          data.payload?.headers?.find((x) => x.name.toLowerCase() === n.toLowerCase())?.value || ''
-        toAddr = senderKey(h('From'))
-        subject = h('Subject')
-        const { text } = extractGmailBody(data.payload)
-        original = (text || data.snippet || '').slice(0, 600)
+          data?.payload?.headers?.find((x) => x.name.toLowerCase() === n.toLowerCase())?.value || ''
+        reads.push({
+          from: h('From'),
+          subject: h('Subject'),
+          bodyText: extractGmailBody(data?.payload).text,
+          snippet: data?.snippet,
+        })
+      } else if (res) {
+        console.warn('[mail/draft] gmail by-id returned', res.status, 'for', msgId)
       }
     }
     // Accounts that read Gmail through Composio have no direct token here; the
     // connector can still hand back the one message a reply needs.
-    if (!toAddr) {
-      const viaComposio = await composioMailBody(user!.id, msgId)
-      if (viaComposio) {
-        toAddr = senderKey(viaComposio.from || '')
-        subject = viaComposio.subject || ''
-        original = (viaComposio.bodyText || viaComposio.snippet || '').slice(0, 600)
-      }
+    if (!pickReplyTarget(reads)) reads.push(await composioMailHeaders(user!.id, msgId))
+    /* Last resort, and the one that saves a Gmail account whose by-id read 404s
+     * because the id came out of a connector list: read the recent inbox the same
+     * way the brief did and find the row again. */
+    if (!pickReplyTarget(reads)) {
+      const recent = await loadGmailRich(sql, user!.id, 'newer_than:14d', 25)
+      reads.push(recent.find((m) => m.id === msgId))
     }
-    if (!toAddr) return json({ error: 'Could not read this message. Open it and reply from there.' }, 404)
+    const target = pickReplyTarget(reads)
+    if (!target) {
+      // Do not send them to the reader: it runs the same reads this just tried.
+      return json(
+        {
+          error: reads.some((r) => r && (r.subject || r.snippet))
+            ? 'This message has no reply address, so there is nobody to draft to.'
+            : 'Gmail did not return this message, so there is nothing to reply to yet.',
+        },
+        404,
+      )
+    }
     const draftId = crypto.randomUUID()
-    const quoted = original
-      ? `\n\nOn ${new Date().toLocaleDateString('en-US')}, they wrote:\n${original.split(/\s+/).slice(0, 90).join(' ')}…`
+    const quoted = target.original
+      ? `\n\nOn ${new Date().toLocaleDateString('en-US')}, they wrote:\n${target.original.split(/\s+/).slice(0, 90).join(' ')}…`
       : ''
+    const replyBody = `Hi ${target.toAddr.split('@')[0] || 'there'},\n\n\n${quoted}`.slice(0, 4000)
     await sql`
       INSERT INTO hire_drafts (id, user_id, persona, kind, to_addr, subject, body)
       VALUES (
         ${draftId}, ${user!.id}, ${isPersona(body.persona || '') ? body.persona! : ''},
-        'reply', ${toAddr},
-        ${subject.startsWith('Re:') ? subject.slice(0, 200) : `Re: ${(subject || '(no subject)').slice(0, 190)}`},
-        ${`Hi ${toAddr.split('@')[0] || 'there'},\n\n\n${quoted}`.slice(0, 4000)}
+        'reply', ${target.toAddr}, ${target.subject}, ${replyBody}
       )
     `
     await sql`
       INSERT INTO hire_mail_feedback (user_id, gmail_id, sender, action, kind)
-      VALUES (${user!.id}, ${msgId}, ${toAddr}, 'drafted', '')
+      VALUES (${user!.id}, ${msgId}, ${target.toAddr}, 'drafted', '')
     `
-    return json({ ok: true, id: draftId, toAddr, subject })
+    return json({ ok: true, id: draftId, toAddr: target.toAddr, subject: target.subject, body: replyBody })
+  }
+
+  if (path === '/api/mail/draft/rewrite' && req.method === 'POST') {
+    const body = (await req.json().catch(() => ({}))) as {
+      token?: string; session?: string; email?: string; id?: string; instruction?: string
+    }
+    const draftId = String(body.id || '').slice(0, 80)
+    const instruction = String(body.instruction || '').trim()
+    if (!draftId) return json({ error: 'id required' }, 400)
+    if (!instruction) return json({ error: 'instruction required' }, 400)
+    const { user, error } = await resolveAuthedUser(sql, {
+      token: body.token, session: body.session, email: body.email,
+    })
+    if (error) return error
+    const rows = await sql`
+      SELECT to_addr, subject, body FROM hire_drafts
+      WHERE id = ${draftId} AND user_id = ${user!.id} LIMIT 1
+    `
+    const row = rows[0] as { to_addr: string; subject: string; body: string } | undefined
+    if (!row) return json({ error: 'Draft not found.' }, 404)
+    const rewritten = await gmiBriefChat(
+      'You are Alpha writing a reply email on the user\'s behalf. Rewrite the draft body to follow the user\'s instruction. Keep it a natural, concise email reply with a plain greeting. Respond with ONLY the new body text — no preamble, labels, or quoting.',
+      `To: ${row.to_addr}\nSubject: ${row.subject}\n\nCurrent draft:\n${row.body}\n\nUser instruction: ${instruction}\n\nRewrite the draft body now.`,
+      500,
+      8000,
+    )
+    if (!rewritten?.trim()) {
+      return json({ ok: false, error: 'Alpha could not rewrite that right now. Try again.' }, 502)
+    }
+    await sql`UPDATE hire_drafts SET body = ${rewritten.trim()}, updated_at = now() WHERE id = ${draftId} AND user_id = ${user!.id}`
+    return json({ ok: true, body: rewritten.trim() })
   }
 
   if (path === '/api/reminders/action' && req.method === 'POST') {

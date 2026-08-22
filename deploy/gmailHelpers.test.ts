@@ -20,6 +20,9 @@ import {
   mailTally,
   mailWaitingOnYou,
   normalizeMailKind,
+  pickReplyTarget,
+  replyAddress,
+  replySubject,
   scoreMail,
   senderKey,
   snapMailKind,
@@ -855,5 +858,85 @@ describe('parseComposioMailBody', () => {
   it('is null when there is no message at all', () => {
     expect(parseComposioMailBody({ error: 'nope' }, 'm1')).toBeNull()
     expect(parseComposioMailBody(null)).toBeNull()
+  })
+})
+
+describe('replyAddress', () => {
+  it('pulls the address out of a display-name From line', () => {
+    expect(replyAddress('Amy Smith <amy@example.com>')).toBe('amy@example.com')
+    expect(replyAddress('  AMY@Example.COM ')).toBe('amy@example.com')
+  })
+
+  it('refuses anything a reply could not actually be sent to', () => {
+    // senderKey happily returns these as an identity; a To: line cannot use them.
+    expect(replyAddress('Amy Smith')).toBe('')
+    expect(replyAddress('amy@localhost')).toBe('')
+    expect(replyAddress('')).toBe('')
+    expect(replyAddress('   ')).toBe('')
+  })
+})
+
+describe('replySubject', () => {
+  it('prefixes once and never twice', () => {
+    expect(replySubject('Invoice 12')).toBe('Re: Invoice 12')
+    expect(replySubject('Re: Invoice 12')).toBe('Re: Invoice 12')
+    expect(replySubject('RE:Invoice 12')).toBe('RE:Invoice 12')
+  })
+
+  it('has something to say when the subject is missing', () => {
+    expect(replySubject('')).toBe('Re: (no subject)')
+    expect(replySubject('   ')).toBe('Re: (no subject)')
+  })
+})
+
+describe('pickReplyTarget', () => {
+  it('composes one target out of two partial reads', () => {
+    // The real case this exists for: the by-id read returned headers with no
+    // body, and the list row carried the snippet.
+    const target = pickReplyTarget([
+      { from: 'Amy <amy@example.com>', subject: 'Invoice 12' },
+      { snippet: 'can you confirm the total' },
+    ])
+    expect(target).toEqual({
+      toAddr: 'amy@example.com',
+      subject: 'Re: Invoice 12',
+      original: 'can you confirm the total',
+    })
+  })
+
+  it('drafts from headers alone, with no body to quote', () => {
+    expect(pickReplyTarget([{ from: 'amy@example.com', subject: 'Hi' }])).toEqual({
+      toAddr: 'amy@example.com',
+      subject: 'Re: Hi',
+      original: '',
+    })
+  })
+
+  it('skips reads with no usable address and keeps looking', () => {
+    const target = pickReplyTarget([
+      null,
+      undefined,
+      { from: 'Mailer Daemon', snippet: 'first body' },
+      { from: 'amy@example.com', subject: 'Later' },
+    ])
+    expect(target?.toAddr).toBe('amy@example.com')
+    // The body came from the earlier read even though its From was unusable.
+    expect(target?.original).toBe('first body')
+  })
+
+  it('prefers bodyText over snippet within one read', () => {
+    expect(
+      pickReplyTarget([{ from: 'a@x.com', bodyText: 'the full text', snippet: 'the preview' }])?.original,
+    ).toBe('the full text')
+  })
+
+  it('caps the quoted excerpt', () => {
+    expect(pickReplyTarget([{ from: 'a@x.com', bodyText: 'x'.repeat(900) }])?.original.length).toBe(600)
+  })
+
+  it('is null only when no read carried an address', () => {
+    expect(pickReplyTarget([])).toBeNull()
+    expect(pickReplyTarget([null, undefined])).toBeNull()
+    expect(pickReplyTarget([{ subject: 'Orphan', snippet: 'no sender' }])).toBeNull()
   })
 })

@@ -354,6 +354,59 @@ export function senderKey(from: string): string {
   return /^[^@\s]+@[^@\s]+$/.test(addr) ? addr : addr.slice(0, 80)
 }
 
+/* ---- Addressing a reply ----
+ * A reply needs one thing the rest of the app does not: a real address. A
+ * display name is a fine identity for scoring and grouping, but a draft
+ * addressed to "Amy Smith" can never be sent, so this is stricter than
+ * senderKey on purpose.
+ */
+
+/** The address to reply to, or '' when this From line does not carry one. */
+export function replyAddress(from: string): string {
+  const key = senderKey(from)
+  return /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(key) ? key : ''
+}
+
+/** Subject for the reply, without stacking a second Re: on an existing one. */
+export function replySubject(subject: string): string {
+  const clean = String(subject || '').trim()
+  if (!clean) return 'Re: (no subject)'
+  return /^re\s*:/i.test(clean) ? clean.slice(0, 200) : `Re: ${clean.slice(0, 190)}`
+}
+
+/** One read of a message, from Google or a connector. Every field may be missing. */
+export type ReplyRead = {
+  from?: string
+  subject?: string
+  bodyText?: string
+  snippet?: string
+} | null | undefined
+
+export type ReplyTarget = { toAddr: string; subject: string; original: string }
+
+/**
+ * Compose a reply target out of however many partial reads we managed. Reads are
+ * tried in order and each field is taken from the first read that has it, so a
+ * by-id read that returned only headers still combines with a list row that only
+ * returned a snippet.
+ *
+ * Null means no read produced an address — the one field a draft cannot invent.
+ * The body is optional: it only becomes a quoted excerpt.
+ */
+export function pickReplyTarget(reads: ReplyRead[]): ReplyTarget | null {
+  let toAddr = ''
+  let subject = ''
+  let original = ''
+  for (const read of reads) {
+    if (!read) continue
+    if (!toAddr) toAddr = replyAddress(read.from || '')
+    if (!subject) subject = String(read.subject || '').trim()
+    if (!original) original = String(read.bodyText || read.snippet || '').trim()
+  }
+  if (!toAddr) return null
+  return { toAddr, subject: replySubject(subject), original: original.slice(0, 600) }
+}
+
 const WAITING_ON_YOU =
   /\bnew message from\b|[?]\s*$|(?:^|\s)(can you|could you|let me know|please reply|waiting on|when you get a chance|need you to|wanted to check|following up|gentle (?:reminder|nudge)|any update)\b/i
 

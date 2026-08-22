@@ -4,6 +4,7 @@ import {
   apiDraftMailReply,
   apiListNetwork,
   apiListSleep,
+  apiListWorkDrafts,
   apiPatchLoop,
   apiPrepFor,
   apiReminderAction,
@@ -12,6 +13,7 @@ import {
   type MailTriageAction,
   type NetworkPerson,
   type NetworkToday,
+  type ReplyDraft,
   type SleepNight,
 } from './api'
 import type { FeatureAuth } from './FeatureMiniApps'
@@ -267,16 +269,35 @@ function TriageActions({
   )
 }
 
+/** The create-draft response may omit the body until the server ships it, so a
+ * draft opened for review falls back to the stored row to always show text. */
+async function ensureDraftBody(
+  a: { email?: string; token?: string },
+  draft: ReplyDraft,
+): Promise<ReplyDraft> {
+  if (draft.body) return draft
+  try {
+    const d = await apiListWorkDrafts(a)
+    const found = (d.drafts || []).find((x) => x.id === draft.id)
+    if (found) return { ...draft, body: found.body || '' }
+  } catch {
+    /* keep the to/subject-only draft */
+  }
+  return draft
+}
+
 function NeedsYouRow({
   item,
   creds,
   onOpenMail,
+  onOpenDraft,
   onGone,
   notify,
 }: {
   item: NeedsYouItem
   creds: Creds
   onOpenMail: (id: string, label: string, snippet?: string) => void
+  onOpenDraft: (id: string, label: string, snippet: string | undefined, draft: ReplyDraft) => void
   onGone: () => void
   notify: (msg: string) => void
 }) {
@@ -315,9 +336,17 @@ function NeedsYouRow({
             ? () => {
                 setBusy(true)
                 apiDraftMailReply({ ...creds, id: item.id })
-                  .then(() => {
-                    notify('Reply draft saved')
-                    onOpenMail(item.id, item.label, item.snippet)
+                  .then((res) =>
+                    ensureDraftBody(creds, {
+                      id: res.id,
+                      toAddr: res.toAddr,
+                      subject: res.subject,
+                      body: res.body || '',
+                    }),
+                  )
+                  .then((full) => {
+                    notify('Reply draft ready')
+                    onOpenDraft(item.id, item.label, item.snippet, full)
                   })
                   .catch((err) => {
                     setBusy(false)
@@ -339,11 +368,13 @@ function PileRow({
   e,
   creds,
   onOpenMail,
+  onOpenDraft,
   notify,
 }: {
   e: BriefAsk
   creds: Creds
   onOpenMail: (id: string, label: string, snippet?: string) => void
+  onOpenDraft: (id: string, label: string, snippet: string | undefined, draft: ReplyDraft) => void
   notify: (msg: string) => void
 }) {
   const [busy, setBusy] = useState(false)
@@ -385,9 +416,17 @@ function PileRow({
             ? () => {
                 setBusy(true)
                 apiDraftMailReply({ ...creds, id: e.id })
-                  .then(() => {
-                    notify('Reply draft saved')
-                    onOpenMail(e.id, e.label, e.snippet)
+                  .then((res) =>
+                    ensureDraftBody(creds, {
+                      id: res.id,
+                      toAddr: res.toAddr,
+                      subject: res.subject,
+                      body: res.body || '',
+                    }),
+                  )
+                  .then((full) => {
+                    notify('Reply draft ready')
+                    onOpenDraft(e.id, e.label, e.snippet, full)
                   })
                   .catch((err) => {
                     notify(err instanceof Error && err.message ? err.message : 'Could not draft a reply')
@@ -569,11 +608,13 @@ export function BriefApp({
   data,
   evening,
   onOpenMail,
+  onOpenDraft,
 }: {
   auth: FeatureAuth
   data: BriefPayload | null
   evening?: EveningPayload | null
   onOpenMail: (id: string, label: string, snippet?: string) => void
+  onOpenDraft: (id: string, label: string, snippet: string | undefined, draft: ReplyDraft) => void
 }) {
   const [searchParams] = useSearchParams()
   const q = searchParams.toString()
@@ -767,7 +808,7 @@ export function BriefApp({
           <ul className="brief-asks">
             {isEvening
               ? eveMail.map((e) => (
-                  <PileRow key={e.id || e.label} e={e} creds={creds} onOpenMail={onOpenMail} notify={notify} />
+                  <PileRow key={e.id || e.label} e={e} creds={creds} onOpenMail={onOpenMail} onOpenDraft={onOpenDraft} notify={notify} />
                 ))
               : needsYou.map((item) => (
                   <NeedsYouRow
@@ -775,6 +816,7 @@ export function BriefApp({
                     item={item}
                     creds={creds}
                     onOpenMail={onOpenMail}
+                    onOpenDraft={onOpenDraft}
                     onGone={() => setNeedsYou((prev) => prev.filter((x) => x.id !== item.id))}
                     notify={notify}
                   />
@@ -857,7 +899,7 @@ export function BriefApp({
                   {open && (
                     <ul className="brief-asks brief-pile-items">
                       {g.items.map((e) => (
-                        <PileRow key={e.id || e.label} e={e} creds={creds} onOpenMail={onOpenMail} notify={notify} />
+                        <PileRow key={e.id || e.label} e={e} creds={creds} onOpenMail={onOpenMail} onOpenDraft={onOpenDraft} notify={notify} />
                       ))}
                     </ul>
                   )}

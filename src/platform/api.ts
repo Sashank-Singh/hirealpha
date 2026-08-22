@@ -840,9 +840,23 @@ export const apiTriageMail = (a: {
     ...authParams(a), id: a.id, action: a.action, sender: a.sender || '', kind: a.kind || '',
   })
 
-export const apiDraftMailReply = (a: { email?: string; token?: string; persona?: string; id: string }) =>
-  featurePost<{ ok: boolean; id: string; toAddr: string; subject: string; error?: string }>('/api/mail/draft', {
-    ...authParams(a), persona: a.persona, id: a.id,
+/** A generated reply ready to review: the reader prefills a compose panel from it. */
+export type ReplyDraft = { id: string; toAddr: string; subject: string; body: string }
+
+export const apiDraftMailReply = (
+  a: { email?: string; token?: string; persona?: string; id: string },
+) =>
+  featurePost<{ ok: boolean; id: string; toAddr: string; subject: string; body?: string; error?: string }>(
+    '/api/mail/draft',
+    { ...authParams(a), persona: a.persona, id: a.id },
+  )
+
+/** Ask Alpha to rework a stored draft's body. */
+export const apiRewriteDraft = (
+  a: { email?: string; token?: string; id: string; instruction: string },
+) =>
+  featurePost<{ ok: boolean; body: string; error?: string }>('/api/mail/draft/rewrite', {
+    ...authParams(a), id: a.id, instruction: a.instruction,
   })
 
 export const apiReminderAction = (a: {

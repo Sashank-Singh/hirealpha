@@ -22,7 +22,7 @@ export type StaleRead<T> = {
 export type StaleCacheOptions = {
   /** How long a loaded value counts as fresh. */
   ttlMs: number
-  /** How long a cold read waits for a first value before painting without it. */
+  /** How long a cold read waits for a first value before painting without it. Overridable per read. */
   maxWaitMs: number
   /** How long to leave a failing loader alone. Without this, every request retries it. */
   failureCooldownMs?: number
@@ -99,15 +99,21 @@ export function createStaleCache<T>(opts: StaleCacheOptions) {
      * The value for `key`, loading it with `load` when what is held is missing or
      * past its TTL. `load` is passed per read so it can close over the request
      * that asked; concurrent reads of one key still share a single call.
+     *
+     * `waitMs` overrides the cold-read wait for this call only. Two screens can
+     * share one cached fetch while disagreeing about how long a first load is
+     * worth waiting for — a screen that paints around a missing calendar wants a
+     * short wait, and one whose whole job is that calendar wants a long one.
      */
-    async read(key: string, load: () => Promise<T>): Promise<StaleRead<T>> {
+    async read(key: string, load: () => Promise<T>, waitMs?: number): Promise<StaleRead<T>> {
       const hit = entries.get(key)
       if (hit && now() - hit.at < opts.ttlMs) return { value: hit.value, fresh: true, pending: false }
       const job = start(key, load)
       // Something to show: hand it over and let the refresh land behind the response.
       if (hit) return { value: hit.value, fresh: false, pending: job !== null }
       if (!job) return { value: null, fresh: false, pending: false }
-      const raced = await Promise.race([job, sleep(opts.maxWaitMs).then(() => TIMED_OUT)])
+      const wait = waitMs === undefined ? opts.maxWaitMs : waitMs
+      const raced = await Promise.race([job, sleep(wait).then(() => TIMED_OUT)])
       // Still running: it will finish into the cache, so the next read is cheap.
       if (raced === TIMED_OUT) return { value: null, fresh: false, pending: true }
       if (raced === null) return { value: null, fresh: false, pending: false }

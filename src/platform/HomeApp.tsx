@@ -54,8 +54,8 @@ function formatClock12(hhmm: string) {
 
 const DOCK = [
   { kind: 'body', iconKind: 'body', label: 'Body' },
-  { kind: 'networking_crm', iconKind: 'networking_crm', label: 'People' },
   { kind: 'digest', iconKind: 'digest', label: 'Brief' },
+  { kind: 'networking_crm', iconKind: 'networking_crm', label: 'People' },
   { kind: 'later', iconKind: 'later', label: 'Later' },
 ] as const
 
