@@ -2679,6 +2679,19 @@ const homeWorldCache = createStaleCache<HomeWorld>({
   onError: (key, err) => console.warn('[home] world slice failed', key, err),
 })
 
+/* The brief is home's problem at a heavier weight: two calendar reads, an inbox
+ * pull, a model pass over the mail, and a dozen small queries, all inside one
+ * request that used to run them serially. Four minutes stays honest about mail
+ * that landed since the last look; past that the refresh runs behind whatever
+ * is already on screen. */
+const digestCache = createStaleCache<Awaited<ReturnType<typeof digestPayload>>>({
+  ttlMs: 240_000,
+  maxWaitMs: 9_000,
+  failureCooldownMs: 20_000,
+  maxEntries: 200,
+  onError: (key, err) => console.warn('[digest] load failed', key, err),
+})
+
 async function loadHomeWorld(sql: SQL, user: AuthedUser, tzLocal: string): Promise<HomeWorld> {
   const world: HomeWorld = { upcoming: [], mail: [], mailGroups: [] }
   const jobs: Array<Promise<void>> = []
@@ -2768,29 +2781,108 @@ async function digestPayload(
   const dayAfterStart = startOfLocalDay(tz, 2)
   const tomorrowYmd = tomorrowStart.toLocaleDateString('en-CA', { timeZone: tz })
 
-  const calToday = await todayCalendarMeets(sql, user, persona)
+  // Calendar and mail used to load one after another; both are slow and neither
+  // needs the other. They race now, and inside the mail track the small reads
+  // (vocab, triaged ids, sender signals) go out alongside the inbox pull rather
+  // than queueing behind it.
+  const [calToday, tomorrowCalItems, mail] = await Promise.all([
+    todayCalendarMeets(sql, user, persona),
+    (async () => {
+      const items: CalItem[] = []
+      try {
+        const access = await googleAccessToken(sql, user.id, 'calendar')
+        if (!access) return items
+        const got = await withTimeout(
+          fetchCalendarItems(access, {
+            timeMin: tomorrowStart,
+            timeMax: dayAfterStart,
+            maxResults: 12,
+          }),
+          8000,
+          { ok: false as const, status: 0 },
+        )
+        if (got.ok) {
+          for (const e of got.items) {
+            const ymd = e.start.toLocaleDateString('en-CA', { timeZone: tz })
+            if (ymd === tomorrowYmd && !isHotelStayEvent(e)) items.push(e)
+          }
+        }
+      } catch {
+        // Tomorrow is decoration; never let it hold the brief.
+      }
+      return items
+    })(),
+    (async () => {
+      type NeedsYouRowT = { id: string; label: string; snippet?: string; score: number; reasons: string[] }
+      type GroupT = { kind: string; label: string; count: number; items: Array<{ id: string; label: string; snippet?: string }> }
+      let ny: NeedsYouRowT[] = []
+      let groups: GroupT[] = []
+      let tallyLine = ''
+      try {
+        // The judge names a pile per mail; the batch it cannot reach, and a run where
+        // the model is unavailable, fall back to the regex kinds inside groupMailByKind.
+        // The full batch is still shown either way — the groups are the filter here,
+        // not the judge's keep list.
+        const [vocab, doneIds, signals, richItems] = await Promise.all([
+          loadMailKindVocab(sql, user.id),
+          triagedMailIds(sql, user.id),
+          loadMailSenderSignals(sql, user.id),
+          withTimeout(
+            loadGmailRich(sql, user.id, importantMailQuery('3d'), 30),
+            9000,
+            [] as Array<{ id: string; from: string; date: string; subject: string; snippet: string }>,
+          ),
+        ])
+        const verdicts = await judgeMailBatch(richItems, vocab)
+        const labelled: MailKindItem[] = richItems.map((m) => ({ ...m, kind: verdicts.get(m.id)?.kind }))
+        // Mail the user already handled leaves both Needs You and the piles. This
+        // is what makes Done and Skip stick instead of popping back on reload.
+        const visible: MailKindItem[] = labelled.filter((m) => !doneIds.has(m.id))
+        // Needs You: the three mails most likely to need the user today, scored on
+        // ask language, deadlines, judged kind, and their own reply history. Lead
+        // items leave the piles so nothing shows twice.
+        const leads = topNeedsYou(
+          visible.filter((m) => m.id && !m.id.startsWith('text-')),
+          (key) => signals.get(key),
+          3,
+        ).filter((m) => m.score >= 55)
+        const leadIds = new Set(leads.map((m) => m.id))
+        ny = leads.map((m) => ({
+          id: m.id,
+          label: formatMailLineFromParts(m.from, m.subject),
+          snippet: cleanMailSnippet(m.snippet || ''),
+          score: Math.round(m.score),
+          reasons: m.reasons,
+        }))
+        const grouped = groupMailByKind(
+          visible.filter((m) => !leadIds.has(m.id)),
+          { vocab },
+        )
+        groups = grouped.map((g) => ({
+          kind: g.kind,
+          label: g.label,
+          count: g.count,
+          items: g.items.map((m) => ({
+            id: m.id,
+            label: formatMailLineFromParts(m.from, m.subject),
+            snippet: cleanMailSnippet(m.snippet || ''),
+          })),
+        }))
+        tallyLine = mailTally(grouped)
+        void saveMailKindVocab(sql, user.id, grouped).catch(() => {})
+      } catch {
+        // best-effort
+      }
+      return { needsYou: ny, groups, tally: tallyLine }
+    })(),
+  ])
+
   const beats = calToday.meets
     .filter((m) => isPersonMeetSuggestion(m))
     .map((m) => ({ time: m.time, name: m.who || m.title, kind: m.kind }))
   const todayCal = beats.map((b) =>
     b.kind && b.kind !== 'Meeting' ? `${b.time} · ${b.name} · ${b.kind}` : `${b.time} · ${b.name}`,
   )
-
-  const tomorrowCalItems: CalItem[] = []
-  const access = await googleAccessToken(sql, user.id, 'calendar')
-  if (access) {
-    const got = await fetchCalendarItems(access, {
-      timeMin: tomorrowStart,
-      timeMax: dayAfterStart,
-      maxResults: 12,
-    })
-    if (got.ok) {
-      for (const e of got.items) {
-        const ymd = e.start.toLocaleDateString('en-CA', { timeZone: tz })
-        if (ymd === tomorrowYmd && !isHotelStayEvent(e)) tomorrowCalItems.push(e)
-      }
-    }
-  }
 
   const myName = user.name || null
   const tomorrowCal = tomorrowCalItems.map((e) => formatDigestEventLabel(e, tz, myName))
@@ -2799,68 +2891,17 @@ async function digestPayload(
   // The brief is a read-only view; calendar is already in todayCal.
   const events: Array<{ id: string; label: string }> = []
 
-  // Email: last three days of inbox (minus promo tabs), grouped so replies
-  // and assessments do not hide behind one judged pick.
   let finalEmailItems: Array<{ id: string; label: string; snippet?: string }> = []
   let finalEmails: string[] = []
   let mailGroups: Array<{ kind: string; label: string; count: number; items: Array<{ id: string; label: string; snippet?: string }> }> = []
   let mailTallyLine = ''
   let needsYou: Array<{ id: string; label: string; snippet?: string; score: number; reasons: string[] }> = []
-  try {
-    const richItems = await withTimeout(
-      loadGmailRich(sql, user.id, importantMailQuery('3d'), 30),
-      12000,
-      [] as Array<{ id: string; from: string; date: string; subject: string; snippet: string }>,
-    )
-    // The judge names a pile per mail; the batch it cannot reach, and a run where
-    // the model is unavailable, fall back to the regex kinds inside groupMailByKind.
-    // The full batch is still shown either way — the groups are the filter here,
-    // not the judge's keep list.
-    const vocab = await loadMailKindVocab(sql, user.id)
-    const verdicts = await judgeMailBatch(richItems, vocab)
-    const labelled: MailKindItem[] = richItems.map((m) => ({ ...m, kind: verdicts.get(m.id)?.kind }))
-    // Mail the user already handled leaves both Needs You and the piles. This
-    // is what makes Done and Skip stick instead of popping back on reload.
-    const doneIds = await triagedMailIds(sql, user.id)
-    const visible: MailKindItem[] = labelled.filter((m) => !doneIds.has(m.id))
-    // Needs You: the three mails most likely to need the user today, scored on
-    // ask language, deadlines, judged kind, and their own reply history. Lead
-    // items leave the piles so nothing shows twice.
-    const signals = await loadMailSenderSignals(sql, user.id)
-    const leads = topNeedsYou(
-      visible.filter((m) => m.id && !m.id.startsWith('text-')),
-      (key) => signals.get(key),
-      3,
-    ).filter((m) => m.score >= 55)
-    const leadIds = new Set(leads.map((m) => m.id))
-    needsYou = leads.map((m) => ({
-      id: m.id,
-      label: formatMailLineFromParts(m.from, m.subject),
-      snippet: cleanMailSnippet(m.snippet || ''),
-      score: Math.round(m.score),
-      reasons: m.reasons,
-    }))
-    const grouped = groupMailByKind(
-      visible.filter((m) => !leadIds.has(m.id)),
-      { vocab },
-    )
-    mailGroups = grouped.map((g) => ({
-      kind: g.kind,
-      label: g.label,
-      count: g.count,
-      items: g.items.map((m) => ({
-        id: m.id,
-        label: formatMailLineFromParts(m.from, m.subject),
-        snippet: cleanMailSnippet(m.snippet || ''),
-      })),
-    }))
-    mailTallyLine = mailTally(grouped)
-    finalEmailItems = mailGroups.flatMap((g) => g.items)
-    finalEmails = finalEmailItems.map((e) => e.label)
-    await saveMailKindVocab(sql, user.id, grouped)
-  } catch {
-    // best-effort
-  }
+  needsYou = mail.needsYou
+  mailGroups = mail.groups
+  mailTallyLine = mail.tally
+  finalEmailItems = mailGroups.flatMap((g) => g.items)
+  finalEmails = finalEmailItems.map((e) => e.label)
+
   if (!finalEmails.length) {
     try {
       const mailBlock = await withTimeout(
@@ -2898,29 +2939,6 @@ async function digestPayload(
     }
   }
 
-  const reminderRows = await sql`
-    SELECT id, text, scheduled_at AS "scheduledAt" FROM hire_reminders
-    WHERE user_id = ${user.id} AND persona = ${persona} AND status = 'pending'
-    ORDER BY scheduled_at ASC LIMIT 8
-  `
-  const reminders = (reminderRows as { id: string; text: string; scheduledAt: Date }[])
-    .filter((r) => !/^\[(judge|poke)\]/i.test(r.text) && !/daily brief|morning brief|evening brief/i.test(r.text))
-    .map((r) => ({
-      id: r.id,
-      time: formatCalTime(new Date(r.scheduledAt).toISOString(), tz),
-      text: r.text.replace(/^\[digest\]/i, '').trim() || r.text,
-    }))
-
-  const loopRows = await sql`
-    SELECT title, due_at AS "dueAt" FROM hire_loops
-    WHERE user_id = ${user.id} AND status = 'open'
-    ORDER BY created_at DESC LIMIT 8
-  `
-  const loops = (loopRows as { title: string; dueAt: Date | null }[]).map((r) => {
-    const due = r.dueAt ? formatCalTime(new Date(r.dueAt).toISOString(), tz) : ''
-    return due ? `${r.title} · ${due}` : r.title
-  })
-
   const dateLabel = new Date().toLocaleDateString('en-US', {
     weekday: 'long',
     month: 'long',
@@ -2939,92 +2957,92 @@ async function digestPayload(
   const wrapTitle = brief === 'evening' ? 'Evening brief' : 'Morning brief'
 
   const todayLocal = localDateStrInTz(new Date(), tz)
+  const weekStartLocal = mondayOfDateStr(todayLocal)
   const lastNightKey = shiftDateStr(todayLocal, -1)
-  const lastNightRow = (await sql`
-    SELECT sleep_date AS "sleepDate", bedtime, wake, quality FROM hire_sleep
-    WHERE user_id = ${user.id} AND (sleep_date = ${lastNightKey} OR sleep_date = ${todayLocal})
-    ORDER BY sleep_date DESC LIMIT 1
-  `)[0] as { bedtime?: string; wake?: string; quality?: number } | undefined
-  const lastNightLogged = !!(lastNightRow?.bedtime && lastNightRow?.wake)
+
+  // The half-dozen small reads used to run one after another; none depends on
+  // the next, so they all leave together.
+  const [reminderRows, loopRows, lastNightRow, duePeopleRows, factExtras] = await Promise.all([
+    sql`
+      SELECT id, text, scheduled_at AS "scheduledAt" FROM hire_reminders
+      WHERE user_id = ${user.id} AND persona = ${persona} AND status = 'pending'
+      ORDER BY scheduled_at ASC LIMIT 8
+    `,
+    sql`
+      SELECT title, due_at AS "dueAt" FROM hire_loops
+      WHERE user_id = ${user.id} AND status = 'open'
+      ORDER BY created_at DESC LIMIT 8
+    `,
+    sql`
+      SELECT sleep_date AS "sleepDate", bedtime, wake, quality FROM hire_sleep
+      WHERE user_id = ${user.id} AND (sleep_date = ${lastNightKey} OR sleep_date = ${todayLocal})
+      ORDER BY sleep_date DESC LIMIT 1
+    `,
+    sql`
+      SELECT name, phone, last_touch AS "lastTouch", cadence_days AS "cadenceDays"
+      FROM hire_network WHERE user_id = ${user.id}
+      ORDER BY coalesce(last_touch, '1970-01-01'::timestamptz) ASC LIMIT 8
+    `,
+    (async () => {
+      try {
+        const [liftRows, spendRows, budgetRow, habitRows] = await Promise.all([
+          sql`SELECT count(*)::int AS n FROM hire_workouts
+            WHERE user_id = ${user.id} AND (logged_at AT TIME ZONE ${tz})::date >= ${weekStartLocal}`,
+          sql`SELECT coalesce(sum(amount), 0)::float AS total FROM hire_spending
+            WHERE user_id = ${user.id} AND (spent_at AT TIME ZONE ${tz})::date >= ${weekStartLocal}`,
+          sql`SELECT weekly_budget AS "weeklyBudget" FROM hire_spending_budget WHERE user_id = ${user.id}`,
+          sql`SELECT id FROM hire_habits WHERE user_id = ${user.id}`,
+        ])
+        const liftsThisWeek = Number((liftRows[0] as { n?: number })?.n) || 0
+        const spendWeek = Number((spendRows[0] as { total?: number })?.total) || 0
+        const budget = Math.round((budgetRow as { weeklyBudget?: number }[])[0]?.weeklyBudget || 0)
+        let bestStreak = 0
+        if ((habitRows as unknown[]).length) {
+          const logRows = await sql`
+            SELECT habit_id AS "habitId", date FROM hire_habit_logs
+            WHERE user_id = ${user.id} AND date >= ${shiftDateStr(todayLocal, -180)}
+          `
+          const byHabit = new Map<string, Set<string>>()
+          for (const lr of logRows as Array<{ habitId: string; date: string }>) {
+            if (!byHabit.has(lr.habitId)) byHabit.set(lr.habitId, new Set())
+            byHabit.get(lr.habitId)!.add(String(lr.date).slice(0, 10))
+          }
+          for (const dates of byHabit.values()) {
+            let cursor = dates.has(todayLocal) ? todayLocal : shiftDateStr(todayLocal, -1)
+            let streak = 0
+            while (dates.has(cursor)) {
+              streak++
+              cursor = shiftDateStr(cursor, -1)
+            }
+            bestStreak = Math.max(bestStreak, streak)
+          }
+        }
+        return { liftsThisWeek, spendWeek, budget, bestStreak }
+      } catch {
+        return null
+      }
+    })(),
+  ])
+
+  const reminders = (reminderRows as { id: string; text: string; scheduledAt: Date }[])
+    .filter((r) => !/^\[(judge|poke)\]/i.test(r.text) && !/daily brief|morning brief|evening brief/i.test(r.text))
+    .map((r) => ({
+      id: r.id,
+      time: formatCalTime(new Date(r.scheduledAt).toISOString(), tz),
+      text: r.text.replace(/^\[digest\]/i, '').trim() || r.text,
+    }))
+
+  const loops = (loopRows as { title: string; dueAt: Date | null }[]).map((r) => {
+    const due = r.dueAt ? formatCalTime(new Date(r.dueAt).toISOString(), tz) : ''
+    return due ? `${r.title} · ${due}` : r.title
+  })
+
+  const lastNight = (lastNightRow as { bedtime?: string; wake?: string; quality?: number }[])[0]
+  const lastNightLogged = !!(lastNight?.bedtime && lastNight?.wake)
   const lastNightHours = lastNightLogged
-    ? sleepHoursBetween(lastNightRow!.bedtime!, lastNightRow!.wake!)
+    ? sleepHoursBetween(lastNight!.bedtime!, lastNight!.wake!)
     : 0
 
-  // Fact strip: closed facts from the user's own logs, one source of truth per
-  // fact. A gap never appears here and in the DO card at the same time.
-  const factLine: Array<{ key: string; text: string; state: 'ok' | 'gap'; openKind?: string }> = []
-  if (lastNightLogged) {
-    const h = Math.floor(lastNightHours)
-    const m = Math.round((lastNightHours - h) * 60)
-    const q = lastNightRow!.quality && lastNightRow!.quality !== 3 ? `, quality ${lastNightRow!.quality}` : ''
-    factLine.push({
-      key: 'sleep',
-      state: 'ok',
-      text: `You slept ${h}${m ? `h ${m}m${q}` : 'h'}${m ? '' : q}`,
-      openKind: 'sleep_tracker',
-    })
-  }
-  try {
-    const weekStartLocal = mondayOfDateStr(todayLocal)
-    const liftRows = await sql`
-      SELECT count(*)::int AS n FROM hire_workouts
-      WHERE user_id = ${user.id} AND (logged_at AT TIME ZONE ${tz})::date >= ${weekStartLocal}
-    `
-    const liftsThisWeek = Number((liftRows[0] as { n?: number })?.n) || 0
-    if (liftsThisWeek > 0) {
-      factLine.push({ key: 'lifts', state: 'ok', text: `${liftsThisWeek} lift${liftsThisWeek === 1 ? '' : 's'} this week`, openKind: 'workout_log' })
-    }
-    const spendRows = await sql`
-      SELECT coalesce(sum(amount), 0)::float AS total FROM hire_spending
-      WHERE user_id = ${user.id} AND (spent_at AT TIME ZONE ${tz})::date >= ${weekStartLocal}
-    `
-    const spendWeek = Number((spendRows[0] as { total?: number })?.total) || 0
-    if (spendWeek > 0) {
-      const budgetRow = (await sql`
-        SELECT weekly_budget AS "weeklyBudget" FROM hire_spending_budget WHERE user_id = ${user.id}
-      `)[0] as { weeklyBudget?: number } | undefined
-      const budget = Math.round(budgetRow?.weeklyBudget || 0)
-      factLine.push(
-        budget > 0
-          ? { key: 'spend', state: spendWeek > budget ? 'gap' : 'ok', text: `$${Math.round(spendWeek)} of $${budget} spent`, openKind: 'spending_snapshot' }
-          : { key: 'spend', state: 'ok', text: `$${Math.round(spendWeek)} spent this week`, openKind: 'spending_snapshot' },
-      )
-    }
-    const habitRows = await sql`SELECT id FROM hire_habits WHERE user_id = ${user.id}`
-    if ((habitRows as unknown[]).length) {
-      const logRows = await sql`
-        SELECT habit_id AS "habitId", date FROM hire_habit_logs
-        WHERE user_id = ${user.id} AND date >= ${shiftDateStr(todayLocal, -180)}
-      `
-      const byHabit = new Map<string, Set<string>>()
-      for (const lr of logRows as Array<{ habitId: string; date: string }>) {
-        if (!byHabit.has(lr.habitId)) byHabit.set(lr.habitId, new Set())
-        byHabit.get(lr.habitId)!.add(String(lr.date).slice(0, 10))
-      }
-      let best = 0
-      for (const dates of byHabit.values()) {
-        let cursor = dates.has(todayLocal) ? todayLocal : shiftDateStr(todayLocal, -1)
-        let streak = 0
-        while (dates.has(cursor)) {
-          streak++
-          cursor = shiftDateStr(cursor, -1)
-        }
-        best = Math.max(best, streak)
-      }
-      if (best >= 2) {
-        factLine.push({ key: 'habits', state: 'ok', text: `${best} day habit best`, openKind: 'habit_streak' })
-      }
-    }
-  } catch {
-    // Facts are decoration; a missing table must not take the brief down.
-  }
-
-
-  const duePeopleRows = await sql`
-    SELECT name, phone, last_touch AS "lastTouch", cadence_days AS "cadenceDays"
-    FROM hire_network WHERE user_id = ${user.id}
-    ORDER BY coalesce(last_touch, '1970-01-01'::timestamptz) ASC LIMIT 8
-  `
   const peopleDue = (duePeopleRows as Array<{
     name: string; phone: string; lastTouch: Date | null; cadenceDays: number
   }>)
@@ -3035,6 +3053,36 @@ async function digestPayload(
     .filter((p) => p.due)
     .slice(0, 3)
     .map(({ name, days, phone }) => ({ name, days, phone }))
+
+  // Fact strip: closed facts from the user's own logs, one source of truth per
+  // fact. A gap never appears here and in the DO card at the same time.
+  const factLine: Array<{ key: string; text: string; state: 'ok' | 'gap'; openKind?: string }> = []
+  if (lastNightLogged) {
+    const h = Math.floor(lastNightHours)
+    const m = Math.round((lastNightHours - h) * 60)
+    const q = lastNight!.quality && lastNight!.quality !== 3 ? `, quality ${lastNight!.quality}` : ''
+    factLine.push({
+      key: 'sleep',
+      state: 'ok',
+      text: `You slept ${h}${m ? `h ${m}m${q}` : 'h'}${m ? '' : q}`,
+      openKind: 'sleep_tracker',
+    })
+  }
+  if (factExtras) {
+    if (factExtras.liftsThisWeek > 0) {
+      factLine.push({ key: 'lifts', state: 'ok', text: `${factExtras.liftsThisWeek} lift${factExtras.liftsThisWeek === 1 ? '' : 's'} this week`, openKind: 'workout_log' })
+    }
+    if (factExtras.spendWeek > 0) {
+      factLine.push(
+        factExtras.budget > 0
+          ? { key: 'spend', state: factExtras.spendWeek > factExtras.budget ? 'gap' : 'ok', text: `$${Math.round(factExtras.spendWeek)} of $${factExtras.budget} spent`, openKind: 'spending_snapshot' }
+          : { key: 'spend', state: 'ok', text: `$${Math.round(factExtras.spendWeek)} spent this week`, openKind: 'spending_snapshot' },
+      )
+    }
+    if (factExtras.bestStreak >= 2) {
+      factLine.push({ key: 'habits', state: 'ok', text: `${factExtras.bestStreak} day habit best`, openKind: 'habit_streak' })
+    }
+  }
 
   const nextBeat = beats[0]
   const lead = nextBeat
@@ -6234,8 +6282,19 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     }
     if (!user) return json({ error: 'No account found for that phone/email' }, 404)
     try {
-      const payload = await digestPayload(sql, user, persona)
-      return json({ ...payload, cardUrl: `${appBase(req)}/app/mini/${persona}/digest` })
+      const brief = await digestCache.read(`${user!.id}|${persona}`, () => digestPayload(sql, user!, persona))
+      if (!brief.value) {
+        return json(
+          { error: 'Your brief is still being pulled together. Open it again in a moment.', pending: true },
+          200,
+        )
+      }
+      // A stale hit refreshing behind the response must not be served from the
+      // browser cache on the next open, or the refresh would never be seen.
+      return jsonRevalidated(req, brief.pending ? 0 : 120, {
+        ...brief.value,
+        cardUrl: `${appBase(req)}/app/mini/${persona}/digest`,
+      })
     } catch (err) {
       console.warn('[digest] payload failed', err)
       const tz = user.timezone || 'America/Los_Angeles'

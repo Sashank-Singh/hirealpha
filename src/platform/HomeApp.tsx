@@ -98,7 +98,7 @@ export function HomeApp({ auth }: { auth: FeatureAuth }) {
       .then((d) => {
         setSnap(d)
         setMsg('')
-        writeHomeCache(auth, d, localYmd(), Date.now())
+        writeHomeCache(who, d, localYmd(), Date.now())
         return d as HomeSnapshot | null
       })
       .catch(() => {
@@ -122,7 +122,7 @@ export function HomeApp({ auth }: { auth: FeatureAuth }) {
         }
       })
       .finally(() => setLoading(false))
-  }, [auth.email, auth.token, auth.persona])
+  }, [auth.email, auth.token, auth.persona, who])
 
   useEffect(() => {
     load()
@@ -139,12 +139,12 @@ export function HomeApp({ auth }: { auth: FeatureAuth }) {
       apiHome({ email: auth.email, token: auth.token })
         .then((d) => {
           setSnap(d)
-          writeHomeCache(auth, d, localYmd(), Date.now())
+          writeHomeCache(who, d, localYmd(), Date.now())
         })
         .catch(() => {})
     }, 1800)
     return () => clearTimeout(timer)
-  }, [snap?.worldPending, worldTries, auth.email, auth.token, auth.persona])
+  }, [snap?.worldPending, worldTries, auth.email, auth.token, who])
 
   if (loading && !snap) {
     return (
