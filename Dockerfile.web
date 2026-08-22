@@ -23,6 +23,8 @@ COPY deploy/composioPlugins.ts ./composioPlugins.ts
 COPY deploy/timezones.ts ./timezones.ts
 COPY deploy/gmailHelpers.ts ./gmailHelpers.ts
 COPY deploy/weekRun.ts ./weekRun.ts
+COPY deploy/modelJson.ts ./modelJson.ts
+COPY deploy/staleCache.ts ./staleCache.ts
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 
