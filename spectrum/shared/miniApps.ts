@@ -16,6 +16,9 @@ export type MiniAppKind =
   | 'approve_send'
   | 'pick_slot'
   | 'pick_night'
+  | 'tonight'
+  | 'body'
+  | 'later'
   | 'check_in'
   | 'standup_paste'
   | 'linear_triage'
@@ -40,7 +43,7 @@ export type MiniAppKind =
   | 'pipeline_board'
   | 'gratitude_journal'
   | 'spending_snapshot'
-  | 'mirror'
+  | 'home'
   | 'next_move'
 
 export interface MiniAppCard {
@@ -57,10 +60,15 @@ export interface MiniAppCard {
 export const DIGEST_MARKER = '[digest]'
 
 const DIGEST_INTENT =
-  /\b(?:morning|daily|evening|night)\s+(?:brief|debrief|digest|recap)\b|\b(?:brief|debrief|recap)\s+me\b|\bdebrief\b|^brief\b|^digest\b|^start my day\b|\bcatch me up\b|\bwrap(?: me)? up\b|\bend of (?:the )?day\b|\beod\b|\bfull (?:day )?wrap\b/i
+  /\b(?:morning|daily)\s+(?:brief|debrief|digest|recap)\b|\b(?:brief|debrief|recap)\s+me\b|\bdebrief\b|^brief\b|^digest\b|^start my day\b|\bcatch me up\b|\bfull (?:day )?wrap\b/i
 
 export function looksLikeDigestIntent(text: string): boolean {
   return DIGEST_INTENT.test(text)
+}
+
+/** Evening day-wrap phrases route to pick_night, not the morning digest. */
+export function looksLikeEveningBriefIntent(text: string): boolean {
+  return !!(PATTERNS.pick_night?.test(text))
 }
 
 /** "yes" / "ok" after Alpha offered a debrief still means the full day wrap. */
@@ -81,7 +89,10 @@ export const PATTERNS: Partial<Record<MiniAppKind, RegExp>> = {
   check_in: /\b(?:quick )?check[\s-]?in\b/i,
   approve_send: /\bapprove\b|\bsend (?:that|this|the) (?:email|draft|note)\b|\bfire (?:that|this|the) (?:email|draft)\b|\bready to send\b/i,
   pick_slot: /\b(?:pick|find|suggest|choose)\b.{0,20}\b(?:slot|time|window)\b|\bwhen should we\b|\bwhat time works\b/i,
-  pick_night: /\btonight\b|\bwhat should we do\b|\bdinner plans\b|\bdate night\b|\b(?:pick|plan)\b.{0,24}\b(?:movie|place|restaurant|hang)\b|\bevening brief\b|\bwind[- ]?down\b|\beod\b|\bend of (?:the )?day\b|\bday (?:recap|wrap)\b|\bevening recap\b/i,
+  pick_night:
+    /\bevening brief\b|\bwind[- ]?down\b|\beod\b|\bend of (?:the )?day\b|\bday (?:recap|wrap)\b|\bevening recap\b|\bwrap(?: me)? up(?: tonight)?\b/i,
+  tonight:
+    /\btonight\b|\bwhat should we do\b|\bdinner plans\b|\bdate night\b|\b(?:pick|plan)\b.{0,24}\b(?:movie|place|restaurant|hang)\b|\bwhere should we (?:eat|go)\b|\b(?:in|out) for dinner\b|\bfind (?:a |me )?(?:restaurant|place|spot)\b/i,
   standup_paste: /\bstand-?ups?\b|\bwhat did i (?:do|get done)\b/i,
   linear_triage: /\btriage\b|\blinear\b|\bbacklog\b/i,
   kill_keep_park: /\bkill[\s-]?keep[\s-]?park\b|\bwhat should (?:we|i) (?:kill|keep|park)\b/i,
@@ -127,9 +138,9 @@ export const PATTERNS: Partial<Record<MiniAppKind, RegExp>> = {
   // spending_snapshot: explicit name + reopen + "I spent" + expense phrases
   spending_snapshot:
     /\bspending(?: snapshot| tracker)?\b|\b(?:log|track) (?:my )?(?:spend(?:ing)?|expense)\b|\bhow much (?:did i|have i) spent?\b|\bweekly budget\b|\bexpense log\b|\bi spent\b|\b(?:open|show|pull up|bring back) (?:my |the )?(?:spending|expenses?)\b/i,
-  // mirror: explicit name + reopen + life overview phrases
-  mirror:
-    /\bmirror\b|\blife dashboard\b|\bhow(?:'s| is) my life (?:going|looking)\b|\breflect on my (?:week|life)\b|\bshow me (?:the )?(?:week|life)\b|\blife overview\b|\bhow am i doing overall\b|\b(?:open|show|pull up|bring back) (?:my )?(?:mirror|life dashboard)\b/i,
+  // home: explicit name + the old "mirror" name + reopen + life overview phrases
+  home:
+    /\bhome screen\b|\bmirror\b|\blife dashboard\b|\bhow(?:'s| is) my life (?:going|looking)\b|\breflect on my (?:week|life)\b|\bshow me (?:the )?(?:week|life)\b|\blife overview\b|\bhow am i doing overall\b|\b(?:open|show|pull up|bring back) (?:my )?(?:home screen|mirror|life dashboard)\b/i,
 }
 
 export interface MiniAppRequest {
@@ -145,6 +156,9 @@ const KIND_LABELS: Record<MiniAppKind, string> = {
   approve_send: 'Approve and send',
   pick_slot: 'Pick a slot',
   pick_night: 'Evening brief',
+  tonight: 'Tonight',
+  body: 'Body',
+  later: 'Later',
   check_in: 'Check in',
   standup_paste: 'Standup',
   linear_triage: 'Linear triage',
@@ -169,7 +183,7 @@ const KIND_LABELS: Record<MiniAppKind, string> = {
   pipeline_board: 'Pipeline',
   gratitude_journal: 'Gratitude',
   spending_snapshot: 'Spending',
-  mirror: 'Mirror',
+  home: 'Home',
   next_move: 'Next',
 }
 
@@ -196,9 +210,12 @@ const SUMMON_NAMES: Partial<Record<MiniAppKind, RegExp>> = {
   pipeline_board: /\bpipeline(?:\s*board)?\b/i,
   gratitude_journal: /\bgratitude(?:\s*journal)?\b/i,
   drop_zone: /\bdrop zone\b|\bsave for later\b/i,
-  mirror: /\bmirror\b|\blife dashboard\b/i,
+  home: /\bhome screen\b|\bmirror\b|\blife dashboard\b/i,
   check_in: /\bcheck[\s-]?in\b/i,
-  pick_night: /\btonight\b|\bdate night\b/i,
+  pick_night: /\b(?:evening brief|wind down|day wrap|evening recap)\b/i,
+  tonight: /\btonight\b|\bdate night\b|\bdinner\b|\brestaurant\b/i,
+  body: /\bbody hub\b|\bmy body\b|\bhealth hub\b/i,
+  later: /\blater hub\b|\bsave for later hub\b/i,
   open_loops: /\bopen loops?\b|\bloose ends\b|\bpromises?\b/i,
   relationship_radar: /\brelationship radar\b|\bstay in touch\b/i,
   next_move: /\bnext(?:\s*move)?\b|\bdo this now\b/i,
@@ -273,17 +290,25 @@ export function detectMiniAppRequest(
   return null
 }
 
-/** Dead kinds still resolve so old card URLs and regexes land on a living app. */
-const KIND_ALIASES: Partial<Record<MiniAppKind, MiniAppKind>> = {
+/**
+ * Legacy kinds map to the living app. Never remap gratitude or spiral to the wrong surface.
+ * 'mirror' is not a MiniAppKind any more — it is the old name for 'home', kept here so
+ * mini app links already sitting in someone's thread still open the right screen.
+ */
+const KIND_ALIASES: Partial<Record<MiniAppKind | 'mirror', MiniAppKind>> = {
   relationship_radar: 'networking_crm',
-  check_in: 'mirror',
+  check_in: 'home',
   weekly_focus: 'weekly_review',
-  spiral_options: 'next_move',
-  gratitude_journal: 'habit_streak',
+  mirror: 'home',
 }
 
-export function canonicalMiniAppKind(_persona: AgentId, kind: MiniAppKind): MiniAppKind {
-  return KIND_ALIASES[kind] ?? kind
+export function canonicalMiniAppKind(persona: AgentId, kind: MiniAppKind): MiniAppKind {
+  const aliased = KIND_ALIASES[kind] ?? kind
+  if (persona === 'friend') {
+    if (kind === 'spiral_options') return 'home'
+    if (kind === 'next_move' || kind === 'approve_send' || kind === 'pick_slot') return 'home'
+  }
+  return aliased
 }
 
 function apiBase() {
@@ -381,7 +406,7 @@ export async function mintMiniAppCard(
  * picks are stored via /api/setup so the bot sees them as context.
  */
 export async function onboardingCard(phone: string, persona: AgentId): Promise<MiniAppCard> {
-  return mintMiniAppCard(phone, persona, 'next_move')
+  return mintMiniAppCard(phone, persona, persona === 'friend' ? 'home' : 'next_move')
 }
 
 /**

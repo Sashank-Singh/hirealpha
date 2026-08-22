@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
-import { Link } from 'react-router-dom'
 import {
   apiAddGratitude,
   apiAddLearning,
@@ -20,7 +19,6 @@ import {
   apiPutMiniPrefs,
   apiLogSpend,
   apiLogWorkout,
-  apiMirror,
   apiPatchLearning,
   apiPatchPipeline,
   apiSaveWeeklyReview,
@@ -30,7 +28,6 @@ import {
   apiWeeklyReview,
   type GratitudeEntry,
   type LearningItem,
-  type MirrorSnapshot,
   type NetworkPerson,
   type NetworkStay,
   type NetworkToday,
@@ -63,6 +60,10 @@ import {
   type WorkoutWeekday,
 } from './workoutProgram'
 import { exerciseDemoUrl } from './exerciseDemos'
+import { isPersonMeetSuggestion, isTravelOrStayTitle, stayWhereFrom } from './peopleMeets'
+import { pickLastNight } from './home'
+import { SpendBar, SpendDonut, SpendSwatch } from './SpendCharts'
+import { SPEND_SLOTS, SPEND_SLOT_LABELS } from './spendChart'
 
 function useAuth(auth: FeatureAuth) {
   return { email: auth.email, token: auth.token, persona: auth.persona }
@@ -726,7 +727,19 @@ export function WeeklyReviewApp({ auth }: { auth: FeatureAuth }) {
     if (snap.meals === 0 && snap.sleepNights === 0) return 'Thin week. Log a few days so the review has teeth.'
     return 'Week looks held together. Name the focus.'
   })()
+
+  const suggestedFixes: string[] = []
+  if (snap?.avgSleepHours && snap.avgSleepHours < 7) suggestedFixes.push('In bed before 11 on weeknights')
+  if (snap?.habitChecks === 0) suggestedFixes.push('One habit every morning')
+  if (snap?.followUpsDue && snap.followUpsDue > 0) suggestedFixes.push('Text one person I owe')
+  if (snap?.meals !== undefined && snap.meals < 5) suggestedFixes.push('Log dinner 5 nights')
+  if (!suggestedFixes.length) suggestedFixes.push('Protect the one thing that mattered most')
+
   const savedFocus = focusText.trim()
+
+  function pickFix(fix: string) {
+    setFocusText(fix)
+  }
 
   return (
     <div className="ma">
@@ -750,11 +763,20 @@ export function WeeklyReviewApp({ auth }: { auth: FeatureAuth }) {
       )}
 
       <form className="ma-stack" onSubmit={save}>
-        <label className="ma-label">Next week focus
+        <label className="ma-label">One fix next week
           <textarea className="ma-area" rows={2} value={focusText} onChange={(e) => setFocusText(e.target.value)} placeholder="One thing that actually matters." />
         </label>
-        <button className="ma-btn ma-btn--block" type="submit" disabled={busy || !weekStart}>
-          {savedFocus ? 'Save focus' : 'Set focus'}
+        {!savedFocus && (
+          <div className="ma-pills">
+            {suggestedFixes.map((fix) => (
+              <button key={fix} className="ma-chip" type="button" onClick={() => pickFix(fix)}>
+                {fix}
+              </button>
+            ))}
+          </div>
+        )}
+        <button className="ma-btn ma-btn--block" type="submit" disabled={busy || !weekStart || !focusText.trim()}>
+          {savedFocus ? 'Save focus' : 'Lock it in'}
         </button>
         {!showRest && (
           <button className="ma-btn ma-btn--quiet ma-btn--block" type="button" onClick={() => setShowRest(true)}>
@@ -789,180 +811,7 @@ export function WeeklyReviewApp({ auth }: { auth: FeatureAuth }) {
   )
 }
 
-/* ------------------------------ The Mirror ------------------------------ */
-
-function mirrorNext(snap: MirrorSnapshot, focusText: string): {
-  hot: boolean; kicker: string; title: string; hint: string; wantFocus?: boolean; openKind?: string
-} {
-  const w = snap.window
-  const today = localDateStr()
-  const lastMood = snap.moodTrend.length ? snap.moodTrend[snap.moodTrend.length - 1] : null
-  const moodToday = snap.moodTrend.some((m) => m.date.slice(0, 10) === today)
-  const lastNight = w.lastNightHours || 0
-  const shortNights = w.shortNights || 0
-  const protein = w.proteinToday || 0
-  const proteinGoal = w.proteinGoal || 150
-
-  if (lastNight > 0 && lastNight < 6.5 && (shortNights >= 2 || protein < 60)) {
-    const proteinBit = proteinGoal ? ` Protein is at ${Math.round(protein)} of ${Math.round(proteinGoal)}.` : ''
-    return {
-      hot: true,
-      kicker: 'The read',
-      title: `${lastNight}h last night${shortNights >= 2 ? `, ${shortNights} short nights this week` : ''}`,
-      hint: `Eat something with actual protein.${proteinBit} Skip the extra coffee.`,
-      openKind: 'nutrition',
-    }
-  }
-  if (w.weeklyBudget > 0 && w.spend > w.weeklyBudget && (w.workoutsToday === 0 || lastNight < 6.5)) {
-    return {
-      hot: true,
-      kicker: 'The leak',
-      title: `$${Math.round(w.spend - w.weeklyBudget)} over, and the week is thin`,
-      hint: snap.spendByCategory[0]
-        ? `${snap.spendByCategory[0].category} is the biggest slice. Sleep and gym are slipping with it.`
-        : 'Spend, sleep, and gym are moving together.',
-      openKind: 'spending_snapshot',
-    }
-  }
-  if (proteinGoal > 0 && protein < 60 && (w.meals > 0 || lastNight > 0)) {
-    return {
-      hot: true,
-      kicker: 'The read',
-      title: `Protein is sitting at ${Math.round(protein)} of ${Math.round(proteinGoal)}`,
-      hint: 'Dinner is one chicken bowl away. Eat that.',
-      openKind: 'nutrition',
-    }
-  }
-  if (!moodToday) {
-    return {
-      hot: true,
-      kicker: 'Next',
-      title: 'Log how you feel',
-      hint: lastMood ? `Last ${lastMood.emoji} on ${fmtDay(lastMood.date)}` : 'Open Mood and tap a face.',
-      openKind: 'mood_tracker',
-    }
-  }
-  if (w.sleepNights === 0) {
-    return { hot: true, kicker: 'Next', title: 'Log last night', hint: 'Bedtime and wake. Two numbers.', openKind: 'sleep_tracker' }
-  }
-  if (w.weeklyBudget > 0 && w.spend > w.weeklyBudget) {
-    return {
-      hot: true,
-      kicker: 'Over budget',
-      title: `$${Math.round(w.spend - w.weeklyBudget)} over this week`,
-      hint: snap.spendByCategory[0] ? `${snap.spendByCategory[0].category} is the biggest slice.` : 'Open spending to see where.',
-      openKind: 'spending_snapshot',
-    }
-  }
-  if (w.decisionsOpen > 0) {
-    return { hot: true, kicker: 'Next', title: 'Review a decision', hint: `${w.decisionsOpen} still open.`, openKind: 'decision_ledger' }
-  }
-  if (w.learningQueued > 0) {
-    return {
-      hot: true,
-      kicker: 'Next',
-      title: snap.nextLearning || 'Do one saved item',
-      hint: `${w.learningQueued} in the queue.`,
-      openKind: 'learning_queue',
-    }
-  }
-  const focus = (snap.currentReview?.focusText || focusText).trim()
-  if (!focus) {
-    return { hot: true, kicker: 'Next', title: 'Set this week\'s focus', hint: 'One sentence is enough.', wantFocus: true }
-  }
-  return { hot: false, kicker: 'On track', title: focus, hint: 'Keep logging. The numbers stay honest.' }
-}
-
-export function MirrorApp({ auth }: { auth: FeatureAuth }) {
-  const a = useAuth(auth)
-  const [snap, setSnap] = useState<MirrorSnapshot | null>(null)
-  const [msg, setMsg] = useState('')
-  const [busy, setBusy] = useState(false)
-  const [focusText, setFocusText] = useState('')
-
-  const load = useCallback(() => {
-    apiMirror(a).then((d) => {
-      setSnap(d)
-      if (d.currentReview) setFocusText(d.currentReview.focusText)
-    }).catch(() => setMsg('Could not load your mirror.'))
-  }, [a.email, a.token])
-  useEffect(() => { load() }, [load])
-
-  const w = snap?.window
-  const moodAvg = w && w.moodLogs > 0 ? w.avgEnergy.toFixed(1) : 'none'
-  const spendPct = w && w.weeklyBudget > 0 ? Math.round((w.spend / w.weeklyBudget) * 100) : 0
-  const next = snap ? mirrorNext(snap, focusText) : null
-
-  async function saveFocus(e: FormEvent) {
-    e.preventDefault()
-    if (busy || !snap || !focusText.trim()) return
-    setBusy(true)
-    try {
-      await apiSaveWeeklyReview({
-        ...a,
-        weekStart: snap.weekStart,
-        doneText: snap.currentReview?.doneText || '',
-        slippedText: snap.currentReview?.slippedText || '',
-        focusText: focusText.trim(),
-      })
-      setMsg('Focus saved.')
-      load()
-    } catch {
-      setMsg('Could not save.')
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  return (
-    <div className="ma">
-      {!snap && !msg && <p className="mini__empty">The picture fills in as you log the week.</p>}
-      {next && (
-        <div className={`ma-callout${next.hot ? ' ma-callout--hot' : ''}`}>
-          <span className="ma-callout-kicker">{next.kicker}</span>
-          <strong>{next.title}</strong>
-          <span className="ma-sub">{next.hint}</span>
-          {next.openKind && (
-            <div className="ma-callout-actions">
-              <Link className="ma-btn" to={`/app/mini/${auth.persona}/${next.openKind}`}>Open</Link>
-            </div>
-          )}
-          {'wantFocus' in next && next.wantFocus && (
-            <form className="ma-form" onSubmit={saveFocus}>
-              <input className="ma-input" value={focusText} onChange={(e) => setFocusText(e.target.value)} placeholder="One sentence for this week" aria-label="Weekly focus" />
-              <button className="ma-btn" type="submit" disabled={busy || !focusText.trim()}>Set</button>
-            </form>
-          )}
-        </div>
-      )}
-      {w && (
-        <div className="ma-stats">
-          <div className="ma-stat"><b>{moodAvg}</b><span>energy</span></div>
-          <div className="ma-stat"><b>{w.sleepNights ? w.avgSleepHours : 'none'}</b><span>sleep h</span></div>
-          <div className="ma-stat"><b>${Math.round(w.spend)}</b><span>{spendPct}% budget</span></div>
-          <div className="ma-stat"><b>{w.habitChecks}</b><span>habits</span></div>
-          <div className="ma-stat"><b>{w.workouts}</b><span>workouts</span></div>
-          <div className="ma-stat"><b>{w.meals}</b><span>meals</span></div>
-        </div>
-      )}
-      {snap && snap.moodTrend.length > 0 && (
-        <div className="mirror-mood-row">
-          {snap.moodTrend.slice(-7).map((m, i) => (
-            <span key={i} className="mirror-mood" title={`${m.date} energy ${m.energy}`}>{m.emoji}</span>
-          ))}
-        </div>
-      )}
-      {snap && snap.spendByCategory.length > 0 && (
-        <div className="ma-pills">
-          {snap.spendByCategory.map((c) => (
-            <span key={c.category} className="ma-pill">{c.category} ${Math.round(c.amount)}</span>
-          ))}
-        </div>
-      )}
-      {msg && <p className="mini__hint">{msg}</p>}
-    </div>
-  )
-}
+export { HomeApp } from './HomeApp'
 
 /* ---------------------------- Networking CRM ---------------------------- */
 function smsHref(name: string, phone?: string) {
@@ -1102,7 +951,7 @@ export function NetworkingCrmApp({ auth }: { auth: FeatureAuth }) {
     load()
   }
 
-  const genericName = /^(meet|meeting|call|coffee|lunch|dinner|hang)$/i
+  const genericName = /^(meet|meeting|call|coffee|lunch|dinner|hang|stay)$/i
   const contacts = people.filter((p) => !genericName.test(p.name.trim()))
   const ranked = contacts.slice().sort((x, y) => {
     const xo = daysSince(x.lastTouch) - x.cadenceDays
@@ -1110,18 +959,21 @@ export function NetworkingCrmApp({ auth }: { auth: FeatureAuth }) {
     return yo - xo
   })
   const due = ranked.filter((p) => daysSince(p.lastTouch) >= p.cadenceDays)
-  const inPersonToday = today.filter((e) => e.kind === 'In person')
-  const remoteToday = today.filter((e) => e.kind !== 'In person')
+  const hotel = today.find((e) => isTravelOrStayTitle(e.who || e.title, e.place))
+  const where = stay || (hotel ? stayWhereFrom(hotel.title, hotel.place) : null)
+  const peopleToday = today.filter(isPersonMeetSuggestion)
+  const inPersonToday = peopleToday.filter((e) => e.kind === 'In person')
+  const remoteToday = peopleToday.filter((e) => e.kind !== 'In person')
 
   return (
     <div className="ma">
 
       {/* Where you are chip */}
-      {stay && (
+      {where && (
         <div className="ma-where-chip">
           <span className="ma-where-label">Where you are</span>
-          <span className="ma-where-title">{stay.title}</span>
-          {stay.place && <span className="ma-where-sub">{stay.place}</span>}
+          <span className="ma-where-title">{where.title}</span>
+          {where.place && where.place !== where.title && <span className="ma-where-sub">{where.place}</span>}
         </div>
       )}
 
@@ -1355,7 +1207,6 @@ export function SleepTrackerApp({ auth }: { auth: FeatureAuth }) {
   const [quality, setQuality] = useState(3)
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState('')
-  const [showTimes, setShowTimes] = useState(false)
   const [showShortcut, setShowShortcut] = useState(false)
   const [copied, setCopied] = useState(false)
 
@@ -1383,7 +1234,6 @@ export function SleepTrackerApp({ auth }: { auth: FeatureAuth }) {
     setBusy(true)
     try {
       await apiLogSleep({ ...a, bedtime, wake, quality, sleepDate: lastNightDateStr() })
-      setShowTimes(false)
       load()
     } catch {
       setMsg('Could not log sleep.')
@@ -1401,7 +1251,14 @@ export function SleepTrackerApp({ auth }: { auth: FeatureAuth }) {
   }
 
   const lastNightKey = lastNightDateStr()
-  const lastNight = nights.find((n) => n.sleepDate.slice(0, 10) === lastNightKey)
+  const todayKey = localDateStr()
+  const picked = pickLastNight(nights, todayKey)
+  const lastNight = picked.logged
+    ? nights.find((n) => {
+        const d = n.sleepDate.match(/(\d{4}-\d{2}-\d{2})/)?.[1] || n.sleepDate.slice(0, 10)
+        return d === lastNightKey || d === todayKey
+      }) || nights.find((n) => n.bedtime === picked.bedtime && n.wake === picked.wake)
+    : undefined
   const last7 = nights.slice(0, 7)
   const avg = last7.length
     ? last7.reduce((s, n) => s + hoursBetween(n.bedtime, n.wake), 0) / last7.length
@@ -1423,8 +1280,8 @@ export function SleepTrackerApp({ auth }: { auth: FeatureAuth }) {
           {lastNight
             ? `${formatClock12(lastNight.bedtime)} to ${formatClock12(lastNight.wake)}${avg ? `  Avg ${avg.toFixed(1)}h` : ''}${debt >= 2 ? `  ${debt.toFixed(1)}h debt` : ''}`
             : nights.length
-              ? `Same as last time? ${previewHours}h  ${formatClock12(bedtime)} to ${formatClock12(wake)}`
-              : 'Connect Apple Health or log manually below.'}
+              ? `${previewHours}h  ${formatClock12(bedtime)} to ${formatClock12(wake)}. Change bed and wake if you need.`
+              : 'Set bed and wake, or connect Apple Health.'}
         </span>
       </div>
 
@@ -1442,11 +1299,31 @@ export function SleepTrackerApp({ auth }: { auth: FeatureAuth }) {
         </div>
       )}
 
+      <div className="ma-form">
+        <label className="ma-label">Bed
+          <input className="ma-input" type="time" value={bedtime} onChange={(e) => setBedtime(e.target.value)} />
+        </label>
+        <label className="ma-label">Wake
+          <input className="ma-input" type="time" value={wake} onChange={(e) => setWake(e.target.value)} />
+        </label>
+        <label className="ma-label">Quality {quality}/5
+          <input className="mood-energy-slider" type="range" min={1} max={5} value={quality} onChange={(e) => setQuality(Number(e.target.value))} />
+        </label>
+      </div>
+
+      <button className="ma-btn ma-btn--block" type="button" disabled={busy} onClick={() => void save()}>
+        {lastNight ? 'Update last night' : `Log ${previewHours}h last night`}
+      </button>
+
+      {lastNight && (
+        <p className="ma-insight">
+          {fromHealth ? `Pulled from ${fromHealth} automatically.` : 'Last night is in.'}{' '}
+          Change bed and wake if it was off.
+        </p>
+      )}
+
       {!lastNight && (
         <>
-          <button className="ma-btn ma-btn--block" type="button" disabled={busy} onClick={() => void save()}>
-            Log {previewHours}h last night
-          </button>
           <button
             className="ma-btn ma-btn--quiet ma-btn--block"
             type="button"
@@ -1482,37 +1359,6 @@ export function SleepTrackerApp({ auth }: { auth: FeatureAuth }) {
             </div>
           )}
         </>
-      )}
-
-      {lastNight && !showTimes && (
-        <p className="ma-insight">
-          {fromHealth ? `Pulled from ${fromHealth} automatically.` : 'Last night is in.'}{' '}
-          Change times if it was off.
-        </p>
-      )}
-
-      {(showTimes || nights.length === 0) && (
-        <div className="ma-form">
-          <label className="ma-label">Bed
-            <input className="ma-input" type="time" value={bedtime} onChange={(e) => setBedtime(e.target.value)} />
-          </label>
-          <label className="ma-label">Wake
-            <input className="ma-input" type="time" value={wake} onChange={(e) => setWake(e.target.value)} />
-          </label>
-          <label className="ma-label">Quality {quality}/5
-            <input className="mood-energy-slider" type="range" min={1} max={5} value={quality} onChange={(e) => setQuality(Number(e.target.value))} />
-          </label>
-        </div>
-      )}
-      {!showTimes && nights.length > 0 && (
-        <button className="ma-btn ma-btn--quiet ma-btn--block" type="button" onClick={() => setShowTimes(true)}>
-          Change times
-        </button>
-      )}
-      {lastNight && showTimes && (
-        <button className="ma-btn ma-btn--block" type="button" disabled={busy} onClick={() => void save()}>
-          Update last night
-        </button>
       )}
 
       {msg && <p className="mini__hint">{msg}</p>}
@@ -1756,8 +1602,6 @@ export function GratitudeJournalApp({ auth }: { auth: FeatureAuth }) {
 
 /* --------------------------- Spending Snapshot -------------------------- */
 
-const SPEND_CATS = ['food', 'transport', 'subscriptions', 'housing', 'fun', 'other'] as const
-
 export function SpendingSnapshotApp({ auth }: { auth: FeatureAuth }) {
   const a = useAuth(auth)
   const [logs, setLogs] = useState<SpendLog[]>([])
@@ -1804,11 +1648,12 @@ export function SpendingSnapshotApp({ auth }: { auth: FeatureAuth }) {
 
   const left = budget - weekTotal
   const over = left < 0
-  const pct = budget > 0 ? Math.min(100, (weekTotal / budget) * 100) : 0
   const remainDays = Math.max(1, daysLeftInWeek(weekStart) + 1)
   const perDay = !over ? Math.round(Math.max(0, left) / remainDays) : 0
   const last = logs[0]
   const topCat = [...byCategory].sort((a, b) => b.total - a.total)[0]
+  // The charts read {category, amount}; the API returns {category, total}.
+  const chartRows = byCategory.map((c) => ({ category: c.category, amount: c.total }))
 
   return (
     <div className="ma">
@@ -1839,22 +1684,23 @@ export function SpendingSnapshotApp({ auth }: { auth: FeatureAuth }) {
           <button className="ma-btn" type="submit">Save budget</button>
         </form>
       )}
-      <div className="nutr-modal-bar">
-        <div className="nutr-modal-bar-inner">
-          <div style={{ width: `${pct}%`, background: over ? '#ef4444' : 'var(--mini-accent, #22c55e)' }} />
-        </div>
-      </div>
+      <SpendBar rows={chartRows} budget={budget} />
+      <SpendDonut rows={chartRows} />
       <div className="ma-pills">
-        {SPEND_CATS.map((c) => (
-          <button
-            key={c}
-            type="button"
-            className={`ma-chip${category === c ? ' ma-chip--on' : ''}`}
-            onClick={() => { setCategory(c); setShowLog(true) }}
-          >
-            {c}{byCategory.find((x) => x.category === c) ? ` $${Math.round(byCategory.find((x) => x.category === c)!.total)}` : ''}
-          </button>
-        ))}
+        {SPEND_SLOTS.map((c) => {
+          const row = byCategory.find((x) => x.category === c)
+          return (
+            <button
+              key={c}
+              type="button"
+              className={`ma-chip${category === c ? ' ma-chip--on' : ''}`}
+              onClick={() => { setCategory(c); setShowLog(true) }}
+            >
+              <SpendSwatch category={c} />
+              {SPEND_SLOT_LABELS[c]}{row ? ` $${Math.round(row.total)}` : ''}
+            </button>
+          )
+        })}
       </div>
 
       {(showLog || logs.length === 0) ? (

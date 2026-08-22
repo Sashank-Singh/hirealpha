@@ -23,6 +23,7 @@ import {
   detectMiniAppRequest,
   looksLikeAffirmedBrief,
   looksLikeDigestIntent,
+  looksLikeEveningBriefIntent,
   mintMiniAppCard,
   miniAppFallbackText,
   buildDigestBriefing,
@@ -205,7 +206,7 @@ function looksLikeHabitDone(text: string) {
   return /^(done|did|did it|yes|yeah|yep|y|ok|okay|sure|all done|did that)\b/.test(t)
 }
 
-const LIVE_MINI = new Set(['pick_night', 'standup_paste', 'kill_keep_park'])
+const LIVE_MINI = new Set(['pick_night', 'tonight', 'standup_paste', 'kill_keep_park'])
 
 const TOOL_HINT: Record<string, string> = {
   gmail: 'check my gmail inbox',
@@ -443,6 +444,7 @@ export async function runHireTurn(input: {
   const recentUserTexts = history.filter((m) => m.role === 'user').slice(-6).map((m) => m.content)
   const briefIntent =
     looksLikeDigestIntent(input.userText) || looksLikeAffirmedBrief(input.userText, lastAssistant)
+  const eveningBriefIntent = looksLikeEveningBriefIntent(input.userText)
 
   if (live.hired) {
     void touchInbound(input.senderId, agent.id)
@@ -484,7 +486,9 @@ export async function runHireTurn(input: {
   const miniApp = live.hired
     ? briefIntent
       ? { kind: 'digest' as const }
-      : detectMiniAppRequest(input.userText, agent.id, recentUserTexts)
+      : eveningBriefIntent
+        ? { kind: 'pick_night' as const }
+        : detectMiniAppRequest(input.userText, agent.id, recentUserTexts)
     : null
 
   if (miniApp && (miniApp.kind === 'apps' || miniApp.kind === 'menu')) {

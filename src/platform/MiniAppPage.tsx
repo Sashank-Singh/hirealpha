@@ -18,7 +18,6 @@ import { MiniAppSettings } from './MiniAppSettings'
 import {
   GratitudeJournalApp,
   LearningQueueApp,
-  MirrorApp,
   NetworkingCrmApp,
   PipelineBoardApp,
   SleepTrackerApp,
@@ -26,6 +25,9 @@ import {
   WeeklyReviewApp,
   WorkoutLogApp,
 } from './LifeMiniApps'
+import { HomeApp } from './HomeApp'
+import { BriefApp } from './BriefApp'
+import { BodyHubApp, LaterHubApp } from './FriendHubApps'
 import { MiniAppIcon } from './MiniAppIcons'
 import {
   NextMoveApp,
@@ -43,10 +45,13 @@ interface DigestData {
   calendar?: string[]
   emails?: string[]
   emailItems?: Array<{ id: string; label: string; snippet?: string }>
+  mailGroups?: import('./briefStory').BriefMailGroup[]
+  mailTally?: string
   reminders?: Array<{ time?: string; text?: string }>
   events?: Array<{ id: string; label: string }>
   tomorrow?: string[]
   brief?: 'morning' | 'evening'
+  story?: import('./briefStory').BriefStory
   error?: string
 }
 
@@ -62,10 +67,14 @@ interface MiniPayload {
   sections?: MiniSection[]
   paste?: string
   text?: string
+  dayScore?: { points: number; verdict: string } | null
+  dayFacts?: Array<{ key: string; label: string; detail: string; state: 'done' | 'miss' | 'partial' }>
+  habitsToday?: Array<{ id: string; name: string; emoji: string; done: boolean }>
+  carryOver?: Array<{ id: string; title: string; dueLabel?: string }>
   error?: string
 }
 
-const LIVE_MINI_KINDS = new Set(['digest', 'pick_night', 'standup_paste', 'kill_keep_park'])
+const LIVE_MINI_KINDS = new Set(['digest', 'pick_night', 'tonight', 'standup_paste', 'kill_keep_park'])
 
 const FACE_MOOD: Record<AgentId, AlphaFaceMood> = {
   friend: 'soft',
@@ -93,7 +102,10 @@ export const FEATURE_KINDS = new Set([
   'pipeline_board',
   'gratitude_journal',
   'spending_snapshot',
-  'mirror',
+  'home',
+  'body',
+  'later',
+  'tonight',
   'approve_send',
   'pick_slot',
   'linear_triage',
@@ -109,27 +121,25 @@ export interface MenuFeature {
   sample?: string
 }
 
-/** Old kinds still open; they land on the surviving app. */
+/** Old kinds still open; they land on the surviving app. 'mirror' is the old name for 'home'. */
 export const APP_ALIASES: Record<string, string> = {
   relationship_radar: 'networking_crm',
-  check_in: 'mirror',
+  check_in: 'home',
   weekly_focus: 'weekly_review',
-  spiral_options: 'next_move',
-  gratitude_journal: 'habit_streak',
+  spiral_options: 'home',
+  mirror: 'home',
 }
 export const FRIEND_APP_ALIASES = APP_ALIASES
 
 export const MENU_FEATURES: Record<string, MenuFeature[]> = {
   friend: [
-    { kind: 'nutrition', title: 'Nutrition', emoji: '🥗', blurb: 'Meals and macros.', sample: 'i ate a chicken bowl' },
-    { kind: 'habit_streak', title: 'Habits', emoji: '🔥', blurb: 'Today and streaks.' },
-    { kind: 'workout_log', title: 'Workout', emoji: '🏋️', blurb: 'Home or gym. Mon through Fri.' },
-    { kind: 'sleep_tracker', title: 'Sleep', emoji: '🌱', blurb: 'Last night.' },
-    { kind: 'spending_snapshot', title: 'Spending', emoji: '💰', blurb: 'This week\'s budget.' },
-    { kind: 'networking_crm', title: 'People', emoji: '🤝', blurb: 'Who to follow up.' },
-    { kind: 'digest', title: 'Morning brief', emoji: '☀️', blurb: 'Overnight mail, calendar through today, and tomorrow at a glance.', sample: 'morning brief' },
-    { kind: 'pick_night', title: 'Evening brief', emoji: '🌙', blurb: 'Wind down today, mail since morning, and tomorrow.' },
-    { kind: 'drop_zone', title: 'Save for later', emoji: '📥', blurb: 'Dump anything and Alpha sorts it later.', sample: 'save for later' },
+    { kind: 'home', title: 'Home', emoji: '🏠', blurb: 'Today, next eight hours, and receipts.', sample: 'home screen' },
+    { kind: 'body', title: 'Body', emoji: '💪', blurb: 'Nutrition, workout, sleep, habits, mood.', sample: 'log my breakfast' },
+    { kind: 'networking_crm', title: 'People', emoji: '🤝', blurb: 'Who to follow up and who you are seeing.', sample: 'i met sarah' },
+    { kind: 'digest', title: 'Morning brief', emoji: '☀️', blurb: 'Who is next, what to do, what can wait.', sample: 'morning brief' },
+    { kind: 'pick_night', title: 'Evening brief', emoji: '🌆', blurb: 'Day wrap, mail since morning, tomorrow.' },
+    { kind: 'tonight', title: 'Tonight', emoji: '🌙', blurb: 'Places to eat or hang. Maps powered.', sample: 'dinner plans tonight' },
+    { kind: 'later', title: 'Later', emoji: '📥', blurb: 'Drop zone, learning, promises, gratitude.', sample: 'save for later' },
   ],
   coworker: [
     { kind: 'next_move', title: 'Next', emoji: '▶️', blurb: 'The one thing to do now.' },
@@ -153,11 +163,11 @@ export const MENU_FEATURES: Record<string, MenuFeature[]> = {
 
 export const APP_STORE_GROUPS: Record<string, { label: string; kinds: string[] }[]> = {
   friend: [
-    { label: 'Brief', kinds: ['digest', 'pick_night'] },
-    { label: 'Body', kinds: ['nutrition', 'workout_log', 'sleep_tracker', 'habit_streak'] },
-    { label: 'Later', kinds: ['drop_zone'] },
-    { label: 'Money', kinds: ['spending_snapshot'] },
+    { label: 'Home', kinds: ['home'] },
+    { label: 'Body', kinds: ['body'] },
     { label: 'People', kinds: ['networking_crm'] },
+    { label: 'Brief', kinds: ['digest', 'pick_night', 'tonight'] },
+    { label: 'Later', kinds: ['later'] },
   ],
   coworker: [
     { label: 'Now', kinds: ['next_move'] },
@@ -175,11 +185,14 @@ export const APP_STORE_GROUPS: Record<string, { label: string; kinds: string[] }
 export const KIND_TITLES: Record<string, { title: string; blurb: string }> = {
   menu: { title: 'Apps', blurb: 'Tap one to open it.' },
   apps: { title: 'Apps', blurb: 'Tap one to open it.' },
-  digest: { title: 'Morning brief', blurb: 'Calendar, overnight mail, and tomorrow at a glance.' },
+  digest: { title: 'Morning brief', blurb: 'Who is next, what to do, what can wait.' },
   next_move: { title: 'Next', blurb: 'The one thing to do now.' },
   approve_send: { title: 'Approve & send', blurb: 'Review the draft and approve it to send.' },
   pick_slot: { title: 'Pick a slot', blurb: 'Compare meeting times and pick the one that works.' },
   pick_night: { title: 'Evening brief', blurb: 'What happened, what is left, and what is on tomorrow.' },
+  tonight: { title: 'Tonight', blurb: 'Places to eat or hang near you.' },
+  body: { title: 'Body', blurb: 'Nutrition, workout, sleep, habits, and mood.' },
+  later: { title: 'Later', blurb: 'Drop zone, learning queue, promises, and gratitude.' },
   check_in: { title: 'Check-in', blurb: 'A quick pulse on how you are doing.' },
   standup_paste: { title: 'Standup', blurb: 'Your standup notes, tightened up.' },
   linear_triage: { title: 'Linear triage', blurb: 'Issues and backlog, triaged.' },
@@ -189,7 +202,7 @@ export const KIND_TITLES: Record<string, { title: string; blurb: string }> = {
   weekly_review: { title: 'Weekly review', blurb: 'What got done, what slipped, and next week\'s focus.' },
   approve_investor_note: { title: 'Investor note', blurb: 'Review the note before it goes out.' },
   spiral_options: { title: 'Get unstuck', blurb: 'Step back, see the options, get moving again.' },
-  open_loops: { title: 'Promises', blurb: 'What you said you would do.' },
+  open_loops: { title: 'Promises', blurb: 'What you told a person you would do, until you mark it done.' },
   meeting_mode: { title: 'Meeting mode', blurb: 'Prepped before, wrapped after.' },
   decision_ledger: { title: 'Decisions', blurb: 'Big calls on record, reasoning intact.' },
   relationship_radar: { title: 'Stay in touch', blurb: 'Who to reach out to, and when.' },
@@ -204,16 +217,16 @@ export const KIND_TITLES: Record<string, { title: string; blurb: string }> = {
   pipeline_board: { title: 'Pipeline', blurb: 'Jobs, fundraising, leads. Sorted by stage.' },
   gratitude_journal: { title: 'Gratitude', blurb: 'One sentence a day.' },
   spending_snapshot: { title: 'Spending', blurb: 'Log spend against a weekly budget.' },
-  mirror: { title: 'The mirror', blurb: 'Here\'s what your life actually looks like. No spin.' },
+  home: { title: 'Home', blurb: 'Today, next eight hours, and receipts.' },
 }
 
 const FRIEND_KIND_TITLES: Record<string, { title: string; blurb: string }> = {
+  home: { title: 'Home', blurb: 'Today, next eight hours, and receipts.' },
   next_move: { title: 'Next', blurb: 'The one thing to do now.' },
-  digest: { title: 'Morning brief', blurb: 'Calendar, mail, and tomorrow.' },
+  digest: { title: 'Morning brief', blurb: 'Who is next, what to do, what can wait.' },
   networking_crm: { title: 'People', blurb: 'Who to follow up.' },
   pick_night: { title: 'Evening brief', blurb: 'What happened and what is left.' },
   learning_queue: { title: 'Learning', blurb: 'What to read or watch next.' },
-  mirror: { title: 'Mirror', blurb: 'The read of your life.' },
   drop_zone: { title: 'Save for later', blurb: 'Dump anything and Alpha sorts it later.' },
 }
 
@@ -324,6 +337,13 @@ export function MiniAppPage() {
     return <Navigate to={`/app/mini/${persona || 'friend'}/${aliasKind}${q}`} replace />
   }
 
+  if (
+    persona === 'friend' &&
+    (kind === 'next_move' || kind === 'approve_send' || kind === 'pick_slot' || kind === 'linear_triage' || kind === 'standup_paste')
+  ) {
+    return <Navigate to={openHref('home')} replace />
+  }
+
   return (
     <div className="mini" style={{ '--mini-accent': miniAccent, '--mini-accent-fg': miniAccentFg } as CSSProperties}>
       <div className="mini__card">
@@ -347,13 +367,21 @@ export function MiniAppPage() {
           <div className="mini__who">
             <p className="mini__name">{agent.imsgName}</p>
             <p className="mini__role">
-              {settingsOpen ? 'Settings' : isApps ? 'Apps' : isKnown ? kindInfo.title : agent.role}
+              {settingsOpen
+                ? 'Settings'
+                : isApps
+                  ? persona === 'friend'
+                    ? 'Home'
+                    : 'Apps'
+                  : isKnown
+                    ? kindInfo.title
+                    : agent.role}
             </p>
           </div>
           <div className="mini__head-actions">
             {!isApps && kind !== 'next_move' && (
               <Link className="mini__back" to={appsHref} onClick={() => setSettingsOpen(false)}>
-                All apps
+                {persona === 'friend' ? 'Home' : 'All apps'}
               </Link>
             )}
             {authed && !expired && (
@@ -410,7 +438,19 @@ export function MiniAppPage() {
           </div>
         )}
 
-        {authed && !expired && isApps && !settingsOpen && (
+        {authed && !expired && isApps && !settingsOpen && persona === 'friend' && (
+          <div className="mini__body mini__body--home-screen">
+            <HomeApp
+              auth={{
+                persona: (persona as AgentId) || 'friend',
+                email: email || undefined,
+                token: token || undefined,
+              }}
+            />
+          </div>
+        )}
+
+        {authed && !expired && isApps && !settingsOpen && persona !== 'friend' && (
           <div className="mini__body">
             <div className="mini-store">
               {storeGroups.map((group) => (
@@ -448,79 +488,15 @@ export function MiniAppPage() {
 
         {authed && !expired && !settingsOpen && isDigest && !loading && !data?.error && (
           <div className="mini__body">
-            <div className="ma-hero">
-              <span className="ma-hero-kicker">
-                {data?.brief === 'evening' ? 'Evening' : 'Morning'}
-              </span>
-              <p className="mini__date">{data?.date}</p>
-            </div>
-
-            <section className="mini__section">
-              <h2>Today</h2>
-              {data?.calendar?.length ? (
-                <ul className="mini__list">
-                  {data.calendar.map((c, i) => (
-                    <li key={i}>{c}</li>
-                  ))}
-                </ul>
-              ) : (
-                <p className="mini__empty">Nothing on the calendar.</p>
-              )}
-            </section>
-
-            {(data?.tomorrow?.length ?? 0) > 0 && (
-              <section className="mini__section">
-                <h2>Tomorrow</h2>
-                <ul className="mini__list">
-                  {data!.tomorrow!.map((c, i) => (
-                    <li key={i}>{c}</li>
-                  ))}
-                </ul>
-              </section>
-            )}
-
-            <section className="mini__section">
-              <h2>Mail</h2>
-              {(data?.emailItems?.length || data?.emails?.length) ? (
-                <ul className="mini__list">
-                  {data?.emailItems?.length
-                    ? data.emailItems.map((e) => {
-                        const tappable = !!(e.id && !e.id.startsWith('text-'))
-                        return (
-                          <li
-                            key={e.id}
-                            className={tappable ? 'mail-row' : undefined}
-                            onClick={tappable ? () => openMail(e.id, e.label, e.snippet) : undefined}
-                            role={tappable ? 'button' : undefined}
-                            tabIndex={tappable ? 0 : undefined}
-                            onKeyDown={tappable ? (ev) => { if (ev.key === 'Enter' || ev.key === ' ') openMail(e.id, e.label, e.snippet) } : undefined}
-                          >
-                            <span className="mail-row-label">{e.label}</span>
-                            {e.snippet ? <span className="mail-row-snip">{e.snippet}</span> : null}
-                          </li>
-                        )
-                      })
-                    : data!.emails!.map((e, i) => (
-                        <li key={i}>{e}</li>
-                      ))}
-                </ul>
-              ) : (
-                <p className="mini__empty">No important mail</p>
-              )}
-            </section>
-
-            {data?.reminders?.length ? (
-              <section className="mini__section">
-                <h2>Reminders</h2>
-                <ul className="mini__list">
-                  {data.reminders.map((r, i) => (
-                    <li key={i}>
-                      <span className="mini__time">{r.time}</span> {r.text}
-                    </li>
-                  ))}
-                </ul>
-              </section>
-            ) : null}
+            <BriefApp
+              auth={{
+                persona: (persona as AgentId) || 'friend',
+                email: email || undefined,
+                token: token || undefined,
+              }}
+              data={data}
+              onOpenMail={openMail}
+            />
           </div>
         )}
 
@@ -536,11 +512,28 @@ export function MiniAppPage() {
           </div>
         )}
 
-        {authed && !expired && !settingsOpen && isLiveMini && !isDigest && !loading && !mini?.error && (
+        {authed && !expired && !settingsOpen && isLiveMini && !isDigest && kind === 'pick_night' && !loading && !mini?.error && (
+          <div className="mini__body">
+            <BriefApp
+              auth={{
+                persona: (persona as AgentId) || 'friend',
+                email: email || undefined,
+                token: token || undefined,
+              }}
+              data={null}
+              evening={mini}
+              onOpenMail={openMail}
+            />
+          </div>
+        )}
+
+        {authed && !expired && !settingsOpen && isLiveMini && !isDigest && kind !== 'pick_night' && !loading && !mini?.error && (
           <div className="mini__body">
             {mini?.date && (
               <div className="ma-hero">
-                <span className="ma-hero-kicker">{kind === 'pick_night' ? 'Evening' : 'Ready'}</span>
+                <span className="ma-hero-kicker">
+                  {kind === 'pick_night' ? 'Evening' : kind === 'tonight' ? 'Tonight' : 'Ready'}
+                </span>
                 <p className="mini__date">{mini.date}</p>
               </div>
             )}
@@ -638,19 +631,25 @@ export function MiniAppPage() {
             {kind === 'spending_snapshot' && (
               <SpendingSnapshotApp auth={{ persona: (persona as AgentId) || 'friend', email: email || undefined, token: token || undefined }} />
             )}
-            {kind === 'mirror' && (
-              <MirrorApp auth={{ persona: (persona as AgentId) || 'friend', email: email || undefined, token: token || undefined }} />
+            {kind === 'home' && (
+              <HomeApp auth={{ persona: (persona as AgentId) || 'friend', email: email || undefined, token: token || undefined }} />
             )}
-            {kind === 'next_move' && (
+            {kind === 'body' && (
+              <BodyHubApp auth={{ persona: (persona as AgentId) || 'friend', email: email || undefined, token: token || undefined }} />
+            )}
+            {kind === 'later' && (
+              <LaterHubApp auth={{ persona: (persona as AgentId) || 'friend', email: email || undefined, token: token || undefined }} />
+            )}
+            {kind === 'next_move' && persona !== 'friend' && (
               <NextMoveApp auth={{ persona: (persona as AgentId) || 'friend', email: email || undefined, token: token || undefined }} />
             )}
-            {kind === 'approve_send' && (
+            {kind === 'approve_send' && persona !== 'friend' && (
               <ApproveSendApp
                 auth={{ persona: (persona as AgentId) || 'friend', email: email || undefined, token: token || undefined }}
                 draftId={searchParams.get('draft') || undefined}
               />
             )}
-            {kind === 'pick_slot' && (
+            {kind === 'pick_slot' && persona !== 'friend' && (
               <PickSlotApp
                 auth={{ persona: (persona as AgentId) || 'friend', email: email || undefined, token: token || undefined }}
                 draftId={searchParams.get('draft') || undefined}

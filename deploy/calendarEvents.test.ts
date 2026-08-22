@@ -7,6 +7,7 @@ import {
   googleTokenHasScope,
   inferEventKind,
   isHotelStayEvent,
+  isPersonMeetSuggestion,
   isWalkIn,
   parseComposioCalendarData,
   parseFormattedEventLine,
@@ -134,6 +135,23 @@ describe('isHotelStayEvent', () => {
   it('does not flag ordinary all-day events that are about people', () => {
     expect(isHotelStayEvent({ title: 'Sister lands', allDay: true })).toBe(false)
     expect(isHotelStayEvent({ title: 'Mithil birthday', allDay: true })).toBe(false)
+  })
+})
+
+describe('isPersonMeetSuggestion', () => {
+  it('does not offer Log on a Stay hotel card', () => {
+    expect(
+      isPersonMeetSuggestion({
+        who: 'Stay',
+        title: 'Stay at Music City Hotel',
+        time: 'All day',
+        place: 'Music City Hotel',
+      }),
+    ).toBe(false)
+  })
+
+  it('keeps Luigi', () => {
+    expect(isPersonMeetSuggestion({ who: 'Luigi Ojeda', title: 'Luigi Ojeda', time: '11:30 AM' })).toBe(true)
   })
 })
 

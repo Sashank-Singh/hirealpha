@@ -10,8 +10,12 @@ const PORT = Number(process.env.PORT || 80)
 const ROOT = process.env.STATIC_ROOT || join(import.meta.dir, 'dist')
 const DATABASE_URL = process.env.DATABASE_URL || ''
 
+/* Four connections was a cap on how much of a page could load at once: home
+ * fires ~22 independent queries together, so a pool of four turned them back
+ * into six round trips. Twelve is still nothing to a Postgres box and lets a
+ * page's reads land in about two. */
 const sql = DATABASE_URL
-  ? new SQL(DATABASE_URL, { max: 4, idleTimeout: 30, connectionTimeout: 10 })
+  ? new SQL(DATABASE_URL, { max: 12, idleTimeout: 30, connectionTimeout: 10 })
   : null
 
 async function ensureSchema() {
@@ -102,10 +106,10 @@ function contentType(path: string) {
 const MINI_META: Record<string, { title: string; description: string }> = {
   menu: { title: 'Apps', description: 'Tap one to open it.' },
   apps: { title: 'Apps', description: 'Tap one to open it.' },
-  digest: { title: 'Morning brief', description: 'Tap to open the brief.' },
+  digest: { title: 'Morning brief', description: 'Who is next, what to do, what can wait.' },
   next_move: { title: 'Next', description: 'One ranked action. Do it, snooze it, or skip it.' },
   nutrition: { title: 'Nutrition', description: 'Log meals, estimate macros, and keep today’s totals.' },
-  open_loops: { title: 'Promises', description: 'What you said you would do.' },
+  open_loops: { title: 'Promises', description: 'What you told a person you would do, until you mark it done.' },
   relationship_radar: { title: 'Stay in touch', description: 'See who to reach out to and when.' },
   drop_zone: { title: 'Save for later', description: 'Capture something messy and sort it later.' },
   meeting_mode: { title: 'Meeting mode', description: 'Prep before the meeting and wrap it cleanly after.' },
@@ -131,7 +135,7 @@ const MINI_META: Record<string, { title: string; description: string }> = {
   pipeline_board: { title: 'Pipeline', description: 'Jobs, fundraising, and leads by stage.' },
   gratitude_journal: { title: 'Gratitude', description: 'One sentence a day.' },
   spending_snapshot: { title: 'Spending', description: 'Log spend against a weekly budget.' },
-  mirror: { title: 'The mirror', description: 'Here is what your life actually looks like.' },
+  home: { title: 'Home', description: 'Here is what your life actually looks like.' },
 }
 
 function miniMeta(pathname: string) {

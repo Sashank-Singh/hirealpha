@@ -15,12 +15,12 @@ export const SKILLS: Record<
     tools: ['gmail', 'calendar.read', 'calendar.soft_book', 'drive', 'maps'],
     executable: ['gmail', 'calendar', 'drive', 'maps'],
     miniApps: [
-      'next_move', 'pick_night', 'check_in', 'open_loops', 'drop_zone',
+      'home', 'tonight', 'pick_night', 'body', 'later', 'check_in', 'open_loops', 'drop_zone',
       'nutrition', 'habit_streak', 'mood_tracker', 'workout_log', 'learning_queue', 'weekly_review',
-      'networking_crm', 'sleep_tracker', 'spending_snapshot', 'mirror', 'gratitude_journal', 'spiral_options', 'relationship_radar',
+      'networking_crm', 'sleep_tracker', 'spending_snapshot', 'gratitude_journal', 'spiral_options', 'relationship_radar',
     ],
-    liveMiniApps: ['digest', 'pick_night', 'drop_zone', 'approve_send', 'pick_slot'],
-    deny: ['slack', 'linear', 'github', 'stripe', 'fundraising'],
+    liveMiniApps: ['digest', 'pick_night', 'tonight', 'drop_zone', 'home'],
+    deny: ['slack', 'linear', 'github', 'stripe', 'fundraising', 'approve_send', 'pick_slot', 'next_move', 'standup_paste'],
   },
   coworker: {
     tools: [

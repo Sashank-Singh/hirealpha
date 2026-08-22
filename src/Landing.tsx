@@ -344,7 +344,7 @@ function Apps({
       <div className="kit__intro container">
         <p className="deed__eyebrow">In Messages</p>
         <h2 id="apps-heading">Apps they open from a text.</h2>
-        <p>Swipe through. Nutrition, Today, Mirror, and the rest live in the thread.</p>
+        <p>Swipe through. Nutrition, Today, Home, and the rest live in the thread.</p>
       </div>
       <div className="kit__hires" role="tablist" aria-label="Apps by hire">
         {AGENTS.map((a) => (

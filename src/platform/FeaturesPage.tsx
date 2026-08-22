@@ -19,7 +19,7 @@ import {
 import {
   GratitudeJournalApp,
   LearningQueueApp,
-  MirrorApp,
+  HomeApp,
   NetworkingCrmApp,
   PipelineBoardApp,
   SleepTrackerApp,
@@ -27,6 +27,7 @@ import {
   WeeklyReviewApp,
   WorkoutLogApp,
 } from './LifeMiniApps'
+import { BodyHubApp, LaterHubApp } from './FriendHubApps'
 import {
   ApproveSendApp,
   HireDecisionApp,
@@ -55,7 +56,9 @@ const FEATURE_APPS: Record<string, ComponentType<{ auth: FeatureAuth }>> = {
   pipeline_board: PipelineBoardApp,
   gratitude_journal: GratitudeJournalApp,
   spending_snapshot: SpendingSnapshotApp,
-  mirror: MirrorApp,
+  home: HomeApp,
+  body: BodyHubApp,
+  later: LaterHubApp,
   approve_send: ApproveSendApp,
   pick_slot: PickSlotApp,
   linear_triage: LinearTriageApp,

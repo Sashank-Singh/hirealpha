@@ -97,10 +97,10 @@ describe('Mini-app Interaction Tests: Full Flow', () => {
       const text = 'grateful for my team today'
 
       const detected = detectMiniAppRequest(text, persona)
-      expect(detected?.kind).toBe('habit_streak')
+      expect(detected?.kind).toBe('gratitude_journal')
 
       const card = await mintMiniAppCard('5551234567', persona, 'gratitude_journal')
-      expect(card.url).toContain('/app/mini/friend/habit_streak')
+      expect(card.url).toContain('/app/mini/friend/gratitude_journal')
 
       expect(typeof autoLogGratitude).toBe('function')
     })
@@ -496,8 +496,8 @@ describe('Mini-app Interaction Tests: Full Flow', () => {
       }
     })
 
-    it('mirror available to friend', () => {
-      expect(detectMiniAppRequest('mirror', 'friend')?.kind).toBe('mirror')
+    it('home available to friend', () => {
+      expect(detectMiniAppRequest('mirror', 'friend')?.kind).toBe('home')
       expect(detectMiniAppRequest('mirror', 'coworker')).toBeNull()
       expect(detectMiniAppRequest('mirror', 'cofounder')).toBeNull()
     })

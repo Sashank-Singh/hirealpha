@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'bun:test'
 import {
+  canonicalMiniAppKind,
   detectMiniAppRequest,
   type MiniAppKind,
   miniAppUrl,
@@ -125,6 +126,23 @@ export const MINI_APP_TEXT_TRIGGERS: Record<
     personas: ['friend'],
     triggers: {
       explicit: [
+        'evening brief',
+        'wind down',
+        'eod',
+        'end of the day',
+        'day recap',
+        'evening recap',
+      ],
+      natural: [
+        'wrap me up tonight',
+      ],
+      negative: ['what should we do tonight'],
+    },
+  },
+  tonight: {
+    personas: ['friend'],
+    triggers: {
+      explicit: [
         'tonight',
         'what should we do',
         'dinner plans',
@@ -133,12 +151,13 @@ export const MINI_APP_TEXT_TRIGGERS: Record<
         'plan a place',
         'pick a restaurant',
         'plan a hang',
+        'where should we eat',
       ],
       natural: [
         'im free later',
         'want to grab dinner',
       ],
-      negative: ['tonight is late'],
+      negative: ['evening brief'],
     },
   },
   standup_paste: {
@@ -635,7 +654,7 @@ export const MINI_APP_TEXT_TRIGGERS: Record<
       negative: ['spending time'],
     },
   },
-  mirror: {
+  home: {
     personas: ['friend', 'coworker', 'cofounder'],
     triggers: {
       explicit: [
@@ -751,7 +770,7 @@ describe('Mini-app Text Triggers', () => {
 
     it('detects gratitude_journal intent', () => {
       const result = detectMiniAppRequest('grateful for my team', 'friend')
-      expect(result?.kind).toBe('habit_streak')
+      expect(result?.kind).toBe('gratitude_journal')
     })
 
     it('detects learning_queue intent with URL', () => {
@@ -774,19 +793,24 @@ describe('Mini-app Text Triggers', () => {
       expect(result?.kind).toBe('weekly_review')
     })
 
-    it('detects pick_night intent', () => {
+    it('detects tonight intent for plans', () => {
       const result = detectMiniAppRequest('what should we do tonight', 'friend')
+      expect(result?.kind).toBe('tonight')
+    })
+
+    it('detects pick_night intent for day wrap', () => {
+      const result = detectMiniAppRequest('evening brief', 'friend')
       expect(result?.kind).toBe('pick_night')
     })
 
     it('detects check_in intent', () => {
       const result = detectMiniAppRequest('check in with me', 'friend')
-      expect(result?.kind).toBe('mirror')
+      expect(result?.kind).toBe('home')
     })
 
-    it('detects spiral_options intent', () => {
+    it('detects spiral_options intent as Home for friend', () => {
       const result = detectMiniAppRequest('im spiraling here', 'friend')
-      expect(result?.kind).toBe('next_move')
+      expect(result?.kind).toBe('home')
     })
 
     it('detects open_loops intent', () => {
@@ -794,9 +818,23 @@ describe('Mini-app Text Triggers', () => {
       expect(result?.kind).toBe('open_loops')
     })
 
-    it('detects mirror intent', () => {
+    it('detects home intent', () => {
       const result = detectMiniAppRequest('how am i doing overall', 'friend')
-      expect(result?.kind).toBe('mirror')
+      expect(result?.kind).toBe('home')
+    })
+
+    it('opens Home by its new name and by the old "mirror" name', () => {
+      expect(detectMiniAppRequest('home screen', 'friend')?.kind).toBe('home')
+      expect(detectMiniAppRequest('open my home screen', 'friend')?.kind).toBe('home')
+      // People who learned the old name keep it working.
+      expect(detectMiniAppRequest('mirror', 'friend')?.kind).toBe('home')
+      expect(detectMiniAppRequest('pull up my mirror', 'friend')?.kind).toBe('home')
+    })
+
+    it('canonicalises the retired "mirror" kind to home', () => {
+      // Mini app links already sitting in someone's thread carry /friend/mirror.
+      expect(canonicalMiniAppKind('friend', 'mirror' as MiniAppKind)).toBe('home')
+      expect(canonicalMiniAppKind('friend', 'check_in')).toBe('home')
     })
 
     it('detects networking_crm for friend', () => {
@@ -819,9 +857,9 @@ describe('Mini-app Text Triggers', () => {
       expect(detectMiniAppRequest('save for later', 'friend')?.kind).toBe('drop_zone')
     })
 
-    it('folds Check-in into Mirror and Get unstuck into Next', () => {
-      expect(detectMiniAppRequest('pull up check-in', 'friend')?.kind).toBe('mirror')
-      expect(detectMiniAppRequest("i'm spiraling", 'friend')?.kind).toBe('next_move')
+    it('folds Check-in and spiral into Home', () => {
+      expect(detectMiniAppRequest('pull up check-in', 'friend')?.kind).toBe('home')
+      expect(detectMiniAppRequest("i'm spiraling", 'friend')?.kind).toBe('home')
     })
   })
 
@@ -876,7 +914,7 @@ describe('Mini-app Text Triggers', () => {
       expect(result).toBeNull() // relationship_radar not in coworker skills
     })
 
-    it('detects mirror intent', () => {
+    it('detects home intent', () => {
       const result = detectMiniAppRequest('how am i doing overall', 'coworker')
       expect(result).toBeNull()
     })
@@ -910,11 +948,13 @@ describe('Mini-app Text Triggers', () => {
       ['Pull up habits', 'habit_streak'],
       ['Pull up weekly review', 'weekly_review'],
       ['Pull up learning queue', 'learning_queue'],
-      ['Pull up next', 'next_move'],
-      ['Pull up gratitude', 'habit_streak'],
-      ['Pull up mirror', 'mirror'],
+      ['Pull up mirror', 'home'],
       ['Save this link', 'learning_queue'],
     ]
+
+    it('does not route Friend to Next move', () => {
+      expect(detectMiniAppRequest('Pull up next', 'friend')?.kind).toBeUndefined()
+    })
 
     for (const [text, kind] of exact) {
       it(`Friend "${text}" → ${kind}`, () => {
@@ -978,7 +1018,7 @@ describe('Mini-app Text Triggers', () => {
       expect(result?.kind).toBe('spending_snapshot')
     })
 
-    it('detects mirror intent', () => {
+    it('detects home intent', () => {
       const result = detectMiniAppRequest('life overview check', 'cofounder')
       expect(result).toBeNull()
     })
@@ -1051,7 +1091,7 @@ describe('Mini-app Text Triggers', () => {
     it('recognizes reopen phrases for all apps', () => {
       const apps: Array<[MiniAppKind, AgentId, string]> = [
         ['habit_streak', 'friend', 'open my habits'],
-        ['habit_streak', 'friend', 'pull up gratitude'],
+        ['gratitude_journal', 'friend', 'pull up gratitude'],
         ['learning_queue', 'friend', 'bring back my learning'],
         ['weekly_review', 'friend', 'open my weekly review'],
         ['networking_crm', 'coworker', 'show my networking'],

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
+import { rankPromise } from './promisesHint'
 import type { AgentId } from '../agents/types'
 import {
   apiAddDecision,
@@ -83,27 +84,29 @@ function dueDay(iso: string | null | undefined) {
   return iso ? iso.slice(0, 10) : null
 }
 
+function loopRank(l: { dueAt?: string | null }, today: string) {
+  return rankPromise(l, today)
+}
+
+function loopDueLabel(l: { dueAt?: string | null }, today: string) {
+  const d = dueDay(l.dueAt)
+  if (!d) return 'no date'
+  if (d < today) return 'overdue'
+  if (d === today) return 'due today'
+  return fmtWhen(l.dueAt)
+}
+
 function useAuthed(auth: FeatureAuth) {
   return { email: auth.email, token: auth.token }
 }
 
 /* ------------------------------ Open Loops ------------------------------ */
 
-function loopRank(l: OpenLoop, today: string) {
-  const d = dueDay(l.dueAt)
-  if (!d) return 2
-  if (d < today) return 0
-  if (d === today) return 1
-  return 3
-}
-
-function loopDueLabel(l: OpenLoop, today: string) {
-  const d = dueDay(l.dueAt)
-  if (!d) return 'no date'
-  if (d < today) return 'overdue'
-  if (d === today) return 'today'
-  return fmtWhen(l.dueAt)
-}
+const PROMISE_EXAMPLES = [
+  'Send Amy the intro',
+  'Reply to Luigi',
+  'Book the table for Saturday',
+]
 
 export function OpenLoopsApp({ auth }: { auth: FeatureAuth }) {
   const a = useAuthed(auth)
@@ -115,7 +118,7 @@ export function OpenLoopsApp({ auth }: { auth: FeatureAuth }) {
   const today = todayStr()
 
   const load = useCallback(() => {
-    apiListLoops(a).then((d) => setLoops(d.loops)).catch(() => setErr('Could not load loops.'))
+    apiListLoops(a).then((d) => setLoops(d.loops)).catch(() => setErr('Could not load promises.'))
   }, [a.email, a.token])
 
   useEffect(() => {
@@ -159,35 +162,67 @@ export function OpenLoopsApp({ auth }: { auth: FeatureAuth }) {
   const snoozed = loops.filter((l) => l.status === 'snoozed')
   const dueNow = open.filter((l) => loopRank(l, today) <= 1)
   const next = dueNow[0] || open[0]
+  const dueCount = dueNow.length
 
   return (
     <div className="ma">
+      <div className="ma-hero">
+        <span className="ma-hero-kicker">{open.length ? 'You owe' : 'Clear'}</span>
+        <span className="ma-hero-num">
+          {open.length ? `${open.length} open` : 'Nothing owed'}
+        </span>
+        <span className="ma-hero-label">
+          {open.length
+            ? dueCount
+              ? `${dueCount === 1 ? 'One is' : `${dueCount} are`} due today. Done when you actually did it. Tomorrow parks it till morning.`
+              : 'Nothing is due today. Done when you actually did it.'
+            : 'This is not a todo list. It is what you told a person you would do. Text Alpha I promised to send Amy the intro, or type it below.'}
+        </span>
+      </div>
+
       {next && (
         <div className={`ma-callout${loopRank(next, today) <= 1 ? ' ma-callout--hot' : ''}`}>
           <span className="ma-callout-kicker">{loopDueLabel(next, today)}</span>
           <strong>{next.title}</strong>
+          {next.context ? <span className="ma-sub">{next.context}</span> : null}
           <div className="ma-callout-actions">
-            <button className="ma-btn" type="button" onClick={() => void setStatus(next.id, 'done')}>Close</button>
-            <button className="ma-chip" type="button" onClick={() => void snooze(next.id)}>Snooze</button>
+            <button className="ma-btn" type="button" onClick={() => void setStatus(next.id, 'done')}>Done</button>
+            <button className="ma-chip" type="button" onClick={() => void snooze(next.id)}>Tomorrow</button>
           </div>
         </div>
       )}
+
       {!open.length && (
-        <p className="mini__empty">Add a promise. Due today sits on top.</p>
+        <div className="promise-examples">
+          {PROMISE_EXAMPLES.map((ex) => (
+            <button
+              key={ex}
+              className="ma-chip"
+              type="button"
+              onClick={() => {
+                setTitle(ex)
+                setShowAdd(true)
+              }}
+            >
+              {ex}
+            </button>
+          ))}
+        </div>
       )}
-      {(showAdd || !loops.length) ? (
+
+      {(showAdd || !open.length) ? (
         <form className="ma-form" onSubmit={add}>
           <input
             className="ma-input"
             value={title}
             onChange={(e) => setTitle(e.target.value)}
-            placeholder="Said I would send the deck"
-            aria-label="New open loop"
+            placeholder="I told Maya I would send the intro"
+            aria-label="New promise"
           />
           <button className="ma-btn" type="submit" disabled={busy || !title.trim()}>Add</button>
         </form>
       ) : (
-        <button className="ma-btn ma-btn--quiet" type="button" onClick={() => setShowAdd(true)}>Add a promise</button>
+        <button className="ma-btn ma-btn--quiet" type="button" onClick={() => setShowAdd(true)}>Add another</button>
       )}
       {err && <p className="mini__hint">{err}</p>}
       {open.length > 1 && (
@@ -203,7 +238,7 @@ export function OpenLoopsApp({ auth }: { auth: FeatureAuth }) {
                   </span>
                   {!hot && <span className="ma-sub">{loopDueLabel(l, today)}</span>}
                 </div>
-                <button className="ma-chip" type="button" onClick={() => void setStatus(l.id, 'done')}>Close</button>
+                <button className="ma-chip" type="button" onClick={() => void setStatus(l.id, 'done')}>Done</button>
               </li>
             )
           })}
@@ -215,13 +250,14 @@ export function OpenLoopsApp({ auth }: { auth: FeatureAuth }) {
             <li key={l.id} className="ma-row ma-row--done">
               <div className="ma-row-main">
                 <span className="ma-title">{l.title}</span>
-                <span className="ma-sub">Snoozed</span>
+                <span className="ma-sub">Tomorrow</span>
               </div>
-              <button className="ma-chip" type="button" onClick={() => void setStatus(l.id, 'open')}>Restore</button>
+              <button className="ma-chip" type="button" onClick={() => void setStatus(l.id, 'open')}>Bring back</button>
             </li>
           ))}
         </ul>
       )}
+      <p className="mini__hint">Drop zone is a thought dump. This list is only what you owe a person.</p>
     </div>
   )
 }
@@ -511,6 +547,7 @@ export function DropZoneApp({ auth }: { auth: FeatureAuth }) {
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
   const [filing, setFiling] = useState<string | null>(null)
+  const [lastRouted, setLastRouted] = useState<{ id: string; bucket: DropBucket; label: string } | null>(null)
 
   const load = useCallback(() => {
     apiListDrops(a).then((d) => setDrops(d.drops)).catch(() => setErr('Could not load drops.'))
@@ -520,23 +557,7 @@ export function DropZoneApp({ auth }: { auth: FeatureAuth }) {
     load()
   }, [load])
 
-  async function add(e: FormEvent) {
-    e.preventDefault()
-    if (!content.trim() || busy) return
-    setBusy(true)
-    setErr('')
-    try {
-      await apiAddDrop({ ...a, content: content.trim() })
-      setContent('')
-      load()
-    } catch (error) {
-      setErr(error instanceof Error ? error.message : 'Could not drop that.')
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  async function fileDrop(drop: Drop, bucket: DropBucket) {
+  async function fileDrop(drop: Drop, bucket: DropBucket, auto = false) {
     if (filing) return
     setFiling(drop.id)
     setErr('')
@@ -549,11 +570,62 @@ export function DropZoneApp({ auth }: { auth: FeatureAuth }) {
         await apiAddNetwork({ ...a, name: nameFromDrop(drop.content), context: drop.content.slice(0, 400) })
       }
       await apiPatchDrop({ ...a, id: drop.id, status: 'routed', summary: bucket })
+      const label = DROP_BUCKETS.find((b) => b.id === bucket)?.label || bucket
+      if (auto) setLastRouted({ id: drop.id, bucket, label })
       load()
     } catch (error) {
       setErr(error instanceof Error ? error.message : 'Could not file that.')
     } finally {
       setFiling(null)
+    }
+  }
+
+  async function undoRoute() {
+    if (!lastRouted || filing) return
+    setFiling(lastRouted.id)
+    try {
+      await apiPatchDrop({ ...a, id: lastRouted.id, status: 'new', summary: '' })
+      setLastRouted(null)
+      load()
+    } catch {
+      setErr('Could not undo.')
+    } finally {
+      setFiling(null)
+    }
+  }
+
+  async function add(e: FormEvent) {
+    e.preventDefault()
+    if (!content.trim() || busy) return
+    setBusy(true)
+    setErr('')
+    setLastRouted(null)
+    const text = content.trim()
+    try {
+      const created = await apiAddDrop({ ...a, content: text })
+      setContent('')
+      const bucket = guessDropBucket(text)
+      if (created.id) {
+        await fileDrop(
+          {
+            id: created.id,
+            persona: auth.persona,
+            content: text,
+            status: 'new',
+            mediaKind: null,
+            summary: null,
+            createdAt: '',
+          },
+          bucket,
+          true,
+        )
+      } else {
+        load()
+      }
+    } catch (error) {
+      setErr(error instanceof Error ? error.message : 'Could not drop that.')
+    } finally {
+      setBusy(false)
     }
   }
 
@@ -563,10 +635,23 @@ export function DropZoneApp({ auth }: { auth: FeatureAuth }) {
 
   return (
     <div className="ma">
-      {!drops.length && <p className="mini__empty">Dump anything. Then file it as learning, a loop, or a person.</p>}
-      {next && (
+      {!drops.length && !lastRouted && (
+        <p className="mini__empty">Dump anything. Alpha files it automatically. Undo if it guessed wrong.</p>
+      )}
+      {lastRouted && (
         <div className="ma-callout">
-          <span className="ma-callout-kicker">Suggested: {DROP_BUCKETS.find((b) => b.id === guessDropBucket(next.content))?.label}</span>
+          <span className="ma-callout-kicker">Filed</span>
+          <strong>Sent to {lastRouted.label}</strong>
+          <div className="ma-callout-actions">
+            <button className="ma-chip" type="button" disabled={!!filing} onClick={() => void undoRoute()}>
+              Undo
+            </button>
+          </div>
+        </div>
+      )}
+      {next && !lastRouted && (
+        <div className="ma-callout">
+          <span className="ma-callout-kicker">Needs you</span>
           <strong>{next.content}</strong>
           <div className="ma-callout-actions">
             {DROP_BUCKETS.map((b) => {

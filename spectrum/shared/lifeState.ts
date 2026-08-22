@@ -35,7 +35,7 @@ export type LifeCardKind = Extract<
   | 'open_loops'
   | 'networking_crm'
   | 'pick_night'
-  | 'mirror'
+  | 'home'
   | 'weekly_review'
 >
 
@@ -273,7 +273,7 @@ export function computeLifeInsights(state: LifeState): LifeInsight[] {
         loop: 'weekly',
         line: `This week: ${w.sleepNights ? `avg ${fmtHours(w.avgSleepHours)}h sleep` : 'almost no sleep logs'}, ${w.workouts} workouts, protein days were thin, spend $${Math.round(w.spend)} of $${Math.round(w.weeklyBudget)}. One fix next week, not ten.`,
         tap: 'Reply with the one thing you want to fix.',
-        card: 'mirror',
+        card: 'home',
       })
     }
   }

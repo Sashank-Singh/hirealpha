@@ -2819,13 +2819,6 @@ button, input { font: inherit; }
 .ma-stat span { font-size: 11px; font-weight: 700; color: var(--muted-fg); text-transform: uppercase; letter-spacing: 0.04em; }
 .ma-label { display: flex; flex-direction: column; gap: 4px; font-size: 11px; font-weight: 700; color: var(--muted-fg); text-transform: uppercase; letter-spacing: 0.04em; flex: 1; }
 
-.mirror-mood-row { display: flex; flex-wrap: wrap; gap: 4px; }
-.mirror-mood {
-  display: inline-flex; align-items: center; justify-content: center;
-  width: 32px; height: 32px; border: 1px solid var(--border); border-radius: 12px;
-  font-size: 16px; background: var(--bg);
-}
-
 .sleep-bars { display: flex; align-items: flex-end; gap: 6px; height: 72px; }
 .sleep-bar-col { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px; height: 100%; }
 .sleep-bar { width: 100%; max-width: 28px; background: var(--mini-accent, #22c55e); border-radius: 6px 6px 2px 2px; min-height: 4px; margin-top: auto; }
@@ -3355,3 +3348,938 @@ button.ma-callout, button.ma-row {
 .mini__list li.mail-row:active { transform: scale(0.99); }
 .ma-row.mail-row { cursor: pointer; }
 .ma-row.mail-row:hover { background: color-mix(in srgb, var(--mini-accent, #22c55e) 8%, var(--bg)); }
+
+/* ---- Home screen (friend) ---- */
+.home-shimmer {
+  animation: home-shimmer 1.2s ease-in-out infinite;
+  opacity: 0.5;
+}
+@keyframes home-shimmer {
+  0%, 100% { opacity: 0.35; }
+  50% { opacity: 0.85; }
+}
+
+.home-section-title {
+  margin: 0 0 8px;
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--muted-fg);
+}
+
+
+/* Bars sit in their own fixed-height plot so the 8h reference hairline lands on
+   a real coordinate; the day labels moved out to an axis row underneath. */
+.home-sleep-chart { position: relative; padding-right: 22px; }
+.home-sleep-plot { position: relative; height: 64px; }
+.home-sleep-trail {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  height: 100%;
+}
+.home-sleep-node {
+  flex: 1;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  height: 100%;
+}
+.home-sleep-bar {
+  width: 100%;
+  max-width: 24px;
+  border-radius: 6px 6px 2px 2px;
+  background: var(--mini-accent, #2a6f7a);
+  min-height: 4px;
+  transition: height 0.5s ease;
+}
+.home-sleep-axis { display: flex; gap: 6px; margin-top: 4px; }
+.home-sleep-tick {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  font-size: 9px;
+  color: var(--muted-fg);
+}
+
+.home-loot-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.home-loot-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: capitalize;
+}
+.home-loot-chip b { font-weight: 800; }
+
+/* ---- Spend charts (segmented budget bar + donut) ---- */
+/* Categorical hues live in spendChart.ts so one list drives both charts and
+   the legends. Only geometry and recessive ink are here. */
+.spend-swatch {
+  flex: none;
+  display: inline-block;
+  vertical-align: middle;
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+}
+/* On the selected picker chip the swatch sits on the accent fill rather than on
+   surface, so it gets a surface ring to stay separable. The chip still spells
+   the category out, so identity is never colour alone. */
+.ma-chip .spend-swatch {
+  margin-right: 6px;
+  box-shadow: 0 0 0 1.5px var(--bg);
+}
+
+.spend-bar { position: relative; display: flex; flex-direction: column; gap: 6px; }
+.spend-bar-track {
+  position: relative;
+  height: 14px;
+  border-radius: 5px;
+  overflow: hidden;
+  /* The empty tail is the unspent part of the cap, so it reads as track. */
+  background: color-mix(in srgb, var(--border) 55%, var(--bg));
+}
+.spend-bar-seg {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  min-width: 1px;
+  transition: width 0.4s ease, left 0.4s ease;
+}
+/* A threshold marker, not a series. It never carries category meaning, and the
+   foot line says "over the $N cap" in words so it is not colour alone.
+   The 1px surface ring is load-bearing: at some spends the cap lands inside the
+   food orange, which is close enough to this red to vanish without it. */
+.spend-bar-cap {
+  position: absolute;
+  top: -3px;
+  height: 20px;
+  width: 2px;
+  margin-left: -1px;
+  background: #d03b3b;
+  box-shadow: 0 0 0 1px var(--bg);
+}
+.spend-bar-foot {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 0;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted-fg);
+}
+.spend-bar-over { color: #f08c8c; }
+
+.spend-donut {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.spend-donut-ring {
+  position: relative;
+  flex: none;
+  width: 128px;
+  height: 128px;
+}
+.spend-donut-ring svg { width: 100%; height: 100%; display: block; }
+.spend-donut-mid {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  pointer-events: none;
+}
+.spend-donut-mid b { font-size: 20px; font-weight: 800; letter-spacing: -0.03em; }
+.spend-donut-mid span { font-size: 9px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted-fg); }
+/* The value list is the comparison surface — two arcs a few dollars apart are
+   the same arc to the eye, so the numbers have to be readable without hovering. */
+.spend-donut-key {
+  flex: 1 1 150px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.spend-donut-key li {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+}
+.spend-donut-key-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.spend-donut-key-val { font-weight: 700; font-variant-numeric: tabular-nums; }
+.spend-donut-key-pct {
+  min-width: 30px;
+  text-align: right;
+  color: var(--muted-fg);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Ratio rows in the Body block: a 2px rule under a "$383 of $459" pair, so the
+   share is seen and not only read. */
+.home-receipt-rule {
+  position: relative;
+  height: 2px;
+  margin-top: 5px;
+  border-radius: 1px;
+  background: color-mix(in srgb, var(--border) 60%, var(--bg));
+  overflow: hidden;
+}
+.home-receipt-rule i {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: 1px;
+  background: var(--mini-accent, #2a6f7a);
+}
+.home-receipt-rule--over i { background: #d03b3b; }
+
+/* Reference hairline on the Nights trail. One shade off surface, solid, behind
+   the bars — the bars were scaled against an invisible 10h before this. */
+.home-sleep-ref {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: color-mix(in srgb, var(--border) 80%, var(--bg));
+}
+.home-sleep-ref b {
+  position: absolute;
+  right: -22px;
+  top: -5px;
+  font-size: 9px;
+  font-weight: 700;
+  color: var(--muted-fg);
+}
+
+.home-day-state {
+  margin: 2px 0 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted-fg);
+}
+
+.home-dock {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+  padding-top: 4px;
+  margin-top: 4px;
+  border-top: 1px solid var(--border);
+}
+.home-dock-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 10px 4px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--bg);
+  text-decoration: none;
+  color: var(--fg);
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  transition: transform 0.12s, border-color 0.15s, background 0.15s;
+}
+.home-dock-btn:active { transform: scale(0.94); }
+.home-dock-btn:hover {
+  border-color: var(--mini-accent);
+  background: color-mix(in srgb, var(--mini-accent) 8%, var(--bg));
+}
+.home-dock-icon { font-size: 20px; line-height: 1; }
+
+.home-msg { text-align: center; }
+
+.home-screen {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding-bottom: 8px;
+}
+.home-screen--loading { min-height: 180px; gap: 12px; }
+.home-day { display: flex; flex-direction: column; gap: 4px; }
+.home-day-kicker {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted-fg);
+}
+.home-day-title {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  line-height: 1.2;
+}
+.home-action {
+  padding: 14px 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--mini-accent, #2a6f7a) 8%, var(--bg));
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.home-action--skeleton {
+  min-height: 88px;
+  background: color-mix(in srgb, var(--border) 40%, var(--bg));
+}
+.home-action-kicker {
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--mini-accent, #2a6f7a);
+}
+.home-action-title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+.home-action-hint {
+  margin: 0;
+  font-size: 13px;
+  color: var(--muted-fg);
+  line-height: 1.4;
+}
+.home-action-btn {
+  align-self: flex-start;
+  margin-top: 6px;
+  padding: 10px 16px;
+  border-radius: 999px;
+  background: var(--mini-accent, #2a6f7a);
+  color: var(--mini-accent-fg, #fff);
+  text-decoration: none;
+  font-size: 14px;
+  font-weight: 700;
+}
+.home-block { display: flex; flex-direction: column; gap: 8px; }
+/* Mail piles. The heading already carries the count, so the rows below it stay
+   plain — a second number per group would just be the same fact twice. */
+.home-mail-group { display: flex; flex-direction: column; gap: 6px; }
+.home-mail-group + .home-mail-group { margin-top: 10px; }
+.home-mail-kind {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--muted-fg);
+}
+.home-plain-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.home-plain-list li {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  font-size: 14px;
+}
+.home-plain-time {
+  flex: none;
+  min-width: 72px;
+  color: var(--muted-fg);
+  font-size: 12px;
+  font-weight: 700;
+}
+.home-plain-link {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  flex: 1;
+  min-width: 0;
+  text-decoration: none;
+  color: inherit;
+}
+.home-plain-sms {
+  flex: none;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--fg);
+  text-decoration: none;
+}
+.home-plain-meta { color: var(--muted-fg); font-size: 12px; }
+.home-receipt-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+/* These rows have always been links into the sub apps. Label plus value with no
+   chevron and no press state reads as printed text, so nobody tapped them. */
+.home-receipt {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 12px;
+  align-items: baseline;
+  /* 12px puts the row at 46px tall — a tap target, not a line of text. */
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+  text-decoration: none;
+  color: inherit;
+  border-radius: 8px;
+  transition: background-color 0.12s ease;
+}
+.home-receipt::after {
+  content: '›';
+  align-self: center;
+  font-size: 17px;
+  line-height: 1;
+  color: color-mix(in srgb, var(--muted-fg) 55%, var(--bg));
+  transition: transform 0.12s ease, color 0.12s ease;
+}
+.home-receipt:hover::after,
+.home-receipt:focus-visible::after {
+  color: var(--mini-accent, #2a6f7a);
+  transform: translateX(2px);
+}
+.home-receipt:active {
+  background: color-mix(in srgb, var(--mini-accent, #2a6f7a) 14%, var(--bg));
+}
+.home-receipt:focus-visible {
+  outline: 2px solid var(--mini-accent, #2a6f7a);
+  outline-offset: 2px;
+}
+.home-receipt-list li:last-child .home-receipt { border-bottom: 0; }
+.home-receipt-label {
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted-fg);
+}
+.home-receipt-val { font-size: 14px; font-weight: 600; text-align: right; }
+
+.home-dock-icon {
+  display: grid;
+  place-items: center;
+  color: var(--mini-accent, #2a6f7a);
+}
+.home-dock-icon svg { width: 18px; height: 18px; }
+
+.mini__body--home-screen { padding-bottom: 0; }
+
+/* ---- Friend hub pages (Body / Later) ---- */
+.hub { display: flex; flex-direction: column; gap: 10px; }
+.hub-lead { text-align: center; margin: 0 0 4px; }
+.promise-examples {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.hub-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.hub-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--bg);
+  text-decoration: none;
+  color: inherit;
+  transition: border-color 0.15s, transform 0.12s;
+}
+.hub-row:active { transform: scale(0.985); }
+.hub-row:hover { border-color: var(--mini-accent); }
+.hub-emoji { font-size: 22px; flex: none; line-height: 1; }
+.hub-text { flex: 1; min-width: 0; display: grid; gap: 2px; }
+.hub-title { font-size: 14px; font-weight: 700; letter-spacing: -0.01em; }
+.hub-hint { font-size: 12px; color: var(--muted-fg); line-height: 1.35; }
+.hub-go { font-size: 18px; color: var(--muted-fg); flex: none; }
+
+.brief {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.brief-lead { display: flex; flex-direction: column; gap: 4px; }
+.brief-kicker {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted-fg);
+}
+.brief-date {
+  margin: 0;
+  font-size: 13px;
+  color: var(--muted-fg);
+}
+.brief-title {
+  margin: 2px 0 0;
+  font-size: 26px;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  line-height: 1.15;
+}
+.brief-sub {
+  margin: 2px 0 0;
+  font-size: 14px;
+  color: var(--muted-fg);
+  line-height: 1.4;
+}
+.brief-do {
+  padding: 14px 16px 16px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--mini-accent, #2a6f7a) 9%, var(--bg));
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.brief-do-kicker {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--mini-accent, #2a6f7a);
+}
+.brief-do-title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+.brief-do-hint {
+  margin: 0;
+  font-size: 13px;
+  color: var(--muted-fg);
+  line-height: 1.4;
+}
+.brief-do-btn {
+  align-self: flex-start;
+  margin-top: 8px;
+  padding: 10px 16px;
+  border-radius: 999px;
+  background: var(--mini-accent, #2a6f7a);
+  color: var(--mini-accent-fg, #fff);
+  text-decoration: none;
+  font-size: 14px;
+  font-weight: 700;
+}
+.brief-day {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  border-left: 2px solid color-mix(in srgb, var(--mini-accent, #2a6f7a) 35%, var(--border));
+  margin-left: 6px;
+}
+.brief-day li {
+  display: grid;
+  grid-template-columns: 72px 1fr;
+  column-gap: 12px;
+  row-gap: 2px;
+  padding: 0 0 16px 14px;
+  position: relative;
+}
+.brief-day li:last-child { padding-bottom: 0; }
+.brief-day li::before {
+  content: '';
+  position: absolute;
+  left: -5px;
+  top: 6px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--mini-accent, #2a6f7a);
+}
+.brief-day-time {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--muted-fg);
+  padding-top: 1px;
+}
+.brief-day-name { font-size: 16px; font-weight: 700; }
+.brief-day-kind {
+  grid-column: 2;
+  font-size: 12px;
+  color: var(--muted-fg);
+}
+.brief-where {
+  margin: 0;
+  font-size: 14px;
+  color: var(--fg);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.brief-where span,
+.brief-later span,
+.brief-label {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--muted-fg);
+}
+.brief-block { display: flex; flex-direction: column; gap: 8px; }
+.brief-label { margin: 0; }
+.brief-asks,
+.brief-due,
+.brief-notes {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.brief-ask {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+.brief-ask--tap { cursor: pointer; }
+.brief-ask-from { font-size: 11px; font-weight: 700; color: var(--muted-fg); }
+.brief-ask-label { font-size: 14px; font-weight: 700; }
+.brief-ask-snip { font-size: 12px; color: var(--muted-fg); line-height: 1.35; }
+.brief-mail-tally {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted-fg);
+}
+.brief-mail-group { display: flex; flex-direction: column; gap: 8px; }
+.brief-mail-kind {
+  margin: 4px 0 0;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--muted-fg);
+}
+.brief-due li {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+.brief-due-link {
+  flex: 1;
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  text-decoration: none;
+  color: inherit;
+  font-size: 14px;
+  font-weight: 700;
+}
+.brief-due-link span:last-child { color: var(--muted-fg); font-size: 12px; font-weight: 600; }
+.brief-sms {
+  flex: none;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--fg);
+  text-decoration: none;
+}
+.brief-notes li { font-size: 14px; font-weight: 600; }
+.brief-later {
+  margin: 0;
+  font-size: 13px;
+  color: var(--muted-fg);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  line-height: 1.4;
+}
+
+/* ---- Brief v2 ---- */
+.brief-do-tap {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  text-align: left;
+  background: none;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  width: 100%;
+}
+.brief-do .brief-do-btn { display: inline-block; }
+
+.brief-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.brief-fact {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--muted-fg);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 5px 11px;
+  text-decoration: none;
+}
+a.brief-fact { cursor: pointer; }
+.brief-fact--gap { opacity: 0.55; font-style: italic; }
+.brief-fact--gap::after { content: ' · not logged'; opacity: 0.8; }
+
+.brief-ny-row,
+.brief-pile-row,
+.brief-carry-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+.brief-pile-row > div,
+.brief-ny-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+.brief-ny-reasons { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 3px; }
+.brief-ny-chip {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--mini-accent, #2a6f7a);
+  background: color-mix(in srgb, var(--mini-accent, #2a6f7a) 12%, transparent);
+  border-radius: 999px;
+  padding: 2px 8px;
+}
+.brief-triage { display: flex; gap: 6px; flex: none; }
+.brief-tap {
+  border: 1px solid var(--border);
+  background: none;
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--fg);
+  cursor: pointer;
+}
+.brief-tap:disabled { opacity: 0.5; cursor: default; }
+.brief-tap--done {
+  background: var(--mini-accent, #2a6f7a);
+  border-color: var(--mini-accent, #2a6f7a);
+  color: var(--mini-accent-fg, #fff);
+}
+.brief-tap--skip { color: var(--muted-fg); }
+.brief-day li .brief-tap { grid-column: 2; justify-self: start; margin-top: -8px; }
+
+.brief-piles { display: flex; flex-direction: column; gap: 6px; }
+.brief-pile { border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+.brief-pile-head {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 12px;
+  background: none;
+  border: 0;
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--fg);
+  cursor: pointer;
+}
+.brief-pile-caret { color: var(--muted-fg); }
+.brief-pile-items {
+  padding: 0 8px 8px;
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+  margin: 0;
+}
+.brief-pile-items .brief-pile-row { border: 0; border-radius: 0; padding: 8px 4px; }
+.brief-pile-items .brief-pile-row + .brief-pile-row { border-top: 1px solid var(--border); }
+
+.brief-rem-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+  font-weight: 600;
+}
+.brief-rem-time {
+  flex: none;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--muted-fg);
+  width: 64px;
+}
+.brief-rem-text { flex: 1; min-width: 0; }
+
+.brief-score {
+  margin: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+.brief-score-points { font-size: 15px; font-weight: 800; }
+.brief-score-verdict {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--mini-accent, #2a6f7a);
+}
+
+.brief-closed {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.brief-closed-row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  font-size: 14px;
+}
+.brief-closed-mark { width: 16px; flex: none; font-weight: 800; }
+.brief-closed--done .brief-closed-mark { color: #2e7d32; }
+.brief-closed--miss .brief-closed-mark { color: #c62828; }
+.brief-closed--partial .brief-closed-mark { color: #b8860b; }
+.brief-closed-label { font-weight: 700; }
+.brief-closed-detail { color: var(--muted-fg); font-size: 13px; }
+.brief-closed--miss .brief-closed-label { color: var(--muted-fg); font-weight: 600; }
+
+.brief-habits { display: flex; flex-wrap: wrap; gap: 6px; }
+.brief-habit {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 7px 13px;
+  background: none;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--fg);
+  cursor: pointer;
+}
+.brief-habit--done {
+  background: color-mix(in srgb, var(--mini-accent, #2a6f7a) 14%, transparent);
+  border-color: color-mix(in srgb, var(--mini-accent, #2a6f7a) 45%, var(--border));
+}
+.brief-habit-mark { font-weight: 800; }
+
+.brief-carry-title { flex: 1; min-width: 0; font-size: 14px; font-weight: 700; }
+.brief-carry-due { font-size: 12px; color: var(--muted-fg); flex: none; }
+
+.brief-toast {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  transform: translateX(-50%);
+  background: var(--fg);
+  color: var(--bg);
+  font-size: 13px;
+  font-weight: 700;
+  border-radius: 999px;
+  padding: 9px 18px;
+  z-index: 60;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.18);
+}
+
+.brief-prep {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.42);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  z-index: 70;
+}
+.brief-prep-card {
+  position: relative;
+  width: 100%;
+  max-width: 420px;
+  max-height: 80vh;
+  overflow: auto;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.brief-prep-close {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  border: 0;
+  background: none;
+  font-size: 22px;
+  line-height: 1;
+  color: var(--muted-fg);
+  cursor: pointer;
+}
+.brief-prep-kicker {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--mini-accent, #2a6f7a);
+}
+.brief-prep-title { margin: 0; font-size: 18px; font-weight: 800; letter-spacing: -0.02em; }
+.brief-prep-loading { margin: 0; color: var(--muted-fg); font-size: 14px; }
+.brief-prep-text { margin: 0; white-space: pre-wrap; font-size: 14px; line-height: 1.5; }
+.brief-prep-chat {
+  align-self: flex-start;
+  margin-top: 6px;
+  padding: 9px 16px;
+  border-radius: 999px;
+  background: var(--mini-accent, #2a6f7a);
+  color: var(--mini-accent-fg, #fff);
+  text-decoration: none;
+  font-size: 13px;
+  font-weight: 700;
+}

@@ -1,0 +1,392 @@
+import { useCallback, useEffect, useState } from 'react'
+import { Link, useSearchParams } from 'react-router-dom'
+import {
+  apiListNetwork,
+  apiListSleep,
+  apiHome,
+  type HomeSnapshot,
+  type NetworkPerson,
+  type NetworkToday,
+  type SleepNight,
+} from './api'
+import type { FeatureAuth } from './FeatureMiniApps'
+import { MiniAppIcon } from './MiniAppIcons'
+import { mailGroupHeading } from './briefStory'
+import {
+  dayStamp,
+  duePeopleFrom,
+  localYmd,
+  mergeMeets,
+  pickHomeAction,
+  pickLastNight,
+  shiftYmd,
+} from './home'
+import { isPersonMeetSuggestion } from './peopleMeets'
+import { SpendBar, SpendSwatch } from './SpendCharts'
+import { aggregateSpend } from './spendChart'
+
+/** Bars are scaled against this, and it is the hairline the trail compares to. */
+const SLEEP_TARGET_H = 8
+const SLEEP_SCALE_H = 10
+
+function fmtDay(iso: string | null | undefined) {
+  if (!iso) return ''
+  const raw = iso.slice(0, 10)
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+    const [y, m, d] = raw.split('-').map(Number)
+    return new Date(y!, (m || 1) - 1, d || 1).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+  }
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return raw
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+}
+
+function formatClock12(hhmm: string) {
+  const [hRaw, mRaw] = hhmm.split(':')
+  const h = Number(hRaw)
+  const m = Number(mRaw)
+  if (!Number.isFinite(h) || !Number.isFinite(m)) return hhmm
+  const am = h < 12
+  const h12 = h % 12 || 12
+  return `${h12}:${String(m).padStart(2, '0')} ${am ? 'AM' : 'PM'}`
+}
+
+function senderName(from: string) {
+  const name = from.replace(/<[^>]+>/, '').replace(/"/g, '').trim()
+  return name.split(/[\s@]/)[0] || from
+}
+
+const DOCK = [
+  { kind: 'body', iconKind: 'body', label: 'Body' },
+  { kind: 'networking_crm', iconKind: 'networking_crm', label: 'People' },
+  { kind: 'digest', iconKind: 'digest', label: 'Brief' },
+  { kind: 'later', iconKind: 'later', label: 'Later' },
+] as const
+
+export function HomeApp({ auth }: { auth: FeatureAuth }) {
+  const [searchParams] = useSearchParams()
+  const q = searchParams.toString()
+  const suffix = q ? `?${q}` : ''
+  const miniLink = (kind: string) => `/app/mini/${auth.persona}/${kind}${suffix}`
+
+  const [snap, setSnap] = useState<HomeSnapshot | null>(null)
+  const [nights, setNights] = useState<SleepNight[]>([])
+  const [people, setPeople] = useState<NetworkPerson[]>([])
+  const [todayMeets, setTodayMeets] = useState<NetworkToday[]>([])
+  const [loading, setLoading] = useState(true)
+  const [msg, setMsg] = useState('')
+  const [worldTries, setWorldTries] = useState(0)
+
+  const load = useCallback(() => {
+    setLoading(true)
+    setWorldTries(0)
+    const creds = { email: auth.email, token: auth.token, persona: auth.persona }
+    /* Three requests, and the page used to wait for all three — so home painted
+     * at the speed of /api/network, which stops to read the calendar. Each one
+     * now lands on its own; the screen is the home call, and the other two fill
+     * in the People rows and the Nights chart when they arrive. */
+    apiHome({ email: auth.email, token: auth.token })
+      .then((d) => {
+        setSnap(d)
+        setMsg('')
+      })
+      .catch(() => setMsg('Could not load home.'))
+      .finally(() => setLoading(false))
+    apiListSleep({ email: auth.email, token: auth.token })
+      .then((sleep) => setNights(sleep.nights || []))
+      .catch(() => {})
+    apiListNetwork(creds)
+      .then((net) => {
+        setPeople(net.people || [])
+        setTodayMeets(net.today || [])
+      })
+      .catch(() => {})
+  }, [auth.email, auth.token, auth.persona])
+
+  useEffect(() => {
+    load()
+  }, [load])
+
+  /* The page painted before the calendar and inbox came back — the server says
+   * so rather than making everyone wait on a hop into Google. Come back for them
+   * quietly, a couple of times at most, and leave the screen as it is if they
+   * never arrive. */
+  useEffect(() => {
+    if (!snap?.worldPending || worldTries >= 3) return
+    const timer = setTimeout(() => {
+      setWorldTries((n) => n + 1)
+      apiHome({ email: auth.email, token: auth.token })
+        .then(setSnap)
+        .catch(() => {})
+    }, 1800)
+    return () => clearTimeout(timer)
+  }, [snap?.worldPending, worldTries, auth.email, auth.token])
+
+  if (loading && !snap && nights.length === 0 && todayMeets.length === 0) {
+    return (
+      <div className="home-screen home-screen--loading">
+        <div className="home-day-kicker home-shimmer">Loading today</div>
+        <div className="home-action home-action--skeleton" />
+      </div>
+    )
+  }
+
+  const raw = snap?.home
+  const today = localYmd()
+  const fromSleep = pickLastNight(nights, today)
+  const yest = shiftYmd(today, -1)
+  const fromTrend = (snap?.sleepTrend || []).find((n) => {
+    const d = dayStamp(n.date)
+    return (d === today || d === yest) && n.hours > 0
+  })
+  const lastNight = fromSleep.logged
+    ? fromSleep
+    : raw?.lastNight?.logged
+      ? raw.lastNight
+      : fromTrend
+        ? { logged: true, hours: fromTrend.hours, bedtime: undefined as string | undefined, wake: undefined as string | undefined }
+        : { logged: false, hours: 0 }
+  const upcoming = mergeMeets(
+    raw?.upcoming || [],
+    todayMeets.map((m) => ({ time: m.time, title: m.who || m.title })),
+  ).filter((e) => isPersonMeetSuggestion({ time: e.time, title: e.title, who: e.title }))
+  const peopleDue =
+    raw?.peopleDue && raw.peopleDue.length > 0 ? raw.peopleDue : duePeopleFrom(people)
+  const hour = typeof raw?.hour === 'number' ? raw.hour : new Date().getHours()
+  const dateLabel =
+    raw?.dateLabel ||
+    new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })
+  const workout = raw?.workout || { name: 'Today', rest: true, done: false }
+  const mail = raw?.mail || []
+  const mailGroups = raw?.mailGroups || []
+  // The groups already cover the same mail, so counting both would double it.
+  const mailCount = mailGroups.length
+    ? mailGroups.reduce((a, g) => a + g.count, 0)
+    : mail.length
+
+  const w = snap?.window
+  const protein = w?.proteinToday || 0
+  const proteinGoal = w?.proteinGoal || 150
+  const spend = w?.spend || 0
+  const budget = w?.weeklyBudget || 0
+  const action = pickHomeAction({
+    hour,
+    lastNightLogged: lastNight.logged,
+    lastNightHours: lastNight.hours,
+    next: upcoming[0],
+    peopleDue,
+    proteinToday: protein,
+    proteinGoal,
+    spend,
+    weeklyBudget: budget,
+    workoutToday: workout,
+  })
+  const briefKind = hour >= 18 ? 'pick_night' : 'digest'
+  const sleepWeek = (snap?.sleepTrend || []).slice(-7)
+  const dock = DOCK.map((d) => (d.kind === 'digest' ? { ...d, kind: briefKind } : d))
+
+  const sleepLine = lastNight.logged
+    ? `${lastNight.hours}h${lastNight.bedtime && lastNight.wake ? `  ${formatClock12(lastNight.bedtime)} to ${formatClock12(lastNight.wake)}` : ''}`
+    : 'Not logged'
+  const foodLine = `${Math.round(protein)}g of ${Math.round(proteinGoal)}`
+  const trainLine = workout.done ? `${workout.name}  logged` : workout.name
+  const spendLine = budget ? `$${Math.round(spend)} of $${Math.round(budget)}` : `$${Math.round(spend)}`
+  // The action card already leads with the next meeting, and the Today list
+  // repeats it a third time. The header counts what is left instead.
+  const stateBits: string[] = []
+  if (upcoming.length) stateBits.push(`${upcoming.length} left today`)
+  if (peopleDue.length) stateBits.push(`${peopleDue.length} ${peopleDue.length === 1 ? 'person' : 'people'} due`)
+  if (mailCount) stateBits.push(`${mailCount} in mail`)
+  const stateLine = stateBits.join('   ')
+  const spendParts = aggregateSpend(snap?.spendByCategory || []).parts
+
+  return (
+    <div className="home-screen">
+      <header className="home-day">
+        <span className="home-day-kicker">Today</span>
+        <h2 className="home-day-title">{dateLabel || 'Today'}</h2>
+        {stateLine ? <p className="home-day-state">{stateLine}</p> : null}
+      </header>
+
+      <section className="home-action">
+        <span className="home-action-kicker">{action.kicker}</span>
+        <h3 className="home-action-title">{action.title}</h3>
+        <p className="home-action-hint">{action.hint}</p>
+        <Link className="home-action-btn" to={miniLink(action.openKind)}>
+          {action.cta}
+        </Link>
+      </section>
+
+      {upcoming.length > 0 && (
+        <section className="home-block">
+          <h3 className="home-section-title">Today</h3>
+          <ul className="home-plain-list">
+            {upcoming.map((e, i) => (
+              <li key={`${e.time}-${e.title}-${i}`}>
+                <span className="home-plain-time">{e.time}</span>
+                <span>{e.title}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
+      {peopleDue.length > 0 && (
+        <section className="home-block">
+          <h3 className="home-section-title">People due</h3>
+          <ul className="home-plain-list">
+            {peopleDue.map((p) => (
+              <li key={p.name}>
+                <Link className="home-plain-link" to={miniLink('networking_crm')}>
+                  <span>{p.name}</span>
+                  <span className="home-plain-meta">{p.days >= 900 ? 'No touch yet' : `${p.days} days`}</span>
+                </Link>
+                {p.phone ? (
+                  <a className="home-plain-sms" href={`sms:${p.phone.replace(/[^\d+]/g, '')}`}>
+                    Text
+                  </a>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
+      {mailGroups.length > 0 ? (
+        <section className="home-block">
+          <h3 className="home-section-title">Mail</h3>
+          {mailGroups.map((g) => (
+            <div key={g.kind} className="home-mail-group">
+              <h4 className="home-mail-kind">{mailGroupHeading(g.kind, g.count, g.label)}</h4>
+              <ul className="home-plain-list">
+                {g.items.map((m) => (
+                  <li key={m.id}>
+                    <span className="home-plain-time">{senderName(m.from)}</span>
+                    <span>{m.subject || 'No subject'}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
+        </section>
+      ) : mail.length > 0 ? (
+        <section className="home-block">
+          <h3 className="home-section-title">Mail</h3>
+          <ul className="home-plain-list">
+            {mail.map((m, i) => (
+              <li key={`${m.subject}-${i}`}>
+                <span className="home-plain-time">{senderName(m.from)}</span>
+                <span>{m.subject || 'No subject'}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+
+      <section className="home-block" aria-label="Receipts">
+        <h3 className="home-section-title">Body</h3>
+        <ul className="home-receipt-list">
+          <li>
+            <Link className="home-receipt" to={miniLink('sleep_tracker')}>
+              <span className="home-receipt-label">Sleep</span>
+              <span className="home-receipt-val">{sleepLine}</span>
+            </Link>
+          </li>
+          <li>
+            <Link className="home-receipt" to={miniLink('nutrition')}>
+              <span className="home-receipt-label">Food</span>
+              <span className="home-receipt-val">{foodLine}</span>
+            </Link>
+            {proteinGoal > 0 && (
+              <div className="home-receipt-rule" aria-hidden="true">
+                <i style={{ width: `${Math.min(100, (protein / proteinGoal) * 100)}%` }} />
+              </div>
+            )}
+          </li>
+          <li>
+            <Link className="home-receipt" to={miniLink('workout_log')}>
+              <span className="home-receipt-label">Training</span>
+              <span className="home-receipt-val">{trainLine}</span>
+            </Link>
+          </li>
+          <li>
+            <Link className="home-receipt" to={miniLink('spending_snapshot')}>
+              <span className="home-receipt-label">Spend</span>
+              <span className="home-receipt-val">{spendLine}</span>
+            </Link>
+            {budget > 0 && (
+              <div
+                className={`home-receipt-rule${spend > budget ? ' home-receipt-rule--over' : ''}`}
+                aria-hidden="true"
+              >
+                <i style={{ width: `${Math.min(100, (spend / budget) * 100)}%` }} />
+              </div>
+            )}
+          </li>
+        </ul>
+      </section>
+
+      {sleepWeek.length > 0 && (
+        <section className="home-block">
+          <h3 className="home-section-title">Nights</h3>
+          <div className="home-sleep-chart">
+            <div className="home-sleep-plot">
+              <span
+                className="home-sleep-ref"
+                style={{ bottom: `${(SLEEP_TARGET_H / SLEEP_SCALE_H) * 100}%` }}
+              >
+                <b>{SLEEP_TARGET_H}h</b>
+              </span>
+              <div className="home-sleep-trail">
+                {sleepWeek.map((n) => (
+                  <div key={n.date} className="home-sleep-node" title={`${fmtDay(n.date)}  ${n.hours}h`}>
+                    <div
+                      className="home-sleep-bar"
+                      style={{ height: `${Math.min(100, (n.hours / SLEEP_SCALE_H) * 100)}%` }}
+                    />
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="home-sleep-axis">
+              {sleepWeek.map((n) => (
+                <div key={n.date} className="home-sleep-tick">
+                  <span>{n.hours.toFixed(1)}h</span>
+                  <span>{fmtDay(n.date)}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+      )}
+
+      {spendParts.length > 0 && (
+        <section className="home-block">
+          <h3 className="home-section-title">This week</h3>
+          <SpendBar rows={snap?.spendByCategory || []} budget={budget} />
+          <div className="home-loot-row">
+            {spendParts.map((p) => (
+              <span key={p.slot} className="home-loot-chip">
+                <SpendSwatch category={p.slot} />
+                {p.label} <b>${Math.round(p.amount)}</b>
+              </span>
+            ))}
+          </div>
+        </section>
+      )}
+
+      <nav className="home-dock" aria-label="Quick travel">
+        {dock.map((d) => (
+          <Link key={d.label} className="home-dock-btn" to={miniLink(d.kind)}>
+            <span className="home-dock-icon" aria-hidden="true">
+              <MiniAppIcon kind={d.iconKind} />
+            </span>
+            <span>{d.label}</span>
+          </Link>
+        ))}
+      </nav>
+
+      {msg && <p className="mini__hint home-msg">{msg}</p>}
+    </div>
+  )
+}

@@ -488,9 +488,35 @@ export const apiSaveWeeklyReview = (a: {
   email?: string; token?: string; weekStart: string; doneText: string; slippedText: string; focusText: string
 }) => featurePost<{ ok: boolean }>('/api/weekly-review', { ...authParams(a), weekStart: a.weekStart, doneText: a.doneText, slippedText: a.slippedText, focusText: a.focusText })
 
-/* ---- Mirror (life reflection dashboard) ---- */
-export type MirrorSnapshot = {
+/* ---- Home (today) ---- */
+export type HomeSnapshot = {
   weekStart: string
+  /**
+   * The calendar and inbox were still loading when this answered, so `upcoming`
+   * and `mailGroups` may be empty for reasons other than an empty week. One
+   * refetch a moment later gets them.
+   */
+  worldPending?: boolean
+  home: {
+    weekday: string
+    dateLabel: string
+    hour: number
+    upcoming: Array<{ time: string; title: string }>
+    mail: Array<{ from: string; subject: string }>
+    /**
+     * The same mail, grouped by kinds the judge named for this user. Optional
+     * because an API deployed before the groups existed only sends `mail`.
+     */
+    mailGroups?: Array<{
+      kind: string
+      label: string
+      count: number
+      items: Array<{ id: string; from: string; subject: string; snippet?: string }>
+    }>
+    peopleDue: Array<{ name: string; days: number; phone?: string }>
+    lastNight: { logged: boolean; hours: number; bedtime?: string; wake?: string }
+    workout: { name: string; rest?: boolean; done: boolean }
+  }
   window: {
     meals: number; calories: number; moodLogs: number; avgEnergy: number
     habitChecks: number; habits: string[]; sleepNights: number; avgSleepHours: number
@@ -508,8 +534,19 @@ export type MirrorSnapshot = {
   currentReview: WeeklyReview | null
   reviews: WeeklyReview[]
 }
-export const apiMirror = (a: { email?: string; token?: string }) =>
-  featureGet<MirrorSnapshot>('/api/mirror', authQuery(a))
+/**
+ * This screen used to be '/api/mirror'. The server answers both paths, but a
+ * client built after the rename can reach an API instance deployed before it,
+ * so fall back rather than show "Could not load home." Drop the fallback once
+ * the API has been out for a release.
+ */
+export const apiHome = async (a: { email?: string; token?: string }) => {
+  try {
+    return await featureGet<HomeSnapshot>('/api/home', authQuery(a))
+  } catch {
+    return await featureGet<HomeSnapshot>('/api/mirror', authQuery(a))
+  }
+}
 
 /* ---- Networking CRM ---- */
 export type NetworkPerson = {
@@ -792,6 +829,37 @@ export const apiGetMailMessage = (a: { email?: string; token?: string; messageId
     }
   })
 }
+
+/* ---- Brief v2: triage, drafts from mail, reminders, prep ---- */
+export type MailTriageAction = 'done' | 'skip' | 'drafted' | 'opened'
+export const apiTriageMail = (a: {
+  email?: string; token?: string; persona?: string
+  id: string; action: MailTriageAction; sender?: string; kind?: string
+}) =>
+  featurePost<{ ok: boolean }>('/api/mail/triage', {
+    ...authParams(a), id: a.id, action: a.action, sender: a.sender || '', kind: a.kind || '',
+  })
+
+export const apiDraftMailReply = (a: { email?: string; token?: string; persona?: string; id: string }) =>
+  featurePost<{ ok: boolean; id: string; toAddr: string; subject: string; error?: string }>('/api/mail/draft', {
+    ...authParams(a), persona: a.persona, id: a.id,
+  })
+
+export const apiReminderAction = (a: {
+  email?: string; token?: string; id: string; action: 'done' | 'snooze'; hours?: number
+}) =>
+  featurePost<{ ok: boolean }>('/api/reminders/action', {
+    ...authParams(a), id: a.id, action: a.action, hours: a.hours,
+  })
+
+export type PrepBundle = {
+  ok: boolean
+  text: string
+  draft?: { kind: 'mail'; to: string; subject: string; body: string } | { kind: 'reply'; messageId: string; body: string }
+  error?: string
+}
+export const apiPrepFor = (a: { email?: string; token?: string; name: string }) =>
+  featurePost<PrepBundle>('/api/prep', { ...authParams(a), name: a.name })
 
 /* ---- Mini app prefs (workout place, move count, usual sleep times) ---- */
 export type MiniPrefs = {

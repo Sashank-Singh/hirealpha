@@ -14,6 +14,8 @@ import {
   googleTokenHasScope,
   hydrateCalItems,
   isHotelStayEvent,
+  isPersonMeetSuggestion,
+  isTravelOrStayTitle,
   isWalkIn,
   parseComposioCalendarData,
   parseFormattedEventLine,
@@ -35,13 +37,28 @@ import {
   decodeGmailBody,
   extractGmailBody,
   formatBriefPreview,
+  formatComposioMailBlock,
   importantMailQuery,
   mailJudgePrompt,
   MAIL_JUDGE_SYSTEM,
-  parseMailJudgeKeepIds,
+  parseComposioMailBody,
+  parseComposioMailItems,
+  parseMailJudgeVerdicts,
+  groupBriefMail,
+  groupMailByKind,
+  mailTally,
+  scoreMail,
+  senderKey,
+  topNeedsYou,
+  type ComposioMailBody,
+  type ComposioMailItem,
   type GmailMimePart,
   type MailJudgeItem,
+  type MailJudgeVerdict,
+  type MailKindItem,
 } from './gmailHelpers'
+import { extractJsonObject, extractNumericFields, modelReplyText } from './modelJson'
+import { createStaleCache } from './staleCache'
 import { composeWeekReview, spendWouldBreakCap, type WeekSnap } from './weekRun'
 
 export const PERSONAS = ['friend', 'coworker', 'cofounder'] as const
@@ -695,6 +712,112 @@ export async function ensureHireSchema(sql: SQL) {
     )
   `
   await sql`ALTER TABLE hire_mini_prefs ADD COLUMN IF NOT EXISTS workout_move_count INTEGER NOT NULL DEFAULT 4`
+
+  // The mail kinds this user's own inbox has produced. The judge names a pile per
+  // mail; storing the names is what stops the brief's group headers reshuffling
+  // every run, because last week's names are offered back as the preferred set.
+  await sql`
+    CREATE TABLE IF NOT EXISTS hire_mail_kinds (
+      user_id TEXT NOT NULL REFERENCES hire_users(id) ON DELETE CASCADE,
+      kind TEXT NOT NULL,
+      label TEXT NOT NULL,
+      uses INTEGER NOT NULL DEFAULT 0,
+      last_used_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      PRIMARY KEY (user_id, kind)
+    )
+  `
+  await sql`CREATE INDEX IF NOT EXISTS idx_hire_mail_kinds_top ON hire_mail_kinds (user_id, uses DESC)`
+
+  // Triage actions from the brief: done, skip, drafted, opened. Skip is the
+  // learning signal — two skips on a sender bury its future picks; replies and
+  // drafts promote it. One row per action so history is replayable.
+  await sql`
+    CREATE TABLE IF NOT EXISTS hire_mail_feedback (
+      id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+      user_id TEXT NOT NULL REFERENCES hire_users(id) ON DELETE CASCADE,
+      gmail_id TEXT NOT NULL,
+      sender TEXT NOT NULL DEFAULT '',
+      action TEXT NOT NULL,
+      kind TEXT NOT NULL DEFAULT '',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `
+  await sql`CREATE INDEX IF NOT EXISTS idx_hire_mail_feedback_user ON hire_mail_feedback (user_id, sender, created_at DESC)`
+}
+
+export type MailSenderSignal = { replies: number; skips: number }
+
+/** Per-sender reply/skip counts over the last 60 days, for brief mail scoring. */
+async function loadMailSenderSignals(
+  sql: SQL,
+  userId: string,
+): Promise<Map<string, MailSenderSignal>> {
+  const out = new Map<string, MailSenderSignal>()
+  try {
+    const rows = await sql`
+      SELECT sender,
+             count(*) FILTER (WHERE action IN ('drafted', 'replied'))::int AS replies,
+             count(*) FILTER (WHERE action = 'skip')::int AS skips
+      FROM hire_mail_feedback
+      WHERE user_id = ${userId} AND created_at > now() - interval '60 days'
+      GROUP BY sender
+    `
+    for (const r of rows as Array<{ sender: string; replies: number; skips: number }>) {
+      if (!r.sender) continue
+      out.set(r.sender, { replies: Number(r.replies) || 0, skips: Number(r.skips) || 0 })
+    }
+  } catch {
+    // A missing or mid-migration table must not take the brief down.
+  }
+  return out
+}
+
+/** Kinds this user's mail keeps producing, most used first. Offered to the judge. */
+async function loadMailKindVocab(sql: SQL, userId: string, limit = 12): Promise<string[]> {
+  try {
+    const rows = await sql`
+      SELECT kind FROM hire_mail_kinds
+      WHERE user_id = ${userId}
+      ORDER BY uses DESC, last_used_at DESC
+      LIMIT ${limit}
+    `
+    return (rows as { kind: string }[]).map((r) => r.kind).filter(Boolean)
+  } catch {
+    return []
+  }
+}
+
+/**
+ * Record the kinds a run actually used, then drop the ones that never caught on.
+ * A label seen once or twice and not since is a model one-off, not vocabulary —
+ * leaving it in would keep offering it back and make the set grow forever.
+ */
+async function saveMailKindVocab(
+  sql: SQL,
+  userId: string,
+  groups: Array<{ kind: string; label: string; count: number }>,
+): Promise<void> {
+  const rows = groups.filter((g) => g.kind && g.kind !== 'other' && g.count > 0)
+  if (!rows.length) return
+  try {
+    for (const g of rows) {
+      await sql`
+        INSERT INTO hire_mail_kinds (user_id, kind, label, uses, last_used_at)
+        VALUES (${userId}, ${g.kind}, ${g.label}, ${g.count}, now())
+        ON CONFLICT (user_id, kind) DO UPDATE
+          SET uses = hire_mail_kinds.uses + ${g.count},
+              label = EXCLUDED.label,
+              last_used_at = now()
+      `
+    }
+    await sql`
+      DELETE FROM hire_mail_kinds
+      WHERE user_id = ${userId} AND uses < 3 AND last_used_at < now() - interval '60 days'
+    `
+  } catch (err) {
+    // Vocabulary is an optimisation. A write failure must not cost the brief.
+    console.warn('[mail-kinds] save failed', err)
+  }
 }
 
 type LocationRow = {
@@ -980,6 +1103,13 @@ function shiftDateStr(dateStr: string, days: number): string {
   return new Date(Date.UTC(y || 1970, (m || 1) - 1, (d || 1) + days)).toISOString().slice(0, 10)
 }
 
+function ymdOf(value: unknown): string {
+  if (!value) return ''
+  if (value instanceof Date && !Number.isNaN(value.getTime())) return value.toISOString().slice(0, 10)
+  const m = String(value).match(/(\d{4}-\d{2}-\d{2})/)
+  return m?.[1] || ''
+}
+
 function mondayOfDateStr(dateStr: string): string {
   const [y, m, d] = dateStr.split('-').map(Number)
   const day = new Date(Date.UTC(y || 1970, (m || 1) - 1, d || 1)).getUTCDay()
@@ -1165,14 +1295,11 @@ function imageMimeFromBase64(base64: string): string {
   return 'image/jpeg'
 }
 
-function extractJson(text: string): Record<string, unknown> | null {
-  const fence = text.match(/\{[\s\S]*\}/)
-  if (!fence) return null
-  try {
-    return JSON.parse(fence[0]) as Record<string, unknown>
-  } catch {
-    return null
-  }
+/** Macros out of a reply no parser could rescue. Null when there is no calorie number to stand on. */
+function salvageMacros(text: string): { calories: number; protein: number; carbs: number; fat: number } | null {
+  const nums = extractNumericFields(text, ['calories', 'protein', 'carbs', 'fat'])
+  if (!('calories' in nums)) return null
+  return { calories: nums.calories!, protein: nums.protein ?? 0, carbs: nums.carbs ?? 0, fat: nums.fat ?? 0 }
 }
 
 /**
@@ -1202,7 +1329,8 @@ async function estimateNutrition(
   const system =
     'You are a nutrition estimator. Estimate the macronutrients of the described meal. ' +
     'Reply with JSON only: {"guess":"<short name>","calories":N,"protein":N,"carbs":N,"fat":N}. ' +
-    'protein/carbs/fat are grams, calories is kcal. Use realistic single-serving estimates.'
+    'protein/carbs/fat are grams, calories is kcal. Use realistic single-serving estimates. ' +
+    'Print the object and nothing else — no explanation, no markdown fence.'
 
   const userContent: unknown[] = imageBase64
     ? [
@@ -1224,7 +1352,9 @@ async function estimateNutrition(
         model,
         reasoning_effort: 'none',
         temperature: 0,
-        max_tokens: 320,
+        // A reasoning model that ignores reasoning_effort spends its budget
+        // thinking; at 320 the object was landing truncated or not at all.
+        max_tokens: 700,
         messages: [
           { role: 'system', content: system },
           { role: 'user', content: userContent },
@@ -1235,17 +1365,33 @@ async function estimateNutrition(
       const t = await res.text().catch(() => '')
       return { ok: false, error: `Estimator error ${res.status}: ${t.slice(0, 160)}` }
     }
-    const data = (await res.json()) as { choices?: Array<{ message?: { content?: string } }> }
-    const content = data.choices?.[0]?.message?.content || ''
-    const parsed = extractJson(content)
-    if (!parsed) return { ok: false, error: 'Could not parse the estimate. Try a clearer description.' }
+    const data = (await res.json()) as {
+      choices?: Array<{ message?: { content?: string; reasoning_content?: string } }>
+    }
+    const content = modelReplyText(data.choices?.[0]?.message)
+    // `calories` is what makes an object the answer rather than a draft or a shrug.
+    const parsed = extractJsonObject(content, ['calories'])
+    const macros = parsed
+      ? {
+          calories: clampNum(parsed.calories),
+          protein: clampNum(parsed.protein),
+          carbs: clampNum(parsed.carbs),
+          fat: clampNum(parsed.fat),
+        }
+      : salvageMacros(content)
+    if (!macros) {
+      console.warn('[nutrition] unreadable estimate:', content.slice(0, 200) || '(empty reply)')
+      return {
+        ok: false,
+        error: content.trim()
+          ? 'Could not read the estimate. Try naming the food and the portion.'
+          : 'The estimator sent back an empty reply. Try again.',
+      }
+    }
     return {
       ok: true,
-      guess: String(parsed.guess || description.slice(0, 60)),
-      calories: clampNum(parsed.calories),
-      protein: clampNum(parsed.protein),
-      carbs: clampNum(parsed.carbs),
-      fat: clampNum(parsed.fat),
+      guess: String(parsed?.guess || description.slice(0, 60) || 'meal'),
+      ...macros,
     }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
@@ -1504,7 +1650,7 @@ async function googleAccessToken(
 }
 
 async function fetchGmail(access: string, query: string, maxResults = 8) {
-  const cap = Math.max(1, Math.min(20, maxResults))
+  const cap = Math.max(1, Math.min(40, maxResults))
   const listUrl = new URL('https://gmail.googleapis.com/gmail/v1/users/me/messages')
   listUrl.searchParams.set('maxResults', String(cap))
   listUrl.searchParams.set('q', query)
@@ -1649,22 +1795,32 @@ async function loadCalendar(
 
 /** Compact one-line-per-email rendering so the model sees the whole batch. */
 function formatEmailOverview(data: unknown): string {
-  const items = Array.isArray(data)
-    ? data
-    : Array.isArray((data as { messages?: unknown[] } | null)?.messages)
-      ? (data as { messages: unknown[] }).messages
-      : []
-  if (!items.length) return 'No emails matched the query.'
-  const lines = items.map((raw) => {
-    const m = (raw || {}) as Record<string, unknown>
-    const subject = String(m.subject ?? m.subject_header ?? '')
-    const from =
-      String(m.from ?? m.sender ?? m.from_email ?? m.sender_email ?? '').replace(/<[^>]+>/g, '').trim()
-    const date = String(m.date ?? m.internalDate ?? m.receivedAt ?? m.timestamp ?? '')
-    const snippet = String(m.snippet ?? m.body_preview ?? '')
-    return `- ${from || '?'} | ${date || '?'} | ${subject || '(no subject)'} | ${snippet}`
-  })
-  return `Important email:\n${lines.join('\n')}`
+  return formatComposioMailBlock(parseComposioMailItems(data))
+}
+
+/**
+ * Composio's raw result for one tool, unformatted. `composioExecute` turns data
+ * into prose for the model; the mail rows need the structure kept so a message
+ * id survives to the client.
+ */
+async function composioExecuteData(userId: string, tool: string, args: Record<string, unknown>): Promise<unknown> {
+  const composio = composioClient()
+  if (!composio) return null
+  try {
+    const res = await composio.tools.execute(tool, {
+      userId,
+      arguments: args,
+      dangerouslySkipVersionCheck: true,
+    })
+    if (!res?.successful || res.error) {
+      console.warn(`[composio] ${tool} failed`, res?.error || 'unknown error')
+      return null
+    }
+    return res.data ?? null
+  } catch (err) {
+    console.warn(`[composio] ${tool} threw`, err instanceof Error ? err.message : String(err))
+    return null
+  }
 }
 
 async function composioExecute(userId: string, tool: string, args: Record<string, unknown>) {
@@ -1741,18 +1897,22 @@ async function runComposioPlugin(userId: string, id: string, message: string): P
   return out
 }
 
-/** Structured Gmail fetch: returns message id + headers, no text formatting. */
+/**
+ * Structured Gmail fetch: returns message id + headers, no text formatting.
+ * `null` means Google refused the list — distinct from an empty inbox, which is
+ * `[]`. The caller needs the difference to know whether to try Composio.
+ */
 async function fetchGmailRich(
   access: string,
   query: string,
   maxResults = 8,
-): Promise<Array<{ id: string; from: string; date: string; subject: string; snippet: string }>> {
-  const cap = Math.max(1, Math.min(20, maxResults))
+): Promise<Array<{ id: string; from: string; date: string; subject: string; snippet: string }> | null> {
+  const cap = Math.max(1, Math.min(40, maxResults))
   const listUrl = new URL('https://gmail.googleapis.com/gmail/v1/users/me/messages')
   listUrl.searchParams.set('maxResults', String(cap))
   listUrl.searchParams.set('q', query)
   const list = await fetch(listUrl, { headers: { Authorization: `Bearer ${access}` } })
-  if (!list.ok) return []
+  if (!list.ok) return null
   const data = (await list.json()) as { messages?: Array<{ id: string }> }
   const ids = (data.messages || []).slice(0, cap)
   const results = (
@@ -1776,7 +1936,55 @@ async function fetchGmailRich(
   return results
 }
 
-/** Like loadGmail but returns structured items with Gmail message IDs. Falls back to [] if Google token unavailable. */
+/** The Gmail read slugs from the plugin spec, first one that answers wins. */
+async function composioMailData(userId: string, args: Record<string, unknown>): Promise<unknown> {
+  for (const slug of COMPOSIO_READ.gmail!.slugs) {
+    const data = await composioExecuteData(userId, slug, args)
+    if (data != null) return data
+  }
+  return null
+}
+
+/** Gmail through Composio, for accounts that connected it that way. */
+async function composioGmailRich(
+  userId: string,
+  query: string,
+  maxResults = 8,
+): Promise<ComposioMailItem[]> {
+  const data = await composioMailData(userId, { max_results: maxResults, query, verbose: false })
+  if (data == null) return []
+  // A row with no message id cannot be opened later, so it is not offered.
+  return parseComposioMailItems(data)
+    .filter((m) => m.id)
+    .slice(0, maxResults)
+}
+
+/**
+ * One full message through Composio. The by-id read is tried first; if the
+ * connector does not expose it, fall back to a verbose recent-mail list and pick
+ * the matching row. The list is only reached on a tap, never on a page load.
+ */
+async function composioMailBody(userId: string, msgId: string): Promise<ComposioMailBody | null> {
+  const byId = await composioExecuteData(userId, 'GMAIL_FETCH_MESSAGE_BY_MESSAGE_ID', {
+    message_id: msgId,
+    user_id: 'me',
+    format: 'full',
+  })
+  const hasBody = (b: ComposioMailBody | null) => !!b && !!(b.bodyText || b.bodyHtml || b.snippet)
+  const direct = byId == null ? null : parseComposioMailBody(byId, msgId)
+  if (hasBody(direct)) return direct
+  const listed = await composioMailData(userId, { max_results: 25, query: 'newer_than:14d', verbose: true })
+  if (listed == null) return null
+  const found = parseComposioMailBody(listed, msgId)
+  return hasBody(found) ? found : null
+}
+
+/**
+ * Like loadGmail but returns structured items with Gmail message IDs. Google
+ * first, then Composio for accounts connected that way — without the fallback
+ * those accounts show an empty inbox on home and in the brief while Settings
+ * says Gmail is connected.
+ */
 async function loadGmailRich(
   sql: SQL,
   userId: string,
@@ -1785,8 +1993,11 @@ async function loadGmailRich(
 ): Promise<Array<{ id: string; from: string; date: string; subject: string; snippet: string }>> {
   try {
     const access = await googleAccessToken(sql, userId, 'gmail')
-    if (!access) return []
-    return await fetchGmailRich(access, query, maxResults)
+    if (access) {
+      const rich = await fetchGmailRich(access, query, maxResults)
+      if (rich) return rich
+    }
+    return await composioGmailRich(userId, query, maxResults)
   } catch {
     return []
   }
@@ -2201,31 +2412,35 @@ async function todayCalendarMeets(
 ): Promise<TodayResult> {
   const tz = user.timezone || 'America/Los_Angeles'
   const connected = (await connectedForUser(sql, user.id)).filter((id) => !PERSONA_DENIED[persona].has(id))
-  const calendarConnected = connected.includes('calendar')
-  if (!calendarConnected) return { meets: [], stay: null, calendarConnected: false }
-
   const myName = user.name || null
+
+  function stayWhere(title: string, place: string) {
+    const hotel = place || title.replace(/^(stay(?:ing)?(?:\s+at)?)\s+/i, '').trim()
+    return { title: hotel || title, place: place || hotel }
+  }
 
   function itemsToResult(items: CalItem[]): TodayResult {
     let stay: { title: string; place: string } | null = null
     const meets: TodayMeet[] = []
     for (const e of items) {
-      if (e.allDay) {
-        if (isHotelStayEvent(e) && !stay) {
-          const calParsed = parseCalMeet(e.title)
-          stay = { title: e.title, place: calParsed.place }
+      const calParsed = parseCalMeet(e.title)
+      const travel = e.allDay || isTravelOrStayTitle(e.title, calParsed.place) || isHotelStayEvent(e)
+      if (travel) {
+        if (!stay && (isHotelStayEvent(e) || isTravelOrStayTitle(e.title, calParsed.place))) {
+          stay = stayWhere(e.title, calParsed.place)
         }
         continue
       }
-      const who = extractOtherPerson(e.title, myName)
-      const calParsed = parseCalMeet(e.title)
-      meets.push({
+      const who = extractOtherPerson(e.title, myName) || calParsed.who || e.title
+      const row = {
         time: formatClock(e.start, tz),
         title: e.title,
-        who: who || calParsed.who || e.title,
+        who,
         place: calParsed.place,
         kind: e.kind,
-      })
+      }
+      if (!isPersonMeetSuggestion(row)) continue
+      meets.push(row)
     }
     return { meets, stay, calendarConnected: true }
   }
@@ -2239,6 +2454,24 @@ async function todayCalendarMeets(
     })
     if (got.ok) return itemsToResult(got.items)
   }
+  const cached = await googleEventsRaw(sql, user.id, {
+    timeMin: startOfLocalDay(tz),
+    timeMax: startOfLocalDay(tz, 1),
+    maxResults: 16,
+  }).catch(() => [])
+  if (cached.length) {
+    return itemsToResult(
+      cached.map((e) => ({
+        start: new Date(e.start),
+        title: e.title,
+        description: '',
+        allDay: !!e.allDay,
+        kind: 'Meeting',
+        rawStart: e.start,
+      })),
+    )
+  }
+  if (!connected.includes('calendar')) return { meets: [], stay: null, calendarConnected: false }
   const results = await withTimeout(
     runToolsForMessage(sql, {
       userId: user.id,
@@ -2252,14 +2485,19 @@ async function todayCalendarMeets(
   )
   const calendarBlock = results.find((t) => isCalendarToolResult(t))
   const calMeets = parseCalendarMeets(calendarBlock, tz).filter((e) => e.day === 'today')
-  const meets: TodayMeet[] = calMeets.map(({ time, title, who, place }) => ({
-    time,
-    title,
-    who: extractOtherPerson(title, myName) || who || title,
-    place,
-    kind: 'Meeting',
-  }))
-  return { meets, stay: null, calendarConnected: true }
+  let stay: { title: string; place: string } | null = null
+  const meets: TodayMeet[] = []
+  for (const e of calMeets) {
+    const who = extractOtherPerson(e.title, myName) || e.who || e.title
+    const row = { time: e.time, title: e.title, who, place: e.place, kind: 'Meeting' }
+    if (isTravelOrStayTitle(e.title, e.place) || isTravelOrStayTitle(who, e.place) || /^all day$/i.test(e.time)) {
+      if (!stay && isTravelOrStayTitle(e.title, e.place)) stay = stayWhere(e.title, e.place)
+      continue
+    }
+    if (!isPersonMeetSuggestion(row)) continue
+    meets.push(row)
+  }
+  return { meets, stay, calendarConnected: true }
 }
 
 /**
@@ -2268,7 +2506,12 @@ async function todayCalendarMeets(
  * Calendar uses fetchCalendarItems directly so "Calendar is not connected" error
  * strings never leak into the event list.
  */
-async function gmiBriefChat(system: string, user: string, maxTokens = 180): Promise<string | null> {
+async function gmiBriefChat(
+  system: string,
+  user: string,
+  maxTokens = 180,
+  timeoutMs = 5000,
+): Promise<string | null> {
   const cfg = nutritionModelConfig()
   if (!cfg) return null
   try {
@@ -2294,10 +2537,12 @@ async function gmiBriefChat(system: string, user: string, maxTokens = 180): Prom
           }),
         })
         if (!res.ok) return ''
-        const data = (await res.json()) as { choices?: Array<{ message?: { content?: string } }> }
-        return (data.choices?.[0]?.message?.content || '').trim()
+        const data = (await res.json()) as {
+          choices?: Array<{ message?: { content?: string; reasoning_content?: string } }>
+        }
+        return modelReplyText(data.choices?.[0]?.message)
       })(),
-      5000,
+      timeoutMs,
       '',
     )
     return raw || null
@@ -2306,22 +2551,165 @@ async function gmiBriefChat(system: string, user: string, maxTokens = 180): Prom
   }
 }
 
-/** Model judges a recent inbox batch. Empty on failure so we never dump promo. */
-async function judgeBriefMail<T extends { id: string; from: string; subject: string; snippet?: string }>(
-  items: T[],
-  limit = 5,
-): Promise<T[]> {
-  if (!items.length) return []
-  const batch: MailJudgeItem[] = items.slice(0, 12).map((m) => ({
+/**
+ * One model pass over an inbox batch, answering keep-or-drop and a pile name per
+ * mail. Returns a verdict per item the model reached; callers decide what to do
+ * with the rest. Empty map on failure, so every caller degrades on its own terms.
+ *
+ * Batch cap 20 with room for a line each — the old 180 tokens only had to carry
+ * a list of numbers.
+ */
+async function judgeMailBatch(
+  items: Array<{ id: string; from: string; subject: string; snippet?: string }>,
+  vocab: string[] = [],
+): Promise<Map<string, MailJudgeVerdict>> {
+  if (!items.length) return new Map()
+  const batch: MailJudgeItem[] = items.slice(0, 20).map((m) => ({
     id: m.id,
     from: m.from,
     subject: m.subject,
     snippet: m.snippet || '',
   }))
-  const raw = await gmiBriefChat(MAIL_JUDGE_SYSTEM, mailJudgePrompt(batch))
-  if (!raw) return []
-  const keep = new Set(parseMailJudgeKeepIds(raw, batch))
-  return items.filter((m) => keep.has(m.id)).slice(0, limit)
+  const raw = await gmiBriefChat(MAIL_JUDGE_SYSTEM, mailJudgePrompt(batch, vocab), 700, 8000)
+  if (!raw) return new Map()
+  return new Map(parseMailJudgeVerdicts(raw, batch).map((v) => [v.id, v]))
+}
+
+/** Model judges a recent inbox batch. Empty on failure so we never dump promo. */
+async function judgeBriefMail<T extends { id: string; from: string; subject: string; snippet?: string }>(
+  items: T[],
+  limit = 5,
+  vocab: string[] = [],
+): Promise<Array<T & { kind: string }>> {
+  const verdicts = await judgeMailBatch(items, vocab)
+  if (!verdicts.size) return []
+  return items
+    .filter((m) => verdicts.get(m.id)?.keep)
+    .slice(0, limit)
+    .map((m) => ({ ...m, kind: verdicts.get(m.id)?.kind || '' }))
+}
+
+/* ---- Home's slow half ----
+ * Everything on home that leaves this process: the calendar, the inbox, and the
+ * model pass that names the mail piles. It used to run inside the request, so
+ * opening home cost a Google round trip plus an LLM call every time even though
+ * none of it changes minute to minute. Now it loads through a stale-while-
+ * revalidate cache and the request only waits when there is nothing at all to
+ * show.
+ */
+type HomeWorld = {
+  upcoming: Array<{ time: string; title: string }>
+  mail: Array<{ from: string; subject: string }>
+  mailGroups: Array<{
+    kind: string
+    label: string
+    count: number
+    items: Array<{ id: string; from: string; subject: string; snippet?: string }>
+  }>
+}
+
+const EMPTY_HOME_WORLD: HomeWorld = { upcoming: [], mail: [], mailGroups: [] }
+const EMPTY_TODAY_RESULT: TodayResult = { meets: [], stay: null, calendarConnected: false }
+
+/* Today's meetings, read by home and by every screen that lists who you are
+ * seeing. One calendar fetch per user per minute and a half is plenty — an event
+ * booked elsewhere shows up on the next pull. */
+const todayMeetsCache = createStaleCache<TodayResult>({
+  ttlMs: 90_000,
+  maxWaitMs: 2_500,
+  failureCooldownMs: 15_000,
+  maxEntries: 200,
+  onError: (key, err) => console.warn('[calendar] today fetch failed', key, err),
+})
+
+/* 90s is short enough that a meeting booked from another device shows up on the
+ * next pull, and long enough that opening home twice in a minute is free. The
+ * 1.5s cold wait is the one case a user waits at all: it beats a blank Today
+ * section, and the load keeps going into the cache either way. */
+const homeWorldCache = createStaleCache<HomeWorld>({
+  ttlMs: 90_000,
+  maxWaitMs: 1_500,
+  failureCooldownMs: 15_000,
+  maxEntries: 200,
+  onError: (key, err) => console.warn('[home] world slice failed', key, err),
+})
+
+async function loadHomeWorld(sql: SQL, user: AuthedUser, tzLocal: string): Promise<HomeWorld> {
+  const world: HomeWorld = { upcoming: [], mail: [], mailGroups: [] }
+  const jobs: Array<Promise<void>> = []
+  jobs.push(
+    (async () => {
+      // Shared with /api/network, so opening home and the People list is one
+      // calendar fetch between them rather than two.
+      const cal = await withTimeout(
+        todayMeetsCache
+          .read(`${user.id}|friend`, () => todayCalendarMeets(sql, user, 'friend'))
+          .then((r) => r.value ?? EMPTY_TODAY_RESULT),
+        8000,
+        EMPTY_TODAY_RESULT,
+      )
+      world.upcoming = cal.meets
+        .filter((m) => isPersonMeetSuggestion(m))
+        .map((m) => ({ time: m.time, title: m.who || m.title }))
+      if (world.upcoming.length) return
+      const rows = await withTimeout(loadWorldCalendar(sql, user, tzLocal), 8000, [] as string[])
+      world.upcoming = rows
+        .slice(0, 8)
+        .map((line) => {
+          const parts = line.split(' · ')
+          return { time: parts[0] || '', title: parts.slice(1).join(' · ') || line }
+        })
+        .filter((e) => isPersonMeetSuggestion({ time: e.time, title: e.title, who: e.title }))
+    })(),
+  )
+  jobs.push(
+    withTimeout(
+      (async () => {
+        const rich = await loadGmailRich(sql, user.id, importantMailQuery('2d'), 12)
+        if (!rich.length) return []
+        const vocab = await loadMailKindVocab(sql, user.id)
+        const verdicts = await judgeMailBatch(rich, vocab)
+        const labelled: MailKindItem[] = rich.map((m) => ({ ...m, kind: verdicts.get(m.id)?.kind }))
+        // Home shows the whole batch grouped rather than a judged top three:
+        // the pile counts are what the section is for. Unjudged items still
+        // land somewhere via the regex fallback inside groupMailByKind.
+        const groups = groupMailByKind(labelled, { vocab, maxGroups: 4 })
+        // Not awaited: the vocabulary is an optimisation for tomorrow's run,
+        // and it must not spend this request's mail budget. It swallows its
+        // own errors, so there is nothing here to reject.
+        void saveMailKindVocab(sql, user.id, groups)
+        return groups
+      })(),
+      8000,
+      [] as ReturnType<typeof groupMailByKind>,
+    ).then((groups) => {
+      world.mailGroups = groups.map((g) => ({
+        kind: g.kind,
+        label: g.label,
+        count: g.count,
+        items: g.items.slice(0, 4).map((m) => ({
+          id: m.id,
+          from: m.from,
+          subject: m.subject,
+          snippet: cleanMailSnippet(m.snippet || ''),
+        })),
+      }))
+      // The flat list stays alongside the groups so a client built before this
+      // change still shows mail instead of an empty section.
+      world.mail = groups
+        .flatMap((g) => g.items)
+        .slice(0, 3)
+        .map((m) => ({ from: m.from, subject: m.subject }))
+    }),
+  )
+  // One failing half must not throw away the other half, and a wholly failed
+  // load must reject so the cache keeps the last good answer instead of caching
+  // emptiness for ninety seconds.
+  const settled = await Promise.allSettled(jobs)
+  const failures = settled.filter((s) => s.status === 'rejected')
+  if (failures.length === settled.length) throw (failures[0] as PromiseRejectedResult).reason
+  for (const failure of failures) console.warn('[home] world job failed', (failure as PromiseRejectedResult).reason)
+  return world
 }
 
 async function digestPayload(
@@ -2330,116 +2718,146 @@ async function digestPayload(
   persona: Persona,
 ) {
   const tz = user.timezone || 'America/Los_Angeles'
-  const connected = (await connectedForUser(sql, user.id)).filter(
-    (id) => !PERSONA_DENIED[persona].has(id),
-  )
 
-  const todayStart = startOfLocalDay(tz)
   const tomorrowStart = startOfLocalDay(tz, 1)
   const dayAfterStart = startOfLocalDay(tz, 2)
-  const todayYmd = todayStart.toLocaleDateString('en-CA', { timeZone: tz })
   const tomorrowYmd = tomorrowStart.toLocaleDateString('en-CA', { timeZone: tz })
 
-  // Fetch calendar directly — never via runToolsForMessage which can return
-  // "Calendar is not connected" error strings that pollute the event list.
-  const todayCalItems: CalItem[] = []
-  const tomorrowCalItems: CalItem[] = []
+  const calToday = await todayCalendarMeets(sql, user, persona)
+  const beats = calToday.meets
+    .filter((m) => isPersonMeetSuggestion(m))
+    .map((m) => ({ time: m.time, name: m.who || m.title, kind: m.kind }))
+  const todayCal = beats.map((b) =>
+    b.kind && b.kind !== 'Meeting' ? `${b.time} · ${b.name} · ${b.kind}` : `${b.time} · ${b.name}`,
+  )
 
-  if (connected.includes('calendar')) {
-    const access = await googleAccessToken(sql, user.id, 'calendar')
-    if (access) {
-      const got = await fetchCalendarItems(access, {
-        timeMin: todayStart,
-        timeMax: dayAfterStart,
-        maxResults: 20,
-      })
-      if (got.ok) {
-        for (const e of got.items) {
-          const ymd = e.start.toLocaleDateString('en-CA', { timeZone: tz })
-          if (ymd === todayYmd) todayCalItems.push(e)
-          else if (ymd === tomorrowYmd) tomorrowCalItems.push(e)
-        }
+  const tomorrowCalItems: CalItem[] = []
+  const access = await googleAccessToken(sql, user.id, 'calendar')
+  if (access) {
+    const got = await fetchCalendarItems(access, {
+      timeMin: tomorrowStart,
+      timeMax: dayAfterStart,
+      maxResults: 12,
+    })
+    if (got.ok) {
+      for (const e of got.items) {
+        const ymd = e.start.toLocaleDateString('en-CA', { timeZone: tz })
+        if (ymd === tomorrowYmd && !isHotelStayEvent(e)) tomorrowCalItems.push(e)
       }
     }
   }
 
   const myName = user.name || null
-  const todayCal = todayCalItems
-    .filter((e) => eventStartsByEightPm(e, tz))
-    .map((e) => formatDigestEventLabel(e, tz, myName))
-  const tomorrowCal = tomorrowCalItems
-    .filter((e) => !isHotelStayEvent(e))
-    .map((e) => formatDigestEventLabel(e, tz, myName))
+  const tomorrowCal = tomorrowCalItems.map((e) => formatDigestEventLabel(e, tz, myName))
 
   // Pass empty events[] so the frontend never shows Yes/No RSVP buttons.
   // The brief is a read-only view; calendar is already in todayCal.
   const events: Array<{ id: string; label: string }> = []
 
-  // Email: modest recent inbox, then a model judges what is actually useful.
+  // Email: last three days of inbox (minus promo tabs), grouped so replies
+  // and assessments do not hide behind one judged pick.
   let finalEmailItems: Array<{ id: string; label: string; snippet?: string }> = []
   let finalEmails: string[] = []
-
-  if (connected.includes('gmail')) {
-    try {
-      const richItems = await withTimeout(
-        loadGmailRich(
-          sql,
-          user.id,
-          importantMailQuery('16h'),
-          12,
-        ),
-        6000,
-        [] as Array<{ id: string; from: string; date: string; subject: string; snippet: string }>,
-      )
-      const kept = await judgeBriefMail(richItems, 5)
-      if (kept.length) {
-        finalEmailItems = kept.map((m) => ({
-          id: m.id,
-          label: formatMailLineFromParts(m.from, m.subject),
-          snippet: cleanMailSnippet(m.snippet),
-        }))
-        finalEmails = finalEmailItems.map((e) => e.label)
-      }
-    } catch {
-      // best-effort
-    }
+  let mailGroups: Array<{ kind: string; label: string; count: number; items: Array<{ id: string; label: string; snippet?: string }> }> = []
+  let mailTallyLine = ''
+  let needsYou: Array<{ id: string; label: string; snippet?: string; score: number; reasons: string[] }> = []
+  try {
+    const richItems = await withTimeout(
+      loadGmailRich(sql, user.id, importantMailQuery('3d'), 30),
+      12000,
+      [] as Array<{ id: string; from: string; date: string; subject: string; snippet: string }>,
+    )
+    // The judge names a pile per mail; the batch it cannot reach, and a run where
+    // the model is unavailable, fall back to the regex kinds inside groupMailByKind.
+    // The full batch is still shown either way — the groups are the filter here,
+    // not the judge's keep list.
+    const vocab = await loadMailKindVocab(sql, user.id)
+    const verdicts = await judgeMailBatch(richItems, vocab)
+    const labelled: MailKindItem[] = richItems.map((m) => ({ ...m, kind: verdicts.get(m.id)?.kind }))
+    // Needs You: the three mails most likely to need the user today, scored on
+    // ask language, deadlines, judged kind, and their own reply history. Lead
+    // items leave the piles so nothing shows twice.
+    const signals = await loadMailSenderSignals(sql, user.id)
+    const leads = topNeedsYou(
+      labelled.filter((m) => m.id && !m.id.startsWith('text-')),
+      (key) => signals.get(key),
+      3,
+    ).filter((m) => m.score >= 55)
+    const leadIds = new Set(leads.map((m) => m.id))
+    needsYou = leads.map((m) => ({
+      id: m.id,
+      label: formatMailLineFromParts(m.from, m.subject),
+      snippet: cleanMailSnippet(m.snippet || ''),
+      score: Math.round(m.score),
+      reasons: m.reasons,
+    }))
+    const grouped = groupMailByKind(
+      labelled.filter((m) => !leadIds.has(m.id)),
+      { vocab },
+    )
+    mailGroups = grouped.map((g) => ({
+      kind: g.kind,
+      label: g.label,
+      count: g.count,
+      items: g.items.map((m) => ({
+        id: m.id,
+        label: formatMailLineFromParts(m.from, m.subject),
+        snippet: cleanMailSnippet(m.snippet || ''),
+      })),
+    }))
+    mailTallyLine = mailTally(grouped)
+    finalEmailItems = mailGroups.flatMap((g) => g.items)
+    finalEmails = finalEmailItems.map((e) => e.label)
+    await saveMailKindVocab(sql, user.id, grouped)
+  } catch {
+    // best-effort
   }
-  if (!finalEmails.length && connected.includes('gmail')) {
+  if (!finalEmails.length) {
     try {
       const mailBlock = await withTimeout(
-        loadGmail(
-          sql,
-          user.id,
-          importantMailQuery('16h'),
-          12,
-        ),
-        6000,
+        loadGmail(sql, user.id, importantMailQuery('3d'), 20),
+        8000,
         '',
       )
-      const rows = digestLines(mailBlock).map((line, i) => {
-        const [from, , subject] = line.replace(/^-\s*/, '').split(' | ')
-        return {
-          id: `text-${i}`,
-          from: from || '',
-          subject: subject || formatMailLine(line),
+      const rows = digestLines(mailBlock)
+        .map((line, i) => {
+          const [from, , subject] = line.replace(/^-\s*/, '').split(' | ')
+          return {
+            id: `text-${i}`,
+            from: from || '',
+            subject: subject || formatMailLine(line),
+            snippet: '',
+          }
+        })
+        .filter((m) => m.from || m.subject)
+      const grouped = groupBriefMail(rows)
+      mailGroups = grouped.map((g) => ({
+        kind: g.kind,
+        label: g.label,
+        count: g.count,
+        items: g.items.map((m) => ({
+          id: m.id,
+          label: formatMailLineFromParts(m.from, m.subject),
           snippet: '',
-        }
-      })
-      const kept = await judgeBriefMail(rows, 5)
-      finalEmails = kept.map((m) => formatMailLineFromParts(m.from, m.subject))
+        })),
+      }))
+      mailTallyLine = mailTally(grouped)
+      finalEmailItems = mailGroups.flatMap((g) => g.items)
+      finalEmails = finalEmailItems.map((e) => e.label)
     } catch {
       // best-effort
     }
   }
 
   const reminderRows = await sql`
-    SELECT text, scheduled_at AS "scheduledAt" FROM hire_reminders
+    SELECT id, text, scheduled_at AS "scheduledAt" FROM hire_reminders
     WHERE user_id = ${user.id} AND persona = ${persona} AND status = 'pending'
     ORDER BY scheduled_at ASC LIMIT 8
   `
-  const reminders = (reminderRows as { text: string; scheduledAt: Date }[])
-    .filter((r) => !/^\[(judge|poke)\]/i.test(r.text))
+  const reminders = (reminderRows as { id: string; text: string; scheduledAt: Date }[])
+    .filter((r) => !/^\[(judge|poke)\]/i.test(r.text) && !/daily brief|morning brief|evening brief/i.test(r.text))
     .map((r) => ({
+      id: r.id,
       time: formatCalTime(new Date(r.scheduledAt).toISOString(), tz),
       text: r.text.replace(/^\[digest\]/i, '').trim() || r.text,
     }))
@@ -2471,35 +2889,227 @@ async function digestPayload(
   const brief = hour >= 16 ? 'evening' : 'morning'
   const wrapTitle = brief === 'evening' ? 'Evening brief' : 'Morning brief'
 
+  const todayLocal = localDateStrInTz(new Date(), tz)
+  const lastNightKey = shiftDateStr(todayLocal, -1)
+  const lastNightRow = (await sql`
+    SELECT sleep_date AS "sleepDate", bedtime, wake, quality FROM hire_sleep
+    WHERE user_id = ${user.id} AND (sleep_date = ${lastNightKey} OR sleep_date = ${todayLocal})
+    ORDER BY sleep_date DESC LIMIT 1
+  `)[0] as { bedtime?: string; wake?: string; quality?: number } | undefined
+  const lastNightLogged = !!(lastNightRow?.bedtime && lastNightRow?.wake)
+  const lastNightHours = lastNightLogged
+    ? sleepHoursBetween(lastNightRow!.bedtime!, lastNightRow!.wake!)
+    : 0
+
+  // Fact strip: closed facts from the user's own logs, one source of truth per
+  // fact. A gap never appears here and in the DO card at the same time.
+  const factLine: Array<{ key: string; text: string; state: 'ok' | 'gap'; openKind?: string }> = []
+  if (lastNightLogged) {
+    const h = Math.floor(lastNightHours)
+    const m = Math.round((lastNightHours - h) * 60)
+    const q = lastNightRow!.quality && lastNightRow!.quality !== 3 ? `, quality ${lastNightRow!.quality}` : ''
+    factLine.push({
+      key: 'sleep',
+      state: 'ok',
+      text: `You slept ${h}${m ? `h ${m}m${q}` : 'h'}${m ? '' : q}`,
+      openKind: 'sleep_tracker',
+    })
+  }
+  try {
+    const weekStartLocal = mondayOfDateStr(todayLocal)
+    const liftRows = await sql`
+      SELECT count(*)::int AS n FROM hire_workouts
+      WHERE user_id = ${user.id} AND (logged_at AT TIME ZONE ${tz})::date >= ${weekStartLocal}
+    `
+    const liftsThisWeek = Number((liftRows[0] as { n?: number })?.n) || 0
+    if (liftsThisWeek > 0) {
+      factLine.push({ key: 'lifts', state: 'ok', text: `${liftsThisWeek} lift${liftsThisWeek === 1 ? '' : 's'} this week`, openKind: 'workout_log' })
+    }
+    const spendRows = await sql`
+      SELECT coalesce(sum(amount), 0)::float AS total FROM hire_spending
+      WHERE user_id = ${user.id} AND (spent_at AT TIME ZONE ${tz})::date >= ${weekStartLocal}
+    `
+    const spendWeek = Number((spendRows[0] as { total?: number })?.total) || 0
+    if (spendWeek > 0) {
+      const budgetRow = (await sql`
+        SELECT weekly_budget AS "weeklyBudget" FROM hire_spending_budget WHERE user_id = ${user.id}
+      `)[0] as { weeklyBudget?: number } | undefined
+      const budget = Math.round(budgetRow?.weeklyBudget || 0)
+      factLine.push(
+        budget > 0
+          ? { key: 'spend', state: spendWeek > budget ? 'gap' : 'ok', text: `$${Math.round(spendWeek)} of $${budget} spent`, openKind: 'spending_snapshot' }
+          : { key: 'spend', state: 'ok', text: `$${Math.round(spendWeek)} spent this week`, openKind: 'spending_snapshot' },
+      )
+    }
+    const habitRows = await sql`SELECT id FROM hire_habits WHERE user_id = ${user.id}`
+    if ((habitRows as unknown[]).length) {
+      const logRows = await sql`
+        SELECT habit_id AS "habitId", date FROM hire_habit_logs
+        WHERE user_id = ${user.id} AND date >= ${shiftDateStr(todayLocal, -180)}
+      `
+      const byHabit = new Map<string, Set<string>>()
+      for (const lr of logRows as Array<{ habitId: string; date: string }>) {
+        if (!byHabit.has(lr.habitId)) byHabit.set(lr.habitId, new Set())
+        byHabit.get(lr.habitId)!.add(String(lr.date).slice(0, 10))
+      }
+      let best = 0
+      for (const dates of byHabit.values()) {
+        let cursor = dates.has(todayLocal) ? todayLocal : shiftDateStr(todayLocal, -1)
+        let streak = 0
+        while (dates.has(cursor)) {
+          streak++
+          cursor = shiftDateStr(cursor, -1)
+        }
+        best = Math.max(best, streak)
+      }
+      if (best >= 2) {
+        factLine.push({ key: 'habits', state: 'ok', text: `${best} day habit best`, openKind: 'habit_streak' })
+      }
+    }
+  } catch {
+    // Facts are decoration; a missing table must not take the brief down.
+  }
+
+
+  const duePeopleRows = await sql`
+    SELECT name, phone, last_touch AS "lastTouch", cadence_days AS "cadenceDays"
+    FROM hire_network WHERE user_id = ${user.id}
+    ORDER BY coalesce(last_touch, '1970-01-01'::timestamptz) ASC LIMIT 8
+  `
+  const peopleDue = (duePeopleRows as Array<{
+    name: string; phone: string; lastTouch: Date | null; cadenceDays: number
+  }>)
+    .map((p) => {
+      const days = p.lastTouch ? Math.floor((Date.now() - new Date(p.lastTouch).getTime()) / 86400000) : 999
+      return { name: p.name, days, phone: p.phone || undefined, due: days >= (p.cadenceDays || 14) }
+    })
+    .filter((p) => p.due)
+    .slice(0, 3)
+    .map(({ name, days, phone }) => ({ name, days, phone }))
+
+  const nextBeat = beats[0]
+  const lead = nextBeat
+    ? `${nextBeat.name} at ${nextBeat.time}`
+    : peopleDue[0]
+      ? `${peopleDue[0].name} is due`
+      : lastNightLogged
+        ? `Last night ${Math.round(lastNightHours * 10) / 10}h`
+        : calToday.calendarConnected
+          ? 'A quiet day so far'
+          : 'Connect Calendar in Settings'
+  const first = (nextBeat?.name || '').trim().split(/\s+/)[0] || 'them'
+  const leadReason = (reasons: string[]): string => {
+    if (reasons.includes('waiting_on_you')) return 'They are waiting on you.'
+    if (reasons.includes('deadline')) return 'There is a deadline on this.'
+    if (reasons.includes('vip_sender')) return 'You usually reply to them.'
+    return 'This rose to the top of your mail.'
+  }
+  // One card, strict priority: an unlogged night before the day starts, then a
+  // hot mail, then prep for the next commitment, then a person gone cold.
+  const storyDo = !lastNightLogged && hour < 14
+    ? {
+        kicker: 'Last night',
+        title: 'Log last night',
+        hint: 'Bed and wake. Then the day can start.',
+        cta: 'Log sleep',
+        openKind: 'sleep_tracker',
+        kind: 'sleep_log',
+      }
+    : needsYou[0]
+      ? {
+          kicker: 'Needs you',
+          title: needsYou[0].label,
+          hint: leadReason(needsYou[0].reasons),
+          cta: 'Open mail',
+          openKind: 'digest',
+          kind: 'mail',
+        }
+      : nextBeat
+        ? {
+            kicker: 'Next',
+            title: `${nextBeat.time}  ${nextBeat.name}`,
+            hint: `Get prepped for ${first}.`,
+            cta: 'Prep me',
+            openKind: 'digest',
+            kind: 'prep',
+            prepName: nextBeat.name,
+          }
+        : peopleDue[0]
+          ? {
+              kicker: 'Due',
+              title: `Ping ${peopleDue[0].name}`,
+              hint: 'They are due a follow up. Text Alpha to send it.',
+              cta: 'Draft it',
+              openKind: 'networking_crm',
+              kind: 'ping',
+            }
+          : {
+              kicker: 'Today',
+              title: 'Nothing is on fire',
+              hint: 'Text Alpha if you need a prep or a ping.',
+              cta: 'Home',
+              openKind: 'apps',
+              kind: 'quiet',
+            }
+
   const section = (title: string, items: string[]) =>
     items.length ? `${title}\n${items.join('\n')}` : null
 
-  const mailSection = finalEmails.length ? section('Important mail', finalEmails) : 'Important mail\nNo important mail'
-
   const text = [
     `${PERSONA_LABEL[persona]} · ${wrapTitle} · ${dateLabel}`,
-    section('Today', todayCal) || 'Today\nNothing on the calendar.',
+    lead,
+    section('The day', todayCal),
     section('Tomorrow', tomorrowCal),
-    mailSection,
-    section('Reminders', reminders.map((r) => `${r.time} · ${r.text}`)),
+    section('Mail', mailTallyLine ? [mailTallyLine, ...finalEmails] : finalEmails),
+    section('Due a ping', peopleDue.map((p) => `${p.name} · ${p.days} days`)),
+    section('Do not forget', reminders.map((r) => `${r.time} · ${r.text}`)),
     section('Promises', loops),
   ]
     .filter(Boolean)
     .join('\n\n')
 
-  const preview = formatBriefPreview({ calendar: todayCal, emails: finalEmails, tomorrow: tomorrowCal })
+  const preview = formatBriefPreview({ calendar: todayCal, emails: finalEmails, tomorrow: tomorrowCal, lead })
 
-  // calendar = today events only (tomorrow is separate)
-  return { date: dateLabel, calendar: todayCal, emails: finalEmails, emailItems: finalEmailItems, reminders, loops, tomorrow: tomorrowCal, events, text, preview, brief }
+  return {
+    date: dateLabel,
+    calendar: todayCal,
+    emails: finalEmails,
+    emailItems: finalEmailItems,
+    mailGroups,
+    mailTally: mailTallyLine,
+    needsYou,
+    factLine,
+    reminders,
+    loops,
+    tomorrow: tomorrowCal,
+    events,
+    text,
+    preview,
+    brief,
+    story: {
+      kicker: brief === 'evening' ? 'Evening' : 'Morning',
+      date: dateLabel,
+      lead,
+      do: storyDo,
+      beats,
+      asks: finalEmailItems,
+      mailGroups,
+      mailTally: mailTallyLine,
+      needsYou,
+      factLine,
+      due: peopleDue,
+      later: tomorrowCal.slice(0, 2),
+      calendarConnected: calToday.calendarConnected,
+    },
+  }
 }
 
 /** Mini apps each hire can offer, mirroring src/agents/skills.ts. */
 const PERSONA_MINI_APPS: Record<Persona, string[]> = {
   friend: [
-    'digest', 'next_move', 'check_in', 'pick_night', 'open_loops', 'drop_zone',
+    'digest', 'home', 'tonight', 'pick_night', 'body', 'later', 'check_in', 'open_loops', 'drop_zone',
     'nutrition', 'habit_streak', 'mood_tracker', 'workout_log', 'learning_queue', 'weekly_review',
-    'networking_crm', 'sleep_tracker', 'spending_snapshot', 'mirror', 'gratitude_journal', 'spiral_options', 'relationship_radar',
-    'approve_send', 'pick_slot',
+    'networking_crm', 'sleep_tracker', 'spending_snapshot', 'gratitude_journal', 'spiral_options', 'relationship_radar',
   ],
   coworker: [
     'digest', 'next_move', 'approve_send', 'pick_slot', 'standup_paste', 'linear_triage', 'open_loops',
@@ -3076,14 +3686,16 @@ async function loadWorldCalendar(
   tz: string,
 ): Promise<string[]> {
   const now = new Date()
-  const until = new Date(now.getTime() + 8 * 60 * 60 * 1000)
+  const eightHours = new Date(now.getTime() + 8 * 60 * 60 * 1000)
+  const endOfDay = startOfLocalDay(tz, 1)
+  const until = endOfDay.getTime() > eightHours.getTime() ? endOfDay : eightHours
   const myName = user.name || null
   const access = await googleAccessToken(sql, user.id, 'calendar')
   if (access) {
-    const got = await fetchCalendarItems(access, { timeMin: now, timeMax: until, maxResults: 8 })
+    const got = await fetchCalendarItems(access, { timeMin: now, timeMax: until, maxResults: 16 })
     if (got.ok) return got.items.map((e) => formatDigestEventLabel(e, tz, myName))
   }
-  const rows = await googleEventsRaw(sql, user.id, { timeMin: now, timeMax: until, maxResults: 8 })
+  const rows = await googleEventsRaw(sql, user.id, { timeMin: now, timeMax: until, maxResults: 16 })
   return rows.map((e) => {
     const start = e.allDay ? 'All day' : formatClock(new Date(e.start), tz)
     return `${start} · ${e.title}`
@@ -3501,7 +4113,10 @@ async function judgmentStatePayload(
     ORDER BY sleep_date DESC LIMIT 7
   `
   const srow = (sleepRows as Array<{ sleepDate?: string; bedtime?: string; wake?: string; quality?: number }>).find(
-    (r) => String(r.sleepDate || '').slice(0, 10) === lastNight && r.bedtime && r.wake,
+    (r) => {
+      const d = ymdOf(r.sleepDate)
+      return (d === lastNight || d === today) && r.bedtime && r.wake
+    },
   )
   const sleep = srow
     ? { hours: sleepHoursBetween(srow.bedtime!, srow.wake!), quality: srow.quality || 3, date: lastNight }
@@ -3758,6 +4373,37 @@ async function miniPayload(
     timeZone: tz,
   })
 
+  if (kind === 'tonight') {
+    const location = await pickActiveLocation(sql, user.id)
+    const mapsQuery = String(context.tonight_query || 'dinner restaurant').trim() || 'dinner restaurant'
+    const mapsRaw = await fetchMapSearch(mapsQuery, timezoneCountry(tz), location)
+    const places: Array<{ label: string; link?: string }> = []
+    for (const line of mapsRaw.split('\n')) {
+      if (!line.startsWith('- ')) continue
+      const link = line.match(/https:\/\/\S+/)?.[0]
+      const label = line
+        .replace(/^- /, '')
+        .replace(/\s+https:\/\/\S+/, '')
+        .trim()
+      if (label) places.push({ label, link })
+    }
+    const hour = Number(
+      new Date().toLocaleString('en-US', { hour: 'numeric', hour12: false, timeZone: tz }),
+    )
+    const vibe =
+      hour >= 21 ? 'Wind down early if last night was short.' : hour >= 17 ? 'Evening is open.' : 'Plan ahead while the day is light.'
+    const sections = [
+      {
+        heading: places.length ? 'Places' : 'Tonight',
+        items: places.length
+          ? places.slice(0, 5).map((p) => (p.link ? `${p.label}\n${p.link}` : p.label))
+          : [mapsRaw.split('\n').find(Boolean) || 'Tell Alpha in or out and a neighborhood.'],
+      },
+      { heading: 'The read', items: [vibe] },
+    ]
+    return { kind, title: 'Tonight', date: dateLabel, sections, text: mapsRaw }
+  }
+
   if (kind === 'pick_night') {
     // Evening brief: what happened today, what's left, mail since morning, tomorrow.
     const nowMs = Date.now()
@@ -3878,6 +4524,169 @@ async function miniPayload(
 
     const formatEvent = (e: EveningEvent) => `${e.time}  ${e.who || e.title}  ${e.meetKind}`
 
+    // The day, closed: every fact below comes from a log table, never invented.
+    // The checklist and score let the evening brief answer "how did today go"
+    // instead of only listing what is left on the calendar.
+    interface EveningDayFact {
+      key: string
+      label: string
+      detail: string
+      state: 'done' | 'miss' | 'partial'
+    }
+    const dayFacts: EveningDayFact[] = []
+    const habitsToday: Array<{ id: string; name: string; emoji: string; done: boolean }> = []
+    const carryOver: Array<{ id: string; title: string; dueLabel?: string }> = []
+    let dayScore: { points: number; verdict: string } | null = null
+    try {
+      const workoutRows = await sql`
+        SELECT count(*)::int AS n FROM hire_workouts
+        WHERE user_id = ${user.id} AND (logged_at AT TIME ZONE ${tz})::date = ${todayYmd}
+      `
+      const workoutsToday = Number((workoutRows[0] as { n?: number })?.n) || 0
+      dayFacts.push(
+        workoutsToday > 0
+          ? { key: 'workout', label: 'Lifted', detail: `${workoutsToday} move${workoutsToday === 1 ? '' : 's'} logged`, state: 'done' }
+          : { key: 'workout', label: 'No lift', detail: 'Nothing logged today', state: 'miss' },
+      )
+
+      const nutRows = await sql`
+        SELECT coalesce(sum(calories), 0)::float AS calories, coalesce(sum(protein), 0)::float AS protein,
+               count(*)::int AS meals
+        FROM hire_nutrition_logs
+        WHERE user_id = ${user.id} AND (eaten_at AT TIME ZONE ${tz})::date = ${todayYmd}
+      `
+      const nut = (nutRows[0] ?? {}) as { calories?: number; protein?: number; meals?: number }
+      const mealsLogged = Number(nut.meals) || 0
+      if (mealsLogged > 0) {
+        const goalsRow = (await sql`
+          SELECT calorie_goal AS "calorieGoal", protein_goal AS "proteinGoal"
+          FROM hire_nutrition_goals WHERE user_id = ${user.id}
+        `)[0] as { calorieGoal?: number; proteinGoal?: number } | undefined
+        const cal = Math.round(Number(nut.calories) || 0)
+        const protein = Math.round(Number(nut.protein) || 0)
+        const calGoal = Math.round(goalsRow?.calorieGoal || 2200)
+        const proteinGoal = Math.round(goalsRow?.proteinGoal || 150)
+        dayFacts.push({
+          key: 'food',
+          label: 'Food',
+          detail: `${protein}g protein of ${proteinGoal}, ${cal} of ${calGoal} calories`,
+          state: protein >= proteinGoal * 0.6 ? 'done' : 'partial',
+        })
+      }
+
+      const habitRowsE = await sql`
+        SELECT h.id, h.name, h.emoji,
+               EXISTS (SELECT 1 FROM hire_habit_logs l WHERE l.habit_id = h.id AND l.date = ${todayYmd}) AS done
+        FROM hire_habits h WHERE h.user_id = ${user.id} ORDER BY h.created_at ASC
+      `
+      for (const h of habitRowsE as Array<{ id: string; name: string; emoji: string; done: boolean }>) {
+        habitsToday.push({ id: h.id, name: h.name, emoji: h.emoji, done: !!h.done })
+      }
+      const habitsDone = habitsToday.filter((h) => h.done).length
+      if (habitsToday.length) {
+        dayFacts.push({
+          key: 'habits',
+          label: 'Habits',
+          detail: `${habitsDone} of ${habitsToday.length}`,
+          state: habitsDone === habitsToday.length ? 'done' : habitsDone > 0 ? 'partial' : 'miss',
+        })
+      }
+
+      const weekStartNight = mondayOfDateStr(todayYmd)
+      const spendRowsE = await sql`
+        SELECT coalesce(sum(amount), 0)::float AS total FROM hire_spending
+        WHERE user_id = ${user.id} AND (spent_at AT TIME ZONE ${tz})::date >= ${weekStartNight}
+      `
+      const spendWeekN = Number((spendRowsE[0] as { total?: number })?.total) || 0
+      if (spendWeekN > 0) {
+        const budgetRowN = (await sql`
+          SELECT weekly_budget AS "weeklyBudget" FROM hire_spending_budget WHERE user_id = ${user.id}
+        `)[0] as { weeklyBudget?: number } | undefined
+        const budgetN = Math.round(budgetRowN?.weeklyBudget || 400)
+        dayFacts.push({
+          key: 'spend',
+          label: 'Spent this week',
+          detail: `$${Math.round(spendWeekN)} of $${budgetN}`,
+          state: spendWeekN <= budgetN ? 'done' : 'miss',
+        })
+      }
+
+      {
+        const rows = await sql`
+          SELECT count(*)::int AS n FROM hire_gratitude
+          WHERE user_id = ${user.id} AND (created_at AT TIME ZONE ${tz})::date = ${todayYmd}
+        `
+        const n = Number((rows[0] as { n?: number })?.n) || 0
+        dayFacts.push(
+          n > 0
+            ? { key: 'gratitude', label: 'Gratitude', detail: 'Logged', state: 'done' }
+            : { key: 'gratitude', label: 'Gratitude not logged', detail: '', state: 'miss' },
+        )
+      }
+      {
+        const rows = await sql`
+          SELECT count(*)::int AS n FROM hire_moods
+          WHERE user_id = ${user.id} AND (created_at AT TIME ZONE ${tz})::date = ${todayYmd}
+        `
+        const n = Number((rows[0] as { n?: number })?.n) || 0
+        dayFacts.push(
+          n > 0
+            ? { key: 'mood', label: 'Mood', detail: 'Logged', state: 'done' }
+            : { key: 'mood', label: 'Mood not logged', detail: '', state: 'miss' },
+        )
+      }
+
+      const lastNightE = (await sql`
+        SELECT bedtime, wake FROM hire_sleep
+        WHERE user_id = ${user.id} AND sleep_date IN (${todayYmd}, ${shiftDateStr(todayYmd, -1)})
+        ORDER BY sleep_date DESC LIMIT 1
+      `)[0] as { bedtime?: string; wake?: string } | undefined
+      const nightHoursE =
+        lastNightE?.bedtime && lastNightE?.wake ? sleepHoursBetween(lastNightE.bedtime, lastNightE.wake) : 0
+
+      const hasSignal =
+        workoutsToday > 0 || mealsLogged > 0 || habitsToday.length > 0 || nightHoursE > 0 ||
+        dayFacts.some((f) => f.state === 'done')
+      if (hasSignal) {
+        let points = 50
+        points += workoutsToday > 0 ? 15 : -10
+        if (mealsLogged > 0) {
+          const f = dayFacts.find((x) => x.key === 'food')
+          points += f?.state === 'done' ? 10 : -5
+        }
+        if (habitsToday.length) {
+          const ratio = habitsDone / habitsToday.length
+          points += Math.round(ratio * 20 - 10)
+        }
+        const sf = dayFacts.find((x) => x.key === 'spend')
+        if (sf) points += sf.state === 'done' ? 5 : -10
+        points += dayFacts.some((f) => f.key === 'gratitude' && f.state === 'done') ? 5 : 0
+        points += dayFacts.some((f) => f.key === 'mood' && f.state === 'done') ? 5 : 0
+        if (nightHoursE >= 7) points += 10
+        else if (nightHoursE > 0 && nightHoursE < 6) points -= 10
+        points = Math.max(0, Math.min(100, points))
+        const verdict = points >= 75 ? 'strong' : points >= 60 ? 'solid' : points >= 45 ? 'decent' : points >= 30 ? 'rough' : 'wrecked'
+        dayScore = { points, verdict }
+      }
+
+      const loopRowsE = await sql`
+        SELECT id, title, due_at AS "dueAt" FROM hire_loops
+        WHERE user_id = ${user.id} AND persona = ${persona} AND status = 'open'
+          AND due_at IS NOT NULL AND (due_at AT TIME ZONE ${tz})::date <= ${todayYmd}
+        ORDER BY due_at ASC LIMIT 5
+      `
+      for (const l of loopRowsE as Array<{ id: string; title: string; dueAt: Date }>) {
+        carryOver.push({
+          id: l.id,
+          title: l.title,
+          dueLabel: formatCalTime(new Date(l.dueAt).toISOString(), tz),
+        })
+      }
+    } catch {
+      // Debrief facts are best effort; the calendar sections still ship.
+    }
+
+
     const sections: Array<{ heading: string; items: string[]; emailMeta?: Array<{ id: string; snippet?: string }> }> = []
 
     if (locationEvents.length) {
@@ -3918,7 +4727,7 @@ async function miniPayload(
       sections.push({ heading: 'Tomorrow', items: ['Nothing on the calendar.'] })
     }
 
-    return { kind, title: 'Evening brief', date: dateLabel, sections, text: '' }
+    return { kind, title: 'Evening brief', date: dateLabel, sections, text: '', dayScore, dayFacts, habitsToday, carryOver }
   }
 
   if (kind === 'standup_paste') {
@@ -5286,12 +6095,46 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
       email: url.searchParams.get('email') || undefined,
     })
     if (authErr) return authErr
-    const access = await googleAccessToken(sql, user!.id, 'gmail')
-    if (!access) {
+    // The digest's text-only fallback parses mail out of lines and has no Gmail
+    // ids to hand out, so it mints text-0, text-1. Those can never be opened;
+    // say so instead of blaming the connection.
+    if (/^text-\d+$/.test(msgId)) {
       return json({
         ok: false,
-        error: 'Gmail is not connected. Reconnect it in Settings to read full messages.',
+        error: 'This one came from a text only fallback, so there is no message to open.',
       })
+    }
+    const access = await googleAccessToken(sql, user!.id, 'gmail')
+    if (!access) {
+      // One null covers several different situations and "reconnect in Settings"
+      // is only the right advice for some of them.
+      const g = await googleConnected(sql, user!.id)
+      const viaComposio = !g && (await composioConnected(user!.id)).includes('gmail')
+      if (viaComposio) {
+        const body = await composioMailBody(user!.id, msgId)
+        if (body) {
+          return json({
+            ok: true,
+            messageId: body.id || msgId,
+            subject: body.subject,
+            from: body.from,
+            date: body.date,
+            bodyText: body.bodyText,
+            bodyHtml: body.bodyHtml,
+            snippet: body.snippet,
+          })
+        }
+      }
+      const error = !g
+        ? viaComposio
+          ? 'Gmail is connected through Composio and it did not return this message. Sign in with Google in Settings for reliable full reads.'
+          : 'Gmail is not connected. Connect it in Settings to read full messages.'
+        : !googleTokenHasScope(g.scopes, 'gmail')
+          ? 'This Google account is connected for calendar only. Reconnect it in Settings and allow Gmail.'
+          : !g.hasRefresh
+            ? 'The Google sign in expired and there is no refresh token. Reconnect it in Settings.'
+            : 'Google refused the saved Gmail permission. Reconnect it in Settings.'
+      return json({ ok: false, error })
     }
     const gmailRes = await fetch(
       `https://gmail.googleapis.com/gmail/v1/users/me/messages/${encodeURIComponent(msgId)}?format=full`,
@@ -5380,6 +6223,119 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
       console.warn('[work/next] failed', err)
       return json({ items: [], connected: [], missing: ['gmail', 'calendar'], error: 'Could not load Next.' }, 200)
     }
+  }
+
+  if (path === '/api/mail/triage' && req.method === 'POST') {
+    const body = (await req.json().catch(() => ({}))) as {
+      token?: string; session?: string; email?: string
+      id?: string; action?: string; sender?: string; kind?: string
+    }
+    const action = String(body.action || '')
+    if (!['done', 'skip', 'drafted', 'opened', 'replied'].includes(action)) {
+      return json({ error: 'action must be done, skip, drafted, opened, or replied' }, 400)
+    }
+    const { user, error } = await resolveAuthedUser(sql, { token: body.token, session: body.session, email: body.email })
+    if (error) return error
+    const gmailId = String(body.id || '').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 80)
+    await sql`
+      INSERT INTO hire_mail_feedback (user_id, gmail_id, sender, action, kind)
+      VALUES (${user!.id}, ${gmailId}, ${String(body.sender || '').slice(0, 120)}, ${action}, ${String(body.kind || '').slice(0, 40)})
+    `
+    return json({ ok: true })
+  }
+
+  if (path === '/api/mail/draft' && req.method === 'POST') {
+    const body = (await req.json().catch(() => ({}))) as {
+      token?: string; session?: string; email?: string; persona?: string; id?: string
+    }
+    const msgId = String(body.id || '').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 80)
+    if (!msgId) return json({ error: 'id required' }, 400)
+    const { user, error } = await resolveAuthedUser(sql, { token: body.token, session: body.session, email: body.email })
+    if (error) return error
+    const access = await googleAccessToken(sql, user!.id, 'gmail')
+    let toAddr = ''
+    let subject = ''
+    let original = ''
+    if (access) {
+      const res = await fetch(
+        `https://gmail.googleapis.com/gmail/v1/users/me/messages/${encodeURIComponent(msgId)}?format=full`,
+        { headers: { Authorization: `Bearer ${access}` } },
+      )
+      if (res.ok) {
+        const data = (await res.json()) as {
+          snippet?: string
+          payload?: GmailMimePart & { headers?: Array<{ name: string; value: string }> }
+        }
+        const h = (n: string) =>
+          data.payload?.headers?.find((x) => x.name.toLowerCase() === n.toLowerCase())?.value || ''
+        toAddr = senderKey(h('From'))
+        subject = h('Subject')
+        const { text } = extractGmailBody(data.payload)
+        original = (text || data.snippet || '').slice(0, 600)
+      }
+    }
+    if (!toAddr) return json({ error: 'Could not read this message. Open it and reply from there.' }, 404)
+    const draftId = crypto.randomUUID()
+    const quoted = original
+      ? `\n\nOn ${new Date().toLocaleDateString('en-US')}, they wrote:\n${original.split(/\s+/).slice(0, 90).join(' ')}…`
+      : ''
+    await sql`
+      INSERT INTO hire_drafts (id, user_id, persona, kind, to_addr, subject, body)
+      VALUES (
+        ${draftId}, ${user!.id}, ${isPersona(body.persona || '') ? body.persona! : ''},
+        'reply', ${toAddr},
+        ${subject.startsWith('Re:') ? subject.slice(0, 200) : `Re: ${(subject || '(no subject)').slice(0, 190)}`},
+        ${`Hi ${toAddr.split('@')[0] || 'there'},\n\n\n${quoted}`.slice(0, 4000)}
+      )
+    `
+    await sql`
+      INSERT INTO hire_mail_feedback (user_id, gmail_id, sender, action, kind)
+      VALUES (${user!.id}, ${msgId}, ${toAddr}, 'drafted', '')
+    `
+    return json({ ok: true, id: draftId, toAddr, subject })
+  }
+
+  if (path === '/api/reminders/action' && req.method === 'POST') {
+    const body = (await req.json().catch(() => ({}))) as {
+      token?: string; session?: string; email?: string; id?: string; action?: string; hours?: number
+    }
+    const remId = String(body.id || '').slice(0, 80)
+    if (!remId) return json({ error: 'id required' }, 400)
+    const { user, error } = await resolveAuthedUser(sql, { token: body.token, session: body.session, email: body.email })
+    if (error) return error
+    if (body.action === 'done') {
+      await sql`
+        UPDATE hire_reminders SET status = 'sent', updated_at = now()
+        WHERE id = ${remId} AND user_id = ${user!.id}
+      `
+      return json({ ok: true })
+    }
+    if (body.action === 'snooze') {
+      const hours = Number(body.hours) > 0 ? Number(body.hours) : 1
+      await sql`
+        UPDATE hire_reminders SET scheduled_at = now() + (${hours} * interval '1 hour'), updated_at = now()
+        WHERE id = ${remId} AND user_id = ${user!.id}
+      `
+      return json({ ok: true })
+    }
+    return json({ error: 'action must be done or snooze' }, 400)
+  }
+
+  if (path === '/api/prep' && req.method === 'POST') {
+    const body = (await req.json().catch(() => ({}))) as {
+      token?: string; session?: string; email?: string; name?: string
+    }
+    const query = String(body.name || '').trim().slice(0, 80)
+    if (!query) return json({ error: 'name required' }, 400)
+    const { user, error } = await resolveAuthedUser(sql, { token: body.token, session: body.session, email: body.email })
+    if (error) return error
+    const bundle = await buildPrepBundle(
+      sql,
+      { id: user!.id, name: user!.name, timezone: user!.timezone },
+      query,
+    )
+    if (!bundle) return json({ ok: false, text: '' })
+    return json({ ok: true, ...bundle })
   }
 
   if (path === '/api/work/drafts' && req.method === 'GET') {
@@ -7034,8 +7990,10 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     return json({ ok: true })
   }
 
-  /* ---- Mirror (life reflection dashboard) ---- */
-  if (path === '/api/mirror' && req.method === 'GET') {
+  /* ---- Home (the friend home screen) ---- */
+  // '/api/mirror' is the old path for this screen. Keep answering it for one release
+  // so a client build already loaded in someone's browser does not start failing.
+  if ((path === '/api/home' || path === '/api/mirror') && req.method === 'GET') {
     const { user, error } = await resolveAuthedUser(sql, {
       token: url.searchParams.get('t') || undefined,
       session: url.searchParams.get('s') || undefined,
@@ -7045,99 +8003,145 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     const weekStart = userMonday(user!)
     const weekEndStr = shiftDateStr(weekStart, 7)
     const dayStart = shiftDateStr(weekStart, -14)
-    const tzMirror = user!.timezone || 'America/Los_Angeles'
-    const todayMirror = localDateStrInTz(new Date(), tzMirror)
+    const tzLocal = user!.timezone || 'America/Los_Angeles'
+    const todayLocal = localDateStrInTz(new Date(), tzLocal)
 
-    const nutr = await sql`
-      SELECT count(*)::int AS meals, coalesce(sum(calories), 0)::real AS calories
-      FROM hire_nutrition_logs WHERE user_id = ${user!.id} AND eaten_at >= ${weekStart}::date AND eaten_at < ${weekEndStr}::date
-    `
-    const nutrToday = await sql`
-      SELECT coalesce(sum(protein), 0)::real AS protein, coalesce(sum(calories), 0)::real AS calories, count(*)::int AS meals
-      FROM hire_nutrition_logs WHERE user_id = ${user!.id} AND eaten_at >= ${todayMirror}::date AND eaten_at < ${shiftDateStr(todayMirror, 1)}::date
-    `
-    const nutrGoals = await sql`
-      SELECT protein_goal AS "proteinGoal", calorie_goal AS "calorieGoal" FROM hire_nutrition_goals WHERE user_id = ${user!.id} LIMIT 1
-    `
-    const workoutsTodayRows = await sql`
-      SELECT count(*)::int AS n FROM hire_workouts
-      WHERE user_id = ${user!.id} AND logged_at >= ${todayMirror}::date AND logged_at < ${shiftDateStr(todayMirror, 1)}::date
-    `
-    const moods = await sql`
-      SELECT count(*)::int AS logs, coalesce(avg(energy), 0)::real AS energy
-      FROM hire_moods WHERE user_id = ${user!.id} AND created_at >= ${weekStart}::date AND created_at < ${weekEndStr}::date
-    `
-    const habitRows = await sql`
-      SELECT id, name FROM hire_habits WHERE user_id = ${user!.id} ORDER BY created_at ASC LIMIT 12
-    `
-    const habitLogs = await sql`
-      SELECT habit_id AS "habitId", date FROM hire_habit_logs
-      WHERE user_id = ${user!.id} AND date >= ${weekStart} AND date < ${weekEndStr}
-    `
+    const lastNightKey = shiftDateStr(todayLocal, -1)
+
+    /* These were awaited one at a time: twenty-odd round trips to Postgres, in
+     * series, before the page had a single number to paint. Nothing here reads
+     * anything else here, so they go out together and the slice costs about as
+     * long as its slowest query instead of the sum of all of them. */
+    const [
+      nutr,
+      nutrToday,
+      nutrGoals,
+      workoutsTodayRows,
+      moods,
+      habitRows,
+      habitLogs,
+      sleep,
+      spend,
+      spendByCat,
+      budgetRow,
+      workouts,
+      prs,
+      learning,
+      learningNext,
+      gratitude,
+      decisions,
+      moodTrend,
+      sleepTrendRows,
+      reviews,
+      lastNightRows,
+      prefs,
+      duePeopleRows,
+    ] = await Promise.all([
+      sql`
+        SELECT count(*)::int AS meals, coalesce(sum(calories), 0)::real AS calories
+        FROM hire_nutrition_logs WHERE user_id = ${user!.id} AND eaten_at >= ${weekStart}::date AND eaten_at < ${weekEndStr}::date
+      `,
+      sql`
+        SELECT coalesce(sum(protein), 0)::real AS protein, coalesce(sum(calories), 0)::real AS calories, count(*)::int AS meals
+        FROM hire_nutrition_logs WHERE user_id = ${user!.id} AND eaten_at >= ${todayLocal}::date AND eaten_at < ${shiftDateStr(todayLocal, 1)}::date
+      `,
+      sql`
+        SELECT protein_goal AS "proteinGoal", calorie_goal AS "calorieGoal" FROM hire_nutrition_goals WHERE user_id = ${user!.id} LIMIT 1
+      `,
+      sql`
+        SELECT count(*)::int AS n FROM hire_workouts
+        WHERE user_id = ${user!.id} AND logged_at >= ${todayLocal}::date AND logged_at < ${shiftDateStr(todayLocal, 1)}::date
+      `,
+      sql`
+        SELECT count(*)::int AS logs, coalesce(avg(energy), 0)::real AS energy
+        FROM hire_moods WHERE user_id = ${user!.id} AND created_at >= ${weekStart}::date AND created_at < ${weekEndStr}::date
+      `,
+      sql`
+        SELECT id, name FROM hire_habits WHERE user_id = ${user!.id} ORDER BY created_at ASC LIMIT 12
+      `,
+      sql`
+        SELECT habit_id AS "habitId", date FROM hire_habit_logs
+        WHERE user_id = ${user!.id} AND date >= ${weekStart} AND date < ${weekEndStr}
+      `,
+      sql`
+        SELECT sleep_date AS "sleepDate", bedtime, wake, quality FROM hire_sleep
+        WHERE user_id = ${user!.id} AND sleep_date >= ${weekStart} AND sleep_date < ${weekEndStr}
+      `,
+      sql`
+        SELECT coalesce(sum(amount), 0)::real AS total FROM hire_spending
+        WHERE user_id = ${user!.id} AND spent_at >= ${weekStart}::date AND spent_at < ${weekEndStr}::date
+      `,
+      sql`
+        SELECT category, coalesce(sum(amount), 0)::real AS amount FROM hire_spending
+        WHERE user_id = ${user!.id} AND spent_at >= ${weekStart}::date AND spent_at < ${weekEndStr}::date
+        GROUP BY category ORDER BY amount DESC
+      `,
+      sql`SELECT weekly_budget AS "weeklyBudget" FROM hire_spending_budget WHERE user_id = ${user!.id}`,
+      sql`
+        SELECT count(*)::int AS n FROM hire_workouts
+        WHERE user_id = ${user!.id} AND logged_at >= ${weekStart}::date AND logged_at < ${weekEndStr}::date
+      `,
+      sql`
+        SELECT exercise, max(weight) AS weight FROM hire_workouts
+        WHERE user_id = ${user!.id} AND weight > 0
+        GROUP BY exercise ORDER BY weight DESC LIMIT 5
+      `,
+      sql`
+        SELECT status, count(*)::int AS n, coalesce(sum(minutes), 0)::int AS mins FROM hire_learning
+        WHERE user_id = ${user!.id} GROUP BY status
+      `,
+      sql`
+        SELECT title FROM hire_learning WHERE user_id = ${user!.id} AND status = 'queued'
+        ORDER BY created_at ASC LIMIT 1
+      `,
+      sql`
+        SELECT count(*)::int AS n FROM hire_gratitude
+        WHERE user_id = ${user!.id} AND created_at >= ${weekStart}::date AND created_at < ${weekEndStr}::date
+      `,
+      sql`
+        SELECT count(*) FILTER (WHERE outcome IS NULL)::int AS open,
+               count(*) FILTER (WHERE outcome IS NOT NULL)::int AS resolved
+        FROM hire_decisions WHERE user_id = ${user!.id}
+      `,
+      sql`
+        SELECT emoji, energy, created_at AS "createdAt" FROM hire_moods
+        WHERE user_id = ${user!.id} AND created_at >= ${dayStart}::date
+        ORDER BY created_at ASC LIMIT 60
+      `,
+      sql`
+        SELECT sleep_date AS "sleepDate", bedtime, wake, quality FROM hire_sleep
+        WHERE user_id = ${user!.id} AND sleep_date >= ${dayStart} AND sleep_date < ${weekEndStr}
+        ORDER BY sleep_date ASC LIMIT 21
+      `,
+      sql`
+        SELECT id, week_start AS "weekStart", done_text AS "doneText", slipped_text AS "slippedText",
+               focus_text AS "focusText", created_at AS "createdAt"
+        FROM hire_weekly_reviews WHERE user_id = ${user!.id}
+        ORDER BY week_start DESC LIMIT 4
+      `,
+      // Ran only when the week rows missed last night. In parallel it is free,
+      // and it is the row the Body page reads on a Monday.
+      sql`
+        SELECT sleep_date AS "sleepDate", bedtime, wake, quality FROM hire_sleep
+        WHERE user_id = ${user!.id} AND (sleep_date = ${lastNightKey} OR sleep_date = ${todayLocal})
+        ORDER BY sleep_date DESC LIMIT 1
+      `,
+      loadMiniPrefs(sql, user!.id),
+      sql`
+        SELECT name, context, phone, last_touch AS "lastTouch", cadence_days AS "cadenceDays"
+        FROM hire_network WHERE user_id = ${user!.id}
+        ORDER BY coalesce(last_touch, '1970-01-01'::timestamptz) ASC LIMIT 8
+      `,
+    ])
+
     const habitChecks = (habitLogs as Array<{ habitId: string }>).length
     const habitNames = (habitRows as Array<{ name: string }>).map((h) => h.name)
-    const sleep = await sql`
-      SELECT sleep_date AS "sleepDate", bedtime, wake, quality FROM hire_sleep
-      WHERE user_id = ${user!.id} AND sleep_date >= ${weekStart} AND sleep_date < ${weekEndStr}
-    `
     let sleepHours = 0
     const sleepRows = sleep as Array<{ sleepDate: string; bedtime: string; wake: string; quality: number }>
     if (sleepRows.length) {
       sleepHours = sleepRows.reduce((sum, r) => sum + sleepHoursBetween(r.bedtime, r.wake), 0) / sleepRows.length
     }
-    const spend = await sql`
-      SELECT coalesce(sum(amount), 0)::real AS total FROM hire_spending
-      WHERE user_id = ${user!.id} AND spent_at >= ${weekStart}::date AND spent_at < ${weekEndStr}::date
-    `
-    const spendByCat = await sql`
-      SELECT category, coalesce(sum(amount), 0)::real AS amount FROM hire_spending
-      WHERE user_id = ${user!.id} AND spent_at >= ${weekStart}::date AND spent_at < ${weekEndStr}::date
-      GROUP BY category ORDER BY amount DESC
-    `
-    const budgetRow = await sql`SELECT weekly_budget AS "weeklyBudget" FROM hire_spending_budget WHERE user_id = ${user!.id}`
-    const workouts = await sql`
-      SELECT count(*)::int AS n FROM hire_workouts
-      WHERE user_id = ${user!.id} AND logged_at >= ${weekStart}::date AND logged_at < ${weekEndStr}::date
-    `
-    const prs = await sql`
-      SELECT exercise, max(weight) AS weight FROM hire_workouts
-      WHERE user_id = ${user!.id} AND weight > 0
-      GROUP BY exercise ORDER BY weight DESC LIMIT 5
-    `
-    const learning = await sql`
-      SELECT status, count(*)::int AS n, coalesce(sum(minutes), 0)::int AS mins FROM hire_learning
-      WHERE user_id = ${user!.id} GROUP BY status
-    `
-    const learningNext = await sql`
-      SELECT title FROM hire_learning WHERE user_id = ${user!.id} AND status = 'queued'
-      ORDER BY created_at ASC LIMIT 1
-    `
-    const gratitude = await sql`
-      SELECT count(*)::int AS n FROM hire_gratitude
-      WHERE user_id = ${user!.id} AND created_at >= ${weekStart}::date AND created_at < ${weekEndStr}::date
-    `
-    const decisions = await sql`
-      SELECT count(*) FILTER (WHERE outcome IS NULL)::int AS open,
-             count(*) FILTER (WHERE outcome IS NOT NULL)::int AS resolved
-      FROM hire_decisions WHERE user_id = ${user!.id}
-    `
-    const moodTrend = await sql`
-      SELECT emoji, energy, created_at AS "createdAt" FROM hire_moods
-      WHERE user_id = ${user!.id} AND created_at >= ${dayStart}::date
-      ORDER BY created_at ASC LIMIT 60
-    `
     const moodTrendRows = moodTrend as Array<{ emoji: string; energy: number; createdAt: Date }>
-    const sleepTrend = await sql`
-      SELECT sleep_date AS "sleepDate", bedtime, wake, quality FROM hire_sleep
-      WHERE user_id = ${user!.id} AND sleep_date >= ${dayStart} AND sleep_date < ${weekEndStr}
-      ORDER BY sleep_date ASC LIMIT 21
-    `
-    const reviews = await sql`
-      SELECT id, week_start AS "weekStart", done_text AS "doneText", slipped_text AS "slippedText",
-             focus_text AS "focusText", created_at AS "createdAt"
-      FROM hire_weekly_reviews WHERE user_id = ${user!.id}
-      ORDER BY week_start DESC LIMIT 4
-    `
     const currentReview = (reviews as Array<{ weekStart: string }>).find((r) => r.weekStart === weekStart) || null
     const lrn = learning as Array<{ status: string; n: number; mins: number }>
     const queued = lrn.find((l) => l.status === 'queued')?.n || 0
@@ -7145,13 +8149,77 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
 
     const sortedSleep = [...sleepRows].sort((a, b) => String(a.sleepDate).localeCompare(String(b.sleepDate)))
     const sleepHoursList = sortedSleep.map((r) => sleepHoursBetween(r.bedtime, r.wake))
-    const lastNightHours = sleepHoursList.length ? sleepHoursList[sleepHoursList.length - 1]! : 0
+    const lastNightFromWeek = sleepRows.find((r) => {
+      const d = ymdOf(r.sleepDate)
+      return d === lastNightKey || d === todayLocal
+    })
+    const lastNightLookup =
+      lastNightFromWeek || (lastNightRows[0] as { sleepDate?: string; bedtime?: string; wake?: string } | undefined)
+    const lastNightHours = lastNightLookup?.bedtime && lastNightLookup?.wake
+      ? sleepHoursBetween(lastNightLookup.bedtime, lastNightLookup.wake)
+      : 0
+    const lastNightLogged = !!(lastNightLookup?.bedtime && lastNightLookup?.wake)
     const shortNights = sleepHoursList.filter((h) => h < 6.5).length
     const gToday = nutrGoals[0] as { proteinGoal?: number; calorieGoal?: number } | undefined
     const nToday = nutrToday[0] as { protein?: number; calories?: number; meals?: number } | undefined
 
+    const weekday = new Intl.DateTimeFormat('en-US', { timeZone: tzLocal, weekday: 'long' }).format(new Date())
+    const dateLabel = new Intl.DateTimeFormat('en-US', {
+      timeZone: tzLocal,
+      weekday: 'long',
+      month: 'short',
+      day: 'numeric',
+    }).format(new Date())
+    let hour = Number(
+      new Intl.DateTimeFormat('en-US', { timeZone: tzLocal, hour: 'numeric', hour12: false }).format(new Date()),
+    )
+    if (hour === 24) hour = 0
+
+    const workoutLabel = workoutTodayLabel(weekday, prefs.workoutPlace)
+    const workoutsTodayN = Number((workoutsTodayRows[0] as { n?: number })?.n || 0)
+
+    const peopleDue = (duePeopleRows as Array<{
+      name: string; context: string; phone: string; lastTouch: Date | null; cadenceDays: number
+    }>)
+      .map((p) => {
+        const days = p.lastTouch ? Math.floor((Date.now() - new Date(p.lastTouch).getTime()) / 86400000) : 999
+        return { name: p.name, days, phone: p.phone || undefined, due: days >= (p.cadenceDays || 14) }
+      })
+      .filter((p) => p.due)
+      .slice(0, 3)
+      .map(({ name, days, phone }) => ({ name, days, phone }))
+
+    /* Calendar, Gmail and the mail-kind judge, off the critical path. A stale
+     * answer paints instantly while the next one loads behind the response;
+     * only a cold first open waits, and only briefly. */
+    const world = await homeWorldCache.read(`${user!.id}|${tzLocal}`, () => loadHomeWorld(sql, user!, tzLocal))
+    const { upcoming, mail, mailGroups } = world.value ?? EMPTY_HOME_WORLD
+
     return json({
       weekStart,
+      // The calendar and inbox are still loading, so what the client has is
+      // incomplete: one quiet refetch fills it in.
+      worldPending: world.pending,
+      home: {
+        weekday,
+        dateLabel,
+        hour,
+        upcoming,
+        mail,
+        mailGroups,
+        peopleDue,
+        lastNight: {
+          logged: lastNightLogged,
+          hours: Math.round(lastNightHours * 10) / 10,
+          bedtime: lastNightLookup?.bedtime,
+          wake: lastNightLookup?.wake,
+        },
+        workout: {
+          name: workoutLabel.name,
+          rest: workoutLabel.rest,
+          done: workoutsTodayN > 0,
+        },
+      },
       window: {
         meals: Number((nutr[0] as { meals: number })?.meals || 0),
         calories: Number((nutr[0] as { calories: number })?.calories || 0),
@@ -7161,7 +8229,7 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
         calorieGoal: Math.round(Number(gToday?.calorieGoal) || 2200),
         lastNightHours: Math.round(lastNightHours * 10) / 10,
         shortNights,
-        workoutsToday: Number((workoutsTodayRows[0] as { n?: number })?.n || 0),
+        workoutsToday: workoutsTodayN,
         moodLogs: Number((moods[0] as { logs: number })?.logs || 0),
         avgEnergy: Number((moods[0] as { energy: number })?.energy || 0),
         habitChecks,
@@ -7180,13 +8248,18 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
       moodTrend: moodTrendRows.map((m) => ({
         emoji: m.emoji,
         energy: m.energy,
-        date: localDateStrInTz(new Date(m.createdAt), tzMirror),
+        date: localDateStrInTz(new Date(m.createdAt), tzLocal),
       })),
-      sleepTrend: sleepRows.map((r) => ({
-        date: String(r.sleepDate).slice(0, 10),
-        hours: sleepHoursBetween(r.bedtime, r.wake),
-        quality: r.quality,
-      })),
+      // The three-week ordered rows, not this week's: the client takes the last
+      // seven of what it is given, so the week rows made the chart start over on
+      // a Monday and drew whatever order Postgres happened to return.
+      sleepTrend: (sleepTrendRows as Array<{ sleepDate: string; bedtime: string; wake: string; quality: number }>).map(
+        (r) => ({
+          date: ymdOf(r.sleepDate),
+          hours: sleepHoursBetween(r.bedtime, r.wake),
+          quality: r.quality,
+        }),
+      ),
       spendByCategory: spendByCat as Array<{ category: string; amount: number }>,
       prs: (prs as Array<{ exercise: string; weight: number }>).map((p) => ({ exercise: p.exercise, weight: p.weight })),
       nextLearning: (learningNext[0] as { title?: string } | undefined)?.title || null,
@@ -7203,17 +8276,27 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
       email: url.searchParams.get('email') || undefined,
     })
     if (error) return error
-    const people = await sql`
-      SELECT id, name, where_met AS "whereMet", context, last_touch AS "lastTouch",
-             cadence_days AS "cadenceDays", created_at AS "createdAt",
-             phone, email AS "contactEmail", company
-      FROM hire_network WHERE user_id = ${user!.id}
-      ORDER BY coalesce(last_touch, '1970-01-01'::timestamptz) ASC
-    `
     const persona = url.searchParams.get('persona') || 'friend'
-    const calResult = isPersona(persona)
-      ? await todayCalendarMeets(sql, user!, persona).catch(() => ({ meets: [], stay: null, calendarConnected: false }))
-      : { meets: [], stay: null, calendarConnected: false }
+    /* The people list is one query; the calendar behind `today` is a hop into
+     * Google that measured between one and three seconds. They no longer wait
+     * for each other, and the calendar half comes from the same stale-while-
+     * revalidate cache home uses — this endpoint is polled by every screen that
+     * shows who you are seeing today. */
+    const [people, calResult] = await Promise.all([
+      sql`
+        SELECT id, name, where_met AS "whereMet", context, last_touch AS "lastTouch",
+               cadence_days AS "cadenceDays", created_at AS "createdAt",
+               phone, email AS "contactEmail", company
+        FROM hire_network WHERE user_id = ${user!.id}
+        ORDER BY coalesce(last_touch, '1970-01-01'::timestamptz) ASC
+      `,
+      isPersona(persona)
+        ? todayMeetsCache
+            .read(`${user!.id}|${persona}`, () => todayCalendarMeets(sql, user!, persona))
+            .then((r) => r.value ?? EMPTY_TODAY_RESULT)
+            .catch(() => EMPTY_TODAY_RESULT)
+        : Promise.resolve(EMPTY_TODAY_RESULT),
+    ])
     return json({ people, today: calResult.meets, stay: calResult.stay, calendarConnected: calResult.calendarConnected })
   }
 

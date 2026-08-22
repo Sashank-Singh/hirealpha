@@ -100,16 +100,11 @@ const ICONS: Record<string, ReactNode> = {
     </g>
   ),
 
-  mirror: (
+  home: (
     <g {...STROKE}>
-      <rect
-        x="7"
-        y="4.4"
-        width="10"
-        height="15.2"
-        rx="2.2"
-      />
-      <path d="M9.4 8.2v4.4" />
+      <path d="M4 10.4 12 4.3l8 6.1" />
+      <path d="M6 9.6v9.8h12V9.6" />
+      <path d="M10.1 19.4v-5.2h3.8v5.2" />
     </g>
   ),
 
@@ -122,6 +117,22 @@ const ICONS: Record<string, ReactNode> = {
       <circle cx="15.6" cy="9" r="2.1" />
 
       <path d="M13.2 16.8c.3-2.1 1.4-3.3 3.2-3.3 2 0 3.3 1.3 3.6 3.3" />
+    </g>
+  ),
+
+  body: (
+    <g {...STROKE}>
+      <circle cx="12" cy="6.2" r="2.1" />
+      <path d="M8.2 20.2V11.4h7.6v8.8" />
+      <path d="M8.2 13.6H5.6v4.4" />
+      <path d="M15.8 13.6h2.6v4.4" />
+    </g>
+  ),
+
+  later: (
+    <g {...STROKE}>
+      <path d="M5.4 7.2h13.2v11.2H5.4z" />
+      <path d="M5.4 7.2l6.6 5.2 6.6-5.2" />
     </g>
   ),
 
