@@ -4643,20 +4643,37 @@ async function miniPayload(
       .sort((a, b) => a.startMs - b.startMs)
 
     // Mail since morning: recent inbox minus Promotions, then a model judges.
+    // Keep enough to break into sub-category piles like the morning brief.
     let mailItems: Array<{ id: string; label: string; snippet?: string }> = []
+    let mailGroups: Array<{
+      kind: string
+      label: string
+      count: number
+      items: Array<{ id: string; label: string; snippet?: string }>
+    }> = []
     if (connected.includes('gmail')) {
       try {
         const richMail = await withTimeout(
           loadGmailRich(sql, user.id, importantMailQuery('12h'), 12),
-          5000,
+          6000,
           [] as Array<{ id: string; from: string; date: string; subject: string; snippet: string }>,
         )
         const doneIdsE = await triagedMailIds(sql, user.id)
-        const kept = (await judgeBriefMail(richMail, 5)).filter((m) => !doneIdsE.has(m.id))
+        const kept = (await judgeBriefMail(richMail, 12)).filter((m) => !doneIdsE.has(m.id))
         mailItems = kept.map((m) => ({
           id: m.id,
           label: formatMailLineFromParts(m.from, m.subject),
           snippet: cleanMailSnippet(m.snippet),
+        }))
+        mailGroups = groupMailByKind(kept).map((g) => ({
+          kind: g.kind,
+          label: g.label,
+          count: g.count,
+          items: g.items.map((m) => ({
+            id: m.id,
+            label: formatMailLineFromParts(m.from, m.subject),
+            snippet: cleanMailSnippet(m.snippet || ''),
+          })),
         }))
       } catch {
         // best-effort
@@ -4868,7 +4885,7 @@ async function miniPayload(
       sections.push({ heading: 'Tomorrow', items: ['Nothing on the calendar.'] })
     }
 
-    return { kind, title: 'Evening brief', date: dateLabel, sections, text: '', dayScore, dayFacts, habitsToday, carryOver }
+    return { kind, title: 'Evening brief', date: dateLabel, sections, text: '', dayScore, dayFacts, habitsToday, carryOver, mailGroups }
   }
 
   if (kind === 'standup_paste') {

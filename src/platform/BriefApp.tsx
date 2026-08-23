@@ -60,6 +60,7 @@ export type EveningPayload = {
     items: string[]
     emailMeta?: Array<{ id: string; snippet?: string }>
   }>
+  mailGroups?: BriefMailGroup[]
   dayScore?: { points: number; verdict: string } | null
   dayFacts?: EveningDayFact[]
   habitsToday?: HabitToday[]
@@ -677,18 +678,28 @@ export function BriefApp({
     : data?.mailGroups?.length
       ? data.mailGroups
       : []
+  // Morning gets piles from the digest payload; evening from pick_night.
+  const mailPiles: BriefMailGroup[] = isEvening ? (evening?.mailGroups || []) : groups
   const tally = story?.mailTally || data?.mailTally || ''
   const due = story?.due?.length ? story.due : duePeopleFrom(people)
   const lastNight = pickLastNight(nights, localYmd())
   const later = (story?.later?.length ? story.later : data?.tomorrow || []).slice(0, 2)
   const hour = new Date().getHours()
 
+  // The cached day beat list is a snapshot of the whole calendar, so the "next"
+  // card must skip anything already behind us — a meeting at 11:30 AM is not
+  // "next" at 7 PM. All-day/unparseable beats stay (they have no start time).
+  const nowMin = new Date().getHours() * 60 + new Date().getMinutes()
+  const nextBeat = beats.find((b) => {
+    const t = beatMinutes(b.time)
+    return t < 0 || t >= nowMin - 5
+  })
   const doCard: BriefDo =
     story?.do ||
     pickBriefAction({
       hour,
       lastNightLogged: lastNight.logged,
-      next: beats[0],
+      next: nextBeat,
       due,
       asks: [],
     })
@@ -883,12 +894,12 @@ export function BriefApp({
         </section>
       )}
 
-      {!isEvening && groups.length > 0 && (
+      {mailPiles.length > 0 && (
         <section className="brief-block">
           <h3 className="brief-label">Mail</h3>
           {tally ? <p className="brief-mail-tally">{tally}</p> : null}
           <div className="brief-piles">
-            {groups.map((g) => {
+            {mailPiles.map((g) => {
               const open = openPiles.has(g.kind)
               return (
                 <div key={g.kind} className="brief-pile">
