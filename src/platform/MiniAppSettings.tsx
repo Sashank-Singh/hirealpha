@@ -247,6 +247,11 @@ function WorkoutSettings({ auth }: { auth: FeatureAuth }) {
           setMoveCount(p.workoutMoveCount)
           writeWorkoutMoveCount(p.workoutMoveCount)
         }
+        if (Array.isArray(p.workoutDays) && p.workoutDays.length) {
+          const days = p.workoutDays as WorkoutDay[]
+          setDays(days)
+          writeWorkoutDays(days)
+        }
       })
       .catch(() => setMsg('Could not load workout settings.'))
   }, [auth.email, auth.token])
@@ -280,6 +285,11 @@ function WorkoutSettings({ auth }: { auth: FeatureAuth }) {
       if (has && prev.length <= 1) return prev
       const next = has ? prev.filter((d) => d !== day) : [...prev, day]
       writeWorkoutDays(next)
+      // Server-side too, so the choice follows the user to any device and
+      // survives a cleared browser.
+      apiPutMiniPrefs({ ...auth, workoutDays: next }).catch((error) => {
+        setMsg(error instanceof Error ? error.message : 'Could not save workout days.')
+      })
       return next
     })
     pingSettingsSaved()

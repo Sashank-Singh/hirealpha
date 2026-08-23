@@ -8,7 +8,7 @@ import { skillsPromptBlock, SKILLS } from './skills'
 import { gmiChat } from './gmi'
 import { appendThread, loadMemory, upsertFacts, pruneExpiredFacts, setSummary, trimHistory, MAX_RAW, type ThreadMemory } from './memory'
 import { extractFacts, summarizeOld } from './memoryMaintain'
-import { autoLogGratitude, autoLogHabit, autoLogMood, autoLogNutrition, autoLogSleep, autoLogSpend, autoLogWorkout, autoLogNetwork, autoSaveLearning, autoSetBudget, fetchLiveProfile, fetchLiveTools, fetchMiniRun, fetchPrepBundle, fetchWeekBundle, formatHireContext, formatHireMemories, persistLiveFacts, proposeLiveDraft, touchInbound } from './liveContext'
+import { autoLogGratitude, autoLogHabit, autoLogMood, autoLogNutrition, autoLogSleep, autoLogSpend, autoLogWorkout, autoLogNetwork, autoSaveLearning, autoSetBudget, autoSetPrefs, fetchLiveProfile, fetchLiveTools, fetchMiniRun, fetchPrepBundle, fetchWeekBundle, formatHireContext, formatHireMemories, persistLiveFacts, proposeLiveDraft, touchInbound } from './liveContext'
 import {
   looksLikeReminder,
   parseReminderIntent,
@@ -206,6 +206,25 @@ function looksLikeSpendLog(text: string) {
 
 function looksLikeBudgetSet(text: string) {
   return /\bbudget\b/i.test(text) && /\d{2,6}/.test(text)
+}
+
+function looksLikePrefsSet(text: string) {
+  const t = text.toLowerCase()
+  if (
+    /\b(?:set|change|update|switch|move to|make)\b/.test(t) &&
+    /\b(?:workout\w*|train\w*|sleep|bedtime|wake|gym|home|moves?\b|saturdays?|sundays?)\b/.test(t)
+  ) {
+    return true
+  }
+  return (
+    /\b(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|weekends?|every day)\b/.test(t) &&
+    /\b(?:workout\w*|train\w*|rest\s+day)\b/.test(t)
+  )
+}
+
+function prefDaysLabel(days: number[]): string {
+  const names = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+  return days.map((d) => names[d] ?? d).join(', ')
 }
 
 function looksLikeLifeTap(text: string) {
@@ -714,6 +733,22 @@ export async function runHireTurn(input: {
       )
     } else {
       extras.push('Could not read a budget amount. Do not claim the budget changed. Ask for the amount, or point them to the Spending card.')
+    }
+  }
+  if (looksLikePrefsSet(input.userText) && !looksLikeBudgetSet(input.userText) && hardStop !== 'money') {
+    const pref = await autoSetPrefs(input.senderId, agent.id, input.userText)
+    if (pref?.changed) {
+      const bits: string[] = []
+      if (pref.workoutDays?.length) bits.push(`workout days: ${prefDaysLabel(pref.workoutDays)}`)
+      if (pref.workoutPlace) bits.push(`workout place: ${pref.workoutPlace}`)
+      if (pref.workoutMoveCount) bits.push(`moves per day: ${pref.workoutMoveCount}`)
+      if (pref.sleepBedtime) bits.push(`bedtime: ${pref.sleepBedtime}`)
+      if (pref.sleepWake) bits.push(`wake: ${pref.sleepWake}`)
+      extras.push(
+        `Settings were updated — ${bits.join('; ')}. Confirm in one line and do not list anything else that did not change.`,
+      )
+    } else {
+      extras.push('Could not read a setting to change. Do not claim anything was updated. Ask what they want changed, or point them to Settings.')
     }
   }
   if (

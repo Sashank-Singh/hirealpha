@@ -593,6 +593,18 @@ export async function autoSetBudget(phone: string, persona: AgentId, text: strin
   )
 }
 
+export async function autoSetPrefs(
+  phone: string,
+  persona: AgentId,
+  text: string,
+): Promise<{
+  ok?: boolean; changed?: boolean; error?: string
+  workoutPlace?: string; workoutMoveCount?: number; workoutDays?: number[]
+  sleepBedtime?: string; sleepWake?: string
+} | null> {
+  return autoLogText('/api/internal/prefs', phone, persona, text)
+}
+
 export async function autoLogNetwork(
   phone: string,
   persona: AgentId,

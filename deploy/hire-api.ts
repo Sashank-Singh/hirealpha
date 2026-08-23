@@ -733,12 +733,14 @@ export async function ensureHireSchema(sql: SQL) {
       user_id TEXT PRIMARY KEY REFERENCES hire_users(id) ON DELETE CASCADE,
       workout_place TEXT NOT NULL DEFAULT 'gym',
       workout_move_count INTEGER NOT NULL DEFAULT 4,
+      workout_days TEXT NOT NULL DEFAULT '1,2,3,4,5',
       sleep_bedtime TEXT NOT NULL DEFAULT '23:00',
       sleep_wake TEXT NOT NULL DEFAULT '07:00',
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
     )
   `
   await sql`ALTER TABLE hire_mini_prefs ADD COLUMN IF NOT EXISTS workout_move_count INTEGER NOT NULL DEFAULT 4`
+  await sql`ALTER TABLE hire_mini_prefs ADD COLUMN IF NOT EXISTS workout_days TEXT NOT NULL DEFAULT '1,2,3,4,5'`
 
   // The mail kinds this user's own inbox has produced. The judge names a pile per
   // mail; storing the names is what stops the brief's group headers reshuffling
@@ -902,9 +904,12 @@ async function getLocation(sql: SQL, userId: string, kind: 'current' | 'home' | 
 type MiniPrefs = {
   workoutPlace: 'home' | 'gym'
   workoutMoveCount: 4 | 5 | 6
+  workoutDays: number[]
   sleepBedtime: string
   sleepWake: string
 }
+
+const DEFAULT_WORKOUT_DAYS = [1, 2, 3, 4, 5]
 
 function isClock(v: string): boolean {
   return /^\d{2}:\d{2}$/.test(v)
@@ -915,10 +920,17 @@ function clampWorkoutMoveCount(v: unknown): 4 | 5 | 6 {
   return n === 5 || n === 6 ? n : 4
 }
 
+/** '1,2,3,5,6' from the column, or an array from JSON — always a usable day set. */
+function clampWorkoutDays(v: unknown): number[] {
+  const raw = typeof v === 'string' ? v.split(',').map((x) => Number(x.trim())) : Array.isArray(v) ? v.map(Number) : []
+  const days = [...new Set(raw.filter((n) => Number.isInteger(n) && n >= 0 && n <= 6))].sort((a, b) => a - b)
+  return days.length ? days : [...DEFAULT_WORKOUT_DAYS]
+}
+
 async function loadMiniPrefs(sql: SQL, userId: string): Promise<MiniPrefs> {
   const rows = await sql`
     SELECT workout_place AS "workoutPlace", workout_move_count AS "workoutMoveCount",
-           sleep_bedtime AS "sleepBedtime", sleep_wake AS "sleepWake"
+           workout_days AS "workoutDays", sleep_bedtime AS "sleepBedtime", sleep_wake AS "sleepWake"
     FROM hire_mini_prefs WHERE user_id = ${userId} LIMIT 1
   `
   const row = rows[0] as (MiniPrefs & { workoutMoveCount?: unknown }) | undefined
@@ -926,6 +938,7 @@ async function loadMiniPrefs(sql: SQL, userId: string): Promise<MiniPrefs> {
   return {
     workoutPlace: place,
     workoutMoveCount: clampWorkoutMoveCount(row?.workoutMoveCount),
+    workoutDays: clampWorkoutDays(row?.workoutDays),
     sleepBedtime: isClock(row?.sleepBedtime || '') ? row!.sleepBedtime : '23:00',
     sleepWake: isClock(row?.sleepWake || '') ? row!.sleepWake : '07:00',
   }
@@ -938,15 +951,17 @@ async function saveMiniPrefs(sql: SQL, userId: string, patch: Partial<MiniPrefs>
     workoutMoveCount: patch.workoutMoveCount === 4 || patch.workoutMoveCount === 5 || patch.workoutMoveCount === 6
       ? patch.workoutMoveCount
       : cur.workoutMoveCount,
+    workoutDays: patch.workoutDays?.length ? clampWorkoutDays(patch.workoutDays) : cur.workoutDays,
     sleepBedtime: isClock(patch.sleepBedtime || '') ? patch.sleepBedtime! : cur.sleepBedtime,
     sleepWake: isClock(patch.sleepWake || '') ? patch.sleepWake! : cur.sleepWake,
   }
   await sql`
-    INSERT INTO hire_mini_prefs (user_id, workout_place, workout_move_count, sleep_bedtime, sleep_wake, updated_at)
-    VALUES (${userId}, ${next.workoutPlace}, ${next.workoutMoveCount}, ${next.sleepBedtime}, ${next.sleepWake}, now())
+    INSERT INTO hire_mini_prefs (user_id, workout_place, workout_move_count, workout_days, sleep_bedtime, sleep_wake, updated_at)
+    VALUES (${userId}, ${next.workoutPlace}, ${next.workoutMoveCount}, ${next.workoutDays.join(',')}, ${next.sleepBedtime}, ${next.sleepWake}, now())
     ON CONFLICT (user_id) DO UPDATE SET
       workout_place = excluded.workout_place,
       workout_move_count = excluded.workout_move_count,
+      workout_days = excluded.workout_days,
       sleep_bedtime = excluded.sleep_bedtime,
       sleep_wake = excluded.sleep_wake,
       updated_at = now()
@@ -7706,6 +7721,53 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     return json({ ok: true, logged: true, weeklyBudget: amount })
   }
 
+  if (path === '/api/internal/prefs' && req.method === 'POST') {
+    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
+    const body = (await req.json().catch(() => ({}))) as { phone?: string; persona?: string; text?: string }
+    if (!body.phone || !isPersona(body.persona || '') || !String(body.text || '').trim()) {
+      return json({ error: 'phone, persona, and text required' }, 400)
+    }
+    const user = await getUserByPhone(sql, body.phone)
+    if (!user) return json({ error: 'User not found' }, 404)
+    const text = String(body.text)
+    const patch: Partial<MiniPrefs> = {}
+
+    const place = text.match(/\b(?:workout|train)\w*[\s\S]{0,24}?\b(home|gym)\b/i)
+    if (place) patch.workoutPlace = place[1]!.toLowerCase() as 'home' | 'gym'
+    const moves = text.match(/moves?\s*(?:per\s+day)?\s*(?:to|at)?\s*(4|5|6)\b/i) || text.match(/\b(4|5|6)\s+moves?\b/i)
+    if (moves) patch.workoutMoveCount = Number(moves[1]) as 4 | 5 | 6
+
+    const DAY_NUM: Record<string, number> = { sunday: 0, monday: 1, tuesday: 2, wednesday: 3, thursday: 4, friday: 5, saturday: 6 }
+    if (/\bevery\s+day\b/i.test(text)) {
+      patch.workoutDays = [0, 1, 2, 3, 4, 5, 6]
+    } else {
+      const named = Object.keys(DAY_NUM).filter((n) => new RegExp(`\\b${n}\\b`, 'i').test(text))
+      if (named.length) patch.workoutDays = named.map((n) => DAY_NUM[n]!)
+    }
+
+    const clockAt = (label: string) => {
+      const m = text.match(new RegExp(`${label}\\s*(?:at)?\\s*(\\d{1,2})(?::(\\d{2}))?\\s*(am|pm)?`, 'i'))
+      if (!m) return ''
+      let h = Number(m[1])
+      const min = m[2] ? Number(m[2]) : 0
+      const ap = (m[3] || '').toLowerCase()
+      if (ap === 'pm' && h < 12) h += 12
+      if (ap === 'am' && h === 12) h = 0
+      if (h > 23 || min > 59) return ''
+      return `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}`
+    }
+    const bedtime = clockAt('bedtime') || clockAt('sleep')
+    const wake = clockAt('wake')
+    if (bedtime) patch.sleepBedtime = bedtime
+    if (wake) patch.sleepWake = wake
+
+    if (!Object.keys(patch).length) {
+      return json({ ok: false, changed: false, error: 'Could not read a setting to change' })
+    }
+    const prefs = await saveMiniPrefs(sql, user.id, patch)
+    return json({ ok: true, changed: true, ...prefs })
+  }
+
   if (path === '/api/internal/learning' && req.method === 'POST') {
     if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
     const body = (await req.json().catch(() => ({}))) as {
@@ -8188,7 +8250,13 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
       ORDER BY lower(exercise), weight DESC, reps DESC
     `
     const prefs = await loadMiniPrefs(sql, user!.id)
-    return json({ logs, prs: prRows, workoutPlace: prefs.workoutPlace, workoutMoveCount: prefs.workoutMoveCount })
+    return json({
+      logs,
+      prs: prRows,
+      workoutPlace: prefs.workoutPlace,
+      workoutMoveCount: prefs.workoutMoveCount,
+      workoutDays: prefs.workoutDays,
+    })
   }
 
   if (path === '/api/workouts' && req.method === 'POST') {
@@ -9039,7 +9107,7 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
   if (path === '/api/mini-prefs' && req.method === 'PUT') {
     const body = (await req.json().catch(() => ({}))) as {
       token?: string; email?: string
-      workoutPlace?: string; workoutMoveCount?: number
+      workoutPlace?: string; workoutMoveCount?: number; workoutDays?: number[]
       sleepBedtime?: string; sleepWake?: string
     }
     const { user, error } = await resolveAuthedUser(sql, { token: body.token, session: body.session, email: body.email })
@@ -9049,6 +9117,7 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
       workoutMoveCount: body.workoutMoveCount === 4 || body.workoutMoveCount === 5 || body.workoutMoveCount === 6
         ? body.workoutMoveCount
         : undefined,
+      workoutDays: Array.isArray(body.workoutDays) ? body.workoutDays : undefined,
       sleepBedtime: body.sleepBedtime,
       sleepWake: body.sleepWake,
     })

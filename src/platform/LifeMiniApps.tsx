@@ -49,6 +49,7 @@ import {
   WORKOUT_DAY_LABELS_ALL,
   WORKOUT_DAY_LETTERS_ALL,
   workoutSession,
+  writeWorkoutDays,
   writeWorkoutMoveCount,
   writeWorkoutPlace,
   setsRepsLabel,
@@ -210,6 +211,9 @@ export function WorkoutLogApp({ auth }: { auth: FeatureAuth }) {
         if (d.workoutMoveCount === 4 || d.workoutMoveCount === 5 || d.workoutMoveCount === 6) {
           setMoveCount(d.workoutMoveCount)
           writeWorkoutMoveCount(d.workoutMoveCount)
+        }
+        if (Array.isArray(d.workoutDays) && d.workoutDays.length) {
+          writeWorkoutDays(d.workoutDays as WorkoutDay[])
         }
       })
       .catch(() => setMsg('Could not load workouts.'))

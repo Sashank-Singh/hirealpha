@@ -449,7 +449,7 @@ export type WorkoutLog = {
 }
 export type WorkoutPr = { exercise: string; weight: number; reps: number; loggedAt: string }
 export const apiListWorkouts = (a: { email?: string; token?: string }) =>
-  featureGet<{ logs: WorkoutLog[]; prs: WorkoutPr[]; workoutPlace?: 'home' | 'gym'; workoutMoveCount?: 4 | 5 | 6 }>(
+  featureGet<{ logs: WorkoutLog[]; prs: WorkoutPr[]; workoutPlace?: 'home' | 'gym'; workoutMoveCount?: 4 | 5 | 6; workoutDays?: number[] }>(
     '/api/workouts',
     authQuery(a),
   )
@@ -893,6 +893,7 @@ export const apiPrepFor = (a: { email?: string; token?: string; name: string }) 
 export type MiniPrefs = {
   workoutPlace: 'home' | 'gym'
   workoutMoveCount: 4 | 5 | 6
+  workoutDays: number[]
   sleepBedtime: string
   sleepWake: string
 }
@@ -908,6 +909,7 @@ export const apiPutMiniPrefs = async (
       ...authParams(a),
       workoutPlace: a.workoutPlace,
       workoutMoveCount: a.workoutMoveCount,
+      workoutDays: a.workoutDays,
       sleepBedtime: a.sleepBedtime,
       sleepWake: a.sleepWake,
     }),
