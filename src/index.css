@@ -2413,7 +2413,7 @@ button, input { font: inherit; }
 .nutr-pill-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted-fg); }
 .nutr-pill-val { font-size: 14px; font-weight: 600; }
 .nutr-pill-of { font-size: 12px; font-weight: 400; color: var(--muted-fg); }
-.nutr-pill-track { height: 6px; background: #1c1c1c; border: 1px solid var(--border); overflow: hidden; }
+.nutr-pill-track { height: 6px; background: var(--mini-track, #1c1c1c); border: 1px solid var(--border); overflow: hidden; }
 .nutr-pill-fill { height: 100%; background: var(--mini-accent); transition: width 0.4s ease; }
 
 .nutr-quick { display: flex; gap: 6px; flex-wrap: wrap; }
@@ -2641,7 +2641,7 @@ button, input { font: inherit; }
 }
 .habit-day.done { background: var(--mini-accent, #2a6f7a); color: var(--mini-accent-fg, #f4f4f5); border-color: var(--mini-accent, #2a6f7a); }
 .habit-day.today { border-color: var(--fg); }
-.habit-day.today.done { border-color: #fff; }
+.habit-day.today.done { border-color: var(--bg); }
 .habit-day:hover:not(.done) { border-color: var(--mini-accent); }
 
 /* ---- Mood & Energy ---- */
@@ -2669,7 +2669,7 @@ button, input { font: inherit; }
 }
 .mood-energy-slider::-webkit-slider-thumb {
   appearance: none; width: 18px; height: 18px; border-radius: 50%;
-  background: var(--mini-accent, #22c55e); cursor: pointer; border: 2px solid #fff;
+  background: var(--mini-accent, #22c55e); cursor: pointer; border: 2px solid var(--bg);
 }
 .mood-energy-val { text-align: center; font-size: 13px; font-weight: 600; }
 .mood-note {
@@ -3111,7 +3111,7 @@ button.ma-callout, button.ma-row {
 .ma.workout { gap: 10px; }
 .ma.workout .habit-card { flex-wrap: nowrap; align-items: center; }
 .ma.workout .habit-card.is-expanded { flex-wrap: wrap; align-items: flex-start; }
-.ma.workout .habit-streak { margin-bottom: 0; color: #e0e0e0; }
+.ma.workout .habit-streak { margin-bottom: 0; color: var(--muted-fg); }
 
 /* Exercise name as tap target */
 .wk-name-btn {
@@ -3150,7 +3150,7 @@ button.ma-callout, button.ma-row {
   max-height: 260px;
   object-fit: contain;
   border-radius: 10px;
-  background: #1c1c1c;
+  background: var(--mini-track);
   display: block;
 }
 .wk-demo-hint {
@@ -3160,7 +3160,9 @@ button.ma-callout, button.ma-row {
   padding: 6px 0;
 }
 
-/* Mini theme lock: charcoal matte, Inter Variable, hairlines. Keep dark. */
+/* Mini theme lock: charcoal matte, Inter Variable, hairlines. Dark is home base;
+ * light swaps the same tokens for warmed paper. The attribute is set by the
+ * shell's inline script before first paint and kept in sync by MiniAppPage. */
 .mini {
   --mini-surface: #141414;
   --mini-surface-raised: #141414;
@@ -3168,9 +3170,31 @@ button.ma-callout, button.ma-row {
   --mini-muted: #e0e0e0;
   --mini-line: #3a3a3a;
   --mini-track: #1c1c1c;
+  --over-red: #f08c8c;
   --mini-accent-fg: #f4f4f5;
   color-scheme: dark;
 }
+html[data-mini-theme='light'],
+html[data-mini-theme='light'] body {
+  background: #f5f4f0;
+}
+html[data-mini-theme='light'] .mini {
+  --bg: #f5f4f0;
+  --fg: #1a1917;
+  --muted-fg: #6d675e;
+  --border: rgba(26, 25, 23, 0.16);
+  --mini-surface: #f5f4f0;
+  --mini-surface-raised: #ffffff;
+  --mini-text: #1a1917;
+  --mini-muted: #6d675e;
+  --mini-line: rgba(26, 25, 23, 0.16);
+  --mini-track: #e9e5de;
+  --over-red: #b91c1c;
+  color-scheme: light;
+}
+html[data-mini-theme='light'] .mini__feature:hover { border-color: var(--mini-accent); }
+html[data-mini-theme='light'] .email-reader-close { background: #e9e5de; }
+html[data-mini-theme='light'] .ma-where-label { color: #6d28d9; }
 .mini__macro,
 .mini__card-item,
 .mini__list li {
@@ -3193,7 +3217,7 @@ button.ma-callout, button.ma-row {
   color: var(--fg);
 }
 .mini__macro-track {
-  background: #1c1c1c;
+  background: var(--mini-track);
   border: 1px solid var(--border);
 }
 .mini__macro-fill { background: var(--mini-accent); }
@@ -3548,7 +3572,7 @@ button.ma-callout, button.ma-row {
   font-weight: 600;
   color: var(--muted-fg);
 }
-.spend-bar-over { color: #f08c8c; }
+.spend-bar-over { color: var(--over-red, #f08c8c); }
 
 .spend-donut {
   display: flex;
@@ -3637,6 +3661,12 @@ button.ma-callout, button.ma-row {
   color: var(--muted-fg);
 }
 
+.home-day-state {
+  margin: 2px 0 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted-fg);
+}
 
 /* Launcher tiles, not labeled boxes: this row opens other mini apps, and a
    filled rounded square with a glyph under a small label is the shape people
@@ -3688,83 +3718,20 @@ button.ma-callout, button.ma-row {
   padding-bottom: 8px;
 }
 .home-screen--loading { min-height: 180px; gap: 12px; }
-.home-screen {
-  --home-live: #e2b56b;
-}
-.home-day { display: flex; flex-direction: column; gap: 5px; }
+.home-day { display: flex; flex-direction: column; gap: 4px; }
 .home-day-kicker {
-  font-size: 10px;
-  font-weight: 800;
+  font-size: 11px;
+  font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.16em;
+  letter-spacing: 0.06em;
   color: var(--muted-fg);
 }
 .home-day-title {
   margin: 0;
-  font-size: 30px;
-  font-weight: 850;
-  letter-spacing: -0.035em;
-  line-height: 1.08;
-}
-.home-day-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 2px; }
-.home-day-chip {
-  padding: 4px 10px;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  font-size: 12px;
-  font-weight: 700;
-  color: var(--muted-fg);
-  font-variant-numeric: tabular-nums;
-}
-/* Dayline: the remaining appointments as ticks on a rule. The next one is lit
-   with its time — the whole rest of the day reads in a single line. */
-.home-dayline {
-  display: flex;
-  align-items: flex-end;
-  gap: 6px;
-  margin-top: 10px;
-  padding: 2px 0 2px;
-  border-top: 1px solid var(--border);
-}
-.home-dayline-tick {
-  position: relative;
-  flex: 1;
-  height: 18px;
-  cursor: default;
-}
-.home-dayline-tick::before {
-  content: '';
-  position: absolute;
-  left: 50%;
-  top: 8px;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  transform: translateX(-50%);
-  border: 1px solid color-mix(in srgb, var(--muted-fg) 55%, var(--bg));
-  background: var(--bg);
-}
-.home-dayline-tick--next::before {
-  border-color: var(--home-live);
-  background: var(--home-live);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--home-live) 22%, transparent);
-}
-.home-dayline-time {
-  position: absolute;
-  left: 50%;
-  transform: translateX(-50%);
-  bottom: -2px;
-  font-size: 10px;
-  font-weight: 700;
-  color: var(--home-live);
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-.home-dayline-more {
-  align-self: center;
-  font-size: 12px;
-  color: var(--muted-fg);
-  line-height: 1;
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  line-height: 1.2;
 }
 .home-action {
   padding: 14px 14px 16px;
@@ -3834,14 +3801,9 @@ button.ma-callout, button.ma-row {
   white-space: nowrap;
 }
 .home-action-chip:disabled { opacity: 0.5; }
-/* Overdue, not decorative: the one rung with a deadline behind it. Amber is the
- * live moment — the one thing on this page that is happening now. */
+/* Overdue, not decorative: the one rung with a deadline behind it. */
 .home-action--hot {
-  border-color: color-mix(in srgb, var(--home-live) 55%, var(--border));
-  background: color-mix(in srgb, var(--home-live) 7%, var(--bg));
-}
-.home-action--hot .home-action-kicker {
-  color: var(--home-live);
+  border-color: color-mix(in srgb, var(--mini-accent, #2a6f7a) 55%, var(--border));
 }
 /* The rest of the queue. Same rows as Next, so the two surfaces read alike. */
 .home-queue { margin: 0; padding: 0; list-style: none; }
@@ -3897,17 +3859,13 @@ button.ma-callout, button.ma-row {
   text-decoration: none;
 }
 .home-plain-meta { color: var(--muted-fg); font-size: 12px; }
-/* The Body ledger: one bordered slate, rows like bookkeeping lines. */
 .home-receipt-list {
   margin: 0;
-  padding: 3px 0;
+  padding: 0;
   list-style: none;
   display: flex;
   flex-direction: column;
-  border: 1px solid var(--border);
-  border-radius: 16px;
-  overflow: hidden;
-  background: color-mix(in srgb, var(--border) 24%, var(--bg));
+  gap: 2px;
 }
 /* These rows have always been links into the sub apps. Label plus value with no
    chevron and no press state reads as printed text, so nobody tapped them. */
@@ -3917,11 +3875,11 @@ button.ma-callout, button.ma-row {
   gap: 12px;
   align-items: baseline;
   /* 12px puts the row at 46px tall — a tap target, not a line of text. */
-  padding: 13px 16px;
+  padding: 12px 0;
   border-bottom: 1px solid var(--border);
   text-decoration: none;
   color: inherit;
-  border-radius: 0;
+  border-radius: 8px;
   transition: background-color 0.12s ease;
 }
 .home-receipt::after {
@@ -3942,7 +3900,7 @@ button.ma-callout, button.ma-row {
 }
 .home-receipt:focus-visible {
   outline: 2px solid var(--mini-accent, #2a6f7a);
-  outline-offset: -2px;
+  outline-offset: 2px;
 }
 .home-receipt-list li:last-child .home-receipt { border-bottom: 0; }
 .home-receipt-label {
@@ -3952,14 +3910,99 @@ button.ma-callout, button.ma-row {
   letter-spacing: 0.05em;
   color: var(--muted-fg);
 }
-.home-receipt-val {
-  font-size: 14px;
-  font-weight: 600;
-  text-align: right;
-  font-variant-numeric: tabular-nums;
-}
+.home-receipt-val { font-size: 14px; font-weight: 600; text-align: right; }
 
 .mini__body--home-screen { padding-bottom: 0; }
+
+/* ---- People knowledge graph ---- */
+.people-graph {
+  width: 100%;
+  height: auto;
+  display: block;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background:
+    radial-gradient(ellipse at 50% 45%, color-mix(in srgb, var(--mini-accent, #2a6f7a) 12%, transparent), transparent 60%),
+    color-mix(in srgb, var(--border) 24%, var(--bg));
+  overflow: hidden;
+}
+.pg-edge {
+  stroke-width: 1;
+  stroke-opacity: 0.26;
+  stroke-dasharray: 4 8;
+  animation: pg-dash 30s linear infinite;
+}
+.pg-edge--cluster { stroke-opacity: 0.42; stroke-width: 1.3; }
+@keyframes pg-dash { to { stroke-dashoffset: -160; } }
+.pg-pulse {
+  fill: none;
+  stroke: var(--mini-accent, #2a6f7a);
+  stroke-width: 1.5;
+  animation: pg-pulse 3.4s ease-out infinite;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+@keyframes pg-pulse {
+  0% { transform: scale(0.55); stroke-opacity: 0.6; }
+  100% { transform: scale(2.7); stroke-opacity: 0; }
+}
+.pg-you-core {
+  fill: var(--mini-accent, #2a6f7a);
+  stroke: color-mix(in srgb, var(--mini-accent, #2a6f7a) 60%, #fff);
+  stroke-width: 2;
+}
+.pg-you-label {
+  fill: #05221c;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+.pg-node { cursor: pointer; }
+.pg-node-core {
+  stroke: var(--bg);
+  stroke-width: 2;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: pg-pop 0.5s cubic-bezier(0.2, 0.9, 0.3, 1.15) backwards;
+  animation-delay: calc(var(--i, 0) * 45ms);
+  outline: none;
+}
+@keyframes pg-pop {
+  from { opacity: 0; transform: scale(0.2); }
+  to { opacity: 1; transform: scale(1); }
+}
+.pg-node.pg-node--sel .pg-node-core {
+  stroke: #fff;
+  stroke-width: 2.5;
+  filter: drop-shadow(0 0 6px currentColor);
+}
+.pg-node.pg-node--due .pg-node-pulse {
+  fill: none;
+  stroke-width: 1.5;
+  animation: pg-node-pulse 2.2s ease-out infinite;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+@keyframes pg-node-pulse {
+  0% { opacity: 0.8; transform: scale(0.85); }
+  100% { opacity: 0; transform: scale(1.5); }
+}
+.pg-node-core:focus-visible {
+  stroke: #fff;
+  stroke-width: 3;
+  filter: drop-shadow(0 0 6px currentColor);
+}
+.pg-label {
+  fill: var(--muted-fg);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+@media (prefers-reduced-motion: reduce) {
+  .pg-edge, .pg-pulse, .pg-node-core, .pg-node.pg-node--due .pg-node-pulse {
+    animation: none;
+  }
+}
 
 /* ---- Friend hub pages (Body / Later) ---- */
 .hub { display: flex; flex-direction: column; gap: 10px; }

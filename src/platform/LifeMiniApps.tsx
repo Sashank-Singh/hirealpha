@@ -61,6 +61,7 @@ import {
 import { exerciseDemoUrl } from './exerciseDemos'
 import { isPersonMeetSuggestion, isTravelOrStayTitle, stayWhereFrom } from './peopleMeets'
 import { pickLastNight } from './home'
+import { PeopleGraph } from './PeopleGraph'
 import { useRefreshOnFocus } from './useRefreshOnFocus'
 import { SpendBar, SpendDonut, SpendSwatch } from './SpendCharts'
 import { SPEND_SLOTS, SPEND_SLOT_LABELS } from './spendChart'
@@ -972,6 +973,15 @@ export function NetworkingCrmApp({ auth }: { auth: FeatureAuth }) {
           <span className="ma-where-title">{where.title}</span>
           {where.place && where.place !== where.title && <span className="ma-where-sub">{where.place}</span>}
         </div>
+      )}
+
+      {/* Your network as a graph */}
+      {contacts.length > 0 && (
+        <section className="ma-section">
+          <span className="ma-section-label">Your network</span>
+          <PeopleGraph people={contacts} selectedId={openId} onSelect={(p) => openPerson(p)} />
+          <p className="ma-sub">Tap a node to open them. People who met in the same place share a color.</p>
+        </section>
       )}
 
       {/* In person today */}
