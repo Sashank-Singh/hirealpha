@@ -4666,12 +4666,16 @@ async function miniPayload(
         )
         const doneIdsE = await triagedMailIds(sql, user.id)
         const kept = (await judgeBriefMail(richMail, 12)).filter((m) => !doneIdsE.has(m.id))
-        mailItems = kept.map((m) => ({
+        // A few lead the flat "Mail since this morning"; the rest become the
+        // sub-category piles. Morning keeps these separate, and so does this —
+        // otherwise every mail renders twice (flat + grouped).
+        const leadIds = new Set(kept.slice(0, 3).map((m) => m.id))
+        mailItems = kept.slice(0, 3).map((m) => ({
           id: m.id,
           label: formatMailLineFromParts(m.from, m.subject),
           snippet: cleanMailSnippet(m.snippet),
         }))
-        mailGroups = groupMailByKind(kept).map((g) => ({
+        mailGroups = groupMailByKind(kept.filter((m) => !leadIds.has(m.id))).map((g) => ({
           kind: g.kind,
           label: g.label,
           count: g.count,
