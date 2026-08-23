@@ -584,6 +584,15 @@ function parseNetworkContact(text: string): { name?: string; place?: string } | 
  * Returns null when no name can be parsed (card is still sent; nothing logged).
  * Returns the API response otherwise; only set `logged: true` on confirmed save.
  */
+export async function autoSetBudget(phone: string, persona: AgentId, text: string) {
+  return autoLogText<{ ok?: boolean; logged?: boolean; weeklyBudget?: number; error?: string }>(
+    '/api/internal/budget',
+    phone,
+    persona,
+    text,
+  )
+}
+
 export async function autoLogNetwork(
   phone: string,
   persona: AgentId,

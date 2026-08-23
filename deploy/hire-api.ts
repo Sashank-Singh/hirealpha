@@ -2727,15 +2727,38 @@ const homeWorldCache = createStaleCache<HomeWorld>({
  *
  * maxWaitMs is a floor on how long a first open can feel slow, not a deadline on
  * the work — the load keeps running into the cache after the wait expires, so a
- * short wait plus a retry a couple of seconds later gets the brief on screen
- * sooner than one nine-second stare at a spinner ever did. */
+ * short wait plus a retry a few hundred ms later gets the brief on screen sooner
+ * than one long stare at a spinner ever did. 900ms is the crossover: a load that
+ * finishes under it is served on the spot, and anything slower is better handed
+ * to the client's retry ladder than held open. */
 const digestCache = createStaleCache<Awaited<ReturnType<typeof digestPayload>>>({
   ttlMs: 240_000,
-  maxWaitMs: 2_500,
+  maxWaitMs: 900,
   failureCooldownMs: 20_000,
   maxEntries: 200,
   onError: (key, err) => console.warn('[digest] load failed', key, err),
 })
+
+/* The evening brief is the same weight as the morning one — a two-day calendar
+ * range, an inbox pull, a model pass, and eleven log queries — and until now it
+ * was the only brief with no cache at all, so every open paid the whole bill.
+ *
+ * Its own cache rather than a shared one: the two briefs have different payload
+ * shapes, and keying them together would let a morning read serve an evening
+ * open. Same 4-minute window, since both are answering "what has landed". */
+const eveningCache = createStaleCache<Awaited<ReturnType<typeof miniPayload>>>({
+  ttlMs: 240_000,
+  maxWaitMs: 900,
+  failureCooldownMs: 20_000,
+  maxEntries: 200,
+  onError: (key, err) => console.warn('[evening] load failed', key, err),
+})
+
+/* Long enough to mean "this caller actually needs the value, not a fast paint".
+ * Used by the paths that build the brief *text* Alpha sends: they have to wait
+ * for the real payload anyway, and going through the cache means the card link
+ * they are about to text is already warm when it gets tapped. */
+const BRIEF_WARM_WAIT_MS = 60_000
 
 async function loadHomeWorld(sql: SQL, user: AuthedUser, tzLocal: string): Promise<HomeWorld> {
   const world: HomeWorld = { upcoming: [], mail: [], mailGroups: [] }
@@ -4365,9 +4388,15 @@ async function judgmentStatePayload(
     tick === 'digest' || tick === 'morning' || tick === 'evening' || tick === 'night' || tick === 'digest_evening'
   try {
     if (digestTick) {
-      const payload = await digestPayload(sql, user, persona)
-      calendar = (payload.calendar || []).slice(0, 4)
-      mail = (payload.emails || []).slice(0, 3)
+      /* Warms the same cache the brief link reads, so the digest text and the
+       * screen it points at are one load rather than two. */
+      const payload = (await digestCache.read(
+        `${user.id}|${persona}`,
+        () => digestPayload(sql, user, persona),
+        BRIEF_WARM_WAIT_MS,
+      )).value
+      calendar = (payload?.calendar || []).slice(0, 4)
+      mail = (payload?.emails || []).slice(0, 3)
     } else {
       const connected = await connectedForUser(sql, user.id)
       const jobs: Array<Promise<void>> = []
@@ -4530,8 +4559,13 @@ async function miniPayload(
   kind: string,
 ) {
   const tz = user.timezone || 'America/Los_Angeles'
-  const context = await loadContext(sql, user.id, persona)
-  const connected = (await connectedForUser(sql, user.id)).filter((id) => !PERSONA_DENIED[persona].has(id))
+  // Two independent reads that every kind below needs. Serially they were two
+  // round trips before any real work started.
+  const [context, connectedAll] = await Promise.all([
+    loadContext(sql, user.id, persona),
+    connectedForUser(sql, user.id),
+  ])
+  const connected = connectedAll.filter((id) => !PERSONA_DENIED[persona].has(id))
   const dateLabel = new Date().toLocaleDateString('en-US', {
     weekday: 'long',
     month: 'long',
@@ -4606,7 +4640,11 @@ async function miniPayload(
       }
     }
 
-    if (connected.includes('calendar')) {
+    /* The three things this brief is made of — the calendar, the inbox, and the
+     * day's own logs — never read each other. Serially they were three waits
+     * stacked end to end; started together the brief costs only the slowest. */
+    const calJob = (async () => {
+      if (!connected.includes('calendar')) return
       // Try direct Google Calendar first: fetch today + tomorrow together
       const access = await googleAccessToken(sql, user.id, 'calendar')
       if (access) {
@@ -4650,23 +4688,7 @@ async function miniPayload(
           })
         }
       }
-    }
-
-    const todayEvents = allEvents.filter((e) => e.dayYmd === todayYmd)
-    const tomorrowEvents = allEvents.filter((e) => e.dayYmd === tomorrowYmd && !e.allDay)
-
-    // Hotel/travel all-day = where you are
-    const locationEvents = todayEvents.filter((e) =>
-      isHotelStayEvent({ title: e.title, allDay: e.allDay }),
-    )
-    // Past timed events today (recap)
-    const pastEvents = todayEvents
-      .filter((e) => !e.allDay && e.startMs < nowMs - 5 * 60_000)
-      .sort((a, b) => a.startMs - b.startMs)
-    // Remaining timed events today
-    const remainingEvents = todayEvents
-      .filter((e) => !e.allDay && e.startMs >= nowMs - 5 * 60_000)
-      .sort((a, b) => a.startMs - b.startMs)
+    })()
 
     // Mail since morning: recent inbox minus Promotions, then a model judges.
     // Keep enough to break into sub-category piles like the morning brief.
@@ -4677,7 +4699,8 @@ async function miniPayload(
       count: number
       items: Array<{ id: string; label: string; snippet?: string }>
     }> = []
-    if (connected.includes('gmail')) {
+    const mailJob = (async () => {
+      if (!connected.includes('gmail')) return
       try {
         const richMail = await withTimeout(
           loadGmailRich(sql, user.id, importantMailQuery('12h'), 12),
@@ -4708,9 +4731,7 @@ async function miniPayload(
       } catch {
         // best-effort
       }
-    }
-
-    const formatEvent = (e: EveningEvent) => `${e.time}  ${e.who || e.title}  ${e.meetKind}`
+    })()
 
     // The day, closed: every fact below comes from a log table, never invented.
     // The checklist and score let the evening brief answer "how did today go"
@@ -4725,155 +4746,203 @@ async function miniPayload(
     const habitsToday: Array<{ id: string; name: string; emoji: string; done: boolean }> = []
     const carryOver: Array<{ id: string; title: string; dueLabel?: string }> = []
     let dayScore: { points: number; verdict: string } | null = null
-    try {
-      const workoutRows = await sql`
-        SELECT count(*)::int AS n FROM hire_workouts
-        WHERE user_id = ${user.id} AND (logged_at AT TIME ZONE ${tz})::date = ${todayYmd}
-      `
-      const workoutsToday = Number((workoutRows[0] as { n?: number })?.n) || 0
-      dayFacts.push(
-        workoutsToday > 0
-          ? { key: 'workout', label: 'Lifted', detail: `${workoutsToday} move${workoutsToday === 1 ? '' : 's'} logged`, state: 'done' }
-          : { key: 'workout', label: 'No lift', detail: 'Nothing logged today', state: 'miss' },
-      )
+    const factsJob = (async () => {
+      try {
+        const weekStartNight = mondayOfDateStr(todayYmd)
+        const yesterdayYmd = shiftDateStr(todayYmd, -1)
+        /* Ten one-row reads that know nothing about each other — and they used to
+         * run as ten round trips, one after the next, inside a single response.
+         * Each keeps its own catch, so an unhappy table now costs one fact
+         * instead of every fact after it, which is what one big try/catch did. */
+        const rows = async <T>(q: Promise<T[]>): Promise<T[]> => {
+          try {
+            return (await q) || []
+          } catch {
+            return []
+          }
+        }
+        const [
+          workoutRows,
+          nutRows,
+          goalRows,
+          habitRowsE,
+          spendRowsE,
+          budgetRows,
+          gratRows,
+          moodRows,
+          nightRows,
+          loopRowsE,
+        ] = await Promise.all([
+          rows<{ n?: number }>(sql`
+            SELECT count(*)::int AS n FROM hire_workouts
+            WHERE user_id = ${user.id} AND (logged_at AT TIME ZONE ${tz})::date = ${todayYmd}
+          `),
+          rows<{ calories?: number; protein?: number; meals?: number }>(sql`
+            SELECT coalesce(sum(calories), 0)::float AS calories, coalesce(sum(protein), 0)::float AS protein,
+                   count(*)::int AS meals
+            FROM hire_nutrition_logs
+            WHERE user_id = ${user.id} AND (eaten_at AT TIME ZONE ${tz})::date = ${todayYmd}
+          `),
+          rows<{ calorieGoal?: number; proteinGoal?: number }>(sql`
+            SELECT calorie_goal AS "calorieGoal", protein_goal AS "proteinGoal"
+            FROM hire_nutrition_goals WHERE user_id = ${user.id}
+          `),
+          rows<{ id: string; name: string; emoji: string; done: boolean }>(sql`
+            SELECT h.id, h.name, h.emoji,
+                   EXISTS (SELECT 1 FROM hire_habit_logs l WHERE l.habit_id = h.id AND l.date = ${todayYmd}) AS done
+            FROM hire_habits h WHERE h.user_id = ${user.id} ORDER BY h.created_at ASC
+          `),
+          rows<{ total?: number }>(sql`
+            SELECT coalesce(sum(amount), 0)::float AS total FROM hire_spending
+            WHERE user_id = ${user.id} AND (spent_at AT TIME ZONE ${tz})::date >= ${weekStartNight}
+          `),
+          rows<{ weeklyBudget?: number }>(sql`
+            SELECT weekly_budget AS "weeklyBudget" FROM hire_spending_budget WHERE user_id = ${user.id}
+          `),
+          rows<{ n?: number }>(sql`
+            SELECT count(*)::int AS n FROM hire_gratitude
+            WHERE user_id = ${user.id} AND (created_at AT TIME ZONE ${tz})::date = ${todayYmd}
+          `),
+          rows<{ n?: number }>(sql`
+            SELECT count(*)::int AS n FROM hire_moods
+            WHERE user_id = ${user.id} AND (created_at AT TIME ZONE ${tz})::date = ${todayYmd}
+          `),
+          rows<{ bedtime?: string; wake?: string }>(sql`
+            SELECT bedtime, wake FROM hire_sleep
+            WHERE user_id = ${user.id} AND sleep_date IN (${todayYmd}, ${yesterdayYmd})
+            ORDER BY sleep_date DESC LIMIT 1
+          `),
+          rows<{ id: string; title: string; dueAt: Date }>(sql`
+            SELECT id, title, due_at AS "dueAt" FROM hire_loops
+            WHERE user_id = ${user.id} AND persona = ${persona} AND status = 'open'
+              AND due_at IS NOT NULL AND (due_at AT TIME ZONE ${tz})::date <= ${todayYmd}
+            ORDER BY due_at ASC LIMIT 5
+          `),
+        ])
 
-      const nutRows = await sql`
-        SELECT coalesce(sum(calories), 0)::float AS calories, coalesce(sum(protein), 0)::float AS protein,
-               count(*)::int AS meals
-        FROM hire_nutrition_logs
-        WHERE user_id = ${user.id} AND (eaten_at AT TIME ZONE ${tz})::date = ${todayYmd}
-      `
-      const nut = (nutRows[0] ?? {}) as { calories?: number; protein?: number; meals?: number }
-      const mealsLogged = Number(nut.meals) || 0
-      if (mealsLogged > 0) {
-        const goalsRow = (await sql`
-          SELECT calorie_goal AS "calorieGoal", protein_goal AS "proteinGoal"
-          FROM hire_nutrition_goals WHERE user_id = ${user.id}
-        `)[0] as { calorieGoal?: number; proteinGoal?: number } | undefined
-        const cal = Math.round(Number(nut.calories) || 0)
-        const protein = Math.round(Number(nut.protein) || 0)
-        const calGoal = Math.round(goalsRow?.calorieGoal || 2200)
-        const proteinGoal = Math.round(goalsRow?.proteinGoal || 150)
-        dayFacts.push({
-          key: 'food',
-          label: 'Food',
-          detail: `${protein}g protein of ${proteinGoal}, ${cal} of ${calGoal} calories`,
-          state: protein >= proteinGoal * 0.6 ? 'done' : 'partial',
-        })
-      }
-
-      const habitRowsE = await sql`
-        SELECT h.id, h.name, h.emoji,
-               EXISTS (SELECT 1 FROM hire_habit_logs l WHERE l.habit_id = h.id AND l.date = ${todayYmd}) AS done
-        FROM hire_habits h WHERE h.user_id = ${user.id} ORDER BY h.created_at ASC
-      `
-      for (const h of habitRowsE as Array<{ id: string; name: string; emoji: string; done: boolean }>) {
-        habitsToday.push({ id: h.id, name: h.name, emoji: h.emoji, done: !!h.done })
-      }
-      const habitsDone = habitsToday.filter((h) => h.done).length
-      if (habitsToday.length) {
-        dayFacts.push({
-          key: 'habits',
-          label: 'Habits',
-          detail: `${habitsDone} of ${habitsToday.length}`,
-          state: habitsDone === habitsToday.length ? 'done' : habitsDone > 0 ? 'partial' : 'miss',
-        })
-      }
-
-      const weekStartNight = mondayOfDateStr(todayYmd)
-      const spendRowsE = await sql`
-        SELECT coalesce(sum(amount), 0)::float AS total FROM hire_spending
-        WHERE user_id = ${user.id} AND (spent_at AT TIME ZONE ${tz})::date >= ${weekStartNight}
-      `
-      const spendWeekN = Number((spendRowsE[0] as { total?: number })?.total) || 0
-      if (spendWeekN > 0) {
-        const budgetRowN = (await sql`
-          SELECT weekly_budget AS "weeklyBudget" FROM hire_spending_budget WHERE user_id = ${user.id}
-        `)[0] as { weeklyBudget?: number } | undefined
-        const budgetN = Math.round(budgetRowN?.weeklyBudget || 400)
-        dayFacts.push({
-          key: 'spend',
-          label: 'Spent this week',
-          detail: `$${Math.round(spendWeekN)} of $${budgetN}`,
-          state: spendWeekN <= budgetN ? 'done' : 'miss',
-        })
-      }
-
-      {
-        const rows = await sql`
-          SELECT count(*)::int AS n FROM hire_gratitude
-          WHERE user_id = ${user.id} AND (created_at AT TIME ZONE ${tz})::date = ${todayYmd}
-        `
-        const n = Number((rows[0] as { n?: number })?.n) || 0
+        const workoutsToday = Number(workoutRows[0]?.n) || 0
         dayFacts.push(
-          n > 0
-            ? { key: 'gratitude', label: 'Gratitude', detail: 'Logged', state: 'done' }
-            : { key: 'gratitude', label: 'Gratitude not logged', detail: '', state: 'miss' },
+          workoutsToday > 0
+            ? { key: 'workout', label: 'Lifted', detail: `${workoutsToday} move${workoutsToday === 1 ? '' : 's'} logged`, state: 'done' }
+            : { key: 'workout', label: 'No lift', detail: 'Nothing logged today', state: 'miss' },
         )
-      }
-      {
-        const rows = await sql`
-          SELECT count(*)::int AS n FROM hire_moods
-          WHERE user_id = ${user.id} AND (created_at AT TIME ZONE ${tz})::date = ${todayYmd}
-        `
-        const n = Number((rows[0] as { n?: number })?.n) || 0
-        dayFacts.push(
-          n > 0
-            ? { key: 'mood', label: 'Mood', detail: 'Logged', state: 'done' }
-            : { key: 'mood', label: 'Mood not logged', detail: '', state: 'miss' },
-        )
-      }
 
-      const lastNightE = (await sql`
-        SELECT bedtime, wake FROM hire_sleep
-        WHERE user_id = ${user.id} AND sleep_date IN (${todayYmd}, ${shiftDateStr(todayYmd, -1)})
-        ORDER BY sleep_date DESC LIMIT 1
-      `)[0] as { bedtime?: string; wake?: string } | undefined
-      const nightHoursE =
-        lastNightE?.bedtime && lastNightE?.wake ? sleepHoursBetween(lastNightE.bedtime, lastNightE.wake) : 0
-
-      const hasSignal =
-        workoutsToday > 0 || mealsLogged > 0 || habitsToday.length > 0 || nightHoursE > 0 ||
-        dayFacts.some((f) => f.state === 'done')
-      if (hasSignal) {
-        let points = 50
-        points += workoutsToday > 0 ? 15 : -10
+        const nut = nutRows[0]
+        const mealsLogged = Number(nut?.meals) || 0
         if (mealsLogged > 0) {
-          const f = dayFacts.find((x) => x.key === 'food')
-          points += f?.state === 'done' ? 10 : -5
+          const cal = Math.round(Number(nut?.calories) || 0)
+          const protein = Math.round(Number(nut?.protein) || 0)
+          const calGoal = Math.round(goalRows[0]?.calorieGoal || 2200)
+          const proteinGoal = Math.round(goalRows[0]?.proteinGoal || 150)
+          dayFacts.push({
+            key: 'food',
+            label: 'Food',
+            detail: `${protein}g protein of ${proteinGoal}, ${cal} of ${calGoal} calories`,
+            state: protein >= proteinGoal * 0.6 ? 'done' : 'partial',
+          })
         }
+
+        for (const h of habitRowsE) {
+          habitsToday.push({ id: h.id, name: h.name, emoji: h.emoji, done: !!h.done })
+        }
+        const habitsDone = habitsToday.filter((h) => h.done).length
         if (habitsToday.length) {
-          const ratio = habitsDone / habitsToday.length
-          points += Math.round(ratio * 20 - 10)
+          dayFacts.push({
+            key: 'habits',
+            label: 'Habits',
+            detail: `${habitsDone} of ${habitsToday.length}`,
+            state: habitsDone === habitsToday.length ? 'done' : habitsDone > 0 ? 'partial' : 'miss',
+          })
         }
-        const sf = dayFacts.find((x) => x.key === 'spend')
-        if (sf) points += sf.state === 'done' ? 5 : -10
-        points += dayFacts.some((f) => f.key === 'gratitude' && f.state === 'done') ? 5 : 0
-        points += dayFacts.some((f) => f.key === 'mood' && f.state === 'done') ? 5 : 0
-        if (nightHoursE >= 7) points += 10
-        else if (nightHoursE > 0 && nightHoursE < 6) points -= 10
-        points = Math.max(0, Math.min(100, points))
-        const verdict = points >= 75 ? 'strong' : points >= 60 ? 'solid' : points >= 45 ? 'decent' : points >= 30 ? 'rough' : 'wrecked'
-        dayScore = { points, verdict }
-      }
 
-      const loopRowsE = await sql`
-        SELECT id, title, due_at AS "dueAt" FROM hire_loops
-        WHERE user_id = ${user.id} AND persona = ${persona} AND status = 'open'
-          AND due_at IS NOT NULL AND (due_at AT TIME ZONE ${tz})::date <= ${todayYmd}
-        ORDER BY due_at ASC LIMIT 5
-      `
-      for (const l of loopRowsE as Array<{ id: string; title: string; dueAt: Date }>) {
-        carryOver.push({
-          id: l.id,
-          title: l.title,
-          dueLabel: formatCalTime(new Date(l.dueAt).toISOString(), tz),
-        })
-      }
-    } catch {
-      // Debrief facts are best effort; the calendar sections still ship.
-    }
+        const spendWeekN = Number(spendRowsE[0]?.total) || 0
+        if (spendWeekN > 0) {
+          const budgetN = Math.round(budgetRows[0]?.weeklyBudget || 400)
+          dayFacts.push({
+            key: 'spend',
+            label: 'Spent this week',
+            detail: `$${Math.round(spendWeekN)} of $${budgetN}`,
+            state: spendWeekN <= budgetN ? 'done' : 'miss',
+          })
+        }
 
+        {
+          const n = Number(gratRows[0]?.n) || 0
+          dayFacts.push(
+            n > 0
+              ? { key: 'gratitude', label: 'Gratitude', detail: 'Logged', state: 'done' }
+              : { key: 'gratitude', label: 'Gratitude not logged', detail: '', state: 'miss' },
+          )
+        }
+        {
+          const n = Number(moodRows[0]?.n) || 0
+          dayFacts.push(
+            n > 0
+              ? { key: 'mood', label: 'Mood', detail: 'Logged', state: 'done' }
+              : { key: 'mood', label: 'Mood not logged', detail: '', state: 'miss' },
+          )
+        }
+
+        const lastNightE = nightRows[0]
+        const nightHoursE =
+          lastNightE?.bedtime && lastNightE?.wake ? sleepHoursBetween(lastNightE.bedtime, lastNightE.wake) : 0
+
+        const hasSignal =
+          workoutsToday > 0 || mealsLogged > 0 || habitsToday.length > 0 || nightHoursE > 0 ||
+          dayFacts.some((f) => f.state === 'done')
+        if (hasSignal) {
+          let points = 50
+          points += workoutsToday > 0 ? 15 : -10
+          if (mealsLogged > 0) {
+            const f = dayFacts.find((x) => x.key === 'food')
+            points += f?.state === 'done' ? 10 : -5
+          }
+          if (habitsToday.length) {
+            const ratio = habitsDone / habitsToday.length
+            points += Math.round(ratio * 20 - 10)
+          }
+          const sf = dayFacts.find((x) => x.key === 'spend')
+          if (sf) points += sf.state === 'done' ? 5 : -10
+          points += dayFacts.some((f) => f.key === 'gratitude' && f.state === 'done') ? 5 : 0
+          points += dayFacts.some((f) => f.key === 'mood' && f.state === 'done') ? 5 : 0
+          if (nightHoursE >= 7) points += 10
+          else if (nightHoursE > 0 && nightHoursE < 6) points -= 10
+          points = Math.max(0, Math.min(100, points))
+          const verdict = points >= 75 ? 'strong' : points >= 60 ? 'solid' : points >= 45 ? 'decent' : points >= 30 ? 'rough' : 'wrecked'
+          dayScore = { points, verdict }
+        }
+
+        for (const l of loopRowsE) {
+          carryOver.push({
+            id: l.id,
+            title: l.title,
+            dueLabel: formatCalTime(new Date(l.dueAt).toISOString(), tz),
+          })
+        }
+      } catch {
+        // Debrief facts are best effort; the calendar sections still ship.
+      }
+    })()
+
+    await Promise.all([calJob, mailJob, factsJob])
+
+    const todayEvents = allEvents.filter((e) => e.dayYmd === todayYmd)
+    const tomorrowEvents = allEvents.filter((e) => e.dayYmd === tomorrowYmd && !e.allDay)
+
+    // Hotel/travel all-day = where you are
+    const locationEvents = todayEvents.filter((e) =>
+      isHotelStayEvent({ title: e.title, allDay: e.allDay }),
+    )
+    // Past timed events today (recap)
+    const pastEvents = todayEvents
+      .filter((e) => !e.allDay && e.startMs < nowMs - 5 * 60_000)
+      .sort((a, b) => a.startMs - b.startMs)
+    // Remaining timed events today
+    const remainingEvents = todayEvents
+      .filter((e) => !e.allDay && e.startMs >= nowMs - 5 * 60_000)
+      .sort((a, b) => a.startMs - b.startMs)
+
+    const formatEvent = (e: EveningEvent) => `${e.time}  ${e.who || e.title}  ${e.meetKind}`
 
     const sections: Array<{ heading: string; items: string[]; emailMeta?: Array<{ id: string; snippet?: string }> }> = []
 
@@ -5585,11 +5654,24 @@ export async function miniCardOgDescription(
   if (!user) return null
   try {
     if (kind === 'digest') {
-      const payload = await digestPayload(sql, user, persona)
+      /* Through the cache, not around it. This runs to build the preview line for
+       * the card Alpha is about to text — the same payload the link opens. Warming
+       * it here is why tapping that link lands on a brief instead of building one. */
+      const payload = (await digestCache.read(
+        `${user.id}|${persona}`,
+        () => digestPayload(sql, user, persona),
+        BRIEF_WARM_WAIT_MS,
+      )).value
+      if (!payload) return null
       return String(payload.preview || '').trim() || null
     }
     if (kind === 'pick_night') {
-      const payload = await miniPayload(sql, user, persona, 'pick_night')
+      const payload = (await eveningCache.read(
+        `${user.id}|${persona}`,
+        () => miniPayload(sql, user, persona, 'pick_night'),
+        BRIEF_WARM_WAIT_MS,
+      )).value
+      if (!payload) return null
       const sections = (payload as { sections?: Array<{ heading: string; items?: string[] }> }).sections || []
       const lines = sections
         .flatMap((s) => (s.items || []).slice(0, 3))
@@ -6359,13 +6441,19 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     if (!user) return json({ error: 'No account found for that phone/email' }, 404)
     try {
       const brief = await digestCache.read(`${user!.id}|${persona}`, () => digestPayload(sql, user!, persona))
-      if (!brief.value) {
+      if (!brief.value && brief.pending) {
         /* Not an error — the load is still running behind this response and will
          * be in the cache shortly. Saying `error` here made the client stop and
          * tell the user to reopen the screen by hand; `pending` alone lets it
          * come back on its own. Never cached, or the retry reads this. */
         return json({ pending: true, note: 'Pulling your day together.' }, 200)
       }
+      /* No value and nothing in flight means the build failed, or failed moments
+       * ago and the cache is still in its cooldown. Claiming `pending` here would
+       * send the client down a retry ladder shorter than the cooldown, so it would
+       * ask six times, get this same answer six times, and then say "keep waiting"
+       * — which isn't true. Fall into the catch below and say so instead. */
+      if (!brief.value) throw new Error('digest payload unavailable')
       // A stale hit refreshing behind the response must not be served from the
       // browser cache on the next open, or the refresh would never be seen.
       return jsonRevalidated(req, brief.pending ? 0 : 120, {
@@ -6835,6 +6923,27 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
       return json({ error: 'email required' }, 400)
     }
     if (!user) return json({ error: 'No account found for that phone/email' }, 404)
+    /* The evening brief is the one mini heavy enough to be worth caching: a
+     * two-day calendar range, an inbox pull, and a model pass. The rest are a
+     * query or two and are cheaper to just run. */
+    if (kind === 'pick_night') {
+      const brief = await eveningCache.read(`${user!.id}|${persona}`, () =>
+        miniPayload(sql, user!, persona, 'pick_night'),
+      )
+      if (!brief.value && brief.pending) {
+        // Still loading behind this response. Never cached, or the retry reads it.
+        return json({ pending: true, note: 'Closing out your day.' }, 200)
+      }
+      /* Nothing cached and nothing running: the build failed, or is inside the
+       * failure cooldown. Only `pending` earns a retry — the ladder is shorter
+       * than the cooldown, so promising one here would just stall and then lie. */
+      if (!brief.value) {
+        return json({ error: 'Your evening brief did not build. Open again in a minute.' }, 200)
+      }
+      // A stale hit refreshing behind the response must not come from the browser
+      // cache next open, or that refresh would never be seen.
+      return jsonRevalidated(req, brief.pending ? 0 : 120, brief.value)
+    }
     return json(await miniPayload(sql, user, persona, kind))
   }
 
@@ -7578,6 +7687,25 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     return json({ ok: true, logged: true, id, ...parsed })
   }
 
+  if (path === '/api/internal/budget' && req.method === 'POST') {
+    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
+    const body = (await req.json().catch(() => ({}))) as { phone?: string; persona?: string; text?: string }
+    if (!body.phone || !isPersona(body.persona || '') || !String(body.text || '').trim()) {
+      return json({ error: 'phone, persona, and text required' }, 400)
+    }
+    const user = await getUserByPhone(sql, body.phone)
+    if (!user) return json({ error: 'User not found' }, 404)
+    const m = String(body.text).match(/\$?\s*(\d{2,6})/)
+    if (!m) return json({ ok: false, logged: false, error: 'Could not read a budget amount' })
+    const amount = Math.min(50000, Math.max(50, Number(m[1])))
+    await sql`
+      INSERT INTO hire_spending_budget (user_id, weekly_budget, updated_at)
+      VALUES (${user.id}, ${amount}, now())
+      ON CONFLICT (user_id) DO UPDATE SET weekly_budget = ${amount}, updated_at = now()
+    `
+    return json({ ok: true, logged: true, weeklyBudget: amount })
+  }
+
   if (path === '/api/internal/learning' && req.method === 'POST') {
     if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
     const body = (await req.json().catch(() => ({}))) as {
@@ -7634,7 +7762,12 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     if (!phone || !isPersona(persona)) return json({ error: 'phone and persona required' }, 400)
     const user = await getUserByPhone(sql, phone)
     if (!user) return json({ error: 'User not found' }, 404)
-    const payload = await digestPayload(sql, user, persona)
+    const payload = (await digestCache.read(
+      `${user.id}|${persona}`,
+      () => digestPayload(sql, user, persona),
+      BRIEF_WARM_WAIT_MS,
+    )).value
+    if (!payload) return json({ error: 'Could not build the brief' }, 502)
     return json({ ...payload, cardUrl: `${appBase(req)}/app/mini/${persona}/digest` })
   }
 

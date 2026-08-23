@@ -8,7 +8,7 @@ import { skillsPromptBlock, SKILLS } from './skills'
 import { gmiChat } from './gmi'
 import { appendThread, loadMemory, upsertFacts, pruneExpiredFacts, setSummary, trimHistory, MAX_RAW, type ThreadMemory } from './memory'
 import { extractFacts, summarizeOld } from './memoryMaintain'
-import { autoLogGratitude, autoLogHabit, autoLogMood, autoLogNutrition, autoLogSleep, autoLogSpend, autoLogWorkout, autoLogNetwork, autoSaveLearning, fetchLiveProfile, fetchLiveTools, fetchMiniRun, fetchPrepBundle, fetchWeekBundle, formatHireContext, formatHireMemories, persistLiveFacts, proposeLiveDraft, touchInbound } from './liveContext'
+import { autoLogGratitude, autoLogHabit, autoLogMood, autoLogNutrition, autoLogSleep, autoLogSpend, autoLogWorkout, autoLogNetwork, autoSaveLearning, autoSetBudget, fetchLiveProfile, fetchLiveTools, fetchMiniRun, fetchPrepBundle, fetchWeekBundle, formatHireContext, formatHireMemories, persistLiveFacts, proposeLiveDraft, touchInbound } from './liveContext'
 import {
   looksLikeReminder,
   parseReminderIntent,
@@ -202,6 +202,10 @@ function looksLikeGratitudeLog(text: string) {
 
 function looksLikeSpendLog(text: string) {
   return /\$\s*\d+|(?:spent|spend|paid|cost)\s+\$?\s*\d+/i.test(text)
+}
+
+function looksLikeBudgetSet(text: string) {
+  return /\bbudget\b/i.test(text) && /\d{2,6}/.test(text)
 }
 
 function looksLikeLifeTap(text: string) {
@@ -698,7 +702,26 @@ export async function runHireTurn(input: {
       extras.push('Habit auto-log could not find a matching habit. Do not claim it was logged.')
     }
   }
-  if (miniApp?.kind === 'spending_snapshot' && looksLikeSpendLog(input.userText) && hardStop !== 'money') {
+  if (
+    miniApp?.kind === 'spending_snapshot' &&
+    looksLikeBudgetSet(input.userText) &&
+    hardStop !== 'money'
+  ) {
+    const set = await autoSetBudget(input.senderId, agent.id, input.userText)
+    if (set?.logged) {
+      extras.push(
+        `Weekly budget was set to $${Math.round(Number(set.weeklyBudget) || 0)}. Confirm briefly; do not mention the old value.`,
+      )
+    } else {
+      extras.push('Could not read a budget amount. Do not claim the budget changed. Ask for the amount, or point them to the Spending card.')
+    }
+  }
+  if (
+    miniApp?.kind === 'spending_snapshot' &&
+    !looksLikeBudgetSet(input.userText) &&
+    looksLikeSpendLog(input.userText) &&
+    hardStop !== 'money'
+  ) {
     const spend = await autoLogSpend(input.senderId, agent.id, input.userText)
     if (spend?.logged) {
       extras.push(
