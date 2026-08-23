@@ -93,7 +93,7 @@ const MESSAGES: Msg[] = [
     dir: 'in',
     at: 7.0,
     kind: 'bubble',
-    text: 'Today: 11:30 AM · Maria (Software Engineer). At risk: Nothing sharp is on fire. Show up ready. That is the day. Reply ok, skip, or tell me what actually matters.',
+    text: 'Today: 11:30 AM · Maria (Software Engineer). Show up ready. Reply ok, skip, or tell me what actually matters.',
   },
   { dir: 'in', at: 9.6, kind: 'app', title: 'Morning brief · Alpha', subtitle: '11:30 AM · Maria (Software Engineer). Show up ready.' },
   { dir: 'out', at: 12.0, kind: 'bubble', text: 'Apps', read: 'Read 12:49 AM' },

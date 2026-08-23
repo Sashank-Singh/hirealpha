@@ -143,16 +143,24 @@ export function OpenLoopsApp({ auth }: { auth: FeatureAuth }) {
   }
 
   async function setStatus(id: string, status: string) {
-    await apiPatchLoop({ ...a, id, status }).catch(() => undefined)
-    load()
+    try {
+      await apiPatchLoop({ ...a, id, status })
+      load()
+    } catch (err) {
+      setErr(err instanceof Error ? err.message : 'Could not update that.')
+    }
   }
 
   async function snooze(id: string) {
     const due = new Date()
     due.setDate(due.getDate() + 1)
     due.setHours(9, 0, 0, 0)
-    await apiPatchLoop({ ...a, id, status: 'open', dueAt: due.toISOString() }).catch(() => undefined)
-    load()
+    try {
+      await apiPatchLoop({ ...a, id, status: 'open', dueAt: due.toISOString() })
+      load()
+    } catch (err) {
+      setErr(err instanceof Error ? err.message : 'Could not snooze that.')
+    }
   }
 
   const open = loops
@@ -442,8 +450,12 @@ export function RelationshipRadarApp({ auth }: { auth: FeatureAuth }) {
 
   async function touch(id: string) {
     setJustTouched(id)
-    await apiTouchRelationship({ ...a, id }).catch(() => undefined)
-    load()
+    try {
+      await apiTouchRelationship({ ...a, id })
+      load()
+    } catch (err) {
+      setErr(err instanceof Error ? err.message : 'Could not mark that touched.')
+    }
     window.setTimeout(() => setJustTouched((cur) => (cur === id ? null : cur)), 800)
   }
 
@@ -876,7 +888,11 @@ export function MeetingModeApp({ auth }: { auth: FeatureAuth }) {
 
   async function wrap(id: string) {
     const m = meetings.find((row) => row.id === id)
-    await apiPatchMeeting({ ...a, id, phase: 'done' }).catch(() => undefined)
+    try {
+      await apiPatchMeeting({ ...a, id, phase: 'done' })
+    } catch (err) {
+      setErr(err instanceof Error ? err.message : 'Could not wrap that meeting.')
+    }
     const recap = [m?.briefing, m?.notes].filter(Boolean).join('\n\n') || `Wrapped ${m?.title || 'the meeting'}.`
     await apiSaveWorkDraft({
       ...a,

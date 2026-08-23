@@ -25,8 +25,14 @@ const DATABASE_URL = process.env.DATABASE_URL || ''
  * fires ~22 independent queries together, so a pool of four turned them back
  * into six round trips. Twelve is still nothing to a Postgres box and lets a
  * page's reads land in about two. */
+/* The session timezone is pinned to UTC so a `::date` cast can never quietly
+ * read at midnight in some other timezone. The local dev box ran its Postgres
+ * session in America/Los_Angeles while prod ran UTC — that drift is exactly how
+ * the "meal logged at 11 PM never reached Home" bug stayed invisible for weeks.
+ * All day/week windows are computed as UTC instants; this is the belt behind
+ * the suspenders. */
 const sql = DATABASE_URL
-  ? new SQL(DATABASE_URL, { max: 12, idleTimeout: 30, connectionTimeout: 10 })
+  ? new SQL(DATABASE_URL, { max: 12, idleTimeout: 30, connectionTimeout: 10, connection: { options: '-c timezone=UTC' } })
   : null
 
 /* ---- Compression ----

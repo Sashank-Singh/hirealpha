@@ -65,6 +65,34 @@ describe('life state insights', () => {
     expect(hit?.line.toLowerCase()).not.toContain('—')
   })
 
+  it('collapses the risk clause and keeps one imperative on a calm morning', () => {
+    const hit = pickProactiveInsight(
+      base({
+        localTime: '2026-08-18T08:00',
+        calendar: ['Standup 10am'],
+        nutrition: { calories: 1800, protein: 140, calorieGoal: 2200, proteinGoal: 150, meals: 3 },
+        sleep: { hours: 9, quality: 4, date: '2026-08-17' },
+        sleepWeek: { nights: 5, avgHours: 8, shortNights: 0 },
+        workoutsToday: 1,
+        peopleDue: [],
+        loops: [],
+        spend: { weekTotal: 80, weeklyBudget: 400 },
+      }),
+      'morning',
+    )
+    expect(hit?.line).toBe('Today: Standup 10am. Show up ready.')
+  })
+
+  it('names a real risk instead of hedging when one is logged', () => {
+    const hit = pickProactiveInsight(
+      base({ localTime: '2026-08-18T08:00', calendar: ['Standup 10am'] }),
+      'morning',
+    )
+    expect(hit?.line).toContain('5.8h last night')
+    expect(hit?.line).not.toContain('At risk')
+    expect(hit?.line).not.toContain('Nothing sharp')
+  })
+
   it('afternoon only interrupts when a ledger is actually wrong', () => {
     const hit = pickProactiveInsight(base(), 'afternoon')
     expect(hit?.loop).toBe('interrupt')

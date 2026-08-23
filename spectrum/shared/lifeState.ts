@@ -219,27 +219,29 @@ export function computeLifeInsights(state: LifeState): LifeInsight[] {
 
   const top = [...out].sort((a, b) => b.severity - a.severity)[0]
   const firstCal = calendar[0]
-  const atRisk = top && top.severity >= 62 ? top.line : 'Nothing sharp is on fire.'
-  const rec =
-    top?.topic === 'nutrition_gap'
-      ? 'Eat the protein first.'
-      : top?.topic === 'sleep'
-        ? 'Protect tonight. No late caffeine.'
-        : top?.topic === 'follow_up'
-          ? `Text ${people[0]?.name || 'them'} today.`
-          : top?.topic === 'workout'
-            ? 'Do the short session or skip on purpose.'
-            : firstCal
-              ? 'Show up for the first thing. That is the day.'
-              : 'Pick one thing and close it.'
+  // Only a real risk gets named. "At risk: nothing" hedged a calm morning into
+  // a weather report, so an empty risk slot collapses instead. Same rule for
+  // the imperative: one per message, and the risk line already carries its own.
+  const riskLine = top && top.severity >= 62 ? top.line : ''
+  const rec = riskLine
+    ? ''
+    : firstCal
+      ? 'Show up ready.'
+      : loops[0]
+        ? 'Close one loop.'
+        : 'Pick one thing and close it.'
 
   out.push({
     topic: 'morning',
     severity: top ? Math.max(50, top.severity - 5) : 45,
     loop: 'morning',
-    line: firstCal
-      ? `Today: ${firstCal}. At risk: ${atRisk} ${rec}`
-      : `Nothing on the calendar yet. At risk: ${atRisk} ${rec}`,
+    line: [
+      firstCal ? `Today: ${firstCal}.` : 'Nothing on the calendar yet.',
+      riskLine,
+      rec,
+    ]
+      .filter(Boolean)
+      .join(' '),
     tap: 'Reply ok, skip, or tell me what actually matters.',
     card: 'digest',
   })

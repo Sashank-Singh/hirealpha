@@ -18,6 +18,7 @@ import {
 } from './api'
 import type { FeatureAuth } from './FeatureMiniApps'
 import {
+  firstName,
   isNoiseReminder,
   mailGroupHeading,
   mailReasonLabels,
@@ -706,6 +707,13 @@ export function BriefApp({
 
   const kicker = isEvening ? 'Evening' : data?.brief === 'morning' || story ? 'Morning' : 'Morning'
   const dateLabel = evening?.date || data?.date || story?.date || ''
+  // The lead names the beat, so a prep DO card that names the same beat twice
+  // would answer the same question twice. On a prep day the header takes the
+  // action ("Get prepped for Maria.") and the card keeps the beat.
+  const leadTitle =
+    doCard?.kind === 'prep' && doCard.prepName
+      ? `Get prepped for ${firstName(doCard.prepName)}.`
+      : story?.lead || 'Your day'
 
   // Evening sections come from the pick_night payload headings.
   const eveSection = (heading: string) => evening?.sections?.find((s) => s.heading === heading)
@@ -741,7 +749,7 @@ export function BriefApp({
       <header className="brief-lead">
         <span className="brief-kicker">{kicker}</span>
         {dateLabel ? <p className="brief-date">{dateLabel}</p> : null}
-        <h2 className="brief-title">{story?.lead || 'Your day'}</h2>
+        <h2 className="brief-title">{leadTitle}</h2>
       </header>
 
       {!isEvening && <FactStrip facts={facts} />}

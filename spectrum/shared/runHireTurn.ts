@@ -1124,11 +1124,24 @@ export async function runHireTurn(input: {
   ])
   const cardKind = confirmKind || miniApp?.kind || null
   const cardQuery = confirmQuery || miniApp?.query
-  const card = cardKind
+  /* One card per intent, not one per turn: back-to-back taps used to stack the
+   * same card twice in the thread. Suppress the same kind for 90 seconds, and
+   * never attach one when the reply text already links the mini app. */
+  const card = cardKind && !/\/app\/mini\//.test(finalReply) && allowMiniAppCard(input.senderId, agent.id, cardKind)
     ? await mintMiniAppCard(input.senderId, agent.id, cardKind, cardQuery)
     : null
 
   return { reply: finalReply, bubbles: splitBubbles(finalReply), source, authoritative, card }
+}
+
+/** Throttle identical cards: same person, same persona, same kind, inside 90s. */
+const lastMiniAppCard = new Map<string, number>()
+function allowMiniAppCard(senderId: string, persona: string, kind: string): boolean {
+  const key = `${senderId}|${persona}|${kind}`
+  const now = Date.now()
+  if (now - (lastMiniAppCard.get(key) || 0) < 90_000) return false
+  lastMiniAppCard.set(key, now)
+  return true
 }
 
 async function planNextTool(

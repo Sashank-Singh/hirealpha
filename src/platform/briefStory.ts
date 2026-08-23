@@ -101,13 +101,14 @@ export function pickBriefAction(input: {
     }
   }
   if (input.next) {
-    const who = firstName(input.next.name)
     return {
       kicker: 'Next',
       title: `${input.next.time}  ${input.next.name}`,
-      hint: `Text Alpha prep me for ${who}.`,
-      cta: 'Open People',
-      openKind: 'networking_crm',
+      hint: 'Show up ready.',
+      cta: 'Prep me',
+      openKind: 'digest',
+      kind: 'prep',
+      prepName: input.next.name,
     }
   }
   if (input.due[0]) {

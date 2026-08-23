@@ -597,7 +597,7 @@ export function LearningQueueApp({ auth }: { auth: FeatureAuth }) {
 
       {next && nextUrl && (
         <a className="ma-btn ma-btn--block" href={nextUrl} target="_blank" rel="noreferrer">
-          Play next
+          Open next
         </a>
       )}
       {next && !nextUrl && (
@@ -607,7 +607,7 @@ export function LearningQueueApp({ auth }: { auth: FeatureAuth }) {
       )}
       {next && nextUrl && (
         <button className="ma-btn ma-btn--quiet ma-btn--block" type="button" disabled={busy} onClick={() => void markDone(next.id)}>
-          Done with this
+          Mark done
         </button>
       )}
 
@@ -638,7 +638,7 @@ export function LearningQueueApp({ auth }: { auth: FeatureAuth }) {
                 </span>
               </div>
               {i.id !== next?.id && (
-                <button className="ma-chip" type="button" disabled={busy} onClick={() => void markDone(i.id)}>Done</button>
+                <button className="ma-chip" type="button" disabled={busy} onClick={() => void markDone(i.id)}>Mark done</button>
               )}
               <button className="ma-x" type="button" onClick={() => void apiPatchLearning({ ...a, id: i.id, _delete: true }).then(load)} title="Remove">×</button>
             </li>
@@ -647,7 +647,7 @@ export function LearningQueueApp({ auth }: { auth: FeatureAuth }) {
       )}
 
       {items.length > 0 && !showAdd && (
-        <button className="ma-btn ma-btn--quiet ma-btn--block" type="button" onClick={() => setShowAdd(true)}>Save something</button>
+        <button className="ma-btn ma-btn--quiet ma-btn--block" type="button" onClick={() => setShowAdd(true)}>Add to queue</button>
       )}
       {(items.length === 0 || showAdd) && (
         <form className="ma-stack" onSubmit={add}>

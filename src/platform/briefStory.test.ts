@@ -31,7 +31,9 @@ describe('brief story', () => {
       asks: [],
     })
     expect(a.title).toContain('Luigi')
-    expect(a.openKind).toBe('networking_crm')
+    expect(a.kind).toBe('prep')
+    expect(a.hint).toBe('Show up ready.')
+    expect(a.prepName).toBe('Luigi Ojeda')
   })
 
   test('mail headings use counts a person can scan', () => {

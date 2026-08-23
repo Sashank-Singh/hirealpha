@@ -668,6 +668,17 @@ export async function ensureHireSchema(sql: SQL) {
   await sql`ALTER TABLE hire_network ADD COLUMN IF NOT EXISTS email TEXT NOT NULL DEFAULT ''`
   await sql`ALTER TABLE hire_network ADD COLUMN IF NOT EXISTS company TEXT NOT NULL DEFAULT ''`
 
+  /* One people list, not two. The Relationship Radar used to keep its own
+   * table so the mini app and the CRM could disagree about the same person —
+   * that split-brain is gone now, and these legacy rows move over once. The old
+   * table stays in place (never dropped) so nothing breaks mid-migration. */
+  await sql`
+    INSERT INTO hire_network (id, user_id, name, where_met, context, cadence_days, last_touch, created_at)
+    SELECT r.id, r.user_id, r.name, '', r.notes, r.cadence_days, r.last_touch_at, r.created_at
+    FROM hire_relationships r
+    WHERE r.id NOT IN (SELECT id FROM hire_network WHERE user_id = r.user_id)
+  `
+
   await sql`
     CREATE TABLE IF NOT EXISTS hire_sleep (
       id TEXT PRIMARY KEY,
@@ -4458,7 +4469,7 @@ async function judgmentStatePayload(
 
   const radar = await sql`
     SELECT name, last_touch_at AS "lastTouch", cadence_days AS "cadenceDays"
-    FROM hire_relationships WHERE user_id = ${user.id} LIMIT 8
+    FROM hire_network WHERE user_id = ${user.id} LIMIT 8
   `
   for (const p of radar as Array<{ name: string; lastTouch: Date | null; cadenceDays: number }>) {
     const days = p.lastTouch ? Math.floor((Date.now() - new Date(p.lastTouch).getTime()) / 86400000) : 999
@@ -7246,10 +7257,10 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     })
     if (error) return error
     const rows = await sql`
-      SELECT id, name, kind, notes, cadence_days AS "cadenceDays",
-             last_touch_at AS "lastTouchAt", updated_at AS "updatedAt"
-      FROM hire_relationships WHERE user_id = ${user!.id}
-      ORDER BY updated_at DESC LIMIT 60
+      SELECT id, name, where_met AS kind, context AS notes, cadence_days AS "cadenceDays",
+             last_touch AS "lastTouchAt", created_at AS "updatedAt"
+      FROM hire_network WHERE user_id = ${user!.id}
+      ORDER BY last_touch ASC NULLS FIRST LIMIT 60
     `
     return json({ relationships: rows })
   }
@@ -7268,7 +7279,7 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     if (error) return error
     const id = crypto.randomUUID()
     await sql`
-      INSERT INTO hire_relationships (id, user_id, name, kind, notes, cadence_days)
+      INSERT INTO hire_network (id, user_id, name, where_met, context, cadence_days)
       VALUES (${id}, ${user!.id}, ${name}, ${kind}, ${String(body.notes || '').slice(0, 500)},
         ${Math.min(Math.max(clampNum(body.cadenceDays, 30), 1), 365)})
     `
@@ -7282,7 +7293,7 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     if (error) return error
     if (body.touch) {
       await sql`
-        UPDATE hire_relationships SET last_touch_at = now(), updated_at = now()
+        UPDATE hire_network SET last_touch = now()
         WHERE id = ${id} AND user_id = ${user!.id}
       `
     }
