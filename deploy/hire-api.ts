@@ -2871,11 +2871,12 @@ async function digestPayload(
             [] as Array<{ id: string; from: string; date: string; subject: string; snippet: string }>,
           ),
         ])
-        /* The brief's model pass is the long pole of a cold load, so it is kept
-         * small and hard-capped here: a 10-mail judge with a 4s ceiling, past
-         * which the fallback regex grouping (inside groupMailByKind) carries the
-         * view and the enriched cache lands on the next visit. */
-        const verdicts = await judgeMailBatch(richItems, vocab, { limit: 10, maxTokens: 400, timeoutMs: 4000 })
+        /* The model pass names the mail piles, so it must be allowed to finish:
+         * a too-tight cap makes the judge time out or truncate and the brief
+         * loses its sub-categories. Batch is trimmed (20 -> 12) to cut prompt
+         * size, but tokens/timeout stay generous enough to reliably return the
+         * JSON the pile names come from. */
+        const verdicts = await judgeMailBatch(richItems, vocab, { limit: 12, maxTokens: 700, timeoutMs: 8000 })
         const labelled: MailKindItem[] = richItems.map((m) => ({ ...m, kind: verdicts.get(m.id)?.kind }))
         // Mail the user already handled leaves both Needs You and the piles. This
         // is what makes Done and Skip stick instead of popping back on reload.
