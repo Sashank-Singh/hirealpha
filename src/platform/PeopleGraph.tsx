@@ -528,10 +528,11 @@ export function PeopleGraph({
           </span>
           <span className={`pg-card-stat${daysSince(focusPerson.lastTouch) >= focusPerson.cadenceDays ? ' pg-card-stat--due' : ''}`}>
             {focusPerson.lastTouch && daysSince(focusPerson.lastTouch) <= 0
-              ? `Talked today · ${cadenceLabel(focusPerson.cadenceDays)}`
+              ? 'Talked today'
               : focusPerson.lastTouch
-                ? `${daysSince(focusPerson.lastTouch)}d since last touch · ${cadenceLabel(focusPerson.cadenceDays)}`
+                ? `Talked ${daysSince(focusPerson.lastTouch)} ${daysSince(focusPerson.lastTouch) === 1 ? 'day' : 'days'} ago`
                 : 'Never logged a touch'}
+            {focusPerson.lastTouch ? ` · ${cadenceLabel(focusPerson.cadenceDays)}` : ''}
           </span>
           <button type="button" className="ma-chip" onClick={() => onSelect(focusPerson)}>
             Open
