@@ -952,9 +952,30 @@ export function NetworkingCrmApp({ auth }: { auth: FeatureAuth }) {
   }
 
   async function talked(id: string, note?: string) {
-    await apiTouchNetwork({ ...a, id, context: note?.trim() || undefined }).catch(() => undefined)
-    setLogNotes((prev) => { const n = { ...prev }; delete n[id]; return n })
-    load()
+    if (busy) return
+    setBusy(true)
+    setMsg('')
+    const noteText = note?.trim()
+    const name = people.find((p) => p.id === id)?.name || 'the person'
+    try {
+      await apiTouchNetwork({ ...a, id, context: noteText || undefined })
+      /* Update the row before the reload lands, so the tap reads as working even
+       * on a slow link — this was a silent no-op when the response took a beat. */
+      setPeople((prev) =>
+        prev.map((p) => (p.id === id ? { ...p, lastTouch: new Date().toISOString(), context: noteText || p.context } : p)),
+      )
+      setLogNotes((prev) => {
+        const n = { ...prev }
+        delete n[id]
+        return n
+      })
+      setMsg(`Marked ${name} talked.`)
+      load()
+    } catch (err) {
+      setMsg(err instanceof Error ? err.message : 'Could not mark that as talked.')
+    } finally {
+      setBusy(false)
+    }
   }
 
   async function logCalPerson(name: string, note?: string) {

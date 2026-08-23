@@ -527,7 +527,7 @@ export function PeopleGraph({
           </span>
           <span className={`pg-card-stat${daysSince(focusPerson.lastTouch) >= focusPerson.cadenceDays ? ' pg-card-stat--due' : ''}`}>
             {focusPerson.lastTouch && daysSince(focusPerson.lastTouch) <= 0
-              ? `Touched today · every ${focusPerson.cadenceDays}d`
+              ? `Talked today · every ${focusPerson.cadenceDays}d`
               : focusPerson.lastTouch
                 ? `${daysSince(focusPerson.lastTouch)}d since last touch · every ${focusPerson.cadenceDays}d`
                 : 'Never logged a touch'}
