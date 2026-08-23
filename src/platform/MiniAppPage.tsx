@@ -26,9 +26,9 @@ import {
   WorkoutLogApp,
 } from './LifeMiniApps'
 import { HomeApp } from './HomeApp'
+import { CofounderHomeApp, CoworkerHomeApp } from './WorkHomes'
 import { BriefApp } from './BriefApp'
 import { BodyHubApp, LaterHubApp } from './FriendHubApps'
-import { MiniAppIcon } from './MiniAppIcons'
 import {
   NextMoveApp,
   ApproveSendApp,
@@ -38,6 +38,9 @@ import {
   InvestorNoteApp,
 } from './WorkMiniApps'
 import { EmailReader } from './EmailReader'
+import { readBriefCache, writeBriefCache } from './briefCache'
+import { applyMiniTheme, readMiniTheme } from './miniTheme'
+import { localYmd } from './home'
 import type { ReplyDraft } from './api'
 
 
@@ -77,7 +80,40 @@ interface MiniPayload {
   habitsToday?: Array<{ id: string; name: string; emoji: string; done: boolean }>
   carryOver?: Array<{ id: string; title: string; dueLabel?: string }>
   error?: string
+  /* Same contract as the morning brief: the evening one is heavy enough that the
+   * server answers before it is built rather than holding the request open. */
+  pending?: boolean
+  note?: string
 }
+
+/** The two kinds the device holds onto. Everything else is small and fast enough
+ * that a spinner is honest. */
+const BRIEF_CACHE_KINDS = new Set(['digest', 'pick_night'])
+
+type BriefPayload = DigestData & MiniPayload
+
+/** This device's last copy of one brief, or null. Module-level so the first-frame
+ * seed and a kind change on an already-mounted page read it the same way. */
+function cachedBrief(persona: string, kind: string, token: string): BriefPayload | null {
+  if (!BRIEF_CACHE_KINDS.has(kind)) return null
+  return readBriefCache<BriefPayload>(
+    { email: getSession()?.email, token, persona },
+    kind,
+    localYmd(),
+    Date.now(),
+  )
+}
+
+function saveBrief(persona: string, kind: string, token: string, brief: BriefPayload) {
+  if (!BRIEF_CACHE_KINDS.has(kind)) return
+  writeBriefCache({ email: getSession()?.email, token, persona }, kind, brief, localYmd(), Date.now())
+}
+
+/* Delays, not one interval. The build is already running server-side and lands in
+ * the cache when it lands, so ask again soon at first and back off after —
+ * cumulatively 0.4s, 1.0, 1.9, 3.2, 5.0, 7.4. The old ladder was four flat
+ * 1600ms tries, which meant nothing before 1.6s and nothing after 6.4s. */
+const BRIEF_RETRY_MS = [400, 600, 900, 1300, 1800, 2400]
 
 const LIVE_MINI_KINDS = new Set(['digest', 'pick_night', 'tonight', 'standup_paste', 'kill_keep_park'])
 
@@ -110,7 +146,6 @@ export const FEATURE_KINDS = new Set([
   'home',
   'body',
   'later',
-  'tonight',
   'approve_send',
   'pick_slot',
   'linear_triage',
@@ -153,6 +188,8 @@ export const MENU_FEATURES: Record<string, MenuFeature[]> = {
     { kind: 'pick_slot', title: 'Pick a slot', emoji: '🗓️', blurb: 'Compare times and pick what works.', sample: 'pick a slot for the review' },
     { kind: 'linear_triage', title: 'Linear triage', emoji: '🎯', blurb: 'Issues and backlog, triaged.', sample: 'triage the backlog' },
     { kind: 'standup_paste', title: 'Standup', emoji: '📋', blurb: 'Raw notes in, tight standup out.', sample: 'standup' },
+    { kind: 'open_loops', title: 'Promises', emoji: '🔗', blurb: 'What you told a person you would do, until you mark it done.', sample: 'i promised maya the deck' },
+    { kind: 'networking_crm', title: 'People', emoji: '🤝', blurb: 'Who to follow up and when.', sample: 'i met sarah' },
     { kind: 'drop_zone', title: 'Save for later', emoji: '📥', blurb: 'Dump anything and Alpha sorts it later.', sample: 'save for later' },
   ],
   cofounder: [
@@ -160,6 +197,7 @@ export const MENU_FEATURES: Record<string, MenuFeature[]> = {
     { kind: 'pipeline_board', title: 'Pipeline', emoji: '💼', blurb: 'Jobs, fundraising, leads. Move them through stages.' },
     { kind: 'decision_ledger', title: 'Decisions', emoji: '📜', blurb: 'Log the call, revisit the reasoning later.', sample: 'log a decision' },
     { kind: 'networking_crm', title: 'People', emoji: '🤝', blurb: 'People you met, when to follow up.' },
+    { kind: 'open_loops', title: 'Promises', emoji: '🔗', blurb: 'What you told a person you would do, until you mark it done.', sample: 'i promised maya the deck' },
     { kind: 'approve_investor_note', title: 'Investor note', emoji: '💼', blurb: 'Review the note before it goes out.', sample: 'review the investor note' },
     { kind: 'hire_decision', title: 'Hire decision', emoji: '🤝', blurb: 'The call on the candidate.', sample: 'should we hire them' },
     { kind: 'drop_zone', title: 'Save for later', emoji: '📥', blurb: 'Dump anything and Alpha sorts it later.', sample: 'save for later' },
@@ -176,12 +214,13 @@ export const APP_STORE_GROUPS: Record<string, { label: string; kinds: string[] }
   ],
   coworker: [
     { label: 'Now', kinds: ['next_move'] },
-    { label: 'Work', kinds: ['meeting_mode', 'approve_send', 'pick_slot', 'linear_triage', 'standup_paste'] },
+    { label: 'Work', kinds: ['meeting_mode', 'approve_send', 'pick_slot', 'linear_triage', 'standup_paste', 'open_loops'] },
+    { label: 'People', kinds: ['networking_crm'] },
     { label: 'Later', kinds: ['drop_zone'] },
   ],
   cofounder: [
     { label: 'Now', kinds: ['next_move'] },
-    { label: 'Work', kinds: ['pipeline_board', 'decision_ledger', 'hire_decision', 'approve_investor_note'] },
+    { label: 'Work', kinds: ['pipeline_board', 'decision_ledger', 'hire_decision', 'approve_investor_note', 'open_loops'] },
     { label: 'People', kinds: ['networking_crm'] },
     { label: 'Later', kinds: ['drop_zone'] },
   ],
@@ -247,10 +286,16 @@ export function MiniAppPage() {
       title: 'Apps',
       blurb: 'Open from a text to continue.',
     }
-  const [data, setData] = useState<DigestData | null>(null)
-  const [mini, setMini] = useState<MiniPayload | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [digestTries, setDigestTries] = useState(0)
+  /* Paint this device's last copy of the brief on the very first frame, so opening
+   * a texted link shows the brief you left rather than a shimmer. The fetch below
+   * still runs and replaces it; yesterday's copy is refused by the cache, not by
+   * this. Read once at mount — a kind change on a mounted page re-reads it in the
+   * fetch effect. */
+  const [seed] = useState(() => cachedBrief(persona || '', kind || '', token))
+  const [data, setData] = useState<DigestData | null>(() => (kind === 'digest' ? seed : null))
+  const [mini, setMini] = useState<MiniPayload | null>(() => (kind === 'digest' ? null : seed))
+  const [loading, setLoading] = useState(!seed)
+  const [briefTries, setBriefTries] = useState(0)
   const [expired, setExpired] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [settingsTick, setSettingsTick] = useState(0)
@@ -274,6 +319,7 @@ export function MiniAppPage() {
   }
 
   const isDigest = kind === 'digest'
+  const isEveningBrief = kind === 'pick_night'
   const isMenu = kind === 'menu'
   const isApps = kind === 'apps' || isMenu
   const isLiveMini = LIVE_MINI_KINDS.has(kind || '')
@@ -284,6 +330,18 @@ export function MiniAppPage() {
     setSettingsOpen(false)
     setExpired(false)
   }, [kind])
+
+  /* The shell's inline script already painted the saved theme before React ran;
+   * this keeps the attribute honest after a client-side navigation in, and hands
+   * the page background back to the host page on the way out. */
+  useEffect(() => {
+    applyMiniTheme(readMiniTheme())
+    const hold = document.getElementById('mini-hold')
+    return () => {
+      applyMiniTheme(null)
+      hold?.remove()
+    }
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -300,19 +358,29 @@ export function MiniAppPage() {
       }
     }
     setLoading(true)
-    setDigestTries(0)
+    setBriefTries(0)
+    /* Navigating between briefs on a mounted page misses the mount-time seed, so
+     * read the cache here too. Painting the old copy first means the spinner only
+     * shows on a brief this device has never held. */
+    const held = cachedBrief(persona || '', kind || '', token)
+    if (held) {
+      if (isDigest) setData(held)
+      else setMini(held)
+      setLoading(false)
+    }
     const qs = new URLSearchParams({ persona: persona || '' })
     if (token) qs.set('t', token)
     else qs.set('email', getSession()?.email || '')
     const url = isDigest ? `/api/digest?${qs}` : `/api/mini?${qs}&kind=${encodeURIComponent(kind || '')}`
     fetch(url)
       .then((res) =>
-        res.ok ? (res.json() as Promise<DigestData & MiniPayload>) : Promise.reject({ status: res.status }),
+        res.ok ? (res.json() as Promise<BriefPayload>) : Promise.reject({ status: res.status }),
       )
       .then((d) => {
         if (cancelled) return
         if (isDigest) setData(d)
         else setMini(d)
+        saveBrief(persona || '', kind || '', token, d)
       })
       .catch((err) => {
         if (cancelled) return
@@ -320,6 +388,8 @@ export function MiniAppPage() {
           setExpired(true)
           return
         }
+        // A held copy is better than an error over the top of it.
+        if (held) return
         if (isDigest) setData({ error: "Couldn't load your brief right now." })
         else setMini({ error: "Couldn't load this right now." })
       })
@@ -332,43 +402,43 @@ export function MiniAppPage() {
   }, [kind, persona, token, isDigest, isLiveMini])
 
   /* The brief is the heaviest read in the app — two calendars, the inbox, and a
-   * model pass over the mail. The server stops waiting after a couple of seconds
-   * and says `pending` instead of holding the request open, so come back for it
-   * quietly. The work is already running server-side; this only waits for it to
-   * land in the cache, which is why a few short tries beat one long stare. */
+   * model pass over the mail. The server stops waiting after a beat and says
+   * `pending` instead of holding the request open, so come back for it quietly.
+   * The work is already running server-side; this only waits for it to land in the
+   * cache, which is why a few short tries beat one long stare. Both briefs do this
+   * now — the evening one used to have no server cache to land in, so it was left
+   * out of the ladder and just sat there. */
   useEffect(() => {
-    if (!isDigest || !data?.pending || digestTries >= 4) return
+    const pending = isDigest ? data?.pending : isEveningBrief ? mini?.pending : false
+    const wait = BRIEF_RETRY_MS[briefTries]
+    if (!pending || wait === undefined) return
     let cancelled = false
     const timer = setTimeout(() => {
-      setDigestTries((n) => n + 1)
+      setBriefTries((n) => n + 1)
       const qs = new URLSearchParams({ persona: persona || '' })
       if (token) qs.set('t', token)
       else qs.set('email', getSession()?.email || '')
-      fetch(`/api/digest?${qs}`)
-        .then((res) => (res.ok ? (res.json() as Promise<DigestData>) : Promise.reject(new Error('brief'))))
+      const url = isDigest ? `/api/digest?${qs}` : `/api/mini?${qs}&kind=pick_night`
+      fetch(url)
+        .then((res) => (res.ok ? (res.json() as Promise<BriefPayload>) : Promise.reject(new Error('brief'))))
         .then((d) => {
-          if (!cancelled) setData(d)
+          if (cancelled) return
+          if (isDigest) setData(d)
+          else setMini(d)
+          saveBrief(persona || '', kind || '', token, d)
         })
         .catch(() => {})
-    }, 1600)
+    }, wait)
     return () => {
       cancelled = true
       clearTimeout(timer)
     }
-  }, [isDigest, data?.pending, digestTries, persona, token])
+  }, [isDigest, isEveningBrief, data?.pending, mini?.pending, briefTries, kind, persona, token])
 
   const email = getSession()?.email
   const authed = !!token || !!email
   const miniAccent = agent.color
   const miniAccentFg = '#f4f4f5'
-  const features = MENU_FEATURES[persona || ''] ?? []
-  const briefKind = new Date().getHours() < 16 ? 'digest' : 'pick_night'
-  const storeGroups = (APP_STORE_GROUPS[persona || ''] ?? []).map((group) => ({
-    ...group,
-    items: (persona === 'friend' && group.label === 'Brief' ? [briefKind] : group.kinds)
-      .map((k) => features.find((f) => f.kind === k))
-      .filter((f): f is MenuFeature => !!f),
-  })).filter((g) => g.items.length > 0)
   const search = searchParams.toString()
   const q = search ? `?${search}` : ''
   const appsHref = `/app/mini/${persona || 'friend'}/apps${q}`
@@ -480,39 +550,33 @@ export function MiniAppPage() {
           </div>
         )}
 
-        {authed && !expired && isApps && !settingsOpen && persona === 'friend' && (
+        {authed && !expired && isApps && !settingsOpen && (
           <div className="mini__body mini__body--home-screen">
-            <HomeApp
-              auth={{
-                persona: (persona as AgentId) || 'friend',
-                email: email || undefined,
-                token: token || undefined,
-              }}
-            />
-          </div>
-        )}
-
-        {authed && !expired && isApps && !settingsOpen && persona !== 'friend' && (
-          <div className="mini__body">
-            <div className="mini-store">
-              {storeGroups.map((group) => (
-                <section key={group.label} className="mini-store__group">
-                  <h2 className="mini-store__label">{group.label}</h2>
-                  {group.items.map((f) => (
-                    <Link key={f.kind} className="mini-store__row" to={openHref(f.kind)}>
-                      <span className="mini-store__mark">
-                        <MiniAppIcon kind={f.kind} />
-                      </span>
-                      <span className="mini-store__text">
-                        <span className="mini-store__title">{f.title}</span>
-                        <span className="mini-store__hint">{f.blurb}</span>
-                      </span>
-                      <span className="ma-chip mini-store__go">Open</span>
-                    </Link>
-                  ))}
-                </section>
-              ))}
-            </div>
+            {persona === 'coworker' ? (
+              <CoworkerHomeApp
+                auth={{
+                  persona: (persona as AgentId) || 'friend',
+                  email: email || undefined,
+                  token: token || undefined,
+                }}
+              />
+            ) : persona === 'cofounder' ? (
+              <CofounderHomeApp
+                auth={{
+                  persona: (persona as AgentId) || 'friend',
+                  email: email || undefined,
+                  token: token || undefined,
+                }}
+              />
+            ) : (
+              <HomeApp
+                auth={{
+                  persona: (persona as AgentId) || 'friend',
+                  email: email || undefined,
+                  token: token || undefined,
+                }}
+              />
+            )}
           </div>
         )}
 
@@ -534,8 +598,8 @@ export function MiniAppPage() {
         {authed && !expired && !settingsOpen && isDigest && !loading && !data?.error && data?.pending && (
           <div className="mini__body">
             <p className="mini__blurb">Pulling your day together…</p>
-            {digestTries >= 4 && (
-              <button className="mini__btn" type="button" onClick={() => setDigestTries(0)}>
+            {briefTries >= BRIEF_RETRY_MS.length && (
+              <button className="mini__btn" type="button" onClick={() => setBriefTries(0)}>
                 Keep waiting
               </button>
             )}
@@ -569,7 +633,21 @@ export function MiniAppPage() {
           </div>
         )}
 
-        {authed && !expired && !settingsOpen && isLiveMini && !isDigest && kind === 'pick_night' && !loading && !mini?.error && (
+        {/* Same shape as the morning brief's wait: the evening one now answers
+          * `pending` too rather than holding the request open, and an empty
+          * BriefApp would read as an evening with nothing in it. */}
+        {authed && !expired && !settingsOpen && isEveningBrief && !loading && !mini?.error && mini?.pending && (
+          <div className="mini__body">
+            <p className="mini__blurb">{mini.note || 'Closing out your day…'}</p>
+            {briefTries >= BRIEF_RETRY_MS.length && (
+              <button className="mini__btn" type="button" onClick={() => setBriefTries(0)}>
+                Keep waiting
+              </button>
+            )}
+          </div>
+        )}
+
+        {authed && !expired && !settingsOpen && isLiveMini && !isDigest && kind === 'pick_night' && !loading && !mini?.error && !mini?.pending && (
           <div className="mini__body">
             <BriefApp
               auth={{
@@ -690,7 +768,13 @@ export function MiniAppPage() {
               <SpendingSnapshotApp auth={{ persona: (persona as AgentId) || 'friend', email: email || undefined, token: token || undefined }} />
             )}
             {kind === 'home' && (
-              <HomeApp auth={{ persona: (persona as AgentId) || 'friend', email: email || undefined, token: token || undefined }} />
+              persona === 'coworker' ? (
+                <CoworkerHomeApp auth={{ persona: (persona as AgentId) || 'friend', email: email || undefined, token: token || undefined }} />
+              ) : persona === 'cofounder' ? (
+                <CofounderHomeApp auth={{ persona: (persona as AgentId) || 'friend', email: email || undefined, token: token || undefined }} />
+              ) : (
+                <HomeApp auth={{ persona: (persona as AgentId) || 'friend', email: email || undefined, token: token || undefined }} />
+              )
             )}
             {kind === 'body' && (
               <BodyHubApp auth={{ persona: (persona as AgentId) || 'friend', email: email || undefined, token: token || undefined }} />

@@ -1,0 +1,11 @@
+User-agent: *
+Allow: /
+
+# The app itself is behind auth; the marketing and trust pages are indexable.
+Disallow: /app
+
+Sitemap: https://hirealpha.chat/sitemap.xml
+
+# Agent-facing resources.
+# llms.txt: https://hirealpha.chat/llms.txt
+# OpenAPI:  https://hirealpha.chat/openapi.json

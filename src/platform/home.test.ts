@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { homeFetchPlan, mergeMeets, pickHomeAction, pickLastNight, remainingMeets, type HomeSlice } from './home'
+import { homeFetchPlan, mergeMeets, pickHomeQueue, pickLastNight, remainingMeets, type HomeSlice } from './home'
 
 const base: HomeSlice = {
   hour: 7,
@@ -13,20 +13,23 @@ const base: HomeSlice = {
   workoutToday: { name: 'Friday Pull', rest: false, done: false },
 }
 
-describe('pickHomeAction', () => {
+/** The ladder's order is what used to decide the single card, so the lead rung is
+ * still the assertion that matters for ranking. */
+const lead = (s: HomeSlice) => pickHomeQueue(s)[0]!
+
+describe('pickHomeQueue ranking', () => {
   test('asks for last night before food in the morning', () => {
-    const a = pickHomeAction({ ...base, lastNightLogged: false, proteinToday: 0 })
+    const a = lead({ ...base, lastNightLogged: false, proteinToday: 0 })
     expect(a.openKind).toBe('sleep_tracker')
     expect(a.title).toBe('Log last night')
   })
 
   test('does not promote protein at 7am when sleep is in', () => {
-    const a = pickHomeAction({ ...base, hour: 7, proteinToday: 0 })
-    expect(a.openKind).not.toBe('nutrition')
+    expect(lead({ ...base, hour: 7, proteinToday: 0 }).openKind).not.toBe('nutrition')
   })
 
   test('next meet beats people and food', () => {
-    const a = pickHomeAction({
+    const a = lead({
       ...base,
       next: { time: '9:00 AM', title: 'Amy' },
       peopleDue: [{ name: 'Maya', days: 16 }],
@@ -36,35 +39,136 @@ describe('pickHomeAction', () => {
   })
 
   test('people due when the morning is otherwise clear', () => {
-    const a = pickHomeAction({
+    const a = lead({
       ...base,
       workoutToday: { name: 'Friday rest', rest: true, done: false },
-      peopleDue: [{ name: 'Maya', days: 16 }],
+      peopleDue: [{ name: 'Maya', days: 16, id: 'p1' }],
     })
     expect(a.title).toBe('Ping Maya')
-    expect(a.openKind).toBe('networking_crm')
   })
 
   test('protein can win after 11am', () => {
-    const a = pickHomeAction({
-      ...base,
-      hour: 13,
-      proteinToday: 0,
-      workoutToday: { name: 'Friday rest', rest: true, done: false },
-    })
-    expect(a.openKind).toBe('nutrition')
+    expect(
+      lead({
+        ...base,
+        hour: 13,
+        proteinToday: 0,
+        workoutToday: { name: 'Friday rest', rest: true, done: false },
+      }).openKind,
+    ).toBe('nutrition')
   })
 
   test('evening over cap beats leftover protein', () => {
-    const a = pickHomeAction({
+    expect(
+      lead({
+        ...base,
+        hour: 19,
+        proteinToday: 40,
+        spend: 500,
+        weeklyBudget: 400,
+        workoutToday: { name: 'Friday rest', rest: true, done: false },
+      }).openKind,
+    ).toBe('spending_snapshot')
+  })
+
+  test('caps at four rungs even when everything is due at once', () => {
+    const q = pickHomeQueue({
       ...base,
       hour: 19,
-      proteinToday: 40,
+      lastNightLogged: false,
+      next: { time: '8:00 PM', title: 'Amy' },
+      peopleDue: [{ name: 'Maya', days: 16, id: 'p1' }],
+      dueLoop: { id: 'l1', title: 'Send Maya the deck', dueAt: '2020-01-01T00:00:00.000Z' },
+      proteinToday: 10,
       spend: 500,
       weeklyBudget: 400,
+    })
+    expect(q).toHaveLength(4)
+    // Distinct ids, or React would collapse rows and Done would mark the wrong one.
+    expect(new Set(q.map((i) => i.id)).size).toBe(4)
+  })
+
+  test('says nothing is on fire only when the queue is otherwise empty', () => {
+    const quiet = pickHomeQueue({
+      ...base,
+      hour: 15,
+      proteinToday: 200,
       workoutToday: { name: 'Friday rest', rest: true, done: false },
     })
-    expect(a.openKind).toBe('spending_snapshot')
+    expect(quiet).toHaveLength(1)
+    expect(quiet[0]!.title).toBe('Nothing is on fire')
+
+    const busy = pickHomeQueue({ ...base, hour: 15, proteinToday: 200 })
+    expect(busy.map((i) => i.title)).not.toContain('Nothing is on fire')
+  })
+})
+
+describe('pickHomeQueue verbs', () => {
+  const clear: HomeSlice = {
+    ...base,
+    hour: 15,
+    proteinToday: 200,
+    workoutToday: { name: 'Friday rest', rest: true, done: false },
+  }
+
+  test('a person with an id can be marked touched from home', () => {
+    const a = lead({ ...clear, peopleDue: [{ name: 'Maya Lin', days: 16, id: 'p1', phone: '+1 (555) 010-2030' }] })
+    expect(a.action).toBe('person')
+    expect(a.personId).toBe('p1')
+    expect(a.doLabel).toBe('Talked')
+    // And a prefilled text, so the ping and the log are one gesture.
+    expect(a.sms).toContain('sms:+15550102030')
+    expect(a.sms).toContain('Maya')
+  })
+
+  test('a person without an id degrades to a link, not a dead button', () => {
+    const a = lead({ ...clear, peopleDue: [{ name: 'Maya', days: 16 }] })
+    expect(a.action).toBe('open')
+    expect(a.openKind).toBe('networking_crm')
+    expect(a.personId).toBeUndefined()
+  })
+
+  test('an overdue promise can be closed from home', () => {
+    const q = pickHomeQueue(
+      { ...clear, dueLoop: { id: 'l1', title: 'Send Maya the deck', dueAt: '2026-01-01T00:00:00.000Z' } },
+      new Date('2026-02-01T12:00:00.000Z'),
+    )
+    const loop = q.find((i) => i.action === 'loop')!
+    expect(loop.loopId).toBe('l1')
+    expect(loop.doLabel).toBe('Done')
+    expect(loop.kicker).toBe('Overdue')
+    expect(loop.hot).toBe(true)
+  })
+
+  test('a promise still ahead of its date is not called overdue', () => {
+    const q = pickHomeQueue(
+      { ...clear, dueLoop: { id: 'l1', title: 'Send the deck', dueAt: '2026-03-01T00:00:00.000Z' } },
+      new Date('2026-02-01T12:00:00.000Z'),
+    )
+    const loop = q.find((i) => i.action === 'loop')!
+    expect(loop.kicker).toBe('Promised')
+    expect(loop.hot).toBeFalsy()
+  })
+
+  test('no promise means no promise rung', () => {
+    expect(pickHomeQueue({ ...clear, dueLoop: null }).some((i) => i.action === 'loop')).toBe(false)
+    expect(pickHomeQueue(clear).some((i) => i.action === 'loop')).toBe(false)
+  })
+
+  test('every rung that is not open carries the id its verb needs', () => {
+    const q = pickHomeQueue({
+      ...base,
+      hour: 15,
+      peopleDue: [{ name: 'Maya', days: 16, id: 'p1' }],
+      dueLoop: { id: 'l1', title: 'Ship it' },
+    })
+    for (const item of q) {
+      if (item.action === 'person') expect(item.personId).toBeTruthy()
+      else if (item.action === 'loop') expect(item.loopId).toBeTruthy()
+      else expect(item.action).toBe('open')
+      // An open rung is a link, so it must have somewhere to go.
+      if (item.action === 'open') expect(item.openKind).toBeTruthy()
+    }
   })
 })
 

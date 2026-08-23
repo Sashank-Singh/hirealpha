@@ -12,6 +12,7 @@ import {
 import { ConnectorLogo } from './ConnectorLogo'
 import { connectorsForHire, type ConnectorId } from './connectors'
 import type { FeatureAuth } from './FeatureMiniApps'
+import { readMiniTheme, writeMiniTheme, type MiniTheme } from './miniTheme'
 import { connectedIds, getSession, hydrateFromServer } from './roster'
 import {
   readWorkoutPlace,
@@ -72,6 +73,7 @@ export function MiniAppSettings({
         </span>
       </div>
 
+      <ThemeSettings />
       <ConnectorSettings auth={auth} />
       {only.includes('nutrition') && <NutritionSettings auth={auth} />}
       {only.includes('workout_log') && <WorkoutSettings auth={auth} />}
@@ -82,6 +84,40 @@ export function MiniAppSettings({
         Done
       </button>
     </div>
+  )
+}
+
+function ThemeSettings() {
+  const [theme, setTheme] = useState<MiniTheme>(() => readMiniTheme())
+
+  function pick(next: MiniTheme) {
+    setTheme(next)
+    writeMiniTheme(next)
+  }
+
+  return (
+    <section className="mini-set__block">
+      <h2>Appearance</h2>
+      <p>Light or dark. Saved on this phone.</p>
+      <div className="wk-places" role="group" aria-label="Appearance">
+        <button
+          className={`wk-place${theme === 'dark' ? ' is-on' : ''}`}
+          type="button"
+          aria-pressed={theme === 'dark'}
+          onClick={() => pick('dark')}
+        >
+          Dark
+        </button>
+        <button
+          className={`wk-place${theme === 'light' ? ' is-on' : ''}`}
+          type="button"
+          aria-pressed={theme === 'light'}
+          onClick={() => pick('light')}
+        >
+          Light
+        </button>
+      </div>
+    </section>
   )
 }
 

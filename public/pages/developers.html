@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="canonical" href="https://hirealpha.chat/developers" />
+<title>HireAlpha Developers — public API, quickstart, and agent integration</title>
+<meta name="description" content="The HireAlpha developer portal: the public API, quickstart examples, rate limits, and how agents should integrate." />
+<style>
+  body{margin:0;font-family:'Space Mono',ui-monospace,SFMono-Regular,Menlo,monospace;background:#141414;color:#f4f4f4;line-height:1.6}
+  main{max-width:720px;margin:0 auto;padding:56px 20px}
+  h1{font-size:30px;line-height:1.2}h2{font-size:19px;margin-top:32px;color:#7dd3c8}
+  a{color:#7dd3c8}code,pre{background:#1f1f1f;border:1px solid #2c2c2c;border-radius:8px}
+  code{padding:1px 5px}pre{padding:14px 16px;overflow:auto}
+  .top{margin-bottom:24px}nav a{margin-right:14px;text-decoration:none;color:#9ca3af}
+  table{border-collapse:collapse;width:100%}td,th{border:1px solid #2c2c2c;padding:8px 10px;text-align:left;font-size:14px}
+</style>
+</head>
+<body>
+<main>
+ <nav class="top"><a href="/">← HireAlpha</a><a href="/docs">API docs</a><a href="/openapi.json">OpenAPI</a><a href="/llms.txt">llms.txt</a></nav>
+ <h1>HireAlpha Developers</h1>
+ <p>HireAlpha exposes a small, public, unauthenticated API for product metadata, plus an auth-gated per-user API that powers the web app and the iMessage bots. This portal covers the public surface and how to integrate responsibly.</p>
+ <h2>Quickstart</h2>
+ <pre>curl https://hirealpha.chat/api/public/info
+curl https://hirealpha.chat/api/public/personas
+curl -X POST https://hirealpha.chat/api/waitlist \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"you@example.com"}'</pre>
+ <h2>Machine-readable everything</h2>
+ <ul>
+  <li><a href="/openapi.json">/openapi.json</a> — the OpenAPI 3 spec for the public API.</li>
+  <li><a href="/llms.txt">/llms.txt</a> — when-to-use guidance for agents.</li>
+  <li><a href="/sitemap.xml">/sitemap.xml</a> — indexable URLs.</li>
+  <li>Every HTML page answers <code>Accept: text/markdown</code> with markdown.</li>
+ </ul>
+ <h2>Endpoints</h2>
+ <table>
+  <tr><th>Method</th><th>Path</th><th>Auth</th><th>Purpose</th></tr>
+  <tr><td>GET</td><td>/healthz</td><td>none</td><td>Liveness probe.</td></tr>
+  <tr><td>GET</td><td>/api/public/info</td><td>none</td><td>Product metadata and resource links.</td></tr>
+  <tr><td>GET</td><td>/api/public/personas</td><td>none</td><td>The three personas and what they do.</td></tr>
+  <tr><td>POST</td><td>/api/waitlist</td><td>none</td><td>Join the waitlist.</td></tr>
+ </table>
+ <h2>Rate limits and sandbox</h2>
+ <p>The public API is rate-limited to 60 requests per minute per IP. There is no separate sandbox today; the public endpoints are read-only and safe to call directly. The per-user API (calendar, mail, body, actions) requires a user's own session token and is intentionally not available to third parties — if you are building an integration, use the public surface and direct users to connect their own accounts.</p>
+ <p>See the full reference at <a href="/docs">/docs</a>. Questions: <a href="mailto:partners@hirealpha.chat">partners@hirealpha.chat</a>.</p>
+</main>
+</body>
+</html>

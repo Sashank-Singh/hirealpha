@@ -2800,6 +2800,8 @@ button, input { font: inherit; }
   border-color: var(--mini-accent, #2a6f7a);
   background: var(--mini-accent, #2a6f7a); color: var(--mini-accent-fg, #f4f4f5);
 }
+.ma-chip--danger { border-color: #ef4444; color: #ef4444; }
+.ma-chip--danger.ma-chip--armed { background: #ef4444; color: #fff; }
 .ma-pills { display: flex; flex-wrap: wrap; gap: 6px; }
 .ma-pill {
   padding: 4px 10px; border-radius: 999px; font-size: 11px; font-weight: 700;
@@ -3460,60 +3462,132 @@ html[data-mini-theme='light'] .ma-where-label { color: #6d28d9; }
 }
 
 
-/* Bars sit in their own fixed-height plot so the 8h reference hairline lands on
-   a real coordinate; the day labels moved out to an axis row underneath. */
-.home-sleep-chart { position: relative; padding-right: 22px; }
-.home-sleep-plot { position: relative; height: 64px; }
-.home-sleep-trail {
+/* ---- Vitals grid ----
+   The four daily numbers, as a 2x2 of tiles instead of four full-width rows.
+   Not a space saving on its own — a tile is taller than a 46px row — but the
+   value gets to be 21px instead of 14px, and every tile carries the same three
+   slots (label, value, a small picture of the value) so none reads as arbitrary
+   beside its neighbour. Two of the four rows used to carry a progress rule and
+   two did not, which looked like an oversight rather than a distinction.
+
+   No line restating the value in other words: "54g to go" under "96g of 150"
+   is the same fact twice. The foot slot is kept for what the value cannot say
+   on its own — a bed-to-wake window, or a status, always in words. */
+.home-vitals {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.home-vital {
+  display: grid;
+  align-content: start;
+  gap: 5px;
+  height: 100%;
+  padding: 11px 12px 12px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--bg);
+  text-decoration: none;
+  color: inherit;
+  transition: border-color 0.12s ease, background-color 0.12s ease;
+}
+.home-vital:hover,
+.home-vital:focus-visible {
+  border-color: color-mix(in srgb, var(--mini-accent, #2a6f7a) 45%, var(--border));
+}
+.home-vital:active {
+  background: color-mix(in srgb, var(--mini-accent, #2a6f7a) 12%, var(--bg));
+}
+.home-vital:focus-visible {
+  outline: 2px solid var(--mini-accent, #2a6f7a);
+  outline-offset: 2px;
+}
+.home-vital-label {
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted-fg);
+}
+/* Tabular figures so the four values line up across the grid instead of
+   jittering with digit widths. A workout name is free text, so it wraps rather
+   than pushing the tile past its column. */
+.home-vital-val {
+  font-size: 21px;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+.home-vital-val i {
+  font-style: normal;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted-fg);
+  letter-spacing: 0;
+}
+/* A fixed-height slot, so a sparkline in one tile and a 2px rule in another
+   still leave every value on the same baseline.
+
+   Which encoding goes in here is decided by the value above it, not by taste:
+     - a rule ONLY when the value already reads "X of Y" — the rule is that
+       ratio drawn, and a bar under a bare "4 open" is a share of nothing;
+     - a sparkline when the value has a history worth a shape, range-scaled if
+       the swing is small (a 30% drift on a zero-based 20px slot is 5px, which
+       reads as a flat wall) with the endpoints named in the foot;
+     - otherwise a state word. A word is not a fallback — "Not logged" is the
+       honest encoding for something that has no magnitude. */
+.home-vital-viz {
   display: flex;
   align-items: flex-end;
-  gap: 6px;
-  height: 100%;
+  height: 20px;
 }
-.home-sleep-node {
-  flex: 1;
-  display: flex;
-  align-items: flex-end;
-  justify-content: center;
-  height: 100%;
+.home-vital-viz > * { width: 100%; }
+.home-vital-foot {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--muted-fg);
 }
-.home-sleep-bar {
-  width: 100%;
-  max-width: 24px;
-  border-radius: 6px 6px 2px 2px;
-  background: var(--mini-accent, #2a6f7a);
-  min-height: 4px;
-  transition: height 0.5s ease;
-}
-.home-sleep-axis { display: flex; gap: 6px; margin-top: 4px; }
-.home-sleep-tick {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 2px;
-  font-size: 9px;
+/* Lighter than the rule's #d03b3b, which is a fill colour and does not carry
+   enough contrast as text on the dark mini surface. The word is the signal
+   either way — this only tints it. */
+.home-vital-foot--over { color: #f08c8c; }
+.home-vital-state {
+  align-self: flex-end;
+  font-size: 11px;
+  font-weight: 700;
   color: var(--muted-fg);
 }
 
-.home-loot-row {
+/* The week of sleep, absorbed out of its own section into the tile that already
+   states last night. The 8h target is the hairline behind the bars; the
+   per-night numbers live in the Sleep app the tile links to. */
+.home-spark {
+  position: relative;
   display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
+  align-items: flex-end;
+  gap: 3px;
+  height: 20px;
 }
-.home-loot-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 6px 10px;
-  border-radius: 999px;
-  border: 1px solid var(--border);
-  background: var(--bg);
-  font-size: 12px;
-  font-weight: 600;
-  text-transform: capitalize;
+.home-spark-bar {
+  flex: 1;
+  min-height: 2px;
+  border-radius: 2px 2px 1px 1px;
+  background: var(--mini-accent, #2a6f7a);
 }
-.home-loot-chip b { font-weight: 800; }
+.home-spark-bar--today { background: var(--fg); }
+.home-spark-ref {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: color-mix(in srgb, var(--border) 85%, var(--bg));
+}
 
 /* ---- Spend charts (segmented budget bar + donut) ---- */
 /* Categorical hues live in spendChart.ts so one list drives both charts and
@@ -3594,11 +3668,11 @@ html[data-mini-theme='light'] .ma-where-label { color: #6d28d9; }
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 1px;
+  gap: 10px;
   pointer-events: none;
 }
-.spend-donut-mid b { font-size: 20px; font-weight: 800; letter-spacing: -0.03em; }
-.spend-donut-mid span { font-size: 9px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted-fg); }
+.spend-donut-mid b { font-size: 20px; font-weight: 800; letter-spacing: -0.03em; line-height: 1; }
+.spend-donut-mid span { font-size: 8px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted-fg); line-height: 1; padding-top: 2px; }
 /* The value list is the comparison surface — two arcs a few dollars apart are
    the same arc to the eye, so the numbers have to be readable without hovering. */
 .spend-donut-key {
@@ -3625,8 +3699,8 @@ html[data-mini-theme='light'] .ma-where-label { color: #6d28d9; }
   font-variant-numeric: tabular-nums;
 }
 
-/* Ratio rows in the Body block: a 2px rule under a "$383 of $459" pair, so the
-   share is seen and not only read. */
+/* Ratio rows: a 2px rule under a "$383 of $459" pair, so the share is seen and
+   not only read. Lives inside a vitals tile's viz slot, and in the Body app. */
 .home-receipt-rule {
   position: relative;
   height: 2px;
@@ -3643,23 +3717,12 @@ html[data-mini-theme='light'] .ma-where-label { color: #6d28d9; }
 }
 .home-receipt-rule--over i { background: #d03b3b; }
 
-/* Reference hairline on the Nights trail. One shade off surface, solid, behind
-   the bars — the bars were scaled against an invisible 10h before this. */
-.home-sleep-ref {
-  position: absolute;
-  left: 0;
-  right: 0;
-  height: 1px;
-  background: color-mix(in srgb, var(--border) 80%, var(--bg));
-}
-.home-sleep-ref b {
-  position: absolute;
-  right: -22px;
-  top: -5px;
-  font-size: 9px;
-  font-weight: 700;
-  color: var(--muted-fg);
-}
+/* Home shows the donut at glance size, not at the size the Spending app shows
+   it. Shrinking the ring is what keeps the value list beside it instead of
+   wrapping underneath, and that wrap was the entire height difference between
+   this section and the stacked bar plus chip row it replaced (285px vs 141px). */
+.home-screen .spend-donut-ring { width: 124px; height: 124px; }
+.home-screen .spend-donut-key { flex: 1 1 120px; }
 
 .home-day-state {
   margin: 2px 0 0;
@@ -3914,94 +3977,95 @@ html[data-mini-theme='light'] .ma-where-label { color: #6d28d9; }
 
 .mini__body--home-screen { padding-bottom: 0; }
 
-/* ---- People knowledge graph ---- */
+/* ---- People knowledge graph (3D neural net) ---- */
+.people-graph-wrap { position: relative; }
 .people-graph {
   width: 100%;
-  height: auto;
+  height: 320px;
   display: block;
   border: 1px solid var(--border);
   border-radius: 16px;
   background:
-    radial-gradient(ellipse at 50% 45%, color-mix(in srgb, var(--mini-accent, #2a6f7a) 12%, transparent), transparent 60%),
+    radial-gradient(ellipse at 50% 42%, color-mix(in srgb, var(--mini-accent, #2a6f7a) 14%, transparent), transparent 62%),
+    radial-gradient(ellipse at 50% 118%, color-mix(in srgb, var(--mini-accent, #2a6f7a) 8%, transparent), transparent 55%),
     color-mix(in srgb, var(--border) 24%, var(--bg));
   overflow: hidden;
+  cursor: grab;
+  touch-action: pan-y;
 }
-.pg-edge {
-  stroke-width: 1;
-  stroke-opacity: 0.26;
-  stroke-dasharray: 4 8;
-  animation: pg-dash 30s linear infinite;
+.people-graph:active { cursor: grabbing; }
+.people-graph:focus-visible {
+  outline: 2px solid var(--mini-accent, #2a6f7a);
+  outline-offset: 2px;
 }
-.pg-edge--cluster { stroke-opacity: 0.42; stroke-width: 1.3; }
-@keyframes pg-dash { to { stroke-dashoffset: -160; } }
-.pg-pulse {
-  fill: none;
-  stroke: var(--mini-accent, #2a6f7a);
-  stroke-width: 1.5;
-  animation: pg-pulse 3.4s ease-out infinite;
-  transform-box: fill-box;
-  transform-origin: center;
+.pg-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
 }
-@keyframes pg-pulse {
-  0% { transform: scale(0.55); stroke-opacity: 0.6; }
-  100% { transform: scale(2.7); stroke-opacity: 0; }
-}
-.pg-you-core {
-  fill: var(--mini-accent, #2a6f7a);
-  stroke: color-mix(in srgb, var(--mini-accent, #2a6f7a) 60%, #fff);
-  stroke-width: 2;
-}
-.pg-you-label {
-  fill: #05221c;
+.pg-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  padding: 8px 2px 0;
   font-size: 11px;
-  font-weight: 800;
-  letter-spacing: 0.02em;
+  color: var(--muted, #8a97a0);
 }
-.pg-node { cursor: pointer; }
-.pg-node-core {
-  stroke: var(--bg);
-  stroke-width: 2;
-  transform-box: fill-box;
-  transform-origin: center;
-  animation: pg-pop 0.5s cubic-bezier(0.2, 0.9, 0.3, 1.15) backwards;
-  animation-delay: calc(var(--i, 0) * 45ms);
-  outline: none;
+.pg-legend-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-transform: capitalize;
 }
-@keyframes pg-pop {
-  from { opacity: 0; transform: scale(0.2); }
-  to { opacity: 1; transform: scale(1); }
+.pg-legend-chip i {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: none;
 }
-.pg-node.pg-node--sel .pg-node-core {
-  stroke: #fff;
-  stroke-width: 2.5;
-  filter: drop-shadow(0 0 6px currentColor);
+.pg-card {
+  position: absolute;
+  left: 10px;
+  bottom: 10px;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  max-width: calc(100% - 20px);
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--bg) 88%, transparent);
+  backdrop-filter: blur(6px);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.22);
+  font-size: 12px;
 }
-.pg-node.pg-node--due .pg-node-pulse {
-  fill: none;
-  stroke-width: 1.5;
-  animation: pg-node-pulse 2.2s ease-out infinite;
-  transform-box: fill-box;
-  transform-origin: center;
-}
-@keyframes pg-node-pulse {
-  0% { opacity: 0.8; transform: scale(0.85); }
-  100% { opacity: 0; transform: scale(1.5); }
-}
-.pg-node-core:focus-visible {
-  stroke: #fff;
-  stroke-width: 3;
-  filter: drop-shadow(0 0 6px currentColor);
-}
-.pg-label {
-  fill: var(--muted-fg);
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.01em;
-}
-@media (prefers-reduced-motion: reduce) {
-  .pg-edge, .pg-pulse, .pg-node-core, .pg-node.pg-node--due .pg-node-pulse {
-    animation: none;
-  }
+.pg-card > strong { font-size: 13px; }
+.pg-card-sub { color: var(--muted, #8a97a0); }
+.pg-card-stat { color: var(--text, inherit); opacity: 0.85; }
+.pg-card-stat--due { color: #ff9066; font-weight: 600; }
+.pg-card-close {
+  position: absolute;
+  top: 4px;
+  right: 6px;
+  border: 0;
+  background: none;
+  color: var(--muted, #8a97a0);
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 2px 4px;
 }
 
 /* ---- Friend hub pages (Body / Later) ---- */

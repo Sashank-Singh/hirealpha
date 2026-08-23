@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="canonical" href="https://hirealpha.chat/docs" />
+<title>HireAlpha API Docs — endpoint reference and examples</title>
+<meta name="description" content="Reference for the HireAlpha public API: endpoints, request and response shapes, and copy-paste examples." />
+<style>
+  body{margin:0;font-family:'Space Mono',ui-monospace,SFMono-Regular,Menlo,monospace;background:#141414;color:#f4f4f4;line-height:1.6}
+  main{max-width:720px;margin:0 auto;padding:56px 20px}
+  h1{font-size:30px}h2{font-size:18px;margin-top:30px;color:#7dd3c8}
+  a{color:#7dd3c8}pre{background:#1f1f1f;border:1px solid #2c2c2c;border-radius:8px;padding:12px 14px;overflow:auto}
+  .top{margin-bottom:24px}nav a{margin-right:14px;text-decoration:none;color:#9ca3af}
+  .m{display:inline-block;padding:1px 8px;border-radius:6px;font-weight:700;font-size:12px}
+  .get{background:#123f36;color:#7dd3c8}.post{background:#3a2410;color:#fbbf24}
+</style>
+</head>
+<body>
+<main>
+ <nav class="top"><a href="/">← HireAlpha</a><a href="/developers">Developers</a><a href="/openapi.json">OpenAPI</a></nav>
+ <h1>HireAlpha API Docs</h1>
+ <p>Base URL: <code>https://hirealpha.chat</code>. All responses are JSON unless noted. The public endpoints below require no authentication.</p>
+ <h2><span class="m get">GET</span> /healthz</h2>
+ <p>Liveness probe. Returns the plain-text string <code>ok</code>.</p>
+ <pre>curl -s https://hirealpha.chat/healthz</pre>
+ <h2><span class="m get">GET</span> /api/public/info</h2>
+ <p>Product metadata: name, tagline, pricing, and links to agent resources.</p>
+ <pre>curl -s https://hirealpha.chat/api/public/info</pre>
+ <h2><span class="m get">GET</span> /api/public/personas</h2>
+ <p>The Friend, Coworker, and Cofounder personas with descriptions.</p>
+ <pre>curl -s https://hirealpha.chat/api/public/personas</pre>
+ <h2><span class="m post">POST</span> /api/waitlist</h2>
+ <p>Add an email to the waitlist. Body: <code>{"email": "you@example.com"}</code>. Returns <code>{"ok": true}</code>, or a 400 with <code>{"error": "..."}</code> for an invalid address.</p>
+ <pre>curl -s -X POST https://hirealpha.chat/api/waitlist \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"you@example.com"}'</pre>
+ <h2>Errors</h2>
+ <p>Non-2xx responses carry a JSON body of the form <code>{"error": "message"}</code>. Unknown <code>/api/*</code> paths return 404; unknown non-API paths return a 404 with a markdown body pointing at the sitemap and llms.txt.</p>
+ <p>For the machine-readable spec, see <a href="/openapi.json">/openapi.json</a>.</p>
+</main>
+</body>
+</html>

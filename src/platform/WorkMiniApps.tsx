@@ -10,17 +10,15 @@ import {
   apiListSlots,
   apiListWorkDrafts,
   apiNextStack,
-  apiPatchLoop,
   apiPatchPipeline,
-  apiRsvpEvent,
   apiSaveWorkDraft,
   apiSendDraft,
-  apiTouchNetwork,
   type LinearIssue,
   type NextItem,
   type SlotOption,
   type WorkDraft,
 } from './api'
+import { ActionButtons, ActionRow, runAction, snoozeAction } from './ActionQueue'
 import type { FeatureAuth } from './FeatureMiniApps'
 import { EmailReader } from './EmailReader'
 
@@ -33,12 +31,6 @@ function connectHref(persona: string) {
 }
 
 /* -------------------------------- Next -------------------------------- */
-
-function itemHref(persona: string, item: NextItem) {
-  if (item.href) return item.href
-  if (item.openKind) return `/app/mini/${persona}/${item.openKind}`
-  return ''
-}
 
 export function NextMoveApp({ auth }: { auth: FeatureAuth }) {
   const a = useAuth(auth)
@@ -66,30 +58,17 @@ export function NextMoveApp({ auth }: { auth: FeatureAuth }) {
   const top = items[0]
   const rest = items.slice(1, 6)
 
+  function openMail(item: NextItem) {
+    setOpenEmailId(item.messageId!)
+    setOpenEmailLabel(item.title)
+  }
+
   async function doItem(item: NextItem) {
     if (busy) return
     setBusy(true)
     setMsg('')
     try {
-      if (item.action === 'send' && item.draftId) {
-        const res = await apiSendDraft({ ...a, id: item.draftId })
-        if (!res.ok) throw new Error(res.error || 'Send failed. Connect Gmail.')
-      } else if (item.action === 'hold' && item.start && item.end) {
-        const res = await apiHoldSlot({ ...a, title: item.title, start: item.start, end: item.end })
-        if (!res.ok) throw new Error(res.error || 'Could not hold that time.')
-      } else if (item.action === 'loop' && item.loopId) {
-        await apiPatchLoop({ ...a, id: item.loopId, status: 'done' })
-      } else if (item.action === 'person' && item.personId) {
-        await apiTouchNetwork({ ...a, id: item.personId, context: item.hint })
-      } else if (item.action === 'linear' && item.issueId) {
-        const res = await apiLinearAction({ ...a, id: item.issueId, action: 'later' })
-        if (!res.ok) throw new Error(res.error || 'Linear did not update.')
-      } else if (item.action === 'rsvp' && item.eventId) {
-        const res = await apiRsvpEvent({ ...a, eventId: item.eventId, response: 'accepted' })
-        if (!res.ok) throw new Error(res.error || 'Could not RSVP.')
-      } else if (item.action === 'pipeline' && item.pipelineId && item.stage) {
-        await apiPatchPipeline({ ...a, id: item.pipelineId, stage: item.stage })
-      }
+      await runAction(item, a)
       setDoneId(item.id)
       load()
     } catch (err) {
@@ -100,14 +79,8 @@ export function NextMoveApp({ auth }: { auth: FeatureAuth }) {
   }
 
   async function snooze(item: NextItem) {
-    if (item.action === 'loop' && item.loopId) {
-      const due = new Date()
-      due.setDate(due.getDate() + 1)
-      await apiPatchLoop({ ...a, id: item.loopId, status: 'open', dueAt: due.toISOString() })
-      load()
-      return
-    }
-    setItems((cur) => [...cur.slice(1), cur[0]!])
+    if ((await snoozeAction(item, a)) === 'reload') load()
+    else setItems((cur) => [...cur.slice(1), cur[0]!])
   }
 
   return (
@@ -118,29 +91,15 @@ export function NextMoveApp({ auth }: { auth: FeatureAuth }) {
           <strong>{top.title}</strong>
           {top.hint && <span className="ma-sub">{top.hint}</span>}
           <div className="ma-callout-actions">
-            {top.messageId && (
-              <button className="ma-btn" type="button" onClick={() => { setOpenEmailId(top.messageId!); setOpenEmailLabel(top.title) }}>
-                Read
-              </button>
-            )}
-            {top.sms && (
-              <a className="ma-btn" href={top.sms}>
-                {top.doLabel || 'Text'}
-              </a>
-            )}
-            {!top.sms && !top.messageId && itemHref(auth.persona, top) && top.action === 'open' && (
-              <Link className="ma-btn" to={itemHref(auth.persona, top)}>
-                {top.doLabel || 'Open'}
-              </Link>
-            )}
-            {top.action !== 'open' && !top.messageId && (
-              <button className="ma-btn" type="button" disabled={busy} onClick={() => void doItem(top)}>
-                {doneId === top.id ? 'Done' : top.doLabel || 'Do'}
-              </button>
-            )}
-            <button className="ma-chip" type="button" disabled={busy} onClick={() => void snooze(top)}>
-              Snooze
-            </button>
+            <ActionButtons
+              item={top}
+              persona={auth.persona}
+              busy={busy}
+              done={doneId === top.id}
+              onDo={(i) => void doItem(i)}
+              onSnooze={(i) => void snooze(i)}
+              onOpenMail={openMail}
+            />
           </div>
         </div>
       ) : (
@@ -162,29 +121,17 @@ export function NextMoveApp({ auth }: { auth: FeatureAuth }) {
       {msg && <p className="mini__hint">{msg}</p>}
       {rest.length > 0 && (
         <ul className="ma-list">
-          {rest.map((item) => {
-            const isMailItem = !!item.messageId
-            return (
-              <li
-                key={item.id}
-                className={`ma-row${isMailItem ? ' mail-row' : ''}`}
-                onClick={isMailItem ? () => { setOpenEmailId(item.messageId!); setOpenEmailLabel(item.title) } : undefined}
-                role={isMailItem ? 'button' : undefined}
-                tabIndex={isMailItem ? 0 : undefined}
-                onKeyDown={isMailItem ? (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { setOpenEmailId(item.messageId!); setOpenEmailLabel(item.title) } } : undefined}
-              >
-                <div className="ma-row-main">
-                  <span className="ma-title">{item.title}</span>
-                  <span className="ma-sub">{item.kicker}{item.hint ? ` · ${item.hint}` : ''}</span>
-                </div>
-                {!isMailItem && (
-                  <button className="ma-chip" type="button" disabled={busy} onClick={() => void doItem(item)}>
-                    {item.doLabel || 'Do'}
-                  </button>
-                )}
-              </li>
-            )
-          })}
+          {rest.map((item) => (
+            <ActionRow
+              key={item.id}
+              item={item}
+              persona={auth.persona}
+              busy={busy}
+              done={doneId === item.id}
+              onDo={(i) => void doItem(i)}
+              onOpenMail={openMail}
+            />
+          ))}
         </ul>
       )}
       {openEmailId && (

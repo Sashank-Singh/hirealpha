@@ -27,10 +27,10 @@ import {
 import { readHomeCache, writeHomeCache } from './homeCache'
 import { useRefreshOnFocus } from './useRefreshOnFocus'
 import { isPersonMeetSuggestion } from './peopleMeets'
-import { SpendBar, SpendSwatch } from './SpendCharts'
+import { SpendDonut } from './SpendCharts'
 import { aggregateSpend } from './spendChart'
 
-/** Bars are scaled against this, and it is the hairline the trail compares to. */
+/** The sparkline scales against this, and 8h is the hairline it compares to. */
 const SLEEP_TARGET_H = 8
 const SLEEP_SCALE_H = 10
 
@@ -259,18 +259,20 @@ export function HomeApp({ auth }: { auth: FeatureAuth }) {
   const sleepWeek = (snap?.sleepTrend || []).slice(-7)
   const dock = DOCK.map((d) => (d.kind === 'digest' ? { ...d, kind: briefKind } : d))
 
-  const sleepLine = lastNight.logged
-    ? `${lastNight.hours}h${lastNight.bedtime && lastNight.wake ? `  ${formatClock12(lastNight.bedtime)} to ${formatClock12(lastNight.wake)}` : ''}`
-    : 'Not logged'
-  const foodLine = `${Math.round(protein)}g of ${Math.round(proteinGoal)}`
-  const trainLine = workout.done ? `${workout.name}  logged` : workout.name
-  const spendLine = budget ? `$${Math.round(spend)} of $${Math.round(budget)}` : `$${Math.round(spend)}`
+  /* The bed-to-wake window is the one thing the "7.2h" value cannot say on its
+   * own, so it earns the tile's foot line. Restating the target there instead
+   * would be the same fact twice — the hairline behind the bars is the target. */
+  const sleepFoot =
+    lastNight.logged && lastNight.bedtime && lastNight.wake
+      ? `${formatClock12(lastNight.bedtime)} to ${formatClock12(lastNight.wake)}`
+      : ''
   // The action card already leads with the next meeting, and the Today list
   // repeats it a third time. The header counts what is left instead.
   const stateBits: string[] = []
   if (upcoming.length) stateBits.push(`${upcoming.length} left today`)
   if (peopleDue.length) stateBits.push(`${peopleDue.length} ${peopleDue.length === 1 ? 'person' : 'people'} due`)
   if (mailCount) stateBits.push(`${mailCount} in mail`)
+  const stateLine = stateBits.join('   ')
   const spendParts = aggregateSpend(snap?.spendByCategory || []).parts
 
   return (
@@ -278,30 +280,7 @@ export function HomeApp({ auth }: { auth: FeatureAuth }) {
       <header className="home-day">
         <span className="home-day-kicker">Today</span>
         <h2 className="home-day-title">{dateLabel || 'Today'}</h2>
-        {stateBits.length > 0 && (
-          <div className="home-day-chips" aria-live="polite">
-            {stateBits.map((b) => (
-              <span className="home-day-chip" key={b}>
-                {b}
-              </span>
-            ))}
-          </div>
-        )}
-        {/* The Dayline: one tick per remaining appointment, the next one lit with
-            its time — the rest of today in a single line. */}
-        {upcoming.length > 0 && (
-          <div className="home-dayline" role="img" aria-label={`${upcoming.length} still left today`}>
-            {upcoming.slice(0, 6).map((e, i) => (
-              <span
-                key={`${e.time}-${e.title}`}
-                className={`home-dayline-tick${i === 0 ? ' home-dayline-tick--next' : ''}`}
-              >
-                <span className="home-dayline-time">{i === 0 ? e.time : ''}</span>
-              </span>
-            ))}
-            {upcoming.length > 6 && <span className="home-dayline-more">…</span>}
-          </div>
-        )}
+        {stateLine ? <p className="home-day-state">{stateLine}</p> : null}
       </header>
 
       <section className={`home-action${lead.hot ? ' home-action--hot' : ''}`}>
@@ -340,6 +319,20 @@ export function HomeApp({ auth }: { auth: FeatureAuth }) {
       )}
       {actMsg && <p className="mini__hint home-msg">{actMsg}</p>}
 
+      {upcoming.length > 0 && (
+        <section className="home-block">
+          <h3 className="home-section-title">Today</h3>
+          <ul className="home-plain-list">
+            {upcoming.map((e, i) => (
+              <li key={`${e.time}-${e.title}-${i}`}>
+                <span className="home-plain-time">{e.time}</span>
+                <span>{e.title}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
       {peopleDue.length > 0 && (
         <section className="home-block">
           <h3 className="home-section-title">People due</h3>
@@ -363,95 +356,101 @@ export function HomeApp({ auth }: { auth: FeatureAuth }) {
 
       {/* Mail lives in the brief now; Home keeps the count chip only. */}
 
-      <section className="home-block" aria-label="Receipts">
-        <h3 className="home-section-title">Body</h3>
-        <ul className="home-receipt-list">
+      <section className="home-block" aria-label="Where you are">
+        <h3 className="home-section-title">Where you are</h3>
+        <ul className="home-vitals">
           <li>
-            <Link className="home-receipt" to={miniLink('sleep_tracker')}>
-              <span className="home-receipt-label">Sleep</span>
-              <span className="home-receipt-val">{sleepLine}</span>
+            <Link className="home-vital" to={miniLink('sleep_tracker')}>
+              <span className="home-vital-label">Sleep</span>
+              <span className="home-vital-val">
+                {lastNight.logged ? <>{lastNight.hours}<i>h</i></> : 'Not logged'}
+              </span>
+              {/* The week the Nights section used to be, at the size a glance
+                * needs. Scaled against the same 10h so a bar's height still
+                * means the same thing it did in the chart. */}
+              <span className="home-vital-viz">
+                {sleepWeek.length > 0 ? (
+                  <span className="home-spark">
+                    <span
+                      className="home-spark-ref"
+                      style={{ bottom: `${(SLEEP_TARGET_H / SLEEP_SCALE_H) * 100}%` }}
+                    />
+                    {sleepWeek.map((n, i) => (
+                      <span
+                        key={n.date}
+                        className={`home-spark-bar${i === sleepWeek.length - 1 ? ' home-spark-bar--today' : ''}`}
+                        style={{ height: `${Math.min(100, (n.hours / SLEEP_SCALE_H) * 100)}%` }}
+                        title={`${fmtDay(n.date)}  ${n.hours}h`}
+                      />
+                    ))}
+                  </span>
+                ) : null}
+              </span>
+              {sleepFoot ? <span className="home-vital-foot">{sleepFoot}</span> : null}
             </Link>
           </li>
           <li>
-            <Link className="home-receipt" to={miniLink('nutrition')}>
-              <span className="home-receipt-label">Food</span>
-              <span className="home-receipt-val">{foodLine}</span>
-            </Link>
-            {proteinGoal > 0 && (
-              <div className="home-receipt-rule" aria-hidden="true">
-                <i style={{ width: `${Math.min(100, (protein / proteinGoal) * 100)}%` }} />
-              </div>
-            )}
-          </li>
-          <li>
-            <Link className="home-receipt" to={miniLink('workout_log')}>
-              <span className="home-receipt-label">Training</span>
-              <span className="home-receipt-val">{trainLine}</span>
+            <Link className="home-vital" to={miniLink('nutrition')}>
+              <span className="home-vital-label">Food</span>
+              <span className="home-vital-val">
+                {Math.round(protein)}<i>g of {Math.round(proteinGoal)}</i>
+              </span>
+              <span className="home-vital-viz">
+                {proteinGoal > 0 ? (
+                  <span className="home-receipt-rule" aria-hidden="true">
+                    <i style={{ width: `${Math.min(100, (protein / proteinGoal) * 100)}%` }} />
+                  </span>
+                ) : null}
+              </span>
             </Link>
           </li>
           <li>
-            <Link className="home-receipt" to={miniLink('spending_snapshot')}>
-              <span className="home-receipt-label">Spend</span>
-              <span className="home-receipt-val">{spendLine}</span>
+            <Link className="home-vital" to={miniLink('workout_log')}>
+              <span className="home-vital-label">Training</span>
+              <span className="home-vital-val">{workout.name}</span>
+              {/* Logged or not is a state, not a ratio, so it takes the viz slot
+                * as a word. Keeps every value on the same baseline. */}
+              <span className="home-vital-viz">
+                <span className="home-vital-state">{workout.done ? 'Logged' : 'Not logged'}</span>
+              </span>
             </Link>
-            {budget > 0 && (
-              <div
-                className={`home-receipt-rule${spend > budget ? ' home-receipt-rule--over' : ''}`}
-                aria-hidden="true"
-              >
-                <i style={{ width: `${Math.min(100, (spend / budget) * 100)}%` }} />
-              </div>
-            )}
+          </li>
+          <li>
+            <Link className="home-vital" to={miniLink('spending_snapshot')}>
+              <span className="home-vital-label">Spend</span>
+              <span className="home-vital-val">
+                ${Math.round(spend)}
+                {budget > 0 ? <i> of ${Math.round(budget)}</i> : null}
+              </span>
+              <span className="home-vital-viz">
+                {budget > 0 ? (
+                  <span
+                    className={`home-receipt-rule${spend > budget ? ' home-receipt-rule--over' : ''}`}
+                    aria-hidden="true"
+                  >
+                    <i style={{ width: `${Math.min(100, (spend / budget) * 100)}%` }} />
+                  </span>
+                ) : null}
+              </span>
+              {/* Over budget says so in words. The red rule alone would be the
+                * only signal otherwise, and colour alone is not a signal. */}
+              {budget > 0 && spend > budget ? (
+                <span className="home-vital-foot home-vital-foot--over">
+                  ${Math.round(spend - budget)} over
+                </span>
+              ) : null}
+            </Link>
           </li>
         </ul>
       </section>
 
-      {sleepWeek.length > 0 && (
-        <section className="home-block">
-          <h3 className="home-section-title">Nights</h3>
-          <div className="home-sleep-chart">
-            <div className="home-sleep-plot">
-              <span
-                className="home-sleep-ref"
-                style={{ bottom: `${(SLEEP_TARGET_H / SLEEP_SCALE_H) * 100}%` }}
-              >
-                <b>{SLEEP_TARGET_H}h</b>
-              </span>
-              <div className="home-sleep-trail">
-                {sleepWeek.map((n) => (
-                  <div key={n.date} className="home-sleep-node" title={`${fmtDay(n.date)}  ${n.hours}h`}>
-                    <div
-                      className="home-sleep-bar"
-                      style={{ height: `${Math.min(100, (n.hours / SLEEP_SCALE_H) * 100)}%` }}
-                    />
-                  </div>
-                ))}
-              </div>
-            </div>
-            <div className="home-sleep-axis">
-              {sleepWeek.map((n) => (
-                <div key={n.date} className="home-sleep-tick">
-                  <span>{n.hours.toFixed(1)}h</span>
-                  <span>{fmtDay(n.date)}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        </section>
-      )}
-
+      {/* Total against the cap is the Spend tile's job now. What nothing else on
+        * this screen shows is the split, so the section that follows it shows
+        * only that. */}
       {spendParts.length > 0 && (
         <section className="home-block">
-          <h3 className="home-section-title">This week</h3>
-          <SpendBar rows={snap?.spendByCategory || []} budget={budget} />
-          <div className="home-loot-row">
-            {spendParts.map((p) => (
-              <span key={p.slot} className="home-loot-chip">
-                <SpendSwatch category={p.slot} />
-                {p.label} <b>${Math.round(p.amount)}</b>
-              </span>
-            ))}
-          </div>
+          <h3 className="home-section-title">This week&apos;s spend</h3>
+          <SpendDonut rows={snap?.spendByCategory || []} centerLabel="this week" />
         </section>
       )}
 

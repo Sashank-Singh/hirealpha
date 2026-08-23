@@ -6,6 +6,16 @@ import { SQL } from 'bun'
 import { brotliCompressSync, constants as zlibConstants } from 'node:zlib'
 import { join } from 'node:path'
 import { ensureHireSchema, handleHireApi, miniCardOgDescription } from './hire-api'
+import {
+  isKnownClientRoute,
+  isKnownPage,
+  PAGE_FILES,
+  wantsMarkdown,
+  markdownFor,
+  notFoundMarkdown,
+  PUBLIC_INFO,
+  PERSONAS,
+} from './agentReady'
 
 const PORT = Number(process.env.PORT || 80)
 const ROOT = process.env.STATIC_ROOT || join(import.meta.dir, 'dist')
@@ -89,6 +99,23 @@ function textResponse(req: Request, bytes: Uint8Array, type: string, cache: stri
   const out = squeeze(bytes, enc, cacheKey ? 6 : 4)
   if (key && out.length <= MAX_CACHED_BYTES) encodedAssets.set(key, out)
   return bytesResponse(out, type, cache, enc)
+}
+
+/** HTML and markdown are negotiated, so caches must key on Accept as well as encoding. */
+function withVary(res: Response, status = res.status) {
+  const headers = new Headers(res.headers)
+  headers.set('Vary', 'Accept, Accept-Encoding')
+  return new Response(res.body, { status, headers })
+}
+
+function markdownResponse(req: Request, body: string, status = 200) {
+  const res = textResponse(req, new TextEncoder().encode(body), 'text/markdown; charset=utf-8', 'no-cache')
+  return withVary(res, status)
+}
+
+function htmlResponse(req: Request, body: string, status = 200) {
+  const res = textResponse(req, new TextEncoder().encode(body), 'text/html; charset=utf-8', 'no-cache')
+  return withVary(res, status)
 }
 
 /** API payloads are dynamic, so they are compressed but never cached. */
@@ -237,6 +264,9 @@ function contentType(path: string) {
   if (path.endsWith('.woff2')) return 'font/woff2'
   if (path.endsWith('.woff')) return 'font/woff'
   if (path.endsWith('.json')) return 'application/json'
+  if (path.endsWith('.txt')) return 'text/plain; charset=utf-8'
+  if (path.endsWith('.xml')) return 'application/xml'
+  if (path.endsWith('.md')) return 'text/markdown; charset=utf-8'
   return 'application/octet-stream'
 }
 
@@ -296,9 +326,11 @@ async function appShell() {
 
 /**
  * The app shell for a route: per-app title and OG text where we have them, the
- * route's chunk preloaded, and — for the mini apps, which are dark — the page
- * background set before any JavaScript runs, so the hold before first paint is
- * the app's own color rather than a white flash.
+ * route's chunk preloaded, and — for the mini apps — the page background set
+ * before any JavaScript runs, so the hold before first paint is the app's own
+ * color rather than a white flash. The inline script lifts the saved light
+ * theme off this device before that first paint; the style tag carries an id
+ * so MiniAppPage can drop the hold when navigating away client-side.
  */
 async function pageHtml(pathname: string, search = '') {
   let html = await appShell()
@@ -328,10 +360,16 @@ async function pageHtml(pathname: string, search = '') {
       )
   }
   const head = [
-    match ? '<style>body{background:#141414}</style>' : '',
+    match
+      ? '<style id="mini-hold">body{background:#141414}html[data-mini-theme="light"] body{background:#f5f4f0}</style>' +
+        '<script>try{if(localStorage.getItem("mini-theme")==="light")document.documentElement.dataset.miniTheme="light"}catch(e){}</script>'
+      : '',
     preloadTags(pathname),
   ].filter(Boolean)
   if (head.length) html = html.replace('</head>', `${head.join('\n    ')}\n  </head>`)
+  // The no-JS marketing copy only belongs on the public home; on app routes React
+  // would replace it anyway, and shipping it there just adds bytes and a flash.
+  if (pathname !== '/') html = html.replace(/<main class="seo-fallback"[\s\S]*?<\/main>/, '')
   return html
 }
 
@@ -359,21 +397,46 @@ async function staticAsset(req: Request, rel: string) {
 
 async function serveStatic(req: Request, pathname: string, search = '') {
   const clean = pathname.split('?')[0] || '/'
-  if (clean !== '/' && !clean.endsWith('.html')) {
+  const accept = req.headers.get('accept')
+
+  // Static assets and machine files (js/css/img, robots, llms, sitemap, openapi).
+  if (clean !== '/' && !clean.endsWith('.html') && !isKnownPage(clean)) {
     const asset = await staticAsset(req, clean)
     if (asset) return asset
   }
-  // The shell, either because this is an app route or as the SPA fallback.
-  try {
-    return textResponse(
-      req,
-      new TextEncoder().encode(await pageHtml(clean, search)),
-      'text/html; charset=utf-8',
-      'no-cache',
-    )
-  } catch {
-    return new Response('Not found', { status: 404 })
+
+  // Content negotiation: the home and the trust/portal pages answer markdown.
+  if (wantsMarkdown(accept)) {
+    const md = markdownFor(clean)
+    if (md) return markdownResponse(req, md)
   }
+
+  // The static trust/portal pages at clean URLs.
+  if (isKnownPage(clean)) {
+    const file = Bun.file(join(ROOT, PAGE_FILES[clean]))
+    if (await file.exists()) return htmlResponse(req, await file.text())
+  }
+
+  // The SPA shell, only for routes the client actually owns.
+  if (isKnownClientRoute(clean)) {
+    try {
+      return htmlResponse(req, await pageHtml(clean, search))
+    } catch {
+      return notFound(req, clean)
+    }
+  }
+
+  return notFound(req, clean)
+}
+
+/** A real 404 with a short body pointing agents at the sitemap and llms.txt. */
+function notFound(req: Request, clean: string) {
+  const accept = req.headers.get('accept') || ''
+  if (wantsMarkdown(accept) || !accept.includes('text/html')) {
+    return markdownResponse(req, notFoundMarkdown(clean), 404)
+  }
+  const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>404 — HireAlpha</title></head><body style="font-family:monospace;background:#efebe4;color:#111;padding:48px"><h1>404 — not found</h1><p><code>${clean}</code> does not exist. Try the <a href="/sitemap.xml">sitemap</a> or <a href="/llms.txt">llms.txt</a>.</p></body></html>`
+  return htmlResponse(req, html, 404)
 }
 
 await ensureSchema()
@@ -389,6 +452,8 @@ Bun.serve({
       return new Response('ok', { headers: { 'Content-Type': 'text/plain' } })
     }
     if (url.pathname === '/api/waitlist') return handleWaitlist(req)
+    if (url.pathname === '/api/public/info') return json(PUBLIC_INFO)
+    if (url.pathname === '/api/public/personas') return json(PERSONAS)
     const hire = await handleHireApi(req, sql)
     if (hire) return squeezeJson(req, hire)
     if (url.pathname.startsWith('/api/')) return json({ error: 'Not found' }, 404)

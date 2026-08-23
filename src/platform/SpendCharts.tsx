@@ -84,6 +84,91 @@ export function SpendBar({ rows, budget }: { rows: SpendInput[]; budget: number 
 }
 
 /**
+ * A donut over arbitrary named categories (inbox kinds, pipeline stages) rather
+ * than the fixed spend slots. Colour follows position in a validated palette so
+ * adjacent arcs stay separable; the value list beside it carries the real
+ * comparison, same as SpendDonut.
+ */
+const DONUT_PALETTE = ['#3987e5', '#d95926', '#199e70', '#c98500', '#d55181', '#008300']
+
+export type CategoryRow = { label: string; value: number }
+
+export function CategoryDonut({
+  rows,
+  center,
+  centerLabel,
+  format = (n) => `${Math.round(n)}`,
+}: {
+  rows: CategoryRow[]
+  center: string
+  centerLabel: string
+  format?: (n: number) => string
+}) {
+  const clean = (rows || []).filter((r) => r.value > 0)
+  const total = clean.reduce((a, r) => a + r.value, 0)
+  if (!clean.length || total <= 0) return null
+
+  const radius = 36
+  const gap = 2
+  const circ = 2 * Math.PI * radius
+  let walked = 0
+  const slices = clean.map((r, i) => {
+    const share = (r.value / total) * 100
+    const span = (share / 100) * circ
+    const drawn = clean.length > 1 ? Math.max(0, span - gap) : span
+    const s = {
+      ...r,
+      share,
+      color: DONUT_PALETTE[i % DONUT_PALETTE.length],
+      dashArray: `${drawn} ${Math.max(0, circ - drawn)}`,
+      dashOffset: walked > 0 ? -walked : 0,
+    }
+    walked += span
+    return s
+  })
+
+  return (
+    <div className="spend-donut">
+      <div className="spend-donut-ring">
+        <svg viewBox="0 0 100 100" aria-hidden="true">
+          <g transform="rotate(-90 50 50)">
+            {slices.map((s) => (
+              <circle
+                key={s.label}
+                cx="50"
+                cy="50"
+                r={radius}
+                fill="none"
+                stroke={s.color}
+                strokeWidth="14"
+                strokeDasharray={s.dashArray}
+                strokeDashoffset={s.dashOffset}
+              >
+                <title>{`${s.label}  ${format(s.value)}  ${Math.round(s.share)}%`}</title>
+              </circle>
+            ))}
+          </g>
+        </svg>
+        <div className="spend-donut-mid">
+          <b>{center}</b>
+          <span>{centerLabel}</span>
+        </div>
+      </div>
+      <ul className="spend-donut-key">
+        {slices.map((s) => (
+          <li key={s.label}>
+            <span className="spend-swatch" aria-hidden="true" style={{ background: s.color }} />
+            <span className="spend-donut-key-name">{s.label}</span>
+            <span className="spend-donut-key-val">{format(s.value)}</span>
+            <span className="spend-donut-key-pct">{Math.round(s.share)}%</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
+
+/**
  * Part-to-whole at a glance, with the value list doing the real comparing — two
  * categories that landed within a few dollars of each other are indistinguishable
  * as arcs, so the list is the point rather than decoration.

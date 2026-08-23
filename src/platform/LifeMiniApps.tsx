@@ -855,6 +855,7 @@ export function NetworkingCrmApp({ auth }: { auth: FeatureAuth }) {
   const [msg, setMsg] = useState('')
   const [showAdd, setShowAdd] = useState(false)
   const [openId, setOpenId] = useState<string | null>(null)
+  const [confirmDel, setConfirmDel] = useState<string | null>(null)
   const [edit, setEdit] = useState({ name: '', phone: '', contactEmail: '', company: '', whereMet: '', context: '' })
   const [logNotes, setLogNotes] = useState<Record<string, string>>({})
 
@@ -900,6 +901,7 @@ export function NetworkingCrmApp({ auth }: { auth: FeatureAuth }) {
 
   function openPerson(p: NetworkPerson) {
     setOpenId(p.id)
+    setConfirmDel(null)
     setEdit({
       name: p.name,
       phone: p.phone || '',
@@ -928,6 +930,22 @@ export function NetworkingCrmApp({ auth }: { auth: FeatureAuth }) {
       load()
     } catch {
       setMsg('Could not save that.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function removePerson(p: NetworkPerson) {
+    if (busy) return
+    setBusy(true)
+    try {
+      await apiTouchNetwork({ ...a, id: p.id, _delete: true })
+      setOpenId(null)
+      setConfirmDel(null)
+      setMsg(`Removed ${p.name}.`)
+      load()
+    } catch {
+      setMsg('Could not delete that.')
     } finally {
       setBusy(false)
     }
@@ -980,7 +998,7 @@ export function NetworkingCrmApp({ auth }: { auth: FeatureAuth }) {
         <section className="ma-section">
           <span className="ma-section-label">Your network</span>
           <PeopleGraph people={contacts} selectedId={openId} onSelect={(p) => openPerson(p)} />
-          <p className="ma-sub">Tap a node to open them. People who met in the same place share a color.</p>
+          <p className="ma-sub">Drag to spin, tap a node to focus. Closer to the core = fresher connection; dim warm edges are due a touch.</p>
         </section>
       )}
 
@@ -1102,7 +1120,18 @@ export function NetworkingCrmApp({ auth }: { auth: FeatureAuth }) {
             return (
               <li key={p.id} className={`ma-row${late ? ' ma-row--warn' : ''}`}>
                 <div className="ma-row-main">
-                  <button className="wk-name-btn" type="button" onClick={() => (open ? setOpenId(null) : openPerson(p))}>
+                  <button
+                    className="wk-name-btn"
+                    type="button"
+                    onClick={() => {
+                      if (open) {
+                        setOpenId(null)
+                        setConfirmDel(null)
+                      } else {
+                        openPerson(p)
+                      }
+                    }}
+                  >
                     <span className="ma-title">
                       {p.name}
                       {late && <span className="ma-badge">due</span>}
@@ -1147,6 +1176,14 @@ export function NetworkingCrmApp({ auth }: { auth: FeatureAuth }) {
                         {(edit.phone || p.phone) && (
                           <a className="ma-chip" href={smsHref(p.name, edit.phone || p.phone)}>Text</a>
                         )}
+                        <button
+                          className={`ma-chip ma-chip--danger${confirmDel === p.id ? ' ma-chip--armed' : ''}`}
+                          type="button"
+                          disabled={busy}
+                          onClick={() => (confirmDel === p.id ? void removePerson(p) : setConfirmDel(p.id))}
+                        >
+                          {confirmDel === p.id ? 'Confirm delete' : 'Delete'}
+                        </button>
                       </div>
                     </div>
                   )}

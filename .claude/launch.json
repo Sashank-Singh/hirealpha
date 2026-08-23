@@ -11,6 +11,31 @@
       "port": 5173
     },
     {
+      "name": "attach-dev",
+      "url": "http://localhost:5173",
+      "port": 5173
+    },
+    {
+      "name": "design",
+      "runtimeExecutable": "sh",
+      "runtimeArgs": [
+        "-c",
+        "npx vite --port \"$PORT\" --strictPort"
+      ],
+      "port": 5199,
+      "autoPort": true
+    },
+    {
+      "name": "preview",
+      "runtimeExecutable": "sh",
+      "runtimeArgs": [
+        "-c",
+        "STATIC_ROOT=\"$PWD/dist\" bun deploy/web-server.ts"
+      ],
+      "port": 4174,
+      "autoPort": true
+    },
+    {
       "name": "prod",
       "runtimeExecutable": "sh",
       "runtimeArgs": [

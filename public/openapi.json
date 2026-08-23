@@ -1,0 +1,108 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "HireAlpha Public API",
+    "version": "1.0.0",
+    "description": "Public, unauthenticated surface of HireAlpha. The product's per-user data (calendar, mail, body metrics, actions) is auth-gated and not exposed here. These endpoints let agents and integrators read product metadata and join the waitlist.",
+    "contact": { "name": "HireAlpha", "email": "hello@hirealpha.chat", "url": "https://hirealpha.chat/contact" }
+  },
+  "servers": [{ "url": "https://hirealpha.chat", "description": "Production" }],
+  "paths": {
+    "/healthz": {
+      "get": {
+        "operationId": "healthCheck",
+        "summary": "Liveness probe",
+        "description": "Returns the literal string ok when the service is up. No authentication required.",
+        "responses": {
+          "200": {
+            "description": "Service is healthy.",
+            "content": { "text/plain": { "schema": { "type": "string", "example": "ok" } } }
+          }
+        }
+      }
+    },
+    "/api/public/info": {
+      "get": {
+        "operationId": "getPublicInfo",
+        "summary": "Product metadata",
+        "description": "Returns the product name, tagline, pricing, and links to agent-facing resources (llms.txt, sitemap, OpenAPI).",
+        "responses": {
+          "200": {
+            "description": "Product metadata.",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PublicInfo" } } }
+          }
+        }
+      }
+    },
+    "/api/public/personas": {
+      "get": {
+        "operationId": "listPersonas",
+        "summary": "List the three personas",
+        "description": "Returns the Friend, Coworker, and Cofounder personas with a description of what each one does.",
+        "responses": {
+          "200": {
+            "description": "The persona catalog.",
+            "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Persona" } } } }
+          }
+        }
+      }
+    },
+    "/api/waitlist": {
+      "post": {
+        "operationId": "joinWaitlist",
+        "summary": "Join the waitlist",
+        "description": "Records an email address on the waitlist. Idempotent per email.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["email"],
+                "properties": { "email": { "type": "string", "format": "email", "description": "The address to add." } }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Email recorded.", "content": { "application/json": { "schema": { "type": "object", "properties": { "ok": { "type": "boolean" } } } } } },
+          "400": { "description": "Missing or invalid email.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "503": { "description": "Storage unavailable.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "PublicInfo": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string", "example": "HireAlpha" },
+          "tagline": { "type": "string" },
+          "pricing": { "type": "object", "properties": { "perPersonaMonthlyUsd": { "type": "integer", "example": 19 } } },
+          "resources": {
+            "type": "object",
+            "properties": {
+              "llmsTxt": { "type": "string" },
+              "openapi": { "type": "string" },
+              "sitemap": { "type": "string" },
+              "developers": { "type": "string" }
+            }
+          }
+        }
+      },
+      "Persona": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "enum": ["friend", "coworker", "cofounder"] },
+          "name": { "type": "string" },
+          "description": { "type": "string" }
+        }
+      },
+      "Error": {
+        "type": "object",
+        "properties": { "error": { "type": "string" } }
+      }
+    }
+  }
+}

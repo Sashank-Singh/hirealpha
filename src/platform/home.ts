@@ -1,7 +1,10 @@
+import type { NextItem } from './api'
+
 export type HomeMeet = { time: string; title: string }
-export type HomePerson = { name: string; days: number; phone?: string }
+export type HomePerson = { name: string; days: number; phone?: string; id?: string; context?: string }
 export type HomeMail = { from: string; subject: string }
 export type HomeWorkout = { name: string; rest?: boolean; done: boolean }
+export type HomeLoop = { id: string; title: string; dueAt?: string | null }
 
 export type HomeSlice = {
   hour: number
@@ -9,6 +12,7 @@ export type HomeSlice = {
   lastNightHours: number
   next?: HomeMeet
   peopleDue: HomePerson[]
+  dueLoop?: HomeLoop | null
   proteinToday: number
   proteinGoal: number
   spend: number
@@ -16,6 +20,11 @@ export type HomeSlice = {
   workoutToday: HomeWorkout
 }
 
+/**
+ * @deprecated The shape home used before it could act — a card with a `cta` and
+ * somewhere to go. `pickHomeQueue` returns `NextItem`s instead, so a rung can
+ * carry a verb. Kept exported for one release.
+ */
 export type HomeAction = {
   kicker: string
   title: string
@@ -150,86 +159,161 @@ export function homeFetchPlan(snap: {
   }
 }
 
-export function pickHomeAction(s: HomeSlice): HomeAction {
+/** How many rungs home will show. Past four it stops being a shortlist. */
+export const HOME_QUEUE_MAX = 4
+
+/** iOS wants the number and the body on one `sms:` URL; no number still opens the
+ * composer with the text ready, which beats retyping it. */
+function smsTo(phone: string | undefined, body: string) {
+  const digits = (phone || '').replace(/[^\d+]/g, '')
+  return `sms:${digits}&body=${encodeURIComponent(body)}`
+}
+
+/**
+ * What friend should do next, ranked, as items the screen can actually execute.
+ *
+ * This was `pickHomeAction`, which returned one card with a `cta` and a link —
+ * so home could tell you a person was due but the only thing it could do about it
+ * was navigate. Every rung here now declares a verb, and the ones that are still
+ * `open` are honest: a sleep log or a workout log genuinely needs its own form.
+ *
+ * The ladder's order is unchanged, so whatever used to lead still leads.
+ */
+export function pickHomeQueue(s: HomeSlice, now = new Date()): NextItem[] {
   const morning = s.hour < 11
   const evening = s.hour >= 18
+  const items: NextItem[] = []
 
   if (!s.lastNightLogged && s.hour < 14) {
-    return {
+    items.push({
+      id: 'sleep-last',
       kicker: 'Last night',
       title: 'Log last night',
       hint: 'Bed and wake. Sleep stays empty until you do.',
-      cta: 'Log sleep',
+      action: 'open',
+      doLabel: 'Log sleep',
       openKind: 'sleep_tracker',
-    }
+    })
   }
 
   if (s.next) {
-    return {
+    items.push({
+      id: `meet-${s.next.time}-${s.next.title}`,
       kicker: 'Next',
       title: `${s.next.time}  ${s.next.title}`,
-      hint: 'Open the brief, or text Alpha prep me for them.',
-      cta: 'Open brief',
+      hint: 'Prep for them is in the brief.',
+      action: 'open',
+      doLabel: 'Open brief',
       openKind: evening ? 'pick_night' : 'digest',
-    }
+    })
   }
 
-  if (s.peopleDue[0]) {
-    return {
-      kicker: 'Due',
-      title: `Ping ${s.peopleDue[0].name}`,
-      hint: 'They are due a follow up. Text Alpha to send it, or open People.',
-      cta: 'Open People',
-      openKind: 'networking_crm',
-    }
+  const who = s.peopleDue[0]
+  if (who) {
+    const quiet = who.days >= 900 ? 'No touch logged yet' : `${who.days} days quiet`
+    items.push(
+      who.id
+        ? {
+            id: `person-${who.id}`,
+            kicker: 'Due',
+            title: `Ping ${who.name}`,
+            hint: who.context || quiet,
+            hot: true,
+            action: 'person',
+            doLabel: 'Talked',
+            personId: who.id,
+            sms: smsTo(who.phone, `Hey ${who.name.split(' ')[0]} — ${who.context || 'been a minute, how are you'}`),
+          }
+        : /* No id means nothing to mark touched, so this stays a link rather than
+           * growing a button that would fail. An older API deploy lands here. */
+          {
+            id: `person-${who.name}`,
+            kicker: 'Due',
+            title: `Ping ${who.name}`,
+            hint: `${quiet}. Open People to log it.`,
+            action: 'open',
+            doLabel: 'Open People',
+            openKind: 'networking_crm',
+          },
+    )
+  }
+
+  if (s.dueLoop?.id) {
+    const due = s.dueLoop.dueAt ? Date.parse(s.dueLoop.dueAt) : NaN
+    const late = Number.isFinite(due) && due < now.getTime()
+    items.push({
+      id: `loop-${s.dueLoop.id}`,
+      kicker: late ? 'Overdue' : 'Promised',
+      title: s.dueLoop.title,
+      hint: late ? 'You said you would. Close it or push it a day.' : 'Still open.',
+      hot: late,
+      action: 'loop',
+      doLabel: 'Done',
+      loopId: s.dueLoop.id,
+    })
   }
 
   if (evening && s.weeklyBudget > 0 && s.spend > s.weeklyBudget) {
-    const over = Math.round(s.spend - s.weeklyBudget)
-    return {
+    items.push({
+      id: 'spend-over',
       kicker: 'Spend',
-      title: `$${over} over the weekly cap`,
+      title: `$${Math.round(s.spend - s.weeklyBudget)} over the weekly cap`,
       hint: 'Housing and food first. Open spend to see the split.',
-      cta: 'See spend',
+      action: 'open',
+      doLabel: 'See spend',
       openKind: 'spending_snapshot',
-    }
+    })
   }
 
   if (!morning && s.proteinGoal > 0 && s.proteinToday < 60) {
-    return {
+    items.push({
+      id: 'protein-gap',
       kicker: 'Food',
       title: `Protein ${Math.round(s.proteinToday)} / ${Math.round(s.proteinGoal)}`,
       hint: 'One solid meal closes the gap.',
-      cta: 'Log food',
+      action: 'open',
+      doLabel: 'Log food',
       openKind: 'nutrition',
-    }
+    })
   }
 
   if (!s.workoutToday.rest && !s.workoutToday.done && s.hour >= 7 && s.hour < 20) {
-    return {
+    items.push({
+      id: 'workout-today',
       kicker: 'Training',
       title: s.workoutToday.name,
       hint: 'Today is on the program. Log when you are done.',
-      cta: 'Open workout',
+      action: 'open',
+      doLabel: 'Open workout',
       openKind: 'workout_log',
-    }
+    })
   }
 
   if (evening) {
-    return {
+    items.push({
+      id: 'evening-wrap',
       kicker: 'Evening',
       title: 'Wrap the day',
       hint: 'See tomorrow, or save something for later.',
-      cta: 'Evening brief',
+      action: 'open',
+      doLabel: 'Evening brief',
       openKind: 'pick_night',
-    }
+    })
   }
 
-  return {
-    kicker: 'Today',
-    title: 'Nothing is on fire',
-    hint: 'Text Alpha if you need a prep, a ping, or a log.',
-    cta: 'Morning brief',
-    openKind: 'digest',
+  // Only when there is genuinely nothing — otherwise this would sit under four
+  // real rungs claiming the day is clear.
+  if (!items.length) {
+    items.push({
+      id: 'quiet',
+      kicker: 'Today',
+      title: 'Nothing is on fire',
+      hint: 'Text Alpha if you need a prep, a ping, or a log.',
+      action: 'open',
+      doLabel: 'Morning brief',
+      openKind: 'digest',
+    })
   }
+
+  return items.slice(0, HOME_QUEUE_MAX)
 }
