@@ -75,7 +75,9 @@ export function PeopleGraph({
 }: {
   people: NetworkPerson[]
   selectedId?: string | null
-  onSelect: (p: NetworkPerson) => void
+  /* Null clears the selection — the X worked only locally before, and the
+   * parent's selectedId kept the card open. */
+  onSelect: (p: NetworkPerson | null) => void
 }) {
   const [focusId, setFocusId] = useState<string | null>(null)
 
@@ -476,6 +478,7 @@ export function PeopleGraph({
           onSelectRef.current(hit.p)
         } else {
           setFocusId(null)
+          onSelectRef.current(null)
         }
       }
     }
@@ -518,7 +521,10 @@ export function PeopleGraph({
             type="button"
             className="pg-card-close"
             aria-label="Close"
-            onClick={() => setFocusId(null)}
+            onClick={() => {
+              setFocusId(null)
+              onSelect(null)
+            }}
           >
             ×
           </button>

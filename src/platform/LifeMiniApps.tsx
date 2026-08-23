@@ -1022,7 +1022,7 @@ export function NetworkingCrmApp({ auth }: { auth: FeatureAuth }) {
       {contacts.length > 0 && (
         <section className="ma-section">
           <span className="ma-section-label">Your network</span>
-          <PeopleGraph people={contacts} selectedId={openId} onSelect={(p) => openPerson(p)} />
+          <PeopleGraph people={contacts} selectedId={openId} onSelect={(p) => (p ? openPerson(p) : setOpenId(null))} />
           <p className="ma-sub">Drag to spin, tap a node to focus. Closer to the core = fresher connection.</p>
         </section>
       )}
