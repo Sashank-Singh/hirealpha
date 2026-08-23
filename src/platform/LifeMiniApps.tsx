@@ -42,7 +42,6 @@ import {
 import type { FeatureAuth } from './FeatureMiniApps'
 import {
   defaultWorkoutWeekday,
-  isWeekend,
   jsDayToWeekday,
   movePrescription,
   readWorkoutMoveCount,
@@ -315,7 +314,6 @@ export function WorkoutLogApp({ auth }: { auth: FeatureAuth }) {
   const today = localDateStr()
   const todayWeekday = jsDayToWeekday(new Date().getDay())
   const viewingToday = todayWeekday === viewDay
-  const weekend = isWeekend()
   const todayNames = new Set(
     logs.filter((l) => isoToLocalDate(l.loggedAt) === today).map((l) => l.exercise.toLowerCase()),
   )
@@ -332,11 +330,6 @@ export function WorkoutLogApp({ auth }: { auth: FeatureAuth }) {
   let heroKicker = viewingToday ? 'Today' : session.dayLabel
   let heroNum = session.name
   let heroLabel = `${session.moves.length} moves. ${placeLabel}.`
-  if (weekend && viewDay === 1) {
-    heroKicker = 'Rest'
-    heroNum = 'Rest day'
-    heroLabel = `Monday is ${session.name}. ${placeLabel}.`
-  }
   if (allDone) {
     heroNum = 'All done'
     heroLabel = `${session.name}. ${placeLabel}.`
