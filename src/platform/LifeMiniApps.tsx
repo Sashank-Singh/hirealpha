@@ -60,6 +60,7 @@ import {
 import { exerciseDemoUrl } from './exerciseDemos'
 import { isPersonMeetSuggestion, isTravelOrStayTitle, stayWhereFrom } from './peopleMeets'
 import { pickLastNight } from './home'
+import { useRefreshOnFocus } from './useRefreshOnFocus'
 import { SpendBar, SpendDonut, SpendSwatch } from './SpendCharts'
 import { SPEND_SLOTS, SPEND_SLOT_LABELS } from './spendChart'
 
@@ -1620,6 +1621,7 @@ export function SpendingSnapshotApp({ auth }: { auth: FeatureAuth }) {
     }).catch(() => setMsg('Could not load spending.'))
   }, [a.email, a.token])
   useEffect(() => { load() }, [load])
+  useRefreshOnFocus(load)
 
   async function add(e: FormEvent) {
     e.preventDefault()

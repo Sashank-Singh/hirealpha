@@ -7,8 +7,10 @@ import {
   type HomeSnapshot,
   type NetworkPerson,
   type NetworkToday,
+  type NextItem,
   type SleepNight,
 } from './api'
+import { ActionButtons, ActionRow, runAction, snoozeAction } from './ActionQueue'
 import type { FeatureAuth } from './FeatureMiniApps'
 import { MiniAppIcon } from './MiniAppIcons'
 import {
@@ -17,12 +19,13 @@ import {
   homeFetchPlan,
   localYmd,
   mergeMeets,
-  pickHomeAction,
+  pickHomeQueue,
   pickLastNight,
   remainingMeets,
   shiftYmd,
 } from './home'
 import { readHomeCache, writeHomeCache } from './homeCache'
+import { useRefreshOnFocus } from './useRefreshOnFocus'
 import { isPersonMeetSuggestion } from './peopleMeets'
 import { SpendBar, SpendSwatch } from './SpendCharts'
 import { aggregateSpend } from './spendChart'
@@ -85,6 +88,13 @@ export function HomeApp({ auth }: { auth: FeatureAuth }) {
   const [loading, setLoading] = useState(true)
   const [msg, setMsg] = useState('')
   const [worldTries, setWorldTries] = useState(0)
+  /* Acting on a rung: which one is mid-flight, which one just landed, and which
+   * ones were pushed to the back. Snoozed ids reorder the derived queue rather
+   * than mutating it, so the next snapshot rebuilds cleanly. */
+  const [busy, setBusy] = useState(false)
+  const [doneId, setDoneId] = useState<string | null>(null)
+  const [snoozed, setSnoozed] = useState<string[]>([])
+  const [actMsg, setActMsg] = useState('')
 
   const load = useCallback(() => {
     setLoading(true)
@@ -128,6 +138,7 @@ export function HomeApp({ auth }: { auth: FeatureAuth }) {
   useEffect(() => {
     load()
   }, [load])
+  useRefreshOnFocus(load)
 
   /* The page painted before the calendar and inbox came back — the server says
    * so rather than making everyone wait on a hop into Google. Come back for them
@@ -196,18 +207,54 @@ export function HomeApp({ auth }: { auth: FeatureAuth }) {
   const proteinGoal = w?.proteinGoal || 150
   const spend = w?.spend || 0
   const budget = w?.weeklyBudget || 0
-  const action = pickHomeAction({
+  const ranked = pickHomeQueue({
     hour,
     lastNightLogged: lastNight.logged,
     lastNightHours: lastNight.hours,
     next: upcoming[0],
     peopleDue,
+    dueLoop: raw?.dueLoop,
     proteinToday: protein,
     proteinGoal,
     spend,
     weeklyBudget: budget,
     workoutToday: workout,
   })
+  // Snoozed rungs sink instead of vanishing — nothing here is dismissible, only
+  // deferrable, and a promise you pushed is still a promise.
+  const queue = snoozed.length
+    ? [...ranked.filter((i) => !snoozed.includes(i.id)), ...ranked.filter((i) => snoozed.includes(i.id))]
+    : ranked
+  const lead = queue[0]!
+  const queued = queue.slice(1)
+
+  async function doQueue(item: NextItem) {
+    if (busy) return
+    setBusy(true)
+    setActMsg('')
+    try {
+      await runAction(item, { email: auth.email, token: auth.token, persona: auth.persona })
+      setDoneId(item.id)
+      // The rung is gone from the source of truth now, so re-read it: the row
+      // leaves and the counts in the header move with it.
+      load()
+    } catch (err) {
+      setActMsg(err instanceof Error ? err.message : 'Could not do that.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function snoozeQueue(item: NextItem) {
+    try {
+      const how = await snoozeAction(item, { email: auth.email, token: auth.token, persona: auth.persona })
+      if (how === 'reload') load()
+      else setSnoozed((cur) => (cur.includes(item.id) ? cur : [...cur, item.id]))
+    } catch {
+      setActMsg('Could not snooze that.')
+    }
+  }
+
   const briefKind = hour >= 18 ? 'pick_night' : 'digest'
   const sleepWeek = (snap?.sleepTrend || []).slice(-7)
   const dock = DOCK.map((d) => (d.kind === 'digest' ? { ...d, kind: briefKind } : d))
@@ -235,14 +282,41 @@ export function HomeApp({ auth }: { auth: FeatureAuth }) {
         {stateLine ? <p className="home-day-state">{stateLine}</p> : null}
       </header>
 
-      <section className="home-action">
-        <span className="home-action-kicker">{action.kicker}</span>
-        <h3 className="home-action-title">{action.title}</h3>
-        <p className="home-action-hint">{action.hint}</p>
-        <Link className="home-action-btn" to={miniLink(action.openKind)}>
-          {action.cta}
-        </Link>
+      <section className={`home-action${lead.hot ? ' home-action--hot' : ''}`}>
+        <span className="home-action-kicker">{lead.kicker}</span>
+        <h3 className="home-action-title">{lead.title}</h3>
+        {lead.hint ? <p className="home-action-hint">{lead.hint}</p> : null}
+        <div className="home-action-row">
+          <ActionButtons
+            item={lead}
+            persona={auth.persona}
+            suffix={suffix}
+            busy={busy}
+            done={doneId === lead.id}
+            btnClass="home-action-btn"
+            chipClass="home-action-chip"
+            onDo={(i) => void doQueue(i)}
+            onSnooze={(i) => void snoozeQueue(i)}
+          />
+        </div>
       </section>
+
+      {queued.length > 0 && (
+        <ul className="ma-list home-queue">
+          {queued.map((item) => (
+            <ActionRow
+              key={item.id}
+              item={item}
+              persona={auth.persona}
+              suffix={suffix}
+              busy={busy}
+              done={doneId === item.id}
+              onDo={(i) => void doQueue(i)}
+            />
+          ))}
+        </ul>
+      )}
+      {actMsg && <p className="mini__hint home-msg">{actMsg}</p>}
 
       {upcoming.length > 0 && (
         <section className="home-block">
