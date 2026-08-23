@@ -546,6 +546,22 @@ export async function ensureHireSchema(sql: SQL) {
   `
   await sql`CREATE INDEX IF NOT EXISTS idx_hire_nutrition_user ON hire_nutrition_logs (user_id, eaten_at DESC)`
 
+  /* The brief is the one screen Alpha texts a link to, and building it costs a
+   * calendar fetch, an inbox pull, and a model pass. The in-memory cache loses
+   * everything on a deploy, so the last build is persisted here per day: a cold
+   * container can serve today's brief on the spot and rebuild behind it. */
+  await sql`
+    CREATE TABLE IF NOT EXISTS hire_brief_cache (
+      user_id TEXT NOT NULL REFERENCES hire_users(id) ON DELETE CASCADE,
+      persona TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      day TEXT NOT NULL,
+      payload TEXT NOT NULL,
+      built_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      PRIMARY KEY (user_id, persona, kind)
+    )
+  `
+
   await sql`
     CREATE TABLE IF NOT EXISTS hire_nutrition_goals (
       user_id TEXT PRIMARY KEY REFERENCES hire_users(id) ON DELETE CASCADE,
@@ -2775,6 +2791,70 @@ const eveningCache = createStaleCache<Awaited<ReturnType<typeof miniPayload>>>({
  * they are about to text is already warm when it gets tapped. */
 const BRIEF_WARM_WAIT_MS = 60_000
 
+/* ---- Persisted brief cache ----
+ * The in-memory stale caches above live and die with the container. A brief is
+ * still useful the moment a tap lands after a deploy, so the last successful
+ * build of the day is kept in Postgres: cold reads hit the DB instead of paying
+ * a Google + model build, and the rebuild only happens when the row is old. */
+const BRIEF_STALE_MS = 10 * 60 * 1000
+
+/** A persisted row is still worth a fast serve when it was built today and recently. */
+export function briefRowFresh(rowAgeMs: number | null, today: string, rowDay: string | null): boolean {
+  if (!rowAgeMs || rowDay !== today) return false
+  return rowAgeMs < BRIEF_STALE_MS
+}
+
+async function readBriefDb(
+  sql: SQL,
+  userId: string,
+  persona: string,
+  kind: string,
+): Promise<{ payload: unknown; day: string; builtAt: Date } | null> {
+  try {
+    const rows = (await sql`
+      SELECT day, payload, built_at AS "builtAt" FROM hire_brief_cache
+      WHERE user_id = ${userId} AND persona = ${persona} AND kind = ${kind}
+      LIMIT 1
+    `) as Array<{ day: string; payload: string; builtAt: Date }>
+    const row = rows[0]
+    if (!row) return null
+    return { payload: JSON.parse(row.payload), day: row.day, builtAt: row.builtAt }
+  } catch {
+    return null
+  }
+}
+
+async function writeBriefDb(sql: SQL, userId: string, persona: string, kind: string, day: string, payload: unknown) {
+  try {
+    await sql`
+      INSERT INTO hire_brief_cache (user_id, persona, kind, day, payload, built_at)
+      VALUES (${userId}, ${persona}, ${kind}, ${day}, ${JSON.stringify(payload)}, now())
+      ON CONFLICT (user_id, persona, kind)
+      DO UPDATE SET day = excluded.day, payload = excluded.payload, built_at = excluded.built_at
+    `
+  } catch {
+    /* A cache row must never take a read down with it. */
+  }
+}
+
+/** Serve today's persisted brief when it is still fresh-ish; otherwise build and persist. */
+async function briefLoader<T>(
+  sql: SQL,
+  userId: string,
+  persona: string,
+  kind: string,
+  build: () => Promise<T>,
+  day: string,
+): Promise<T> {
+  const row = await readBriefDb(sql, userId, persona, kind)
+  if (row && briefRowFresh(Date.now() - new Date(row.builtAt).getTime(), day, row.day)) {
+    return row.payload as T
+  }
+  const payload = await build()
+  await writeBriefDb(sql, userId, persona, kind, day, payload)
+  return payload
+}
+
 async function loadHomeWorld(sql: SQL, user: AuthedUser, tzLocal: string): Promise<HomeWorld> {
   const world: HomeWorld = { upcoming: [], mail: [], mailGroups: [] }
   const jobs: Array<Promise<void>> = []
@@ -4406,7 +4486,7 @@ async function judgmentStatePayload(
        * screen it points at are one load rather than two. */
       const payload = (await digestCache.read(
         `${user.id}|${persona}`,
-        () => digestPayload(sql, user, persona),
+        () => briefLoader(sql, user.id, persona, 'digest', () => digestPayload(sql, user, persona), localDateStrInTz(new Date(), user.timezone || 'America/Los_Angeles')),
         BRIEF_WARM_WAIT_MS,
       )).value
       calendar = (payload?.calendar || []).slice(0, 4)
@@ -5673,7 +5753,7 @@ export async function miniCardOgDescription(
        * it here is why tapping that link lands on a brief instead of building one. */
       const payload = (await digestCache.read(
         `${user.id}|${persona}`,
-        () => digestPayload(sql, user, persona),
+        () => briefLoader(sql, user.id, persona, 'digest', () => digestPayload(sql, user, persona), localDateStrInTz(new Date(), user.timezone || 'America/Los_Angeles')),
         BRIEF_WARM_WAIT_MS,
       )).value
       if (!payload) return null
@@ -5682,7 +5762,7 @@ export async function miniCardOgDescription(
     if (kind === 'pick_night') {
       const payload = (await eveningCache.read(
         `${user.id}|${persona}`,
-        () => miniPayload(sql, user, persona, 'pick_night'),
+        () => briefLoader(sql, user.id, persona, 'pick_night', () => miniPayload(sql, user, persona, 'pick_night'), localDateStrInTz(new Date(), user.timezone || 'America/Los_Angeles')),
         BRIEF_WARM_WAIT_MS,
       )).value
       if (!payload) return null
@@ -6454,7 +6534,10 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     }
     if (!user) return json({ error: 'No account found for that phone/email' }, 404)
     try {
-      const brief = await digestCache.read(`${user!.id}|${persona}`, () => digestPayload(sql, user!, persona))
+      const day = localDateStrInTz(new Date(), user!.timezone || 'America/Los_Angeles')
+      const brief = await digestCache.read(`${user!.id}|${persona}`, () =>
+        briefLoader(sql, user!.id, persona, 'digest', () => digestPayload(sql, user!, persona), day),
+      )
       if (!brief.value && brief.pending) {
         /* Not an error — the load is still running behind this response and will
          * be in the cache shortly. Saying `error` here made the client stop and
@@ -6941,8 +7024,9 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
      * two-day calendar range, an inbox pull, and a model pass. The rest are a
      * query or two and are cheaper to just run. */
     if (kind === 'pick_night') {
+      const day = localDateStrInTz(new Date(), user!.timezone || 'America/Los_Angeles')
       const brief = await eveningCache.read(`${user!.id}|${persona}`, () =>
-        miniPayload(sql, user!, persona, 'pick_night'),
+        briefLoader(sql, user!.id, persona, 'pick_night', () => miniPayload(sql, user!, persona, 'pick_night'), day),
       )
       if (!brief.value && brief.pending) {
         // Still loading behind this response. Never cached, or the retry reads it.
