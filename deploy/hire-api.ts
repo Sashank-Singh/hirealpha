@@ -3189,7 +3189,6 @@ async function digestPayload(
         : calToday.calendarConnected
           ? 'A quiet day so far'
           : 'Connect Calendar in Settings'
-  const first = (nextBeat?.name || '').trim().split(/\s+/)[0] || 'them'
   const leadReason = (reasons: string[]): string => {
     if (reasons.includes('waiting_on_you')) return 'They are waiting on you.'
     if (reasons.includes('deadline')) return 'There is a deadline on this.'
@@ -3220,7 +3219,7 @@ async function digestPayload(
         ? {
             kicker: 'Next',
             title: `${nextBeat.time}  ${nextBeat.name}`,
-            hint: `Get prepped for ${first}.`,
+            hint: 'Show up ready.',
             cta: 'Prep me',
             openKind: 'digest',
             kind: 'prep',
@@ -7504,15 +7503,25 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     }
     const user = await getUserByPhone(sql, body.phone)
     if (!user) return json({ error: 'User not found' }, 404)
-    const estimate = await estimateNutrition(description, '')
-    if (!estimate.ok) return json(estimate)
+    // Always log the meal. The estimator is a downstream model that can be
+    // down or reply something unreadable — that is no reason to lose the log,
+    // which is exactly what happened when this returned the error first.
+    let estimate: Awaited<ReturnType<typeof estimateNutrition>> = { ok: false, needsKey: true }
+    if (nutritionModelConfig()) {
+      try {
+        estimate = await estimateNutrition(description, '')
+      } catch {
+        estimate = { ok: false, error: 'Estimator unavailable' }
+      }
+    }
     const id = crypto.randomUUID()
+    const saved = estimate.ok ? (estimate.guess || description).slice(0, 300) : `${description.slice(0, 300)} (estimate pending)`
     await sql`
       INSERT INTO hire_nutrition_logs (id, user_id, description, image_url, calories, protein, carbs, fat, eaten_at)
-      VALUES (${id}, ${user.id}, ${estimate.guess || description.slice(0, 300)}, NULL,
+      VALUES (${id}, ${user.id}, ${saved}, NULL,
         ${clampNum(estimate.calories)}, ${clampNum(estimate.protein)}, ${clampNum(estimate.carbs)}, ${clampNum(estimate.fat)}, now())
     `
-    return json({ ...estimate, logged: true, id })
+    return json({ ok: true, logged: true, id, estimated: estimate.ok, needsKey: estimate.needsKey === true, guess: estimate.guess || undefined })
   }
 
   if (path === '/api/internal/nutrition/photo' && req.method === 'POST') {

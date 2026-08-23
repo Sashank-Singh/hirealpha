@@ -281,7 +281,7 @@ export async function autoLogNutrition(
   phone: string,
   persona: AgentId,
   description: string,
-): Promise<{ ok: boolean; logged?: boolean; guess?: string; calories?: number; protein?: number; carbs?: number; fat?: number; error?: string } | null> {
+): Promise<{ ok: boolean; logged?: boolean; estimated?: boolean; guess?: string; calories?: number; protein?: number; carbs?: number; fat?: number; error?: string } | null> {
   const base = apiBase()
   const key = process.env.HIREALPHA_INTERNAL_KEY || ''
   if (!base || !key) return null

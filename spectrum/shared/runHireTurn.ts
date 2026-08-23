@@ -656,7 +656,9 @@ export async function runHireTurn(input: {
     const nutrition = await autoLogNutrition(input.senderId, agent.id, input.userText)
     if (nutrition?.logged) {
       extras.push(
-        `Nutrition was automatically logged as ${nutrition.guess || input.userText} (${nutrition.calories || 0} calories, ${nutrition.protein || 0}g protein, ${nutrition.carbs || 0}g carbs, ${nutrition.fat || 0}g fat). Confirm the log briefly in the reply; do not ask them to log it again.`,
+        nutrition.estimated === false
+          ? `Nutrition was automatically logged as ${nutrition.guess || input.userText}. The macro estimate is pending (the estimator did not answer), so do not state calorie/protein numbers — say the meal is logged and the macros will fill in.`
+          : `Nutrition was automatically logged as ${nutrition.guess || input.userText} (${nutrition.calories || 0} calories, ${nutrition.protein || 0}g protein, ${nutrition.carbs || 0}g carbs, ${nutrition.fat || 0}g fat). Confirm the log briefly in the reply; do not ask them to log it again.`,
       )
     } else if (nutrition?.error) {
       extras.push('Nutrition auto-log failed. Do not claim the meal was logged; offer the Nutrition card instead.')
