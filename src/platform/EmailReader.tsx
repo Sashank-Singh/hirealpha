@@ -103,6 +103,12 @@ export function EmailReader({ messageId, label, summary, auth, persona, onClose,
   const [askText, setAskText] = useState('')
   const [adjustBusy, setAdjustBusy] = useState(false)
   const [adjustMsg, setAdjustMsg] = useState('')
+  const [newMail, setNewMail] = useState(false)
+  const [newTo, setNewTo] = useState('')
+  const [newSubject, setNewSubject] = useState('')
+  const [newBody, setNewBody] = useState('')
+  const [newBusy, setNewBusy] = useState(false)
+  const [newMsg, setNewMsg] = useState('')
 
   useEffect(() => {
     let cancelled = false
@@ -165,6 +171,25 @@ export function EmailReader({ messageId, label, summary, auth, persona, onClose,
     }
   }
 
+  async function sendNewEmail(e: FormEvent) {
+    e.preventDefault()
+    if (newBusy) return
+    setNewBusy(true)
+    setNewMsg('')
+    try {
+      const res = await apiSendDraft({ ...auth, toAddr: newTo.trim(), subject: newSubject.trim(), body: newBody })
+      if (!res.ok) throw new Error(res.error || 'Send failed. Reconnect Gmail with send access.')
+      setNewTo('')
+      setNewSubject('')
+      setNewBody('')
+      setNewMail(false)
+    } catch (err) {
+      setNewMsg(err instanceof Error ? err.message : 'Could not send.')
+    } finally {
+      setNewBusy(false)
+    }
+  }
+
   const sanitizedHtml = msg?.ok && msg.bodyHtml ? sanitizeEmailHtml(msg.bodyHtml) : ''
   const bodyText = msg?.ok ? (msg.bodyText || '') : ''
   const connectHref = `/app/hires/${persona || 'friend'}`
@@ -175,6 +200,45 @@ export function EmailReader({ messageId, label, summary, auth, persona, onClose,
         <button className="email-reader-close" type="button" aria-label="Close" onClick={onClose}>
           ×
         </button>
+        <button className="email-reader-compose" type="button" onClick={() => setNewMail(true)}>
+          ＋ Send email
+        </button>
+
+        {newMail && (
+          <form className="reply-compose" onSubmit={sendNewEmail}>
+            <h4 className="reply-compose-title">New email</h4>
+            <input
+              className="mini__input"
+              value={newTo}
+              onChange={(e) => setNewTo(e.target.value)}
+              placeholder="To"
+              aria-label="To"
+            />
+            <input
+              className="mini__input"
+              value={newSubject}
+              onChange={(e) => setNewSubject(e.target.value)}
+              placeholder="Subject"
+              aria-label="Subject"
+            />
+            <textarea
+              className="mini__textarea"
+              value={newBody}
+              onChange={(e) => setNewBody(e.target.value)}
+              placeholder="Write your email…"
+              aria-label="Body"
+            />
+            <div className="reply-compose-actions">
+              <button className="mini__btn" type="submit" disabled={newBusy || !newTo.trim() || !newSubject.trim()}>
+                {newBusy ? 'Sending…' : 'Send email'}
+              </button>
+              <button className="mini__btn reply-compose-cancel" type="button" onClick={() => setNewMail(false)} disabled={newBusy}>
+                Cancel
+              </button>
+            </div>
+            {newMsg && <p className="reply-compose-msg">{newMsg}</p>}
+          </form>
+        )}
 
         {loading && (
           <div className="email-reader-loading-block">

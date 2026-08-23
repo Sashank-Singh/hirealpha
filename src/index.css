@@ -3300,6 +3300,20 @@ button.ma-callout, button.ma-row {
   font-size: 18px; line-height: 1; cursor: pointer; color: var(--fg);
   display: flex; align-items: center; justify-content: center;
 }
+.email-reader-compose {
+  align-self: flex-start;
+  margin-top: 2px;
+  padding: 7px 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: none;
+  color: var(--fg);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.email-reader-compose:hover { border-color: var(--mini-accent); }
 @media (prefers-color-scheme: dark) {
   .email-reader-close { background: #27272a; }
 }
