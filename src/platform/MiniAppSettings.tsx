@@ -13,7 +13,19 @@ import { ConnectorLogo } from './ConnectorLogo'
 import { connectorsForHire, type ConnectorId } from './connectors'
 import type { FeatureAuth } from './FeatureMiniApps'
 import { connectedIds, getSession, hydrateFromServer } from './roster'
-import { readWorkoutPlace, writeWorkoutPlace, readWorkoutMoveCount, writeWorkoutMoveCount, type WorkoutMoveCount, type WorkoutPlace } from './workoutProgram'
+import {
+  readWorkoutPlace,
+  writeWorkoutPlace,
+  readWorkoutMoveCount,
+  writeWorkoutMoveCount,
+  readWorkoutDays,
+  writeWorkoutDays,
+  WORKOUT_DAY_LABELS_ALL,
+  WORKOUT_DAY_LETTERS_ALL,
+  type WorkoutDay,
+  type WorkoutMoveCount,
+  type WorkoutPlace,
+} from './workoutProgram'
 
 export const MINI_SETTINGS_EVENT = 'hire-mini-settings'
 
@@ -218,9 +230,12 @@ function NutritionSettings({ auth }: { auth: FeatureAuth }) {
   )
 }
 
+const WORKOUT_SETTING_DAYS: WorkoutDay[] = [0, 1, 2, 3, 4, 5, 6]
+
 function WorkoutSettings({ auth }: { auth: FeatureAuth }) {
   const [place, setPlace] = useState<WorkoutPlace>(() => readWorkoutPlace())
   const [moveCount, setMoveCount] = useState<WorkoutMoveCount>(() => readWorkoutMoveCount())
+  const [days, setDays] = useState<WorkoutDay[]>(() => readWorkoutDays())
   const [msg, setMsg] = useState('')
 
   useEffect(() => {
@@ -258,10 +273,22 @@ function WorkoutSettings({ auth }: { auth: FeatureAuth }) {
     }
   }
 
+  function toggleDay(day: WorkoutDay) {
+    setDays((prev) => {
+      const has = prev.includes(day)
+      // Keep at least one workout day so the plan never empties entirely.
+      if (has && prev.length <= 1) return prev
+      const next = has ? prev.filter((d) => d !== day) : [...prev, day]
+      writeWorkoutDays(next)
+      return next
+    })
+    pingSettingsSaved()
+  }
+
   return (
     <section className="mini-set__block">
       <h2>Workout</h2>
-      <p>Monday through Friday plan. Home is bodyweight only. Gym is barbell and machines.</p>
+      <p>Home is bodyweight only. Gym is barbell and machines.</p>
       <div className="wk-places">
         <button className={`wk-place${place === 'home' ? ' is-on' : ''}`} type="button" onClick={() => void pick('home')}>
           Home
@@ -269,6 +296,21 @@ function WorkoutSettings({ auth }: { auth: FeatureAuth }) {
         <button className={`wk-place${place === 'gym' ? ' is-on' : ''}`} type="button" onClick={() => void pick('gym')}>
           Gym
         </button>
+      </div>
+      <p>Workout days. Tap a day to add or remove it — Saturday and Sunday work too.</p>
+      <div className="wk-days" role="group" aria-label="Workout days">
+        {WORKOUT_SETTING_DAYS.map((day) => (
+          <button
+            key={day}
+            className={`wk-day${days.includes(day) ? ' is-on' : ''}`}
+            type="button"
+            aria-pressed={days.includes(day)}
+            aria-label={WORKOUT_DAY_LABELS_ALL[day]}
+            onClick={() => toggleDay(day)}
+          >
+            {WORKOUT_DAY_LETTERS_ALL[day]}
+          </button>
+        ))}
       </div>
       <p>Moves per day. 4 is a short session. 6 is the full day.</p>
       <div className="wk-counts">

@@ -1,5 +1,7 @@
 export type WorkoutPlace = 'home' | 'gym'
 export type WorkoutWeekday = 1 | 2 | 3 | 4 | 5
+/** Any weekday: JS day indexes, 0 = Sunday ... 6 = Saturday. */
+export type WorkoutDay = 0 | 1 | 2 | 3 | 4 | 5 | 6
 export type WorkoutMoveCount = 4 | 5 | 6
 
 export type WorkoutMove = {
@@ -10,7 +12,7 @@ export type WorkoutMove = {
 }
 
 export type WorkoutSession = {
-  weekday: WorkoutWeekday
+  weekday: WorkoutDay
   dayLabel: string
   name: string
   moves: WorkoutMove[]
@@ -35,6 +37,29 @@ export const WORKOUT_DAY_LABELS: Record<WorkoutWeekday, string> = {
   3: 'Wednesday',
   4: 'Thursday',
   5: 'Friday',
+}
+
+export const WORKOUT_DAYS_KEY = 'hire.workout.days'
+export const DEFAULT_WORKOUT_DAYS: WorkoutDay[] = [1, 2, 3, 4, 5]
+
+export const WORKOUT_DAY_LETTERS_ALL: Record<WorkoutDay, string> = {
+  0: 'S',
+  1: 'M',
+  2: 'T',
+  3: 'W',
+  4: 'T',
+  5: 'F',
+  6: 'S',
+}
+
+export const WORKOUT_DAY_LABELS_ALL: Record<WorkoutDay, string> = {
+  0: 'Sunday',
+  1: 'Monday',
+  2: 'Tuesday',
+  3: 'Wednesday',
+  4: 'Thursday',
+  5: 'Friday',
+  6: 'Saturday',
 }
 
 const GYM: Record<WorkoutWeekday, WorkoutSession> = {
@@ -190,6 +215,10 @@ export function isWorkoutWeekday(value: number): value is WorkoutWeekday {
   return value === 1 || value === 2 || value === 3 || value === 4 || value === 5
 }
 
+export function isWorkoutDayLike(value: unknown): value is WorkoutDay {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0 && value <= 6
+}
+
 export function jsDayToWeekday(jsDay: number): WorkoutWeekday | null {
   return isWorkoutWeekday(jsDay) ? jsDay : null
 }
@@ -198,17 +227,57 @@ export function defaultWorkoutWeekday(now = new Date()): WorkoutWeekday {
   return jsDayToWeekday(now.getDay()) ?? 1
 }
 
+/** Default view: today when it is a workout day, otherwise the next enabled one. */
+export function defaultWorkoutDay(days: WorkoutDay[], now = new Date()): WorkoutDay {
+  const today = now.getDay() as WorkoutDay
+  if (days.includes(today)) return today
+  for (let i = 1; i <= 7; i++) {
+    const d = ((today + i) % 7) as WorkoutDay
+    if (days.includes(d)) return d
+  }
+  return 1
+}
+
 export function isWeekend(now = new Date()): boolean {
   const d = now.getDay()
   return d === 0 || d === 6
 }
 
+export function readWorkoutDays(): WorkoutDay[] {
+  try {
+    const raw = localStorage.getItem(WORKOUT_DAYS_KEY)
+    if (!raw) return [...DEFAULT_WORKOUT_DAYS]
+    const parsed = JSON.parse(raw) as unknown
+    if (!Array.isArray(parsed)) return [...DEFAULT_WORKOUT_DAYS]
+    const days = [...new Set(parsed.filter(isWorkoutDayLike))].sort((a, b) => a - b)
+    return days.length ? days : [...DEFAULT_WORKOUT_DAYS]
+  } catch {
+    return [...DEFAULT_WORKOUT_DAYS]
+  }
+}
+
+export function writeWorkoutDays(days: WorkoutDay[]) {
+  try {
+    localStorage.setItem(WORKOUT_DAYS_KEY, JSON.stringify([...new Set(days)].sort((a, b) => a - b)))
+  } catch {
+    /* ignore */
+  }
+}
+
+/** A session for any day of the week. Weekends reuse a weekday program:
+ * Saturday runs Thursday's Upper, Sunday runs Friday's Lower. */
+export function programFor(place: WorkoutPlace, day: WorkoutDay): WorkoutSession {
+  const source: WorkoutWeekday = day === 6 ? 4 : day === 0 ? 5 : day
+  const full = WORKOUT_PROGRAMS[place][source]
+  return { ...full, weekday: day, dayLabel: WORKOUT_DAY_LABELS_ALL[day] }
+}
+
 export function workoutSession(
   place: WorkoutPlace,
-  weekday: WorkoutWeekday,
+  day: WorkoutDay,
   count: number = 4,
 ): WorkoutSession {
-  const full = WORKOUT_PROGRAMS[place][weekday]
+  const full = programFor(place, day)
   const n = isWorkoutMoveCount(count) ? count : 4
   return { ...full, moves: full.moves.slice(0, n) }
 }

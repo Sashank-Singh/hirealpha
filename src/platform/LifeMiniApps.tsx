@@ -41,22 +41,21 @@ import {
 } from './api'
 import type { FeatureAuth } from './FeatureMiniApps'
 import {
-  defaultWorkoutWeekday,
-  jsDayToWeekday,
+  defaultWorkoutDay,
   movePrescription,
+  readWorkoutDays,
   readWorkoutMoveCount,
   readWorkoutPlace,
-  WORKOUT_DAY_LABELS,
-  WORKOUT_DAY_LETTERS,
-  WORKOUT_WEEKDAYS,
+  WORKOUT_DAY_LABELS_ALL,
+  WORKOUT_DAY_LETTERS_ALL,
   workoutSession,
   writeWorkoutMoveCount,
   writeWorkoutPlace,
   setsRepsLabel,
+  type WorkoutDay,
   type WorkoutMove,
   type WorkoutMoveCount,
   type WorkoutPlace,
-  type WorkoutWeekday,
 } from './workoutProgram'
 import { exerciseDemoUrl } from './exerciseDemos'
 import { isPersonMeetSuggestion, isTravelOrStayTitle, stayWhereFrom } from './peopleMeets'
@@ -187,7 +186,7 @@ export function WorkoutLogApp({ auth }: { auth: FeatureAuth }) {
   const [prs, setPrs] = useState<WorkoutPr[]>([])
   const [place, setPlace] = useState<WorkoutPlace>(() => readWorkoutPlace())
   const [moveCount, setMoveCount] = useState<WorkoutMoveCount>(() => readWorkoutMoveCount())
-  const [viewDay, setViewDay] = useState<WorkoutWeekday>(() => defaultWorkoutWeekday())
+  const [viewDay, setViewDay] = useState<WorkoutDay>(() => defaultWorkoutDay(readWorkoutDays()))
   const [exercise, setExercise] = useState('')
   const [sets, setSets] = useState('3')
   const [reps, setReps] = useState('8')
@@ -312,8 +311,8 @@ export function WorkoutLogApp({ auth }: { auth: FeatureAuth }) {
 
   const session = workoutSession(place, viewDay, moveCount)
   const today = localDateStr()
-  const todayWeekday = jsDayToWeekday(new Date().getDay())
-  const viewingToday = todayWeekday === viewDay
+  const todayDay = new Date().getDay() as WorkoutDay
+  const viewingToday = todayDay === viewDay
   const todayNames = new Set(
     logs.filter((l) => isoToLocalDate(l.loggedAt) === today).map((l) => l.exercise.toLowerCase()),
   )
@@ -391,17 +390,17 @@ export function WorkoutLogApp({ auth }: { auth: FeatureAuth }) {
         </div>
 
         <div className="wk-days" role="tablist" aria-label="Weekday">
-          {WORKOUT_WEEKDAYS.map((day) => (
+          {readWorkoutDays().map((day) => (
             <button
               key={day}
-              className={`wk-day${viewDay === day ? ' is-on' : ''}${todayWeekday === day ? ' is-today' : ''}`}
+              className={`wk-day${viewDay === day ? ' is-on' : ''}${todayDay === day ? ' is-today' : ''}`}
               type="button"
               role="tab"
               aria-selected={viewDay === day}
-              aria-label={WORKOUT_DAY_LABELS[day]}
+              aria-label={WORKOUT_DAY_LABELS_ALL[day]}
               onClick={() => setViewDay(day)}
             >
-              {WORKOUT_DAY_LETTERS[day]}
+              {WORKOUT_DAY_LETTERS_ALL[day]}
             </button>
           ))}
         </div>

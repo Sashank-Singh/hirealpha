@@ -3053,7 +3053,7 @@ button.ma-callout, button.ma-row {
 }
 .wk-places { grid-template-columns: 1fr 1fr; }
 .wk-counts { grid-template-columns: 1fr 1fr 1fr; }
-.wk-days { grid-template-columns: repeat(5, 1fr); }
+.wk-days { grid-template-columns: repeat(auto-fit, minmax(42px, 1fr)); }
 .wk-place,
 .wk-day {
   border: 0;
@@ -3746,12 +3746,44 @@ button.ma-callout, button.ma-row {
   margin-top: 6px;
   padding: 10px 16px;
   border-radius: 999px;
+  border: 0;
   background: var(--mini-accent, #2a6f7a);
   color: var(--mini-accent-fg, #fff);
   text-decoration: none;
   font-size: 14px;
   font-weight: 700;
+  cursor: pointer;
 }
+.home-action-btn:disabled { opacity: 0.5; }
+/* The lead can carry more than one verb now — text them AND log it, read it AND
+   snooze it — so the buttons need a row rather than a single self-aligned pill. */
+.home-action-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.home-action-row .home-action-btn { margin-top: 6px; }
+.home-action-chip {
+  margin-top: 6px;
+  padding: 9px 14px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted-fg);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.home-action-chip:disabled { opacity: 0.5; }
+/* Overdue, not decorative: the one rung with a deadline behind it. */
+.home-action--hot {
+  border-color: color-mix(in srgb, var(--mini-accent, #2a6f7a) 55%, var(--border));
+}
+/* The rest of the queue. Same rows as Next, so the two surfaces read alike. */
+.home-queue { margin: 0; padding: 0; list-style: none; }
+.home-queue .ma-chip { text-decoration: none; }
 .home-block { display: flex; flex-direction: column; gap: 8px; }
 /* Mail piles. The heading already carries the count, so the rows below it stay
    plain — a second number per group would just be the same fact twice. */
