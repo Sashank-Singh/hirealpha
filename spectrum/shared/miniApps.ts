@@ -272,6 +272,18 @@ export function detectMiniAppRequest(
   if (allowed.includes('learning_queue') && SAVE_INTENT.test(userText) && /https?:\/\/\S+/i.test(haystack)) {
     return { kind: 'learning_queue' }
   }
+  // A bare "save this" / "save that" — the iOS quick action on a forwarded link —
+  // is a save too, even when the URL text never shows up in the bubbles we can
+  // see. "save this for later" stays drop_zone, and explicit queue language stays
+  // on the queue via the gates above.
+  if (
+    allowed.includes('learning_queue') &&
+    /\bsave (?:this|that)(?![^\n]*\bfor (?:later|me|reading later)\b)|\bsave the (?:link|post|thread|article|video)\b|\bsave it\b/i.test(
+      userText,
+    )
+  ) {
+    return { kind: 'learning_queue' }
+  }
   // Article/video/podcast language + save intent also routes to learning_queue even without a URL.
   if (
     allowed.includes('learning_queue') &&

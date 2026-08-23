@@ -1206,3 +1206,18 @@ describe('Mini-app Text Triggers', () => {
     })
   })
 })
+
+describe('bare save taps', () => {
+  it('routes "Save this" to learning_queue even when the URL text is unseen', () => {
+    const { detectMiniAppRequest } = require('./miniApps') as typeof import('./miniApps')
+    expect(detectMiniAppRequest('Save this', 'friend', ['getting into YC F25: after the fact'])).toEqual({
+      kind: 'learning_queue',
+    })
+    expect(detectMiniAppRequest('save the post', 'coworker')).toEqual({ kind: 'learning_queue' })
+  })
+
+  it('keeps "save this for later" on drop_zone', () => {
+    const { detectMiniAppRequest } = require('./miniApps') as typeof import('./miniApps')
+    expect(detectMiniAppRequest('save this for later', 'friend')).toEqual({ kind: 'drop_zone' })
+  })
+})
