@@ -5042,7 +5042,7 @@ async function gmailSendMessage(
   }
   const out = await composioFirst(
     userId,
-    ['GMAIL_SEND_EMAIL', 'GMAIL_SEND_MESSAGE', 'GMAIL_CREATE_EMAIL_DRAFT'],
+    ['GMAIL_SEND_EMAIL', 'GMAIL_SEND_MESSAGE'],
     {
       to: draft.to,
       recipient_email: draft.to,
@@ -5053,10 +5053,13 @@ async function gmailSendMessage(
       threadId: draft.threadId,
     },
   )
+  // GMAIL_CREATE_EMAIL_DRAFT is deliberately not in that list: a draft-only
+  // connection must never make a "send" silently create a draft and report
+  // success — that is the complaint that sending does nothing.
   if (out && !/failed/i.test(out)) return { ok: true }
   return {
     ok: false,
-    error: 'Could not send. Reconnect Gmail and allow send, or Connect Gmail in Settings.',
+    error: 'Could not send. Reconnect Gmail and allow send (not just draft), or Connect Gmail in Settings.',
   }
 }
 
