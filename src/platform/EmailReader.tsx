@@ -252,7 +252,7 @@ export function EmailReader({ messageId, label, summary, auth, persona, onClose,
             />
             <div className="reply-compose-actions">
               <button className="mini__btn" type="submit" disabled={busy || !to.trim() || !subject.trim()}>
-                {busy ? 'Sending…' : 'Send'}
+                {busy ? 'Sending…' : 'Send draft'}
               </button>
               <button className="mini__btn reply-compose-cancel" type="button" onClick={onClose} disabled={busy}>
                 Cancel
