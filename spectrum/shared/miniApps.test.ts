@@ -1221,3 +1221,15 @@ describe('bare save taps', () => {
     expect(detectMiniAppRequest('save this for later', 'friend')).toEqual({ kind: 'drop_zone' })
   })
 })
+
+describe('bare link drops', () => {
+  it('routes a bare URL to learning_queue with no save verb', () => {
+    const { detectMiniAppRequest } = require('./miniApps') as typeof import('./miniApps')
+    expect(detectMiniAppRequest('https://x.com/wen_rahme/status/1', 'friend')).toEqual({ kind: 'learning_queue' })
+  })
+
+  it('does not re-trigger on a reply to an old link', () => {
+    const { detectMiniAppRequest } = require('./miniApps') as typeof import('./miniApps')
+    expect(detectMiniAppRequest('that was a great read', 'friend')).toBeNull()
+  })
+})

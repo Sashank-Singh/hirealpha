@@ -299,6 +299,13 @@ export function detectMiniAppRequest(
   for (const kind of allowed) {
     if (PATTERNS[kind]?.test(userText)) return { kind: canonicalMiniAppKind(persona, kind) }
   }
+
+  // A bare URL with no other intent is a save, not a question — people drop links
+  // without saying "save", and asking what they want saved is worse than keeping
+  // it. Scoped to THIS bubble only, so a reply to an old link does nothing.
+  if (allowed.includes('learning_queue') && /https?:\/\/\S+/i.test(userText)) {
+    return { kind: 'learning_queue' }
+  }
   return null
 }
 
