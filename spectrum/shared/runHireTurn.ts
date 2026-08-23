@@ -184,23 +184,23 @@ async function classifyFreeLookup(
   }
 }
 
-function looksLikeNutritionLog(text: string) {
+export function looksLikeNutritionLog(text: string) {
   return /\b(i ate|i had|log|track|meal|breakfast|lunch|dinner|snack|food)\b/i.test(text)
 }
 
-function looksLikeWorkoutLog(text: string) {
+export function looksLikeWorkoutLog(text: string) {
   return /\d+\s*[x×]\s*\d+|\d+\s*sets?\s*(?:of\s*)?\d+/i.test(text)
 }
 
-function looksLikeSleepLog(text: string) {
+export function looksLikeSleepLog(text: string) {
   return /\d{1,2}(?::\d{2})?\s*(am|pm)?\s*(?:-|–|to|until)\s*\d{1,2}/i.test(text)
 }
 
-function looksLikeGratitudeLog(text: string) {
+export function looksLikeGratitudeLog(text: string) {
   return /grateful(?:\s+for)?\s*[:\-]?\s*\S+/i.test(text)
 }
 
-function looksLikeSpendLog(text: string) {
+export function looksLikeSpendLog(text: string) {
   return /\$\s*\d+|(?:spent|spend|paid|cost)\s+\$?\s*\d+/i.test(text)
 }
 
@@ -232,14 +232,14 @@ function looksLikeLifeTap(text: string) {
   return /^(eat|skip|later|ok|okay|done|send|in|out|log|yes|yeah)\b/.test(t)
 }
 
-function looksLikeMoodReply(text: string) {
+export function looksLikeMoodReply(text: string) {
   const t = text.trim()
   if (!t || t.length > 40) return false
   if (/^[😄🙂😐😔😤]+$/.test(t)) return true
   return /^(i'?m|i am)?\s*(good|fine|okay|ok|great|meh|tired|exhausted|sad|down|rough|bad|angry|stressed|frustrated|great!?)\b/i.test(t)
 }
 
-function looksLikeHabitDone(text: string) {
+export function looksLikeHabitDone(text: string) {
   const t = text.trim().toLowerCase().replace(/[.!?]+$/, '')
   if (!t || t.length > 30) return false
   return /^(done|did|did it|yes|yeah|yep|y|ok|okay|sure|all done|did that)\b/.test(t)

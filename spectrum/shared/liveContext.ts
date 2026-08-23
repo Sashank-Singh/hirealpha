@@ -554,18 +554,22 @@ export async function autoLogSpend(phone: string, persona: AgentId, text: string
   }>('/api/internal/spending', phone, persona, text)
 }
 
-/** Parse a name (and optional place) from networking phrases. Returns null if no name found. */
-function parseNetworkContact(text: string): { name?: string; place?: string } | null {
+/** Parse a name (plus optional place and phone) from networking phrases. */
+export function parseNetworkContact(text: string): { name?: string; place?: string; phone?: string } | null {
   const SKIP = /^(a|an|the|someone|anybody|anyone|with|my|your|their|her|his|me|we|us|it|one|she|he|they|this|that)$/i
-  // "I met Sarah" / "I ran into John Smith at the conference"
-  const metRe = /\bi (?:met|ran into|bumped into)\s+([\w]+(?:\s+[\w]+)?)\b(?:\s+(?:at|from|in|via)\s+([\w][^.,!?\n]{0,40}))?/i
+  // The name takes at most two tokens and stops before a place word, so
+  // "I met Priya at dinner" is Priya + dinner, not "Priya At".
+  const metRe =
+    /\bi (?:met|ran into|bumped into)\s+([\w]+(?:\s+(?!at|from|in|via|that|to|for|the|a|an)\b[\w]+)?)(?:\s+(?:at|from|in|via)\s+([\w][^.,!?\n]{0,40}))?/i
   const metM = text.match(metRe)
   if (metM) {
     const name = (metM[1] ?? '').trim()
     if (!name || SKIP.test(name)) return null
+    const phone = text.match(/(\+?\d[\d\s\-().]{5,}\d)/)?.[1]?.trim() || undefined
     return {
       name: name.replace(/\b\w/g, (c) => c.toUpperCase()),
       place: (metM[2] ?? '').trim() || undefined,
+      phone,
     }
   }
   // "add Sarah to [my] network[ing/contacts]"
@@ -628,6 +632,7 @@ export async function autoLogNetwork(
           text: text.slice(0, 500),
           name: parsed.name,
           place: parsed.place,
+          contactPhone: parsed.phone,
         }),
       },
       12000,

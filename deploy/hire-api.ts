@@ -7903,7 +7903,7 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
   if (path === '/api/internal/network' && req.method === 'POST') {
     if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
     const body = (await req.json().catch(() => ({}))) as {
-      phone?: string; persona?: string; name?: string; place?: string; text?: string
+      phone?: string; persona?: string; name?: string; place?: string; text?: string; contactPhone?: string
     }
     const name = String(body.name || '').trim().slice(0, 80)
     if (!body.phone || !isPersona(body.persona || '') || !name) {
@@ -7912,13 +7912,14 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     const user = await getUserByPhone(sql, body.phone)
     if (!user) return json({ error: 'User not found' }, 404)
     const whereMet = String(body.place || '').trim().slice(0, 120)
+    const contactPhone = String(body.contactPhone || '').trim().slice(0, 40)
     const context = String(body.text || '').trim().slice(0, 400)
     const id = crypto.randomUUID()
     await sql`
-      INSERT INTO hire_network (id, user_id, name, where_met, context, last_touch, cadence_days)
-      VALUES (${id}, ${user.id}, ${name}, ${whereMet}, ${context}, now(), 14)
+      INSERT INTO hire_network (id, user_id, name, where_met, context, last_touch, cadence_days, phone)
+      VALUES (${id}, ${user.id}, ${name}, ${whereMet}, ${context}, now(), 14, ${contactPhone})
     `
-    return json({ ok: true, logged: true, id, name, place: whereMet })
+    return json({ ok: true, logged: true, id, name, place: whereMet, phone: contactPhone })
   }
 
   if (path === '/api/internal/digest' && req.method === 'GET') {
