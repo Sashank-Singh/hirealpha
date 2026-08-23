@@ -4,7 +4,7 @@ export const VIDEO_FPS = 30
 export const VIDEO_DURATION_IN_SECONDS = 33
 
 /* ------------------------------------------------------------------ palette
- * Per-persona colors and faces mirror src/agents/definitions.ts + AlphaFace:
+ * Per-persona colors/faces mirror src/agents/definitions.ts + AlphaFace:
  * friend #2a6f7a soft, coworker #3b5bdb sharp (medium face), cofounder #8b4513 bold.
  */
 const ACCENT = '#2a6f7a'
@@ -15,9 +15,11 @@ const INK = '#eef3f5'
 const MUTED = '#93a3ad'
 const CARD = '#141a22'
 const CARD_BORDER = '#232e3a'
-const OUT = '#0b8af6'
-const IN = '#2a3640'
 const SHADOW = 'rgba(0,0,0,0.5)'
+const OUT = '#0a84ff' // iMessage sent (dark mode)
+const IN_RECV = '#2c2c2e' // iMessage received (dark mode)
+const LINK_GRAY = '#8e8e93'
+const LINK_BLUE = '#0a84ff'
 
 const sans =
   '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif'
@@ -26,7 +28,6 @@ const FRIEND = { color: '#2a6f7a', mood: 'soft' as const }
 const COWORKER = { color: '#3b5bdb', mood: 'sharp' as const }
 const COFOUNDER = { color: '#8b4513', mood: 'bold' as const }
 
-/** The brand face — a copy of the mini-app's AlphaFace so the ad is realistic. */
 function faceInk(color: string): string {
   const hex = color.trim().replace('#', '')
   const r = parseInt(hex.slice(0, 2), 16)
@@ -60,10 +61,7 @@ const Face: React.FC<{ color: string; mood?: 'soft' | 'sharp' | 'bold'; size?: n
   )
 }
 
-/* ------------------------------------------------------------- message data
- * The sample customer day, recast around a software-engineer interview with
- * Maria. `at` is the second (from the start of the video) the bubble lands.
- */
+/* ------------------------------------------------------------- message data */
 type Msg = {
   dir: 'in' | 'out'
   at: number
@@ -92,7 +90,7 @@ const MESSAGES: Msg[] = [
 
 const TYPING_FRAMES = Math.round(0.7 * VIDEO_FPS)
 
-/* ------------------------------------------------------------- small pieces */
+/* ------------------------------------------------------------- link-preview card */
 const Card: React.FC<{ c: NonNullable<Msg['card']> }> = ({ c }) => {
   const f = useCurrentFrame()
   const pop = spring({ frame: f, fps: VIDEO_FPS, config: { damping: 18, stiffness: 200 } })
@@ -100,84 +98,109 @@ const Card: React.FC<{ c: NonNullable<Msg['card']> }> = ({ c }) => {
     <div
       style={{
         marginTop: 8,
-        width: 396,
-        borderRadius: 22,
-        background: CARD,
-        border: `1px solid ${CARD_BORDER}`,
+        width: 420,
+        borderRadius: 14,
         overflow: 'hidden',
-        boxShadow: `0 10px 30px ${SHADOW}`,
-        transform: `scale(${0.95 + 0.05 * pop})`,
+        background: '#1c1c1e',
+        border: '0.5px solid rgba(255,255,255,0.1)',
+        boxShadow: `0 8px 24px ${SHADOW}`,
+        transform: `scale(${0.96 + 0.04 * pop})`,
         opacity: pop,
       }}
     >
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px' }}>
-        <div
-          style={{
-            width: 42,
-            height: 42,
-            borderRadius: 12,
-            background: c.accent ?? ACCENT,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            fontSize: 22,
-          }}
-        >
-          {c.icon}
+      <div style={{ padding: '12px 14px' }}>
+        <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+          <div
+            style={{
+              width: 40,
+              height: 40,
+              borderRadius: 10,
+              background: c.accent ?? ACCENT,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontSize: 22,
+              flex: 'none',
+            }}
+          >
+            {c.icon}
+          </div>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ color: '#fff', fontWeight: 700, fontSize: 16, lineHeight: 1.15 }}>{c.title}</div>
+            <div style={{ color: LINK_GRAY, fontSize: 13, marginTop: 2 }}>{c.subtitle}</div>
+          </div>
         </div>
-        <div style={{ minWidth: 0 }}>
-          <div style={{ color: INK, fontWeight: 700, fontSize: 16, lineHeight: 1.2 }}>{c.title}</div>
-          <div style={{ color: MUTED, fontSize: 13, marginTop: 2 }}>{c.subtitle}</div>
+        <div style={{ marginTop: 10, paddingTop: 10, borderTop: '0.5px solid rgba(255,255,255,0.12)', color: LINK_GRAY, fontSize: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
+          <span style={{ fontWeight: 600, color: '#98989d' }}>hirealpha.chat</span>
+          <span>·</span>
+          <span>app/mini/friend</span>
         </div>
       </div>
     </div>
   )
 }
 
+/* --------------------------------------------------------------- bubble */
 const Bubble: React.FC<{ m: Msg }> = ({ m }) => {
   const f = useCurrentFrame()
   const pop = spring({ frame: f, fps: VIDEO_FPS, config: { damping: 16, stiffness: 210 } })
   const out = m.dir === 'out'
+  const bg = out ? OUT : IN_RECV
   return (
     <div style={{ display: 'flex', justifyContent: out ? 'flex-end' : 'flex-start', width: '100%', transform: `translateY(${(1 - pop) * 12}px)`, opacity: pop }}>
-      <div
-        style={{
-          maxWidth: 470,
-          padding: '12px 16px',
-          borderRadius: 20,
-          background: out ? OUT : IN,
-          color: '#fff',
-          fontSize: 17,
-          lineHeight: 1.35,
-          boxShadow: `0 6px 18px ${SHADOW}`,
-          borderTopRightRadius: out ? 6 : 20,
-          borderTopLeftRadius: out ? 20 : 6,
-        }}
-      >
-        {m.photo && (
-          <div
-            style={{
-              width: 150,
-              height: 150,
-              borderRadius: 18,
-              marginBottom: 8,
-              background: 'linear-gradient(135deg, #4a5d38, #2b3a23)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              fontSize: 52,
-            }}
-          >
-            🥗
-          </div>
-        )}
-        {m.text}
-        {m.card && <Card c={m.card} />}
-        {m.time && (
-          <div style={{ color: out ? 'rgba(255,255,255,0.7)' : MUTED, fontSize: 11, textAlign: out ? 'right' : 'left', marginTop: 4 }}>
-            {m.time}
-          </div>
-        )}
+      <div style={{ position: 'relative', maxWidth: 470 }}>
+        {/* tail */}
+        <div
+          style={{
+            position: 'absolute',
+            bottom: -4,
+            right: out ? 2 : undefined,
+            left: out ? undefined : 2,
+            width: 18,
+            height: 18,
+            background: bg,
+            transform: 'rotate(45deg)',
+            borderRadius: out ? '0 0 0 4px' : '0 0 4px 0',
+          }}
+        />
+        <div
+          style={{
+            position: 'relative',
+            background: bg,
+            color: '#fff',
+            borderRadius: 18,
+            padding: '11px 15px',
+            fontSize: 17,
+            lineHeight: 1.34,
+            borderTopRightRadius: out ? 6 : 18,
+            borderTopLeftRadius: out ? 18 : 6,
+          }}
+        >
+          {m.photo && (
+            <div
+              style={{
+                width: 150,
+                height: 150,
+                borderRadius: 16,
+                marginBottom: 8,
+                background: 'linear-gradient(135deg, #4a5d38, #2b3a23)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontSize: 52,
+              }}
+            >
+              🥗
+            </div>
+          )}
+          {m.text}
+          {m.card && <Card c={m.card} />}
+          {m.time && (
+            <div style={{ color: out ? 'rgba(255,255,255,0.6)' : '#b6b6bb', fontSize: 11, textAlign: out ? 'right' : 'left', marginTop: 4 }}>
+              {m.time}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   )
@@ -188,20 +211,24 @@ const Typing: React.FC = () => {
   const dots = [0, 1, 2].map((i) => spring({ frame: f - i * 4, fps: VIDEO_FPS, config: { damping: 12, stiffness: 220 } }))
   return (
     <div style={{ display: 'flex', justifyContent: 'flex-start', width: '100%' }}>
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 6,
-          padding: '14px 18px',
-          borderRadius: 20,
-          background: IN,
-          borderTopLeftRadius: 6,
-        }}
-      >
-        {dots.map((d, i) => (
-          <div key={i} style={{ width: 8, height: 8, borderRadius: 99, background: MUTED, transform: `scale(${0.6 + d * 0.5})`, opacity: 0.7 }} />
-        ))}
+      <div style={{ position: 'relative' }}>
+        <div style={{ position: 'absolute', bottom: -4, left: 2, width: 18, height: 18, background: IN_RECV, transform: 'rotate(45deg)', borderRadius: '0 0 4px 0' }} />
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 6,
+            padding: '13px 16px',
+            borderRadius: 18,
+            background: IN_RECV,
+            borderTopLeftRadius: 6,
+            position: 'relative',
+          }}
+        >
+          {dots.map((d, i) => (
+            <div key={i} style={{ width: 8, height: 8, borderRadius: 99, background: '#98989d', transform: `scale(${0.6 + d * 0.5})`, opacity: 0.8 }} />
+          ))}
+        </div>
       </div>
     </div>
   )
@@ -218,7 +245,7 @@ const Chat: React.FC = () => {
         flexDirection: 'column',
         justifyContent: 'flex-end',
         gap: 10,
-        padding: '0 22px 26px',
+        padding: '0 22px 28px',
       }}
     >
       {MESSAGES.map((m, i) => {
@@ -266,27 +293,31 @@ const Phone: React.FC<{ phoneFrom: number }> = ({ phoneFrom }) => {
             height: '100%',
             borderRadius: 72,
             overflow: 'hidden',
-            background: `linear-gradient(160deg, ${BG2}, ${BG} 60%, #060a0e)`,
+            background: `linear-gradient(160deg, #15171b, #0d0f13 60%, #08090c)`,
             display: 'flex',
             flexDirection: 'column',
             position: 'relative',
           }}
         >
           <div style={{ position: 'absolute', top: 14, left: '50%', transform: 'translateX(-50%)', width: 250, height: 62, borderRadius: 40, background: '#000' }} />
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '18px 34px 10px', color: INK, fontWeight: 700, fontSize: 16 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '18px 34px 10px', color: '#fff', fontWeight: 700, fontSize: 16 }}>
             <span>9:41</span>
             <span style={{ display: 'flex', gap: 7, alignItems: 'center' }}>
               <span>▂▄▆</span>
               <span style={{ fontSize: 15 }}>🔋</span>
             </span>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '10px 24px 16px', borderBottom: `1px solid ${CARD_BORDER}`, margin: '0 24px 0' }}>
-            <Face color={FRIEND.color} mood={FRIEND.mood} size={62} />
-            <div>
-              <div style={{ color: INK, fontWeight: 800, fontSize: 21 }}>Alpha</div>
-              <div style={{ color: MUTED, fontSize: 15 }}>Message</div>
+          {/* Messages header */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr auto 1fr', alignItems: 'center', padding: '8px 18px 12px' }}>
+            <span style={{ color: LINK_BLUE, fontWeight: 500, fontSize: 26, lineHeight: 1, justifySelf: 'start' }}>‹</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, justifySelf: 'center' }}>
+              <Face color={FRIEND.color} mood={FRIEND.mood} size={44} />
+              <div style={{ textAlign: 'left' }}>
+                <div style={{ color: '#fff', fontWeight: 700, fontSize: 19 }}>Alpha</div>
+                <div style={{ color: LINK_GRAY, fontSize: 14 }}>Message</div>
+              </div>
             </div>
-            <div style={{ marginLeft: 'auto', color: ACCENT, fontWeight: 600, fontSize: 15 }}>Details</div>
+            <span style={{ color: LINK_BLUE, fontWeight: 500, fontSize: 16, justifySelf: 'end' }}>Details</span>
           </div>
           <div style={{ flex: 1, overflow: 'hidden' }}>
             <Chat />
