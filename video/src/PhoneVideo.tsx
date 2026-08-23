@@ -3,10 +3,7 @@ import { AbsoluteFill, interpolate, Sequence, spring, useCurrentFrame } from 're
 export const VIDEO_FPS = 30
 export const VIDEO_DURATION_IN_SECONDS = 33
 
-/* ------------------------------------------------------------------ palette
- * Per-persona colors/faces mirror src/agents/definitions.ts + AlphaFace:
- * friend #2a6f7a soft, coworker #3b5bdb sharp (medium face), cofounder #8b4513 bold.
- */
+/* ------------------------------------------------------------------ palette */
 const ACCENT = '#2a6f7a'
 const ACCENT_DEEP = '#1b4d55'
 const BG = '#0a0d12'
@@ -14,12 +11,14 @@ const BG2 = '#0e1520'
 const INK = '#eef3f5'
 const MUTED = '#93a3ad'
 const CARD = '#141a22'
-const CARD_BORDER = '#232e3a'
+const CARD_BORDER = '#25323a'
 const SHADOW = 'rgba(0,0,0,0.5)'
-const OUT = '#0a84ff' // iMessage sent (dark mode)
-const IN_RECV = '#2c2c2e' // iMessage received (dark mode)
-const LINK_GRAY = '#8e8e93'
 const LINK_BLUE = '#0a84ff'
+const SENT = '#3478f6' // iMessage sent blue
+const RECV = '#26262a' // iMessage received (dark)
+const TEXT = '#e8e8ea'
+const SUB = '#98989d'
+const ORANGE = 'linear-gradient(135deg, #ff9a3d, #e2631f 55%, #b94a12)'
 
 const sans =
   '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif'
@@ -38,6 +37,7 @@ function faceInk(color: string): string {
   return l > 0.55 ? '#111' : '#fff'
 }
 
+/** The brand face from src/AlphaFace (used as the product mark in title/CTA). */
 const Face: React.FC<{ color: string; mood?: 'soft' | 'sharp' | 'bold'; size?: number }> = ({
   color,
   mood = 'soft',
@@ -61,147 +61,119 @@ const Face: React.FC<{ color: string; mood?: 'soft' | 'sharp' | 'bold'; size?: n
   )
 }
 
-/* ------------------------------------------------------------- message data */
-type Msg = {
-  dir: 'in' | 'out'
-  at: number
-  time?: string
-  text?: string
-  card?: { icon: string; title: string; subtitle: string; accent?: string }
-  photo?: boolean
-}
+/** The App icon shown on Alpha's message-app link cards (rainbow gradient). */
+const AppIcon: React.FC<{ size?: number }> = ({ size = 44 }) => (
+  <svg width={size} height={size} viewBox="0 0 44 44" aria-hidden>
+    <defs>
+      <linearGradient id="rain" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0" stopColor="#ff5f6d" />
+        <stop offset="0.35" stopColor="#ffc371" />
+        <stop offset="0.6" stopColor="#6ee7b7" />
+        <stop offset="1" stopColor="#60a5fa" />
+      </linearGradient>
+    </defs>
+    <circle cx="22" cy="22" r="21" fill="url(#rain)" stroke="#000" strokeWidth="1" />
+  </svg>
+)
+
+/* ------------------------------------------------------------- message data
+ * The sample day in Maria/software-engineer form, rendered the way it actually
+ * arrives in iMessage: a blue Apps tap, the "Apps · Alpha" card, the long brief
+ * text, the "Morning brief · Alpha" card, and the evening wrap.
+ */
+type Msg =
+  | { dir: 'in' | 'out'; at: number; kind: 'bubble'; text: string; time?: string; read?: string }
+  | { dir: 'in'; at: number; kind: 'app'; title: string; subtitle: string }
+  | { dir: 'in' | 'out' | 'center'; at: number; kind: 'date'; text: string }
 
 const MESSAGES: Msg[] = [
-  { dir: 'in', at: 4.4, time: '08:00', text: 'Morning. You slept 7h 25m.', card: { icon: '☀️', title: 'Today · 11:30', subtitle: 'Maria — Software Engineer interview', accent: ACCENT } },
-  { dir: 'in', at: 5.6, text: 'Reply “brief” to prep, or open today.' },
-  { dir: 'out', at: 7.2, time: '08:04', text: 'prep me for maria' },
-  { dir: 'in', at: 8.8, time: '08:04', card: { icon: '🧭', title: 'Maria Chen', subtitle: 'Software Engineer · 11:30 · Met at Zilch', accent: '#5aa9ff' }, text: 'Notes: owns the data platform. Reply “thank you” & I’ll draft it.' },
-  { dir: 'out', at: 11.0, time: '10:38', photo: true, text: 'Lunch logged · 34g protein' },
-  { dir: 'in', at: 12.8, time: '11:15', text: 'Maria’s interview in 15 min. Inhale — you’ve got this.', card: { icon: '🕑', title: '11:30 · Maria', subtitle: 'Prep card above', accent: '#f6b26b' } },
-  { dir: 'out', at: 14.0, time: '11:15', text: 'thanks alpha 🙏' },
-  { dir: 'in', at: 15.8, time: '13:12', text: '3 mails — 1 from Maria (recap + next steps).', card: { icon: '✉️', title: 'Mail', subtitle: 'Draft a reply?' } },
-  { dir: 'out', at: 17.0, time: '13:12', text: 'draft it' },
-  { dir: 'in', at: 18.8, time: '14:00', card: { icon: '⏰', title: 'Reminder', subtitle: 'Send recruiter the references' }, text: 'Firing the reminder you set. Locked-in.' },
-  { dir: 'out', at: 20.8, time: '21:00', text: 'how did today go?' },
-  { dir: 'in', at: 22.6, time: '21:00', card: { icon: '🌙', title: 'Day closed at 35', subtitle: 'One interview handled · one reply sent · one habit missed', accent: ACCENT }, text: 'Solid day. One habit left — want to knock it out?' },
-  { dir: 'out', at: 24.4, time: '21:05', text: 'weekly?' },
-  { dir: 'in', at: 26.2, time: '21:05', card: { icon: '📈', title: 'Weekly review', subtitle: '3 days to your offer call. You’re on track.', accent: '#7b6ff0' }, text: 'Strong week. Want the full recap?' },
+  { dir: 'in', at: 4.4, kind: 'app', title: 'Apps · Alpha', subtitle: 'Tap one to open it.' },
+  { dir: 'center', at: 6.0, kind: 'date', text: 'Today 8:00 AM' },
+  {
+    dir: 'in',
+    at: 7.0,
+    kind: 'bubble',
+    text: 'Today: 11:30 AM · Maria (Software Engineer). At risk: Nothing sharp is on fire. Show up ready. That is the day. Reply ok, skip, or tell me what actually matters.',
+  },
+  { dir: 'in', at: 9.6, kind: 'app', title: 'Morning brief · Alpha', subtitle: '11:30 AM · Maria (Software Engineer). Show up ready.' },
+  { dir: 'out', at: 12.0, kind: 'bubble', text: 'Apps', read: 'Read 12:49 AM' },
+  { dir: 'in', at: 14.4, kind: 'bubble', text: 'Maria is confirmed. Prep draft, thank-you draft, and your refs are ready. Want me to send the thank-you after?' },
+  { dir: 'out', at: 16.6, kind: 'bubble', text: 'send the thank-you', read: 'Delivered' },
+  { dir: 'in', at: 18.8, kind: 'bubble', text: 'Sent. I’ll ping you before the call so you can breathe.' },
+  { dir: 'center', at: 21.0, kind: 'date', text: 'Today 9:00 PM' },
+  {
+    dir: 'in',
+    at: 22.0,
+    kind: 'bubble',
+    text: 'Last night was 6h. Protein landed at 41 of 150. Tonight still has 1 on the book. Wrap the rest. Reply done, leftover, or skip.',
+  },
+  { dir: 'out', at: 25.0, kind: 'bubble', text: 'weekly?', read: 'Delivered' },
+  {
+    dir: 'in',
+    at: 27.0,
+    kind: 'bubble',
+    text: 'Week closed at 38. One interview handled, one thank-you sent, one habit missed. 3 days to your offer call — you’re on track.',
+  },
 ]
 
 const TYPING_FRAMES = Math.round(0.7 * VIDEO_FPS)
 
-/* ------------------------------------------------------------- link-preview card */
-const Card: React.FC<{ c: NonNullable<Msg['card']> }> = ({ c }) => {
+/* --------------------------------------------------------------- bubbles */
+const Bubble: React.FC<{ text: string; dir: 'in' | 'out'; read?: string }> = ({ text, dir, read }) => {
+  const f = useCurrentFrame()
+  const pop = spring({ frame: f, fps: VIDEO_FPS, config: { damping: 16, stiffness: 200 } })
+  const out = dir === 'out'
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: out ? 'flex-end' : 'flex-start', width: '100%', transform: `translateY(${(1 - pop) * 14}px)`, opacity: pop }}>
+      <div style={{ position: 'relative', maxWidth: 470 }}>
+        {!out && (
+          <div style={{ position: 'absolute', bottom: -4, left: 2, width: 18, height: 18, background: RECV, transform: 'rotate(45deg)', borderRadius: '0 0 4px 0' }} />
+        )}
+        <div
+          style={{
+            background: RECV,
+            color: TEXT,
+            borderRadius: 22,
+            padding: '14px 18px',
+            fontSize: 16.5,
+            lineHeight: 1.4,
+            position: 'relative',
+            whiteSpace: 'pre-wrap',
+          }}
+        >
+          {text}
+        </div>
+      </div>
+      {read && <div style={{ color: SUB, fontSize: 11, marginTop: 5, paddingRight: 4 }}>{read}</div>}
+    </div>
+  )
+}
+
+const AppCard: React.FC<{ title: string; subtitle: string }> = ({ title, subtitle }) => {
   const f = useCurrentFrame()
   const pop = spring({ frame: f, fps: VIDEO_FPS, config: { damping: 18, stiffness: 200 } })
   return (
-    <div
-      style={{
-        marginTop: 8,
-        width: 420,
-        borderRadius: 14,
-        overflow: 'hidden',
-        background: '#1c1c1e',
-        border: '0.5px solid rgba(255,255,255,0.1)',
-        boxShadow: `0 8px 24px ${SHADOW}`,
-        transform: `scale(${0.96 + 0.04 * pop})`,
-        opacity: pop,
-      }}
-    >
-      <div style={{ padding: '12px 14px' }}>
-        <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-          <div
-            style={{
-              width: 40,
-              height: 40,
-              borderRadius: 10,
-              background: c.accent ?? ACCENT,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              fontSize: 22,
-              flex: 'none',
-            }}
-          >
-            {c.icon}
+    <div style={{ display: 'flex', width: '100%', transform: `translateY(${(1 - pop) * 14}px)`, opacity: pop }}>
+      <div style={{ position: 'relative', maxWidth: 500 }}>
+        <div style={{ position: 'absolute', bottom: -4, left: 2, width: 18, height: 18, background: RECV, transform: 'rotate(45deg)', borderRadius: '0 0 4px 0' }} />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, background: RECV, borderRadius: 22, padding: '13px 16px', position: 'relative' }}>
+          <AppIcon size={44} />
+          <div>
+            <div style={{ color: '#fff', fontWeight: 700, fontSize: 16 }}>{title}</div>
+            <div style={{ color: SUB, fontSize: 13, marginTop: 2 }}>{subtitle}</div>
           </div>
-          <div style={{ minWidth: 0 }}>
-            <div style={{ color: '#fff', fontWeight: 700, fontSize: 16, lineHeight: 1.15 }}>{c.title}</div>
-            <div style={{ color: LINK_GRAY, fontSize: 13, marginTop: 2 }}>{c.subtitle}</div>
-          </div>
-        </div>
-        <div style={{ marginTop: 10, paddingTop: 10, borderTop: '0.5px solid rgba(255,255,255,0.12)', color: LINK_GRAY, fontSize: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
-          <span style={{ fontWeight: 600, color: '#98989d' }}>hirealpha.chat</span>
-          <span>·</span>
-          <span>app/mini/friend</span>
         </div>
       </div>
     </div>
   )
 }
 
-/* --------------------------------------------------------------- bubble */
-const Bubble: React.FC<{ m: Msg }> = ({ m }) => {
+const DateLine: React.FC<{ text: string }> = ({ text }) => {
   const f = useCurrentFrame()
-  const pop = spring({ frame: f, fps: VIDEO_FPS, config: { damping: 16, stiffness: 210 } })
-  const out = m.dir === 'out'
-  const bg = out ? OUT : IN_RECV
+  const o = spring({ frame: f, fps: VIDEO_FPS, config: { damping: 20, stiffness: 160 } })
   return (
-    <div style={{ display: 'flex', justifyContent: out ? 'flex-end' : 'flex-start', width: '100%', transform: `translateY(${(1 - pop) * 12}px)`, opacity: pop }}>
-      <div style={{ position: 'relative', maxWidth: 470 }}>
-        {/* tail */}
-        <div
-          style={{
-            position: 'absolute',
-            bottom: -4,
-            right: out ? 2 : undefined,
-            left: out ? undefined : 2,
-            width: 18,
-            height: 18,
-            background: bg,
-            transform: 'rotate(45deg)',
-            borderRadius: out ? '0 0 0 4px' : '0 0 4px 0',
-          }}
-        />
-        <div
-          style={{
-            position: 'relative',
-            background: bg,
-            color: '#fff',
-            borderRadius: 18,
-            padding: '11px 15px',
-            fontSize: 17,
-            lineHeight: 1.34,
-            borderTopRightRadius: out ? 6 : 18,
-            borderTopLeftRadius: out ? 18 : 6,
-          }}
-        >
-          {m.photo && (
-            <div
-              style={{
-                width: 150,
-                height: 150,
-                borderRadius: 16,
-                marginBottom: 8,
-                background: 'linear-gradient(135deg, #4a5d38, #2b3a23)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                fontSize: 52,
-              }}
-            >
-              🥗
-            </div>
-          )}
-          {m.text}
-          {m.card && <Card c={m.card} />}
-          {m.time && (
-            <div style={{ color: out ? 'rgba(255,255,255,0.6)' : '#b6b6bb', fontSize: 11, textAlign: out ? 'right' : 'left', marginTop: 4 }}>
-              {m.time}
-            </div>
-          )}
-        </div>
-      </div>
+    <div style={{ display: 'flex', justifyContent: 'center', width: '100%', opacity: o }}>
+      <span style={{ color: SUB, fontSize: 12, fontWeight: 600 }}>{text}</span>
     </div>
   )
 }
@@ -212,19 +184,8 @@ const Typing: React.FC = () => {
   return (
     <div style={{ display: 'flex', justifyContent: 'flex-start', width: '100%' }}>
       <div style={{ position: 'relative' }}>
-        <div style={{ position: 'absolute', bottom: -4, left: 2, width: 18, height: 18, background: IN_RECV, transform: 'rotate(45deg)', borderRadius: '0 0 4px 0' }} />
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 6,
-            padding: '13px 16px',
-            borderRadius: 18,
-            background: IN_RECV,
-            borderTopLeftRadius: 6,
-            position: 'relative',
-          }}
-        >
+        <div style={{ position: 'absolute', bottom: -4, left: 2, width: 18, height: 18, background: RECV, transform: 'rotate(45deg)', borderRadius: '0 0 4px 0' }} />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '14px 18px', borderRadius: 22, background: RECV, position: 'relative' }}>
           {dots.map((d, i) => (
             <div key={i} style={{ width: 8, height: 8, borderRadius: 99, background: '#98989d', transform: `scale(${0.6 + d * 0.5})`, opacity: 0.8 }} />
           ))}
@@ -234,35 +195,35 @@ const Typing: React.FC = () => {
   )
 }
 
-/* --------------------------------------------------------------- chat */
+/* --------------------------------------------------------------- chat list */
 const Chat: React.FC = () => {
   const frame = useCurrentFrame()
   return (
-    <div
-      style={{
-        height: '100%',
-        display: 'flex',
-        flexDirection: 'column',
-        justifyContent: 'flex-end',
-        gap: 10,
-        padding: '0 22px 28px',
-      }}
-    >
+    <div style={{ height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', gap: 12, padding: '0 18px 14px' }}>
       {MESSAGES.map((m, i) => {
         const atF = Math.round(m.at * VIDEO_FPS)
         let content: React.ReactNode = null
         if (frame >= atF) {
-          content = <Bubble m={m} />
-        } else if (m.dir === 'in' && frame >= atF - TYPING_FRAMES) {
+          content =
+            m.kind === 'bubble' ? <Bubble text={m.text} dir={m.dir} read={m.read} /> : m.kind === 'app' ? <AppCard title={m.title} subtitle={m.subtitle} /> : <DateLine text={m.text} />
+        } else if (m.kind !== 'date' && m.dir === 'in' && frame >= atF - TYPING_FRAMES) {
           content = <Typing />
         }
         if (content === null) return null
         return (
-          <div key={i} style={{ width: '100%', display: 'flex', justifyContent: m.dir === 'out' ? 'flex-end' : 'flex-start' }}>
+          <div key={i} style={{ width: '100%', display: 'flex', justifyContent: m.dir === 'out' ? 'flex-end' : m.dir === 'center' ? 'center' : 'flex-start' }}>
             {content}
           </div>
         )
       })}
+      {/* input bar */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 6, padding: '8px 0 2px' }}>
+        <div style={{ width: 46, height: 46, borderRadius: 99, background: '#3a3a3d', color: '#d8d8dc', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 26, fontWeight: 500 }}>+</div>
+        <div style={{ flex: 1, height: 52, borderRadius: 26, background: '#1c1c1e', border: '0.5px solid rgba(255,255,255,0.1)', color: SUB, fontSize: 17, display: 'flex', alignItems: 'center', padding: '0 18px' }}>
+          iMessage
+        </div>
+        <div style={{ fontSize: 26 }}>🎤</div>
+      </div>
     </div>
   )
 }
@@ -272,54 +233,52 @@ const Phone: React.FC<{ phoneFrom: number }> = ({ phoneFrom }) => {
   const f = useCurrentFrame()
   const inSpring = spring({ frame: Math.max(0, f - phoneFrom), fps: VIDEO_FPS, config: { damping: 18, stiffness: 120 } })
   const visible = f >= phoneFrom
-  const phoneW = 760
-  const phoneH = 1580
+  const W = 690
+  const H = 1500
   return (
     <AbsoluteFill style={{ alignItems: 'center', justifyContent: 'center', opacity: visible ? 1 : 0 }}>
       <div
         style={{
-          width: phoneW,
-          height: phoneH,
-          borderRadius: 92,
-          background: '#050506',
-          padding: 22,
-          boxShadow: `0 40px 90px ${SHADOW}, 0 0 0 2px #1b1b1d`,
+          width: W,
+          height: H,
+          borderRadius: 96,
+          padding: 5,
+          background: ORANGE,
+          boxShadow: `0 50px 100px ${SHADOW}`,
           transform: `scale(${0.86 + 0.14 * inSpring}) translateY(${(1 - inSpring) * 60}px)`,
         }}
       >
-        <div
-          style={{
-            width: '100%',
-            height: '100%',
-            borderRadius: 72,
-            overflow: 'hidden',
-            background: `linear-gradient(160deg, #15171b, #0d0f13 60%, #08090c)`,
-            display: 'flex',
-            flexDirection: 'column',
-            position: 'relative',
-          }}
-        >
-          <div style={{ position: 'absolute', top: 14, left: '50%', transform: 'translateX(-50%)', width: 250, height: 62, borderRadius: 40, background: '#000' }} />
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '18px 34px 10px', color: '#fff', fontWeight: 700, fontSize: 16 }}>
-            <span>9:41</span>
-            <span style={{ display: 'flex', gap: 7, alignItems: 'center' }}>
-              <span>▂▄▆</span>
-              <span style={{ fontSize: 15 }}>🔋</span>
-            </span>
+        {/* black bezel */}
+        <div style={{ width: '100%', height: '100%', borderRadius: 90, background: '#050506', overflow: 'hidden', display: 'flex', flexDirection: 'column', position: 'relative' }}>
+          {/* dynamic island */}
+          <div style={{ position: 'absolute', top: 22, left: '50%', transform: 'translateX(-50%)', width: 250, height: 66, borderRadius: 40, background: '#000' }} />
+
+          {/* status bar */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '22px 34px 6px', color: '#fff', fontWeight: 700, fontSize: 18 }}>
+            <span>11:08</span>
+            <span style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 15 }}>5G <span style={{ color: '#ff453a' }}>19</span></span>
           </div>
-          {/* Messages header */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr auto 1fr', alignItems: 'center', padding: '8px 18px 12px' }}>
-            <span style={{ color: LINK_BLUE, fontWeight: 500, fontSize: 26, lineHeight: 1, justifySelf: 'start' }}>‹</span>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, justifySelf: 'center' }}>
-              <Face color={FRIEND.color} mood={FRIEND.mood} size={44} />
-              <div style={{ textAlign: 'left' }}>
-                <div style={{ color: '#fff', fontWeight: 700, fontSize: 19 }}>Alpha</div>
-                <div style={{ color: LINK_GRAY, fontSize: 14 }}>Message</div>
-              </div>
+
+          {/* contact header */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 28px 0' }}>
+            <span style={{ color: LINK_BLUE, fontWeight: 600, fontSize: 26 }}>‹ 176</span>
+            <svg width="26" height="20" viewBox="0 0 26 20" aria-hidden>
+              <rect x="0" y="0" width="18" height="20" rx="5" fill={LINK_BLUE} />
+              <path d="M20 7l6-4v14l-6-4z" fill={LINK_BLUE} />
+              <circle cx="9" cy="12" r="2.4" fill="#0e1520" />
+            </svg>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginTop: 14 }}>
+            <div style={{ width: 108, height: 108, borderRadius: 99, background: 'radial-gradient(circle at 35% 30%, #4b4b8f, #2a2a52)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: 52 }}>
+              A
             </div>
-            <span style={{ color: LINK_BLUE, fontWeight: 500, fontSize: 16, justifySelf: 'end' }}>Details</span>
+            <div style={{ marginTop: 12, padding: '6px 20px', borderRadius: 20, background: 'rgba(80,80,80,0.5)', color: '#fff', fontWeight: 700, fontSize: 20 }}>
+              Alpha ›
+            </div>
           </div>
-          <div style={{ flex: 1, overflow: 'hidden' }}>
+
+          {/* conversation */}
+          <div style={{ flex: 1, overflow: 'hidden', marginTop: 8 }}>
             <Chat />
           </div>
         </div>
@@ -375,14 +334,14 @@ const Cta: React.FC = () => {
 /* --------------------------------------------------------------- root scene */
 export const PhoneVideo: React.FC = () => {
   const phoneFrom = 90
-  const ctaStart = Math.round(28.5 * VIDEO_FPS)
+  const ctaStart = Math.round(29.0 * VIDEO_FPS)
   return (
     <AbsoluteFill style={{ background: BG, fontFamily: sans }}>
       <Sequence durationInFrames={120}>
         <Title />
       </Sequence>
       <Phone phoneFrom={phoneFrom} />
-      <Sequence from={ctaStart} durationInFrames={Math.round((VIDEO_DURATION_IN_SECONDS - 28.5) * VIDEO_FPS)}>
+      <Sequence from={ctaStart} durationInFrames={Math.round((VIDEO_DURATION_IN_SECONDS - 29.0) * VIDEO_FPS)}>
         <Cta />
       </Sequence>
     </AbsoluteFill>
