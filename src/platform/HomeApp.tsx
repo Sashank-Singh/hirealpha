@@ -271,7 +271,6 @@ export function HomeApp({ auth }: { auth: FeatureAuth }) {
   if (upcoming.length) stateBits.push(`${upcoming.length} left today`)
   if (peopleDue.length) stateBits.push(`${peopleDue.length} ${peopleDue.length === 1 ? 'person' : 'people'} due`)
   if (mailCount) stateBits.push(`${mailCount} in mail`)
-  const stateLine = stateBits.join('   ')
   const spendParts = aggregateSpend(snap?.spendByCategory || []).parts
 
   return (
@@ -279,7 +278,30 @@ export function HomeApp({ auth }: { auth: FeatureAuth }) {
       <header className="home-day">
         <span className="home-day-kicker">Today</span>
         <h2 className="home-day-title">{dateLabel || 'Today'}</h2>
-        {stateLine ? <p className="home-day-state">{stateLine}</p> : null}
+        {stateBits.length > 0 && (
+          <div className="home-day-chips" aria-live="polite">
+            {stateBits.map((b) => (
+              <span className="home-day-chip" key={b}>
+                {b}
+              </span>
+            ))}
+          </div>
+        )}
+        {/* The Dayline: one tick per remaining appointment, the next one lit with
+            its time — the rest of today in a single line. */}
+        {upcoming.length > 0 && (
+          <div className="home-dayline" role="img" aria-label={`${upcoming.length} still left today`}>
+            {upcoming.slice(0, 6).map((e, i) => (
+              <span
+                key={`${e.time}-${e.title}`}
+                className={`home-dayline-tick${i === 0 ? ' home-dayline-tick--next' : ''}`}
+              >
+                <span className="home-dayline-time">{i === 0 ? e.time : ''}</span>
+              </span>
+            ))}
+            {upcoming.length > 6 && <span className="home-dayline-more">…</span>}
+          </div>
+        )}
       </header>
 
       <section className={`home-action${lead.hot ? ' home-action--hot' : ''}`}>
@@ -317,20 +339,6 @@ export function HomeApp({ auth }: { auth: FeatureAuth }) {
         </ul>
       )}
       {actMsg && <p className="mini__hint home-msg">{actMsg}</p>}
-
-      {upcoming.length > 0 && (
-        <section className="home-block">
-          <h3 className="home-section-title">Today</h3>
-          <ul className="home-plain-list">
-            {upcoming.map((e, i) => (
-              <li key={`${e.time}-${e.title}-${i}`}>
-                <span className="home-plain-time">{e.time}</span>
-                <span>{e.title}</span>
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
 
       {peopleDue.length > 0 && (
         <section className="home-block">

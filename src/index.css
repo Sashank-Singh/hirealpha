@@ -3637,12 +3637,6 @@ button.ma-callout, button.ma-row {
   color: var(--muted-fg);
 }
 
-.home-day-state {
-  margin: 2px 0 0;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--muted-fg);
-}
 
 /* Launcher tiles, not labeled boxes: this row opens other mini apps, and a
    filled rounded square with a glyph under a small label is the shape people
@@ -3694,20 +3688,83 @@ button.ma-callout, button.ma-row {
   padding-bottom: 8px;
 }
 .home-screen--loading { min-height: 180px; gap: 12px; }
-.home-day { display: flex; flex-direction: column; gap: 4px; }
+.home-screen {
+  --home-live: #e2b56b;
+}
+.home-day { display: flex; flex-direction: column; gap: 5px; }
 .home-day-kicker {
-  font-size: 11px;
-  font-weight: 700;
+  font-size: 10px;
+  font-weight: 800;
   text-transform: uppercase;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.16em;
   color: var(--muted-fg);
 }
 .home-day-title {
   margin: 0;
-  font-size: 22px;
-  font-weight: 800;
-  letter-spacing: -0.03em;
-  line-height: 1.2;
+  font-size: 30px;
+  font-weight: 850;
+  letter-spacing: -0.035em;
+  line-height: 1.08;
+}
+.home-day-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 2px; }
+.home-day-chip {
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--muted-fg);
+  font-variant-numeric: tabular-nums;
+}
+/* Dayline: the remaining appointments as ticks on a rule. The next one is lit
+   with its time — the whole rest of the day reads in a single line. */
+.home-dayline {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  margin-top: 10px;
+  padding: 2px 0 2px;
+  border-top: 1px solid var(--border);
+}
+.home-dayline-tick {
+  position: relative;
+  flex: 1;
+  height: 18px;
+  cursor: default;
+}
+.home-dayline-tick::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 8px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  transform: translateX(-50%);
+  border: 1px solid color-mix(in srgb, var(--muted-fg) 55%, var(--bg));
+  background: var(--bg);
+}
+.home-dayline-tick--next::before {
+  border-color: var(--home-live);
+  background: var(--home-live);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--home-live) 22%, transparent);
+}
+.home-dayline-time {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: -2px;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--home-live);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.home-dayline-more {
+  align-self: center;
+  font-size: 12px;
+  color: var(--muted-fg);
+  line-height: 1;
 }
 .home-action {
   padding: 14px 14px 16px;
@@ -3777,9 +3834,14 @@ button.ma-callout, button.ma-row {
   white-space: nowrap;
 }
 .home-action-chip:disabled { opacity: 0.5; }
-/* Overdue, not decorative: the one rung with a deadline behind it. */
+/* Overdue, not decorative: the one rung with a deadline behind it. Amber is the
+ * live moment — the one thing on this page that is happening now. */
 .home-action--hot {
-  border-color: color-mix(in srgb, var(--mini-accent, #2a6f7a) 55%, var(--border));
+  border-color: color-mix(in srgb, var(--home-live) 55%, var(--border));
+  background: color-mix(in srgb, var(--home-live) 7%, var(--bg));
+}
+.home-action--hot .home-action-kicker {
+  color: var(--home-live);
 }
 /* The rest of the queue. Same rows as Next, so the two surfaces read alike. */
 .home-queue { margin: 0; padding: 0; list-style: none; }
@@ -3835,13 +3897,17 @@ button.ma-callout, button.ma-row {
   text-decoration: none;
 }
 .home-plain-meta { color: var(--muted-fg); font-size: 12px; }
+/* The Body ledger: one bordered slate, rows like bookkeeping lines. */
 .home-receipt-list {
   margin: 0;
-  padding: 0;
+  padding: 3px 0;
   list-style: none;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--border) 24%, var(--bg));
 }
 /* These rows have always been links into the sub apps. Label plus value with no
    chevron and no press state reads as printed text, so nobody tapped them. */
@@ -3851,11 +3917,11 @@ button.ma-callout, button.ma-row {
   gap: 12px;
   align-items: baseline;
   /* 12px puts the row at 46px tall — a tap target, not a line of text. */
-  padding: 12px 0;
+  padding: 13px 16px;
   border-bottom: 1px solid var(--border);
   text-decoration: none;
   color: inherit;
-  border-radius: 8px;
+  border-radius: 0;
   transition: background-color 0.12s ease;
 }
 .home-receipt::after {
@@ -3876,7 +3942,7 @@ button.ma-callout, button.ma-row {
 }
 .home-receipt:focus-visible {
   outline: 2px solid var(--mini-accent, #2a6f7a);
-  outline-offset: 2px;
+  outline-offset: -2px;
 }
 .home-receipt-list li:last-child .home-receipt { border-bottom: 0; }
 .home-receipt-label {
@@ -3886,7 +3952,12 @@ button.ma-callout, button.ma-row {
   letter-spacing: 0.05em;
   color: var(--muted-fg);
 }
-.home-receipt-val { font-size: 14px; font-weight: 600; text-align: right; }
+.home-receipt-val {
+  font-size: 14px;
+  font-weight: 600;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
 
 .mini__body--home-screen { padding-bottom: 0; }
 
