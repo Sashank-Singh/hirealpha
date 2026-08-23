@@ -35,3 +35,21 @@ export function stayWhereFrom(title: string, place: string) {
   const hotel = place || title.replace(/^(stay(?:ing)?(?:\s+at)?)\s+/i, '').trim()
   return { title: hotel || title, place: place || hotel }
 }
+
+/** The cadence presets a person can be reach-out'd on, in days. */
+export const CADENCE_OPTIONS = [
+  { days: 7, label: 'Every week' },
+  { days: 14, label: 'Every 2 weeks' },
+  { days: 30, label: 'Every month' },
+  { days: 60, label: 'Every 2 months' },
+  { days: 180, label: 'Every 6 months' },
+  { days: 365, label: 'Every year' },
+] as const
+
+/** Human words for a cadence, so "every 180d" reads like a person said it. */
+export function cadenceLabel(days: number): string {
+  const hit = CADENCE_OPTIONS.find((o) => o.days === days)
+  if (hit) return hit.label.toLowerCase()
+  if (days < 30) return `every ${Math.max(1, Math.round(days))} days`
+  return `every ${Math.round(days)} days`
+}

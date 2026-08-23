@@ -59,7 +59,7 @@ import {
   type WorkoutPlace,
 } from './workoutProgram'
 import { exerciseDemoUrl } from './exerciseDemos'
-import { isPersonMeetSuggestion, isTravelOrStayTitle, stayWhereFrom } from './peopleMeets'
+import { isPersonMeetSuggestion, isTravelOrStayTitle, stayWhereFrom, CADENCE_OPTIONS } from './peopleMeets'
 import { pickLastNight } from './home'
 import { PeopleGraph } from './PeopleGraph'
 import { useRefreshOnFocus } from './useRefreshOnFocus'
@@ -854,9 +854,10 @@ export function NetworkingCrmApp({ auth }: { auth: FeatureAuth }) {
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState('')
   const [showAdd, setShowAdd] = useState(false)
+  const [addCadence, setAddCadence] = useState(14)
   const [openId, setOpenId] = useState<string | null>(null)
   const [confirmDel, setConfirmDel] = useState<string | null>(null)
-  const [edit, setEdit] = useState({ name: '', phone: '', contactEmail: '', company: '', whereMet: '', context: '' })
+  const [edit, setEdit] = useState({ name: '', phone: '', contactEmail: '', company: '', whereMet: '', context: '', cadenceDays: 14 })
   const [logNotes, setLogNotes] = useState<Record<string, string>>({})
 
   const load = useCallback(() => {
@@ -885,6 +886,7 @@ export function NetworkingCrmApp({ auth }: { auth: FeatureAuth }) {
         phone: phone.trim(),
         contactEmail: contactEmail.trim(),
         company: company.trim(),
+        cadenceDays: addCadence,
       })
       setLine('')
       setPhone('')
@@ -909,6 +911,7 @@ export function NetworkingCrmApp({ auth }: { auth: FeatureAuth }) {
       company: p.company || '',
       whereMet: p.whereMet || '',
       context: p.context || '',
+      cadenceDays: p.cadenceDays || 14,
     })
   }
 
@@ -925,6 +928,7 @@ export function NetworkingCrmApp({ auth }: { auth: FeatureAuth }) {
         company: edit.company.trim(),
         whereMet: edit.whereMet.trim(),
         context: edit.context.trim(),
+        cadenceDays: Math.max(3, Math.min(365, Math.round(edit.cadenceDays) || 14)),
       })
       setOpenId(null)
       load()
@@ -1184,6 +1188,18 @@ export function NetworkingCrmApp({ auth }: { auth: FeatureAuth }) {
                         <input className="ma-input" value={edit.whereMet} onChange={(e) => setEdit({ ...edit, whereMet: e.target.value })} />
                       </label>
                       <label className="ma-field">
+                        <span>Reach out every</span>
+                        <select
+                          className="ma-input"
+                          value={edit.cadenceDays}
+                          onChange={(e) => setEdit({ ...edit, cadenceDays: Number(e.target.value) })}
+                        >
+                          {CADENCE_OPTIONS.map((o) => (
+                            <option key={o.days} value={o.days}>{o.label}</option>
+                          ))}
+                        </select>
+                      </label>
+                      <label className="ma-field">
                         <span>Note</span>
                         <input className="ma-input" value={edit.context} onChange={(e) => setEdit({ ...edit, context: e.target.value })} />
                       </label>
@@ -1243,6 +1259,14 @@ export function NetworkingCrmApp({ auth }: { auth: FeatureAuth }) {
           <label className="ma-field">
             <span>Company</span>
             <input className="ma-input" value={company} onChange={(e) => setCompany(e.target.value)} placeholder="Stripe" />
+          </label>
+          <label className="ma-field">
+            <span>Reach out every</span>
+            <select className="ma-input" value={addCadence} onChange={(e) => setAddCadence(Number(e.target.value))}>
+              {CADENCE_OPTIONS.map((o) => (
+                <option key={o.days} value={o.days}>{o.label}</option>
+              ))}
+            </select>
           </label>
           <button className="ma-btn" type="submit" disabled={busy || !line.trim()}>Add</button>
         </form>

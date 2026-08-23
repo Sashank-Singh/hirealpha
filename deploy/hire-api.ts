@@ -8882,7 +8882,7 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     const id = crypto.randomUUID()
     const whereMet = String(body.whereMet || '').trim().slice(0, 120)
     const context = String(body.context || '').trim().slice(0, 400)
-    const cadenceDays = Math.max(3, Math.min(90, Math.round(body.cadenceDays || 14)))
+    const cadenceDays = Math.max(3, Math.min(365, Math.round(body.cadenceDays || 14)))
     const phone = String(body.phone || '').trim().slice(0, 40)
     const contactEmail = String(body.contactEmail || '').trim().slice(0, 120)
     const company = String(body.company || '').trim().slice(0, 120)
@@ -8915,7 +8915,7 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
       const company = String(body.company || '').trim().slice(0, 120)
       const whereMet = String(body.whereMet || '').trim().slice(0, 120)
       const context = String(body.context || '').trim().slice(0, 400)
-      const cadenceDays = Math.max(3, Math.min(90, Math.round(body.cadenceDays || 14)))
+      const cadenceDays = Math.max(3, Math.min(365, Math.round(body.cadenceDays || 14)))
       await sql`
         UPDATE hire_network
         SET name = ${name}, phone = ${phone}, email = ${contactEmail}, company = ${company},

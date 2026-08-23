@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { NetworkPerson } from './api'
+import { cadenceLabel } from './peopleMeets'
 
 /* The People mini-app as a living 3D neural network whose geometry carries data:
  * - Distance from "you" = relationship temperature (daysSince/cadence): fresh
@@ -527,9 +528,9 @@ export function PeopleGraph({
           </span>
           <span className={`pg-card-stat${daysSince(focusPerson.lastTouch) >= focusPerson.cadenceDays ? ' pg-card-stat--due' : ''}`}>
             {focusPerson.lastTouch && daysSince(focusPerson.lastTouch) <= 0
-              ? `Talked today · every ${focusPerson.cadenceDays}d`
+              ? `Talked today · ${cadenceLabel(focusPerson.cadenceDays)}`
               : focusPerson.lastTouch
-                ? `${daysSince(focusPerson.lastTouch)}d since last touch · every ${focusPerson.cadenceDays}d`
+                ? `${daysSince(focusPerson.lastTouch)}d since last touch · ${cadenceLabel(focusPerson.cadenceDays)}`
                 : 'Never logged a touch'}
           </span>
           <button type="button" className="ma-chip" onClick={() => onSelect(focusPerson)}>
