@@ -98,9 +98,19 @@ export function pickLastNight(
       const d = dayStamp(n.sleepDate)
       return d === yest || d === today
     }) ||
+    /* Only a row with no usable date gets rescued by recency — something fresh
+     * that carries a real date it does not own is an older night's log, and
+     * showing it as "last night" is how the tile reported yesterday's sleep
+     * on a morning that had none. */
     nights.find((n) => {
       const created = Date.parse(String(n.createdAt || ''))
-      return Number.isFinite(created) && Date.now() - created < 36 * 60 * 60 * 1000 && n.bedtime && n.wake
+      return (
+        !dayStamp(n.sleepDate) &&
+        Number.isFinite(created) &&
+        Date.now() - created < 36 * 60 * 60 * 1000 &&
+        n.bedtime &&
+        n.wake
+      )
     })
   if (!hit?.bedtime || !hit?.wake) return { logged: false, hours: 0 }
   return {

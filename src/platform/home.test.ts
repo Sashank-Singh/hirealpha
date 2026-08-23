@@ -199,6 +199,16 @@ describe('pickLastNight', () => {
     expect(n.hours).toBe(8)
   })
 
+  test('does not promote a recent older-night row to last night', () => {
+    // Created this morning, but it is two nights old: it must not answer
+    // "last night" on a morning the user has not logged yet.
+    const n = pickLastNight(
+      [{ sleepDate: '2026-08-19', bedtime: '01:00', wake: '07:00', createdAt: new Date().toISOString() }],
+      '2026-08-21',
+    )
+    expect(n.logged).toBe(false)
+  })
+
   test('does not invent a night from last week', () => {
     const n = pickLastNight(
       [{ sleepDate: '2026-08-14', bedtime: '23:00', wake: '07:00', createdAt: '2026-08-14T08:00:00.000Z' }],
