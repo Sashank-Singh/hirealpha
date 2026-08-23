@@ -58,7 +58,7 @@ import {
   type MailKindItem,
   type ReplyRead,
 } from './gmailHelpers'
-import { extractJsonObject, extractNumericFields, modelReplyText } from './modelJson'
+import { extractJsonObject, extractNumericFields, modelReplyText, stripReasoning } from './modelJson'
 import { notModified, revalidateCacheControl, weakEtag } from './httpCache'
 import { createStaleCache } from './staleCache'
 import { composeWeekReview, spendWouldBreakCap, type WeekSnap } from './weekRun'
@@ -2576,6 +2576,7 @@ async function gmiBriefChat(
   user: string,
   maxTokens = 180,
   timeoutMs = 5000,
+  opts: { plainText?: boolean } = {},
 ): Promise<string | null> {
   const cfg = nutritionModelConfig()
   if (!cfg) return null
@@ -2605,7 +2606,12 @@ async function gmiBriefChat(
         const data = (await res.json()) as {
           choices?: Array<{ message?: { content?: string; reasoning_content?: string } }>
         }
-        return modelReplyText(data.choices?.[0]?.message)
+        const msg = data.choices?.[0]?.message
+        // A visible reply must be the model's content, never its scratchpad. The
+        // reasoning fallback exists for JSON extraction (judge), where a reasoning
+        // model can put the answer in reasoning_content; a rewrite body is not that.
+        if (opts.plainText) return stripReasoning(String(msg?.content ?? ''))
+        return modelReplyText(msg)
       })(),
       timeoutMs,
       '',
@@ -6521,6 +6527,7 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
       `To: ${row.to_addr}\nSubject: ${row.subject}\n\nCurrent draft:\n${row.body}\n\nUser instruction: ${instruction}\n\nRewrite the draft body now.`,
       500,
       8000,
+      { plainText: true },
     )
     if (!rewritten?.trim()) {
       return json({ ok: false, error: 'Alpha could not rewrite that right now. Try again.' }, 502)
