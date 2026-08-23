@@ -125,12 +125,13 @@ export function PeopleGraph({
       if (Math.abs(az) < 0.01) { ax = 1; ay = 0; az = 0 }
       const al = Math.hypot(ax, ay, az) || 1
       ax /= al; ay /= al; az /= al
-      const bx = uy * az - uz * ay
-      const by = uz * ax - ux * az
-      const bz = ux * ay - uy * ax
+      let bx = uy * az - uz * ay
+      let by = uz * ax - ux * az
+      let bz = ux * ay - uy * ax
       const bl = Math.hypot(bx, by, bz) || 1
-      const ca = s * Math.cos(th) * spread / al
-      const sb = s * Math.sin(th) * spread / bl
+      bx /= bl; by /= bl; bz /= bl
+      const ca = s * Math.cos(th) * spread
+      const sb = s * Math.sin(th) * spread
       const due = daysSince(p.lastTouch) >= p.cadenceDays
       return {
         p,
@@ -525,9 +526,11 @@ export function PeopleGraph({
             {[focusPerson.whereMet, focusPerson.company].filter(Boolean).join(' · ') || 'Met somewhere'}
           </span>
           <span className={`pg-card-stat${daysSince(focusPerson.lastTouch) >= focusPerson.cadenceDays ? ' pg-card-stat--due' : ''}`}>
-            {focusPerson.lastTouch
-              ? `${daysSince(focusPerson.lastTouch)}d since last touch · every ${focusPerson.cadenceDays}d`
-              : 'Never logged a touch'}
+            {focusPerson.lastTouch && daysSince(focusPerson.lastTouch) <= 0
+              ? `Touched today · every ${focusPerson.cadenceDays}d`
+              : focusPerson.lastTouch
+                ? `${daysSince(focusPerson.lastTouch)}d since last touch · every ${focusPerson.cadenceDays}d`
+                : 'Never logged a touch'}
           </span>
           <button type="button" className="ma-chip" onClick={() => onSelect(focusPerson)}>
             Open
