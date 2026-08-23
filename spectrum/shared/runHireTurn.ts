@@ -61,7 +61,23 @@ export { isBannedTagline } from './outboundFilter'
 export function splitBubbles(text: string): string[] {
   const cleaned = sanitizeOutbound(text.replace(/\r/g, ''))
   if (!cleaned) return []
-  return [cleaned]
+  // Blank-line-separated paragraphs land as their own bubbles, so a multi-part
+  // reply reads like a real back-and-forth instead of one long block.
+  const blocks = cleaned
+    .split(/\n\s*\n+/)
+    .map((b) => b.trim())
+    .filter(Boolean)
+  return blocks.length > 1 ? blocks : [cleaned]
+}
+
+/** Card every text reply gets when the turn produced no specific one: the Apps
+ * launcher, so a mini-app is always one tap below the last bubble. */
+export async function defaultReplyCard(phone: string, persona: AgentId): Promise<MiniAppCard | null> {
+  try {
+    return await mintMiniAppCard(phone, persona, 'apps')
+  } catch {
+    return null
+  }
 }
 
 const REASON =

@@ -2,7 +2,7 @@ import { Spectrum, app as appCard } from 'spectrum-ts'
 import { imessage } from '@spectrum-ts/imessage'
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { getAgent, runHireTurn, runMemoryMaintenance, sanitizeOutbound } from '../../shared/runHireTurn'
+import { defaultReplyCard, getAgent, runHireTurn, runMemoryMaintenance, sanitizeOutbound } from '../../shared/runHireTurn'
 import { extractMessageText, handleInboundPhoto } from '../../shared/liveContext'
 import { claimInbound } from '../../shared/inboundGuard'
 import { startReminderScheduler } from '../../shared/reminders'
@@ -96,13 +96,15 @@ for await (const [space, message] of app.messages) {
             userText: photoText,
             inboundNote: note,
           })
-          const text = sanitizeOutbound(bubbles[0] || reply || '')
-          if (!text) {
+          const texts = bubbles.map((b) => sanitizeOutbound(b)).filter(Boolean)
+          if (!texts.length) {
             if (card) await space.send(appCard(card.url, { live: card.live }))
             return
           }
-          await message.reply(text)
-          if (card) await space.send(appCard(card.url, { live: card.live }))
+          await message.reply(texts[0]!)
+          for (let i = 1; i < texts.length; i++) await space.send(texts[i]!)
+          const delivered = card ?? (await defaultReplyCard(senderId, agentId))
+          if (delivered) await space.send(appCard(delivered.url, { live: delivered.live }))
           if (source === 'gmi') {
             void runMemoryMaintenance({ dataDir, senderId, agentId, authoritative, userText: photoText, reply })
               .catch(() => undefined)

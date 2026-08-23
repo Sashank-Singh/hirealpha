@@ -2,7 +2,7 @@ import { Spectrum, app as appCard } from 'spectrum-ts'
 import { imessage } from '@spectrum-ts/imessage'
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { getAgent, runHireTurn, runMemoryMaintenance, sanitizeOutbound } from '../../shared/runHireTurn'
+import { defaultReplyCard, getAgent, runHireTurn, runMemoryMaintenance, sanitizeOutbound } from '../../shared/runHireTurn'
 import { extractMessageText, handleInboundPhoto } from '../../shared/liveContext'
 import { claimInbound } from '../../shared/inboundGuard'
 import { startReminderScheduler } from '../../shared/reminders'
@@ -96,13 +96,16 @@ for await (const [space, message] of app.messages) {
             userText: photoText,
             inboundNote: note,
           })
-          const text = sanitizeOutbound(bubbles[0] || reply || '')
-          if (!text) {
+          const texts = bubbles.map((b) => sanitizeOutbound(b)).filter(Boolean)
+          if (!texts.length) {
             if (card) await space.send(appCard(card.url, { live: card.live }))
             return
           }
-          await message.reply(text)
-          if (card) await space.send(appCard(card.url, { live: card.live }))
+          await message.reply(texts[0]!)
+          for (let i = 1; i < texts.length; i++) await space.send(texts[i]!)
+          // The mini-app card lands after the LAST bubble only, never between them.
+          const delivered = card ?? (await defaultReplyCard(senderId, agentId))
+          if (delivered) await space.send(appCard(delivered.url, { live: delivered.live }))
           if (source === 'gmi') {
             void runMemoryMaintenance({ dataDir, senderId, agentId, authoritative, userText: photoText, reply })
               .catch(() => undefined)
@@ -139,8 +142,8 @@ for await (const [space, message] of app.messages) {
         senderId,
         userText,
       })
-      const text = sanitizeOutbound(bubbles[0] || reply || '')
-      if (!text) {
+      const texts = bubbles.map((b) => sanitizeOutbound(b)).filter(Boolean)
+      if (!texts.length) {
         if (card) {
           console.log(`[${agent.id}] sending card only: ${card.url}`)
           await space.send(appCard(card.url, { live: card.live }))
@@ -149,12 +152,15 @@ for await (const [space, message] of app.messages) {
         }
         return
       }
-      console.log(`[${agent.id}] sending 1 text, card: ${!!card}`)
-      console.log(`[${agent.id}] bubble: ${JSON.stringify(text.slice(0, 200))}`)
-      await message.reply(text)
-      if (card) {
-        console.log(`[${agent.id}] sending card: ${card.url}`)
-        await space.send(appCard(card.url, { live: card.live }))
+      console.log(`[${agent.id}] sending ${texts.length} text(s), card: ${!!card}`)
+      console.log(`[${agent.id}] bubble: ${JSON.stringify(texts[0]!.slice(0, 200))}`)
+      await message.reply(texts[0]!)
+      for (let i = 1; i < texts.length; i++) await space.send(texts[i]!)
+      // Every response carries the mini-app card, attached after the LAST bubble.
+      const delivered = card ?? (await defaultReplyCard(senderId, agentId))
+      if (delivered) {
+        console.log(`[${agent.id}] sending card: ${delivered.url}`)
+        await space.send(appCard(delivered.url, { live: delivered.live }))
       }
       if (source === 'gmi') {
         void runMemoryMaintenance({ dataDir, senderId, agentId, authoritative, userText, reply })
