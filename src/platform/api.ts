@@ -513,7 +513,14 @@ export type HomeSnapshot = {
       count: number
       items: Array<{ id: string; from: string; subject: string; snippet?: string }>
     }>
-    peopleDue: Array<{ name: string; days: number; phone?: string }>
+    /**
+     * `id` is what lets home mark someone touched instead of only naming them;
+     * optional because an API deployed before it existed sends the rest, and the
+     * queue degrades that row to a link rather than an unpressable button.
+     */
+    peopleDue: Array<{ name: string; days: number; phone?: string; id?: string; context?: string }>
+    /** The single open promise closest to its deadline, so home can close one. */
+    dueLoop?: { id: string; title: string; dueAt?: string | null } | null
     lastNight: { logged: boolean; hours: number; bedtime?: string; wake?: string }
     workout: { name: string; rest?: boolean; done: boolean }
   }
@@ -542,9 +549,16 @@ export type HomeSnapshot = {
  */
 export const apiHome = async (a: { email?: string; token?: string }) => {
   try {
-    return await featureGet<HomeSnapshot>('/api/home', authQuery(a))
+    // The endpoint revalidates at 60s; without a bust query the browser serves
+    // its cached 200 to an immediate reopen, so food logged off-home shows its
+    // old protein until the window expires. Each open should ask the server.
+    const qs = authQuery(a)
+    qs.set('_', String(Date.now()))
+    return await featureGet<HomeSnapshot>('/api/home', qs)
   } catch {
-    return await featureGet<HomeSnapshot>('/api/mirror', authQuery(a))
+    const qs = authQuery(a)
+    qs.set('_', String(Date.now()))
+    return await featureGet<HomeSnapshot>('/api/mirror', qs)
   }
 }
 

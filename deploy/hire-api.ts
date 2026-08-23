@@ -1111,7 +1111,7 @@ function clampNum(v: unknown, fallback = 0): number {
 }
 
 /** Day window in the user's timezone as UTC [start,end] for "today". */
-function todayWindowUtc(timezone: string): { start: Date; end: Date } {
+export function todayWindowUtc(timezone: string, now = new Date()): { start: Date; end: Date } {
   const tz = timezone || 'America/Los_Angeles'
   const dtf = new Intl.DateTimeFormat('en-CA', {
     timeZone: tz,
@@ -1119,10 +1119,20 @@ function todayWindowUtc(timezone: string): { start: Date; end: Date } {
     month: '2-digit',
     day: '2-digit',
   })
-  const [y, mo, d] = dtf.format(new Date()).split('-').map(Number)
+  const [y, mo, d] = dtf.format(now).split('-').map(Number)
   const wallStart = Date.UTC(y!, mo! - 1, d!)
   const offset = tzOffsetMs(wallStart, tz)
   return { start: new Date(wallStart - offset), end: new Date(wallStart - offset + 86_400_000) }
+}
+
+/** Week window (the Monday `weekStart` in the user's timezone) as UTC [start,end]. */
+export function weekWindowUtc(weekStart: string, timezone: string): { start: Date; end: Date } {
+  const tz = timezone || 'America/Los_Angeles'
+  const [y, m, d] = String(weekStart).split('-').map(Number)
+  const wallStart = Date.UTC(y || 1970, (m || 1) - 1, d || 1)
+  const offset = tzOffsetMs(wallStart, tz)
+  const start = new Date(wallStart - offset)
+  return { start, end: new Date(start.getTime() + 7 * 86_400_000) }
 }
 
 function localDateStrInTz(d = new Date(), timezone?: string | null): string {
@@ -1371,7 +1381,6 @@ async function estimateNutrition(
   if (!cfg) return { ok: false, needsKey: true }
   if (!description.trim() && !imageBase64) return { ok: false, error: 'Describe or photograph the meal first.' }
 
-  const model = imageBase64 ? cfg.visionModel : cfg.textModel
   const system =
     'You are a nutrition estimator. Estimate the macronutrients of the described meal. ' +
     'Reply with JSON only: {"guess":"<short name>","calories":N,"protein":N,"carbs":N,"fat":N}. ' +
@@ -1385,63 +1394,62 @@ async function estimateNutrition(
       ]
     : [{ type: 'text', text: description.trim() }]
 
-  try {
-    const res = await fetch(`${cfg.baseUrl}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${cfg.apiKey}`,
-        'User-Agent': 'HireAlpha/0.1 (nutrition)',
-        Accept: 'application/json',
-      },
-      body: JSON.stringify({
-        model,
-        reasoning_effort: 'none',
-        temperature: 0,
-        // A reasoning model that ignores reasoning_effort spends its budget
-        // thinking; at 320 the object was landing truncated or not at all.
-        max_tokens: 700,
-        messages: [
-          { role: 'system', content: system },
-          { role: 'user', content: userContent },
-        ],
-      }),
-    })
-    if (!res.ok) {
-      const t = await res.text().catch(() => '')
-      return { ok: false, error: `Estimator error ${res.status}: ${t.slice(0, 160)}` }
-    }
-    const data = (await res.json()) as {
-      choices?: Array<{ message?: { content?: string; reasoning_content?: string } }>
-    }
-    const content = modelReplyText(data.choices?.[0]?.message)
-    // `calories` is what makes an object the answer rather than a draft or a shrug.
-    const parsed = extractJsonObject(content, ['calories'])
-    const macros = parsed
-      ? {
-          calories: clampNum(parsed.calories),
-          protein: clampNum(parsed.protein),
-          carbs: clampNum(parsed.carbs),
-          fat: clampNum(parsed.fat),
-        }
-      : salvageMacros(content)
-    if (!macros) {
-      console.warn('[nutrition] unreadable estimate:', content.slice(0, 200) || '(empty reply)')
-      return {
-        ok: false,
-        error: content.trim()
-          ? 'Could not read the estimate. Try naming the food and the portion.'
-          : 'The estimator sent back an empty reply. Try again.',
+  /* One parse is not a verdict: the vision model flakes intermittently, and a
+   * named meal can go through the text model alone. Each attempt is a fresh
+   * call, so a transient failure costs one extra request, not a dead end. */
+  const attempt = async (m: string, parts: unknown[]) => {
+    try {
+      const res = await fetch(`${cfg.baseUrl}/chat/completions`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${cfg.apiKey}`,
+          'User-Agent': 'HireAlpha/0.1 (nutrition)',
+          Accept: 'application/json',
+        },
+        body: JSON.stringify({
+          model: m,
+          reasoning_effort: 'none',
+          temperature: 0,
+          // A reasoning model that ignores reasoning_effort spends its budget
+          // thinking; at 320 the object was landing truncated or not at all.
+          max_tokens: 700,
+          messages: [
+            { role: 'system', content: system },
+            { role: 'user', content: parts },
+          ],
+        }),
+      })
+      if (!res.ok) return null
+      const data = (await res.json()) as {
+        choices?: Array<{ message?: { content?: string; reasoning_content?: string } }>
       }
+      const content = modelReplyText(data.choices?.[0]?.message)
+      const parsed = extractJsonObject(content, ['calories'])
+      const macros = parsed
+        ? { calories: clampNum(parsed.calories), protein: clampNum(parsed.protein), carbs: clampNum(parsed.carbs), fat: clampNum(parsed.fat) }
+        : salvageMacros(content)
+      if (!macros) return null
+      return { macros, guess: String(parsed?.guess || '') }
+    } catch {
+      return null
     }
-    return {
-      ok: true,
-      guess: String(parsed?.guess || description.slice(0, 60) || 'meal'),
-      ...macros,
-    }
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err)
-    return { ok: false, error: msg.slice(0, 180) }
+  }
+
+  const model = imageBase64 ? cfg.visionModel : cfg.textModel
+  let hit = await attempt(model, userContent)
+  if (!hit && imageBase64 && description.trim()) {
+    // A failed photo retries through the text model: named food parses there.
+    hit = await attempt(cfg.textModel, [{ type: 'text', text: description.trim() }])
+  }
+  if (!hit) hit = await attempt(model, userContent)
+  if (!hit) {
+    return { ok: false, error: 'Could not read the estimate. Try naming the food and the portion.' }
+  }
+  return {
+    ok: true,
+    guess: hit.guess || description.slice(0, 60) || 'meal',
+    ...hit.macros,
   }
 }
 
@@ -4074,11 +4082,19 @@ async function buildPrepBundle(
   return { text: lines.join('\n'), draft }
 }
 
-async function loadWeekSnapshot(sql: SQL, userId: string, weekStart: string): Promise<WeekSnap> {
+async function loadWeekSnapshot(
+  sql: SQL,
+  userId: string,
+  weekStart: string,
+  timezone: string,
+): Promise<WeekSnap> {
   const weekEnd = shiftDateStr(weekStart, 7)
+  /* `::date` would read at the database's session timezone — off by the user's
+   * UTC offset, so a Sunday-night log fell into next week. Use real instants. */
+  const weekWindow = weekWindowUtc(weekStart, timezone)
   const nutr = await sql`
     SELECT count(*)::int AS meals FROM hire_nutrition_logs
-    WHERE user_id = ${userId} AND eaten_at >= ${weekStart}::date AND eaten_at < ${weekEnd}::date
+    WHERE user_id = ${userId} AND eaten_at >= ${weekWindow.start.toISOString()} AND eaten_at < ${weekWindow.end.toISOString()}
   `
   const habits = await sql`
     SELECT count(*)::int AS checks FROM hire_habit_logs
@@ -4096,16 +4112,16 @@ async function loadWeekSnapshot(sql: SQL, userId: string, weekStart: string): Pr
     : 0
   const spend = await sql`
     SELECT coalesce(sum(amount), 0)::real AS total FROM hire_spending
-    WHERE user_id = ${userId} AND spent_at >= ${weekStart}::date AND spent_at < ${weekEnd}::date
+    WHERE user_id = ${userId} AND spent_at >= ${weekWindow.start.toISOString()} AND spent_at < ${weekWindow.end.toISOString()}
   `
   const budget = await sql`SELECT weekly_budget AS "weeklyBudget" FROM hire_spending_budget WHERE user_id = ${userId}`
   const workouts = await sql`
     SELECT count(*)::int AS n FROM hire_workouts
-    WHERE user_id = ${userId} AND logged_at >= ${weekStart}::date AND logged_at < ${weekEnd}::date
+    WHERE user_id = ${userId} AND logged_at >= ${weekWindow.start.toISOString()} AND logged_at < ${weekWindow.end.toISOString()}
   `
   const gratitude = await sql`
     SELECT count(*)::int AS n FROM hire_gratitude
-    WHERE user_id = ${userId} AND created_at >= ${weekStart}::date AND created_at < ${weekEnd}::date
+    WHERE user_id = ${userId} AND created_at >= ${weekWindow.start.toISOString()} AND created_at < ${weekWindow.end.toISOString()}
   `
   const duePeople = await sql`
     SELECT count(*)::int AS n FROM hire_network
@@ -4135,7 +4151,7 @@ async function buildWeekBundle(
   ping?: { name: string; email?: string; phone?: string }
 }> {
   const weekStart = userMonday(user)
-  const snap = await loadWeekSnapshot(sql, user.id, weekStart)
+  const snap = await loadWeekSnapshot(sql, user.id, weekStart, user.timezone || 'America/Los_Angeles')
   const wrote = composeWeekReview(snap)
   const existing = await sql`
     SELECT id, done_text AS "doneText" FROM hire_weekly_reviews
@@ -4185,6 +4201,10 @@ async function judgmentStatePayload(
   const today = localDateStrInTz(new Date(), tz)
   const weekStart = userMonday(user)
   const weekEnd = shiftDateStr(weekStart, 7)
+  /* TIMESTAMPTZ columns compared to a bare `::date` read at midnight in the
+   * database's session timezone — the user's day/week is minutes off that. */
+  const dayWindow = todayWindowUtc(tz)
+  const weekWindow = weekWindowUtc(weekStart, tz)
   const localTime = new Intl.DateTimeFormat('en-CA', {
     timeZone: tz,
     year: 'numeric',
@@ -4209,7 +4229,7 @@ async function judgmentStatePayload(
   const nutrToday = await sql`
     SELECT count(*)::int AS meals, coalesce(sum(calories), 0)::real AS calories, coalesce(sum(protein), 0)::real AS protein
     FROM hire_nutrition_logs
-    WHERE user_id = ${user.id} AND eaten_at >= ${today}::date AND eaten_at < ${shiftDateStr(today, 1)}::date
+    WHERE user_id = ${user.id} AND eaten_at >= ${dayWindow.start.toISOString()} AND eaten_at < ${dayWindow.end.toISOString()}
   `
   const g = (nutrGoals[0] as { calorieGoal?: number; proteinGoal?: number } | undefined) || {}
   const n = (nutrToday[0] as { meals?: number; calories?: number; protein?: number } | undefined) || {}
@@ -4279,7 +4299,7 @@ async function judgmentStatePayload(
 
   const workoutTodayRows = await sql`
     SELECT count(*)::int AS n FROM hire_workouts
-    WHERE user_id = ${user.id} AND logged_at >= ${today}::date AND logged_at < ${shiftDateStr(today, 1)}::date
+    WHERE user_id = ${user.id} AND logged_at >= ${dayWindow.start.toISOString()} AND logged_at < ${dayWindow.end.toISOString()}
   `
   const workoutsToday = Number((workoutTodayRows[0] as { n?: number })?.n || 0)
   const prefs = await loadMiniPrefs(sql, user.id)
@@ -4332,7 +4352,7 @@ async function judgmentStatePayload(
 
   const spendRow = await sql`
     SELECT coalesce(sum(amount), 0)::real AS total FROM hire_spending
-    WHERE user_id = ${user.id} AND spent_at >= ${weekStart}::date AND spent_at < ${weekEnd}::date
+    WHERE user_id = ${user.id} AND spent_at >= ${weekWindow.start.toISOString()} AND spent_at < ${weekWindow.end.toISOString()}
   `
   const budgetRow = await sql`SELECT weekly_budget AS "weeklyBudget" FROM hire_spending_budget WHERE user_id = ${user.id}`
   const loops = await sql`
@@ -4381,11 +4401,11 @@ async function judgmentStatePayload(
   if (tick === 'weekly') {
     const wkNutr = await sql`
       SELECT count(*)::int AS meals, coalesce(sum(calories), 0)::real AS calories
-      FROM hire_nutrition_logs WHERE user_id = ${user.id} AND eaten_at >= ${weekStart}::date AND eaten_at < ${weekEnd}::date
+      FROM hire_nutrition_logs WHERE user_id = ${user.id} AND eaten_at >= ${weekWindow.start.toISOString()} AND eaten_at < ${weekWindow.end.toISOString()}
     `
     const wkMoods = await sql`
       SELECT count(*)::int AS logs, coalesce(avg(energy), 0)::real AS energy
-      FROM hire_moods WHERE user_id = ${user.id} AND created_at >= ${weekStart}::date AND created_at < ${weekEnd}::date
+      FROM hire_moods WHERE user_id = ${user.id} AND created_at >= ${weekWindow.start.toISOString()} AND created_at < ${weekWindow.end.toISOString()}
     `
     const wkHabits = await sql`
       SELECT count(*)::int AS checks FROM hire_habit_logs
@@ -4403,11 +4423,11 @@ async function judgmentStatePayload(
     }
     const wkWorkouts = await sql`
       SELECT count(*)::int AS n FROM hire_workouts
-      WHERE user_id = ${user.id} AND logged_at >= ${weekStart}::date AND logged_at < ${weekEnd}::date
+      WHERE user_id = ${user.id} AND logged_at >= ${weekWindow.start.toISOString()} AND logged_at < ${weekWindow.end.toISOString()}
     `
     const wkLearning = await sql`
       SELECT count(*)::int AS n FROM hire_learning
-      WHERE user_id = ${user.id} AND status = 'done' AND created_at >= ${weekStart}::date AND created_at < ${weekEnd}::date
+      WHERE user_id = ${user.id} AND status = 'done' AND created_at >= ${weekWindow.start.toISOString()} AND created_at < ${weekWindow.end.toISOString()}
     `
     weekly = {
       meals: Number((wkNutr[0] as { meals?: number })?.meals || 0),
@@ -4425,7 +4445,7 @@ async function judgmentStatePayload(
     }
     const wkGratitude = await sql`
       SELECT count(*)::int AS n FROM hire_gratitude
-      WHERE user_id = ${user.id} AND created_at >= ${weekStart}::date AND created_at < ${weekEnd}::date
+      WHERE user_id = ${user.id} AND created_at >= ${weekWindow.start.toISOString()} AND created_at < ${weekWindow.end.toISOString()}
     `
     weekly.gratitude = Number((wkGratitude[0] as { n?: number })?.n || 0)
   }
@@ -5543,27 +5563,10 @@ async function buildNextStack(
     }
   }
 
-  if (persona === 'friend') {
-    const hour = Number(new Intl.DateTimeFormat('en-US', { timeZone: tz, hour: 'numeric', hour12: false }).format(new Date()))
-    if (hour < 12) {
-      const lastNight = await sql`
-        SELECT id FROM hire_sleep
-        WHERE user_id = ${user.id} AND sleep_date = (current_date - 1)
-        LIMIT 1
-      `
-      if (!lastNight[0]) {
-        items.push({
-          id: 'sleep-last',
-          kicker: 'Morning',
-          title: 'Log last night',
-          hint: 'Two numbers. Bed and wake.',
-          action: 'open',
-          doLabel: 'Log',
-          openKind: 'sleep_tracker',
-        })
-      }
-    }
-  }
+  /* No friend branch. Friend is denied `next_move` in SKILLS and remapped to
+   * `home` by canonicalMiniAppKind, so nothing ever reached one — and home now
+   * builds friend's queue from the snapshot it already has rather than paying for
+   * a second request here. */
 
   return { items, connected, missing }
 }
@@ -7497,7 +7500,7 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     if (!parsed) return json({ ok: false, logged: false, error: 'Could not parse a mood' })
     const tz = user.timezone || 'America/Los_Angeles'
     const ds = localDateStrInTz(new Date(), tz)
-    const has = await sql`SELECT 1 FROM hire_moods WHERE user_id = ${user.id} AND created_at::date = ${ds} LIMIT 1`
+    const has = await sql`SELECT 1 FROM hire_moods WHERE user_id = ${user.id} AND (created_at AT TIME ZONE ${tz})::date = ${ds} LIMIT 1`
     if (has[0]) return json({ ok: true, logged: true, id: crypto.randomUUID(), ...parsed, existing: true })
     const id = crypto.randomUUID()
     await sql`
@@ -7549,10 +7552,10 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     const parsed = parseSpendText(String(body.text))
     if (!parsed) return json({ ok: false, logged: false, error: 'Could not parse spend' })
     const weekStart = userMonday(user)
-    const weekEnd = shiftDateStr(weekStart, 7)
+    const weekWindow = weekWindowUtc(weekStart, user.timezone || 'America/Los_Angeles')
     const spent = await sql`
       SELECT coalesce(sum(amount), 0)::real AS total FROM hire_spending
-      WHERE user_id = ${user.id} AND spent_at >= ${weekStart}::date AND spent_at < ${weekEnd}::date
+      WHERE user_id = ${user.id} AND spent_at >= ${weekWindow.start.toISOString()} AND spent_at < ${weekWindow.end.toISOString()}
     `
     const budget = await sql`SELECT weekly_budget AS "weeklyBudget" FROM hire_spending_budget WHERE user_id = ${user.id}`
     const weekTotal = Number((spent[0] as { total?: number })?.total || 0)
@@ -8149,14 +8152,15 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     if (error) return error
     const weekStart = userMonday(user!)
     const weekEndStr = shiftDateStr(weekStart, 7)
+    const weekWindow = weekWindowUtc(weekStart, user!.timezone || 'America/Los_Angeles')
 
     const nutr = await sql`
       SELECT count(*)::int AS meals, coalesce(sum(calories), 0)::real AS calories
-      FROM hire_nutrition_logs WHERE user_id = ${user!.id} AND eaten_at >= ${weekStart}::date AND eaten_at < ${weekEndStr}::date
+      FROM hire_nutrition_logs WHERE user_id = ${user!.id} AND eaten_at >= ${weekWindow.start.toISOString()} AND eaten_at < ${weekWindow.end.toISOString()}
     `
     const moods = await sql`
       SELECT count(*)::int AS logs, coalesce(avg(energy), 0)::real AS energy
-      FROM hire_moods WHERE user_id = ${user!.id} AND created_at >= ${weekStart}::date AND created_at < ${weekEndStr}::date
+      FROM hire_moods WHERE user_id = ${user!.id} AND created_at >= ${weekWindow.start.toISOString()} AND created_at < ${weekWindow.end.toISOString()}
     `
     const habits = await sql`
       SELECT count(*)::int AS checks FROM hire_habit_logs
@@ -8168,11 +8172,11 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     `
     const spend = await sql`
       SELECT coalesce(sum(amount), 0)::real AS total FROM hire_spending
-      WHERE user_id = ${user!.id} AND spent_at >= ${weekStart}::date AND spent_at < ${weekEndStr}::date
+      WHERE user_id = ${user!.id} AND spent_at >= ${weekWindow.start.toISOString()} AND spent_at < ${weekWindow.end.toISOString()}
     `
     const gratitude = await sql`
       SELECT count(*)::int AS n FROM hire_gratitude
-      WHERE user_id = ${user!.id} AND created_at >= ${weekStart}::date AND created_at < ${weekEndStr}::date
+      WHERE user_id = ${user!.id} AND created_at >= ${weekWindow.start.toISOString()} AND created_at < ${weekWindow.end.toISOString()}
     `
     const duePeople = await sql`
       SELECT count(*)::int AS n FROM hire_network
@@ -8253,6 +8257,14 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
 
     const lastNightKey = shiftDateStr(todayLocal, -1)
 
+    /* The tables below keep TIMESTAMPTZ timestamps. Comparing one against a
+     * bare `::date` reads it at midnight in the database's own session timezone,
+     * so "today" silently ended at 5 PM Pacific: a dinner logged at 11 PM never
+     * reached Home's protein row. Compare against the true UTC instants instead. */
+    const dayWindow = todayWindowUtc(tzLocal)
+    const weekWindow = weekWindowUtc(weekStart, tzLocal)
+    const trendStart = weekWindowUtc(shiftDateStr(weekStart, -14), tzLocal).start
+
     /* These were awaited one at a time: twenty-odd round trips to Postgres, in
      * series, before the page had a single number to paint. Nothing here reads
      * anything else here, so they go out together and the slice costs about as
@@ -8281,25 +8293,26 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
       lastNightRows,
       prefs,
       duePeopleRows,
+      dueLoopRows,
     ] = await Promise.all([
       sql`
         SELECT count(*)::int AS meals, coalesce(sum(calories), 0)::real AS calories
-        FROM hire_nutrition_logs WHERE user_id = ${user!.id} AND eaten_at >= ${weekStart}::date AND eaten_at < ${weekEndStr}::date
+        FROM hire_nutrition_logs WHERE user_id = ${user!.id} AND eaten_at >= ${weekWindow.start.toISOString()} AND eaten_at < ${weekWindow.end.toISOString()}
       `,
       sql`
         SELECT coalesce(sum(protein), 0)::real AS protein, coalesce(sum(calories), 0)::real AS calories, count(*)::int AS meals
-        FROM hire_nutrition_logs WHERE user_id = ${user!.id} AND eaten_at >= ${todayLocal}::date AND eaten_at < ${shiftDateStr(todayLocal, 1)}::date
+        FROM hire_nutrition_logs WHERE user_id = ${user!.id} AND eaten_at >= ${dayWindow.start.toISOString()} AND eaten_at < ${dayWindow.end.toISOString()}
       `,
       sql`
         SELECT protein_goal AS "proteinGoal", calorie_goal AS "calorieGoal" FROM hire_nutrition_goals WHERE user_id = ${user!.id} LIMIT 1
       `,
       sql`
         SELECT count(*)::int AS n FROM hire_workouts
-        WHERE user_id = ${user!.id} AND logged_at >= ${todayLocal}::date AND logged_at < ${shiftDateStr(todayLocal, 1)}::date
+        WHERE user_id = ${user!.id} AND logged_at >= ${dayWindow.start.toISOString()} AND logged_at < ${dayWindow.end.toISOString()}
       `,
       sql`
         SELECT count(*)::int AS logs, coalesce(avg(energy), 0)::real AS energy
-        FROM hire_moods WHERE user_id = ${user!.id} AND created_at >= ${weekStart}::date AND created_at < ${weekEndStr}::date
+        FROM hire_moods WHERE user_id = ${user!.id} AND created_at >= ${weekWindow.start.toISOString()} AND created_at < ${weekWindow.end.toISOString()}
       `,
       sql`
         SELECT id, name FROM hire_habits WHERE user_id = ${user!.id} ORDER BY created_at ASC LIMIT 12
@@ -8314,17 +8327,17 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
       `,
       sql`
         SELECT coalesce(sum(amount), 0)::real AS total FROM hire_spending
-        WHERE user_id = ${user!.id} AND spent_at >= ${weekStart}::date AND spent_at < ${weekEndStr}::date
+        WHERE user_id = ${user!.id} AND spent_at >= ${weekWindow.start.toISOString()} AND spent_at < ${weekWindow.end.toISOString()}
       `,
       sql`
         SELECT category, coalesce(sum(amount), 0)::real AS amount FROM hire_spending
-        WHERE user_id = ${user!.id} AND spent_at >= ${weekStart}::date AND spent_at < ${weekEndStr}::date
+        WHERE user_id = ${user!.id} AND spent_at >= ${weekWindow.start.toISOString()} AND spent_at < ${weekWindow.end.toISOString()}
         GROUP BY category ORDER BY amount DESC
       `,
       sql`SELECT weekly_budget AS "weeklyBudget" FROM hire_spending_budget WHERE user_id = ${user!.id}`,
       sql`
         SELECT count(*)::int AS n FROM hire_workouts
-        WHERE user_id = ${user!.id} AND logged_at >= ${weekStart}::date AND logged_at < ${weekEndStr}::date
+        WHERE user_id = ${user!.id} AND logged_at >= ${weekWindow.start.toISOString()} AND logged_at < ${weekWindow.end.toISOString()}
       `,
       sql`
         SELECT exercise, max(weight) AS weight FROM hire_workouts
@@ -8341,7 +8354,7 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
       `,
       sql`
         SELECT count(*)::int AS n FROM hire_gratitude
-        WHERE user_id = ${user!.id} AND created_at >= ${weekStart}::date AND created_at < ${weekEndStr}::date
+        WHERE user_id = ${user!.id} AND created_at >= ${weekWindow.start.toISOString()} AND created_at < ${weekWindow.end.toISOString()}
       `,
       sql`
         SELECT count(*) FILTER (WHERE outcome IS NULL)::int AS open,
@@ -8350,7 +8363,7 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
       `,
       sql`
         SELECT emoji, energy, created_at AS "createdAt" FROM hire_moods
-        WHERE user_id = ${user!.id} AND created_at >= ${dayStart}::date
+        WHERE user_id = ${user!.id} AND created_at >= ${trendStart.toISOString()}
         ORDER BY created_at ASC LIMIT 60
       `,
       sql`
@@ -8372,10 +8385,19 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
         ORDER BY sleep_date DESC LIMIT 1
       `,
       loadMiniPrefs(sql, user!.id),
+      // `id` is what turns a person from a row you read into one you can act on:
+      // without it home can name who is due but cannot mark them touched.
       sql`
-        SELECT name, context, phone, last_touch AS "lastTouch", cadence_days AS "cadenceDays"
+        SELECT id, name, context, phone, last_touch AS "lastTouch", cadence_days AS "cadenceDays"
         FROM hire_network WHERE user_id = ${user!.id}
         ORDER BY coalesce(last_touch, '1970-01-01'::timestamptz) ASC LIMIT 8
+      `,
+      // The one promise closest to its deadline. Home only ever shows one, so
+      // there is no reason to ship eight.
+      sql`
+        SELECT id, title, due_at AS "dueAt" FROM hire_loops
+        WHERE user_id = ${user!.id} AND status = 'open'
+        ORDER BY due_at ASC NULLS LAST LIMIT 1
       `,
     ])
 
@@ -8424,15 +8446,20 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     const workoutsTodayN = Number((workoutsTodayRows[0] as { n?: number })?.n || 0)
 
     const peopleDue = (duePeopleRows as Array<{
-      name: string; context: string; phone: string; lastTouch: Date | null; cadenceDays: number
+      id: string; name: string; context: string; phone: string; lastTouch: Date | null; cadenceDays: number
     }>)
       .map((p) => {
         const days = p.lastTouch ? Math.floor((Date.now() - new Date(p.lastTouch).getTime()) / 86400000) : 999
-        return { name: p.name, days, phone: p.phone || undefined, due: days >= (p.cadenceDays || 14) }
+        return { id: p.id, name: p.name, days, phone: p.phone || undefined, context: p.context || undefined, due: days >= (p.cadenceDays || 14) }
       })
       .filter((p) => p.due)
       .slice(0, 3)
-      .map(({ name, days, phone }) => ({ name, days, phone }))
+      .map(({ id, name, days, phone, context }) => ({ id, name, days, phone, context }))
+
+    const dueLoopRow = (dueLoopRows as Array<{ id: string; title: string; dueAt: Date | null }>)[0]
+    const dueLoop = dueLoopRow
+      ? { id: dueLoopRow.id, title: dueLoopRow.title, dueAt: dueLoopRow.dueAt ? new Date(dueLoopRow.dueAt).toISOString() : null }
+      : null
 
     /* Calendar, Gmail and the mail-kind judge, off the critical path. A stale
      * answer paints instantly while the next one loads behind the response;
@@ -8456,6 +8483,7 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
         mail,
         mailGroups,
         peopleDue,
+        dueLoop,
         lastNight: {
           logged: lastNightLogged,
           hours: Math.round(lastNightHours * 10) / 10,
@@ -8763,9 +8791,10 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
       ORDER BY created_at DESC LIMIT 40
     `
     const monday = userMonday(user!)
+    const weekWindow = weekWindowUtc(monday, user!.timezone || 'America/Los_Angeles')
     const weekCount = await sql`
       SELECT count(*)::int AS n FROM hire_gratitude
-      WHERE user_id = ${user!.id} AND created_at >= ${monday}::date
+      WHERE user_id = ${user!.id} AND created_at >= ${weekWindow.start.toISOString()} AND created_at < ${weekWindow.end.toISOString()}
     `
     return json({ entries, weekCount: Number((weekCount[0] as { n: number })?.n || 0) })
   }
@@ -8802,6 +8831,7 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     if (error) return error
     const weekStart = userMonday(user!)
     const weekEndStr = shiftDateStr(weekStart, 7)
+    const weekWindow = weekWindowUtc(weekStart, user!.timezone || 'America/Los_Angeles')
     const logs = await sql`
       SELECT id, amount, category, description, spent_at AS "spentAt"
       FROM hire_spending WHERE user_id = ${user!.id}
@@ -8810,7 +8840,7 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     const week = await sql`
       SELECT category, coalesce(sum(amount), 0)::real AS total
       FROM hire_spending
-      WHERE user_id = ${user!.id} AND spent_at >= ${weekStart}::date AND spent_at < ${weekEndStr}::date
+      WHERE user_id = ${user!.id} AND spent_at >= ${weekWindow.start.toISOString()} AND spent_at < ${weekWindow.end.toISOString()}
       GROUP BY category
     `
     const budgetRow = await sql`SELECT weekly_budget AS "weeklyBudget" FROM hire_spending_budget WHERE user_id = ${user!.id}`
