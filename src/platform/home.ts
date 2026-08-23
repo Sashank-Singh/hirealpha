@@ -38,6 +38,30 @@ export function localYmd(d = new Date()) {
   return `${y}-${m}-${day}`
 }
 
+/** Minutes since midnight for a "11:30 AM" clock string; NaN when it is not one
+ * (all-day, ranges, malformed) — those are kept rather than dropped as past. */
+export function meetMinutes(time: string): number {
+  const m = String(time || '').match(/(\d{1,2}):(\d{2})\s*(AM|PM)?/i)
+  if (!m) return NaN
+  let h = Number(m[1])
+  const min = Number(m[2])
+  const ap = (m[3] || '').toUpperCase()
+  if (ap === 'PM' && h < 12) h += 12
+  if (ap === 'AM' && h === 12) h = 0
+  return h * 60 + min
+}
+
+/** Only meetings still ahead of (or just starting) now. The cached snapshot lists
+ * the whole day, so this is re-checked against the live clock: a meeting already
+ * behind us stops counting as "left today" and stops leading the Next card. */
+export function remainingMeets(meets: HomeMeet[], now = new Date()): HomeMeet[] {
+  const nowMin = now.getHours() * 60 + now.getMinutes()
+  return meets.filter((m) => {
+    const t = meetMinutes(m.time)
+    return Number.isNaN(t) || t >= nowMin - 5
+  })
+}
+
 export function shiftYmd(ymd: string, days: number) {
   const [y, m, d] = ymd.split('-').map(Number)
   const dt = new Date(y || 1970, (m || 1) - 1, (d || 1) + days)

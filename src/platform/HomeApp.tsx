@@ -19,6 +19,7 @@ import {
   mergeMeets,
   pickHomeAction,
   pickLastNight,
+  remainingMeets,
   shiftYmd,
 } from './home'
 import { readHomeCache, writeHomeCache } from './homeCache'
@@ -170,10 +171,12 @@ export function HomeApp({ auth }: { auth: FeatureAuth }) {
       : fromTrend
         ? { logged: true, hours: fromTrend.hours, bedtime: undefined as string | undefined, wake: undefined as string | undefined }
         : { logged: false, hours: 0 }
-  const upcoming = mergeMeets(
-    raw?.upcoming || [],
-    todayMeets.map((m) => ({ time: m.time, title: m.who || m.title })),
-  ).filter((e) => isPersonMeetSuggestion({ time: e.time, title: e.title, who: e.title }))
+  const upcoming = remainingMeets(
+    mergeMeets(
+      raw?.upcoming || [],
+      todayMeets.map((m) => ({ time: m.time, title: m.who || m.title })),
+    ).filter((e) => isPersonMeetSuggestion({ time: e.time, title: e.title, who: e.title })),
+  )
   const peopleDue =
     raw?.peopleDue && raw.peopleDue.length > 0 ? raw.peopleDue : duePeopleFrom(people)
   const hour = typeof raw?.hour === 'number' ? raw.hour : new Date().getHours()

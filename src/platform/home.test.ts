@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { homeFetchPlan, mergeMeets, pickHomeAction, pickLastNight, type HomeSlice } from './home'
+import { homeFetchPlan, mergeMeets, pickHomeAction, pickLastNight, remainingMeets, type HomeSlice } from './home'
 
 const base: HomeSlice = {
   hour: 7,
@@ -138,5 +138,24 @@ describe('homeFetchPlan', () => {
     expect(homeFetchPlan(undefined)).toEqual({ sleep: true, people: true })
     expect(homeFetchPlan({})).toEqual({ sleep: true, people: true })
     expect(homeFetchPlan({ home: {} })).toEqual({ sleep: true, people: true })
+  })
+})
+
+describe('remainingMeets', () => {
+  const at = (h: number, min = 0) => ({ getHours: () => h, getMinutes: () => min } as unknown as Date)
+
+  test('drops meetings whose time has already passed', () => {
+    const meets = [{ time: '11:30 AM', title: 'Past' }, { time: '6:00 PM', title: 'Still ahead' }]
+    expect(remainingMeets(meets, at(17))).toEqual([{ time: '6:00 PM', title: 'Still ahead' }])
+  })
+
+  test('keeps a meeting that just started during the grace window', () => {
+    const meets = [{ time: '4:58 PM', title: 'Just began' }]
+    expect(remainingMeets(meets, at(17))).toEqual(meets)
+  })
+
+  test('keeps all-day or unparseable times rather than dropping them as past', () => {
+    const meets = [{ time: 'All day', title: 'Offsite' }, { time: '9:00 AM', title: 'Early' }]
+    expect(remainingMeets(meets, at(17))).toEqual([{ time: 'All day', title: 'Offsite' }])
   })
 })
