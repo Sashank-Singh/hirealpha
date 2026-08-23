@@ -2751,6 +2751,8 @@ button, input { font: inherit; }
 .ma-row--warn { border-color: color-mix(in srgb, #f97316 45%, var(--border)); }
 .ma-row-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .ma-title { font-size: 14px; font-weight: 600; overflow-wrap: anywhere; }
+.ma-title-link { color: var(--mini-accent, #2a6f7a); text-decoration: none; }
+.ma-title-link:hover { text-decoration: underline; }
 .ma-sub { font-size: 12px; color: var(--muted-fg); overflow-wrap: anywhere; line-height: 1.4; }
 .ma-hero { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .ma-hero-kicker {

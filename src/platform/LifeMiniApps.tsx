@@ -623,7 +623,15 @@ export function LearningQueueApp({ auth }: { auth: FeatureAuth }) {
           {queued.map((i) => (
             <li key={i.id} className="ma-row">
               <div className="ma-row-main">
-                <span className="ma-title">{i.title}</span>
+                <span className="ma-title">
+                  {i.url ? (
+                    <a className="ma-title-link" href={openHttp(i.url)} target="_blank" rel="noreferrer">
+                      {i.title}
+                    </a>
+                  ) : (
+                    i.title
+                  )}
+                </span>
                 <span className="ma-sub">
                   {kindLabel(i.kind)}
                   {i.notes ? `. ${i.notes}` : ''}
