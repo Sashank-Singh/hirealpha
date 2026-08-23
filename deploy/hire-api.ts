@@ -2627,15 +2627,21 @@ async function gmiBriefChat(
 async function judgeMailBatch(
   items: Array<{ id: string; from: string; subject: string; snippet?: string }>,
   vocab: string[] = [],
+  opts: { limit?: number; maxTokens?: number; timeoutMs?: number } = {},
 ): Promise<Map<string, MailJudgeVerdict>> {
   if (!items.length) return new Map()
-  const batch: MailJudgeItem[] = items.slice(0, 20).map((m) => ({
+  const batch: MailJudgeItem[] = items.slice(0, opts.limit ?? 20).map((m) => ({
     id: m.id,
     from: m.from,
     subject: m.subject,
     snippet: m.snippet || '',
   }))
-  const raw = await gmiBriefChat(MAIL_JUDGE_SYSTEM, mailJudgePrompt(batch, vocab), 700, 8000)
+  const raw = await gmiBriefChat(
+    MAIL_JUDGE_SYSTEM,
+    mailJudgePrompt(batch, vocab),
+    opts.maxTokens ?? 700,
+    opts.timeoutMs ?? 8000,
+  )
   if (!raw) return new Map()
   return new Map(parseMailJudgeVerdicts(raw, batch).map((v) => [v.id, v]))
 }
@@ -2865,7 +2871,11 @@ async function digestPayload(
             [] as Array<{ id: string; from: string; date: string; subject: string; snippet: string }>,
           ),
         ])
-        const verdicts = await judgeMailBatch(richItems, vocab)
+        /* The brief's model pass is the long pole of a cold load, so it is kept
+         * small and hard-capped here: a 10-mail judge with a 4s ceiling, past
+         * which the fallback regex grouping (inside groupMailByKind) carries the
+         * view and the enriched cache lands on the next visit. */
+        const verdicts = await judgeMailBatch(richItems, vocab, { limit: 10, maxTokens: 400, timeoutMs: 4000 })
         const labelled: MailKindItem[] = richItems.map((m) => ({ ...m, kind: verdicts.get(m.id)?.kind }))
         // Mail the user already handled leaves both Needs You and the piles. This
         // is what makes Done and Skip stick instead of popping back on reload.
