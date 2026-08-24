@@ -263,3 +263,38 @@ describe('coworker standup from chat', () => {
     expect(insert!.values.map(String).join(' ')).toContain('shipped the parser')
   })
 })
+
+describe('work pull sections', () => {
+  it('coworker pull has Linear + PRs + drafts', () => {
+    const { workPullSections } = require('./hire-api') as typeof import('./hire-api')
+    const s = workPullSections({
+      persona: 'coworker',
+      linear: [{ identifier: 'LIN-12', title: 'payments flake', state: 'In progress' }],
+      prs: ['#3216 fix null check'],
+      draftsCount: 2,
+    })
+    const flat = s.map((x) => x.title + '|' + x.lines.join(' ')).join('\n')
+    expect(flat).toContain('Linear')
+    expect(flat).toContain('LIN-12')
+    expect(flat).toContain('PRs needing your pass')
+    expect(flat).toContain('2 waiting')
+  })
+
+  it('cofounder pull has pipeline $ + decisions + runway', () => {
+    const { workPullSections } = require('./hire-api') as typeof import('./hire-api')
+    const s = workPullSections({
+      persona: 'cofounder',
+      pipeline: [{ stage: 'offer', value: 220000 }, { stage: 'active', value: 50000 }],
+      decisionsOpen: 2,
+      oldestDecisionDays: 5,
+      runway: { cash: 530000, burn: 48000, months: 11 },
+    })
+    const flat = s.map((x) => x.title + '|' + x.lines.join(' ')).join('\n')
+    expect(flat).toContain('Pipeline')
+    expect(flat).toContain('$270k')
+    expect(flat).toContain('1 offers out')
+    expect(flat).toContain('Decisions')
+    expect(flat).toContain('2 open')
+    expect(flat).toContain('11 months')
+  })
+})

@@ -2971,6 +2971,63 @@ async function loadHomeWorld(sql: SQL, user: AuthedUser, tzLocal: string): Promi
   return world
 }
 
+/** The work personas' morning pull: one boxed section set per hire, appended to
+ * the digest text so the thread itself replaces opening Slack/Linear/Notion. */
+export function workPullSections(input: {
+  persona: 'coworker' | 'cofounder'
+  linear?: Array<{ identifier: string; title: string; state?: string }>
+  prs?: string[]
+  draftsCount?: number
+  pipeline?: Array<{ stage: string; value: number }>
+  decisionsOpen?: number
+  oldestDecisionDays?: number
+  runway?: { cash: number; burn: number; months: number } | null
+}): Array<{ title: string; lines: string[] }> {
+  const sections: Array<{ title: string; lines: string[] }> = []
+  if (input.persona === 'coworker') {
+    const needsYou = (input.linear || []).filter((i) => !/done|canceled|closed/i.test(i.state || ''))
+    if (needsYou.length) {
+      sections.push({
+        title: 'Linear',
+        lines: needsYou.slice(0, 4).map((i) => `${i.identifier} ${i.title}`),
+      })
+    }
+    if (input.prs?.length) {
+      sections.push({ title: 'PRs needing your pass', lines: input.prs.slice(0, 4) })
+    }
+    if (input.draftsCount) {
+      sections.push({ title: 'Drafts ready to send', lines: [`${input.draftsCount} waiting`] })
+    }
+  } else if (input.persona === 'cofounder') {
+    const live = input.pipeline || []
+    const total = live.reduce((s, p) => s + (p.value > 0 ? p.value : 0), 0)
+    const offers = live.filter((p) => p.stage === 'offer').length
+    if (live.length) {
+      sections.push({
+        title: 'Pipeline',
+        lines: [
+          `${live.length} live${total > 0 ? ` · $${Math.round(total / 1000)}k` : ''}${offers ? ` · ${offers} offers out` : ''}`,
+        ],
+      })
+    }
+    if (input.decisionsOpen) {
+      sections.push({
+        title: 'Decisions',
+        lines: [`${input.decisionsOpen} open${input.oldestDecisionDays ? ` · oldest ${input.oldestDecisionDays}d` : ''}`],
+      })
+    }
+    if (input.runway && input.runway.months > 0) {
+      sections.push({
+        title: 'Runway',
+        lines: [
+          `${Math.round(input.runway.months)} months ($${Math.round(input.runway.cash)} cash @ $${Math.round(input.runway.burn)}/mo)`,
+        ],
+      })
+    }
+  }
+  return sections
+}
+
 async function digestPayload(
   sql: SQL,
   user: { id: string; timezone: string | null; name?: string | null },
@@ -3361,6 +3418,70 @@ async function digestPayload(
               kind: 'quiet',
             }
 
+  /* ---- The work pull: the thread replacing Slack/Linear/ChatGPT ----
+   * Both work personas get their own slice in the morning text — Linear and PRs
+   * and drafts for coworker, pipeline and decisions and runway for cofounder —
+   * so the brief is the reason you never open those tools. */
+  let workSections: Array<{ title: string; lines: string[] }> = []
+  let workData: Record<string, unknown> | null = null
+  if (persona === 'coworker' || persona === 'cofounder') {
+    const [linear, drafts, pipe, decAgg, runway, prs] = await Promise.all([
+      persona === 'coworker'
+        ? listLinearIssues(user.id).then((r) => r.issues || []).catch(() => [])
+        : Promise.resolve([] as Array<{ identifier: string; title: string; state?: string }>),
+      sql`SELECT count(*)::int AS n FROM hire_drafts WHERE user_id = ${user.id} AND status = 'pending'`,
+      persona === 'cofounder'
+        ? sql`SELECT stage, coalesce(value, 0)::real AS value FROM hire_pipeline
+              WHERE user_id = ${user.id} AND stage NOT IN ('won', 'lost')`
+        : Promise.resolve([] as Array<{ stage: string; value: number }>),
+      persona === 'cofounder'
+        ? sql`SELECT count(*) FILTER (WHERE outcome IS NULL)::int AS open,
+                     max(created_at) AS oldest
+              FROM hire_decisions WHERE user_id = ${user.id}`
+        : Promise.resolve([{ open: 0, oldest: null }]),
+      persona === 'cofounder'
+        ? sql`SELECT cash, burn, months FROM hire_runway_snapshots
+              WHERE user_id = ${user.id} ORDER BY taken_on DESC LIMIT 1`
+        : Promise.resolve([] as Array<{ cash: number; burn: number; months: number }>),
+      persona === 'coworker'
+        ? (async () => {
+            try {
+              const raw = await composioFirst(user.id, ['GITHUB_LIST_PULL_REQUESTS'], { state: 'open' })
+              return raw ? digestLines(raw).slice(0, 4) : []
+            } catch {
+              return []
+            }
+          })()
+        : Promise.resolve([] as string[]),
+    ])
+    const draftsN = Number((drafts[0] as { n?: number })?.n || 0)
+    const pipeRows = pipe as Array<{ stage: string; value: number }>
+    const dec = (decAgg[0] as { open?: number; oldest?: Date | null }) || {}
+    const run = (runway[0] as { cash?: number; burn?: number; months?: number }) || null
+    const oldestDays = dec.oldest ? Math.floor((Date.now() - new Date(dec.oldest).getTime()) / 86400000) : 0
+    workSections = workPullSections({
+      persona,
+      linear: linear as Array<{ identifier: string; title: string; state?: string }>,
+      prs: prs as string[],
+      draftsCount: persona === 'coworker' ? draftsN : undefined,
+      pipeline: persona === 'cofounder' ? pipeRows : undefined,
+      decisionsOpen: persona === 'cofounder' ? Number(dec.open) || 0 : undefined,
+      oldestDecisionDays: oldestDays || undefined,
+      runway: run
+        ? { cash: Number(run.cash) || 0, burn: Number(run.burn) || 0, months: Number(run.months) || 0 }
+        : null,
+    })
+    workData = {
+      sections: workSections,
+      linear: (linear as unknown[]).length,
+      drafts: draftsN,
+      pipeline: pipeRows.length,
+      pipelineValue: pipeRows.reduce((s, p) => s + (p.value > 0 ? p.value : 0), 0),
+      decisions: Number(dec.open) || 0,
+      months: run ? Number(run.months) || 0 : 0,
+    }
+  }
+
   const section = (title: string, items: string[]) =>
     items.length ? `${title}\n${items.join('\n')}` : null
 
@@ -3369,6 +3490,7 @@ async function digestPayload(
     lead,
     section('The day', todayCal),
     section('Tomorrow', tomorrowCal),
+    ...workSections.map((s) => section(s.title, s.lines)),
     section('Mail', mailTallyLine ? [mailTallyLine, ...finalEmails] : finalEmails),
     section('Due a ping', peopleDue.map((p) => `${p.name} · ${p.days} days`)),
     section('Do not forget', reminders.map((r) => `${r.time} · ${r.text}`)),
@@ -3392,6 +3514,7 @@ async function digestPayload(
     loops,
     tomorrow: tomorrowCal,
     events,
+    work: workData,
     text,
     preview,
     brief,
