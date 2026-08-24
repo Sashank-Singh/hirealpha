@@ -298,3 +298,56 @@ describe('work pull sections', () => {
     expect(flat).toContain('11 months')
   })
 })
+
+describe('workshop: build → keep → toss', () => {
+  const code = `await Bun.write('out/index.html', '<h1>Invoice tracker</h1>')`
+
+  it('"build me a tracker for my invoices" → artifact kind', () => {
+    expect(detectMiniAppRequest('build me a tracker for my invoices', 'friend')).toEqual({ kind: 'artifact' })
+    expect(detectMiniAppRequest('make a dashboard for sales', 'coworker')).toEqual({ kind: 'artifact' })
+  })
+
+  it('the build runs, stores the artifact, and returns the link', async () => {
+    process.env.HIREALPHA_INTERNAL_KEY = 'test-key'
+    const { sql, queries } = fakeSql(rows)
+    const res = await handleHireApi(
+      internalPost('/api/internal/workshop', { phone: USER.phone, persona: 'friend', prompt: 'build me a tracker for my invoices', title: 'Invoice tracker', code }),
+      sql,
+    )
+    expect(res?.status).toBe(200)
+    const data = (await res?.json()) as { logged?: boolean; artifactId?: string; files?: string[] }
+    expect(data.logged).toBe(true)
+    expect(data.files?.[0]).toBe('index.html')
+    expect(queries.some((q) => /INSERT INTO hire_artifacts/i.test(q.text))).toBe(true)
+    expect(queries.some((q) => /INSERT INTO hire_workshop_tasks/i.test(q.text))).toBe(true)
+  })
+
+  it('banned code is refused before running', async () => {
+    process.env.HIREALPHA_INTERNAL_KEY = 'test-key'
+    const { sql, queries } = fakeSql(rows)
+    const res = await handleHireApi(
+      internalPost('/api/internal/workshop', { phone: USER.phone, persona: 'friend', title: 'evil', code: `require('child_process')` }),
+      sql,
+    )
+    const data = (await res?.json()) as { ok?: boolean; error?: string }
+    expect(data.ok).toBe(false)
+    expect(data.error).toContain('sandbox does not allow')
+    expect(queries.some((q) => /INSERT INTO hire_artifacts/i.test(q.text))).toBe(false)
+  })
+
+  it('toss deletes the artifact', async () => {
+    process.env.HIREALPHA_INTERNAL_KEY = 'test-key'
+    const { sql, queries } = fakeSql((text) => {
+      if (/FROM hire_users/i.test(text)) return [USER]
+      if (/SELECT id, user_id FROM hire_artifacts/i.test(text)) return [{ id: 'art-1', user_id: USER.id }]
+      if (/SELECT id FROM hire_artifacts/i.test(text)) return [{ id: 'art-1' }]
+      return []
+    })
+    const res = await handleHireApi(
+      internalPost('/api/internal/workshop/toss', { phone: USER.phone, persona: 'friend' }),
+      sql,
+    )
+    expect(res?.status).toBe(200)
+    expect(queries.some((q) => /DELETE FROM hire_artifacts/i.test(q.text))).toBe(true)
+  })
+})

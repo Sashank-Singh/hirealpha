@@ -1,3 +1,4 @@
+import { gmiChat } from './gmi'
 import type { AgentId } from '../../src/agents/types'
 
 export type LiveProfile = {
@@ -785,5 +786,117 @@ export async function autoLogStandup(
   } catch (err) {
     console.warn('[live] standup auto-log failed', err)
     return { ok: false, logged: false, error: 'save failed' }
+  }
+}
+
+/* ---- Workshop: Alpha builds software ---- */
+
+const WORKSHOP_PLANNER = [
+  'You generate a single-file JavaScript program for a sandbox.',
+  'Sandbox rules: Bun runtime, NO network, NO environment variables, no child processes.',
+  'Do useful work, then WRITE every output file into the out/ directory (create it if needed), e.g. await Bun.write("out/index.html", html).',
+  'For a page or tracker, produce one self-contained out/index.html with inline CSS/JS and realistic sample data the user can edit later in the file.',
+  'Reply with JSON only, no markdown: {"title": "short name", "code": "<the whole program>"}',
+].join('\n')
+
+export async function autoRunWorkshop(
+  phone: string,
+  persona: AgentId,
+  ask: string,
+): Promise<{ ok?: boolean; logged?: boolean; error?: string; artifactId?: string; url?: string; title?: string } | null> {
+  const base = apiBase()
+  const key = process.env.HIREALPHA_INTERNAL_KEY || ''
+  if (!base || !key) return { ok: false, logged: false, error: 'not configured' }
+
+  // Plan: turn the ask into sandbox code. One repair retry on invalid JSON.
+  let title = ''
+  let code = ''
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const raw = await gmiChat({
+      temperature: 0.2,
+      maxTokens: 3000,
+      messages: [
+        { role: 'system', content: WORKSHOP_PLANNER },
+        { role: 'user', content: attempt === 0 ? ask : `${ask}\n\nYour previous reply was not valid JSON. Reply again, JSON only.` },
+      ],
+    })
+    const jsonMatch = (raw || '').match(/\{[\s\S]*\}/)
+    if (!jsonMatch) continue
+    try {
+      const parsed = JSON.parse(jsonMatch[0]) as { title?: string; code?: string }
+      title = String(parsed.title || '').slice(0, 120)
+      code = String(parsed.code || '')
+      if (code.trim()) break
+    } catch {
+      /* retry once */
+    }
+  }
+  if (!code.trim()) return { ok: false, logged: false, error: 'could not draft the program' }
+
+  try {
+    const res = await timedFetch(
+      `${base}/api/internal/workshop`,
+      {
+        method: 'POST',
+        headers: authHeaders(),
+        body: JSON.stringify({ phone, persona, prompt: ask.slice(0, 500), title, code }),
+      },
+      45000,
+    )
+    if (!res.ok) return { ok: false, logged: false, error: `build failed (${res.status})` }
+    return (await res.json()) as { ok?: boolean; logged?: boolean; error?: string; artifactId?: string; url?: string; title?: string }
+  } catch (err) {
+    console.warn('[live] workshop build failed', err)
+    return { ok: false, logged: false, error: 'build failed' }
+  }
+}
+
+export async function autoWorkshopKeep(
+  phone: string,
+  persona: AgentId,
+  artifactId?: string,
+): Promise<{ ok?: boolean; logged?: boolean; error?: string } | null> {
+  const base = apiBase()
+  const key = process.env.HIREALPHA_INTERNAL_KEY || ''
+  if (!base || !key) return { ok: false, logged: false, error: 'not configured' }
+  try {
+    const res = await timedFetch(
+      `${base}/api/internal/workshop/keep`,
+      {
+        method: 'POST',
+        headers: authHeaders(),
+        body: JSON.stringify({ phone, persona, ...(artifactId ? { artifactId } : {}) }),
+      },
+      12000,
+    )
+    if (!res.ok) return { ok: false, logged: false, error: `failed (${res.status})` }
+    return (await res.json()) as { ok?: boolean; logged?: boolean; error?: string }
+  } catch {
+    return { ok: false, logged: false, error: 'failed' }
+  }
+}
+
+export async function autoWorkshopToss(
+  phone: string,
+  persona: AgentId,
+  artifactId?: string,
+): Promise<{ ok?: boolean; logged?: boolean; error?: string } | null> {
+  const base = apiBase()
+  const key = process.env.HIREALPHA_INTERNAL_KEY || ''
+  if (!base || !key) return { ok: false, logged: false, error: 'not configured' }
+  try {
+    const res = await timedFetch(
+      `${base}/api/internal/workshop/toss`,
+      {
+        method: 'POST',
+        headers: authHeaders(),
+        body: JSON.stringify({ phone, persona, ...(artifactId ? { artifactId } : {}) }),
+      },
+      12000,
+    )
+    if (!res.ok) return { ok: false, logged: false, error: `failed (${res.status})` }
+    return (await res.json()) as { ok?: boolean; logged?: boolean; error?: string }
+  } catch {
+    return { ok: false, logged: false, error: 'failed' }
   }
 }

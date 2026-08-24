@@ -4,6 +4,9 @@
  */
 import { Composio } from '@composio/core'
 import { createHmac, timingSafeEqual } from 'node:crypto'
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { join } from 'node:path'
+import { gateWorkshopCode, runWorkshopCode, sweepExpiredArtifacts } from './workshop'
 import type { SQL } from 'bun'
 import {
   extractOtherPerson,
@@ -131,6 +134,13 @@ export function phonesMatch(a: string, b: string): boolean {
 function isPersona(v: string): v is Persona {
   return (PERSONAS as readonly string[]).includes(v)
 }
+
+/** Where built artifacts live on disk. Override with ARTIFACTS_DIR when the
+ * runner moves to its own sandbox box. */
+export function artifactsRoot(): string {
+  return process.env.ARTIFACTS_DIR || join(process.cwd(), 'artifacts')
+}
+export { sweepExpiredArtifacts }
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -501,6 +511,31 @@ export async function ensureHireSchema(sql: SQL) {
       UNIQUE (user_id, taken_on)
     )
   `
+  /* Workshop: things Alpha builds. Delivered artifacts auto-expire (7 days)
+   * unless the user keeps them — nothing the sandbox makes persists by default. */
+  await sql`
+    CREATE TABLE IF NOT EXISTS hire_artifacts (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES hire_users(id) ON DELETE CASCADE,
+      title TEXT NOT NULL,
+      kind TEXT NOT NULL DEFAULT 'page',
+      files JSONB NOT NULL DEFAULT '[]'::jsonb,
+      state TEXT NOT NULL DEFAULT 'delivered',
+      expires_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `
+  await sql`
+    CREATE TABLE IF NOT EXISTS hire_workshop_tasks (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES hire_users(id) ON DELETE CASCADE,
+      prompt TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'done',
+      error TEXT,
+      artifact_id TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `
   await sql`CREATE INDEX IF NOT EXISTS idx_hire_dropzone_user ON hire_dropzone (user_id, status, created_at DESC)`
 
   await sql`
@@ -822,6 +857,14 @@ export async function ensureHireSchema(sql: SQL) {
     )
   `
   await sql`CREATE INDEX IF NOT EXISTS idx_hire_mail_feedback_user ON hire_mail_feedback (user_id, sender, created_at DESC)`
+
+  // Delivered-but-unkept artifacts die with the day count; the sweep also runs
+  // hourly from the server so a long-lived process keeps purging.
+  try {
+    await sweepExpiredArtifacts(sql, artifactsRoot())
+  } catch {
+    /* first boot may have no dir yet */
+  }
 }
 
 export type MailSenderSignal = { replies: number; skips: number }
@@ -8147,6 +8190,214 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
       ON CONFLICT (user_id, day) DO UPDATE SET notes = excluded.notes, created_at = now()
     `
     return json({ ok: true, logged: true, day })
+  }
+
+  /* ---- Workshop: Alpha builds software ---- */
+
+  const artifactDirFor = (userId: string, artifactId: string) => join(artifactsRoot(), userId, artifactId)
+
+  async function storeArtifactFiles(userId: string, artifactId: string, files: Array<{ name: string; bytes: Uint8Array }>) {
+    const dir = artifactDirFor(userId, artifactId)
+    await mkdir(dir, { recursive: true })
+    for (const f of files) {
+      await writeFile(join(dir, f.name), f.bytes)
+    }
+  }
+
+  async function deleteArtifactRow(userId: string, artifactId: string | undefined, persona: string) {
+    let id = artifactId
+    if (!id) {
+      const rows = await sql`
+        SELECT id FROM hire_artifacts
+        WHERE user_id = ${userId} AND state = 'delivered'
+        ORDER BY created_at DESC LIMIT 1
+      `
+      id = (rows[0] as { id?: string } | undefined)?.id
+    }
+    if (!id) return { ok: false, logged: false, error: 'No delivered artifact found' }
+    const owned = await sql`
+      SELECT id FROM hire_artifacts WHERE id = ${id} AND user_id = ${userId} LIMIT 1
+    `
+    if (!owned[0]) return { ok: false, logged: false, error: 'No delivered artifact found' }
+    await rm(artifactDirFor(userId, id), { recursive: true, force: true })
+    await sql`DELETE FROM hire_artifacts WHERE id = ${id} AND user_id = ${userId}`
+    void persona
+    return { ok: true, logged: true, id }
+  }
+
+  if (path === '/api/internal/workshop' && req.method === 'POST') {
+    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
+    if (process.env.WORKSHOP_ENABLED === '0') return json({ ok: false, logged: false, error: 'Workshop is disabled' })
+    const body = (await req.json().catch(() => ({}))) as {
+      phone?: string; persona?: string; prompt?: string; title?: string; code?: string
+    }
+    const code = String(body.code || '')
+    const prompt = String(body.prompt || '').trim().slice(0, 500)
+    if (!body.phone || !isPersona(body.persona || '') || !code) {
+      return json({ error: 'phone, persona, and code required' }, 400)
+    }
+    const user = await getUserByPhone(sql, body.phone)
+    if (!user) return json({ error: 'User not found' }, 404)
+    // Rate limit: ten builds a day is generous for a human and a floor on abuse.
+    const used = await sql`
+      SELECT count(*)::int AS n FROM hire_workshop_tasks
+      WHERE user_id = ${user.id} AND created_at >= date_trunc('day', now())
+    `
+    if (Number((used[0] as { n?: number })?.n || 0) >= 10) {
+      return json({ ok: false, logged: false, error: 'Build limit reached for today (10).' })
+    }
+    await sql`INSERT INTO hire_workshop_tasks (id, user_id, prompt, status) VALUES (${crypto.randomUUID()}, ${user.id}, ${prompt || 'build'}, 'running')`
+    const gate = gateWorkshopCode(code)
+    if (!gate.ok) {
+      await sql`UPDATE hire_workshop_tasks SET status = 'failed', error = ${gate.reason} WHERE user_id = ${user.id} AND prompt = ${prompt || 'build'} AND status = 'running'`
+      return json({ ok: false, logged: false, error: gate.reason })
+    }
+    const run = await runWorkshopCode(code)
+    if (!run.ok || !run.files.length) {
+      const error = run.error || 'The program produced no files.'
+      await sql`UPDATE hire_workshop_tasks SET status = 'failed', error = ${error.slice(0, 500)} WHERE user_id = ${user.id} AND prompt = ${prompt || 'build'} AND status = 'running'`
+      return json({ ok: false, logged: false, error: error.slice(0, 300) })
+    }
+    const artifactId = crypto.randomUUID()
+    const title = String(body.title || prompt || 'Built for you').slice(0, 120)
+    await storeArtifactFiles(user.id, artifactId, run.files)
+    const fileNames = run.files.map((f) => f.name)
+    const expires = new Date(Date.now() + 7 * 86_400_000)
+    await sql`
+      INSERT INTO hire_artifacts (id, user_id, title, kind, files, state, expires_at)
+      VALUES (${artifactId}, ${user.id}, ${title}, ${fileNames.some((f) => /\.html?$/i.test(f)) ? 'page' : 'file'},
+        ${JSON.stringify(fileNames)}, 'delivered', ${expires.toISOString()})
+    `
+    await sql`
+      UPDATE hire_workshop_tasks SET status = 'done', artifact_id = ${artifactId}
+      WHERE user_id = ${user.id} AND prompt = ${prompt || 'build'} AND status = 'running'
+    `
+    return json({
+      ok: true,
+      logged: true,
+      artifactId,
+      title,
+      files: fileNames,
+      url: `${appBase(req)}/app/mini/${isPersona(body.persona || '') ? body.persona! : 'friend'}/artifact?id=${artifactId}`,
+    })
+  }
+
+  if (path === '/api/internal/workshop/last' && req.method === 'GET') {
+    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
+    const user = await getUserByPhone(sql, url.searchParams.get('phone') || '')
+    if (!user) return json({ error: 'User not found' }, 404)
+    const rows = await sql`
+      SELECT id, title, state, expires_at AS "expiresAt" FROM hire_artifacts
+      WHERE user_id = ${user.id} AND state = 'delivered'
+      ORDER BY created_at DESC LIMIT 1
+    `
+    const row = rows[0] as { id: string; title: string; state: string; expiresAt: Date } | undefined
+    return json({ artifact: row ? { id: row.id, title: row.title, expiresAt: row.expiresAt } : null })
+  }
+
+  if (path === '/api/internal/workshop/keep' && req.method === 'POST') {
+    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
+    const body = (await req.json().catch(() => ({}))) as { phone?: string; persona?: string; artifactId?: string }
+    const user = await getUserByPhone(sql, body.phone)
+    if (!user) return json({ error: 'User not found' }, 404)
+    const result = await (async () => {
+      const id = body.artifactId
+      if (id) {
+        await sql`UPDATE hire_artifacts SET state = 'kept', expires_at = NULL WHERE id = ${id} AND user_id = ${user.id}`
+        return { ok: true, logged: true, id }
+      }
+      const rows = await sql`
+        SELECT id FROM hire_artifacts WHERE user_id = ${user.id} AND state = 'delivered'
+        ORDER BY created_at DESC LIMIT 1
+      `
+      const latest = (rows[0] as { id?: string } | undefined)?.id
+      if (!latest) return { ok: false, logged: false, error: 'Nothing to keep' }
+      await sql`UPDATE hire_artifacts SET state = 'kept', expires_at = NULL WHERE id = ${latest} AND user_id = ${user.id}`
+      return { ok: true, logged: true, id: latest }
+    })()
+    return json(result)
+  }
+
+  if (path === '/api/internal/workshop/toss' && req.method === 'POST') {
+    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
+    const body = (await req.json().catch(() => ({}))) as { phone?: string; persona?: string; artifactId?: string }
+    const user = await getUserByPhone(sql, body.phone)
+    if (!user) return json({ error: 'User not found' }, 404)
+    return json(await deleteArtifactRow(user.id, body.artifactId, body.persona || ''))
+  }
+
+  /* ---- Workshop public surface (the owner's views) ---- */
+
+  if (path === '/api/artifacts' && req.method === 'GET') {
+    const { user, error } = await resolveAuthedUser(sql, {
+      token: url.searchParams.get('t') || undefined,
+      session: url.searchParams.get('s') || undefined,
+      email: url.searchParams.get('email') || undefined,
+    })
+    if (error) return error
+    const rows = await sql`
+      SELECT id, title, kind, files, state, expires_at AS "expiresAt", created_at AS "createdAt"
+      FROM hire_artifacts WHERE user_id = ${user!.id}
+      ORDER BY created_at DESC LIMIT 30
+    `
+    return json({ artifacts: rows })
+  }
+
+  if (path === '/api/artifacts' && req.method === 'DELETE') {
+    const { user, error } = await resolveAuthedUser(sql, {
+      token: url.searchParams.get('t') || undefined,
+      session: url.searchParams.get('s') || undefined,
+      email: url.searchParams.get('email') || undefined,
+    })
+    if (error) return error
+    const id = url.searchParams.get('id') || ''
+    return json(await deleteArtifactRow(user!.id, id || undefined, ''))
+  }
+
+  const artifactFile = path.match(/^\/a\/([\w-]+)\/([\w.-]+)$/)
+  if (artifactFile && req.method === 'GET') {
+    const [, artifactId, fileName] = artifactFile
+    const { user, error } = await resolveAuthedUser(sql, {
+      token: url.searchParams.get('t') || undefined,
+      session: url.searchParams.get('s') || undefined,
+      email: url.searchParams.get('email') || undefined,
+    })
+    if (error) return error
+    const rows = await sql`
+      SELECT files FROM hire_artifacts WHERE id = ${artifactId} AND user_id = ${user!.id} LIMIT 1
+    `
+    const row = rows[0] as { files?: string[] } | undefined
+    if (!row) return json({ error: 'Not found' }, 404)
+    const safeName = fileName.replace(/[\\/]/g, '')
+    if (!(row.files || []).includes(safeName)) return json({ error: 'Not found' }, 404)
+    try {
+      const bytes = await readFile(artifactDirFor(user!.id, artifactId) + '/' + safeName)
+      const types: Record<string, string> = {
+        '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8',
+        '.js': 'text/javascript; charset=utf-8', '.json': 'application/json',
+        '.csv': 'text/csv; charset=utf-8', '.txt': 'text/plain; charset=utf-8',
+        '.md': 'text/markdown; charset=utf-8', '.svg': 'image/svg+xml',
+        '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
+        '.pdf': 'application/pdf',
+      }
+      const type = types[safeName.slice(safeName.lastIndexOf('.'))] || 'application/octet-stream'
+      return new Response(bytes, { headers: { 'Content-Type': type, 'Cache-Control': 'no-store' } })
+    } catch {
+      return json({ error: 'Not found' }, 404)
+    }
+  }
+
+  const artifactAction = path.match(/^\/api\/artifacts\/([\w-]+)\/(keep|delete)$/)
+  if (artifactAction && req.method === 'POST') {
+    const body = (await req.json().catch(() => ({}))) as { token?: string; email?: string }
+    const { user, error } = await resolveAuthedUser(sql, { token: body.token, session: body.session, email: body.email })
+    if (error) return error
+    const [, id, action] = artifactAction
+    if (action === 'keep') {
+      await sql`UPDATE hire_artifacts SET state = 'kept', expires_at = NULL WHERE id = ${id} AND user_id = ${user!.id}`
+      return json({ ok: true, state: 'kept' })
+    }
+    return json(await deleteArtifactRow(user!.id, id, ''))
   }
 
   if (path === '/api/standup' && req.method === 'GET') {

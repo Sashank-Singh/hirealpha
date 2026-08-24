@@ -8,7 +8,7 @@ import { skillsPromptBlock, SKILLS } from './skills'
 import { gmiChat } from './gmi'
 import { appendThread, loadMemory, upsertFacts, pruneExpiredFacts, setSummary, trimHistory, MAX_RAW, type ThreadMemory } from './memory'
 import { extractFacts, summarizeOld } from './memoryMaintain'
-import { autoLogGratitude, autoLogHabit, autoLogMood, autoLogNutrition, autoLogSleep, autoLogSpend, autoLogWorkout, autoLogNetwork, autoLogDecision, autoLogPipeline, autoLogStandup, autoSaveLearning, autoSetBudget, autoSetPrefs, fetchLiveProfile, fetchLiveTools, fetchMiniRun, fetchPrepBundle, fetchWeekBundle, formatHireContext, formatHireMemories, persistLiveFacts, proposeLiveDraft, touchInbound } from './liveContext'
+import { autoLogGratitude, autoLogHabit, autoLogMood, autoLogNutrition, autoLogSleep, autoLogSpend, autoLogWorkout, autoLogNetwork, autoLogDecision, autoLogPipeline, autoLogStandup, autoRunWorkshop, autoWorkshopKeep, autoWorkshopToss, autoSaveLearning, autoSetBudget, autoSetPrefs, fetchLiveProfile, fetchLiveTools, fetchMiniRun, fetchPrepBundle, fetchWeekBundle, formatHireContext, formatHireMemories, persistLiveFacts, proposeLiveDraft, touchInbound } from './liveContext'
 import {
   looksLikeReminder,
   parseReminderIntent,
@@ -810,6 +810,38 @@ export async function runHireTurn(input: {
     }
   }
 
+  if (miniApp?.kind === 'artifact') {
+    const built = await autoRunWorkshop(input.senderId, agent.id, input.userText)
+    if (built?.logged && built.artifactId) {
+      confirmKind = 'artifact'
+      confirmQuery = { id: built.artifactId }
+      extras.push(
+        `Built and deployed: "${built.title}". The card is attached — tell them to open it, then say "keep it" (stays forever) or "toss it" (deleted). Unkept builds auto-delete in 7 days. Do not restate the code.`,
+      )
+    } else {
+      extras.push(
+        `The build failed — ${built?.error || 'unknown error'}. Say honestly that the build did not work and ask them what they wanted it to do, one line.`,
+      )
+    }
+  }
+
+  if (looksLikeKeepIt(input.userText)) {
+    const kept = await autoWorkshopKeep(input.senderId, agent.id)
+    if (kept?.logged) {
+      extras.push('They said keep it: the last built artifact is now saved permanently. Confirm in a few words.')
+    } else {
+      extras.push('They said keep it but there is no delivered build to keep. Say so plainly.')
+    }
+  }
+  if (looksLikeTossIt(input.userText)) {
+    const tossed = await autoWorkshopToss(input.senderId, agent.id)
+    if (tossed?.logged) {
+      extras.push('They said toss it: the last built artifact was deleted. Confirm in a few words.')
+    } else {
+      extras.push('They said toss it but there is no delivered build to delete. Say so plainly.')
+    }
+  }
+
   if (miniApp?.kind === 'standup_paste') {
     const standup = await autoLogStandup(input.senderId, agent.id, input.userText)
     if (standup?.logged) {
@@ -1312,3 +1344,13 @@ export async function runMemoryMaintenance(input: {
 }
 
 export { getAgent }
+
+export function looksLikeKeepIt(text: string) {
+  const t = text.trim().toLowerCase().replace(/[.!?]+$/, '')
+  return /^(keep( it| this| that| them)?|keep|save it|pin it)$/.test(t)
+}
+
+export function looksLikeTossIt(text: string) {
+  const t = text.trim().toLowerCase().replace(/[.!?]+$/, '')
+  return /^(toss( it| this| that| them)?|toss|delete( it| this| that| the (tracker|page|artifact|thing|tool))?)$/.test(t)
+}

@@ -4578,3 +4578,12 @@ a.brief-fact { cursor: pointer; }
   font-size: 13px;
   font-weight: 700;
 }
+
+/* Workshop artifact viewer */
+.artifact-frame {
+  width: 100%;
+  height: min(70vh, 560px);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: #fff;
+}

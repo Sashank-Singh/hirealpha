@@ -18,6 +18,7 @@ RUN apt-get update \
 
 COPY deploy/web-server.ts ./web-server.ts
 COPY deploy/agentReady.ts ./agentReady.ts
+COPY deploy/workshop.ts ./workshop.ts
 COPY deploy/hire-api.ts ./hire-api.ts
 COPY deploy/calendarEvents.ts ./calendarEvents.ts
 COPY deploy/composioPlugins.ts ./composioPlugins.ts

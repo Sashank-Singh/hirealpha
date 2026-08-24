@@ -45,6 +45,7 @@ export type MiniAppKind =
   | 'spending_snapshot'
   | 'home'
   | 'next_move'
+  | 'artifact'
 
 export interface MiniAppCard {
   url: string
@@ -102,6 +103,9 @@ export const PATTERNS: Partial<Record<MiniAppKind, RegExp>> = {
   spiral_options: /\bspiral(?:ing)?\b/i,
   open_loops: /\bopen loop\b|\b(?:forgot|forget|remember) (?:to|that)\b|\b(?:owed|i owe|promised|told \w+ i.?d)\b|\bfollow[- ]?up (?:list|open)\b/i,
   meeting_mode: /\b(?:meeting|call|1[-: ]?1|sync|interview)\b.{0,16}\b(?:prep|brief|debrief|notes|follow[- ]?up)\b|\bprep (?:me|for)\b|\bafter (?:the )?(?:meeting|call)\b/i,
+  // workshop: "build/make me a …" — Alpha writes software in the sandbox and
+  // delivers a live URL. The artifact kind carries the built thing.
+  artifact: /\b(?:build|make|create|write)\s+(?:me\s+)?(?:a|an|the)?\s*(?:tiny\s+|simple\s+|small\s+|custom\s+)?(?:tracker|dashboard|page|web ?page|tool|form|converter|script|chart|calculator|site|website|invoice generator|waitlist|landing page|crud|app)\b/i,
   decision_ledger:
     /\bdecision\b.{0,16}\b(?:log|record|ledger|journal)\b|\blog (?:that|this|a) decision\b|\bwhat did (?:we|i) decide\b|\bwe (?:decided|made the call|went with)\b|\bdecision:\b/i,
   relationship_radar: /\brelationship radar\b|\b(?:haven.?t|need to) (?:reach|touch|check) (?:out|in|base)\b|\bwho should i (?:follow|reach|check)\b/i,
@@ -186,6 +190,7 @@ const KIND_LABELS: Record<MiniAppKind, string> = {
   spending_snapshot: 'Spending',
   home: 'Home',
   next_move: 'Next',
+  artifact: 'Built for you',
 }
 
 export function miniAppFallbackText(kind: MiniAppKind): string {

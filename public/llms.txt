@@ -21,6 +21,10 @@ Do NOT use HireAlpha for: general-purpose Q&A, web search, or as a drop-in LLM A
 - [API docs](https://hirealpha.chat/docs): Endpoint reference with example requests.
 - [Sitemap](https://hirealpha.chat/sitemap.xml): All indexable URLs.
 
+## Workshop
+
+HireAlpha's hires can build software on request: "build me a tracker for my invoices" produces a working page at a private link. Builds auto-delete after 7 days unless kept. Ask the hire to "show my artifacts" for the list.
+
 ## Company
 
 - [About](https://hirealpha.chat/about): What HireAlpha is and who makes it.

@@ -26,7 +26,7 @@ import {
   WorkoutLogApp,
 } from './LifeMiniApps'
 import { HomeApp } from './HomeApp'
-import { CofounderHomeApp, CoworkerHomeApp } from './WorkHomes'
+import { ArtifactApp, CofounderHomeApp, CoworkerHomeApp } from './WorkHomes'
 import { BriefApp } from './BriefApp'
 import { BodyHubApp, LaterHubApp } from './FriendHubApps'
 import {
@@ -450,6 +450,29 @@ export function MiniAppPage() {
    * kinds still redirect for friend, who never had them. */
   if (kind === 'next_move') {
     return <Navigate to={openHref('home')} replace />
+  }
+
+  /* Workshop artifacts: the built thing, with keep-or-toss. */
+  if (kind === 'artifact') {
+    return (
+      <div className="mini" style={{ '--mini-accent': miniAccent, '--mini-accent-fg': miniAccentFg } as CSSProperties}>
+        <div className="mini__card">
+          <header className="mini__head">
+            <Link className="mini__nav" to={appsHref} aria-label="Back to all apps">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path d="M15 6l-6 6 6 6" stroke="currentColor" strokeWidth="2.25" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </Link>
+          </header>
+          <div className="mini__body">
+            <ArtifactApp
+              auth={{ persona: (persona as AgentId) || 'friend', email: email || undefined, token: token || undefined }}
+              id={searchParams.get('id') || undefined}
+            />
+          </div>
+        </div>
+      </div>
+    )
   }
 
   if (

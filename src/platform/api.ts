@@ -936,3 +936,22 @@ export const apiPutMiniPrefs = async (
   return data
 }
 
+
+/* ---- Workshop artifacts ---- */
+export type Artifact = {
+  id: string
+  title: string
+  kind: string
+  files: string[]
+  state: 'delivered' | 'kept'
+  expiresAt: string | null
+  createdAt: string
+}
+export const apiListArtifacts = (a: { email?: string; token?: string }) =>
+  featureGet<{ artifacts: Artifact[] }>('/api/artifacts', authQuery(a))
+export const apiGetArtifact = (a: { email?: string; token?: string; id: string }) =>
+  featureGet<{ id: string; title: string; kind: string; files: string[]; state: string; expiresAt: string | null }>(`/api/artifacts/${a.id}`, authQuery(a))
+export const apiKeepArtifact = (a: { email?: string; token?: string; id: string }) =>
+  featurePost<{ ok: boolean; state?: string }>(`/api/artifacts/${a.id}/keep`, { ...authParams(a) })
+export const apiTossArtifact = (a: { email?: string; token?: string; id: string }) =>
+  featurePost<{ ok: boolean }>(`/api/artifacts/${a.id}/delete`, { ...authParams(a) })

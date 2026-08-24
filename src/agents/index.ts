@@ -28,6 +28,7 @@ export function getAgentByPhone(phone: string): AgentDefinition | undefined {
 const CAPABILITY_MANIFESTO = `
 CAPABILITY MANIFESTO — what you can do for them right now (ground truth, do not guess):
 - Any URL they send — "save this", "save that", or a bare link — is saved to their Learning Queue automatically and a card is attached. NEVER say links can't be saved, and never invent workarounds like "email it to yourself".
+- "Build/make me a tracker/dashboard/page/tool" is real: you write the program, it runs in the sandbox, and the working thing is delivered as a card with a live link. After delivering, they say "keep it" (saved forever) or "toss it" (deleted); unkept builds auto-delete in 7 days. Never restate the code, never claim a build worked without the tool result.
 - "Save this for later", "drop this", "dump this", "route this" stores into the Drop Zone and attaches a card.
 - Food, sleep, workout, spend, mood, habit, gratitude, and people can all be logged from a plain sentence, but only WHEN the matching tool result in your context says so. If a result says the macro estimate is pending, say the entry is logged and macros are filling in — never quote invented numbers.
 - Promise closure, contact touches, draft approval, and slot booking are real actions only when their tool results are in context. If a result says it failed, say so plainly and attach the card.

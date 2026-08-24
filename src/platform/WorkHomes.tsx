@@ -9,6 +9,10 @@ import {
   apiListWorkDrafts,
   apiStandupToday,
   apiNextStack,
+  apiGetArtifact,
+  apiKeepArtifact,
+  apiTossArtifact,
+  type Artifact,
   type Decision,
   type HomeSnapshot,
   type LinearIssue,
@@ -446,6 +450,97 @@ export function CofounderHomeApp({ auth }: { auth: FeatureAuth }) {
       )}
 
       <Dock auth={auth} suffix={suffix} items={COFOUNDER_DOCK} />
+    </div>
+  )
+}
+
+/* ---- Workshop artifact viewer: the built thing, with keep-or-toss ---- */
+export function ArtifactApp({ auth, id }: { auth: FeatureAuth; id?: string }) {
+  const [artifact, setArtifact] = useState<Artifact | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [msg, setMsg] = useState('')
+  const [gone, setGone] = useState(false)
+
+  const load = useCallback(() => {
+    if (!id) {
+      setLoading(false)
+      setGone(true)
+      return
+    }
+    setLoading(true)
+    apiGetArtifact({ email: auth.email, token: auth.token, id })
+      .then((d) => setArtifact({ ...d, id } as Artifact))
+      .catch(() => setGone(true))
+      .finally(() => setLoading(false))
+  }, [auth.email, auth.token, id])
+
+  useEffect(() => {
+    load()
+  }, [load])
+
+  async function act(kind: 'keep' | 'toss') {
+    if (!id) return
+    try {
+      if (kind === 'keep') await apiKeepArtifact({ email: auth.email, token: auth.token, id })
+      else await apiTossArtifact({ email: auth.email, token: auth.token, id })
+      if (kind === 'toss') setGone(true)
+      else setArtifact((cur) => (cur ? { ...cur, state: 'kept', expiresAt: null } : cur))
+      setMsg(kind === 'keep' ? 'Kept — this stays for good.' : 'Tossed — deleted.')
+    } catch (err) {
+      setMsg(err instanceof Error ? err.message : 'Could not do that.')
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="ma">
+        <p className="mini__empty">Loading…</p>
+      </div>
+    )
+  }
+
+  if (gone || !artifact) {
+    return (
+      <div className="ma">
+        <p className="mini__empty">This build is gone. Ask Alpha to build it again.</p>
+      </div>
+    )
+  }
+
+  const htmlFile = artifact.files.find((f) => /\.html?$/i.test(f))
+  const previewUrl = htmlFile ? `/a/${artifact.id}/${htmlFile}${auth.token ? `?t=${encodeURIComponent(auth.token)}` : ''}` : ''
+
+  return (
+    <div className="ma">
+      <div className="ma-hero">
+        <span className="ma-hero-kicker">{artifact.state === 'kept' ? 'Kept' : 'Built for you'}</span>
+        <span className="ma-hero-num">{artifact.title}</span>
+        <span className="ma-hero-label">
+          {artifact.state === 'kept'
+            ? 'Saved for good.'
+            : artifact.expiresAt
+              ? `Auto-deletes ${new Date(artifact.expiresAt).toLocaleDateString([], { month: 'short', day: 'numeric' })} unless you keep it.`
+              : ''}
+        </span>
+      </div>
+
+      {previewUrl && (
+        <iframe
+          title={artifact.title}
+          src={previewUrl}
+          className="artifact-frame"
+          sandbox="allow-scripts"
+        />
+      )}
+
+      <div className="ma-callout-actions">
+        <a className="ma-btn" href={previewUrl} target="_blank" rel="noreferrer">Open full page</a>
+        {artifact.state !== 'kept' && (
+          <button className="ma-chip" type="button" onClick={() => void act('keep')}>Keep it</button>
+        )}
+        <button className="ma-chip ma-chip--danger" type="button" onClick={() => void act('toss')}>Toss it</button>
+      </div>
+      {msg && <p className="mini__hint">{msg}</p>}
     </div>
   )
 }
