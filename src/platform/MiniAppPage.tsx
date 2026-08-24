@@ -112,7 +112,7 @@ function saveBrief(persona: string, kind: string, token: string, brief: BriefPay
  * the cache when it lands, so ask again soon at first and back off after —
  * cumulatively 0.4s, 1.0, 1.9, 3.2, 5.0, 7.4. The old ladder was four flat
  * 1600ms tries, which meant nothing before 1.6s and nothing after 6.4s. */
-const BRIEF_RETRY_MS = [400, 600, 900, 1300, 1800, 2400]
+const BRIEF_RETRY_MS = [250, 450, 700, 1000, 1400, 1900, 2500, 3200]
 
 const LIVE_MINI_KINDS = new Set(['digest', 'pick_night', 'tonight', 'standup_paste', 'kill_keep_park'])
 

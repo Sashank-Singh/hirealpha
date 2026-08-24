@@ -11,8 +11,10 @@ describe('briefRowFresh', () => {
     expect(briefRowFresh(60_000, '2026-08-23', '2026-08-22')).toBe(false)
   })
 
-  it('rejects a stale rebuild past the ten-minute window', () => {
-    expect(briefRowFresh(11 * 60_000, '2026-08-23', '2026-08-23')).toBe(false)
+  it('rejects a stale rebuild past the three-hour window', () => {
+    expect(briefRowFresh(3 * 60 * 60_000 + 1, '2026-08-23', '2026-08-23')).toBe(false)
+    // Under three hours is still fresh — the whole point of the widened window.
+    expect(briefRowFresh(2 * 60 * 60_000 + 60_000, '2026-08-23', '2026-08-23')).toBe(true)
   })
 
   it('rejects a missing row', () => {

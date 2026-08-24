@@ -59,8 +59,8 @@ const AGENTS: Agent[] = [
     color: '#3b5bdb',
     mood: 'sharp',
     pitch:
-      'The teammate who already has the thread. Work happens in Messages, not another tab.',
-    preview: 'sent “I’ll bring the staging notes.” that’s you',
+      'jordan just declined 3pm. I fixed it for Thursday 2:30, without making you ask.',
+    preview: 'sent “I’ll bring the staging notes.” that’s you, not a calendar invite',
     time: '4m',
     unread: true,
     messages: [
@@ -86,7 +86,7 @@ const AGENTS: Agent[] = [
     color: '#8b4513',
     mood: 'bold',
     pitch:
-      'The partner who texts you the decision you’re avoiding. Not a cheerleader.',
+      '14 people came back this week. that’s the company. the 18k site is a costume.',
     preview: '14 people came back. that’s the company. 18k is a costume',
     time: '22m',
     unread: true,

@@ -2830,7 +2830,11 @@ const BRIEF_WARM_WAIT_MS = 60_000
  * still useful the moment a tap lands after a deploy, so the last successful
  * build of the day is kept in Postgres: cold reads hit the DB instead of paying
  * a Google + model build, and the rebuild only happens when the row is old. */
-const BRIEF_STALE_MS = 10 * 60 * 1000
+/* A brief is expensive to build (calendar + Gmail + a model pass) and changes
+ * through the day as mail lands, but a build from this morning is far better on
+ * a fresh tap than another ~8-10s cold build. Three hours keeps lunchtime and
+ * afternoon opens near-instant while mail still feels current day-over-day. */
+const BRIEF_STALE_MS = 3 * 60 * 60 * 1000
 
 /** A persisted row is still worth a fast serve when it was built today and recently. */
 export function briefRowFresh(rowAgeMs: number | null, today: string, rowDay: string | null): boolean {
