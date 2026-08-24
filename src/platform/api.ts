@@ -803,6 +803,13 @@ export const apiSendDraft = (a: {
 }) => featurePost<{ ok: boolean; error?: string }>('/api/work/send', {
   ...authParams(a), persona: a.persona, id: a.id, toAddr: a.toAddr, subject: a.subject, body: a.body,
 })
+/** Save the reply into Gmail's Drafts folder. Server-side this never sends. */
+export const apiSaveGmailDraft = (a: {
+  email?: string; token?: string; persona?: string
+  id?: string; toAddr?: string; subject?: string; body?: string
+}) => featurePost<{ ok: boolean; error?: string }>('/api/work/draft/save', {
+  ...authParams(a), persona: a.persona, id: a.id, toAddr: a.toAddr, subject: a.subject, body: a.body,
+})
 export const apiListSlots = (a: { email?: string; token?: string; persona?: string }) =>
   featureGet<{ slots: SlotOption[]; needConnect?: boolean }>('/api/work/slots', authQuery(a))
 export const apiHoldSlot = (a: {

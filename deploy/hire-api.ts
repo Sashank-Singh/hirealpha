@@ -5457,6 +5457,48 @@ async function gmailSendMessage(
   }
 }
 
+/** Push a reply into Gmail's Drafts folder. This never sends: Google accounts
+ * go through drafts.create, Composio accounts through the dedicated draft
+ * action, so "save draft" can never be mistaken for a send on either path. */
+async function gmailCreateDraft(
+  sql: SQL,
+  userId: string,
+  draft: { to: string; subject: string; body: string; threadId?: string },
+): Promise<{ ok: boolean; error?: string }> {
+  const access = await googleAccessToken(sql, userId, 'gmail')
+  if (access) {
+    const message: { raw: string; threadId?: string } = {
+      raw: rfc822Raw(draft.to, draft.subject, draft.body),
+    }
+    if (draft.threadId) message.threadId = draft.threadId
+    const res = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/drafts', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${access}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message }),
+    })
+    if (res.ok) return { ok: true }
+    const err = await res.text().catch(() => '')
+    if (res.status === 403 || res.status === 401) {
+      return { ok: false, error: 'Gmail needs the compose permission to save drafts. Reconnect Gmail in Settings.' }
+    }
+    return { ok: false, error: `Gmail draft save failed (${res.status}). ${err.slice(0, 120)}` }
+  }
+  const out = await composioFirst(userId, ['GMAIL_CREATE_EMAIL_DRAFT'], {
+    to: draft.to,
+    recipient_email: draft.to,
+    subject: draft.subject,
+    body: draft.body,
+    message: draft.body,
+    thread_id: draft.threadId,
+    threadId: draft.threadId,
+  })
+  if (out && !/failed/i.test(out)) return { ok: true }
+  return {
+    ok: false,
+    error: 'Could not save the draft to Gmail. Reconnect Gmail in Settings, or copy the text from here.',
+  }
+}
+
 function calItemsToNextRows(items: CalItem[], prefix: string) {
   return items.map((e, i) => ({
     id: `${prefix}-${e.rawStart || e.start.toISOString()}-${i}`,
@@ -7080,6 +7122,46 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     if (!sent.ok) return json({ ok: false, error: sent.error }, 400)
     if (body.id) {
       await sql`UPDATE hire_drafts SET status = 'sent', updated_at = now() WHERE id = ${body.id} AND user_id = ${user!.id}`
+    }
+    return json({ ok: true })
+  }
+
+  /* Save the draft into Gmail's Drafts folder. Deliberately a different path
+   * from /api/work/send: nothing here can transmit, so the compose screen's
+   * safe default action can never fire an email. */
+  if (path === '/api/work/draft/save' && req.method === 'POST') {
+    const body = (await req.json().catch(() => ({}))) as {
+      token?: string; session?: string; email?: string; id?: string
+      toAddr?: string; subject?: string; body?: string
+    }
+    const { user, error } = await resolveAuthedUser(sql, { token: body.token, session: body.session, email: body.email })
+    if (error) return error
+    let toAddr = String(body.toAddr || '').trim()
+    let subject = String(body.subject || '').trim()
+    let text = String(body.body || '')
+    let threadId = ''
+    if (body.id) {
+      const rows = await sql`
+        SELECT to_addr, subject, body, thread_id FROM hire_drafts WHERE id = ${body.id} AND user_id = ${user!.id} LIMIT 1
+      `
+      const row = rows[0] as { to_addr: string; subject: string; body: string; thread_id?: string } | undefined
+      if (row) {
+        toAddr = toAddr || row.to_addr
+        subject = subject || row.subject
+        text = text || row.body
+        threadId = row.thread_id || ''
+      }
+    }
+    if (!toAddr) return json({ ok: false, error: 'To is required' }, 400)
+    const saved = await gmailCreateDraft(sql, user!.id, {
+      to: toAddr,
+      subject,
+      body: text,
+      threadId: threadId || undefined,
+    })
+    if (!saved.ok) return json({ ok: false, error: saved.error }, 400)
+    if (body.id) {
+      await sql`UPDATE hire_drafts SET status = 'saved', updated_at = now() WHERE id = ${body.id} AND user_id = ${user!.id}`
     }
     return json({ ok: true })
   }

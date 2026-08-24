@@ -1,6 +1,6 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useState, type FormEvent, type KeyboardEvent } from 'react'
 import type { MailMessage, ReplyDraft } from './api'
-import { apiGetMailMessage, apiRewriteDraft, apiSendDraft } from './api'
+import { apiGetMailMessage, apiRewriteDraft, apiSaveGmailDraft, apiSendDraft } from './api'
 
 /** Strip dangerous HTML constructs from an email body before rendering. */
 function sanitizeEmailHtml(html: string): string {
@@ -79,6 +79,12 @@ const ASK_CHIPS = [
   { label: 'Add a question', instruction: 'Add a closing question' },
 ]
 
+/** Enter in a one-line input used to submit the form, which on this screen
+ * means send. Editing To or Subject must never transmit, so inputs swallow it. */
+const blockEnter = (e: KeyboardEvent<HTMLInputElement>) => {
+  if (e.key === 'Enter') e.preventDefault()
+}
+
 interface EmailReaderProps {
   messageId: string
   /** Fallback label shown while loading */
@@ -109,6 +115,13 @@ export function EmailReader({ messageId, label, summary, auth, persona, onClose,
   const [newBody, setNewBody] = useState('')
   const [newBusy, setNewBusy] = useState(false)
   const [newMsg, setNewMsg] = useState('')
+  // Sending is a two-click act: the first click arms ("Really send?"), the
+  // second transmits. Any edit disarms. This is what stopped "Send draft"
+  // firing off an email on a stray Enter or an easy mis-click.
+  const [confirmSend, setConfirmSend] = useState(false)
+  const [confirmNew, setConfirmNew] = useState(false)
+  const [saveBusy, setSaveBusy] = useState(false)
+  const [saveMsg, setSaveMsg] = useState('')
 
   useEffect(() => {
     let cancelled = false
@@ -129,6 +142,8 @@ export function EmailReader({ messageId, label, summary, auth, persona, onClose,
     setComposeMsg('')
     setAdjustMsg('')
     setAskText('')
+    setConfirmSend(false)
+    setSaveMsg('')
   }, [draft])
 
   async function adjust(raw: string) {
@@ -136,6 +151,7 @@ export function EmailReader({ messageId, label, summary, auth, persona, onClose,
     if (!instruction || adjustBusy || !draft) return
     setAdjustBusy(true)
     setAdjustMsg('')
+    setConfirmSend(false)
     try {
       const res = await apiRewriteDraft({ ...auth, id: draft.id, instruction })
       if (!res.ok) throw new Error(res.error || 'Alpha could not adjust it right now.')
@@ -149,9 +165,36 @@ export function EmailReader({ messageId, label, summary, auth, persona, onClose,
     }
   }
 
+  /** Push the current text into Gmail's Drafts folder. Nothing is sent. */
+  async function saveReply() {
+    if (saveBusy || busy || !draft) return
+    setSaveBusy(true)
+    setSaveMsg('')
+    try {
+      const res = await apiSaveGmailDraft({
+        ...auth,
+        id: draft.id,
+        toAddr: to.trim(),
+        subject: subject.trim(),
+        body,
+      })
+      if (!res.ok) throw new Error(res.error || 'Could not save to Gmail.')
+      setSaveMsg('Saved to your Gmail Drafts. Nothing was sent.')
+    } catch (err) {
+      setSaveMsg(err instanceof Error ? err.message : 'Could not save the draft.')
+    } finally {
+      setSaveBusy(false)
+    }
+  }
+
   async function sendReply(e: FormEvent) {
     e.preventDefault()
-    if (busy) return
+    if (busy || !to.trim() || !subject.trim()) return
+    if (!confirmSend) {
+      setConfirmSend(true)
+      return
+    }
+    setConfirmSend(false)
     setBusy(true)
     setComposeMsg('')
     try {
@@ -173,7 +216,12 @@ export function EmailReader({ messageId, label, summary, auth, persona, onClose,
 
   async function sendNewEmail(e: FormEvent) {
     e.preventDefault()
-    if (newBusy) return
+    if (newBusy || !newTo.trim() || !newSubject.trim()) return
+    if (!confirmNew) {
+      setConfirmNew(true)
+      return
+    }
+    setConfirmNew(false)
     setNewBusy(true)
     setNewMsg('')
     try {
@@ -210,32 +258,35 @@ export function EmailReader({ messageId, label, summary, auth, persona, onClose,
             <input
               className="mini__input"
               value={newTo}
-              onChange={(e) => setNewTo(e.target.value)}
+              onChange={(e) => { setNewTo(e.target.value); setConfirmNew(false) }}
+              onKeyDown={blockEnter}
               placeholder="To"
               aria-label="To"
             />
             <input
               className="mini__input"
               value={newSubject}
-              onChange={(e) => setNewSubject(e.target.value)}
+              onChange={(e) => { setNewSubject(e.target.value); setConfirmNew(false) }}
+              onKeyDown={blockEnter}
               placeholder="Subject"
               aria-label="Subject"
             />
             <textarea
               className="mini__textarea"
               value={newBody}
-              onChange={(e) => setNewBody(e.target.value)}
+              onChange={(e) => { setNewBody(e.target.value); setConfirmNew(false) }}
               placeholder="Write your email…"
               aria-label="Body"
             />
             <div className="reply-compose-actions">
               <button className="mini__btn" type="submit" disabled={newBusy || !newTo.trim() || !newSubject.trim()}>
-                {newBusy ? 'Sending…' : 'Send email'}
+                {newBusy ? 'Sending…' : confirmNew ? 'Really send?' : 'Send email'}
               </button>
               <button className="mini__btn reply-compose-cancel" type="button" onClick={() => setNewMail(false)} disabled={newBusy}>
                 Cancel
               </button>
             </div>
+            {confirmNew && !newBusy && <p className="reply-compose-msg">This sends the email for real. Click again to confirm.</p>}
             {newMsg && <p className="reply-compose-msg">{newMsg}</p>}
           </form>
         )}
@@ -296,34 +347,41 @@ export function EmailReader({ messageId, label, summary, auth, persona, onClose,
             <input
               className="mini__input"
               value={to}
-              onChange={(e) => setTo(e.target.value)}
+              onChange={(e) => { setTo(e.target.value); setConfirmSend(false) }}
+              onKeyDown={blockEnter}
               placeholder="To"
               aria-label="To"
             />
             <input
               className="mini__input"
               value={subject}
-              onChange={(e) => setSubject(e.target.value)}
+              onChange={(e) => { setSubject(e.target.value); setConfirmSend(false) }}
+              onKeyDown={blockEnter}
               placeholder="Subject"
               aria-label="Subject"
             />
             <textarea
               className="mini__textarea"
               value={body}
-              onChange={(e) => setBody(e.target.value)}
+              onChange={(e) => { setBody(e.target.value); setConfirmSend(false) }}
               placeholder="Write your reply…"
               aria-label="Reply body"
             />
             <div className="reply-compose-actions">
-              <button className="mini__btn" type="submit" disabled={busy || !to.trim() || !subject.trim()}>
-                {busy ? 'Sending…' : 'Send draft'}
+              <button className="mini__btn" type="button" disabled={saveBusy || busy || !to.trim()} onClick={saveReply}>
+                {saveBusy ? 'Saving…' : 'Save to Gmail'}
               </button>
-              <button className="mini__btn reply-compose-cancel" type="button" onClick={onClose} disabled={busy}>
+              <button className="mini__btn" type="submit" disabled={busy || saveBusy || !to.trim() || !subject.trim()}>
+                {busy ? 'Sending…' : confirmSend ? 'Really send?' : 'Send…'}
+              </button>
+              <button className="mini__btn reply-compose-cancel" type="button" onClick={onClose} disabled={busy || saveBusy}>
                 Cancel
               </button>
             </div>
+            {confirmSend && !busy && <p className="reply-compose-msg">This sends the email for real. Click again to confirm.</p>}
             {composeMsg && <p className="reply-compose-msg">{composeMsg}</p>}
           </form>
+          {saveMsg && <p className="reply-compose-msg">{saveMsg}</p>}
           <div className="reply-ask">
             <div className="reply-ask-chips">
               {ASK_CHIPS.map((c) => (
