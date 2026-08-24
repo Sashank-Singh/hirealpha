@@ -709,3 +709,81 @@ export function formatHireMemories(
     .map((m) => `- ${m.key}: ${m.value}`)
   return `What this hire remembers (durable facts, never guess past these):\n${lines.join('\n')}`
 }
+
+export async function autoLogDecision(
+  phone: string,
+  persona: AgentId,
+  text: string,
+): Promise<{ ok?: boolean; logged?: boolean; error?: string; decision?: string; reason?: string } | null> {
+  const base = apiBase()
+  const key = process.env.HIREALPHA_INTERNAL_KEY || ''
+  if (!base || !key) return { ok: false, logged: false, error: 'not configured' }
+  try {
+    const res = await timedFetch(
+      `${base}/api/internal/decisions`,
+      {
+        method: 'POST',
+        headers: authHeaders(),
+        body: JSON.stringify({ phone, persona, text: text.slice(0, 500) }),
+      },
+      12000,
+    )
+    if (!res.ok) return { ok: false, logged: false, error: `save failed (${res.status})` }
+    return (await res.json()) as { ok?: boolean; logged?: boolean; error?: string; decision?: string; reason?: string }
+  } catch (err) {
+    console.warn('[live] decision auto-log failed', err)
+    return { ok: false, logged: false, error: 'save failed' }
+  }
+}
+
+export async function autoLogPipeline(
+  phone: string,
+  persona: AgentId,
+  text: string,
+): Promise<{ ok?: boolean; logged?: boolean; error?: string; title?: string; stage?: string } | null> {
+  const base = apiBase()
+  const key = process.env.HIREALPHA_INTERNAL_KEY || ''
+  if (!base || !key) return { ok: false, logged: false, error: 'not configured' }
+  try {
+    const res = await timedFetch(
+      `${base}/api/internal/pipeline`,
+      {
+        method: 'POST',
+        headers: authHeaders(),
+        body: JSON.stringify({ phone, persona, text: text.slice(0, 500) }),
+      },
+      12000,
+    )
+    if (!res.ok) return { ok: false, logged: false, error: `save failed (${res.status})` }
+    return (await res.json()) as { ok?: boolean; logged?: boolean; error?: string; title?: string; stage?: string }
+  } catch (err) {
+    console.warn('[live] pipeline auto-log failed', err)
+    return { ok: false, logged: false, error: 'save failed' }
+  }
+}
+
+export async function autoLogStandup(
+  phone: string,
+  persona: AgentId,
+  text: string,
+): Promise<{ ok?: boolean; logged?: boolean; error?: string; day?: string } | null> {
+  const base = apiBase()
+  const key = process.env.HIREALPHA_INTERNAL_KEY || ''
+  if (!base || !key) return { ok: false, logged: false, error: 'not configured' }
+  try {
+    const res = await timedFetch(
+      `${base}/api/internal/standup`,
+      {
+        method: 'POST',
+        headers: authHeaders(),
+        body: JSON.stringify({ phone, persona, text: text.slice(0, 1000) }),
+      },
+      12000,
+    )
+    if (!res.ok) return { ok: false, logged: false, error: `save failed (${res.status})` }
+    return (await res.json()) as { ok?: boolean; logged?: boolean; error?: string; day?: string }
+  } catch (err) {
+    console.warn('[live] standup auto-log failed', err)
+    return { ok: false, logged: false, error: 'save failed' }
+  }
+}

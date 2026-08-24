@@ -102,7 +102,8 @@ export const PATTERNS: Partial<Record<MiniAppKind, RegExp>> = {
   spiral_options: /\bspiral(?:ing)?\b/i,
   open_loops: /\bopen loop\b|\b(?:forgot|forget|remember) (?:to|that)\b|\b(?:owed|i owe|promised|told \w+ i.?d)\b|\bfollow[- ]?up (?:list|open)\b/i,
   meeting_mode: /\b(?:meeting|call|1[-: ]?1|sync|interview)\b.{0,16}\b(?:prep|brief|debrief|notes|follow[- ]?up)\b|\bprep (?:me|for)\b|\bafter (?:the )?(?:meeting|call)\b/i,
-  decision_ledger: /\bdecision\b.{0,16}\b(?:log|record|ledger|journal)\b|\blog (?:that|this|a) decision\b|\bwhat did (?:we|i) decide\b/i,
+  decision_ledger:
+    /\bdecision\b.{0,16}\b(?:log|record|ledger|journal)\b|\blog (?:that|this|a) decision\b|\bwhat did (?:we|i) decide\b|\bwe (?:decided|made the call|went with)\b|\bdecision:\b/i,
   relationship_radar: /\brelationship radar\b|\b(?:haven.?t|need to) (?:reach|touch|check) (?:out|in|base)\b|\bwho should i (?:follow|reach|check)\b/i,
   // drop_zone intentionally does NOT match save+URL combos; the URL gate in detectMiniAppRequest routes those to learning_queue first
   drop_zone: /\bdrop zone\b|\bdump (?:this|that|it|a)\b|\bsave (?:this |that |it )?for (?:later|me)\b|\broute (?:this|that|it)\b|\b(?:open|show|pull up|bring back) (?:my |the )?drop zone\b/i,
@@ -131,7 +132,7 @@ export const PATTERNS: Partial<Record<MiniAppKind, RegExp>> = {
     /\bsleep(?: tracker)?\b|\b(?:log|track) (?:my )?sleep\b|\bhow (?:did i|long did i) sleep\b|\bsleep debt\b|\bsleep last night\b|\blast night.{0,20}sleep\b|\bslept .{0,10}hours\b|\bwoke up at\b|\bbed(?:time)? at\b|\b(?:open|show|pull up|bring back) (?:my )?sleep(?: tracker)?\b/i,
   // pipeline_board: explicit name + reopen + job/deal phrases
   pipeline_board:
-    /\bpipeline(?: board)?\b|\b(?:job|deal|lead) (?:board|pipeline|status)\b|\bmove .{0,20}to (?:interview|offer)\b|\bapplication status\b|\bjob board\b|\b(?:open|show|pull up|bring back) (?:my )?pipeline\b/i,
+    /\bpipeline(?: board)?\b|\b(?:job|deal|lead) (?:board|pipeline|status)\b|\bmove .{0,20}to (?:interview|offer)\b|\bapplication status\b|\bjob board\b|\b(?:open|show|pull up|bring back) (?:my )?pipeline\b|\b(?:move|push|advance|add|put)\s+.{0,30}\s+(?:to|into|as)(?:\s+(?:a|an|the))?\s+(?:lead|active|interview|offer|won|lost)\b/i,
   // gratitude_journal: explicit name + reopen + natural phrases
   gratitude_journal:
     /\bgratitude(?: journal)?\b|\b(?:i'?m|i am) grateful\b|\bgrateful for\b|\blog (?:my )?gratitude\b|\b(?:open|show|pull up|bring back) (?:my )?gratitude(?: journal)?\b/i,

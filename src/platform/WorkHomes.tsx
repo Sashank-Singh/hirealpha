@@ -7,7 +7,6 @@ import {
   apiListLoops,
   apiListPipeline,
   apiListWorkDrafts,
-  apiMe,
   apiNextStack,
   type Decision,
   type HomeSnapshot,
@@ -358,7 +357,7 @@ export function CofounderHomeApp({ auth }: { auth: FeatureAuth }) {
   const [pipeline, setPipeline] = useState<PipelineItem[]>([])
   const [decisions, setDecisions] = useState<Decision[]>([])
   const [loops, setLoops] = useState<OpenLoop[]>([])
-  const [runway, setRunway] = useState<string | null>(null)
+  const [runway] = useState<string | null>(null)
 
   useEffect(() => {
     apiListPipeline({ email: auth.email, token: auth.token })
@@ -370,16 +369,12 @@ export function CofounderHomeApp({ auth }: { auth: FeatureAuth }) {
     apiListLoops({ email: auth.email, token: auth.token })
       .then((d) => setLoops(d.loops || []))
       .catch(() => {})
-    if (auth.email) {
-      apiMe(auth.email)
-        .then((me) => {
-          const ctx = me.context?.[auth.persona] || {}
-          const key = Object.keys(ctx).find((k) => /runway/i.test(k))
-          setRunway(key ? ctx[key]! : null)
-        })
-        .catch(() => {})
-    }
   }, [auth.email, auth.token, auth.persona])
+
+  /* Real runway comes from the weekly snapshot in /api/home; the persona context
+   * is the fallback for an older API that has no snapshots yet. */
+  const snapRunway = snap?.home?.runway
+  const runwayFromSnap = snapRunway ? `${Math.round(snapRunway.months)}` : null
 
   if (loading && !snap) {
     return (
@@ -392,8 +387,13 @@ export function CofounderHomeApp({ auth }: { auth: FeatureAuth }) {
 
   const live = pipeline.filter((p) => p.stage !== 'won' && p.stage !== 'lost')
   const byStage = new Map<string, number>()
-  for (const p of live) byStage.set(p.stage, (byStage.get(p.stage) || 0) + 1)
+  for (const p of live) {
+    byStage.set(p.stage, (byStage.get(p.stage) || 0) + (p.value > 0 ? p.value : 1))
+  }
+  // When a row has no value recorded, weight it as one unit so the donut still
+  // shows the split — the label below keeps the raw count honest.
   const stageRows = [...byStage.entries()].map(([label, value]) => ({ label, value }))
+  const liveValue = live.reduce((s, p) => s + (p.value > 0 ? p.value : 0), 0)
 
   const openDec = decisions.filter((d) => d.outcome === null)
   const oldestSat = openDec.reduce((max, d) => {
@@ -411,8 +411,8 @@ export function CofounderHomeApp({ auth }: { auth: FeatureAuth }) {
       <section className="home-block" aria-label="Where you are">
         <h3 className="home-section-title">Where you are</h3>
         <ul className="home-vitals">
-          <Vital to={miniLink('spending_snapshot')} label="Runway" value={runway ? `${runway}` : '—'} sub={runway ? 'mo' : undefined} foot={runway ? 'cash left' : 'not tracked'} />
-          <Vital to={miniLink('pipeline_board')} label="Pipeline" value={`${live.length}`} foot="live deals" />
+          <Vital to={miniLink('spending_snapshot')} label="Runway" value={runwayFromSnap || runway || '—'} sub={runwayFromSnap || runway ? 'mo' : undefined} foot={runwayFromSnap || runway ? 'cash left' : 'not tracked'} />
+          <Vital to={miniLink('pipeline_board')} label="Pipeline" value={liveValue > 0 ? `$${(liveValue / 1000).toFixed(0)}k` : `${live.length}`} foot={liveValue > 0 ? `${live.length} live deals` : 'live deals'} />
           <Vital to={miniLink('decision_ledger')} label="Decisions" value={`${openDec.length} of ${decisions.length}`} foot={oldestSat ? `${oldestSat} sat` : 'open'} />
           <Vital to={miniLink('open_loops')} label="Promises" value={`${openLoops.length} of ${loops.length}`} foot={dueToday ? `${dueToday} due today` : 'open'} />
         </ul>
@@ -421,7 +421,7 @@ export function CofounderHomeApp({ auth }: { auth: FeatureAuth }) {
       {stageRows.length > 0 && (
         <section className="home-block">
           <h3 className="home-section-title">Pipeline by stage</h3>
-          <CategoryDonut rows={stageRows} center={`${live.length}`} centerLabel="live" />
+          <CategoryDonut rows={stageRows} center={liveValue > 0 ? `$${(liveValue / 1000).toFixed(0)}k` : `${live.length}`} centerLabel={liveValue > 0 ? 'live value' : 'live'} />
         </section>
       )}
 

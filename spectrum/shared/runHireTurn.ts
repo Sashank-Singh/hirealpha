@@ -8,7 +8,7 @@ import { skillsPromptBlock, SKILLS } from './skills'
 import { gmiChat } from './gmi'
 import { appendThread, loadMemory, upsertFacts, pruneExpiredFacts, setSummary, trimHistory, MAX_RAW, type ThreadMemory } from './memory'
 import { extractFacts, summarizeOld } from './memoryMaintain'
-import { autoLogGratitude, autoLogHabit, autoLogMood, autoLogNutrition, autoLogSleep, autoLogSpend, autoLogWorkout, autoLogNetwork, autoSaveLearning, autoSetBudget, autoSetPrefs, fetchLiveProfile, fetchLiveTools, fetchMiniRun, fetchPrepBundle, fetchWeekBundle, formatHireContext, formatHireMemories, persistLiveFacts, proposeLiveDraft, touchInbound } from './liveContext'
+import { autoLogGratitude, autoLogHabit, autoLogMood, autoLogNutrition, autoLogSleep, autoLogSpend, autoLogWorkout, autoLogNetwork, autoLogDecision, autoLogPipeline, autoLogStandup, autoSaveLearning, autoSetBudget, autoSetPrefs, fetchLiveProfile, fetchLiveTools, fetchMiniRun, fetchPrepBundle, fetchWeekBundle, formatHireContext, formatHireMemories, persistLiveFacts, proposeLiveDraft, touchInbound } from './liveContext'
 import {
   looksLikeReminder,
   parseReminderIntent,
@@ -788,6 +788,37 @@ export async function runHireTurn(input: {
     }
     // If network is null, no name was parseable; card still delivered, say nothing about logging.
   }
+  if (miniApp?.kind === 'decision_ledger') {
+    const decision = await autoLogDecision(input.senderId, agent.id, input.userText)
+    if (decision?.logged) {
+      extras.push(
+        `Decision logged: "${decision.decision}". Confirm briefly; do not ask them to log it again.`,
+      )
+    } else if (decision?.error) {
+      extras.push(`Could not parse a decision from that — ${decision.error}. Do not claim it was logged; point them to the Decisions card.`)
+    }
+  }
+
+  if (miniApp?.kind === 'pipeline_board') {
+    const pipe = await autoLogPipeline(input.senderId, agent.id, input.userText)
+    if (pipe?.logged) {
+      extras.push(
+        `Pipeline updated: "${pipe.title}" → ${pipe.stage}. Confirm briefly; do not ask them to move it again.`,
+      )
+    } else if (pipe?.error) {
+      extras.push(`Could not parse a pipeline move — ${pipe.error}. Do not claim it moved; point them to the Pipeline card.`)
+    }
+  }
+
+  if (miniApp?.kind === 'standup_paste') {
+    const standup = await autoLogStandup(input.senderId, agent.id, input.userText)
+    if (standup?.logged) {
+      extras.push('Standup notes saved for today. Confirm briefly; do not ask them to re-paste.')
+    } else if (standup?.error) {
+      extras.push(`Could not save standup notes — ${standup.error}. Do not claim they were saved.`)
+    }
+  }
+
   if (miniApp?.kind === 'learning_queue') {
     const learning = await autoSaveLearning(input.senderId, agent.id, input.userText, recentUserTexts)
     if (learning?.logged) {

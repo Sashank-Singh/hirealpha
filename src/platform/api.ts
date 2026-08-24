@@ -521,6 +521,8 @@ export type HomeSnapshot = {
     peopleDue: Array<{ name: string; days: number; phone?: string; id?: string; context?: string }>
     /** The single open promise closest to its deadline, so home can close one. */
     dueLoop?: { id: string; title: string; dueAt?: string | null } | null
+    /** The most recent monthly runway snapshot (cofounder). */
+    runway?: { cash: number; burn: number; months: number; takenOn: string } | null
     lastNight: { logged: boolean; hours: number; bedtime?: string; wake?: string }
     workout: { name: string; rest?: boolean; done: boolean }
   }
@@ -630,13 +632,14 @@ export const apiIngestSleep = (a: {
 
 /* ---- Pipeline ---- */
 export type PipelineItem = {
-  id: string; title: string; company: string; stage: string; notes: string; createdAt: string; updatedAt: string
+  id: string; title: string; company: string; stage: string; notes: string
+  value: number; kind: string; createdAt: string; updatedAt: string
 }
 export const apiListPipeline = (a: { email?: string; token?: string }) =>
   featureGet<{ items: PipelineItem[] }>('/api/pipeline', authQuery(a))
 export const apiAddPipeline = (a: {
-  email?: string; token?: string; title: string; company?: string; stage?: string; notes?: string
-}) => featurePost<{ ok: boolean; id: string }>('/api/pipeline', { ...authParams(a), title: a.title, company: a.company, stage: a.stage, notes: a.notes })
+  email?: string; token?: string; title: string; company?: string; stage?: string; notes?: string; value?: number; kind?: string
+}) => featurePost<{ ok: boolean; id: string }>('/api/pipeline', { ...authParams(a), title: a.title, company: a.company, stage: a.stage, notes: a.notes, value: a.value, kind: a.kind })
 export const apiPatchPipeline = (a: { email?: string; token?: string; id: string; stage?: string; _delete?: boolean }) =>
   featurePost<{ ok: boolean }>(`/api/pipeline/${a.id}`, { ...authParams(a), stage: a.stage, _delete: a._delete })
 

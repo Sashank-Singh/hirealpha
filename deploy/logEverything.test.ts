@@ -197,3 +197,69 @@ describe('log everything from chat — end to end routing', () => {
     expect(insert!.values.map(String).join(' ')).toContain('h1')
   })
 })
+
+describe('cofounder decision from chat', () => {
+  it('"log a decision: drop the agency, because 18k is a costume" → decisions row', async () => {
+    const text = 'log a decision: drop the agency, because 18k is a costume'
+    expect(detectMiniAppRequest(text, 'cofounder')).toEqual({ kind: 'decision_ledger' })
+
+    process.env.HIREALPHA_INTERNAL_KEY = 'test-key'
+    const { sql, queries } = fakeSql(rows)
+    const res = await handleHireApi(
+      internalPost('/api/internal/decisions', { phone: USER.phone, persona: 'cofounder', text }),
+      sql,
+    )
+    expect(res?.status).toBe(200)
+    const data = (await res?.json()) as { logged?: boolean }
+    expect(data.logged).toBe(true)
+    const insert = queries.find((q) => /INSERT INTO hire_decisions/i.test(q.text))
+    expect(insert).toBeTruthy()
+    const joined = insert!.values.map(String).join(' ')
+    expect(joined).toContain('drop the agency')
+    expect(joined).toContain('18k is a costume')
+  })
+
+  it('"we decided to hire Ravi" also routes', async () => {
+    const text = 'we decided to hire Ravi'
+    expect(detectMiniAppRequest(text, 'cofounder')).toEqual({ kind: 'decision_ledger' })
+  })
+})
+
+describe('cofounder pipeline from chat', () => {
+  it('"move Ravi to interview" → pipeline row + stage', async () => {
+    const text = 'move Ravi to interview'
+    expect(detectMiniAppRequest(text, 'cofounder')).toEqual({ kind: 'pipeline_board' })
+
+    process.env.HIREALPHA_INTERNAL_KEY = 'test-key'
+    const { sql, queries } = fakeSql(rows)
+    const res = await handleHireApi(internalPost('/api/internal/pipeline', { phone: USER.phone, persona: 'cofounder', text }), sql)
+    expect(res?.status).toBe(200)
+    const data = (await res?.json()) as { logged?: boolean; stage?: string }
+    expect(data.logged).toBe(true)
+    expect(data.stage).toBe('interview')
+    const insert = queries.find((q) => /INSERT INTO hire_pipeline/i.test(q.text))
+    expect(insert).toBeTruthy()
+    expect(insert!.values.map(String).join(' ')).toContain('Ravi')
+  })
+
+  it('"add Stripe as a lead" routes and stages', async () => {
+    expect(detectMiniAppRequest('add Stripe as a lead', 'cofounder')).toEqual({ kind: 'pipeline_board' })
+  })
+})
+
+describe('coworker standup from chat', () => {
+  it('"standup: shipped the parser, reviewing Linda PR" → standup row for today', async () => {
+    const text = 'standup: shipped the parser, reviewing Linda PR'
+    expect(detectMiniAppRequest(text, 'coworker')).toEqual({ kind: 'standup_paste' })
+
+    process.env.HIREALPHA_INTERNAL_KEY = 'test-key'
+    const { sql, queries } = fakeSql(rows)
+    const res = await handleHireApi(internalPost('/api/internal/standup', { phone: USER.phone, persona: 'coworker', text }), sql)
+    expect(res?.status).toBe(200)
+    const data = (await res?.json()) as { logged?: boolean }
+    expect(data.logged).toBe(true)
+    const insert = queries.find((q) => /INSERT INTO hire_standups/i.test(q.text))
+    expect(insert).toBeTruthy()
+    expect(insert!.values.map(String).join(' ')).toContain('shipped the parser')
+  })
+})

@@ -480,6 +480,27 @@ export async function ensureHireSchema(sql: SQL) {
       created_at TIMESTAMPTZ NOT NULL DEFAULT now()
     )
   `
+  await sql`
+    CREATE TABLE IF NOT EXISTS hire_standups (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES hire_users(id) ON DELETE CASCADE,
+      day TEXT NOT NULL,
+      notes TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      UNIQUE (user_id, day)
+    )
+  `
+  await sql`
+    CREATE TABLE IF NOT EXISTS hire_runway_snapshots (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES hire_users(id) ON DELETE CASCADE,
+      taken_on TEXT NOT NULL,
+      cash REAL NOT NULL DEFAULT 0,
+      burn REAL NOT NULL DEFAULT 0,
+      months REAL NOT NULL DEFAULT 0,
+      UNIQUE (user_id, taken_on)
+    )
+  `
   await sql`CREATE INDEX IF NOT EXISTS idx_hire_dropzone_user ON hire_dropzone (user_id, status, created_at DESC)`
 
   await sql`
@@ -708,6 +729,8 @@ export async function ensureHireSchema(sql: SQL) {
     )
   `
   await sql`CREATE INDEX IF NOT EXISTS idx_hire_pipeline_user ON hire_pipeline (user_id, updated_at DESC)`
+  await sql`ALTER TABLE hire_pipeline ADD COLUMN IF NOT EXISTS value REAL NOT NULL DEFAULT 0`
+  await sql`ALTER TABLE hire_pipeline ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'deal'`
 
   await sql`
     CREATE TABLE IF NOT EXISTS hire_gratitude (
@@ -4281,6 +4304,23 @@ async function buildWeekBundle(
   const weekStart = userMonday(user)
   const snap = await loadWeekSnapshot(sql, user.id, weekStart, user.timezone || 'America/Los_Angeles')
   const wrote = composeWeekReview(snap)
+  /* The weekly run is the natural moment to keep the runway honest: capture the
+   * latest cash/burn the cofounder context knows about so home and the review
+   * have a real number instead of a dash. */
+  try {
+    const ctx = await loadContext(sql, user.id, 'cofounder')
+    const cash = Number(String(ctx.cash || ctx.runway_cash || '').replace(/[^0-9.]/g, ''))
+    const burn = Number(String(ctx.burn || ctx.monthly_burn || '').replace(/[^0-9.]/g, ''))
+    if (Number.isFinite(cash) && cash > 0 && Number.isFinite(burn) && burn > 0) {
+      await sql`
+        INSERT INTO hire_runway_snapshots (id, user_id, taken_on, cash, burn, months)
+        VALUES (${crypto.randomUUID()}, ${user.id}, ${weekStart}, ${cash}, ${burn}, ${cash / burn})
+        ON CONFLICT (user_id, taken_on) DO UPDATE SET cash = excluded.cash, burn = excluded.burn, months = excluded.months
+      `
+    }
+  } catch (err) {
+    console.warn('[weekly] runway snapshot failed', err)
+  }
   const existing = await sql`
     SELECT id, done_text AS "doneText" FROM hire_weekly_reviews
     WHERE user_id = ${user.id} AND week_start = ${weekStart} LIMIT 1
@@ -7806,6 +7846,77 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     return json({ ok: true, logged: true, id, ...parsed })
   }
 
+  if (path === '/api/internal/decisions' && req.method === 'POST') {
+    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
+    const body = (await req.json().catch(() => ({}))) as {
+      phone?: string; persona?: string; text?: string
+    }
+    if (!body.phone || !isPersona(body.persona || '') || !String(body.text || '').trim()) {
+      return json({ error: 'phone, persona, and text required' }, 400)
+    }
+    const user = await getUserByPhone(sql, body.phone)
+    if (!user) return json({ error: 'User not found' }, 404)
+    const parsed = parseDecisionText(String(body.text))
+    if (!parsed) return json({ ok: false, logged: false, error: 'Could not parse a decision' })
+    const reviewAt = parsed.review ? parseFlexibleWhen(parsed.review, user.timezone || 'America/Los_Angeles') : null
+    const id = crypto.randomUUID()
+    await sql`
+      INSERT INTO hire_decisions (id, user_id, persona, decision, reason, owner, review_at, status)
+      VALUES (${id}, ${user.id}, ${isPersona(body.persona || '') ? body.persona! : 'cofounder'}, ${parsed.decision.slice(0, 300)},
+        ${(parsed.reason || '').slice(0, 500)}, ${(parsed.owner || '').slice(0, 120)}, ${reviewAt}, 'open')
+    `
+    return json({ ok: true, logged: true, id, decision: parsed.decision.slice(0, 300), reason: (parsed.reason || '').slice(0, 500), owner: (parsed.owner || '').slice(0, 120) })
+  }
+
+  if (path === '/api/internal/pipeline' && req.method === 'POST') {
+    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
+    const body = (await req.json().catch(() => ({}))) as {
+      phone?: string; persona?: string; text?: string
+    }
+    if (!body.phone || !isPersona(body.persona || '') || !String(body.text || '').trim()) {
+      return json({ error: 'phone, persona, and text required' }, 400)
+    }
+    const user = await getUserByPhone(sql, body.phone)
+    if (!user) return json({ error: 'User not found' }, 404)
+    const parsed = parsePipelineText(String(body.text))
+    if (!parsed) return json({ ok: false, logged: false, error: 'Could not parse a pipeline move' })
+    const id = crypto.randomUUID()
+    // Upsert by a normalized title so "move Ravi to interview" adds it if new,
+    // moves it if it already exists — the board reads the same table.
+    await sql`
+      INSERT INTO hire_pipeline (id, user_id, title, company, stage, notes)
+      VALUES (${id}, ${user.id}, ${parsed.title.slice(0, 120)}, '' , ${parsed.stage}, ${(parsed.notes || '').slice(0, 400)})
+      ON CONFLICT DO NOTHING
+    `
+    if (parsed.existing) {
+      await sql`
+        UPDATE hire_pipeline SET stage = ${parsed.stage}, updated_at = now()
+        WHERE user_id = ${user.id} AND lower(title) = lower(${parsed.title.slice(0, 120)})
+      `
+    }
+    return json({ ok: true, logged: true, id, title: parsed.title.slice(0, 120), stage: parsed.stage })
+  }
+
+  if (path === '/api/internal/standup' && req.method === 'POST') {
+    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
+    const body = (await req.json().catch(() => ({}))) as {
+      phone?: string; persona?: string; text?: string
+    }
+    const notes = String(body.text || '').trim().slice(0, 1000)
+    if (!body.phone || !isPersona(body.persona || '') || !notes) {
+      return json({ error: 'phone, persona, and text required' }, 400)
+    }
+    const user = await getUserByPhone(sql, body.phone)
+    if (!user) return json({ error: 'User not found' }, 404)
+    const day = localDateStrInTz(new Date(), user.timezone || 'America/Los_Angeles')
+    await sql`
+      INSERT INTO hire_standups (id, user_id, day, notes)
+      VALUES (${crypto.randomUUID()}, ${user.id}, ${day}, ${notes})
+      ON CONFLICT (user_id, day) DO UPDATE SET notes = excluded.notes, created_at = now()
+    `
+    return json({ ok: true, logged: true, day })
+  }
+
   if (path === '/api/internal/budget' && req.method === 'POST') {
     if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
     const body = (await req.json().catch(() => ({}))) as { phone?: string; persona?: string; text?: string }
@@ -8600,6 +8711,7 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
       prefs,
       duePeopleRows,
       dueLoopRows,
+      runwayRows,
     ] = await Promise.all([
       sql`
         SELECT count(*)::int AS meals, coalesce(sum(calories), 0)::real AS calories
@@ -8705,6 +8817,12 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
         WHERE user_id = ${user!.id} AND status = 'open'
         ORDER BY due_at ASC NULLS LAST LIMIT 1
       `,
+      // The most recent runway snapshot (cofounder), so home can show real months.
+      sql`
+        SELECT cash, burn, months, taken_on AS "takenOn" FROM hire_runway_snapshots
+        WHERE user_id = ${user!.id}
+        ORDER BY taken_on DESC LIMIT 1
+      `,
     ])
 
     const habitChecks = (habitLogs as Array<{ habitId: string }>).length
@@ -8766,6 +8884,10 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     const dueLoop = dueLoopRow
       ? { id: dueLoopRow.id, title: dueLoopRow.title, dueAt: dueLoopRow.dueAt ? new Date(dueLoopRow.dueAt).toISOString() : null }
       : null
+    const runwayRow = (runwayRows as Array<{ cash: number; burn: number; months: number; takenOn: string }>)[0]
+    const runway = runwayRow
+      ? { cash: Math.round(runwayRow.cash), burn: Math.round(runwayRow.burn), months: Math.round(runwayRow.months * 10) / 10, takenOn: runwayRow.takenOn }
+      : null
 
     /* Calendar, Gmail and the mail-kind judge, off the critical path. A stale
      * answer paints instantly while the next one loads behind the response;
@@ -8790,6 +8912,7 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
         mailGroups,
         peopleDue,
         dueLoop,
+        runway,
         lastNight: {
           logged: lastNightLogged,
           hours: Math.round(lastNightHours * 10) / 10,
@@ -9034,7 +9157,7 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     })
     if (error) return error
     const items = await sql`
-      SELECT id, title, company, stage, notes, created_at AS "createdAt", updated_at AS "updatedAt"
+      SELECT id, title, company, stage, notes, value, kind, created_at AS "createdAt", updated_at AS "updatedAt"
       FROM hire_pipeline WHERE user_id = ${user!.id}
       ORDER BY updated_at DESC
     `
@@ -9043,7 +9166,7 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
 
   if (path === '/api/pipeline' && req.method === 'POST') {
     const body = (await req.json().catch(() => ({}))) as {
-      token?: string; email?: string; title?: string; company?: string; stage?: string; notes?: string
+      token?: string; email?: string; title?: string; company?: string; stage?: string; notes?: string; value?: number; kind?: string
     }
     const title = String(body.title || '').trim().slice(0, 120)
     if (!title) return json({ error: 'title required' }, 400)
@@ -9054,10 +9177,12 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
       : 'lead'
     const company = String(body.company || '').trim().slice(0, 80)
     const notes = String(body.notes || '').trim().slice(0, 400)
+    const value = Math.max(0, clampNum(body.value))
+    const kind = ['deal', 'job', 'fundraising', 'lead'].includes(String(body.kind || '')) ? String(body.kind) : 'deal'
     const id = crypto.randomUUID()
     await sql`
-      INSERT INTO hire_pipeline (id, user_id, title, company, stage, notes)
-      VALUES (${id}, ${user!.id}, ${title}, ${company}, ${stage}, ${notes})
+      INSERT INTO hire_pipeline (id, user_id, title, company, stage, notes, value, kind)
+      VALUES (${id}, ${user!.id}, ${title}, ${company}, ${stage}, ${notes}, ${value}, ${kind})
     `
     return json({ ok: true, id })
   }
@@ -9245,6 +9370,65 @@ function toHHMM(raw: string, mer: string | undefined): string | null {
   if (merL === 'pm' && h < 12) h += 12
   if (merL === 'am' && h === 12) h = 0
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`
+}
+
+/** "log a decision: drop the agency" / "we decided X, because Y" / "decision: X, owner Ravi" —
+ * the decision is what we decided, the rest of the sentence is the reason. An
+ * optional "review <when>" becomes the review date. */
+function parseDecisionText(text: string): { decision: string; reason?: string; owner?: string; review?: string } | null {
+  const t = String(text || '')
+    .replace(/[’']/g, "'")
+    .trim()
+    .replace(/^(?:log|record|keep|make)\s+(?:this|that|a|the)?\s*decision\s*[:.,-]?\s*/i, '')
+    .replace(/^we\s+(?:decided|made the call|went with)\s*[:.,-]?\s*/i, '')
+  if (!t) return null
+  let decision = t
+  let reason: string | undefined
+  let owner: string | undefined
+  let review: string | undefined
+
+  // owner: "owner Ravi" / "Ravi owns it" / "Ravi to do it"
+  const own = t.match(/\b(?:owner|owned by)\s+([\w]+)/i) || t.match(/\b([\w]+)\s+(?:owns|to do|will own)\b/i)
+  if (own) owner = own[1]!
+
+  // review: "review tomorrow" / "review in a week"
+  const rev = t.match(/\breview\s+(.+)$/i)
+  if (rev) review = rev[1]!.trim()
+
+  // reason after a comma, colon, or "because"
+  const m = decision.match(/^(.*?)(?:\s*[.,;：]\s+|\s+because\s+|\s+since\s+)(.*)$/i)
+  if (m && m[2]!.trim()) {
+    decision = m[1]!.trim()
+    reason = m[2]!.trim()
+  }
+
+  decision = decision.replace(/\b(?:owner\s+[\w]+|[\w]+\s+owns\s+it|[\w]+\s+will own)\b/gi, '').trim()
+  if (!decision) return null
+  return { decision, reason, owner, review }
+}
+
+/** "move Ravi to interview" / "Raavi → offer" / "add Stripe as a lead" —
+ * title + target stage + optional note after a comma/colon. */
+function parsePipelineText(text: string): { title: string; stage: string; notes?: string; existing?: boolean } | null {
+  const t = String(text || '')
+    .replace(/[’']/g, "'")
+    .trim()
+  const STAGE_RAW: Array<[RegExp, string]> = [
+    [/lead/, 'lead'], [/active/, 'active'], [/interview/, 'interview'], [/offer/, 'offer'], [/won/, 'won'], [/lost/, 'lost'],
+  ]
+  const stage = STAGE_RAW.find(([re]) => re.test(t))?.[1]
+  if (!stage) return null
+
+  const move = t.match(/\b(?:move|push|advance|add|put)\s+(.+?)\s+(?:to|into|as|at)\s+(?:the\s+)?(?:stage\s+)?(?:lead|active|interview|offer|won|lost)\b/i)
+  let title = move?.[1]?.trim().replace(/["“”]/g, '').replace(/\s*[->]+\s*.*$/, '')
+  if (!title) {
+    const arrow = t.match(/^(.+?)\s*[->→]\s*(?:lead|active|interview|offer|won|lost)\b/i)
+    title = arrow?.[1]?.trim()
+  }
+  if (!title) return null
+  const notes = t.match(/,\s*(.+)$/i)?.[1]?.trim() || undefined
+  const existing = /\b(?:move|push|advance|far|onto)\b/i.test(t)
+  return { title, stage, notes, existing }
 }
 
 function parseWorkoutText(text: string): { exercise: string; sets: number; reps: number; weight: number } | null {

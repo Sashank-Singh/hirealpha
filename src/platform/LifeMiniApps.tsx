@@ -1556,6 +1556,7 @@ export function PipelineBoardApp({ auth }: { auth: FeatureAuth }) {
           <span className="ma-callout-kicker">{PIPE_STAGES.find((s) => s.id === hottest.stage)?.label} · hottest</span>
           <strong>{hottest.title}</strong>
           {hottest.company && <span className="ma-sub">{hottest.company}</span>}
+          {hottest.value > 0 && <span className="ma-sub">${Math.round(hottest.value).toLocaleString()}</span>}
           {hottest.notes && <span className="ma-sub">{hottest.notes}</span>}
           <div className="ma-callout-actions">
             <button type="button" className="ma-btn" onClick={() => void apiPatchPipeline({ ...a, id: hottest.id, stage: nextStage(hottest.stage) }).then(load)}>
