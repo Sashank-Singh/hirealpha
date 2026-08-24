@@ -6990,7 +6990,27 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     const quoted = target.original
       ? `\n\nOn ${new Date().toLocaleDateString('en-US')}, they wrote:\n${target.original.split(/\s+/).slice(0, 90).join(' ')}…`
       : ''
-    const replyBody = `Hi ${target.toAddr.split('@')[0] || 'there'},\n\n\n${quoted}`.slice(0, 4000)
+    /* The draft has to say something about the email, not just re-paste it:
+     * Alpha writes the actual reply from the message content, and the canned
+     * greeting + quote below is only the fallback when the model is down. */
+    const senderName = (user!.name || '').trim() || user!.email.split('@')[0]
+    const firstName = senderName.split(/\s+/)[0] || 'me'
+    let replyBody = `Hi ${target.toAddr.split('@')[0] || 'there'},\n\n\n${quoted}`
+    try {
+      const written = await gmiBriefChat(
+        `You are Alpha writing a reply email on behalf of ${senderName}. Reply to the email below on their behalf. Keep it natural, concise, and specific to what was said: answer any question, confirm or decline clearly, move it forward. Plain greeting, no bullet lists unless needed, close with a short signoff in their voice using the name ${firstName}, like "Best," then ${firstName} on the next line. Do not quote the original back. Never leave placeholders such as [Your Name]. Respond with ONLY the body text.`,
+        `To: ${target.toAddr}\nSubject: ${target.subject}\n\nTheir email:\n${target.original || target.subject}\n\nWrite the reply body now.`,
+        500,
+        10000,
+        { plainText: true },
+      )
+      if (written?.trim()) {
+        replyBody = `${fillDraftName(written.trim(), firstName)}${quoted}`
+      }
+    } catch (err) {
+      console.warn('[mail/draft] model draft failed, using template', err)
+    }
+    replyBody = replyBody.slice(0, 4000)
     await sql`
       INSERT INTO hire_drafts (id, user_id, persona, kind, to_addr, subject, body)
       VALUES (
