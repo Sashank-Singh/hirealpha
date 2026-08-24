@@ -182,7 +182,6 @@ export const MENU_FEATURES: Record<string, MenuFeature[]> = {
     { kind: 'later', title: 'Later', emoji: '📥', blurb: 'Drop zone, learning, promises, gratitude.', sample: 'save for later' },
   ],
   coworker: [
-    { kind: 'next_move', title: 'Next', emoji: '▶️', blurb: 'The one thing to do now.' },
     { kind: 'meeting_mode', title: 'Meeting mode', emoji: '🗂️', blurb: 'Prepped before, wrapped after.', sample: 'prep me for the review' },
     { kind: 'approve_send', title: 'Approve & send', emoji: '✉️', blurb: 'Review drafts before they go out.', sample: 'approve the email' },
     { kind: 'pick_slot', title: 'Pick a slot', emoji: '🗓️', blurb: 'Compare times and pick what works.', sample: 'pick a slot for the review' },
@@ -193,7 +192,6 @@ export const MENU_FEATURES: Record<string, MenuFeature[]> = {
     { kind: 'drop_zone', title: 'Save for later', emoji: '📥', blurb: 'Dump anything and Alpha sorts it later.', sample: 'save for later' },
   ],
   cofounder: [
-    { kind: 'next_move', title: 'Next', emoji: '▶️', blurb: 'The one thing to do now.' },
     { kind: 'pipeline_board', title: 'Pipeline', emoji: '💼', blurb: 'Jobs, fundraising, leads. Move them through stages.' },
     { kind: 'decision_ledger', title: 'Decisions', emoji: '📜', blurb: 'Log the call, revisit the reasoning later.', sample: 'log a decision' },
     { kind: 'networking_crm', title: 'People', emoji: '🤝', blurb: 'People you met, when to follow up.' },
@@ -213,13 +211,13 @@ export const APP_STORE_GROUPS: Record<string, { label: string; kinds: string[] }
     { label: 'Later', kinds: ['later'] },
   ],
   coworker: [
-    { label: 'Now', kinds: ['next_move'] },
+    { label: 'Home', kinds: ['home'] },
     { label: 'Work', kinds: ['meeting_mode', 'approve_send', 'pick_slot', 'linear_triage', 'standup_paste', 'open_loops'] },
     { label: 'People', kinds: ['networking_crm'] },
     { label: 'Later', kinds: ['drop_zone'] },
   ],
   cofounder: [
-    { label: 'Now', kinds: ['next_move'] },
+    { label: 'Home', kinds: ['home'] },
     { label: 'Work', kinds: ['pipeline_board', 'decision_ledger', 'hire_decision', 'approve_investor_note', 'open_loops'] },
     { label: 'People', kinds: ['networking_crm'] },
     { label: 'Later', kinds: ['drop_zone'] },

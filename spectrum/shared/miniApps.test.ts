@@ -50,25 +50,6 @@ export const MINI_APP_TEXT_TRIGGERS: Record<
       negative: ['remind me to brief tomorrow', 'brief case'], // not intent
     },
   },
-  next_move: {
-    personas: ['friend', 'coworker', 'cofounder'],
-    triggers: {
-      explicit: [
-        'next move',
-        'what is next',
-        'do this now',
-        'open my next',
-        'show next',
-        'pull up next',
-        'bring back my next',
-      ],
-      natural: [
-        "what's next",
-        'clear my inbox',
-      ],
-      negative: ['next week'],
-    },
-  },
   check_in: {
     personas: ['friend'],
     triggers: {

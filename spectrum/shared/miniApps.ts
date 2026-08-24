@@ -323,9 +323,11 @@ const KIND_ALIASES: Partial<Record<MiniAppKind | 'mirror', MiniAppKind>> = {
 
 export function canonicalMiniAppKind(persona: AgentId, kind: MiniAppKind): MiniAppKind {
   const aliased = KIND_ALIASES[kind] ?? kind
+  // 'next' is not a screen for anyone anymore — home leads with the queue.
+  if (kind === 'next_move') return 'home'
   if (persona === 'friend') {
     if (kind === 'spiral_options') return 'home'
-    if (kind === 'next_move' || kind === 'approve_send' || kind === 'pick_slot') return 'home'
+    if (kind === 'approve_send' || kind === 'pick_slot') return 'home'
   }
   return aliased
 }
