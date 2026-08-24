@@ -7917,6 +7917,21 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     return json({ ok: true, logged: true, day })
   }
 
+  if (path === '/api/standup' && req.method === 'GET') {
+    const { user, error } = await resolveAuthedUser(sql, {
+      token: url.searchParams.get('t') || undefined,
+      session: url.searchParams.get('s') || undefined,
+      email: url.searchParams.get('email') || undefined,
+    })
+    if (error) return error
+    const day = localDateStrInTz(new Date(), user!.timezone || 'America/Los_Angeles')
+    const rows = await sql`
+      SELECT id, day, notes FROM hire_standups
+      WHERE user_id = ${user!.id} AND day = ${day}
+    `
+    return json({ today: (rows[0] as { notes?: string } | undefined)?.notes || null })
+  }
+
   if (path === '/api/internal/budget' && req.method === 'POST') {
     if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
     const body = (await req.json().catch(() => ({}))) as { phone?: string; persona?: string; text?: string }

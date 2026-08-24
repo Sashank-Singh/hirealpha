@@ -2893,6 +2893,17 @@ button.ma-callout, button.ma-row {
   color: var(--muted-fg);
 }
 .ma-kind-badge--meet { background: color-mix(in srgb, #6366f1 18%, var(--bg)); color: #818cf8; }
+.ma-kind-tabs { display: flex; gap: 6px; margin-bottom: 10px; }
+.ma-kind-tab {
+  padding: 6px 14px; border: 1px solid var(--border); border-radius: 999px;
+  background: transparent; color: var(--muted-fg); font: inherit; font-size: 12px; font-weight: 700;
+  cursor: pointer;
+}
+.ma-kind-tab--on {
+  background: color-mix(in srgb, var(--mini-accent, #2a6f7a) 16%, var(--bg));
+  border-color: color-mix(in srgb, var(--mini-accent, #2a6f7a) 45%, var(--border));
+  color: var(--mini-accent, #2a6f7a);
+}
 .ma-kind-badge--call { background: color-mix(in srgb, #06b6d4 18%, var(--bg)); color: #22d3ee; }
 .ma-kind-badge--person {
   background: color-mix(in srgb, var(--mini-accent, #22c55e) 18%, var(--bg));

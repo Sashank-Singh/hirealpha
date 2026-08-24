@@ -1549,9 +1549,28 @@ export function PipelineBoardApp({ auth }: { auth: FeatureAuth }) {
   const rest = items.filter((i) => i.id !== hottest?.id)
   const stagesWithCards = PIPE_STAGES.filter((s) => rest.some((i) => i.stage === s.id))
 
+  /* Deals vs jobs live side by side on one board — the kind tab keeps the
+   * sales pipeline from being the hiring pipeline. */
+  const [kindTab, setKindTab] = useState<'all' | 'deal' | 'job'>('all')
+  const kindFiltered = kindTab === 'all' ? items : items.filter((i) => (i.kind || 'deal') === kindTab)
+
   return (
     <div className="ma">
-      {hottest && (
+      <div className="ma-kind-tabs">
+        {(['all', 'deal', 'job'] as const).map((k) => (
+          <button
+            key={k}
+            type="button"
+            className={`ma-kind-tab${kindTab === k ? ' ma-kind-tab--on' : ''}`}
+            onClick={() => setKindTab(k)}
+          >
+            {k === 'all' ? 'All' : k === 'deal' ? 'Deals' : 'Jobs'}
+          </button>
+        ))}
+      </div>
+      {kindFiltered.length === 0 && <p className="mini__empty">No {kindTab === 'all' ? 'items' : kindTab + 's'} in the pipeline yet.</p>}
+      {hottest && kindTab !== 'all' && (hottest.kind || 'deal') !== kindTab && null}
+      {hottest && (kindTab === 'all' || (hottest.kind || 'deal') === kindTab) && (
         <div className="ma-callout ma-callout--hot">
           <span className="ma-callout-kicker">{PIPE_STAGES.find((s) => s.id === hottest.stage)?.label} · hottest</span>
           <strong>{hottest.title}</strong>
@@ -1584,7 +1603,7 @@ export function PipelineBoardApp({ auth }: { auth: FeatureAuth }) {
       {msg && <p className="mini__hint">{msg}</p>}
       <div className="pipe-now">
         {stagesWithCards.map((s) => {
-          const col = rest.filter((i) => i.stage === s.id)
+          const col = kindFiltered.filter((i) => i.id !== hottest?.id && i.stage === s.id)
           return (
             <div key={s.id}>
               <div className="pipe-stage">{s.label} {col.length}</div>

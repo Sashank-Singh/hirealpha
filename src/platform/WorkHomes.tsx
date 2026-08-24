@@ -7,6 +7,7 @@ import {
   apiListLoops,
   apiListPipeline,
   apiListWorkDrafts,
+  apiStandupToday,
   apiNextStack,
   type Decision,
   type HomeSnapshot,
@@ -289,6 +290,7 @@ export function CoworkerHomeApp({ auth }: { auth: FeatureAuth }) {
   const [drafts, setDrafts] = useState<WorkDraft[]>([])
   const [loops, setLoops] = useState<OpenLoop[]>([])
   const [issues, setIssues] = useState<LinearIssue[]>([])
+  const [standup, setStandup] = useState<string | null>(null)
 
   useEffect(() => {
     apiListWorkDrafts({ email: auth.email, token: auth.token, persona: auth.persona })
@@ -299,6 +301,9 @@ export function CoworkerHomeApp({ auth }: { auth: FeatureAuth }) {
       .catch(() => {})
     apiListLinear({ email: auth.email, token: auth.token, persona: auth.persona })
       .then((d) => setIssues(d.issues || []))
+      .catch(() => {})
+    apiStandupToday({ email: auth.email, token: auth.token })
+      .then((d) => setStandup(d.today || null))
       .catch(() => {})
   }, [auth.email, auth.token, auth.persona])
 
@@ -316,6 +321,7 @@ export function CoworkerHomeApp({ auth }: { auth: FeatureAuth }) {
   const openLoops = loops.filter((l) => l.status === 'open')
   const now = Date.now()
   const dueToday = openLoops.filter((l) => l.dueAt && new Date(l.dueAt).getTime() <= now + 12 * 3600_000).length
+  const closedIssues = issues.filter((i) => /done|canceled|closed/i.test(i.state || '')).length
 
   return (
     <div className="home-screen">
@@ -327,7 +333,8 @@ export function CoworkerHomeApp({ auth }: { auth: FeatureAuth }) {
           <Vital to={miniLink('digest')} label="Inbox" value={`${mailCount}`} foot={mailGroups[0] ? `${mailGroups[0].label} top` : 'in mail'} />
           <Vital to={miniLink('approve_send')} label="Drafts" value={`${drafts.length}`} foot="ready to send" />
           <Vital to={miniLink('open_loops')} label="Promises" value={`${openLoops.length} of ${loops.length}`} foot={dueToday ? `${dueToday} due today` : 'open'} />
-          <Vital to={miniLink('linear_triage')} label="Issues" value={`${issues.length}`} foot="assigned" />
+          <Vital to={miniLink('linear_triage')} label="Issues" value={`${issues.length}`} foot={closedIssues ? `${closedIssues} closed` : 'assigned'} />
+          <Vital to={miniLink('standup_paste')} label="Standup" value={standup ? 'In' : 'Not yet'} foot={standup ? 'posted today' : 'paste your notes'} />
         </ul>
       </section>
 

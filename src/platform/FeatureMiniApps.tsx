@@ -739,6 +739,7 @@ export function MeetingModeApp({ auth }: { auth: FeatureAuth }) {
   const [recording, setRecording] = useState(false)
   const [recFor, setRecFor] = useState<string | null>(null)
   const [transcribing, setTranscribing] = useState<string | null>(null)
+  const [promiseDraft, setPromiseDraft] = useState('')
   const [styleErr, setStyleErr] = useState('')
   const [showAdd, setShowAdd] = useState(false)
   const [recapHref, setRecapHref] = useState('')
@@ -906,6 +907,19 @@ export function MeetingModeApp({ auth }: { auth: FeatureAuth }) {
     load()
   }
 
+  async function addPromise(id: string) {
+    const m = meetings.find((row) => row.id === id)
+    if (!m || !promiseDraft.trim()) return
+    const nextFollowups = [...(m.followups || []), { decision: promiseDraft.trim().slice(0, 200) }]
+    setPromiseDraft('')
+    try {
+      await apiPatchMeeting({ ...a, id, followups: nextFollowups })
+      load()
+    } catch (err) {
+      setErr(err instanceof Error ? err.message : 'Could not save that promise.')
+    }
+  }
+
   function whenLabel(iso: string | null) {
     if (!iso) return 'No time set'
     const d = new Date(iso)
@@ -923,6 +937,16 @@ export function MeetingModeApp({ auth }: { auth: FeatureAuth }) {
   })
   const next = ranked.find((m) => m.phase !== 'done') || ranked[0]
   const rest = ranked.filter((m) => m.id !== next?.id)
+  /* The same recurring meeting's old followups — "last time you promised X" —
+   * so a standing weekly doesn't restart from zero. */
+  const titleKey = (t: string) => (t || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
+  const priorFollowups = next
+    ? meetings
+        .filter((m) => m.id !== next.id && m.phase === 'done' && titleKey(m.title) === titleKey(next.title))
+        .flatMap((m) => m.followups || [])
+    : []
+  const hasPromises = next?.followups?.length
+  const promisePool = hasPromises ? next.followups! : priorFollowups
 
   function memoLabel(m: Meeting) {
     if (recording && recFor === m.id) return `Stop ${recordingElapsed(recRef.current.start, now)}`
@@ -939,6 +963,23 @@ export function MeetingModeApp({ auth }: { auth: FeatureAuth }) {
           <span className="ma-sub">{whenLabel(next.startsAt)}</span>
           {next.briefing && <span className="ma-sub">{next.briefing}</span>}
           {next.notes && <span className="ma-sub">{next.notes}</span>}
+          {promisePool.length > 0 && (
+            <span className="ma-sub">
+              {hasPromises ? 'Promised:' : 'Last time you promised:'}
+              {' '}{promisePool.map((f) => f.decision || f.action || f.owner).filter(Boolean).join(' · ')}
+            </span>
+          )}
+          <div className="ma-callout-actions">
+            <input
+              className="ma-input"
+              style={{ flex: 1, minWidth: 120 }}
+              value={promiseDraft}
+              onChange={(e) => setPromiseDraft(e.target.value)}
+              placeholder={next.phase === 'done' ? 'Add a promise for next time' : 'Promised to…'}
+              aria-label="Promise"
+            />
+            <button type="button" className="ma-chip" onClick={() => void addPromise(next.id)}>Add</button>
+          </div>
           <div className="ma-callout-actions">
             <button
               type="button"

@@ -353,8 +353,8 @@ export const apiListMeetings = (a: { email?: string; token?: string }) =>
   featureGet<{ meetings: Meeting[] }>('/api/meetings', authQuery(a))
 export const apiAddMeeting = (a: { email?: string; token?: string; title: string; startsAt?: string }) =>
   featurePost<{ ok: boolean; id: string }>('/api/meetings', { ...authParams(a), title: a.title, startsAt: a.startsAt })
-export const apiPatchMeeting = (a: { email?: string; token?: string; id: string; phase?: string }) =>
-  featurePatch<{ ok: boolean }>(`/api/meetings/${a.id}`, { ...authParams(a), phase: a.phase })
+export const apiPatchMeeting = (a: { email?: string; token?: string; id: string; phase?: string; followups?: Array<{ decision?: string; owner?: string; action?: string }> }) =>
+  featurePatch<{ ok: boolean }>(`/api/meetings/${a.id}`, { ...authParams(a), phase: a.phase, followups: a.followups })
 export const apiTranscribeMeeting = (a: {
   email?: string; token?: string; id: string; audioBase64: string; mimeType?: string
 }) =>
@@ -470,6 +470,10 @@ export const apiAddLearning = (a: {
 }) => featurePost<{ ok: boolean; id: string }>('/api/learning', { ...authParams(a), title: a.title, url: a.url, kind: a.kind, minutes: a.minutes, notes: a.notes })
 export const apiPatchLearning = (a: { email?: string; token?: string; id: string; status?: string; _delete?: boolean }) =>
   featurePost<{ ok: boolean }>(`/api/learning/${a.id}`, { ...authParams(a), status: a.status, _delete: a._delete })
+
+/* ---- Standup ---- */
+export const apiStandupToday = (a: { email?: string; token?: string }) =>
+  featureGet<{ today: string | null }>('/api/standup', authQuery(a))
 
 /* ---- Weekly review ---- */
 export type WeeklySnapshot = {
