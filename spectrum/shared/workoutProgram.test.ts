@@ -75,9 +75,9 @@ describe('workout programs', () => {
       'Push ups',
       'Pike push ups',
       'Diamond push ups',
+      'Plank shoulder taps',
       'Wide push ups',
-      'Hindu push ups',
-      'Decline push ups',
+      'Plank',
     ])
     expect(WORKOUT_PROGRAMS.home[2].moves.map((m) => m.name)).toEqual([
       'Superman',
@@ -96,10 +96,10 @@ describe('workout programs', () => {
       'Split squat',
     ])
     expect(WORKOUT_PROGRAMS.home[4].moves.map((m) => m.name)).toEqual([
-      'Push ups',
-      'Pike push ups',
+      'Hindu push ups',
+      'Decline push ups',
       'Superman',
-      'Diamond push ups',
+      'Plank shoulder taps',
       'Glute kickback',
       'Plank',
     ])

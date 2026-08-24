@@ -4,6 +4,7 @@ const DEMO_V = '5'
 /** Self hosted demos in public/workout. GIFs from ExerciseDB where the lift matched. Two frame photos otherwise. */
 export const EXERCISE_DEMO_MAP: Record<string, string> = {
   'push ups': `/workout/push-ups.gif?v=${DEMO_V}`,
+  'plank shoulder taps': `/workout/plank.gif?v=${DEMO_V}`,
   'pike push ups': `/workout/pike-to-cobra.gif?v=${DEMO_V}`,
   'diamond push ups': `/workout/diamond-push-ups.gif?v=${DEMO_V}`,
   'wide push ups': `/workout/wide-push-ups.gif?v=${DEMO_V}`,
