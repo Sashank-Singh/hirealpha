@@ -351,3 +351,16 @@ describe('workshop: build → keep → toss', () => {
     expect(queries.some((q) => /DELETE FROM hire_artifacts/i.test(q.text))).toBe(true)
   })
 })
+
+describe('junk draft filter', () => {
+  it('flags automated senders and subjects', () => {
+    const { isAutomatedSender, isAutomatedSubject } = require('./hire-api') as typeof import('./hire-api')
+    expect(isAutomatedSender('do-not-reply@coderbyte.com')).toBe(true)
+    expect(isAutomatedSender('no-reply@turing.com')).toBe(true)
+    expect(isAutomatedSender('notifications@linkedin.com')).toBe(true)
+    expect(isAutomatedSender('linda@company.com')).toBe(false)
+    expect(isAutomatedSubject('Unread message from Laura G. (PCC)')).toBe(true)
+    expect(isAutomatedSubject('Re: Assessment submitted for Netic AI')).toBe(true)
+    expect(isAutomatedSubject('quick question about the contract')).toBe(false)
+  })
+})

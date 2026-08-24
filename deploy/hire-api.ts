@@ -5758,6 +5758,23 @@ async function linearWrite(userId: string, id: string, action: 'done' | 'later' 
   return !!(out && !/failed/i.test(out))
 }
 
+/** Automated senders never get drafts — replying to a no-reply bot is the
+ * single most embarrassing thing the work home ever did. */
+const AUTOMATED_SENDER =
+  /no[-_.]?reply|donotreply|do[_-]?not[_-]?reply|not[-_]?reply|notifications?@|newsletter|mailer-daemon|postmaster|auto[-_.]?(?:reply|confirm|respond|generated)|alerts?@|noreply|bounce|daemon@|feedback@/i
+
+export function isAutomatedSender(addr: string): boolean {
+  return AUTOMATED_SENDER.test(String(addr || '').toLowerCase())
+}
+
+/** Subjects that are machine notifications, not conversations. */
+const AUTOMATED_SUBJECT =
+  /^(?:unread message|reminder to|assessment|your (?:receipt|assessment|application|results))|(?:submitted for|testing for|complete .{0,24} for LLM|action required|verify your|confirm your)/i
+
+export function isAutomatedSubject(subject: string): boolean {
+  return AUTOMATED_SUBJECT.test(String(subject || '').trim())
+}
+
 async function suggestedMailDrafts(sql: SQL, userId: string) {
   const access = await googleAccessToken(sql, userId, 'gmail')
   if (!access) return [] as Array<{ toAddr: string; subject: string; body: string }>
@@ -5783,6 +5800,10 @@ async function suggestedMailDrafts(sql: SQL, userId: string) {
     const email = from.match(/<([^>]+)>/)?.[1] || from
     const subject = h('Subject') || '(no subject)'
     if (!email) continue
+    // Never suggest a reply to a machine, or to a machine-shaped subject —
+    // "Re: Assessment submitted" addressed to do-not-reply@ was the junk that
+    // filled the work home.
+    if (isAutomatedSender(email) || isAutomatedSubject(subject)) continue
     out.push({
       toAddr: email,
       subject: subject.startsWith('Re:') ? subject : `Re: ${subject}`,
@@ -5903,23 +5924,24 @@ async function buildNextStack(
 
   let drafts: Array<{ id: string; toAddr: string; subject: string }> = []
   try {
-    drafts = (await sql`
+    drafts = ((await sql`
       SELECT id, to_addr AS "toAddr", subject FROM hire_drafts
       WHERE user_id = ${user.id} AND status = 'pending'
       ORDER BY created_at DESC LIMIT 3
-    `) as Array<{ id: string; toAddr: string; subject: string }>
+    `) as Array<{ id: string; toAddr: string; subject: string }>).filter((d) => !isAutomatedSender(d.toAddr))
   } catch {
     drafts = []
   }
   for (const d of drafts) {
     items.push({
       id: `draft-${d.id}`,
-      kicker: 'Send',
+      kicker: 'Draft ready',
       title: d.subject || 'Draft',
-      hint: d.toAddr,
+      hint: `For ${d.toAddr}. Review before it goes out.`,
       hot: true,
-      action: 'send',
-      doLabel: 'Send',
+      action: 'open',
+      doLabel: 'Review',
+      openKind: 'approve_send',
       draftId: d.id,
     })
   }
@@ -7077,7 +7099,7 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
       id: string; kind: string; toAddr: string; subject: string; body: string; status: string; createdAt: Date
       threadId?: string; inReplyTo?: string; startAt?: string; endAt?: string
     }>
-    let rows = drafts
+    let rows = drafts.filter((d) => !isAutomatedSender(d.toAddr))
     if (kind !== 'event' && !rows.some((d) => d.status === 'pending')) {
       const suggested = await suggestedMailDrafts(sql, user!.id)
       for (const s of suggested) {

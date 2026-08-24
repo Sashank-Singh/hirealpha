@@ -342,9 +342,15 @@ export function CoworkerHomeApp({ auth }: { auth: FeatureAuth }) {
         <h3 className="home-section-title">Where you are</h3>
         <ul className="home-vitals">
           <Vital to={miniLink('digest')} label="Inbox" value={`${mailCount}`} foot={mailGroups[0] ? `${mailGroups[0].label} top` : 'in mail'} />
-          <Vital to={miniLink('approve_send')} label="Drafts" value={`${drafts.length}`} foot="ready to send" />
-          <Vital to={miniLink('open_loops')} label="Promises" value={`${openLoops.length} of ${loops.length}`} foot={dueToday ? `${dueToday} due today` : 'open'} />
-          <Vital to={miniLink('linear_triage')} label="Issues" value={`${issues.length}`} foot={closedIssues ? `${closedIssues} closed` : 'assigned'} />
+          {drafts.length > 0 && (
+            <Vital to={miniLink('approve_send')} label="Drafts" value={`${drafts.length}`} foot="ready to send" />
+          )}
+          {loops.length > 0 && (
+            <Vital to={miniLink('open_loops')} label="Promises" value={`${openLoops.length} of ${loops.length}`} foot={dueToday ? `${dueToday} due today` : 'open'} />
+          )}
+          {issues.length > 0 && (
+            <Vital to={miniLink('linear_triage')} label="Issues" value={`${issues.length}`} foot={closedIssues ? `${closedIssues} closed` : 'assigned'} />
+          )}
           <Vital to={miniLink('standup_paste')} label="Standup" value={standup ? 'In' : 'Not yet'} foot={standup ? 'posted today' : 'paste your notes'} />
         </ul>
       </section>
