@@ -22,6 +22,7 @@ import type { FeatureAuth } from './FeatureMiniApps'
 import { MiniAppIcon } from './MiniAppIcons'
 import { remainingMeets } from './home'
 import { CategoryDonut } from './SpendCharts'
+import { useRefreshOnFocus } from './useRefreshOnFocus'
 
 /** One tile in the 2x2 "Where you are" grid. The viz slot is optional so a tile
  * that is a pure count still sits on the same baseline as one with a bar. */
@@ -286,13 +287,14 @@ export function CoworkerHomeApp({ auth }: { auth: FeatureAuth }) {
   const miniLink = (kind: string) => `/app/mini/${auth.persona}/${kind}${suffix}`
   const { snap, loading, load } = useHomeSnap(auth)
   const q = useWorkQueue(auth, load)
+  useRefreshOnFocus(load)
 
   const [drafts, setDrafts] = useState<WorkDraft[]>([])
   const [loops, setLoops] = useState<OpenLoop[]>([])
   const [issues, setIssues] = useState<LinearIssue[]>([])
   const [standup, setStandup] = useState<string | null>(null)
 
-  useEffect(() => {
+  const reloadTiles = useCallback(() => {
     apiListWorkDrafts({ email: auth.email, token: auth.token, persona: auth.persona })
       .then((d) => setDrafts((d.drafts || []).filter((x) => x.status === 'pending')))
       .catch(() => {})
@@ -306,6 +308,11 @@ export function CoworkerHomeApp({ auth }: { auth: FeatureAuth }) {
       .then((d) => setStandup(d.today || null))
       .catch(() => {})
   }, [auth.email, auth.token, auth.persona])
+
+  useEffect(() => {
+    reloadTiles()
+  }, [reloadTiles])
+  useRefreshOnFocus(reloadTiles)
 
   if (loading && !snap) {
     return (
@@ -360,13 +367,14 @@ export function CofounderHomeApp({ auth }: { auth: FeatureAuth }) {
   const miniLink = (kind: string) => `/app/mini/${auth.persona}/${kind}${suffix}`
   const { snap, loading, load } = useHomeSnap(auth)
   const q = useWorkQueue(auth, load)
+  useRefreshOnFocus(load)
 
   const [pipeline, setPipeline] = useState<PipelineItem[]>([])
   const [decisions, setDecisions] = useState<Decision[]>([])
   const [loops, setLoops] = useState<OpenLoop[]>([])
   const [runway] = useState<string | null>(null)
 
-  useEffect(() => {
+  const reloadTiles = useCallback(() => {
     apiListPipeline({ email: auth.email, token: auth.token })
       .then((d) => setPipeline(d.items || []))
       .catch(() => {})
@@ -377,6 +385,11 @@ export function CofounderHomeApp({ auth }: { auth: FeatureAuth }) {
       .then((d) => setLoops(d.loops || []))
       .catch(() => {})
   }, [auth.email, auth.token, auth.persona])
+
+  useEffect(() => {
+    reloadTiles()
+  }, [reloadTiles])
+  useRefreshOnFocus(reloadTiles)
 
   /* Real runway comes from the weekly snapshot in /api/home; the persona context
    * is the fallback for an older API that has no snapshots yet. */

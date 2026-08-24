@@ -47,6 +47,8 @@ export type BriefPayload = {
   mailTally?: string
   needsYou?: NeedsYouItem[]
   factLine?: BriefFact[]
+  /** The work personas' thread slice: Linear/PRs/drafts or pipeline/decisions/runway. */
+  work?: Array<{ title: string; lines: string[] }> | { sections: Array<{ title: string; lines: string[] }> }
   reminders?: Array<{ id?: string; time?: string; text?: string }>
   tomorrow?: string[]
   story?: BriefStory
@@ -681,6 +683,7 @@ export function BriefApp({
       : []
   // Morning gets piles from the digest payload; evening from pick_night.
   const mailPiles: BriefMailGroup[] = isEvening ? (evening?.mailGroups || []) : groups
+  const work = Array.isArray(data?.work) ? data.work : data?.work?.sections || []
   const tally = story?.mailTally || data?.mailTally || ''
   const due = story?.due?.length ? story.due : duePeopleFrom(people)
   const lastNight = pickLastNight(nights, localYmd())
@@ -818,6 +821,22 @@ export function BriefApp({
               )
             })}
           </ol>
+        </section>
+      )}
+
+      {work.length > 0 && (
+        <section className="brief-block">
+          <h3 className="brief-label">Work</h3>
+          {work.map((w) => (
+            <div key={w.title} className="brief-work-group">
+              <span className="brief-work-title">{w.title}</span>
+              <ul className="brief-asks">
+                {w.lines.map((l, i) => (
+                  <li key={i} className="brief-ask-line">{l}</li>
+                ))}
+              </ul>
+            </div>
+          ))}
         </section>
       )}
 

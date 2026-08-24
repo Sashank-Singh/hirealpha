@@ -4247,6 +4247,9 @@ html[data-mini-theme='light'] .ma-where-label { color: #6d28d9; }
 }
 .brief-block { display: flex; flex-direction: column; gap: 8px; }
 .brief-label { margin: 0; }
+.brief-work-group { display: flex; flex-direction: column; gap: 2px; }
+.brief-work-title { font-size: 12px; font-weight: 700; color: var(--mini-accent, #2a6f7a); }
+.brief-ask-line { font-size: 13px; color: var(--ink, #1a1a1a); }
 .brief-asks,
 .brief-due,
 .brief-notes {
