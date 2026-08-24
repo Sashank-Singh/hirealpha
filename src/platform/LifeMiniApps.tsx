@@ -869,12 +869,23 @@ export function NetworkingCrmApp({ auth }: { auth: FeatureAuth }) {
   const [logNotes, setLogNotes] = useState<Record<string, string>>({})
 
   const load = useCallback(() => {
-    apiListNetwork(a)
+    apiListNetwork({ ...a, lazy: true })
       .then((d) => {
         setPeople(d.people)
         setToday(d.today || [])
         setStay(d.stay ?? null)
         setCalendarConnected(d.calendarConnected ?? null)
+        // People paint the moment the query returns; the calendar half (a Google
+        // hop, up to ~2.5s cold) fills in behind it so it never holds the roster.
+        if (!d.today?.length) {
+          apiListNetwork(a)
+            .then((full) => {
+              setToday(full.today || [])
+              setStay(full.stay ?? null)
+              setCalendarConnected(full.calendarConnected ?? null)
+            })
+            .catch(() => {})
+        }
       })
       .catch(() => setMsg('Could not load people.'))
   }, [a.email, a.token, a.persona])

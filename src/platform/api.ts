@@ -583,8 +583,11 @@ export type NetworkPerson = {
 }
 export type NetworkToday = { time: string; title: string; who: string; place: string; kind: string }
 export type NetworkStay = { title: string; place: string }
-export const apiListNetwork = (a: { email?: string; token?: string; persona?: string }) =>
-  featureGet<{ people: NetworkPerson[]; today?: NetworkToday[]; stay?: NetworkStay | null; calendarConnected?: boolean }>('/api/network', authQuery(a))
+export const apiListNetwork = (a: { email?: string; token?: string; persona?: string; lazy?: boolean }) => {
+  const qs = authQuery(a)
+  if (a.lazy) qs.set('lazy', '1')
+  return featureGet<{ people: NetworkPerson[]; today?: NetworkToday[]; stay?: NetworkStay | null; calendarConnected?: boolean }>('/api/network', qs)
+}
 export const apiAddNetwork = (a: {
   email?: string; token?: string; name: string; whereMet?: string; context?: string; cadenceDays?: number
   phone?: string; contactEmail?: string; company?: string

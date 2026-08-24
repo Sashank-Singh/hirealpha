@@ -9010,13 +9010,26 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
         FROM hire_network WHERE user_id = ${user!.id}
         ORDER BY coalesce(last_touch, '1970-01-01'::timestamptz) ASC
       `,
-      isPersona(persona)
+      // `lazy=1` says the caller will come back for the calendar half: People is
+      // one query and should paint instantly, while the Google hop can take up
+      // to 2.5s when the cache is cold. The CRM uses this so the roster shows
+      // immediately and today's meetings fill in behind it.
+      isPersona(persona) && !url.searchParams.has('lazy')
         ? todayMeetsCache
             .read(`${user!.id}|${persona}`, () => todayCalendarMeets(sql, user!, persona))
             .then((r) => r.value ?? EMPTY_TODAY_RESULT)
             .catch(() => EMPTY_TODAY_RESULT)
         : Promise.resolve(EMPTY_TODAY_RESULT),
     ])
+    if (url.searchParams.has('lazy')) {
+      const connected = await connectedForUser(sql, user!.id)
+      return json({
+        people,
+        today: [],
+        stay: null,
+        calendarConnected: connected.includes('calendar'),
+      })
+    }
     return json({ people, today: calResult.meets, stay: calResult.stay, calendarConnected: calResult.calendarConnected })
   }
 
