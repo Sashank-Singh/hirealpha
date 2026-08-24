@@ -449,9 +449,16 @@ export function MiniAppPage() {
     return <Navigate to={`/app/mini/${persona || 'friend'}/${aliasKind}${q}`} replace />
   }
 
+  /* 'Next' stopped being a screen: every persona's home leads with the ranked
+   * queue, so a lone one-card app in front of it is just a wall. The work-only
+   * kinds still redirect for friend, who never had them. */
+  if (kind === 'next_move') {
+    return <Navigate to={openHref('home')} replace />
+  }
+
   if (
     persona === 'friend' &&
-    (kind === 'next_move' || kind === 'approve_send' || kind === 'pick_slot' || kind === 'linear_triage' || kind === 'standup_paste')
+    (kind === 'approve_send' || kind === 'pick_slot' || kind === 'linear_triage' || kind === 'standup_paste')
   ) {
     return <Navigate to={openHref('home')} replace />
   }

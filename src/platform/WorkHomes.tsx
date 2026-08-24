@@ -263,18 +263,21 @@ function useHomeSnap(auth: FeatureAuth) {
   return { snap, loading, load }
 }
 
+/* The dock mirrors friend's shape: the surfaces you travel to, not the screen
+ * you are on. 'Now' died with the next_move app — the lead card at the top of
+ * this home IS now — so People took the slot. */
 const COWORKER_DOCK = [
-  { kind: 'next_move', label: 'Now' },
   { kind: 'digest', label: 'Brief' },
   { kind: 'linear_triage', label: 'Issues' },
+  { kind: 'networking_crm', label: 'People' },
   { kind: 'later', label: 'Later' },
 ]
 
 const COFOUNDER_DOCK = [
-  { kind: 'next_move', label: 'Now' },
   { kind: 'digest', label: 'Brief' },
   { kind: 'pipeline_board', label: 'Pipeline' },
   { kind: 'decision_ledger', label: 'Decide' },
+  { kind: 'networking_crm', label: 'People' },
 ]
 
 export function CoworkerHomeApp({ auth }: { auth: FeatureAuth }) {
