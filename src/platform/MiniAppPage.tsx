@@ -30,7 +30,6 @@ import { CofounderHomeApp, CoworkerHomeApp } from './WorkHomes'
 import { BriefApp } from './BriefApp'
 import { BodyHubApp, LaterHubApp } from './FriendHubApps'
 import {
-  NextMoveApp,
   ApproveSendApp,
   PickSlotApp,
   LinearTriageApp,
@@ -125,7 +124,6 @@ const FACE_MOOD: Record<AgentId, AlphaFaceMood> = {
 
 /** Feature kinds rendered by their own interactive component, not /api/mini. */
 export const FEATURE_KINDS = new Set([
-  'next_move',
   'open_loops',
   'meeting_mode',
   'decision_ledger',
@@ -786,9 +784,6 @@ export function MiniAppPage() {
             )}
             {kind === 'later' && (
               <LaterHubApp auth={{ persona: (persona as AgentId) || 'friend', email: email || undefined, token: token || undefined }} />
-            )}
-            {kind === 'next_move' && persona !== 'friend' && (
-              <NextMoveApp auth={{ persona: (persona as AgentId) || 'friend', email: email || undefined, token: token || undefined }} />
             )}
             {kind === 'approve_send' && persona !== 'friend' && (
               <ApproveSendApp

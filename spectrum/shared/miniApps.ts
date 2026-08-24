@@ -427,7 +427,7 @@ export async function mintMiniAppCard(
  * picks are stored via /api/setup so the bot sees them as context.
  */
 export async function onboardingCard(phone: string, persona: AgentId): Promise<MiniAppCard> {
-  return mintMiniAppCard(phone, persona, persona === 'friend' ? 'home' : 'next_move')
+  return mintMiniAppCard(phone, persona, 'home')
 }
 
 /**
