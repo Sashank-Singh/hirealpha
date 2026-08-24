@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'bun:test'
 import {
   extractGmailBody,
+  fillDraftName,
   formatBriefPreview,
   formatComposioMailBlock,
   importantMailQuery,
@@ -30,6 +31,19 @@ import {
   type GmailMimePart,
   type MailJudgeItem,
 } from './gmailHelpers'
+
+describe('fillDraftName', () => {
+  it('replaces bracketed name placeholders with the sender', () => {
+    expect(fillDraftName('Best regards,\n[Your Name]', 'Sashank')).toBe('Best regards,\nSashank')
+    expect(fillDraftName('Thanks,\n[NAME]', 'Sashank Singh')).toBe('Thanks,\nSashank Singh')
+    expect(fillDraftName('Cheers,\n[my name]', 'Maya')).toBe('Cheers,\nMaya')
+  })
+
+  it('catches a bare Your Name signoff line and leaves real text alone', () => {
+    expect(fillDraftName('Best,\nYour Name', 'Sashank')).toBe('Best,\nSashank')
+    expect(fillDraftName('No placeholder in this body.', 'Sashank')).toBe('No placeholder in this body.')
+  })
+})
 
 describe('senderKey', () => {
   it('prefers the bare address inside angle brackets', () => {

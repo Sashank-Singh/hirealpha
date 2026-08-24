@@ -503,6 +503,16 @@ export function formatBriefPreview(input: {
   return bits.join('\n').slice(0, 320)
 }
 
+/** A model that does not know who it writes for emits "[Your Name]". Swap any
+ * placeholder form for the sender's actual name so the draft is send-ready. */
+export function fillDraftName(body: string, name: string): string {
+  const clean = String(name || '').trim()
+  if (!clean) return body
+  return body
+    .replace(/\[\s*(?:your|my)?\s*name\s*\]/gi, clean)
+    .replace(/\n[ \t]*your name[ \t]*$/i, `\n${clean}`)
+}
+
 /** Recursive MIME part for Gmail full-format messages. */
 export interface GmailMimePart {
   mimeType?: string

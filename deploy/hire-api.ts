@@ -39,6 +39,7 @@ import {
   cleanMailSnippet,
   decodeGmailBody,
   extractGmailBody,
+  fillDraftName,
   formatBriefPreview,
   formatComposioMailBlock,
   importantMailQuery,
@@ -7022,8 +7023,12 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     `
     const row = rows[0] as { to_addr: string; subject: string; body: string } | undefined
     if (!row) return json({ error: 'Draft not found.' }, 404)
+    /* The model signs with a real name or not at all: left unnamed it emits
+     * "[Your Name]", which is exactly what users then send by accident. */
+    const senderName = (user!.name || '').trim() || user!.email.split('@')[0]
+    const firstName = senderName.split(/\s+/)[0] || 'me'
     const rewritten = await gmiBriefChat(
-      'You are Alpha writing a reply email on the user\'s behalf. Rewrite the draft body to follow the user\'s instruction. Keep it a natural, concise email reply with a plain greeting. Respond with ONLY the new body text — no preamble, labels, or quoting.',
+      `You are Alpha writing a reply email on behalf of ${senderName}. Rewrite the draft body to follow the user's instruction. Keep it a natural, concise email reply with a plain greeting, and close with a short signoff in their voice using the name ${firstName}, like "Best," then ${firstName} on the next line. Never leave placeholders such as [Your Name]. Respond with ONLY the new body text — no preamble, labels, or quoting.`,
       `To: ${row.to_addr}\nSubject: ${row.subject}\n\nCurrent draft:\n${row.body}\n\nUser instruction: ${instruction}\n\nRewrite the draft body now.`,
       500,
       8000,
@@ -7032,8 +7037,9 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     if (!rewritten?.trim()) {
       return json({ ok: false, error: 'Alpha could not rewrite that right now. Try again.' }, 502)
     }
-    await sql`UPDATE hire_drafts SET body = ${rewritten.trim()}, updated_at = now() WHERE id = ${draftId} AND user_id = ${user!.id}`
-    return json({ ok: true, body: rewritten.trim() })
+    const signed = fillDraftName(rewritten.trim(), firstName)
+    await sql`UPDATE hire_drafts SET body = ${signed}, updated_at = now() WHERE id = ${draftId} AND user_id = ${user!.id}`
+    return json({ ok: true, body: signed })
   }
 
   if (path === '/api/reminders/action' && req.method === 'POST') {
