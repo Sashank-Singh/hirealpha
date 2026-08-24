@@ -3724,6 +3724,18 @@ async function armPokes(
     await ensureJudgeTick(sql, user.id, persona, `${JUDGE_MARKER}evening`, nextLocalTimeUtc(tz, 21, 0), 'daily', tz)
     await ensureJudgeTick(sql, user.id, persona, `${JUDGE_MARKER}weekly`, nextWeekdayLocalUtc(tz, 0, 19, 0), 'weekly', tz)
   } else if (persona === 'coworker') {
+    // The work personas get the same 8 AM morning digest friend does — the one
+    // that now carries their Linear/PR/draft or pipeline/decision/runway pull.
+    const morning = await sql`
+      SELECT id FROM hire_reminders
+      WHERE user_id = ${user.id} AND persona = ${persona}
+        AND text LIKE '[digest]%'
+        AND (status = 'pending' OR recurrence = 'daily')
+      LIMIT 1
+    `
+    if (!morning[0]) {
+      await ensureJudgeTick(sql, user.id, persona, `${JUDGE_MARKER}morning`, nextLocalTimeUtc(tz, 8, 0), 'daily', tz)
+    }
     const clock = parseStandupClock(context.standup_time)
     let minute = clock.minute - 12
     let hour = clock.hour
@@ -3742,6 +3754,17 @@ async function armPokes(
     )
     await ensureJudgeTick(sql, user.id, persona, `${JUDGE_MARKER}weekly`, nextWeekdayLocalUtc(tz, 5, 17, 0), 'weekly', tz)
   } else {
+    // Cofounder keeps its own 8 AM pull too.
+    const morning = await sql`
+      SELECT id FROM hire_reminders
+      WHERE user_id = ${user.id} AND persona = ${persona}
+        AND text LIKE '[digest]%'
+        AND (status = 'pending' OR recurrence = 'daily')
+      LIMIT 1
+    `
+    if (!morning[0]) {
+      await ensureJudgeTick(sql, user.id, persona, `${JUDGE_MARKER}morning`, nextLocalTimeUtc(tz, 8, 0), 'daily', tz)
+    }
     await ensureJudgeTick(
       sql,
       user.id,
