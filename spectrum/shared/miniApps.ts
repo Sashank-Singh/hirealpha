@@ -108,7 +108,7 @@ export const PATTERNS: Partial<Record<MiniAppKind, RegExp>> = {
   // named build ("a calculator app") needs the article in front, so the noun
   // alone ("my calculator") never trips it.
   artifact:
-    /\b(?:go\s+)?(?:build|make|create|write|ship)\s+(?:me\s+)?(?:a|an|the)\s+(?:tiny\s+|simple\s+|small\s+|custom\s+|quick\s+|little\s+|fresh\s+)*(?:tracker|dashboard|page|web ?page|tool|form|converter|script|chart|calculator|site|website|invoice generator|waitlist|landing page|crud|habit tracker|[a-z-]+ ?app)\b/i,
+    /\b(?:go\s+)?(?:build|make|create|write|ship)\s+(?:me\s+)?(?:a|an|the)\s+(?:tiny\s+|simple\s+|small\s+|custom\s+|quick\s+|little\s+|fresh\s+)*(?:[a-z][a-z'-]*\s+)?(?:tracker|dashboard|page|web ?page|tool|form|converter|script|chart|calculator|site|website|invoice generator|waitlist|landing page|crud|saver|manager|generator|planner|counter|timer|checklist|vault|organizer|app)\b/i,
   decision_ledger:
     /\bdecision\b.{0,16}\b(?:log|record|ledger|journal)\b|\blog (?:that|this|a) decision\b|\bwhat did (?:we|i) decide\b|\bwe (?:decided|made the call|went with)\b|\bdecision:\b/i,
   relationship_radar: /\brelationship radar\b|\b(?:haven.?t|need to) (?:reach|touch|check) (?:out|in|base)\b|\bwho should i (?:follow|reach|check)\b/i,

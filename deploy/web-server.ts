@@ -316,6 +316,9 @@ function miniMeta(pathname: string) {
   if (!match) return null
   const persona = match[1] === 'friend' ? 'Alpha' : match[1] === 'coworker' ? 'Alpha (Coworker)' : 'Alpha (CoFounder)'
   const feature = MINI_META[match[2]] || { title: 'HireAlpha', description: 'A live HireAlpha mini-app.' }
+  // The apps grid is the storefront, not one feature — it reads better as a
+  // product headline than as "Apps · Alpha".
+  if (match[2] === 'apps' || match[2] === 'menu') return { ...feature, title: 'Alpha Apps' }
   return { ...feature, title: `${feature.title} · ${persona}` }
 }
 
