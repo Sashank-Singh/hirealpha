@@ -810,35 +810,55 @@ export async function runHireTurn(input: {
     }
   }
 
+  /* The workshop path calls the planner model and the sandbox; a throw anywhere
+   * in it must cost the build, not the whole turn — the outer catch would turn
+   * a failed build into the canned "Got tripped up" reply. */
   if (miniApp?.kind === 'artifact') {
-    const built = await autoRunWorkshop(input.senderId, agent.id, input.userText)
-    if (built?.logged && built.artifactId) {
-      confirmKind = 'artifact'
-      confirmQuery = { id: built.artifactId }
+    try {
+      const built = await autoRunWorkshop(input.senderId, agent.id, input.userText)
+      if (built?.logged && built.artifactId) {
+        confirmKind = 'artifact'
+        confirmQuery = { id: built.artifactId }
+        extras.push(
+          `Built and deployed: "${built.title}". The card is attached — tell them to open it, then say "keep it" (stays forever) or "toss it" (deleted). Unkept builds auto-delete in 7 days. Do not restate the code.`,
+        )
+      } else {
+        extras.push(
+          `The build failed — ${built?.error || 'unknown error'}. Say honestly that the build did not work and ask them what they wanted it to do, one line.`,
+        )
+      }
+    } catch (err) {
+      console.warn('[turn] workshop build crashed', err)
       extras.push(
-        `Built and deployed: "${built.title}". The card is attached — tell them to open it, then say "keep it" (stays forever) or "toss it" (deleted). Unkept builds auto-delete in 7 days. Do not restate the code.`,
-      )
-    } else {
-      extras.push(
-        `The build failed — ${built?.error || 'unknown error'}. Say honestly that the build did not work and ask them what they wanted it to do, one line.`,
+        'The build failed — the builder hit an unexpected error. Say honestly that the build did not work and ask them what they wanted it to do, one line.',
       )
     }
   }
 
   if (looksLikeKeepIt(input.userText)) {
-    const kept = await autoWorkshopKeep(input.senderId, agent.id)
-    if (kept?.logged) {
-      extras.push('They said keep it: the last built artifact is now saved permanently. Confirm in a few words.')
-    } else {
-      extras.push('They said keep it but there is no delivered build to keep. Say so plainly.')
+    try {
+      const kept = await autoWorkshopKeep(input.senderId, agent.id)
+      if (kept?.logged) {
+        extras.push('They said keep it: the last built artifact is now saved permanently. Confirm in a few words.')
+      } else {
+        extras.push('They said keep it but there is no delivered build to keep. Say so plainly.')
+      }
+    } catch (err) {
+      console.warn('[turn] workshop keep crashed', err)
+      extras.push('They said keep it but the keep request hit an error. Say so plainly and ask them to try again.')
     }
   }
   if (looksLikeTossIt(input.userText)) {
-    const tossed = await autoWorkshopToss(input.senderId, agent.id)
-    if (tossed?.logged) {
-      extras.push('They said toss it: the last built artifact was deleted. Confirm in a few words.')
-    } else {
-      extras.push('They said toss it but there is no delivered build to delete. Say so plainly.')
+    try {
+      const tossed = await autoWorkshopToss(input.senderId, agent.id)
+      if (tossed?.logged) {
+        extras.push('They said toss it: the last built artifact was deleted. Confirm in a few words.')
+      } else {
+        extras.push('They said toss it but there is no delivered build to delete. Say so plainly.')
+      }
+    } catch (err) {
+      console.warn('[turn] workshop toss crashed', err)
+      extras.push('They said toss it but the delete hit an error. Say so plainly and ask them to try again.')
     }
   }
 

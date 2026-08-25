@@ -809,27 +809,35 @@ export async function autoRunWorkshop(
   if (!base || !key) return { ok: false, logged: false, error: 'not configured' }
 
   // Plan: turn the ask into sandbox code. One repair retry on invalid JSON.
+  // A planner failure must return an error, never throw: this runs inside the
+  // chat turn, and a throw here crashes the whole reply into the canned
+  // "Got tripped up" message instead of an honest "the build failed".
   let title = ''
   let code = ''
-  for (let attempt = 0; attempt < 2; attempt++) {
-    const raw = await gmiChat({
-      temperature: 0.2,
-      maxTokens: 3000,
-      messages: [
-        { role: 'system', content: WORKSHOP_PLANNER },
-        { role: 'user', content: attempt === 0 ? ask : `${ask}\n\nYour previous reply was not valid JSON. Reply again, JSON only.` },
-      ],
-    })
-    const jsonMatch = (raw || '').match(/\{[\s\S]*\}/)
-    if (!jsonMatch) continue
-    try {
-      const parsed = JSON.parse(jsonMatch[0]) as { title?: string; code?: string }
-      title = String(parsed.title || '').slice(0, 120)
-      code = String(parsed.code || '')
-      if (code.trim()) break
-    } catch {
-      /* retry once */
+  try {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const raw = await gmiChat({
+        temperature: 0.2,
+        maxTokens: 3000,
+        messages: [
+          { role: 'system', content: WORKSHOP_PLANNER },
+          { role: 'user', content: attempt === 0 ? ask : `${ask}\n\nYour previous reply was not valid JSON. Reply again, JSON only.` },
+        ],
+      })
+      const jsonMatch = (raw || '').match(/\{[\s\S]*\}/)
+      if (!jsonMatch) continue
+      try {
+        const parsed = JSON.parse(jsonMatch[0]) as { title?: string; code?: string }
+        title = String(parsed.title || '').slice(0, 120)
+        code = String(parsed.code || '')
+        if (code.trim()) break
+      } catch {
+        /* retry once */
+      }
     }
+  } catch (err) {
+    console.warn('[live] workshop planner failed', err)
+    return { ok: false, logged: false, error: 'could not draft the program' }
   }
   if (!code.trim()) return { ok: false, logged: false, error: 'could not draft the program' }
 
