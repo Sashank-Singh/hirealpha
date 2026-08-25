@@ -2872,13 +2872,16 @@ const BRIEF_WARM_WAIT_MS = 60_000
 /* ---- Persisted brief cache ----
  * The in-memory stale caches above live and die with the container. A brief is
  * still useful the moment a tap lands after a deploy, so the last successful
- * build of the day is kept in Postgres: cold reads hit the DB instead of paying
- * a Google + model build, and the rebuild only happens when the row is old. */
-/* A brief is expensive to build (calendar + Gmail + a model pass) and changes
- * through the day as mail lands, but a build from this morning is far better on
- * a fresh tap than another ~8-10s cold build. Three hours keeps lunchtime and
- * afternoon opens near-instant while mail still feels current day-over-day. */
-const BRIEF_STALE_MS = 3 * 60 * 60 * 1000
+ * build of the day is kept in Postgres as a one-minute stand-in — anything the
+ * client holds is a paint that must not be *served* as if it were current. */
+/* The whole point of the client keeping a 4-hour copy is a fast paint; the
+ * server must never serve that copy as current. Mail only stays true for
+ * minutes, so a persisted row is trusted for a single minute and every later
+ * open rebuilds (calendar + Gmail + model) behind the client's already-painted
+ * screen — the retry ladder swaps in the fresh mail a couple of seconds later
+ * instead of showing you three-hour-old mail as today's. The in-memory cache
+ * above already makes repeat opens within four minutes free. */
+const BRIEF_STALE_MS = 60_000
 
 /** A persisted row is still worth a fast serve when it was built today and recently. */
 export function briefRowFresh(rowAgeMs: number | null, today: string, rowDay: string | null): boolean {
