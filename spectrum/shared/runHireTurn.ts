@@ -824,7 +824,7 @@ export async function runHireTurn(input: {
         )
       } else {
         extras.push(
-          `The build failed — ${built?.error || 'unknown error'}. In one line, say honestly that the build did not work and ask what they wanted it to do. Never claim something was already built, and never tell them to build it themselves from a card.`,
+          `The build failed — ${built?.error || 'unknown error'}. In one line, say honestly that the build did not work and include the exact error in parentheses so they can see why, then ask what they wanted it to do. Never claim something was already built, and never tell them to build it themselves from a card.`,
         )
       }
     } catch (err) {

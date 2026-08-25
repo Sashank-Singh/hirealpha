@@ -8378,10 +8378,13 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     }
     const user = await getUserByPhone(sql, body.phone)
     if (!user) return json({ error: 'User not found' }, 404)
-    // Rate limit: ten builds a day is generous for a human and a floor on abuse.
+    // Rate limit: ten finished builds a day is generous for a human and a
+    // floor on abuse. Failed attempts (no artifact) don't consume quota —
+    // otherwise a debugging session locks the builder for the day.
     const used = await sql`
       SELECT count(*)::int AS n FROM hire_workshop_tasks
       WHERE user_id = ${user.id} AND created_at >= date_trunc('day', now())
+        AND artifact_id IS NOT NULL
     `
     if (Number((used[0] as { n?: number })?.n || 0) >= 10) {
       return json({ ok: false, logged: false, error: 'Build limit reached for today (10).' })
@@ -8433,6 +8436,20 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     `
     const row = rows[0] as { id: string; title: string; state: string; expiresAt: Date } | undefined
     return json({ artifact: row ? { id: row.id, title: row.title, expiresAt: row.expiresAt } : null })
+  }
+
+  /* Recent build attempts with their errors — the remote-debug view for when
+   * a build fails in production and the reply only says "it failed". */
+  if (path === '/api/internal/workshop/tasks' && req.method === 'GET') {
+    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
+    const phone = url.searchParams.get('phone') || ''
+    const rows = await sql`
+      SELECT t.prompt, t.status, t.error, t.created_at AS "createdAt"
+      FROM hire_workshop_tasks t
+      ${phone ? sql`JOIN hire_users u ON u.id = t.user_id WHERE u.phone_e164 = ${phone}` : sql``}
+      ORDER BY t.created_at DESC LIMIT 10
+    `
+    return json({ tasks: rows })
   }
 
   if (path === '/api/internal/workshop/keep' && req.method === 'POST') {
