@@ -845,10 +845,18 @@ export async function autoRunWorkshop(
         }
       }
     } catch (err) {
+      // A provider hiccup (429, 5xx, backend 400) should get the repair pass,
+      // not an instant failure — the outer loop re-plans from scratch.
       console.warn('[live] workshop planner failed', err)
+      lastError = 'the model provider hiccuped'
+      if (pass === 0) continue
       return { ok: false, logged: false, error: 'could not draft the program' }
     }
-    if (!code.trim()) return { ok: false, logged: false, error: 'could not draft the program' }
+    if (!code.trim()) {
+      lastError = 'could not draft the program'
+      if (pass === 0) continue
+      return { ok: false, logged: false, error: lastError }
+    }
 
     try {
       const res = await timedFetch(
