@@ -4283,6 +4283,26 @@ async function loadGmailMessageBody(sql: SQL, userId: string, messageId: string)
   return raw.slice(0, 800)
 }
 
+/* The prep sheet format. Fixed sections so the sheet scans the same way every
+ * time; the model only organizes what was gathered — it never invents. */
+const PREP_FORMAT = [
+  'You write a short pre-meeting prep sheet. Use ONLY the gathered context. Never invent facts, names, numbers, or dates.',
+  'Format exactly, with these section lines:',
+  'PREP · {person or meeting name}',
+  'WHEN: {time · event} or "nothing matching in the next two days"',
+  'WHO: {one line — role, context, where you met, last touch}',
+  'LAST THREAD: {one line — the newest email: what was said, any ask left open} or "no email in the last 90 days"',
+  'HISTORY:',
+  '- {up to three one-line older threads, newest first}',
+  'OUT THERE:',
+  '- {up to two lines of public info from the web results, only if it matters for the meeting}',
+  'OPEN LOOPS:',
+  '- {asks either side left unanswered, if any} or "none spotted"',
+  'SAY / ASK:',
+  '- {two or three concrete talking points or questions for the meeting, drawn only from the context}',
+  'Rules: short plain lines. No markdown. No hyphens or dashes in prose. If a section has nothing, say so in one honest line instead of filler.',
+].join('\n')
+
 async function buildPrepBundle(
   sql: SQL,
   user: { id: string; name?: string | null; timezone: string | null },
@@ -4300,7 +4320,7 @@ async function buildPrepBundle(
   const until = new Date(now.getTime() + 48 * 60 * 60 * 1000)
 
   const peopleRows = await sql`
-    SELECT name, phone, email, context, where_met AS "whereMet"
+    SELECT name, phone, email, context, where_met AS "whereMet", last_touch AS "lastTouch"
     FROM hire_network WHERE user_id = ${user.id}
     ORDER BY coalesce(last_touch, '1970-01-01'::timestamptz) DESC
     LIMIT 40
@@ -4311,6 +4331,7 @@ async function buildPrepBundle(
     email: string
     context: string
     whereMet: string
+    lastTouch: string | null
   }>
   const person =
     people.find((p) => needle && prepHayMatch(p.name, needle)) ||
@@ -4375,7 +4396,9 @@ async function buildPrepBundle(
     .trim()
     .slice(0, 400)
 
-  let threadLine = 'none in the last 90 days'
+  /* Full context pass: every recent thread with this person (bodies for the
+   * two newest), plus a public-web search on the name. The old prep read one
+   * email's first 220 characters and called that a brief. */
   let threadId = ''
   const email = (person?.email || '').trim()
   const gmailQ = email
@@ -4383,28 +4406,66 @@ async function buildPrepBundle(
     : searchName
       ? `"${searchName.replace(/"/g, '')}" newer_than:90d`
       : ''
-  if (gmailQ) {
-    const rich = await withTimeout(loadGmailRich(sql, user.id, gmailQ, 5), 8000, [])
-    const mail = rich[0]
-    if (mail) {
-      threadId = mail.id
-      const body = await withTimeout(loadGmailMessageBody(sql, user.id, mail.id), 6000, '')
-      const last = (body || mail.snippet || '').replace(/\s+/g, ' ').trim().slice(0, 220)
-      threadLine = `${mail.subject || 'Mail'} · ${mail.from || 'unknown'}. Last: ${last || 'empty'}`
+  const rich = gmailQ ? await withTimeout(loadGmailRich(sql, user.id, gmailQ, 8), 8000, []) : []
+  const threadLines: string[] = []
+  for (const [i, m] of rich.slice(0, 4).entries()) {
+    let last = ''
+    if (i < 2) {
+      const body = await withTimeout(loadGmailMessageBody(sql, user.id, m.id), 6000, '')
+      last = (body || m.snippet || '').replace(/\s+/g, ' ').trim().slice(0, 220)
+    } else {
+      last = (m.snippet || '').replace(/\s+/g, ' ').trim().slice(0, 150)
     }
+    const when = String(m.date || '').slice(0, 16)
+    threadLines.push(`${i + 1}. ${m.subject || 'Mail'} — ${m.from || 'unknown'}${when ? ` — ${when}` : ''}: ${last}`)
+  }
+  threadId = rich[0]?.id || ''
+
+  let webText = ''
+  if (searchName) {
+    const q = [searchName, person?.context].filter(Boolean).join(' ').slice(0, 160)
+    webText = await withTimeout(fetchWebSearch(q), 8000, '')
   }
 
   const who = person?.name || eventTitle || needle || 'that meeting'
-  const lines = [
+  const lastTouch = person?.lastTouch
+    ? `${Math.max(1, Math.floor((Date.now() - new Date(person.lastTouch).getTime()) / 86_400_000))} days ago`
+    : ''
+
+  const gathered = [
+    `MEETING: ${eventLabel || 'nothing matching in the next two days'}`,
+    `PERSON: ${[person?.name || searchName || 'unknown', person?.email || '', peopleNote || 'no notes on file', lastTouch ? `last touched ${lastTouch}` : '']
+      .filter(Boolean)
+      .join(' | ')}`,
+    `MEETING NOTES: ${meetingNote || 'none'}`,
+    `EMAIL THREADS (newest first):\n${threadLines.length ? threadLines.join('\n') : 'no email with them in the last 90 days'}`,
+    webText ? `WEB:\n${webText}` : 'WEB: nothing found',
+  ].join('\n\n')
+
+  const hasAnything = !!(person || eventLabel || peopleNote || meetingNote || threadId || threadLines.length)
+  if (!hasAnything) return null
+
+  /* The sheet is a fixed format; the model organizes the gathered facts into
+   * it. If the model is down, the raw gather is still an honest sheet. */
+  const fallbackText = [
     `Prep for ${who}`,
     `When: ${eventLabel || 'nothing on the next two days that matches'}`,
     `People note: ${peopleNote || 'none on file'}`,
     meetingNote ? `Meeting notes: ${meetingNote}` : '',
-    `Thread: ${threadLine}`,
-  ].filter(Boolean)
+    threadLines.length ? `Threads:\n${threadLines.join('\n')}` : 'Thread: none in the last 90 days',
+    webText ? `Web:\n${webText}` : '',
+  ]
+    .filter(Boolean)
+    .join('\n')
 
-  const hasAnything = !!(person || eventLabel || peopleNote || meetingNote || threadId)
-  if (!hasAnything) return null
+  let text = fallbackText
+  try {
+    const synthesized = await gmiBriefChat(PREP_FORMAT, gathered, 700, 14000, { plainText: true })
+    if (synthesized?.trim()) text = synthesized.trim()
+    else console.warn('[prep] synthesis empty, using raw gather')
+  } catch (err) {
+    console.warn('[prep] synthesis failed, using raw gather', err)
+  }
 
   const first = firstNameOf(who)
   const whenBit = eventTitle || 'this'
@@ -4427,7 +4488,7 @@ async function buildPrepBundle(
     }
   }
 
-  return { text: lines.join('\n'), draft }
+  return { text, draft }
 }
 
 async function loadWeekSnapshot(

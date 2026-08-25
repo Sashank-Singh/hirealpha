@@ -173,7 +173,7 @@ function PrepSheet({
         <span className="brief-prep-kicker">Prep</span>
         <h3 className="brief-prep-title">{name}</h3>
         {loading ? (
-          <p className="brief-prep-loading">Reading you in…</p>
+          <p className="brief-prep-loading">Pulling mail, notes, and the web…</p>
         ) : (
           <>
             <p className="brief-prep-text">{text}</p>
