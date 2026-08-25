@@ -4,6 +4,9 @@
  */
 import { Composio } from '@composio/core'
 import { createHmac, timingSafeEqual } from 'node:crypto'
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { join } from 'node:path'
+import { gateWorkshopCode, runWorkshopCode, sweepExpiredArtifacts } from './workshop'
 import type { SQL } from 'bun'
 import {
   extractOtherPerson,
@@ -36,6 +39,7 @@ import {
   cleanMailSnippet,
   decodeGmailBody,
   extractGmailBody,
+  fillDraftName,
   formatBriefPreview,
   formatComposioMailBlock,
   importantMailQuery,
@@ -131,6 +135,13 @@ export function phonesMatch(a: string, b: string): boolean {
 function isPersona(v: string): v is Persona {
   return (PERSONAS as readonly string[]).includes(v)
 }
+
+/** Where built artifacts live on disk. Override with ARTIFACTS_DIR when the
+ * runner moves to its own sandbox box. */
+export function artifactsRoot(): string {
+  return process.env.ARTIFACTS_DIR || join(process.cwd(), 'artifacts')
+}
+export { sweepExpiredArtifacts }
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -480,6 +491,52 @@ export async function ensureHireSchema(sql: SQL) {
       created_at TIMESTAMPTZ NOT NULL DEFAULT now()
     )
   `
+  await sql`
+    CREATE TABLE IF NOT EXISTS hire_standups (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES hire_users(id) ON DELETE CASCADE,
+      day TEXT NOT NULL,
+      notes TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      UNIQUE (user_id, day)
+    )
+  `
+  await sql`
+    CREATE TABLE IF NOT EXISTS hire_runway_snapshots (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES hire_users(id) ON DELETE CASCADE,
+      taken_on TEXT NOT NULL,
+      cash REAL NOT NULL DEFAULT 0,
+      burn REAL NOT NULL DEFAULT 0,
+      months REAL NOT NULL DEFAULT 0,
+      UNIQUE (user_id, taken_on)
+    )
+  `
+  /* Workshop: things Alpha builds. Delivered artifacts auto-expire (7 days)
+   * unless the user keeps them — nothing the sandbox makes persists by default. */
+  await sql`
+    CREATE TABLE IF NOT EXISTS hire_artifacts (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES hire_users(id) ON DELETE CASCADE,
+      title TEXT NOT NULL,
+      kind TEXT NOT NULL DEFAULT 'page',
+      files JSONB NOT NULL DEFAULT '[]'::jsonb,
+      state TEXT NOT NULL DEFAULT 'delivered',
+      expires_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `
+  await sql`
+    CREATE TABLE IF NOT EXISTS hire_workshop_tasks (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES hire_users(id) ON DELETE CASCADE,
+      prompt TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'done',
+      error TEXT,
+      artifact_id TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `
   await sql`CREATE INDEX IF NOT EXISTS idx_hire_dropzone_user ON hire_dropzone (user_id, status, created_at DESC)`
 
   await sql`
@@ -545,6 +602,22 @@ export async function ensureHireSchema(sql: SQL) {
     )
   `
   await sql`CREATE INDEX IF NOT EXISTS idx_hire_nutrition_user ON hire_nutrition_logs (user_id, eaten_at DESC)`
+
+  /* The brief is the one screen Alpha texts a link to, and building it costs a
+   * calendar fetch, an inbox pull, and a model pass. The in-memory cache loses
+   * everything on a deploy, so the last build is persisted here per day: a cold
+   * container can serve today's brief on the spot and rebuild behind it. */
+  await sql`
+    CREATE TABLE IF NOT EXISTS hire_brief_cache (
+      user_id TEXT NOT NULL REFERENCES hire_users(id) ON DELETE CASCADE,
+      persona TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      day TEXT NOT NULL,
+      payload TEXT NOT NULL,
+      built_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      PRIMARY KEY (user_id, persona, kind)
+    )
+  `
 
   await sql`
     CREATE TABLE IF NOT EXISTS hire_nutrition_goals (
@@ -652,6 +725,17 @@ export async function ensureHireSchema(sql: SQL) {
   await sql`ALTER TABLE hire_network ADD COLUMN IF NOT EXISTS email TEXT NOT NULL DEFAULT ''`
   await sql`ALTER TABLE hire_network ADD COLUMN IF NOT EXISTS company TEXT NOT NULL DEFAULT ''`
 
+  /* One people list, not two. The Relationship Radar used to keep its own
+   * table so the mini app and the CRM could disagree about the same person —
+   * that split-brain is gone now, and these legacy rows move over once. The old
+   * table stays in place (never dropped) so nothing breaks mid-migration. */
+  await sql`
+    INSERT INTO hire_network (id, user_id, name, where_met, context, cadence_days, last_touch, created_at)
+    SELECT r.id, r.user_id, r.name, '', r.notes, r.cadence_days, r.last_touch_at, r.created_at
+    FROM hire_relationships r
+    WHERE r.id NOT IN (SELECT id FROM hire_network WHERE user_id = r.user_id)
+  `
+
   await sql`
     CREATE TABLE IF NOT EXISTS hire_sleep (
       id TEXT PRIMARY KEY,
@@ -681,6 +765,8 @@ export async function ensureHireSchema(sql: SQL) {
     )
   `
   await sql`CREATE INDEX IF NOT EXISTS idx_hire_pipeline_user ON hire_pipeline (user_id, updated_at DESC)`
+  await sql`ALTER TABLE hire_pipeline ADD COLUMN IF NOT EXISTS value REAL NOT NULL DEFAULT 0`
+  await sql`ALTER TABLE hire_pipeline ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'deal'`
 
   await sql`
     CREATE TABLE IF NOT EXISTS hire_gratitude (
@@ -772,6 +858,14 @@ export async function ensureHireSchema(sql: SQL) {
     )
   `
   await sql`CREATE INDEX IF NOT EXISTS idx_hire_mail_feedback_user ON hire_mail_feedback (user_id, sender, created_at DESC)`
+
+  // Delivered-but-unkept artifacts die with the day count; the sweep also runs
+  // hourly from the server so a long-lived process keeps purging.
+  try {
+    await sweepExpiredArtifacts(sql, artifactsRoot())
+  } catch {
+    /* first boot may have no dir yet */
+  }
 }
 
 export type MailSenderSignal = { replies: number; skips: number }
@@ -2775,6 +2869,74 @@ const eveningCache = createStaleCache<Awaited<ReturnType<typeof miniPayload>>>({
  * they are about to text is already warm when it gets tapped. */
 const BRIEF_WARM_WAIT_MS = 60_000
 
+/* ---- Persisted brief cache ----
+ * The in-memory stale caches above live and die with the container. A brief is
+ * still useful the moment a tap lands after a deploy, so the last successful
+ * build of the day is kept in Postgres: cold reads hit the DB instead of paying
+ * a Google + model build, and the rebuild only happens when the row is old. */
+/* A brief is expensive to build (calendar + Gmail + a model pass) and changes
+ * through the day as mail lands, but a build from this morning is far better on
+ * a fresh tap than another ~8-10s cold build. Three hours keeps lunchtime and
+ * afternoon opens near-instant while mail still feels current day-over-day. */
+const BRIEF_STALE_MS = 3 * 60 * 60 * 1000
+
+/** A persisted row is still worth a fast serve when it was built today and recently. */
+export function briefRowFresh(rowAgeMs: number | null, today: string, rowDay: string | null): boolean {
+  if (!rowAgeMs || rowDay !== today) return false
+  return rowAgeMs < BRIEF_STALE_MS
+}
+
+async function readBriefDb(
+  sql: SQL,
+  userId: string,
+  persona: string,
+  kind: string,
+): Promise<{ payload: unknown; day: string; builtAt: Date } | null> {
+  try {
+    const rows = (await sql`
+      SELECT day, payload, built_at AS "builtAt" FROM hire_brief_cache
+      WHERE user_id = ${userId} AND persona = ${persona} AND kind = ${kind}
+      LIMIT 1
+    `) as Array<{ day: string; payload: string; builtAt: Date }>
+    const row = rows[0]
+    if (!row) return null
+    return { payload: JSON.parse(row.payload), day: row.day, builtAt: row.builtAt }
+  } catch {
+    return null
+  }
+}
+
+async function writeBriefDb(sql: SQL, userId: string, persona: string, kind: string, day: string, payload: unknown) {
+  try {
+    await sql`
+      INSERT INTO hire_brief_cache (user_id, persona, kind, day, payload, built_at)
+      VALUES (${userId}, ${persona}, ${kind}, ${day}, ${JSON.stringify(payload)}, now())
+      ON CONFLICT (user_id, persona, kind)
+      DO UPDATE SET day = excluded.day, payload = excluded.payload, built_at = excluded.built_at
+    `
+  } catch {
+    /* A cache row must never take a read down with it. */
+  }
+}
+
+/** Serve today's persisted brief when it is still fresh-ish; otherwise build and persist. */
+async function briefLoader<T>(
+  sql: SQL,
+  userId: string,
+  persona: string,
+  kind: string,
+  build: () => Promise<T>,
+  day: string,
+): Promise<T> {
+  const row = await readBriefDb(sql, userId, persona, kind)
+  if (row && briefRowFresh(Date.now() - new Date(row.builtAt).getTime(), day, row.day)) {
+    return row.payload as T
+  }
+  const payload = await build()
+  await writeBriefDb(sql, userId, persona, kind, day, payload)
+  return payload
+}
+
 async function loadHomeWorld(sql: SQL, user: AuthedUser, tzLocal: string): Promise<HomeWorld> {
   const world: HomeWorld = { upcoming: [], mail: [], mailGroups: [] }
   const jobs: Array<Promise<void>> = []
@@ -2851,6 +3013,63 @@ async function loadHomeWorld(sql: SQL, user: AuthedUser, tzLocal: string): Promi
   if (failures.length === settled.length) throw (failures[0] as PromiseRejectedResult).reason
   for (const failure of failures) console.warn('[home] world job failed', (failure as PromiseRejectedResult).reason)
   return world
+}
+
+/** The work personas' morning pull: one boxed section set per hire, appended to
+ * the digest text so the thread itself replaces opening Slack/Linear/Notion. */
+export function workPullSections(input: {
+  persona: 'coworker' | 'cofounder'
+  linear?: Array<{ identifier: string; title: string; state?: string }>
+  prs?: string[]
+  draftsCount?: number
+  pipeline?: Array<{ stage: string; value: number }>
+  decisionsOpen?: number
+  oldestDecisionDays?: number
+  runway?: { cash: number; burn: number; months: number } | null
+}): Array<{ title: string; lines: string[] }> {
+  const sections: Array<{ title: string; lines: string[] }> = []
+  if (input.persona === 'coworker') {
+    const needsYou = (input.linear || []).filter((i) => !/done|canceled|closed/i.test(i.state || ''))
+    if (needsYou.length) {
+      sections.push({
+        title: 'Linear',
+        lines: needsYou.slice(0, 4).map((i) => `${i.identifier} ${i.title}`),
+      })
+    }
+    if (input.prs?.length) {
+      sections.push({ title: 'PRs needing your pass', lines: input.prs.slice(0, 4) })
+    }
+    if (input.draftsCount) {
+      sections.push({ title: 'Drafts ready to send', lines: [`${input.draftsCount} waiting`] })
+    }
+  } else if (input.persona === 'cofounder') {
+    const live = input.pipeline || []
+    const total = live.reduce((s, p) => s + (p.value > 0 ? p.value : 0), 0)
+    const offers = live.filter((p) => p.stage === 'offer').length
+    if (live.length) {
+      sections.push({
+        title: 'Pipeline',
+        lines: [
+          `${live.length} live${total > 0 ? ` · $${Math.round(total / 1000)}k` : ''}${offers ? ` · ${offers} offers out` : ''}`,
+        ],
+      })
+    }
+    if (input.decisionsOpen) {
+      sections.push({
+        title: 'Decisions',
+        lines: [`${input.decisionsOpen} open${input.oldestDecisionDays ? ` · oldest ${input.oldestDecisionDays}d` : ''}`],
+      })
+    }
+    if (input.runway && input.runway.months > 0) {
+      sections.push({
+        title: 'Runway',
+        lines: [
+          `${Math.round(input.runway.months)} months ($${Math.round(input.runway.cash)} cash @ $${Math.round(input.runway.burn)}/mo)`,
+        ],
+      })
+    }
+  }
+  return sections
 }
 
 async function digestPayload(
@@ -3189,7 +3408,6 @@ async function digestPayload(
         : calToday.calendarConnected
           ? 'A quiet day so far'
           : 'Connect Calendar in Settings'
-  const first = (nextBeat?.name || '').trim().split(/\s+/)[0] || 'them'
   const leadReason = (reasons: string[]): string => {
     if (reasons.includes('waiting_on_you')) return 'They are waiting on you.'
     if (reasons.includes('deadline')) return 'There is a deadline on this.'
@@ -3220,7 +3438,7 @@ async function digestPayload(
         ? {
             kicker: 'Next',
             title: `${nextBeat.time}  ${nextBeat.name}`,
-            hint: `Get prepped for ${first}.`,
+            hint: 'Show up ready.',
             cta: 'Prep me',
             openKind: 'digest',
             kind: 'prep',
@@ -3244,6 +3462,70 @@ async function digestPayload(
               kind: 'quiet',
             }
 
+  /* ---- The work pull: the thread replacing Slack/Linear/ChatGPT ----
+   * Both work personas get their own slice in the morning text — Linear and PRs
+   * and drafts for coworker, pipeline and decisions and runway for cofounder —
+   * so the brief is the reason you never open those tools. */
+  let workSections: Array<{ title: string; lines: string[] }> = []
+  let workData: Record<string, unknown> | null = null
+  if (persona === 'coworker' || persona === 'cofounder') {
+    const [linear, drafts, pipe, decAgg, runway, prs] = await Promise.all([
+      persona === 'coworker'
+        ? listLinearIssues(user.id).then((r) => r.issues || []).catch(() => [])
+        : Promise.resolve([] as Array<{ identifier: string; title: string; state?: string }>),
+      sql`SELECT count(*)::int AS n FROM hire_drafts WHERE user_id = ${user.id} AND status = 'pending'`,
+      persona === 'cofounder'
+        ? sql`SELECT stage, coalesce(value, 0)::real AS value FROM hire_pipeline
+              WHERE user_id = ${user.id} AND stage NOT IN ('won', 'lost')`
+        : Promise.resolve([] as Array<{ stage: string; value: number }>),
+      persona === 'cofounder'
+        ? sql`SELECT count(*) FILTER (WHERE outcome IS NULL)::int AS open,
+                     max(created_at) AS oldest
+              FROM hire_decisions WHERE user_id = ${user.id}`
+        : Promise.resolve([{ open: 0, oldest: null }]),
+      persona === 'cofounder'
+        ? sql`SELECT cash, burn, months FROM hire_runway_snapshots
+              WHERE user_id = ${user.id} ORDER BY taken_on DESC LIMIT 1`
+        : Promise.resolve([] as Array<{ cash: number; burn: number; months: number }>),
+      persona === 'coworker'
+        ? (async () => {
+            try {
+              const raw = await composioFirst(user.id, ['GITHUB_LIST_PULL_REQUESTS'], { state: 'open' })
+              return raw ? digestLines(raw).slice(0, 4) : []
+            } catch {
+              return []
+            }
+          })()
+        : Promise.resolve([] as string[]),
+    ])
+    const draftsN = Number((drafts[0] as { n?: number })?.n || 0)
+    const pipeRows = pipe as Array<{ stage: string; value: number }>
+    const dec = (decAgg[0] as { open?: number; oldest?: Date | null }) || {}
+    const run = (runway[0] as { cash?: number; burn?: number; months?: number }) || null
+    const oldestDays = dec.oldest ? Math.floor((Date.now() - new Date(dec.oldest).getTime()) / 86400000) : 0
+    workSections = workPullSections({
+      persona,
+      linear: linear as Array<{ identifier: string; title: string; state?: string }>,
+      prs: prs as string[],
+      draftsCount: persona === 'coworker' ? draftsN : undefined,
+      pipeline: persona === 'cofounder' ? pipeRows : undefined,
+      decisionsOpen: persona === 'cofounder' ? Number(dec.open) || 0 : undefined,
+      oldestDecisionDays: oldestDays || undefined,
+      runway: run
+        ? { cash: Number(run.cash) || 0, burn: Number(run.burn) || 0, months: Number(run.months) || 0 }
+        : null,
+    })
+    workData = {
+      sections: workSections,
+      linear: (linear as unknown[]).length,
+      drafts: draftsN,
+      pipeline: pipeRows.length,
+      pipelineValue: pipeRows.reduce((s, p) => s + (p.value > 0 ? p.value : 0), 0),
+      decisions: Number(dec.open) || 0,
+      months: run ? Number(run.months) || 0 : 0,
+    }
+  }
+
   const section = (title: string, items: string[]) =>
     items.length ? `${title}\n${items.join('\n')}` : null
 
@@ -3252,6 +3534,7 @@ async function digestPayload(
     lead,
     section('The day', todayCal),
     section('Tomorrow', tomorrowCal),
+    ...workSections.map((s) => section(s.title, s.lines)),
     section('Mail', mailTallyLine ? [mailTallyLine, ...finalEmails] : finalEmails),
     section('Due a ping', peopleDue.map((p) => `${p.name} · ${p.days} days`)),
     section('Do not forget', reminders.map((r) => `${r.time} · ${r.text}`)),
@@ -3275,6 +3558,7 @@ async function digestPayload(
     loops,
     tomorrow: tomorrowCal,
     events,
+    work: workData,
     text,
     preview,
     brief,
@@ -3484,6 +3768,18 @@ async function armPokes(
     await ensureJudgeTick(sql, user.id, persona, `${JUDGE_MARKER}evening`, nextLocalTimeUtc(tz, 21, 0), 'daily', tz)
     await ensureJudgeTick(sql, user.id, persona, `${JUDGE_MARKER}weekly`, nextWeekdayLocalUtc(tz, 0, 19, 0), 'weekly', tz)
   } else if (persona === 'coworker') {
+    // The work personas get the same 8 AM morning digest friend does — the one
+    // that now carries their Linear/PR/draft or pipeline/decision/runway pull.
+    const morning = await sql`
+      SELECT id FROM hire_reminders
+      WHERE user_id = ${user.id} AND persona = ${persona}
+        AND text LIKE '[digest]%'
+        AND (status = 'pending' OR recurrence = 'daily')
+      LIMIT 1
+    `
+    if (!morning[0]) {
+      await ensureJudgeTick(sql, user.id, persona, `${JUDGE_MARKER}morning`, nextLocalTimeUtc(tz, 8, 0), 'daily', tz)
+    }
     const clock = parseStandupClock(context.standup_time)
     let minute = clock.minute - 12
     let hour = clock.hour
@@ -3502,6 +3798,17 @@ async function armPokes(
     )
     await ensureJudgeTick(sql, user.id, persona, `${JUDGE_MARKER}weekly`, nextWeekdayLocalUtc(tz, 5, 17, 0), 'weekly', tz)
   } else {
+    // Cofounder keeps its own 8 AM pull too.
+    const morning = await sql`
+      SELECT id FROM hire_reminders
+      WHERE user_id = ${user.id} AND persona = ${persona}
+        AND text LIKE '[digest]%'
+        AND (status = 'pending' OR recurrence = 'daily')
+      LIMIT 1
+    `
+    if (!morning[0]) {
+      await ensureJudgeTick(sql, user.id, persona, `${JUDGE_MARKER}morning`, nextLocalTimeUtc(tz, 8, 0), 'daily', tz)
+    }
     await ensureJudgeTick(
       sql,
       user.id,
@@ -4191,6 +4498,23 @@ async function buildWeekBundle(
   const weekStart = userMonday(user)
   const snap = await loadWeekSnapshot(sql, user.id, weekStart, user.timezone || 'America/Los_Angeles')
   const wrote = composeWeekReview(snap)
+  /* The weekly run is the natural moment to keep the runway honest: capture the
+   * latest cash/burn the cofounder context knows about so home and the review
+   * have a real number instead of a dash. */
+  try {
+    const ctx = await loadContext(sql, user.id, 'cofounder')
+    const cash = Number(String(ctx.cash || ctx.runway_cash || '').replace(/[^0-9.]/g, ''))
+    const burn = Number(String(ctx.burn || ctx.monthly_burn || '').replace(/[^0-9.]/g, ''))
+    if (Number.isFinite(cash) && cash > 0 && Number.isFinite(burn) && burn > 0) {
+      await sql`
+        INSERT INTO hire_runway_snapshots (id, user_id, taken_on, cash, burn, months)
+        VALUES (${crypto.randomUUID()}, ${user.id}, ${weekStart}, ${cash}, ${burn}, ${cash / burn})
+        ON CONFLICT (user_id, taken_on) DO UPDATE SET cash = excluded.cash, burn = excluded.burn, months = excluded.months
+      `
+    }
+  } catch (err) {
+    console.warn('[weekly] runway snapshot failed', err)
+  }
   const existing = await sql`
     SELECT id, done_text AS "doneText" FROM hire_weekly_reviews
     WHERE user_id = ${user.id} AND week_start = ${weekStart} LIMIT 1
@@ -4379,7 +4703,7 @@ async function judgmentStatePayload(
 
   const radar = await sql`
     SELECT name, last_touch_at AS "lastTouch", cadence_days AS "cadenceDays"
-    FROM hire_relationships WHERE user_id = ${user.id} LIMIT 8
+    FROM hire_network WHERE user_id = ${user.id} LIMIT 8
   `
   for (const p of radar as Array<{ name: string; lastTouch: Date | null; cadenceDays: number }>) {
     const days = p.lastTouch ? Math.floor((Date.now() - new Date(p.lastTouch).getTime()) / 86400000) : 999
@@ -4407,7 +4731,7 @@ async function judgmentStatePayload(
        * screen it points at are one load rather than two. */
       const payload = (await digestCache.read(
         `${user.id}|${persona}`,
-        () => digestPayload(sql, user, persona),
+        () => briefLoader(sql, user.id, persona, 'digest', () => digestPayload(sql, user, persona), localDateStrInTz(new Date(), user.timezone || 'America/Los_Angeles')),
         BRIEF_WARM_WAIT_MS,
       )).value
       calendar = (payload?.calendar || []).slice(0, 4)
@@ -5177,6 +5501,48 @@ async function gmailSendMessage(
   }
 }
 
+/** Push a reply into Gmail's Drafts folder. This never sends: Google accounts
+ * go through drafts.create, Composio accounts through the dedicated draft
+ * action, so "save draft" can never be mistaken for a send on either path. */
+async function gmailCreateDraft(
+  sql: SQL,
+  userId: string,
+  draft: { to: string; subject: string; body: string; threadId?: string },
+): Promise<{ ok: boolean; error?: string }> {
+  const access = await googleAccessToken(sql, userId, 'gmail')
+  if (access) {
+    const message: { raw: string; threadId?: string } = {
+      raw: rfc822Raw(draft.to, draft.subject, draft.body),
+    }
+    if (draft.threadId) message.threadId = draft.threadId
+    const res = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/drafts', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${access}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message }),
+    })
+    if (res.ok) return { ok: true }
+    const err = await res.text().catch(() => '')
+    if (res.status === 403 || res.status === 401) {
+      return { ok: false, error: 'Gmail needs the compose permission to save drafts. Reconnect Gmail in Settings.' }
+    }
+    return { ok: false, error: `Gmail draft save failed (${res.status}). ${err.slice(0, 120)}` }
+  }
+  const out = await composioFirst(userId, ['GMAIL_CREATE_EMAIL_DRAFT'], {
+    to: draft.to,
+    recipient_email: draft.to,
+    subject: draft.subject,
+    body: draft.body,
+    message: draft.body,
+    thread_id: draft.threadId,
+    threadId: draft.threadId,
+  })
+  if (out && !/failed/i.test(out)) return { ok: true }
+  return {
+    ok: false,
+    error: 'Could not save the draft to Gmail. Reconnect Gmail in Settings, or copy the text from here.',
+  }
+}
+
 function calItemsToNextRows(items: CalItem[], prefix: string) {
   return items.map((e, i) => ({
     id: `${prefix}-${e.rawStart || e.start.toISOString()}-${i}`,
@@ -5393,8 +5759,8 @@ async function linearWrite(userId: string, id: string, action: 'done' | 'later' 
   return !!(out && !/failed/i.test(out))
 }
 
-/** Automated senders never get drafts — replying to a no-reply bot (or quoting
- * a magic-login notification back at it) is pure junk in the draft box. */
+/** Automated senders never get drafts — replying to a no-reply bot is the
+ * single most embarrassing thing the work home ever did. */
 const AUTOMATED_SENDER =
   /no[-_.]?reply|donotreply|do[_-]?not[_-]?reply|not[-_]?reply|notifications?@|newsletter|mailer-daemon|postmaster|auto[-_.]?(?:reply|confirm|respond|generated)|alerts?@|noreply|bounce|daemon@|feedback@/i
 
@@ -5403,10 +5769,11 @@ export function isAutomatedSender(addr: string): boolean {
 }
 
 /** Subjects that are machine notifications, not conversations. */
+const AUTOMATED_SUBJECT =
+  /^(?:unread message|reminder to|assessment|your (?:receipt|assessment|application|results))|(?:submitted for|testing for|complete .{0,24} for LLM|action required|verify your|confirm your)/i
+
 export function isAutomatedSubject(subject: string): boolean {
-  return /^(?:unread message|reminder to|assessment|your (?:receipt|assessment|application|results))|(?:submitted for|testing for|complete .{0,24} for LLM|action required|verify your|confirm your|magic-login|proactive-message)/i.test(
-    String(subject || '').trim(),
-  )
+  return AUTOMATED_SUBJECT.test(String(subject || '').trim())
 }
 
 async function suggestedMailDrafts(sql: SQL, userId: string) {
@@ -5434,8 +5801,9 @@ async function suggestedMailDrafts(sql: SQL, userId: string) {
     const email = from.match(/<([^>]+)>/)?.[1] || from
     const subject = h('Subject') || '(no subject)'
     if (!email) continue
-    // Never suggest a reply to a machine notification — "Unread message from
-    // your coach" with a magic-login link is not a conversation.
+    // Never suggest a reply to a machine, or to a machine-shaped subject —
+    // "Re: Assessment submitted" addressed to do-not-reply@ was the junk that
+    // filled the work home.
     if (isAutomatedSender(email) || isAutomatedSubject(subject)) continue
     out.push({
       toAddr: email,
@@ -5561,9 +5929,7 @@ async function buildNextStack(
       SELECT id, to_addr AS "toAddr", subject FROM hire_drafts
       WHERE user_id = ${user.id} AND status = 'pending'
       ORDER BY created_at DESC LIMIT 3
-    `) as Array<{ id: string; toAddr: string; subject: string }>).filter(
-      (d) => !isAutomatedSender(d.toAddr) && !isAutomatedSubject(d.subject),
-    )
+    `) as Array<{ id: string; toAddr: string; subject: string }>).filter((d) => !isAutomatedSender(d.toAddr) && !isAutomatedSubject(d.subject))
   } catch {
     drafts = []
   }
@@ -5696,7 +6062,7 @@ export async function miniCardOgDescription(
        * it here is why tapping that link lands on a brief instead of building one. */
       const payload = (await digestCache.read(
         `${user.id}|${persona}`,
-        () => digestPayload(sql, user, persona),
+        () => briefLoader(sql, user.id, persona, 'digest', () => digestPayload(sql, user, persona), localDateStrInTz(new Date(), user.timezone || 'America/Los_Angeles')),
         BRIEF_WARM_WAIT_MS,
       )).value
       if (!payload) return null
@@ -5705,7 +6071,7 @@ export async function miniCardOgDescription(
     if (kind === 'pick_night') {
       const payload = (await eveningCache.read(
         `${user.id}|${persona}`,
-        () => miniPayload(sql, user, persona, 'pick_night'),
+        () => briefLoader(sql, user.id, persona, 'pick_night', () => miniPayload(sql, user, persona, 'pick_night'), localDateStrInTz(new Date(), user.timezone || 'America/Los_Angeles')),
         BRIEF_WARM_WAIT_MS,
       )).value
       if (!payload) return null
@@ -6477,7 +6843,10 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     }
     if (!user) return json({ error: 'No account found for that phone/email' }, 404)
     try {
-      const brief = await digestCache.read(`${user!.id}|${persona}`, () => digestPayload(sql, user!, persona))
+      const day = localDateStrInTz(new Date(), user!.timezone || 'America/Los_Angeles')
+      const brief = await digestCache.read(`${user!.id}|${persona}`, () =>
+        briefLoader(sql, user!.id, persona, 'digest', () => digestPayload(sql, user!, persona), day),
+      )
       if (!brief.value && brief.pending) {
         /* Not an error — the load is still running behind this response and will
          * be in the cache shortly. Saying `error` here made the client stop and
@@ -6621,7 +6990,27 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     const quoted = target.original
       ? `\n\nOn ${new Date().toLocaleDateString('en-US')}, they wrote:\n${target.original.split(/\s+/).slice(0, 90).join(' ')}…`
       : ''
-    const replyBody = `Hi ${target.toAddr.split('@')[0] || 'there'},\n\n\n${quoted}`.slice(0, 4000)
+    /* The draft has to say something about the email, not just re-paste it:
+     * Alpha writes the actual reply from the message content, and the canned
+     * greeting + quote below is only the fallback when the model is down. */
+    const senderName = (user!.name || '').trim() || user!.email.split('@')[0]
+    const firstName = senderName.split(/\s+/)[0] || 'me'
+    let replyBody = `Hi ${target.toAddr.split('@')[0] || 'there'},\n\n\n${quoted}`
+    try {
+      const written = await gmiBriefChat(
+        `You are Alpha writing a reply email on behalf of ${senderName}. Reply to the email below on their behalf. Keep it natural, concise, and specific to what was said: answer any question, confirm or decline clearly, move it forward. Plain greeting, no bullet lists unless needed, close with a short signoff in their voice using the name ${firstName}, like "Best," then ${firstName} on the next line. Do not quote the original back. Never leave placeholders such as [Your Name]. Respond with ONLY the body text.`,
+        `To: ${target.toAddr}\nSubject: ${target.subject}\n\nTheir email:\n${target.original || target.subject}\n\nWrite the reply body now.`,
+        500,
+        10000,
+        { plainText: true },
+      )
+      if (written?.trim()) {
+        replyBody = `${fillDraftName(written.trim(), firstName)}${quoted}`
+      }
+    } catch (err) {
+      console.warn('[mail/draft] model draft failed, using template', err)
+    }
+    replyBody = replyBody.slice(0, 4000)
     await sql`
       INSERT INTO hire_drafts (id, user_id, persona, kind, to_addr, subject, body)
       VALUES (
@@ -6654,8 +7043,12 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     `
     const row = rows[0] as { to_addr: string; subject: string; body: string } | undefined
     if (!row) return json({ error: 'Draft not found.' }, 404)
+    /* The model signs with a real name or not at all: left unnamed it emits
+     * "[Your Name]", which is exactly what users then send by accident. */
+    const senderName = (user!.name || '').trim() || user!.email.split('@')[0]
+    const firstName = senderName.split(/\s+/)[0] || 'me'
     const rewritten = await gmiBriefChat(
-      'You are Alpha writing a reply email on the user\'s behalf. Rewrite the draft body to follow the user\'s instruction. Keep it a natural, concise email reply with a plain greeting. Respond with ONLY the new body text — no preamble, labels, or quoting.',
+      `You are Alpha writing a reply email on behalf of ${senderName}. Rewrite the draft body to follow the user's instruction. Keep it a natural, concise email reply with a plain greeting, and close with a short signoff in their voice using the name ${firstName}, like "Best," then ${firstName} on the next line. Never leave placeholders such as [Your Name]. Respond with ONLY the new body text — no preamble, labels, or quoting.`,
       `To: ${row.to_addr}\nSubject: ${row.subject}\n\nCurrent draft:\n${row.body}\n\nUser instruction: ${instruction}\n\nRewrite the draft body now.`,
       500,
       8000,
@@ -6664,8 +7057,9 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     if (!rewritten?.trim()) {
       return json({ ok: false, error: 'Alpha could not rewrite that right now. Try again.' }, 502)
     }
-    await sql`UPDATE hire_drafts SET body = ${rewritten.trim()}, updated_at = now() WHERE id = ${draftId} AND user_id = ${user!.id}`
-    return json({ ok: true, body: rewritten.trim() })
+    const signed = fillDraftName(rewritten.trim(), firstName)
+    await sql`UPDATE hire_drafts SET body = ${signed}, updated_at = now() WHERE id = ${draftId} AND user_id = ${user!.id}`
+    return json({ ok: true, body: signed })
   }
 
   if (path === '/api/reminders/action' && req.method === 'POST') {
@@ -6823,6 +7217,46 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     return json({ ok: true })
   }
 
+  /* Save the draft into Gmail's Drafts folder. Deliberately a different path
+   * from /api/work/send: nothing here can transmit, so the compose screen's
+   * safe default action can never fire an email. */
+  if (path === '/api/work/draft/save' && req.method === 'POST') {
+    const body = (await req.json().catch(() => ({}))) as {
+      token?: string; session?: string; email?: string; id?: string
+      toAddr?: string; subject?: string; body?: string
+    }
+    const { user, error } = await resolveAuthedUser(sql, { token: body.token, session: body.session, email: body.email })
+    if (error) return error
+    let toAddr = String(body.toAddr || '').trim()
+    let subject = String(body.subject || '').trim()
+    let text = String(body.body || '')
+    let threadId = ''
+    if (body.id) {
+      const rows = await sql`
+        SELECT to_addr, subject, body, thread_id FROM hire_drafts WHERE id = ${body.id} AND user_id = ${user!.id} LIMIT 1
+      `
+      const row = rows[0] as { to_addr: string; subject: string; body: string; thread_id?: string } | undefined
+      if (row) {
+        toAddr = toAddr || row.to_addr
+        subject = subject || row.subject
+        text = text || row.body
+        threadId = row.thread_id || ''
+      }
+    }
+    if (!toAddr) return json({ ok: false, error: 'To is required' }, 400)
+    const saved = await gmailCreateDraft(sql, user!.id, {
+      to: toAddr,
+      subject,
+      body: text,
+      threadId: threadId || undefined,
+    })
+    if (!saved.ok) return json({ ok: false, error: saved.error }, 400)
+    if (body.id) {
+      await sql`UPDATE hire_drafts SET status = 'saved', updated_at = now() WHERE id = ${body.id} AND user_id = ${user!.id}`
+    }
+    return json({ ok: true })
+  }
+
   if (path === '/api/work/slots' && req.method === 'GET') {
     const { user, error } = await resolveAuthedUser(sql, {
       token: url.searchParams.get('t') || undefined,
@@ -6964,8 +7398,9 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
      * two-day calendar range, an inbox pull, and a model pass. The rest are a
      * query or two and are cheaper to just run. */
     if (kind === 'pick_night') {
+      const day = localDateStrInTz(new Date(), user!.timezone || 'America/Los_Angeles')
       const brief = await eveningCache.read(`${user!.id}|${persona}`, () =>
-        miniPayload(sql, user!, persona, 'pick_night'),
+        briefLoader(sql, user!.id, persona, 'pick_night', () => miniPayload(sql, user!, persona, 'pick_night'), day),
       )
       if (!brief.value && brief.pending) {
         // Still loading behind this response. Never cached, or the retry reads it.
@@ -7185,10 +7620,10 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     })
     if (error) return error
     const rows = await sql`
-      SELECT id, name, kind, notes, cadence_days AS "cadenceDays",
-             last_touch_at AS "lastTouchAt", updated_at AS "updatedAt"
-      FROM hire_relationships WHERE user_id = ${user!.id}
-      ORDER BY updated_at DESC LIMIT 60
+      SELECT id, name, where_met AS kind, context AS notes, cadence_days AS "cadenceDays",
+             last_touch AS "lastTouchAt", created_at AS "updatedAt"
+      FROM hire_network WHERE user_id = ${user!.id}
+      ORDER BY last_touch ASC NULLS FIRST LIMIT 60
     `
     return json({ relationships: rows })
   }
@@ -7207,7 +7642,7 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     if (error) return error
     const id = crypto.randomUUID()
     await sql`
-      INSERT INTO hire_relationships (id, user_id, name, kind, notes, cadence_days)
+      INSERT INTO hire_network (id, user_id, name, where_met, context, cadence_days)
       VALUES (${id}, ${user!.id}, ${name}, ${kind}, ${String(body.notes || '').slice(0, 500)},
         ${Math.min(Math.max(clampNum(body.cadenceDays, 30), 1), 365)})
     `
@@ -7221,7 +7656,7 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     if (error) return error
     if (body.touch) {
       await sql`
-        UPDATE hire_relationships SET last_touch_at = now(), updated_at = now()
+        UPDATE hire_network SET last_touch = now()
         WHERE id = ${id} AND user_id = ${user!.id}
       `
     }
@@ -7526,15 +7961,25 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     }
     const user = await getUserByPhone(sql, body.phone)
     if (!user) return json({ error: 'User not found' }, 404)
-    const estimate = await estimateNutrition(description, '')
-    if (!estimate.ok) return json(estimate)
+    // Always log the meal. The estimator is a downstream model that can be
+    // down or reply something unreadable — that is no reason to lose the log,
+    // which is exactly what happened when this returned the error first.
+    let estimate: Awaited<ReturnType<typeof estimateNutrition>> = { ok: false, needsKey: true }
+    if (nutritionModelConfig()) {
+      try {
+        estimate = await estimateNutrition(description, '')
+      } catch {
+        estimate = { ok: false, error: 'Estimator unavailable' }
+      }
+    }
     const id = crypto.randomUUID()
+    const saved = estimate.ok ? (estimate.guess || description).slice(0, 300) : `${description.slice(0, 300)} (estimate pending)`
     await sql`
       INSERT INTO hire_nutrition_logs (id, user_id, description, image_url, calories, protein, carbs, fat, eaten_at)
-      VALUES (${id}, ${user.id}, ${estimate.guess || description.slice(0, 300)}, NULL,
+      VALUES (${id}, ${user.id}, ${saved}, NULL,
         ${clampNum(estimate.calories)}, ${clampNum(estimate.protein)}, ${clampNum(estimate.carbs)}, ${clampNum(estimate.fat)}, now())
     `
-    return json({ ...estimate, logged: true, id })
+    return json({ ok: true, logged: true, id, estimated: estimate.ok, needsKey: estimate.needsKey === true, guess: estimate.guess || undefined })
   }
 
   if (path === '/api/internal/nutrition/photo' && req.method === 'POST') {
@@ -7724,6 +8169,315 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     return json({ ok: true, logged: true, id, ...parsed })
   }
 
+  if (path === '/api/internal/decisions' && req.method === 'POST') {
+    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
+    const body = (await req.json().catch(() => ({}))) as {
+      phone?: string; persona?: string; text?: string
+    }
+    if (!body.phone || !isPersona(body.persona || '') || !String(body.text || '').trim()) {
+      return json({ error: 'phone, persona, and text required' }, 400)
+    }
+    const user = await getUserByPhone(sql, body.phone)
+    if (!user) return json({ error: 'User not found' }, 404)
+    const parsed = parseDecisionText(String(body.text))
+    if (!parsed) return json({ ok: false, logged: false, error: 'Could not parse a decision' })
+    const reviewAt = parsed.review ? parseFlexibleWhen(parsed.review, user.timezone || 'America/Los_Angeles') : null
+    const id = crypto.randomUUID()
+    await sql`
+      INSERT INTO hire_decisions (id, user_id, persona, decision, reason, owner, review_at, status)
+      VALUES (${id}, ${user.id}, ${isPersona(body.persona || '') ? body.persona! : 'cofounder'}, ${parsed.decision.slice(0, 300)},
+        ${(parsed.reason || '').slice(0, 500)}, ${(parsed.owner || '').slice(0, 120)}, ${reviewAt}, 'open')
+    `
+    return json({ ok: true, logged: true, id, decision: parsed.decision.slice(0, 300), reason: (parsed.reason || '').slice(0, 500), owner: (parsed.owner || '').slice(0, 120) })
+  }
+
+  if (path === '/api/internal/pipeline' && req.method === 'POST') {
+    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
+    const body = (await req.json().catch(() => ({}))) as {
+      phone?: string; persona?: string; text?: string
+    }
+    if (!body.phone || !isPersona(body.persona || '') || !String(body.text || '').trim()) {
+      return json({ error: 'phone, persona, and text required' }, 400)
+    }
+    const user = await getUserByPhone(sql, body.phone)
+    if (!user) return json({ error: 'User not found' }, 404)
+    const parsed = parsePipelineText(String(body.text))
+    if (!parsed) return json({ ok: false, logged: false, error: 'Could not parse a pipeline move' })
+    const id = crypto.randomUUID()
+    // Upsert by a normalized title so "move Ravi to interview" adds it if new,
+    // moves it if it already exists — the board reads the same table.
+    await sql`
+      INSERT INTO hire_pipeline (id, user_id, title, company, stage, notes)
+      VALUES (${id}, ${user.id}, ${parsed.title.slice(0, 120)}, '' , ${parsed.stage}, ${(parsed.notes || '').slice(0, 400)})
+      ON CONFLICT DO NOTHING
+    `
+    if (parsed.existing) {
+      await sql`
+        UPDATE hire_pipeline SET stage = ${parsed.stage}, updated_at = now()
+        WHERE user_id = ${user.id} AND lower(title) = lower(${parsed.title.slice(0, 120)})
+      `
+    }
+    return json({ ok: true, logged: true, id, title: parsed.title.slice(0, 120), stage: parsed.stage })
+  }
+
+  if (path === '/api/internal/standup' && req.method === 'POST') {
+    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
+    const body = (await req.json().catch(() => ({}))) as {
+      phone?: string; persona?: string; text?: string
+    }
+    const notes = String(body.text || '').trim().slice(0, 1000)
+    if (!body.phone || !isPersona(body.persona || '') || !notes) {
+      return json({ error: 'phone, persona, and text required' }, 400)
+    }
+    const user = await getUserByPhone(sql, body.phone)
+    if (!user) return json({ error: 'User not found' }, 404)
+    const day = localDateStrInTz(new Date(), user.timezone || 'America/Los_Angeles')
+    await sql`
+      INSERT INTO hire_standups (id, user_id, day, notes)
+      VALUES (${crypto.randomUUID()}, ${user.id}, ${day}, ${notes})
+      ON CONFLICT (user_id, day) DO UPDATE SET notes = excluded.notes, created_at = now()
+    `
+    return json({ ok: true, logged: true, day })
+  }
+
+  if (path === '/api/standup' && req.method === 'GET') {
+    const { user, error } = await resolveAuthedUser(sql, {
+      token: url.searchParams.get('t') || undefined,
+      session: url.searchParams.get('s') || undefined,
+      email: url.searchParams.get('email') || undefined,
+    })
+    if (error) return error
+    const day = localDateStrInTz(new Date(), user!.timezone || 'America/Los_Angeles')
+    const rows = await sql`
+      SELECT id, day, notes FROM hire_standups
+      WHERE user_id = ${user!.id} AND day = ${day}
+    `
+    return json({ today: (rows[0] as { notes?: string } | undefined)?.notes || null })
+  }
+
+  /* ---- Workshop: Alpha builds software ---- */
+
+  const artifactDirFor = (userId: string, artifactId: string) => join(artifactsRoot(), userId, artifactId)
+
+  async function storeArtifactFiles(userId: string, artifactId: string, files: Array<{ name: string; bytes: Uint8Array }>) {
+    const dir = artifactDirFor(userId, artifactId)
+    await mkdir(dir, { recursive: true })
+    for (const f of files) {
+      await writeFile(join(dir, f.name), f.bytes)
+    }
+  }
+
+  async function deleteArtifactRow(userId: string, artifactId: string | undefined, persona: string) {
+    let id = artifactId
+    if (!id) {
+      const rows = await sql`
+        SELECT id FROM hire_artifacts
+        WHERE user_id = ${userId} AND state = 'delivered'
+        ORDER BY created_at DESC LIMIT 1
+      `
+      id = (rows[0] as { id?: string } | undefined)?.id
+    }
+    if (!id) return { ok: false, logged: false, error: 'No delivered artifact found' }
+    const owned = await sql`
+      SELECT id FROM hire_artifacts WHERE id = ${id} AND user_id = ${userId} LIMIT 1
+    `
+    if (!owned[0]) return { ok: false, logged: false, error: 'No delivered artifact found' }
+    await rm(artifactDirFor(userId, id), { recursive: true, force: true })
+    await sql`DELETE FROM hire_artifacts WHERE id = ${id} AND user_id = ${userId}`
+    void persona
+    return { ok: true, logged: true, id }
+  }
+
+  if (path === '/api/internal/workshop' && req.method === 'POST') {
+    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
+    if (process.env.WORKSHOP_ENABLED === '0') return json({ ok: false, logged: false, error: 'Workshop is disabled' })
+    const body = (await req.json().catch(() => ({}))) as {
+      phone?: string; persona?: string; prompt?: string; title?: string; code?: string
+    }
+    const code = String(body.code || '')
+    const prompt = String(body.prompt || '').trim().slice(0, 500)
+    if (!body.phone || !isPersona(body.persona || '') || !code) {
+      return json({ error: 'phone, persona, and code required' }, 400)
+    }
+    const user = await getUserByPhone(sql, body.phone)
+    if (!user) return json({ error: 'User not found' }, 404)
+    // Rate limit: ten builds a day is generous for a human and a floor on abuse.
+    const used = await sql`
+      SELECT count(*)::int AS n FROM hire_workshop_tasks
+      WHERE user_id = ${user.id} AND created_at >= date_trunc('day', now())
+    `
+    if (Number((used[0] as { n?: number })?.n || 0) >= 10) {
+      return json({ ok: false, logged: false, error: 'Build limit reached for today (10).' })
+    }
+    await sql`INSERT INTO hire_workshop_tasks (id, user_id, prompt, status) VALUES (${crypto.randomUUID()}, ${user.id}, ${prompt || 'build'}, 'running')`
+    const gate = gateWorkshopCode(code)
+    if (!gate.ok) {
+      await sql`UPDATE hire_workshop_tasks SET status = 'failed', error = ${gate.reason} WHERE user_id = ${user.id} AND prompt = ${prompt || 'build'} AND status = 'running'`
+      return json({ ok: false, logged: false, error: gate.reason })
+    }
+    const run = await runWorkshopCode(code)
+    if (!run.ok || !run.files.length) {
+      const error = run.error || 'The program produced no files.'
+      await sql`UPDATE hire_workshop_tasks SET status = 'failed', error = ${error.slice(0, 500)} WHERE user_id = ${user.id} AND prompt = ${prompt || 'build'} AND status = 'running'`
+      return json({ ok: false, logged: false, error: error.slice(0, 300) })
+    }
+    const artifactId = crypto.randomUUID()
+    const title = String(body.title || prompt || 'Built for you').slice(0, 120)
+    await storeArtifactFiles(user.id, artifactId, run.files)
+    const fileNames = run.files.map((f) => f.name)
+    const expires = new Date(Date.now() + 7 * 86_400_000)
+    await sql`
+      INSERT INTO hire_artifacts (id, user_id, title, kind, files, state, expires_at)
+      VALUES (${artifactId}, ${user.id}, ${title}, ${fileNames.some((f) => /\.html?$/i.test(f)) ? 'page' : 'file'},
+        ${JSON.stringify(fileNames)}, 'delivered', ${expires.toISOString()})
+    `
+    await sql`
+      UPDATE hire_workshop_tasks SET status = 'done', artifact_id = ${artifactId}
+      WHERE user_id = ${user.id} AND prompt = ${prompt || 'build'} AND status = 'running'
+    `
+    return json({
+      ok: true,
+      logged: true,
+      artifactId,
+      title,
+      files: fileNames,
+      url: `${appBase(req)}/app/mini/${isPersona(body.persona || '') ? body.persona! : 'friend'}/artifact?id=${artifactId}`,
+    })
+  }
+
+  if (path === '/api/internal/workshop/last' && req.method === 'GET') {
+    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
+    const user = await getUserByPhone(sql, url.searchParams.get('phone') || '')
+    if (!user) return json({ error: 'User not found' }, 404)
+    const rows = await sql`
+      SELECT id, title, state, expires_at AS "expiresAt" FROM hire_artifacts
+      WHERE user_id = ${user.id} AND state = 'delivered'
+      ORDER BY created_at DESC LIMIT 1
+    `
+    const row = rows[0] as { id: string; title: string; state: string; expiresAt: Date } | undefined
+    return json({ artifact: row ? { id: row.id, title: row.title, expiresAt: row.expiresAt } : null })
+  }
+
+  if (path === '/api/internal/workshop/keep' && req.method === 'POST') {
+    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
+    const body = (await req.json().catch(() => ({}))) as { phone?: string; persona?: string; artifactId?: string }
+    const user = await getUserByPhone(sql, body.phone)
+    if (!user) return json({ error: 'User not found' }, 404)
+    const result = await (async () => {
+      const id = body.artifactId
+      if (id) {
+        await sql`UPDATE hire_artifacts SET state = 'kept', expires_at = NULL WHERE id = ${id} AND user_id = ${user.id}`
+        return { ok: true, logged: true, id }
+      }
+      const rows = await sql`
+        SELECT id FROM hire_artifacts WHERE user_id = ${user.id} AND state = 'delivered'
+        ORDER BY created_at DESC LIMIT 1
+      `
+      const latest = (rows[0] as { id?: string } | undefined)?.id
+      if (!latest) return { ok: false, logged: false, error: 'Nothing to keep' }
+      await sql`UPDATE hire_artifacts SET state = 'kept', expires_at = NULL WHERE id = ${latest} AND user_id = ${user.id}`
+      return { ok: true, logged: true, id: latest }
+    })()
+    return json(result)
+  }
+
+  if (path === '/api/internal/workshop/toss' && req.method === 'POST') {
+    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
+    const body = (await req.json().catch(() => ({}))) as { phone?: string; persona?: string; artifactId?: string }
+    const user = await getUserByPhone(sql, body.phone)
+    if (!user) return json({ error: 'User not found' }, 404)
+    return json(await deleteArtifactRow(user.id, body.artifactId, body.persona || ''))
+  }
+
+  /* ---- Workshop public surface (the owner's views) ---- */
+
+  if (path === '/api/artifacts' && req.method === 'GET') {
+    const { user, error } = await resolveAuthedUser(sql, {
+      token: url.searchParams.get('t') || undefined,
+      session: url.searchParams.get('s') || undefined,
+      email: url.searchParams.get('email') || undefined,
+    })
+    if (error) return error
+    const rows = await sql`
+      SELECT id, title, kind, files, state, expires_at AS "expiresAt", created_at AS "createdAt"
+      FROM hire_artifacts WHERE user_id = ${user!.id}
+      ORDER BY created_at DESC LIMIT 30
+    `
+    return json({ artifacts: rows })
+  }
+
+  if (path === '/api/artifacts' && req.method === 'DELETE') {
+    const { user, error } = await resolveAuthedUser(sql, {
+      token: url.searchParams.get('t') || undefined,
+      session: url.searchParams.get('s') || undefined,
+      email: url.searchParams.get('email') || undefined,
+    })
+    if (error) return error
+    const id = url.searchParams.get('id') || ''
+    return json(await deleteArtifactRow(user!.id, id || undefined, ''))
+  }
+
+  const artifactFile = path.match(/^\/a\/([\w-]+)\/([\w.-]+)$/)
+  if (artifactFile && req.method === 'GET') {
+    const [, artifactId, fileName] = artifactFile
+    const { user, error } = await resolveAuthedUser(sql, {
+      token: url.searchParams.get('t') || undefined,
+      session: url.searchParams.get('s') || undefined,
+      email: url.searchParams.get('email') || undefined,
+    })
+    if (error) return error
+    const rows = await sql`
+      SELECT files FROM hire_artifacts WHERE id = ${artifactId} AND user_id = ${user!.id} LIMIT 1
+    `
+    const row = rows[0] as { files?: string[] } | undefined
+    if (!row) return json({ error: 'Not found' }, 404)
+    const safeName = fileName.replace(/[\\/]/g, '')
+    if (!(row.files || []).includes(safeName)) return json({ error: 'Not found' }, 404)
+    try {
+      const bytes = await readFile(artifactDirFor(user!.id, artifactId) + '/' + safeName)
+      const types: Record<string, string> = {
+        '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8',
+        '.js': 'text/javascript; charset=utf-8', '.json': 'application/json',
+        '.csv': 'text/csv; charset=utf-8', '.txt': 'text/plain; charset=utf-8',
+        '.md': 'text/markdown; charset=utf-8', '.svg': 'image/svg+xml',
+        '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
+        '.pdf': 'application/pdf',
+      }
+      const type = types[safeName.slice(safeName.lastIndexOf('.'))] || 'application/octet-stream'
+      return new Response(bytes, { headers: { 'Content-Type': type, 'Cache-Control': 'no-store' } })
+    } catch {
+      return json({ error: 'Not found' }, 404)
+    }
+  }
+
+  const artifactAction = path.match(/^\/api\/artifacts\/([\w-]+)\/(keep|delete)$/)
+  if (artifactAction && req.method === 'POST') {
+    const body = (await req.json().catch(() => ({}))) as { token?: string; email?: string }
+    const { user, error } = await resolveAuthedUser(sql, { token: body.token, session: body.session, email: body.email })
+    if (error) return error
+    const [, id, action] = artifactAction
+    if (action === 'keep') {
+      await sql`UPDATE hire_artifacts SET state = 'kept', expires_at = NULL WHERE id = ${id} AND user_id = ${user!.id}`
+      return json({ ok: true, state: 'kept' })
+    }
+    return json(await deleteArtifactRow(user!.id, id, ''))
+  }
+
+  if (path === '/api/standup' && req.method === 'GET') {
+    const { user, error } = await resolveAuthedUser(sql, {
+      token: url.searchParams.get('t') || undefined,
+      session: url.searchParams.get('s') || undefined,
+      email: url.searchParams.get('email') || undefined,
+    })
+    if (error) return error
+    const day = localDateStrInTz(new Date(), user!.timezone || 'America/Los_Angeles')
+    const rows = await sql`
+      SELECT id, day, notes FROM hire_standups
+      WHERE user_id = ${user!.id} AND day = ${day}
+    `
+    return json({ today: (rows[0] as { notes?: string } | undefined)?.notes || null })
+  }
+
   if (path === '/api/internal/budget' && req.method === 'POST') {
     if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
     const body = (await req.json().catch(() => ({}))) as { phone?: string; persona?: string; text?: string }
@@ -7821,7 +8575,7 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
   if (path === '/api/internal/network' && req.method === 'POST') {
     if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
     const body = (await req.json().catch(() => ({}))) as {
-      phone?: string; persona?: string; name?: string; place?: string; text?: string
+      phone?: string; persona?: string; name?: string; place?: string; text?: string; contactPhone?: string
     }
     const name = String(body.name || '').trim().slice(0, 80)
     if (!body.phone || !isPersona(body.persona || '') || !name) {
@@ -7830,13 +8584,14 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     const user = await getUserByPhone(sql, body.phone)
     if (!user) return json({ error: 'User not found' }, 404)
     const whereMet = String(body.place || '').trim().slice(0, 120)
+    const contactPhone = String(body.contactPhone || '').trim().slice(0, 40)
     const context = String(body.text || '').trim().slice(0, 400)
     const id = crypto.randomUUID()
     await sql`
-      INSERT INTO hire_network (id, user_id, name, where_met, context, last_touch, cadence_days)
-      VALUES (${id}, ${user.id}, ${name}, ${whereMet}, ${context}, now(), 14)
+      INSERT INTO hire_network (id, user_id, name, where_met, context, last_touch, cadence_days, phone)
+      VALUES (${id}, ${user.id}, ${name}, ${whereMet}, ${context}, now(), 14, ${contactPhone})
     `
-    return json({ ok: true, logged: true, id, name, place: whereMet })
+    return json({ ok: true, logged: true, id, name, place: whereMet, phone: contactPhone })
   }
 
   if (path === '/api/internal/digest' && req.method === 'GET') {
@@ -8517,6 +9272,7 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
       prefs,
       duePeopleRows,
       dueLoopRows,
+      runwayRows,
     ] = await Promise.all([
       sql`
         SELECT count(*)::int AS meals, coalesce(sum(calories), 0)::real AS calories
@@ -8622,6 +9378,12 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
         WHERE user_id = ${user!.id} AND status = 'open'
         ORDER BY due_at ASC NULLS LAST LIMIT 1
       `,
+      // The most recent runway snapshot (cofounder), so home can show real months.
+      sql`
+        SELECT cash, burn, months, taken_on AS "takenOn" FROM hire_runway_snapshots
+        WHERE user_id = ${user!.id}
+        ORDER BY taken_on DESC LIMIT 1
+      `,
     ])
 
     const habitChecks = (habitLogs as Array<{ habitId: string }>).length
@@ -8683,6 +9445,10 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     const dueLoop = dueLoopRow
       ? { id: dueLoopRow.id, title: dueLoopRow.title, dueAt: dueLoopRow.dueAt ? new Date(dueLoopRow.dueAt).toISOString() : null }
       : null
+    const runwayRow = (runwayRows as Array<{ cash: number; burn: number; months: number; takenOn: string }>)[0]
+    const runway = runwayRow
+      ? { cash: Math.round(runwayRow.cash), burn: Math.round(runwayRow.burn), months: Math.round(runwayRow.months * 10) / 10, takenOn: runwayRow.takenOn }
+      : null
 
     /* Calendar, Gmail and the mail-kind judge, off the critical path. A stale
      * answer paints instantly while the next one loads behind the response;
@@ -8707,6 +9473,7 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
         mailGroups,
         peopleDue,
         dueLoop,
+        runway,
         lastNight: {
           logged: lastNightLogged,
           hours: Math.round(lastNightHours * 10) / 10,
@@ -8789,13 +9556,26 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
         FROM hire_network WHERE user_id = ${user!.id}
         ORDER BY coalesce(last_touch, '1970-01-01'::timestamptz) ASC
       `,
-      isPersona(persona)
+      // `lazy=1` says the caller will come back for the calendar half: People is
+      // one query and should paint instantly, while the Google hop can take up
+      // to 2.5s when the cache is cold. The CRM uses this so the roster shows
+      // immediately and today's meetings fill in behind it.
+      isPersona(persona) && !url.searchParams.has('lazy')
         ? todayMeetsCache
             .read(`${user!.id}|${persona}`, () => todayCalendarMeets(sql, user!, persona))
             .then((r) => r.value ?? EMPTY_TODAY_RESULT)
             .catch(() => EMPTY_TODAY_RESULT)
         : Promise.resolve(EMPTY_TODAY_RESULT),
     ])
+    if (url.searchParams.has('lazy')) {
+      const connected = await connectedForUser(sql, user!.id)
+      return json({
+        people,
+        today: [],
+        stay: null,
+        calendarConnected: connected.includes('calendar'),
+      })
+    }
     return json({ people, today: calResult.meets, stay: calResult.stay, calendarConnected: calResult.calendarConnected })
   }
 
@@ -8811,7 +9591,7 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     const id = crypto.randomUUID()
     const whereMet = String(body.whereMet || '').trim().slice(0, 120)
     const context = String(body.context || '').trim().slice(0, 400)
-    const cadenceDays = Math.max(3, Math.min(90, Math.round(body.cadenceDays || 14)))
+    const cadenceDays = Math.max(3, Math.min(365, Math.round(body.cadenceDays || 14)))
     const phone = String(body.phone || '').trim().slice(0, 40)
     const contactEmail = String(body.contactEmail || '').trim().slice(0, 120)
     const company = String(body.company || '').trim().slice(0, 120)
@@ -8844,7 +9624,7 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
       const company = String(body.company || '').trim().slice(0, 120)
       const whereMet = String(body.whereMet || '').trim().slice(0, 120)
       const context = String(body.context || '').trim().slice(0, 400)
-      const cadenceDays = Math.max(3, Math.min(90, Math.round(body.cadenceDays || 14)))
+      const cadenceDays = Math.max(3, Math.min(365, Math.round(body.cadenceDays || 14)))
       await sql`
         UPDATE hire_network
         SET name = ${name}, phone = ${phone}, email = ${contactEmail}, company = ${company},
@@ -8951,7 +9731,7 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     })
     if (error) return error
     const items = await sql`
-      SELECT id, title, company, stage, notes, created_at AS "createdAt", updated_at AS "updatedAt"
+      SELECT id, title, company, stage, notes, value, kind, created_at AS "createdAt", updated_at AS "updatedAt"
       FROM hire_pipeline WHERE user_id = ${user!.id}
       ORDER BY updated_at DESC
     `
@@ -8960,7 +9740,7 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
 
   if (path === '/api/pipeline' && req.method === 'POST') {
     const body = (await req.json().catch(() => ({}))) as {
-      token?: string; email?: string; title?: string; company?: string; stage?: string; notes?: string
+      token?: string; email?: string; title?: string; company?: string; stage?: string; notes?: string; value?: number; kind?: string
     }
     const title = String(body.title || '').trim().slice(0, 120)
     if (!title) return json({ error: 'title required' }, 400)
@@ -8971,10 +9751,12 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
       : 'lead'
     const company = String(body.company || '').trim().slice(0, 80)
     const notes = String(body.notes || '').trim().slice(0, 400)
+    const value = Math.max(0, clampNum(body.value))
+    const kind = ['deal', 'job', 'fundraising', 'lead'].includes(String(body.kind || '')) ? String(body.kind) : 'deal'
     const id = crypto.randomUUID()
     await sql`
-      INSERT INTO hire_pipeline (id, user_id, title, company, stage, notes)
-      VALUES (${id}, ${user!.id}, ${title}, ${company}, ${stage}, ${notes})
+      INSERT INTO hire_pipeline (id, user_id, title, company, stage, notes, value, kind)
+      VALUES (${id}, ${user!.id}, ${title}, ${company}, ${stage}, ${notes}, ${value}, ${kind})
     `
     return json({ ok: true, id })
   }
@@ -9162,6 +9944,65 @@ function toHHMM(raw: string, mer: string | undefined): string | null {
   if (merL === 'pm' && h < 12) h += 12
   if (merL === 'am' && h === 12) h = 0
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`
+}
+
+/** "log a decision: drop the agency" / "we decided X, because Y" / "decision: X, owner Ravi" —
+ * the decision is what we decided, the rest of the sentence is the reason. An
+ * optional "review <when>" becomes the review date. */
+function parseDecisionText(text: string): { decision: string; reason?: string; owner?: string; review?: string } | null {
+  const t = String(text || '')
+    .replace(/[’']/g, "'")
+    .trim()
+    .replace(/^(?:log|record|keep|make)\s+(?:this|that|a|the)?\s*decision\s*[:.,-]?\s*/i, '')
+    .replace(/^we\s+(?:decided|made the call|went with)\s*[:.,-]?\s*/i, '')
+  if (!t) return null
+  let decision = t
+  let reason: string | undefined
+  let owner: string | undefined
+  let review: string | undefined
+
+  // owner: "owner Ravi" / "Ravi owns it" / "Ravi to do it"
+  const own = t.match(/\b(?:owner|owned by)\s+([\w]+)/i) || t.match(/\b([\w]+)\s+(?:owns|to do|will own)\b/i)
+  if (own) owner = own[1]!
+
+  // review: "review tomorrow" / "review in a week"
+  const rev = t.match(/\breview\s+(.+)$/i)
+  if (rev) review = rev[1]!.trim()
+
+  // reason after a comma, colon, or "because"
+  const m = decision.match(/^(.*?)(?:\s*[.,;：]\s+|\s+because\s+|\s+since\s+)(.*)$/i)
+  if (m && m[2]!.trim()) {
+    decision = m[1]!.trim()
+    reason = m[2]!.trim()
+  }
+
+  decision = decision.replace(/\b(?:owner\s+[\w]+|[\w]+\s+owns\s+it|[\w]+\s+will own)\b/gi, '').trim()
+  if (!decision) return null
+  return { decision, reason, owner, review }
+}
+
+/** "move Ravi to interview" / "Raavi → offer" / "add Stripe as a lead" —
+ * title + target stage + optional note after a comma/colon. */
+function parsePipelineText(text: string): { title: string; stage: string; notes?: string; existing?: boolean } | null {
+  const t = String(text || '')
+    .replace(/[’']/g, "'")
+    .trim()
+  const STAGE_RAW: Array<[RegExp, string]> = [
+    [/lead/, 'lead'], [/active/, 'active'], [/interview/, 'interview'], [/offer/, 'offer'], [/won/, 'won'], [/lost/, 'lost'],
+  ]
+  const stage = STAGE_RAW.find(([re]) => re.test(t))?.[1]
+  if (!stage) return null
+
+  const move = t.match(/\b(?:move|push|advance|add|put)\s+(.+?)\s+(?:to|into|as|at)\s+(?:the\s+)?(?:stage\s+)?(?:lead|active|interview|offer|won|lost)\b/i)
+  let title = move?.[1]?.trim().replace(/["“”]/g, '').replace(/\s*[->]+\s*.*$/, '')
+  if (!title) {
+    const arrow = t.match(/^(.+?)\s*[->→]\s*(?:lead|active|interview|offer|won|lost)\b/i)
+    title = arrow?.[1]?.trim()
+  }
+  if (!title) return null
+  const notes = t.match(/,\s*(.+)$/i)?.[1]?.trim() || undefined
+  const existing = /\b(?:move|push|advance|far|onto)\b/i.test(t)
+  return { title, stage, notes, existing }
 }
 
 function parseWorkoutText(text: string): { exercise: string; sets: number; reps: number; weight: number } | null {
