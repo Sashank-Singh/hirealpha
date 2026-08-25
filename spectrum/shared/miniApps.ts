@@ -104,11 +104,12 @@ export const PATTERNS: Partial<Record<MiniAppKind, RegExp>> = {
   open_loops: /\bopen loop\b|\b(?:forgot|forget|remember) (?:to|that)\b|\b(?:owed|i owe|promised|told \w+ i.?d)\b|\bfollow[- ]?up (?:list|open)\b/i,
   meeting_mode: /\b(?:meeting|call|1[-: ]?1|sync|interview)\b.{0,16}\b(?:prep|brief|debrief|notes|follow[- ]?up)\b|\bprep (?:me|for)\b|\bafter (?:the )?(?:meeting|call)\b/i,
   // workshop: "build/make me a …" — Alpha writes software in the sandbox and
-  // delivers a live URL. The artifact kind carries the built thing. A generic
-  // named build ("a calculator app") needs the article in front, so the noun
-  // alone ("my calculator") never trips it.
+  // delivers a live URL. The artifact kind carries the built thing. Three ways
+  // in: an explicit ask ("can you build x"), an imperative ("build a password
+  // saver"), or a mid-sentence build with a product noun. A negative object
+  // guard keeps chat like "you make my day" and "make dinner" out.
   artifact:
-    /\b(?:go\s+)?(?:build|make|create|write|ship)\s+(?:me\s+)?(?:a|an|the)\s+(?:tiny\s+|simple\s+|small\s+|custom\s+|quick\s+|little\s+|fresh\s+)*(?:[a-z][a-z'-]*\s+)?(?:tracker|dashboard|page|web ?page|tool|form|converter|script|chart|calculator|site|website|invoice generator|waitlist|landing page|crud|saver|manager|generator|planner|counter|timer|checklist|vault|organizer|app)\b/i,
+    /\b(?:(?:can|could|will|would)\s+you\s+(?:please\s+)?|^\s*(?:please\s+|go\s+)?)(?:build|make|create|write|code|develop|ship)\s+(?:me\s+)?(?:a|an|the|your)?\s*(?!(?:a|an|the|your)?\s*(?:sure|it|that|this|them|him|her|us|dinner|lunch|reminder|alarm|reservation|love|war|fun|noise|move|wish|sense|smile|laugh|wall|difference|mistake|decision)\b)[a-z][a-z0-9' -]{0,60}\b|\b(?:build|make|create|write|ship)\s+(?:me\s+)?(?:a|an|the)\s+(?:tiny\s+|simple\s+|small\s+|custom\s+|quick\s+|little\s+|fresh\s+)*(?:[a-z][a-z'-]*\s+)?(?:tracker|dashboard|page|web ?page|tool|form|converter|script|chart|calculator|site|website|invoice generator|waitlist|landing page|crud|saver|manager|generator|planner|counter|timer|checklist|vault|organizer|app)\b/i,
   decision_ledger:
     /\bdecision\b.{0,16}\b(?:log|record|ledger|journal)\b|\blog (?:that|this|a) decision\b|\bwhat did (?:we|i) decide\b|\bwe (?:decided|made the call|went with)\b|\bdecision:\b/i,
   relationship_radar: /\brelationship radar\b|\b(?:haven.?t|need to) (?:reach|touch|check) (?:out|in|base)\b|\bwho should i (?:follow|reach|check)\b/i,
