@@ -1,4 +1,4 @@
-import { useEffect, useState, type CSSProperties } from 'react'
+import { useCallback, useEffect, useState, type CSSProperties } from 'react'
 import { Link, Navigate, useParams, useSearchParams } from 'react-router-dom'
 import { AlphaFace, type AlphaFaceMood } from '../AlphaFace'
 import { getAgent } from '../agents'
@@ -28,6 +28,7 @@ import {
 import { HomeApp } from './HomeApp'
 import { ArtifactApp, CofounderHomeApp, CoworkerHomeApp } from './WorkHomes'
 import { BriefApp } from './BriefApp'
+import { useRefreshOnFocus } from './useRefreshOnFocus'
 import { BodyHubApp, LaterHubApp } from './FriendHubApps'
 import {
   ApproveSendApp,
@@ -339,19 +340,18 @@ export function MiniAppPage() {
     }
   }, [])
 
-  useEffect(() => {
-    let cancelled = false
+  /* Fetch the live brief, painting the held copy first. Runs on mount and on
+   * return-to-focus (see useRefreshOnFocus below): the cache read up front is
+   * what keeps a reopened brief instant — the network only refreshes behind
+   * whatever is already on screen. */
+  const refresh = useCallback(() => {
     if (!isLiveMini) {
       setLoading(false)
-      return () => {
-        cancelled = true
-      }
+      return
     }
     if (!token && !getSession()?.email) {
       setLoading(false)
-      return () => {
-        cancelled = true
-      }
+      return
     }
     setLoading(true)
     setBriefTries(0)
@@ -373,13 +373,11 @@ export function MiniAppPage() {
         res.ok ? (res.json() as Promise<BriefPayload>) : Promise.reject({ status: res.status }),
       )
       .then((d) => {
-        if (cancelled) return
         if (isDigest) setData(d)
         else setMini(d)
         saveBrief(persona || '', kind || '', token, d)
       })
       .catch((err) => {
-        if (cancelled) return
         if (err && err.status === 401) {
           setExpired(true)
           return
@@ -390,12 +388,17 @@ export function MiniAppPage() {
         else setMini({ error: "Couldn't load this right now." })
       })
       .finally(() => {
-        if (!cancelled) setLoading(false)
+        setLoading(false)
       })
-    return () => {
-      cancelled = true
-    }
   }, [kind, persona, token, isDigest, isLiveMini])
+
+  useEffect(() => {
+    refresh()
+  }, [refresh])
+  /* Leaving the app and coming back should refresh the brief, not leave stale
+   * mail on screen — and the held-copy paint above means that refresh never
+   * shows the spinner. Home does the same. */
+  useRefreshOnFocus(refresh)
 
   /* The brief is the heaviest read in the app — two calendars, the inbox, and a
    * model pass over the mail. The server stops waiting after a beat and says

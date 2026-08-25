@@ -23,11 +23,14 @@ import { homeCacheIdentity, safeStorage, type HomeCacheWho, type StorageLike } f
 export const BRIEF_CACHE_VERSION = 1
 
 /**
- * Shorter than home's four hours. A brief is a claim about a slice of the day —
- * mail "since this morning", what is "left this evening" — and after an hour and
- * a half that claim has usually stopped being true.
+ * Same window as home's snapshot: four hours. A brief is a claim about a slice
+ * of the day — mail "since this morning", what is "left this evening" — and it
+ * is far better to paint yesterday's answer instantly and refresh behind it
+ * than to stare at "Pulling your day together" for a full rebuild every time
+ * the screen reopens. The network fetch still runs on every open, so mail that
+ * landed since the last look arrives within a second or two of the paint.
  */
-export const BRIEF_CACHE_MAX_AGE_MS = 90 * 60 * 1000
+export const BRIEF_CACHE_MAX_AGE_MS = 4 * 60 * 60 * 1000
 
 export type BriefCacheWho = HomeCacheWho
 export type BriefEnvelope<T> = { v: number; day: string; kind: string; at: number; brief: T }
