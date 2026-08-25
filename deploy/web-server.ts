@@ -354,11 +354,20 @@ async function pageHtml(pathname: string, search = '') {
     }
     const safeTitle = escapeAttr(meta.title)
     const safeDescription = escapeAttr(meta.description)
+    /* Every kind gets its own designed card image (scripts/og-template.html
+     * renders them) — the old shell-wide stock photo made every card in the
+     * thread look like a template. Unknown kinds fall back to the brand card. */
+    const ogKind = MINI_META[match?.[2] || ''] ? (match![2] as string) : 'default'
+    const ogImage = `https://hirealpha.chat/images/og/${ogKind}.png`
     html = html
       .replace(/<title>[^<]*<\/title>/, `<title>${safeTitle}</title>`)
       .replace(
         /<meta\s+name="description"\s+content="[^"]*"\s*\/>/,
         `<meta name="description" content="${safeDescription}" />`,
+      )
+      .replace(
+        /<meta\s+property="og:image"\s+content="[^"]*"\s*\/>/,
+        `<meta property="og:image" content="${escapeAttr(ogImage)}" />`,
       )
       .replace(
         '</head>',
