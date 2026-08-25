@@ -710,6 +710,27 @@ describe('Mini-app Text Triggers', () => {
       }
     })
 
+    it('routes a build request to the workshop', () => {
+      for (const text of [
+        'go build a Calculator app',
+        'build me a habit tracker',
+        'make a landing page for my startup',
+        'make me a budget app for rent',
+        'ship a tiny dashboard',
+        'can you build a website for my cafe',
+      ]) {
+        const result = detectMiniAppRequest(text, 'friend')
+        expect(result?.kind, text).toBe('artifact')
+      }
+    })
+
+    it('does not trip the workshop on a bare product noun', () => {
+      for (const text of ['a calculator app', 'my calculator broke', 'tell me about calculators', 'what is an app?', 'play a song']) {
+        const result = detectMiniAppRequest(text, 'friend')
+        expect(result?.kind, text).not.toBe('artifact')
+      }
+    })
+
     it('still opens networking instead of the store', () => {
       expect(detectMiniAppRequest('Pull up networking', 'friend')?.kind).toBe('networking_crm')
     })
