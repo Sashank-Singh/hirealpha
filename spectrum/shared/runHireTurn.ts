@@ -820,17 +820,17 @@ export async function runHireTurn(input: {
         confirmKind = 'artifact'
         confirmQuery = { id: built.artifactId }
         extras.push(
-          `Built and deployed: "${built.title}". The card is attached — tell them to open it, then say "keep it" (stays forever) or "toss it" (deleted). Unkept builds auto-delete in 7 days. Do not restate the code.`,
+          `A FRESH build was deployed just now — even if something similar existed before, this is a new one; never say it was already built. Title: "${built.title}". The card is attached — tell them to open it and try it, then say "keep it" (stays forever) or "toss it" (deleted). Unkept builds auto-delete in 7 days. Do not restate the code.`,
         )
       } else {
         extras.push(
-          `The build failed — ${built?.error || 'unknown error'}. Say honestly that the build did not work and ask them what they wanted it to do, one line.`,
+          `The build failed — ${built?.error || 'unknown error'}. In one line, say honestly that the build did not work and ask what they wanted it to do. Never claim something was already built, and never tell them to build it themselves from a card.`,
         )
       }
     } catch (err) {
       console.warn('[turn] workshop build crashed', err)
       extras.push(
-        'The build failed — the builder hit an unexpected error. Say honestly that the build did not work and ask them what they wanted it to do, one line.',
+        'The build failed — the builder hit an unexpected error. In one line, say honestly that the build did not work and ask what they wanted it to do. Never claim something was already built.',
       )
     }
   }

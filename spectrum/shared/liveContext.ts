@@ -796,6 +796,7 @@ const WORKSHOP_PLANNER = [
   'Sandbox rules: Bun runtime, NO network, NO environment variables, no child processes.',
   'Do useful work, then WRITE every output file into the out/ directory (create it if needed), e.g. await Bun.write("out/index.html", html).',
   'For a page or tracker, produce one self-contained out/index.html with inline CSS/JS and realistic sample data the user can edit later in the file.',
+  'Keep the program compact: one file, ideally under 250 lines, polished but minimal — it must fit in one reply.',
   'Reply with JSON only, no markdown: {"title": "short name", "code": "<the whole program>"}',
 ].join('\n')
 
@@ -818,10 +819,10 @@ export async function autoRunWorkshop(
     for (let attempt = 0; attempt < 2; attempt++) {
       const raw = await gmiChat({
         temperature: 0.2,
-        maxTokens: 3000,
+        maxTokens: 8000,
         messages: [
           { role: 'system', content: WORKSHOP_PLANNER },
-          { role: 'user', content: attempt === 0 ? ask : `${ask}\n\nYour previous reply was not valid JSON. Reply again, JSON only.` },
+          { role: 'user', content: attempt === 0 ? ask : `${ask}\n\nYour previous reply was cut off or not valid JSON. Write the whole program again, shorter if needed. JSON only.` },
         ],
       })
       const jsonMatch = (raw || '').match(/\{[\s\S]*\}/)
@@ -849,7 +850,7 @@ export async function autoRunWorkshop(
         headers: authHeaders(),
         body: JSON.stringify({ phone, persona, prompt: ask.slice(0, 500), title, code }),
       },
-      45000,
+      60000,
     )
     if (!res.ok) return { ok: false, logged: false, error: `build failed (${res.status})` }
     return (await res.json()) as { ok?: boolean; logged?: boolean; error?: string; artifactId?: string; url?: string; title?: string }
