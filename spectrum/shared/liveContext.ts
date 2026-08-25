@@ -797,6 +797,7 @@ const WORKSHOP_PLANNER = [
   'Do useful work, then WRITE every output file into the out/ directory (create it if needed), e.g. await Bun.write("out/index.html", html).',
   'For a page or tracker, produce one self-contained out/index.html with inline CSS/JS and realistic sample data the user can edit later in the file.',
   'Keep the program compact: one file, ideally under 250 lines, polished but minimal — it must fit in one reply.',
+  'In generated code, build strings with plain quotes and + concatenation rather than template literals, and double-check every statement ends correctly — the program must parse the first time.',
   'Reply with JSON only, no markdown: {"title": "short name", "code": "<the whole program>"}',
 ].join('\n')
 
@@ -809,55 +810,67 @@ export async function autoRunWorkshop(
   const key = process.env.HIREALPHA_INTERNAL_KEY || ''
   if (!base || !key) return { ok: false, logged: false, error: 'not configured' }
 
-  // Plan: turn the ask into sandbox code. One repair retry on invalid JSON.
-  // A planner failure must return an error, never throw: this runs inside the
-  // chat turn, and a throw here crashes the whole reply into the canned
-  // "Got tripped up" message instead of an honest "the build failed".
-  let title = ''
-  let code = ''
-  try {
-    for (let attempt = 0; attempt < 2; attempt++) {
-      const raw = await gmiChat({
-        temperature: 0.2,
-        maxTokens: 8000,
-        messages: [
-          { role: 'system', content: WORKSHOP_PLANNER },
-          { role: 'user', content: attempt === 0 ? ask : `${ask}\n\nYour previous reply was cut off or not valid JSON. Write the whole program again, shorter if needed. JSON only.` },
-        ],
-      })
-      const jsonMatch = (raw || '').match(/\{[\s\S]*\}/)
-      if (!jsonMatch) continue
-      try {
-        const parsed = JSON.parse(jsonMatch[0]) as { title?: string; code?: string }
-        title = String(parsed.title || '').slice(0, 120)
-        code = String(parsed.code || '')
-        if (code.trim()) break
-      } catch {
-        /* retry once */
+  // Plan → run → repair. Generated programs are sometimes broken (a dropped
+  // backtick, a bad interpolation), so when the sandbox run fails the error
+  // goes back to the planner for one fix-it pass. A planner failure must
+  // return an error, never throw: this runs inside the chat turn, and a throw
+  // here crashes the whole reply into the canned "Got tripped up" message.
+  let lastError = ''
+  for (let pass = 0; pass < 2; pass++) {
+    const askWithFix =
+      pass === 0
+        ? ask
+        : `${ask}\n\nYour previous program failed with this error:\n${lastError}\nWrite the whole corrected program again, shorter if needed.`
+    let title = ''
+    let code = ''
+    try {
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const raw = await gmiChat({
+          temperature: 0.2,
+          maxTokens: 8000,
+          messages: [
+            { role: 'system', content: WORKSHOP_PLANNER },
+            { role: 'user', content: attempt === 0 ? askWithFix : `${askWithFix}\n\nYour previous reply was cut off or not valid JSON. Write the whole program again, shorter if needed. JSON only.` },
+          ],
+        })
+        const jsonMatch = (raw || '').match(/\{[\s\S]*\}/)
+        if (!jsonMatch) continue
+        try {
+          const parsed = JSON.parse(jsonMatch[0]) as { title?: string; code?: string }
+          title = String(parsed.title || '').slice(0, 120)
+          code = String(parsed.code || '')
+          if (code.trim()) break
+        } catch {
+          /* retry once */
+        }
       }
+    } catch (err) {
+      console.warn('[live] workshop planner failed', err)
+      return { ok: false, logged: false, error: 'could not draft the program' }
     }
-  } catch (err) {
-    console.warn('[live] workshop planner failed', err)
-    return { ok: false, logged: false, error: 'could not draft the program' }
-  }
-  if (!code.trim()) return { ok: false, logged: false, error: 'could not draft the program' }
+    if (!code.trim()) return { ok: false, logged: false, error: 'could not draft the program' }
 
-  try {
-    const res = await timedFetch(
-      `${base}/api/internal/workshop`,
-      {
-        method: 'POST',
-        headers: authHeaders(),
-        body: JSON.stringify({ phone, persona, prompt: ask.slice(0, 500), title, code }),
-      },
-      60000,
-    )
-    if (!res.ok) return { ok: false, logged: false, error: `build failed (${res.status})` }
-    return (await res.json()) as { ok?: boolean; logged?: boolean; error?: string; artifactId?: string; url?: string; title?: string }
-  } catch (err) {
-    console.warn('[live] workshop build failed', err)
-    return { ok: false, logged: false, error: 'build failed' }
+    try {
+      const res = await timedFetch(
+        `${base}/api/internal/workshop`,
+        {
+          method: 'POST',
+          headers: authHeaders(),
+          body: JSON.stringify({ phone, persona, prompt: ask.slice(0, 500), title, code }),
+        },
+        60000,
+      )
+      if (!res.ok) return { ok: false, logged: false, error: `build failed (${res.status})` }
+      const out = (await res.json()) as { ok?: boolean; logged?: boolean; error?: string; artifactId?: string; url?: string; title?: string }
+      if (out.ok) return out
+      // Sandbox or gate failure: remember why and let pass 2 repair it.
+      lastError = out.error || 'the program did not run'
+    } catch (err) {
+      console.warn('[live] workshop build failed', err)
+      return { ok: false, logged: false, error: 'build failed' }
+    }
   }
+  return { ok: false, logged: false, error: lastError || 'build failed' }
 }
 
 export async function autoWorkshopKeep(
