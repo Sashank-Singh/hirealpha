@@ -309,6 +309,7 @@ const MINI_META: Record<string, { title: string; description: string }> = {
   gratitude_journal: { title: 'Gratitude', description: 'One sentence a day.' },
   spending_snapshot: { title: 'Spending', description: 'Log spend against a weekly budget.' },
   home: { title: 'Home', description: 'Here is what your life actually looks like.' },
+  artifact: { title: 'Your build', description: 'Built by Alpha. Open it, then say keep it or toss it.' },
 }
 
 function miniMeta(pathname: string) {
@@ -347,6 +348,23 @@ async function pageHtml(pathname: string, search = '') {
   const meta = miniMeta(pathname)
   if (meta) {
     const token = new URLSearchParams(search.startsWith('?') ? search.slice(1) : search).get('t') || ''
+    /* An artifact card should name the build ("Password Saver"), not the
+     * generic shell title — look the build up by its id. */
+    if (sql && match && match[2] === 'artifact') {
+      const artifactId = new URLSearchParams(search.startsWith('?') ? search.slice(1) : search).get('id') || ''
+      if (artifactId) {
+        try {
+          const rows = await sql`SELECT title FROM hire_artifacts WHERE id = ${artifactId} LIMIT 1`
+          const title = (rows[0] as { title?: string } | undefined)?.title
+          if (title) {
+            meta.title = title
+            meta.description = 'Built by Alpha. Open it, then say keep it or toss it.'
+          }
+        } catch (err) {
+          console.warn('[web] artifact og lookup failed', err)
+        }
+      }
+    }
     if (sql && match && token && (match[2] === 'digest' || match[2] === 'pick_night')) {
       try {
         const live = await miniCardOgDescription(sql, token, match[1]!, match[2]!)

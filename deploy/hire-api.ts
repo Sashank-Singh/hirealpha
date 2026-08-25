@@ -526,6 +526,16 @@ export async function ensureHireSchema(sql: SQL) {
       created_at TIMESTAMPTZ NOT NULL DEFAULT now()
     )
   `
+  /* Build files live in the database, not on the container disk: a deploy
+   * replaces the container and every build made before it would vanish. */
+  await sql`
+    CREATE TABLE IF NOT EXISTS hire_artifact_files (
+      artifact_id TEXT NOT NULL REFERENCES hire_artifacts(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      content TEXT NOT NULL,
+      PRIMARY KEY (artifact_id, name)
+    )
+  `
   await sql`
     CREATE TABLE IF NOT EXISTS hire_workshop_tasks (
       id TEXT PRIMARY KEY,
@@ -8324,10 +8334,12 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
   const artifactDirFor = (userId: string, artifactId: string) => join(artifactsRoot(), userId, artifactId)
 
   async function storeArtifactFiles(userId: string, artifactId: string, files: Array<{ name: string; bytes: Uint8Array }>) {
-    const dir = artifactDirFor(userId, artifactId)
-    await mkdir(dir, { recursive: true })
     for (const f of files) {
-      await writeFile(join(dir, f.name), f.bytes)
+      await sql`
+        INSERT INTO hire_artifact_files (artifact_id, name, content)
+        VALUES (${artifactId}, ${f.name}, ${Buffer.from(f.bytes).toString('base64')})
+        ON CONFLICT (artifact_id, name) DO UPDATE SET content = excluded.content
+      `
     }
   }
 
@@ -8346,6 +8358,7 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
       SELECT id FROM hire_artifacts WHERE id = ${id} AND user_id = ${userId} LIMIT 1
     `
     if (!owned[0]) return { ok: false, logged: false, error: 'No delivered artifact found' }
+    await sql`DELETE FROM hire_artifact_files WHERE artifact_id = ${id}`
     await rm(artifactDirFor(userId, id), { recursive: true, force: true })
     await sql`DELETE FROM hire_artifacts WHERE id = ${id} AND user_id = ${userId}`
     void persona
@@ -8497,21 +8510,53 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     if (!row) return json({ error: 'Not found' }, 404)
     const safeName = fileName.replace(/[\\/]/g, '')
     if (!(row.files || []).includes(safeName)) return json({ error: 'Not found' }, 404)
+    const types: Record<string, string> = {
+      '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8',
+      '.js': 'text/javascript; charset=utf-8', '.json': 'application/json',
+      '.csv': 'text/csv; charset=utf-8', '.txt': 'text/plain; charset=utf-8',
+      '.md': 'text/markdown; charset=utf-8', '.svg': 'image/svg+xml',
+      '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
+      '.pdf': 'application/pdf',
+    }
+    const type = types[safeName.slice(safeName.lastIndexOf('.'))] || 'application/octet-stream'
+    // Builds live in the database so a redeploy can never wipe them; the disk
+    // copy is only a legacy fallback from before the move.
+    const dbRows = await sql`
+      SELECT content FROM hire_artifact_files
+      WHERE artifact_id = ${artifactId} AND name = ${safeName}
+      LIMIT 1
+    `
+    const dbContent = (dbRows[0] as { content?: string } | undefined)?.content
+    if (dbContent) {
+      return new Response(Buffer.from(dbContent, 'base64'), {
+        headers: { 'Content-Type': type, 'Cache-Control': 'no-store' },
+      })
+    }
     try {
       const bytes = await readFile(artifactDirFor(user!.id, artifactId) + '/' + safeName)
-      const types: Record<string, string> = {
-        '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8',
-        '.js': 'text/javascript; charset=utf-8', '.json': 'application/json',
-        '.csv': 'text/csv; charset=utf-8', '.txt': 'text/plain; charset=utf-8',
-        '.md': 'text/markdown; charset=utf-8', '.svg': 'image/svg+xml',
-        '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
-        '.pdf': 'application/pdf',
-      }
-      const type = types[safeName.slice(safeName.lastIndexOf('.'))] || 'application/octet-stream'
       return new Response(bytes, { headers: { 'Content-Type': type, 'Cache-Control': 'no-store' } })
     } catch {
       return json({ error: 'Not found' }, 404)
     }
+  }
+
+  const artifactGet = path.match(/^\/api\/artifacts\/([\w-]+)$/)
+  if (artifactGet && req.method === 'GET') {
+    const { user, error } = await resolveAuthedUser(sql, {
+      token: url.searchParams.get('t') || undefined,
+      session: url.searchParams.get('s') || undefined,
+      email: url.searchParams.get('email') || undefined,
+    })
+    if (error) return error
+    const rows = await sql`
+      SELECT id, title, kind, files, state, expires_at AS "expiresAt"
+      FROM hire_artifacts WHERE id = ${artifactGet[1]} AND user_id = ${user!.id} LIMIT 1
+    `
+    const row = rows[0] as
+      | { id: string; title: string; kind: string; files: string[]; state: string; expiresAt: string | null }
+      | undefined
+    if (!row) return json({ error: 'Not found' }, 404)
+    return json(row)
   }
 
   const artifactAction = path.match(/^\/api\/artifacts\/([\w-]+)\/(keep|delete)$/)
