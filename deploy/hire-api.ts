@@ -8790,6 +8790,29 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     return json(payload)
   }
 
+  /* Why are briefs (not) firing? One call: every reminder row for this
+   * persona plus the exact judgment state the bot's guards evaluate. */
+  if (path === '/api/internal/brief-debug' && req.method === 'GET') {
+    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
+    const phone = url.searchParams.get('phone') || ''
+    const persona = url.searchParams.get('persona') || ''
+    if (!phone || !isPersona(persona)) return json({ error: 'phone and persona required' }, 400)
+    const user = await getUserByPhone(sql, phone)
+    if (!user) return json({ error: 'User not found' }, 404)
+    const reminders = await sql`
+      SELECT text, status, recurrence, scheduled_at AS "scheduledAt", timezone
+      FROM hire_reminders WHERE user_id = ${user.id} AND persona = ${persona}
+      ORDER BY scheduled_at ASC LIMIT 12
+    `
+    let state: unknown = null
+    try {
+      state = await judgmentStatePayload(sql, user, persona, 'digest')
+    } catch (err) {
+      state = { error: String(err) }
+    }
+    return json({ reminders, state })
+  }
+
   if (path === '/api/internal/event-nudges' && req.method === 'GET') {
     if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
     const persona = url.searchParams.get('persona') || ''

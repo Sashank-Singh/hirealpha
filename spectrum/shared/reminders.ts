@@ -431,7 +431,18 @@ export function startReminderScheduler(opts: {
             persona: opts.persona as AgentId,
             reminderText: r.text,
           })
-          if (!judged) continue
+          if (!judged) {
+            // Judgment skipped this tick (in conversation, sent recently, a
+            // cold life-state…). The claim already pushed the reminder to
+            // tomorrow — that turned any transient skip into a lost day of
+            // briefs. Re-arm the same tick later today instead.
+            if (r.recurrence === 'daily' && /^\[(digest|judge\]*(morning|evening))/.test(r.text)) {
+              const retryAt = new Date(Date.now() + 75 * 60_000).toISOString()
+              await markReminderDone(r.id, retryAt).catch(() => undefined)
+              console.log(`[reminders:${opts.persona}] skip ${r.id}, re-armed +75min`)
+            }
+            continue
+          }
           text = judged.text
           judgedTopic = judged.topic
           if (judged.cardKind) {
