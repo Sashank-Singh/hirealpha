@@ -8421,7 +8421,7 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
       artifactId,
       title,
       files: fileNames,
-      url: `${appBase(req)}/app/mini/${isPersona(body.persona || '') ? body.persona! : 'friend'}/artifact?id=${artifactId}`,
+      url: `${appBase(req)}/b/${artifactId}`,
     })
   }
 
@@ -8509,6 +8509,46 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     if (error) return error
     const id = url.searchParams.get('id') || ''
     return json(await deleteArtifactRow(user!.id, id || undefined, ''))
+  }
+
+  /* ---- Public build links: /b/{id} IS the deployed app ----
+   * Builds are self-contained HTML; they need no viewer, no auth, no mini-app
+   * shell. The link is the capability (an unguessable id, like a Vercel
+   * preview): anyone with it opens the app straight from Postgres. */
+  const gonePage = (msg: string) =>
+    new Response(
+      `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Gone</title><style>body{background:#0c0e11;color:#98a0ab;font-family:-apple-system,'Helvetica Neue',sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0}p{padding:0 32px}</style></head><body><p>${msg}</p></body></html>`,
+      { headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' } },
+    )
+  const publicBuild = path.match(/^\/b\/([\w-]+)$/)
+  if (publicBuild && req.method === 'GET') {
+    const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+    const rows = await sql`
+      SELECT title, files, state FROM hire_artifacts WHERE id = ${publicBuild[1]} LIMIT 1
+    `
+    const row = rows[0] as { title: string; files: string[]; state: string } | undefined
+    if (!row || row.state === 'tossed') {
+      return gonePage('This build is gone. Ask Alpha to build it again.')
+    }
+    const htmlName = (row.files || []).find((f) => /\.html?$/i.test(f)) || (row.files || [])[0] || ''
+    const fileRows = await sql`
+      SELECT content FROM hire_artifact_files
+      WHERE artifact_id = ${publicBuild[1]} AND name = ${htmlName} LIMIT 1
+    `
+    const content = (fileRows[0] as { content?: string } | undefined)?.content
+    if (!content) return gonePage('This build is gone. Ask Alpha to build it again.')
+    let html = Buffer.from(content, 'base64').toString('utf8')
+    // Give the link preview a title even when the generated app has no meta.
+    if (!/<meta\s+property="og:title"/i.test(html)) {
+      const og = `<meta property="og:title" content="${esc(row.title)}" /><meta property="og:description" content="Built by Alpha" />`
+      html = html.includes('</head>') ? html.replace('</head>', `${og}</head>`) : `${og}${html}`
+    }
+    if (!/<title>/i.test(html)) {
+      html = html.includes('<head') ? html.replace(/<head([^>]*)>/i, `<head$1><title>${esc(row.title)}</title>`) : `<title>${esc(row.title)}</title>${html}`
+    }
+    return new Response(html, {
+      headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' },
+    })
   }
 
   const artifactFile = path.match(/^\/a\/([\w-]+)\/([\w.-]+)$/)

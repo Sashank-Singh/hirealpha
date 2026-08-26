@@ -816,11 +816,9 @@ export async function runHireTurn(input: {
   if (miniApp?.kind === 'artifact') {
     try {
       const built = await autoRunWorkshop(input.senderId, agent.id, input.userText)
-      if (built?.logged && built.artifactId) {
-        confirmKind = 'artifact'
-        confirmQuery = { id: built.artifactId }
+      if (built?.logged && built.url) {
         extras.push(
-          `A FRESH build was deployed just now — even if something similar existed before, this is a new one; never say it was already built. Title: "${built.title}". The card is attached — tell them to open it and try it, then say "keep it" (stays forever) or "toss it" (deleted). Unkept builds auto-delete in 7 days. Do not restate the code.`,
+          `A FRESH build was deployed just now — even if something similar existed before, this is a new one; never say it was already built. Title: "${built.title}". Send them this exact link in your reply so they can open it: ${built.url}. Tell them to try it, then say "keep it" (stays forever) or "toss it" (deleted). Unkept builds auto-delete in 7 days. Do not restate the code.`,
         )
       } else {
         extras.push(
