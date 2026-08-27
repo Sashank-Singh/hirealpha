@@ -8376,7 +8376,18 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     if (!body.phone || !isPersona(body.persona || '') || !code) {
       return json({ error: 'phone, persona, and code required' }, 400)
     }
-    const user = await getUserByPhone(sql, body.phone)
+    try {
+      // Schema guard: a build must never 500 on missing tables after a fresh
+      // deploy — both creates are idempotent and cost nothing once warm.
+      await sql`
+        CREATE TABLE IF NOT EXISTS hire_artifact_files (
+          artifact_id TEXT NOT NULL REFERENCES hire_artifacts(id) ON DELETE CASCADE,
+          name TEXT NOT NULL,
+          content TEXT NOT NULL,
+          PRIMARY KEY (artifact_id, name)
+        )
+      `
+      const user = await getUserByPhone(sql, body.phone)
     if (!user) return json({ error: 'User not found' }, 404)
     // Rate limit: ten finished builds a day is generous for a human and a
     // floor on abuse. Failed attempts (no artifact) don't consume quota —
@@ -8423,6 +8434,16 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
       files: fileNames,
       url: `${appBase(req)}/b/${artifactId}`,
     })
+    } catch (err) {
+      // Never a bare 500: the bot quotes this error back to the user, and the
+      // stack lands in the container log for the real fix.
+      console.error('[workshop] endpoint threw', err)
+      return json({
+        ok: false,
+        logged: false,
+        error: `server error: ${err instanceof Error ? err.message : String(err)}`.slice(0, 300),
+      })
+    }
   }
 
   if (path === '/api/internal/workshop/last' && req.method === 'GET') {
