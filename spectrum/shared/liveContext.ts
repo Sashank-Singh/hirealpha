@@ -49,8 +49,26 @@ async function timedFetch(url: string, init: RequestInit, ms: number) {
   }
 }
 
-export async function fetchLiveProfile(phone: string, persona: AgentId): Promise<LiveProfile> {
+/** Contacts on file, for the Tier 4 delegate. Empty on any failure. */
+export async function fetchContacts(phone: string): Promise<Array<{ name: string; phone?: string; email?: string }>> {
   const base = apiBase()
+  const key = process.env.HIREALPHA_INTERNAL_KEY || ''
+  if (!base || !key) return []
+  try {
+    const res = await timedFetch(
+      `${base}/api/internal/network?phone=${encodeURIComponent(phone)}`,
+      { headers: authHeaders() },
+      8000,
+    )
+    if (!res.ok) return []
+    const data = (await res.json()) as { contacts?: Array<{ name: string; phone?: string; email?: string }> }
+    return data.contacts || []
+  } catch {
+    return []
+  }
+}
+
+export async function fetchLiveProfile(phone: string, persona: AgentId): Promise<LiveProfile> {  const base = apiBase()
   const key = process.env.HIREALPHA_INTERNAL_KEY || ''
   if (!base || !key) return EMPTY
   const attempt = async (): Promise<LiveProfile> => {

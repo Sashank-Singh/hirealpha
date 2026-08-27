@@ -31,27 +31,9 @@ import {
   type MiniAppKind,
 } from './miniApps'
 import { foldQuotes, isBannedTagline, dropBannedTaglines } from './outboundFilter'
-import {
-  handleBrainDump,
-  handleBillguard,
-  handleDebrief,
-  handleKeepMeHonest,
-  handleRecall,
-  handleSnapLog,
-  handleSweep,
-  handleToolbox,
-  handleTravelMode,
-  looksLikeBillguard,
-  looksLikeBrainDump,
-  looksLikeDebrief,
-  looksLikeKeepMeHonest,
-  looksLikeRecall,
-  looksLikeSnapLog,
-  looksLikeSweep,
-  looksLikeToolbox,
-  looksLikeTravelMode,
-} from './smartFeatures'
 import { formatNowForAgent, pickUserTimezone, timezoneFromText } from '../../deploy/timezones'
+import { dispatch as dispatchSmart, type DispatchContext } from './dispatcher'
+import { fetchContacts } from './liveContext'
 import {
   looksLikeEventWrite,
   looksLikeFollowUp,
@@ -484,7 +466,10 @@ export async function runHireTurn(input: {
   const agent = getAgent(input.agentId)
   const mem = loadMemory(input.dataDir, input.senderId)
   const history = mem.history
-  const live = await fetchLiveProfile(input.senderId, agent.id)
+  const [live, contacts] = await Promise.all([
+    fetchLiveProfile(input.senderId, agent.id),
+    input.senderId ? fetchContacts(input.senderId) : Promise.resolve([]),
+  ])
   const spokenTz = timezoneFromText(input.userText)
   if (spokenTz && live.hired) {
     void persistLiveFacts(input.senderId, agent.id, [{ key: 'timezone', value: spokenTz }])
@@ -572,65 +557,27 @@ export async function runHireTurn(input: {
     !writeIntent
   )
 
-  /* ---- Smart features: text-first, deterministic, no new infra ----
-   * Runs before the model so "recall …", "debrief the call", "sweep", "dump:
-   * …", "snap log", "travel mode", "keep me honest at 7pm to run", "my tools"
-   * get a real answer even when a model call would hiccup. Each pulls only
-   * what it needs from the live context already in hand. */
-  const smart = (() => {
-    const t = input.userText
-    const m = () => (live.memories || []).map((x) => x.value).filter(Boolean)
-    if (live.hired && looksLikeRecall(t)) {
-      return { text: handleRecall(t, { loops: m(), decisions: m(), meetings: m() }), card: null as MiniAppCard | null, source: 'local' as const }
+/* ---- Dispatcher: slash commands, manifest routing, Tier 4 delegate ----
+   * One entry point for every capability. Slash wins, then the manifest, then
+   * the never-a-shrug delegate fallback for task-shaped asks. */
+  if (live.hired && input.userText.trim().startsWith('/')) {
+    const smartCtx: DispatchContext = {
+      text: input.userText,
+      timezone,
+      memories: (live.memories || []).map((x) => x.value).filter(Boolean),
+      context: live.context || {},
+      contacts,
+      userName: live.name || null,
     }
-    if (live.hired && looksLikeDebrief(t)) {
-      return { text: handleDebrief(live.nextMeeting || 'the call'), card: null, source: 'local' as const }
+    const handled = dispatchSmart(smartCtx)
+    if (handled) {
+      appendThread(input.dataDir, input.senderId, [
+        { role: 'user', content: input.userText },
+        { role: 'assistant', content: handled },
+      ])
+      return { reply: handled, bubbles: splitBubbles(handled), source: 'local', authoritative: [], card: null }
     }
-    if (live.hired && looksLikeSweep(t)) {
-      return { text: handleSweep((live.context?.drafts || '').split(',').filter(Boolean).length, (live.context?.drafts || '').split(',').filter(Boolean)), card: null, source: 'local' as const }
-    }
-    if (live.hired && looksLikeBrainDump(t)) {
-      return { text: handleBrainDump(t, timezone), card: null, source: 'local' as const }
-    }
-    if (live.hired && looksLikeSnapLog(t)) {
-      return { text: handleSnapLog(), card: null, source: 'local' as const }
-    }
-    if (live.hired && looksLikeBillguard(t)) {
-      const subs = (live.context?.subscriptions || '').split('|').filter(Boolean).map((s) => ({ name: s.trim(), amount: undefined, next: undefined }))
-      return { text: handleBillguard(subs), card: null, source: 'local' as const }
-    }
-    if (live.hired && looksLikeTravelMode(t)) {
-      const dest = t.replace(/.*\b(?:to|by|for)\s+([A-Za-z][A-Za-z .'-]{1,30}).*/, '$1')
-      return { text: handleTravelMode(dest), card: null, source: 'local' as const }
-    }
-    if (live.hired && looksLikeKeepMeHonest(t)) {
-      return { text: handleKeepMeHonest(t, timezone), card: null, source: 'local' as const }
-    }
-    if (live.hired && looksLikeToolbox(t)) {
-      const builds = (live.context?.toolbox || '').split('|').filter(Boolean).map((b) => {
-        const [title, url] = b.split('§')
-        return { title: (title || '').trim(), url: (url || '').trim() }
-      })
-      return { text: handleToolbox(builds), card: null, source: 'local' as const }
-    }
-    return null
-  })()
-  if (smart) {
-    appendThread(input.dataDir, input.senderId, [
-      { role: 'user', content: input.userText },
-      { role: 'assistant', content: smart.text },
-    ])
-    return { reply: smart.text, bubbles: splitBubbles(smart.text), source: smart.source, authoritative: [], card: smart.card }
   }
-
-  if (writeIntent) {
-    const writeReply = hardStop
-      ? humanLimitInstruction(input.userText)
-      : hardStopInstruction
-    miniApp.kind !== 'pick_night' &&
-    miniApp.kind !== 'digest' &&
-    !writeIntent
-  )
 
   let toolResults: string[] = []
   if (live.found && live.hired && !digestText && !skipFreeLookup) {

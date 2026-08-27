@@ -8790,6 +8790,21 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     return json(payload)
   }
 
+  /* Contacts for the Tier 4 delegate: name + phone to draft outreach. */
+  if (path === '/api/internal/network' && req.method === 'GET') {
+    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
+    const phone = url.searchParams.get('phone') || ''
+    if (!phone) return json({ error: 'phone required' }, 400)
+    const user = await getUserByPhone(sql, phone)
+    if (!user) return json({ contacts: [] })
+    const rows = await sql`
+      SELECT name, phone, email FROM hire_network
+      WHERE user_id = ${user.id}
+      ORDER BY coalesce(last_touch, '1970-01-01'::timestamptz) DESC LIMIT 50
+    `
+    return json({ contacts: rows })
+  }
+
   /* Why are briefs (not) firing? One call: every reminder row for this
    * persona plus the exact judgment state the bot's guards evaluate. */
   if (path === '/api/internal/brief-debug' && req.method === 'GET') {
