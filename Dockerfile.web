@@ -28,6 +28,7 @@ COPY deploy/weekRun.ts ./weekRun.ts
 COPY deploy/modelJson.ts ./modelJson.ts
 COPY deploy/staleCache.ts ./staleCache.ts
 COPY deploy/httpCache.ts ./httpCache.ts
+COPY spectrum ./spectrum
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 
