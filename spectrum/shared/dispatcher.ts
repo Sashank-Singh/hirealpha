@@ -205,17 +205,17 @@ export function parseSlash(text: string): { name: string; arg: string } | null {
 export function slashMenu(): string {
   return [
     'Things I handle — type the shortcut or just ask in plain words:',
-    '🔍 /recall — "what did I promise Maya"',
-    '📋 /debrief — "how did the call go", logged',
-    '📬 /sweep — clear every email waiting on you',
-    '🧠 /dump — brain dump, filed: "dump: call the dentist, buy milk"',
-    '📸 /snap — photo of a meal or receipt, logged',
-    '💰 /bills — "how much do I pay for Netflix"',
-    '✈️ /travel — briefs follow your trip',
-    '⏰ /honest — "nag me at 7pm if I skipped the run"',
-    '🛠 /tools — every app I built for you',
-    '🎯 /delegate — "order headphones", I draft it to the right person',
-    'Pick one, or just talk to me.',
+    '/recall — find anything you promised, decided, or discussed',
+    '/debrief — review a meeting and log what you committed to',
+    '/sweep — every email waiting on you, in one list',
+    '/dump — turn a messy brain dump into tasks and decisions',
+    '/snap — send a photo of a meal or receipt and it gets logged',
+    '/bills — see what you spend, by category or subscription',
+    '/travel — shifts your briefs and pings when you travel',
+    '/honest — pings you at a set time if you skipped something',
+    '/tools — every app you have built, in one list',
+    '/delegate — drafts the message to the right person to get it done',
+    'Pick one, or just say what you need.',
   ].join('\n')
 }
 
