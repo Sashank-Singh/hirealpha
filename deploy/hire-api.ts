@@ -8856,9 +8856,34 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     return json(payload)
   }
 
-  /* Contacts for the Tier 4 delegate: name + phone to draft outreach. */
-  if (path === '/api/internal/network' && req.method === 'GET') {
+  /* Recent spending logs for the bot's billguard: category, amount, note. */
+  if (path === '/api/internal/spending' && req.method === 'GET') {
     if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
+    const phone = url.searchParams.get('phone') || ''
+    if (!phone) return json({ error: 'phone required' }, 400)
+    const user = await getUserByPhone(sql, phone)
+    if (!user) return json({ logs: [], weekly: 0, budget: 0 })
+    const rows = await sql`
+      SELECT amount, category, description, spent_at AS "spentAt" FROM hire_spending
+      WHERE user_id = ${user.id} AND spent_at >= now() - interval '60 days'
+      ORDER BY spent_at DESC LIMIT 60
+    `
+    const week = await sql`
+      SELECT coalesce(sum(amount), 0)::float AS total FROM hire_spending
+      WHERE user_id = ${user.id} AND spent_at >= now() - interval '7 days'
+    `
+    const budgetRow = await sql`
+      SELECT weekly_budget AS "weeklyBudget" FROM hire_spending_budget WHERE user_id = ${user.id} LIMIT 1
+    `
+    return json({
+      logs: rows,
+      weekly: Number((week[0] as { total?: number })?.total) || 0,
+      budget: Number((budgetRow[0] as { weeklyBudget?: number })?.weeklyBudget) || 0,
+    })
+  }
+
+  /* Contacts for the Tier 4 delegate: name + phone to draft outreach. */
+  if (path === '/api/internal/network' && req.method === 'GET') {    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
     const phone = url.searchParams.get('phone') || ''
     if (!phone) return json({ error: 'phone required' }, 400)
     const user = await getUserByPhone(sql, phone)

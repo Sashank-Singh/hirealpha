@@ -33,7 +33,7 @@ import {
 import { foldQuotes, isBannedTagline, dropBannedTaglines } from './outboundFilter'
 import { formatNowForAgent, pickUserTimezone, timezoneFromText } from '../../deploy/timezones'
 import { dispatch as dispatchSmart, type DispatchContext } from './dispatcher'
-import { fetchContacts } from './liveContext'
+import { fetchContacts, fetchSpending } from './liveContext'
 import {
   looksLikeEventWrite,
   looksLikeFollowUp,
@@ -466,9 +466,10 @@ export async function runHireTurn(input: {
   const agent = getAgent(input.agentId)
   const mem = loadMemory(input.dataDir, input.senderId)
   const history = mem.history
-  const [live, contacts] = await Promise.all([
+  const [live, contacts, spending] = await Promise.all([
     fetchLiveProfile(input.senderId, agent.id),
     input.senderId ? fetchContacts(input.senderId) : Promise.resolve([]),
+    input.senderId ? fetchSpending(input.senderId) : Promise.resolve({ logs: [], weekly: 0, budget: 0 }),
   ])
   const spokenTz = timezoneFromText(input.userText)
   if (spokenTz && live.hired) {
@@ -568,6 +569,7 @@ export async function runHireTurn(input: {
       context: live.context || {},
       contacts,
       userName: live.name || null,
+      spending,
     }
     const handled = dispatchSmart(smartCtx)
     if (handled) {
@@ -575,7 +577,8 @@ export async function runHireTurn(input: {
         { role: 'user', content: input.userText },
         { role: 'assistant', content: handled },
       ])
-      return { reply: handled, bubbles: splitBubbles(handled), source: 'local', authoritative: [], card: null }
+      // Slash replies are command output: one message, never split.
+      return { reply: handled, bubbles: [handled], source: 'local', authoritative: [], card: null }
     }
   }
 

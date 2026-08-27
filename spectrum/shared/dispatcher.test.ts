@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'bun:test'
 import {
+  billguardKeyword,
   CAPABILITIES,
   dispatch,
   dispatchSlash,
@@ -21,6 +22,11 @@ const ctx: DispatchContext = {
     { name: 'Dentist Office', phone: '+12165550000' },
   ],
   userName: 'Sashank',
+  spending: {
+    logs: [{ amount: 15.49, category: 'other', description: 'Netflix', spentAt: '2026-08-20' }],
+    weekly: 120,
+    budget: 400,
+  },
 }
 
 describe('slash commands', () => {

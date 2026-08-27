@@ -49,6 +49,32 @@ async function timedFetch(url: string, init: RequestInit, ms: number) {
   }
 }
 
+/** Recent spending logs, for billguard. Empty on any failure. */
+export async function fetchSpending(phone: string): Promise<{
+  logs: Array<{ amount: number; category: string; description: string; spentAt: string }>
+  weekly: number
+  budget: number
+}> {
+  const base = apiBase()
+  const key = process.env.HIREALPHA_INTERNAL_KEY || ''
+  if (!base || !key) return { logs: [], weekly: 0, budget: 0 }
+  try {
+    const res = await timedFetch(
+      `${base}/api/internal/spending?phone=${encodeURIComponent(phone)}`,
+      { headers: authHeaders() },
+      8000,
+    )
+    if (!res.ok) return { logs: [], weekly: 0, budget: 0 }
+    return (await res.json()) as {
+      logs: Array<{ amount: number; category: string; description: string; spentAt: string }>
+      weekly: number
+      budget: number
+    }
+  } catch {
+    return { logs: [], weekly: 0, budget: 0 }
+  }
+}
+
 /** Contacts on file, for the Tier 4 delegate. Empty on any failure. */
 export async function fetchContacts(phone: string): Promise<Array<{ name: string; phone?: string; email?: string }>> {
   const base = apiBase()

@@ -118,11 +118,32 @@ export function handleSnapLog(): string {
   return 'Send a photo of the meal, receipt, or board and I will log it.'
 }
 
-/** 6. Billguard: count subscriptions from mail scan results. */
-export function handleBillguard(subscriptions: Array<{ name: string; amount?: string; next?: string }>): string {
-  if (!subscriptions.length) return 'No recurring charges found in your recent mail.'
-  const lines = subscriptions.map((s) => `- ${s.name}${s.amount ? ` · ${s.amount}` : ''}${s.next ? ` · next ${s.next}` : ''}`)
-  return `Subscriptions on file:\n${lines.join('\n')}\nI will flag renewals and price changes in the brief.`
+/** 6. Billguard: recurring charges + category sums from the user's real logs.
+ * A keyword ("housing", "netflix") filters matching entries; no keyword gives
+ * the weekly picture. */
+export function handleBillguard(
+  keyword: string,
+  logs: Array<{ amount: number; category: string; description: string; spentAt?: string }>,
+  weekly: number,
+  budget: number,
+): string {
+  if (!logs.length) return 'No spending logged in the last 60 days. Log purchases in the Spending app and I will track every number.'
+  const kw = keyword.toLowerCase().trim()
+  const matches = kw
+    ? logs.filter((l) =>
+        `${l.category} ${l.description}`.toLowerCase().includes(kw) ||
+        (kw.includes('hous') && /\b(?:rent|mortgage|housing)\b/i.test(`${l.category} ${l.description}`)),
+      )
+  : logs
+  if (kw && matches.length) {
+    const total = matches.reduce((sum, m) => sum + m.amount, 0)
+    const lines = matches.slice(0, 6).map((m) => `- $${Math.round(m.amount * 100) / 100} · ${m.description || m.category}${m.spentAt ? ` · ${String(m.spentAt).slice(0, 10)}` : ''}`)
+    return `${kw}: $${Math.round(total * 100) / 100} across ${matches.length} entr${matches.length === 1 ? 'y' : 'ies'} (last 60 days):\n${lines.join('\n')}`
+  }
+  if (kw) return `Nothing logged under "${kw}". If you log it in the Spending app, I will track it.`
+  const top = logs.slice(0, 5).map((l) => `- $${Math.round(l.amount * 100) / 100} · ${l.description || l.category}`)
+  const budgetLine = budget > 0 ? ` of $${budget} weekly budget` : ''
+  return `This week: $${Math.round(weekly * 100) / 100}${budgetLine}. Recent:\n${top.join('\n')}`
 }
 
 /** 7. Travel Mode: an honest hint in a single turn; full timezone shift lives

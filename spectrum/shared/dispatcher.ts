@@ -38,6 +38,16 @@ export type DispatchContext = {
   context: Record<string, string>
   contacts: Array<{ name: string; phone?: string }>
   userName?: string | null
+  spending?: { logs: Array<{ amount: number; category: string; description: string; spentAt?: string }>; weekly: number; budget: number }
+}
+
+/** Pull the billing keyword out of an ask: "how much do I pay for housing?" → "housing". */
+export function billguardKeyword(text: string): string {
+  const m =
+    text.match(/\b(?:pay|paying|paid|spend|spent)\s+(?:on|for|at)?\s*(?:my|the)?\s*([a-z][a-z ]{1,30})/i) ||
+    text.match(/\b(?:subscriptions?|bills?)\b\s*(?:for|on)?\s*([a-z][a-z ]{1,30})?/i)
+  if (!m) return ''
+  return (m[1] || '').replace(/\b(this|that|last|month|week|year|day)\b.*$/i, '').trim()
 }
 
 export type Capability = {
@@ -142,13 +152,10 @@ export const CAPABILITIES: Capability[] = [
     label: 'Billguard',
     example: 'how much do I pay for netflix',
     detect: looksLikeBillguard,
-    run: (ctx) =>
-      handleBillguard(
-        (ctx.context?.subscriptions || '')
-          .split('|')
-          .filter(Boolean)
-          .map((s) => ({ name: s.trim() })),
-      ),
+    run: (ctx) => {
+      const spend = ctx.spending || { logs: [], weekly: 0, budget: 0 }
+      return handleBillguard(billguardKeyword(ctx.text), spend.logs, spend.weekly, spend.budget)
+    },
   },
   {
     name: 'travel',

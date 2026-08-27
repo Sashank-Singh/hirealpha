@@ -85,9 +85,16 @@ describe('smart features — snap log', () => {
 
 describe('smart features — billguard', () => {
   it('lists subscriptions', () => {
-    const out = handleBillguard([{ name: 'Netflix', amount: '$15.49', next: 'Aug 30' }])
+    const logs = [
+      { amount: 1800, category: 'housing', description: 'rent', spentAt: '2026-08-01' },
+      { amount: 15.49, category: 'other', description: 'Netflix' },
+    ]
+    const out = handleBillguard('netflix', logs, 2100, 2500)
     expect(out).toContain('Netflix')
     expect(out).toContain('$15.49')
+    const housing = handleBillguard('housing', logs, 2100, 2500)
+    expect(housing).toContain('$1800')
+    expect(housing).toContain('rent')
   })
   it('detects billguard phrasing', () => {
     expect(looksLikeBillguard('how much do i pay for netflix')).toBe(true)
