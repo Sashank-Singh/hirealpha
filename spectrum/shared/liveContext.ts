@@ -971,6 +971,54 @@ const WORKSHOP_PLANNER = [
   'Reply with JSON only, no markdown: {"title": "short name", "code": "<the whole program>"}',
 ].join('\n')
 
+/* ---- Delegate retained draft: "send it" fires the last draft per phone ---- */
+
+export type DelegateDraft = { to: string; toName: string; subject: string; body: string }
+
+const delegateDrafts = new Map<string, DelegateDraft>()
+
+export function retainDelegateDraft(phone: string, persona: AgentId, draft: DelegateDraft) {
+  delegateDrafts.set(`${persona}|${phone}`, draft)
+}
+
+export function takeDelegateDraft(phone: string, persona: AgentId): DelegateDraft | null {
+  const k = `${persona}|${phone}`
+  const d = delegateDrafts.get(k) || null
+  if (d) delegateDrafts.delete(k)
+  return d
+}
+
+export function peekDelegateDraft(phone: string, persona: AgentId): DelegateDraft | null {
+  return delegateDrafts.get(`${persona}|${phone}`) || null
+}
+
+export async function sendMailDirect(
+  phone: string,
+  to: string,
+  subject: string,
+  body: string,
+): Promise<{ ok: boolean; error?: string }> {
+  const base = apiBase()
+  const key = process.env.HIREALPHA_INTERNAL_KEY || ''
+  if (!base || !key) return { ok: false, error: 'not configured' }
+  try {
+    const res = await timedFetch(
+      `${base}/api/internal/mail/send`,
+      {
+        method: 'POST',
+        headers: authHeaders(),
+        body: JSON.stringify({ phone, to, subject, body }),
+      },
+      20000,
+    )
+    const data = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string }
+    if (!res.ok || !data.ok) return { ok: false, error: data.error || `send failed (${res.status})` }
+    return { ok: true }
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : 'send failed' }
+  }
+}
+
 /* Normalized ask -> dedup key. Same app phrased differently still matches;
  * filler words (can you build me a...) are stripped. */
 export function workshopTemplateKey(ask: string): string {

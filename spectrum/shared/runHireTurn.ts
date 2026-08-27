@@ -35,7 +35,7 @@ import {
 import { foldQuotes, isBannedTagline, dropBannedTaglines } from './outboundFilter'
 import { formatNowForAgent, pickUserTimezone, timezoneFromText } from '../../deploy/timezones'
 import { dispatch as dispatchSmart, type DispatchContext, matchedCapability } from './dispatcher'
-import { fetchContacts, fetchSpending } from './liveContext'
+import { fetchContacts, fetchSpending, peekDelegateDraft, retainDelegateDraft, sendMailDirect, takeDelegateDraft } from './liveContext'
 import {
   looksLikeEventWrite,
   looksLikeFollowUp,
@@ -708,6 +708,30 @@ export async function runHireTurn(input: {
 /* ---- Dispatcher: slash commands, manifest routing, Tier 4 delegate ----
    * One entry point for every capability. Slash wins, then the manifest, then
    * the never-a-shrug delegate fallback for task-shaped asks. */
+  /* "send it" — fires the delegate draft retained from the previous turn. */
+  if (live.hired && /^\s*send (?:it|that|the draft)\b/i.test(input.userText)) {
+    const draft = peekDelegateDraft(input.senderId, agent.id)
+    if (draft) {
+      takeDelegateDraft(input.senderId, agent.id)
+      const sent = await sendMailDirect(input.senderId, draft.to, draft.subject, draft.body)
+      if (sent.ok) {
+        const reply = `Sent to ${draft.toName}. I will nudge you if nothing comes back.`
+        appendThread(input.dataDir, input.senderId, [
+          { role: 'user', content: input.userText },
+          { role: 'assistant', content: reply },
+        ])
+        return { reply, bubbles: [reply], source: 'local', authoritative: [], card: null }
+      }
+      retainDelegateDraft(input.senderId, agent.id, draft)
+      const fail = `Could not send — ${sent.error || 'unknown error'}. The draft is still here; say send it to retry.`
+      appendThread(input.dataDir, input.senderId, [
+        { role: 'user', content: input.userText },
+        { role: 'assistant', content: fail },
+      ])
+      return { reply: fail, bubbles: [fail], source: 'local', authoritative: [], card: null }
+    }
+  }
+
   if (live.hired && input.userText.trim().startsWith('/')) {
     const smartCtx: DispatchContext = {
       text: input.userText,
@@ -717,6 +741,7 @@ export async function runHireTurn(input: {
       contacts,
       userName: live.name || null,
       spending,
+      retainDraft: (d) => retainDelegateDraft(input.senderId, agent.id, d),
     }
     let handled = dispatchSmart(smartCtx)
     if (handled) {

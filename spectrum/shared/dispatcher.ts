@@ -41,6 +41,7 @@ export type DispatchContext = {
   contacts: Array<{ name: string; phone?: string }>
   userName?: string | null
   spending?: { logs: Array<{ amount: number; category: string; description: string; spentAt?: string }>; weekly: number; budget: number }
+  retainDraft?: (draft: { to: string; toName: string; subject: string; body: string }) => void
 }
 
 /** Pull the billing keyword out of an ask: "how much do I pay for housing?" → "housing". */
@@ -89,7 +90,12 @@ export function pickContact(ask: string, contacts: DispatchContext['contacts']):
 }
 
 /** The Tier 4 draft: Alpha writes the outreach the user one-tap sends. */
-export function handleDelegate(ask: string, contacts: DispatchContext['contacts'], userName?: string | null): string {
+export function handleDelegate(
+  ask: string,
+  contacts: DispatchContext['contacts'],
+  userName?: string | null,
+  retainDraft?: DispatchContext['retainDraft'],
+): string {
   const contact = pickContact(ask, contacts)
   if (!contact) {
     return `I can get that moving, but I don't have a contact on file for it. Tell me who handles this (name and number) and I will draft the message.`
@@ -100,7 +106,11 @@ export function handleDelegate(ask: string, contacts: DispatchContext['contacts'
   const draft = `Hi ${first}, quick one: ${cleanAsk.replace(/\?$/, '')}. Can you help with that?${sign}`
   const digits = String(contact.phone || '').replace(/[^\d+]/g, '')
   const emailAsk = /\bemail\b/i.test(ask)
-  const link = emailAsk && contact.email
+  const canSend = !!contact.email
+  if (canSend && retainDraft) {
+    retainDraft({ to: contact.email!, toName: contact.name, subject: 'Quick request', body: draft })
+  }
+  const link = canSend
     ? `mailto:${contact.email}?subject=${encodeURIComponent('Quick request')}&body=${encodeURIComponent(draft)}`
     : digits
       ? `sms:${digits}&body=${encodeURIComponent(draft)}`
@@ -108,7 +118,11 @@ export function handleDelegate(ask: string, contacts: DispatchContext['contacts'
   return [
     `On it — the fastest path is ${contact.name}. Draft from you:`,
     `"${draft}"`,
-    link ? `Send it in one tap: ${link}` : 'Their number is not on file — reply with it and I will finish the draft.',
+    canSend && retainDraft
+      ? 'Say "send it" and this goes out.'
+      : link
+        ? `Send it in one tap: ${link}`
+        : 'Their number is not on file — reply with it and I will finish the draft.',
   ].join('\n')
 }
 
@@ -284,7 +298,7 @@ export function dispatchSlash(text: string, ctx: DispatchContext): string | null
   const cmd = parseSlash(text)
   if (!cmd) return null
   if (cmd.name === 'help' || cmd.name === 'commands' || cmd.name === 'menu') return slashMenu()
-  if (cmd.name === 'delegate') return handleDelegate(cmd.arg || 'your request', ctx.contacts, ctx.userName)
+  if (cmd.name === 'delegate') return handleDelegate(cmd.arg || 'your request', ctx.contacts, ctx.userName, ctx.retainDraft)
   const cap = capabilityByName(cmd.name)
   // Unknown slash words fall through: the normal pipeline handles them, so
   // every existing intent (/workout, /brief, /prep...) gets an alias free.
@@ -301,6 +315,6 @@ export function dispatch(ctx: DispatchContext): string | null {
   for (const cap of CAPABILITIES) {
     if (cap.detect(ctx.text)) return cap.run(ctx, ctx.text)
   }
-  if (looksLikeTaskAsk(ctx.text)) return handleDelegate(ctx.text, ctx.contacts, ctx.userName)
+  if (looksLikeTaskAsk(ctx.text)) return handleDelegate(ctx.text, ctx.contacts, ctx.userName, ctx.retainDraft)
   return null
 }

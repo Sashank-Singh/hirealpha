@@ -3096,7 +3096,8 @@ async function digestPayload(
   user: { id: string; timezone: string | null; name?: string | null },
   persona: Persona,
 ) {
-  const tz = user.timezone || 'America/Los_Angeles'
+  const travelContext = await loadContext(sql, user.id, persona)
+  const tz = effectiveTz(user.timezone, travelContext)
 
   const tomorrowStart = startOfLocalDay(tz, 1)
   const dayAfterStart = startOfLocalDay(tz, 2)
@@ -3767,11 +3768,56 @@ async function ensureJudgeTick(
 /** Heartbeats that wake the judgment loop. Canned poke copy is not sent. */
 async function armPokes(
   sql: SQL,
-  user: { id: string; timezone: string | null },
+  user: { id: string; timezone: string | null; phone?: string | null },
   persona: Persona,
   context: Record<string, string>,
 ) {
   const tz = context.timezone || user.timezone || 'America/Los_Angeles'
+
+  // Renewal radar (A7): once a day, scan live mail for recurring charges and
+  // turn anything renewing within 3 days into a reminder that shows up in the
+  // morning brief's Do-not-forget list. Marker in context keeps it to one scan.
+  const today = localDateStrInTz(new Date(), tz)
+  if ((context.renewal_scan_day || '') !== today) {
+    void (async () => {
+      try {
+        await sql`
+          UPDATE hire_context
+          SET fields = fields || ${JSON.stringify({ renewal_scan_day: today })}::jsonb, updated_at = now()
+          WHERE user_id = ${user.id} AND persona = ${persona}
+        `
+        const live = await livePayload(sql, user.phone || '', persona)
+        if (!live.found || !live.hired || !live.userId) return
+        const bundle = await buildPrepBundle(
+          sql,
+          { id: live.userId, name: live.name, timezone: tz },
+          'recurring charges subscription renewal',
+        )
+        const hits = scanSubscriptions(bundle?.text || '')
+        const dueSoon = hits.filter((h) => {
+          if (!h.date) return false
+          const days = Math.ceil((new Date(h.date).getTime() - Date.now()) / 86_400_000)
+          return days >= 0 && days <= 3
+        })
+        await sql`
+          DELETE FROM hire_reminders
+          WHERE user_id = ${user.id} AND persona = ${persona} AND status = 'pending' AND text LIKE '[renewal]%'
+        `
+        for (const h of dueSoon) {
+          const amount = h.amount ? ` — $${h.amount}` : ''
+          await sql`
+            INSERT INTO hire_reminders (id, user_id, persona, text, scheduled_at, recurrence, timezone, status)
+            VALUES (${crypto.randomUUID()}, ${user.id}, ${persona},
+              ${(`[renewal] ${h.merchant} renews ${h.date}${amount}`).slice(0, 200)},
+              ${nextLocalTimeUtc(tz, 8, 0)}, 'once', ${tz}, 'pending')
+          `
+        }
+        if (dueSoon.length) console.log(`[renewals] ${persona}: ${dueSoon.length} due within 3 days`)
+      } catch (err) {
+        console.warn('[renewals] scan failed', err)
+      }
+    })()
+  }
   if (persona === 'friend') {
     const digest = await sql`
       SELECT id FROM hire_reminders
@@ -4632,14 +4678,20 @@ async function buildWeekBundle(
   }
 }
 
+/** The timezone the user's day actually runs on: travel_tz when travel mode
+ * is set, else home. One function so briefs and guards stay in sync. */
+function effectiveTz(userTz: string | null | undefined, context: Record<string, string> | null | undefined): string {
+  return (context?.travel_tz || '').trim() || userTz || 'America/Los_Angeles'
+}
+
 async function judgmentStatePayload(
   sql: SQL,
   user: { id: string; timezone: string | null; name?: string | null },
   persona: Persona,
   tick: string,
 ) {
-  const tz = user.timezone || 'America/Los_Angeles'
   const context = await loadContext(sql, user.id, persona)
+  const tz = effectiveTz(user.timezone, context)
   const today = localDateStrInTz(new Date(), tz)
   const weekStart = userMonday(user)
   const weekEnd = shiftDateStr(weekStart, 7)
@@ -8595,6 +8647,25 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
   /* Dedup lookup: has anyone already built this? Returns the newest verified
    * build with this template key from a DIFFERENT user (same-user re-asks get
    * a fresh build). */
+  /* Delegate fire: the bot retained an outreach draft for this user and the
+   * user said "send it". Same send machinery the app's Send button uses. */
+  if (path === '/api/internal/mail/send' && req.method === 'POST') {
+    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
+    const body = (await req.json().catch(() => ({}))) as {
+      phone?: string; to?: string; subject?: string; body?: string
+    }
+    if (!body.phone || !body.to || !body.subject) return json({ error: 'phone, to, and subject required' }, 400)
+    const user = await getUserByPhone(sql, body.phone)
+    if (!user) return json({ error: 'User not found' }, 404)
+    const sent = await gmailSendMessage(sql, user.id, {
+      to: String(body.to).trim(),
+      subject: String(body.subject).trim().slice(0, 200),
+      body: String(body.body || '').slice(0, 8000),
+    })
+    if (!sent.ok) return json({ ok: false, error: sent.error }, 400)
+    return json({ ok: true })
+  }
+
   if (path === '/api/internal/workshop/find' && req.method === 'GET') {
     if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
     const phone = url.searchParams.get('phone') || ''

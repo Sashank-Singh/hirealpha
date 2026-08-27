@@ -94,12 +94,19 @@ describe('manifest routing', () => {
 })
 
 describe('tier 4 delegate', () => {
-  it('picks the matched contact and drafts outreach with an sms link', () => {
-    const out = handleDelegate('call maya about the deck this week', ctx.contacts, 'Sashank')
+  it('picks the matched contact, retains the draft, and offers send it', () => {
+    let retained: { to: string; toName: string; subject: string; body: string } | null = null
+    const out = handleDelegate(
+      'email maya about the deck this week',
+      [{ name: 'Maya Chen', phone: '+12163032166', email: 'maya@x.com' }],
+      'Sashank',
+      (d) => { retained = d },
+    )
     expect(out).toContain('Maya Chen')
     expect(out).toContain('the deck')
-    expect(out).toContain('sms:+12163032166&body=')
-    expect(out).toContain('Sashank')
+    expect(out).toContain('send it')
+    expect(retained).toBeTruthy()
+    expect(retained!.to).toBe('maya@x.com')
   })
   it('asks back when the ask names nobody on file', () => {
     expect(handleDelegate('book a teeth cleaning', ctx.contacts, 'Sashank')).toContain('who handles this')
