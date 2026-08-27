@@ -17,6 +17,7 @@ const ShopPage = lazy(() => import('./platform/HiresPage').then((m) => ({ defaul
 const HireConfigPage = lazy(() => import('./platform/HireConfigPage').then((m) => ({ default: m.HireConfigPage })))
 const FeaturesPage = lazy(() => import('./platform/FeaturesPage').then((m) => ({ default: m.FeaturesPage })))
 const LocationPage = lazy(() => import('./platform/LocationPage').then((m) => ({ default: m.LocationPage })))
+const ControlsPage = lazy(() => import('./marketing/ControlsPage').then((m) => ({ default: m.ControlsPage })))
 
 export default function App() {
   return (
@@ -37,6 +38,7 @@ export default function App() {
               <Route path="features" element={<FeaturesPage />} />
               <Route path="location" element={<LocationPage />} />
             </Route>
+            <Route path="controls" element={<ControlsPage />} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

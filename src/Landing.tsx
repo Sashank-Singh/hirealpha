@@ -1,6 +1,12 @@
 import { motion, AnimatePresence } from 'framer-motion'
 import { useState, useEffect, useCallback, useRef, type FormEvent, type CSSProperties } from 'react'
 import { AlphaFace } from './AlphaFace'
+import { Changelog } from './marketing/ChangelogSection'
+import { Invites } from './marketing/Invites'
+import { Pricing } from './marketing/Pricing'
+import { ShareButton } from './marketing/ShareButton'
+import { StatusStrip } from './marketing/StatusStrip'
+import { TrustSection } from './marketing/TrustSection'
 import './landing-stage.css'
 
 type AgentId = 'friend' | 'coworker' | 'cofounder'
@@ -841,27 +847,36 @@ function PhoneDemo({
   )
 }
 
+const HIRE_LINES: Record<AgentId, { label: string; phoneDisplay: string }> = {
+  friend: { label: 'Friend', phoneDisplay: '(415) 595-1440' },
+  coworker: { label: 'Coworker', phoneDisplay: '(628) 264-7648' },
+  cofounder: { label: 'Cofounder', phoneDisplay: '(415) 603-5536' },
+}
+
 function WaitlistForm() {
+  const [phone, setPhone] = useState('')
   const [email, setEmail] = useState('')
+  const [hire, setHire] = useState<AgentId>('friend')
   const [done, setDone] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault()
-    const value = email.trim().toLowerCase()
-    if (!value || !value.includes('@')) return
+    const phoneValue = phone.trim()
+    const emailValue = email.trim().toLowerCase()
+    if (!phoneValue && !emailValue) return
     setBusy(true)
     setError('')
     try {
       const res = await fetch('/api/waitlist', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: value }),
+        body: JSON.stringify({ phone: phoneValue, email: emailValue, hire }),
       })
       const data = (await res.json().catch(() => ({}))) as { error?: string }
       if (!res.ok) {
-        setError(data.error || 'Could not save email. Try again.')
+        setError(data.error || 'Could not save your info. Try again.')
         setBusy(false)
         return
       }
@@ -874,9 +889,15 @@ function WaitlistForm() {
   }
 
   if (done) {
+    const line = HIRE_LINES[hire]
     return (
       <div className="waitlist-success" role="status">
-        You’re in. We’ll email {email} when spots open.
+        You're in. {line.label} will reach out in about a minute. If nothing lands, text hi to{' '}
+        {line.phoneDisplay} and the conversation starts there.
+        <Invites phone={phone} />
+        <div className="waitlist-share">
+          <ShareButton />
+        </div>
       </div>
     )
   }
@@ -885,25 +906,50 @@ function WaitlistForm() {
     <>
       <form className="waitlist-form" onSubmit={onSubmit}>
         <input
-          type="email"
-          required
-          placeholder="you@email.com"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          aria-label="Email for waitlist"
+          type="tel"
+          placeholder="(555) 555-0100"
+          value={phone}
+          onChange={(e) => setPhone(e.target.value)}
+          aria-label="Your phone number"
           disabled={busy}
+          autoComplete="tel"
         />
         <button type="submit" className="btn btn--accent" disabled={busy}>
           {busy ? 'Saving…' : 'Get my invite'}
         </button>
       </form>
+      <div className="waitlist-hire" role="radiogroup" aria-label="Who do you want to hire?">
+        {(Object.keys(HIRE_LINES) as AgentId[]).map((id) => (
+          <button
+            key={id}
+            type="button"
+            role="radio"
+            aria-checked={hire === id}
+            className={`waitlist-hire__chip${hire === id ? ' is-on' : ''}`}
+            onClick={() => setHire(id)}
+            disabled={busy}
+          >
+            {HIRE_LINES[id].label}
+          </button>
+        ))}
+      </div>
+      <input
+        type="email"
+        placeholder="Email (optional)"
+        value={email}
+        onChange={(e) => setEmail(e.target.value)}
+        aria-label="Email, optional"
+        disabled={busy}
+        className="waitlist-form__email"
+      />
       {error ? (
         <p className="waitlist-note" role="alert" style={{ color: 'var(--accent)' }}>
           {error}
         </p>
       ) : (
         <p className="waitlist-note">
-          iPhone Messages. Early access. $19 a month when you hire.
+          Give your number and {HIRE_LINES[hire].label} texts you first. iPhone Messages. Early
+          access. $19 a month when you hire.
         </p>
       )}
     </>
@@ -954,8 +1000,9 @@ export default function Landing() {
             <div className="nav__links">
               <a href="#why">Why</a>
               <a href="#roles">Hires</a>
+              <a href="#trust">Trust</a>
+              <a href="#pricing">Pricing</a>
               <a href="#apps">Apps</a>
-              <a href="#actions">Actions</a>
               <a href="#faq">FAQ</a>
               {/* <a href="/app" className="btn btn--ghost btn--sm">
                 App
@@ -1010,6 +1057,7 @@ export default function Landing() {
             <h1 id="hero-heading" className="stage__line">
               people in your texts you can actually <em>hire</em>
             </h1>
+            <p className="stage__tagline">Hire them like a contact. No app to learn.</p>
           </div>
 
           <div className="stage__cast" id="demo">
@@ -1052,6 +1100,19 @@ export default function Landing() {
                 Get early access
               </a>
               <p>iPhone Messages · early access · $19 a month when you hire</p>
+              <div className="qr">
+                <img
+                  src="https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=sms%3A%2B14155951440"
+                  alt="QR code that opens a text to Alpha"
+                  loading="lazy"
+                  width={96}
+                  height={96}
+                />
+                <div className="qr__text">
+                  <strong>Scan to text Alpha</strong>
+                  <a href="sms:+14155951440">Open Messages →</a>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -1142,6 +1203,14 @@ export default function Landing() {
 
         <Actions />
 
+        <TrustSection />
+
+        <Pricing />
+
+        <StatusStrip />
+
+        <Changelog />
+
         <section className="path section" id="how" aria-labelledby="how-heading">
           <div className="container">
             <h2 id="how-heading" className="path__title">Invite. Save a number. Keep texting.</h2>
@@ -1200,13 +1269,16 @@ export default function Landing() {
               <strong>HireAlpha</strong>
             </p>
           </div>
+          <p className="footer__tag">Hire them like a contact. No app to learn.</p>
           <nav className="footer__nav" aria-label="Footer">
             <a href="#why">Why</a>
             <a href="#roles">Hires</a>
-            <a href="#apps">Apps</a>
-            <a href="#actions">Actions</a>
+            <a href="#trust">Trust</a>
+            <a href="#pricing">Pricing</a>
+            <a href="#changelog">Changelog</a>
             <a href="#faq">FAQ</a>
             <a href="#waitlist">Early access</a>
+            <a href="/app/controls">Controls</a>
           </nav>
           <p className="footer__copy">© {new Date().getFullYear()} HireAlpha</p>
         </div>
