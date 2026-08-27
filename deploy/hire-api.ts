@@ -8414,6 +8414,28 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
       await sql`UPDATE hire_workshop_tasks SET status = 'failed', error = ${error.slice(0, 500)} WHERE user_id = ${user.id} AND prompt = ${prompt || 'build'} AND status = 'running'`
       return json({ ok: false, logged: false, error: error.slice(0, 300) })
     }
+    // The sandbox only proves the wrapper ran — the app's inline JavaScript
+    // was never executed. The model loves unescaped apostrophes ('Time's
+    // up!'), which kill the whole script: page renders, every button dead.
+    // Parse-check every inline block; a failure feeds the repair pass.
+    const htmlFile = run.files.find((f) => /\.html?$/i.test(f.name))
+    if (htmlFile) {
+      const builtHtml = Buffer.from(htmlFile.bytes).toString('utf8')
+      const inlineScripts = [...builtHtml.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/gi)]
+        .map((m) => m[1])
+        .filter((s) => s.trim())
+      for (const inline of inlineScripts) {
+        try {
+          // Parse-only (never executes): the transpiler throws on syntax
+          // errors without running a single line of app code.
+          new Bun.Transpiler({ loader: 'js' }).transformSync(inline)
+        } catch (e) {
+          const msg = `the app's JavaScript does not parse: ${(e as Error).message}`.slice(0, 300)
+          await sql`UPDATE hire_workshop_tasks SET status = 'failed', error = ${msg} WHERE user_id = ${user.id} AND prompt = ${prompt || 'build'} AND status = 'running'`
+          return json({ ok: false, logged: false, error: msg })
+        }
+      }
+    }
     const artifactId = crypto.randomUUID()
     const title = String(body.title || prompt || 'Built for you').slice(0, 120)
     // Parent row first: the file rows FK-reference hire_artifacts, so storing

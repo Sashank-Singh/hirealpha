@@ -816,6 +816,7 @@ const WORKSHOP_PLANNER = [
   'For a page or tracker, produce one self-contained out/index.html with inline CSS/JS and realistic sample data the user can edit later in the file.',
   'Keep the program compact: one file, ideally under 250 lines, polished but minimal — it must fit in one reply.',
   'In generated code, build strings with plain quotes and + concatenation rather than template literals, and double-check every statement ends correctly — the program must parse the first time.',
+  'The HTML must be valid too: never leave an unescaped apostrophe inside a single quoted JS string (reword or use double quotes), put the <script> after all elements it uses, and make sure every button works.',
   'Reply with JSON only, no markdown: {"title": "short name", "code": "<the whole program>"}',
 ].join('\n')
 
