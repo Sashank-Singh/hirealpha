@@ -203,8 +203,20 @@ export function parseSlash(text: string): { name: string; arg: string } | null {
 
 /** `/` or an unknown command returns the menu. */
 export function slashMenu(): string {
-  const lines = CAPABILITIES.map((c) => `/${c.name} — ${c.example}`).join('\n')
-  return `Commands:\n${lines}\n/delegate {ask} — draft outreach to the right person\nPlain text works too — commands are just shortcuts.`
+  return [
+    'Things I handle — type the shortcut or just ask in plain words:',
+    '🔍 /recall — "what did I promise Maya"',
+    '📋 /debrief — "how did the call go", logged',
+    '📬 /sweep — clear every email waiting on you',
+    '🧠 /dump — brain dump, filed: "dump: call the dentist, buy milk"',
+    '📸 /snap — photo of a meal or receipt, logged',
+    '💰 /bills — "how much do I pay for Netflix"',
+    '✈️ /travel — briefs follow your trip',
+    '⏰ /honest — "nag me at 7pm if I skipped the run"',
+    '🛠 /tools — every app I built for you',
+    '🎯 /delegate — "order headphones", I draft it to the right person',
+    'Pick one, or just talk to me.',
+  ].join('\n')
 }
 
 /** Run a slash command; null when the text is not a slash command. */
