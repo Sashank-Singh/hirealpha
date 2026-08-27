@@ -8547,33 +8547,46 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     )
   const publicBuild = path.match(/^\/b\/([\w-]+)$/)
   if (publicBuild && req.method === 'GET') {
-    const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
-    const rows = await sql`
-      SELECT title, files, state FROM hire_artifacts WHERE id = ${publicBuild[1]} LIMIT 1
-    `
-    const row = rows[0] as { title: string; files: string[]; state: string } | undefined
-    if (!row || row.state === 'tossed') {
+    try {
+      const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+      const rows = await sql`
+        SELECT title, files, state FROM hire_artifacts WHERE id = ${publicBuild[1]} LIMIT 1
+      `
+      const rawRow = rows[0] as { title: string; files: string[] | string; state: string } | undefined
+      if (!rawRow || rawRow.state === 'tossed') {
+        return gonePage('This build is gone. Ask Alpha to build it again.')
+      }
+      // JSONB can arrive as a parsed array or as raw JSON text depending on
+      // the driver — normalize before touching it.
+      let files: string[] = []
+      try {
+        files = Array.isArray(rawRow.files) ? rawRow.files : JSON.parse(String(rawRow.files || '[]'))
+      } catch {
+        files = []
+      }
+      const htmlName = files.find((f) => /\.html?$/i.test(f)) || files[0] || ''
+      const fileRows = await sql`
+        SELECT content FROM hire_artifact_files
+        WHERE artifact_id = ${publicBuild[1]} AND name = ${htmlName} LIMIT 1
+      `
+      const content = (fileRows[0] as { content?: string } | undefined)?.content
+      if (!content) return gonePage('This build is gone. Ask Alpha to build it again.')
+      let html = Buffer.from(content, 'base64').toString('utf8')
+      // Give the link preview a title even when the generated app has no meta.
+      if (!/<meta\s+property="og:title"/i.test(html)) {
+        const og = `<meta property="og:title" content="${esc(rawRow.title)}" /><meta property="og:description" content="Built by Alpha" />`
+        html = html.includes('</head>') ? html.replace('</head>', `${og}</head>`) : `${og}${html}`
+      }
+      if (!/<title>/i.test(html)) {
+        html = html.includes('<head') ? html.replace(/<head([^>]*)>/i, `<head$1><title>${esc(rawRow.title)}</title>`) : `<title>${esc(rawRow.title)}</title>${html}`
+      }
+      return new Response(html, {
+        headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' },
+      })
+    } catch (err) {
+      console.error('[builds] /b/ serve failed', err)
       return gonePage('This build is gone. Ask Alpha to build it again.')
     }
-    const htmlName = (row.files || []).find((f) => /\.html?$/i.test(f)) || (row.files || [])[0] || ''
-    const fileRows = await sql`
-      SELECT content FROM hire_artifact_files
-      WHERE artifact_id = ${publicBuild[1]} AND name = ${htmlName} LIMIT 1
-    `
-    const content = (fileRows[0] as { content?: string } | undefined)?.content
-    if (!content) return gonePage('This build is gone. Ask Alpha to build it again.')
-    let html = Buffer.from(content, 'base64').toString('utf8')
-    // Give the link preview a title even when the generated app has no meta.
-    if (!/<meta\s+property="og:title"/i.test(html)) {
-      const og = `<meta property="og:title" content="${esc(row.title)}" /><meta property="og:description" content="Built by Alpha" />`
-      html = html.includes('</head>') ? html.replace('</head>', `${og}</head>`) : `${og}${html}`
-    }
-    if (!/<title>/i.test(html)) {
-      html = html.includes('<head') ? html.replace(/<head([^>]*)>/i, `<head$1><title>${esc(row.title)}</title>`) : `<title>${esc(row.title)}</title>${html}`
-    }
-    return new Response(html, {
-      headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' },
-    })
   }
 
   const artifactFile = path.match(/^\/a\/([\w-]+)\/([\w.-]+)$/)
@@ -8588,10 +8601,16 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     const rows = await sql`
       SELECT files FROM hire_artifacts WHERE id = ${artifactId} AND user_id = ${user!.id} LIMIT 1
     `
-    const row = rows[0] as { files?: string[] } | undefined
-    if (!row) return json({ error: 'Not found' }, 404)
+    const rawRow = rows[0] as { files?: string[] | string } | undefined
+    if (!rawRow) return json({ error: 'Not found' }, 404)
+    let fileList: string[] = []
+    try {
+      fileList = Array.isArray(rawRow.files) ? rawRow.files : JSON.parse(String(rawRow.files || '[]'))
+    } catch {
+      fileList = []
+    }
     const safeName = fileName.replace(/[\\/]/g, '')
-    if (!(row.files || []).includes(safeName)) return json({ error: 'Not found' }, 404)
+    if (!fileList.includes(safeName)) return json({ error: 'Not found' }, 404)
     const types: Record<string, string> = {
       '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8',
       '.js': 'text/javascript; charset=utf-8', '.json': 'application/json',
