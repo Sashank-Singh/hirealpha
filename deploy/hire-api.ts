@@ -6166,7 +6166,9 @@ export async function miniCardOgDescription(
 export async function handleHireApi(req: Request, sql: SQL | null): Promise<Response | null> {
   const url = new URL(req.url)
   const path = url.pathname
-  if (!path.startsWith('/api/')) return null
+  // /b/ serves deployed builds, /a/ their legacy files — both are API-owned
+  // routes that live outside the /api/ prefix.
+  if (!path.startsWith('/api/') && !path.startsWith('/b/') && !path.startsWith('/a/')) return null
   if (path === '/api/waitlist') return null
 
   if (req.method === 'OPTIONS') {
