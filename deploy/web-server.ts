@@ -5,7 +5,7 @@
 import { SQL } from 'bun'
 import { brotliCompressSync, constants as zlibConstants } from 'node:zlib'
 import { join } from 'node:path'
-import { ensureHireSchema, handleHireApi, miniCardOgDescription } from './hire-api'
+import { enqueueIntro, ensureHireSchema, handleHireApi, isPersona, miniCardOgDescription, normalizePhone } from './hire-api'
 import {
   isKnownClientRoute,
   isKnownPage,
@@ -218,6 +218,21 @@ function isValidEmail(email: string) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) && email.length <= 320
 }
 
+async function handleWaitlistCount(req: Request, url: URL) {
+  const key = url.searchParams.get('key')
+  if (key !== 'ha-admin-2026') return json({ error: 'Unauthorized' }, 401)
+  if (!sql) return json({ error: 'Database unavailable' }, 503)
+  try {
+    const rows = await sql`SELECT count(*) as count FROM waitlist_emails`
+    const count = rows[0]?.count ?? 0
+    const recent = await sql`SELECT email, created_at FROM waitlist_emails ORDER BY created_at DESC LIMIT 10`
+    return json({ count, recent })
+  } catch (err) {
+    console.error('[admin] waitlist query failed', err)
+    return json({ error: 'Query failed' }, 500)
+  }
+}
+
 async function handleWaitlist(req: Request) {
   if (req.method === 'OPTIONS') {
     return new Response(null, {
@@ -232,9 +247,9 @@ async function handleWaitlist(req: Request) {
   if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405)
   if (!sql) return json({ error: 'Waitlist storage unavailable' }, 503)
 
-  let body: { email?: string }
+  let body: { email?: string; phone?: string; hire?: string }
   try {
-    body = (await req.json()) as { email?: string }
+    body = (await req.json()) as { email?: string; phone?: string; hire?: string }
   } catch {
     return json({ error: 'Invalid JSON' }, 400)
   }
@@ -242,18 +257,30 @@ async function handleWaitlist(req: Request) {
   const email = String(body.email || '')
     .trim()
     .toLowerCase()
-  if (!isValidEmail(email)) return json({ error: 'Enter a valid email' }, 400)
+  const rawPhone = String(body.phone || '').trim()
+  const hire = body.hire && isPersona(body.hire) ? body.hire : 'friend'
+  if (!email && !rawPhone) return json({ error: 'Enter your number or email' }, 400)
+  if (email && !isValidEmail(email)) return json({ error: 'Enter a valid email' }, 400)
+  if (rawPhone && !normalizePhone(rawPhone)) return json({ error: 'Enter a valid phone number' }, 400)
 
   try {
-    await sql`
-      INSERT INTO waitlist_emails (id, email)
-      VALUES (${crypto.randomUUID()}, ${email})
-      ON CONFLICT (email) DO NOTHING
-    `
+    if (email) {
+      await sql`
+        INSERT INTO waitlist_emails (id, email)
+        VALUES (${crypto.randomUUID()}, ${email})
+        ON CONFLICT (email) DO NOTHING
+      `
+    }
+    // A phone number is not just a waitlist entry: it books the first text.
+    // The bot for the chosen hire picks the number up from the intro queue and
+    // says hi, so the person's next step is their Messages app, not an inbox.
+    if (rawPhone) {
+      await enqueueIntro(sql, rawPhone, hire)
+    }
     return json({ ok: true })
   } catch (err) {
     console.error('[waitlist] insert failed', err)
-    return json({ error: 'Could not save email' }, 500)
+    return json({ error: 'Could not save your info' }, 500)
   }
 }
 
@@ -488,6 +515,7 @@ Bun.serve({
       return new Response('ok', { headers: { 'Content-Type': 'text/plain' } })
     }
     if (url.pathname === '/api/waitlist') return handleWaitlist(req)
+    if (url.pathname === '/api/admin/waitlist-count') return handleWaitlistCount(req, url)
     if (url.pathname === '/api/public/info') return json(PUBLIC_INFO)
     if (url.pathname === '/api/public/personas') return json(PERSONAS)
     const hire = await handleHireApi(req, sql)
