@@ -2,20 +2,20 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { NetworkPerson } from './api'
 import { cadenceLabel } from './peopleMeets'
 
-/* The People mini-app as a living 3D neural network whose geometry carries data:
+/* The People mini-app as a quiet 3D instrument whose geometry carries data:
  * - Distance from "you" = relationship temperature (daysSince/cadence): fresh
- *   ties orbit tight and bright, neglected ones drift out toward the rim.
- * - Edge brightness/width = recency; synaptic pulses only ride live edges;
- *   due-for-a-touch edges glow warm as a warning.
+ *   ties orbit tight, neglected ones drift out toward the rim.
+ * - Edge brightness/width = recency; due-for-a-touch edges carry a warm tint.
  * - Small same-place communities are fully-connected cliques (big ones chain).
  * - Angular direction = community (where you met). Color matches the legend.
+ * No glows, no particles, no pulses — the data is the decoration.
  * Drag to spin, tap a node to focus it and see its stats inline. */
 
 const GOLDEN = 2.399963229728653
 const MAX_NODES = 28
-const CLUSTERS = ['#34d0b6', '#5aa9ff', '#f6b26b', '#7b6ff0', '#ff8fa3', '#a7d263']
+const CLUSTERS = ['#5fb8a8', '#7f9fc4', '#c2a36b', '#a08cb8', '#c47a7a', '#7fb098']
 const FOV = 3.6
-const WARM = '#ff9066'
+const WARM = '#d08662'
 
 function daysSince(d: string | null): number {
   if (!d) return 999
@@ -111,7 +111,7 @@ export function PeopleGraph({
       /* temperature drives the radius: due-by-2x-cadence sits at the rim */
       const raw = p.lastTouch ? daysSince(p.lastTouch) / Math.max(1, p.cadenceDays) : 3
       const tRad = clamp01(raw / 2)
-      const radius = 0.42 + tRad * 1.08
+      const radius = 0.45 + tRad * 0.65
       /* small tangential jitter so each community reads as one knot */
       const u = rnd() * 2 - 1
       const th = rnd() * Math.PI * 2
@@ -121,10 +121,10 @@ export function PeopleGraph({
       const ux = dir[0] / dl
       const uy = dir[1] / dl
       const uz = dir[2] / dl
-      /* two vectors orthogonal to the community direction */
-      let ax = uy * 0 - uz * 1
-      let ay = uz * 0 - ux * 0
-      let az = ux * 1 - uy * 0
+      /* two vectors orthogonal to the community direction (u × z-axis) */
+      let ax = -uz
+      let ay = 0
+      let az = ux
       if (Math.abs(az) < 0.01) { ax = 1; ay = 0; az = 0 }
       const al = Math.hypot(ax, ay, az) || 1
       ax /= al; ay /= al; az /= al
@@ -169,53 +169,20 @@ export function PeopleGraph({
       }
     }
 
-    const legend = keys.map((k, c) => ({
-      key: k,
-      label: k === '—' ? 'Elsewhere' : k,
-      color: CLUSTERS[c % CLUSTERS.length],
-    }))
+    const legend = keys.map((k, c) => {
+      const sample = picked.find((p) => keyOf(p) === k)
+      const rawLabel = (sample?.whereMet || sample?.company || '').trim()
+      return {
+        key: k,
+        label: rawLabel || 'Elsewhere',
+        color: CLUSTERS[c % CLUSTERS.length],
+      }
+    })
     return { nodes, cliqueEdges, legend }
   }, [people])
 
   const focusIdx = nodes.findIndex((n) => n.p.id === (focusId ?? selectedId))
   const focusPerson = focusIdx >= 0 ? nodes[focusIdx].p : null
-
-  /* decorative synapse mesh floating behind the real network */
-  const ambient = useMemo(() => {
-    const rnd = mulberry32(42)
-    const N = 90
-    const pts: Vec3[] = []
-    for (let i = 0; i < N; i++) {
-      const u = rnd() * 2 - 1
-      const th = rnd() * Math.PI * 2
-      const s = Math.sqrt(Math.max(0, 1 - u * u))
-      const rad = 1.7 + rnd() * 0.9
-      pts.push([s * Math.cos(th) * rad, u * rad, s * Math.sin(th) * rad])
-    }
-    const seen = new Set<string>()
-    const links: Array<[number, number]> = []
-    for (let i = 0; i < N; i++) {
-      let bj = -1
-      let bd = Infinity
-      for (let j = 0; j < N; j++) {
-        if (j === i) continue
-        const dx = pts[i][0] - pts[j][0]
-        const dy = pts[i][1] - pts[j][1]
-        const dz = pts[i][2] - pts[j][2]
-        const d = dx * dx + dy * dy + dz * dz
-        if (d < bd) {
-          bd = d
-          bj = j
-        }
-      }
-      const key = i < bj ? `${i}-${bj}` : `${bj}-${i}`
-      if (bj >= 0 && !seen.has(key) && rnd() < 0.8) {
-        seen.add(key)
-        links.push([i, bj])
-      }
-    }
-    return { pts, links }
-  }, [])
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const nodesRef = useRef(nodes)
@@ -252,6 +219,7 @@ export function PeopleGraph({
     ro.observe(canvas)
 
     const view = { ry: 0.7, rx: 0.34, vry: 0, dragging: false, lx: 0, ly: 0, moved: 0 }
+    const fit = { s: 1, x: 0, y: 0 }
     let hits: Array<{ p: NetworkPerson; x: number; y: number; r: number; z: number }> = []
 
     const pick = (x: number, y: number) => {
@@ -271,65 +239,66 @@ export function PeopleGraph({
       if (!view.dragging) {
         view.ry += view.vry
         view.vry *= 0.94
-        if (!still && Math.abs(view.vry) < 0.0008) view.ry += 0.0016
+        if (!still && Math.abs(view.vry) < 0.0004) view.ry += 0.0007
       }
-      const rx = view.rx + (still ? 0 : Math.sin(t * 0.21) * 0.05)
+      const rx = view.rx + (still ? 0 : Math.sin(t * 0.13) * 0.025)
       const cosY = Math.cos(view.ry)
       const sinY = Math.sin(view.ry)
       const cosX = Math.cos(rx)
       const sinX = Math.sin(rx)
       const cx = W / 2
       const cy = H / 2
-      const S = Math.min(W, H) * 0.36
-      const proj = (p: Vec3) => {
+      const S = Math.min(W, H) * 0.3
+      const rot = (p: Vec3) => {
         const X = p[0] * cosY + p[2] * sinY
         let Z = -p[0] * sinY + p[2] * cosY
         const Y = p[1] * cosX - Z * sinX
         Z = p[1] * sinX + Z * cosX
         const k = FOV / (FOV + Z)
-        return { x: cx + X * S * k, y: cy + Y * S * k, k, z: Z }
+        return { x: X * S * k, y: Y * S * k, k, z: Z }
+      }
+      /* fit the knot to the card: small networks zoom up and stay centered as
+       * the view turns; big ones keep the wide-sphere framing */
+      const rawYou = rot([0, 0, 0])
+      let minX = rawYou.x
+      let maxX = rawYou.x
+      let minY = rawYou.y
+      let maxY = rawYou.y
+      for (const n of nodesRef.current) {
+        const q = rot(n.pos)
+        minX = Math.min(minX, q.x)
+        maxX = Math.max(maxX, q.x)
+        minY = Math.min(minY, q.y)
+        maxY = Math.max(maxY, q.y)
+      }
+      const ext = Math.max(maxX - minX, maxY - minY) + 60
+      const fitS = Math.max(1, Math.min(3.2, (Math.min(W, H) * 0.64) / Math.max(1, ext)))
+      fit.s += (fitS - fit.s) * 0.08
+      fit.x += ((minX + maxX) / 2 - fit.x) * 0.08
+      fit.y += ((minY + maxY) / 2 - fit.y) * 0.08
+      const proj = (p: Vec3) => {
+        const q = rot(p)
+        return { x: cx + (q.x - fit.x) * fit.s, y: cy + (q.y - fit.y) * fit.s, k: q.k, z: q.z }
       }
 
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
       ctx.clearRect(0, 0, W, H)
 
-      /* ambient synapse mesh */
-      const ap = ambient.pts.map(proj)
-      ctx.lineWidth = 0.6
-      for (const [a, b] of ambient.links) {
-        const pa = ap[a]
-        const pb = ap[b]
-        const a0 = 0.1 * Math.min(depthA(pa.z, 2.6), depthA(pb.z, 2.6))
-        if (a0 <= 0.01) continue
-        ctx.strokeStyle = `rgba(148,180,200,${a0})`
-        ctx.beginPath()
-        ctx.moveTo(pa.x, pa.y)
-        ctx.lineTo(pb.x, pb.y)
-        ctx.stroke()
-      }
-      ap.forEach((p, i) => {
-        const d = depthA(p.z, 2.6)
-        ctx.fillStyle = i % 7 === 0 ? rgba(accent, 0.16 + 0.3 * d, accent) : `rgba(148,180,200,${0.08 + 0.22 * d})`
-        ctx.beginPath()
-        ctx.arc(p.x, p.y, (i % 7 === 0 ? 1.5 : 0.9) * p.k, 0, Math.PI * 2)
-        ctx.fill()
-      })
-
       const list = nodesRef.current
       const you = proj([0, 0, 0])
       const focus = focusRef.current
       /* when focused, everything that isn't the focus dims */
-      const dimOf = (i: number) => (focus >= 0 && i !== focus ? 0.28 : 1)
+      const dimOf = (i: number) => (focus >= 0 && i !== focus ? 0.16 : 1)
 
       const pp = list.map((n) => proj(n.pos))
 
-      /* edges: you -> person, brightness/width carry recency; due edges glow warm */
+      /* edges: you -> person, brightness/width carry recency; due edges warm */
       list.forEach((n, i) => {
         const d = depthA(pp[i].z, 1.6)
         const dim = dimOf(i)
         const col = n.due ? WARM : n.color
-        ctx.strokeStyle = rgba(col, (0.07 + 0.5 * n.fresh) * d * dim, col)
-        ctx.lineWidth = (0.7 + 1.8 * n.fresh + (n.due ? 0.6 : 0)) * pp[i].k
+        ctx.strokeStyle = rgba(col, (0.16 + 0.26 * n.fresh) * d * dim, col)
+        ctx.lineWidth = (0.6 + 1.1 * n.fresh + (n.due ? 0.4 : 0)) * pp[i].k
         ctx.beginPath()
         ctx.moveTo(you.x, you.y)
         ctx.lineTo(pp[i].x, pp[i].y)
@@ -339,32 +308,12 @@ export function PeopleGraph({
         const dim = Math.min(dimOf(a), dimOf(b))
         if (dim < 1) continue
         const d = Math.min(depthA(pp[a].z, 1.6), depthA(pp[b].z, 1.6))
-        ctx.strokeStyle = rgba(list[a].color, 0.08 + 0.24 * d, list[a].color)
+        ctx.strokeStyle = rgba(list[a].color, 0.07 + 0.14 * d, list[a].color)
         ctx.lineWidth = 0.8
         ctx.beginPath()
         ctx.moveTo(pp[a].x, pp[a].y)
         ctx.lineTo(pp[b].x, pp[b].y)
         ctx.stroke()
-      }
-
-      /* synaptic pulses ride only live (not-yet-due) edges; faster when fresher */
-      if (!still) {
-        list.forEach((n, i) => {
-          if (n.due || n.fresh < 0.06) return
-          const speed = 0.09 + 0.14 * n.fresh
-          const phase = (t * speed + i * 0.37) % 1
-          const p3: Vec3 = [n.pos[0] * phase, n.pos[1] * phase, n.pos[2] * phase]
-          const q = proj(p3)
-          const d = depthA(q.z, 1.6)
-          ctx.save()
-          ctx.shadowColor = rgba(n.color, 0.9, n.color)
-          ctx.shadowBlur = 7
-          ctx.fillStyle = rgba(n.color, (0.25 + 0.65 * d) * dimOf(i), n.color)
-          ctx.beginPath()
-          ctx.arc(q.x, q.y, 1.7 * q.k, 0, Math.PI * 2)
-          ctx.fill()
-          ctx.restore()
-        })
       }
 
       /* nodes, far to near */
@@ -375,64 +324,46 @@ export function PeopleGraph({
         const q = pp[i]
         const d = depthA(q.z, 1.6)
         const dim = dimOf(i)
-        const r = n.r * q.k
+        const r = n.r * q.k * (1 + (fit.s - 1) * 0.5)
         const sel = focusRef.current === i
-        ctx.save()
-        ctx.shadowColor = rgba(n.color, (0.35 + 0.55 * d) * dim, n.color)
-        ctx.shadowBlur = (sel ? 16 : 10) * q.k
-        ctx.fillStyle = rgba(n.color, (0.45 + 0.55 * d) * dim, n.color)
+        ctx.fillStyle = rgba(n.color, (0.8 + 0.2 * d) * dim, n.color)
         ctx.beginPath()
         ctx.arc(q.x, q.y, r, 0, Math.PI * 2)
         ctx.fill()
-        ctx.restore()
-        if (n.due && !still) {
-          const pr = (t / 2.2 + i * 0.13) % 1
-          ctx.strokeStyle = rgba(WARM, ((1 - pr) * 0.55 * d + 0.08) * dim, WARM)
-          ctx.lineWidth = 1.2
-          ctx.beginPath()
-          ctx.arc(q.x, q.y, r + 2 + pr * 7, 0, Math.PI * 2)
-          ctx.stroke()
-        }
-        if (sel) {
-          ctx.strokeStyle = 'rgba(255,255,255,0.9)'
-          ctx.lineWidth = 1.8
+        ctx.strokeStyle = `rgba(255,255,255,${(sel ? 0.95 : 0.16) * dim})`
+        ctx.lineWidth = sel ? 1.5 : 1
+        ctx.stroke()
+        if (n.due) {
+          ctx.strokeStyle = rgba(WARM, 0.75 * dim, WARM)
+          ctx.lineWidth = 1
           ctx.beginPath()
           ctx.arc(q.x, q.y, r + 2.5, 0, Math.PI * 2)
           ctx.stroke()
         }
         if (n.label || sel) {
-          ctx.fillStyle = `rgba(214,226,235,${(0.35 + 0.6 * d) * dim})`
-          ctx.font = '600 10px system-ui, sans-serif'
+          let ly = q.y + r + 13
+          if (Math.hypot(q.x - you.x, ly - you.y) < 18) ly = q.y - r - 6
+          ctx.fillStyle = `rgba(206,216,226,${(0.4 + 0.55 * d) * dim})`
+          ctx.font = '500 10px system-ui, sans-serif'
           ctx.textAlign = 'center'
-          ctx.fillText(sel && !n.label ? firstName(n.p.name) : n.label, q.x, q.y + r + 13)
+          ctx.fillText(sel && !n.label ? firstName(n.p.name) : n.label, q.x, ly)
         }
         nextHits.push({ p: n.p, x: q.x, y: q.y, r: Math.max(r, 7) + 7, z: q.z })
       }
 
-      /* you, glowing at the core */
-      ctx.save()
-      ctx.shadowColor = rgba(accent, 0.9, accent)
-      ctx.shadowBlur = 22
-      ctx.fillStyle = rgba(accent, 1, accent)
+      /* you, a flat anchor at the core */
+      const youR = 10 * you.k * (1 + (fit.s - 1) * 0.5)
+      ctx.fillStyle = rgba(accent, 0.95, accent)
       ctx.beginPath()
-      ctx.arc(you.x, you.y, 11 * you.k, 0, Math.PI * 2)
+      ctx.arc(you.x, you.y, youR, 0, Math.PI * 2)
       ctx.fill()
-      ctx.restore()
-      ctx.strokeStyle = 'rgba(255,255,255,0.75)'
-      ctx.lineWidth = 1.6
+      ctx.strokeStyle = 'rgba(255,255,255,0.4)'
+      ctx.lineWidth = 1.2
       ctx.beginPath()
-      ctx.arc(you.x, you.y, 11 * you.k, 0, Math.PI * 2)
+      ctx.arc(you.x, you.y, youR, 0, Math.PI * 2)
       ctx.stroke()
-      if (!still) {
-        const pr = (t / 2.8) % 1
-        ctx.strokeStyle = rgba(accent, (1 - pr) * 0.5, accent)
-        ctx.lineWidth = 1.4
-        ctx.beginPath()
-        ctx.arc(you.x, you.y, (13 + pr * 24) * you.k, 0, Math.PI * 2)
-        ctx.stroke()
-      }
       ctx.fillStyle = 'rgba(4,26,22,0.95)'
-      ctx.font = '800 10px system-ui, sans-serif'
+      ctx.font = '700 10px system-ui, sans-serif'
       ctx.textAlign = 'center'
       ctx.fillText('You', you.x, you.y + 3.5)
 
@@ -495,7 +426,7 @@ export function PeopleGraph({
       canvas.removeEventListener('pointerup', up)
       canvas.removeEventListener('pointercancel', up)
     }
-  }, [ambient])
+  }, [])
 
   return (
     <div className="people-graph-wrap">
