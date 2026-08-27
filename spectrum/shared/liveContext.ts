@@ -809,6 +809,103 @@ export async function autoLogLoops(
   }
 }
 
+/** B3. Import an exported chat (iMessage/WhatsApp txt) into per-person context. */
+export async function importChatExport(
+  phone: string,
+  persona: AgentId,
+  text: string,
+): Promise<{ ok?: boolean; people?: number; lines?: number; error?: string } | null> {
+  const base = apiBase()
+  const key = process.env.HIREALPHA_INTERNAL_KEY || ''
+  if (!base || !key || !String(text || '').trim()) return { ok: false, people: 0, lines: 0, error: 'not configured' }
+  try {
+    const res = await timedFetch(
+      `${base}/api/internal/chat-import`,
+      { method: 'POST', headers: authHeaders(), body: JSON.stringify({ phone, persona, text }) },
+      12000,
+    )
+    if (!res.ok) {
+      const d = (await res.json().catch(() => ({}))) as { error?: string }
+      return { ok: false, people: 0, lines: 0, error: d.error || `import failed (${res.status})` }
+    }
+    return (await res.json()) as { ok?: boolean; people?: number; lines?: number; error?: string }
+  } catch (err) {
+    console.warn('[live] chat import failed', err)
+    return { ok: false, people: 0, lines: 0, error: 'save failed' }
+  }
+}
+
+/** A6. Create a real meeting to back a debrief. */
+export async function addMeeting(
+  phone: string,
+  persona: AgentId,
+  title: string,
+): Promise<{ ok?: boolean; error?: string } | null> {
+  const base = apiBase()
+  const key = process.env.HIREALPHA_INTERNAL_KEY || ''
+  if (!base || !key || !title) return { ok: false, error: 'not configured' }
+  try {
+    const res = await timedFetch(
+      `${base}/api/internal/meetings`,
+      { method: 'POST', headers: authHeaders(), body: JSON.stringify({ phone, persona, title }) },
+      10000,
+    )
+    if (!res.ok) return { ok: false, error: `save failed (${res.status})` }
+    return (await res.json()) as { ok?: boolean; error?: string }
+  } catch (err) {
+    console.warn('[live] meeting add failed', err)
+    return { ok: false, error: 'save failed' }
+  }
+}
+
+/** A7. Renewal radar over live mail. Keyword filters to one subscription. */
+export async function fetchRenewalRadar(
+  phone: string,
+  persona: AgentId,
+  query: string,
+): Promise<{ ok?: boolean; hits?: Array<{ merchant: string; amount?: number; period: string; date?: string }>; error?: string } | null> {
+  const base = apiBase()
+  const key = process.env.HIREALPHA_INTERNAL_KEY || ''
+  if (!base || !key) return { ok: false, hits: [], error: 'not configured' }
+  try {
+    const res = await timedFetch(
+      `${base}/api/internal/subscriptions`,
+      { method: 'POST', headers: authHeaders(), body: JSON.stringify({ phone, persona, query }) },
+      15000,
+    )
+    if (!res.ok) return { ok: false, hits: [], error: `scan failed (${res.status})` }
+    return (await res.json()) as { ok?: boolean; hits?: Array<{ merchant: string; amount?: number; period: string; date?: string }>; error?: string }
+  } catch (err) {
+    console.warn('[live] subscriptions scan failed', err)
+    return { ok: false, hits: [], error: 'scan failed' }
+  }
+}
+
+/** A9. Persist active travel (destination + timezone) to the user's context so
+ * brief/reminder scheduling can shift. */
+export async function setTravel(
+  phone: string,
+  persona: AgentId,
+  dest: string,
+  tz?: string,
+): Promise<{ ok?: boolean; error?: string } | null> {
+  const base = apiBase()
+  const key = process.env.HIREALPHA_INTERNAL_KEY || ''
+  if (!base || !key || !dest) return { ok: false, error: 'not configured' }
+  try {
+    const res = await timedFetch(
+      `${base}/api/internal/travel`,
+      { method: 'POST', headers: authHeaders(), body: JSON.stringify({ phone, persona, dest, tz }) },
+      10000,
+    )
+    if (!res.ok) return { ok: false, error: `save failed (${res.status})` }
+    return (await res.json()) as { ok?: boolean; error?: string }
+  } catch (err) {
+    console.warn('[live] travel set failed', err)
+    return { ok: false, error: 'save failed' }
+  }
+}
+
 export async function autoLogPipeline(
   phone: string,
   persona: AgentId,

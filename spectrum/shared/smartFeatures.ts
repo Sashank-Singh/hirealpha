@@ -59,6 +59,19 @@ export function looksLikeToolbox(text: string): boolean {
   return /\b(?:my\s+)?tools?\b|\b(?:my\s+)?builds?\b|\b(?:app|apps)\s*(?:gallery|shelf|i\s+built)\b|\bshow\s+(?:me\s+)?(?:my\s+)?(?:tools|builds|apps)\b/i.test(text)
 }
 
+/** B3. "import maya's chat", "paste the whatsapp export", "sync my iMessage
+ * thread with Maya", or literally a pasted block of "Name: message" lines. */
+export function looksLikeChatImport(text: string): boolean {
+  return /^\s*\/import\b/i.test(text) ||
+    /\b(?:import|ingest|load|sync|read)\b.{0,25}\b(?:chat|thread|export|conversation|whatsapp|imessage|messages|transcript)\b/i.test(text) ||
+    /^\s*(?:\[[^\]]*\])?\s*[A-Z][A-Za-z .'-]{1,30}\s*[:：]\s*.+(\n\s*(?:\[[^\]]*\])?\s*[A-Z][A-Za-z .'-]{1,30}\s*[:：]\s*.+){2,}/i.test(text)
+}
+
+/** The human-facing ack; the real per-person write happens in the turn. */
+export function handleChatImport(): string {
+  return 'On it — importing that conversation and filing each person\'s lines as context for prep and recall.'
+}
+
 /* ---- Structured parsers (pure; drive both the reply text and real persistence) ---- */
 
 export type BrainDumpItems = { loops: string[]; decisions: string[]; notes: string[] }
@@ -101,6 +114,139 @@ export function keepHonestPlan(text: string): KeepHonestPlan | null {
   if (ap === 'pm' && h < 12) h += 12
   if (ap === 'am' && h === 12) h = 0
   return { what, hour: h, minute: m }
+}
+
+/* ---- B3. Chat export → per-person context -------------------------------- */
+
+export type ChatPerson = { name: string; lines: string[] }
+
+/** A tolerant parser for pasted chat exports (iMessage, WhatsApp, or bare
+ * "Name: text" lines). Drops the user's own side ("you"/"me") and the import
+ * header, so the rest becomes per-person context for prep and recall. */
+export function parseChatExport(text: string): ChatPerson[] {
+  const self = /^(?:you|me|i)\b/i
+  const byName = new Map<string, string[]>()
+  for (const raw of String(text || '').split(/\r?\n/)) {
+    const line = raw.trim()
+    if (!line) continue
+    // [2026-08-01 14:03] Maya: message
+    let m = line.match(/^\s*\[[^\]]*\]\s*(.+?)\s*[:：]\s*(.+)$/)
+    // 8/1/26, 2:03 PM - Maya Chen: message
+    if (!m) m = line.match(/^\s*\d{1,2}\/\d{1,2}\/\d{2,4},\s*[\d:, APMapm]+\s*-\s*(.+?)\s*[:：]\s*(.+)$/)
+    // Name: message
+    if (!m) m = line.match(/^\s*(.+?)\s*[:：]\s*(.+)$/)
+    if (!m) continue
+    const name = m[1].trim().replace(/\s*:[^:]*$/, '').trim()
+    const msg = m[2].trim()
+    if (!name || !msg || self.test(name)) continue
+    byName.set(name, [...(byName.get(name) || []), msg])
+  }
+  const people: ChatPerson[] = []
+  for (const [name, lines] of byName) if (lines.length) people.push({ name, lines })
+  return people.sort((a, b) => b.lines.length - a.lines.length)
+}
+
+/* ---- A7. Billguard renewal radar ----------------------------------------- */
+
+export type SubscriptionHit = {
+  merchant: string
+  amount?: number
+  period: string
+  date?: string
+}
+
+/** Scan mail text for recurring charges and renewal dates. Returns structured
+ * hits the turn can warn on ("Netflix renews 8/30", "Spotify went up"). */
+export function scanSubscriptions(text: string): SubscriptionHit[] {
+  const hits: SubscriptionHit[] = []
+  const RE_VALUE = /(?:US)?\$?\s*(\d{1,4}(?:[.,]\d{1,2})?)\s*(?:\/|\s+per\s+|\s+a\s+)?(mo|month|yr|year|week|wk|quarter)/i
+  for (const line of String(text || '').split(/\r?\n/)) {
+    const l = line.trim()
+    if (!l) continue
+    const value = l.match(RE_VALUE)
+    if (!value) continue
+    const merchant =
+      l.match(/^(.*?)[:,—-]?\s*(?:renew|charg|billed?|due|next)/i)?.[1]?.trim() ||
+      l.match(/^(.*?)[:,—-]?\s*\d/i)?.[1]?.trim() ||
+      ''
+    const date = l.match(/\b(?:renew(?:s|ing)?|billed?|due|next\s+charge)\s*(?:on|:)?\s*([0-9]{1,2}\/[0-9]{1,2}(?:\/[0-9]{2,4})?|\w+\s+\d{1,2})/i)?.[1]
+    hits.push({
+      merchant: merchant.replace(/\s+/g, ' ').trim().slice(0, 60) || 'Subscription',
+      amount: Number(value[1].replace(',', '.')),
+      period: (value[2] || 'month').toLowerCase(),
+      date,
+    })
+  }
+  return hits
+}
+
+/* ---- A9. Travel real shift ------------------------------------------------ */
+
+export type TravelPlan = { dest: string; tz?: string }
+
+const TRAVEL_TZ: Record<string, string> = {
+  tokyo: 'Asia/Tokyo', osaka: 'Asia/Tokyo', kyoto: 'Asia/Tokyo',
+  paris: 'Europe/Paris', london: 'Europe/London', barcelona: 'Europe/Madrid',
+  madrid: 'Europe/Madrid', rome: 'Europe/Rome', berlin: 'Europe/Berlin',
+  amsterdam: 'Europe/Amsterdam', dubai: 'Asia/Dubai', singapore: 'Asia/Singapore',
+  nyc: 'America/New_York', 'new york': 'America/New_York', 'san francisco': 'America/Los_Angeles', sf: 'America/Los_Angeles',
+  la: 'America/Los_Angeles', 'los angeles': 'America/Los_Angeles', bali: 'Asia/Makassar',
+  sydney: 'Australia/Sydney', 'mexico city': 'America/Mexico_City', bangkok: 'Asia/Bangkok',
+  'hong kong': 'Asia/Hong_Kong', seoul: 'Asia/Seoul', honolulu: 'Pacific/Honolulu', maui: 'Pacific/Honolulu',
+}
+
+/** "travel mode to tokyo" / "flying to paris next week" → destination (+ tz if known). */
+export function keepTravelPlan(text: string): TravelPlan | null {
+  const m = text.match(/\b(?:to|for|in|at)\s+([A-Za-z][A-Za-z .'-]{1,30})/i)
+  const dest = m?.[1]?.trim().toLowerCase().replace(/\s+(?:next|this|week|month|trip|on|in)\b.*$/i, '').trim()
+  if (!dest) return null
+  return { dest, tz: TRAVEL_TZ[dest] }
+}
+
+/* ---- A6. Debrief answers → real follow-ups -------------------------------- */
+
+export type MeetingAnswerItems = { promises: string[]; decisions: string[]; followups: string[] }
+
+/** Split the user's debrief answers ("I promised to send the deck by Friday",
+ * "we decided on Stripe", "follow up with Maria") into persisted pieces. */
+export function parseMeetingAnswer(text: string): MeetingAnswerItems {
+  const promises: string[] = []
+  const decisions: string[] = []
+  const followups: string[] = []
+  for (const s of String(text || '').split(/[.!?\n]+/).map((x) => x.trim()).filter(Boolean)) {
+    if (/\b(?:i\s+(?:promis\w*|owe|need to|have to|must|will)|promis(?:e|ed)|owe|need to|have to|should|must)\b/i.test(s)) promises.push(s)
+    else if (/\b(?:decid\w*|going with|chose|picked?|we went with)\b/i.test(s)) decisions.push(s)
+    else if (/\b(?:follow.?up|circle back|reach out|get back|next step|action item)\b/i.test(s)) followups.push(s)
+  }
+  return { promises, decisions, followups }
+}
+
+/* ---- A3. Sweep batch approval --------------------------------------------- */
+
+export type SweepDecision =
+  | { action: 'send_all' }
+  | { action: 'edit'; index: number }
+  | { action: 'send'; indices: number[] }
+  | { action: 'skip'; indices: number[] }
+
+/** "1,3" / "send 1 and 3" → send those; "edit 2" → rework one; "send all"
+ * / "1-send" → send every draft; "skip", "skip 2" → skip. Indexes are 1-based. */
+export function parseSweepApproval(text: string, total: number): SweepDecision | null {
+  const t = String(text || '').toLowerCase().trim()
+  if (/^(?:send\s+)?all$|^1[- ]send$/i.test(t) || /^(?:send|approve|yes)\b/.test(t)) return { action: 'send_all' }
+  if (/^skip\s+all$/.test(t) || /^skip$/.test(t)) return { action: 'skip', indices: [] }
+  const edit = t.match(/\b(?:edit|rework|rewrite|change)\s*(?:#|draft)?\s*(\d+)/i)
+  if (edit) {
+    const i = Number(edit[1])
+    if (i >= 1 && i <= total) return { action: 'edit', index: i }
+  }
+  const nums = t.match(/\d+/g)?.map(Number) || []
+  const valid = [...new Set(nums.filter((n) => n >= 1 && n <= total))]
+  if (valid.length) {
+    const skip = /\bskip\b/.test(t)
+    return { action: skip ? 'skip' : 'send', indices: valid }
+  }
+  return null
 }
 
 /* ---- Feature handlers (deterministic; wired into runHireTurn) ---- */

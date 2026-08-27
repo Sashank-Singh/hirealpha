@@ -14,6 +14,7 @@
 import {
   handleBillguard,
   handleBrainDump,
+  handleChatImport,
   handleDebrief,
   handleKeepMeHonest,
   handleRecall,
@@ -22,6 +23,7 @@ import {
   handleToolbox,
   looksLikeBillguard,
   looksLikeBrainDump,
+  looksLikeChatImport,
   looksLikeDebrief,
   looksLikeKeepMeHonest,
   looksLikeRecall,
@@ -187,6 +189,13 @@ export const CAPABILITIES: Capability[] = [
           }),
       ),
   },
+  {
+    name: 'import',
+    label: 'Import a chat',
+    example: 'import this whatsapp chat',
+    detect: looksLikeChatImport,
+    run: () => handleChatImport(),
+  },
 ]
 
 export function capabilityByName(name: string): Capability | undefined {
@@ -265,6 +274,7 @@ export function slashMenu(): string {
     '/honest — pings you if you skipped something',
     '/snap — photo of a meal or receipt, logged',
     '/delegate — draft the message that gets it done',
+    '/import — file a pasted chat as per-person context',
   ].join('\n')
 }
 

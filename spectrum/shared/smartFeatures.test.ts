@@ -2,6 +2,7 @@ import { describe, expect, it } from 'bun:test'
 import {
   handleBillguard,
   handleBrainDump,
+  handleChatImport,
   handleDebrief,
   handleKeepMeHonest,
   handleRecall,
@@ -10,8 +11,10 @@ import {
   handleToolbox,
   handleTravelMode,
   keepHonestPlan,
+  keepTravelPlan,
   looksLikeBillguard,
   looksLikeBrainDump,
+  looksLikeChatImport,
   looksLikeDebrief,
   looksLikeKeepMeHonest,
   looksLikeRecall,
@@ -20,6 +23,10 @@ import {
   looksLikeToolbox,
   looksLikeTravelMode,
   parseBrainDump,
+  parseChatExport,
+  parseMeetingAnswer,
+  parseSweepApproval,
+  scanSubscriptions,
 } from './smartFeatures'
 
 describe('smart features — recall', () => {
@@ -153,6 +160,59 @@ describe('smart features — keep me honest (structured parse)', () => {
   })
   it('returns null without a time or a what', () => {
     expect(keepHonestPlan('keep me honest')).toBeNull()
+  })
+})
+
+describe('smart features — chat import (B3)', () => {
+  it('parses iMessage bracket lines into per-person context, dropping the user', () => {
+    const people = parseChatExport('[2026-08-01 14:03] Maya: the deck looks great\n[2026-08-01 14:04] You: thanks\n[2026-08-01 14:05] Maya: send by friday?')
+    expect(people.length).toBe(1)
+    expect(people[0].name).toContain('Maya')
+    expect(people[0].lines).toHaveLength(2)
+  })
+  it('detects import intent', () => {
+    expect(looksLikeChatImport('import this whatsapp chat')).toBe(true)
+    expect(looksLikeChatImport('sync my iMessage thread with Maya')).toBe(true)
+    expect(looksLikeChatImport('hey whats up')).toBe(false)
+  })
+  it('acknowledges the import', () => {
+    expect(handleChatImport()).toContain('importing')
+  })
+})
+
+describe('smart features — billguard renewal radar (A7)', () => {
+  it('finds recurring charges with amounts, period, and renew dates', () => {
+    const hits = scanSubscriptions('Netflix renews on 8/30 at $15.49/month\nSpotify $11.99/mo')
+    expect(hits.length).toBe(2)
+    expect(hits.some((h) => h.merchant.toLowerCase().includes('netflix'))).toBe(true)
+    expect(hits.some((h) => h.amount === 15.49)).toBe(true)
+    expect(hits.some((h) => h.period === 'mo')).toBe(true)
+  })
+})
+
+describe('smart features — travel real shift (A9)', () => {
+  it('extracts destination and timezone', () => {
+    expect(keepTravelPlan('travel mode to tokyo')).toEqual({ dest: 'tokyo', tz: 'Asia/Tokyo' })
+    expect(keepTravelPlan('flying to paris next week')?.dest).toBe('paris')
+  })
+})
+
+describe('smart features — debrief answers (A6)', () => {
+  it('splits commitments into promises, decisions, and follow-ups', () => {
+    const items = parseMeetingAnswer('I promised to send the deck by Friday. We decided on Stripe. Follow up with Maria.')
+    expect(items.promises.some((p) => p.toLowerCase().includes('deck'))).toBe(true)
+    expect(items.decisions.some((d) => d.toLowerCase().includes('stripe'))).toBe(true)
+    expect(items.followups.some((f) => f.toLowerCase().includes('maria'))).toBe(true)
+  })
+})
+
+describe('smart features — sweep batch approval (A3)', () => {
+  it('parses send, edit, and skip choices', () => {
+    expect(parseSweepApproval('1,3', 3)).toEqual({ action: 'send', indices: [1, 3] })
+    expect(parseSweepApproval('send all', 3)).toEqual({ action: 'send_all' })
+    expect(parseSweepApproval('edit 2', 3)).toEqual({ action: 'edit', index: 2 })
+    expect(parseSweepApproval('skip 2', 3)).toEqual({ action: 'skip', indices: [2] })
+    expect(parseSweepApproval('maybe later', 3)).toBeNull()
   })
 })
 

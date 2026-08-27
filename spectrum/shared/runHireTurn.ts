@@ -8,7 +8,7 @@ import { skillsPromptBlock, SKILLS } from './skills'
 import { gmiChat } from './gmi'
 import { appendThread, loadMemory, upsertFacts, pruneExpiredFacts, setSummary, trimHistory, MAX_RAW, type ThreadMemory } from './memory'
 import { extractFacts, summarizeOld } from './memoryMaintain'
-import { autoIterateWorkshop, autoLogGratitude, autoLogHabit, autoLogMood, autoLogNutrition, autoLogSleep, autoLogSpend, autoLogWorkout, autoLogNetwork, autoLogDecision, autoLogLoops, autoLogPipeline, autoLogStandup, autoRunWorkshop, autoWorkshopKeep, autoWorkshopToss, autoSaveLearning, autoSetBudget, autoSetPrefs, fetchLiveProfile, fetchLiveTools, fetchMiniRun, fetchPrepBundle, fetchWeekBundle, formatHireContext, formatHireMemories, persistLiveFacts, proposeLiveDraft, touchInbound } from './liveContext'
+import { autoIterateWorkshop, autoLogGratitude, autoLogHabit, autoLogMood, autoLogNutrition, autoLogSleep, autoLogSpend, autoLogWorkout, autoLogNetwork, autoLogDecision, autoLogLoops, autoLogPipeline, autoLogStandup, autoRunWorkshop, autoWorkshopKeep, autoWorkshopToss, autoSaveLearning, autoSetBudget, autoSetPrefs, fetchLiveProfile, fetchLiveTools, fetchMiniRun, fetchPrepBundle, fetchWeekBundle, formatHireContext, formatHireMemories, persistLiveFacts, proposeLiveDraft, touchInbound, importChatExport, addMeeting, fetchRenewalRadar, setTravel } from './liveContext'
 import {
   looksLikeReminder,
   parseReminderIntent,
@@ -18,7 +18,7 @@ import {
   formatLocalNow,
 } from './reminders'
 import { setProactiveMode, fetchLastProactiveTopic, fetchJudgmentState } from './judgment'
-import { keepHonestPlan, parseBrainDump } from './smartFeatures'
+import { keepHonestPlan, parseBrainDump, keepTravelPlan, parseMeetingAnswer, scanSubscriptions } from './smartFeatures'
 import { formatLifeStateBlock } from './lifeState'
 import {
   DIGEST_MARKER,
@@ -163,6 +163,63 @@ async function applySmartEffects(
       if (connectedMail && keyword) {
         const prep = await fetchPrepBundle(input.senderId, agent.id, keyword)
         if (prep?.text) extra.push(`From your mail:\n${prep.text.slice(0, 900).trim()}`)
+      }
+    }
+
+    if (name === 'import') {
+      const res = await importChatExport(input.senderId, agent.id, ctx.text)
+      if (res?.ok && res.people) {
+        extra.push(`Filed ${res.lines} lines from ${res.people} person${res.people === 1 ? '' : 's'} as context for prep and recall.`)
+      } else {
+        extra.push(`Could not import that chat${res?.error ? ` — ${res.error}` : ''}.`)
+      }
+    }
+
+    if (name === 'debrief') {
+      const title = ctx.text
+        .replace(/^\/(?:debrief|dr)\b/i, '')
+        .replace(/\b(?:debrief|how did (?:the |that )?(?:meeting|call|interview|sync)|wrap (?:the )?(?:meeting|call|day)|after (?:the )?(?:meeting|call))\b/gi, ' ')
+        .replace(/\b(?:meeting|call|1-?1|sync|interview|with|about)\b/gi, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+      // The user's answers to these prompts get persisted on later turns; open a
+      // real meeting now so the debrief has somewhere to land.
+      const ok = await addMeeting(input.senderId, agent.id, title || 'Debrief')
+      if (ok?.ok) extra.push('Logged the meeting — answer the prompts and I will file each commitment for real.')
+      else extra.push('Could not open a meeting record right now.')
+    }
+
+    if (name === 'bills') {
+      if (connectedMail) {
+        const radar = await fetchRenewalRadar(input.senderId, agent.id, ctx.text)
+        const hits = radar?.hits || []
+        if (hits.length) {
+          const lines = hits.slice(0, 6).map((h) => {
+            const amt = h.amount != null ? ` $${Math.round(h.amount * 100) / 100}/${h.period}` : ` (${h.period})`
+            return `- ${h.merchant || 'Subscription'}${amt}${h.date ? ` · renews ${h.date}` : ''}`
+          })
+          extra.push(`Renewal radar:\n${lines.join('\n')}`)
+        } else if (radar?.error) {
+          extra.push(`Renewal scan unavailable${radar.error ? ` — ${radar.error}` : ''}.`)
+        }
+      } else if (ctx.context?.subscriptions) {
+        const radar = scanSubscriptions(ctx.context.subscriptions)
+        if (radar.length) {
+          extra.push(`Renewal radar:\n${radar.map((h) => `- ${h.merchant} $${h.amount}/${h.period}`).join('\n')}`)
+        }
+      }
+    }
+
+    if (name === 'travel') {
+      const plan = keepTravelPlan(ctx.text)
+      if (plan) {
+        const set = await setTravel(input.senderId, agent.id, plan.dest, plan.tz)
+        if (set?.ok) {
+          extra.push(`Travel flagged for ${plan.dest}${plan.tz ? ` (${plan.tz})` : ''} — briefs and pings will shift to local time while you are away.`)
+          if (plan.tz) extra.push('Say "build my travel checklist" and I will put together a pack list.')
+        } else {
+          extra.push(`Could not flag travel${set?.error ? ` — ${set.error}` : ''}.`)
+        }
       }
     }
   } catch (err) {

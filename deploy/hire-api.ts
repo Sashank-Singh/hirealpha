@@ -28,6 +28,7 @@ import {
   type CalItem,
 } from './calendarEvents'
 import { COMPOSIO_READ, composioLooksFailed, formatComposioData } from './composioPlugins'
+import { parseChatExport, scanSubscriptions } from '../spectrum/shared/smartFeatures'
 import {
   parseSpokenWhen,
   pickUserTimezone,
@@ -8293,6 +8294,96 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
       `
     }
     return json({ ok: true, logged: true, count: titles.length })
+  }
+
+  if (path === '/api/internal/chat-import' && req.method === 'POST') {
+    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
+    const body = (await req.json().catch(() => ({}))) as {
+      phone?: string
+      persona?: string
+      text?: string
+    }
+    if (!body.phone || !isPersona(body.persona || '')) return json({ error: 'phone and persona required' }, 400)
+    const user = await getUserByPhone(sql, body.phone)
+    if (!user) return json({ error: 'User not found' }, 404)
+    const people = parseChatExport(String(body.text || ''))
+    let lines = 0
+    for (const p of people) {
+      // Per-person durable context, keyed chat:<name>, capped so recall/prep can
+      // pull the thread back verbatim.
+      const payload = p.lines.slice(0, 30).join('\n').slice(0, 3000)
+      if (!payload.trim()) continue
+      lines += p.lines.length
+      const key = `chat:${p.name}`
+      await upsertMemories(sql, user.id, body.persona!, [
+        { key, value: payload, durable: true },
+      ])
+    }
+    return json({ ok: true, people: people.length, lines })
+  }
+
+  if (path === '/api/internal/meetings' && req.method === 'POST') {
+    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
+    const body = (await req.json().catch(() => ({}))) as {
+      phone?: string
+      persona?: string
+      title?: string
+    }
+    if (!body.phone || !isPersona(body.persona || '') || !String(body.title || '').trim()) {
+      return json({ error: 'phone, persona, and title required' }, 400)
+    }
+    const user = await getUserByPhone(sql, body.phone)
+    if (!user) return json({ error: 'User not found' }, 404)
+    const id = crypto.randomUUID()
+    await sql`
+      INSERT INTO hire_meetings (id, user_id, title, phase, followups)
+      VALUES (${id}, ${user.id}, ${String(body.title).trim().slice(0, 200)}, 'debrief',
+        '[]'::jsonb)
+    `
+    return json({ ok: true, id })
+  }
+
+  if (path === '/api/internal/subscriptions' && req.method === 'POST') {
+    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
+    const body = (await req.json().catch(() => ({}))) as {
+      phone?: string
+      persona?: string
+      query?: string
+    }
+    if (!body.phone || !isPersona(body.persona || '')) return json({ error: 'phone and persona required' }, 400)
+    const live = await livePayload(sql, body.phone, body.persona)
+    if (!live.found || !live.hired || !live.userId) return json({ ok: false, hits: [], error: 'not hired' }, 404)
+    const bundle = await buildPrepBundle(
+      sql,
+      { id: live.userId, name: live.name, timezone: live.timezone },
+      String(body.query || 'recurring charges'),
+    )
+    const kw = String(body.query || '').toLowerCase().trim()
+    const hits = scanSubscriptions(bundle?.text || '')
+      .filter((h) => !kw || `${h.merchant} ${h.period}`.toLowerCase().includes(kw))
+    return json({ ok: true, hits })
+  }
+
+  if (path === '/api/internal/travel' && req.method === 'POST') {
+    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
+    const body = (await req.json().catch(() => ({}))) as {
+      phone?: string
+      persona?: string
+      dest?: string
+      tz?: string
+    }
+    if (!body.phone || !isPersona(body.persona || '') || !String(body.dest || '').trim()) {
+      return json({ error: 'phone, persona, and dest required' }, 400)
+    }
+    const user = await getUserByPhone(sql, body.phone)
+    if (!user) return json({ error: 'User not found' }, 404)
+    const dest = String(body.dest).trim().slice(0, 80)
+    const tz = String(body.tz || '').slice(0, 60)
+    await upsertMemories(sql, user.id, body.persona!, [
+      { key: 'travel_dest', value: dest, durable: true },
+      ...(tz ? [{ key: 'travel_tz', value: tz, durable: true }] : []),
+    ])
+    return json({ ok: true, dest, tz })
   }
 
   if (path === '/api/internal/pipeline' && req.method === 'POST') {
