@@ -35,9 +35,20 @@ Required env (runtime): `PROJECT_ID`, `PROJECT_SECRET`, `GMI_API_KEY`, `GMI_BASE
 
 Health: `GET /healthz` on port 3000.
 
+## Signup intros (no manual number adds)
+
+Each bot polls `HIREALPHA_API_URL /api/internal/intros/claim?persona=<id>` every 30s
+(`spectrum/shared/introQueue.ts`). Numbers that sign up on the landing page (or set a
+phone on their account) land in the `hire_intro_queue` table; the bot texts the intro,
+then acks. Failures retry up to 5 attempts; after that the number parks as `failed`
+in the queue and the signup screen's fallback ("text hi to ...") takes over. No more
+INTRO_TO restarts for new users — that env still works for one-off manual tests.
+
 ## How to fix “Target not allowed” on intro
 
-Shared Photon lines often **cannot cold-text first**. Text each hire from your phone (`+12163032166`), then they reply in character. Listeners are already running.
+Shared Photon lines often **cannot cold-text first**. Text each hire from your phone (`+12163032166`), then they reply in character. Listeners are already running. For
+signups, the same limit shows up as repeated intro failures — that is what the
+fallback copy on the landing page covers.
 
 ## GMI
 

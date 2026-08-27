@@ -9,6 +9,7 @@ import {
   runJudgmentLoop,
 } from './judgment'
 import type { AgentId } from '../../src/agents/types'
+import { killSwitchBlocksSend } from './taskLoops'
 
 export type ReminderIntent =
   | { action: 'set'; text: string; localTime: string; recurrence: 'once' | 'daily' | 'weekly' }
@@ -393,6 +394,7 @@ export function startReminderScheduler(opts: {
     try {
       const nudges = await fetchDueEventNudges(opts.persona as AgentId)
       for (const n of nudges) {
+        if (await killSwitchBlocksSend(n.phone)) continue
         try {
           await opts.send(n.phone, n.text)
           await recordProactiveSent(n.phone, opts.persona as AgentId, n.topic)
@@ -410,6 +412,8 @@ export function startReminderScheduler(opts: {
       const due = await fetchDueReminders(opts.persona)
       for (const r of due) {
         if (!r.phone) continue
+        // Armed kill switch skips the send and leaves the reminder due.
+        if (await killSwitchBlocksSend(r.phone)) continue
         const tz = r.timezone || 'America/Los_Angeles'
         const nextAt =
           r.recurrence === 'daily' || r.recurrence === 'weekly'

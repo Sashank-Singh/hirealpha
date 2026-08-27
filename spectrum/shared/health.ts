@@ -17,3 +17,30 @@ export function startHealthServer(label: string): void {
   })
   console.log(`[${label}] health on :${port} (/healthz)`)
 }
+
+function apiBase() {
+  return (process.env.HIREALPHA_API_URL || '').replace(/\/$/, '')
+}
+
+/** Boot plus every 60s liveness ping. Missing env or a failed post is a
+ * no-op, a dead heartbeat endpoint must never take the bot down. */
+export function startHeartbeat(persona: string, intervalMs = 60_000): void {
+  const base = apiBase()
+  if (!base || !process.env.HIREALPHA_INTERNAL_KEY) {
+    console.log(`[${persona}] heartbeat off: HIREALPHA_API_URL or HIREALPHA_INTERNAL_KEY missing`)
+    return
+  }
+  const ping = () => {
+    fetch(`${base}/api/internal/heartbeat`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${process.env.HIREALPHA_INTERNAL_KEY || ''}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ persona }),
+    }).catch(() => undefined)
+  }
+  ping()
+  const timer = setInterval(ping, intervalMs)
+  timer.unref?.()
+}

@@ -6,7 +6,9 @@ import { defaultReplyCard, getAgent, runHireTurn, runMemoryMaintenance, sanitize
 import { extractMessageText, handleInboundPhoto } from '../../shared/liveContext'
 import { claimInbound } from '../../shared/inboundGuard'
 import { startReminderScheduler } from '../../shared/reminders'
-import { startHealthServer } from '../../shared/health'
+import { startTaskLoopPoller } from '../../shared/taskLoops'
+import { INTRO_TEXTS, startIntroPoller } from '../../shared/introQueue'
+import { startHealthServer, startHeartbeat } from '../../shared/health'
 
 const agentId = 'friend' as const
 const agent = getAgent(agentId)
@@ -29,9 +31,7 @@ if (introTo) {
     const user = await im.user(introTo)
     const space = await im.space.create(user)
     await space.responding(async () => {
-      await space.send(
-        "Hey. I'm Alpha. You hired me as your friend in texts. Vent, plan, check in. I'm here.",
-      )
+      await space.send(INTRO_TEXTS[agent.id])
     })
     console.log(`[${agent.id}] intro sent to ${introTo}`)
   } catch (err) {
@@ -39,8 +39,35 @@ if (introTo) {
   }
 }
 
+// Numbers that signed up on the site get the intro text without anyone adding
+// them by hand; failures ack back to the server and retry on the next poll.
+startIntroPoller({
+  persona: agent.id,
+  send: async (phone, text) => {
+    const user = await im.user(phone)
+    const space = await im.space.create(user)
+    await space.responding(async () => {
+      const cleaned = sanitizeOutbound(text)
+      if (cleaned) await space.send(cleaned)
+    })
+  },
+})
+
 startHealthServer(agent.id)
+startHeartbeat(agent.id)
 console.log(`[${agent.id}] listening as ${agent.imsgName} (${agent.phoneNumber})`)
+
+startTaskLoopPoller({
+  persona: agent.id,
+  send: async (phone, text) => {
+    const user = await im.user(phone)
+    const space = await im.space.create(user)
+    await space.responding(async () => {
+      const cleaned = sanitizeOutbound(text)
+      if (cleaned) await space.send(cleaned)
+    })
+  },
+})
 
 startReminderScheduler({
   persona: agent.id,
