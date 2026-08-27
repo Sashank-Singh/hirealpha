@@ -8553,6 +8553,98 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     })
   }
 
+  /* Source + iterate: the user can ask for changes to their build, and the
+   * bot re-renders it. Source returns the current HTML; iterate stores the
+   * updated version as a NEW artifact (old link stays = old version). */
+  if (path === '/api/internal/workshop/source' && req.method === 'GET') {
+    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
+    const phone = url.searchParams.get('phone') || ''
+    const artifactId = url.searchParams.get('artifactId') || ''
+    if (!phone) return json({ error: 'phone required' }, 400)
+    const user = await getUserByPhone(sql, phone)
+    if (!user) return json({ error: 'User not found' }, 404)
+    const rows = artifactId
+      ? await sql`SELECT id, title, files, template_key FROM hire_artifacts WHERE id = ${artifactId} AND user_id = ${user.id} AND state IN ('delivered', 'kept') LIMIT 1`
+      : await sql`SELECT id, title, files, template_key FROM hire_artifacts WHERE user_id = ${user.id} AND state IN ('delivered', 'kept') ORDER BY created_at DESC LIMIT 1`
+    const row = rows[0] as { id: string; title: string; files: string[] | string; template_key: string | null } | undefined
+    if (!row) return json({ error: 'No build on file' }, 404)
+    let fileList: string[] = []
+    try {
+      fileList = Array.isArray(row.files) ? row.files : JSON.parse(String(row.files || '[]'))
+    } catch {
+      fileList = []
+    }
+    const htmlName = fileList.find((f) => /\.html?$/i.test(f)) || fileList[0] || ''
+    const fileRows = await sql`
+      SELECT content FROM hire_artifact_files WHERE artifact_id = ${row.id} AND name = ${htmlName} LIMIT 1
+    `
+    const content = (fileRows[0] as { content?: string } | undefined)?.content
+    if (!content) return json({ error: 'Build file missing' }, 404)
+    return json({
+      artifactId: row.id,
+      title: row.title,
+      templateKey: row.template_key,
+      html: Buffer.from(content, 'base64').toString('utf8'),
+    })
+  }
+
+  if (path === '/api/internal/workshop/iterate' && req.method === 'POST') {
+    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
+    const body = (await req.json().catch(() => ({}))) as {
+      phone?: string; persona?: string; artifactId?: string; title?: string; html?: string; instruction?: string
+    }
+    const html = String(body.html || '')
+    const artifactId = String(body.artifactId || '')
+    if (!body.phone || !isPersona(body.persona || '') || !artifactId || !html) {
+      return json({ error: 'phone, persona, artifactId, and html required' }, 400)
+    }
+    try {
+      const user = await getUserByPhone(sql, body.phone)
+      if (!user) return json({ error: 'User not found' }, 404)
+      const srcRows = await sql`
+        SELECT title, template_key FROM hire_artifacts WHERE id = ${artifactId} AND user_id = ${user.id} LIMIT 1
+      `
+      const src = srcRows[0] as { title: string; template_key: string | null } | undefined
+      if (!src) return json({ ok: false, logged: false, error: 'source build no longer exists' })
+      // Same inline-JS parse gate as fresh builds: dead buttons never ship.
+      const inlineScripts = [...html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/gi)]
+        .map((m) => m[1])
+        .filter((s) => s.trim())
+      for (const inline of inlineScripts) {
+        try {
+          new Bun.Transpiler({ loader: 'js' }).transformSync(inline)
+        } catch (e) {
+          return json({ ok: false, logged: false, error: `the updated app's JavaScript does not parse: ${(e as Error).message}`.slice(0, 300) })
+        }
+      }
+      const newId = crypto.randomUUID()
+      const title = String(body.title || src.title).slice(0, 120)
+      const expires = new Date(Date.now() + 7 * 86_400_000)
+      await sql`
+        INSERT INTO hire_artifacts (id, user_id, title, kind, files, state, expires_at, template_key)
+        VALUES (${newId}, ${user.id}, ${title}, 'page', ${JSON.stringify(['index.html'])}, 'delivered', ${expires.toISOString()}, ${src.template_key})
+      `
+      await sql`
+        INSERT INTO hire_artifact_files (artifact_id, name, content)
+        VALUES (${newId}, 'index.html', ${Buffer.from(html).toString('base64')})
+      `
+      await sql`
+        INSERT INTO hire_workshop_tasks (id, user_id, prompt, status, artifact_id)
+        VALUES (${crypto.randomUUID()}, ${user.id}, ${('iterate: ' + String(body.instruction || '')).slice(0, 500)}, 'done', ${newId})
+      `
+      return json({
+        ok: true,
+        logged: true,
+        artifactId: newId,
+        title,
+        url: `${appBase(req)}/b/${newId}`,
+      })
+    } catch (err) {
+      console.error('[workshop] iterate threw', err)
+      return json({ ok: false, logged: false, error: `server error: ${err instanceof Error ? err.message : String(err)}`.slice(0, 300) })
+    }
+  }
+
   if (path === '/api/internal/workshop/last' && req.method === 'GET') {
     if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
     const user = await getUserByPhone(sql, url.searchParams.get('phone') || '')

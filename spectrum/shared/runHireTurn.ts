@@ -8,7 +8,7 @@ import { skillsPromptBlock, SKILLS } from './skills'
 import { gmiChat } from './gmi'
 import { appendThread, loadMemory, upsertFacts, pruneExpiredFacts, setSummary, trimHistory, MAX_RAW, type ThreadMemory } from './memory'
 import { extractFacts, summarizeOld } from './memoryMaintain'
-import { autoLogGratitude, autoLogHabit, autoLogMood, autoLogNutrition, autoLogSleep, autoLogSpend, autoLogWorkout, autoLogNetwork, autoLogDecision, autoLogPipeline, autoLogStandup, autoRunWorkshop, autoWorkshopKeep, autoWorkshopToss, autoSaveLearning, autoSetBudget, autoSetPrefs, fetchLiveProfile, fetchLiveTools, fetchMiniRun, fetchPrepBundle, fetchWeekBundle, formatHireContext, formatHireMemories, persistLiveFacts, proposeLiveDraft, touchInbound } from './liveContext'
+import { autoIterateWorkshop, autoLogGratitude, autoLogHabit, autoLogMood, autoLogNutrition, autoLogSleep, autoLogSpend, autoLogWorkout, autoLogNetwork, autoLogDecision, autoLogPipeline, autoLogStandup, autoRunWorkshop, autoWorkshopKeep, autoWorkshopToss, autoSaveLearning, autoSetBudget, autoSetPrefs, fetchLiveProfile, fetchLiveTools, fetchMiniRun, fetchPrepBundle, fetchWeekBundle, formatHireContext, formatHireMemories, persistLiveFacts, proposeLiveDraft, touchInbound } from './liveContext'
 import {
   looksLikeReminder,
   parseReminderIntent,
@@ -860,6 +860,43 @@ export async function runHireTurn(input: {
       extras.push(
         'The build failed — the builder hit an unexpected error. In one line, say honestly that the build did not work and ask what they wanted it to do. Never claim something was already built.',
       )
+    }
+  }
+
+  /* Iterate: a change request on a build Alpha recently delivered. Only when
+   * a /b/ link went out recently, no other intent claimed the message, and
+   * the ask is short and change-shaped — "make it 50/10", "add a sound",
+   * "dark theme". Long messages and other intents stay normal chat. */
+  const recentBuildDelivered = history
+    .filter((m) => m.role === 'assistant')
+    .slice(-4)
+    .some((m) => m.content.includes('/b/'))
+  if (
+    live.hired &&
+    recentBuildDelivered &&
+    !miniApp &&
+    input.userText.split(/\s+/).length <= 18 &&
+    /\b(?:change|update|modify|tweak|iterate|revise|remake|make it|add|remove|rename|swap)\b/i.test(input.userText)
+  ) {
+    try {
+      const updated = await autoIterateWorkshop({
+        phone: input.senderId,
+        persona: agent.id,
+        instruction: input.userText,
+      })
+      if (updated?.ok && updated.url) {
+        extras.push(
+          `Updated build deployed — this is a NEW version, the old link still works too. Title: "${updated.title}". Send them this exact link: ${updated.url}. One line confirming the change they asked for.`,
+        )
+      } else if (updated && updated.error && updated.error !== 'no build on file') {
+        extras.push(
+          `The update failed — ${updated.error}. In one line, say honestly the change did not go through.`,
+        )
+      }
+      // null or 'no build on file' → not an iteration target; fall through to
+      // normal chat silently.
+    } catch (err) {
+      console.warn('[turn] workshop iterate crashed', err)
     }
   }
 

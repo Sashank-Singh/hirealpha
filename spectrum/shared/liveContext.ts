@@ -908,6 +908,120 @@ async function cloneWorkshopBuild(
   }
 }
 
+/* ---- Iterate: change requests on an existing build ---- */
+
+const WORKSHOP_ITERATOR = [
+  'You update an existing single-file HTML app. Apply ONLY the change the user asks for; keep everything else working exactly as it was.',
+  'The result must be one complete self-contained HTML file with inline CSS/JS.',
+  'Put the <script> after all elements it uses. Never leave an unescaped apostrophe inside a single quoted JS string (reword or use double quotes). Every button must work.',
+  'Reply with JSON only, no markdown: {"title": "short name", "html": "<the full updated html>"}',
+].join('\n')
+
+export async function fetchWorkshopSource(
+  phone: string,
+  artifactId?: string,
+): Promise<{ artifactId: string; title: string; html: string; templateKey?: string | null } | null> {
+  const base = apiBase()
+  const key = process.env.HIREALPHA_INTERNAL_KEY || ''
+  if (!base || !key) return null
+  try {
+    const qs = new URLSearchParams({ phone })
+    if (artifactId) qs.set('artifactId', artifactId)
+    const res = await timedFetch(
+      `${base}/api/internal/workshop/source?${qs}`,
+      { headers: authHeaders() },
+      12000,
+    )
+    if (!res.ok) return null
+    return (await res.json()) as { artifactId: string; title: string; html: string; templateKey?: string | null }
+  } catch {
+    return null
+  }
+}
+
+export async function iterateWorkshopBuild(input: {
+  phone: string
+  persona: AgentId
+  artifactId: string
+  title: string
+  html: string
+  instruction: string
+}): Promise<{ ok?: boolean; logged?: boolean; error?: string; artifactId?: string; url?: string; title?: string } | null> {
+  const base = apiBase()
+  const key = process.env.HIREALPHA_INTERNAL_KEY || ''
+  if (!base || !key) return { ok: false, logged: false, error: 'not configured' }
+  try {
+    const res = await timedFetch(
+      `${base}/api/internal/workshop/iterate`,
+      {
+        method: 'POST',
+        headers: authHeaders(),
+        body: JSON.stringify({
+          phone: input.phone,
+          persona: input.persona,
+          artifactId: input.artifactId,
+          title: input.title,
+          html: input.html,
+          instruction: input.instruction.slice(0, 500),
+        }),
+      },
+      30000,
+    )
+    if (!res.ok) return { ok: false, logged: false, error: `update failed (${res.status})` }
+    return (await res.json()) as { ok?: boolean; logged?: boolean; error?: string; artifactId?: string; url?: string; title?: string }
+  } catch (err) {
+    console.warn('[live] workshop iterate failed', err)
+    return { ok: false, logged: false, error: 'update failed' }
+  }
+}
+
+/** Run the change: fetch the current build, apply the instruction via the
+ * model, store the new version. Returns null when there is no build to
+ * iterate on (caller falls through to normal handling). */
+export async function autoIterateWorkshop(input: {
+  phone: string
+  persona: AgentId
+  instruction: string
+  artifactId?: string
+}): Promise<{ ok?: boolean; logged?: boolean; error?: string; artifactId?: string; url?: string; title?: string } | null> {
+  const source = await fetchWorkshopSource(input.phone, input.artifactId)
+  if (!source) return null
+  let raw = ''
+  try {
+    raw = await gmiChat({
+      temperature: 0.2,
+      maxTokens: 8000,
+      messages: [
+        { role: 'system', content: WORKSHOP_ITERATOR },
+        {
+          role: 'user',
+          content: `Current app (title: ${source.title}):\n\n${source.html}\n\nRequested change: ${input.instruction}\n\nReply with the full updated HTML as JSON now.`,
+        },
+      ],
+    })
+  } catch (err) {
+    console.warn('[live] workshop iterate model failed', err)
+    return { ok: false, logged: false, error: 'could not apply the change' }
+  }
+  const m = (raw || '').match(/\{[\s\S]*\}/)
+  if (!m) return { ok: false, logged: false, error: 'could not apply the change' }
+  try {
+    const parsed = JSON.parse(m[0]) as { title?: string; html?: string }
+    const html = String(parsed.html || '')
+    if (!html.trim()) return { ok: false, logged: false, error: 'the updated app came back empty' }
+    return await iterateWorkshopBuild({
+      phone: input.phone,
+      persona: input.persona,
+      artifactId: source.artifactId,
+      title: String(parsed.title || source.title),
+      html,
+      instruction: input.instruction,
+    })
+  } catch {
+    return { ok: false, logged: false, error: 'could not apply the change' }
+  }
+}
+
 export async function autoRunWorkshop(
   phone: string,
   persona: AgentId,
