@@ -8414,7 +8414,8 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     }
     const artifactId = crypto.randomUUID()
     const title = String(body.title || prompt || 'Built for you').slice(0, 120)
-    await storeArtifactFiles(user.id, artifactId, run.files)
+    // Parent row first: the file rows FK-reference hire_artifacts, so storing
+    // files before the artifact exists violates the key and kills the build.
     const fileNames = run.files.map((f) => f.name)
     const expires = new Date(Date.now() + 7 * 86_400_000)
     await sql`
@@ -8422,6 +8423,7 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
       VALUES (${artifactId}, ${user.id}, ${title}, ${fileNames.some((f) => /\.html?$/i.test(f)) ? 'page' : 'file'},
         ${JSON.stringify(fileNames)}, 'delivered', ${expires.toISOString()})
     `
+    await storeArtifactFiles(user.id, artifactId, run.files)
     await sql`
       UPDATE hire_workshop_tasks SET status = 'done', artifact_id = ${artifactId}
       WHERE user_id = ${user.id} AND prompt = ${prompt || 'build'} AND status = 'running'
