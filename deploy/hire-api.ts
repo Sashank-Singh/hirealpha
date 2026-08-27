@@ -536,6 +536,11 @@ export async function ensureHireSchema(sql: SQL) {
       PRIMARY KEY (artifact_id, name)
     )
   `
+  /* Dedup: one verified build serves every user who asks for the same thing.
+   * template_key is the normalized ask; clones copy the files per user so
+   * expiry and keep/toss stay personal. */
+  await sql`ALTER TABLE hire_artifacts ADD COLUMN IF NOT EXISTS template_key TEXT`
+  await sql`CREATE INDEX IF NOT EXISTS idx_hire_artifacts_template ON hire_artifacts (template_key, created_at DESC)`
   await sql`
     CREATE TABLE IF NOT EXISTS hire_workshop_tasks (
       id TEXT PRIMARY KEY,
@@ -8371,10 +8376,11 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
     if (process.env.WORKSHOP_ENABLED === '0') return json({ ok: false, logged: false, error: 'Workshop is disabled' })
     const body = (await req.json().catch(() => ({}))) as {
-      phone?: string; persona?: string; prompt?: string; title?: string; code?: string
+      phone?: string; persona?: string; prompt?: string; title?: string; code?: string; templateKey?: string
     }
     const code = String(body.code || '')
     const prompt = String(body.prompt || '').trim().slice(0, 500)
+    const templateKey = String(body.templateKey || '').trim().slice(0, 60) || null
     if (!body.phone || !isPersona(body.persona || '') || !code) {
       return json({ error: 'phone, persona, and code required' }, 400)
     }
@@ -8445,7 +8451,7 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     await sql`
       INSERT INTO hire_artifacts (id, user_id, title, kind, files, state, expires_at)
       VALUES (${artifactId}, ${user.id}, ${title}, ${fileNames.some((f) => /\.html?$/i.test(f)) ? 'page' : 'file'},
-        ${JSON.stringify(fileNames)}, 'delivered', ${expires.toISOString()})
+        ${JSON.stringify(fileNames)}, 'delivered', ${expires.toISOString()}, ${templateKey})
     `
     await storeArtifactFiles(user.id, artifactId, run.files)
     await sql`
@@ -8470,6 +8476,81 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
         error: `server error: ${err instanceof Error ? err.message : String(err)}`.slice(0, 300),
       })
     }
+  }
+
+  /* Dedup lookup: has anyone already built this? Returns the newest verified
+   * build with this template key from a DIFFERENT user (same-user re-asks get
+   * a fresh build). */
+  if (path === '/api/internal/workshop/find' && req.method === 'GET') {
+    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
+    const phone = url.searchParams.get('phone') || ''
+    const key = (url.searchParams.get('key') || '').trim()
+    if (!phone || !key) return json({ artifact: null })
+    const user = await getUserByPhone(sql, phone)
+    if (!user) return json({ artifact: null })
+    const rows = await sql`
+      SELECT id, title FROM hire_artifacts
+      WHERE template_key = ${key} AND user_id != ${user.id} AND state IN ('delivered', 'kept')
+      ORDER BY created_at DESC LIMIT 1
+    `
+    const row = rows[0] as { id: string; title: string } | undefined
+    return json({ artifact: row ? { artifactId: row.id, title: row.title } : null })
+  }
+
+  /* Clone a verified build for a new user: own artifact row, own 7-day
+   * expiry, copied file rows. No planner, no sandbox — instant. */
+  if (path === '/api/internal/workshop/clone' && req.method === 'POST') {
+    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
+    const body = (await req.json().catch(() => ({}))) as {
+      phone?: string; persona?: string; artifactId?: string
+    }
+    if (!body.phone || !isPersona(body.persona || '') || !body.artifactId) {
+      return json({ error: 'phone, persona, and artifactId required' }, 400)
+    }
+    const user = await getUserByPhone(sql, body.phone)
+    if (!user) return json({ error: 'User not found' }, 404)
+    const src = await sql`
+      SELECT title, kind, files, template_key FROM hire_artifacts
+      WHERE id = ${body.artifactId} AND state IN ('delivered', 'kept') LIMIT 1
+    `
+    const source = src[0] as { title: string; kind: string; files: string[] | string; template_key?: string } | undefined
+    if (!source) return json({ ok: false, logged: false, error: 'source build no longer exists' })
+    let fileList: string[] = []
+    try {
+      fileList = Array.isArray(source.files) ? source.files : JSON.parse(String(source.files || '[]'))
+    } catch {
+      fileList = []
+    }
+    const cloneId = crypto.randomUUID()
+    const expires = new Date(Date.now() + 7 * 86_400_000)
+    await sql`
+      INSERT INTO hire_artifacts (id, user_id, title, kind, files, state, expires_at, template_key)
+      VALUES (${cloneId}, ${user.id}, ${source.title}, ${source.kind},
+        ${JSON.stringify(fileList)}, 'delivered', ${expires.toISOString()}, ${source.template_key || null})
+    `
+    const fileRows = await sql`
+      SELECT name, content FROM hire_artifact_files WHERE artifact_id = ${body.artifactId}
+    `
+    for (const f of fileRows as Array<{ name: string; content: string }>) {
+      await sql`
+        INSERT INTO hire_artifact_files (artifact_id, name, content)
+        VALUES (${cloneId}, ${f.name}, ${f.content})
+        ON CONFLICT (artifact_id, name) DO UPDATE SET content = excluded.content
+      `
+    }
+    await sql`
+      INSERT INTO hire_workshop_tasks (id, user_id, prompt, status, artifact_id)
+      VALUES (${crypto.randomUUID()}, ${user.id}, ${('shared: ' + source.title).slice(0, 500)}, 'done', ${cloneId})
+    `
+    return json({
+      ok: true,
+      logged: true,
+      artifactId: cloneId,
+      title: source.title,
+      deduped: true,
+      files: fileList,
+      url: `${appBase(req)}/b/${cloneId}`,
+    })
   }
 
   if (path === '/api/internal/workshop/last' && req.method === 'GET') {

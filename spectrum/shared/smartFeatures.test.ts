@@ -135,3 +135,13 @@ describe('smart features — toolbox', () => {
     expect(looksLikeToolbox('my builds?')).toBe(true)
   })
 })
+describe('workshop dedup key', () => {
+  it('normalizes differently-phrased asks to the same key', async () => {
+    const { workshopTemplateKey } = await import('./liveContext')
+    expect(workshopTemplateKey('can you build a pomodoro timer')).toBe('pomodoro timer')
+    expect(workshopTemplateKey('build me a Pomodoro Timer!')).toBe('pomodoro timer')
+    expect(workshopTemplateKey('could you write a password saver')).toBe('password saver')
+    expect(workshopTemplateKey('build something')).toBe('something')
+    expect(workshopTemplateKey('build a')).toBe('')
+  })
+})

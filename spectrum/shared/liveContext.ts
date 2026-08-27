@@ -846,14 +846,91 @@ const WORKSHOP_PLANNER = [
   'Reply with JSON only, no markdown: {"title": "short name", "code": "<the whole program>"}',
 ].join('\n')
 
+/* Normalized ask -> dedup key. Same app phrased differently still matches;
+ * filler words (can you build me a...) are stripped. */
+export function workshopTemplateKey(ask: string): string {
+  return ask
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(
+      /\b(?:can|could|will|would|you|please|build|make|create|write|code|develop|ship|me|a|an|the|for|my|us|simple|tiny|small|basic|quick|little)\b/g,
+      ' ',
+    )
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 60)
+}
+
+async function findWorkshopTemplate(
+  phone: string,
+  persona: AgentId,
+  key: string,
+): Promise<{ artifactId: string; title: string } | null> {
+  const base = apiBase()
+  const keyEnv = process.env.HIREALPHA_INTERNAL_KEY || ''
+  if (!base || !keyEnv) return null
+  try {
+    const res = await timedFetch(
+      `${base}/api/internal/workshop/find?phone=${encodeURIComponent(phone)}&persona=${encodeURIComponent(persona)}&key=${encodeURIComponent(key)}`,
+      { headers: authHeaders() },
+      8000,
+    )
+    if (!res.ok) return null
+    const data = (await res.json()) as { artifact?: { artifactId: string; title: string } | null }
+    return data.artifact || null
+  } catch {
+    return null
+  }
+}
+
+async function cloneWorkshopBuild(
+  phone: string,
+  persona: AgentId,
+  artifactId: string,
+): Promise<{ ok?: boolean; logged?: boolean; error?: string; artifactId?: string; url?: string; title?: string; deduped?: boolean } | null> {
+  const base = apiBase()
+  const envKey = process.env.HIREALPHA_INTERNAL_KEY || ''
+  if (!base || !envKey) return null
+  try {
+    const res = await timedFetch(
+      `${base}/api/internal/workshop/clone`,
+      {
+        method: 'POST',
+        headers: authHeaders(),
+        body: JSON.stringify({ phone, persona, artifactId }),
+      },
+      20000,
+    )
+    if (!res.ok) return null
+    return (await res.json()) as { ok?: boolean; logged?: boolean; artifactId?: string; url?: string; title?: string; deduped?: boolean }
+  } catch {
+    return null
+  }
+}
+
 export async function autoRunWorkshop(
   phone: string,
   persona: AgentId,
   ask: string,
-): Promise<{ ok?: boolean; logged?: boolean; error?: string; artifactId?: string; url?: string; title?: string } | null> {
+): Promise<{ ok?: boolean; logged?: boolean; error?: string; artifactId?: string; url?: string; title?: string; deduped?: boolean } | null> {
   const base = apiBase()
   const key = process.env.HIREALPHA_INTERNAL_KEY || ''
   if (!base || !key) return { ok: false, logged: false, error: 'not configured' }
+
+  // Dedup: a verified build with the same normalized ask (from another user)
+  // clones instantly instead of re-running the planner and sandbox. The clone
+  // gives the asker their own artifact row — own expiry, own keep/toss.
+  const templateKey = workshopTemplateKey(ask)
+  if (templateKey) {
+    const existing = await findWorkshopTemplate(phone, persona, templateKey)
+    if (existing) {
+      const cloned = await cloneWorkshopBuild(phone, persona, existing.artifactId)
+      if (cloned?.ok && cloned.artifactId) {
+        console.log(`[live] workshop dedup hit: ${templateKey} -> ${cloned.artifactId}`)
+        return { ...cloned, deduped: true }
+      }
+    }
+  }
 
   // Plan → run → repair. Generated programs are sometimes broken (a dropped
   // backtick, a bad interpolation), so when the sandbox run fails the error
@@ -909,7 +986,7 @@ export async function autoRunWorkshop(
         {
           method: 'POST',
           headers: authHeaders(),
-          body: JSON.stringify({ phone, persona, prompt: ask.slice(0, 500), title, code }),
+          body: JSON.stringify({ phone, persona, prompt: ask.slice(0, 500), title, code, templateKey }),
         },
         60000,
       )
