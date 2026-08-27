@@ -30,11 +30,13 @@ import {
 import { COMPOSIO_READ, composioLooksFailed, formatComposioData } from './composioPlugins'
 import { parseChatExport, scanSubscriptions } from '../spectrum/shared/smartFeatures'
 import {
+  isValidTimeZone,
   parseSpokenWhen,
   pickUserTimezone,
   resolveIanaTimezone,
   timezoneFromCoords,
   timezoneFromText,
+  wallTimeToUtc,
 } from './timezones'
 import {
   cleanMailSnippet,
@@ -247,10 +249,21 @@ export async function enqueueIntro(sql: SQL, phone: string, persona: Persona) {
 
 export async function ackIntro(sql: SQL, id: string, ok: boolean, error?: string) {
   if (ok) {
-    await sql`
+    const rows = (await sql`
       UPDATE hire_intro_queue SET status = 'sent', sent_at = now(), last_error = NULL
       WHERE id = ${id} AND status = 'claiming'
-    `
+      RETURNING phone_e164, persona
+    `) as Array<{ phone_e164: string; persona: string }>
+    const sent = rows[0]
+    if (sent && isPersona(sent.persona)) {
+      // The intro landed, so day 1 has started: arm the follow-up check-in.
+      // A pre-migration database must not fail the ack over a missing table.
+      try {
+        await scheduleDay1Checkin(sql, sent.phone_e164, sent.persona)
+      } catch (err) {
+        console.warn('[hire] day1 checkin schedule failed', err)
+      }
+    }
     return
   }
   // Failed claims with attempts left go back to pending for the next poll;
@@ -291,10 +304,224 @@ export async function ensurePhoneUser(sql: SQL, phone: string, persona: Persona)
     INSERT INTO hire_roster (user_id, persona) VALUES (${userId}, ${persona})
     ON CONFLICT (user_id, persona) DO NOTHING
   `
+  // The number is armed: give this hire its default recurring jobs. No
+  // timezone is known for a phone-only signup yet, so the wakeup lands at
+  // 8am Pacific until the user's zone is learned.
+  await seedDefaultLoops(sql, userId, e164, persona)
+}
+
+/* ---- Task loops ----
+ * Recurring jobs a hire runs for one person: a morning wakeup, a weekly refund
+ * hunt, a one-shot day 1 check-in, a handoff from another hire. Bots claim due
+ * rows with the same protocol as the intro queue and report each run back, so
+ * a crashed bot cannot hold a row and a flapping job cannot retry forever. */
+
+export const TASK_LOOP_MAX_ATTEMPTS = 5
+
+const DEFAULT_TIMEZONE = 'America/Los_Angeles'
+
+function loopTimezone(tz: string | null | undefined): string {
+  return tz && isValidTimeZone(tz) ? tz : DEFAULT_TIMEZONE
+}
+
+/** Local calendar day and weekday (0=Sunday) for an instant in a zone. */
+function localWall(tz: string, at: Date): { ymd: string; weekday: number } {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: tz,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    weekday: 'short',
+  }).formatToParts(at)
+  const get = (t: string) => parts.find((p) => p.type === t)?.value || ''
+  const ymd = `${get('year')}-${get('month')}-${get('day')}`
+  const weekday = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(get('weekday').slice(0, 3))
+  return { ymd, weekday }
+}
+
+/** The next `hour`:00 local time in `tz` as a UTC ISO string. Unknown zones
+ * fall back to the default so a bad timezone can never strand a loop. */
+export function nextDailyUtc(tz: string | null | undefined, hour: number, from = new Date()): string {
+  const zone = loopTimezone(tz)
+  let when = wallTimeToUtc(localWall(zone, from).ymd, hour, 0, zone)
+  if (when.getTime() <= from.getTime()) {
+    const tomorrow = localWall(zone, new Date(from.getTime() + 24 * 60 * 60 * 1000)).ymd
+    when = wallTimeToUtc(tomorrow, hour, 0, zone)
+  }
+  return when.toISOString()
+}
+
+/** The next `weekday` at `hour`:00 local time in `tz` as a UTC ISO string. */
+export function nextWeeklyUtc(
+  tz: string | null | undefined,
+  hour: number,
+  weekday: number,
+  from = new Date(),
+): string {
+  const zone = loopTimezone(tz)
+  const wall = localWall(zone, from)
+  const add = (weekday - wall.weekday + 7) % 7
+  let target = localWall(zone, new Date(from.getTime() + add * 24 * 60 * 60 * 1000)).ymd
+  let when = wallTimeToUtc(target, hour, 0, zone)
+  if (when.getTime() <= from.getTime()) {
+    // Same weekday and the hour already passed: go a week out.
+    target = localWall(zone, new Date(from.getTime() + (add + 7) * 24 * 60 * 60 * 1000)).ymd
+    when = wallTimeToUtc(target, hour, 0, zone)
+  }
+  return when.toISOString()
+}
+
+/** Default loops armed when a phone joins a roster. Deduped per (user, persona,
+ * kind), so re-arming the same number never grows the list. */
+export async function seedDefaultLoops(
+  sql: SQL,
+  userId: string,
+  phone: string,
+  persona: Persona,
+  timezone?: string | null,
+) {
+  const tz = loopTimezone(timezone)
+  const seeds = [
+    { kind: 'wakeup', title: 'Morning wakeup', nextRun: nextDailyUtc(tz, 8), payload: { hour: 8 } },
+    { kind: 'refund_hunter', title: 'Hunt refunds and unused subscriptions', nextRun: nextWeeklyUtc(tz, 10, 2), payload: {} },
+    { kind: 'memory_resurface', title: 'Resurface one saved memory', nextRun: nextWeeklyUtc(tz, 12, 5), payload: {} },
+  ]
+  for (const seed of seeds) {
+    await sql`
+      INSERT INTO hire_task_loops (id, user_id, persona, phone_e164, kind, title, payload, status, next_run)
+      VALUES (${crypto.randomUUID()}, ${userId}, ${persona}, ${phone}, ${seed.kind}, ${seed.title},
+        ${JSON.stringify(seed.payload)}::jsonb, 'pending', ${seed.nextRun})
+      ON CONFLICT (user_id, persona, kind) DO NOTHING
+    `
+  }
+}
+
+/** Day 1 check-in: one day after the first text lands, the same hire follows
+ * up to hear how the first day went. Needs the phone-only account to exist so
+ * the loop has an owner; a waitlist-only number that never signed up is skipped. */
+export async function scheduleDay1Checkin(sql: SQL, phone: string, persona: Persona) {
+  const e164 = normalizePhone(phone)
+  if (!e164) return
+  const rows = (await sql`
+    SELECT id FROM hire_users WHERE phone_e164 = ${e164} LIMIT 1
+  `) as Array<{ id: string }>
+  const userId = rows[0]?.id
+  if (!userId) return
+  await sql`
+    INSERT INTO hire_task_loops (id, user_id, persona, phone_e164, kind, title, payload, status, next_run)
+    VALUES (${crypto.randomUUID()}, ${userId}, ${persona}, ${e164}, 'day1_checkin',
+      'Check how the first day went', '{}'::jsonb, 'pending',
+      ${new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()})
+    ON CONFLICT (user_id, persona, kind) DO NOTHING
+  `
+}
+
+/** Hand due loops for one persona to the bot that owns the line, same claim
+ * protocol as the intro queue: attempts bump on claim, claims stuck in
+ * 'running' past the reset window go back to pending on the next pass. */
+export async function claimDueLoops(sql: SQL, persona: Persona, limit: number) {
+  await sql`
+    UPDATE hire_task_loops SET status = 'pending'
+    WHERE status = 'running' AND updated_at < now() - interval '10 minutes'
+  `
+  const rows = (await sql`
+    UPDATE hire_task_loops SET status = 'running', updated_at = now()
+    WHERE id IN (
+      SELECT id FROM hire_task_loops
+      WHERE persona = ${persona} AND status = 'pending' AND attempts < ${TASK_LOOP_MAX_ATTEMPTS}
+        AND (next_run IS NULL OR next_run <= now())
+      ORDER BY next_run
+      LIMIT ${limit}
+      FOR UPDATE SKIP LOCKED
+    )
+    RETURNING id, user_id AS "userId", persona, phone_e164 AS phone, kind, title, payload
+  `) as Array<{
+    id: string
+    userId: string
+    persona: Persona
+    phone: string
+    kind: string
+    title: string
+    payload: unknown
+  }>
+  return rows
+}
+
+/** A claimed loop reports back: done ends it, a failure burns one of the five
+ * attempts before parking as terminal, a snooze sets the next run. */
+export async function finishTaskLoop(
+  sql: SQL,
+  id: string,
+  outcome: 'done' | 'failed' | 'snoozed',
+  note?: string,
+  nextRun?: string | null,
+) {
+  const result = String(note || '').slice(0, 500)
+  if (outcome === 'done') {
+    await sql`
+      UPDATE hire_task_loops SET status = 'done', last_result = ${result}, updated_at = now()
+      WHERE id = ${id}
+    `
+    return
+  }
+  if (outcome === 'failed') {
+    await sql`
+      UPDATE hire_task_loops SET
+        status = CASE WHEN attempts + 1 < ${TASK_LOOP_MAX_ATTEMPTS} THEN 'pending' ELSE 'failed' END,
+        attempts = attempts + 1,
+        last_result = ${result},
+        updated_at = now()
+      WHERE id = ${id}
+    `
+    return
+  }
+  const when = new Date(String(nextRun || ''))
+  const snoozedTo = Number.isNaN(when.getTime())
+    ? new Date(Date.now() + 60 * 60 * 1000).toISOString()
+    : when.toISOString()
+  await sql`
+    UPDATE hire_task_loops SET status = 'pending', next_run = ${snoozedTo}, last_result = ${result}, updated_at = now()
+    WHERE id = ${id}
+  `
+}
+
+/* ---- Invites ----
+ * Every armed phone gets three codes to hand out. The alphabet drops 0 O 1 I L
+ * because codes get read out loud over iMessage and those five are the ones
+ * people mishear. */
+
+const INVITE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'
+
+export function generateInviteCode(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(6))
+  let suffix = ''
+  for (const byte of bytes) suffix += INVITE_ALPHABET[byte % INVITE_ALPHABET.length]
+  return `ALPHA-${suffix}`
+}
+
+/** Idempotently make sure a phone has its three codes. Re-reads after every
+ * insert so a rare code collision with another phone cannot short the count. */
+export async function ensureInvites(sql: SQL, phone: string): Promise<string[]> {
+  const e164 = normalizePhone(phone)
+  if (!e164) throw new Error('invalid phone')
+  const codes = async () =>
+    ((await sql`
+      SELECT code FROM hire_invites WHERE phone_e164 = ${e164} ORDER BY created_at
+    `) as Array<{ code: string }>).map((r) => r.code)
+  let mine = await codes()
+  for (let guard = 0; guard < 10 && mine.length < 3; guard++) {
+    await sql`
+      INSERT INTO hire_invites (code, phone_e164)
+      VALUES (${generateInviteCode()}, ${e164})
+      ON CONFLICT (code) DO NOTHING
+    `
+    mine = await codes()
+  }
+  return mine.slice(0, 3)
 }
 
 /* ---- Billing ----
- * Stripe over plain fetch: one $19/mo price per hire, checkout creates a
+ * Stripe over plain fetch: one price per hire, checkout creates a
  * session, the webhook keeps hire_subscriptions honest. Nothing gates on it
  * until BILLING_ENFORCE=1 — ship the plumbing first, flip the switch when the
  * prices exist in the Stripe dashboard. */
@@ -400,7 +627,9 @@ async function handleBillingWebhook(req: Request, sql: SQL) {
     const [userId, persona] = ref.split(':')
     const subscriptionId = typeof obj['subscription'] === 'string' ? obj['subscription'] : null
     const customerId = typeof obj['customer'] === 'string' ? obj['customer'] : null
-    if (userId && persona && isPersona(persona) && subscriptionId) {
+    // 'all' is the synthetic persona a bundle checkout writes; it owns one
+    // subscription row that covers every hire.
+    if (userId && persona && (isPersona(persona) || persona === 'all') && subscriptionId) {
       // The session completes before the subscription ticks active; fetch it
       // so the row starts in Stripe's own state rather than guessed state.
       let status = 'active'
@@ -1147,6 +1376,90 @@ export async function ensureHireSchema(sql: SQL) {
   `
   await sql`CREATE INDEX IF NOT EXISTS idx_hire_subscriptions_user ON hire_subscriptions (user_id, status)`
 
+  // Proactive jobs a hire runs on a schedule. status walks pending → running →
+  // done, with paused and failed as parking states; attempts mirrors the intro
+  // queue so a flapping job stops after TASK_LOOP_MAX_ATTEMPTS. One row per
+  // (user, persona, kind) keeps seeded defaults and handoffs from piling up.
+  await sql`
+    CREATE TABLE IF NOT EXISTS hire_task_loops (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES hire_users(id) ON DELETE CASCADE,
+      persona TEXT NOT NULL,
+      phone_e164 TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      title TEXT NOT NULL DEFAULT '',
+      payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      status TEXT NOT NULL DEFAULT 'pending',
+      attempts INTEGER NOT NULL DEFAULT 0,
+      next_run TIMESTAMPTZ,
+      last_result TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      UNIQUE (user_id, persona, kind)
+    )
+  `
+  await sql`CREATE INDEX IF NOT EXISTS idx_hire_task_loops_due ON hire_task_loops (persona, status, next_run)`
+
+  // Invite codes handed out by an armed phone. The referrer is the row owner;
+  // a redemption records who came in through the code.
+  await sql`
+    CREATE TABLE IF NOT EXISTS hire_invites (
+      code TEXT PRIMARY KEY,
+      phone_e164 TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      redeemed_by_phone TEXT,
+      redeemed_at TIMESTAMPTZ
+    )
+  `
+  await sql`CREATE INDEX IF NOT EXISTS idx_hire_invites_phone ON hire_invites (phone_e164)`
+
+  // Receipts for things a hire actually did on the user's behalf, one row per
+  // action with an optional undo hint for the client to render.
+  await sql`
+    CREATE TABLE IF NOT EXISTS hire_action_log (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES hire_users(id) ON DELETE CASCADE,
+      persona TEXT NOT NULL,
+      action TEXT NOT NULL,
+      detail TEXT NOT NULL DEFAULT '',
+      undo_hint TEXT,
+      undone_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `
+  await sql`CREATE INDEX IF NOT EXISTS idx_hire_action_log_user ON hire_action_log (user_id, created_at DESC)`
+
+  // A person can silence a hire before it texts: bots check this before every
+  // proactive send.
+  await sql`
+    CREATE TABLE IF NOT EXISTS hire_kill_switch (
+      phone_e164 TEXT PRIMARY KEY,
+      armed BOOLEAN NOT NULL DEFAULT false,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `
+
+  // Feature votes. One vote per phone per idea keeps the tally honest.
+  await sql`
+    CREATE TABLE IF NOT EXISTS hire_wishlist (
+      id TEXT PRIMARY KEY,
+      phone_e164 TEXT NOT NULL,
+      vote TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      UNIQUE (phone_e164, vote)
+    )
+  `
+
+  // Status page: each hire beats here after its replies so /api/status can say
+  // who is up without the bots exposing their hosts.
+  await sql`
+    CREATE TABLE IF NOT EXISTS hire_heartbeat (
+      persona TEXT PRIMARY KEY,
+      last_beat TIMESTAMPTZ NOT NULL DEFAULT now(),
+      reply_ms INTEGER
+    )
+  `
+
   // Delivered-but-unkept artifacts die with the day count; the sweep also runs
   // hourly from the server so a long-lived process keeps purging.
   try {
@@ -1154,6 +1467,26 @@ export async function ensureHireSchema(sql: SQL) {
   } catch {
     /* first boot may have no dir yet */
   }
+  // Chat memory retention, same cadence as the artifact sweep: every
+  // ensureHireSchema pass (boot and each deploy restart). Off unless
+  // RETENTION_DAYS is set to a positive number of days.
+  try {
+    await purgeExpiredChatData(sql)
+  } catch (err) {
+    console.warn('[hire] retention purge failed', err)
+  }
+}
+
+/**
+ * Chat memory retention. Off by default: nothing is ever deleted unless
+ * RETENTION_DAYS is set to a positive number of days, and then only
+ * hire_memories rows untouched for that long go. Runs from ensureHireSchema,
+ * next to the artifact sweep.
+ */
+export async function purgeExpiredChatData(sql: SQL) {
+  const days = Number(process.env.RETENTION_DAYS || '')
+  if (!Number.isFinite(days) || days <= 0) return
+  await sql`DELETE FROM hire_memories WHERE updated_at < now() - make_interval(days => ${days})`
 }
 
 export type MailSenderSignal = { replies: number; skips: number }
@@ -3227,6 +3560,35 @@ async function writeBriefDb(sql: SQL, userId: string, persona: string, kind: str
   }
 }
 
+/**
+ * Free tier rationing. With FREE_TIER_LIMIT unset the brief builds free, exactly
+ * as before. When set, a user with no active subscription gets that many brief
+ * kinds refreshed per rolling week: each build stamps built_at on its
+ * (persona, kind) row in hire_brief_cache, so counting rows touched this week
+ * counts builds. Past the cap the last cached build is served stale; a kind
+ * with no cache row still builds once, because there is nothing to serve.
+ */
+async function briefBuildAllowed(sql: SQL, userId: string): Promise<boolean> {
+  const limit = Number(process.env.FREE_TIER_LIMIT || '')
+  if (!Number.isFinite(limit) || limit <= 0) return true
+  try {
+    const subs = (await sql`
+      SELECT 1 FROM hire_subscriptions
+      WHERE user_id = ${userId} AND status IN ('active', 'trialing')
+      LIMIT 1
+    `) as unknown[]
+    if (subs.length) return true
+    const counts = (await sql`
+      SELECT count(*) AS n FROM hire_brief_cache
+      WHERE user_id = ${userId} AND built_at > now() - interval '7 days'
+    `) as Array<{ n: string | number }>
+    return Number(counts[0]?.n ?? 0) < limit
+  } catch {
+    // Rationing must never take the brief down.
+    return true
+  }
+}
+
 /** Serve today's persisted brief when it is still fresh-ish; otherwise build and persist. */
 async function briefLoader<T>(
   sql: SQL,
@@ -3240,6 +3602,7 @@ async function briefLoader<T>(
   if (row && briefRowFresh(Date.now() - new Date(row.builtAt).getTime(), day, row.day)) {
     return row.payload as T
   }
+  if (row && !(await briefBuildAllowed(sql, userId))) return row.payload as T
   const payload = await build()
   await writeBriefDb(sql, userId, persona, kind, day, payload)
   return payload
@@ -6635,9 +6998,14 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     const user = await ensureUser(sql, email, phone, body.name, body.timezone)
     // A number arriving on an account means the hires on that account can now
     // greet it — queue intros for everything in the roster that has not yet.
+    // Each hire also gets its default recurring jobs, in the user's timezone
+    // when the account has one.
     try {
       const roster = await loadRoster(sql, user.id)
-      for (const persona of roster) await enqueueIntro(sql, phone, persona)
+      for (const persona of roster) {
+        await enqueueIntro(sql, phone, persona)
+        await seedDefaultLoops(sql, user.id, phone, persona, user.timezone)
+      }
     } catch (err) {
       console.error('[hire] intro enqueue after phone set failed', err)
     }
@@ -6982,34 +7350,199 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     return json({ ok: true })
   }
 
+  if (path === '/api/internal/loops/claim' && req.method === 'GET') {
+    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
+    const persona = url.searchParams.get('persona') || ''
+    if (!isPersona(persona)) return json({ error: 'persona required' }, 400)
+    const limit = Math.min(Math.max(Number(url.searchParams.get('limit')) || 3, 1), 10)
+    const loops = await claimDueLoops(sql, persona, limit)
+    return json({ loops })
+  }
+
+  if (path === '/api/internal/loops/result' && req.method === 'POST') {
+    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
+    const body = (await req.json().catch(() => ({}))) as {
+      id?: string
+      outcome?: string
+      note?: string
+      next_run?: string
+    }
+    const outcome = body.outcome === 'done' || body.outcome === 'failed' || body.outcome === 'snoozed'
+      ? body.outcome
+      : null
+    if (!body.id || !outcome) return json({ error: 'id and outcome (done, failed, or snoozed) required' }, 400)
+    await finishTaskLoop(sql, body.id, outcome, body.note, body.next_run)
+    return json({ ok: true })
+  }
+
+  if (path === '/api/internal/handoff' && req.method === 'POST') {
+    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
+    const body = (await req.json().catch(() => ({}))) as {
+      fromPersona?: string
+      toPersona?: string
+      phone?: string
+      note?: string
+    }
+    if (!isPersona(body.fromPersona || '') || !isPersona(body.toPersona || '') || !body.phone) {
+      return json({ error: 'fromPersona, toPersona, and phone required' }, 400)
+    }
+    const phone = normalizePhone(body.phone)
+    if (!phone) return json({ error: 'valid phone required' }, 400)
+    const user = await getUserByPhone(sql, phone)
+    if (!user) return json({ error: 'User not found' }, 404)
+    // The receiving hire runs this on its next claim pass and texts first.
+    await sql`
+      INSERT INTO hire_task_loops (id, user_id, persona, phone_e164, kind, title, payload, status, next_run)
+      VALUES (${crypto.randomUUID()}, ${user.id}, ${body.toPersona!}, ${phone}, 'handoff',
+        'Follow up on the handoff from ${body.fromPersona!}',
+        ${JSON.stringify({ note: String(body.note || '').slice(0, 500), from: body.fromPersona })}::jsonb,
+        'pending', now())
+      ON CONFLICT (user_id, persona, kind) DO UPDATE SET
+        payload = excluded.payload,
+        status = 'pending',
+        next_run = excluded.next_run,
+        updated_at = now()
+    `
+    return json({ ok: true })
+  }
+
+  if (path === '/api/internal/kill-switch/check' && req.method === 'POST') {
+    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
+    const body = (await req.json().catch(() => ({}))) as { phone?: string }
+    const phone = normalizePhone(body.phone || '')
+    if (!phone) return json({ error: 'valid phone required' }, 400)
+    const rows = (await sql`
+      SELECT armed FROM hire_kill_switch WHERE phone_e164 = ${phone} LIMIT 1
+    `) as Array<{ armed: boolean }>
+    return json({ armed: !!rows[0]?.armed })
+  }
+
+  if (path === '/api/internal/actions' && req.method === 'POST') {
+    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
+    const body = (await req.json().catch(() => ({}))) as {
+      phone?: string
+      persona?: string
+      action?: string
+      detail?: string
+      undo_hint?: string
+    }
+    const action = String(body.action || '').trim().slice(0, 120)
+    if (!body.phone || !isPersona(body.persona || '') || !action) {
+      return json({ error: 'phone, persona, and action required' }, 400)
+    }
+    const phone = normalizePhone(body.phone)
+    const user = phone ? await getUserByPhone(sql, phone) : null
+    if (!phone || !user) return json({ error: 'User not found' }, 404)
+    const id = crypto.randomUUID()
+    await sql`
+      INSERT INTO hire_action_log (id, user_id, persona, action, detail, undo_hint)
+      VALUES (${id}, ${user.id}, ${body.persona!}, ${action},
+        ${String(body.detail || '').slice(0, 500)}, ${String(body.undo_hint || '').slice(0, 300) || null})
+    `
+    return json({ ok: true, id })
+  }
+
+  if (path === '/api/internal/heartbeat' && req.method === 'POST') {
+    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
+    const body = (await req.json().catch(() => ({}))) as { persona?: string; replyMs?: number }
+    if (!isPersona(body.persona || '')) return json({ error: 'persona required' }, 400)
+    const replyMs = Number.isFinite(Number(body.replyMs)) && Number(body.replyMs) >= 0
+      ? Math.round(Number(body.replyMs))
+      : null
+    await sql`
+      INSERT INTO hire_heartbeat (persona, last_beat, reply_ms)
+      VALUES (${body.persona!}, now(), ${replyMs})
+      ON CONFLICT (persona) DO UPDATE SET last_beat = now(), reply_ms = excluded.reply_ms
+    `
+    return json({ ok: true })
+  }
+
+  // Mail rows for a hire that is about to act on the inbox (the refund hunter
+  // asks before it drafts anything). Falls back to an empty list for a phone
+  // with no connected Gmail so the caller can carry on gracefully.
+  if (path === '/api/internal/mail/context' && req.method === 'GET') {
+    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
+    const phone = normalizePhone(url.searchParams.get('phone') || '')
+    if (!phone) return json({ error: 'valid phone required' }, 400)
+    const user = await getUserByPhone(sql, phone)
+    if (!user) return json({ mail: [] })
+    const limit = Math.min(Math.max(Number(url.searchParams.get('limit')) || 10, 1), 30)
+    const rich = await loadGmailRich(sql, user.id, importantMailQuery('14d'), limit)
+    const mail = rich.map((m) => ({
+      subject: m.subject,
+      snippet: m.snippet,
+      from: m.from,
+      threadId: m.id,
+      receivedAt: m.date,
+    }))
+    return json({ mail })
+  }
+
   if (path === '/api/billing/webhook' && req.method === 'POST') {
     return handleBillingWebhook(req, sql)
   }
 
   if (path === '/api/billing/checkout' && req.method === 'POST') {
-    const body = (await req.json().catch(() => ({}))) as { email?: string; hire?: string }
+    const body = (await req.json().catch(() => ({}))) as {
+      email?: string
+      hire?: string
+      plan?: string
+      interval?: string
+      trial_days?: number
+    }
     const email = String(body.email || '')
       .trim()
       .toLowerCase()
+    // The landing page folds the billing period into the plan name ("bundle-annual");
+    // accept both that shape and the split plan+interval form.
+    const rawPlan = String(body.plan || '')
+    const basePlan = rawPlan.endsWith('-annual') ? rawPlan.slice(0, -'-annual'.length) : rawPlan
+    const plan = basePlan === 'bundle' || basePlan === 'ultra' ? basePlan : 'single'
+    const annual = body.interval === 'annual' || rawPlan.endsWith('-annual')
     const persona = String(body.hire || '')
-    if (!email.includes('@') || !isPersona(persona)) return json({ error: 'email and hire required' }, 400)
-    if (!billingConfigured(persona)) return json({ error: 'Billing is not set up yet' }, 503)
+    if (!email.includes('@') || (plan === 'single' && !isPersona(persona))) {
+      return json({ error: 'email and hire required' }, 400)
+    }
+    // Bundle and ultra are one subscription for every hire, stored under the
+    // synthetic persona 'all'; single keeps the per-hire rows it always had.
+    const effectivePersona = plan === 'single' ? (persona as Persona | 'all') : 'all'
+    const priceFor = (per: string, isAnnual: boolean) => {
+      const keys =
+        plan === 'bundle'
+          ? ['STRIPE_PRICE_BUNDLE']
+          : plan === 'ultra'
+            ? ['STRIPE_PRICE_ULTRA']
+            : [`STRIPE_PRICE_${per.toUpperCase()}`]
+      const envs = isAnnual ? keys.map((k) => `${k}_ANNUAL`) : keys
+      return envs.map((k) => process.env[k]?.trim() || '').find(Boolean) || ''
+    }
+    let priceId = priceFor(persona, annual)
+    // An annual price that was never configured quietly falls back to monthly
+    // rather than failing checkout; the response says so.
+    let fallback = false
+    if (!priceId && annual) {
+      priceId = priceFor(persona, false)
+      fallback = true
+    }
+    if (!stripeSecret() || !priceId) return json({ error: 'Billing is not set up yet' }, 503)
     const user = await getUserByEmail(sql, email)
     if (!user) return json({ error: 'Sign in first' }, 401)
+    const trialDays = Number(body.trial_days) > 0 ? Math.floor(Number(body.trial_days)) : 7
     const params = new URLSearchParams({
       mode: 'subscription',
       customer_email: email,
-      client_reference_id: `${user.id}:${persona}`,
-      'line_items[0][price]': stripePriceFor(persona),
+      client_reference_id: `${user.id}:${effectivePersona}`,
+      'line_items[0][price]': priceId,
       'line_items[0][quantity]': '1',
       success_url: `${appBase(req)}/app?billing=done`,
       cancel_url: `${appBase(req)}/app?billing=cancelled`,
       'subscription_data[metadata][user_id]': user.id,
-      'subscription_data[metadata][persona]': persona,
+      'subscription_data[metadata][persona]': effectivePersona,
+      'subscription_data[trial_period_days]': String(trialDays),
     })
     try {
       const session = await stripeRequest('/checkout/sessions', params)
-      return json({ url: session['url'] })
+      return json({ url: session['url'], fallback })
     } catch (err) {
       console.error('[billing] checkout session failed', err)
       return json({ error: 'Could not start checkout' }, 502)
@@ -7028,7 +7561,148 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     `) as Array<{ persona: Persona; status: string; currentPeriodEnd: string | null }>
     const hires: Record<string, boolean> = {}
     for (const p of PERSONAS) hires[p] = false
-    for (const row of rows) hires[row.persona] = subscriptionActive(row.status)
+    for (const row of rows) {
+      if (row.persona === 'all') {
+        // A bundle covers every hire at once.
+        if (subscriptionActive(row.status)) for (const p of PERSONAS) hires[p] = true
+        continue
+      }
+      hires[row.persona] = subscriptionActive(row.status)
+    }
+    return json({ hires })
+  }
+
+  if (path === '/api/invites/for-phone' && req.method === 'GET') {
+    const phone = normalizePhone(url.searchParams.get('phone') || '')
+    if (!phone) return json({ error: 'valid phone required' }, 400)
+    try {
+      const codes = await ensureInvites(sql, phone)
+      return json({ codes })
+    } catch (err) {
+      console.error('[invites] ensure failed', err)
+      return json({ error: 'Could not create invites' }, 500)
+    }
+  }
+
+  if (path === '/api/invites/redeem' && req.method === 'POST') {
+    const body = (await req.json().catch(() => ({}))) as { code?: string; phone?: string }
+    const code = String(body.code || '').trim().toUpperCase()
+    const phone = normalizePhone(body.phone || '')
+    if (!code || !phone) return json({ error: 'code and phone required' }, 400)
+    const rows = (await sql`
+      SELECT phone_e164 AS referrer, redeemed_by_phone AS redeemed
+      FROM hire_invites WHERE code = ${code} LIMIT 1
+    `) as Array<{ referrer: string; redeemed: string | null }>
+    const invite = rows[0]
+    if (!invite) return json({ error: 'Code not found' }, 404)
+    if (invite.redeemed) return json({ error: 'This code was already used' }, 409)
+    await sql`
+      UPDATE hire_invites SET redeemed_by_phone = ${phone}, redeemed_at = now()
+      WHERE code = ${code}
+    `
+    return json({ ok: true, referrer: invite.referrer })
+  }
+
+  // Approximate waitlist spot: everyone who queued before this phone in the
+  // intro queue, plus the email waitlist as one block. Good enough for a
+  // "you are number N" screen; not an audit trail.
+  if (path === '/api/invites/position' && req.method === 'GET') {
+    const phone = normalizePhone(url.searchParams.get('phone') || '')
+    if (!phone) return json({ error: 'valid phone required' }, 400)
+    const rows = (await sql`
+      SELECT
+        (SELECT count(*) FROM hire_intro_queue WHERE created_at < COALESCE(
+          (SELECT min(created_at) FROM hire_intro_queue WHERE phone_e164 = ${phone}), now())
+        ) AS ahead,
+        (SELECT count(*) FROM waitlist_emails) AS waiting
+    `) as Array<{ ahead: string | number; waiting: string | number }>
+    const ahead = Number(rows[0]?.ahead ?? 0)
+    const waiting = Number(rows[0]?.waiting ?? 0)
+    return json({ position: ahead + waiting })
+  }
+
+  if (path === '/api/actions' && req.method === 'GET') {
+    const phone = normalizePhone(url.searchParams.get('phone') || '')
+    if (!phone) return json({ error: 'valid phone required' }, 400)
+    const user = await getUserByPhone(sql, phone)
+    if (!user) return json({ actions: [] })
+    const rows = await sql`
+      SELECT id, persona, action, detail, undo_hint AS "undoHint", undone_at AS "undoneAt",
+             created_at AS "createdAt"
+      FROM hire_action_log WHERE user_id = ${user.id}
+      ORDER BY created_at DESC LIMIT 20
+    `
+    return json({ actions: rows })
+  }
+
+  if (path.startsWith('/api/actions/') && path.endsWith('/undo') && req.method === 'POST') {
+    const id = path.slice('/api/actions/'.length, -'/undo'.length)
+    if (!id) return json({ error: 'id required' }, 400)
+    // Undo semantics live with the bots; here a row just stops reading as done.
+    await sql`
+      UPDATE hire_action_log SET undone_at = now() WHERE id = ${id}
+    `
+    return json({ ok: true })
+  }
+
+  if (path === '/api/kill-switch' && req.method === 'POST') {
+    const body = (await req.json().catch(() => ({}))) as { phone?: string; armed?: boolean }
+    const phone = normalizePhone(body.phone || '')
+    if (!phone) return json({ error: 'valid phone required' }, 400)
+    const armed = body.armed !== false
+    await sql`
+      INSERT INTO hire_kill_switch (phone_e164, armed, updated_at)
+      VALUES (${phone}, ${armed}, now())
+      ON CONFLICT (phone_e164) DO UPDATE SET armed = excluded.armed, updated_at = now()
+    `
+    return json({ ok: true, armed })
+  }
+
+  if (path === '/api/kill-switch' && req.method === 'GET') {
+    const phone = normalizePhone(url.searchParams.get('phone') || '')
+    if (!phone) return json({ error: 'valid phone required' }, 400)
+    const rows = (await sql`
+      SELECT armed FROM hire_kill_switch WHERE phone_e164 = ${phone} LIMIT 1
+    `) as Array<{ armed: boolean }>
+    return json({ armed: !!rows[0]?.armed })
+  }
+
+  if (path === '/api/wishlist' && req.method === 'POST') {
+    const body = (await req.json().catch(() => ({}))) as { phone?: string; vote?: string }
+    const phone = normalizePhone(body.phone || '')
+    const vote = String(body.vote || '').trim().slice(0, 120)
+    if (!phone || !vote) return json({ error: 'valid phone and vote required' }, 400)
+    await sql`
+      INSERT INTO hire_wishlist (id, phone_e164, vote)
+      VALUES (${crypto.randomUUID()}, ${phone}, ${vote})
+      ON CONFLICT (phone_e164, vote) DO NOTHING
+    `
+    return json({ ok: true })
+  }
+
+  if (path === '/api/wishlist' && req.method === 'GET') {
+    const rows = (await sql`
+      SELECT vote, count(*) AS count FROM hire_wishlist
+      GROUP BY vote ORDER BY count DESC, vote
+    `) as Array<{ vote: string; count: string | number }>
+    return json({ ideas: rows.map((r) => ({ vote: r.vote, count: Number(r.count) })) })
+  }
+
+  // Public status page: a hire is up while its heartbeats keep arriving.
+  if (path === '/api/status' && req.method === 'GET') {
+    const rows = (await sql`
+      SELECT persona, last_beat AS "lastBeat", reply_ms AS "replyMs" FROM hire_heartbeat
+    `) as Array<{ persona: string; lastBeat: string | Date; replyMs: number | null }>
+    const hires: Record<string, { up: boolean; lastReplyMs: number | null }> = {}
+    for (const p of PERSONAS) hires[p] = { up: false, lastReplyMs: null }
+    for (const row of rows) {
+      if (!isPersona(row.persona)) continue
+      const beat = new Date(row.lastBeat).getTime()
+      hires[row.persona] = {
+        up: Number.isFinite(beat) && Date.now() - beat < 5 * 60 * 1000,
+        lastReplyMs: row.replyMs ?? null,
+      }
+    }
     return json({ hires })
   }
 
@@ -8007,6 +8681,20 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     return json({ ok: true, features: requested, setup: next, setupDone })
   }
 
+  // Phone lookup for the hires' own clients: every task loop on the number,
+  // across all personas. The authed branch below stays for the dashboard.
+  if (path === '/api/loops' && req.method === 'GET' && url.searchParams.has('phone')) {
+    const phone = normalizePhone(url.searchParams.get('phone') || '')
+    if (!phone) return json({ error: 'valid phone required' }, 400)
+    const rows = await sql`
+      SELECT id, persona, kind, title, payload, status, next_run AS "nextRun",
+             last_result AS "lastResult", created_at AS "createdAt"
+      FROM hire_task_loops WHERE phone_e164 = ${phone}
+      ORDER BY created_at DESC LIMIT 50
+    `
+    return json({ loops: rows })
+  }
+
   if (path === '/api/loops' && req.method === 'GET') {
     const { user, error } = await resolveAuthedUser(sql, {
       token: url.searchParams.get('t') || undefined,
@@ -8027,6 +8715,32 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     const body = (await req.json().catch(() => ({}))) as {
       token?: string; email?: string; persona?: string
       title?: string; context?: string; dueAt?: string
+      phone?: string; kind?: string; payload?: unknown; next_run?: string
+    }
+    // A body with a phone creates a proactive task loop for that hire; the
+    // dashboard flow below keeps its email/token auth.
+    if (body.phone) {
+      const phone = normalizePhone(body.phone)
+      const kind = String(body.kind || '').trim().slice(0, 60)
+      if (!phone || !kind) return json({ error: 'valid phone and kind required' }, 400)
+      const user = await getUserByPhone(sql, phone)
+      if (!user) return json({ error: 'User not found' }, 404)
+      const when = new Date(String(body.next_run || ''))
+      const nextRun = Number.isNaN(when.getTime()) ? null : when.toISOString()
+      const id = crypto.randomUUID()
+      await sql`
+        INSERT INTO hire_task_loops (id, user_id, persona, phone_e164, kind, title, payload, status, next_run)
+        VALUES (${id}, ${user.id}, ${isPersona(body.persona || '') ? body.persona! : 'friend'},
+          ${phone}, ${kind}, ${String(body.title || '').slice(0, 200)},
+          ${JSON.stringify(body.payload ?? {})}::jsonb, 'pending', ${nextRun})
+        ON CONFLICT (user_id, persona, kind) DO UPDATE SET
+          title = excluded.title,
+          payload = excluded.payload,
+          status = 'pending',
+          next_run = COALESCE(excluded.next_run, hire_task_loops.next_run),
+          updated_at = now()
+      `
+      return json({ ok: true, id })
     }
     const title = String(body.title || '').trim().slice(0, 200)
     if (!title) return json({ error: 'title required' }, 400)
@@ -8041,6 +8755,31 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
         ${dueAt})
     `
     return json({ ok: true, id })
+  }
+
+  const loopToggle = path.match(/^\/api\/loops\/([^/]+)\/(pause|resume)$/)
+  if (loopToggle && req.method === 'POST') {
+    const body = (await req.json().catch(() => ({}))) as { phone?: string }
+    const phone = normalizePhone(body.phone || '')
+    if (!phone) return json({ error: 'valid phone required' }, 400)
+    const rows = (await sql`
+      SELECT phone_e164 AS phone FROM hire_task_loops WHERE id = ${loopToggle[1]!} LIMIT 1
+    `) as Array<{ phone: string }>
+    const loop = rows[0]
+    if (!loop || !phonesMatch(loop.phone, phone)) return json({ error: 'Loop not found' }, 404)
+    if (loopToggle[2] === 'pause') {
+      await sql`
+        UPDATE hire_task_loops SET status = 'paused', updated_at = now()
+        WHERE id = ${loopToggle[1]!}
+      `
+    } else {
+      // Resume means run again on the next claim pass, so bump next_run.
+      await sql`
+        UPDATE hire_task_loops SET status = 'pending', next_run = now(), updated_at = now()
+        WHERE id = ${loopToggle[1]!}
+      `
+    }
+    return json({ ok: true })
   }
 
   if (path.startsWith('/api/loops/') && req.method === 'PATCH') {
