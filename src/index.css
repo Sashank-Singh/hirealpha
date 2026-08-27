@@ -3990,7 +3990,7 @@ html[data-mini-theme='light'] .ma-where-label { color: #6d28d9; }
 
 .mini__body--home-screen { padding-bottom: 0; }
 
-/* ---- People knowledge graph (3D neural net) ---- */
+/* ---- People knowledge graph (3D network) ---- */
 .people-graph-wrap { position: relative; }
 .people-graph {
   width: 100%;
@@ -3998,10 +3998,7 @@ html[data-mini-theme='light'] .ma-where-label { color: #6d28d9; }
   display: block;
   border: 1px solid var(--border);
   border-radius: 16px;
-  background:
-    radial-gradient(ellipse at 50% 42%, color-mix(in srgb, var(--mini-accent, #2a6f7a) 14%, transparent), transparent 62%),
-    radial-gradient(ellipse at 50% 118%, color-mix(in srgb, var(--mini-accent, #2a6f7a) 8%, transparent), transparent 55%),
-    color-mix(in srgb, var(--border) 24%, var(--bg));
+  background: color-mix(in srgb, var(--border) 18%, var(--bg));
   overflow: hidden;
   cursor: grab;
   touch-action: pan-y;
@@ -4028,7 +4025,7 @@ html[data-mini-theme='light'] .ma-where-label { color: #6d28d9; }
   gap: 6px 12px;
   padding: 8px 2px 0;
   font-size: 11px;
-  color: var(--muted, #8a97a0);
+  color: var(--muted-fg, #8a97a0);
 }
 .pg-legend-chip {
   display: inline-flex;
@@ -4038,7 +4035,6 @@ html[data-mini-theme='light'] .ma-where-label { color: #6d28d9; }
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  text-transform: capitalize;
 }
 .pg-legend-chip i {
   width: 8px;
@@ -4065,16 +4061,16 @@ html[data-mini-theme='light'] .ma-where-label { color: #6d28d9; }
   font-size: 12px;
 }
 .pg-card > strong { font-size: 13px; }
-.pg-card-sub { color: var(--muted, #8a97a0); }
-.pg-card-stat { color: var(--text, inherit); opacity: 0.85; }
-.pg-card-stat--due { color: #ff9066; font-weight: 600; }
+.pg-card-sub { color: var(--muted-fg, #8a97a0); }
+.pg-card-stat { color: var(--fg, inherit); opacity: 0.85; }
+.pg-card-stat--due { color: #d08662; font-weight: 600; }
 .pg-card-close {
   position: absolute;
   top: 4px;
   right: 6px;
   border: 0;
   background: none;
-  color: var(--muted, #8a97a0);
+  color: var(--muted-fg, #8a97a0);
   font-size: 15px;
   line-height: 1;
   cursor: pointer;

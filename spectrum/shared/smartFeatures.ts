@@ -59,6 +59,50 @@ export function looksLikeToolbox(text: string): boolean {
   return /\b(?:my\s+)?tools?\b|\b(?:my\s+)?builds?\b|\b(?:app|apps)\s*(?:gallery|shelf|i\s+built)\b|\bshow\s+(?:me\s+)?(?:my\s+)?(?:tools|builds|apps)\b/i.test(text)
 }
 
+/* ---- Structured parsers (pure; drive both the reply text and real persistence) ---- */
+
+export type BrainDumpItems = { loops: string[]; decisions: string[]; notes: string[] }
+
+/** Turn a free-text brain dump into loops, decisions, and timed-able notes.
+ * Pure and deterministic: the same parse drives `handleBrainDump`'s display text
+ * and the true writes the turn performs afterwards. */
+export function parseBrainDump(text: string): BrainDumpItems {
+  const body = text
+    .replace(/^dump\b|^brain dump\b|^here's the deal\b|^heres the deal\b/i, '')
+    .replace(/^[:：\s-]+/, '')
+    .trim()
+  const loops: string[] = []
+  const notes: string[] = []
+  const decisions: string[] = []
+  const sentences = body
+    .split(/(?<=[.!?])\s+|\n+/)
+    .map((s) => s.trim().replace(/^[-•]\s*/, ''))
+    .filter(Boolean)
+  for (const s of sentences) {
+    if (/\b(?:decid\w*|going with|chose|pick(?:ed)?)\b/i.test(s)) decisions.push(s)
+    else if (/\b(?:need to|have to|must|should|remember to|call|email|text|buy|schedule|send|follow up)\b/i.test(s)) loops.push(s)
+    else notes.push(s)
+  }
+  return { loops, decisions, notes }
+}
+
+export type KeepHonestPlan = { what: string; hour: number; minute: number }
+
+/** "keep me honest at 7pm to run" → { what: "run", hour: 19, minute: 0 }. Null when
+ * the intent is incomplete. Shared by the reply text and the real reminder write. */
+export function keepHonestPlan(text: string): KeepHonestPlan | null {
+  const at = text.match(/\b(?:at|by)\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b/i)
+  const what = text
+    .replace(/\bkeep\s+me\s+honest\b/i, '')
+    .replace(/\b(?:at|by)\s+\d{1,2}(?::\d{2})?\s*(?:am|pm)?\b/i, '')
+    .trim()
+  if (!at || !what) return null
+  let h = Number(at[1]); const m = Number(at[2] || '0'); const ap = (at[3] || '').toLowerCase()
+  if (ap === 'pm' && h < 12) h += 12
+  if (ap === 'am' && h === 12) h = 0
+  return { what, hour: h, minute: m }
+}
+
 /* ---- Feature handlers (deterministic; wired into runHireTurn) ---- */
 
 /** 1. Recall: what did I promise / decide / who did I meet? */
@@ -91,21 +135,10 @@ export function handleSweep(count: number, pending: string[]): string {
 }
 
 /** 4. Brain Dump: turn a free-text dump into loops/reminders/decisions. */
-export function handleBrainDump(text: string, timezone: string): string {
+export function handleBrainDump(text: string, timezone?: string): string {
   void timezone
-  const body = text
-    .replace(/^dump\b|^brain dump\b|^here's the deal\b|^heres the deal\b/i, '')
-    .replace(/^[:\s-]+/, '')
-    .trim()
-  const loops: string[] = []
-  const reminders: string[] = []
-  const decisions: string[] = []
-  const sentences = body.split(/(?<=[.!?])\s+|\n+/).map((s) => s.trim().replace(/^[-•]\s*/, '')).filter(Boolean)
-  for (const s of sentences) {
-    if (/\b(?:decid\w*|going with|chose|pick(?:ed)?)\b/i.test(s)) decisions.push(s)
-    else if (/\b(?:need to|have to|must|should|remember to|call|email|text|buy|schedule|send|follow up)\b/i.test(s)) loops.push(s)
-    else reminders.push(s)
-  }
+  const { loops, decisions, notes } = parseBrainDump(text)
+  const reminders = notes
   const out: string[] = []
   if (loops.length) out.push('Loops:\n' + loops.map((l) => `- ${l}`).join('\n'))
   if (decisions.length) out.push('Decisions:\n' + decisions.map((l) => `- ${l}`).join('\n'))
@@ -154,13 +187,10 @@ export function handleTravelMode(dest: string): string {
 
 /** 8. Keep Me Honest: convert "keep me honest at 7pm to run" into a reminder. */
 export function handleKeepMeHonest(text: string, timezone: string): string {
-  const at = text.match(/\b(?:at|by)\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b/i)
-  const what = text.replace(/\bkeep\s+me\s+honest\b/i, '').replace(/\b(?:at|by)\s+\d{1,2}(?::\d{2})?\s*(?:am|pm)?\b/i, '').trim()
-  if (!at || !what) return 'Say like: "keep me honest at 7pm to run" — I will remind you only if it hasn\'t happened.'
-  let h = Number(at[1]); const m = Number(at[2] || '0'); const ap = (at[3] || '').toLowerCase()
-  if (ap === 'pm' && h < 12) h += 12
-  if (ap === 'am' && h === 12) h = 0
-  return `Kept honest: ${what} at ${h}:${String(m).padStart(2, '0')} ${ap || ''}`.trim() + ` (${timezone}) — conditional on state, in the brief.`
+  const plan = keepHonestPlan(text)
+  if (!plan) return 'Say like: "keep me honest at 7pm to run" — I will remind you only if it has not happened.'
+  const ap = (text.match(/\b(?:at|by)\s+\d{1,2}(?::\d{2})?\s*(am|pm)?\b/i)?.[1] || '').toLowerCase()
+  return `Kept honest: ${plan.what} at ${plan.hour}:${String(plan.minute).padStart(2, '0')} ${ap || ''}`.trim() + ` (${timezone})`
 }
 
 /** 9. Toolbox: the user's kept builds as a gallery list. */

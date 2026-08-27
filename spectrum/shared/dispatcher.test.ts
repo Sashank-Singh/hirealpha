@@ -6,6 +6,7 @@ import {
   dispatchSlash,
   handleDelegate,
   looksLikeTaskAsk,
+  matchedCapability,
   parseSlash,
   pickContact,
   slashMenu,
@@ -39,10 +40,16 @@ describe('slash commands', () => {
     expect(dispatchSlash('/tools', ctx)).toContain('Pomodoro')
     expect(dispatchSlash('/bills', ctx)).toContain('Netflix')
   })
-  it('returns the menu for /, unknown, and /help', () => {
+  it('menu for / and /help; unknown slash falls through', () => {
     expect(dispatchSlash('/', ctx)).toBe(slashMenu())
-    expect(dispatchSlash('/nope', ctx)).toBe(slashMenu())
+    expect(dispatchSlash('/nope', ctx)).toBeNull()
     expect(dispatchSlash('/help', ctx)).toContain('/recall')
+  })
+  it('menu covers the full capability set', () => {
+    const menu = slashMenu()
+    for (const name of ['/brief', '/evening', '/workout', '/meal', '/sleep', '/mood', '/spend', '/habits', '/pipeline', '/standup', '/linear', '/decisions', '/weekly', '/network', '/loops', '/later', '/learn', '/build', '/tools', '/recall', '/debrief', '/sweep', '/dump', '/bills', '/travel', '/honest', '/delegate']) {
+      expect(menu, name).toContain(name)
+    }
   })
   it('delegates via /delegate to the named contact', () => {
     const out = dispatchSlash('/delegate call maya about the deck', ctx)
@@ -64,6 +71,16 @@ describe('manifest routing', () => {
     expect(dispatch({ ...ctx, text: 'dump: call the dentist, buy milk' })).toContain('Loops:')
     expect(dispatch({ ...ctx, text: 'show me my tools' })).toContain('Pomodoro')
     expect(dispatch({ ...ctx, text: 'how much do I pay for netflix' })).toContain('Netflix')
+  })
+  it('matchedCapability resolves slash and plain capability asks', () => {
+    expect(matchedCapability({ ...ctx, text: '/dump anything' })?.name).toBe('dump')
+    expect(matchedCapability({ ...ctx, text: '/honest at 7pm to run' })?.name).toBe('honest')
+    expect(matchedCapability({ ...ctx, text: 'dump: call the dentist' })?.name).toBe('dump')
+    expect(matchedCapability({ ...ctx, text: 'show me my tools' })?.name).toBe('tools')
+  })
+  it('matchedCapability is null for normal chat and help', () => {
+    expect(matchedCapability({ ...ctx, text: '/help' })).toBeNull()
+    expect(matchedCapability({ ...ctx, text: 'hey how was your weekend' })).toBeNull()
   })
   it('answers what can you do with the capability list', () => {
     const out = dispatch({ ...ctx, text: 'what can you do' })

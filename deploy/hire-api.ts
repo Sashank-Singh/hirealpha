@@ -8272,6 +8272,29 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     return json({ ok: true, logged: true, id, decision: parsed.decision.slice(0, 300), reason: (parsed.reason || '').slice(0, 500), owner: (parsed.owner || '').slice(0, 120) })
   }
 
+  if (path === '/api/internal/loops' && req.method === 'POST') {
+    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
+    const body = (await req.json().catch(() => ({}))) as {
+      phone?: string
+      persona?: string
+      loops?: string[]
+    }
+    const titles = (body.loops || []).map((t) => String(t).trim().slice(0, 200)).filter(Boolean)
+    if (!body.phone || !isPersona(body.persona || '') || !titles.length) {
+      return json({ error: 'phone, persona, and at least one loop title required' }, 400)
+    }
+    const user = await getUserByPhone(sql, body.phone)
+    if (!user) return json({ error: 'User not found' }, 404)
+    for (const title of titles) {
+      const id = crypto.randomUUID()
+      await sql`
+        INSERT INTO hire_loops (id, user_id, persona, title, context, status)
+        VALUES (${id}, ${user.id}, ${isPersona(body.persona || '') ? body.persona! : ''}, ${title}, '', 'open')
+      `
+    }
+    return json({ ok: true, logged: true, count: titles.length })
+  }
+
   if (path === '/api/internal/pipeline' && req.method === 'POST') {
     if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
     const body = (await req.json().catch(() => ({}))) as {

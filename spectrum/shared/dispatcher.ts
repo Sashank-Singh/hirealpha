@@ -193,6 +193,23 @@ export function capabilityByName(name: string): Capability | undefined {
   return CAPABILITIES.find((c) => c.name === name)
 }
 
+/** Which capability would handle this message — slash or plain language — without
+ * producing the reply. The turn uses it to trigger real side effects (persisting a
+ * dump, setting a reminder, searching mail) after the human-facing text is built. */
+export function matchedCapability(ctx: DispatchContext): Capability | null {
+  const trimmed = ctx.text.trim()
+  if (trimmed.startsWith('/')) {
+    const cmd = parseSlash(trimmed)
+    if (!cmd) return null
+    if (cmd.name === 'help' || cmd.name === 'commands' || cmd.name === 'delegate') return null
+    return capabilityByName(cmd.name) || null
+  }
+  for (const cap of CAPABILITIES) {
+    if (cap.detect(trimmed)) return cap
+  }
+  return null
+}
+
 /* ---- Slash commands ---- */
 
 export function parseSlash(text: string): { name: string; arg: string } | null {
@@ -201,21 +218,53 @@ export function parseSlash(text: string): { name: string; arg: string } | null {
   return { name: m[1].toLowerCase(), arg: (m[2] || '').trim() }
 }
 
-/** `/` or an unknown command returns the menu. */
+/** `/` opens the full menu; unknown commands fall through to normal handling. */
 export function slashMenu(): string {
   return [
-    'Things I handle — type the shortcut or just ask in plain words:',
-    '/recall — find anything you promised, decided, or discussed',
-    '/debrief — review a meeting and log what you committed to',
-    '/sweep — every email waiting on you, in one list',
-    '/dump — turn a messy brain dump into tasks and decisions',
-    '/snap — send a photo of a meal or receipt and it gets logged',
-    '/bills — see what you spend, by category or subscription',
-    '/travel — shifts your briefs and pings when you travel',
-    '/honest — pings you at a set time if you skipped something',
-    '/tools — every app you have built, in one list',
-    '/delegate — drafts the message to the right person to get it done',
-    'Pick one, or just say what you need.',
+    'Everything I handle — shortcuts below, plain words work too.',
+    '',
+    'Your day',
+    '/brief — meetings, mail, what matters now',
+    '/evening — wrap today, set up tomorrow',
+    '/prep — read me in on the next meeting',
+    '/remind — "remind me Friday at 9 to call the bank"',
+    '',
+    'Body',
+    '/workout — log a session',
+    '/meal — log food',
+    '/sleep — log last night',
+    '/mood — quick pulse check',
+    '/spend — log spend against budget',
+    '/habits — streaks and today checks',
+    '',
+    'Work',
+    '/pipeline — jobs, fundraising, leads',
+    '/standup — raw notes into a tight update',
+    '/linear — triage the backlog',
+    '/decisions — log a call, revisit later',
+    '/weekly — what got done, what slipped',
+    '',
+    'People and promises',
+    '/network — people you met, who is due',
+    '/loops — promises you made, until done',
+    '/later — capture anything messy for later',
+    '/learn — save articles, videos, podcasts',
+    '',
+    'Builds',
+    '/build — make a small app, get a link',
+    '/iterate — change a build you have',
+    '/tools — everything built so far',
+    '',
+    'Fast help',
+    '/recall — find anything you promised or decided',
+    '/debrief — review a meeting, log commitments',
+    '/sweep — every email waiting on you',
+    '/dump — messy thoughts, filed',
+    '/bills — spend by category or subscription',
+    '/travel — shifts briefs and pings when away',
+    '/honest — pings you if you skipped something',
+    '/snap — photo of a meal or receipt, logged',
+    '/delegate — draft the message that gets it done',
   ].join('\n')
 }
 
@@ -224,10 +273,12 @@ export function dispatchSlash(text: string, ctx: DispatchContext): string | null
   if (/^\s*\/\s*$/.test(text)) return slashMenu()
   const cmd = parseSlash(text)
   if (!cmd) return null
-  if (cmd.name === 'help' || cmd.name === 'commands') return slashMenu()
+  if (cmd.name === 'help' || cmd.name === 'commands' || cmd.name === 'menu') return slashMenu()
   if (cmd.name === 'delegate') return handleDelegate(cmd.arg || 'your request', ctx.contacts, ctx.userName)
   const cap = capabilityByName(cmd.name)
-  if (!cap) return slashMenu()
+  // Unknown slash words fall through: the normal pipeline handles them, so
+  // every existing intent (/workout, /brief, /prep...) gets an alias free.
+  if (!cap) return null
   return cap.run(ctx, cmd.arg)
 }
 

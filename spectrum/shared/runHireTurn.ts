@@ -8,15 +8,17 @@ import { skillsPromptBlock, SKILLS } from './skills'
 import { gmiChat } from './gmi'
 import { appendThread, loadMemory, upsertFacts, pruneExpiredFacts, setSummary, trimHistory, MAX_RAW, type ThreadMemory } from './memory'
 import { extractFacts, summarizeOld } from './memoryMaintain'
-import { autoIterateWorkshop, autoLogGratitude, autoLogHabit, autoLogMood, autoLogNutrition, autoLogSleep, autoLogSpend, autoLogWorkout, autoLogNetwork, autoLogDecision, autoLogPipeline, autoLogStandup, autoRunWorkshop, autoWorkshopKeep, autoWorkshopToss, autoSaveLearning, autoSetBudget, autoSetPrefs, fetchLiveProfile, fetchLiveTools, fetchMiniRun, fetchPrepBundle, fetchWeekBundle, formatHireContext, formatHireMemories, persistLiveFacts, proposeLiveDraft, touchInbound } from './liveContext'
+import { autoIterateWorkshop, autoLogGratitude, autoLogHabit, autoLogMood, autoLogNutrition, autoLogSleep, autoLogSpend, autoLogWorkout, autoLogNetwork, autoLogDecision, autoLogLoops, autoLogPipeline, autoLogStandup, autoRunWorkshop, autoWorkshopKeep, autoWorkshopToss, autoSaveLearning, autoSetBudget, autoSetPrefs, fetchLiveProfile, fetchLiveTools, fetchMiniRun, fetchPrepBundle, fetchWeekBundle, formatHireContext, formatHireMemories, persistLiveFacts, proposeLiveDraft, touchInbound } from './liveContext'
 import {
   looksLikeReminder,
   parseReminderIntent,
   createReminder,
   listReminders,
   localTimeToUtc,
+  formatLocalNow,
 } from './reminders'
 import { setProactiveMode, fetchLastProactiveTopic, fetchJudgmentState } from './judgment'
+import { keepHonestPlan, parseBrainDump } from './smartFeatures'
 import { formatLifeStateBlock } from './lifeState'
 import {
   DIGEST_MARKER,
@@ -32,7 +34,7 @@ import {
 } from './miniApps'
 import { foldQuotes, isBannedTagline, dropBannedTaglines } from './outboundFilter'
 import { formatNowForAgent, pickUserTimezone, timezoneFromText } from '../../deploy/timezones'
-import { dispatch as dispatchSmart, type DispatchContext } from './dispatcher'
+import { dispatch as dispatchSmart, type DispatchContext, matchedCapability } from './dispatcher'
 import { fetchContacts, fetchSpending } from './liveContext'
 import {
   looksLikeEventWrite,
@@ -80,6 +82,94 @@ export async function defaultReplyCard(phone: string, persona: AgentId): Promise
   } catch {
     return null
   }
+}
+
+/** After a slash capability's reply is built, perform the real write the feature
+ * stood for: brain dumps → loops + decisions + notes-reminders, "keep me honest"
+ * → an actual reminder, and recall → a mail pull when the user has mail connected.
+ * Returns the extra copy to append to the reply ("" when nothing to say). */
+async function applySmartEffects(
+  name: string,
+  ctx: DispatchContext,
+  input: { senderId: string },
+  agent: { id: AgentId },
+  connectedMail: boolean,
+): Promise<string> {
+  const extra: string[] = []
+  try {
+    if (name === 'dump' || name === 'brain_dump') {
+      const items = parseBrainDump(ctx.text)
+      const saved: string[] = []
+      if (items.loops.length) {
+        const r = await autoLogLoops(input.senderId, agent.id, items.loops)
+        if (r?.logged && r.count) saved.push(`${r.count} loop${r.count === 1 ? '' : 's'}`)
+        else if (r?.error) extra.push(`Loop save failed: ${r.error}.`)
+      }
+      let decisions = 0
+      for (const d of items.decisions) {
+        if ((await autoLogDecision(input.senderId, agent.id, d))?.logged) decisions++
+      }
+      if (decisions) saved.push(`${decisions} decision${decisions === 1 ? '' : 's'}`)
+      // Notes that name a clock time become real reminders.
+      let reminders = 0
+      for (const n of items.notes) {
+        const plan = keepHonestPlan(n)
+        if (!plan) continue
+        const hh = String(plan.hour).padStart(2, '0')
+        const mm = String(plan.minute).padStart(2, '0')
+        const today = formatLocalNow(ctx.timezone).slice(0, 10)
+        const ok = await createReminder({
+          phone: input.senderId,
+          persona: agent.id,
+          text: n,
+          scheduledAt: localTimeToUtc(`${today}T${hh}:${mm}:00`, ctx.timezone),
+          recurrence: 'once',
+          timezone: ctx.timezone,
+        })
+        if (ok) reminders++
+      }
+      if (reminders) saved.push(`${reminders} reminder${reminders === 1 ? '' : 's'}`)
+      if (saved.length) extra.push(`Saved ${saved.join(', ')} — tracked for real.`)
+      else if (!extra.length) extra.push('Nothing new to save from that.')
+    }
+
+    if (name === 'honest') {
+      const plan = keepHonestPlan(ctx.text)
+      if (plan) {
+        const hh = String(plan.hour).padStart(2, '0')
+        const mm = String(plan.minute).padStart(2, '0')
+        const today = formatLocalNow(ctx.timezone).slice(0, 10)
+        const ok = await createReminder({
+          phone: input.senderId,
+          persona: agent.id,
+          text: `Keep me honest: ${plan.what}`,
+          scheduledAt: localTimeToUtc(`${today}T${hh}:${mm}:00`, ctx.timezone),
+          recurrence: 'daily',
+          timezone: ctx.timezone,
+        })
+        extra.push(
+          ok
+            ? `I will text you at ${hh}:${mm} each day. Text me it happened and I will skip that one.`
+            : 'Could not set the reminder — check your connection and try again.',
+        )
+      }
+    }
+
+    if (name === 'recall') {
+      const keyword = ctx.text
+        .replace(/^\/recall\b/i, '')
+        .replace(/\b(?:what|who|when|where|why|how|did|does|is|are|was|have i|do you know|me|my|the|a|an|about|regarding|that|this|promis\w*|loop|owe\w*|decid\w*|said|mail|email|talk\w*|note\w*|asked|agreed)\b/gi, ' ')
+        .trim()
+      if (connectedMail && keyword) {
+        const prep = await fetchPrepBundle(input.senderId, agent.id, keyword)
+        if (prep?.text) extra.push(`From your mail:\n${prep.text.slice(0, 900).trim()}`)
+      }
+    }
+  } catch (err) {
+    console.warn('[turn] smart side-effect failed', err)
+    extra.push('I could not reach your stores right now — the answer above still stands.')
+  }
+  return extra.length ? '\n' + extra.join('\n') : ''
 }
 
 const REASON =
@@ -571,8 +661,14 @@ export async function runHireTurn(input: {
       userName: live.name || null,
       spending,
     }
-    const handled = dispatchSmart(smartCtx)
+    let handled = dispatchSmart(smartCtx)
     if (handled) {
+      const hit = matchedCapability(smartCtx)
+      if (hit) {
+        const connectedMail = Array.isArray(live.connected) && live.connected.some((c) => /mail|gmail|google/i.test(String(c)))
+        const extra = await applySmartEffects(hit.name, smartCtx, { senderId: input.senderId }, agent, connectedMail)
+        if (extra) handled = handled + extra
+      }
       appendThread(input.dataDir, input.senderId, [
         { role: 'user', content: input.userText },
         { role: 'assistant', content: handled },
@@ -580,6 +676,9 @@ export async function runHireTurn(input: {
       // Slash replies are command output: one message, never split.
       return { reply: handled, bubbles: [handled], source: 'local', authoritative: [], card: null }
     }
+    // Unknown slash word: strip it so the normal pipeline routes the rest —
+    // every intent (/workout, /brief, /prep...) gets a slash alias free.
+    input.userText = input.userText.replace(/^\s*\//, '').trim()
   }
 
   let toolResults: string[] = []

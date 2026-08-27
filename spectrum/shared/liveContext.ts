@@ -781,6 +781,34 @@ export async function autoLogDecision(
   }
 }
 
+export async function autoLogLoops(
+  phone: string,
+  persona: AgentId,
+  loops: string[],
+): Promise<{ ok?: boolean; logged?: boolean; count?: number; error?: string } | null> {
+  const base = apiBase()
+  const key = process.env.HIREALPHA_INTERNAL_KEY || ''
+  const items = (loops || []).map((l) => String(l).trim().slice(0, 200)).filter(Boolean)
+  if (!base || !key || !items.length) return { ok: false, logged: false, count: 0, error: 'not configured' }
+  try {
+    const res = await timedFetch(
+      `${base}/api/internal/loops`,
+      {
+        method: 'POST',
+        headers: authHeaders(),
+        body: JSON.stringify({ phone, persona, loops: items }),
+      },
+      12000,
+    )
+    if (!res.ok) return { ok: false, logged: false, count: 0, error: `save failed (${res.status})` }
+    const data = (await res.json()) as { ok?: boolean; count?: number; error?: string }
+    return { ok: !!data.ok, logged: !!data.ok, count: data.count || 0, error: data.error }
+  } catch (err) {
+    console.warn('[live] loops auto-log failed', err)
+    return { ok: false, logged: false, count: 0, error: 'save failed' }
+  }
+}
+
 export async function autoLogPipeline(
   phone: string,
   persona: AgentId,

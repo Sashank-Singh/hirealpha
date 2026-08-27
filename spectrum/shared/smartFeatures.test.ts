@@ -9,6 +9,7 @@ import {
   handleSweep,
   handleToolbox,
   handleTravelMode,
+  keepHonestPlan,
   looksLikeBillguard,
   looksLikeBrainDump,
   looksLikeDebrief,
@@ -18,6 +19,7 @@ import {
   looksLikeSweep,
   looksLikeToolbox,
   looksLikeTravelMode,
+  parseBrainDump,
 } from './smartFeatures'
 
 describe('smart features — recall', () => {
@@ -135,6 +137,25 @@ describe('smart features — toolbox', () => {
     expect(looksLikeToolbox('my builds?')).toBe(true)
   })
 })
+describe('smart features — brain dump (structured parse)', () => {
+  it('splits a dump into loops, decisions, and notes', () => {
+    const items = parseBrainDump('dump: call the dentist. We decided on Stripe. Bought milk')
+    expect(items.loops.some((l) => l.startsWith('call the dentist'))).toBe(true)
+    expect(items.decisions.some((d) => d.includes('Stripe'))).toBe(true)
+    expect(items.notes).toContain('Bought milk')
+  })
+})
+
+describe('smart features — keep me honest (structured parse)', () => {
+  it('extracts what and a 24h clock time', () => {
+    expect(keepHonestPlan('keep me honest at 7pm to run')).toEqual({ what: 'to run', hour: 19, minute: 0 })
+    expect(keepHonestPlan('keep me honest at 7:30am to meditate')).toEqual({ what: 'to meditate', hour: 7, minute: 30 })
+  })
+  it('returns null without a time or a what', () => {
+    expect(keepHonestPlan('keep me honest')).toBeNull()
+  })
+})
+
 describe('workshop dedup key', () => {
   it('normalizes differently-phrased asks to the same key', async () => {
     const { workshopTemplateKey } = await import('./liveContext')
