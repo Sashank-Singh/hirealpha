@@ -218,21 +218,6 @@ function isValidEmail(email: string) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) && email.length <= 320
 }
 
-async function handleWaitlistCount(req: Request, url: URL) {
-  const key = url.searchParams.get('key')
-  if (key !== 'ha-admin-2026') return json({ error: 'Unauthorized' }, 401)
-  if (!sql) return json({ error: 'Database unavailable' }, 503)
-  try {
-    const rows = await sql`SELECT count(*) as count FROM waitlist_emails`
-    const count = rows[0]?.count ?? 0
-    const recent = await sql`SELECT email, created_at FROM waitlist_emails ORDER BY created_at DESC LIMIT 10`
-    return json({ count, recent })
-  } catch (err) {
-    console.error('[admin] waitlist query failed', err)
-    return json({ error: 'Query failed' }, 500)
-  }
-}
-
 async function handleWaitlist(req: Request) {
   if (req.method === 'OPTIONS') {
     return new Response(null, {
@@ -515,7 +500,6 @@ Bun.serve({
       return new Response('ok', { headers: { 'Content-Type': 'text/plain' } })
     }
     if (url.pathname === '/api/waitlist') return handleWaitlist(req)
-    if (url.pathname === '/api/admin/waitlist-count') return handleWaitlistCount(req, url)
     if (url.pathname === '/api/public/info') return json(PUBLIC_INFO)
     if (url.pathname === '/api/public/personas') return json(PERSONAS)
     const hire = await handleHireApi(req, sql)
