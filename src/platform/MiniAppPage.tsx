@@ -56,6 +56,10 @@ interface DigestData {
   tomorrow?: string[]
   brief?: 'morning' | 'evening'
   story?: import('./briefStory').BriefStory
+  /** Today's soonest meetings, soonest first. Optional until the server ships it. */
+  meetings?: Array<{ time: string; title: string; startsInMin?: number }>
+  /** The one email that needs a human now, or null. Optional until the server ships it. */
+  attention?: { id: string; label: string; snippet?: string; why: string } | null
   error?: string
   /* The server answered before the brief finished assembling. Not an error: the
    * load is still running behind that response, so the right move is to come

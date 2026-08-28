@@ -356,6 +356,30 @@ export function HomeApp({ auth }: { auth: FeatureAuth }) {
 
       {/* Mail lives in the brief now; Home keeps the count chip only. */}
 
+      {/* Both ride the home payload and are absent until the server ships them,
+        * so this strip renders nothing and today's screen stays as it was. */}
+      {(snap?.meetings?.length || snap?.attention) && (
+        <section className="home-block home-block--now">
+          {snap?.meetings && snap.meetings.length > 0 && (
+            <div className="home-meets" aria-label="Up next">
+              {snap.meetings.slice(0, 3).map((m, i) => (
+                <span
+                  key={`${m.time}-${m.title}-${i}`}
+                  className={i === 0 && m.startsInMin != null && m.startsInMin <= 60 ? 'home-meet home-meet--soon' : 'home-meet'}
+                >
+                  <b>{m.time}</b> {m.title}
+                </span>
+              ))}
+            </div>
+          )}
+          {snap?.attention && (
+            <Link className="home-attention" to={miniLink(briefKind)}>
+              1 in mail needs you · {snap.attention.why} · {snap.attention.label}
+            </Link>
+          )}
+        </section>
+      )}
+
       <section className="home-block" aria-label="Where you are">
         <h3 className="home-section-title">Where you are</h3>
         <ul className="home-vitals">

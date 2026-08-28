@@ -52,6 +52,10 @@ export type BriefPayload = {
   reminders?: Array<{ id?: string; time?: string; text?: string }>
   tomorrow?: string[]
   story?: BriefStory
+  /** Today's soonest meetings, soonest first. Optional until the server ships it. */
+  meetings?: Array<{ time: string; title: string; startsInMin?: number }>
+  /** The one email that needs a human now, or null. Optional until the server ships it. */
+  attention?: { id: string; label: string; snippet?: string; why: string } | null
   error?: string
 }
 
@@ -733,6 +737,12 @@ export function BriefApp({
 
   const nowMinutes = new Date().getHours() * 60 + new Date().getMinutes()
 
+  /* Rides the digest payload. Missing or empty on an API that has not shipped it
+   * yet, so both lists render nothing and today's screens stay as they were. */
+  const upNext = (data?.meetings || []).slice(0, 5)
+  const attention = !isEvening ? data?.attention || null : null
+  const attentionTappable = !!(attention && attention.id && !attention.id.startsWith('text-'))
+
   const openFirstMail = () => {
     const first = needsYou[0]
     if (first) onOpenMail(first.id, first.label, first.snippet)
@@ -918,6 +928,38 @@ export function BriefApp({
               </li>
             ))}
           </ul>
+        </section>
+      )}
+
+      {upNext.length > 0 && (
+        <section className="brief-block">
+          <h3 className="brief-label">Up next</h3>
+          <ul className="brief-next">
+            {upNext.map((m, i) => (
+              <li
+                key={`${m.time}-${m.title}-${i}`}
+                className={m.startsInMin != null && m.startsInMin <= 60 ? 'brief-next-row brief-next-row--soon' : 'brief-next-row'}
+              >
+                <span className="brief-next-time">{m.time}</span>
+                <span className="brief-next-title">{m.title}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
+      {attention && (
+        <section className="brief-block">
+          <button
+            className={attentionTappable ? 'brief-att brief-att--tap' : 'brief-att'}
+            type="button"
+            onClick={attentionTappable ? () => onOpenMail(attention.id, attention.label, attention.snippet) : undefined}
+          >
+            <span className="brief-att-kicker">Needs your eyes</span>
+            <span className="brief-att-label">{attention.label}</span>
+            {attention.why ? <span className="brief-att-why">{attention.why}</span> : null}
+            {attention.snippet ? <span className="brief-att-snip">{attention.snippet}</span> : null}
+          </button>
         </section>
       )}
 

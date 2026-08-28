@@ -501,6 +501,10 @@ export type HomeSnapshot = {
    * refetch a moment later gets them.
    */
   worldPending?: boolean
+  /** Today's soonest meetings, soonest first. Optional until the server ships it. */
+  meetings?: Array<{ time: string; title: string; startsInMin?: number }>
+  /** The one email that needs a human now, or null. Optional until the server ships it. */
+  attention?: { id: string; label: string; snippet?: string; why: string } | null
   home: {
     weekday: string
     dateLabel: string
