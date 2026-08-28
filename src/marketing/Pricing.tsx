@@ -9,11 +9,11 @@ type Tier = 'free' | 'single' | 'bundle' | 'ultra'
  * the board to sell the roadmap, with the checkout door closed. */
 const HIRES_LIVE: AgentId[] = ['friend']
 
-const TIERS: { id: Tier; name: string; price: string; per: string; blurb: string; badge?: string; cta: string; soon?: boolean }[] = [
+const TIERS: { id: Tier; name: string; price: number; per: string; blurb: string; badge?: string; cta: string; soon?: boolean }[] = [
   {
     id: 'free',
     name: 'Free',
-    price: '$0',
+    price: 0,
     per: 'forever',
     blurb: '1 brief a week. 1 hire.',
     cta: 'Start free',
@@ -21,7 +21,7 @@ const TIERS: { id: Tier; name: string; price: string; per: string; blurb: string
   {
     id: 'single',
     name: 'Single hire',
-    price: '$19',
+    price: 19,
     per: 'a month',
     blurb: 'Alpha the Friend. Unlimited texts. Apps in the thread.',
     badge: 'Live now',
@@ -30,7 +30,7 @@ const TIERS: { id: Tier; name: string; price: string; per: string; blurb: string
   {
     id: 'bundle',
     name: 'All three',
-    price: '$39',
+    price: 39,
     per: 'a month',
     blurb: 'Friend, Coworker, and Cofounder. Save $18. Coworker and Cofounder are still in the workshop.',
     badge: 'Best value',
@@ -40,13 +40,25 @@ const TIERS: { id: Tier; name: string; price: string; per: string; blurb: string
   {
     id: 'ultra',
     name: 'Ultra',
-    price: '$199',
+    price: 199,
     per: 'a month',
     blurb: 'Everything, plus real phone calls. Calls are Ultra only. The full crew, when it lands.',
     cta: 'Go Ultra',
     soon: true,
   },
 ]
+
+/* Displayed annual figures are monthly x 10 (2 months free) and must be kept
+ * in sync with the STRIPE_PRICE_*_ANNUAL env prices the checkout actually
+ * charges. If a monthly price changes here, update those env vars too. */
+function displayPrice(tier: (typeof TIERS)[number], annual: boolean) {
+  const price = tier.id === 'free' ? tier.price : annual ? tier.price * 10 : tier.price
+  return {
+    price: `$${price.toLocaleString('en-US')}`,
+    per: tier.id === 'free' ? tier.per : annual ? 'a year' : tier.per,
+    freebie: tier.id !== 'free' && annual ? '2 months free' : '',
+  }
+}
 
 /** Plan names the billing endpoint expects, with the annual variant folded in. */
 export function Pricing() {
@@ -114,12 +126,14 @@ export function Pricing() {
           </div>
           <label className="pricing__annual">
             <input type="checkbox" checked={annual} onChange={(e) => setAnnual(e.target.checked)} />
-            2 months free annual
+            {annual ? '2 months free annual applied' : '2 months free annual'}
           </label>
         </div>
 
         <div className="pricing__grid">
-          {TIERS.map((tier) => (
+          {TIERS.map((tier) => {
+            const shown = displayPrice(tier, annual)
+            return (
             <article key={tier.id} className={`price-card${tier.badge ? ' price-card--hot' : ''}`}>
               {tier.soon && (
                 <div
@@ -143,9 +157,10 @@ export function Pricing() {
               {tier.badge && <span className="price-card__badge">{tier.badge}</span>}
               <h3>{tier.name}</h3>
               <p className="price-card__price">
-                <strong>{tier.price}</strong>
-                <span>{tier.per}</span>
+                <strong>{shown.price}</strong>
+                <span>{shown.per}</span>
               </p>
+              {shown.freebie && <p className="price-card__freebie">{shown.freebie}</p>}
               <p className="price-card__blurb">{tier.blurb}</p>
               {tier.soon ? (
                 <button type="button" className="btn btn--ghost" disabled aria-disabled="true">
@@ -162,7 +177,8 @@ export function Pricing() {
                 </button>
               )}
             </article>
-          ))}
+            )
+          })}
         </div>
 
         {note ? (

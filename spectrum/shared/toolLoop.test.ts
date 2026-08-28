@@ -18,6 +18,7 @@ import {
   parseExtractedWrite,
   parsePlannerTool,
   parseToolCall,
+  pickMapRecommendation,
   pingMail,
   prepTarget,
   stripToolDirectives,
@@ -176,5 +177,40 @@ describe('human limits', () => {
     expect(looksLikeUntaughtTaste("what's my taste")).toBe(true)
     expect(looksLikeUntaughtTaste('pick a restaurant')).toBe(false)
     expect(classifyHumanLimit('which one looks more me')).toBe('taste')
+  })
+})
+
+describe('map recommendations', () => {
+  const MAP_BLOCK = [
+    'Map results for "quiet restaurant in San Francisco":',
+    '- Greens Restaurant (restaurant)',
+    '  https://www.openstreetmap.org/?mlat=37.80&mlon=-122.43#map=16/37.80/-122.43',
+    '- Nopa (restaurant)',
+    '  https://www.openstreetmap.org/?mlat=37.77&mlon=-122.44#map=16/37.77/-122.44',
+    '- Tartine (bakery)',
+  ].join('\n')
+
+  it('picks the first place, alternate second, first link found', () => {
+    expect(pickMapRecommendation(MAP_BLOCK)).toEqual({
+      pick: 'Greens Restaurant',
+      alternate: 'Nopa',
+      link: 'https://www.openstreetmap.org/?mlat=37.80&mlon=-122.43#map=16/37.80/-122.43',
+    })
+  })
+
+  it('survives one result and no link', () => {
+    expect(pickMapRecommendation('Map results for "x":\n- Tartine (bakery)')).toEqual({
+      pick: 'Tartine',
+    })
+  })
+
+  it('returns null on a no-results string', () => {
+    expect(pickMapRecommendation('No map results found for "quiet restaurant"')).toBeNull()
+  })
+
+  it('returns null on garbage and empty text', () => {
+    expect(pickMapRecommendation('Maps search unavailable right now.')).toBeNull()
+    expect(pickMapRecommendation('just some chatter\nwith no places')).toBeNull()
+    expect(pickMapRecommendation('')).toBeNull()
   })
 })

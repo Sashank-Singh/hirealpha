@@ -24,6 +24,8 @@ TOOL gmail <query>
 TOOL calendar <query>
 TOOL drive <query>
 
+When a maps result block is present, recommend one place from it in your own voice with a reason (walkable, quiet, fits the ask), name one alternate, and include the OSM link for your pick. If the result says a city or area is needed, ask one short question like "which city?" instead of guessing. Never invent places that are not in the result.
+
 If no card is attached yet and they want mail or a calendar event, output one line:
 DRAFT_MAIL to=email@x.com | subject=Subject | body=The mail on one line
 DRAFT_REPLY id=<gmail id from the mail lines> | body=The reply on one line
@@ -305,6 +307,39 @@ export function pingMail(person: PersonHit): DraftCall | null {
     to,
     subject: `Checking in`,
     body: `Hey ${first}, checking in. How are things on your end?`,
+  }
+}
+
+export type MapPick = { pick: string; alternate?: string; link?: string }
+
+/**
+ * Parse a "Map results for ..." block: "- Name (type)" lines are places and an
+ * indented URL rides with the block. First place is the pick, second is the
+ * alternate, first link found is the pick's link. Empty or non-maps text is
+ * null.
+ */
+export function pickMapRecommendation(resultText: string): MapPick | null {
+  const names: string[] = []
+  let link: string | undefined
+  for (const line of String(resultText || '').split('\n')) {
+    const trimmed = line.trim()
+    if (!link) {
+      const url = trimmed.match(/https?:\/\/\S+/)?.[0]
+      if (url) link = url.replace(/[),.;]+$/, '')
+    }
+    if (trimmed.startsWith('- ')) {
+      const name = trimmed
+        .slice(2)
+        .replace(/\s*\([^)]*\)\s*$/, '')
+        .trim()
+      if (/[a-z0-9]/i.test(name)) names.push(name)
+    }
+  }
+  if (!names.length) return null
+  return {
+    pick: names[0],
+    ...(names[1] ? { alternate: names[1] } : {}),
+    ...(link ? { link } : {}),
   }
 }
 

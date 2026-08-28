@@ -43,15 +43,15 @@ const AGENTS: Agent[] = [
     mood: 'soft',
     pitch:
       'The friend who already knows your people. Texts first. Lives next to Mom in Messages.',
-    preview: 'Tuesday. while you were complaining about the rental car',
+    preview: 'checked you in for AA248. flight lands 6:15 now. dinner moved to 8:45',
     time: '2m',
     unread: true,
     messages: [
-      { text: 'your sister lands Friday 7:40. you still haven’t picked dinner', from: 'them' },
-      { text: 'I was going to do Valencia', from: 'me' },
-      { text: 'she sat 14 hours. Valencia is a shout. I held the booth at the quiet one', from: 'them' },
-      { text: 'I never told you the landing time', from: 'me' },
-      { text: 'Tuesday. while you were complaining about the rental car', from: 'them' },
+      { text: 'checked you in for AA248. boarding pass is below. gate B14', from: 'them' },
+      { text: 'wait since when do you do that', from: 'me' },
+      { text: 'since the window opened. flight lands 6:15 now, so I moved Friday dinner to 8:45', from: 'them' },
+      { text: 'I never told you about dinner', from: 'me' },
+      { text: 'you told me about your sister. I just pay attention', from: 'them' },
     ],
   },
   {
@@ -64,22 +64,22 @@ const AGENTS: Agent[] = [
     mood: 'sharp',
     soon: true,
     pitch:
-      'jordan just declined 3pm. I fixed it for Thursday 2:30, without making you ask.',
-    preview: 'sent “I’ll bring the staging notes.” that’s you, not a calendar invite',
+      'caught an invoice that disagreed with the PO. the reply was drafted before you saw it.',
+    preview: 'priya’s invoice says 4,000. the PO says 3,500. draft is ready',
     time: '4m',
     unread: true,
     messages: [
-      { text: 'jordan just declined 3pm', from: 'me' },
-      { text: 'I asked him Thursday 2:30. he said yes. I didn’t put it on the calendar yet', from: 'them' },
-      { text: 'put it on. write it like me', from: 'me' },
+      { text: 'priya’s invoice says 4,000. the PO says 3,500', from: 'them' },
+      { text: 'which one is right', from: 'me' },
+      { text: 'the PO. reply is drafted, pointing at line 3 with the receipt attached', from: 'them' },
       {
-        text: 'I’ll bring the staging notes.',
+        text: 'Draft to Priya. Waiting on you.',
         from: 'them',
         kind: 'action',
-        app: 'Calendar',
-        title: 'Thu 2:30 with Jordan',
+        app: 'Approve & send',
+        title: 'Approve and it sends',
       },
-      { text: 'sent. that’s you, not a calendar invite', from: 'them' },
+      { text: 'it sends when you tap. not before', from: 'them' },
     ],
   },
   {
@@ -92,15 +92,16 @@ const AGENTS: Agent[] = [
     mood: 'bold',
     soon: true,
     pitch:
-      '14 people came back this week. that’s the company. the 18k site is a costume.',
-    preview: '14 people came back. that’s the company. 18k is a costume',
+      'two investor replies came in overnight. the deck was drafted before you woke up.',
+    preview: 'two investor replies overnight. draft is ready. runway says 9 months',
     time: '22m',
     unread: true,
     messages: [
-      { text: 'agency wants 18k for the site. we’d look like a real company', from: 'me' },
-      { text: 'we’d look real to people who don’t write checks', from: 'them' },
-      { text: 'then what do we look like', from: 'me' },
-      { text: '14 people came back this week. that’s the company. 18k is a costume', from: 'them' },
+      { text: 'overnight: two investor replies. both want the deck thursday', from: 'them' },
+      { text: 'of course they do', from: 'me' },
+      { text: 'deck is drafted from the pipeline numbers. it is in investor note, waiting on you', from: 'them' },
+      { text: 'and the 18k site redesign', from: 'me' },
+      { text: 'runway says 9 months. the site is a costume. the 14 people who came back are the company', from: 'them' },
     ],
   },
 ]
@@ -154,36 +155,36 @@ const ACTIONS = [
   {
     who: 'Alpha',
     color: '#2a6f7a',
-    tool: 'Maps',
-    text: 'Held the booth at the quiet one. Valencia is a shout after a 14 hour flight.',
+    tool: 'Messages',
+    text: 'Checked you in for AA248. Boarding pass is below. Flight is on time.',
   },
   {
     who: 'Alpha (Coworker)',
     color: '#3b5bdb',
-    tool: 'Calendar',
-    text: 'Asked Jordan first. Thu 2:30 is on the calendar. Wrote it like you.',
+    tool: 'Gmail',
+    text: 'Priya\'s invoice says 4,000. The PO says 3,500. The reply is drafted in Approve and send.',
   },
   {
     who: 'Alpha(CoFounder)',
     color: '#8b4513',
     tool: 'Notion',
-    text: 'The 18k site is a costume. 14 people came back. that’s the company.',
+    text: 'Overnight: two investor replies, both want the deck Thursday. The draft is in Investor note, waiting on you.',
   },
   {
     who: 'Alpha',
     color: '#2a6f7a',
-    tool: 'Messages',
-    text: 'I texted you first. That’s the job.',
+    tool: 'Maps',
+    text: 'Traffic adds 40 minutes right now. Leave by 5:20 and you still make the 6:30.',
   },
 ]
 
 const VOICES = [
-  { who: 'Alpha', text: 'Tuesday. while you were complaining about the rental car' },
-  { who: 'Alpha (Coworker)', text: 'I asked him Thursday 2:30. he said yes. I didn’t put it on the calendar yet' },
-  { who: 'Alpha(CoFounder)', text: 'we’d look real to people who don’t write checks' },
-  { who: 'Alpha', text: 'she sat 14 hours. Valencia is a shout. I held the booth at the quiet one' },
-  { who: 'Alpha (Coworker)', text: 'sent. that’s you, not a calendar invite' },
-  { who: 'Alpha(CoFounder)', text: '14 people came back this week. that’s the company. 18k is a costume' },
+  { who: 'Alpha', text: 'Checked you in. Boarding pass is below. Flight is on time.' },
+  { who: 'Alpha (Coworker)', text: 'Jordan said Thursday. review is on the calendar at 2:30' },
+  { who: 'Alpha(CoFounder)', text: 'runway says 9 months. the 18k site is a costume' },
+  { who: 'Alpha', text: 'You are 5 minutes from the dentist and it starts in 30.' },
+  { who: 'Alpha (Coworker)', text: 'Priya answered about the specs. draft is waiting for your OK' },
+  { who: 'Alpha(CoFounder)', text: 'two investor replies overnight. both want the deck thursday. draft is ready' },
 ]
 
 const FAQS: { question: string; answer: string }[] = [
@@ -1069,7 +1070,7 @@ export default function Landing() {
               transition={{ duration: 5.8, repeat: Infinity, ease: 'easeInOut', delay: 0.2 }}
             >
               <span className="stage-bubble__tool">Maps</span>
-              <span>the quiet one, not Valencia</span>
+              <span>leave by 5:20 and you make the 6:30</span>
             </motion.div>
           </div>
 
@@ -1137,7 +1138,7 @@ export default function Landing() {
           <p className="manifesto__lead">We all have AI.</p>
           <h2 id="why-heading">Almost nobody has it in Messages.</h2>
           <p className="manifesto__body">
-            Chatbots wait in tabs. Friend, Coworker, and Cofounder live in the app you already open. Separate people, separate threads. They remember, text first, and can move your calendar and tools.
+            Every AI waits for you to ask. Alpha texts first. It checks you in before the window closes, catches the invoice that looks wrong, and has the reply drafted before you have seen it. It asks before it sends or spends. Three hires, separate threads, in the app you already open.
           </p>
         </section>
 

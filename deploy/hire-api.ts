@@ -2964,7 +2964,250 @@ function timezoneCountry(tz?: string) {
   return ''
 }
 
-async function fetchMapSearch(query: string, countryHint = '', location: LocationRow | null = null) {
+// A category ask ("good coffee") has no proper noun to geocode. Words map to
+// kinds, kinds to the Overpass tags that can match them.
+const MAP_WORD_KINDS: Record<string, string[]> = {
+  cafe: ['cafe'],
+  coffee: ['cafe'],
+  restaurant: ['restaurant'],
+  dinner: ['restaurant'],
+  supper: ['restaurant'],
+  lunch: ['restaurant', 'cafe'],
+  breakfast: ['cafe', 'restaurant'],
+  brunch: ['cafe', 'restaurant'],
+  food: ['restaurant', 'cafe', 'fast_food'],
+  eat: ['restaurant', 'cafe', 'fast_food'],
+  bar: ['bar'],
+  bars: ['bar'],
+  drink: ['bar'],
+  drinks: ['bar'],
+  pub: ['bar'],
+  bakery: ['bakery'],
+  bakeries: ['bakery'],
+  fast_food: ['fast_food'],
+  ice_cream: ['ice_cream'],
+  sushi: ['restaurant'],
+  ramen: ['restaurant'],
+  pizza: ['restaurant'],
+  burger: ['restaurant'],
+  tacos: ['restaurant'],
+  mexican: ['restaurant'],
+  thai: ['restaurant'],
+  vietnamese: ['restaurant'],
+  chinese: ['restaurant'],
+  japanese: ['restaurant'],
+  korean: ['restaurant'],
+  indian: ['restaurant'],
+  italian: ['restaurant'],
+  pasta: ['restaurant'],
+  noodles: ['restaurant'],
+  bbq: ['restaurant'],
+  seafood: ['restaurant'],
+  deli: ['restaurant'],
+  diner: ['restaurant'],
+  gym: ['gym'],
+  gyms: ['gym'],
+  fitness: ['gym'],
+  grocery: ['grocery'],
+  groceries: ['grocery'],
+  supermarket: ['grocery'],
+  pharmacy: ['pharmacy'],
+  pharmacies: ['pharmacy'],
+  drugstore: ['pharmacy'],
+  park: ['park'],
+  parks: ['park'],
+  hangout: ['cafe', 'bar', 'park'],
+}
+
+const MAP_KIND_TAGS: Record<string, string[]> = {
+  cafe: ['amenity=cafe'],
+  restaurant: ['amenity=restaurant'],
+  bar: ['amenity=bar', 'amenity=pub'],
+  bakery: ['shop=bakery'],
+  fast_food: ['amenity=fast_food'],
+  ice_cream: ['amenity=ice_cream'],
+  gym: ['leisure=fitness_centre', 'amenity=gym'],
+  grocery: ['shop=supermarket', 'shop=convenience'],
+  pharmacy: ['amenity=pharmacy'],
+  park: ['leisure=park'],
+}
+
+const MAP_FILLER_WORDS = new Set([
+  'find', 'show', 'recommend', 'where', 'should', 'could', 'can', 'would', 'get', 'grab',
+  'want', 'need', 'some', 'any', 'good', 'best', 'great', 'cheap', 'quiet', 'nice', 'cozy',
+  'cute', 'cool', 'fun', 'top', 'open', 'late', 'tonight', 'today', 'now', 'nearby', 'near',
+  'around', 'in', 'at', 'by', 'me', 'us', 'we', 'i', 'my', 'our', 'a', 'an', 'the', 'for',
+  'to', 'of', 'and', 'please', 'place', 'places', 'spot', 'spots', 'maps', 'map',
+])
+
+export function classifyMapQuery(query: string): { mode: 'nearby'; kinds: string[] } | { mode: 'named' } {
+  const normalized = query
+    .toLowerCase()
+    .replace(/['’]s\b/g, '')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/\bfast food\b/g, ' fast_food ')
+    .replace(/\bice cream\b/g, ' ice_cream ')
+    .replace(/\s+/g, ' ')
+    .trim()
+  const lookup = (token: string) =>
+    MAP_WORD_KINDS[token] || (token.endsWith('s') ? MAP_WORD_KINDS[token.slice(0, -1)] : undefined)
+  const tokens = normalized.split(' ').filter((t) => t && !MAP_FILLER_WORDS.has(t))
+  // Leading word decides: "golden gate park" is a place, "park near me" is not.
+  if (!tokens.length || !lookup(tokens[0])) return { mode: 'named' }
+  const kinds: string[] = []
+  for (const token of tokens) {
+    for (const kind of lookup(token) || []) {
+      if (!kinds.includes(kind)) kinds.push(kind)
+    }
+  }
+  return { mode: 'nearby', kinds }
+}
+
+export function buildOverpassQuery(kinds: string[], lat: number, lon: number, radiusM = 1600): string {
+  const tags: string[] = []
+  for (const kind of kinds) {
+    // Accept both category words ("coffee") and kind names ("cafe").
+    const names = MAP_WORD_KINDS[kind] || [kind]
+    for (const name of names) {
+      for (const tag of MAP_KIND_TAGS[name] || []) {
+        if (!tags.includes(tag)) tags.push(tag)
+      }
+    }
+  }
+  if (!tags.length) return ''
+  const at = `(around:${Math.max(50, Math.round(radiusM))},${lat},${lon})`
+  const bodies = tags.map((tag) => {
+    const [key, value] = tag.split('=')
+    return `  node["${key}"="${value}"]${at};\n  way["${key}"="${value}"]${at};`
+  })
+  return `[out:json][timeout:10];\n(\n${bodies.join('\n')}\n);\nout center 30;`
+}
+
+export function formatMapResults(
+  rows: Array<{ name: string; addr?: string; cuisine?: string; lat?: number; lon?: number }>,
+  label: string,
+): string {
+  const seen = new Set<string>()
+  const lines: string[] = []
+  for (const row of rows) {
+    const name = String(row.name || '').trim()
+    if (!name || seen.has(name.toLowerCase())) continue
+    seen.add(name.toLowerCase())
+    const cuisine = String(row.cuisine || '')
+      .trim()
+      .split(';')[0]
+      .replace(/_/g, ' ')
+    const link =
+      typeof row.lat === 'number' && typeof row.lon === 'number'
+        ? `https://www.openstreetmap.org/?mlat=${row.lat}&mlon=${row.lon}#map=16/${row.lat}/${row.lon}`
+        : ''
+    lines.push(`- ${name}${cuisine ? ` (${cuisine})` : ''}${link ? `\n  ${link}` : ''}`)
+    if (lines.length >= 6) break
+  }
+  if (!lines.length) return `No map results found for "${label}".`
+  return `Map results for "${label}":\n${lines.join('\n')}`
+}
+
+async function geocodeMapArea(area: string, countryHint: string) {
+  try {
+    const url = new URL('https://nominatim.openstreetmap.org/search')
+    url.searchParams.set('q', area)
+    url.searchParams.set('format', 'jsonv2')
+    url.searchParams.set('limit', '1')
+    if (countryHint && !FOREIGN_PLACE.test(area)) url.searchParams.set('countrycodes', countryHint)
+    const res = await fetchPublic(url, {
+      headers: { Accept: 'application/json', 'User-Agent': 'HireAlpha/1.0 (https://hirealpha.chat)' },
+    })
+    if (!res.ok) return null
+    const rows = (await res.json()) as Array<{ lat?: string; lon?: string }>
+    const lat = Number(rows[0]?.lat)
+    const lon = Number(rows[0]?.lon)
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null
+    return { lat, lon }
+  } catch {
+    return null
+  }
+}
+
+// Overpass for category asks; a null return falls back to the Nominatim path.
+async function fetchNearbyPlaces(
+  query: string,
+  kinds: string[],
+  countryHint: string,
+  location: LocationRow | null,
+): Promise<string | null> {
+  try {
+    const area = (query.match(/\b(?:in|near|around|at|by)\s+([a-z0-9\s]+)$/i)?.[1] || '')
+      .replace(/\b(?:me|us|tonight)\b/gi, '')
+      .replace(/\s+/g, ' ')
+      .trim()
+    let lat: number | null = null
+    let lon: number | null = null
+    if (location && coordsUsable(location.latitude, location.longitude)) {
+      lat = location.latitude
+      lon = location.longitude
+    } else if (area) {
+      const geo = await geocodeMapArea(area, countryHint)
+      if (geo) {
+        lat = geo.lat
+        lon = geo.lon
+      }
+    }
+    if (lat === null || lon === null) return null
+    const ql = buildOverpassQuery(kinds, lat, lon)
+    if (!ql) return null
+    const res = await fetchPublic(
+      new URL('https://overpass-api.de/api/interpreter'),
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          Accept: 'application/json',
+          'User-Agent': 'HireAlpha/1.0 (https://hirealpha.chat)',
+        },
+        body: `data=${encodeURIComponent(ql)}`,
+      },
+      12000,
+    )
+    if (!res.ok) return null
+    const data = (await res.json()) as {
+      elements?: Array<{
+        tags?: Record<string, string>
+        lat?: number
+        lon?: number
+        center?: { lat: number; lon: number }
+      }>
+    }
+    const rows = (data.elements || [])
+      .map((el) => {
+        const tags = el.tags || {}
+        const elLat = el.lat ?? el.center?.lat
+        const elLon = el.lon ?? el.center?.lon
+        const street = tags['addr:street'] || ''
+        const housenumber = tags['addr:housenumber'] || ''
+        return {
+          name: String(tags.name || '').trim(),
+          addr: [housenumber, street].filter(Boolean).join(' ') || tags['addr:city'] || '',
+          cuisine: tags.cuisine || '',
+          lat: typeof elLat === 'number' ? elLat : undefined,
+          lon: typeof elLon === 'number' ? elLon : undefined,
+        }
+      })
+      .filter((row) => row.name)
+    if (!rows.length) return null
+    return formatMapResults(rows, query.trim().slice(0, 60))
+  } catch {
+    return null
+  }
+}
+
+export async function fetchMapSearch(query: string, countryHint = '', location: LocationRow | null = null) {
+  const classified = classifyMapQuery(query)
+  if (classified.mode === 'nearby') {
+    const nearby = await fetchNearbyPlaces(query, classified.kinds, countryHint, location)
+    if (nearby) return nearby
+    // Overpass miss, no coords, or empty result: the named place path below answers.
+  }
   if (location && !/\b(?:near|around|in|at|by)\b/i.test(query)) {
     const marker = locationLabel(location)
     query = `${query} near ${marker}`

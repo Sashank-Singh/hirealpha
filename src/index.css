@@ -4983,3 +4983,9 @@ a.brief-fact { cursor: pointer; }
 .pricing__chip:has(.chip-soon) {
   opacity: 0.45;
 }
+.price-card__freebie {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--accent, var(--ink));
+  margin-bottom: 10px;
+}

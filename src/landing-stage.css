@@ -264,11 +264,12 @@
 }
 
 .manifesto--bleed .manifesto__lead {
+  font-family: var(--display);
+  font-size: clamp(1.9rem, 4vw, 3rem);
+  letter-spacing: -0.02em;
+  text-transform: none;
   color: var(--accent);
-  font-size: 14px;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  font-weight: 800;
+  font-weight: 500;
   margin-bottom: 18px;
 }
 
