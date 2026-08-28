@@ -4,7 +4,12 @@ import { planFor } from './format'
 
 type Tier = 'free' | 'single' | 'bundle' | 'ultra'
 
-const TIERS: { id: Tier; name: string; price: string; per: string; blurb: string; badge?: string; cta: string }[] = [
+/* Alpha the Friend is the product today. Coworker and Cofounder are visible
+ * everywhere but not buyable until they ship — the multi-hire tiers stay on
+ * the board so the roadmap sells, with the checkout door closed. */
+const HIRES_LIVE: AgentId[] = ['friend']
+
+const TIERS: { id: Tier; name: string; price: string; per: string; blurb: string; badge?: string; cta: string; soon?: boolean }[] = [
   {
     id: 'free',
     name: 'Free',
@@ -18,26 +23,28 @@ const TIERS: { id: Tier; name: string; price: string; per: string; blurb: string
     name: 'Single hire',
     price: '$19',
     per: 'a month',
-    blurb: 'One hire. Unlimited texts. Apps in the thread.',
-    badge: 'Most picked',
-    cta: 'Hire one',
+    blurb: 'Alpha the Friend. Unlimited texts. Apps in the thread.',
+    badge: 'Live now',
+    cta: 'Hire Alpha',
   },
   {
     id: 'bundle',
     name: 'All three',
     price: '$39',
     per: 'a month',
-    blurb: 'Friend, Coworker, and Cofounder. Save $18.',
+    blurb: 'Friend, Coworker, and Cofounder. Save $18. Coworker and Cofounder are in the workshop.',
     badge: 'Best value',
     cta: 'Hire all three',
+    soon: true,
   },
   {
     id: 'ultra',
     name: 'Ultra',
     price: '$199',
     per: 'a month',
-    blurb: 'All hires, priority replies, and real phone calls.',
+    blurb: 'All hires, priority replies, and real phone calls. The full crew, when it lands.',
     cta: 'Go Ultra',
+    soon: true,
   },
 ]
 
@@ -80,7 +87,7 @@ export function Pricing() {
     <section className="pricing section" id="pricing" aria-labelledby="pricing-heading">
       <div className="container">
         <p className="deed__eyebrow">Pricing</p>
-        <h2 id="pricing-heading">Hire one. Or the whole bench.</h2>
+        <h2 id="pricing-heading">Hire Alpha. The bench is coming.</h2>
 
         <div className="pricing__setup">
           <input
@@ -101,6 +108,7 @@ export function Pricing() {
                 onClick={() => setHire(id)}
               >
                 {id.charAt(0).toUpperCase() + id.slice(1)}
+                {!HIRES_LIVE.includes(id) && <em className="chip-soon">soon</em>}
               </button>
             ))}
           </div>
@@ -120,14 +128,20 @@ export function Pricing() {
                 <span>{tier.per}</span>
               </p>
               <p className="price-card__blurb">{tier.blurb}</p>
-              <button
-                type="button"
-                className={`btn ${tier.badge ? 'btn--accent' : 'btn--ghost'}`}
-                disabled={busy === tier.id}
-                onClick={() => void checkout(tier.id)}
-              >
-                {busy === tier.id ? 'Opening…' : tier.cta}
-              </button>
+              {tier.soon ? (
+                <button type="button" className="btn btn--ghost" disabled aria-disabled="true">
+                  Coming soon
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className={`btn ${tier.badge ? 'btn--accent' : 'btn--ghost'}`}
+                  disabled={busy === tier.id}
+                  onClick={() => void checkout(tier.id)}
+                >
+                  {busy === tier.id ? 'Opening…' : tier.cta}
+                </button>
+              )}
             </article>
           ))}
         </div>

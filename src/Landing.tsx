@@ -31,6 +31,7 @@ interface Agent {
   time: string
   unread: boolean
   mood: 'soft' | 'sharp' | 'bold'
+  soon?: boolean
   messages: Msg[]
 }
 
@@ -64,6 +65,7 @@ const AGENTS: Agent[] = [
     initial: 'A',
     color: '#3b5bdb',
     mood: 'sharp',
+    soon: true,
     pitch:
       'jordan just declined 3pm. I fixed it for Thursday 2:30, without making you ask.',
     preview: 'sent “I’ll bring the staging notes.” that’s you, not a calendar invite',
@@ -91,6 +93,7 @@ const AGENTS: Agent[] = [
     initial: 'A',
     color: '#8b4513',
     mood: 'bold',
+    soon: true,
     pitch:
       '14 people came back this week. that’s the company. the 18k site is a costume.',
     preview: '14 people came back. that’s the company. 18k is a costume',
@@ -847,10 +850,10 @@ function PhoneDemo({
   )
 }
 
-const HIRE_LINES: Record<AgentId, { label: string; phoneDisplay: string }> = {
+const HIRE_LINES: Record<AgentId, { label: string; phoneDisplay: string; soon?: boolean }> = {
   friend: { label: 'Friend', phoneDisplay: '(415) 595-1440' },
-  coworker: { label: 'Coworker', phoneDisplay: '(628) 264-7648' },
-  cofounder: { label: 'Cofounder', phoneDisplay: '(415) 603-5536' },
+  coworker: { label: 'Coworker', phoneDisplay: '(628) 264-7648', soon: true },
+  cofounder: { label: 'Cofounder', phoneDisplay: '(415) 603-5536', soon: true },
 }
 
 function WaitlistForm() {
@@ -930,6 +933,7 @@ function WaitlistForm() {
             disabled={busy}
           >
             {HIRE_LINES[id].label}
+            {HIRE_LINES[id].soon && <em className="chip-soon">soon</em>}
           </button>
         ))}
       </div>
@@ -948,8 +952,9 @@ function WaitlistForm() {
         </p>
       ) : (
         <p className="waitlist-note">
-          Give your number and {HIRE_LINES[hire].label} texts you first. iPhone Messages. Early
-          access. $19 a month when you hire.
+          {HIRE_LINES[hire].soon
+            ? `${HIRE_LINES[hire].label} is in the workshop. Alpha the Friend is live: your number gets the invite the day both ship.`
+            : `Give your number and ${HIRE_LINES[hire].label} texts you first. iPhone Messages. Early access. $19 a month when you hire.`}
         </p>
       )}
     </>
@@ -1091,6 +1096,7 @@ export default function Landing() {
                 >
                   <AlphaFace color={a.color} mood={a.mood} size={28} />
                   <strong>{a.name}</strong>
+                  {a.soon && <em className="chip-soon">soon</em>}
                 </button>
               ))}
             </div>
@@ -1185,7 +1191,7 @@ export default function Landing() {
                   <AlphaFace color={a.color} mood={a.mood} size={48} />
                   <span>
                     <strong>{a.name}</strong>
-                    <small>{a.role}</small>
+                    <small>{a.role}{a.soon ? ' · coming soon' : ''}</small>
                   </span>
                 </button>
               ))}

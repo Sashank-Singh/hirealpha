@@ -73,6 +73,14 @@ import { composeWeekReview, spendWouldBreakCap, type WeekSnap } from './weekRun'
 export const PERSONAS = ['friend', 'coworker', 'cofounder'] as const
 export type Persona = (typeof PERSONAS)[number]
 
+/** Personas a NEW signup can hire today. The rest render as coming soon — the
+ * bots stay live for people who already hired them, but no new roster entries,
+ * intros, or signups book them until they ship. One list, flipped per launch. */
+export const HIRES_LIVE: readonly string[] = ['friend']
+export function hireIsLive(p: string): boolean {
+  return HIRES_LIVE.includes(p)
+}
+
 export const GOOGLE_CONNECTORS = new Set(['gmail', 'calendar', 'drive'])
 
 export const UI_TO_COMPOSIO: Record<string, string> = {
@@ -1359,6 +1367,18 @@ export async function ensureHireSchema(sql: SQL) {
     )
   `
   await sql`CREATE INDEX IF NOT EXISTS idx_hire_intro_queue_due ON hire_intro_queue (persona, status, attempts, created_at)`
+
+  // Phone numbers that asked for a hire that is not live yet. Not the intro
+  // queue: nobody texts them today. This is the launch-day list — when a
+  // persona flips live, these rows convert to intro-queue entries.
+  await sql`
+    CREATE TABLE IF NOT EXISTS hire_soon_waitlist (
+      phone_e164 TEXT NOT NULL,
+      persona TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      PRIMARY KEY (phone_e164, persona)
+    )
+  `
 
   // Billing. One row per user+persona; checked out through Stripe, state kept
   // here so the bots and the dashboard can read entitlements without calling
@@ -7023,7 +7043,12 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
       .toLowerCase()
     const user = await getUserByEmail(sql, email)
     if (!user) return json({ error: 'Sign in first' }, 401)
-    const ids = (body.agentIds || []).filter(isPersona)
+    // Hires not live yet cannot be added — but anyone who already has one
+    // keeps it, so this change never takes a working hire away from a user.
+    const owned = await loadRoster(sql, user.id)
+    const ids = (body.agentIds || [])
+      .filter(isPersona)
+      .filter((id) => hireIsLive(id) || owned.includes(id))
     await sql`DELETE FROM hire_roster WHERE user_id = ${user.id}`
     for (const persona of ids) {
       await sql`

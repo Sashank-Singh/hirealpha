@@ -124,16 +124,19 @@ export const PERSONAS = [
   {
     id: 'friend',
     name: 'Friend',
+    live: true,
     description: 'Personal life on track: sleep, food, training, spending, and the people you owe a reply.',
   },
   {
     id: 'coworker',
     name: 'Coworker',
+    live: false,
     description: 'Your workday: the one next action, meeting prep, draft review, scheduling, and issue triage.',
   },
   {
     id: 'cofounder',
     name: 'Cofounder',
+    live: false,
     description: 'The company: pipeline, runway, decisions, and investor notes.',
   },
 ]

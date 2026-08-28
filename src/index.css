@@ -4899,3 +4899,16 @@ a.brief-fact { cursor: pointer; }
 }
 .loops__row strong { display: block; font-size: 15px; }
 .loops__row span { font-size: 12px; color: var(--muted); }
+.chip-soon {
+  font-style: normal;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  background: var(--ink);
+  color: #fff;
+  border-radius: 999px;
+  padding: 2px 7px;
+  margin-left: 6px;
+  vertical-align: middle;
+}

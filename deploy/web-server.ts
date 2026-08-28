@@ -5,7 +5,7 @@
 import { SQL } from 'bun'
 import { brotliCompressSync, constants as zlibConstants } from 'node:zlib'
 import { join } from 'node:path'
-import { enqueueIntro, ensureHireSchema, handleHireApi, isPersona, miniCardOgDescription, normalizePhone } from './hire-api'
+import { ensureHireSchema, ensurePhoneUser, handleHireApi, hireIsLive, isPersona, miniCardOgDescription, normalizePhone } from './hire-api'
 import {
   isKnownClientRoute,
   isKnownPage,
@@ -218,7 +218,7 @@ function isValidEmail(email: string) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) && email.length <= 320
 }
 
-async function handleWaitlist(req: Request) {
+export async function handleWaitlist(req: Request, db: SQL | null) {
   if (req.method === 'OPTIONS') {
     return new Response(null, {
       status: 204,
@@ -230,6 +230,7 @@ async function handleWaitlist(req: Request) {
     })
   }
   if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405)
+  const sql = db
   if (!sql) return json({ error: 'Waitlist storage unavailable' }, 503)
 
   let body: { email?: string; phone?: string; hire?: string }
@@ -257,10 +258,20 @@ async function handleWaitlist(req: Request) {
       `
     }
     // A phone number is not just a waitlist entry: it books the first text.
-    // The bot for the chosen hire picks the number up from the intro queue and
-    // says hi, so the person's next step is their Messages app, not an inbox.
+    // A live hire's bot picks the number up from the intro queue and says hi,
+    // and a placeholder account arms memory and pokes for the first reply.
+    // A not-yet-live hire lands on the soon list instead — captured, never
+    // texted, converted to intros the day that hire ships.
     if (rawPhone) {
-      await enqueueIntro(sql, rawPhone, hire)
+      if (hireIsLive(hire)) {
+        await ensurePhoneUser(sql, rawPhone, hire)
+      } else {
+        await sql`
+          INSERT INTO hire_soon_waitlist (phone_e164, persona)
+          VALUES (${normalizePhone(rawPhone)}, ${hire})
+          ON CONFLICT (phone_e164, persona) DO NOTHING
+        `
+      }
     }
     return json({ ok: true })
   } catch (err) {
@@ -499,7 +510,7 @@ Bun.serve({
     if (url.pathname === '/healthz') {
       return new Response('ok', { headers: { 'Content-Type': 'text/plain' } })
     }
-    if (url.pathname === '/api/waitlist') return handleWaitlist(req)
+    if (url.pathname === '/api/waitlist') return handleWaitlist(req, sql)
     if (url.pathname === '/api/public/info') return json(PUBLIC_INFO)
     if (url.pathname === '/api/public/personas') return json(PERSONAS)
     const hire = await handleHireApi(req, sql)
