@@ -409,8 +409,13 @@ export function MiniAppPage() {
    * out of the ladder and just sat there. */
   useEffect(() => {
     const pending = isDigest ? data?.pending : isEveningBrief ? mini?.pending : false
-    const wait = BRIEF_RETRY_MS[briefTries]
-    if (!pending || wait === undefined) return
+    if (!pending) return
+    // A cold build (two calendars, the inbox, a model pass) routinely outlasts
+    // the fast ladder, so past it the poll settles into a slower beat rather
+    // than giving up — the screen must update on its own, never require the
+    // user to leave and come back. Hard cap so a crashed build cannot spin.
+    const wait = BRIEF_RETRY_MS[briefTries] ?? 4000
+    if (briefTries >= BRIEF_RETRY_MS.length + 30) return
     let cancelled = false
     const timer = setTimeout(() => {
       setBriefTries((n) => n + 1)
@@ -628,8 +633,11 @@ export function MiniAppPage() {
           <div className="mini__body">
             <p className="mini__blurb">Pulling your day together…</p>
             {briefTries >= BRIEF_RETRY_MS.length && (
+              <p className="mini__blurb">First build of the day takes a minute. It will land here on its own.</p>
+            )}
+            {briefTries >= BRIEF_RETRY_MS.length + 30 && (
               <button className="mini__btn" type="button" onClick={() => setBriefTries(0)}>
-                Keep waiting
+                Try again
               </button>
             )}
           </div>
@@ -669,8 +677,11 @@ export function MiniAppPage() {
           <div className="mini__body">
             <p className="mini__blurb">{mini.note || 'Closing out your day…'}</p>
             {briefTries >= BRIEF_RETRY_MS.length && (
+              <p className="mini__blurb">First build of the day takes a minute. It will land here on its own.</p>
+            )}
+            {briefTries >= BRIEF_RETRY_MS.length + 30 && (
               <button className="mini__btn" type="button" onClick={() => setBriefTries(0)}>
-                Keep waiting
+                Try again
               </button>
             )}
           </div>
