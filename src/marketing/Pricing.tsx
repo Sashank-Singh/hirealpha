@@ -5,8 +5,8 @@ import { planFor } from './format'
 type Tier = 'free' | 'single' | 'bundle' | 'ultra'
 
 /* Alpha the Friend is the product today. Coworker and Cofounder are visible
- * everywhere but not buyable until they ship — the multi-hire tiers stay on
- * the board so the roadmap sells, with the checkout door closed. */
+ * everywhere but not buyable until they ship, so the multi-hire tiers stay on
+ * the board to sell the roadmap, with the checkout door closed. */
 const HIRES_LIVE: AgentId[] = ['friend']
 
 const TIERS: { id: Tier; name: string; price: string; per: string; blurb: string; badge?: string; cta: string; soon?: boolean }[] = [
@@ -32,7 +32,7 @@ const TIERS: { id: Tier; name: string; price: string; per: string; blurb: string
     name: 'All three',
     price: '$39',
     per: 'a month',
-    blurb: 'Friend, Coworker, and Cofounder. Save $18. Coworker and Cofounder are in the workshop.',
+    blurb: 'Friend, Coworker, and Cofounder. Save $18. Coworker and Cofounder are still in the workshop.',
     badge: 'Best value',
     cta: 'Hire all three',
     soon: true,
@@ -42,7 +42,7 @@ const TIERS: { id: Tier; name: string; price: string; per: string; blurb: string
     name: 'Ultra',
     price: '$199',
     per: 'a month',
-    blurb: 'All hires, priority replies, and real phone calls. The full crew, when it lands.',
+    blurb: 'Everything, plus real phone calls. Calls are Ultra only. The full crew, when it lands.',
     cta: 'Go Ultra',
     soon: true,
   },
@@ -121,6 +121,25 @@ export function Pricing() {
         <div className="pricing__grid">
           {TIERS.map((tier) => (
             <article key={tier.id} className={`price-card${tier.badge ? ' price-card--hot' : ''}`}>
+              {tier.soon && (
+                <div
+                  aria-hidden="true"
+                  style={{
+                    background: 'var(--accent)',
+                    color: '#fff',
+                    border: '2px solid var(--ink)',
+                    borderRadius: 8,
+                    padding: '5px 10px',
+                    fontSize: 11,
+                    fontWeight: 700,
+                    letterSpacing: '0.1em',
+                    textTransform: 'uppercase',
+                    textAlign: 'center',
+                  }}
+                >
+                  Coming soon
+                </div>
+              )}
               {tier.badge && <span className="price-card__badge">{tier.badge}</span>}
               <h3>{tier.name}</h3>
               <p className="price-card__price">

@@ -1,12 +1,9 @@
 import { motion, AnimatePresence } from 'framer-motion'
 import { useState, useEffect, useCallback, useRef, type FormEvent, type CSSProperties } from 'react'
 import { AlphaFace } from './AlphaFace'
-import { Changelog } from './marketing/ChangelogSection'
 import { Invites } from './marketing/Invites'
 import { Pricing } from './marketing/Pricing'
 import { ShareButton } from './marketing/ShareButton'
-import { StatusStrip } from './marketing/StatusStrip'
-import { TrustSection } from './marketing/TrustSection'
 import './landing-stage.css'
 
 type AgentId = 'friend' | 'coworker' | 'cofounder'
@@ -208,7 +205,7 @@ const FAQS: { question: string; answer: string }[] = [
   {
     question: 'What do you do with my texts?',
     answer:
-      'We do not sell your conversations. Threads stay with your hires, and you’ll control what each one can see once connectors are connected.',
+      'We do not sell your conversations. Threads stay with your hires, and you’ll control what each one can see once you connect its tools.',
   },
   {
     question: 'What happens after I join the waitlist?',
@@ -897,6 +894,23 @@ function WaitlistForm() {
       <div className="waitlist-success" role="status">
         You're in. {line.label} will reach out in about a minute. If nothing lands, text hi to{' '}
         {line.phoneDisplay} and the conversation starts there.
+        <p className="waitlist-success__cta">Text Alpha now</p>
+        <a className="btn btn--accent" href="sms:+14155951440">
+          Open Messages
+        </a>
+        <div className="qr">
+          <img
+            src="https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=sms%3A%2B14155951440"
+            alt="QR code that opens a text to Alpha"
+            loading="lazy"
+            width={96}
+            height={96}
+          />
+          <div className="qr__text">
+            <strong>Scan to text Alpha</strong>
+            <span>On a computer? Scan this with your phone.</span>
+          </div>
+        </div>
         <Invites phone={phone} />
         <div className="waitlist-share">
           <ShareButton />
@@ -1005,7 +1019,6 @@ export default function Landing() {
             <div className="nav__links">
               <a href="#why">Why</a>
               <a href="#roles">Hires</a>
-              <a href="#trust">Trust</a>
               <a href="#pricing">Pricing</a>
               <a href="#apps">Apps</a>
               <a href="#faq">FAQ</a>
@@ -1062,7 +1075,6 @@ export default function Landing() {
             <h1 id="hero-heading" className="stage__line">
               people in your texts you can actually <em>hire</em>
             </h1>
-            <p className="stage__tagline">Hire them like a contact. No app to learn.</p>
           </div>
 
           <div className="stage__cast" id="demo">
@@ -1106,19 +1118,6 @@ export default function Landing() {
                 Get early access
               </a>
               <p>iPhone Messages · early access · $19 a month when you hire</p>
-              <div className="qr">
-                <img
-                  src="https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=sms%3A%2B14155951440"
-                  alt="QR code that opens a text to Alpha"
-                  loading="lazy"
-                  width={96}
-                  height={96}
-                />
-                <div className="qr__text">
-                  <strong>Scan to text Alpha</strong>
-                  <a href="sms:+14155951440">Open Messages →</a>
-                </div>
-              </div>
             </div>
           </div>
 
@@ -1191,7 +1190,7 @@ export default function Landing() {
                   <AlphaFace color={a.color} mood={a.mood} size={48} />
                   <span>
                     <strong>{a.name}</strong>
-                    <small>{a.role}{a.soon ? ' · coming soon' : ''}</small>
+                    <small>{a.role}{a.soon ? ' · soon' : ''}</small>
                   </span>
                 </button>
               ))}
@@ -1209,13 +1208,7 @@ export default function Landing() {
 
         <Actions />
 
-        <TrustSection />
-
         <Pricing />
-
-        <StatusStrip />
-
-        <Changelog />
 
         <section className="path section" id="how" aria-labelledby="how-heading">
           <div className="container">
@@ -1275,13 +1268,10 @@ export default function Landing() {
               <strong>HireAlpha</strong>
             </p>
           </div>
-          <p className="footer__tag">Hire them like a contact. No app to learn.</p>
           <nav className="footer__nav" aria-label="Footer">
             <a href="#why">Why</a>
             <a href="#roles">Hires</a>
-            <a href="#trust">Trust</a>
             <a href="#pricing">Pricing</a>
-            <a href="#changelog">Changelog</a>
             <a href="#faq">FAQ</a>
             <a href="#waitlist">Early access</a>
             <a href="/app/controls">Controls</a>

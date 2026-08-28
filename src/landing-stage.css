@@ -212,8 +212,8 @@
 
 .stage__device .phone {
   /* Fixed iPhone proportion — width only, height from aspect-ratio */
-  width: 336px;
-  max-width: min(336px, 88vw);
+  width: 430px;
+  max-width: min(430px, 88vw);
   height: auto;
   aspect-ratio: 312 / 640;
   flex-shrink: 0;
@@ -798,7 +798,7 @@
   }
   /* Keep the same phone width — do not stretch on large desktops */
   .stage__device .phone {
-    width: 336px;
-    max-width: 336px;
+    width: 430px;
+    max-width: 430px;
   }
 }
