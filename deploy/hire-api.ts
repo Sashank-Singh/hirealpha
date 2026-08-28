@@ -3462,9 +3462,11 @@ type HomeWorld = {
     count: number
     items: Array<{ id: string; from: string; subject: string; snippet?: string }>
   }>
+  meetings: DigestMeeting[]
+  attention: AttentionPick | null
 }
 
-const EMPTY_HOME_WORLD: HomeWorld = { upcoming: [], mail: [], mailGroups: [] }
+const EMPTY_HOME_WORLD: HomeWorld = { upcoming: [], mail: [], mailGroups: [], meetings: [], attention: null }
 const EMPTY_TODAY_RESULT: TodayResult = { meets: [], stay: null, calendarConnected: false }
 
 /* Today's meetings, read by home and by every screen that lists who you are
@@ -3633,7 +3635,7 @@ async function briefLoader<T>(
 }
 
 async function loadHomeWorld(sql: SQL, user: AuthedUser, tzLocal: string): Promise<HomeWorld> {
-  const world: HomeWorld = { upcoming: [], mail: [], mailGroups: [] }
+  const world: HomeWorld = { upcoming: [], mail: [], mailGroups: [], meetings: [], attention: null }
   const jobs: Array<Promise<void>> = []
   jobs.push(
     (async () => {
@@ -3649,6 +3651,7 @@ async function loadHomeWorld(sql: SQL, user: AuthedUser, tzLocal: string): Promi
       world.upcoming = cal.meets
         .filter((m) => isPersonMeetSuggestion(m))
         .map((m) => ({ time: m.time, title: m.who || m.title }))
+      world.meetings = remainingTodayMeets(cal.meets, tzLocal)
       if (world.upcoming.length) return
       const rows = await withTimeout(loadWorldCalendar(sql, user, tzLocal), 8000, [] as string[])
       world.upcoming = rows
@@ -3658,6 +3661,10 @@ async function loadHomeWorld(sql: SQL, user: AuthedUser, tzLocal: string): Promi
           return { time: parts[0] || '', title: parts.slice(1).join(' · ') || line }
         })
         .filter((e) => isPersonMeetSuggestion({ time: e.time, title: e.title, who: e.title }))
+      world.meetings = remainingTodayMeets(
+        world.upcoming.map((e) => ({ time: e.time, title: e.title, who: e.title })),
+        tzLocal,
+      )
     })(),
   )
   jobs.push(
@@ -3668,6 +3675,17 @@ async function loadHomeWorld(sql: SQL, user: AuthedUser, tzLocal: string): Promi
         const vocab = await loadMailKindVocab(sql, user.id)
         const verdicts = await judgeMailBatch(rich, vocab)
         const labelled: MailKindItem[] = rich.map((m) => ({ ...m, kind: verdicts.get(m.id)?.kind }))
+        // One email above the pile counts: picked from the same labelled rows
+        // the groups come from, so a kind or a deadline beats a count of ten.
+        world.attention = pickAttentionEmail(
+          labelled.map((m) => ({
+            id: m.id,
+            label: formatMailLineFromParts(m.from, m.subject),
+            snippet: cleanMailSnippet(m.snippet || ''),
+            kind: m.kind,
+            sender: m.from,
+          })),
+        )
         // Home shows the whole batch grouped rather than a judged top three:
         // the pile counts are what the section is for. Unjudged items still
         // land somewhere via the regex fallback inside groupMailByKind.
@@ -3765,6 +3783,150 @@ export function workPullSections(input: {
     }
   }
   return sections
+}
+
+/* ---- What is left of today, and the one email to look at ----
+ * Both briefs and home already load the calendar and the inbox; these two pure
+ * helpers package what those loads returned for the screens that show it. */
+
+export type DigestMeeting = { time: string; title: string; startsInMin?: number }
+
+/** Minutes after midnight for "2:30 PM", "10am" or "14:05". NaN for anything else. */
+function parseClockMinutes(value: string): number {
+  const m = String(value || '')
+    .trim()
+    .match(/^(\d{1,2})(?::(\d{2}))?\s*(am|pm)?$/i)
+  if (!m) return NaN
+  let h = Number(m[1])
+  const min = Number(m[2] || 0)
+  const ap = m[3]?.toLowerCase()
+  if (ap === 'pm' && h < 12) h += 12
+  if (ap === 'am' && h === 12) h = 0
+  if (h > 23 || min > 59) return NaN
+  return h * 60 + min
+}
+
+function nowMinutesInTz(tz: string, now = new Date()): number {
+  try {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: tz,
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: false,
+    }).formatToParts(now)
+    const h = Number(parts.find((p) => p.type === 'hour')?.value) % 24
+    const min = Number(parts.find((p) => p.type === 'minute')?.value)
+    if (!Number.isFinite(h) || !Number.isFinite(min)) return NaN
+    return h * 60 + min
+  } catch {
+    return NaN
+  }
+}
+
+/**
+ * Today's meetings still ahead of the user, soonest first, five max. End times
+ * are not carried on the meet rows, so a meeting that already started counts as
+ * in progress for an hour and then leaves the list.
+ */
+export function remainingTodayMeets(
+  meets: Array<{ time: string; title: string; who?: string }>,
+  tz: string,
+  now = new Date(),
+): DigestMeeting[] {
+  const nowMin = nowMinutesInTz(tz, now)
+  if (Number.isNaN(nowMin)) return []
+  const out: DigestMeeting[] = []
+  for (const m of meets) {
+    if (/^all day$/i.test(String(m.time || '').trim())) continue
+    const startMin = parseClockMinutes(m.time)
+    if (Number.isNaN(startMin)) continue
+    if (startMin < nowMin && nowMin - startMin > 60) continue
+    out.push({ time: m.time, title: m.who || m.title, startsInMin: Math.max(0, startMin - nowMin) })
+  }
+  out.sort((a, b) => (a.startsInMin ?? 0) - (b.startsInMin ?? 0))
+  return out.slice(0, 5)
+}
+
+export type AttentionCandidate = {
+  id: string
+  label: string
+  snippet?: string
+  kind?: string
+  sender?: string
+}
+export type AttentionPick = { id: string; label: string; snippet?: string; why: string }
+
+/* One pile name or sender is enough to call a mail money, but a bare receipt is
+ * not — receipts only count when the text still owes something. */
+const MONEY_KIND_RE = /money|bill|invoice|payment|due|expense|finance|statement|banking/i
+const MONEY_SENDER_RE = /billing|invoic|payment|statement|utility|\bbank|accounts? receivable/i
+const RECEIPT_RE = /receipt|order|confirmation/i
+const OWED_RE = /amount due|balance|owed|past due|payment due|due by|\$\s?\d/i
+const NEWSLETTER_RE = /newsletter|promo|deals?|digest|unsubscribe|no[- ]?reply|daily brief|notification/i
+const URGENT_RE = /\b(today|tonight|eod|deadline|overdue|rsvp|expires?|final notice)\b/i
+
+function attentionIsNewsletter(item: AttentionCandidate): boolean {
+  return NEWSLETTER_RE.test(`${item.kind || ''} ${item.label} ${item.snippet || ''}`)
+}
+
+function attentionName(item: AttentionCandidate): string {
+  const fromLabel = String(item.label || '').split(' · ').pop() || ''
+  const raw = String(item.sender || fromLabel).replace(/<[^>]+>/g, '').trim()
+  const name = raw.split('@')[0]!.replace(/[^\w '.-]/g, '').trim()
+  return name.slice(0, 24)
+}
+
+/* Money: a pile or sender that bills, but a bare receipt only counts when the
+ * text still owes something. Newsletters never count as money. */
+function attentionMoneyWhy(item: AttentionCandidate): string | null {
+  const kindSender = `${item.kind || ''} ${item.sender || ''}`
+  if (attentionIsNewsletter(item)) return null
+  const text = `${item.label} ${item.snippet || ''}`
+  if (MONEY_KIND_RE.test(kindSender) && !RECEIPT_RE.test(kindSender)) {
+    return /invoice/i.test(kindSender) ? 'invoice due' : 'bill due'
+  }
+  if (MONEY_SENDER_RE.test(item.sender || '') || (RECEIPT_RE.test(kindSender) && OWED_RE.test(text))) {
+    return 'payment due'
+  }
+  return null
+}
+
+function attentionUrgentWhy(item: AttentionCandidate): string | null {
+  const urgent = `${item.label} ${item.snippet || ''}`.match(URGENT_RE)
+  if (!urgent) return null
+  const w = urgent[1]!.toLowerCase()
+  if (w === 'rsvp') return 'RSVP needed'
+  if (w === 'overdue' || w === 'final notice') return 'past due'
+  if (/expire/.test(w)) return 'expires soon'
+  return 'deadline today'
+}
+
+function attentionPersonalWhy(item: AttentionCandidate): string | null {
+  if (attentionIsNewsletter(item)) return null
+  if (!item.snippet || !item.snippet.trim()) return null
+  const name = attentionName(item)
+  return name ? `from ${name}` : 'needs a reply'
+}
+
+/**
+ * The one email worth putting above the pile counts. Priority over the whole
+ * list: money that needs action, then deadline language, then the first mail
+ * that reads like a person wrote it. Null when nothing qualifies, so screens
+ * can drop the slot quietly.
+ */
+export function pickAttentionEmail(
+  items: AttentionCandidate[],
+  _now: Date = new Date(),
+): AttentionPick | null {
+  const tiers = [attentionMoneyWhy, attentionUrgentWhy, attentionPersonalWhy]
+  for (const tier of tiers) {
+    for (const item of items) {
+      if (!item?.id) continue
+      const why = tier(item)
+      if (why) return { id: item.id, label: item.label, snippet: item.snippet, why }
+    }
+  }
+  return null
 }
 
 async function digestPayload(
@@ -3969,6 +4131,16 @@ async function digestPayload(
   const todayLocal = localDateStrInTz(new Date(), tz)
   const weekStartLocal = mondayOfDateStr(todayLocal)
   const lastNightKey = shiftDateStr(todayLocal, -1)
+
+  // The screens want two things the raw piles do not surface: what is left of
+  // the day on the calendar, and the single mail to see before the counts.
+  const meetings = remainingTodayMeets(calToday.meets, tz)
+  const attention = pickAttentionEmail([
+    ...needsYou.map((n) => ({ id: n.id, label: n.label, snippet: n.snippet })),
+    ...mailGroups.flatMap((g) =>
+      g.items.map((it) => ({ id: it.id, label: it.label, snippet: it.snippet, kind: g.kind })),
+    ),
+  ])
 
   // The half-dozen small reads used to run one after another; none depends on
   // the next, so they all leave together.
@@ -4244,6 +4416,8 @@ async function digestPayload(
   return {
     date: dateLabel,
     calendar: todayCal,
+    meetings,
+    attention,
     emails: finalEmails,
     emailItems: finalEmailItems,
     mailGroups,
@@ -8087,6 +8261,8 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
       return json({
         date,
         calendar: [],
+        meetings: [],
+        attention: null,
         emails: [],
         reminders: [],
         loops: [],
@@ -11247,7 +11423,7 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
      * answer paints instantly while the next one loads behind the response;
      * only a cold first open waits, and only briefly. */
     const world = await homeWorldCache.read(`${user!.id}|${tzLocal}`, () => loadHomeWorld(sql, user!, tzLocal))
-    const { upcoming, mail, mailGroups } = world.value ?? EMPTY_HOME_WORLD
+    const { upcoming, mail, mailGroups, meetings, attention } = world.value ?? EMPTY_HOME_WORLD
 
     /* A repeat open is usually the same bytes, so let the browser revalidate
      * rather than re-download — unless the world slice is still filling in, in
@@ -11264,6 +11440,8 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
         upcoming,
         mail,
         mailGroups,
+        meetings,
+        attention,
         peopleDue,
         dueLoop,
         runway,
