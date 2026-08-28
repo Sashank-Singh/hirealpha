@@ -9726,7 +9726,7 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     const fileNames = run.files.map((f) => f.name)
     const expires = new Date(Date.now() + 7 * 86_400_000)
     await sql`
-      INSERT INTO hire_artifacts (id, user_id, title, kind, files, state, expires_at)
+      INSERT INTO hire_artifacts (id, user_id, title, kind, files, state, expires_at, template_key)
       VALUES (${artifactId}, ${user.id}, ${title}, ${fileNames.some((f) => /\.html?$/i.test(f)) ? 'page' : 'file'},
         ${JSON.stringify(fileNames)}, 'delivered', ${expires.toISOString()}, ${templateKey})
     `
