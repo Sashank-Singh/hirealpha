@@ -111,6 +111,7 @@ export function workshopPlannerPrompt(ask: string): string {
     'Sandbox rules: Bun runtime, NO network, NO environment variables, no child processes.',
     'Do useful work, then WRITE every output file into the out/ directory (create it if needed), e.g. Bun.write("out/index.html", html).',
     'For a page or tracker, produce one self-contained out/index.html with inline CSS/JS and realistic sample data the user can edit later in the file.',
+    'CRITICAL: the app opens on an iPhone, tapped from an iMessage link. Include a viewport meta tag, portrait layout, and touch controls only. Never require a keyboard, hover, or arrow keys; games get on-screen buttons, tap, or drag controls.',
     'Reply with JSON only, no markdown: {"title": "short name", "code": "<the whole program>"}',
     '',
     `Build this: ${ask}`,

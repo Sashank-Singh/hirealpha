@@ -965,6 +965,9 @@ const WORKSHOP_PLANNER = [
   'Sandbox rules: Bun runtime, NO network, NO environment variables, no child processes.',
   'Do useful work, then WRITE every output file into the out/ directory (create it if needed), e.g. await Bun.write("out/index.html", html).',
   'For a page or tracker, produce one self-contained out/index.html with inline CSS/JS and realistic sample data the user can edit later in the file.',
+  'CRITICAL: the app opens on an iPhone, tapped from an iMessage link. Design for a phone held in one hand: include <meta name="viewport" content="width=device-width, initial-scale=1">, portrait layout that fits a narrow screen, and touch controls only.',
+  'Never require a hardware keyboard, mouse hover, or arrow keys. Games and interactive apps are driven by touch: on-screen buttons, tap, or drag. Keyboard listeners may exist as a desktop bonus but the app must be fully usable without them.',
+  'Interactive apps must actually run: wire the controls to the state, use requestAnimationFrame or event handlers, and make the primary action work on the first tap without any setup.',
   'Keep the program compact: one file, ideally under 250 lines, polished but minimal — it must fit in one reply.',
   'In generated code, build strings with plain quotes and + concatenation rather than template literals, and double-check every statement ends correctly — the program must parse the first time.',
   'The HTML must be valid too: never leave an unescaped apostrophe inside a single quoted JS string (reword or use double quotes), put the <script> after all elements it uses, and make sure every button works.',
@@ -1032,6 +1035,22 @@ export function workshopTemplateKey(ask: string): string {
     .replace(/\s+/g, ' ')
     .trim()
     .slice(0, 60)
+}
+
+/* Phones have no keyboard. The first ping pong build shipped arrow-key paddles
+ * to someone tapping a link in iMessage, which plays like a screenshot. This
+ * gate catches interactive asks whose generated code only answers hardware
+ * input, and its reason feeds the planner's repair pass. */
+const INTERACTIVE_ASK = /\b(game|play|snake|tetris|chess|checkers|tic tac toe|pong|arcade|quiz|trivia|piano|drum|paint|draw|doodle|clicker|simulator|sim)\b/i
+const KEYBOARD_INPUT = /\bkeydown\b|\bkeyup\b|\bkeypress\b|\bKeyboardEvent\b|ArrowUp|ArrowDown|ArrowLeft|ArrowRight|\bkeys\[/i
+const TOUCH_INPUT = /\btouchstart\b|\btouchmove\b|\btouchend\b|\bpointerdown\b|\bpointermove\b|\bpointerup\b|\bonclick\b|addEventListener\(\s*['"]click['"]|\bon touches\b|ontouchstart/i
+
+export function workshopPhoneGate(ask: string, code: string): string | null {
+  if (!INTERACTIVE_ASK.test(ask)) return null
+  const hasTouch = TOUCH_INPUT.test(code)
+  const hasKeyboard = KEYBOARD_INPUT.test(code)
+  if (hasTouch || !hasKeyboard) return null
+  return 'the app is driven by keyboard listeners only (keydown/arrow keys), but the user opens it on an iPhone with no keyboard. Rewrite the whole app with touch controls: on-screen buttons, tap, or drag handlers (touchstart/pointerdown). Keep any keyboard support only as a desktop bonus.'
 }
 
 async function findWorkshopTemplate(
@@ -1265,6 +1284,23 @@ export async function autoRunWorkshop(
       lastError = 'could not draft the program'
       if (pass === 0) continue
       return { ok: false, logged: false, error: lastError }
+    }
+    // Some replies come back as the raw HTML document instead of a writer
+    // program; wrapping beats burning the repair pass on a parse error.
+    const trimmedCode = code.trim()
+    if (/^<!doctype html|^<html/i.test(trimmedCode)) {
+      code = "await Bun.write('out/index.html', " + JSON.stringify(trimmedCode) + ")"
+    }
+    // Catch keyboard-only interactive apps before spending a sandbox run: the
+    // gate reason becomes the repair-pass instruction.
+    const phoneFail = workshopPhoneGate(ask, code)
+    if (phoneFail) {
+      console.warn(`[live] workshop phone gate: ${phoneFail.slice(0, 80)}`)
+      lastError = phoneFail
+      if (pass === 0) continue
+      // Pass 2 also failed the gate: ship it rather than nothing — the user
+      // can say "make it touch friendly" and iterate.
+      console.warn('[live] workshop phone gate still failing after repair pass; shipping anyway')
     }
 
     try {

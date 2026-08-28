@@ -1004,6 +1004,10 @@ export async function ensureHireSchema(sql: SQL) {
    * expiry and keep/toss stay personal. */
   await sql`ALTER TABLE hire_artifacts ADD COLUMN IF NOT EXISTS template_key TEXT`
   await sql`CREATE INDEX IF NOT EXISTS idx_hire_artifacts_template ON hire_artifacts (template_key, created_at DESC)`
+  // Templates built before the phone-gate fix (2026-08-28) teach keyboard-only
+  // apps to every future clone — ping pong shipped arrow keys to an iPhone.
+  // Invalidate the old cache; new verified builds repopulate it.
+  await sql`UPDATE hire_artifacts SET template_key = NULL WHERE template_key IS NOT NULL AND created_at < '2026-08-28'`
   await sql`
     CREATE TABLE IF NOT EXISTS hire_workshop_tasks (
       id TEXT PRIMARY KEY,
