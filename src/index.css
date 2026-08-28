@@ -1074,10 +1074,12 @@ button, input { font: inherit; }
   text-align: center;
 }
 .manifesto__lead {
-  font-size: 15px;
-  font-weight: 700;
+  font-family: var(--display);
+  font-size: clamp(1.6rem, 3.2vw, 2.4rem);
+  font-weight: 500;
+  letter-spacing: -0.02em;
   color: var(--accent);
-  margin-bottom: 12px;
+  margin-bottom: 14px;
 }
 .manifesto h2 {
   font-family: var(--display);
