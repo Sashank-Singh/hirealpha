@@ -4,7 +4,7 @@ import { COMPOSIO_READ, composioLooksFailed, formatComposioData } from './compos
 describe('composio plugin helpers', () => {
   it('covers every catalog connector except calendar (handled separately)', () => {
     expect(Object.keys(COMPOSIO_READ).sort()).toEqual(
-      ['drive', 'figma', 'github', 'gmail', 'linear', 'maps', 'notion', 'slack', 'spotify', 'stripe'].sort(),
+      ['drive', 'figma', 'github', 'gmail', 'linear', 'maps', 'notion', 'plaid', 'slack', 'spotify', 'stripe'].sort(),
     )
   })
 

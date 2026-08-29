@@ -5037,22 +5037,30 @@ a.brief-fact { cursor: pointer; }
 .billing-toggle {
   display: inline-flex;
   background: #fff;
-  border: 2.5px solid var(--ink);
+  border: 2px solid var(--ink);
   border-radius: 999px;
-  padding: 3px;
-  box-shadow: 3px 3px 0 var(--ink);
+  padding: 2px;
+  box-shadow: 2px 2px 0 var(--ink);
 }
 .billing-toggle__opt {
   border: none;
   background: transparent;
   border-radius: 999px;
-  padding: 7px 16px;
-  font-size: 13px;
+  padding: 4px 11px;
+  font-size: 12px;
   font-weight: 700;
   cursor: pointer;
   color: var(--ink);
+  line-height: 1.2;
 }
 .billing-toggle__opt.is-on {
   background: var(--ink);
   color: #fff;
+}
+.billing-toggle__sup {
+  margin-left: 4px;
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  opacity: 0.7;
 }
