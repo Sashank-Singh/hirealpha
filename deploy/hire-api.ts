@@ -53,6 +53,7 @@ import {
   parseMailJudgeVerdicts,
   groupBriefMail,
   groupMailByKind,
+  isSubstantiveReply,
   mailTally,
   pickReplyTarget,
   scoreMail,
@@ -543,6 +544,10 @@ function stripePriceFor(persona: Persona) {
   return process.env[key]?.trim() || ''
 }
 
+function stripePromoPrice() {
+  return process.env.STRIPE_PRICE_FRIEND_PROMO?.trim() || ''
+}
+
 export function billingConfigured(persona: Persona) {
   return !!stripeSecret() && !!stripePriceFor(persona)
 }
@@ -596,17 +601,19 @@ async function upsertSubscription(
     status: string
     priceId?: string | null
     currentPeriodEnd?: Date | null
+    promoStartedAt?: Date | null
   },
 ) {
   await sql`
-    INSERT INTO hire_subscriptions (id, user_id, persona, stripe_customer_id, stripe_subscription_id, status, price_id, current_period_end)
-    VALUES (${crypto.randomUUID()}, ${opts.userId}, ${opts.persona}, ${opts.stripeCustomerId || null}, ${opts.stripeSubscriptionId || null}, ${opts.status}, ${opts.priceId || null}, ${opts.currentPeriodEnd || null})
+    INSERT INTO hire_subscriptions (id, user_id, persona, stripe_customer_id, stripe_subscription_id, status, price_id, current_period_end, promo_started_at)
+    VALUES (${crypto.randomUUID()}, ${opts.userId}, ${opts.persona}, ${opts.stripeCustomerId || null}, ${opts.stripeSubscriptionId || null}, ${opts.status}, ${opts.priceId || null}, ${opts.currentPeriodEnd || null}, ${opts.promoStartedAt || null})
     ON CONFLICT (user_id, persona) DO UPDATE SET
       stripe_customer_id = EXCLUDED.stripe_customer_id,
       stripe_subscription_id = EXCLUDED.stripe_subscription_id,
       status = EXCLUDED.status,
       price_id = EXCLUDED.price_id,
       current_period_end = EXCLUDED.current_period_end,
+      promo_started_at = COALESCE(EXCLUDED.promo_started_at, hire_subscriptions.promo_started_at),
       updated_at = now()
   `
 }
@@ -659,6 +666,7 @@ async function handleBillingWebhook(req: Request, sql: SQL) {
         stripeCustomerId: customerId,
         status,
         currentPeriodEnd,
+        promoStartedAt: promoPrice ? new Date() : null,
       })
     }
   } else if (type === 'customer.subscription.updated' || type === 'customer.subscription.deleted') {
@@ -1393,11 +1401,13 @@ export async function ensureHireSchema(sql: SQL) {
       status TEXT NOT NULL DEFAULT 'incomplete',
       price_id TEXT,
       current_period_end TIMESTAMPTZ,
+      promo_started_at TIMESTAMPTZ,
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       UNIQUE (user_id, persona)
     )
   `
+  await sql`ALTER TABLE hire_subscriptions ADD COLUMN IF NOT EXISTS promo_started_at TIMESTAMPTZ`
   await sql`CREATE INDEX IF NOT EXISTS idx_hire_subscriptions_user ON hire_subscriptions (user_id, status)`
 
   // Proactive jobs a hire runs on a schedule. status walks pending → running →
@@ -4172,6 +4182,35 @@ export function pickAttentionEmail(
   return null
 }
 
+/**
+ * Promises found in judged mail become open loops: an email that carries a
+ * commitment ("I'll send the deck Thursday") lands on the Promises card with
+ * the mail it came from as context, instead of dying in the inbox. Deduped on
+ * the loop title so the same email does not spawn a loop on every brief, and
+ * capped at three per run so one noisy inbox cannot flood the card.
+ */
+async function saveMailPromiseLoops(
+  sql: SQL,
+  userId: string,
+  persona: Persona,
+  promises: Array<{ title: string; context: string }>,
+) {
+  for (const p of promises.slice(0, 3)) {
+    const title = p.title.trim().slice(0, 200)
+    if (!title) continue
+    const existing = await sql`
+      SELECT id FROM hire_loops
+      WHERE user_id = ${userId} AND status = 'open' AND lower(title) = lower(${title})
+      LIMIT 1
+    `
+    if (existing.length) continue
+    await sql`
+      INSERT INTO hire_loops (id, user_id, persona, title, context)
+      VALUES (${crypto.randomUUID()}, ${userId}, ${persona}, ${title}, ${p.context.slice(0, 500)})
+    `
+  }
+}
+
 async function digestPayload(
   sql: SQL,
   user: { id: string; timezone: string | null; name?: string | null },
@@ -4250,6 +4289,19 @@ async function digestPayload(
          * JSON the pile names come from. */
         const verdicts = await judgeMailBatch(richItems, vocab, { limit: 12, maxTokens: 700, timeoutMs: 8000 })
         const labelled: MailKindItem[] = richItems.map((m) => ({ ...m, kind: verdicts.get(m.id)?.kind }))
+        // Promises: judged mail that carries a commitment becomes an open loop
+        // on the Promises card. Best effort and fire and forget, so it never
+        // holds or breaks the brief.
+        const mailPromises = richItems
+          .map((m) => ({ promise: verdicts.get(m.id)?.promise?.trim(), m }))
+          .filter((r): r is { promise: string; m: (typeof richItems)[number] } => !!r.promise)
+          .map(({ promise, m }) => ({
+            title: promise,
+            context: `From mail: ${formatMailLineFromParts(m.from, m.subject)}`,
+          }))
+        if (mailPromises.length) {
+          void saveMailPromiseLoops(sql, user.id, persona, mailPromises).catch(() => {})
+        }
         // Mail the user already handled leaves both Needs You and the piles. This
         // is what makes Done and Skip stick instead of popping back on reload.
         const visible: MailKindItem[] = labelled.filter((m) => !doneIds.has(m.id))
@@ -4701,11 +4753,11 @@ const PERSONA_MINI_APPS: Record<Persona, string[]> = {
     'networking_crm', 'sleep_tracker', 'spending_snapshot', 'gratitude_journal', 'spiral_options', 'relationship_radar',
   ],
   coworker: [
-    'digest', 'next_move', 'approve_send', 'pick_slot', 'standup_paste', 'linear_triage', 'open_loops',
+    'digest', 'next_move', 'home', 'approve_send', 'pick_slot', 'standup_paste', 'linear_triage', 'open_loops',
     'meeting_mode', 'drop_zone', 'learning_queue', 'weekly_review', 'networking_crm',
   ],
   cofounder: [
-    'digest', 'next_move', 'kill_keep_park', 'hire_decision', 'weekly_review', 'approve_investor_note',
+    'digest', 'next_move', 'home', 'kill_keep_park', 'hire_decision', 'weekly_review', 'approve_investor_note',
     'decision_ledger', 'relationship_radar', 'drop_zone', 'open_loops', 'networking_crm', 'pipeline_board',
     'spending_snapshot',
   ],
@@ -7963,6 +8015,11 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
       return envs.map((k) => process.env[k]?.trim() || '').find(Boolean) || ''
     }
     let priceId = priceFor(persona, annual)
+    // Promo: $5/mo for first 2 months on Friend monthly (non-annual, single plan)
+    const promoPrice = stripePromoPrice()
+    if (plan === 'single' && persona === 'friend' && !annual && promoPrice) {
+      priceId = promoPrice
+    }
     // An annual price that was never configured quietly falls back to monthly
     // rather than failing checkout; the response says so.
     let fallback = false
@@ -8616,29 +8673,37 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     }
     const draftId = crypto.randomUUID()
     const quoted = target.original
-      ? `\n\nOn ${new Date().toLocaleDateString('en-US')}, they wrote:\n${target.original.split(/\s+/).slice(0, 90).join(' ')}…`
+      ? `\n\nThey wrote:\n${target.original.split(/\s+/).slice(0, 90).join(' ')}…`
       : ''
     /* The draft has to say something about the email, not just re-paste it:
-     * Alpha writes the actual reply from the message content, and the canned
-     * greeting + quote below is only the fallback when the model is down. */
+     * Alpha writes the actual reply from the message content. A model that is
+     * down, or that answers with a bare greeting or an echo of the original,
+     * produces no draft at all — the old fallback saved "Hi <name>," plus the
+     * quoted original, which is exactly the kind of draft a user sends by
+     * accident. */
     const senderName = (user!.name || '').trim() || user!.email.split('@')[0]
     const firstName = senderName.split(/\s+/)[0] || 'me'
-    let replyBody = `Hi ${target.toAddr.split('@')[0] || 'there'},\n\n\n${quoted}`
+    let written = ''
     try {
-      const written = await gmiBriefChat(
-        `You are Alpha writing a reply email on behalf of ${senderName}. Reply to the email below on their behalf. Keep it natural, concise, and specific to what was said: answer any question, confirm or decline clearly, move it forward. Plain greeting, no bullet lists unless needed, close with a short signoff in their voice using the name ${firstName}, like "Best," then ${firstName} on the next line. Do not quote the original back. Never leave placeholders such as [Your Name]. Respond with ONLY the body text.`,
-        `To: ${target.toAddr}\nSubject: ${target.subject}\n\nTheir email:\n${target.original || target.subject}\n\nWrite the reply body now.`,
-        500,
-        10000,
-        { plainText: true },
-      )
-      if (written?.trim()) {
-        replyBody = `${fillDraftName(written.trim(), firstName)}${quoted}`
-      }
+      written = String(
+        (await gmiBriefChat(
+          `You are Alpha writing a reply email on behalf of ${senderName}. Reply to the email below on their behalf. Keep it natural, concise, and specific to what was said: answer any question, confirm or decline clearly, move it forward. Plain greeting, no bullet lists unless needed, close with a short signoff in their voice using the name ${firstName}, like "Best," then ${firstName} on the next line. Do not quote the original back. Never leave placeholders such as [Your Name]. Respond with ONLY the body text.`,
+          `To: ${target.toAddr}\nSubject: ${target.subject}\n\nTheir email:\n${target.original || target.subject}\n\nWrite the reply body now.`,
+          500,
+          10000,
+          { plainText: true },
+        )) || '',
+      ).trim()
     } catch (err) {
-      console.warn('[mail/draft] model draft failed, using template', err)
+      console.warn('[mail/draft] model draft failed', err)
     }
-    replyBody = replyBody.slice(0, 4000)
+    if (!isSubstantiveReply(written, target.original)) {
+      return json(
+        { ok: false, error: 'Alpha could not write this reply right now. Try again in a moment.' },
+        502,
+      )
+    }
+    const replyBody = `${fillDraftName(written, firstName)}${quoted}`.slice(0, 4000)
     await sql`
       INSERT INTO hire_drafts (id, user_id, persona, kind, to_addr, subject, body)
       VALUES (
@@ -8743,6 +8808,17 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     })
     if (error) return error
     const connected = await connectedForUser(sql, user!.id)
+    /* Suggested drafts used to pile up forever: an empty-body suggestion stayed
+     * "pending" after its email left the inbox window, and concurrent page
+     * loads raced the "no pending drafts" check below and inserted the same
+     * batch twice, which is how a quiet inbox showed eleven drafts. Expire
+     * stale suggestions first, and never write a suggestion that already has a
+     * pending twin. */
+    await sql`
+      UPDATE hire_drafts SET status = 'canceled', updated_at = now()
+      WHERE user_id = ${user!.id} AND kind = 'email' AND status = 'pending'
+        AND body = '' AND created_at < now() - interval '7 days'
+    `
     const drafts = (await sql`
       SELECT id, kind, to_addr AS "toAddr", subject, body, status, created_at AS "createdAt",
         thread_id AS "threadId", in_reply_to AS "inReplyTo", start_at AS "startAt", end_at AS "endAt"
@@ -8757,11 +8833,21 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     if (kind !== 'event' && !rows.some((d) => d.status === 'pending')) {
       const suggested = await suggestedMailDrafts(sql, user!.id)
       for (const s of suggested) {
+        // One atomic statement: concurrent page loads each pass the
+        // "no pending drafts" check above, so the twin check must live
+        // inside the insert or the pile grows again.
         const id = crypto.randomUUID()
-        await sql`
+        const inserted = await sql`
           INSERT INTO hire_drafts (id, user_id, persona, kind, to_addr, subject, body)
-          VALUES (${id}, ${user!.id}, ${isPersona(persona) ? persona : ''}, 'email', ${s.toAddr}, ${s.subject}, ${s.body})
+          SELECT ${id}, ${user!.id}, ${isPersona(persona) ? persona : ''}, 'email', ${s.toAddr}, ${s.subject}, ${s.body}
+          WHERE NOT EXISTS (
+            SELECT 1 FROM hire_drafts
+            WHERE user_id = ${user!.id} AND status = 'pending'
+              AND lower(to_addr) = lower(${s.toAddr}) AND lower(subject) = lower(${s.subject})
+          )
+          RETURNING id
         `
+        if (!inserted.length) continue
       }
       if (suggested.length) {
         rows = (await sql`
@@ -9457,6 +9543,15 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
           updated_at = now()
       WHERE id = ${id} AND user_id = ${user!.id}
     `
+    return json({ ok: true })
+  }
+
+  if (path.startsWith('/api/meetings/') && req.method === 'DELETE') {
+    const id = path.slice('/api/meetings/'.length)
+    const body = (await req.json().catch(() => ({}))) as { token?: string; email?: string }
+    const { user, error } = await resolveAuthedUser(sql, { token: body.token, session: body.session, email: body.email })
+    if (error) return error
+    await sql`DELETE FROM hire_meetings WHERE id = ${id} AND user_id = ${user!.id}`
     return json({ ok: true })
   }
 
@@ -12323,4 +12418,44 @@ function sleepHoursBetween(bedtime: string, wake: string): number {
   let mins = (wh * 60 + wm) - (bh * 60 + bm)
   if (mins <= 0) mins += 24 * 60
   return mins / 60
+}
+
+/** Upgrade promo subscriptions ($5/mo) to regular price ($19/mo) after 60 days.
+ *  Called daily from the web server. Safe to run multiple times — only touches
+ *  subscriptions where promo_started_at is older than 60 days. */
+export async function upgradePromoSubscriptions(sql: SQL) {
+  const promoPrice = stripePromoPrice()
+  const regularPrice = stripePriceFor('friend')
+  if (!promoPrice || !regularPrice || !stripeSecret()) return
+
+  const stale = await sql`
+    SELECT id, stripe_subscription_id, user_id
+    FROM hire_subscriptions
+    WHERE promo_started_at IS NOT NULL
+      AND promo_started_at < now() - interval '60 days'
+      AND status IN ('active', 'trialing')
+      AND price_id = ${promoPrice}
+  ` as Array<{ id: string; stripe_subscription_id: string; user_id: string }>
+
+  for (const sub of stale) {
+    try {
+      await stripeRequest(
+        `/subscriptions/${sub.stripe_subscription_id}`,
+        new URLSearchParams({
+          'items[0][id]': sub.stripe_subscription_id,
+          'items[0][price]': regularPrice,
+          'proration_behavior': 'create_prorations',
+        }),
+      )
+      await sql`
+        UPDATE hire_subscriptions
+        SET price_id = ${regularPrice}, promo_started_at = NULL, updated_at = now()
+        WHERE id = ${sub.id}
+      `
+      console.log(`[billing] upgraded promo sub ${sub.id} user ${sub.user_id} to ${regularPrice}`)
+    } catch (err) {
+      console.error(`[billing] promo upgrade failed for ${sub.id}`, err)
+    }
+  }
+  if (stale.length) console.log(`[billing] promo upgrade check: ${stale.length} subscriptions upgraded`)
 }

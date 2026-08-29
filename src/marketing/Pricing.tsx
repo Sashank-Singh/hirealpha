@@ -96,6 +96,30 @@ export function Pricing() {
   const [hire, setHire] = useState<AgentId>('friend')
   const [annual, setAnnual] = useState(false)
 
+  async function startCheckout(tierId: Tier, persona: AgentId) {
+    if (!email.includes('@')) {
+      scrollToWaitlist()
+      return
+    }
+    const plan = tierId === 'single' ? 'single' : tierId
+    const res = await fetch('/api/billing/checkout', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email,
+        hire: persona,
+        plan: annual ? `${plan}-annual` : plan,
+        trial_days: 7,
+      }),
+    })
+    const data = await res.json()
+    if (data.url) {
+      window.location.href = data.url
+    } else {
+      alert(data.error || 'Checkout not available yet')
+    }
+  }
+
   function scrollToWaitlist() {
     const el = document.getElementById('waitlist')
     if (el) {
@@ -196,7 +220,11 @@ export function Pricing() {
                   className={`btn ${tier.badge ? 'btn--accent' : 'btn--ghost'}`}
                   onClick={(e) => {
                     e.preventDefault()
-                    scrollToWaitlist()
+                    if (tier.id === 'free') {
+                      scrollToWaitlist()
+                    } else {
+                      startCheckout(tier.id, hire)
+                    }
                   }}
                 >
                   {tier.cta}

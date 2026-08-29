@@ -501,6 +501,14 @@ function notFound(req: Request, clean: string) {
 await ensureSchema()
 await loadManifest()
 
+// Daily promo upgrade check: upgrade $5/mo → $19/mo after 60 days
+if (sql) {
+  const { upgradePromoSubscriptions } = await import('./hire-api')
+  setInterval(() => upgradePromoSubscriptions(sql!), 24 * 60 * 60 * 1000)
+  // Run once on boot to catch any overdue upgrades
+  upgradePromoSubscriptions(sql).catch((e) => console.error('[billing] initial promo check failed', e))
+}
+
 Bun.serve({
   port: PORT,
   hostname: '0.0.0.0',
