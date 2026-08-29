@@ -1,5 +1,7 @@
 import type { AgentId } from '../agents/types'
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { getSession } from '../platform/roster'
 import { planFor } from './format'
 
 type Tier = 'free' | 'single' | 'bundle' | 'ultra'
@@ -62,6 +64,7 @@ function displayPrice(tier: (typeof TIERS)[number], annual: boolean) {
 
 /** Plan names the billing endpoint expects, with the annual variant folded in. */
 export function Pricing() {
+  const navigate = useNavigate()
   const [email, setEmail] = useState('')
   const [hire, setHire] = useState<AgentId>('friend')
   const [annual, setAnnual] = useState(false)
@@ -69,13 +72,27 @@ export function Pricing() {
   const [note, setNote] = useState('')
 
   async function checkout(tier: Tier) {
-    const emailValue = email.trim().toLowerCase()
-    if (!emailValue) {
-      setNote('Leave your email so the bill has somewhere to go.')
+    const session = getSession()
+    const emailValue = email.trim().toLowerCase() || session?.email?.trim().toLowerCase() || ''
+
+    if (tier === 'free') {
+      if (session?.email && session?.phone) {
+        navigate('/app')
+      } else {
+        navigate(emailValue ? `/app/login?email=${encodeURIComponent(emailValue)}` : '/app/login')
+      }
       return
     }
+
     setBusy(tier)
     setNote('')
+
+    if (!emailValue) {
+      setBusy('')
+      navigate(`/app/login?hire=${hire}&plan=${planFor(tier, annual)}`)
+      return
+    }
+
     try {
       const res = await fetch('/api/billing/checkout', {
         method: 'POST',
@@ -87,9 +104,9 @@ export function Pricing() {
         window.location.href = data.url
         return
       }
-      setNote("Billing coming soon. You're on the list.")
+      navigate(`/app/login?email=${encodeURIComponent(emailValue)}&hire=${hire}&plan=${planFor(tier, annual)}`)
     } catch {
-      setNote("Billing coming soon. You're on the list.")
+      navigate(`/app/login?email=${encodeURIComponent(emailValue)}&hire=${hire}&plan=${planFor(tier, annual)}`)
     } finally {
       setBusy('')
     }
@@ -109,25 +126,43 @@ export function Pricing() {
             onChange={(e) => setEmail(e.target.value)}
             aria-label="Email for the bill"
           />
-          <div className="pricing__hires" role="radiogroup" aria-label="First hire">
-            {(['friend', 'coworker', 'cofounder'] as AgentId[]).map((id) => (
+          <div className="pricing__controls">
+            <div className="pricing__hires" role="radiogroup" aria-label="First hire">
+              {(['friend', 'coworker', 'cofounder'] as AgentId[]).map((id) => (
+                <button
+                  key={id}
+                  type="button"
+                  role="radio"
+                  aria-checked={hire === id}
+                  className={`pricing__chip${hire === id ? ' is-on' : ''}`}
+                  onClick={() => setHire(id)}
+                >
+                  {id.charAt(0).toUpperCase() + id.slice(1)}
+                  {!HIRES_LIVE.includes(id) && <em className="chip-soon">soon</em>}
+                </button>
+              ))}
+            </div>
+            <div className="billing-toggle" role="radiogroup" aria-label="Billing period">
               <button
-                key={id}
                 type="button"
                 role="radio"
-                aria-checked={hire === id}
-                className={`pricing__chip${hire === id ? ' is-on' : ''}`}
-                onClick={() => setHire(id)}
+                aria-checked={!annual}
+                className={`billing-toggle__opt${!annual ? ' is-on' : ''}`}
+                onClick={() => setAnnual(false)}
               >
-                {id.charAt(0).toUpperCase() + id.slice(1)}
-                {!HIRES_LIVE.includes(id) && <em className="chip-soon">soon</em>}
+                Monthly
               </button>
-            ))}
+              <button
+                type="button"
+                role="radio"
+                aria-checked={annual}
+                className={`billing-toggle__opt${annual ? ' is-on' : ''}`}
+                onClick={() => setAnnual(true)}
+              >
+                Yearly
+              </button>
+            </div>
           </div>
-          <label className="pricing__annual">
-            <input type="checkbox" checked={annual} onChange={(e) => setAnnual(e.target.checked)} />
-            {annual ? '2 months free annual applied' : '2 months free annual'}
-          </label>
         </div>
 
         <div className="pricing__grid">
@@ -135,25 +170,6 @@ export function Pricing() {
             const shown = displayPrice(tier, annual)
             return (
             <article key={tier.id} className={`price-card${tier.badge ? ' price-card--hot' : ''}`}>
-              {tier.soon && (
-                <div
-                  aria-hidden="true"
-                  style={{
-                    background: 'var(--accent)',
-                    color: '#fff',
-                    border: '2px solid var(--ink)',
-                    borderRadius: 8,
-                    padding: '5px 10px',
-                    fontSize: 11,
-                    fontWeight: 700,
-                    letterSpacing: '0.1em',
-                    textTransform: 'uppercase',
-                    textAlign: 'center',
-                  }}
-                >
-                  Coming soon
-                </div>
-              )}
               {tier.badge && <span className="price-card__badge">{tier.badge}</span>}
               <h3>{tier.name}</h3>
               <p className="price-card__price">

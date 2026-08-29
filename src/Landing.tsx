@@ -43,15 +43,21 @@ const AGENTS: Agent[] = [
     mood: 'soft',
     pitch:
       'The friend who already knows your people. Texts first. Lives next to Mom in Messages.',
-    preview: 'checked you in for AA248. flight lands 6:15 now. dinner moved to 8:45',
+    preview: 'checked you in for AA248. heads up, it now lands 6:15. want dinner moved to 8:45?',
     time: '2m',
     unread: true,
     messages: [
-      { text: 'checked you in for AA248. boarding pass is below. gate B14', from: 'them' },
-      { text: 'wait since when do you do that', from: 'me' },
-      { text: 'since the window opened. flight lands 6:15 now, so I moved Friday dinner to 8:45', from: 'them' },
-      { text: 'I never told you about dinner', from: 'me' },
-      { text: 'you told me about your sister. I just pay attention', from: 'them' },
+      { text: 'checked you in. seat 14C, gate B14', from: 'them' },
+      {
+        text: 'AA248 boarding pass. Tap to open.',
+        from: 'them',
+        kind: 'action',
+        app: 'Wallet',
+        title: 'AA248 · SFO 6:15 → JFK',
+      },
+      { text: 'flight delayed, lands 6:15. want dinner with Michael pushed to 8:45?', from: 'them' },
+      { text: 'yes move it', from: 'me' },
+      { text: 'done. 8:45, same place', from: 'them' },
     ],
   },
   {
@@ -869,7 +875,7 @@ function WaitlistForm() {
     e.preventDefault()
     const phoneValue = phone.trim()
     const emailValue = email.trim().toLowerCase()
-    if (!phoneValue && !emailValue) return
+    if (!phoneValue || !emailValue || !emailValue.includes('@')) return
     setBusy(true)
     setError('')
     try {
@@ -925,6 +931,15 @@ function WaitlistForm() {
 
   return (
     <>
+      <input
+        type="email"
+        placeholder="you@email.com"
+        value={email}
+        onChange={(e) => setEmail(e.target.value)}
+        aria-label="Email for invites"
+        disabled={busy}
+        className="waitlist-form__email waitlist-form__email--top"
+      />
       <form className="waitlist-form" onSubmit={onSubmit}>
         <input
           type="tel"
@@ -955,15 +970,6 @@ function WaitlistForm() {
           </button>
         ))}
       </div>
-      <input
-        type="email"
-        placeholder="Email (optional)"
-        value={email}
-        onChange={(e) => setEmail(e.target.value)}
-        aria-label="Email, optional"
-        disabled={busy}
-        className="waitlist-form__email"
-      />
       {error ? (
         <p className="waitlist-note" role="alert" style={{ color: 'var(--accent)' }}>
           {error}
@@ -971,8 +977,8 @@ function WaitlistForm() {
       ) : (
         <p className="waitlist-note">
           {HIRE_LINES[hire].soon
-            ? `${HIRE_LINES[hire].label} is in the workshop. Alpha the Friend is live: your number gets the invite the day both ship.`
-            : `Give your number and ${HIRE_LINES[hire].label} texts you first. iPhone Messages. Early access. $19 a month when you hire.`}
+            ? `${HIRE_LINES[hire].label} is in the workshop. Alpha the Friend is live: your number and email get the invite the day both ship.`
+            : `Number and email in, ${HIRE_LINES[hire].label} texts you first. iPhone Messages. Early access. $19 a month when you hire.`}
         </p>
       )}
     </>
@@ -1046,15 +1052,15 @@ export default function Landing() {
               transition={{ duration: 5.5, repeat: Infinity, ease: 'easeInOut' }}
             >
               <AlphaFace color="#2a6f7a" mood="soft" size={28} />
-              <span>I held the booth. she sat 14 hours.</span>
+              <span>checked you in. flight lands 6:15 now</span>
             </motion.div>
             <motion.div
               className="stage-bubble stage-bubble--b"
               animate={{ y: [0, 12, 0], rotate: [5, 8, 5] }}
               transition={{ duration: 6.2, repeat: Infinity, ease: 'easeInOut', delay: 0.4 }}
             >
-              <span className="stage-bubble__tool">Calendar</span>
-              <span>Thu 2:30 with Jordan. wrote it like you</span>
+              <span className="stage-bubble__tool">Gmail</span>
+              <span>invoice says 4,000. the PO says 3,500. draft is ready</span>
             </motion.div>
             <motion.div
               className="stage-bubble stage-bubble--c"
@@ -1062,7 +1068,7 @@ export default function Landing() {
               transition={{ duration: 4.8, repeat: Infinity, ease: 'easeInOut', delay: 0.8 }}
             >
               <AlphaFace color="#8b4513" mood="bold" size={28} />
-              <span>18k is a costume. 14 people came back.</span>
+              <span>two investor replies overnight. the deck is drafted</span>
             </motion.div>
             <motion.div
               className="stage-bubble stage-bubble--d"

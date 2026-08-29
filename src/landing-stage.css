@@ -212,8 +212,8 @@
 
 .stage__device .phone {
   /* Fixed iPhone proportion — width only, height from aspect-ratio */
-  width: 430px;
-  max-width: min(430px, 88vw);
+  width: 336px;
+  max-width: min(336px, 86vw);
   height: auto;
   aspect-ratio: 312 / 640;
   flex-shrink: 0;
@@ -797,9 +797,26 @@
   .stage__line {
     font-size: clamp(1.7rem, 2.4vw, 2.5rem);
   }
-  /* Keep the same phone width — do not stretch on large desktops */
+  /* Same phone width on large desktops — never stretch */
   .stage__device .phone {
-    width: 430px;
-    max-width: 430px;
+    width: 336px;
+    max-width: 336px;
   }
+}
+
+/* Small screens: two bubbles pin to the corners as small decorations so the
+ * hero stays decorated without colliding with the phone. */
+@media (max-width: 1199px) {
+  .stage-bubble--a,
+  .stage-bubble--d {
+    display: flex;
+    max-width: 150px;
+    font-size: 12px;
+    padding: 9px 11px;
+    gap: 7px;
+    border-radius: 16px;
+    box-shadow: 3px 3px 0 var(--ink);
+  }
+  .stage-bubble--a { top: 120px; left: 12px; }
+  .stage-bubble--d { top: auto; bottom: 36px; right: 12px; }
 }
