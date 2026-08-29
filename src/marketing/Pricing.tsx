@@ -1,8 +1,5 @@
 import type { AgentId } from '../agents/types'
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { getSession } from '../platform/roster'
-import { planFor } from './format'
 
 type Tier = 'free' | 'single' | 'bundle' | 'ultra'
 
@@ -64,51 +61,27 @@ function displayPrice(tier: (typeof TIERS)[number], annual: boolean) {
 
 /** Plan names the billing endpoint expects, with the annual variant folded in. */
 export function Pricing() {
-  const navigate = useNavigate()
   const [email, setEmail] = useState('')
   const [hire, setHire] = useState<AgentId>('friend')
   const [annual, setAnnual] = useState(false)
-  const [busy, setBusy] = useState('')
-  const [note, setNote] = useState('')
 
-  async function checkout(tier: Tier) {
-    const session = getSession()
-    const emailValue = email.trim().toLowerCase() || session?.email?.trim().toLowerCase() || ''
-
-    if (tier === 'free') {
-      if (session?.email && session?.phone) {
-        navigate('/app')
-      } else {
-        navigate(emailValue ? `/app/login?email=${encodeURIComponent(emailValue)}` : '/app/login')
+  function scrollToWaitlist() {
+    const el = document.getElementById('waitlist')
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth' })
+      const waitlistEmailInput = el.querySelector<HTMLInputElement>('input[type="email"]')
+      if (waitlistEmailInput && email.trim()) {
+        waitlistEmailInput.value = email.trim()
+        waitlistEmailInput.dispatchEvent(new Event('input', { bubbles: true }))
       }
-      return
-    }
-
-    setBusy(tier)
-    setNote('')
-
-    if (!emailValue) {
-      setBusy('')
-      navigate(`/app/login?hire=${hire}&plan=${planFor(tier, annual)}`)
-      return
-    }
-
-    try {
-      const res = await fetch('/api/billing/checkout', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: emailValue, hire, plan: planFor(tier, annual) }),
-      })
-      const data = (await res.json().catch(() => ({}))) as { url?: string; error?: string }
-      if (res.ok && data.url) {
-        window.location.href = data.url
-        return
-      }
-      navigate(`/app/login?email=${encodeURIComponent(emailValue)}&hire=${hire}&plan=${planFor(tier, annual)}`)
-    } catch {
-      navigate(`/app/login?email=${encodeURIComponent(emailValue)}&hire=${hire}&plan=${planFor(tier, annual)}`)
-    } finally {
-      setBusy('')
+      setTimeout(() => {
+        const targetInput = email.trim()
+          ? el.querySelector<HTMLInputElement>('input[type="tel"]') || waitlistEmailInput
+          : waitlistEmailInput
+        targetInput?.focus()
+      }, 400)
+    } else {
+      window.location.hash = 'waitlist'
     }
   }
 
@@ -183,27 +156,23 @@ export function Pricing() {
                   Coming soon
                 </button>
               ) : (
-                <button
-                  type="button"
+                <a
+                  href="#waitlist"
                   className={`btn ${tier.badge ? 'btn--accent' : 'btn--ghost'}`}
-                  disabled={busy === tier.id}
-                  onClick={() => void checkout(tier.id)}
+                  onClick={(e) => {
+                    e.preventDefault()
+                    scrollToWaitlist()
+                  }}
                 >
-                  {busy === tier.id ? 'Opening…' : tier.cta}
-                </button>
+                  {tier.cta}
+                </a>
               )}
             </article>
             )
           })}
         </div>
 
-        {note ? (
-          <p className="pricing__note" role="status">
-            {note}
-          </p>
-        ) : (
-          <p className="pricing__family">One bill, many numbers. Ask us.</p>
-        )}
+        <p className="pricing__family">One bill, many numbers. Ask us.</p>
       </div>
     </section>
   )
