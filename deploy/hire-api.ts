@@ -556,6 +556,13 @@ export async function claimInvite(sql: SQL, phone: string, code: string): Promis
     UPDATE hire_invites SET redeemed_by_phone = ${e164}, redeemed_at = now()
     WHERE code = ${clean}
   `
+  // Refer a friend, get a free month: the referrer earns one credit per
+  // converted code. source_code UNIQUE is the idempotency guard.
+  await sql`
+    INSERT INTO hire_referral_credits (id, phone_e164, source_code)
+    VALUES (${crypto.randomUUID()}, ${invite.referrer}, ${clean})
+    ON CONFLICT (source_code) DO NOTHING
+  `
   // Count the referrer's redeemed codes. Three friends in -> one free month.
   const countRows = (await sql`
     SELECT count(*)::int AS n FROM hire_invites
@@ -592,6 +599,19 @@ export async function referralProgress(
     SELECT 1 FROM hire_referral_rewards WHERE referrer_phone = ${e164} LIMIT 1
   `) as Array<Record<string, unknown>>
   return { referrals: Number.isFinite(n) ? n : 0, rewardEarned: rewardRows.length > 0 }
+}
+
+/** Unused referral credits for a phone, i.e. free months waiting to be
+ * applied at checkout. Used rows no longer count. */
+export async function referralFreeMonths(sql: SQL, phone: string): Promise<number> {
+  const e164 = normalizePhone(phone)
+  if (!e164) return 0
+  const rows = (await sql`
+    SELECT count(*)::int AS n FROM hire_referral_credits
+    WHERE phone_e164 = ${e164} AND used_at IS NULL
+  `) as Array<{ n: number | string }>
+  const n = Number(rows[0]?.n ?? 0)
+  return Number.isFinite(n) ? n : 0
 }
 
 /* ---- Billing ----
@@ -639,19 +659,24 @@ export function verifyStripeSignature(payload: string, header: string, secret: s
   return a.length === b.length && timingSafeEqual(a, b)
 }
 
-async function stripeRequest(path: string, params: URLSearchParams) {
+async function stripeRequest(path: string, params: URLSearchParams, method: 'POST' | 'GET' = 'POST') {
   const res = await fetch(`https://api.stripe.com/v1${path}`, {
-    method: 'POST',
+    method,
     headers: {
       Authorization: `Bearer ${stripeSecret()}`,
       'Content-Type': 'application/x-www-form-urlencoded',
     },
-    body: params,
+    // GET must not carry a body; params are for POST form data.
+    ...(method === 'POST' ? { body: params } : {}),
   })
   const data = (await res.json().catch(() => ({}))) as Record<string, unknown>
   if (!res.ok) {
-    const err = data['error'] as { message?: string } | undefined
-    throw new Error(err?.message || `stripe ${path} failed (${res.status})`)
+    const err = data['error'] as { message?: string; code?: string } | undefined
+    const thrown = new Error(err?.message || `stripe ${path} failed (${res.status})`)
+    // Stripe's machine-readable code (e.g. resource_already_exists) lets
+    // callers do create-or-reuse; keep it attached to the error.
+    if (err?.code) (thrown as Error & { code?: string }).code = err.code
+    throw thrown
   }
   return data
 }
@@ -1525,6 +1550,22 @@ export async function ensureHireSchema(sql: SQL) {
     )
   `
   await sql`CREATE INDEX IF NOT EXISTS idx_hire_referral_rewards_phone ON hire_referral_rewards (referrer_phone)`
+
+  // Referral credits: one free month per redeemed invite code, spent as a
+  // 100% off coupon on the referrer's next checkout. source_code UNIQUE makes
+  // the ledger idempotent (codes are single-use, so re-redeem cannot double
+  // credit); used_at marks a credit spent at checkout.
+  await sql`
+    CREATE TABLE IF NOT EXISTS hire_referral_credits (
+      id TEXT PRIMARY KEY,
+      phone_e164 TEXT NOT NULL,
+      source_code TEXT NOT NULL UNIQUE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      used_at TIMESTAMPTZ,
+      used_for_persona TEXT
+    )
+  `
+  await sql`CREATE INDEX IF NOT EXISTS idx_hire_referral_credits_phone ON hire_referral_credits (phone_e164)`
 
   // Receipts for things a hire actually did on the user's behalf, one row per
   // action with an optional undo hint for the client to render.
@@ -8117,6 +8158,7 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
       plan?: string
       interval?: string
       trial_days?: number
+      discount?: string
     }
     const email = String(body.email || '')
       .trim()
@@ -8161,6 +8203,53 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     const user = await getUserByEmail(sql, email)
     if (!user) return json({ error: 'Sign in first' }, 401)
     const trialDays = Number(body.trial_days) > 0 ? Math.floor(Number(body.trial_days)) : 7
+    // Referral free month: an unspent credit becomes a 100% off coupon on the
+    // first invoice. The credit is marked used at checkout creation, not at
+    // completion, so an abandoned session burns it (accepted for v1).
+    // trial_days stays as-is; the coupon already covers the first invoice and
+    // a trial would double-free the same month. Email-only accounts have no
+    // phone, earn nothing, and spend nothing.
+    let referralCouponId = ''
+    if (!body.discount && user.phone) {
+      const creditRows = (await sql`
+        SELECT id FROM hire_referral_credits
+        WHERE phone_e164 = ${user.phone} AND used_at IS NULL
+        ORDER BY created_at LIMIT 1
+      `) as Array<{ id: string }>
+      const credit = creditRows[0]
+      if (credit) {
+        const couponId = `referral-${user.id}`
+        try {
+          await stripeRequest(
+            '/coupons',
+            new URLSearchParams({
+              id: couponId,
+              percent_off: '100',
+              duration: 'once',
+              name: 'Referral free month',
+            }),
+          )
+          referralCouponId = couponId
+        } catch (err) {
+          if ((err as Error & { code?: string }).code === 'resource_already_exists') {
+            try {
+              const coupon = await stripeRequest(`/coupons/${couponId}`, new URLSearchParams(), 'GET')
+              if (coupon['id'] === couponId) referralCouponId = couponId
+            } catch (fetchErr) {
+              console.error('[billing] referral coupon fetch failed', fetchErr)
+            }
+          } else {
+            console.error('[billing] referral coupon create failed', err)
+          }
+        }
+        if (referralCouponId) {
+          await sql`
+            UPDATE hire_referral_credits SET used_at = now(), used_for_persona = ${effectivePersona}
+            WHERE id = ${credit.id} AND used_at IS NULL
+          `
+        }
+      }
+    }
     const params = new URLSearchParams({
       mode: 'subscription',
       customer_email: email,
@@ -8173,6 +8262,7 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
       'subscription_data[metadata][persona]': effectivePersona,
       'subscription_data[trial_period_days]': String(trialDays),
     })
+    if (referralCouponId) params.set('discounts[0][coupon]', referralCouponId)
     try {
       const session = await stripeRequest('/checkout/sessions', params)
       return json({ url: session['url'], fallback })
@@ -8227,6 +8317,22 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
       return json({ error: result.error }, status)
     }
     return json({ ok: true, referrer: result.referrer, reward: result.reward })
+  }
+
+  // Referral balance for a phone: its codes, how many are redeemed, and how
+  // many free months are still unspent. Phone-only lookup, same as for-phone.
+  if (path === '/api/invites/status' && req.method === 'GET') {
+    const phone = normalizePhone(url.searchParams.get('phone') || '')
+    if (!phone) return json({ error: 'valid phone required' }, 400)
+    try {
+      const codes = await ensureInvites(sql, phone)
+      const progress = await referralProgress(sql, phone)
+      const freeMonths = await referralFreeMonths(sql, phone)
+      return json({ codes, redeemedCount: progress.referrals, freeMonths })
+    } catch (err) {
+      console.error('[invites] status failed', err)
+      return json({ error: 'Could not read invites' }, 500)
+    }
   }
 
   // Approximate waitlist spot: everyone who queued before this phone in the

@@ -10,6 +10,7 @@ export function Invites({ phone }: { phone: string }) {
   const [codes, setCodes] = useState<string[]>([])
   const [referrals, setReferrals] = useState(0)
   const [rewardEarned, setRewardEarned] = useState(false)
+  const [freeMonths, setFreeMonths] = useState<number | null>(null)
   const [copied, setCopied] = useState('')
 
   useEffect(() => {
@@ -30,6 +31,17 @@ export function Invites({ phone }: { phone: string }) {
       })
       .catch(() => {
         // No codes yet, or the endpoint is not up. Quietly show nothing.
+      })
+    fetch(`/api/invites/status?phone=${encodeURIComponent(e164)}`)
+      .then((res) =>
+        res.ok ? (res.json() as Promise<{ freeMonths?: number }>) : Promise.reject(new Error(String(res.status))),
+      )
+      .then((data) => {
+        if (!live) return
+        setFreeMonths(Number(data.freeMonths ?? 0))
+      })
+      .catch(() => {
+        // Balance unknown; the free-month line stays hidden.
       })
     return () => {
       live = false
@@ -72,6 +84,13 @@ export function Invites({ phone }: { phone: string }) {
           </button>
         ))}
       </div>
+      {freeMonths !== null && (
+        <p className="invites__sub">
+          {freeMonths > 0
+            ? `${freeMonths} free month${freeMonths === 1 ? '' : 's'} earned. Applied at your next checkout.`
+            : '0 so far. A friend joining earns you a free month.'}
+        </p>
+      )}
     </div>
   )
 }
