@@ -55,6 +55,8 @@ index.js
 kg-core.cjs
 roster.json
 roster-backups/
+artifacts/
+storage/
 
 opencode.json 
 .gstack/
