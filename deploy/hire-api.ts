@@ -532,13 +532,11 @@ export async function ensureInvites(sql: SQL, phone: string): Promise<string[]> 
 
 /* ---- Referral loop ----
  * One-use codes are the whole mechanic: the invite holder shares a code, the
- * friend enters it at signup (or in the app), the code is marked used against
- * the friend's phone, and the referrer's counter ticks. Every three converted
- * friends record a "free month" reward in hire_referral_rewards. The ledger is
- * the source of truth for the promise shown in the UI; applying the credit at
- * checkout is a billing task owned by the billing workstream. */
+ * friend enters it, the code is marked used, and the referrer earns one
+ * hire_referral_credits row per converted code. Each credit is a free month
+ * applied automatically at the referrer's next checkout. */
 
-export type ClaimResult = { ok: boolean; error?: string; referrer?: string; reward?: boolean }
+export type ClaimResult = { ok: boolean; error?: string; referrer?: string }
 
 export async function claimInvite(sql: SQL, phone: string, code: string): Promise<ClaimResult> {
   const e164 = normalizePhone(phone)
@@ -563,42 +561,23 @@ export async function claimInvite(sql: SQL, phone: string, code: string): Promis
     VALUES (${crypto.randomUUID()}, ${invite.referrer}, ${clean})
     ON CONFLICT (source_code) DO NOTHING
   `
-  // Count the referrer's redeemed codes. Three friends in -> one free month.
-  const countRows = (await sql`
-    SELECT count(*)::int AS n FROM hire_invites
-    WHERE phone_e164 = ${invite.referrer} AND redeemed_by_phone IS NOT NULL
-  `) as Array<{ n: number | string }>
-  const n = Number(countRows[0]?.n ?? 0)
-  let reward = false
-  if (Number.isFinite(n) && n >= 3 && n % 3 === 0) {
-    const inserted = await sql`
-      INSERT INTO hire_referral_rewards (id, referrer_phone, friends_hired)
-      VALUES (${`${invite.referrer}:${n}`}, ${invite.referrer}, ${n})
-      ON CONFLICT (id) DO NOTHING
-      RETURNING id
-    `
-    reward = inserted.length > 0
-  }
-  return { ok: true, referrer: invite.referrer, reward }
+  // One converted code is one credit; the old every-3 mechanic is retired.
+  return { ok: true, referrer: invite.referrer }
 }
 
-/** Progress for the referrer's invite row: how many codes are used, and
- * whether any reward has been earned so far. */
+/** Progress for the referrer's invite row: how many codes are used. */
 export async function referralProgress(
   sql: SQL,
   phone: string,
-): Promise<{ referrals: number; rewardEarned: boolean }> {
+): Promise<{ referrals: number }> {
   const e164 = normalizePhone(phone)
-  if (!e164) return { referrals: 0, rewardEarned: false }
+  if (!e164) return { referrals: 0 }
   const countRows = (await sql`
     SELECT count(*)::int AS n FROM hire_invites
     WHERE phone_e164 = ${e164} AND redeemed_by_phone IS NOT NULL
   `) as Array<{ n: number | string }>
   const n = Number(countRows[0]?.n ?? 0)
-  const rewardRows = (await sql`
-    SELECT 1 FROM hire_referral_rewards WHERE referrer_phone = ${e164} LIMIT 1
-  `) as Array<Record<string, unknown>>
-  return { referrals: Number.isFinite(n) ? n : 0, rewardEarned: rewardRows.length > 0 }
+  return { referrals: Number.isFinite(n) ? n : 0 }
 }
 
 /** Unused referral credits for a phone, i.e. free months waiting to be
