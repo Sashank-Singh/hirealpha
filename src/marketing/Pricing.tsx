@@ -51,11 +51,42 @@ const TIERS: { id: Tier; name: string; price: number; per: string; blurb: string
  * in sync with the STRIPE_PRICE_*_ANNUAL env prices the checkout actually
  * charges. If a monthly price changes here, update those env vars too. */
 function displayPrice(tier: (typeof TIERS)[number], annual: boolean) {
-  const price = tier.id === 'free' ? tier.price : annual ? tier.price * 10 : tier.price
+  if (tier.id === 'free') {
+    return {
+      price: '$0',
+      per: 'forever',
+      trial: '',
+      subnote: '',
+      freebie: '',
+    }
+  }
+
+  if (tier.id === 'single') {
+    if (annual) {
+      return {
+        price: '$190',
+        per: 'a year',
+        trial: '7-day free trial',
+        subnote: '',
+        freebie: '2 months free',
+      }
+    }
+    return {
+      price: '$5',
+      per: 'a month for 2 mos',
+      trial: '7-day free trial',
+      subnote: 'then $19/month',
+      freebie: '',
+    }
+  }
+
+  const price = annual ? tier.price * 10 : tier.price
   return {
     price: `$${price.toLocaleString('en-US')}`,
-    per: tier.id === 'free' ? tier.per : annual ? 'a year' : tier.per,
-    freebie: tier.id !== 'free' && annual ? '2 months free' : '',
+    per: annual ? 'a year' : tier.per,
+    trial: '7-day free trial',
+    subnote: '',
+    freebie: annual ? '2 months free' : '',
   }
 }
 
@@ -144,11 +175,15 @@ export function Pricing() {
             return (
             <article key={tier.id} className={`price-card${tier.badge ? ' price-card--hot' : ''}`}>
               {tier.badge && <span className="price-card__badge">{tier.badge}</span>}
-              <h3>{tier.name}</h3>
+              <div className="price-card__head">
+                <h3>{tier.name}</h3>
+                {shown.trial && <span className="price-card__trial">{shown.trial}</span>}
+              </div>
               <p className="price-card__price">
                 <strong>{shown.price}</strong>
                 <span>{shown.per}</span>
               </p>
+              {shown.subnote && <p className="price-card__subnote">{shown.subnote}</p>}
               {shown.freebie && <p className="price-card__freebie">{shown.freebie}</p>}
               <p className="price-card__blurb">{tier.blurb}</p>
               {tier.soon ? (

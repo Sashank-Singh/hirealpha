@@ -4865,9 +4865,33 @@ a.brief-fact { cursor: pointer; }
   letter-spacing: 0.06em;
   text-transform: uppercase;
 }
-.price-card h3 { font-size: 17px; }
+.price-card__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.price-card h3 { font-size: 17px; margin: 0; }
+.price-card__trial {
+  font-size: 11px;
+  font-weight: 700;
+  color: #087f5b;
+  background: rgba(18, 184, 134, 0.12);
+  border: 1px solid rgba(18, 184, 134, 0.35);
+  border-radius: 999px;
+  padding: 2px 8px;
+  display: inline-flex;
+  align-items: center;
+}
 .price-card__price strong { font-size: 30px; font-weight: 700; margin-right: 6px; }
 .price-card__price span { font-size: 13px; color: var(--muted); }
+.price-card__subnote {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--accent, var(--ink));
+  margin-top: -4px;
+}
 .price-card__blurb { font-size: 14px; color: var(--ink-soft); flex: 1; }
 .price-card .btn { align-self: flex-start; }
 .pricing__note, .pricing__family {
