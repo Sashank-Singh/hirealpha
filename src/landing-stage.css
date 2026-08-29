@@ -35,7 +35,7 @@
 .stage-bubble {
   position: absolute;
   z-index: 1;
-  display: none;
+  display: none; /* hidden on phones and small tablets */
   align-items: center;
   gap: 10px;
   max-width: 240px;
@@ -63,9 +63,11 @@
   padding: 4px 8px;
 }
 
-/* Wide screens only: floaters sit beside the phone, never near brand */
+/* Wide desktop screens only: floaters sit beside the phone in open margins */
 @media (min-width: 1180px) {
-  .stage-bubble { display: flex; }
+  .stage-bubble {
+    display: flex;
+  }
   .stage-bubble--a { top: 58%; left: max(24px, calc(50% - 460px)); }
   .stage-bubble--b { top: 48%; right: max(24px, calc(50% - 460px)); }
   .stage-bubble--c { top: 72%; left: max(24px, calc(50% - 480px)); }
@@ -743,10 +745,6 @@
 }
 
 @media (max-width: 980px) {
-  .stage-bubble--a,
-  .stage-bubble--c { left: 2%; max-width: 44vw; }
-  .stage-bubble--b,
-  .stage-bubble--d { right: 2%; max-width: 44vw; font-size: 12px; }
   .cast__stage { grid-template-columns: 1fr; }
   .cast__hero {
     grid-template-columns: 1fr;
@@ -804,19 +802,4 @@
   }
 }
 
-/* Small screens: two bubbles pin to the corners as small decorations so the
- * hero stays decorated without colliding with the phone. */
-@media (max-width: 1199px) {
-  .stage-bubble--a,
-  .stage-bubble--d {
-    display: flex;
-    max-width: 150px;
-    font-size: 12px;
-    padding: 9px 11px;
-    gap: 7px;
-    border-radius: 16px;
-    box-shadow: 3px 3px 0 var(--ink);
-  }
-  .stage-bubble--a { top: 120px; left: 12px; }
-  .stage-bubble--d { top: auto; bottom: 36px; right: 12px; }
-}
+
