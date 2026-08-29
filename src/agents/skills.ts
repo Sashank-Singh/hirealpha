@@ -15,7 +15,7 @@ export const SKILLS: Record<
     tools: ['gmail', 'calendar.read', 'calendar.soft_book', 'drive', 'maps'],
     executable: ['gmail', 'calendar', 'drive', 'maps'],
     miniApps: [
-      'home', 'tonight', 'pick_night', 'body', 'later', 'check_in', 'open_loops', 'drop_zone',
+      'home', 'tonight', 'pick_night', 'body', 'later', 'check_in', 'open_loops', 'drop_zone', 'artifact',
       'nutrition', 'habit_streak', 'mood_tracker', 'workout_log', 'learning_queue', 'weekly_review',
       'networking_crm', 'sleep_tracker', 'spending_snapshot', 'gratitude_journal', 'spiral_options', 'relationship_radar',
     ],
@@ -35,20 +35,20 @@ export const SKILLS: Record<
     ],
     executable: ['gmail', 'calendar', 'slack', 'linear', 'notion', 'github', 'drive', 'figma'],
     miniApps: [
-      'next_move', 'approve_send', 'pick_slot', 'standup_paste', 'linear_triage', 'open_loops', 'meeting_mode',
+      'next_move', 'home', 'approve_send', 'pick_slot', 'standup_paste', 'linear_triage', 'open_loops', 'meeting_mode', 'artifact',
       'drop_zone', 'learning_queue', 'weekly_review', 'networking_crm',
     ],
-    liveMiniApps: ['next_move', 'standup_paste', 'approve_send', 'pick_slot', 'linear_triage'],
+    liveMiniApps: ['digest', 'home', 'next_move', 'standup_paste', 'approve_send', 'pick_slot', 'linear_triage', 'meeting_mode', 'open_loops', 'weekly_review', 'networking_crm'],
     deny: ['therapy_mode', 'fundraising_strategy', 'uber_lifestyle'],
   },
   cofounder: {
     tools: ['notion', 'drive', 'stripe.glance', 'calendar.light', 'gmail.draft'],
     executable: ['gmail', 'calendar', 'notion', 'drive', 'stripe'],
     miniApps: [
-      'next_move', 'kill_keep_park', 'hire_decision', 'weekly_review', 'approve_investor_note', 'decision_ledger',
+      'next_move', 'home', 'kill_keep_park', 'hire_decision', 'weekly_review', 'approve_investor_note', 'decision_ledger', 'artifact',
       'relationship_radar', 'drop_zone', 'open_loops', 'networking_crm', 'pipeline_board', 'spending_snapshot',
     ],
-    liveMiniApps: ['next_move', 'kill_keep_park', 'hire_decision', 'approve_investor_note'],
+    liveMiniApps: ['digest', 'home', 'next_move', 'kill_keep_park', 'hire_decision', 'approve_investor_note', 'pipeline_board', 'decision_ledger', 'weekly_review', 'networking_crm', 'spending_snapshot'],
     deny: ['standup_scribe', 'friend_comfort', 'silent_ea'],
   },
 }

@@ -5,7 +5,16 @@
 import { SQL } from 'bun'
 import { brotliCompressSync, constants as zlibConstants } from 'node:zlib'
 import { join } from 'node:path'
-import { ensureHireSchema, ensurePhoneUser, handleHireApi, hireIsLive, isPersona, miniCardOgDescription, normalizePhone } from './hire-api'
+import {
+  claimInvite,
+  ensureHireSchema,
+  ensurePhoneUser,
+  handleHireApi,
+  hireIsLive,
+  isPersona,
+  miniCardOgDescription,
+  normalizePhone,
+} from './hire-api'
 import {
   isKnownClientRoute,
   isKnownPage,
@@ -200,6 +209,7 @@ async function ensureSchema() {
       created_at TIMESTAMPTZ NOT NULL DEFAULT now()
     )
   `
+  await sql`ALTER TABLE waitlist_emails ADD COLUMN IF NOT EXISTS persona TEXT`
   await ensureHireSchema(sql)
   console.log('[waitlist] table ready')
 }
@@ -218,6 +228,26 @@ function isValidEmail(email: string) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) && email.length <= 320
 }
 
+/** Adds a waitlist email to the Resend audience used for launch broadcasts.
+ * No-ops until RESEND_API_KEY and RESEND_AUDIENCE_ID are set, so local and
+ * pre-configured deploys behave identically. The launch sequence (welcome,
+ * "your number is ready", ship day) is built in the Resend dashboard against
+ * this audience. */
+async function syncResendContact(email: string) {
+  const key = process.env.RESEND_API_KEY?.trim()
+  const audience = process.env.RESEND_AUDIENCE_ID?.trim()
+  if (!key || !audience) return
+  const res = await fetch(`https://api.resend.com/audiences/${audience}/contacts`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, unsubscribed: false }),
+  })
+  if (!res.ok) {
+    const detail = await res.text().catch(() => '')
+    throw new Error(`resend ${res.status} ${detail.slice(0, 160)}`)
+  }
+}
+
 export async function handleWaitlist(req: Request, db: SQL | null) {
   if (req.method === 'OPTIONS') {
     return new Response(null, {
@@ -233,9 +263,9 @@ export async function handleWaitlist(req: Request, db: SQL | null) {
   const sql = db
   if (!sql) return json({ error: 'Waitlist storage unavailable' }, 503)
 
-  let body: { email?: string; phone?: string; hire?: string }
+  let body: { email?: string; phone?: string; hire?: string; code?: string }
   try {
-    body = (await req.json()) as { email?: string; phone?: string; hire?: string }
+    body = (await req.json()) as { email?: string; phone?: string; hire?: string; code?: string }
   } catch {
     return json({ error: 'Invalid JSON' }, 400)
   }
@@ -244,6 +274,7 @@ export async function handleWaitlist(req: Request, db: SQL | null) {
     .trim()
     .toLowerCase()
   const rawPhone = String(body.phone || '').trim()
+  const code = String(body.code || '').trim()
   const hire = body.hire && isPersona(body.hire) ? body.hire : 'friend'
   if (!email && !rawPhone) return json({ error: 'Enter your number or email' }, 400)
   if (email && !isValidEmail(email)) return json({ error: 'Enter a valid email' }, 400)
@@ -251,11 +282,18 @@ export async function handleWaitlist(req: Request, db: SQL | null) {
 
   try {
     if (email) {
-      await sql`
-        INSERT INTO waitlist_emails (id, email)
-        VALUES (${crypto.randomUUID()}, ${email})
-        ON CONFLICT (email) DO NOTHING
+      const inserted = await sql`
+        INSERT INTO waitlist_emails (id, email, persona)
+        VALUES (${crypto.randomUUID()}, ${email}, ${hire})
+        ON CONFLICT (email) DO UPDATE SET persona = COALESCE(waitlist_emails.persona, EXCLUDED.persona)
+        RETURNING id
       `
+      // Only sync on a genuinely new row, not a re-submit of an existing email.
+      if (inserted.length > 0) {
+        await syncResendContact(email).catch((err) =>
+          console.warn('[waitlist] resend sync skipped (continuing)', (err as Error).message),
+        )
+      }
     }
     // A phone number is not just a waitlist entry: it books the first text.
     // A live hire's bot picks the number up from the intro queue and says hi,
@@ -271,6 +309,17 @@ export async function handleWaitlist(req: Request, db: SQL | null) {
           VALUES (${normalizePhone(rawPhone)}, ${hire})
           ON CONFLICT (phone_e164, persona) DO NOTHING
         `
+      }
+    }
+    // Referral: an invite code ties this signup to a friend who shared theirs.
+    // A failed claim never blocks the signup — the friend still joins, we just
+    // log why the code did not count so the referrer chain stays honest.
+    if (rawPhone && code) {
+      try {
+        const claim = await claimInvite(sql, rawPhone, code)
+        return json({ ok: true, referral: claim.ok ? 'accepted' : claim.error })
+      } catch (err) {
+        console.error('[waitlist] invite claim failed', err)
       }
     }
     return json({ ok: true })

@@ -14,6 +14,7 @@ import {
   apiAnalyzeNutrition,
   apiDayEvents,
   apiDeleteHabit,
+  apiDeleteMeeting,
   apiDeleteNutritionLog,
   apiListDecisions,
   apiListDrops,
@@ -743,6 +744,7 @@ export function MeetingModeApp({ auth }: { auth: FeatureAuth }) {
   const [styleErr, setStyleErr] = useState('')
   const [showAdd, setShowAdd] = useState(false)
   const [recapHref, setRecapHref] = useState('')
+  const [confirmDel, setConfirmDel] = useState<string | null>(null)
   const recRef = useRef<{ media: MediaRecorder | null; chunks: Blob[]; start: number }>({
     media: null,
     chunks: [],
@@ -920,6 +922,18 @@ export function MeetingModeApp({ auth }: { auth: FeatureAuth }) {
     }
   }
 
+  async function remove(id: string) {
+    setErr('')
+    try {
+      await apiDeleteMeeting({ ...a, id })
+      setConfirmDel(null)
+      load()
+    } catch (err) {
+      setErr(err instanceof Error ? err.message : 'Could not delete that meeting.')
+      setConfirmDel(null)
+    }
+  }
+
   function whenLabel(iso: string | null) {
     if (!iso) return 'No time set'
     const d = new Date(iso)
@@ -998,6 +1012,14 @@ export function MeetingModeApp({ auth }: { auth: FeatureAuth }) {
             {recapHref && (
               <Link className="ma-chip" to={recapHref}>Send recap</Link>
             )}
+            <button
+              type="button"
+              className={`ma-chip ma-chip--danger${confirmDel === next.id ? ' ma-chip--armed' : ''}`}
+              disabled={busy}
+              onClick={() => (confirmDel === next.id ? void remove(next.id) : setConfirmDel(next.id))}
+            >
+              {confirmDel === next.id ? 'Confirm delete' : 'Delete'}
+            </button>
           </div>
         </div>
       )}
@@ -1042,6 +1064,14 @@ export function MeetingModeApp({ auth }: { auth: FeatureAuth }) {
                   {memoLabel(m)}
                 </button>
               )}
+              <button
+                type="button"
+                className={`ma-chip ma-chip--danger${confirmDel === m.id ? ' ma-chip--armed' : ''}`}
+                disabled={busy}
+                onClick={() => (confirmDel === m.id ? void remove(m.id) : setConfirmDel(m.id))}
+              >
+                {confirmDel === m.id ? 'Confirm' : '✕'}
+              </button>
             </li>
           ))}
         </ul>

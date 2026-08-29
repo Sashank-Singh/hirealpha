@@ -4,6 +4,8 @@ import { AlphaFace } from './AlphaFace'
 import { Invites } from './marketing/Invites'
 import { Pricing } from './marketing/Pricing'
 import { ShareButton } from './marketing/ShareButton'
+import { track } from './track'
+import { GreatestHits } from './marketing/GreatestHits'
 import './landing-stage.css'
 
 type AgentId = 'friend' | 'coworker' | 'cofounder'
@@ -68,7 +70,6 @@ const AGENTS: Agent[] = [
     initial: 'A',
     color: '#3b5bdb',
     mood: 'sharp',
-    soon: true,
     pitch:
       'caught an invoice that disagreed with the PO. the reply was drafted before you saw it.',
     preview: 'priya’s invoice says 4,000. the PO says 3,500. draft is ready',
@@ -96,7 +97,6 @@ const AGENTS: Agent[] = [
     initial: 'A',
     color: '#8b4513',
     mood: 'bold',
-    soon: true,
     pitch:
       'two investor replies came in overnight. the deck was drafted before you woke up.',
     preview: 'two investor replies overnight. draft is ready. runway says 9 months',
@@ -870,6 +870,8 @@ function WaitlistForm() {
   const [done, setDone] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const [code, setCode] = useState('')
+  const [myCode, setMyCode] = useState('')
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault()
@@ -882,7 +884,12 @@ function WaitlistForm() {
       const res = await fetch('/api/waitlist', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone: phoneValue, email: emailValue, hire }),
+        body: JSON.stringify({
+          phone: phoneValue,
+          email: emailValue,
+          hire,
+          ...(code.trim() ? { code: code.trim() } : {}),
+        }),
       })
       const data = (await res.json().catch(() => ({}))) as { error?: string }
       if (!res.ok) {
@@ -891,12 +898,33 @@ function WaitlistForm() {
         return
       }
       setDone(true)
+      track('waitlist_joined', { hire, via: code.trim() ? 'invite' : 'direct' })
     } catch {
       setError('Could not reach the server. Try again.')
     } finally {
       setBusy(false)
     }
   }
+
+  // Once they are in, mint their first invite code so the share button can
+  // stitch it into the message — a referral that actually gets used.
+  useEffect(() => {
+    if (!done || !phone) return
+    let live = true
+    fetch(`/api/invites/for-phone?phone=${encodeURIComponent(phone.trim())}`)
+      .then((res) =>
+        res.ok
+          ? (res.json() as Promise<{ codes?: string[] }>)
+          : Promise.reject(new Error(String(res.status))),
+      )
+      .then((data) => {
+        if (live && Array.isArray(data.codes) && data.codes.length) setMyCode(data.codes[0])
+      })
+      .catch(() => {})
+    return () => {
+      live = false
+    }
+  }, [done, phone])
 
   if (done) {
     const line = HIRE_LINES[hire]
@@ -923,7 +951,7 @@ function WaitlistForm() {
         </div>
         <Invites phone={phone} />
         <div className="waitlist-share">
-          <ShareButton />
+          <ShareButton code={myCode} />
         </div>
       </div>
     )
@@ -949,6 +977,17 @@ function WaitlistForm() {
           aria-label="Your phone number"
           disabled={busy}
           autoComplete="tel"
+        />
+        <input
+          type="text"
+          placeholder="Invite code (optional)"
+          value={code}
+          onChange={(e) => setCode(e.target.value)}
+          aria-label="Invite code, if a friend shared one"
+          disabled={busy}
+          autoCapitalize="characters"
+          autoCorrect="off"
+          spellCheck={false}
         />
         <button type="submit" className="btn btn--accent" disabled={busy}>
           {busy ? 'Saving…' : 'Get my invite'}
@@ -1220,6 +1259,8 @@ export default function Landing() {
 
         <Pricing />
 
+        <GreatestHits />
+
         <section className="path section" id="how" aria-labelledby="how-heading">
           <div className="container">
             <h2 id="how-heading" className="path__title">Invite. Save a number. Keep texting.</h2>
@@ -1280,11 +1321,17 @@ export default function Landing() {
           </div>
           <nav className="footer__nav" aria-label="Footer">
             <a href="#why">Why</a>
-            <a href="#roles">Hires</a>
             <a href="#pricing">Pricing</a>
             <a href="#faq">FAQ</a>
             <a href="#waitlist">Early access</a>
             <a href="/app/controls">Controls</a>
+          </nav>
+          <nav className="footer__nav footer__nav--meta" aria-label="Trust and company">
+            <a href="/about">About</a>
+            <a href="/faq">FAQs</a>
+            <a href="/privacy">Privacy</a>
+            <a href="/contact">Contact</a>
+            <a href="/developers">Developers</a>
           </nav>
           <p className="footer__copy">© {new Date().getFullYear()} HireAlpha</p>
         </div>

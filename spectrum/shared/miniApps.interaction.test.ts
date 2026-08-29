@@ -496,10 +496,10 @@ describe('Mini-app Interaction Tests: Full Flow', () => {
       }
     })
 
-    it('home available to friend', () => {
+    it('home available to all personas (work hires open the work home)', () => {
       expect(detectMiniAppRequest('mirror', 'friend')?.kind).toBe('home')
-      expect(detectMiniAppRequest('mirror', 'coworker')).toBeNull()
-      expect(detectMiniAppRequest('mirror', 'cofounder')).toBeNull()
+      expect(detectMiniAppRequest('mirror', 'coworker')?.kind).toBe('home')
+      expect(detectMiniAppRequest('mirror', 'cofounder')?.kind).toBe('home')
     })
   })
 

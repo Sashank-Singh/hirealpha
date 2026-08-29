@@ -529,6 +529,70 @@ export async function ensureInvites(sql: SQL, phone: string): Promise<string[]> 
   return mine.slice(0, 3)
 }
 
+/* ---- Referral loop ----
+ * One-use codes are the whole mechanic: the invite holder shares a code, the
+ * friend enters it at signup (or in the app), the code is marked used against
+ * the friend's phone, and the referrer's counter ticks. Every three converted
+ * friends record a "free month" reward in hire_referral_rewards. The ledger is
+ * the source of truth for the promise shown in the UI; applying the credit at
+ * checkout is a billing task owned by the billing workstream. */
+
+export type ClaimResult = { ok: boolean; error?: string; referrer?: string; reward?: boolean }
+
+export async function claimInvite(sql: SQL, phone: string, code: string): Promise<ClaimResult> {
+  const e164 = normalizePhone(phone)
+  const clean = code.trim().toUpperCase()
+  if (!e164) return { ok: false, error: 'valid phone required' }
+  if (!clean) return { ok: false, error: 'code required' }
+  const rows = (await sql`
+    SELECT phone_e164 AS referrer, redeemed_by_phone AS redeemed
+    FROM hire_invites WHERE code = ${clean} LIMIT 1
+  `) as Array<{ referrer: string; redeemed: string | null }>
+  const invite = rows[0]
+  if (!invite) return { ok: false, error: 'Code not found' }
+  if (invite.redeemed) return { ok: false, error: 'This code was already used' }
+  await sql`
+    UPDATE hire_invites SET redeemed_by_phone = ${e164}, redeemed_at = now()
+    WHERE code = ${clean}
+  `
+  // Count the referrer's redeemed codes. Three friends in -> one free month.
+  const countRows = (await sql`
+    SELECT count(*)::int AS n FROM hire_invites
+    WHERE phone_e164 = ${invite.referrer} AND redeemed_by_phone IS NOT NULL
+  `) as Array<{ n: number | string }>
+  const n = Number(countRows[0]?.n ?? 0)
+  let reward = false
+  if (Number.isFinite(n) && n >= 3 && n % 3 === 0) {
+    const inserted = await sql`
+      INSERT INTO hire_referral_rewards (id, referrer_phone, friends_hired)
+      VALUES (${`${invite.referrer}:${n}`}, ${invite.referrer}, ${n})
+      ON CONFLICT (id) DO NOTHING
+      RETURNING id
+    `
+    reward = inserted.length > 0
+  }
+  return { ok: true, referrer: invite.referrer, reward }
+}
+
+/** Progress for the referrer's invite row: how many codes are used, and
+ * whether any reward has been earned so far. */
+export async function referralProgress(
+  sql: SQL,
+  phone: string,
+): Promise<{ referrals: number; rewardEarned: boolean }> {
+  const e164 = normalizePhone(phone)
+  if (!e164) return { referrals: 0, rewardEarned: false }
+  const countRows = (await sql`
+    SELECT count(*)::int AS n FROM hire_invites
+    WHERE phone_e164 = ${e164} AND redeemed_by_phone IS NOT NULL
+  `) as Array<{ n: number | string }>
+  const n = Number(countRows[0]?.n ?? 0)
+  const rewardRows = (await sql`
+    SELECT 1 FROM hire_referral_rewards WHERE referrer_phone = ${e164} LIMIT 1
+  `) as Array<Record<string, unknown>>
+  return { referrals: Number.isFinite(n) ? n : 0, rewardEarned: rewardRows.length > 0 }
+}
+
 /* ---- Billing ----
  * Stripe over plain fetch: one price per hire, checkout creates a
  * session, the webhook keeps hire_subscriptions honest. Nothing gates on it
@@ -1446,6 +1510,20 @@ export async function ensureHireSchema(sql: SQL) {
     )
   `
   await sql`CREATE INDEX IF NOT EXISTS idx_hire_invites_phone ON hire_invites (phone_e164)`
+
+  // Referral ledger: every full set of three redeemed invite codes earns the
+  // referrer one free month (id `${phone}:${n}` keeps the rows idempotent).
+  await sql`
+    CREATE TABLE IF NOT EXISTS hire_referral_rewards (
+      id TEXT PRIMARY KEY,
+      referrer_phone TEXT NOT NULL,
+      reward TEXT NOT NULL DEFAULT 'free_month',
+      friends_hired INT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'earned',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `
+  await sql`CREATE INDEX IF NOT EXISTS idx_hire_referral_rewards_phone ON hire_referral_rewards (referrer_phone)`
 
   // Receipts for things a hire actually did on the user's behalf, one row per
   // action with an optional undo hint for the client to render.
@@ -8080,7 +8158,8 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     if (!phone) return json({ error: 'valid phone required' }, 400)
     try {
       const codes = await ensureInvites(sql, phone)
-      return json({ codes })
+      const progress = await referralProgress(sql, phone)
+      return json({ codes, ...progress })
     } catch (err) {
       console.error('[invites] ensure failed', err)
       return json({ error: 'Could not create invites' }, 500)
@@ -8089,21 +8168,13 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
 
   if (path === '/api/invites/redeem' && req.method === 'POST') {
     const body = (await req.json().catch(() => ({}))) as { code?: string; phone?: string }
-    const code = String(body.code || '').trim().toUpperCase()
-    const phone = normalizePhone(body.phone || '')
-    if (!code || !phone) return json({ error: 'code and phone required' }, 400)
-    const rows = (await sql`
-      SELECT phone_e164 AS referrer, redeemed_by_phone AS redeemed
-      FROM hire_invites WHERE code = ${code} LIMIT 1
-    `) as Array<{ referrer: string; redeemed: string | null }>
-    const invite = rows[0]
-    if (!invite) return json({ error: 'Code not found' }, 404)
-    if (invite.redeemed) return json({ error: 'This code was already used' }, 409)
-    await sql`
-      UPDATE hire_invites SET redeemed_by_phone = ${phone}, redeemed_at = now()
-      WHERE code = ${code}
-    `
-    return json({ ok: true, referrer: invite.referrer })
+    const result = await claimInvite(sql, body.phone || '', body.code || '')
+    if (!result.ok) {
+      const status =
+        result.error === 'Code not found' ? 404 : result.error === 'This code was already used' ? 409 : 400
+      return json({ error: result.error }, status)
+    }
+    return json({ ok: true, referrer: result.referrer, reward: result.reward })
   }
 
   // Approximate waitlist spot: everyone who queued before this phone in the

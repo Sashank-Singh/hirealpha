@@ -3,7 +3,6 @@ import { Link, useSearchParams } from 'react-router-dom'
 import {
   apiHome,
   apiListDecisions,
-  apiListLinear,
   apiListLoops,
   apiListPipeline,
   apiListWorkDrafts,
@@ -15,7 +14,6 @@ import {
   type Artifact,
   type Decision,
   type HomeSnapshot,
-  type LinearIssue,
   type NextItem,
   type OpenLoop,
   type PipelineItem,
@@ -295,7 +293,6 @@ export function CoworkerHomeApp({ auth }: { auth: FeatureAuth }) {
 
   const [drafts, setDrafts] = useState<WorkDraft[]>([])
   const [loops, setLoops] = useState<OpenLoop[]>([])
-  const [issues, setIssues] = useState<LinearIssue[]>([])
   const [standup, setStandup] = useState<string | null>(null)
 
   const reloadTiles = useCallback(() => {
@@ -304,9 +301,6 @@ export function CoworkerHomeApp({ auth }: { auth: FeatureAuth }) {
       .catch(() => {})
     apiListLoops({ email: auth.email, token: auth.token })
       .then((d) => setLoops(d.loops || []))
-      .catch(() => {})
-    apiListLinear({ email: auth.email, token: auth.token, persona: auth.persona })
-      .then((d) => setIssues(d.issues || []))
       .catch(() => {})
     apiStandupToday({ email: auth.email, token: auth.token })
       .then((d) => setStandup(d.today || null))
@@ -332,7 +326,10 @@ export function CoworkerHomeApp({ auth }: { auth: FeatureAuth }) {
   const openLoops = loops.filter((l) => l.status === 'open')
   const now = Date.now()
   const dueToday = openLoops.filter((l) => l.dueAt && new Date(l.dueAt).getTime() <= now + 12 * 3600_000).length
-  const closedIssues = issues.filter((i) => /done|canceled|closed/i.test(i.state || '')).length
+  // "Ready to send" means Alpha actually wrote the reply. Empty-body rows are
+  // suggestions Alpha stacked up from the inbox, not sendable mail, and
+  // counting them as ready is what made Drafts say 11 while Inbox said 0.
+  const sendable = drafts.filter((d) => (d.body || '').trim()).length
 
   return (
     <div className="home-screen">
@@ -342,15 +339,24 @@ export function CoworkerHomeApp({ auth }: { auth: FeatureAuth }) {
         <h3 className="home-section-title">Where you are</h3>
         <ul className="home-vitals">
           <Vital to={miniLink('digest')} label="Inbox" value={`${mailCount}`} foot={mailGroups[0] ? `${mailGroups[0].label} top` : 'in mail'} />
-          {drafts.length > 0 && (
-            <Vital to={miniLink('approve_send')} label="Drafts" value={`${drafts.length}`} foot="ready to send" />
-          )}
-          {loops.length > 0 && (
-            <Vital to={miniLink('open_loops')} label="Promises" value={`${openLoops.length} of ${loops.length}`} foot={dueToday ? `${dueToday} due today` : 'open'} />
-          )}
-          {issues.length > 0 && (
-            <Vital to={miniLink('linear_triage')} label="Issues" value={`${issues.length}`} foot={closedIssues ? `${closedIssues} closed` : 'assigned'} />
-          )}
+          <Vital
+            to={miniLink('approve_send')}
+            label="Drafts"
+            value={`${sendable}`}
+            foot={
+              !drafts.length
+                ? 'none waiting'
+                : drafts.length === sendable
+                  ? 'ready to send'
+                  : `${drafts.length - sendable} to review`
+            }
+          />
+          <Vital
+            to={miniLink('open_loops')}
+            label="Promises"
+            value={loops.length ? `${openLoops.length} of ${loops.length}` : `${openLoops.length}`}
+            foot={dueToday ? `${dueToday} due today` : 'open'}
+          />
           <Vital to={miniLink('standup_paste')} label="Standup" value={standup ? 'In' : 'Not yet'} foot={standup ? 'posted today' : 'paste your notes'} />
         </ul>
       </section>

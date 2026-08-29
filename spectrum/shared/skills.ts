@@ -35,20 +35,20 @@ export const SKILLS: Record<
     ],
     executable: ['gmail', 'calendar', 'slack', 'linear', 'notion', 'github', 'drive', 'figma'],
     miniApps: [
-      'next_move', 'approve_send', 'pick_slot', 'standup_paste', 'linear_triage', 'open_loops', 'meeting_mode', 'artifact',
+      'next_move', 'home', 'approve_send', 'pick_slot', 'standup_paste', 'linear_triage', 'open_loops', 'meeting_mode', 'artifact',
       'drop_zone', 'learning_queue', 'weekly_review', 'networking_crm',
     ],
-    liveMiniApps: ['next_move', 'standup_paste', 'approve_send', 'pick_slot', 'linear_triage'],
+    liveMiniApps: ['digest', 'home', 'next_move', 'standup_paste', 'approve_send', 'pick_slot', 'linear_triage', 'meeting_mode', 'open_loops', 'weekly_review', 'networking_crm'],
     deny: ['therapy_mode', 'fundraising_strategy', 'uber_lifestyle'],
   },
   cofounder: {
     tools: ['notion', 'drive', 'stripe.glance', 'calendar.light', 'gmail.draft'],
     executable: ['gmail', 'calendar', 'notion', 'drive', 'stripe'],
     miniApps: [
-      'next_move', 'kill_keep_park', 'hire_decision', 'weekly_review', 'approve_investor_note', 'decision_ledger', 'artifact',
+      'next_move', 'home', 'kill_keep_park', 'hire_decision', 'weekly_review', 'approve_investor_note', 'decision_ledger', 'artifact',
       'relationship_radar', 'drop_zone', 'open_loops', 'networking_crm', 'pipeline_board', 'spending_snapshot',
     ],
-    liveMiniApps: ['next_move', 'kill_keep_park', 'hire_decision', 'approve_investor_note'],
+    liveMiniApps: ['digest', 'home', 'next_move', 'kill_keep_park', 'hire_decision', 'approve_investor_note', 'pipeline_board', 'decision_ledger', 'weekly_review', 'networking_crm', 'spending_snapshot'],
     deny: ['standup_scribe', 'friend_comfort', 'silent_ea'],
   },
 }

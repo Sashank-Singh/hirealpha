@@ -1,6 +1,6 @@
 # alpha-coworker — agent instructions
 
-This is a [Spectrum](https://photon.codes/docs/spectrum-ts) app, pinned to `spectrum-ts@^12.7.0`. The entry point is `src/index.ts`, which configures the imessage provider(s) and runs the echo loop.
+This is a [Spectrum](https://photon.codes/docs/spectrum-ts) app, pinned to `spectrum-ts@^12.7.0`. The entry point is `src/index.ts`, which configures the imessage provider(s) and runs the shared HireAlpha turn engine (`../shared/runHireTurn`), not an echo loop. Reply copy, skills, mini apps, and boundaries for this hire live in `src/agents/definitions.ts` (coworker) and `spectrum/shared/skills.ts`.
 
 ## Working in this project
 

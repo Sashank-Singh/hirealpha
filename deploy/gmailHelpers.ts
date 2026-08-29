@@ -46,12 +46,13 @@ export function mailJudgePrompt(items: MailJudgeItem[], vocab: string[] = []): s
 Drop marketing, newsletters, automated job boards, recruiting blasts, social network job suggestions, and promo even if it is personalised.
 Do not use Gmail stars or Gmail important flags. Judge the content.
 Also say what kind of mail each one is: one or two plain words for the pile a person would file it under, like take home, invoice, intro, scheduling. Not a summary, not the sender.${reuse}
-Reply JSON only, one line per numbered item: {"items":[{"i":1,"keep":true,"kind":"take home"},{"i":2,"keep":false,"kind":"newsletter"}]}
+When an email carries a commitment about the future, someone promising to send, deliver, review, reply, or follow up by a time, add "promise": one short phrase naming who owes what, like "Priya sends the specs by Friday". Omit "promise" when there is none. Never invent a commitment; quote the obligation as the email states it.
+Reply JSON only, one line per numbered item: {"items":[{"i":1,"keep":true,"kind":"take home","promise":"Priya sends specs by Friday"},{"i":2,"keep":false,"kind":"newsletter"}]}
 
 ${listed}`
 }
 
-export type MailJudgeVerdict = { id: string; keep: boolean; kind: string }
+export type MailJudgeVerdict = { id: string; keep: boolean; kind: string; promise?: string }
 
 /** Resolve "1" / 1 / a raw gmail id to the batch item it names. */
 function judgeItemAt(ref: unknown, items: MailJudgeItem[]): MailJudgeItem | undefined {
@@ -81,12 +82,13 @@ export function parseMailJudgeVerdicts(raw: string, items: MailJudgeItem[]): Mai
   if (Array.isArray(data.items)) {
     for (const row of data.items) {
       if (!row || typeof row !== 'object') continue
-      const r = row as { i?: unknown; n?: unknown; id?: unknown; keep?: unknown; kind?: unknown }
+      const r = row as { i?: unknown; n?: unknown; id?: unknown; keep?: unknown; kind?: unknown; promise?: unknown }
       const item = judgeItemAt(r.i ?? r.n ?? r.id, items)
       if (!item) continue
       // An item listed with no verdict is a keep — the model bothered to name it.
       const keep = r.keep === undefined ? true : r.keep !== false && r.keep !== 'false' && r.keep !== 0
-      out.set(item.id, { id: item.id, keep, kind: normalizeMailKind(String(r.kind || '')) })
+      const promise = typeof r.promise === 'string' ? r.promise.trim().slice(0, 200) : ''
+      out.set(item.id, { id: item.id, keep, kind: normalizeMailKind(String(r.kind || '')), promise: promise || undefined })
     }
   }
   if (Array.isArray(data.keep)) {
@@ -511,6 +513,24 @@ export function fillDraftName(body: string, name: string): string {
   return body
     .replace(/\[\s*(?:your|my)?\s*name\s*\]/gi, clean)
     .replace(/\n[ \t]*your name[ \t]*$/i, `\n${clean}`)
+}
+
+/**
+ * Is this model output a reply a human can actually send? A bare greeting
+ * ("Hi boardy,") or a verbatim echo of the original email is not — saving
+ * either as a draft used to produce a "reply" that was just the quoted
+ * original. Only the greeting word is stripped, never the rest of the line,
+ * so a one-line reply like "Hi boardy, happy to chat Monday" still passes.
+ */
+export function isSubstantiveReply(written: string, original?: string): boolean {
+  const body = String(written || '').trim()
+  if (!body) return false
+  const stripped = body
+    .replace(/^\s*(?:hi|hello|hey|good\s+(?:morning|afternoon|evening))\b[,\s]*/i, '')
+  if (stripped.replace(/\s+/g, '').length < 20) return false
+  const norm = (s: string) => String(s || '').replace(/\s+/g, ' ').trim().slice(0, 120).toLowerCase()
+  if (original && norm(body).startsWith(norm(original))) return false
+  return true
 }
 
 /** Recursive MIME part for Gmail full-format messages. */

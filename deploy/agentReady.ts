@@ -25,6 +25,7 @@ export const PAGE_FILES: Record<string, string> = {
   '/privacy': 'pages/privacy.html',
   '/developers': 'pages/developers.html',
   '/docs': 'pages/docs.html',
+  '/faq': 'pages/faq.html',
 }
 
 export function isKnownPage(pathname: string): boolean {
@@ -83,6 +84,14 @@ POST /api/waitlist. Rate limit 60 req/min per IP. OpenAPI at /openapi.json, llms
 Base URL ${SITE_URL}. GET /healthz -> "ok". GET /api/public/info -> product metadata.
 GET /api/public/personas -> the three personas. POST /api/waitlist {"email"} -> {"ok":true}.
 Errors are {"error": "message"}. Unknown /api/* -> 404; unknown non-API -> 404 markdown.
+`,
+  '/faq': `# HireAlpha FAQ
+
+HireAlpha sells three AI contacts that live in iMessage: Friend (personal companion, live now),
+Coworker (work colleague: email drafts, meeting prep, Linear triage), and Cofounder (startup
+partner: pipeline, runway, decisions). $19/persona/month (annual $190; bundle $39 when all three
+ship; 7-day trial on paid tiers). One-use invite codes earn referrers one free month per three
+friends who hire. Data is never sold or ad-targeted; accounts delete within 30 days.
 `,
 }
 

@@ -12,12 +12,18 @@
     "test:mini": "bun test spectrum/shared/miniApps.test.ts"
   },
   "dependencies": {
+    "@ai-sdk/openai": "^4.0.51",
     "@composio/core": "^0.16.0",
+    "ai": "^7.0.84",
+    "crawlee": "^3.18.1",
+    "duck-duck-scrape": "^2.2.7",
     "framer-motion": "^13.0.0",
+    "playwright": "^1.62.1",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "react-router-dom": "^7.18.2",
-    "simple-icons": "^13.21.0"
+    "simple-icons": "^13.21.0",
+    "stripe": "^22.6.0"
   },
   "devDependencies": {
     "@types/node": "^24.13.3",

@@ -1,5 +1,6 @@
 import type { AgentId } from '../agents/types'
 import { useState } from 'react'
+import { track } from '../track'
 
 type Tier = 'free' | 'single' | 'bundle' | 'ultra'
 
@@ -113,6 +114,7 @@ export function Pricing() {
       }),
     })
     const data = await res.json()
+    track('checkout_started', { plan: annual ? `${plan}-annual` : plan, persona })
     if (data.url) {
       window.location.href = data.url
     } else {

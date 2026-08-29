@@ -27,6 +27,7 @@ import {
   scoreMail,
   senderKey,
   snapMailKind,
+  isSubstantiveReply,
   topNeedsYou,
   type GmailMimePart,
   type MailJudgeItem,
@@ -42,6 +43,34 @@ describe('fillDraftName', () => {
   it('catches a bare Your Name signoff line and leaves real text alone', () => {
     expect(fillDraftName('Best,\nYour Name', 'Sashank')).toBe('Best,\nSashank')
     expect(fillDraftName('No placeholder in this body.', 'Sashank')).toBe('No placeholder in this body.')
+  })
+})
+
+describe('isSubstantiveReply', () => {
+  const original =
+    "Darwin and Sashank, you're booked and the calendar invite is on its way. Looking forward to the conversation."
+
+  it('rejects empty and greeting-only output', () => {
+    expect(isSubstantiveReply('')).toBe(false)
+    expect(isSubstantiveReply('   \n  ')).toBe(false)
+    expect(isSubstantiveReply('Hi boardy,')).toBe(false)
+    expect(isSubstantiveReply('Hi boardy,\n\nok')).toBe(false)
+    expect(isSubstantiveReply('Hello!')).toBe(false)
+  })
+
+  it('rejects a verbatim echo of the original email', () => {
+    expect(isSubstantiveReply(original, original)).toBe(false)
+  })
+
+  it('accepts a real one-line reply even with a greeting', () => {
+    expect(
+      isSubstantiveReply('Hi boardy, happy to chat Monday at 9. The invite works on our end. Best, Sashank', original),
+    ).toBe(true)
+    expect(isSubstantiveReply('Thanks for the intro, Monday at 9 works for us. Best, Sashank')).toBe(true)
+  })
+
+  it('accepts a short confirm that carries real content', () => {
+    expect(isSubstantiveReply('Thanks, will do. Best, Sashank')).toBe(true)
   })
 })
 
@@ -540,6 +569,15 @@ describe('parseMailJudgeVerdicts', () => {
       { id: 'b', keep: false, kind: 'newsletter' },
     ])
     expect(parseMailJudgeKeepIds(raw, items)).toEqual(['a'])
+  })
+
+  it('reads an optional promise and omits it when empty or missing', () => {
+    const raw =
+      '{"items":[{"i":1,"keep":true,"kind":"intro","promise":"Priya sends the specs by Friday"},{"i":2,"keep":false,"kind":"newsletter","promise":""},{"i":3,"keep":true,"kind":"scheduling"}]}'
+    const verdicts = parseMailJudgeVerdicts(raw, items)
+    expect(verdicts[0]?.promise).toBe('Priya sends the specs by Friday')
+    expect(verdicts[1]?.promise).toBeUndefined()
+    expect(verdicts[2]?.promise).toBeUndefined()
   })
 
   it('still reads the older keep-list shape', () => {

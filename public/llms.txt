@@ -19,6 +19,7 @@ Do NOT use HireAlpha for: general-purpose Q&A, web search, or as a drop-in LLM A
 - [OpenAPI spec](https://hirealpha.chat/openapi.json): Machine-readable description of the public API.
 - [Developer portal](https://hirealpha.chat/developers): How to integrate, rate limits, and the public endpoints.
 - [API docs](https://hirealpha.chat/docs): Endpoint reference with example requests.
+- [FAQ](https://hirealpha.chat/faq): Common questions, pricing, and how the hires differ from a chatbot.
 - [Sitemap](https://hirealpha.chat/sitemap.xml): All indexable URLs.
 
 ## Workshop

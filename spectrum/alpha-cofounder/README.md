@@ -1,6 +1,11 @@
 # alpha-cofounder
 
-A [Spectrum](https://photon.codes/docs/spectrum-ts) project. Wired with: imessage.
+Alpha(CoFounder), the startup partner hire. A [Spectrum](https://photon.codes/docs/spectrum-ts) app wired with `imessage`, running the shared HireAlpha turn engine from `../shared` (same runtime as alpha and alpha-coworker):
+
+- `runHireTurn` for every inbound text, with per-persona skills, memory, and mini apps
+- intro texts on first contact (`INTRO_TO`) plus a signup intro poller
+- reminder scheduler, task loop poller, and heartbeat/health server
+- iMessage app cards for the cofounder mini apps (Brief, Home, Pipeline, Decisions, Investor note, Hire decision, Kill/Keep/Park, …)
 
 ## Environment
 
@@ -17,9 +22,3 @@ From your project Settings on the [Photon dashboard](https://app.photon.codes):
 bun install
 bun start
 ```
-
-## Where to go next
-
-- [Spectrum docs](https://photon.codes/docs/spectrum-ts)
-- Edit `src/index.ts` to replace the echo loop with real agent logic.
-- Add more providers from `spectrum-ts/providers/*`.

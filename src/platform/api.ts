@@ -269,6 +269,17 @@ async function featurePatch<T>(path: string, body: Record<string, unknown>): Pro
   return data
 }
 
+async function featureDelete<T>(path: string, body: Record<string, unknown>): Promise<T> {
+  const res = await fetch(`${API}${path}`, {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  const data = await parseJson<T & { error?: string; code?: string }>(res)
+  if (!res.ok) throw new Error(data.error || 'Request failed')
+  return data
+}
+
 export type OpenLoop = {
   id: string
   persona: string
@@ -355,6 +366,8 @@ export const apiAddMeeting = (a: { email?: string; token?: string; title: string
   featurePost<{ ok: boolean; id: string }>('/api/meetings', { ...authParams(a), title: a.title, startsAt: a.startsAt })
 export const apiPatchMeeting = (a: { email?: string; token?: string; id: string; phase?: string; followups?: Array<{ decision?: string; owner?: string; action?: string }> }) =>
   featurePatch<{ ok: boolean }>(`/api/meetings/${a.id}`, { ...authParams(a), phase: a.phase, followups: a.followups })
+export const apiDeleteMeeting = (a: { email?: string; token?: string; id: string }) =>
+  featureDelete<{ ok: boolean }>(`/api/meetings/${a.id}`, authParams(a))
 export const apiTranscribeMeeting = (a: {
   email?: string; token?: string; id: string; audioBase64: string; mimeType?: string
 }) =>

@@ -7,6 +7,8 @@ import {
   miniAppCard,
   PATTERNS,
 } from './miniApps'
+import { SKILLS } from './skills'
+import { SKILLS as WEB_SKILLS } from '../../src/agents/skills'
 import type { AgentId } from '../../src/agents/types'
 
 /**
@@ -922,9 +924,9 @@ describe('Mini-app Text Triggers', () => {
       expect(result).toBeNull() // relationship_radar not in coworker skills
     })
 
-    it('detects home intent', () => {
-      const result = detectMiniAppRequest('how am i doing overall', 'coworker')
-      expect(result).toBeNull()
+    it('opens Home from a text (landing-promised app)', () => {
+      const result = detectMiniAppRequest('open my home screen', 'coworker')
+      expect(result?.kind).toBe('home')
     })
 
     it('rejects nutrition for coworker', () => {
@@ -1026,9 +1028,9 @@ describe('Mini-app Text Triggers', () => {
       expect(result?.kind).toBe('spending_snapshot')
     })
 
-    it('detects home intent', () => {
-      const result = detectMiniAppRequest('life overview check', 'cofounder')
-      expect(result).toBeNull()
+    it('opens Home from a text (landing-promised app)', () => {
+      const result = detectMiniAppRequest('pull up the home screen', 'cofounder')
+      expect(result?.kind).toBe('home')
     })
 
     it('detects weekly_review intent', () => {
@@ -1045,6 +1047,60 @@ describe('Mini-app Text Triggers', () => {
       const result = detectMiniAppRequest('what should we do tonight', 'cofounder')
       expect(result).toBeNull()
     })
+  })
+
+  /**
+   * The landing page ("Apps they open from a text", src/Landing.tsx HIRE_APPS)
+   * promises an app list per hire. Every promised kind must be triggerable from
+   * a text: named in SKILLS.miniApps (digest is always allowed by allowedKinds)
+   * and detected by detectMiniAppRequest. Keep PROMISED in sync with HIRE_APPS.
+   */
+  describe('Landing-promised apps open from a text', () => {
+    const PROMISED: Record<'coworker' | 'cofounder', MiniAppKind[]> = {
+      coworker: ['digest', 'home', 'meeting_mode', 'approve_send', 'pick_slot', 'linear_triage', 'standup_paste'],
+      cofounder: ['digest', 'home', 'pipeline_board', 'decision_ledger', 'networking_crm', 'approve_investor_note', 'hire_decision'],
+    }
+
+    const SAMPLE: Record<MiniAppKind, string> = {
+      digest: 'morning brief',
+      home: 'open my home screen',
+      meeting_mode: 'prep me for the review',
+      approve_send: 'approve that email',
+      pick_slot: 'what time works for a meeting',
+      linear_triage: 'triage the backlog',
+      standup_paste: 'what did i get done',
+      pipeline_board: 'pipeline board status',
+      decision_ledger: 'log that decision',
+      networking_crm: 'add sarah to my network',
+      approve_investor_note: 'investor note for the round',
+      hire_decision: 'should we hire sarah',
+    } as Partial<Record<MiniAppKind, string>> as Record<MiniAppKind, string>
+
+    it('every promised kind is offered by the runtime skills list', () => {
+      for (const [persona, kinds] of Object.entries(PROMISED)) {
+        const named = SKILLS[persona as 'coworker' | 'cofounder'].miniApps
+        for (const kind of kinds) {
+          if (kind === 'digest') continue // always allowed by allowedKinds
+          expect(named).toContain(kind)
+        }
+      }
+    })
+
+    it('shared and web skills mirrors stay in parity', () => {
+      for (const persona of ['friend', 'coworker', 'cofounder'] as const) {
+        expect(new Set(SKILLS[persona].miniApps)).toEqual(new Set(WEB_SKILLS[persona].miniApps))
+        expect(new Set(SKILLS[persona].liveMiniApps)).toEqual(new Set(WEB_SKILLS[persona].liveMiniApps))
+        expect(new Set(SKILLS[persona].executable)).toEqual(new Set(WEB_SKILLS[persona].executable))
+      }
+    })
+
+    for (const [persona, kinds] of Object.entries(PROMISED)) {
+      for (const kind of kinds) {
+        it(`${persona} "${SAMPLE[kind]}" -> ${kind}`, () => {
+          expect(detectMiniAppRequest(SAMPLE[kind], persona as 'coworker' | 'cofounder')?.kind).toBe(kind)
+        })
+      }
+    }
   })
 
   describe('URL + save routing to learning_queue', () => {

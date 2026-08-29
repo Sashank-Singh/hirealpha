@@ -136,6 +136,35 @@ These are ignored by `.gitignore`. Add a `.env.example` when server keys are int
 
 ---
 
+## Marketing & growth tools
+
+Turnkey pieces that were added alongside the marketing plan in
+`marketing/launch-kit/` (Show HN post, Product Hunt copy, X threads, community
+posts, launch-day checklist — all grounded in verified facts).
+
+- **Analytics.** `index.html` loads the Plausible snippet for domain
+  `hirealpha.chat`. Create the site at https://plausible.io (or self-host free
+  on Coolify) and pageviews + the custom funnel events fire automatically:
+  `waitlist_joined` (with `hire` and `via` props), `checkout_started`
+  (`plan`, `persona`), `share_clicked`, `invite_copied`. Define them under
+  Plausible → Goals → Custom events.
+- **Waitlist → email.** Every new waitlist email is pushed to a Resend audience
+  (`RESEND_API_KEY` + `RESEND_AUDIENCE_ID`, see `.env.example`) so you can send
+  the launch sequence from the Resend dashboard. Existing signups backfill with
+  `bun scripts/sync-waitlist-resend.ts`.
+- **Referral program.** Members mint 3 one-use codes (`/api/invites/for-phone`).
+  Friends enter a code in the waitlist form (or the app redeem endpoint); each
+  redemption is recorded on the referrer in `hire_invites`, and every 3
+  redemptions earns a "free month" row in `hire_referral_rewards`. The backend
+  records the ledger; *applying the free-month credit at checkout is a billing
+  workstream still to be implemented* — the UI copy is written to match.
+- **Greatest hits wall.** The homepage "Texting a hire looks like this." section
+  renders `src/data/highlights.ts`. Entries are illustrative sample threads;
+  replace them with real (consented, redacted) conversations over time.
+- **SEO pages.** `/faq` serves a static FAQ with FAQPage schema targeting
+  long-tail searches ("AI friend that texts first", "AI coworker for email",
+  "AI cofounder for startups").
+
 ## Status
 
 Frontend landing only. SMS numbers, billing, and connector OAuth are not implemented here yet.
