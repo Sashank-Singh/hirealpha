@@ -132,4 +132,9 @@ export const COMPOSIO_READ: Record<
     },
     empty: 'Maps is connected but nothing came back.',
   },
+  plaid: {
+    slugs: ['PLAID_GET_ACCOUNTS', 'PLAID_GET_BALANCE', 'PLAID_GET_TRANSACTIONS'],
+    args: () => ({}),
+    empty: 'Plaid / Bank is connected but nothing came back. Say that. Do not invent balances.',
+  },
 }

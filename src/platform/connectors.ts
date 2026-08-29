@@ -13,6 +13,7 @@ export type ConnectorId =
   | 'maps'
   | 'spotify'
   | 'stripe'
+  | 'plaid'
 
 export interface ConnectorDef {
   id: ConnectorId
@@ -94,6 +95,12 @@ export const CONNECTOR_CATALOG: ConnectorDef[] = [
     name: 'Stripe',
     blurb: 'Glance revenue, not move money.',
     toolMatchers: ['stripe'],
+  },
+  {
+    id: 'plaid',
+    name: 'Plaid / Bank',
+    blurb: 'Connect bank & spending balances.',
+    toolMatchers: ['plaid', 'bank'],
   },
 ]
 

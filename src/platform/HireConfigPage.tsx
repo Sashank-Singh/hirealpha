@@ -72,6 +72,15 @@ export function HireConfigPage() {
     setParams({}, { replace: true })
   }, [params, setParams])
 
+  useEffect(() => {
+    const toConnect = params.get('connect')
+    if (!toConnect) return
+    const el = document.getElementById(`connector-${toConnect}`)
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    }
+  }, [params])
+
   if (!isAgentId(raw)) return <Navigate to="/app" replace />
   const agentId = raw
   if (!hasHire(agentId)) {
@@ -125,6 +134,8 @@ export function HireConfigPage() {
     }
   }
 
+  const targetConnector = params.get('connect')
+
   return (
     <div className="plat-page">
       <Link to="/app" className="plat-back">
@@ -167,8 +178,13 @@ export function HireConfigPage() {
           <ul className="plat-tools">
             {connectors.map((c) => {
               const on = connected.includes(c.id)
+              const isTarget = targetConnector === c.id
               return (
-                <li key={c.id}>
+                <li
+                  key={c.id}
+                  id={`connector-${c.id}`}
+                  className={isTarget ? 'plat-tool--highlight' : ''}
+                >
                   <ConnectorLogo id={c.id} />
                   <div>
                     <strong>{c.name}</strong>

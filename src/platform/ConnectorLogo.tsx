@@ -14,6 +14,15 @@ import {
 } from 'simple-icons'
 import type { ConnectorId } from './connectors'
 
+const PLAID_ICON: SimpleIcon = {
+  title: 'Plaid',
+  slug: 'plaid',
+  hex: '111111',
+  source: 'https://plaid.com',
+  svg: '<svg role="img" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M2 4h20v3H2V4zm2 5h3v9H4V9zm6 0h4v9h-4V9zm7 0h3v9h-3V9zM2 19h20v2H2v-2z"/></svg>',
+  path: 'M2 4h20v3H2V4zm2 5h3v9H4V9zm6 0h4v9h-4V9zm7 0h3v9h-3V9zM2 19h20v2H2v-2z',
+}
+
 const ICONS: Record<ConnectorId, SimpleIcon> = {
   gmail: siGmail,
   calendar: siGooglecalendar,
@@ -26,6 +35,7 @@ const ICONS: Record<ConnectorId, SimpleIcon> = {
   github: siGithub,
   figma: siFigma,
   stripe: siStripe,
+  plaid: PLAID_ICON,
 }
 
 function fillFor(hex: string) {

@@ -96,6 +96,7 @@ export const UI_TO_COMPOSIO: Record<string, string> = {
   maps: 'googlemaps',
   spotify: 'spotify',
   stripe: 'stripe',
+  plaid: 'plaid',
 }
 
 const COMPOSIO_SLUG_ALIASES: Record<string, string> = {
@@ -2800,6 +2801,9 @@ function wantsSpotify(text: string) {
 function wantsStripe(text: string) {
   return /\b(stripe|revenue|mrr|arr|charges?|invoices?)\b/i.test(text)
 }
+function wantsPlaid(text: string) {
+  return /\b(plaid|bank|bank account|checking account|savings account|bank balance|bank transactions|mercury|brex|chase|bofa|wells fargo|credit card balance)\b/i.test(text)
+}
 
 async function runComposioPlugin(userId: string, id: string, message: string): Promise<string> {
   const spec = COMPOSIO_READ[id]
@@ -3395,8 +3399,9 @@ async function composioFirst(
   return last
 }
 
-function notConnectedNote(tool: string) {
-  return `${tool} is not connected. Tell them to open hirealpha.chat/app, open this hire, and tap Connect. Do not pretend you already did the action.`
+function notConnectedNote(tool: string, persona: Persona = 'friend') {
+  const directUrl = `https://hirealpha.chat/app/hires/${persona}?connect=${encodeURIComponent(tool)}`
+  return `${tool} is not connected yet. Tell them: "You can connect ${tool} directly here: ${directUrl}" so they can tap and connect it instantly with one tap without searching the site. Never claim you already did the action.`
 }
 
 export async function runToolsForMessage(
@@ -3421,7 +3426,7 @@ export async function runToolsForMessage(
       results.push(`${id} is off limits for this hire. Do not offer it.`)
       return
     }
-    results.push(notConnectedNote(id))
+    results.push(notConnectedNote(id, input.persona))
   }
   const askedAllowed = (id: string, hit: boolean) => {
     if (!hit) return
@@ -3521,6 +3526,11 @@ export async function runToolsForMessage(
     results.push(await runComposioPlugin(input.userId, 'stripe', input.message))
   } else {
     askedAllowed('stripe', wantsStripe(input.message))
+  }
+  if (wantsPlaid(input.message) && can('plaid')) {
+    results.push(await runComposioPlugin(input.userId, 'plaid', input.message))
+  } else {
+    askedAllowed('plaid', wantsPlaid(input.message))
   }
 
   return results

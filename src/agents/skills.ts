@@ -12,8 +12,8 @@ export const SKILLS: Record<
   }
 > = {
   friend: {
-    tools: ['gmail', 'calendar.read', 'calendar.soft_book', 'drive', 'maps'],
-    executable: ['gmail', 'calendar', 'drive', 'maps'],
+    tools: ['gmail', 'calendar.read', 'calendar.soft_book', 'drive', 'maps', 'plaid'],
+    executable: ['gmail', 'calendar', 'drive', 'maps', 'plaid'],
     miniApps: [
       'home', 'tonight', 'pick_night', 'body', 'later', 'check_in', 'open_loops', 'drop_zone', 'artifact',
       'nutrition', 'habit_streak', 'mood_tracker', 'workout_log', 'learning_queue', 'weekly_review',
@@ -42,8 +42,8 @@ export const SKILLS: Record<
     deny: ['therapy_mode', 'fundraising_strategy', 'uber_lifestyle'],
   },
   cofounder: {
-    tools: ['notion', 'drive', 'stripe.glance', 'calendar.light', 'gmail.draft'],
-    executable: ['gmail', 'calendar', 'notion', 'drive', 'stripe'],
+    tools: ['notion', 'drive', 'stripe.glance', 'calendar.light', 'gmail.draft', 'plaid'],
+    executable: ['gmail', 'calendar', 'notion', 'drive', 'stripe', 'plaid'],
     miniApps: [
       'next_move', 'home', 'kill_keep_park', 'hire_decision', 'weekly_review', 'approve_investor_note', 'decision_ledger', 'artifact',
       'relationship_radar', 'drop_zone', 'open_loops', 'networking_crm', 'pipeline_board', 'spending_snapshot',
@@ -70,7 +70,7 @@ export function skillsPromptBlock(agentId: AgentId, connected: string[] = []): s
       ? `Live tools you can actually use this turn: ${live.join(', ')}. Use a tool result if one is provided. Never invent a send, book, search, or file.`
       : 'No live tools are connected for this hire.',
     missing.length
-      ? `Not connected: ${missing.join(', ')}. If they ask for one of these, offer hirealpha.chat/app and tell them to tap Connect. Do not mime the action.`
+      ? `Not connected: ${missing.join(', ')}. If they ask for any of these (or services like bank/Plaid, Gmail, Calendar, Slack, Notion, GitHub, Stripe), give them the direct link to connect it instantly: https://hirealpha.chat/app/hires/${agentId}?connect=<tool_name> (e.g. https://hirealpha.chat/app/hires/${agentId}?connect=${missing[0]}). Never mime the action.`
       : '',
     `Mini apps that actually run: ${s.liveMiniApps.join(', ') || 'none'}. Put the answer in the text. The card is extra, not a substitute.`,
     `Never act with: ${s.deny.join(', ')}.`,
