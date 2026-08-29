@@ -44,29 +44,33 @@ export async function gmiChat(options: GmiChatOptions): Promise<string> {
     'User-Agent': 'HireAlpha/0.1 (spectrum-bot)',
     Accept: 'application/json',
   }
-  const payload = (reasoningEffort: string) =>
-    JSON.stringify({
+  const payload = (reasoningEffort?: string) => {
+    const body: Record<string, unknown> = {
       model,
-      reasoning_effort: reasoningEffort,
       temperature: options.temperature ?? 0.7,
       max_tokens: options.maxTokens ?? 280,
       messages: options.messages,
-    })
+    }
+    if (reasoningEffort && reasoningEffort !== 'omit') {
+      body.reasoning_effort = reasoningEffort
+    }
+    return JSON.stringify(body)
+  }
 
   const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
-  // gmi-serving is load-balanced across backend nodes that disagree about
-  // reasoning_effort: most accept 'none', some 400 demanding low|medium|high.
-  // A plain retry can land on the same strict node, so the fallback switches
-  // value; 429/5xx get one plain retry for transient capacity errors.
-  let res = await fetch(url, { method: 'POST', headers, body: payload('none') })
+  // Some endpoints accept 'low' | 'medium' | 'high', some accept 'none', and
+  // standard OpenAI-compatible endpoints reject reasoning_effort completely.
+  let res = await fetch(url, { method: 'POST', headers, body: payload('omit') })
   if (!res.ok) {
     const errText = await res.text().catch(() => '')
     if (res.status === 400 && /reasoning_effort/i.test(errText)) {
-      res = await fetch(url, { method: 'POST', headers, body: payload('low') })
+      // If endpoint strictly requires reasoning_effort (e.g. low/medium/high)
+      const fallbackEffort = /'low'/i.test(errText) || /must be one of/i.test(errText) ? 'low' : 'none'
+      res = await fetch(url, { method: 'POST', headers, body: payload(fallbackEffort) })
     } else if (res.status === 429 || res.status >= 500) {
       await sleep(800)
-      res = await fetch(url, { method: 'POST', headers, body: payload('none') })
+      res = await fetch(url, { method: 'POST', headers, body: payload('omit') })
     }
   }
 

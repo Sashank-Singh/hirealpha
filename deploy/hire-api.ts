@@ -2268,7 +2268,6 @@ async function estimateNutrition(
         },
         body: JSON.stringify({
           model: m,
-          reasoning_effort: 'none',
           temperature: 0,
           // A reasoning model that ignores reasoning_effort spends its budget
           // thinking; at 320 the object was landing truncated or not at all.
@@ -2775,7 +2774,7 @@ function wantsMaps(text: string) {
   )
 }
 function wantsWebSearch(text: string) {
-  return /\b(search (?:the )?(?:web|internet|online)|web search|look online|look up|browse|for accuracy|latest news|news about|how (?:much|many|do|to|old|far)|what (?:is|are|was|were|does)|when (?:is|does|did|was)|where (?:is|are|was|did)|who (?:is|was|are)|why (?:is|does|did)|define|meaning of|price of|recipe for|nutrition(?:al)? (?:info|facts|value|content)|calories? in|protein in)\b/i.test(text)
+  return /\b(ticket|tickets|showtime|showtimes|imax|70\s?mm|movie|movies|theater|theatre|fandango|cinema|regal|amc|concert|flight|hotel|price|cost|search (?:the )?(?:web|internet|online)|web search|look online|look up|browse|for accuracy|latest news|news about|how (?:much|many|do|to|old|far)|what (?:is|are|was|were|does)|when (?:is|does|did|was)|where (?:is|are|was|did)|who (?:is|was|are)|why (?:is|does|did)|define|meaning of|price of|recipe for|nutrition(?:al)? (?:info|facts|value|content)|calories? in|protein in)\b/i.test(text)
 }
 function wantsSlack(text: string) {
   return /\b(slack|thread|channel|#\w+)\b/i.test(text)
@@ -3015,32 +3014,76 @@ async function fetchPublic(url: URL, init: RequestInit, timeoutMs = 8000) {
 async function fetchWebSearch(query: string) {
   const q = query.trim().slice(0, 180)
   if (!q) return 'Web search needs a query.'
+  const results: string[] = []
+  
+  // 1. DuckDuckGo HTML & Lite Search with standard browser headers
   try {
     const url = new URL('https://html.duckduckgo.com/html/')
     url.searchParams.set('q', q)
     const res = await fetchPublic(url, {
-      headers: { Accept: 'text/html', 'User-Agent': 'HireAlpha/1.0 (https://hirealpha.chat)' },
+      headers: {
+        Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+        'Accept-Language': 'en-US,en;q=0.9',
+      },
     })
-    if (!res.ok) return `Web search unavailable (${res.status}).`
-    const html = await res.text()
-    const results: string[] = []
-    const pattern = /<a[^>]*class="result__a"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/gi
-    for (const match of html.matchAll(pattern)) {
-      let href = decodeHtml(match[1] || '')
-      try {
-        const parsed = new URL(href.startsWith('//') ? `https:${href}` : href)
-        href = parsed.searchParams.get('uddg') || href
-      } catch {
-        /* keep the original link */
+    if (res.ok) {
+      const html = await res.text()
+      const pattern = /<a[^>]*class="result__a"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/gi
+      for (const match of html.matchAll(pattern)) {
+        let href = decodeHtml(match[1] || '')
+        try {
+          const parsed = new URL(href.startsWith('//') ? `https:${href}` : href)
+          href = parsed.searchParams.get('uddg') || href
+        } catch {
+          /* keep original */
+        }
+        const title = decodeHtml(stripHtml(match[2] || ''))
+        if (title && href && !href.includes('duckduckgo.com')) {
+          results.push(`- ${title}\n  ${href}`)
+        }
+        if (results.length >= 6) break
       }
-      const title = decodeHtml(stripHtml(match[2] || ''))
-      if (title && href) results.push(`- ${title}\n  ${href}`)
-      if (results.length >= 5) break
     }
-    return results.length ? `Web results for "${q}":\n${results.join('\n')}` : 'No web results found.'
   } catch {
-    return 'Web search unavailable right now.'
+    /* fallback to instant answer / wikipedia */
   }
+
+  // 2. DuckDuckGo Instant Answer JSON API Fallback
+  if (!results.length) {
+    try {
+      const apiUrl = new URL('https://api.duckduckgo.com/')
+      apiUrl.searchParams.set('q', q)
+      apiUrl.searchParams.set('format', 'json')
+      apiUrl.searchParams.set('no_html', '1')
+      apiUrl.searchParams.set('skip_disambig', '1')
+      const apiRes = await fetchPublic(apiUrl, {
+        headers: { Accept: 'application/json', 'User-Agent': 'HireAlpha/1.0 (https://hirealpha.chat)' },
+      })
+      if (apiRes.ok) {
+        const data = (await apiRes.json()) as {
+          AbstractText?: string
+          AbstractURL?: string
+          Heading?: string
+          RelatedTopics?: Array<{ Text?: string; FirstURL?: string }>
+        }
+        if (data.AbstractText && data.AbstractURL) {
+          results.push(`- ${data.Heading || q}: ${data.AbstractText}\n  ${data.AbstractURL}`)
+        }
+        if (Array.isArray(data.RelatedTopics)) {
+          for (const topic of data.RelatedTopics.slice(0, 4)) {
+            if (topic.Text && topic.FirstURL) {
+              results.push(`- ${topic.Text}\n  ${topic.FirstURL}`)
+            }
+          }
+        }
+      }
+    } catch {
+      /* continue */
+    }
+  }
+
+  return results.length ? `Web results for "${q}":\n${results.join('\n')}` : `No web results found for "${q}".`
 }
 
 const FOREIGN_PLACE = /\b(bali|jakarta|thailand|indonesia|london|paris|tokyo|kyoto|athens|rome|madrid|berlin|amsterdam|sydney|melbourne|mumbai|delhi|bangkok|marrakech|dubai|singapore|hong\s?kong|europe|asia|africa|mexico city|canada|australia|india|france|italy|spain|germany|brazil|argentina|colombia|philippines|panama|uk|england|scotland|ireland)\b/i
@@ -3703,7 +3746,6 @@ async function gmiBriefChat(
           },
           body: JSON.stringify({
             model: cfg.textModel,
-            reasoning_effort: 'none',
             temperature: 0.1,
             max_tokens: maxTokens,
             messages: [
@@ -10677,6 +10719,41 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
       const content = (fileRows[0] as { content?: string } | undefined)?.content
       if (!content) return gonePage('This build is gone. Ask Alpha to build it again.')
       let html = Buffer.from(content, 'base64').toString('utf8')
+      // Ensure mobile viewport with viewport-fit=cover
+      if (!/<meta\s+name=["']viewport["']/i.test(html)) {
+        const vp = '<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />'
+        html = html.includes('<head>') ? html.replace('<head>', `<head>${vp}`) : `${vp}${html}`
+      } else if (!/viewport-fit=cover/i.test(html)) {
+        html = html.replace(/(<meta\s+name=["']viewport["'][^>]*content=["'][^"']+)(["'])/i, '$1, viewport-fit=cover$2')
+      }
+
+      // Inject universal safe-area styling so top status bar / notch and bottom Safari search/tab bar never cover content
+      const safeAreaStyle = `<style id="alpha-mobile-safe-area">
+  :root {
+    --sat: env(safe-area-inset-top, 0px);
+    --sab: env(safe-area-inset-bottom, 0px);
+    --sal: env(safe-area-inset-left, 0px);
+    --sar: env(safe-area-inset-right, 0px);
+  }
+  html {
+    box-sizing: border-box;
+    min-height: 100dvh;
+  }
+  *, *::before, *::after {
+    box-sizing: inherit;
+  }
+  body {
+    min-height: 100dvh;
+    padding-top: max(16px, env(safe-area-inset-top, 0px));
+    padding-bottom: max(32px, env(safe-area-inset-bottom, 0px));
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+  }
+</style>`
+      if (!html.includes('id="alpha-mobile-safe-area"')) {
+        html = html.includes('</head>') ? html.replace('</head>', `${safeAreaStyle}</head>`) : `${safeAreaStyle}${html}`
+      }
+
       // Give the link preview a title even when the generated app has no meta.
       if (!/<meta\s+property="og:title"/i.test(html)) {
         const og = `<meta property="og:title" content="${esc(rawRow.title)}" /><meta property="og:description" content="Built by Alpha" />`
