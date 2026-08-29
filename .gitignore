@@ -58,5 +58,16 @@ roster-backups/
 artifacts/
 storage/
 
+# Agent / IDE junk
+.adal/
+.claude/
+.cursor/
+.devin/
+.zcode/
+agent/
+hive/
+worktrees/
+skills-lock.json
+
 opencode.json 
 .gstack/
