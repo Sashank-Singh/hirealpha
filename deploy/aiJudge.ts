@@ -159,6 +159,12 @@ export function parseJudgeAll(raw: string, mails: JudgeMailIn[], meets: JudgeMee
 
 export const JUDGE_TTL_MS = 15 * 60_000
 
+/* One call must cover everything the screens can show: a batch smaller than the
+ * inbox pull would push the tail into the regex fallback, which is exactly the
+ * mail that then risks being missed. 30 mail is the digest's full pull. */
+export const JUDGE_MAIL_CAP = 30
+export const JUDGE_MEET_CAP = 12
+
 /** A cached judgment is trusted for JUDGE_TTL_MS, and only for the day it was built. */
 export function judgeRowFresh(builtAtMs: number | null, nowMs: number, builtDay: string | null, today: string): boolean {
   if (!builtAtMs || builtDay !== today) return false

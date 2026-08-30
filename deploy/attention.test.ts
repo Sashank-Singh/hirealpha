@@ -111,13 +111,13 @@ describe('remainingTodayMeets', () => {
     expect(meets[0]!.title).toBe('Dana')
   })
 
-  it('returns at most five meetings', () => {
-    const rows = [1, 2, 3, 4, 5, 6, 7].map((i) => ({
+  it('returns at most eight meetings', () => {
+    const rows = [1, 2, 3, 4, 5, 6, 7, 8, 9].map((i) => ({
       time: `6:${String(i).padStart(2, '0')} PM`,
       title: `Meet ${i}`,
       who: `Meet ${i}`,
     }))
-    expect(remainingTodayMeets(rows, tz, now)).toHaveLength(5)
+    expect(remainingTodayMeets(rows, tz, now)).toHaveLength(8)
   })
 })
 

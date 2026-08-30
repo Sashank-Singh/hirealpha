@@ -70,6 +70,8 @@ import { extractJsonObject, extractNumericFields, modelReplyText, stripReasoning
 import {
   JUDGE_ALL_SYSTEM,
   JUDGE_TTL_MS,
+  JUDGE_MAIL_CAP,
+  JUDGE_MEET_CAP,
   judgeAllPrompt,
   judgeRowCovers,
   judgeRowFresh,
@@ -4001,9 +4003,9 @@ async function judgeAllBatch(
   vocab: string[],
 ): Promise<JudgeAll> {
   if (!mails.length && !meets.length) return { mails: new Map(), meets: new Map() }
-  const raw = await gmiBriefChat(JUDGE_ALL_SYSTEM, judgeAllPrompt(mails.slice(0, 20), meets.slice(0, 8), vocab), 1100, 12000)
+  const raw = await gmiBriefChat(JUDGE_ALL_SYSTEM, judgeAllPrompt(mails.slice(0, JUDGE_MAIL_CAP), meets.slice(0, JUDGE_MEET_CAP), vocab), 1500, 12000)
   if (!raw) return { mails: new Map(), meets: new Map() }
-  return parseJudgeAll(raw, mails.slice(0, 20), meets.slice(0, 8))
+  return parseJudgeAll(raw, mails.slice(0, JUDGE_MAIL_CAP), meets.slice(0, JUDGE_MEET_CAP))
 }
 
 async function readJudgeRow(sql: SQL, userId: string): Promise<{ payload: JudgeCachePayload; builtAt: number; day: string } | null> {
@@ -4062,7 +4064,7 @@ export async function loadJudgeVerdicts(
   await writeJudgeRow(sql, userId, today, {
     mails: [...verdicts.mails.values()],
     meets: [...verdicts.meets.values()],
-    mailIds: mails.slice(0, 20).map((m) => m.id),
+    mailIds: mails.slice(0, JUDGE_MAIL_CAP).map((m) => m.id),
   })
   return verdicts
 }
@@ -4111,7 +4113,7 @@ export async function prewarmJudgeCaches(sql: SQL) {
         const today = localDateStrInTz(new Date(), tz)
         const row = await readJudgeRow(sql, userId)
         if (row && judgeRowFresh(row.builtAt, Date.now(), row.day, today)) continue
-        const rich = await withTimeout(loadGmailRich(sql, userId, importantMailQuery('2d'), 20), 9000, [])
+        const rich = await withTimeout(loadGmailRich(sql, userId, importantMailQuery('2d'), JUDGE_MAIL_CAP), 9000, [])
         const cal = await todayMeetsCache
           .read(
             `${userId}|friend`,
@@ -4528,9 +4530,11 @@ function nowMinutesInTz(tz: string, now = new Date()): number {
 }
 
 /**
- * Today's meetings still ahead of the user, soonest first, five max. End times
+ * Today's meetings still ahead of the user, soonest first, eight max. End times
  * are not carried on the meet rows, so a meeting that already started counts as
- * in progress for an hour and then leaves the list.
+ * in progress for an hour and then leaves the list. Eight because the promise
+ * this screen makes is that nothing on today's calendar goes unseen; a busy day
+ * used to silently lose its tail past five.
  */
 export function remainingTodayMeets(
   meets: Array<{ time: string; title: string; who?: string }>,
@@ -4548,7 +4552,7 @@ export function remainingTodayMeets(
     out.push({ time: m.time, title: m.who || m.title, startsInMin: Math.max(0, startMin - nowMin) })
   }
   out.sort((a, b) => (a.startsInMin ?? 0) - (b.startsInMin ?? 0))
-  return out.slice(0, 5)
+  return out.slice(0, 8)
 }
 
 export type AttentionCandidate = {
