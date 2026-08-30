@@ -122,6 +122,7 @@ export function Pricing() {
                 {tier.badge && <span className="price-card__badge">{tier.badge}</span>}
                 <h3>{tier.name}</h3>
                 <p className="price-card__price">
+                  {shown.was && <s className="price-card__was">{shown.was}</s>}
                   <strong>{shown.price}</strong>
                   <span>{shown.per}</span>
                 </p>

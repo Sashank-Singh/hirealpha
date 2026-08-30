@@ -4846,3 +4846,9 @@ a.brief-fact { cursor: pointer; }
   cursor: pointer;
 }
 .ma-row-sub { font-size: 12px; color: var(--muted); }
+.price-card__was {
+  font-size: 15px;
+  color: var(--muted);
+  text-decoration: line-through;
+  margin-right: 6px;
+}
