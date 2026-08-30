@@ -821,7 +821,7 @@
 
 .hits__grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 360px));
+  grid-template-columns: repeat(auto-fit, 336px);
   justify-content: center;
   gap: 20px;
   max-width: 1200px;
@@ -829,12 +829,14 @@
 }
 
 .hits__card {
-  width: 100%;
-  max-width: 360px;
+  width: 336px;
+  /* Same body proportions as the hero phone: 312:640. Content height is
+   * whatever the thread needs, the frame stays iPhone. */
+  aspect-ratio: 312 / 640;
   margin: 0 auto;
   background: #fff;
   border: 2.5px solid var(--ink);
-  border-radius: 30px;
+  border-radius: 34px;
   box-shadow: 6px 6px 0 var(--ink);
   padding: 0 0 10px;
   display: flex;
@@ -889,8 +891,14 @@
   list-style: none;
   display: flex;
   flex-direction: column;
+  justify-content: flex-start;
   gap: 5px;
-  padding: 12px 12px 4px;
+  padding: 14px 12px 4px;
+  flex: 1;
+}
+
+.hits__composer {
+  margin-top: auto;
 }
 
 .hits__bubble {
