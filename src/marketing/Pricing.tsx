@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { getSession } from '../platform/roster'
 
 type Tier = 'free' | 'single' | 'bundle' | 'ultra'
 
@@ -55,9 +56,24 @@ function displayPrice(tier: { id: Tier; price: number; per: string }, annual: bo
   return { price: '$' + tier.price, per: 'a month', freebie: '' }
 }
 
-/** One signup surface on this page: the finale form. Picking a plan carries the
- * choice down to the form, which offers checkout on the success screen. */
-export function choosePlan(tier: Tier, annual: boolean) {
+/** Picking a plan: a known account goes straight to Stripe; a fresh visitor
+ * carries the plan down to the single signup form, whose success screen
+ * offers checkout with the email it just collected. */
+export async function choosePlan(tier: Tier, annual: boolean) {
+  const email = getSession()?.email || ''
+  if (email.includes('@')) {
+    const plan = tier === 'free' ? 'free' : tier
+    const res = await fetch('/api/billing/checkout', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, hire: 'friend', plan: annual ? `${plan}-annual` : plan, trial_days: 7 }),
+    })
+    const data = (await res.json().catch(() => ({}))) as { url?: string }
+    if (data.url) {
+      window.location.href = data.url
+      return
+    }
+  }
   window.dispatchEvent(new CustomEvent('hirealpha:plan', { detail: { tier, annual } }))
   document.getElementById('waitlist')?.scrollIntoView({ behavior: 'smooth' })
 }
@@ -93,7 +109,7 @@ export function Pricing() {
               onClick={() => setAnnual(true)}
             >
               Yearly
-              <sup className="billing-toggle__sup">2 months free</sup>
+              <span className="billing-toggle__badge">2 months free</span>
             </button>
           </div>
         </div>
@@ -119,7 +135,7 @@ export function Pricing() {
                   <button
                     type="button"
                     className={`btn ${tier.badge ? 'btn--accent' : 'btn--ghost'}`}
-                    onClick={() => choosePlan(tier.id, annual)}
+                    onClick={() => void choosePlan(tier.id, annual)}
                   >
                     {tier.cta}
                   </button>
