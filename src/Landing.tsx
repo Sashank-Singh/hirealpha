@@ -863,6 +863,13 @@ const HIRE_LINES: Record<AgentId, { label: string; phoneDisplay: string; soon?: 
   cofounder: { label: 'Cofounder', phoneDisplay: '(415) 603-5536', soon: true },
 }
 
+const PLAN_LABEL: Record<string, string> = {
+  free: 'Free',
+  single: 'Single hire',
+  bundle: 'All three',
+  ultra: 'Ultra',
+}
+
 function WaitlistForm() {
   const [phone, setPhone] = useState('')
   const [email, setEmail] = useState('')
@@ -873,6 +880,16 @@ function WaitlistForm() {
   const [code, setCode] = useState('')
   const [showCode, setShowCode] = useState(false)
   const [myCode, setMyCode] = useState('')
+  const [plan, setPlan] = useState<{ tier: 'free' | 'single' | 'bundle' | 'ultra'; annual: boolean } | null>(null)
+
+  useEffect(() => {
+    const onPlan = (e: Event) => {
+      const detail = (e as CustomEvent).detail as { tier: 'free' | 'single'; annual: boolean }
+      setPlan(detail)
+    }
+    window.addEventListener('hirealpha:plan', onPlan)
+    return () => window.removeEventListener('hirealpha:plan', onPlan)
+  }, [])
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault()
@@ -927,12 +944,56 @@ function WaitlistForm() {
     }
   }, [done, phone])
 
+  async function checkoutChosenPlan() {
+    if (!plan || plan.tier === 'free') return
+    setBusy(true)
+    setError('')
+    try {
+      const res = await fetch('/api/billing/checkout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: email.trim().toLowerCase(),
+          hire: 'friend',
+          plan: plan.annual ? `${plan.tier}-annual` : plan.tier,
+          trial_days: 7,
+        }),
+      })
+      const data = (await res.json().catch(() => ({}))) as { url?: string; error?: string }
+      if (data.url) {
+        window.location.href = data.url
+        return
+      }
+      setError(data.error || 'Checkout is not ready yet. Alpha will still text you.')
+    } catch {
+      setError('Could not reach checkout. Alpha will still text you.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   if (done) {
     const line = HIRE_LINES[hire]
     return (
       <div className="waitlist-success" role="status">
         You're in. {line.label} will reach out in about a minute. If nothing lands, text hi to{' '}
         {line.phoneDisplay} and the conversation starts there.
+        {plan && plan.tier !== 'free' && (
+          <>
+            <p className="waitlist-success__cta">
+              Your plan: {PLAN_LABEL[plan.tier]}
+              {plan.annual ? ' yearly' : ''}
+            </p>
+            <button
+              type="button"
+              className="btn btn--accent"
+              disabled={busy}
+              onClick={() => void checkoutChosenPlan()}
+            >
+              {busy ? 'Opening checkout…' : 'Continue to checkout'}
+            </button>
+          </>
+        )}
         <p className="waitlist-success__cta">Text Alpha now</p>
         <a className="btn btn--accent" href="sms:+14155951440">
           Open Messages
@@ -1092,8 +1153,8 @@ export default function Landing() {
               {/* <a href="/app" className="btn btn--ghost btn--sm">
                 App
               </a> */}
-              <a href="#waitlist" className="btn btn--primary btn--sm">
-                Get early access
+              <a href="#pricing" className="btn btn--primary btn--sm">
+                Hire Alpha
               </a>
             </div>
           </div>
@@ -1181,10 +1242,13 @@ export default function Landing() {
             </div>
 
             <div className="stage__dock">
-              <a href="#waitlist" className="btn btn--primary btn--lg">
-                Get early access
+              <a href="#pricing" className="btn btn--primary btn--lg">
+                Hire Alpha
               </a>
-              <p>iPhone Messages · early access · $19 a month when you hire</p>
+              <a href="#waitlist" className="stage__dock-free">
+                or start free
+              </a>
+              <p>Live now. Texts you in under a minute. iPhone Messages.</p>
             </div>
           </div>
 
@@ -1275,9 +1339,9 @@ export default function Landing() {
 
         <Actions />
 
-        <Pricing />
-
         <GreatestHits />
+
+        <Pricing />
 
         <section className="path section" id="how" aria-labelledby="how-heading">
           <div className="container">
@@ -1341,7 +1405,7 @@ export default function Landing() {
             <a href="#why">Why</a>
             <a href="#pricing">Pricing</a>
             <a href="#faq">FAQ</a>
-            <a href="#waitlist">Early access</a>
+            <a href="#waitlist">Start free</a>
             <a href="/app/controls">Controls</a>
           </nav>
           <nav className="footer__nav footer__nav--meta" aria-label="Trust and company">

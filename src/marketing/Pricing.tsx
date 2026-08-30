@@ -1,13 +1,6 @@
-import type { AgentId } from '../agents/types'
 import { useState } from 'react'
-import { track } from '../track'
 
 type Tier = 'free' | 'single' | 'bundle' | 'ultra'
-
-/* Alpha the Friend is the product today. Coworker and Cofounder are visible
- * everywhere but not buyable until they ship, so the multi-hire tiers stay on
- * the board to sell the roadmap, with the checkout door closed. */
-const HIRES_LIVE: AgentId[] = ['friend']
 
 const TIERS: { id: Tier; name: string; price: number; per: string; blurb: string; badge?: string; cta: string; soon?: boolean }[] = [
   {
@@ -48,150 +41,60 @@ const TIERS: { id: Tier; name: string; price: number; per: string; blurb: string
   },
 ]
 
-/* Displayed annual figures are monthly x 10 (2 months free) and must be kept
- * in sync with the STRIPE_PRICE_*_ANNUAL env prices the checkout actually
- * charges. If a monthly price changes here, update those env vars too. */
-function displayPrice(tier: (typeof TIERS)[number], annual: boolean) {
-  if (tier.id === 'free') {
+/** Display price reacts to the billing period. Annual figures are monthly x 10
+ * (2 months free) and must stay in sync with the STRIPE_PRICE_*_ANNUAL envs. */
+function displayPrice(tier: { id: Tier; price: number; per: string }, annual: boolean) {
+  if (tier.id === 'free') return { price: '$0', per: 'forever', freebie: '' }
+  if (annual) {
     return {
-      price: '$0',
-      per: 'forever',
-      trial: '',
-      subnote: '',
-      freebie: '',
+      price: '$' + (tier.price * 10).toLocaleString('en-US'),
+      per: 'a year',
+      freebie: '2 months free',
     }
   }
-
-  if (tier.id === 'single') {
-    if (annual) {
-      return {
-        price: '$190',
-        per: 'a year',
-        trial: '7-day free trial',
-        subnote: '',
-        freebie: '2 months free',
-      }
-    }
-    return {
-      price: '$5',
-      per: 'a month for 2 mos',
-      trial: '7-day free trial',
-      subnote: 'then $19/month',
-      freebie: '',
-    }
-  }
-
-  const price = annual ? tier.price * 10 : tier.price
-  return {
-    price: `$${price.toLocaleString('en-US')}`,
-    per: annual ? 'a year' : tier.per,
-    trial: '7-day free trial',
-    subnote: '',
-    freebie: annual ? '2 months free' : '',
-  }
+  return { price: '$' + tier.price, per: 'a month', freebie: '' }
 }
 
-/** Plan names the billing endpoint expects, with the annual variant folded in. */
+/** One signup surface on this page: the finale form. Picking a plan carries the
+ * choice down to the form, which offers checkout on the success screen. */
+export function choosePlan(tier: Tier, annual: boolean) {
+  window.dispatchEvent(new CustomEvent('hirealpha:plan', { detail: { tier, annual } }))
+  document.getElementById('waitlist')?.scrollIntoView({ behavior: 'smooth' })
+}
+
 export function Pricing() {
-  const [email, setEmail] = useState('')
-  const [hire, setHire] = useState<AgentId>('friend')
   const [annual, setAnnual] = useState(false)
-
-  async function startCheckout(tierId: Tier, persona: AgentId) {
-    if (!email.includes('@')) {
-      scrollToWaitlist()
-      return
-    }
-    const plan = tierId === 'single' ? 'single' : tierId
-    const res = await fetch('/api/billing/checkout', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        email,
-        hire: persona,
-        plan: annual ? `${plan}-annual` : plan,
-        trial_days: 7,
-      }),
-    })
-    const data = await res.json()
-    track('checkout_started', { plan: annual ? `${plan}-annual` : plan, persona })
-    if (data.url) {
-      window.location.href = data.url
-    } else {
-      alert(data.error || 'Checkout not available yet')
-    }
-  }
-
-  function scrollToWaitlist() {
-    const el = document.getElementById('waitlist')
-    if (el) {
-      el.scrollIntoView({ behavior: 'smooth' })
-      const waitlistEmailInput = el.querySelector<HTMLInputElement>('input[type="email"]')
-      if (waitlistEmailInput && email.trim()) {
-        waitlistEmailInput.value = email.trim()
-        waitlistEmailInput.dispatchEvent(new Event('input', { bubbles: true }))
-      }
-      setTimeout(() => {
-        const targetInput = email.trim()
-          ? el.querySelector<HTMLInputElement>('input[type="tel"]') || waitlistEmailInput
-          : waitlistEmailInput
-        targetInput?.focus()
-      }, 400)
-    } else {
-      window.location.hash = 'waitlist'
-    }
-  }
 
   return (
     <section className="pricing section" id="pricing" aria-labelledby="pricing-heading">
       <div className="container">
         <p className="deed__eyebrow">Pricing</p>
         <h2 id="pricing-heading">Hire Alpha. The bench is coming.</h2>
+        <p className="pricing__sub">
+          Sign up once below. Pick your plan now or later, the first text is the same.
+        </p>
 
-        <div className="pricing__setup">
-          <input
-            type="email"
-            placeholder="you@example.com"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            aria-label="Email for the bill"
-          />
-          <div className="pricing__controls">
-            <div className="pricing__hires" role="radiogroup" aria-label="First hire">
-              {(['friend', 'coworker', 'cofounder'] as AgentId[]).map((id) => (
-                <button
-                  key={id}
-                  type="button"
-                  role="radio"
-                  aria-checked={hire === id}
-                  className={`pricing__chip${hire === id ? ' is-on' : ''}`}
-                  onClick={() => setHire(id)}
-                >
-                  {id.charAt(0).toUpperCase() + id.slice(1)}
-                  {!HIRES_LIVE.includes(id) && <em className="chip-soon">soon</em>}
-                </button>
-              ))}
-            </div>
-            <div className="billing-toggle" role="radiogroup" aria-label="Billing period">
-              <button
-                type="button"
-                role="radio"
-                aria-checked={!annual}
-                className={`billing-toggle__opt${!annual ? ' is-on' : ''}`}
-                onClick={() => setAnnual(false)}
-              >
-                Monthly
-              </button>
-              <button
-                type="button"
-                role="radio"
-                aria-checked={annual}
-                className={`billing-toggle__opt${annual ? ' is-on' : ''}`}
-                onClick={() => setAnnual(true)}
-              >
-                Yearly
-              </button>
-            </div>
+        <div className="pricing__controls">
+          <div className="billing-toggle" role="radiogroup" aria-label="Billing period">
+            <button
+              type="button"
+              role="radio"
+              aria-checked={!annual}
+              className={`billing-toggle__opt${!annual ? ' is-on' : ''}`}
+              onClick={() => setAnnual(false)}
+            >
+              Monthly
+            </button>
+            <button
+              type="button"
+              role="radio"
+              aria-checked={annual}
+              className={`billing-toggle__opt${annual ? ' is-on' : ''}`}
+              onClick={() => setAnnual(true)}
+            >
+              Yearly
+              <sup className="billing-toggle__sup">2 months free</sup>
+            </button>
           </div>
         </div>
 
@@ -199,36 +102,29 @@ export function Pricing() {
           {TIERS.map((tier) => {
             const shown = displayPrice(tier, annual)
             return (
-            <article key={tier.id} className={`price-card${tier.badge ? ' price-card--hot' : ''}`}>
-              {tier.badge && <span className="price-card__badge">{tier.badge}</span>}
-              <div className="price-card__head">
+              <article key={tier.id} className={`price-card${tier.badge ? ' price-card--hot' : ''}`}>
+                {tier.badge && <span className="price-card__badge">{tier.badge}</span>}
                 <h3>{tier.name}</h3>
-                {shown.trial && <span className="price-card__trial">{shown.trial}</span>}
-              </div>
-              <p className="price-card__price">
-                <strong>{shown.price}</strong>
-                <span>{shown.per}</span>
-              </p>
-              {shown.subnote && <p className="price-card__subnote">{shown.subnote}</p>}
-              {shown.freebie && <p className="price-card__freebie">{shown.freebie}</p>}
-              <p className="price-card__blurb">{tier.blurb}</p>
-              {tier.soon ? (
-                <button type="button" className="btn btn--ghost" disabled aria-disabled="true">
-                  Coming soon
-                </button>
-              ) : (
-                <a
-                  href="#waitlist"
-                  className={`btn ${tier.badge ? 'btn--accent' : 'btn--ghost'}`}
-                  onClick={(e) => {
-                    e.preventDefault()
-                    startCheckout(tier.id, hire)
-                  }}
-                >
-                  {tier.cta}
-                </a>
-              )}
-            </article>
+                <p className="price-card__price">
+                  <strong>{shown.price}</strong>
+                  <span>{shown.per}</span>
+                </p>
+                {shown.freebie && <p className="price-card__freebie">{shown.freebie}</p>}
+                <p className="price-card__blurb">{tier.blurb}</p>
+                {tier.soon ? (
+                  <button type="button" className="btn btn--ghost" disabled aria-disabled="true">
+                    Coming soon
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    className={`btn ${tier.badge ? 'btn--accent' : 'btn--ghost'}`}
+                    onClick={() => choosePlan(tier.id, annual)}
+                  >
+                    {tier.cta}
+                  </button>
+                )}
+              </article>
             )
           })}
         </div>
