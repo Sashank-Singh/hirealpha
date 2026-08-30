@@ -15,7 +15,7 @@ const TIERS: { id: Tier; name: string; price: number; per: string; blurb: string
     name: 'Free',
     price: 0,
     per: 'forever',
-    blurb: '1 brief a week. 1 hire.',
+    blurb: 'Alpha Lite. One brief a week and one hire (Alpha the Friend), with the core apps only. Alpha will remind you what the paid tiers unlock. Often.',
     cta: 'Start free',
   },
   {
@@ -222,11 +222,8 @@ export function Pricing() {
                   className={`btn ${tier.badge ? 'btn--accent' : 'btn--ghost'}`}
                   onClick={(e) => {
                     e.preventDefault()
-                    if (tier.id === 'free') {
-                      scrollToWaitlist()
-                    } else {
-                      startCheckout(tier.id, hire)
-                    }
+                    startCheckout(tier.id, hire)
+                  }
                   }}
                 >
                   {tier.cta}

@@ -67,6 +67,19 @@ import {
   type ReplyRead,
 } from './gmailHelpers'
 import { extractJsonObject, extractNumericFields, modelReplyText, stripReasoning } from './modelJson'
+import {
+  JUDGE_ALL_SYSTEM,
+  JUDGE_TTL_MS,
+  judgeAllPrompt,
+  judgeRowCovers,
+  judgeRowFresh,
+  parseJudgeAll,
+  type JudgeMailIn,
+  type JudgeMeetIn,
+  type JudgeAll,
+  type MailVerdict,
+  type MeetVerdict,
+} from './aiJudge'
 import { notModified, revalidateCacheControl, weakEtag } from './httpCache'
 import { createStaleCache } from './staleCache'
 import { composeWeekReview, spendWouldBreakCap, type WeekSnap } from './weekRun'
@@ -1100,6 +1113,18 @@ export async function ensureHireSchema(sql: SQL) {
     )
   `
   await sql`CREATE INDEX IF NOT EXISTS idx_hire_loops_user ON hire_loops (user_id, status, created_at DESC)`
+
+  /* The LLM judgment layer's cache: one row per user holding the verdicts for
+   * their current mail batch and today's meetings, rebuilt at most every 15
+   * minutes so opening a brief costs zero model calls. */
+  await sql`
+    CREATE TABLE IF NOT EXISTS hire_judge_cache (
+      user_id TEXT PRIMARY KEY REFERENCES hire_users(id) ON DELETE CASCADE,
+      payload JSONB NOT NULL,
+      day TEXT NOT NULL,
+      built_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `
 
   await sql`
     CREATE TABLE IF NOT EXISTS hire_decisions (
@@ -3955,6 +3980,160 @@ async function judgeBriefMail<T extends { id: string; from: string; subject: str
     .map((m) => ({ ...m, kind: verdicts.get(m.id)?.kind || '' }))
 }
 
+/* ---- One model call, one cache row ----
+ * The judgment layer used to be regexes layered on the judge's pile names.
+ * Now the same single call that names the piles also decides needs-you, urgency
+ * scores, and meeting prep, and the verdicts persist in hire_judge_cache for
+ * fifteen minutes. An open of any brief inside that window is cache-only: zero
+ * model calls, whatever the request path. */
+
+type JudgeCachePayload = {
+  mails: MailVerdict[]
+  meets: MeetVerdict[]
+  mailIds: string[]
+}
+
+/** One model pass over the whole batch. Empty maps on failure, so callers keep
+ * their regex fallback. */
+async function judgeAllBatch(
+  mails: JudgeMailIn[],
+  meets: JudgeMeetIn[],
+  vocab: string[],
+): Promise<JudgeAll> {
+  if (!mails.length && !meets.length) return { mails: new Map(), meets: new Map() }
+  const raw = await gmiBriefChat(JUDGE_ALL_SYSTEM, judgeAllPrompt(mails.slice(0, 20), meets.slice(0, 8), vocab), 1100, 12000)
+  if (!raw) return { mails: new Map(), meets: new Map() }
+  return parseJudgeAll(raw, mails.slice(0, 20), meets.slice(0, 8))
+}
+
+async function readJudgeRow(sql: SQL, userId: string): Promise<{ payload: JudgeCachePayload; builtAt: number; day: string } | null> {
+  try {
+    const rows = (await sql`
+      SELECT payload, built_at AS "builtAt", day FROM hire_judge_cache WHERE user_id = ${userId} LIMIT 1
+    `) as Array<{ payload: JudgeCachePayload; builtAt: Date; day: string }>
+    const row = rows[0]
+    if (!row) return null
+    return { payload: row.payload, builtAt: new Date(row.builtAt).getTime(), day: row.day }
+  } catch {
+    return null
+  }
+}
+
+async function writeJudgeRow(sql: SQL, userId: string, day: string, payload: JudgeCachePayload) {
+  try {
+    await sql`
+      INSERT INTO hire_judge_cache (user_id, payload, day, built_at)
+      VALUES (${userId}, ${JSON.stringify(payload)}, ${day}, now())
+      ON CONFLICT (user_id) DO UPDATE SET payload = excluded.payload, day = excluded.day, built_at = excluded.built_at
+    `
+  } catch {
+    /* A cache write must never take a read down with it. */
+  }
+}
+
+/**
+ * Verdicts for the caller's mail and meetings, from the cache when it is fresh
+ * and still covers most of the batch, otherwise from exactly one model call
+ * that lands back in the cache. Null means the model answered nothing — the
+ * caller falls back to the regex layers rather than showing an unjudged brief.
+ */
+export async function loadJudgeVerdicts(
+  sql: SQL,
+  userId: string,
+  mails: JudgeMailIn[],
+  meets: JudgeMeetIn[],
+  tz?: string | null,
+  vocab?: string[],
+): Promise<JudgeAll | null> {
+  const today = localDateStrInTz(new Date(), tz)
+  const row = await readJudgeRow(sql, userId)
+  if (
+    row &&
+    judgeRowFresh(row.builtAt, Date.now(), row.day, today) &&
+    judgeRowCovers(row.payload.mailIds, mails.map((m) => m.id))
+  ) {
+    return {
+      mails: new Map(row.payload.mails.map((m) => [m.id, m])),
+      meets: new Map(row.payload.meets.map((m) => [m.id, m])),
+    }
+  }
+  const verdicts = await judgeAllBatch(mails, meets, vocab ?? (await loadMailKindVocab(sql, userId)))
+  if (!verdicts.mails.size && !verdicts.meets.size) return null
+  await writeJudgeRow(sql, userId, today, {
+    mails: [...verdicts.mails.values()],
+    meets: [...verdicts.meets.values()],
+    mailIds: mails.slice(0, 20).map((m) => m.id),
+  })
+  return verdicts
+}
+
+/** The attention slot, now judged by the model: the highest-urgency needs-you
+ * mail with its own reason line. Null hands the slot back to the regex pick. */
+export function judgedAttentionPick(
+  verdicts: JudgeAll,
+  lines: Map<string, { label: string; snippet?: string }>,
+): { id: string; label: string; snippet?: string; why: string } | null {
+  const scored = [...verdicts.mails.values()]
+    .filter((v) => (v.needsYou || v.score >= 70) && v.keep && lines.has(v.id))
+    .sort((a, b) => b.score - a.score)
+  const best = scored[0]
+  if (!best) return null
+  const line = lines.get(best.id)!
+  return { id: best.id, label: line.label, snippet: line.snippet, why: best.why || 'needs you' }
+}
+
+/** Stable id for a today-meeting: clock time plus the displayed title, the two
+ * fields both the judge input and the digest row carry. */
+export function meetJudgeKey(m: { time: string; title: string; who?: string }): string {
+  return `${m.time}|${m.who || m.title}`
+}
+
+/**
+ * Refresh the judgment cache ahead of any request, on a 15-minute clock. Users
+ * with a brief built in the last six hours get their mail and meetings re-judged
+ * if the cached row is stale, so an open of any brief inside the window is a
+ * cache hit with zero model calls. Errors are per-user and swallowed: a failed
+ * prewarm costs nothing, the on-demand path judges on first open anyway.
+ */
+export async function prewarmJudgeCaches(sql: SQL) {
+  try {
+    const rows = (await sql`
+      SELECT DISTINCT user_id AS "userId" FROM hire_brief_cache
+      WHERE built_at > now() - interval '6 hours'
+      LIMIT 50
+    `) as Array<{ userId: string }>
+    for (const { userId } of rows) {
+      try {
+        const urows = (await sql`
+          SELECT timezone AS tz, name FROM hire_users WHERE id = ${userId} LIMIT 1
+        `) as Array<{ tz: string | null; name: string | null }>
+        const tz = urows[0]?.tz
+        const today = localDateStrInTz(new Date(), tz)
+        const row = await readJudgeRow(sql, userId)
+        if (row && judgeRowFresh(row.builtAt, Date.now(), row.day, today)) continue
+        const rich = await withTimeout(loadGmailRich(sql, userId, importantMailQuery('2d'), 20), 9000, [])
+        const cal = await todayMeetsCache
+          .read(
+            `${userId}|friend`,
+            () => todayCalendarMeets(sql, { id: userId, timezone: tz, name: urows[0]?.name ?? undefined }, 'friend'),
+            8000,
+          )
+          .then((r) => r.value ?? EMPTY_TODAY_RESULT)
+        const judgeMeets: JudgeMeetIn[] = cal.meets.map((m) => ({
+          id: meetJudgeKey(m),
+          time: m.time,
+          title: m.who || m.title,
+        }))
+        await loadJudgeVerdicts(sql, userId, rich, judgeMeets, tz)
+      } catch {
+        // One user's prewarm must not stop the others.
+      }
+    }
+  } catch (err) {
+    console.warn('[judge] prewarm failed', err)
+  }
+}
+
 /* ---- Home's slow half ----
  * Everything on home that leaves this process: the calendar, the inbox, and the
  * model pass that names the mail piles. It used to run inside the request, so
@@ -4182,20 +4361,29 @@ async function loadHomeWorld(sql: SQL, user: AuthedUser, tzLocal: string): Promi
       (async () => {
         const rich = await loadGmailRich(sql, user.id, importantMailQuery('2d'), 12)
         if (!rich.length) return []
-        const vocab = await loadMailKindVocab(sql, user.id)
-        const verdicts = await judgeMailBatch(rich, vocab)
-        const labelled: MailKindItem[] = rich.map((m) => ({ ...m, kind: verdicts.get(m.id)?.kind }))
-        // One email above the pile counts: picked from the same labelled rows
-        // the groups come from, so a kind or a deadline beats a count of ten.
-        world.attention = pickAttentionEmail(
-          labelled.map((m) => ({
-            id: m.id,
-            label: formatMailLineFromParts(m.from, m.subject),
-            snippet: cleanMailSnippet(m.snippet || ''),
-            kind: m.kind,
-            sender: m.from,
-          })),
+        // One model call judged everything, from cache when fresh. The regex
+        // pick stays only for the run where the model answers nothing.
+        const verdicts = await loadJudgeVerdicts(sql, user.id, rich, [], user.timezone)
+        const labelled: MailKindItem[] = rich.map((m) => ({ ...m, kind: verdicts?.mails.get(m.id)?.kind }))
+        // One email above the pile counts: the model's highest-urgency needs-you
+        // mail, with its reason line. Regex pick is the model-down fallback.
+        const attentionLines = new Map(
+          rich.map((m) => [
+            m.id,
+            { label: formatMailLineFromParts(m.from, m.subject), snippet: cleanMailSnippet(m.snippet || '') },
+          ]),
         )
+        world.attention =
+          (verdicts && judgedAttentionPick(verdicts, attentionLines)) ||
+          pickAttentionEmail(
+            labelled.map((m) => ({
+              id: m.id,
+              label: formatMailLineFromParts(m.from, m.subject),
+              snippet: cleanMailSnippet(m.snippet || ''),
+              kind: m.kind,
+              sender: m.from,
+            })),
+          )
         // Home shows the whole batch grouped rather than a judged top three:
         // the pile counts are what the section is for. Unjudged items still
         // land somewhere via the regex fallback inside groupMailByKind.
@@ -4299,7 +4487,7 @@ export function workPullSections(input: {
  * Both briefs and home already load the calendar and the inbox; these two pure
  * helpers package what those loads returned for the screens that show it. */
 
-export type DigestMeeting = { time: string; title: string; startsInMin?: number }
+export type DigestMeeting = { time: string; title: string; startsInMin?: number; prep?: boolean; prepWhy?: string }
 
 /** Minutes after midnight for "2:30 PM", "10am" or "14:05". NaN for anything else. */
 function parseClockMinutes(value: string): number {
@@ -4524,11 +4712,12 @@ async function digestPayload(
       let ny: NeedsYouRowT[] = []
       let groups: GroupT[] = []
       let tallyLine = ''
+      let judgeOut: JudgeAll | null = null
       try {
-        // The judge names a pile per mail; the batch it cannot reach, and a run where
-        // the model is unavailable, fall back to the regex kinds inside groupMailByKind.
-        // The full batch is still shown either way — the groups are the filter here,
-        // not the judge's keep list.
+        // The judge decides keep-or-drop, the pile, needs-you, urgency, and
+        // promises in one pass — from cache when it is fresh. A run where the
+        // model is unavailable falls back to the regex kinds inside
+        // groupMailByKind. The full batch is still shown either way.
         const [vocab, doneIds, signals, richItems] = await Promise.all([
           loadMailKindVocab(sql, user.id),
           triagedMailIds(sql, user.id),
@@ -4539,12 +4728,20 @@ async function digestPayload(
             [] as Array<{ id: string; from: string; date: string; subject: string; snippet: string }>,
           ),
         ])
-        /* The model pass names the mail piles, so it must be allowed to finish:
-         * a too-tight cap makes the judge time out or truncate and the brief
-         * loses its sub-categories. Batch is trimmed (20 -> 12) to cut prompt
-         * size, but tokens/timeout stay generous enough to reliably return the
-         * JSON the pile names come from. */
-        const verdicts = await judgeMailBatch(richItems, vocab, { limit: 12, maxTokens: 700, timeoutMs: 8000 })
+        // Today's meetings ride in the same single model call. The extra
+        // todayMeetsCache read is deduped with the calendar job racing in
+        // parallel above, so this costs a fetch only in the cold case.
+        const calForJudge = await todayMeetsCache
+          .read(`${user.id}|${persona}`, () => todayCalendarMeets(sql, user, persona), 8000)
+          .then((r) => r.value ?? EMPTY_TODAY_RESULT)
+        const judgeMeets: JudgeMeetIn[] = calForJudge.meets.map((m) => ({
+          id: meetJudgeKey(m),
+          time: m.time,
+          title: m.who || m.title,
+        }))
+        const allVerdicts = await loadJudgeVerdicts(sql, user.id, richItems, judgeMeets, tz, vocab)
+        judgeOut = allVerdicts
+        const verdicts = allVerdicts?.mails ?? new Map<string, MailVerdict>()
         const labelled: MailKindItem[] = richItems.map((m) => ({ ...m, kind: verdicts.get(m.id)?.kind }))
         // Promises: judged mail that carries a commitment becomes an open loop
         // on the Promises card. Best effort and fire and forget, so it never
@@ -4562,14 +4759,35 @@ async function digestPayload(
         // Mail the user already handled leaves both Needs You and the piles. This
         // is what makes Done and Skip stick instead of popping back on reload.
         const visible: MailKindItem[] = labelled.filter((m) => !doneIds.has(m.id))
-        // Needs You: the three mails most likely to need the user today, scored on
-        // ask language, deadlines, judged kind, and their own reply history. Lead
-        // items leave the piles so nothing shows twice.
-        const leads = topNeedsYou(
-          visible.filter((m) => m.id && !m.id.startsWith('text-')),
-          (key) => signals.get(key),
-          3,
-        ).filter((m) => m.score >= 55)
+        // Needs You: the model's judgment now — the three needs-you mails with
+        // the highest urgency, each with its own reason line. The regex scorer
+        // runs only when the model answered nothing at all.
+        type LeadT = { id: string; from: string; subject: string; snippet?: string; score: number; reasons: string[] }
+        let leads: LeadT[] = allVerdicts
+          ? visible
+              .filter((m) => m.id && !m.id.startsWith('text-'))
+              .map((m) => ({ m, v: verdicts.get(m.id) }))
+              .filter((r): r is { m: (typeof visible)[number]; v: MailVerdict } => !!r.v && r.v.needsYou && r.v.keep)
+              .sort((a, b) => b.v.score - a.v.score)
+              .slice(0, 3)
+              .map(({ m, v }) => ({
+                id: m.id,
+                from: m.from,
+                subject: m.subject,
+                snippet: m.snippet,
+                score: v.score,
+                reasons: [v.why].filter(Boolean),
+              }))
+          : []
+        if (!leads.length) {
+          leads = topNeedsYou(
+            visible.filter((m) => m.id && !m.id.startsWith('text-')),
+            (key) => signals.get(key),
+            3,
+          )
+            .filter((m) => m.score >= 55)
+            .map((m) => ({ ...m, reasons: m.reasons }))
+        }
         const leadIds = new Set(leads.map((m) => m.id))
         ny = leads.map((m) => ({
           id: m.id,
@@ -4597,7 +4815,14 @@ async function digestPayload(
       } catch {
         // best-effort
       }
-      return { needsYou: ny, groups, tally: tallyLine }
+      return {
+        needsYou: ny,
+        groups,
+        tally: tallyLine,
+        verdicts: judgeOut
+          ? { mails: [...judgeOut.mails.values()], meets: [...judgeOut.meets.values()] }
+          : null,
+      }
     })(),
   ])
 
@@ -4623,6 +4848,7 @@ async function digestPayload(
   needsYou = mail.needsYou
   mailGroups = mail.groups
   mailTallyLine = mail.tally
+  const judgeVerdicts = mail.verdicts
   finalEmailItems = mailGroups.flatMap((g) => g.items)
   finalEmails = finalEmailItems.map((e) => e.label)
 
@@ -4686,13 +4912,31 @@ async function digestPayload(
 
   // The screens want two things the raw piles do not surface: what is left of
   // the day on the calendar, and the single mail to see before the counts.
-  const meetings = remainingTodayMeets(calToday.meets, tz)
-  const attention = pickAttentionEmail([
-    ...needsYou.map((n) => ({ id: n.id, label: n.label, snippet: n.snippet })),
-    ...mailGroups.flatMap((g) =>
-      g.items.map((it) => ({ id: it.id, label: it.label, snippet: it.snippet, kind: g.kind })),
-    ),
-  ])
+  // Both come from the model's verdicts when it answered; the regex layers are
+  // the model-down fallback. A meeting the model flagged prep:true carries its
+  // reason onto the digest row.
+  const meetsWithPrep = remainingTodayMeets(calToday.meets, tz).map((m) => {
+    const v = judgeVerdicts?.meets.find((j) => j.id === meetJudgeKey(m))
+    return v && v.prep ? { ...m, prep: true, prepWhy: v.why } : m
+  })
+  const meetings: DigestMeeting[] = meetsWithPrep
+  const attentionLines = new Map(
+    [
+      ...needsYou.map((n) => ({ id: n.id, label: n.label, snippet: n.snippet })),
+      ...mailGroups.flatMap((g) =>
+        g.items.map((it) => ({ id: it.id, label: it.label, snippet: it.snippet })),
+      ),
+    ].map((l) => [l.id, { label: l.label, snippet: l.snippet }]),
+  )
+  const attention =
+    (judgeVerdicts &&
+      judgedAttentionPick({ mails: new Map(judgeVerdicts.mails.map((m) => [m.id, m])), meets: new Map() }, attentionLines)) ||
+    pickAttentionEmail([
+      ...needsYou.map((n) => ({ id: n.id, label: n.label, snippet: n.snippet })),
+      ...mailGroups.flatMap((g) =>
+        g.items.map((it) => ({ id: it.id, label: it.label, snippet: it.snippet, kind: g.kind })),
+      ),
+    ])
 
   // The half-dozen small reads used to run one after another; none depends on
   // the next, so they all leave together.
@@ -8965,7 +9209,7 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     // accept both that shape and the split plan+interval form.
     const rawPlan = String(body.plan || '')
     const basePlan = rawPlan.endsWith('-annual') ? rawPlan.slice(0, -'-annual'.length) : rawPlan
-    const plan = basePlan === 'bundle' || basePlan === 'ultra' ? basePlan : 'single'
+    const plan = basePlan === 'bundle' || basePlan === 'ultra' || basePlan === 'free' ? basePlan : 'single'
     const annual = body.interval === 'annual' || rawPlan.endsWith('-annual')
     const persona = String(body.hire || '')
     if (!email.includes('@') || (plan === 'single' && !isPersona(persona))) {
@@ -8976,12 +9220,14 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     const effectivePersona = plan === 'single' ? (persona as Persona | 'all') : 'all'
     const priceFor = (per: string, isAnnual: boolean) => {
       const keys =
-        plan === 'bundle'
-          ? ['STRIPE_PRICE_BUNDLE']
-          : plan === 'ultra'
-            ? ['STRIPE_PRICE_ULTRA']
-            : [`STRIPE_PRICE_${per.toUpperCase()}`]
-      const envs = isAnnual ? keys.map((k) => `${k}_ANNUAL`) : keys
+        plan === 'free'
+          ? ['STRIPE_PRICE_FREE']
+          : plan === 'bundle'
+            ? ['STRIPE_PRICE_BUNDLE']
+            : plan === 'ultra'
+              ? ['STRIPE_PRICE_ULTRA']
+              : [`STRIPE_PRICE_${per.toUpperCase()}`]
+      const envs = isAnnual && plan !== 'free' ? keys.map((k) => `${k}_ANNUAL`) : keys
       return envs.map((k) => process.env[k]?.trim() || '').find(Boolean) || ''
     }
     let priceId = priceFor(persona, annual)
@@ -9001,6 +9247,8 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     const user = await getUserByEmail(sql, email)
     if (!user) return json({ error: 'Sign in first' }, 401)
     const trialDays = Number(body.trial_days) > 0 ? Math.floor(Number(body.trial_days)) : 7
+    // A $0 plan with a trial attached is just a longer forms experience.
+    const effectiveTrialDays = plan === 'free' ? 0 : trialDays
     // Referral free month: an unspent credit becomes a 100% off coupon on the
     // first invoice. The credit is marked used at checkout creation, not at
     // completion, so an abandoned session burns it (accepted for v1).
@@ -9058,7 +9306,7 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
       cancel_url: `${appBase(req)}/app?billing=cancelled`,
       'subscription_data[metadata][user_id]': user.id,
       'subscription_data[metadata][persona]': effectivePersona,
-      'subscription_data[trial_period_days]': String(trialDays),
+      'subscription_data[trial_period_days]': String(effectiveTrialDays),
     })
     if (referralCouponId) params.set('discounts[0][coupon]', referralCouponId)
     try {
