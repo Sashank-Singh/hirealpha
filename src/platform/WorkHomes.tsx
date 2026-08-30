@@ -326,10 +326,22 @@ export function CoworkerHomeApp({ auth }: { auth: FeatureAuth }) {
   const openLoops = loops.filter((l) => l.status === 'open')
   const now = Date.now()
   const dueToday = openLoops.filter((l) => l.dueAt && new Date(l.dueAt).getTime() <= now + 12 * 3600_000).length
+  const overdueLoops = openLoops.filter((l) => l.dueAt && new Date(l.dueAt).getTime() < now).length
   // "Ready to send" means Alpha actually wrote the reply. Empty-body rows are
-  // suggestions Alpha stacked up from the inbox, not sendable mail, and
-  // counting them as ready is what made Drafts say 11 while Inbox said 0.
+  // suggestions Alpha stacked up from the inbox, not sendable mail, so the tile
+  // shows the pending count as the value and splits ready vs to-review below.
   const sendable = drafts.filter((d) => (d.body || '').trim()).length
+  // The soonest meeting of the day, soonest first, with startsInMin when the
+  // server includes it. An older /api/home only sends `upcoming`, so fall back
+  // to its clock label instead of inventing a countdown.
+  const nextMeet = snap?.meetings?.[0] || (snap?.home?.upcoming?.[0] ? { ...snap.home.upcoming[0], startsInMin: undefined } : null)
+  const meetFoot = nextMeet
+    ? typeof nextMeet.startsInMin === 'number'
+      ? nextMeet.startsInMin <= 0
+        ? 'now'
+        : `in ${nextMeet.startsInMin} min`
+      : nextMeet.time || 'today'
+    : 'none today'
 
   return (
     <div className="home-screen">
@@ -338,26 +350,32 @@ export function CoworkerHomeApp({ auth }: { auth: FeatureAuth }) {
       <section className="home-block" aria-label="Where you are">
         <h3 className="home-section-title">Where you are</h3>
         <ul className="home-vitals">
+          <Vital to={miniLink('meeting_mode')} label="Meeting" value={nextMeet?.title || 'Clear'} foot={meetFoot} />
           <Vital to={miniLink('digest')} label="Inbox" value={`${mailCount}`} foot={mailGroups[0] ? `${mailGroups[0].label} top` : 'in mail'} />
           <Vital
             to={miniLink('approve_send')}
             label="Drafts"
-            value={`${sendable}`}
+            value={`${drafts.length}`}
             foot={
               !drafts.length
                 ? 'none waiting'
-                : drafts.length === sendable
-                  ? 'ready to send'
-                  : `${drafts.length - sendable} to review`
+                : sendable === drafts.length
+                  ? `${sendable} ready to send`
+                  : `${sendable} ready, ${drafts.length - sendable} to review`
             }
           />
           <Vital
             to={miniLink('open_loops')}
             label="Promises"
-            value={loops.length ? `${openLoops.length} of ${loops.length}` : `${openLoops.length}`}
-            foot={dueToday ? `${dueToday} due today` : 'open'}
+            value={dueToday ? `${dueToday}` : loops.length ? `${openLoops.length} of ${loops.length}` : `${openLoops.length}`}
+            foot={overdueLoops ? `${overdueLoops} overdue` : dueToday ? 'due now' : 'open'}
           />
-          <Vital to={miniLink('standup_paste')} label="Standup" value={standup ? 'In' : 'Not yet'} foot={standup ? 'posted today' : 'paste your notes'} />
+          <Vital
+            to={miniLink('standup_paste')}
+            label="Standup"
+            value={standup ? 'Ready' : 'Not yet'}
+            foot={standup ? 'drafted for today' : 'drafted on open'}
+          />
         </ul>
       </section>
 
@@ -439,6 +457,9 @@ export function CofounderHomeApp({ auth }: { auth: FeatureAuth }) {
   const openLoops = loops.filter((l) => l.status === 'open')
   const now = Date.now()
   const dueToday = openLoops.filter((l) => l.dueAt && new Date(l.dueAt).getTime() <= now + 12 * 3600_000).length
+  const overdueLoops = openLoops.filter((l) => l.dueAt && new Date(l.dueAt).getTime() < now).length
+  const revisitDue = openDec.filter((d) => d.reviewAt && new Date(d.reviewAt).getTime() <= now).length
+  const stalePipeline = live.filter((p) => p.updatedAt && now - new Date(p.updatedAt).getTime() > 10 * 86400000).length
 
   return (
     <div className="home-screen">
@@ -448,9 +469,32 @@ export function CofounderHomeApp({ auth }: { auth: FeatureAuth }) {
         <h3 className="home-section-title">Where you are</h3>
         <ul className="home-vitals">
           <Vital to={miniLink('spending_snapshot')} label="Runway" value={runwayFromSnap || runway || '—'} sub={runwayFromSnap || runway ? 'mo' : undefined} foot={runwayFromSnap || runway ? 'cash left' : 'not tracked'} />
-          <Vital to={miniLink('pipeline_board')} label="Pipeline" value={liveValue > 0 ? `$${(liveValue / 1000).toFixed(0)}k` : `${live.length}`} foot={liveValue > 0 ? `${live.length} live deals` : 'live deals'} />
-          <Vital to={miniLink('decision_ledger')} label="Decisions" value={`${openDec.length} of ${decisions.length}`} foot={oldestSat ? `${oldestSat} sat` : 'open'} />
-          <Vital to={miniLink('open_loops')} label="Promises" value={`${openLoops.length} of ${loops.length}`} foot={dueToday ? `${dueToday} due today` : 'open'} />
+          <Vital
+            to={miniLink('pipeline_board')}
+            label="Pipeline"
+            value={liveValue > 0 ? `$${(liveValue / 1000).toFixed(0)}k` : `${live.length}`}
+            foot={stalePipeline ? `${stalePipeline} stale, open it` : liveValue > 0 ? `${live.length} live deals` : 'live deals'}
+          />
+          <Vital
+            to={miniLink('decision_ledger')}
+            label="Decisions"
+            value={`${openDec.length} of ${decisions.length}`}
+            foot={revisitDue ? `${revisitDue} to revisit` : oldestSat ? `${oldestSat} sat open` : 'open'}
+          />
+          <Vital
+            to={miniLink('open_loops')}
+            label="Promises"
+            value={dueToday ? `${dueToday}` : `${openLoops.length}`}
+            foot={
+              overdueLoops
+                ? `${overdueLoops} overdue`
+                : dueToday
+                  ? 'due now'
+                  : openLoops.length
+                    ? 'open, none due'
+                    : 'clear'
+            }
+          />
         </ul>
       </section>
 

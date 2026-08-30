@@ -1,0 +1,61 @@
+/* PhoneApp — the /app phone home. Sits inside the .mini dark shell
+ * (index.css); only the pieces the shell has no class for live here. */
+
+.phone-live {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+/* The shared .status-dot.is-up green is tuned for the light landing page;
+ * on the dark mini shell it needs the brighter iOS green to read as "on". */
+.phone-live .status-dot {
+  width: 8px;
+  height: 8px;
+  background: #34c759;
+  box-shadow: 0 0 6px rgba(52, 199, 89, 0.6);
+}
+
+.phone-receipts {
+  margin: 0;
+  font-size: 13px;
+  color: var(--muted-fg);
+  line-height: 1.45;
+}
+
+/* One primary action, full width of the column. */
+.phone-cta {
+  display: flex;
+  width: 100%;
+  margin: 16px 0 4px;
+  padding: 14px 18px;
+  font-size: 16px;
+}
+
+.phone-apps {
+  margin-top: 20px;
+}
+.phone-apps .mini__menu {
+  margin-top: 0;
+}
+
+.phone-coming {
+  margin: 20px 0 0;
+  font-size: 13px;
+  line-height: 1.45;
+}
+.phone-coming a {
+  color: var(--muted-fg);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.phone-coming a:hover {
+  color: var(--fg);
+}
+
+.phone-footer {
+  display: flex;
+  justify-content: center;
+  padding: 4px 22px 28px;
+  max-width: 430px;
+  margin: 0 auto;
+}

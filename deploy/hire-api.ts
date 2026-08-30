@@ -7362,17 +7362,662 @@ async function investorNoteBody(sql: SQL, userId: string) {
     WHERE user_id = ${userId} AND spent_at >= date_trunc('week', now())
   `
   const weekSpend = Number((spend[0] as { n?: number } | undefined)?.n || 0)
+  // Month over month: stage counts today vs the last touch before the 30 day
+  // mark. Rows untouched since then are the state the investor last saw.
+  const stageNow = (await sql`
+    SELECT stage, count(*)::int AS n FROM hire_pipeline WHERE user_id = ${userId} GROUP BY stage
+  `) as Array<{ stage: string; n: number }>
+  const stageThen = (await sql`
+    SELECT stage, count(*)::int AS n FROM hire_pipeline
+    WHERE user_id = ${userId} AND updated_at < now() - interval '30 days'
+    GROUP BY stage
+  `) as Array<{ stage: string; n: number }>
+  const runwayRows = (await sql`
+    SELECT cash, burn, months FROM hire_runway_snapshots
+    WHERE user_id = ${userId} ORDER BY taken_on DESC LIMIT 1
+  `) as Array<{ cash: number; burn: number; months: number }>
+  const openDecisionRows = await sql`
+    SELECT count(*)::int AS n FROM hire_decisions WHERE user_id = ${userId} AND status = 'open'
+  `
+  const openDecisions = Number((openDecisionRows[0] as { n?: number } | undefined)?.n || 0)
   const live = pipes.filter((p) => p.stage !== 'lost')
+  const tally = (rows: Array<{ stage: string; n: number }>) => {
+    const out: Record<string, number> = {}
+    for (const r of rows) out[r.stage] = Number(r.n)
+    return out
+  }
+  const nowTally = tally(stageNow)
+  const thenTally = tally(stageThen)
+  const deltas = PIPELINE_STAGES
+    .map((s) => ({ stage: s, d: (nowTally[s] || 0) - (thenTally[s] || 0) }))
+    .filter((x) => x.d !== 0)
+    .map((x) => `${x.stage} ${x.d > 0 ? `+${x.d}` : x.d}`)
+  const runway = runwayRows[0]
+  const money = (n: number) => `$${Math.round(Number(n) || 0).toLocaleString('en-US')}`
   const lines = [
     'Update',
     '',
     live.length ? `Pipeline: ${live.map((p) => `${p.title}${p.company ? ` @ ${p.company}` : ''} (${p.stage})`).join('; ')}` : 'Pipeline: quiet this week.',
+    deltas.length ? `Month over month: ${deltas.join(', ')}.` : '',
+    runway ? `Runway: ${Number(runway.months).toFixed(1)} months on ${money(runway.cash)} cash, ${money(runway.burn)} monthly burn.` : '',
     `Spend this week: $${Math.round(weekSpend)}.`,
+    `Open decisions: ${openDecisions}.`,
     decisions[0] ? `Call: ${decisions[0].decision}${decisions[0].reason ? ` because ${decisions[0].reason}` : ''}.` : '',
     '',
     'Ask:',
+    '  What I need from you:',
+    '  One intro worth making:',
   ]
   return lines.filter(Boolean).join('\n')
+}
+
+/** Cofounder capture kinds. Each maps chat noise to one existing table. */
+export type CofounderCaptureKind = 'decision' | 'promise' | 'person' | 'opportunity'
+
+const COFOUNDER_KINDS: CofounderCaptureKind[] = ['decision', 'promise', 'person', 'opportunity']
+
+function cofounderWhen(v: unknown): Date | null {
+  if (!v) return null
+  const d = v instanceof Date ? v : new Date(String(v))
+  return Number.isNaN(d.getTime()) ? null : d
+}
+
+/** Capture one item the cofounder overheard in chat. Idempotent per user and
+ * text inside 24 hours: a bot that retries or a story told twice updates the
+ * row instead of cloning it. People and opportunities upsert by name, so a
+ * second mention refreshes the row it already owns. */
+export async function captureCofounderItem(
+  sql: SQL,
+  userId: string,
+  persona: string,
+  kind: CofounderCaptureKind,
+  fields: Record<string, unknown>,
+): Promise<{ created: boolean; id: string }> {
+  const personaSafe = isPersona(persona) ? persona : 'cofounder'
+  const raw = String(fields.raw || '').trim().slice(0, 500)
+
+  if (kind === 'decision') {
+    const decision = String(fields.decision || '').trim().slice(0, 300)
+    if (!decision) throw new Error('decision required')
+    const reason = String(fields.reason || '').trim().slice(0, 500) || raw
+    const reviewAt = cofounderWhen(fields.reviewAt)
+    const recent = (await sql`
+      SELECT id FROM hire_decisions
+      WHERE user_id = ${userId} AND lower(decision) = lower(${decision})
+        AND created_at >= now() - interval '24 hours'
+      ORDER BY created_at DESC LIMIT 1
+    `) as Array<{ id: string }>
+    if (recent[0]) {
+      await sql`
+        UPDATE hire_decisions SET reason = ${reason},
+          review_at = COALESCE(${reviewAt}, review_at), updated_at = now()
+        WHERE id = ${recent[0].id}
+      `
+      return { created: false, id: recent[0].id }
+    }
+    const id = crypto.randomUUID()
+    await sql`
+      INSERT INTO hire_decisions (id, user_id, persona, decision, reason, evidence, review_at)
+      VALUES (${id}, ${userId}, ${personaSafe}, ${decision}, ${reason}, ${reason ? 'overheard in chat' : ''}, ${reviewAt})
+    `
+    return { created: true, id }
+  }
+
+  if (kind === 'promise') {
+    const title = String(fields.title || '').trim().slice(0, 200)
+    if (!title) throw new Error('title required')
+    const dueAt = cofounderWhen(fields.dueAt)
+    const recent = (await sql`
+      SELECT id FROM hire_loops
+      WHERE user_id = ${userId} AND lower(title) = lower(${title})
+        AND created_at >= now() - interval '24 hours'
+      ORDER BY created_at DESC LIMIT 1
+    `) as Array<{ id: string }>
+    if (recent[0]) {
+      await sql`
+        UPDATE hire_loops SET context = COALESCE(nullif(${raw}, ''), context),
+          due_at = COALESCE(${dueAt}, due_at), updated_at = now()
+        WHERE id = ${recent[0].id}
+      `
+      return { created: false, id: recent[0].id }
+    }
+    const id = crypto.randomUUID()
+    await sql`
+      INSERT INTO hire_loops (id, user_id, persona, title, context, due_at, status)
+      VALUES (${id}, ${userId}, ${personaSafe}, ${title}, ${raw}, ${dueAt}, 'open')
+    `
+    return { created: true, id }
+  }
+
+  if (kind === 'person') {
+    const name = String(fields.name || '').trim().slice(0, 120)
+    if (!name) throw new Error('name required')
+    const relKind = String(fields.kind || 'other').trim().slice(0, 40) || 'other'
+    const notes = String(fields.notes || '').trim().slice(0, 500) || raw
+    const existing = (await sql`
+      SELECT id FROM hire_relationships
+      WHERE user_id = ${userId} AND lower(name) = lower(${name})
+      ORDER BY created_at LIMIT 1
+    `) as Array<{ id: string }>
+    if (existing[0]) {
+      // A fresh mention is a touch: the cadence clock restarts.
+      await sql`
+        UPDATE hire_relationships SET kind = ${relKind},
+          notes = COALESCE(nullif(${notes}, ''), notes),
+          last_touch_at = now(), updated_at = now()
+        WHERE id = ${existing[0].id}
+      `
+      return { created: false, id: existing[0].id }
+    }
+    const id = crypto.randomUUID()
+    await sql`
+      INSERT INTO hire_relationships (id, user_id, name, kind, notes, last_touch_at)
+      VALUES (${id}, ${userId}, ${name}, ${relKind}, ${notes}, now())
+    `
+    return { created: true, id }
+  }
+
+  if (kind === 'opportunity') {
+    const title = String(fields.title || '').trim().slice(0, 120)
+    if (!title) throw new Error('title required')
+    const company = String(fields.company || '').trim().slice(0, 80)
+    const stage = PIPELINE_STAGES.includes(String(fields.stage) as (typeof PIPELINE_STAGES)[number])
+      ? String(fields.stage)
+      : 'lead'
+    const value = Math.max(0, clampNum(fields.value))
+    const oppKind = ['deal', 'job', 'fundraising', 'lead'].includes(String(fields.kind || ''))
+      ? String(fields.kind)
+      : 'deal'
+    const notes = raw
+    const existing = (await sql`
+      SELECT id FROM hire_pipeline
+      WHERE user_id = ${userId} AND lower(title) = lower(${title}) AND lower(company) = lower(${company})
+      ORDER BY created_at LIMIT 1
+    `) as Array<{ id: string }>
+    if (existing[0]) {
+      await sql`
+        UPDATE hire_pipeline SET stage = ${stage}, kind = ${oppKind},
+          value = CASE WHEN ${value} > 0 THEN ${value} ELSE value END,
+          notes = COALESCE(nullif(${notes}, ''), notes), updated_at = now()
+        WHERE id = ${existing[0].id}
+      `
+      return { created: false, id: existing[0].id }
+    }
+    const id = crypto.randomUUID()
+    await sql`
+      INSERT INTO hire_pipeline (id, user_id, title, company, stage, notes, value, kind)
+      VALUES (${id}, ${userId}, ${title}, ${company}, ${stage}, ${notes}, ${value}, ${oppKind})
+    `
+    return { created: true, id }
+  }
+
+  throw new Error(`unknown capture kind: use ${COFOUNDER_KINDS.join(', ')}`)
+}
+
+/** The cofounder morning brief: everything already in the tables that needs a
+ * human eye this week. Empty sections are fine; silence means healthy. */
+export type CofounderDigestPayload = {
+  stalePipeline: Array<{ id: string; title: string; stage: string; daysSinceTouch: number }>
+  duePromises: Array<{ id: string; title: string; dueAt: Date | null }>
+  decisionsToRevisit: Array<{ id: string; decision: string; reviewAt: Date | null }>
+  newPeople: Array<{ id: string; name: string; lastTouchAt: Date | null }>
+  pipelineMoves: Record<string, number>
+  noteReady: boolean
+}
+
+export async function cofounderDigest(
+  sql: SQL,
+  userId: string,
+  persona: string = 'cofounder',
+): Promise<CofounderDigestPayload> {
+  const stale = (await sql`
+    SELECT id, title, stage, updated_at AS "updatedAt" FROM hire_pipeline
+    WHERE user_id = ${userId} AND updated_at < now() - interval '10 days'
+      AND stage NOT IN ('won', 'lost')
+    ORDER BY updated_at ASC LIMIT 20
+  `) as Array<{ id: string; title: string; stage: string; updatedAt: Date | string }>
+  const promises = (await sql`
+    SELECT id, title, due_at AS "dueAt" FROM hire_loops
+    WHERE user_id = ${userId} AND status = 'open' AND due_at IS NOT NULL
+      AND due_at <= now() + interval '72 hours'
+    ORDER BY due_at ASC LIMIT 20
+  `) as Array<{ id: string; title: string; dueAt: Date | string | null }>
+  const revisits = (await sql`
+    SELECT id, decision, review_at AS "reviewAt" FROM hire_decisions
+    WHERE user_id = ${userId} AND status = 'open'
+      AND review_at IS NOT NULL AND review_at <= now()
+    ORDER BY review_at ASC LIMIT 20
+  `) as Array<{ id: string; decision: string; reviewAt: Date | string | null }>
+  const people = (await sql`
+    SELECT id, name, last_touch_at AS "lastTouchAt" FROM hire_relationships
+    WHERE user_id = ${userId}
+      AND (last_touch_at IS NULL OR last_touch_at < now() - make_interval(days => cadence_days))
+    ORDER BY last_touch_at ASC NULLS FIRST LIMIT 20
+  `) as Array<{ id: string; name: string; lastTouchAt: Date | string | null }>
+  const moves = (await sql`
+    SELECT stage, count(*)::int AS n FROM hire_pipeline
+    WHERE user_id = ${userId} AND updated_at >= now() - interval '7 days'
+    GROUP BY stage
+  `) as Array<{ stage: string; n: number }>
+  const drafts = (await sql`
+    SELECT count(*)::int AS n FROM hire_drafts
+    WHERE user_id = ${userId} AND kind = 'investor' AND created_at >= date_trunc('month', now())
+  `) as Array<{ n: number }>
+  const asTime = (v: Date | string | null | undefined) => (v ? new Date(v as Date | string).getTime() : NaN)
+  return {
+    stalePipeline: stale.map((r) => ({
+      id: r.id,
+      title: r.title,
+      stage: r.stage,
+      daysSinceTouch: Math.max(0, Math.floor((Date.now() - asTime(r.updatedAt)) / 86_400_000)),
+    })),
+    duePromises: promises.map((r) => ({ id: r.id, title: r.title, dueAt: r.dueAt ? new Date(r.dueAt) : null })),
+    decisionsToRevisit: revisits.map((r) => ({ id: r.id, decision: r.decision, reviewAt: r.reviewAt ? new Date(r.reviewAt) : null })),
+    newPeople: people.map((r) => ({ id: r.id, name: r.name, lastTouchAt: r.lastTouchAt ? new Date(r.lastTouchAt) : null })),
+    pipelineMoves: Object.fromEntries(moves.map((r) => [r.stage, Number(r.n)])),
+    noteReady: Number(drafts[0]?.n || 0) === 0,
+  }
+}
+
+/* ---- Coworker tools: meeting prep, auto standup, slots, linear triage ---- */
+
+/** One calendar event that could be a meeting. Attendees stay null when the
+ * source cannot say who is on the invite, so the picker does not drop it. */
+export type PrepCandidate = {
+  id: string
+  title: string
+  start: Date
+  attendees: string[] | null
+}
+
+/** Google first so attendee lists survive; Composio calendars keep every event
+ * because their payloads hide attendees. */
+async function loadPrepCandidates(
+  sql: SQL,
+  userId: string,
+  timeMin: Date,
+  timeMax: Date,
+): Promise<PrepCandidate[]> {
+  const access = await googleAccessToken(sql, userId, 'calendar')
+  if (access) {
+    const url = new URL('https://www.googleapis.com/calendar/v3/calendars/primary/events')
+    url.searchParams.set('timeMin', timeMin.toISOString())
+    url.searchParams.set('timeMax', timeMax.toISOString())
+    url.searchParams.set('singleEvents', 'true')
+    url.searchParams.set('orderBy', 'startTime')
+    url.searchParams.set('maxResults', '25')
+    try {
+      const res = await fetch(url, { headers: { Authorization: `Bearer ${access}` } })
+      if (res.ok) {
+        const data = (await res.json()) as {
+          items?: Array<{
+            id?: string
+            summary?: string
+            start?: { dateTime?: string; date?: string }
+            attendees?: Array<{ email?: string }>
+          }>
+        }
+        return (data.items || [])
+          .map((it) => {
+            const start = it.start?.dateTime
+              ? new Date(it.start.dateTime)
+              : it.start?.date
+                ? new Date(`${it.start.date}T12:00:00Z`)
+                : null
+            if (!start || Number.isNaN(start.getTime())) return null
+            return {
+              id: it.id || crypto.randomUUID(),
+              title: it.summary || '(untitled)',
+              start,
+              attendees: (it.attendees || [])
+                .map((a) => String(a.email || '').toLowerCase())
+                .filter(Boolean),
+            }
+          })
+          .filter((e): e is PrepCandidate => !!e)
+      }
+    } catch (err) {
+      console.warn('[meeting/prep] google list failed', err)
+    }
+  }
+  const rows = await googleEventsRaw(sql, userId, { timeMin, timeMax, maxResults: 25 })
+  return rows
+    .filter((r) => !r.allDay)
+    .map((r) => ({ id: r.id, title: r.title, start: new Date(r.start), attendees: null }))
+    .filter((e) => Number.isFinite(e.start.getTime()))
+}
+
+/** Next event today that counts as a meeting: either someone else is on the
+ * invite or the source could not tell us. */
+export function nextSharedMeeting(
+  events: PrepCandidate[],
+  now: number = Date.now(),
+  dayEnd: number = Infinity,
+): PrepCandidate | null {
+  const upcoming = events
+    .filter((e) => Number.isFinite(e.start.getTime()))
+    .filter((e) => e.start.getTime() >= now - 10 * 60_000)
+    .filter((e) => e.start.getTime() < dayEnd)
+    .filter((e) => e.attendees === null || e.attendees.length >= 1)
+    .sort((a, b) => a.start.getTime() - b.start.getTime())
+  return upcoming[0] ?? null
+}
+
+export type PrepThread = { subject: string; snippet: string; gmailId: string }
+
+export type PrepBrief = {
+  event: { id: string; title: string; startsInMin: number; attendees?: string[] } | null
+  prep: { lastThread?: PrepThread; agenda: string[]; notes: string[] }
+}
+
+/** Deterministic skeleton: what the meeting is, who is on it, what to decide. */
+export function buildPrepBrief(
+  event: PrepCandidate,
+  lastThread: PrepThread | null,
+  now: number = Date.now(),
+): PrepBrief {
+  const startsInMin = Math.max(0, Math.round((event.start.getTime() - now) / 60_000))
+  const who = (event.attendees || [])
+    .map((a) => a.split('@')[0].replace(/[._]+/g, ' ').trim())
+    .filter(Boolean)
+  const first = who[0] ? who[0].replace(/\b\w/g, (c) => c.toUpperCase()) : 'them'
+  const out: PrepBrief = {
+    event: {
+      id: event.id,
+      title: event.title,
+      startsInMin,
+      ...(event.attendees && event.attendees.length ? { attendees: event.attendees } : {}),
+    },
+    prep: {
+      agenda: [`Why: ${event.title}`, `Where ${first} stands`, 'Decisions to leave with'],
+      notes: [
+        startsInMin > 0 ? `Starts in ${startsInMin} min` : 'Starting now',
+        who.length ? `With ${who.slice(0, 3).join(', ')}` : 'Attendee list unavailable',
+      ],
+    },
+  }
+  if (lastThread) out.prep.lastThread = lastThread
+  return out
+}
+
+/** Most recent mail from the other side, so the prep can quote their last ask. */
+async function findLastThread(
+  sql: SQL,
+  userId: string,
+  attendees: string[] | null,
+): Promise<PrepThread | null> {
+  const primary = (attendees || [])[0] || ''
+  if (!primary) return null
+  const domain = primary.includes('@') ? primary.split('@')[1] : ''
+  const term = domain || primary.split('@')[0]
+  if (!term) return null
+  const rows = await loadGmailRich(sql, userId, `from:${term} newer_than:90d`, 1).catch(() => [])
+  const m = rows[0]
+  if (!m) return null
+  return {
+    subject: m.subject || '(no subject)',
+    snippet: cleanMailSnippet(m.snippet || '').slice(0, 200),
+    gmailId: m.id,
+  }
+}
+
+export async function buildMeetingPrep(
+  sql: SQL,
+  user: { id: string; timezone: string | null },
+): Promise<PrepBrief> {
+  const tz = pickUserTimezone({ userTz: user.timezone })
+  const now = new Date()
+  const dayEnd = startOfLocalDay(tz, 1)
+  const events = await loadPrepCandidates(sql, user.id, now, dayEnd).catch(() => [])
+  const meeting = nextSharedMeeting(events, now.getTime(), dayEnd.getTime())
+  if (!meeting) return { event: null, prep: { agenda: [], notes: [] } }
+  const lastThread = await findLastThread(sql, user.id, meeting.attendees)
+  return buildPrepBrief(meeting, lastThread, now.getTime())
+}
+
+export type StandupFacts = {
+  day: string
+  meetings: string[]
+  closedPromises: string[]
+  draftsSent: string[]
+  decisions: string[]
+  blocked: string[]
+}
+
+/** Fixed sections: what closed since the last one, what is on today, what is
+ * stuck. Empty day says so instead of printing bare headers. */
+export function assembleStandupText(f: StandupFacts): string {
+  const lines: string[] = [`Standup ${f.day}`]
+  const done = [
+    ...f.closedPromises.map((t) => `Closed: ${t}`),
+    ...f.draftsSent.map((d) => `Sent: ${d}`),
+  ]
+  if (done.length) lines.push('Yesterday:', ...done.map((t) => `- ${t}`))
+  const today = [
+    ...f.meetings.map((m) => `Meeting: ${m}`),
+    ...f.decisions.map((d) => `Decision: ${d}`),
+  ]
+  if (today.length) lines.push('Today:', ...today.map((t) => `- ${t}`))
+  if (f.blocked.length) lines.push('Blocked:', ...f.blocked.map((t) => `- ${t}`))
+  if (!done.length && !today.length && !f.blocked.length) lines.push('Quiet day. Nothing logged.')
+  return lines.join('\n')
+}
+
+/** Standup from real rows only: calendar, loops closed today, drafts sent
+ * today, decisions logged today. Blocked means a promise due today still open. */
+export async function assembleAutoStandup(
+  sql: SQL,
+  user: { id: string; timezone: string | null },
+): Promise<{ text: string; day: string }> {
+  const tz = pickUserTimezone({ userTz: user.timezone })
+  const day = localDateStrInTz(new Date(), tz)
+  const win = todayWindowUtc(tz)
+  const events = await loadPrepCandidates(sql, user.id, win.start, win.end).catch(() => [])
+  const closed = (await sql`
+    SELECT title FROM hire_loops
+    WHERE user_id = ${user.id} AND status = 'done'
+      AND updated_at >= ${win.start} AND updated_at < ${win.end}
+    ORDER BY updated_at LIMIT 10
+  `) as Array<{ title: string }>
+  const drafts = (await sql`
+    SELECT subject FROM hire_drafts
+    WHERE user_id = ${user.id} AND status = 'sent'
+      AND created_at >= ${win.start} AND created_at < ${win.end}
+    ORDER BY created_at LIMIT 10
+  `) as Array<{ subject: string }>
+  const decisions = (await sql`
+    SELECT decision FROM hire_decisions
+    WHERE user_id = ${user.id} AND created_at >= ${win.start} AND created_at < ${win.end}
+    ORDER BY created_at LIMIT 10
+  `) as Array<{ decision: string }>
+  const blocked = (await sql`
+    SELECT title FROM hire_loops
+    WHERE user_id = ${user.id} AND status = 'open'
+      AND due_at >= ${win.start} AND due_at < ${win.end}
+    ORDER BY due_at LIMIT 10
+  `) as Array<{ title: string }>
+  const text = assembleStandupText({
+    day,
+    meetings: events.map((e) => e.title).filter(Boolean).slice(0, 6),
+    closedPromises: closed.map((r) => r.title),
+    draftsSent: drafts.map((r) => r.subject || 'a draft'),
+    decisions: decisions.map((r) => r.decision),
+    blocked: blocked.map((r) => r.title),
+  })
+  await sql`
+    INSERT INTO hire_standups (id, user_id, day, notes)
+    VALUES (${crypto.randomUUID()}, ${user.id}, ${day}, ${text})
+    ON CONFLICT (user_id, day) DO UPDATE SET notes = excluded.notes, created_at = now()
+  `
+  return { text, day }
+}
+
+/** Free gaps as labels, 30 min steps inside work hours, soonest first. */
+export function formatSlotLabel(d: Date, timezone: string): string {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: timezone,
+    weekday: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(d)
+  const get = (t: string) => parts.find((p) => p.type === t)?.value || ''
+  return `${get('weekday')} ${get('hour')}:${get('minute')}`
+}
+
+export function suggestSlotsFromBusy(
+  busy: Array<{ start: number; end: number }>,
+  opts: {
+    now?: number
+    windowDays?: number
+    durationMin?: number
+    timezone?: string
+    workStartHour?: number
+    workEndHour?: number
+  } = {},
+): string[] {
+  const tz = opts.timezone || 'America/Los_Angeles'
+  const now = opts.now ?? Date.now()
+  const windowDays = Math.min(7, Math.max(1, Math.round(opts.windowDays || 3)))
+  const durationMin = Math.min(240, Math.max(15, Math.round(opts.durationMin || 30)))
+  const workStart = opts.workStartHour ?? 9
+  const workEnd = opts.workEndHour ?? 18
+  const firstYmd = new Intl.DateTimeFormat('en-CA', {
+    timeZone: tz,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date(now))
+  const slots: string[] = []
+  for (let d = 0; d < windowDays && slots.length < 3; d++) {
+    const ymd = shiftDateStr(firstYmd, d)
+    for (let minute = workStart * 60; minute + durationMin <= workEnd * 60 && slots.length < 3; minute += 30) {
+      const start = wallTimeToUtc(ymd, Math.floor(minute / 60), minute % 60, tz).getTime()
+      if (start < now) continue
+      const end = start + durationMin * 60_000
+      if (busy.some((b) => start < b.end && end > b.start)) continue
+      slots.push(formatSlotLabel(new Date(start), tz))
+    }
+  }
+  return slots
+}
+
+/** freeBusy when Google is wired, event times otherwise. */
+async function loadBusyBlocks(
+  sql: SQL,
+  userId: string,
+  timeMin: Date,
+  timeMax: Date,
+): Promise<Array<{ start: number; end: number }>> {
+  const access = await googleAccessToken(sql, userId, 'calendar')
+  if (access) {
+    try {
+      const res = await fetch('https://www.googleapis.com/calendar/v3/freeBusy', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${access}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ timeMin: timeMin.toISOString(), timeMax: timeMax.toISOString(), items: [{ id: 'primary' }] }),
+      })
+      if (res.ok) {
+        const data = (await res.json()) as { calendars?: { primary?: { busy?: Array<{ start: string; end: string }> } } }
+        const blocks = (data.calendars?.primary?.busy || [])
+          .map((b) => ({ start: new Date(b.start).getTime(), end: new Date(b.end).getTime() }))
+          .filter((b) => Number.isFinite(b.start) && Number.isFinite(b.end) && b.end > b.start)
+        if (blocks.length) return blocks
+      }
+    } catch (err) {
+      console.warn('[slots] freeBusy failed', err)
+    }
+  }
+  const rows = await googleEventsRaw(sql, userId, { timeMin, timeMax, maxResults: 50 })
+  return rows
+    .filter((r) => !r.allDay)
+    .map((r) => ({
+      start: Date.parse(r.start),
+      end: r.end ? Date.parse(r.end) : Date.parse(r.start) + 3_600_000,
+    }))
+    .filter((b) => Number.isFinite(b.start) && Number.isFinite(b.end) && b.end > b.start)
+}
+
+export type LinearIssueInput = {
+  id: string
+  title: string
+  updatedAt: number | null
+  priority: string
+  lastCommentAt: number | null
+}
+
+function linearMs(v: unknown): number | null {
+  if (!v) return null
+  const t = new Date(String(v)).getTime()
+  return Number.isFinite(t) ? t : null
+}
+
+const LINEAR_PRIORITY_NUMBERS: Record<number, string> = { 1: 'urgent', 2: 'high', 3: 'medium', 4: 'low' }
+
+/** Loose parse of whatever the Composio list returned. Only rows with a title
+ * count; anything else is noise the walk ignores. */
+export function parseLinearIssues(raw: unknown): LinearIssueInput[] {
+  let data = raw
+  if (typeof raw === 'string') {
+    const trimmed = raw.trim()
+    if (!trimmed.startsWith('[') && !trimmed.startsWith('{')) return []
+    try {
+      data = JSON.parse(trimmed)
+    } catch {
+      return []
+    }
+  }
+  const out: LinearIssueInput[] = []
+  const walk = (node: unknown, depth: number) => {
+    if (out.length >= 60 || depth > 5 || node == null) return
+    if (Array.isArray(node)) {
+      for (const item of node) walk(item, depth + 1)
+      return
+    }
+    if (typeof node !== 'object') return
+    const o = node as Record<string, unknown>
+    const title = String(o.title || '').trim()
+    if (title) {
+      const prioRaw = o.priority ?? o.priorityLabel ?? ''
+      const priority =
+        typeof prioRaw === 'number' ? LINEAR_PRIORITY_NUMBERS[prioRaw] || '' : String(prioRaw).toLowerCase()
+      const comments = Array.isArray(o.comments) ? (o.comments[o.comments.length - 1] as Record<string, unknown> | undefined) : undefined
+      out.push({
+        id: String(o.id || o.identifier || title).slice(0, 80),
+        title: title.slice(0, 200),
+        updatedAt: linearMs(o.updatedAt ?? o.updated_at),
+        priority,
+        lastCommentAt: linearMs(o.lastCommentAt ?? comments?.updatedAt),
+      })
+    }
+    for (const v of Object.values(o)) walk(v, depth + 1)
+  }
+  walk(data, 0)
+  return out
+}
+
+/** Stale first: age plus priority words plus a fresh comment. Top 3 are now,
+ * the next 5 are next, the rest only show as a count. */
+export function scoreLinearIssues(
+  issues: LinearIssueInput[],
+  now: number = Date.now(),
+): { now: Array<{ id: string; title: string; score: number }>; next: Array<{ id: string; title: string; score: number }>; later: number } {
+  const day = 86_400_000
+  const scored = issues.map((i) => {
+    let score = 0
+    if (i.updatedAt) score += Math.max(0, Math.floor((now - i.updatedAt) / day))
+    const text = `${i.title} ${i.priority}`.toLowerCase()
+    if (/\burgent\b/.test(text)) score += 7
+    else if (/\bhigh\b/.test(text)) score += 4
+    if (i.lastCommentAt && now - i.lastCommentAt <= 2 * day) score += 3
+    return { id: i.id, title: i.title, score }
+  })
+  scored.sort((a, b) => b.score - a.score || a.title.localeCompare(b.title))
+  return {
+    now: scored.slice(0, 3),
+    next: scored.slice(3, 8),
+    later: Math.max(0, scored.length - 8),
+  }
 }
 
 type NextRow = {
@@ -10503,6 +11148,134 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     return json({ ok: true, logged: true, id, title: parsed.title.slice(0, 120), stage: parsed.stage })
   }
 
+  /* Cofounder capture: one structured item overheard in chat, deduped inside
+   * 24 hours. The bot does the parsing; this endpoint only files the row. */
+  if (path === '/api/internal/cofounder/capture' && req.method === 'POST') {
+    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
+    const body = (await req.json().catch(() => ({}))) as {
+      phone?: string
+      persona?: string
+      kind?: string
+      fields?: Record<string, unknown>
+      raw?: string
+    }
+    if (!body.phone || !isPersona(body.persona || '')) return json({ error: 'phone and persona required' }, 400)
+    const kind = String(body.kind || '') as CofounderCaptureKind
+    if (!COFOUNDER_KINDS.includes(kind)) {
+      return json({ error: 'kind must be decision, promise, person, or opportunity' }, 400)
+    }
+    const user = await getUserByPhone(sql, body.phone)
+    if (!user) return json({ error: 'User not found' }, 404)
+    try {
+      const result = await captureCofounderItem(sql, user.id, body.persona!, kind, {
+        ...(body.fields || {}),
+        raw: String(body.raw || (body.fields as { raw?: string } | undefined)?.raw || ''),
+      })
+      return json({ ok: true, ...result })
+    } catch (err) {
+      return json({ error: err instanceof Error ? err.message : 'capture failed' }, 400)
+    }
+  }
+
+  /* Cofounder digest: the staleness pass the bot reads before it says anything. */
+  if (path === '/api/internal/cofounder/digest' && req.method === 'GET') {
+    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
+    const persona = url.searchParams.get('persona') || ''
+    const phone = normalizePhone(url.searchParams.get('phone') || '')
+    if (!isPersona(persona) || !phone) return json({ error: 'persona and phone required' }, 400)
+    const user = await getUserByPhone(sql, phone)
+    if (!user) return json({ error: 'User not found' }, 404)
+    return json(await cofounderDigest(sql, user.id, persona))
+  }
+
+  /* Coworker digest: the shared staleness pass plus the live day view. */
+  if (path === '/api/internal/coworker/digest' && req.method === 'GET') {
+    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
+    const phone = normalizePhone(url.searchParams.get('phone') || '')
+    if (!phone) return json({ error: 'phone required' }, 400)
+    const user = await getUserByPhone(sql, phone)
+    if (!user) return json({ error: 'User not found' }, 404)
+    const tz = pickUserTimezone({ userTz: user.timezone })
+    const [base, waiting, standup, prep] = await Promise.all([
+      cofounderDigest(sql, user.id, 'coworker'),
+      sql`SELECT count(*)::int AS n FROM hire_drafts WHERE user_id = ${user.id} AND status = 'pending'`,
+      sql`SELECT id FROM hire_standups WHERE user_id = ${user.id} AND day = ${localDateStrInTz(new Date(), tz)} LIMIT 1`,
+      buildMeetingPrep(sql, user),
+    ])
+    return json({
+      ...base,
+      nextMeeting: prep.event,
+      draftsWaiting: Number((waiting[0] as { n?: number } | undefined)?.n || 0),
+      standupReady: !standup[0],
+    })
+  }
+
+  /* Meeting prep: the next shared meeting today plus a skeleton brief. */
+  if (path === '/api/meeting/prep' && (req.method === 'GET' || req.method === 'POST')) {
+    const body = req.method === 'POST' ? ((await req.json().catch(() => ({}))) as Record<string, unknown>) : {}
+    const { user, error } = await resolveAuthedUser(sql, {
+      token: (url.searchParams.get('t') || String(body.token || '')) || undefined,
+      session: (url.searchParams.get('s') || String(body.session || '')) || undefined,
+      email: (url.searchParams.get('email') || String(body.email || '')) || undefined,
+    })
+    if (error) return error
+    return json(await buildMeetingPrep(sql, user!))
+  }
+
+  /* Auto standup: today's facts from rows, written back for the day. */
+  if (path === '/api/standup/auto' && req.method === 'POST') {
+    const body = (await req.json().catch(() => ({}))) as { token?: string; session?: string; email?: string }
+    const { user, error } = await resolveAuthedUser(sql, {
+      token: (url.searchParams.get('t') || body.token) || undefined,
+      session: (url.searchParams.get('s') || body.session) || undefined,
+      email: (url.searchParams.get('email') || body.email) || undefined,
+    })
+    if (error) return error
+    const out = await assembleAutoStandup(sql, user!)
+    return json({ ok: true, ...out })
+  }
+
+  /* Slot suggest: free gaps the user can offer someone else. */
+  if (path === '/api/slots/suggest' && req.method === 'POST') {
+    const body = (await req.json().catch(() => ({}))) as {
+      token?: string; session?: string; email?: string
+      durationMin?: number; windowDays?: number; attendeeHint?: string
+    }
+    const { user, error } = await resolveAuthedUser(sql, {
+      token: (url.searchParams.get('t') || body.token) || undefined,
+      session: (url.searchParams.get('s') || body.session) || undefined,
+      email: (url.searchParams.get('email') || body.email) || undefined,
+    })
+    if (error) return error
+    const connected = (await connectedForUser(sql, user!.id)).includes('calendar')
+    if (!connected) return json({ slots: [], connect: true })
+    const tz = pickUserTimezone({ userTz: user!.timezone })
+    const windowDays = Math.min(7, Math.max(1, Math.round(clampNum(body.windowDays, 3))))
+    const busy = await loadBusyBlocks(sql, user!.id, new Date(), startOfLocalDay(tz, windowDays))
+    const slots = suggestSlotsFromBusy(busy, {
+      timezone: tz,
+      windowDays,
+      durationMin: Math.round(clampNum(body.durationMin, 30)),
+    })
+    return json({ slots, connect: false })
+  }
+
+  /* Linear triage: buckets only. Not connected is a 200 so the UI can deep
+   * link straight into the connect flow. */
+  if (path === '/api/linear/triage' && req.method === 'GET') {
+    const { user, error } = await resolveAuthedUser(sql, {
+      token: url.searchParams.get('t') || undefined,
+      session: url.searchParams.get('s') || undefined,
+      email: url.searchParams.get('email') || undefined,
+    })
+    if (error) return error
+    const connected = (await connectedForUser(sql, user!.id)).includes('linear')
+    if (!connected) return json({ connect: true })
+    const raw = await composioFirst(user!.id, COMPOSIO_READ.linear!.slugs, { limit: 50, first: 50 })
+    const issues = parseLinearIssues(raw)
+    return json({ ...scoreLinearIssues(issues), count: issues.length })
+  }
+
   if (path === '/api/internal/standup' && req.method === 'POST') {
     if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
     const body = (await req.json().catch(() => ({}))) as {
@@ -12487,6 +13260,27 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     return json({ ok: true, id })
   }
 
+  if (path === '/api/pipeline/move' && req.method === 'POST') {
+    const body = (await req.json().catch(() => ({}))) as {
+      token?: string; session?: string; email?: string; id?: string; stage?: string
+    }
+    const id = String(body.id || '')
+    if (!id) return json({ error: 'id required' }, 400)
+    const stage = String(body.stage || '')
+    if (!PIPELINE_STAGES.includes(stage as (typeof PIPELINE_STAGES)[number])) {
+      return json({ error: 'valid stage required' }, 400)
+    }
+    const { user, error } = await resolveAuthedUser(sql, { token: body.token, session: body.session, email: body.email })
+    if (error) return error
+    const rows = (await sql`
+      UPDATE hire_pipeline SET stage = ${stage}, updated_at = now()
+      WHERE id = ${id} AND user_id = ${user!.id}
+      RETURNING id
+    `) as Array<{ id: string }>
+    if (!rows.length) return json({ error: 'Not found' }, 404)
+    return json({ ok: true, id: rows[0].id })
+  }
+
   if (path.startsWith('/api/pipeline/') && req.method === 'POST') {
     const body = (await req.json().catch(() => ({}))) as {
       token?: string; email?: string; _delete?: boolean; stage?: string; notes?: string
@@ -12506,6 +13300,24 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
       await sql`UPDATE hire_pipeline SET stage = ${stage}, updated_at = now() WHERE id = ${id} AND user_id = ${user!.id}`
     }
     return json({ ok: true })
+  }
+
+  /* Draft the monthly investor note: the numbers are pulled, the asks are the
+   * only blanks the user fills. Saved as a pending draft, never sent here. */
+  if (path === '/api/investor-note/draft' && req.method === 'POST') {
+    const body = (await req.json().catch(() => ({}))) as {
+      token?: string; session?: string; email?: string; persona?: string
+    }
+    const { user, error } = await resolveAuthedUser(sql, { token: body.token, session: body.session, email: body.email })
+    if (error) return error
+    const subject = 'Investor update'
+    const note = await investorNoteBody(sql, user!.id)
+    const id = crypto.randomUUID()
+    await sql`
+      INSERT INTO hire_drafts (id, user_id, persona, kind, to_addr, subject, body, status)
+      VALUES (${id}, ${user!.id}, ${isPersona(body.persona || '') ? body.persona! : 'cofounder'}, 'investor', '', ${subject}, ${note}, 'pending')
+    `
+    return json({ ok: true, draft: { id, kind: 'investor', subject, body: note, status: 'pending' } })
   }
 
   /* ---- Gratitude ---- */

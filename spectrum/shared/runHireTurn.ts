@@ -9,6 +9,8 @@ import { gmiChat } from './gmi'
 import { appendThread, loadMemory, upsertFacts, pruneExpiredFacts, setSummary, trimHistory, MAX_RAW, type ThreadMemory } from './memory'
 import { extractFacts, summarizeOld } from './memoryMaintain'
 import { autoIterateWorkshop, autoLogGratitude, autoLogHabit, autoLogMood, autoLogNutrition, autoLogSleep, autoLogSpend, autoLogWorkout, autoLogNetwork, autoLogDecision, autoLogLoops, autoLogPipeline, autoLogStandup, autoRunWorkshop, autoWorkshopKeep, autoWorkshopToss, autoSaveLearning, autoSetBudget, autoSetPrefs, fetchLiveProfile, fetchLiveTools, fetchMiniRun, fetchPrepBundle, fetchWeekBundle, formatHireContext, formatHireMemories, persistLiveFacts, proposeLiveDraft, touchInbound, importChatExport, addMeeting, fetchRenewalRadar, setTravel } from './liveContext'
+import { captureFromChat } from './cofounderPro'
+import { coworkerCaptureFromChat } from './coworkerPro'
 import {
   looksLikeReminder,
   parseReminderIntent,
@@ -1019,6 +1021,57 @@ export async function runHireTurn(input: {
       )
     } else if (pipe?.error) {
       extras.push(`Could not parse a pipeline move — ${pipe.error}. Do not claim it moved; point them to the Pipeline card.`)
+    }
+  }
+
+  /* CoFounder capture runs on every inbound text, cofounder persona only.
+   * Detectors are precision first and only confirmed server creates surface,
+   * so the reply never claims a log that did not happen. */
+  if (agent.id === 'cofounder' && live.hired) {
+    try {
+      const captured = await captureFromChat(input.senderId, agent.id, input.userText)
+      if (captured.length) {
+        extras.push(
+          `You just logged ${captured.map((c) => c.summary).join('; ')}. Confirm it in one short line and ask if right. Do not log it again.`,
+        )
+      }
+    } catch (err) {
+      console.warn('[runHireTurn] cofounder capture failed', err)
+    }
+  }
+
+  /* Coworker capture runs on every inbound text, coworker persona only. Same
+   * precision first rules; drafts only surface once the server confirms the
+   * promise create, and slots and wrap never log anything at all. */
+  if (agent.id === 'coworker' && live.hired) {
+    try {
+      const captured = await coworkerCaptureFromChat(input.senderId, agent.id, input.userText)
+      const logged = captured.filter(
+        (c): c is Extract<typeof c, { kind: 'promise' | 'decision' | 'person' }> =>
+          c.kind === 'promise' || c.kind === 'decision' || c.kind === 'person',
+      )
+      if (logged.length) {
+        extras.push(
+          `You just logged ${logged.map((c) => c.summary).join('; ')}. Confirm it in one short line and ask if right. Do not log it again.`,
+        )
+      }
+      for (const c of captured) {
+        if (c.kind === 'draft') {
+          extras.push(
+            `You just queued a draft to ${c.name} in Approve and send. Confirm it in one short line and ask if right. Do not log it again.`,
+          )
+        } else if (c.kind === 'slots') {
+          extras.push(
+            'Slot suggestions are in Pick a slot. Point them there in one line; do not invent times in chat.',
+          )
+        } else if (c.kind === 'wrap') {
+          extras.push(
+            'The meeting just wrapped. Ask one wrap question: what got decided, the next step, and who owns it. Do not log anything they did not confirm.',
+          )
+        }
+      }
+    } catch (err) {
+      console.warn('[runHireTurn] coworker capture failed', err)
     }
   }
 

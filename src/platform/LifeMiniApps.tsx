@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
+import { useNavigate } from 'react-router-dom'
 import {
   apiAddGratitude,
   apiAddLearning,
@@ -14,13 +15,14 @@ import {
   apiListPipeline,
   apiListSleep,
   apiListSpending,
+  apiListWorkDrafts,
   apiListWorkouts,
   apiLogSleep,
   apiPutMiniPrefs,
   apiLogSpend,
   apiLogWorkout,
+  apiMovePipeline,
   apiPatchLearning,
-  apiPatchPipeline,
   apiSaveWeeklyReview,
   apiSetSpendBudget,
   apiTouchNetwork,
@@ -36,6 +38,7 @@ import {
   type SpendLog,
   type WeeklyReview,
   type WeeklySnapshot,
+  type WorkDraft,
   type WorkoutLog,
   type WorkoutPr,
 } from './api'
@@ -851,6 +854,7 @@ function kindBadgeClass(kind: string): string {
 
 export function NetworkingCrmApp({ auth }: { auth: FeatureAuth }) {
   const a = useAuth(auth)
+  const navigate = useNavigate()
   const [people, setPeople] = useState<NetworkPerson[]>([])
   const [today, setToday] = useState<NetworkToday[]>([])
   const [stay, setStay] = useState<NetworkStay | null>(null)
@@ -867,6 +871,8 @@ export function NetworkingCrmApp({ auth }: { auth: FeatureAuth }) {
   const [confirmDel, setConfirmDel] = useState<string | null>(null)
   const [edit, setEdit] = useState({ name: '', phone: '', contactEmail: '', company: '', whereMet: '', context: '', cadenceDays: 14 })
   const [logNotes, setLogNotes] = useState<Record<string, string>>({})
+  const [drafts, setDrafts] = useState<WorkDraft[]>([])
+  const [nudge, setNudge] = useState<{ id: string; text: string } | null>(null)
 
   const load = useCallback(() => {
     apiListNetwork({ ...a, lazy: true })
@@ -890,6 +896,49 @@ export function NetworkingCrmApp({ auth }: { auth: FeatureAuth }) {
       .catch(() => setMsg('Could not load people.'))
   }, [a.email, a.token, a.persona])
   useEffect(() => { load() }, [load])
+
+  /* Pending drafts back the nudge button: if Alpha already wrote an outreach
+   * mail for this person, nudge opens that draft for review. Drafts are a
+   * nice-to-have here, so a miss just means the copyable one-liner path. */
+  const loadDrafts = useCallback(() => {
+    apiListWorkDrafts({ email: a.email, token: a.token, persona: auth.persona })
+      .then((d) => setDrafts(d.drafts || []))
+      .catch(() => setDrafts([]))
+  }, [a.email, a.token, auth.persona])
+  useEffect(() => { loadDrafts() }, [loadDrafts])
+
+  function overdueBy(p: NetworkPerson) {
+    if (!p.lastTouch) return null
+    return Math.max(1, daysSince(p.lastTouch) - (p.cadenceDays || 14))
+  }
+
+  function overdueBadge(p: NetworkPerson) {
+    const n = overdueBy(p)
+    return n === null ? 'no touch yet' : n <= 1 ? 'overdue by 1 day' : `overdue by ${n} days`
+  }
+
+  function nudgePerson(p: NetworkPerson) {
+    const email = (p.contactEmail || '').trim().toLowerCase()
+    const draft = email
+      ? drafts.find((d) => d.status !== 'sent' && (d.toAddr || '').trim().toLowerCase() === email)
+      : undefined
+    if (draft) {
+      navigate(`/app/mini/${auth.persona}/approve_send?draft=${encodeURIComponent(draft.id)}`)
+      return
+    }
+    const since = p.whereMet ? ` since ${p.whereMet}` : ''
+    setNudge({ id: p.id, text: `Hey ${p.name}, it has been a while${since}. How are things on your end?` })
+  }
+
+  async function copyNudge() {
+    if (!nudge) return
+    try {
+      await navigator.clipboard.writeText(nudge.text)
+      setMsg('Nudge copied. Paste it wherever you two talk.')
+    } catch {
+      setMsg('Could not copy. Select the line by hand instead.')
+    }
+  }
 
   async function add(e: FormEvent) {
     e.preventDefault()
@@ -1118,7 +1167,10 @@ export function NetworkingCrmApp({ auth }: { auth: FeatureAuth }) {
         <section className="ma-section">
           <span className="ma-section-label">Reach out</span>
           <div className="ma-callout ma-callout--hot">
-            <strong>{due[0]!.name}</strong>
+            <strong>
+              {due[0]!.name}
+              <span className="ma-badge">{overdueBadge(due[0]!)}</span>
+            </strong>
             <span className="ma-sub">{personBits(due[0]!)}</span>
             <input
               className="ma-input"
@@ -1152,7 +1204,9 @@ export function NetworkingCrmApp({ auth }: { auth: FeatureAuth }) {
 
       {/* Empty state (no CRM and no calendar events) */}
       {!contacts.length && today.length === 0 && calendarConnected !== false && (
-        <p className="mini__empty">Type a name below. Alpha will remind you when to follow up.</p>
+        <p className="mini__empty">
+          Text Alpha "met Priya at the Stripe dinner, hiring" and it lands here. Or type a name below and Alpha reminds you when to follow up.
+        </p>
       )}
 
       {/* People roster */}
@@ -1178,10 +1232,27 @@ export function NetworkingCrmApp({ auth }: { auth: FeatureAuth }) {
                   >
                     <span className="ma-title">
                       {p.name}
-                      {late && <span className="ma-badge">due</span>}
+                      {late && <span className="ma-badge">{overdueBadge(p)}</span>}
                     </span>
                   </button>
                   <span className="ma-sub">{personBits(p)}</span>
+                  {nudge && nudge.id === p.id && (
+                    <div className="ma-stack" style={{ marginTop: 8 }}>
+                      <span className="ma-sub">{nudge.text}</span>
+                      <div className="ma-callout-actions">
+                        <button className="ma-chip" type="button" onClick={() => void copyNudge()}>Copy</button>
+                        {p.contactEmail && (
+                          <a
+                            className="ma-chip"
+                            href={`mailto:${p.contactEmail}?subject=${encodeURIComponent('Quick catch up')}&body=${encodeURIComponent(nudge.text)}`}
+                          >
+                            Email it
+                          </a>
+                        )}
+                        {p.phone && <a className="ma-chip" href={smsHref(p.name, p.phone)}>Text it</a>}
+                      </div>
+                    </div>
+                  )}
                   {open && (
                     <div className="ma-stack" style={{ marginTop: 8 }}>
                       <label className="ma-field">
@@ -1245,6 +1316,11 @@ export function NetworkingCrmApp({ auth }: { auth: FeatureAuth }) {
                   )}
                 </div>
                 <button className="ma-chip" type="button" onClick={() => void talked(p.id, logNotes[p.id])}>Talked</button>
+                {late && (
+                  <button className="ma-chip" type="button" onClick={() => nudgePerson(p)}>
+                    Nudge
+                  </button>
+                )}
                 {p.phone && <a className="ma-chip" href={smsHref(p.name, p.phone)}>Text</a>}
                 {telHref(p.phone) && <a className="ma-chip" href={telHref(p.phone)}>Call</a>}
               </li>
@@ -1523,6 +1599,7 @@ export function PipelineBoardApp({ auth }: { auth: FeatureAuth }) {
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState('')
   const [showAdd, setShowAdd] = useState(false)
+  const [movedId, setMovedId] = useState<string | null>(null)
 
   const load = useCallback(() => {
     apiListPipeline(a).then((d) => setItems(d.items)).catch(() => setMsg('Could not load pipeline.'))
@@ -1546,12 +1623,34 @@ export function PipelineBoardApp({ auth }: { auth: FeatureAuth }) {
     }
   }
 
+  /* Tap to advance: the card moves before the round trip, and snaps back if
+   * the server says no. */
+  async function move(item: PipelineItem, stage: string) {
+    if (movedId) return
+    setMovedId(item.id)
+    setMsg('')
+    const prev = items
+    setItems((cur) =>
+      cur.map((i) => (i.id === item.id ? { ...i, stage, updatedAt: new Date().toISOString() } : i)),
+    )
+    try {
+      await apiMovePipeline({ ...a, id: item.id, stage })
+      load()
+    } catch {
+      setItems(prev)
+      setMsg(`Could not move ${item.title}. Tap again to retry.`)
+    } finally {
+      setMovedId(null)
+    }
+  }
+
   function nextStage(stage: string) {
     const i = PIPE_STAGES.findIndex((s) => s.id === stage)
     return PIPE_STAGES[Math.min(PIPE_STAGES.length - 1, i + 1)]?.id || stage
   }
 
   const live = items.filter((i) => i.stage !== 'won' && i.stage !== 'lost')
+  const staleCount = live.filter((i) => daysSince(i.updatedAt) > 10).length
   const hottest = live.slice().sort((x, y) => {
     const hx = (PIPE_HEAT[x.stage] || 0) + daysSince(x.updatedAt)
     const hy = (PIPE_HEAT[y.stage] || 0) + daysSince(y.updatedAt)
@@ -1579,24 +1678,48 @@ export function PipelineBoardApp({ auth }: { auth: FeatureAuth }) {
           </button>
         ))}
       </div>
-      {kindFiltered.length === 0 && <p className="mini__empty">No {kindTab === 'all' ? 'items' : kindTab + 's'} in the pipeline yet.</p>}
+      {kindFiltered.length === 0 && (
+        <p className="mini__empty">
+          No {kindTab === 'all' ? 'items' : kindTab + 's'} here. Lead, active, interview, offer, then won.
+          {staleCount > 0 ? ` ${staleCount} other ${staleCount === 1 ? 'deal has' : 'deals have'} gone quiet.` : ''}
+        </p>
+      )}
       {hottest && kindTab !== 'all' && (hottest.kind || 'deal') !== kindTab && null}
       {hottest && (kindTab === 'all' || (hottest.kind || 'deal') === kindTab) && (
         <div className="ma-callout ma-callout--hot">
-          <span className="ma-callout-kicker">{PIPE_STAGES.find((s) => s.id === hottest.stage)?.label} · hottest</span>
+          <span className="ma-callout-kicker">
+            {PIPE_STAGES.find((s) => s.id === hottest.stage)?.label} · hottest
+            {daysSince(hottest.updatedAt) > 10 ? ` · stale ${daysSince(hottest.updatedAt)} days` : ''}
+          </span>
           <strong>{hottest.title}</strong>
           {hottest.company && <span className="ma-sub">{hottest.company}</span>}
           {hottest.value > 0 && <span className="ma-sub">${Math.round(hottest.value).toLocaleString()}</span>}
           {hottest.notes && <span className="ma-sub">{hottest.notes}</span>}
           <div className="ma-callout-actions">
-            <button type="button" className="ma-btn" onClick={() => void apiPatchPipeline({ ...a, id: hottest.id, stage: nextStage(hottest.stage) }).then(load)}>
-              {pipeAction(hottest.stage)}
+            <button
+              type="button"
+              className="ma-btn"
+              disabled={movedId === hottest.id}
+              onClick={() => void move(hottest, nextStage(hottest.stage))}
+            >
+              {movedId === hottest.id ? 'Moving' : pipeAction(hottest.stage)}
             </button>
-            <button type="button" className="ma-chip" onClick={() => void apiPatchPipeline({ ...a, id: hottest.id, stage: 'lost' }).then(load)}>Lost</button>
+            <button
+              type="button"
+              className="ma-chip"
+              disabled={movedId === hottest.id}
+              onClick={() => void move(hottest, 'lost')}
+            >
+              Lost
+            </button>
           </div>
         </div>
       )}
-      {!items.length && <p className="mini__empty">Add a deal, job, or round. The hottest one sits on top.</p>}
+      {!items.length && (
+        <p className="mini__empty">
+          Lead, interview, offer, won. Add the first company above, or text Alpha "talking to Acme" and it lands here itself.
+        </p>
+      )}
       {(showAdd || !items.length) ? (
         <form className="ma-form" onSubmit={add}>
           <input
@@ -1619,19 +1742,46 @@ export function PipelineBoardApp({ auth }: { auth: FeatureAuth }) {
             <div key={s.id}>
               <div className="pipe-stage">{s.label} {col.length}</div>
               <ul className="ma-list">
-                {col.map((i) => (
-                  <li key={i.id} className={`ma-row${s.id === 'lost' || s.id === 'won' ? ' ma-row--done' : ''}`}>
-                    <div className="ma-row-main">
-                      <span className="ma-title">{i.title}</span>
-                      <span className="ma-sub">{i.company || s.label}</span>
-                    </div>
-                    {s.id !== 'won' && s.id !== 'lost' && (
-                      <button type="button" className="ma-chip" onClick={() => void apiPatchPipeline({ ...a, id: i.id, stage: nextStage(i.stage) }).then(load)}>
-                        {pipeAction(i.stage)}
-                      </button>
-                    )}
-                  </li>
-                ))}
+                {col.map((i) => {
+                  const stale = daysSince(i.updatedAt) > 10
+                  const closing = s.id === 'won' || s.id === 'lost'
+                  return (
+                    <li key={i.id} className={`ma-row${closing ? ' ma-row--done' : stale ? ' ma-row--warn' : ''}`}>
+                      <div className="ma-row-main">
+                        <span className="ma-title">
+                          {i.title}
+                          {stale && <span className="ma-badge">stale · {daysSince(i.updatedAt)} days</span>}
+                        </span>
+                        <span className="ma-sub">
+                          {[
+                            i.company || s.label,
+                            i.value > 0 ? `$${Math.round(i.value).toLocaleString()}` : '',
+                          ].filter(Boolean).join(' · ')}
+                        </span>
+                      </div>
+                      {!closing && (
+                        <span className="pipe-actions">
+                          <button
+                            type="button"
+                            className="ma-chip"
+                            disabled={movedId === i.id}
+                            onClick={() => void move(i, nextStage(i.stage))}
+                          >
+                            {movedId === i.id ? 'Moving' : pipeAction(i.stage)}
+                          </button>
+                          <button
+                            type="button"
+                            className="ma-chip"
+                            disabled={movedId === i.id}
+                            onClick={() => void move(i, 'lost')}
+                          >
+                            Lost
+                          </button>
+                        </span>
+                      )}
+                    </li>
+                  )
+                })}
               </ul>
             </div>
           )

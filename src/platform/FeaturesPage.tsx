@@ -35,6 +35,7 @@ import {
   LinearTriageApp,
   NextMoveApp,
   PickSlotApp,
+  StandupPasteApp,
 } from './WorkMiniApps'
 
 const FEATURE_APPS: Record<string, ComponentType<{ auth: FeatureAuth }>> = {
@@ -62,6 +63,7 @@ const FEATURE_APPS: Record<string, ComponentType<{ auth: FeatureAuth }>> = {
   approve_send: ApproveSendApp,
   pick_slot: PickSlotApp,
   linear_triage: LinearTriageApp,
+  standup_paste: StandupPasteApp,
   hire_decision: HireDecisionApp,
   approve_investor_note: InvestorNoteApp,
 }

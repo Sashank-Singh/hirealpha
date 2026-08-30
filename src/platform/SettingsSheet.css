@@ -1,0 +1,214 @@
+/* SettingsSheet — dark mini styling on top of the .mini design system in index.css. */
+
+/* Connectors */
+.set-conn {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+.set-conn li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  transition: border-color 0.2s ease;
+}
+.set-conn li.set-conn--on {
+  border-color: color-mix(in srgb, var(--mini-accent) 55%, var(--border));
+}
+.set-conn li.set-conn--highlight {
+  border-color: var(--mini-accent);
+  outline: 2px solid var(--mini-accent);
+  outline-offset: -2px;
+  animation: set-pulse 2s ease-in-out infinite;
+}
+@keyframes set-pulse {
+  0%, 100% { background: rgba(255, 255, 255, 0.04); }
+  50% { background: color-mix(in srgb, var(--mini-accent) 16%, transparent); }
+}
+.set-conn li .conn-mark { flex: none; }
+.set-conn-text { flex: 1; min-width: 0; display: grid; gap: 2px; }
+.set-conn-name { font-size: 14px; font-weight: 600; letter-spacing: -0.01em; }
+.set-conn-blurb { font-size: 12px; color: var(--muted-fg); line-height: 1.4; }
+.set-chip {
+  flex: none;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--mini-accent);
+  white-space: nowrap;
+}
+
+/* Buttons + links */
+.set-btn {
+  flex: none;
+  padding: 7px 14px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--mini-accent);
+  color: var(--mini-accent-fg, #f4f4f5);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.set-btn:disabled { opacity: 0.5; cursor: default; }
+.set-btn--ghost {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--fg);
+}
+.set-btn--danger { background: #ef4444; color: #fff; }
+.set-link {
+  background: none;
+  border: 0;
+  padding: 0;
+  color: var(--mini-accent);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.set-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+/* Messages */
+.set-err { margin: 8px 0 0; font-size: 12px; color: #f87171; }
+.set-note { margin: 8px 0 0; font-size: 12px; color: var(--muted-fg); line-height: 1.45; }
+
+/* Location rows */
+.set-loc { display: grid; gap: 8px; }
+.set-loc-row {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+}
+.set-loc-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 12px;
+  background: none;
+  border: 0;
+  color: var(--fg);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.set-loc-head-text { flex: 1; min-width: 0; display: grid; gap: 2px; }
+.set-loc-title { font-size: 14px; font-weight: 600; letter-spacing: -0.01em; }
+.set-loc-sub {
+  font-size: 12px;
+  color: var(--muted-fg);
+  line-height: 1.4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.set-loc-chev { flex: none; color: var(--muted-fg); transition: transform 0.15s ease; }
+.set-loc-row.is-open .set-loc-chev { transform: rotate(90deg); }
+.set-loc-body {
+  display: grid;
+  gap: 8px;
+  padding: 10px 12px 12px;
+  border-top: 1px solid var(--border);
+}
+.set-input {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--mini-accent) 6%, #fff);
+  color: var(--fg);
+  font: inherit;
+  font-size: 14px;
+}
+
+/* Kill switch */
+.set-kill {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px;
+  display: grid;
+  gap: 10px;
+}
+.set-kill-state {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.set-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: #22c55e;
+}
+.set-dot--down { background: #ef4444; }
+.set-dot--unknown { background: #6b7280; }
+.set-confirm {
+  display: grid;
+  gap: 8px;
+  justify-items: start;
+  border: 1px solid #ef4444;
+  border-radius: 12px;
+  padding: 10px;
+  background: color-mix(in srgb, #ef4444 8%, transparent);
+}
+.set-confirm p { margin: 0; font-size: 13px; }
+
+/* Loops */
+.set-loop {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+.set-loop li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 10px 12px;
+}
+.set-loop-text { flex: 1; min-width: 0; display: grid; gap: 2px; }
+.set-loop-title {
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.set-loop-sub { font-size: 12px; color: var(--muted-fg); }
+
+/* Account rows */
+.set-account { display: grid; gap: 8px; }
+.set-account-row { display: flex; align-items: baseline; gap: 8px; font-size: 14px; }
+.set-account-row dt {
+  flex: none;
+  width: 64px;
+  margin: 0;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted-fg);
+}
+.set-account-row dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }

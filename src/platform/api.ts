@@ -377,6 +377,8 @@ export type Drop = {
   summary: string | null
   status: string
   createdAt: string
+  /** Alpha's classification hint, when the payload carries one. */
+  hint?: string | null
 }
 export const apiListDrops = (a: { email?: string; token?: string }) =>
   featureGet<{ drops: Drop[] }>('/api/dropzone', authQuery(a))
@@ -522,6 +524,41 @@ export const apiPatchLearning = (a: { email?: string; token?: string; id: string
 /* ---- Standup ---- */
 export const apiStandupToday = (a: { email?: string; token?: string }) =>
   featureGet<{ today: string | null }>('/api/standup', authQuery(a))
+/** Alpha writes today's standup from meetings, promises, drafts, and decisions.
+ * The route is new, so a 404 before it ships just means the app falls back to
+ * the older paste flow. */
+export const apiStandupAuto = (a: { email?: string; token?: string; persona?: string }) =>
+  featurePost<{ text: string }>('/api/standup/auto', { ...authParams(a), persona: a.persona })
+
+/* ---- Work apps: auto-prep, slot suggestions, Linear triage ---- */
+export type MeetingPrep = {
+  event: { title: string; startsInMin: number; attendees?: string[] } | null
+  prep: {
+    agenda: string[]
+    notes: string[]
+    lastThread?: { subject: string; snippet: string }
+  }
+}
+export const apiMeetingPrep = (a: { email?: string; token?: string; persona?: string }) =>
+  featureGet<MeetingPrep>('/api/meeting/prep', authQuery(a))
+
+export type SlotSuggestion = { slots: string[]; connect?: boolean }
+export const apiSuggestSlots = (a: {
+  email?: string; token?: string; persona?: string; durationMin?: number; windowDays?: number
+}) =>
+  featurePost<SlotSuggestion>('/api/slots/suggest', {
+    ...authParams(a), persona: a.persona, durationMin: a.durationMin, windowDays: a.windowDays,
+  })
+
+export type LinearTriageItem = { title: string; age: string; priority?: string; id?: string }
+export type LinearTriageBundle = {
+  connect?: boolean
+  now: LinearTriageItem[]
+  next: LinearTriageItem[]
+  later: { count: number }
+}
+export const apiLinearTriage = (a: { email?: string; token?: string; persona?: string }) =>
+  featureGet<LinearTriageBundle>('/api/linear/triage', authQuery(a))
 
 /* ---- Weekly review ---- */
 export type WeeklySnapshot = {
@@ -701,6 +738,26 @@ export const apiAddPipeline = (a: {
 }) => featurePost<{ ok: boolean; id: string }>('/api/pipeline', { ...authParams(a), title: a.title, company: a.company, stage: a.stage, notes: a.notes, value: a.value, kind: a.kind })
 export const apiPatchPipeline = (a: { email?: string; token?: string; id: string; stage?: string; _delete?: boolean }) =>
   featurePost<{ ok: boolean }>(`/api/pipeline/${a.id}`, { ...authParams(a), stage: a.stage, _delete: a._delete })
+/** Tap-to-advance on the board: prefers the dedicated move endpoint and falls
+ * back to the item PATCH route so the board still works before it ships. */
+export const apiMovePipeline = async (a: { email?: string; token?: string; id: string; stage: string }) => {
+  try {
+    return await featurePost<{ ok: boolean }>('/api/pipeline/move', { ...authParams(a), id: a.id, stage: a.stage })
+  } catch {
+    return apiPatchPipeline({ email: a.email, token: a.token, id: a.id, stage: a.stage })
+  }
+}
+/** Ask Alpha to generate a fresh investor note from real data and park it as a
+ * pending draft. The server crew owns this route; a miss just means the manual
+ * editor stays the whole flow. */
+export const apiDraftInvestorNote = (a: { email?: string; token?: string; persona?: string }) =>
+  featurePost<{
+    ok?: boolean
+    draft?: { toAddr?: string; subject?: string; body?: string }
+    investorDraft?: { subject?: string; body?: string }
+    subject?: string
+    body?: string
+  }>('/api/investor-note/draft', { ...authParams(a), persona: a.persona })
 
 /* ---- Gratitude ---- */
 export type GratitudeEntry = { id: string; text: string; createdAt: string }

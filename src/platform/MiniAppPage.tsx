@@ -36,6 +36,7 @@ import {
   LinearTriageApp,
   HireDecisionApp,
   InvestorNoteApp,
+  StandupPasteApp,
 } from './WorkMiniApps'
 import { EmailReader } from './EmailReader'
 import { readBriefCache, writeBriefCache } from './briefCache'
@@ -119,7 +120,7 @@ function saveBrief(persona: string, kind: string, token: string, brief: BriefPay
  * 1600ms tries, which meant nothing before 1.6s and nothing after 6.4s. */
 const BRIEF_RETRY_MS = [250, 450, 700, 1000, 1400, 1900, 2500, 3200]
 
-const LIVE_MINI_KINDS = new Set(['digest', 'pick_night', 'tonight', 'standup_paste', 'kill_keep_park'])
+const LIVE_MINI_KINDS = new Set(['digest', 'pick_night', 'tonight', 'kill_keep_park'])
 
 const FACE_MOOD: Record<AgentId, AlphaFaceMood> = {
   friend: 'soft',
@@ -152,6 +153,7 @@ export const FEATURE_KINDS = new Set([
   'approve_send',
   'pick_slot',
   'linear_triage',
+  'standup_paste',
   'hire_decision',
   'approve_investor_note',
 ])
@@ -840,6 +842,9 @@ export function MiniAppPage() {
             )}
             {kind === 'linear_triage' && (
               <LinearTriageApp auth={{ persona: (persona as AgentId) || 'friend', email: email || undefined, token: token || undefined }} />
+            )}
+            {kind === 'standup_paste' && persona !== 'friend' && (
+              <StandupPasteApp auth={{ persona: (persona as AgentId) || 'friend', email: email || undefined, token: token || undefined }} />
             )}
             {kind === 'hire_decision' && (
               <HireDecisionApp auth={{ persona: (persona as AgentId) || 'friend', email: email || undefined, token: token || undefined }} />

@@ -26,6 +26,7 @@ import {
   apiLogMood,
   apiLogNutrition,
   apiLogNutritionPhoto,
+  apiMeetingPrep,
   apiNutritionToday,
   apiPatchDrop,
   apiPatchLoop,
@@ -40,6 +41,7 @@ import {
   type Drop,
   type Habit,
   type Meeting,
+  type MeetingPrep,
   type MoodEntry,
   type NutritionGoals,
   type NutritionLog,
@@ -92,8 +94,17 @@ function loopRank(l: { dueAt?: string | null }, today: string) {
 function loopDueLabel(l: { dueAt?: string | null }, today: string) {
   const d = dueDay(l.dueAt)
   if (!d) return 'no date'
-  if (d < today) return 'overdue'
+  if (d < today) {
+    const n = Math.round((new Date(`${today}T00:00:00`).getTime() - new Date(`${d}T00:00:00`).getTime()) / 86400000)
+    return n <= 1 ? 'overdue 1 day' : `overdue ${n} days`
+  }
   if (d === today) return 'due today'
+  const tomorrow = new Date(`${today}T00:00:00`)
+  tomorrow.setDate(tomorrow.getDate() + 1)
+  const ty = tomorrow.getFullYear()
+  const tm = String(tomorrow.getMonth() + 1).padStart(2, '0')
+  const td = String(tomorrow.getDate()).padStart(2, '0')
+  if (d === `${ty}-${tm}-${td}`) return 'due tomorrow'
   return fmtWhen(l.dueAt)
 }
 
@@ -144,10 +155,14 @@ export function OpenLoopsApp({ auth }: { auth: FeatureAuth }) {
   }
 
   async function setStatus(id: string, status: string) {
+    const prev = loops
+    /* Optimistic: done rows vanish before the round trip. */
+    setLoops((cur) => cur.map((l) => (l.id === id ? { ...l, status } : l)))
     try {
       await apiPatchLoop({ ...a, id, status })
       load()
     } catch (err) {
+      setLoops(prev)
       setErr(err instanceof Error ? err.message : 'Could not update that.')
     }
   }
@@ -156,10 +171,13 @@ export function OpenLoopsApp({ auth }: { auth: FeatureAuth }) {
     const due = new Date()
     due.setDate(due.getDate() + 1)
     due.setHours(9, 0, 0, 0)
+    const prev = loops
+    setLoops((cur) => cur.map((l) => (l.id === id ? { ...l, status: 'snoozed' } : l)))
     try {
       await apiPatchLoop({ ...a, id, status: 'open', dueAt: due.toISOString() })
       load()
     } catch (err) {
+      setLoops(prev)
       setErr(err instanceof Error ? err.message : 'Could not snooze that.')
     }
   }
@@ -333,10 +351,17 @@ export function DecisionLedgerApp({ auth }: { auth: FeatureAuth }) {
     if (busy) return
     setBusy(true)
     setErr('')
+    const prev = decisions
+    /* Optimistic: the row reads as closed the moment you tap, and snaps back
+     * if the server refuses. */
+    setDecisions((cur) =>
+      cur.map((d) => (d.id === id ? { ...d, outcome, status: 'reviewed' } : d)),
+    )
     try {
       await apiReviewDecision({ ...a, id, outcome })
       load()
     } catch (error) {
+      setDecisions(prev)
       setErr(error instanceof Error ? error.message : 'Could not update that.')
     } finally {
       setBusy(false)
@@ -352,21 +377,28 @@ export function DecisionLedgerApp({ auth }: { auth: FeatureAuth }) {
       {next && (
         <div className={`ma-callout${decisionRank(next) === 0 ? ' ma-callout--hot' : ''}`}>
           <span className="ma-callout-kicker">
-            {decisionRank(next) === 0 ? 'Review today' : next.reviewAt ? `Review ${fmtWhen(next.reviewAt)}` : 'Still open'}
+            {decisionRank(next) === 0 ? 'Revisit today' : next.reviewAt ? `Revisit ${fmtWhen(next.reviewAt)}` : 'Still open'}
           </span>
           <strong>{next.decision}</strong>
           {next.reason && <span className="ma-sub">{next.reason}</span>}
+          <span className="ma-sub">
+            {next.reviewAt ? `Revisit date ${fmtWhen(next.reviewAt)}` : 'No revisit date. It sits here until you call it.'}
+          </span>
           <div className="ma-callout-actions">
-            <button type="button" className="ma-btn" disabled={busy} onClick={() => void markOutcome(next.id, 'worked')}>
-              Worked
+            <button type="button" className="ma-btn" disabled={busy} onClick={() => void markOutcome(next.id, 'held up')}>
+              Held up
             </button>
-            <button type="button" className="ma-chip" disabled={busy} onClick={() => void markOutcome(next.id, 'did not work')}>
-              Did not work
+            <button type="button" className="ma-chip" disabled={busy} onClick={() => void markOutcome(next.id, 'reversed')}>
+              Reversed
             </button>
           </div>
         </div>
       )}
-      {!decisions.length && <p className="mini__empty">Log the call in one line. Review sits on top in a week.</p>}
+      {!decisions.length && (
+        <p className="mini__empty">
+          Text "we decided to pass on the VP" and it logs itself. Or write it below; the review sits on top in a week.
+        </p>
+      )}
       {(showAdd || !decisions.length) ? (
         <form className="ma-form" onSubmit={add}>
           <input
@@ -390,14 +422,22 @@ export function DecisionLedgerApp({ auth }: { auth: FeatureAuth }) {
                 <span className="ma-title">{d.decision}</span>
                 <span className="ma-sub">
                   {d.status === 'reviewed'
-                    ? `Reviewed · ${d.outcome || 'done'}`
-                    : d.reason || (d.reviewAt ? `Review ${fmtWhen(d.reviewAt)}` : `Logged ${fmtWhen(d.createdAt)}`)}
+                    ? `Called · ${d.outcome || 'done'}`
+                    : [
+                      d.reason,
+                      d.reviewAt ? `Revisit ${fmtWhen(d.reviewAt)}` : `Logged ${fmtWhen(d.createdAt)}`,
+                    ].filter(Boolean).join(' · ')}
                 </span>
               </div>
               {d.status !== 'reviewed' && (
-                <button type="button" className="ma-chip" disabled={busy} onClick={() => void markOutcome(d.id, 'worked')}>
-                  Worked
-                </button>
+                <span className="ma-callout-actions">
+                  <button type="button" className="ma-chip" disabled={busy} onClick={() => void markOutcome(d.id, 'held up')}>
+                    Held up
+                  </button>
+                  <button type="button" className="ma-chip" disabled={busy} onClick={() => void markOutcome(d.id, 'reversed')}>
+                    Reversed
+                  </button>
+                </span>
               )}
             </li>
           ))}
@@ -649,7 +689,9 @@ export function DropZoneApp({ auth }: { auth: FeatureAuth }) {
   return (
     <div className="ma">
       {!drops.length && !lastRouted && (
-        <p className="mini__empty">Dump anything. Alpha files it automatically. Undo if it guessed wrong.</p>
+        <p className="mini__empty">
+          Dump anything and Alpha files it. Or text Alpha "save this: the Stripe deck" and it lands here on its own.
+        </p>
       )}
       {lastRouted && (
         <div className="ma-callout">
@@ -666,6 +708,7 @@ export function DropZoneApp({ auth }: { auth: FeatureAuth }) {
         <div className="ma-callout">
           <span className="ma-callout-kicker">Needs you</span>
           <strong>{next.content}</strong>
+          {next.hint && <span className="ma-sub">Alpha would file this under {next.hint}</span>}
           <div className="ma-callout-actions">
             {DROP_BUCKETS.map((b) => {
               const suggested = guessDropBucket(next.content) === b.id
@@ -703,7 +746,7 @@ export function DropZoneApp({ auth }: { auth: FeatureAuth }) {
               <li key={d.id} className="ma-row">
                 <div className="ma-row-main">
                   <span className="ma-title">{d.content}</span>
-                  <span className="ma-sub">Suggested {guess}</span>
+                  <span className="ma-sub">Suggested {d.hint || guess}</span>
                 </div>
                 <button className="ma-chip ma-chip--on" type="button" disabled={filing === d.id} onClick={() => void fileDrop(d, guess)}>
                   File
@@ -734,6 +777,7 @@ export function DropZoneApp({ auth }: { auth: FeatureAuth }) {
 export function MeetingModeApp({ auth }: { auth: FeatureAuth }) {
   const a = useAuthed(auth)
   const [meetings, setMeetings] = useState<Meeting[]>([])
+  const [prep, setPrep] = useState<MeetingPrep | null>(null)
   const [title, setTitle] = useState('')
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
@@ -773,6 +817,21 @@ export function MeetingModeApp({ auth }: { auth: FeatureAuth }) {
   useEffect(() => {
     load()
   }, [load])
+
+  /* Auto-prep: Alpha assembles the brief for the next meeting on the calendar.
+   * The route is new, so a miss before it ships just leaves the manual memo and
+   * wrap flow below as the whole screen. */
+  useEffect(() => {
+    let on = true
+    apiMeetingPrep({ ...a, persona: auth.persona })
+      .then((d) => {
+        if (on) setPrep(d)
+      })
+      .catch(() => {})
+    return () => {
+      on = false
+    }
+  }, [a.email, a.token, auth.persona])
 
   async function add(e: FormEvent) {
     e.preventDefault()
@@ -970,6 +1029,26 @@ export function MeetingModeApp({ auth }: { auth: FeatureAuth }) {
 
   return (
     <div className="ma">
+      {prep?.event && (
+        <div className="ma-callout ma-callout--hot">
+          <span className="ma-callout-kicker">Prepped</span>
+          <strong>{prep.event.title} in {prep.event.startsInMin}</strong>
+          {prep.event.attendees && prep.event.attendees.length > 0 && (
+            <span className="ma-sub">With {prep.event.attendees.join(', ')}</span>
+          )}
+          {prep.prep.agenda.length > 0 && (
+            <span className="ma-sub">Agenda: {prep.prep.agenda.join(' · ')}</span>
+          )}
+          {prep.prep.notes.map((n, i) => (
+            <span key={i} className="ma-sub">{n}</span>
+          ))}
+          {prep.prep.lastThread && (
+            <span className="ma-sub">
+              Last thread: {prep.prep.lastThread.subject} · {prep.prep.lastThread.snippet}
+            </span>
+          )}
+        </div>
+      )}
       {next && (
         <div className={`ma-callout${next.phase !== 'done' ? ' ma-callout--hot' : ''}`}>
           <span className="ma-callout-kicker">{next.phase === 'done' ? 'Wrapped' : 'Up next'}</span>

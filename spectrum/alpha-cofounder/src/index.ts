@@ -7,6 +7,7 @@ import { extractMessageText, handleInboundPhoto } from '../../shared/liveContext
 import { claimInbound } from '../../shared/inboundGuard'
 import { startReminderScheduler } from '../../shared/reminders'
 import { startTaskLoopPoller } from '../../shared/taskLoops'
+import { startCofounderLoop } from '../../shared/cofounderPro'
 import { INTRO_TEXTS, startIntroPoller } from '../../shared/introQueue'
 import { startHealthServer, startHeartbeat } from '../../shared/health'
 
@@ -58,6 +59,20 @@ startHeartbeat(agent.id)
 console.log(`[${agent.id}] listening as ${agent.imsgName} (${agent.phoneNumber})`)
 
 startTaskLoopPoller({
+  persona: agent.id,
+  send: async (phone, text) => {
+    const user = await im.user(phone)
+    const space = await im.space.create(user)
+    await space.responding(async () => {
+      const cleaned = sanitizeOutbound(text)
+      if (cleaned) await space.send(cleaned)
+    })
+  },
+})
+
+// Daily digest: once per calendar day, best effort after 9am local. The digest
+// response carries the hire's phone; without it the loop stays quiet.
+startCofounderLoop({
   persona: agent.id,
   send: async (phone, text) => {
     const user = await im.user(phone)

@@ -1,0 +1,160 @@
+# Plausible Community Edition v3.2.1 — self-hosted.
+#
+# Single self-contained file: the small ClickHouse tuning XMLs from the
+# upstream repo are inlined as Compose configs, so you can paste this straight
+# into a Coolify "Docker Compose" resource (or run it with plain `docker
+# compose`). The only required env vars are BASE_URL and SECRET_KEY_BASE; see
+# .env.example for the full set.
+#
+# Upstream source (AGPL-3.0): https://github.com/plausible/community-edition
+# Requires Docker Compose >= 2.23 (inline `configs:` content). The `plausible`
+# container listens on HTTP_PORT (default 8000) and does its own create+migrate
+# on boot, so there are no manual schema steps.
+#
+# Behind a reverse proxy (Coolify/Traefik), leave HTTPS_PORT unset so CE never
+# tries its own Let's Encrypt — Coolify owns the TLS certificate.
+
+services:
+  plausible_db:
+    image: postgres:16-alpine
+    restart: always
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    environment:
+      - POSTGRES_PASSWORD=postgres
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      start_period: 1m
+
+  plausible_events_db:
+    image: clickhouse/clickhouse-server:24.12-alpine
+    restart: always
+    volumes:
+      - event-data:/var/lib/clickhouse
+      - event-logs:/var/log/clickhouse-server
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+    environment:
+      - CLICKHOUSE_SKIP_USER_SETUP=1
+    configs:
+      - source: ch_logs
+        target: /etc/clickhouse-server/config.d/logs.xml
+      - source: ch_ipv4
+        target: /etc/clickhouse-server/config.d/ipv4-only.xml
+      - source: ch_low
+        target: /etc/clickhouse-server/config.d/low-resources.xml
+      - source: ch_profile
+        target: /etc/clickhouse-server/users.d/default-profile-low-resources-overrides.xml
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "wget --no-verbose --tries=1 -O - http://127.0.0.1:8123/ping || exit 1",
+        ]
+      start_period: 1m
+
+  plausible:
+    image: ghcr.io/plausible/community-edition:v3.2.1
+    restart: always
+    command: sh -c "/entrypoint.sh db createdb && /entrypoint.sh db migrate && /entrypoint.sh run"
+    depends_on:
+      plausible_db:
+        condition: service_healthy
+      plausible_events_db:
+        condition: service_healthy
+    volumes:
+      - plausible-data:/var/lib/plausible
+    ulimits:
+      nofile:
+        soft: 65535
+        hard: 65535
+    environment:
+      # Required.
+      - BASE_URL=${BASE_URL}
+      - SECRET_KEY_BASE=${SECRET_KEY_BASE}
+      # Optional. First run: keep DISABLE_REGISTRATION=invite_only so only you
+      # can register (the very first signup on a fresh install is the owner).
+      - TOTP_VAULT_KEY=${TOTP_VAULT_KEY:-}
+      - DISABLE_REGISTRATION=${DISABLE_REGISTRATION:-invite_only}
+      - ENABLE_EMAIL_VERIFICATION=${ENABLE_EMAIL_VERIFICATION:-false}
+      - HTTP_PORT=${HTTP_PORT:-8000}
+      # Email (optional — unset means Plausible cannot send resets/reports).
+      - MAILER_ADAPTER=${MAILER_ADAPTER:-}
+      - MAILER_EMAIL=${MAILER_EMAIL:-}
+      - SMTP_HOST_ADDR=${SMTP_HOST_ADDR:-}
+      - SMTP_HOST_PORT=${SMTP_HOST_PORT:-}
+      - SMTP_USER_NAME=${SMTP_USER_NAME:-}
+      - SMTP_USER_PWD=${SMTP_USER_PWD:-}
+      - SMTP_HOST_SSL_ENABLED=${SMTP_HOST_SSL_ENABLED:-}
+
+configs:
+  ch_logs:
+    content: |
+      <clickhouse>
+          <logger>
+              <level>warning</level>
+              <console>true</console>
+          </logger>
+
+          <query_log replace="1">
+              <database>system</database>
+              <table>query_log</table>
+              <flush_interval_milliseconds>7500</flush_interval_milliseconds>
+              <engine>
+                  ENGINE = MergeTree
+                  PARTITION BY event_date
+                  ORDER BY (event_time)
+                  TTL event_date + interval 30 day
+                  SETTINGS ttl_only_drop_parts=1
+              </engine>
+          </query_log>
+
+          <!-- Stops unnecessary logging -->
+          <metric_log remove="remove" />
+          <asynchronous_metric_log remove="remove" />
+          <query_thread_log remove="remove" />
+          <text_log remove="remove" />
+          <trace_log remove="remove" />
+          <session_log remove="remove" />
+          <part_log remove="remove" />
+      </clickhouse>
+  ch_ipv4:
+    content: |
+      <clickhouse>
+          <listen_host>0.0.0.0</listen_host>
+      </clickhouse>
+  ch_low:
+    content: |
+      <clickhouse>
+          <!-- https://clickhouse.com/docs/en/operations/server-configuration-parameters/settings#mark_cache_size -->
+          <mark_cache_size>524288000</mark_cache_size>
+      </clickhouse>
+  ch_profile:
+    content: |
+      <!-- https://clickhouse.com/docs/en/operations/tips#using-less-than-16gb-of-ram -->
+      <clickhouse>
+          <profiles>
+              <default>
+                  <!-- https://clickhouse.com/docs/en/operations/settings/settings#max_threads -->
+                  <max_threads>1</max_threads>
+                  <!-- https://clickhouse.com/docs/en/operations/settings/settings#max_block_size -->
+                  <max_block_size>8192</max_block_size>
+                  <!-- https://clickhouse.com/docs/en/operations/settings/settings#max_download_threads -->
+                  <max_download_threads>1</max_download_threads>
+                  <!--
+                  https://clickhouse.com/docs/en/operations/settings/settings#input_format_parallel_parsing -->
+                  <input_format_parallel_parsing>0</input_format_parallel_parsing>
+                  <!--
+                  https://clickhouse.com/docs/en/operations/settings/settings#output_format_parallel_formatting -->
+                  <output_format_parallel_formatting>0</output_format_parallel_formatting>
+              </default>
+          </profiles>
+      </clickhouse>
+
+volumes:
+  db-data:
+  event-data:
+  event-logs:
+  plausible-data:
