@@ -9257,8 +9257,9 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     const user = await getUserByEmail(sql, email)
     if (!user) return json({ error: 'Sign in first' }, 401)
     const trialDays = Number(body.trial_days) > 0 ? Math.floor(Number(body.trial_days)) : 7
-    // A $0 plan with a trial attached is just a longer forms experience.
-    const effectiveTrialDays = plan === 'free' ? 0 : trialDays
+    // A $0 plan with a trial attached is just a longer forms experience. Stripe
+    // rejects trial_period_days of 0 outright, so the free plan omits the param.
+    const effectiveTrialDays = plan === 'free' ? null : trialDays
     // Referral free month: an unspent credit becomes a 100% off coupon on the
     // first invoice. The credit is marked used at checkout creation, not at
     // completion, so an abandoned session burns it (accepted for v1).
@@ -9316,7 +9317,7 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
       cancel_url: `${appBase(req)}/app?billing=cancelled`,
       'subscription_data[metadata][user_id]': user.id,
       'subscription_data[metadata][persona]': effectivePersona,
-      'subscription_data[trial_period_days]': String(effectiveTrialDays),
+      ...(effectiveTrialDays !== null ? { 'subscription_data[trial_period_days]': String(effectiveTrialDays) } : {}),
     })
     if (referralCouponId) params.set('discounts[0][coupon]', referralCouponId)
     try {
