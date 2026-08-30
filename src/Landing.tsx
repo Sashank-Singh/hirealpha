@@ -1251,9 +1251,6 @@ export default function Landing() {
               <a href="#pricing" className="btn btn--primary btn--lg">
                 Get started
               </a>
-              <a href="#waitlist" className="stage__dock-free">
-                or start free
-              </a>
               <p>Not an app. People in your Messages who text first and remember everything.</p>
             </div>
           </div>
