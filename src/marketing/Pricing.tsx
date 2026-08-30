@@ -223,7 +223,6 @@ export function Pricing() {
                   onClick={(e) => {
                     e.preventDefault()
                     startCheckout(tier.id, hire)
-                  }
                   }}
                 >
                   {tier.cta}
