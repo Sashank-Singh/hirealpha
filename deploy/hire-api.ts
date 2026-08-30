@@ -9268,8 +9268,11 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
       fallback = true
     }
     if (!stripeSecret() || !priceId) return json({ error: 'Billing is not set up yet' }, 503)
-    const user = await getUserByEmail(sql, email)
-    if (!user) return json({ error: 'Sign in first' }, 401)
+    // Guest checkout: the email on the checkout session IS the account. A brand
+    // new visitor should reach Stripe without signing up first; the account is
+    // created here and awaits their number whenever they land.
+    let user = await getUserByEmail(sql, email)
+    if (!user) user = await ensureUser(sql, email)
     const trialDays = Number(body.trial_days) > 0 ? Math.floor(Number(body.trial_days)) : 7
     // A $0 plan with a trial attached is just a longer forms experience. Stripe
     // rejects trial_period_days of 0 outright, so the free plan omits the param.

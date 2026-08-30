@@ -4852,3 +4852,17 @@ a.brief-fact { cursor: pointer; }
   text-decoration: line-through;
   margin-right: 6px;
 }
+.price-card__email {
+  display: flex;
+  gap: 6px;
+  margin-top: 10px;
+}
+.price-card__email input {
+  flex: 1;
+  min-width: 0;
+  border: 2px solid var(--ink);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 13px;
+}
+.price-card__email .btn { padding: 8px 12px; font-size: 13px; }

@@ -68,30 +68,64 @@ function displayPrice(tier: { id: Tier; price: number; promo?: number; per: stri
   return { price: '$' + tier.price, per: 'a month', freebie: '', was: '' }
 }
 
-/** Picking a plan: a known account goes straight to Stripe; a fresh visitor
- * carries the plan down to the single signup form, whose success screen
- * offers checkout with the email it just collected. */
-export async function choosePlan(tier: Tier, annual: boolean) {
-  const email = getSession()?.email || ''
-  if (email.includes('@')) {
-    const plan = tier === 'free' ? 'free' : tier
-    const res = await fetch('/api/billing/checkout', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, hire: 'friend', plan: annual ? `${plan}-annual` : plan, trial_days: 7 }),
-    })
-    const data = (await res.json().catch(() => ({}))) as { url?: string }
-    if (data.url) {
-      window.location.href = data.url
-      return
-    }
+/** Checkout needs an email and nothing else: a known account fires Stripe
+ * immediately, a fresh visitor types theirs into the card and follows it.
+ * Free has nothing to charge, so it walks to the signup form. */
+export async function choosePlan(tier: Tier, annual: boolean, email?: string) {
+  if (tier === 'free') {
+    document.getElementById('waitlist')?.scrollIntoView({ behavior: 'smooth' })
+    return { ok: false, needsEmail: false }
   }
-  window.dispatchEvent(new CustomEvent('hirealpha:plan', { detail: { tier, annual } }))
-  document.getElementById('waitlist')?.scrollIntoView({ behavior: 'smooth' })
+  const fromSession = getSession()?.email || ''
+  const use = email || fromSession
+  if (!use.includes('@')) return { ok: false, needsEmail: true }
+  const plan = annual ? `${tier}-annual` : tier
+  const res = await fetch('/api/billing/checkout', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email: use, hire: 'friend', plan, trial_days: 7 }),
+  })
+  const data = (await res.json().catch(() => ({}))) as { url?: string }
+  if (data.url) {
+    window.location.href = data.url
+    return { ok: true, needsEmail: false }
+  }
+  return { ok: false, needsEmail: true }
 }
 
 export function Pricing() {
   const [annual, setAnnual] = useState(false)
+  const [emailTier, setEmailTier] = useState<Tier | null>(null)
+  const [guestEmail, setGuestEmail] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [note, setNote] = useState('')
+
+  async function onCta(tier: Tier) {
+    setNote('')
+    if (tier === 'free') {
+      void choosePlan(tier, annual)
+      return
+    }
+    if (!getSession()?.email) {
+      setEmailTier(tier)
+      return
+    }
+    setBusy(true)
+    await choosePlan(tier, annual)
+    setBusy(false)
+  }
+
+  async function submitGuestEmail(tier: Tier) {
+    if (!guestEmail.includes('@')) {
+      setNote('That email looks off. One more try.')
+      return
+    }
+    setBusy(true)
+    setNote('')
+    const out = await choosePlan(tier, annual, guestEmail.trim())
+    setBusy(false)
+    if (!out.ok) setNote('Checkout did not open. Try again in a moment.')
+  }
 
   return (
     <section className="pricing section" id="pricing" aria-labelledby="pricing-heading">
@@ -145,19 +179,49 @@ export function Pricing() {
                     Coming soon
                   </button>
                 ) : (
-                  <button
-                    type="button"
-                    className={`btn ${tier.badge ? 'btn--accent' : 'btn--ghost'}`}
-                    onClick={() => void choosePlan(tier.id, annual)}
-                  >
-                    {tier.cta}
-                  </button>
+                  <>
+                    <button
+                      type="button"
+                      className={`btn ${tier.badge ? 'btn--accent' : 'btn--ghost'}`}
+                      disabled={busy}
+                      onClick={() => void onCta(tier.id)}
+                    >
+                      {busy && emailTier === tier.id ? 'Opening Stripe…' : tier.cta}
+                    </button>
+                    {emailTier === tier.id && (
+                      <form
+                        className="price-card__email"
+                        onSubmit={(e) => {
+                          e.preventDefault()
+                          void submitGuestEmail(tier.id)
+                        }}
+                      >
+                        <input
+                          type="email"
+                          required
+                          placeholder="you@email.com"
+                          value={guestEmail}
+                          onChange={(e) => setGuestEmail(e.target.value)}
+                          aria-label="Email for checkout"
+                          autoFocus
+                        />
+                        <button type="submit" className="btn btn--accent" disabled={busy}>
+                          Continue
+                        </button>
+                      </form>
+                    )}
+                  </>
                 )}
               </article>
             )
           })}
         </div>
 
+        {note && (
+          <p className="pricing__note" role="alert">
+            {note}
+          </p>
+        )}
         <p className="pricing__family">One bill, many numbers. Ask us.</p>
       </div>
     </section>
