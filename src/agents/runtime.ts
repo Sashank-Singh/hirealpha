@@ -37,7 +37,7 @@ Sashank`
       return 'Okay. Name the fear in one line. Then one small move, not the whole day.'
     }
     if (/plan|tonight|weekend|hang|dinner/.test(lower)) {
-      return 'What energy: quiet booth or loud. I can hold one.'
+      return 'What is the mood: somewhere quiet or somewhere loud. I will find the spot.'
     }
     if (/advice|should i|what do i/.test(lower)) {
       return 'Honest take. Peace, growth, or not regretting it?'
