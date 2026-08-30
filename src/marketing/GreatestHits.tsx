@@ -86,14 +86,7 @@ export function GreatestHits() {
                               {b.linkPreview && (
                                 <span className="hits__preview">
                                   {b.linkPreview.image && (
-                                    <img src={b.linkPreview.image} alt="" loading="lazy" />
-                                  )}
-                                  <span className="hits__preview-domain">
-                                    {(b.linkPreview.siteName || new URL(b.linkPreview.url).hostname).toUpperCase()}
-                                  </span>
-                                  <span className="hits__preview-title">{b.linkPreview.title}</span>
-                                  {b.linkPreview.desc && (
-                                    <span className="hits__preview-desc">{b.linkPreview.desc}</span>
+                                    <img src={b.linkPreview.image} alt={b.linkPreview.title} loading="lazy" />
                                   )}
                                 </span>
                               )}
