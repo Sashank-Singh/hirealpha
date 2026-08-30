@@ -1152,3 +1152,25 @@
   font-weight: 700;
   color: #1f7a6e;
 }
+/* The hits phones are static samples: tighten the chrome so more thread fits
+ * and the header stops eating the screen. */
+.hits__figure .ios-status {
+  padding: 8px 14px 0;
+}
+.hits__figure .thread-bar {
+  grid-template-columns: 56px 1fr 40px;
+  padding: 0 8px 4px;
+}
+.hits__figure .thread-back__count {
+  display: none;
+}
+.hits__figure .thread-bar .alpha-face {
+  width: 34px;
+  height: 34px;
+}
+.hits__figure .thread-body {
+  padding-top: 6px;
+}
+.hits__figure .thread-stamp {
+  margin-top: 2px;
+}
