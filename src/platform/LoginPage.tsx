@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { Link, Navigate, useNavigate, useSearchParams } from 'react-router-dom'
-import { apiExchangeGoogle, apiSignIn } from './api'
+import { apiExchangeGoogle, apiLoginPassword, apiRegisterPassword, apiSignIn } from './api'
 import { getSession, hydrateFromServer, signIn } from './roster'
 
 type AuthMode = 'signin' | 'signup'
@@ -14,8 +14,11 @@ export function LoginPage() {
   const [name, setName] = useState(existing?.name || '')
   const [email, setEmail] = useState(existing?.email || emailParam)
   const [phone, setPhone] = useState(existing?.phone || '')
+  const [password, setPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
   const [emailMode, setEmailMode] = useState(!!existing?.email || !!emailParam || !existing?.phone)
   const [googleUser, setGoogleUser] = useState(false)
+  const [pwSignedIn, setPwSignedIn] = useState(false)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
 
@@ -85,21 +88,73 @@ export function LoginPage() {
       setError('Enter a valid email.')
       return
     }
-    if (nextPhone.replace(/\D/g, '').length < 10) {
+    // The password form only applies before Google or a password sign in has
+    // gone through; those flows finish with a phone step instead.
+    if (!googleUser && !pwSignedIn) {
+      if (!password) {
+        setError('Enter your password.')
+        return
+      }
+      if (password.length < 8) {
+        setError('Password needs at least 8 characters.')
+        return
+      }
+    }
+    if ((mode === 'signup' || pwSignedIn) && nextPhone.replace(/\D/g, '').length < 10) {
       setError('Enter the phone you text from in Messages, including area code.')
       return
     }
-    void finish(nextName, nextEmail, nextPhone)
+    setBusy(true)
+    setError('')
+    if (needsPhoneStep) {
+      // Google and password sign ins that still lack a number land here to
+      // finish the profile, the same apiSignIn path as before.
+      void finish(nextName, nextEmail, nextPhone)
+      return
+    }
+    if (mode === 'signup') {
+      void apiRegisterPassword({ email: nextEmail, password, phone: nextPhone, name: nextName })
+        .then(async (data) => {
+          // Persist exactly like the Google exchange: the session carries the
+          // same email, name, and phone fields.
+          signIn(data.email, data.phone || nextPhone, data.name || nextName)
+          await hydrateFromServer().catch(() => undefined)
+          navigate('/app')
+        })
+        .catch((err) => {
+          setError(err instanceof Error ? err.message : 'Could not create account')
+        })
+        .finally(() => setBusy(false))
+      return
+    }
+    void apiLoginPassword(nextEmail, password)
+      .then(async (data) => {
+        if (data.phone) {
+          signIn(data.email, data.phone, data.name || nextName)
+          await hydrateFromServer().catch(() => undefined)
+          navigate('/app')
+          return
+        }
+        // Signed in, but the account has no number yet: same completion step
+        // the Google flow uses.
+        setPwSignedIn(true)
+      })
+      .catch((err) => {
+        setError(err instanceof Error ? err.message : 'Email or password is wrong')
+      })
+      .finally(() => setBusy(false))
   }
+
+  const needsPhoneStep = googleUser || pwSignedIn
 
   return (
     <div className="plat plat--auth">
       <div className="plat-auth">
         <p className="plat-auth__brand">HireAlpha</p>
-        <h1>{mode === 'signup' ? 'Sign up' : 'Sign in'}</h1>
+        <h1>{mode === 'signup' ? 'Create account' : 'Sign in'}</h1>
         <p className="plat-auth__sub">
-          {googleUser
-            ? 'Google is in. Add your name and the phone you text the hires from so they can find you.'
+          {needsPhoneStep
+            ? 'Signed in. Add the phone you text the hires from so they can find you.'
             : mode === 'signup'
               ? 'Create your account. Hire people for your texts, then connect what they need.'
               : 'Hire people for your texts, then connect what they need.'}
@@ -119,7 +174,7 @@ export function LoginPage() {
             </button>
           ) : (
             <form onSubmit={onEmailSubmit} className="plat-auth__form">
-              {mode === 'signup' && (
+              {mode === 'signup' && !pwSignedIn && (
                 <label>
                   Your name
                   <input
@@ -151,35 +206,69 @@ export function LoginPage() {
                   />
                 </label>
               )}
-              <label>
-                iMessage phone
-                <input
-                  type="tel"
-                  required
-                  autoFocus={googleUser}
-                  autoComplete="tel"
-                  value={phone}
-                  onChange={(e) => {
-                    setPhone(e.target.value)
-                    if (error) setError('')
-                  }}
-                  placeholder="+1 555 010 9876"
-                />
-              </label>
+              {!needsPhoneStep && (
+                <label>
+                  Password
+                  <span className="plat-auth__pw">
+                    <input
+                      type={showPassword ? 'text' : 'password'}
+                      required
+                      autoComplete={mode === 'signup' ? 'new-password' : 'current-password'}
+                      value={password}
+                      onChange={(e) => {
+                        setPassword(e.target.value)
+                        if (error) setError('')
+                      }}
+                      placeholder={mode === 'signup' ? 'At least 8 characters' : 'Your password'}
+                    />
+                    <button
+                      type="button"
+                      className="plat-link"
+                      onClick={() => setShowPassword((s) => !s)}
+                      aria-label={showPassword ? 'Hide password' : 'Show password'}
+                    >
+                      {showPassword ? 'Hide' : 'Show'}
+                    </button>
+                  </span>
+                </label>
+              )}
+              {(mode === 'signup' || needsPhoneStep) && (
+                <label>
+                  iMessage phone
+                  <input
+                    type="tel"
+                    required
+                    autoFocus={needsPhoneStep}
+                    autoComplete="tel"
+                    value={phone}
+                    onChange={(e) => {
+                      setPhone(e.target.value)
+                      if (error) setError('')
+                    }}
+                    placeholder="+1 555 010 9876"
+                  />
+                </label>
+              )}
               {error && <p className="plat-auth__error">{error}</p>}
               <button type="submit" className="plat-btn plat-btn--block" disabled={busy}>
-                {busy ? 'Signing in…' : googleUser ? 'Save and continue' : mode === 'signup' ? 'Sign up' : 'Sign in'}
+                {busy
+                  ? 'Signing in…'
+                  : needsPhoneStep
+                    ? 'Save and continue'
+                    : mode === 'signup'
+                      ? 'Create account'
+                      : 'Sign in'}
               </button>
             </form>
           )}
 
-          {!googleUser && (
+          {!googleUser && !pwSignedIn && (
             <button
               type="button"
               className="plat-link plat-link--center"
               onClick={() => setMode((m) => (m === 'signup' ? 'signin' : 'signup'))}
             >
-              {mode === 'signup' ? 'Already have an account? Sign in' : 'New here? Sign up'}
+              {mode === 'signup' ? 'Already have an account? Sign in' : 'New here? Create account'}
             </button>
           )}
         </div>

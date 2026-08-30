@@ -1937,6 +1937,16 @@ button, input { font: inherit; }
 }
 .plat-field textarea { resize: vertical; min-height: 80px; }
 
+/* Password field with the show and hide toggle inline. */
+.plat-auth__pw {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+  align-items: center;
+}
+.plat-auth__pw input { min-width: 0; }
+.plat-auth__pw .plat-link { font-size: 12px; white-space: nowrap; }
+
 .plat-memory { margin-top: 28px; }
 .plat-memory h2 { font-size: 16px; margin: 0 0 6px; }
 .plat-memory-list {

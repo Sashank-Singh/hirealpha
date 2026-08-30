@@ -884,6 +884,112 @@ function verifySessionToken(token: string): SessionToken | null {
   return payload
 }
 
+/* ---- Password auth ---- */
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+
+function isValidEmailFormat(email: string): boolean {
+  return EMAIL_RE.test(email) && email.length <= 320
+}
+
+/**
+ * Passwords are hashed with Bun's argon2id. The plaintext and the hash are
+ * never logged anywhere; handlers only touch them through these helpers.
+ */
+async function hashPassword(password: string): Promise<string> {
+  return Bun.password.hash(password)
+}
+
+/**
+ * Constraint: the brute force brake is in memory and per process. After 8
+ * wrong passwords for one email, that email is locked for 5 minutes. A
+ * success clears the count. Failures only count when the account exists and
+ * has a password, so never-registered addresses cannot be locked from outside.
+ */
+const LOGIN_MAX_FAILURES = 8
+const LOGIN_LOCK_MS = 5 * 60 * 1000
+const loginFailures = new Map<string, { count: number; lockedUntil: number }>()
+
+function loginLockedRemainingMs(email: string): number {
+  const entry = loginFailures.get(email)
+  if (!entry) return 0
+  return Math.max(0, entry.lockedUntil - Date.now())
+}
+
+function recordLoginFailure(email: string) {
+  const entry = loginFailures.get(email) || { count: 0, lockedUntil: 0 }
+  entry.count += 1
+  if (entry.count >= LOGIN_MAX_FAILURES) {
+    entry.lockedUntil = Date.now() + LOGIN_LOCK_MS
+    entry.count = 0
+  }
+  loginFailures.set(email, entry)
+}
+
+function clearLoginFailures(email: string) {
+  loginFailures.delete(email)
+}
+
+/** Test hook: resets the in-memory lockout table between test cases. */
+export function resetLoginFailures() {
+  loginFailures.clear()
+}
+
+/** The exact response shape the Google ticket exchange returns, plus the session token. */
+function sessionTokenResponse(user: { email: string; name: string | null; phone: string | null }) {
+  const session = mintSessionToken(user.email)
+  return json({
+    email: user.email,
+    name: user.name,
+    phone: user.phone,
+    ...(session ? { session } : {}),
+  })
+}
+
+/** Read only the stored hash for a user id. Never logged, never sent to clients. */
+async function getPasswordHashById(sql: SQL, userId: string): Promise<string | null> {
+  const rows = await sql`
+    SELECT password_hash FROM hire_users WHERE id = ${userId} LIMIT 1
+  `
+  const hash = (rows[0] as { password_hash?: unknown } | undefined)?.password_hash
+  return typeof hash === 'string' && hash ? hash : null
+}
+
+/** Guard for raw password input: string, 8 to 200 chars. */
+function isPlausiblePassword(password: unknown): password is string {
+  return typeof password === 'string' && password.length >= 8 && password.length <= 200
+}
+
+/**
+ * Set a password on the account for an email, creating the account if needed.
+ * Used by register and by the waitlist. Waitlist callers treat every outcome
+ * as quiet: 'exists' means the account already has a password, and any storage
+ * error resolves to 'skipped' rather than blocking the signup.
+ */
+export async function attachPasswordToAccount(
+  sql: SQL,
+  email: string,
+  password: unknown,
+  phone?: string | null,
+): Promise<'set' | 'exists' | 'invalid' | 'skipped'> {
+  const addr = String(email || '').trim().toLowerCase()
+  if (!isValidEmailFormat(addr) || !isPlausiblePassword(password)) return 'invalid'
+  try {
+    const user = await ensureUser(sql, addr, phone || undefined)
+    if (await getPasswordHashById(sql, user.id)) return 'exists'
+    const hash = await hashPassword(password)
+    await sql`
+      UPDATE hire_users SET password_hash = ${hash}, updated_at = now()
+      WHERE id = ${user.id}
+    `
+    return 'set'
+  } catch {
+    // Waitlist is not a conflict surface: a phone already owned by another
+    // account (or any storage hiccup) just leaves the password unset.
+    return 'skipped'
+  }
+}
+
 export async function ensureHireSchema(sql: SQL) {
   await sql`
     CREATE TABLE IF NOT EXISTS hire_users (
@@ -898,6 +1004,7 @@ export async function ensureHireSchema(sql: SQL) {
   `
   await sql`ALTER TABLE hire_users ADD COLUMN IF NOT EXISTS name TEXT`
   await sql`ALTER TABLE hire_users ADD COLUMN IF NOT EXISTS timezone TEXT`
+  await sql`ALTER TABLE hire_users ADD COLUMN IF NOT EXISTS password_hash TEXT`
   await sql`
     CREATE TABLE IF NOT EXISTS hire_reminders (
       id TEXT PRIMARY KEY,
@@ -7582,6 +7689,73 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
       return json({ error: 'Sign in expired. Try Google again.' }, 400)
     }
     return json({ email: row.email, name: row.name, phone: row.phone })
+  }
+
+  if (path === '/api/auth/register' && req.method === 'POST') {
+    const body = (await req.json().catch(() => ({}))) as Record<string, unknown>
+    const email = String(body.email || '')
+      .trim()
+      .toLowerCase()
+    const password = body.password
+    const phone = typeof body.phone === 'string' ? body.phone : undefined
+    const name = typeof body.name === 'string' ? body.name : undefined
+    if (!isValidEmailFormat(email)) return json({ error: 'Enter a valid email' }, 400)
+    if (!isPlausiblePassword(password)) {
+      return json({ error: 'Password needs at least 8 characters' }, 400)
+    }
+    let user: AuthedUser
+    try {
+      user = await ensureUser(sql, email, phone, name)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      if (msg.toLowerCase().includes('unique') || msg.includes('hire_users_phone')) {
+        return json({ error: 'That phone is already linked to another account' }, 409)
+      }
+      console.error('[hire] register user failed', err)
+      return json({ error: 'Could not create account' }, 500)
+    }
+    if (await getPasswordHashById(sql, user.id)) {
+      return json({ error: 'Already has a password. Sign in instead.' }, 409)
+    }
+    const hash = await hashPassword(password)
+    await sql`
+      UPDATE hire_users SET password_hash = ${hash}, updated_at = now()
+      WHERE id = ${user.id}
+    `
+    return sessionTokenResponse(user)
+  }
+
+  if (path === '/api/auth/login' && req.method === 'POST') {
+    const body = (await req.json().catch(() => ({}))) as Record<string, unknown>
+    const email = String(body.email || '')
+      .trim()
+      .toLowerCase()
+    const password = body.password
+    if (!email.includes('@') || typeof password !== 'string' || !password) {
+      return json({ error: 'Email or password is wrong' }, 401)
+    }
+    const lockedMs = loginLockedRemainingMs(email)
+    if (lockedMs > 0) {
+      return json({ error: 'Too many attempts. Try again in a few minutes.' }, 429)
+    }
+    const rows = await sql`
+      SELECT id, email, name, timezone, phone_e164 AS phone, password_hash
+      FROM hire_users
+      WHERE email = ${email}
+      LIMIT 1
+    `
+    const row = rows[0] as
+      | { id: string; email: string; name: string | null; timezone: string | null; phone: string | null; password_hash: unknown }
+      | undefined
+    const hash = typeof row?.password_hash === 'string' ? row.password_hash : ''
+    if (!row || !hash) return json({ error: 'Email or password is wrong' }, 401)
+    const ok = await Bun.password.verify(password, hash)
+    if (!ok) {
+      recordLoginFailure(email)
+      return json({ error: 'Email or password is wrong' }, 401)
+    }
+    clearLoginFailures(email)
+    return sessionTokenResponse(row)
   }
 
   if (path === '/api/me' && req.method === 'POST') {

@@ -866,6 +866,7 @@ const HIRE_LINES: Record<AgentId, { label: string; phoneDisplay: string; soon?: 
 function WaitlistForm() {
   const [phone, setPhone] = useState('')
   const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
   const [hire, setHire] = useState<AgentId>('friend')
   const [done, setDone] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -877,7 +878,12 @@ function WaitlistForm() {
     e.preventDefault()
     const phoneValue = phone.trim()
     const emailValue = email.trim().toLowerCase()
+    const passwordValue = password
     if (!phoneValue || !emailValue || !emailValue.includes('@')) return
+    if (passwordValue.length < 8) {
+      setError('Password needs at least 8 characters.')
+      return
+    }
     setBusy(true)
     setError('')
     try {
@@ -887,6 +893,7 @@ function WaitlistForm() {
         body: JSON.stringify({
           phone: phoneValue,
           email: emailValue,
+          password: passwordValue,
           hire,
           ...(code.trim() ? { code: code.trim() } : {}),
         }),
@@ -979,6 +986,20 @@ function WaitlistForm() {
           autoComplete="tel"
         />
         <input
+          type="password"
+          placeholder="Password (8+ characters)"
+          value={password}
+          onChange={(e) => {
+            setPassword(e.target.value)
+            if (error) setError('')
+          }}
+          aria-label="Password, at least 8 characters"
+          disabled={busy}
+          autoComplete="new-password"
+          minLength={8}
+          required
+        />
+        <input
           type="text"
           placeholder="Invite code (optional)"
           value={code}
@@ -1016,8 +1037,8 @@ function WaitlistForm() {
       ) : (
         <p className="waitlist-note">
           {HIRE_LINES[hire].soon
-            ? `${HIRE_LINES[hire].label} is in the workshop. Alpha the Friend is live: your number and email get the invite the day both ship.`
-            : `Number and email in, ${HIRE_LINES[hire].label} texts you first. iPhone Messages. Early access. $19 a month when you hire.`}
+            ? `${HIRE_LINES[hire].label} is in the workshop. Alpha the Friend is live: your number, email, and password get the invite the day both ship.`
+            : `Number, email, and a password. ${HIRE_LINES[hire].label} texts you first. iPhone Messages. Early access. $19 a month when you hire.`}
         </p>
       )}
     </>

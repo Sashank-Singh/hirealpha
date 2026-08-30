@@ -6,6 +6,7 @@ import { SQL } from 'bun'
 import { brotliCompressSync, constants as zlibConstants } from 'node:zlib'
 import { join } from 'node:path'
 import {
+  attachPasswordToAccount,
   claimInvite,
   ensureHireSchema,
   ensurePhoneUser,
@@ -263,9 +264,9 @@ export async function handleWaitlist(req: Request, db: SQL | null) {
   const sql = db
   if (!sql) return json({ error: 'Waitlist storage unavailable' }, 503)
 
-  let body: { email?: string; phone?: string; hire?: string; code?: string }
+  let body: { email?: string; phone?: string; hire?: string; code?: string; password?: string }
   try {
-    body = (await req.json()) as { email?: string; phone?: string; hire?: string; code?: string }
+    body = (await req.json()) as { email?: string; phone?: string; hire?: string; code?: string; password?: string }
   } catch {
     return json({ error: 'Invalid JSON' }, 400)
   }
@@ -275,10 +276,21 @@ export async function handleWaitlist(req: Request, db: SQL | null) {
     .toLowerCase()
   const rawPhone = String(body.phone || '').trim()
   const code = String(body.code || '').trim()
+  const password = body.password
   const hire = body.hire && isPersona(body.hire) ? body.hire : 'friend'
   if (!email && !rawPhone) return json({ error: 'Enter your number or email' }, 400)
   if (email && !isValidEmail(email)) return json({ error: 'Enter a valid email' }, 400)
   if (rawPhone && !normalizePhone(rawPhone)) return json({ error: 'Enter a valid phone number' }, 400)
+  // Password is optional on the waitlist, but when it is present it must be a
+  // real one so the saved account can actually sign in later.
+  if (
+    password !== undefined &&
+    password !== null &&
+    password !== '' &&
+    (typeof password !== 'string' || password.length < 8 || password.length > 200)
+  ) {
+    return json({ error: 'Password needs at least 8 characters' }, 400)
+  }
 
   try {
     if (email) {
@@ -310,6 +322,13 @@ export async function handleWaitlist(req: Request, db: SQL | null) {
           ON CONFLICT (phone_e164, persona) DO NOTHING
         `
       }
+    }
+    // A password on the waitlist arms the account for email sign in later.
+    // Passing the phone too lets it adopt the placeholder account the intro
+    // pipeline just created, so signup and waitlist land on one person. Any
+    // existing password wins quietly: the waitlist is not a conflict surface.
+    if (email && password) {
+      await attachPasswordToAccount(sql, email, password, rawPhone || null)
     }
     // Referral: an invite code ties this signup to a friend who shared theirs.
     // A failed claim never blocks the signup — the friend still joins, we just

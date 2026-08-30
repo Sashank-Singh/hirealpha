@@ -27,6 +27,41 @@ export async function apiExchangeGoogle(ticket: string) {
   return { email: data.email, name: data.name || '', phone: data.phone || '' }
 }
 
+/** Session response shared by password register and login: email, name, phone, session token. */
+export type PasswordSession = {
+  email: string
+  name: string | null
+  phone: string | null
+  session?: string
+}
+
+export async function apiRegisterPassword(input: {
+  email: string
+  password: string
+  phone?: string
+  name?: string
+}) {
+  const res = await fetch(`${API}/api/auth/register`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email: input.email, password: input.password, phone: input.phone, name: input.name }),
+  })
+  const data = await parseJson<PasswordSession & { error?: string }>(res)
+  if (!res.ok || !data.email) throw new Error(data.error || 'Could not create account')
+  return data
+}
+
+export async function apiLoginPassword(email: string, password: string) {
+  const res = await fetch(`${API}/api/auth/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, password }),
+  })
+  const data = await parseJson<PasswordSession & { error?: string }>(res)
+  if (!res.ok || !data.email) throw new Error(data.error || 'Email or password is wrong')
+  return data
+}
+
 export async function apiSignIn(email: string, phone: string, name?: string, timezone?: string) {
   const res = await fetch(`${API}/api/me`, {
     method: 'POST',
