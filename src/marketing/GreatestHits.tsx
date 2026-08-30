@@ -24,7 +24,7 @@ export function GreatestHits() {
         <div className="hits__head">
           <p className="hits__eyebrow">In the thread</p>
           <h2 id="hits-heading">Texting a hire looks like this.</h2>
-          <p>Sample threads in the product\u2019s voice. The real ones go up here as they happen \u2014 with consent, lightly edited.</p>
+          <p>Sample threads in the product’s voice. The real ones go up here as they happen — with consent, lightly edited.</p>
         </div>
         <div className="hits__grid">
           {HIGHLIGHTS.map((t) => {
