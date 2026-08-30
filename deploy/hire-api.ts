@@ -4363,7 +4363,10 @@ async function loadHomeWorld(sql: SQL, user: AuthedUser, tzLocal: string): Promi
         if (!rich.length) return []
         // One model call judged everything, from cache when fresh. The regex
         // pick stays only for the run where the model answers nothing.
-        const verdicts = await loadJudgeVerdicts(sql, user.id, rich, [], user.timezone)
+        const [vocab, verdicts] = await Promise.all([
+          loadMailKindVocab(sql, user.id),
+          loadJudgeVerdicts(sql, user.id, rich, [], user.timezone),
+        ])
         const labelled: MailKindItem[] = rich.map((m) => ({ ...m, kind: verdicts?.mails.get(m.id)?.kind }))
         // One email above the pile counts: the model's highest-urgency needs-you
         // mail, with its reason line. Regex pick is the model-down fallback.
@@ -4373,9 +4376,12 @@ async function loadHomeWorld(sql: SQL, user: AuthedUser, tzLocal: string): Promi
             { label: formatMailLineFromParts(m.from, m.subject), snippet: cleanMailSnippet(m.snippet || '') },
           ]),
         )
-        world.attention =
-          (verdicts && judgedAttentionPick(verdicts, attentionLines)) ||
-          pickAttentionEmail(
+        // When the model answered, its pick rules — even when it names nothing,
+        // the slot drops quietly instead of regexes resurfacing a promo. Regex
+        // pick only for the model-down run.
+        world.attention = verdicts
+          ? judgedAttentionPick(verdicts, attentionLines)
+          : pickAttentionEmail(
             labelled.map((m) => ({
               id: m.id,
               label: formatMailLineFromParts(m.from, m.subject),

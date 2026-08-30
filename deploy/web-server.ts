@@ -571,10 +571,14 @@ await loadManifest()
 
 // Daily promo upgrade check: upgrade $5/mo → $19/mo after 60 days
 if (sql) {
-  const { upgradePromoSubscriptions } = await import('./hire-api')
+  const { upgradePromoSubscriptions, prewarmJudgeCaches } = await import('./hire-api')
   setInterval(() => upgradePromoSubscriptions(sql!), 24 * 60 * 60 * 1000)
   // Run once on boot to catch any overdue upgrades
   upgradePromoSubscriptions(sql).catch((e) => console.error('[billing] initial promo check failed', e))
+  // Judgment prewarm: every 15 minutes re-judge mail + meetings for recently
+  // active users so opening a brief is a cache hit, never a model call.
+  setInterval(() => prewarmJudgeCaches(sql!), 15 * 60 * 1000)
+  prewarmJudgeCaches(sql).catch((e) => console.error('[judge] initial prewarm failed', e))
 }
 
 Bun.serve({
