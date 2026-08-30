@@ -979,15 +979,6 @@ function WaitlistForm() {
           disabled={busy}
           autoComplete="tel"
         />
-        <input
-          type="tel"
-          placeholder="(555) 555-0100"
-          value={phone}
-          onChange={(e) => setPhone(e.target.value)}
-          aria-label="Your phone number"
-          disabled={busy}
-          autoComplete="tel"
-        />
         <button type="submit" className="btn btn--accent" disabled={busy}>
           {busy ? 'Saving…' : 'Get my invite'}
         </button>
@@ -1039,7 +1030,7 @@ function WaitlistForm() {
         <p className="waitlist-note">
           {HIRE_LINES[hire].soon
             ? `${HIRE_LINES[hire].label} is in the workshop. Alpha the Friend is live: your number, email, and password get the invite the day both ship.`
-            : `Number, email, and a password. ${HIRE_LINES[hire].label} texts you first. iPhone Messages. Early access. $19 a month when you hire.`}
+            : `Number and email in, ${HIRE_LINES[hire].label} texts you first. iPhone Messages. Early access. $19 a month when you hire.`}
         </p>
       )}
     </>
