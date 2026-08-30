@@ -27,6 +27,7 @@ import {
 } from './LifeMiniApps'
 import { HomeApp } from './HomeApp'
 import { ArtifactApp, CofounderHomeApp, CoworkerHomeApp } from './WorkHomes'
+import { BuildsApp } from './FeatureMiniApps'
 import { BriefApp } from './BriefApp'
 import { useRefreshOnFocus } from './useRefreshOnFocus'
 import { BodyHubApp, LaterHubApp } from './FriendHubApps'
@@ -156,7 +157,8 @@ export const FEATURE_KINDS = new Set([
   'standup_paste',
   'hire_decision',
   'approve_investor_note',
-])
+  'builds',
+  ])
 
 export interface MenuFeature {
   kind: string
@@ -185,6 +187,7 @@ export const MENU_FEATURES: Record<string, MenuFeature[]> = {
     { kind: 'pick_night', title: 'Evening brief', emoji: '🌆', blurb: 'Day wrap, mail since morning, tomorrow.' },
     { kind: 'tonight', title: 'Tonight', emoji: '🌙', blurb: 'Places to eat or hang. Maps powered.', sample: 'dinner plans tonight' },
     { kind: 'later', title: 'Later', emoji: '📥', blurb: 'Drop zone, learning, promises, gratitude.', sample: 'save for later' },
+    { kind: 'builds', title: 'Your builds', emoji: '🛠️', blurb: 'Everything Alpha built for you, saved in one place.' },
   ],
   coworker: [
     { kind: 'meeting_mode', title: 'Meeting mode', emoji: '🗂️', blurb: 'Prepped before, wrapped after.', sample: 'prep me for the review' },
@@ -464,6 +467,29 @@ export function MiniAppPage() {
    * kinds still redirect for friend, who never had them. */
   if (kind === 'next_move') {
     return <Navigate to={openHref('home')} replace />
+  }
+
+  /* Your builds: every workshop artifact, newest first. */
+  if (kind === 'builds') {
+    return (
+      <div className="mini" style={{ '--mini-accent': miniAccent, '--mini-accent-fg': miniAccentFg } as CSSProperties}>
+        <div className="mini__card">
+          <header className="mini__head">
+            <Link className="mini__nav" to={appsHref} aria-label="Back to all apps">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path d="M15 6l-6 6 6 6" stroke="currentColor" strokeWidth="2.25" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </Link>
+          </header>
+          <div className="mini__body">
+            <BuildsApp
+              auth={{ persona: (persona as AgentId) || 'friend', email: email || undefined, token: token || undefined }}
+              persona={(persona as AgentId) || 'friend'}
+            />
+          </div>
+        </div>
+      </div>
+    )
   }
 
   /* Workshop artifacts: the built thing, with keep-or-toss. */

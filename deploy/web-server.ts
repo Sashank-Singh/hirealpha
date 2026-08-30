@@ -401,6 +401,7 @@ const MINI_META: Record<string, { title: string; description: string }> = {
   spending_snapshot: { title: 'Spending', description: 'Log spend against a weekly budget.' },
   home: { title: 'Home', description: 'Here is what your life actually looks like.' },
   artifact: { title: 'Your build', description: 'Built by Alpha. Open it, then say keep it or toss it.' },
+  builds: { title: 'Your builds', description: 'Everything Alpha built for you, saved in one place.' },
 }
 
 function miniMeta(pathname: string) {

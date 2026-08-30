@@ -16,6 +16,7 @@ import {
   apiDeleteHabit,
   apiDeleteMeeting,
   apiDeleteNutritionLog,
+  apiListArtifacts,
   apiListDecisions,
   apiListDrops,
   apiListHabits,
@@ -48,6 +49,7 @@ import {
   type OpenLoop,
   type Relationship,
 } from './api'
+import type { Artifact } from './api'
 
 export interface FeatureAuth {
   email?: string
@@ -592,6 +594,63 @@ const DROP_BUCKETS: Array<{ id: DropBucket; label: string }> = [
   { id: 'learning', label: 'Learning' },
   { id: 'network', label: 'Network' },
 ]
+
+/** Every workshop build, newest first. Tapping opens the build in the
+ * artifact screen where keep and toss live. */
+export function BuildsApp({ auth, persona }: { auth: FeatureAuth; persona: AgentId }) {
+  const [builds, setBuilds] = useState<Artifact[] | null>(null)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    let live = true
+    apiListArtifacts({ email: auth.email, token: auth.token })
+      .then((res) => {
+        if (live) setBuilds(res.artifacts || [])
+      })
+      .catch(() => {
+        if (live) setError('Could not load your builds. Try again in a bit.')
+      })
+    return () => {
+      live = false
+    }
+  }, [auth.email, auth.token])
+
+  const fmtDay = (iso: string) => {
+    const d = new Date(iso)
+    return Number.isNaN(d.getTime()) ? '' : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+  }
+
+  return (
+    <div className="ma-block">
+      <p className="ma-callout-kicker">Your builds</p>
+      {error && <p className="ma-body">{error}</p>}
+      {!error && builds === null && <p className="ma-body">Loading your builds…</p>}
+      {!error && builds !== null && builds.length === 0 && (
+        <p className="ma-body">
+          Nothing built yet. Text Alpha what you want, like "build a habit tracker", and it lands here.
+        </p>
+      )}
+      {!error && builds !== null && builds.length > 0 && (
+        <ul className="ma-list">
+          {builds.map((b) => (
+            <li key={b.id}>
+              <Link className="ma-row" to={`/app/mini/${persona}/artifact?id=${b.id}${auth.token ? `&t=${auth.token}` : auth.email ? `&email=${encodeURIComponent(auth.email)}` : ''}`}>
+                <span className="ma-row-main">
+                  <strong>{b.title}</strong>
+                  <span className="ma-row-sub">
+                    {fmtDay(b.createdAt)}
+                    {b.state === 'kept' ? ' · saved' : ' · expires in 7 days unless you keep it'}
+                  </span>
+                </span>
+                <span aria-hidden="true">›</span>
+              </Link>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
+}
 
 export function DropZoneApp({ auth }: { auth: FeatureAuth }) {
   const a = useAuthed(auth)

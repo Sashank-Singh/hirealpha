@@ -11653,6 +11653,20 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     return { ok: true, logged: true, id }
   }
 
+  if (path === '/api/internal/workshop/count' && req.method === 'GET') {
+    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
+    const rows = (await sql`
+      SELECT state, count(*)::int AS n FROM hire_artifacts GROUP BY state
+    `) as Array<{ state: string; n: number }>
+    const byState: Record<string, number> = {}
+    let total = 0
+    for (const r of rows) {
+      byState[r.state] = r.n
+      total += r.n
+    }
+    return json({ total, byState })
+  }
+
   if (path === '/api/internal/workshop' && req.method === 'POST') {
     if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
     if (process.env.WORKSHOP_ENABLED === '0') return json({ ok: false, logged: false, error: 'Workshop is disabled' })
