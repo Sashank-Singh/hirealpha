@@ -58,7 +58,6 @@ const AGENTS: Agent[] = [
         kind: 'action',
         app: 'Fandango',
         title: 'Friday 7:15 PM · Tap to book',
-        image: '/images/fandango-preview.jpg',
       },
       { text: 'snagged them. block 6:30 to 10:30 on my cal', from: 'me' },
       { text: 'done. blocked with travel buffer. enjoy 70mm', from: 'them' },
@@ -1255,7 +1254,7 @@ export default function Landing() {
               <a href="#waitlist" className="stage__dock-free">
                 or start free
               </a>
-              <p>Real iMessage. Real replies in seconds. Three hires, one phone number each.</p>
+              <p>Not an app. People in your Messages who text first and remember everything.</p>
             </div>
           </div>
 
