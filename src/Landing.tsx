@@ -16,6 +16,7 @@ interface Msg {
   kind?: 'text' | 'action'
   app?: string
   title?: string
+  image?: string
 }
 
 interface Agent {
@@ -45,21 +46,22 @@ const AGENTS: Agent[] = [
     mood: 'soft',
     pitch:
       'The friend who already knows your people. Texts first. Lives next to Mom in Messages.',
-    preview: 'checked you in for AA248. heads up, it now lands 6:15. want dinner moved to 8:45?',
+    preview: 'Metreon has 2 seats left at 7:15 PM in 70mm IMAX. Row F reserved.',
     time: '2m',
     unread: true,
     messages: [
-      { text: 'checked you in. seat 14C, gate B14', from: 'them' },
+      { text: 'check if there are odyssey tickets in 70mm imax this friday', from: 'me' },
+      { text: 'Metreon has 2 seats left at 7:15 PM row F. AMC Cupertino is sold out', from: 'them' },
       {
-        text: 'AA248 boarding pass. Tap to open.',
+        text: 'AMC Metreon 16 · 70mm IMAX Row F (2 left)',
         from: 'them',
         kind: 'action',
-        app: 'Wallet',
-        title: 'AA248 · SFO 6:15 → JFK',
+        app: 'Fandango',
+        title: 'Friday 7:15 PM · Tap to book',
+        image: '/images/fandango-preview.jpg',
       },
-      { text: 'flight delayed, lands 6:15. want dinner with Michael pushed to 8:45?', from: 'them' },
-      { text: 'yes move it', from: 'me' },
-      { text: 'done. 8:45, same place', from: 'them' },
+      { text: 'snagged them. block 6:30 to 10:30 on my cal', from: 'me' },
+      { text: 'done. blocked with travel buffer. enjoy 70mm', from: 'them' },
     ],
   },
   {
@@ -808,9 +810,14 @@ function PhoneDemo({
                         >
                           {m.kind === 'action' ? (
                             <div className="imsg-rich">
+                              {m.image && (
+                                <div className="imsg-rich__thumb">
+                                  <img src={m.image} alt={m.title || m.app || ''} />
+                                </div>
+                              )}
                               <div className="imsg-rich__app">
                                 <span
-                                  className={`imsg-rich__glyph imsg-rich__glyph--${(m.app || 'app').toLowerCase()}`}
+                                  className={`imsg-rich__glyph imsg-rich__glyph--${(m.app || 'app').toLowerCase().replace(/\s+/g, '-')}`}
                                   aria-hidden
                                 />
                                 <span>{m.app}</span>
@@ -1243,7 +1250,7 @@ export default function Landing() {
 
             <div className="stage__dock">
               <a href="#pricing" className="btn btn--primary btn--lg">
-                Hire Alpha
+                Get started
               </a>
               <a href="#waitlist" className="stage__dock-free">
                 or start free
