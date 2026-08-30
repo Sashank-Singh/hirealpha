@@ -3,19 +3,20 @@ import { getSession } from '../platform/roster'
 
 type Tier = 'free' | 'single' | 'bundle' | 'ultra'
 
-const TIERS: { id: Tier; name: string; price: number; per: string; blurb: string; badge?: string; cta: string; soon?: boolean }[] = [
+const TIERS: { id: Tier; name: string; price: number; promo?: number; per: string; blurb: string; badge?: string; cta: string; soon?: boolean }[] = [
   {
     id: 'free',
     name: 'Free',
     price: 0,
     per: 'forever',
-    blurb: 'Alpha Lite. One brief a week and one hire (Alpha the Friend), with the core apps only. Alpha will remind you what the paid tiers unlock. Often.',
+    blurb: 'Alpha Lite. One brief a week. One hire: Alpha the Friend. Core apps only.',
     cta: 'Start free',
   },
   {
     id: 'single',
     name: 'Single hire',
     price: 19,
+    promo: 5,
     per: 'a month',
     blurb: 'Alpha the Friend. Unlimited texts. Apps in the thread.',
     badge: 'Live now',
@@ -44,16 +45,27 @@ const TIERS: { id: Tier; name: string; price: number; per: string; blurb: string
 
 /** Display price reacts to the billing period. Annual figures are monthly x 10
  * (2 months free) and must stay in sync with the STRIPE_PRICE_*_ANNUAL envs. */
-function displayPrice(tier: { id: Tier; price: number; per: string }, annual: boolean) {
-  if (tier.id === 'free') return { price: '$0', per: 'forever', freebie: '' }
+function displayPrice(tier: { id: Tier; price: number; promo?: number; per: string }, annual: boolean) {
+  if (tier.id === 'free') return { price: '$0', per: 'forever', freebie: '', was: '' }
   if (annual) {
     return {
       price: '$' + (tier.price * 10).toLocaleString('en-US'),
       per: 'a year',
       freebie: '2 months free',
+      was: '',
     }
   }
-  return { price: '$' + tier.price, per: 'a month', freebie: '' }
+  // Intro deal on the monthly single: 7 days free to start, then $5 for two
+  // months, then the real price. The old price stays visible, struck through.
+  if (tier.promo) {
+    return {
+      price: '$' + tier.promo,
+      per: 'a month',
+      freebie: '7 days free, then $5 for 2 months',
+      was: '$' + tier.price,
+    }
+  }
+  return { price: '$' + tier.price, per: 'a month', freebie: '', was: '' }
 }
 
 /** Picking a plan: a known account goes straight to Stripe; a fresh visitor
