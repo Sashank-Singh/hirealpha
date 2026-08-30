@@ -66,14 +66,50 @@ export function GreatestHits() {
                           {t.bubbles.map((b, i) => (
                             <li
                               key={i}
-                              className={`bubble bubble--${b.from} hits__bubble`}
+                              className={`bubble bubble--${b.from} hits__bubble${b.card ? ' bubble--rich' : ''}`}
                               aria-label={`${b.from === 'me' ? 'You' : PERSONA_NAME[t.persona]}: ${b.text}`}
                             >
+                              {b.image && (
+                                <img className="hits__bubble-img" src={b.image} alt="" loading="lazy" />
+                              )}
                               {b.app && <span className="hits__app">{b.app}</span>}
                               {b.text}
+                              {b.card && (
+                                <div className="imsg-rich" aria-hidden="true">
+                                  <div className="imsg-rich__app">
+                                    <span className="imsg-rich__glyph" />
+                                    <span>{b.card.app}</span>
+                                  </div>
+                                  <p className="imsg-rich__title">{b.card.title}</p>
+                                </div>
+                              )}
+                              {b.linkPreview && (
+                                <span className="hits__preview">
+                                  {b.linkPreview.image && (
+                                    <img src={b.linkPreview.image} alt="" loading="lazy" />
+                                  )}
+                                  <span className="hits__preview-domain">
+                                    {(b.linkPreview.siteName || new URL(b.linkPreview.url).hostname).toUpperCase()}
+                                  </span>
+                                  <span className="hits__preview-title">{b.linkPreview.title}</span>
+                                  {b.linkPreview.desc && (
+                                    <span className="hits__preview-desc">{b.linkPreview.desc}</span>
+                                  )}
+                                </span>
+                              )}
                             </li>
                           ))}
                         </ul>
+                        {t.halfSheet && (
+                          <div className="hits__sheet" aria-hidden="true">
+                            {t.halfSheet.image && <img src={t.halfSheet.image} alt="" loading="lazy" />}
+                            <div>
+                              <p className="hits__sheet-app">{t.halfSheet.app}</p>
+                              <p className="hits__sheet-title">{t.halfSheet.title}</p>
+                              {t.halfSheet.badge && <p className="hits__sheet-badge">{t.halfSheet.badge}</p>}
+                            </div>
+                          </div>
+                        )}
                         {lastMine && <p className="thread-delivered">Delivered</p>}
                       </div>
                       <div className="thread-composer">
