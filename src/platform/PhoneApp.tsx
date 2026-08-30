@@ -44,20 +44,23 @@ function countToday(actions: ActionReceipt[]): number {
 
 export function PhoneApp() {
   const [searchParams] = useSearchParams()
+  const [showOthers, setShowOthers] = useState(false)
   const session = getSession()
   const agent = getAgent('friend')
 
   /* Texted-card links carry a session token in `t`; a signed-in device carries
    * the email. Mini links hand the query this screen arrived with onward —
    * `t` or anything else — the same pass-through HomeApp and MiniAppPage do.
-   * With no query at all, fall back to the session email. */
+   * With no query at all, fall back to the session email. The persona arg points
+   * the Other hires' tiles at their own mini apps, same as HomeApp does. */
   const carried = searchParams.toString()
   const suffix = carried
     ? `?${carried}`
     : session?.email
       ? `?email=${encodeURIComponent(session.email)}`
       : ''
-  const miniLink = (kind: string) => `/app/mini/friend/${kind}${suffix}`
+  const miniLink = (kind: string, persona?: string) =>
+    `/app/mini/${persona || 'friend'}/${kind}${suffix}`
 
   /* The home matches the moment: right after checkout the only job is the
    * first text. The full app grid appears once they have tapped Text Alpha
@@ -160,24 +163,52 @@ export function PhoneApp() {
 
           <section className="mini__section phone-apps" aria-label="Your apps">
             <h2>Your apps</h2>
-            <nav className="mini__menu phone-menu">
+            <p className="phone-apps-sub">Tap one. Everything lives in your thread too.</p>
+            <nav className="mini__menu phone-grid">
               {MENU_FEATURES.friend.map((f) => (
-                <Link key={f.kind} className="mini__feature phone-feature" to={miniLink(f.kind)}>
+                <Link key={f.kind} className="phone-tile" to={miniLink(f.kind)}>
                   <span className="phone-app-icon" aria-hidden="true">
                     <MiniAppIcon kind={f.kind} />
                   </span>
-                  <span className="mini__feature-text">
-                    <span className="mini__feature-title">{f.title}</span>
-                    <span className="mini__feature-blurb">{f.blurb}</span>
-                  </span>
+                  <span className="phone-tile-name">{f.title}</span>
                 </Link>
               ))}
             </nav>
           </section>
 
-          <p className="phone-coming">
-            <Link to="/#waitlist">Coworker and Cofounder are in the workshop.</Link>
-          </p>
+          <button
+            type="button"
+            className="phone-others-btn"
+            onClick={() => setShowOthers((v) => !v)}
+          >
+            {showOthers ? 'Hide others' : 'Others'}
+          </button>
+
+          {showOthers && (
+            <section className="mini__section phone-others" aria-label="Other hires' apps">
+              <h2>Others</h2>
+              <p className="phone-apps-sub">Their apps work today. The hires ship soon.</p>
+              {(['coworker', 'cofounder'] as const).map((p) => (
+                <div key={p} className="phone-others-group">
+                  <p className="phone-others-label">
+                    {p === 'coworker' ? 'Alpha (Coworker)' : 'Alpha(CoFounder)'} · in the workshop
+                  </p>
+                  <nav className="mini__menu phone-grid">
+                    {(MENU_FEATURES[p] ?? [])
+                      .filter((f) => f.kind !== 'home')
+                      .map((f) => (
+                        <Link key={`${p}-${f.kind}`} className="phone-tile" to={miniLink(f.kind, p)}>
+                          <span className="phone-app-icon" aria-hidden="true">
+                            <MiniAppIcon kind={f.kind} />
+                          </span>
+                          <span className="phone-tile-name">{f.title}</span>
+                        </Link>
+                      ))}
+                  </nav>
+                </div>
+              ))}
+            </section>
+          )}
             </>
           )}
         </div>

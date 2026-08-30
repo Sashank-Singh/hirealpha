@@ -180,6 +180,21 @@ const ICONS: Record<string, ReactNode> = {
     </g>
   ),
 
+  tonight: (
+    <>
+      <g {...STROKE}>
+        <path d="M19.65 12.67A7.65 7.65 0 1 1 11.33 4.35 5.95 5.95 0 0 0 19.65 12.67z" />
+      </g>
+
+      <circle
+        cx="18.4"
+        cy="6.4"
+        r="1"
+        fill="currentColor"
+      />
+    </>
+  ),
+
   weekly_review: (
     <g {...STROKE}>
       <rect

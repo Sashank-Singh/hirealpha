@@ -49,54 +49,98 @@
 .phone-apps {
   margin-top: 16px;
 }
-.phone-apps .mini__menu {
-  margin-top: 0;
+
+/* Muted one-liner under a section heading ("Your apps", "Others"). Replaces the
+ * per-tile blurbs: first-time users still get the pitch, the grid stays clean. */
+.phone-apps-sub {
+  margin: -4px 0 0;
+  font-size: 12px;
+  color: var(--muted-fg);
+  line-height: 1.4;
 }
 
-/* iOS home-screen tiles: accent rounded square with the kind's SVG mark over a
- * short label. Same solid accent tint HomeApp's dock uses, at the smaller 44px
- * this narrower column carries. */
-.phone-menu {
-  grid-template-columns: repeat(2, 1fr);
-  gap: 10px;
+/* iOS springboard grid: accent rounded squares with the name centered under
+ * each, no borders, no cards. */
+.phone-grid {
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px 12px;
+  margin-top: 14px;
 }
-.phone-feature {
+.phone-tile {
+  display: flex;
   flex-direction: column;
-  align-items: flex-start;
-  gap: 10px;
-  padding: 12px;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  text-align: center;
+  text-decoration: none;
+  color: var(--fg);
+  font: inherit;
+  cursor: pointer;
+}
+.phone-tile:active {
+  transform: scale(0.94);
 }
 .phone-app-icon {
   display: grid;
   place-items: center;
-  width: 44px;
-  height: 44px;
-  border-radius: 12px;
+  width: 54px;
+  height: 54px;
+  border-radius: 14px;
   background: var(--mini-accent);
   color: var(--mini-accent-fg, #f4f4f5);
   box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.22), 0 4px 12px rgb(0 0 0 / 0.35);
 }
 .phone-app-icon svg {
-  width: 22px;
-  height: 22px;
+  width: 24px;
+  height: 24px;
 }
-.phone-feature .mini__feature-blurb {
-  font-size: 11px;
-  line-height: 1.35;
+.phone-tile-name {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1.25;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+@media (max-width: 340px) {
+  .phone-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
 }
 
-.phone-coming {
-  margin: 16px 0 0;
-  font-size: 13px;
-  line-height: 1.45;
-}
-.phone-coming a {
-  color: var(--muted-fg);
-  text-decoration: underline;
-  text-underline-offset: 3px;
-}
-.phone-coming a:hover {
+/* The Others reveal: the same plain centered pill HomeApp uses. */
+.phone-others-btn {
+  display: block;
+  margin: 14px auto 0;
+  padding: 7px 20px;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 999px;
   color: var(--fg);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.phone-others {
+  margin-top: 12px;
+}
+.phone-others-group + .phone-others-group {
+  margin-top: 18px;
+}
+.phone-others-label {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted-fg);
+}
+.phone-others .phone-grid {
+  margin-top: 12px;
 }
 
 .phone-footer {
