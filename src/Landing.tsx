@@ -1154,7 +1154,7 @@ export default function Landing() {
                 App
               </a> */}
               <a href="#pricing" className="btn btn--primary btn--sm">
-                Hire Alpha
+                Get started
               </a>
             </div>
           </div>
