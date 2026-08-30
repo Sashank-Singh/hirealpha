@@ -8,15 +8,13 @@
     <link href="https://fonts.googleapis.com/css2?family=Space+Mono:ital,wght@0,400;0,700;1,400;1,700&display=swap" rel="stylesheet" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
 <!--
-      Analytics (Plausible.io, privacy-first, no cookies).
-      Works the moment you create your site at https://plausible.io with domain
-      `hirealpha.chat` (free 30-day trial, then ~$9/mo; or self-host free on
-      Coolify). Until then the script is inert — it sends nothing usable and
-      never breaks the page. Custom funnel events (waitlist joins, checkout
-      starts, shares) are fired from src/track.ts and appear under
-      Plausible → Goals → Custom events. See README "Marketing tools".
+      Analytics (Plausible Community Edition, self-hosted on Coolify —
+      see deploy/plausible/README.md; the instance serves script.js for any
+      site registered in its dashboard with data-domain="hirealpha.chat").
+      If you ever switch back to Plausible Cloud instead, revert this src to
+      https://plausible.io/js/script.js and keep the same data-domain.
     -->
-    <script defer data-domain="hirealpha.chat" src="https://plausible.io/js/script.js"></script>
+    <script defer data-domain="hirealpha.chat" src="https://analytics.hirealpha.chat/js/script.js"></script>
  <link rel="canonical" href="https://hirealpha.chat/" />
  <meta property="og:type" content="website" />
  <meta property="og:site_name" content="HireAlpha" />

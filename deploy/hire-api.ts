@@ -849,6 +849,20 @@ function verifyMiniToken(token: string): MiniToken | null {
   return payload
 }
 
+/* Alpha's contact photo for the vCard, loaded once and cached. A missing file
+ * just means a text-only card. */
+let alphaContactB64: string | null = null
+async function alphaContactPhoto(): Promise<string | null> {
+  if (alphaContactB64 !== null) return alphaContactB64
+  try {
+    const png = await readFile(join(import.meta.dir, '..', 'public', 'alpha-contact.png'))
+    alphaContactB64 = png.toString('base64')
+  } catch {
+    alphaContactB64 = ''
+  }
+  return alphaContactB64 || null
+}
+
 /** How long a signed web-session token stays valid. */
 const SESSION_TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000
 
@@ -9327,6 +9341,39 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
       console.error('[billing] checkout session failed', err)
       return json({ error: 'Could not start checkout' }, 502)
     }
+  }
+
+  /* Save-the-contact: a vCard with the name, number, and face already filled
+   * in. Photo is folded base64 per RFC 6350 so Android parsers do not choke. */
+  if (path === '/api/contact/alpha.vcf' && req.method === 'GET') {
+    const lines = [
+      'BEGIN:VCARD',
+      'VERSION:3.0',
+      'N:;Alpha;;;',
+      'FN:Alpha',
+      'ORG:HireAlpha',
+      'TEL;TYPE=CELL:+14155951440',
+    ]
+    const b64 = await alphaContactPhoto()
+    if (b64) {
+      // Fold counts the whole line, so the first chunk fits after the 26-char
+      // property prefix and the rest continue at 74 with a leading space.
+      const head = 'PHOTO;ENCODING=b;TYPE=PNG:'
+      const rest = b64.match(/.{1,74}/g) || []
+      lines.push(head + rest[0].slice(0, 75 - head.length))
+      for (let i = 0; i < rest.length; i++) {
+        const part = i === 0 ? rest[0].slice(75 - head.length) : rest[i]
+        if (part) lines.push(' ' + part)
+      }
+    }
+    lines.push('END:VCARD')
+    return new Response(lines.join('\r\n'), {
+      headers: {
+        'Content-Type': 'text/vcard; charset=utf-8',
+        'Content-Disposition': 'inline; filename="alpha.vcf"',
+        'Cache-Control': 'public, max-age=3600',
+      },
+    })
   }
 
   if (path === '/api/billing/status' && req.method === 'GET') {

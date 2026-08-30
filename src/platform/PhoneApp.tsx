@@ -3,6 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom'
 import { AlphaFace } from '../AlphaFace'
 import { getAgent } from '../agents'
 import { MENU_FEATURES } from './MiniAppPage'
+import { MiniAppIcon } from './MiniAppIcons'
 import { getSession } from './roster'
 import { applyMiniTheme, readMiniTheme } from './miniTheme'
 import { localYmd } from './home'
@@ -25,6 +26,12 @@ function latestReceipt(actions: ActionReceipt[]): ActionReceipt | null {
     if (!newest) return a
     return new Date(a.created_at).getTime() > new Date(newest.created_at).getTime() ? a : newest
   }, null)
+}
+
+/** "Friday, August 29" — today in the device's own timezone, long form. Same
+ * shape HomeApp's fmtDay builds from an iso date; this one starts from now. */
+function todayLine(d = new Date()) {
+  return d.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
 }
 
 function countToday(actions: ActionReceipt[]): number {
@@ -103,18 +110,23 @@ export function PhoneApp() {
               {receipts.latest ? ` · ${receipts.latest}` : ''}
             </p>
           )}
+          <p className="phone-date">{todayLine()}</p>
 
           <a className="mini__cta phone-cta" href={ALPHA_SMS}>
             Text Alpha
           </a>
+          <a className="phone-cta-ghost" href="/api/contact/alpha.vcf">
+            Save Alpha's contact
+          </a>
+          <p className="phone-cta-note">Replies like a person. Usually within a minute.</p>
 
           <section className="mini__section phone-apps" aria-label="Your apps">
             <h2>Your apps</h2>
-            <nav className="mini__menu">
+            <nav className="mini__menu phone-menu">
               {MENU_FEATURES.friend.map((f) => (
-                <Link key={f.kind} className="mini__feature" to={miniLink(f.kind)}>
-                  <span className="mini__feature-emoji" aria-hidden="true">
-                    {f.emoji}
+                <Link key={f.kind} className="mini__feature phone-feature" to={miniLink(f.kind)}>
+                  <span className="phone-app-icon" aria-hidden="true">
+                    <MiniAppIcon kind={f.kind} />
                   </span>
                   <span className="mini__feature-text">
                     <span className="mini__feature-title">{f.title}</span>

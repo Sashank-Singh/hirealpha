@@ -22,24 +22,71 @@
   line-height: 1.45;
 }
 
+/* "Friday, August 29" under the receipts line. */
+.phone-date {
+  margin: 2px 0 0;
+  font-size: 12px;
+  color: var(--muted-fg);
+  line-height: 1.45;
+}
+
 /* One primary action, full width of the column. */
 .phone-cta {
   display: flex;
   width: 100%;
-  margin: 16px 0 4px;
+  margin: 16px 0 6px;
   padding: 14px 18px;
   font-size: 16px;
 }
+.phone-cta-note {
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted-fg);
+  text-align: center;
+  line-height: 1.4;
+}
 
 .phone-apps {
-  margin-top: 20px;
+  margin-top: 16px;
 }
 .phone-apps .mini__menu {
   margin-top: 0;
 }
 
+/* iOS home-screen tiles: accent rounded square with the kind's SVG mark over a
+ * short label. Same solid accent tint HomeApp's dock uses, at the smaller 44px
+ * this narrower column carries. */
+.phone-menu {
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+}
+.phone-feature {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px;
+}
+.phone-app-icon {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: var(--mini-accent);
+  color: var(--mini-accent-fg, #f4f4f5);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.22), 0 4px 12px rgb(0 0 0 / 0.35);
+}
+.phone-app-icon svg {
+  width: 22px;
+  height: 22px;
+}
+.phone-feature .mini__feature-blurb {
+  font-size: 11px;
+  line-height: 1.35;
+}
+
 .phone-coming {
-  margin: 20px 0 0;
+  margin: 16px 0 0;
   font-size: 13px;
   line-height: 1.45;
 }
@@ -58,4 +105,17 @@
   padding: 4px 22px 28px;
   max-width: 430px;
   margin: 0 auto;
+}
+.phone-cta-ghost {
+  display: block;
+  margin: 0 auto;
+  text-align: center;
+  background: transparent;
+  border: 2px solid var(--mini-accent);
+  color: var(--mini-accent);
+  border-radius: 999px;
+  padding: 11px 18px;
+  font-size: 14px;
+  font-weight: 700;
+  text-decoration: none;
 }

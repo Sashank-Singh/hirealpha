@@ -11,6 +11,7 @@ import { extractFacts, summarizeOld } from './memoryMaintain'
 import { autoIterateWorkshop, autoLogGratitude, autoLogHabit, autoLogMood, autoLogNutrition, autoLogSleep, autoLogSpend, autoLogWorkout, autoLogNetwork, autoLogDecision, autoLogLoops, autoLogPipeline, autoLogStandup, autoRunWorkshop, autoWorkshopKeep, autoWorkshopToss, autoSaveLearning, autoSetBudget, autoSetPrefs, fetchLiveProfile, fetchLiveTools, fetchMiniRun, fetchPrepBundle, fetchWeekBundle, formatHireContext, formatHireMemories, persistLiveFacts, proposeLiveDraft, touchInbound, importChatExport, addMeeting, fetchRenewalRadar, setTravel } from './liveContext'
 import { captureFromChat } from './cofounderPro'
 import { coworkerCaptureFromChat } from './coworkerPro'
+import { onboardingStage, runOnboardingTurn, suggestConnector } from './onboarding'
 import {
   looksLikeReminder,
   parseReminderIntent,
@@ -1075,6 +1076,32 @@ export async function runHireTurn(input: {
     }
   }
 
+  /* Onboarding runs in chat right after the intro: while memories are missing
+   * name, city, or priority and the thread is still young, the answer gets
+   * captured and the next question is injected into the reply. */
+  if (
+    live.hired &&
+    history.length <= 8 &&
+    (agent.id === 'friend' || agent.id === 'cofounder' || agent.id === 'coworker') &&
+    onboardingStage(live.memories || []) !== 'done'
+  ) {
+    try {
+      const question = await runOnboardingTurn(
+        input.senderId,
+        agent.id,
+        input.userText,
+        live.memories || [],
+      )
+      if (question) {
+        extras.push(
+          `You are mid onboarding. Reply with this question, at most one warm word about their answer added: '${question}'. Do not answer anything else.`,
+        )
+      }
+    } catch (err) {
+      console.warn('[runHireTurn] onboarding failed', err)
+    }
+  }
+
   /* The workshop path calls the planner model and the sandbox; a throw anywhere
    * in it must cost the build, not the whole turn — the outer catch would turn
    * a failed build into the canned "Got tripped up" reply. */
@@ -1375,6 +1402,16 @@ export async function runHireTurn(input: {
   }
   if (input.inboundNote) {
     extras.push(input.inboundNote)
+  }
+
+  /* Connector ask in context: when the ask is mail, calendar, brief, or
+   * schedule shaped and Google is not connected, hand over the deep link that
+   * lands on the connector in settings. */
+  const connectorAsk = live.hired ? suggestConnector(input.userText, live.connected || []) : null
+  if (connectorAsk) {
+    extras.push(
+      `Their Google mail and calendar are not connected and this ask wants them. Append this line to your reply: "${connectorAsk.text}" Do not claim you pulled anything.`,
+    )
   }
 
   const memoryBlock = buildMemoryBlock(mem, live.memories || [])

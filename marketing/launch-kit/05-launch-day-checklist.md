@@ -3,7 +3,8 @@
 Work backwards from a Tuesday (newscycle peaks Mon–Thurs; avoid Fridays).
 
 ## T-minus 3 days
-- [ ] Plausible site created for `hirealpha.chat`; homepage snippet confirmed live
+- [ ] Self-hosted Plausible up at analytics.hirealpha.chat; site `hirealpha.chat`
+      registered; snippet confirmed live in the built homepage
 - [ ] Resend audience + API key live; backfill run; 2 broadcasts built
       ("soft launch" email → send now; "your number is ready" → launch day)
 - [ ] Stripe friend checkout verified with a test card: $5 promo, 7-day trial,

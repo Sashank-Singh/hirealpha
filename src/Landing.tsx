@@ -937,6 +937,11 @@ function WaitlistForm() {
         <a className="btn btn--accent" href="sms:+14155951440">
           Open Messages
         </a>
+        <p style={{ margin: '10px 0 0' }}>
+          <a className="btn btn--ghost" href="/api/contact/alpha.vcf">
+            Save Alpha's contact
+          </a>
+        </p>
         <div className="qr">
           <img
             src="https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=sms%3A%2B14155951440"

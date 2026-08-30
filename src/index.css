@@ -1379,6 +1379,7 @@ button, input { font: inherit; }
 }
 .waitlist-success__cta { margin-top: 16px; font-size: 18px; font-weight: 700; }
 .waitlist-success .btn { margin-top: 10px; }
+.waitlist-success { text-align: center; }
 .waitlist-success .qr { margin: 16px auto 0; max-width: 280px; }
 .price-chips {
   display: flex; justify-content: center; gap: 12px; flex-wrap: wrap; margin-top: 36px;

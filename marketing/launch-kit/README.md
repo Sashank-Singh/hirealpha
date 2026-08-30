@@ -15,10 +15,12 @@ feature, and the constraints at the bottom are non‑negotiables.
 
 ## Before you post anywhere — 30-minute setup
 
-1. **Analytics on**: create your site at https://plausible.io with domain
-   `hirealpha.chat`. The homepage snippet already points at it, so pageviews and
-   the custom events (`waitlist_joined`, `checkout_started`, `share_clicked`,
-   `invite_copied`) start landing under Goals → Custom events. 10 minutes.
+1. **Analytics on**: self-hosted Plausible is already deployed at
+   `https://analytics.hirealpha.chat` (see `deploy/plausible/README.md` for the
+   Coolify setup). Just open the dashboard, add a site with domain
+   `hirealpha.chat`, and define the custom events (`waitlist_joined`,
+   `checkout_started`, `share_clicked`, `invite_copied`) under Settings →
+   Goals. The homepage snippet already points there. 10 minutes.
 2. **Email on**: `resend.com` → add audience "HireAlpha waitlist", copy
    `RESEND_API_KEY` + `RESEND_AUDIENCE_ID` into your production env. New signups
    sync automatically. Then run the backfill:

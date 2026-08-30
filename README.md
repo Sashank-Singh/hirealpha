@@ -142,12 +142,13 @@ Turnkey pieces that were added alongside the marketing plan in
 `marketing/launch-kit/` (Show HN post, Product Hunt copy, X threads, community
 posts, launch-day checklist — all grounded in verified facts).
 
-- **Analytics.** `index.html` loads the Plausible snippet for domain
-  `hirealpha.chat`. Create the site at https://plausible.io (or self-host free
-  on Coolify) and pageviews + the custom funnel events fire automatically:
-  `waitlist_joined` (with `hire` and `via` props), `checkout_started`
-  (`plan`, `persona`), `share_clicked`, `invite_copied`. Define them under
-  Plausible → Goals → Custom events.
+- **Analytics.** Self-hosted Plausible Community Edition on Coolify at
+  `https://analytics.hirealpha.chat` — deploy it from `deploy/plausible/`
+  (see its README; ~5 steps, free forever). `index.html` loads the snippet for
+  domain `hirealpha.chat`, and pageviews + the custom funnel events fire
+  automatically: `waitlist_joined` (with `hire` and `via` props),
+  `checkout_started` (`plan`, `persona`), `share_clicked`, `invite_copied`.
+  Register the site + define the events under Plausible → Settings → Goals.
 - **Waitlist → email.** Every new waitlist email is pushed to a Resend audience
   (`RESEND_API_KEY` + `RESEND_AUDIENCE_ID`, see `.env.example`) so you can send
   the launch sequence from the Resend dashboard. Existing signups backfill with
