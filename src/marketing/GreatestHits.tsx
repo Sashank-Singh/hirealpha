@@ -59,7 +59,7 @@ export function GreatestHits() {
                       </div>
                       <div className="thread-body">
                         <p className="thread-secure">
-                          iMessage<span aria-hidden="true">\u00b7</span>Encrypted
+                          iMessage<span aria-hidden="true">·</span>Encrypted
                         </p>
                         <p className="thread-stamp">Today 9:41 AM</p>
                         <ul className="hits__thread" role="list">
