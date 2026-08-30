@@ -59,6 +59,20 @@ export function PhoneApp() {
       : ''
   const miniLink = (kind: string) => `/app/mini/friend/${kind}${suffix}`
 
+  /* The home matches the moment: right after checkout the only job is the
+   * first text. The full app grid appears once they have tapped Text Alpha
+   * (or arrived on Alpha's connector deep link, which is a later-stage
+   * visit by definition). Local flag, not server truth: the point is the
+   * journey on THIS device. */
+  const fromAlphaLink = searchParams.has('connect')
+  const [textedAt, setTextedAt] = useState<string | null>(() => localStorage.getItem('alpha_texted_at'))
+  const onboarded = fromAlphaLink || !!textedAt
+  const markTexted = () => {
+    const t = new Date().toISOString()
+    localStorage.setItem('alpha_texted_at', t)
+    setTextedAt(t)
+  }
+
   /* Same theme handoff MiniAppPage does: honor the saved light theme on the way
    * in and give the page background back on the way out. */
   useEffect(() => {
@@ -104,6 +118,30 @@ export function PhoneApp() {
         </header>
 
         <div className="mini__body">
+          {!onboarded ? (
+            <>
+              <p className="phone-date">{todayLine()}</p>
+              <div className="phone-welcome">
+                <p className="phone-welcome__head">You're in.</p>
+                <p className="phone-welcome__sub">
+                  Alpha has your number and texts like a person. Say hi and the friendship starts there.
+                </p>
+                <a className="mini__cta phone-cta" href={ALPHA_SMS} onClick={markTexted}>
+                  Text Alpha
+                </a>
+                <a className="phone-cta-ghost" href="/api/contact/alpha.vcf">
+                  Save Alpha's contact
+                </a>
+                <p className="phone-cta-note">
+                  Alpha texts first sometimes. Your apps appear here once you two start talking.
+                </p>
+                <button type="button" className="phone-welcome__skip" onClick={() => markTexted()}>
+                  Show my apps anyway
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
           {receipts && (
             <p className="phone-receipts">
               Did {receipts.count} {receipts.count === 1 ? 'thing' : 'things'} today
@@ -140,6 +178,8 @@ export function PhoneApp() {
           <p className="phone-coming">
             <Link to="/#waitlist">Coworker and Cofounder are in the workshop.</Link>
           </p>
+            </>
+          )}
         </div>
 
         <footer className="phone-footer">
