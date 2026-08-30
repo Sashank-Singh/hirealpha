@@ -1255,7 +1255,7 @@ export default function Landing() {
               <a href="#waitlist" className="stage__dock-free">
                 or start free
               </a>
-              <p>Live now. Texts you in under a minute. iPhone Messages.</p>
+              <p>Real iMessage. Real replies in seconds. Three hires, one phone number each.</p>
             </div>
           </div>
 
