@@ -58,7 +58,7 @@ export const HIGHLIGHTS: HighlightThread[] = [
         text: "day's wrapped. 6h sleep last night, morning run logged, 3 meetings crushed. 2 loops still open: send tax docs to accountant, reply to mom (she texted at noon):",
         linkPreview: {
           url: 'https://hirealpha.chat/app/mini/friend/digest',
-          title: 'Daily Brief — HireAlpha',
+          title: 'Evening Wrap — HireAlpha',
           siteName: 'HIREALPHA.CHAT',
           image: '/images/og/digest.png',
           desc: 'Your evening wrap & open loops',
@@ -123,7 +123,7 @@ export const HIGHLIGHTS: HighlightThread[] = [
       {
         from: 'them',
         app: 'Calendar',
-        text: 'blocked 1:15–1:45 PM. notifications muted, soft alarm set for 1:40.',
+        text: 'blocked 1:15 to 1:45 PM. notifications muted, soft alarm set for 1:40.',
       },
     ],
   },
@@ -209,14 +209,14 @@ export const HIGHLIGHTS: HighlightThread[] = [
       { from: 'me', text: 'did that gym charge hit my checking yet?' },
       {
         from: 'them',
-        app: 'Plaid',
+        app: 'Bank',
         text: 'yep, $180 hit Chase checking yesterday. also caught a $29 duplicate subscription from Figma:',
         linkPreview: {
           url: 'https://hirealpha.chat/app/mini/friend/spending_snapshot',
           title: 'Spending Snapshot — HireAlpha',
           siteName: 'HIREALPHA.CHAT',
           image: '/images/og/spending_snapshot.png',
-          desc: 'Live Plaid balance & transactions',
+          desc: 'Live bank balance & transactions',
         },
       },
       { from: 'me', text: 'wait really? draft an email to get a refund' },
