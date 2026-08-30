@@ -866,24 +866,19 @@ const HIRE_LINES: Record<AgentId, { label: string; phoneDisplay: string; soon?: 
 function WaitlistForm() {
   const [phone, setPhone] = useState('')
   const [email, setEmail] = useState('')
-  const [password, setPassword] = useState('')
   const [hire, setHire] = useState<AgentId>('friend')
   const [done, setDone] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [code, setCode] = useState('')
+  const [showCode, setShowCode] = useState(false)
   const [myCode, setMyCode] = useState('')
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault()
     const phoneValue = phone.trim()
     const emailValue = email.trim().toLowerCase()
-    const passwordValue = password
     if (!phoneValue || !emailValue || !emailValue.includes('@')) return
-    if (passwordValue.length < 8) {
-      setError('Password needs at least 8 characters.')
-      return
-    }
     setBusy(true)
     setError('')
     try {
@@ -893,7 +888,6 @@ function WaitlistForm() {
         body: JSON.stringify({
           phone: phoneValue,
           email: emailValue,
-          password: passwordValue,
           hire,
           ...(code.trim() ? { code: code.trim() } : {}),
         }),
@@ -986,29 +980,13 @@ function WaitlistForm() {
           autoComplete="tel"
         />
         <input
-          type="password"
-          placeholder="Password (8+ characters)"
-          value={password}
-          onChange={(e) => {
-            setPassword(e.target.value)
-            if (error) setError('')
-          }}
-          aria-label="Password, at least 8 characters"
+          type="tel"
+          placeholder="(555) 555-0100"
+          value={phone}
+          onChange={(e) => setPhone(e.target.value)}
+          aria-label="Your phone number"
           disabled={busy}
-          autoComplete="new-password"
-          minLength={8}
-          required
-        />
-        <input
-          type="text"
-          placeholder="Invite code (optional)"
-          value={code}
-          onChange={(e) => setCode(e.target.value)}
-          aria-label="Invite code, if a friend shared one"
-          disabled={busy}
-          autoCapitalize="characters"
-          autoCorrect="off"
-          spellCheck={false}
+          autoComplete="tel"
         />
         <button type="submit" className="btn btn--accent" disabled={busy}>
           {busy ? 'Saving…' : 'Get my invite'}
@@ -1030,6 +1008,29 @@ function WaitlistForm() {
           </button>
         ))}
       </div>
+      {showCode ? (
+        <input
+          type="text"
+          placeholder="Invite code"
+          value={code}
+          onChange={(e) => setCode(e.target.value)}
+          aria-label="Invite code, if a friend shared one"
+          disabled={busy}
+          autoCapitalize="characters"
+          autoCorrect="off"
+          spellCheck={false}
+          className="waitlist-form__email waitlist-form__email--top"
+        />
+      ) : (
+        <button
+          type="button"
+          className="waitlist-code-link"
+          onClick={() => setShowCode(true)}
+          disabled={busy}
+        >
+          Have a code?
+        </button>
+      )}
       {error ? (
         <p className="waitlist-note" role="alert" style={{ color: 'var(--accent)' }}>
           {error}
