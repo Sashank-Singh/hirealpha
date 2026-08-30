@@ -58,7 +58,7 @@ export const HIGHLIGHTS: HighlightThread[] = [
         text: "day's wrapped. 6h sleep last night, morning run logged, 3 meetings crushed. 2 loops still open: send tax docs to accountant, reply to mom (she texted at noon):",
         linkPreview: {
           url: 'https://hirealpha.chat/app/mini/friend/digest',
-          title: 'Evening Wrap — HireAlpha',
+          title: 'Evening Wrap: HireAlpha',
           siteName: 'HIREALPHA.CHAT',
           image: '/images/og/digest.png',
           desc: 'Your evening wrap & open loops',
@@ -113,7 +113,7 @@ export const HIGHLIGHTS: HighlightThread[] = [
         text: "slept 5h 40m, woke up twice. deep sleep was low. moved your 7am heavy lifting to 6pm so you don't burn out:",
         linkPreview: {
           url: 'https://hirealpha.chat/app/mini/friend/sleep_tracker',
-          title: 'Sleep Tracker — HireAlpha',
+          title: 'Sleep Tracker: HireAlpha',
           siteName: 'HIREALPHA.CHAT',
           image: '/images/og/sleep_tracker.png',
           desc: 'Last night: 5h 40m · Recovery 64%',
@@ -144,7 +144,7 @@ export const HIGHLIGHTS: HighlightThread[] = [
         text: 'streak updated: Day 15 🔥 put the phone face down and get some sleep.',
         linkPreview: {
           url: 'https://hirealpha.chat/app/mini/friend/habit_streak',
-          title: 'Habit Streak — HireAlpha',
+          title: 'Habit Streak: HireAlpha',
           siteName: 'HIREALPHA.CHAT',
           image: '/images/og/habit_streak.png',
           desc: 'Active streak: Day 15 🔥',
@@ -164,7 +164,7 @@ export const HIGHLIGHTS: HighlightThread[] = [
         text: 'built it. touch controls, keeps score, physics are tight:',
         linkPreview: {
           url: 'https://hirealpha.chat/b/ping-pong',
-          title: 'Ping Pong Mini — Alpha Workshop',
+          title: 'Ping Pong Mini: Alpha Workshop',
           siteName: 'HIREALPHA.CHAT',
           image: '/images/og/apps.png',
           desc: 'Instant mobile web app',
@@ -187,7 +187,7 @@ export const HIGHLIGHTS: HighlightThread[] = [
         text: 'Metreon has 2 seats left at 7:15 PM row F. AMC Cupertino is sold out. Grab Metreon here: fandango.com/...',
         linkPreview: {
           url: 'https://fandango.com/amc-metreon-16',
-          title: 'AMC Metreon 16 — Fandango Tickets',
+          title: 'AMC Metreon 16: Fandango Tickets',
           siteName: 'FANDANGO.COM',
           image: '/images/og/default.png',
           desc: 'Friday 7:15 PM · 70mm IMAX Row F (2 left)',
@@ -213,7 +213,7 @@ export const HIGHLIGHTS: HighlightThread[] = [
         text: 'yep, $180 hit Chase checking yesterday. also caught a $29 duplicate subscription from Figma:',
         linkPreview: {
           url: 'https://hirealpha.chat/app/mini/friend/spending_snapshot',
-          title: 'Spending Snapshot — HireAlpha',
+          title: 'Spending Snapshot: HireAlpha',
           siteName: 'HIREALPHA.CHAT',
           image: '/images/og/spending_snapshot.png',
           desc: 'Live bank balance & transactions',
@@ -247,7 +247,7 @@ export const HIGHLIGHTS: HighlightThread[] = [
         text: '"Yesterday: Shipped core auth refactor, closed 3 staging regressions, reviewed DB schema migration. Today: Finalizing Stripe webhook listeners and end-to-end checkout testing. Blockers: None."',
         linkPreview: {
           url: 'https://hirealpha.chat/app/mini/coworker/standup_paste',
-          title: 'Standup Paste — HireAlpha',
+          title: 'Standup Paste: HireAlpha',
           siteName: 'HIREALPHA.CHAT',
           image: '/images/og/standup_paste.png',
           desc: 'Compiled from GitHub & Linear',
@@ -273,7 +273,7 @@ export const HIGHLIGHTS: HighlightThread[] = [
         text: 'logged as Kill. runway preserved at 11 months. staying focused on outbound:',
         linkPreview: {
           url: 'https://hirealpha.chat/app/mini/cofounder/decision_ledger',
-          title: 'Decision Ledger — HireAlpha',
+          title: 'Decision Ledger: HireAlpha',
           siteName: 'HIREALPHA.CHAT',
           image: '/images/og/decision_ledger.png',
           desc: 'Strategic startup decision log',
