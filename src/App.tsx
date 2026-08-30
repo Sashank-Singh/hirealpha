@@ -1,5 +1,5 @@
 import { lazy, Suspense } from 'react'
-import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
+import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom'
 
 /* Every route used to sit in one 630 kB bundle, so a phone opening a mini app
  * from a text downloaded the marketing page's animation library (133 kB) and
@@ -11,13 +11,16 @@ const Landing = lazy(() => import('./Landing'))
 const MiniAppPage = lazy(() => import('./platform/MiniAppPage').then((m) => ({ default: m.MiniAppPage })))
 const LoginPage = lazy(() => import('./platform/LoginPage').then((m) => ({ default: m.LoginPage })))
 const RequireAuth = lazy(() => import('./platform/PlatformShell').then((m) => ({ default: m.RequireAuth })))
-const PlatformShell = lazy(() => import('./platform/PlatformShell').then((m) => ({ default: m.PlatformShell })))
-const HiresPage = lazy(() => import('./platform/HiresPage').then((m) => ({ default: m.HiresPage })))
-const ShopPage = lazy(() => import('./platform/HiresPage').then((m) => ({ default: m.ShopPage })))
-const HireConfigPage = lazy(() => import('./platform/HireConfigPage').then((m) => ({ default: m.HireConfigPage })))
-const FeaturesPage = lazy(() => import('./platform/FeaturesPage').then((m) => ({ default: m.FeaturesPage })))
-const LocationPage = lazy(() => import('./platform/LocationPage').then((m) => ({ default: m.LocationPage })))
-const ControlsPage = lazy(() => import('./marketing/ControlsPage').then((m) => ({ default: m.ControlsPage })))
+const PhoneApp = lazy(() => import('./platform/PhoneApp').then((m) => ({ default: m.PhoneApp })))
+const SettingsSheet = lazy(() => import('./platform/SettingsSheet').then((m) => ({ default: m.SettingsSheet })))
+
+/* Old dashboard routes deep-link from texts and chat (hirealpha.chat/app/hires/
+ * friend?connect=gmail). They land on Settings carrying their query so the
+ * connector highlight still fires. */
+function SettingsRedirect() {
+  const { search } = useLocation()
+  return <Navigate to={`/app/settings${search}`} replace />
+}
 
 export default function App() {
   return (
@@ -31,14 +34,13 @@ export default function App() {
           <Route path="/app/login" element={<LoginPage />} />
           <Route path="/app/mini/:persona/:kind" element={<MiniAppPage />} />
           <Route path="/app" element={<RequireAuth />}>
-            <Route element={<PlatformShell />}>
-              <Route index element={<HiresPage />} />
-              <Route path="shop" element={<ShopPage />} />
-              <Route path="hires/:agentId" element={<HireConfigPage />} />
-              <Route path="features" element={<FeaturesPage />} />
-              <Route path="location" element={<LocationPage />} />
-            </Route>
-            <Route path="controls" element={<ControlsPage />} />
+            <Route index element={<PhoneApp />} />
+            <Route path="settings" element={<SettingsSheet />} />
+            <Route path="shop" element={<Navigate to="/app" replace />} />
+            <Route path="hires/:agentId" element={<SettingsRedirect />} />
+            <Route path="features" element={<Navigate to="/app" replace />} />
+            <Route path="location" element={<SettingsRedirect />} />
+            <Route path="controls" element={<SettingsRedirect />} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
