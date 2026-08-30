@@ -115,6 +115,7 @@ export function FeaturesPage() {
   const email = session?.email
   const activeIds = getActiveHireIds()
   const [persona, setPersona] = useState<AgentId | ''>(activeIds[0] || '')
+  const [showOthers, setShowOthers] = useState(false)
   const agent = persona ? getAgent(persona) : null
   const features = persona ? MENU_FEATURES[persona] ?? [] : []
   const auth: FeatureAuth = { persona: (persona as AgentId) || 'friend', email: email || undefined }
@@ -160,6 +161,29 @@ export function FeaturesPage() {
               <FeatureCard key={f.kind} f={f} auth={auth} persona={persona} />
             ))}
           </ul>
+
+          {persona === 'friend' && (
+            <div className="feat-others">
+              <button
+                type="button"
+                className="feat-others__btn"
+                onClick={() => setShowOthers((v) => !v)}
+              >
+                {showOthers ? 'Hide' : 'Others'}
+              </button>
+              {showOthers &&
+                (['coworker', 'cofounder'] as AgentId[]).map((id) => (
+                  <section key={id} className="feat-others__group">
+                    <p className="feat-others__hire">{getAgent(id).imsgName} · in the workshop</p>
+                    <ul className="feat-cards">
+                      {(MENU_FEATURES[id] ?? []).map((f) => (
+                        <FeatureCard key={`${id}-${f.kind}`} f={f} auth={auth} persona={id} />
+                      ))}
+                    </ul>
+                  </section>
+                ))}
+            </div>
+          )}
         </>
       )}
     </div>

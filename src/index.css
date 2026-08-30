@@ -5084,3 +5084,41 @@ a.brief-fact { cursor: pointer; }
   text-decoration: underline;
   cursor: pointer;
 }
+.feat-others { margin-top: 22px; }
+.feat-others__btn {
+  background: #fff;
+  border: 2px solid var(--ink, #111);
+  border-radius: 999px;
+  padding: 7px 18px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.feat-others__hire {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  opacity: 0.6;
+  margin: 16px 0 8px;
+}
+.home-others-chip {
+  background: #fff;
+  border: 2px solid var(--ink, #111);
+  border-radius: 999px;
+  padding: 7px 13px;
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+}
+.home-others-btn {
+  display: block;
+  margin: 14px auto 4px;
+  background: none;
+  border: 2px solid var(--ink, #111);
+  border-radius: 999px;
+  padding: 7px 20px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
