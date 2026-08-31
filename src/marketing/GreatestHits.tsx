@@ -91,8 +91,7 @@ export function GreatestHits() {
                                   )}
                                   <span className="hits__preview-site">HireAlpha</span>
                                   <span className="hits__preview-title">
-                                    {b.linkPreview.title.replace(/[:\u2014]? HireAlpha$/, '')} ·{' '}
-                                    {PERSONA_NAME[t.persona]}
+                                    {b.linkPreview.title.replace(/[:\u2014]? HireAlpha$/, '')}
                                   </span>
                                   {b.linkPreview.desc && (
                                     <span className="hits__preview-desc">{b.linkPreview.desc}</span>
