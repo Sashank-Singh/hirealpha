@@ -46,21 +46,20 @@ const AGENTS: Agent[] = [
     mood: 'soft',
     pitch:
       'The friend who already knows your people. Texts first. Lives next to Mom in Messages.',
-    preview: 'Metreon has 2 seats left at 7:15 PM in 70mm IMAX. Row F reserved.',
+    preview: 'Checked you in. Boarding pass is in Wallet.',
     time: '2m',
     unread: true,
     messages: [
-      { text: 'check if there are odyssey tickets in 70mm imax this friday', from: 'me' },
-      { text: 'Metreon has 2 seats left at 7:15 PM row F. AMC Cupertino is sold out', from: 'them' },
+      { text: 'check me in for AA248 tomorrow', from: 'me' },
+      { text: 'Checked you in. Boarding pass is in Wallet. Flight is on time.', from: 'them' },
       {
-        text: 'AMC Metreon 16 · 70mm IMAX Row F (2 left)',
+        text: 'AA248 · JFK, seat 14C · gate B12',
         from: 'them',
         kind: 'action',
-        app: 'Fandango',
-        title: 'Friday 7:15 PM · Tap to book',
+        app: 'Wallet',
+        title: 'Boarding pass · 6:15 AM departure',
       },
-      { text: 'snagged them. block 6:30 to 10:30 on my cal', from: 'me' },
-      { text: 'done. blocked with travel buffer. enjoy 70mm', from: 'them' },
+      { text: 'you read my mind', from: 'me' },
     ],
   },
   {
