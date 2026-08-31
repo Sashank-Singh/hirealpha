@@ -203,12 +203,12 @@ const FAQS: { question: string; answer: string }[] = [
   {
     question: 'Can I hire just one?',
     answer:
-      'Yes. Start with whichever relationship you need. Add others later. Each is billed separately.',
+      'Yes. Start with Alpha the Friend, add the others when they ship. Or take all three at once for $39.',
   },
   {
     question: 'When do connectors unlock?',
     answer:
-      'In early access. Gmail, Calendar, Maps, Spotify, Slack, and the rest connect from Settings so the hire can use them in texts.',
+      'They are live. Gmail, Calendar, Maps, Slack, Linear, and the rest connect from Settings so the hire can use them in texts.',
   },
   {
     question: 'What do you do with my texts?',
@@ -218,7 +218,7 @@ const FAQS: { question: string; answer: string }[] = [
   {
     question: 'What happens after I join the waitlist?',
     answer:
-      'You get an invite email when spots open, then a number to save in Messages. No charge until you actually hire.',
+      'Alpha texts you within a minute. Answer three quick questions and the relationship starts. No charge until you actually hire.',
   },
 ]
 
@@ -1101,7 +1101,7 @@ function WaitlistForm() {
       ) : (
         <p className="waitlist-note">
           {HIRE_LINES[hire].soon
-            ? `${HIRE_LINES[hire].label} is in the workshop. Alpha the Friend is live: your number, email, and password get the invite the day both ship.`
+            ? `${HIRE_LINES[hire].label} is coming soon. Alpha the Friend is live today: your number and email hold your spot.`
             : `Number and email in, ${HIRE_LINES[hire].label} texts you first. iPhone Messages. Early access. $19 a month when you hire.`}
         </p>
       )}

@@ -191,7 +191,7 @@ export function PhoneApp() {
               {(['coworker', 'cofounder'] as const).map((p) => (
                 <div key={p} className="phone-others-group">
                   <p className="phone-others-label">
-                    {p === 'coworker' ? 'Alpha (Coworker)' : 'Alpha(CoFounder)'} · in the workshop
+                    {p === 'coworker' ? 'Alpha (Coworker)' : 'Alpha(CoFounder)'} · coming soon
                   </p>
                   <nav className="mini__menu phone-grid">
                     {(MENU_FEATURES[p] ?? [])

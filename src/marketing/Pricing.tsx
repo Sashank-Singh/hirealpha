@@ -27,7 +27,7 @@ const TIERS: { id: Tier; name: string; price: number; promo?: number; per: strin
     name: 'All three',
     price: 39,
     per: 'a month',
-    blurb: 'Friend, Coworker, and Cofounder. Save $18. Coworker and Cofounder are still in the workshop.',
+    blurb: 'Friend, Coworker, and Cofounder. Save $18. Coworker and Cofounder are coming soon.',
     badge: 'Best value',
     cta: 'Hire all three',
     soon: true,

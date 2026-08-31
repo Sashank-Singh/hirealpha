@@ -703,7 +703,7 @@ export function SettingsSheet() {
           {/* 5. COMING SOON */}
           <section className="mini__section">
             <h2>Coming soon</h2>
-            <p className="mini__blurb">Coworker and Cofounder are in the workshop. They keep your number.</p>
+            <p className="mini__blurb">Coworker and Cofounder are coming soon. Your number is saved for both.</p>
           </section>
         </div>
       </div>

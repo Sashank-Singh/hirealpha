@@ -495,7 +495,7 @@ export function HomeApp({ auth }: { auth: FeatureAuth }) {
           {(['coworker', 'cofounder'] as const).map((p) => (
             <div key={p} style={{ marginBottom: 12 }}>
               <p className="home-vital-label" style={{ marginBottom: 6 }}>
-                {p === 'coworker' ? 'Alpha (Coworker)' : 'Alpha(CoFounder)'} · in the workshop
+                {p === 'coworker' ? 'Alpha (Coworker)' : 'Alpha(CoFounder)'} · coming soon
               </p>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
                 {(MENU_FEATURES[p] ?? [])
