@@ -34,6 +34,7 @@ export function GreatestHits() {
                 <div className="phone" aria-label={`Sample iMessage thread with ${PERSONA_NAME[t.persona]}`}>
                   <div className="phone__bezel">
                     <div className="phone__screen">
+                      <div className="phone__island" aria-hidden="true" />
                       <div className="ios-status">
                         <span className="ios-status__time">9:41</span>
                         <span className="ios-status__island" aria-hidden="true" />
