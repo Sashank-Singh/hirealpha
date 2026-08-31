@@ -1082,7 +1082,7 @@
   /* side padding of the bubble is cancelled above; the footer strip's own
    * 12px keeps its text aligned with the bubble text. */
   background: #101012;
-  border-radius: 0 0 4px 17px;
+  border-radius: 0 0 18px 18px;
   overflow: hidden;
   text-align: left;
 }
