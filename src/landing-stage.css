@@ -1074,11 +1074,15 @@
 
 /* Full-card link preview: the image IS the card, dark edge to edge, HireAlpha
  * in white over the image bottom, then the grey footer strip with the title. */
+/* Bottom curves must mirror the bubble's own corners: 4px on the tail side,
+ * 17px on the far side. Any other radius leaves grey crescents behind. */
 .hits__preview {
   display: block;
   margin: 8px -12px -7px;
+  /* side padding of the bubble is cancelled above; the footer strip's own
+   * 12px keeps its text aligned with the bubble text. */
   background: #101012;
-  border-radius: 0 0 17px 17px;
+  border-radius: 0 0 4px 17px;
   overflow: hidden;
   text-align: left;
 }
