@@ -164,10 +164,10 @@ export const HIGHLIGHTS: HighlightThread[] = [
         text: 'built it. touch controls, keeps score, physics are tight:',
         linkPreview: {
           url: 'https://hirealpha.chat/b/ping-pong',
-          title: 'Your Build: HireAlpha',
+          title: 'Alpha Apps: HireAlpha',
           siteName: 'HIREALPHA.CHAT',
           image: '/images/og/apps.png',
-          desc: 'Built in seconds. Keep it or toss it.',
+          desc: 'Tap one to open it.',
         },
       },
       { from: 'them', text: 'hirealpha.chat/b/ping-pong' },
@@ -184,7 +184,7 @@ export const HIGHLIGHTS: HighlightThread[] = [
       {
         from: 'them',
         app: 'Search',
-        text: 'Metreon has 2 seats left at 7:15 PM row F. AMC Cupertino is sold out. Grab Metreon here: fandango.com/...',
+        text: 'Metreon has 2 seats left at 7:15 PM row F. AMC Cupertino is sold out.',
         linkPreview: {
           url: 'https://fandango.com/amc-metreon-16',
           title: 'AMC Metreon 16: Fandango Tickets',

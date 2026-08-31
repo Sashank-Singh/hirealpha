@@ -89,7 +89,6 @@ export function GreatestHits() {
                                   {b.linkPreview.image && (
                                     <img src={b.linkPreview.image} alt={b.linkPreview.title} loading="lazy" />
                                   )}
-                                  <span className="hits__preview-site">HireAlpha</span>
                                   <span className="hits__preview-title">
                                     {b.linkPreview.title.replace(/[:\u2014]? HireAlpha$/, '')}
                                   </span>
