@@ -820,12 +820,16 @@
 }
 
 .hits__grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, 312px);
+  display: flex;
+  flex-wrap: wrap;
   justify-content: center;
   gap: 24px;
   max-width: 1200px;
   margin: 0 auto;
+}
+
+.hits__figure {
+  flex: 0 0 312px;
 }
 
 .hits__figure {
