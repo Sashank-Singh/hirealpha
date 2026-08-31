@@ -20,7 +20,7 @@ export async function searchWeb(query: string, limit: number = 5): Promise<Searc
         snippet: r.description || "",
       }));
     }
-  } catch (err) {
+  } catch {
     // proceed to HTML fetch fallback below
   }
 

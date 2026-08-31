@@ -1,6 +1,8 @@
 import { useEffect, useState, type FormEvent, type KeyboardEvent } from 'react'
 import type { MailMessage, ReplyDraft } from './api'
 import { apiGetMailMessage, apiRewriteDraft, apiSaveGmailDraft, apiSendDraft } from './api'
+import type { FeatureAuth } from './FeatureMiniApps'
+import { useStableAuth } from './useStableAuth'
 
 /** Strip dangerous HTML constructs from an email body before rendering. */
 function sanitizeEmailHtml(html: string): string {
@@ -62,7 +64,7 @@ function decodeEntities(text: string): string {
  * double blank lines Outlook inserts between every paragraph. Clean those so a
  * thread reads like something a person wrote.
  */
-export function cleanEmailBody(text: string): string {
+function cleanEmailBody(text: string): string {
   return decodeEntities(text)
     .replace(/\[cid:[^\]]+\]/g, '')
     .replace(/(\b[\w.-]+\.[a-z]{2,}(?:\/\S*)?)<(https?:\/\/[^>]+)>/gi, '$2')
@@ -91,7 +93,7 @@ interface EmailReaderProps {
   label?: string
   /** Gmail snippet shown while the body loads */
   summary?: string
-  auth: { email?: string; token?: string }
+  auth: FeatureAuth
   persona?: string
   /** A generated reply to review: when present, a compose panel renders below the message. */
   draft?: ReplyDraft | null
@@ -99,6 +101,7 @@ interface EmailReaderProps {
 }
 
 export function EmailReader({ messageId, label, summary, auth, persona, onClose, draft }: EmailReaderProps) {
+  const a = useStableAuth(auth)
   const [msg, setMsg] = useState<MailMessage | null>(null)
   const [loading, setLoading] = useState(true)
   const [to, setTo] = useState(draft?.toAddr || '')
@@ -125,12 +128,12 @@ export function EmailReader({ messageId, label, summary, auth, persona, onClose,
 
   useEffect(() => {
     let cancelled = false
-    apiGetMailMessage({ ...auth, messageId })
+    apiGetMailMessage({ ...a, messageId })
       .then((d) => { if (!cancelled) setMsg(d) })
       .catch(() => { if (!cancelled) setMsg({ ok: false, error: 'Could not load message.' }) })
       .finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
-  }, [messageId])
+  }, [messageId, a])
 
   // A different message's draft arriving should reset the composer, not leave
   // stale text behind.

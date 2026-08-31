@@ -21,7 +21,7 @@ import {
   formatLocalNow,
 } from './reminders'
 import { setProactiveMode, fetchLastProactiveTopic, fetchJudgmentState } from './judgment'
-import { keepHonestPlan, parseBrainDump, keepTravelPlan, parseMeetingAnswer, scanSubscriptions } from './smartFeatures'
+import { keepHonestPlan, parseBrainDump, keepTravelPlan, scanSubscriptions } from './smartFeatures'
 import { formatLifeStateBlock } from './lifeState'
 import {
   DIGEST_MARKER,
@@ -350,7 +350,7 @@ export function looksLikeSleepLog(text: string) {
 }
 
 export function looksLikeGratitudeLog(text: string) {
-  return /grateful(?:\s+for)?\s*[:\-]?\s*\S+/i.test(text)
+  return /grateful(?:\s+for)?\s*[:-]?\s*\S+/i.test(text)
 }
 
 export function looksLikeSpendLog(text: string) {
@@ -388,7 +388,7 @@ function looksLikeLifeTap(text: string) {
 export function looksLikeMoodReply(text: string) {
   const t = text.trim()
   if (!t || t.length > 40) return false
-  if (/^[😄🙂😐😔😤]+$/.test(t)) return true
+  if (/^[😄🙂😐😔😤]+$/u.test(t)) return true
   return /^(i'?m|i am)?\s*(good|fine|okay|ok|great|meh|tired|exhausted|sad|down|rough|bad|angry|stressed|frustrated|great!?)\b/i.test(t)
 }
 
@@ -1541,9 +1541,13 @@ export async function runHireTurn(input: {
           ? miniAppFallbackText(miniApp.kind)
           : 'On it. Give me one more beat.'
   }
-  console.log(`[turn] raw reply (${reply.length} chars): ${reply.slice(0, 300)}`)
-  console.log(`[turn] final reply (${finalReply.length} chars): ${finalReply.slice(0, 300)}`)
-  console.log(`[turn] bubbles: ${splitBubbles(finalReply).length}`)
+  /* Turn-level debugging is opt-in: the raw reply carries user text, so it
+   * never goes to production logs by default. */
+  if (process.env.HIREALPHA_TURN_DEBUG) {
+    console.log(`[turn] raw reply (${reply.length} chars): ${reply.slice(0, 300)}`)
+    console.log(`[turn] final reply (${finalReply.length} chars): ${finalReply.slice(0, 300)}`)
+    console.log(`[turn] bubbles: ${splitBubbles(finalReply).length}`)
+  }
 
   appendThread(input.dataDir, input.senderId, [
     { role: 'user', content: input.userText },

@@ -12,6 +12,7 @@ import {
 import { ConnectorLogo } from './ConnectorLogo'
 import { connectorsForHire, type ConnectorId } from './connectors'
 import type { FeatureAuth } from './FeatureMiniApps'
+import { useStableAuth } from './useStableAuth'
 import { readMiniTheme, writeMiniTheme, type MiniTheme } from './miniTheme'
 import { connectedIds, getSession, hydrateFromServer } from './roster'
 import {
@@ -196,6 +197,7 @@ function ConnectorSettings({ auth }: { auth: FeatureAuth }) {
 }
 
 function NutritionSettings({ auth }: { auth: FeatureAuth }) {
+  const a = useStableAuth(auth)
   const [calories, setCalories] = useState(2200)
   const [protein, setProtein] = useState(150)
   const [carbs, setCarbs] = useState(220)
@@ -204,7 +206,7 @@ function NutritionSettings({ auth }: { auth: FeatureAuth }) {
   const [msg, setMsg] = useState('')
 
   useEffect(() => {
-    apiNutritionToday(auth)
+    apiNutritionToday(a)
       .then((d) => {
         if (!d.goals) return
         setCalories(d.goals.calorieGoal)
@@ -213,7 +215,7 @@ function NutritionSettings({ auth }: { auth: FeatureAuth }) {
         setFat(d.goals.fatGoal)
       })
       .catch(() => setMsg('Could not load nutrition goals.'))
-  }, [auth.email, auth.token])
+  }, [a])
 
   async function save() {
     if (busy) return
@@ -269,13 +271,14 @@ function NutritionSettings({ auth }: { auth: FeatureAuth }) {
 const WORKOUT_SETTING_DAYS: WorkoutDay[] = [0, 1, 2, 3, 4, 5, 6]
 
 function WorkoutSettings({ auth }: { auth: FeatureAuth }) {
+  const a = useStableAuth(auth)
   const [place, setPlace] = useState<WorkoutPlace>(() => readWorkoutPlace())
   const [moveCount, setMoveCount] = useState<WorkoutMoveCount>(() => readWorkoutMoveCount())
   const [days, setDays] = useState<WorkoutDay[]>(() => readWorkoutDays())
   const [msg, setMsg] = useState('')
 
   useEffect(() => {
-    apiGetMiniPrefs(auth)
+    apiGetMiniPrefs(a)
       .then((p) => {
         setPlace(p.workoutPlace)
         writeWorkoutPlace(p.workoutPlace)
@@ -290,7 +293,7 @@ function WorkoutSettings({ auth }: { auth: FeatureAuth }) {
         }
       })
       .catch(() => setMsg('Could not load workout settings.'))
-  }, [auth.email, auth.token])
+  }, [a])
 
   async function pick(next: WorkoutPlace) {
     setPlace(next)
@@ -378,18 +381,19 @@ function WorkoutSettings({ auth }: { auth: FeatureAuth }) {
 }
 
 function SleepSettings({ auth }: { auth: FeatureAuth }) {
+  const a = useStableAuth(auth)
   const [bedtime, setBedtime] = useState('23:00')
   const [wake, setWake] = useState('07:00')
   const [msg, setMsg] = useState('')
 
   useEffect(() => {
-    apiGetMiniPrefs(auth)
+    apiGetMiniPrefs(a)
       .then((p) => {
         if (p.sleepBedtime) setBedtime(p.sleepBedtime)
         if (p.sleepWake) setWake(p.sleepWake)
       })
       .catch(() => setMsg('Could not load sleep times.'))
-  }, [auth.email, auth.token])
+  }, [a])
 
   async function saveTimes(nextBed: string, nextWake: string) {
     setBedtime(nextBed)
@@ -423,15 +427,16 @@ function SleepSettings({ auth }: { auth: FeatureAuth }) {
 }
 
 function SpendSettings({ auth }: { auth: FeatureAuth }) {
+  const a = useStableAuth(auth)
   const [budget, setBudget] = useState(400)
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState('')
 
   useEffect(() => {
-    apiListSpending(auth)
+    apiListSpending(a)
       .then((d) => setBudget(d.weeklyBudget))
       .catch(() => setMsg('Could not load budget.'))
-  }, [auth.email, auth.token])
+  }, [a])
 
   async function save() {
     if (busy || budget <= 0) return

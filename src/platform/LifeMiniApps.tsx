@@ -43,6 +43,7 @@ import {
   type WorkoutPr,
 } from './api'
 import type { FeatureAuth } from './FeatureMiniApps'
+import { useStableAuth } from './useStableAuth'
 import {
   defaultWorkoutDay,
   movePrescription,
@@ -69,9 +70,7 @@ import { useRefreshOnFocus } from './useRefreshOnFocus'
 import { SpendBar, SpendDonut, SpendSwatch } from './SpendCharts'
 import { SPEND_SLOTS, SPEND_SLOT_LABELS } from './spendChart'
 
-function useAuth(auth: FeatureAuth) {
-  return { email: auth.email, token: auth.token, persona: auth.persona }
-}
+const useAuth = useStableAuth
 
 function fmtDay(iso: string | null | undefined) {
   if (!iso) return ''
@@ -221,7 +220,7 @@ export function WorkoutLogApp({ auth }: { auth: FeatureAuth }) {
         }
       })
       .catch(() => setMsg('Could not load workouts.'))
-  }, [a.email, a.token])
+  }, [a])
   useEffect(() => { load() }, [load])
 
   async function choosePlace(next: WorkoutPlace) {
@@ -539,7 +538,7 @@ export function LearningQueueApp({ auth }: { auth: FeatureAuth }) {
       .catch((err) =>
         setMsg(err instanceof Error && err.message ? err.message : 'Could not load queue.'),
       )
-  }, [a.email, a.token])
+  }, [a])
   useEffect(() => { load() }, [load])
 
   async function add(e: FormEvent) {
@@ -709,7 +708,7 @@ export function WeeklyReviewApp({ auth }: { auth: FeatureAuth }) {
         setFocusText(d.current.focusText)
       }
     }).catch(() => setMsg('Could not load this week.'))
-  }, [a.email, a.token])
+  }, [a])
   useEffect(() => { load() }, [load])
 
   async function save(e: FormEvent) {
@@ -894,17 +893,17 @@ export function NetworkingCrmApp({ auth }: { auth: FeatureAuth }) {
         }
       })
       .catch(() => setMsg('Could not load people.'))
-  }, [a.email, a.token, a.persona])
+  }, [a])
   useEffect(() => { load() }, [load])
 
   /* Pending drafts back the nudge button: if Alpha already wrote an outreach
    * mail for this person, nudge opens that draft for review. Drafts are a
    * nice-to-have here, so a miss just means the copyable one-liner path. */
   const loadDrafts = useCallback(() => {
-    apiListWorkDrafts({ email: a.email, token: a.token, persona: auth.persona })
+    apiListWorkDrafts({ email: a.email, token: a.token, persona: a.persona })
       .then((d) => setDrafts(d.drafts || []))
       .catch(() => setDrafts([]))
-  }, [a.email, a.token, auth.persona])
+  }, [a])
   useEffect(() => { loadDrafts() }, [loadDrafts])
 
   function overdueBy(p: NetworkPerson) {
@@ -1410,7 +1409,7 @@ export function SleepTrackerApp({ auth }: { auth: FeatureAuth }) {
         }
       })
       .catch(() => setMsg('Could not load sleep.'))
-  }, [a.email, a.token])
+  }, [a])
   useEffect(() => { load() }, [load])
 
   async function save() {
@@ -1603,7 +1602,7 @@ export function PipelineBoardApp({ auth }: { auth: FeatureAuth }) {
 
   const load = useCallback(() => {
     apiListPipeline(a).then((d) => setItems(d.items)).catch(() => setMsg('Could not load pipeline.'))
-  }, [a.email, a.token])
+  }, [a])
   useEffect(() => { load() }, [load])
 
   async function add(e: FormEvent) {
@@ -1803,7 +1802,7 @@ export function GratitudeJournalApp({ auth }: { auth: FeatureAuth }) {
 
   const load = useCallback(() => {
     apiListGratitude(a).then((d) => { setEntries(d.entries); setWeekCount(d.weekCount) }).catch(() => setMsg('Could not load journal.'))
-  }, [a.email, a.token])
+  }, [a])
   useEffect(() => { load() }, [load])
 
   async function add(e: FormEvent) {
@@ -1904,7 +1903,7 @@ export function SpendingSnapshotApp({ auth }: { auth: FeatureAuth }) {
       setWeekStart(d.weekStart)
       if (d.logs[0]?.category) setCategory(d.logs[0].category)
     }).catch(() => setMsg('Could not load spending.'))
-  }, [a.email, a.token])
+  }, [a])
   useEffect(() => { load() }, [load])
   useRefreshOnFocus(load)
 

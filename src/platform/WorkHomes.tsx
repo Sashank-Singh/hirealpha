@@ -19,8 +19,10 @@ import {
   type PipelineItem,
   type WorkDraft,
 } from './api'
-import { ActionButtons, ActionRow, runAction, snoozeAction } from './ActionQueue'
+import { ActionButtons, ActionRow } from './ActionQueue'
+import { runAction, snoozeAction } from './actionRunner'
 import type { FeatureAuth } from './FeatureMiniApps'
+import { useStableAuth } from './useStableAuth'
 import { MiniAppIcon } from './MiniAppIcons'
 import { remainingMeets } from './home'
 import { CategoryDonut } from './SpendCharts'
@@ -57,6 +59,7 @@ function Vital({
 
 /** Shared queue state: rungs come from /api/work/next, verbs from ActionQueue. */
 function useWorkQueue(auth: FeatureAuth, reload: () => void) {
+  const a = useStableAuth(auth)
   const [items, setItems] = useState<NextItem[]>([])
   const [busy, setBusy] = useState(false)
   const [doneId, setDoneId] = useState<string | null>(null)
@@ -64,10 +67,10 @@ function useWorkQueue(auth: FeatureAuth, reload: () => void) {
   const [actMsg, setActMsg] = useState('')
 
   const fetchQueue = useCallback(() => {
-    apiNextStack({ email: auth.email, token: auth.token, persona: auth.persona })
+    apiNextStack(a)
       .then((d) => setItems(d.items || []))
       .catch(() => setItems([]))
-  }, [auth.email, auth.token, auth.persona])
+  }, [a])
 
   useEffect(() => {
     fetchQueue()
@@ -284,6 +287,7 @@ const COFOUNDER_DOCK = [
 ]
 
 export function CoworkerHomeApp({ auth }: { auth: FeatureAuth }) {
+  const a = useStableAuth(auth)
   const [searchParams] = useSearchParams()
   const suffix = searchParams.toString() ? `?${searchParams.toString()}` : ''
   const miniLink = (kind: string) => `/app/mini/${auth.persona}/${kind}${suffix}`
@@ -296,16 +300,16 @@ export function CoworkerHomeApp({ auth }: { auth: FeatureAuth }) {
   const [standup, setStandup] = useState<string | null>(null)
 
   const reloadTiles = useCallback(() => {
-    apiListWorkDrafts({ email: auth.email, token: auth.token, persona: auth.persona })
+    apiListWorkDrafts(a)
       .then((d) => setDrafts((d.drafts || []).filter((x) => x.status === 'pending')))
       .catch(() => {})
-    apiListLoops({ email: auth.email, token: auth.token })
+    apiListLoops({ email: a.email, token: a.token })
       .then((d) => setLoops(d.loops || []))
       .catch(() => {})
-    apiStandupToday({ email: auth.email, token: auth.token })
+    apiStandupToday({ email: a.email, token: a.token })
       .then((d) => setStandup(d.today || null))
       .catch(() => {})
-  }, [auth.email, auth.token, auth.persona])
+  }, [a])
 
   useEffect(() => {
     reloadTiles()
@@ -418,7 +422,7 @@ export function CofounderHomeApp({ auth }: { auth: FeatureAuth }) {
     apiListLoops({ email: auth.email, token: auth.token })
       .then((d) => setLoops(d.loops || []))
       .catch(() => {})
-  }, [auth.email, auth.token, auth.persona])
+  }, [auth.email, auth.token])
 
   useEffect(() => {
     reloadTiles()

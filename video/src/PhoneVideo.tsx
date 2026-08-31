@@ -5,7 +5,6 @@ export const VIDEO_DURATION_IN_SECONDS = 33
 
 /* ------------------------------------------------------------------ palette */
 const ACCENT = '#2a6f7a'
-const ACCENT_DEEP = '#1b4d55'
 const BG = '#0a0d12'
 const BG2 = '#0e1520'
 const INK = '#eef3f5'
@@ -14,7 +13,6 @@ const CARD = '#141a22'
 const CARD_BORDER = '#25323a'
 const SHADOW = 'rgba(0,0,0,0.5)'
 const LINK_BLUE = '#0a84ff'
-const SENT = '#3478f6' // iMessage sent blue
 const RECV = '#26262a' // iMessage received (dark)
 const TEXT = '#e8e8ea'
 const SUB = '#98989d'

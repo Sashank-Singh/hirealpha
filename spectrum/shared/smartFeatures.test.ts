@@ -19,7 +19,6 @@ import {
   looksLikeKeepMeHonest,
   looksLikeRecall,
   looksLikeSnapLog,
-  looksLikeSweep,
   looksLikeToolbox,
   looksLikeTravelMode,
   parseBrainDump,

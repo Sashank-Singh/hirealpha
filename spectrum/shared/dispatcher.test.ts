@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'bun:test'
 import {
-  billguardKeyword,
   CAPABILITIES,
   dispatch,
   dispatchSlash,

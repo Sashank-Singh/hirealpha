@@ -71,7 +71,7 @@ function displayPrice(tier: { id: Tier; price: number; promo?: number; per: stri
 /** Checkout needs an email and nothing else: a known account fires Stripe
  * immediately, a fresh visitor types theirs into the card and follows it.
  * Free has nothing to charge, so it walks to the signup form. */
-export async function choosePlan(tier: Tier, annual: boolean, email?: string) {
+async function choosePlan(tier: Tier, annual: boolean, email?: string) {
   if (tier === 'free') {
     document.getElementById('waitlist')?.scrollIntoView({ behavior: 'smooth' })
     return { ok: false, needsEmail: false }

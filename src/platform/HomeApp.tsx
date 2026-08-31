@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { MENU_FEATURES } from './MiniAppPage'
+import { MENU_FEATURES } from './miniAppCatalog'
 import { Link, useSearchParams } from 'react-router-dom'
 import {
   apiListNetwork,
@@ -11,7 +11,8 @@ import {
   type NextItem,
   type SleepNight,
 } from './api'
-import { ActionButtons, ActionRow, runAction, snoozeAction } from './ActionQueue'
+import { ActionButtons, ActionRow } from './ActionQueue'
+import { runAction, snoozeAction } from './actionRunner'
 import type { FeatureAuth } from './FeatureMiniApps'
 import { MiniAppIcon } from './MiniAppIcons'
 import {
@@ -97,6 +98,7 @@ export function HomeApp({ auth }: { auth: FeatureAuth }) {
   const [doneId, setDoneId] = useState<string | null>(null)
   const [snoozed, setSnoozed] = useState<string[]>([])
   const [actMsg, setActMsg] = useState('')
+  const [showOthers, setShowOthers] = useState(false)
 
   const load = useCallback(() => {
     setLoading(true)
@@ -260,7 +262,6 @@ export function HomeApp({ auth }: { auth: FeatureAuth }) {
   const briefKind = hour >= 18 ? 'pick_night' : 'digest'
   const sleepWeek = (snap?.sleepTrend || []).slice(-7)
   const dock = DOCK.map((d) => (d.kind === 'digest' ? { ...d, kind: briefKind } : d))
-  const [showOthers, setShowOthers] = useState(false)
 
   /* The bed-to-wake window is the one thing the "7.2h" value cannot say on its
    * own, so it earns the tile's foot line. Restating the target there instead

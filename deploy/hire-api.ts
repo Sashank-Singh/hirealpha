@@ -4,13 +4,12 @@
  */
 import { Composio } from '@composio/core'
 import { createHmac, timingSafeEqual } from 'node:crypto'
-import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { readFile, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { gateWorkshopCode, runWorkshopCode, sweepExpiredArtifacts } from './workshop'
 import type { SQL } from 'bun'
 import {
   extractOtherPerson,
-  eventStartsByEightPm,
   formatClock,
   formatDigestEventLabel,
   formatUpcomingEvents,
@@ -28,6 +27,8 @@ import {
   type CalItem,
 } from './calendarEvents'
 import { COMPOSIO_READ, composioLooksFailed, formatComposioData } from './composioPlugins'
+import { ensureBrowserVaultSchema, handleVaultApi } from './browserVault'
+import { runPortalTask } from './browserRunner'
 import { parseChatExport, scanSubscriptions } from '../spectrum/shared/smartFeatures'
 import {
   isValidTimeZone,
@@ -40,7 +41,6 @@ import {
 } from './timezones'
 import {
   cleanMailSnippet,
-  decodeGmailBody,
   extractGmailBody,
   fillDraftName,
   formatBriefPreview,
@@ -56,7 +56,6 @@ import {
   isSubstantiveReply,
   mailTally,
   pickReplyTarget,
-  scoreMail,
   topNeedsYou,
   type ComposioMailBody,
   type ComposioMailItem,
@@ -69,7 +68,6 @@ import {
 import { extractJsonObject, extractNumericFields, modelReplyText, stripReasoning } from './modelJson'
 import {
   JUDGE_ALL_SYSTEM,
-  JUDGE_TTL_MS,
   JUDGE_MAIL_CAP,
   JUDGE_MEET_CAP,
   judgeAllPrompt,
@@ -1756,6 +1754,8 @@ export async function ensureHireSchema(sql: SQL) {
   } catch (err) {
     console.warn('[hire] retention purge failed', err)
   }
+  // Credential vault + browser-approval gates (per-user, per-portal, encrypted).
+  await ensureBrowserVaultSchema(sql)
 }
 
 /**
@@ -1874,8 +1874,6 @@ type LocationRow = {
   source: string | null
   updated_at: Date
 }
-
-const LOCATION_KINDS = new Set(['current', 'home', 'work'])
 
 async function loadLocations(sql: SQL, userId: string): Promise<LocationRow[]> {
   const rows = await sql`
@@ -6686,13 +6684,6 @@ async function touchInbound(sql: SQL, phone: string, persona: Persona) {
   return { armed: true, first }
 }
 
-function splitList(raw: string | undefined) {
-  return (raw || '')
-    .split(/[,;\n]+/)
-    .map((s) => s.trim())
-    .filter(Boolean)
-}
-
 async function miniPayload(
   sql: SQL,
   user: { id: string; timezone: string | null },
@@ -7397,20 +7388,6 @@ async function googleEventsRaw(
   }
 }
 
-function parseGmailOverview(block: string) {
-  return block
-    .split('\n')
-    .filter((l) => l.startsWith('- '))
-    .slice(0, 2)
-    .map((line, i) => {
-      const parts = line.replace(/^-\s*/, '').split(' | ')
-      const from = (parts[0] || '').replace(/<[^>]+>/g, '').trim()
-      const subject = (parts[2] || parts[1] || '(no subject)').trim()
-      return { id: `mail-${i}-${subject.slice(0, 40)}`, from, subject }
-    })
-    .filter((m) => (m.subject && m.subject !== '(no subject)') || m.from)
-}
-
 function localHourParts(iso: string, timezone: string) {
   const d = new Date(iso)
   const parts = new Intl.DateTimeFormat('en-US', {
@@ -7836,7 +7813,7 @@ export type CofounderDigestPayload = {
 export async function cofounderDigest(
   sql: SQL,
   userId: string,
-  persona: string = 'cofounder',
+  _persona: string = 'cofounder',
 ): Promise<CofounderDigestPayload> {
   const stale = (await sql`
     SELECT id, title, stage, updated_at AS "updatedAt" FROM hire_pipeline
@@ -8556,6 +8533,26 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
   }
 
   if (!sql) return json({ error: 'Database unavailable' }, 503)
+
+  // Credential vault, browser approval gates, and the internal browser task
+  // endpoint. Returns null for paths it does not own so the chain below keeps
+  // dispatching.
+  const vaultRes = await handleVaultApi(req, sql, {
+    resolveUser: async (db, r) => {
+      const q = new URL(r.url).searchParams
+      const { user } = await resolveAuthedUser(db, {
+        token: q.get('t') || undefined,
+        session: q.get('s') || undefined,
+        email: q.get('email') || undefined,
+      })
+      if (!user) return null
+      const persona = q.get('persona') || 'friend'
+      return { id: user.id, persona: (PERSONAS as readonly string[]).includes(persona) ? persona : 'friend' }
+    },
+    internalOk,
+    launch: runPortalTask,
+  })
+  if (vaultRes) return vaultRes
 
   if (path === '/api/connectors/status' && req.method === 'GET') {
     return json({
@@ -10401,7 +10398,6 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
   }
 
   if (path === '/api/work/day' && req.method === 'GET') {
-    const persona = url.searchParams.get('persona') || 'coworker'
     const { user, error } = await resolveAuthedUser(sql, {
       token: url.searchParams.get('t') || undefined,
       session: url.searchParams.get('s') || undefined,
@@ -13708,7 +13704,6 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     })
     if (error) return error
     const weekStart = userMonday(user!)
-    const weekEndStr = shiftDateStr(weekStart, 7)
     const weekWindow = weekWindowUtc(weekStart, user!.timezone || 'America/Los_Angeles')
     const logs = await sql`
       SELECT id, amount, category, description, spent_at AS "spentAt"
@@ -13936,7 +13931,7 @@ function parseSleepText(text: string): { bedtime: string; wake: string } | null 
 }
 
 function parseGratitudeText(text: string): string | null {
-  const m = text.match(/(?:i(?:'m| am)\s+)?grateful(?:\s+for)?\s*[:\-]?\s*(.+)$/i)
+  const m = text.match(/(?:i(?:'m| am)\s+)?grateful(?:\s+for)?\s*[:-]?\s*(.+)$/i)
   const sentence = String(m?.[1] || '').trim().replace(/[.!?]+$/, '')
   if (sentence.length < 2) return null
   return sentence.slice(0, 280)

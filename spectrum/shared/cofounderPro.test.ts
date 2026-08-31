@@ -127,7 +127,6 @@ describe('captureFromChat', () => {
 describe('pickDailyItem priority', () => {
   const iso = (d: Date) => d.toISOString()
   const daysAgo = (n: number) => iso(new Date(NOW.getTime() - n * 86_400_000))
-  const daysAhead = (n: number) => iso(new Date(NOW.getTime() + n * 86_400_000))
 
   const full: CofounderDigest = {
     stalePipeline: [{ id: 'a', title: 'Acme', stage: 'talking', daysSinceTouch: 16 }],

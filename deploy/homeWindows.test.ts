@@ -16,7 +16,6 @@ describe('local-day windows', () => {
     expect(dinner.getTime()).toBeLessThan(w.end.getTime())
 
     // What the old `::date` comparison did: midnight in the session timezone.
-    const utcMidnightStart = new Date('2026-08-22T00:00:00.000Z')
     const utcMidnightEnd = new Date('2026-08-23T00:00:00.000Z')
     expect(dinner.getTime() >= utcMidnightEnd.getTime()).toBe(true)
   })

@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
 import { rankPromise } from './promisesHint'
+import { buildHabitHeatmap } from './habitHeatmap'
+import { useStableAuth } from './useStableAuth'
 import type { AgentId } from '../agents/types'
 import {
   apiAddDecision,
@@ -111,7 +113,7 @@ function loopDueLabel(l: { dueAt?: string | null }, today: string) {
 }
 
 function useAuthed(auth: FeatureAuth) {
-  return { email: auth.email, token: auth.token }
+  return useStableAuth(auth)
 }
 
 /* ------------------------------ Open Loops ------------------------------ */
@@ -133,7 +135,7 @@ export function OpenLoopsApp({ auth }: { auth: FeatureAuth }) {
 
   const load = useCallback(() => {
     apiListLoops(a).then((d) => setLoops(d.loops)).catch(() => setErr('Could not load promises.'))
-  }, [a.email, a.token])
+  }, [a])
 
   useEffect(() => {
     load()
@@ -145,7 +147,7 @@ export function OpenLoopsApp({ auth }: { auth: FeatureAuth }) {
     setBusy(true)
     setErr('')
     try {
-      await apiAddLoop({ ...a, persona: auth.persona, title: title.trim(), dueAt: today })
+      await apiAddLoop({ ...a, persona: a.persona, title: title.trim(), dueAt: today })
       setTitle('')
       setShowAdd(false)
       load()
@@ -311,7 +313,7 @@ export function DecisionLedgerApp({ auth }: { auth: FeatureAuth }) {
 
   const load = useCallback(() => {
     apiListDecisions(a).then((d) => setDecisions(d.decisions)).catch(() => setErr('Could not load decisions.'))
-  }, [a.email, a.token])
+  }, [a])
 
   useEffect(() => {
     load()
@@ -334,7 +336,7 @@ export function DecisionLedgerApp({ auth }: { auth: FeatureAuth }) {
       const day = String(review.getDate()).padStart(2, '0')
       await apiAddDecision({
         ...a,
-        persona: auth.persona,
+        persona: a.persona,
         decision,
         reason,
         reviewAt: `${y}-${m}-${day}`,
@@ -462,7 +464,7 @@ export function RelationshipRadarApp({ auth }: { auth: FeatureAuth }) {
 
   const load = useCallback(() => {
     apiListRelationships(a).then((d) => setPeople(d.relationships)).catch(() => setErr('Could not load people.'))
-  }, [a.email, a.token])
+  }, [a])
 
   useEffect(() => {
     load()
@@ -663,7 +665,7 @@ export function DropZoneApp({ auth }: { auth: FeatureAuth }) {
 
   const load = useCallback(() => {
     apiListDrops(a).then((d) => setDrops(d.drops)).catch(() => setErr('Could not load drops.'))
-  }, [a.email, a.token])
+  }, [a])
 
   useEffect(() => {
     load()
@@ -677,7 +679,7 @@ export function DropZoneApp({ auth }: { auth: FeatureAuth }) {
       if (bucket === 'learning') {
         await apiAddLearning({ ...a, title: drop.content.slice(0, 120) })
       } else if (bucket === 'loop') {
-        await apiAddLoop({ ...a, persona: auth.persona, title: drop.content.slice(0, 200), dueAt: todayStr() })
+        await apiAddLoop({ ...a, persona: a.persona, title: drop.content.slice(0, 200), dueAt: todayStr() })
       } else {
         await apiAddNetwork({ ...a, name: nameFromDrop(drop.content), context: drop.content.slice(0, 400) })
       }
@@ -721,7 +723,7 @@ export function DropZoneApp({ auth }: { auth: FeatureAuth }) {
         await fileDrop(
           {
             id: created.id,
-            persona: auth.persona,
+            persona: a.persona,
             content: text,
             status: 'new',
             mediaKind: null,
@@ -857,7 +859,7 @@ export function MeetingModeApp({ auth }: { auth: FeatureAuth }) {
   const load = useCallback(() => {
     Promise.all([
       apiListMeetings(a),
-      apiDayEvents({ ...a, persona: auth.persona }).catch(() => ({ events: [] as Array<{ id: string; title: string; start: string; label: string }> })),
+      apiDayEvents({ ...a, persona: a.persona }).catch(() => ({ events: [] as Array<{ id: string; title: string; start: string; label: string }> })),
     ])
       .then(async ([d, day]) => {
         let rows = d.meetings
@@ -871,7 +873,7 @@ export function MeetingModeApp({ auth }: { auth: FeatureAuth }) {
         setMeetings(rows)
       })
       .catch(() => setErr('Could not load meetings.'))
-  }, [a.email, a.token, auth.persona])
+  }, [a])
 
   useEffect(() => {
     load()
@@ -882,7 +884,7 @@ export function MeetingModeApp({ auth }: { auth: FeatureAuth }) {
    * wrap flow below as the whole screen. */
   useEffect(() => {
     let on = true
-    apiMeetingPrep({ ...a, persona: auth.persona })
+    apiMeetingPrep({ ...a, persona: a.persona })
       .then((d) => {
         if (on) setPrep(d)
       })
@@ -890,7 +892,7 @@ export function MeetingModeApp({ auth }: { auth: FeatureAuth }) {
     return () => {
       on = false
     }
-  }, [a.email, a.token, auth.persona])
+  }, [a])
 
   async function add(e: FormEvent) {
     e.preventDefault()
@@ -1017,7 +1019,7 @@ export function MeetingModeApp({ auth }: { auth: FeatureAuth }) {
     const recap = [m?.briefing, m?.notes].filter(Boolean).join('\n\n') || `Wrapped ${m?.title || 'the meeting'}.`
     await apiSaveWorkDraft({
       ...a,
-      persona: auth.persona,
+      persona: a.persona,
       kind: 'email',
       toAddr: '',
       subject: `Recap: ${m?.title || 'meeting'}`,
@@ -1333,7 +1335,7 @@ export function NutritionApp({ auth }: { auth: FeatureAuth }) {
         }
       })
       .catch(() => setMsg('Could not load today.'))
-  }, [a.email, a.token])
+  }, [a])
 
   useEffect(() => { load() }, [load])
 
@@ -1733,9 +1735,6 @@ function isoToLocalDate(iso: string) {
   return localDateStr(d)
 }
 
-export { buildHabitHeatmap } from './habitHeatmap'
-import { buildHabitHeatmap as _buildHabitHeatmap } from './habitHeatmap'
-
 export function HabitStreakApp({ auth }: { auth: FeatureAuth }) {
   const a = useAuthed(auth)
   const [habits, setHabits] = useState<(Habit & { streak: number; recentDays: string[]; logDates?: string[] })[]>([])
@@ -1750,7 +1749,7 @@ export function HabitStreakApp({ auth }: { auth: FeatureAuth }) {
       setHabits(d.habits)
       if (d.weekDays?.length === 7) setDays(d.weekDays)
     }).catch(() => setMsg('Could not load habits.'))
-  }, [a.email, a.token])
+  }, [a])
 
   useEffect(() => { load() }, [load])
 
@@ -1815,7 +1814,7 @@ export function HabitStreakApp({ auth }: { auth: FeatureAuth }) {
     }
   }
 
-  const heatmapCols = _buildHabitHeatmap(habits)
+  const heatmapCols = buildHabitHeatmap(habits)
   const hasLogDates = habits.some((h) => (h.logDates?.length ?? 0) > 0)
 
   const addForm = (
@@ -1954,7 +1953,7 @@ export function MoodTrackerApp({ auth }: { auth: FeatureAuth }) {
       .catch((err) =>
         setMsg(err instanceof Error && err.message ? err.message : 'Could not load moods.'),
       )
-  }, [a.email, a.token])
+  }, [a])
 
   useEffect(() => { load() }, [load])
 

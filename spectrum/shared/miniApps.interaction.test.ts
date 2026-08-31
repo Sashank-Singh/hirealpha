@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'bun:test'
+import { describe, it, expect } from 'bun:test'
 import {
   detectMiniAppRequest,
   mintMiniAppCard,
@@ -285,7 +285,7 @@ describe('Mini-app Interaction Tests: Full Flow', () => {
         ['log my meal', 'friend'],
       ]
 
-      for (const [text, persona] of friendOnly) {
+      for (const [text] of friendOnly) {
         const result = detectMiniAppRequest(text, 'coworker')
         expect(result).toBeNull()
       }

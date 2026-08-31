@@ -258,7 +258,7 @@ export type DailyPick =
 
 /** Priority: overdue promises, decisions to revisit, stalest pipeline, newest
  * person, note ready. Returns null when nothing clears the bar. */
-export function pickDailyItem(digest: CofounderDigest | null, now: Date = new Date()): DailyPick | null {
+export function pickDailyItem(digest: CofounderDigest | null, _now: Date = new Date()): DailyPick | null {
   if (!digest) return null
   const t = (d: Date) => d.getTime()
   const promises = (digest.duePromises || [])

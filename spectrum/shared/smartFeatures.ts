@@ -263,7 +263,6 @@ export function handleRecall(text: string, stores: { loops: string[]; decisions:
 
 /** 2. Debrief: what did the meeting decide / what did you promise? */
 export function handleDebrief(meetingTitle: string): string {
-  const who = meetingTitle.replace(/\b(?:meeting|call|1-?1|sync|interview)\b/gi, ' ').replace(/\s+/g, ' ').trim()
   return `Debrief ${meetingTitle || 'the call'}
 - What went well?
 - What did you promise? (say it and I will log it as a loop)

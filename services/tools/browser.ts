@@ -1,5 +1,5 @@
 import { chromium, type Browser, type Page } from "playwright";
-import { PlaywrightCrawler, Dataset } from "crawlee";
+import { PlaywrightCrawler } from "crawlee";
 
 export interface BrowserActionResult {
   title: string;

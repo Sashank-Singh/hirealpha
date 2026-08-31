@@ -105,7 +105,6 @@ export function handleDelegate(
   const sign = userName ? ` Thanks! — ${userName}` : ' Thanks!'
   const draft = `Hi ${first}, quick one: ${cleanAsk.replace(/\?$/, '')}. Can you help with that?${sign}`
   const digits = String(contact.phone || '').replace(/[^\d+]/g, '')
-  const emailAsk = /\bemail\b/i.test(ask)
   const canSend = !!contact.email
   if (canSend && retainDraft) {
     retainDraft({ to: contact.email!, toName: contact.name, subject: 'Quick request', body: draft })

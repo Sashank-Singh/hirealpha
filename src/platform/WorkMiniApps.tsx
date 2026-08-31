@@ -24,13 +24,13 @@ import {
   type SlotOption,
   type WorkDraft,
 } from './api'
-import { ActionButtons, ActionRow, runAction, snoozeAction } from './ActionQueue'
+import { ActionButtons, ActionRow } from './ActionQueue'
+import { runAction, snoozeAction } from './actionRunner'
 import type { FeatureAuth } from './FeatureMiniApps'
+import { useStableAuth } from './useStableAuth'
 import { EmailReader } from './EmailReader'
 
-function useAuth(auth: FeatureAuth) {
-  return { email: auth.email, token: auth.token, persona: auth.persona }
-}
+const useAuth = useStableAuth
 
 function connectHref(persona: string) {
   return `/app/hires/${persona}`
@@ -58,7 +58,7 @@ export function NextMoveApp({ auth }: { auth: FeatureAuth }) {
         setMsg('')
       })
       .catch((err) => setMsg(err instanceof Error ? err.message : 'Could not load Next.'))
-  }, [a.email, a.token, a.persona])
+  }, [a])
   useEffect(() => { load() }, [load])
 
   const top = items[0]
@@ -192,7 +192,7 @@ export function ApproveSendApp({ auth, draftId }: { auth: FeatureAuth; draftId?:
         }
       })
       .catch((err) => setMsg(err instanceof Error ? err.message : 'Could not load drafts.'))
-  }, [a.email, a.token, a.persona, draftId])
+  }, [a, draftId])
   useEffect(() => { load() }, [load])
 
   const current =
@@ -338,14 +338,14 @@ export function PickSlotApp({ auth, draftId }: { auth: FeatureAuth; draftId?: st
         setProposed(next || null)
       })
       .catch((err) => setMsg(err instanceof Error ? err.message : 'Could not load times.'))
-  }, [a.email, a.token, a.persona, draftId])
+  }, [a, draftId])
   useEffect(() => { load() }, [load])
 
   /* Alpha reads the calendar and proposes three times before the screen opens.
    * A miss before the route ships just leaves the manual grid as the flow. */
   useEffect(() => {
     let on = true
-    apiSuggestSlots({ ...a, persona: auth.persona, durationMin: 30, windowDays: 7 })
+    apiSuggestSlots({ ...a, persona: a.persona, durationMin: 30, windowDays: 7 })
       .then((d) => {
         if (!on) return
         setSuggested(d.slots || [])
@@ -357,7 +357,7 @@ export function PickSlotApp({ auth, draftId }: { auth: FeatureAuth; draftId?: st
     return () => {
       on = false
     }
-  }, [a.email, a.token, auth.persona])
+  }, [a])
 
   async function hold(slot: { title?: string; start: string; end: string; id?: string }) {
     if (busy) return
@@ -521,13 +521,13 @@ export function LinearTriageApp({ auth }: { auth: FeatureAuth }) {
       .catch((err) => setMsg(err instanceof Error ? err.message : 'Could not load Linear.'))
     /* Alpha sorts the backlog into now, next, and later. The route is new, so a
      * miss before it ships keeps the raw issue list as the whole flow. */
-    apiLinearTriage({ ...a, persona: auth.persona })
+    apiLinearTriage({ ...a, persona: a.persona })
       .then((d) => setTriage(d))
       .catch(() => {
         setTriage(null)
         setTriageMiss(true)
       })
-  }, [a.email, a.token, a.persona])
+  }, [a])
   useEffect(() => { load() }, [load])
 
   const connect = needConnect || !!triage?.connect
@@ -670,7 +670,7 @@ export function HireDecisionApp({ auth }: { auth: FeatureAuth }) {
         setPeople(cands.length ? cands : extra)
       })
       .catch(() => setMsg('Could not load candidates.'))
-  }, [a.email, a.token, a.persona])
+  }, [a])
   useEffect(() => { load() }, [load])
 
   const next = people[0]
@@ -686,7 +686,7 @@ export function HireDecisionApp({ auth }: { auth: FeatureAuth }) {
       }
       await apiAddDecision({
         ...a,
-        persona: auth.persona,
+        persona: a.persona,
         decision: hire ? `Hire ${person.name}` : `Pass on ${person.name}`,
         reason: person.context || person.company || '',
       })
@@ -764,7 +764,7 @@ export function InvestorNoteApp({ auth }: { auth: FeatureAuth }) {
         }
       })
       .catch(() => setMsg('Could not load the note.'))
-  }, [a.email, a.token, a.persona])
+  }, [a])
   useEffect(() => { load() }, [load])
 
   /* Ask Alpha to write the note from real data (pipeline, spend, decisions) and
@@ -775,7 +775,7 @@ export function InvestorNoteApp({ auth }: { auth: FeatureAuth }) {
     setDrafting(true)
     setMsg('')
     try {
-      const res = await apiDraftInvestorNote({ ...a, persona: auth.persona })
+      const res = await apiDraftInvestorNote({ ...a, persona: a.persona })
       const nextBody = res.draft?.body || res.investorDraft?.body || res.body
       const nextSubject = res.draft?.subject || res.investorDraft?.subject || res.subject
       const nextTo = res.draft?.toAddr
@@ -905,14 +905,14 @@ export function StandupPasteApp({ auth }: { auth: FeatureAuth }) {
   const load = useCallback(() => {
     setDrafting(true)
     setMsg('')
-    apiStandupAuto({ ...a, persona: auth.persona })
+    apiStandupAuto({ ...a, persona: a.persona })
       .then((d) => {
         if (d.text) {
           setText(d.text)
           setAuto(true)
           return null
         }
-        return legacyStandup(auth.persona, a).then((t) => {
+        return legacyStandup(a.persona, a).then((t) => {
           if (t) {
             setText(t)
             setAuto(false)
@@ -922,7 +922,7 @@ export function StandupPasteApp({ auth }: { auth: FeatureAuth }) {
         })
       })
       .catch(() =>
-        legacyStandup(auth.persona, a).then((t) => {
+        legacyStandup(a.persona, a).then((t) => {
           if (t) {
             setText(t)
             setAuto(false)
@@ -932,7 +932,7 @@ export function StandupPasteApp({ auth }: { auth: FeatureAuth }) {
         }),
       )
       .finally(() => setDrafting(false))
-  }, [a.email, a.token, auth.persona])
+  }, [a])
   useEffect(() => { load() }, [load])
 
   async function copy() {

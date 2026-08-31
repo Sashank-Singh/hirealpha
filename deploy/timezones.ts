@@ -63,7 +63,7 @@ export function timezoneFromText(text: string): string | null {
   const t = text.trim()
   if (!t) return null
   const spoken = t.match(
-    /\b(?:i(?:'?m| am) (?:in|on)|now in|currently in|landed in|flying to|switching to|moved to|timezone(?: is)?|time zone(?: is)?)\s+([A-Za-z/_+\-]+(?:\s+[A-Za-z]+){0,2})\b/i,
+    /\b(?:i(?:'?m| am) (?:in|on)|now in|currently in|landed in|flying to|switching to|moved to|timezone(?: is)?|time zone(?: is)?)\s+([A-Za-z/_+-]+(?:\s+[A-Za-z]+){0,2})\b/i,
   )
   if (spoken) {
     const chunk = spoken[1]!.trim()

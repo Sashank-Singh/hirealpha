@@ -1264,7 +1264,7 @@ describe('Mini-app Text Triggers', () => {
     })
 
     it('each kind is assigned to at least one persona', () => {
-      for (const [kind, config] of Object.entries(MINI_APP_TEXT_TRIGGERS)) {
+      for (const [, config] of Object.entries(MINI_APP_TEXT_TRIGGERS)) {
         expect(config.personas.length).toBeGreaterThanOrEqual(1)
       }
     })

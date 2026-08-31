@@ -1,171 +1,176 @@
 # HireAlpha
 
-Marketing site for **HireAlpha**: three hireable agents that live in iMessage.
-
-Each hire is a distinct contact with its own number and personality. Not one chatbot with modes.
+**Three hireable agents that live in iMessage.** Each hire is a distinct contact with its own phone number and personality — not one chatbot with modes.
 
 | Hire | In Messages as | Role | Price |
 | --- | --- | --- | --- |
-| Friend | `Alpha` | Personal companion | $19/mo |
-| Coworker | `Alpha (Coworker)` | Work colleague | $19/mo |
-| Cofounder | `Alpha(CoFounder)` | Startup partner | $19/mo |
+| Friend | `Alpha` | Personal companion — briefs, body, money, people | $19/mo |
+| Coworker | `Alpha (Coworker)` | Work colleague — standup, drafts, triage, loops | $19/mo |
+| Cofounder | `Alpha(CoFounder)` | Startup partner — pipeline, decisions, investor notes | $19/mo |
 
-This repo is the landing experience: product story, interactive Messages demo, connectors grid, and waitlist capture.
-
----
-
-## Preview
-
-| Hero / phone demo | Roles |
-| --- | --- |
-| ![Hero phone](public/images/hero-phone.png) | ![Friend scene](public/images/friend-scene.png) |
-
-| Coworker | Cofounder |
-| --- | --- |
-| ![Coworker scene](public/images/coworker-scene.png) | ![Cofounder scene](public/images/cofounder-scene.png) |
+Text them like a person. They answer with running software: mini-apps open **inside the thread** — approve-a-draft, pick-a-slot, spending snapshots, evening briefs — built on your Gmail, Calendar, bank, and habits.
 
 ---
 
-## Product flow
+## Architecture
 
 ```mermaid
 flowchart LR
-  A[Visitor] --> B[Landing]
-  B --> C[Preview Messages demo]
-  B --> D[Choose a hire]
-  D --> E[Friend / Coworker / Cofounder]
-  E --> F[Connectors]
-  F --> G[Waitlist email]
-  G --> H[localStorage]
-```
-
-```mermaid
-flowchart TB
-  subgraph Messages demo
-    I[Inbox] -->|select hire| T[Thread]
-    T --> R[Typing + replies]
-    R --> I
+  subgraph Clients
+    S[iMessage / Slack / WhatsApp]
+    W[Web app<br/>hirealpha.chat]
   end
 
-  subgraph Hires
-    F[Alpha]
-    C[Alpha Coworker]
-    CF[Alpha CoFounder]
+  subgraph Bots["Agent bots (Bun)"]
+    F[alpha · Friend]
+    C[alpha-coworker]
+    CF[alpha-cofounder]
   end
 
-  I --- F
-  I --- C
-  I --- CF
+  subgraph API["hire-api (Bun · ~160 routes)"]
+    AUTH[Auth · sessions]
+    BILL[Stripe billing]
+    LOOP[Loops · habits · briefs]
+    INT[Internal API]
+  end
+
+  DB[(Postgres)]
+  G[Gmail · Calendar<br/>via Composio]
+  ST[Stripe]
+  R[Resend]
+
+  S --> Bots
+  W --> API
+  Bots --> INT
+  API --> DB
+  API --> G
+  API --> ST
+  API --> R
 ```
 
----
-
-## What’s in the page
-
-1. **Hero** — product line + live iPhone / Messages demo  
-2. **Roles** — three hire cards with Messages display names  
-3. **Connectors** — brand icons for Gmail, Calendar, Slack, Notion, and more  
-4. **How it works** — choose → get a number → text  
-5. **Waitlist** — email form (client-side only for now)
-
-The phone demo cycles inbox → thread → typing bubbles for the focused hire.
+**One turn, end to end:** a text lands on the hire's number → the bot's turn engine (`spectrum/shared/runHireTurn.ts`) classifies intent, runs tools, and either replies in bubbles or opens a mini-app card → the card talks to `hire-api`, which enforces auth + billing and reads/writes Postgres. Every surface (thread, web home screens, briefs) shares one action layer (`src/platform/actionRunner.ts`) so a "Do" button works everywhere, not just where it was first built.
 
 ---
 
-## Stack
-
-| Layer | Choice |
-| --- | --- |
-| App | React 19 + TypeScript |
-| Bundler | Vite 8 |
-| Motion | Framer Motion |
-| Icons | Simple Icons |
-| Lint | Oxlint |
-
-No backend in this repo. Waitlist emails are stored in `localStorage` under `hirealpha-waitlist`.
-
----
-
-## Project layout
+## Repo map
 
 ```text
-src/
-  App.tsx          # Landing UI, agents, phone demo, connectors, waitlist
-  index.css        # Design system + section styles
-  main.tsx         # Entry
-public/
-  images/          # Preview assets
-  favicon.svg
-scripts/
-  clean-dev.sh     # Kill stale Vite ports and restart
+src/                     # Frontend (React 19 + Vite 8 + TypeScript)
+  Landing.tsx            #   Marketing site: demo phone, roles, connectors, waitlist
+  marketing/             #   Pricing, FAQ, launch surfaces
+  platform/              #   The logged-in app: home screens + 30+ mini-apps
+    api.ts               #     Typed API client
+    actionRunner.ts      #     Shared run/snooze/open verbs (thread + web + brief)
+    miniAppCatalog.ts    #     App catalog: menus, aliases, store groups
+  data/highlights.ts     #   "Greatest hits" wall sample threads
+
+spectrum/                # The three hires (Photon Spectrum bots, Bun)
+  alpha/                 #   Friend  · alpha-coworker/ · alpha-cofounder/
+  shared/                #   Turn engine, mini-app triggers, reminders, digests
+  docker-entrypoint.sh   #   One image, HIREALPHA_BOT picks the hire
+
+deploy/                  # Backend
+  hire-api.ts            #   The API: auth, billing, loops, briefs, internal API
+  web-server.ts          #   Static server for dist/ with preload hints
+  gmailHelpers.ts …      #   Mail triage, calendar windows, timezones, caching
+  nginx-web.conf         #   Production proxy config
+
+services/                # Agent toolbelt: browser (Playwright), search,
+                         # code interpreter, n8n, payments + stress tests
+
+scripts/                 # deploy-prod.sh, start-spectrum.sh, clean-dev.sh,
+                         # sync-waitlist-resend.ts
+
+marketing/launch-kit/    # Show HN / Product Hunt / X copy, fact-grounded
+video/                   # Remotion promo (renders out/promo.mp4)
+deploy/plausible/        # Self-hosted analytics (Coolify compose)
 ```
 
 ---
 
-## Develop
+## Quick start
+
+**Frontend** (Node 20+):
 
 ```bash
 npm install
-npm run dev
-```
-
-```bash
-npm run build
+npm run dev        # http://localhost:5173
+npm run build      # typecheck + production bundle → dist/
 npm run preview
-npm run lint
 ```
 
-Optional clean restart:
+**Bots** (Bun):
 
 ```bash
-bash scripts/clean-dev.sh
+# set GMI_API_KEY in each spectrum/*/.env
+bash scripts/start-spectrum.sh          # all three
+cd spectrum/alpha && bun start          # or one at a time
 ```
+
+**Backend:**
+
+```bash
+bun deploy/hire-api.ts                   # needs DATABASE_URL + HIREALPHA_INTERNAL_KEY
+bun deploy/web-server.ts                 # serves dist/ in front of the API
+```
+
+See [`spectrum/README.md`](spectrum/README.md) for per-bot env, phone numbers, and Coolify wiring.
+
+---
+
+## Tests & quality
+
+```bash
+bun test spectrum/shared/ deploy/ services/   # 821 tests across 42 files
+npm run lint                                  # oxlint — 0 warnings, 0 errors
+npm run build                                 # tsc -b + vite, CI-clean
+```
+
+The test suite covers the parts that hurt when they break: mini-app text triggers, turn gating and honesty guards, mail classification, timezone/DST windows, billing, referrals, password auth, and the API route handlers (with SQL fakes).
+
+---
+
+## Deployment
+
+Production runs at **https://hirealpha.chat** on Coolify:
+
+- `Dockerfile` builds all three hires from one image; set `HIREALPHA_BOT=friend|coworker|cofounder` per app. Health: `GET /healthz` on port 3000.
+- The web app + API run behind `deploy/web-server.ts` + `deploy/nginx-web.conf`; `scripts/deploy-prod.sh` rebuilds the frontend, uploads it, restarts services, and verifies health.
+- Analytics: self-hosted Plausible (`deploy/plausible/`) with funnel events (`waitlist_joined`, `checkout_started`, `share_clicked`, `invite_copied`).
 
 ---
 
 ## Environment
 
-Do not commit secrets.
+Copy `.env.example`. Never commit secrets. The high-level split:
 
-```text
-.env
-.env.*
-```
+| Var | Who needs it | What for |
+| --- | --- | --- |
+| `DATABASE_URL` | API | Postgres |
+| `HIREALPHA_INTERNAL_KEY` | API + bots | Shared secret for the internal API |
+| `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRICE_*` | API | Billing (auto-gated when set; `BILLING_ENFORCE=1` to hard-enforce) |
+| `PROJECT_ID`, `PROJECT_SECRET`, `GMI_API_KEY`, `GMI_MODEL` | Bots | Spectrum project + LLM |
+| `HIREALPHA_API_URL` | Bots | Where the API lives |
+| `RESEND_API_KEY`, `RESEND_AUDIENCE_ID` | API | Waitlist → email audience |
 
-These are ignored by `.gitignore`. Add a `.env.example` when server keys are introduced.
 
 ---
 
-## Marketing & growth tools
+## Marketing & growth
 
-Turnkey pieces that were added alongside the marketing plan in
-`marketing/launch-kit/` (Show HN post, Product Hunt copy, X threads, community
-posts, launch-day checklist — all grounded in verified facts).
+Turnkey pieces grounded in the verified fact sheet in `marketing/launch-kit/00-facts.md`:
 
-- **Analytics.** Self-hosted Plausible Community Edition on Coolify at
-  `https://analytics.hirealpha.chat` — deploy it from `deploy/plausible/`
-  (see its README; ~5 steps, free forever). `index.html` loads the snippet for
-  domain `hirealpha.chat`, and pageviews + the custom funnel events fire
-  automatically: `waitlist_joined` (with `hire` and `via` props),
-  `checkout_started` (`plan`, `persona`), `share_clicked`, `invite_copied`.
-  Register the site + define the events under Plausible → Settings → Goals.
-- **Waitlist → email.** Every new waitlist email is pushed to a Resend audience
-  (`RESEND_API_KEY` + `RESEND_AUDIENCE_ID`, see `.env.example`) so you can send
-  the launch sequence from the Resend dashboard. Existing signups backfill with
-  `bun scripts/sync-waitlist-resend.ts`.
-- **Referral program.** Members mint 3 one-use codes (`/api/invites/for-phone`).
-  Friends enter a code in the waitlist form (or the app redeem endpoint); each
-  redemption is recorded on the referrer in `hire_invites`, and every 3
-  redemptions earns a "free month" row in `hire_referral_rewards`. The backend
-  records the ledger; *applying the free-month credit at checkout is a billing
-  workstream still to be implemented* — the UI copy is written to match.
-- **Greatest hits wall.** The homepage "Texting a hire looks like this." section
-  renders `src/data/highlights.ts`. Entries are illustrative sample threads;
-  replace them with real (consented, redacted) conversations over time.
-- **SEO pages.** `/faq` serves a static FAQ with FAQPage schema targeting
-  long-tail searches ("AI friend that texts first", "AI coworker for email",
-  "AI cofounder for startups").
+- **Launch kit.** Show HN post, Product Hunt tagline + first comment, a week of X threads, community posts — all built from real screenshots.
+- **Waitlist → email.** Signups push to a Resend audience; backfill with `bun scripts/sync-waitlist-resend.ts`.
+- **Referral program.** Members mint 3 one-use codes (`/api/invites/for-phone`); every 3 redemptions earns a free-month row in `hire_referral_rewards`. The ledger is server-side; applying the credit at checkout is the remaining billing workstream.
+- **SEO.** `/faq` serves FAQPage schema targeting long-tail queries ("AI friend that texts first", "AI coworker for email", …).
+- **Greatest hits wall.** The homepage renders `src/data/highlights.ts` — illustrative sample threads today, designed to be replaced with real (consented, redacted) conversations.
+
+---
 
 ## Status
 
-Frontend landing only. SMS numbers, billing, and connector OAuth are not implemented here yet.
+- **Live:** landing + waitlist, Friend hire in iMessage, web app + mini-apps, Stripe checkout, referral ledger, analytics.
+- **In progress:** Coworker/Cofounder rollout, annual-plan proration, referral credit redemption at checkout.
+
+This is a working product, not a demo — but read [`marketing/launch-kit/00-facts.md`](marketing/launch-kit/00-facts.md) before writing any public copy: it is the only source of claims you may make.

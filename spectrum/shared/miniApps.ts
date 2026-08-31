@@ -457,13 +457,15 @@ export async function buildDigestBriefing(
       { headers: authHeaders() },
     )
     if (!res.ok) return null
-    const data = (await res.json()) as { text?: string; preview?: string; cardUrl?: string }
+    const data = (await res.json()) as { text?: string; preview?: string; cardUrl?: string; cardKind?: string }
     const text = data.text?.trim()
     if (!text) return null
+    // The server knows morning vs evening; the 9pm wrap opens the evening brief.
+    const cardKind = data.cardKind === 'pick_night' ? 'pick_night' : 'digest'
     return {
       text,
       preview: data.preview?.trim() || undefined,
-      card: await mintMiniAppCard(phone, persona, 'digest'),
+      card: await mintMiniAppCard(phone, persona, cardKind),
     }
   } catch (err) {
     console.warn(`[miniApps] digest brief failed for ${persona}`, err)

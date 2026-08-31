@@ -221,7 +221,7 @@ export function parseFormattedEventLine(line: string): {
 } | null {
   const trimmed = line.trim().replace(/^-\s*/, '')
   const neu = trimmed.match(
-    /^(\S+)\s+(All day|\d{1,2}:\d{2} [AP]M)(?:\s+(PST|PDT|EST|EDT|CST|CDT|MST|MDT|BST|GMT|UTC|GMT[+\-]?\d+))?\s+(today|tomorrow|.+?)\s+local · (.+?) · (.+)$/i,
+    /^(\S+)\s+(All day|\d{1,2}:\d{2} [AP]M)(?:\s+(PST|PDT|EST|EDT|CST|CDT|MST|MDT|BST|GMT|UTC|GMT[+-]?\d+))?\s+(today|tomorrow|.+?)\s+local · (.+?) · (.+)$/i,
   )
   if (neu) {
     return {
@@ -315,7 +315,7 @@ export function isPersonMeetSuggestion(e: {
  */
 export function extractOtherPerson(title: string, myName: string | null): string {
   const clean = title
-    .replace(/,\s*\+?[\d()\s.+\-]{6,}.*$/, '')
+    .replace(/,\s*\+?[\d()\s.+-]{6,}.*$/, '')
     .replace(/,\s*\d{1,2}:\d{2}\s*(am|pm)?.*$/i, '')
     .replace(/\s+at\s+.+$/i, '')
     .trim()
