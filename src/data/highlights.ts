@@ -164,10 +164,10 @@ export const HIGHLIGHTS: HighlightThread[] = [
         text: 'built it. touch controls, keeps score, physics are tight:',
         linkPreview: {
           url: 'https://hirealpha.chat/b/ping-pong',
-          title: 'Ping Pong Mini: Alpha Workshop',
+          title: 'Your Build: HireAlpha',
           siteName: 'HIREALPHA.CHAT',
           image: '/images/og/apps.png',
-          desc: 'Instant mobile web app',
+          desc: 'Built in seconds. Keep it or toss it.',
         },
       },
       { from: 'them', text: 'hirealpha.chat/b/ping-pong' },
