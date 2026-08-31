@@ -12366,7 +12366,17 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
       BRIEF_WARM_WAIT_MS,
     )).value
     if (!payload) return json({ error: 'Could not build the brief' }, 502)
-    return json({ ...payload, cardUrl: `${appBase(req)}/app/mini/${persona}/digest` })
+    // The card the bot texts must match the hour: the 21:00 evening wrap opens
+    // the evening brief screen, not the morning one.
+    const hour = Number(
+      new Date().toLocaleString('en-US', { hour: 'numeric', hour12: false, timeZone: user.timezone || 'America/Los_Angeles' }),
+    )
+    const briefKind = hour >= 16 ? 'pick_night' : 'digest'
+    return json({
+      ...payload,
+      briefKind,
+      cardUrl: `${appBase(req)}/app/mini/${persona}/${briefKind}`,
+    })
   }
 
   if (path === '/api/internal/judgment-state' && req.method === 'GET') {

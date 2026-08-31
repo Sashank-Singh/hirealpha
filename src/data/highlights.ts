@@ -20,7 +20,7 @@ export interface HighlightLinkPreview {
 
 export interface HighlightBubble {
   from: 'me' | 'them'
-  text: string
+  text?: string
   /** Small tool chip shown on the bubble (Gmail, Maps, Spending, …). */
   app?: string
   /** Optional image attachment */
@@ -55,13 +55,13 @@ export const HIGHLIGHTS: HighlightThread[] = [
       {
         from: 'them',
         app: 'Brief',
-        text: "day's wrapped. 6h sleep last night, morning run logged, 3 meetings crushed. 2 loops still open: send tax docs to accountant, reply to mom (she texted at noon):",
+        text: "Day's wrapped. 6h sleep, morning workout in, 142g/150g protein locked in (95%), 3 customer calls closed. 2 quick loops to clear your head tonight: upload the tax docs, and text your mom back:",
         linkPreview: {
           url: 'https://hirealpha.chat/app/mini/friend/pick_night',
-          title: "Tonight's Plan: HireAlpha",
+          title: 'Evening Brief · Alpha',
           siteName: 'HIREALPHA.CHAT',
-          image: '/images/og/pick_night.png',
-          desc: 'Compare plans and decide what to do tonight.',
+          image: '/images/og/evening_brief.png',
+          desc: "The day, wrapped. What is left, and what is on tomorrow.",
         },
       },
       { from: 'me', text: "reply to mom for me, tell her we're flying in thursday" },
@@ -88,19 +88,20 @@ export const HIGHLIGHTS: HighlightThread[] = [
         from: 'them',
         app: 'Nutrition',
         text: "Logged to Nutrition: ~620 cal, 48g protein, 24g fat, 42g carbs. You're at 112g/150g protein today:",
+        linkPreview: {
+          url: 'https://hirealpha.chat/app/mini/friend/nutrition',
+          title: 'Nutrition · Alpha',
+          siteName: 'HIREALPHA.CHAT',
+          image: '/images/og/nutrition.png',
+          desc: "Log meals, estimate macros, and keep today's totals.",
+        },
       },
       { from: 'me', text: 'nice, log 1 scoop whey too' },
       {
         from: 'them',
-        text: 'done. 136g protein locked in (91% of goal). 14g left for dinner:',
+        text: 'done. 136g protein locked in (91% of goal). 14g left for dinner',
       },
     ],
-    halfSheet: {
-      app: 'Nutrition Tracker',
-      title: 'Today · Daily Progress',
-      badge: '136g / 150g (91%)',
-      image: '/images/nutrition-sheet-preview.jpg',
-    },
   },
   {
     persona: 'friend',
@@ -113,7 +114,7 @@ export const HIGHLIGHTS: HighlightThread[] = [
         text: "slept 5h 40m, woke up twice. deep sleep was low. moved your 7am heavy lifting to 6pm so you don't burn out:",
         linkPreview: {
           url: 'https://hirealpha.chat/app/mini/friend/sleep_tracker',
-          title: 'Sleep Tracker: HireAlpha',
+          title: 'Sleep Tracker · Alpha',
           siteName: 'HIREALPHA.CHAT',
           image: '/images/og/sleep_tracker.png',
           desc: 'Last night: 5h 40m · Recovery 64%',
@@ -144,7 +145,7 @@ export const HIGHLIGHTS: HighlightThread[] = [
         text: 'streak updated: Day 15 🔥 put the phone face down and get some sleep.',
         linkPreview: {
           url: 'https://hirealpha.chat/app/mini/friend/habit_streak',
-          title: 'Habit Streak: HireAlpha',
+          title: 'Habit Streak · Alpha',
           siteName: 'HIREALPHA.CHAT',
           image: '/images/og/habit_streak.png',
           desc: 'Active streak: Day 15 🔥',
@@ -164,7 +165,7 @@ export const HIGHLIGHTS: HighlightThread[] = [
         text: 'built it. touch controls, keeps score, physics are tight:',
         linkPreview: {
           url: 'https://hirealpha.chat/b/ping-pong',
-          title: 'Alpha Apps: HireAlpha',
+          title: 'Alpha Apps · Ping Pong',
           siteName: 'HIREALPHA.CHAT',
           image: '/images/og/apps.png',
           desc: 'Tap one to open it.',
@@ -187,7 +188,7 @@ export const HIGHLIGHTS: HighlightThread[] = [
         text: 'Metreon has 2 seats left at 7:15 PM row F. AMC Cupertino is sold out.',
         linkPreview: {
           url: 'https://fandango.com/amc-metreon-16',
-          title: 'AMC Metreon 16: Fandango Tickets',
+          title: 'AMC Metreon 16 · Fandango Tickets',
           siteName: 'FANDANGO.COM',
           image: '/images/og/default.png',
           desc: 'Friday 7:15 PM · 70mm IMAX Row F (2 left)',
@@ -213,7 +214,7 @@ export const HIGHLIGHTS: HighlightThread[] = [
         text: 'yep, $180 hit Chase checking yesterday. also caught a $29 duplicate subscription from Figma:',
         linkPreview: {
           url: 'https://hirealpha.chat/app/mini/friend/spending_snapshot',
-          title: 'Spending Snapshot: HireAlpha',
+          title: 'Spending Snapshot · Alpha',
           siteName: 'HIREALPHA.CHAT',
           image: '/images/og/spending_snapshot.png',
           desc: 'Live bank balance & transactions',
@@ -247,7 +248,7 @@ export const HIGHLIGHTS: HighlightThread[] = [
         text: '"Yesterday: Shipped core auth refactor, closed 3 staging regressions, reviewed DB schema migration. Today: Finalizing Stripe webhook listeners and end-to-end checkout testing. Blockers: None."',
         linkPreview: {
           url: 'https://hirealpha.chat/app/mini/coworker/standup_paste',
-          title: 'Standup Paste: HireAlpha',
+          title: 'Standup Paste · Alpha',
           siteName: 'HIREALPHA.CHAT',
           image: '/images/og/standup_paste.png',
           desc: 'Compiled from GitHub & Linear',
@@ -273,7 +274,7 @@ export const HIGHLIGHTS: HighlightThread[] = [
         text: 'logged as Kill. runway preserved at 11 months. staying focused on outbound:',
         linkPreview: {
           url: 'https://hirealpha.chat/app/mini/cofounder/decision_ledger',
-          title: 'Decision Ledger: HireAlpha',
+          title: 'Decision Ledger · Alpha',
           siteName: 'HIREALPHA.CHAT',
           image: '/images/og/decision_ledger.png',
           desc: 'Strategic startup decision log',

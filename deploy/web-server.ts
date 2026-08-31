@@ -379,7 +379,7 @@ const MINI_META: Record<string, { title: string; description: string }> = {
   meeting_mode: { title: 'Meeting mode', description: 'Prep before the meeting and wrap it cleanly after.' },
   decision_ledger: { title: 'Decisions', description: 'Record important calls and revisit the reasoning.' },
   check_in: { title: 'Check-in', description: 'Take a quick pulse on how you are doing.' },
-  pick_night: { title: "Tonight's plan", description: 'Compare plans and decide what to do tonight.' },
+  pick_night: { title: 'Evening brief', description: 'The day, wrapped. What is left, and what is on tomorrow.' },
   spiral_options: { title: 'Get unstuck', description: 'Step back and look at the options.' },
   approve_send: { title: 'Approve & send', description: 'Review a draft before it goes out.' },
   pick_slot: { title: 'Pick a slot', description: 'Compare times and choose the one that works.' },
@@ -471,7 +471,7 @@ async function pageHtml(pathname: string, search = '') {
      * renders them) — the old shell-wide stock photo made every card in the
      * thread look like a template. Unknown kinds fall back to the brand card. */
     const ogKind = MINI_META[match?.[2] || ''] ? (match![2] as string) : 'default'
-    const ogImage = `https://hirealpha.chat/images/og/${ogKind}.png`
+    const ogImage = `https://hirealpha.chat/images/og/${ogKind === 'pick_night' ? 'evening_brief' : ogKind}.png`
     html = html
       .replace(/<title>[^<]*<\/title>/, `<title>${safeTitle}</title>`)
       .replace(

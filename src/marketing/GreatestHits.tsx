@@ -68,13 +68,33 @@ export function GreatestHits() {
                             <li
                               key={i}
                               className={`bubble bubble--${b.from} hits__bubble${b.card ? ' bubble--rich' : ''}`}
-                              aria-label={`${b.from === 'me' ? 'You' : PERSONA_NAME[t.persona]}: ${b.text}`}
+                              aria-label={`${b.from === 'me' ? 'You' : PERSONA_NAME[t.persona]}: ${b.text || b.linkPreview?.title || ''}`}
                             >
                               {b.image && (
                                 <img className="hits__bubble-img" src={b.image} alt="" loading="lazy" />
                               )}
                               {b.app && <span className="hits__app">{b.app}</span>}
                               {b.text}
+                              {b.linkPreview && (
+                                <a
+                                  href={b.linkPreview.url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="hits__mini-black-card"
+                                >
+                                  {b.linkPreview.image && (
+                                    <div className="hits__mini-black-card-img">
+                                      <img src={b.linkPreview.image} alt={b.linkPreview.title} loading="lazy" />
+                                    </div>
+                                  )}
+                                  <div className="hits__mini-black-card-meta">
+                                    <strong className="hits__mini-black-card-title">{b.linkPreview.title}</strong>
+                                    {b.linkPreview.desc && (
+                                      <span className="hits__mini-black-card-desc">{b.linkPreview.desc}</span>
+                                    )}
+                                  </div>
+                                </a>
+                              )}
                               {b.card && (
                                 <div className="imsg-rich" aria-hidden="true">
                                   <div className="imsg-rich__app">
@@ -83,19 +103,6 @@ export function GreatestHits() {
                                   </div>
                                   <p className="imsg-rich__title">{b.card.title}</p>
                                 </div>
-                              )}
-                              {b.linkPreview && (
-                                <span className="hits__preview">
-                                  {b.linkPreview.image && (
-                                    <img src={b.linkPreview.image} alt={b.linkPreview.title} loading="lazy" />
-                                  )}
-                                  <span className="hits__preview-title">
-                                    {b.linkPreview.title.replace(/[:\u2014]? HireAlpha$/, '')}
-                                  </span>
-                                  {b.linkPreview.desc && (
-                                    <span className="hits__preview-desc">{b.linkPreview.desc}</span>
-                                  )}
-                                </span>
                               )}
                             </li>
                           ))}
