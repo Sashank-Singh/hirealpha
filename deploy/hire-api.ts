@@ -9330,8 +9330,10 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
       client_reference_id: `${user.id}:${effectivePersona}`,
       'line_items[0][price]': priceId,
       'line_items[0][quantity]': '1',
-      success_url: `${appBase(req)}/app?billing=done`,
-      cancel_url: `${appBase(req)}/app?billing=cancelled`,
+      // Guest buyers have no session yet: land them on login to set a
+      // password, which claims the account this checkout just created.
+      success_url: `${appBase(req)}/app/login`,
+      cancel_url: `${appBase(req)}/app/login`,
       'subscription_data[metadata][user_id]': user.id,
       'subscription_data[metadata][persona]': effectivePersona,
       ...(effectiveTrialDays !== null ? { 'subscription_data[trial_period_days]': String(effectiveTrialDays) } : {}),
