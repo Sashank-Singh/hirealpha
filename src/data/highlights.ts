@@ -74,86 +74,7 @@ export const HIGHLIGHTS: HighlightThread[] = [
       { from: 'me', text: 'send it' },
     ],
   },
-  {
-    persona: 'friend',
-    title: 'Alpha',
-    caption: 'Photo meal logging & mini apps',
-    bubbles: [
-      {
-        from: 'me',
-        image: '/chipotle-bowl.jpg',
-        text: 'half a chipotle bowl with double chicken and guac. what are my macros looking like today?',
-      },
-      {
-        from: 'them',
-        app: 'Nutrition',
-        text: "Logged to Nutrition: ~620 cal, 48g protein, 24g fat, 42g carbs. You're at 112g/150g protein today:",
-        linkPreview: {
-          url: 'https://hirealpha.chat/app/mini/friend/nutrition',
-          title: 'Nutrition · Alpha',
-          siteName: 'HIREALPHA.CHAT',
-          image: '/images/og/nutrition.png',
-          desc: "Log meals, estimate macros, and keep today's totals.",
-        },
-      },
-      { from: 'me', text: 'nice, log 1 scoop whey too' },
-      {
-        from: 'them',
-        text: 'done. 136g protein locked in (91% of goal). 14g left for dinner',
-      },
-    ],
-  },
-  {
-    persona: 'friend',
-    title: 'Alpha',
-    caption: 'Sleep & recovery, adapting your schedule',
-    bubbles: [
-      {
-        from: 'them',
-        app: 'Sleep',
-        text: "slept 5h 40m, woke up twice. deep sleep was low. moved your 7am heavy lifting to 6pm so you don't burn out:",
-        linkPreview: {
-          url: 'https://hirealpha.chat/app/mini/friend/sleep_tracker',
-          title: 'Sleep Tracker · Alpha',
-          siteName: 'HIREALPHA.CHAT',
-          image: '/images/og/sleep_tracker.png',
-          desc: 'Last night: 5h 40m · Recovery 64%',
-        },
-      },
-      { from: 'me', text: 'thank you. block 20 mins after lunch for a quick nap too' },
-      {
-        from: 'them',
-        app: 'Calendar',
-        text: 'blocked 1:15 to 1:45 PM. notifications muted, soft alarm set for 1:40.',
-      },
-    ],
-  },
-  {
-    persona: 'friend',
-    title: 'Alpha',
-    caption: 'Habits & streaks, real daily momentum',
-    bubbles: [
-      {
-        from: 'them',
-        app: 'Habits',
-        text: "day 14 of no screens in bed + 20 min reading locked in. 4-day streak on morning runs. you're 1 day away from your personal best.",
-      },
-      { from: 'me', text: 'reading done tonight. this book is actually insane' },
-      {
-        from: 'them',
-        app: 'Habits',
-        text: 'streak updated: Day 15 🔥 put the phone face down and get some sleep.',
-        linkPreview: {
-          url: 'https://hirealpha.chat/app/mini/friend/habit_streak',
-          title: 'Habit Streak · Alpha',
-          siteName: 'HIREALPHA.CHAT',
-          image: '/images/og/habit_streak.png',
-          desc: 'Active streak: Day 15 🔥',
-        },
-      },
-    ],
-  },
-  {
+   {
     persona: 'friend',
     title: 'Alpha',
     caption: 'Interactive apps & games, built in seconds',
@@ -176,7 +97,7 @@ export const HIGHLIGHTS: HighlightThread[] = [
       { from: 'them', text: "beat 15 and i'll draft your standup for you" },
     ],
   },
-  {
+   {
     persona: 'friend',
     title: 'Alpha',
     caption: 'Live tickets & real-time search, handled',
@@ -202,7 +123,7 @@ export const HIGHLIGHTS: HighlightThread[] = [
       },
     ],
   },
-  {
+   {
     persona: 'friend',
     title: 'Alpha',
     caption: 'Bank data & subscriptions, caught early',
@@ -231,7 +152,7 @@ export const HIGHLIGHTS: HighlightThread[] = [
       { from: 'me', text: 'yes please, send it' },
     ],
   },
-  {
+   {
     persona: 'coworker',
     title: 'Alpha (Coworker)',
     caption: 'Engineering standups, compiled from git logs',
@@ -257,7 +178,7 @@ export const HIGHLIGHTS: HighlightThread[] = [
       { from: 'me', text: 'copied and pasted. you just saved my life' },
     ],
   },
-  {
+   {
     persona: 'cofounder',
     title: 'Alpha(CoFounder)',
     caption: 'Hard startup truths, logged decisions',
@@ -286,5 +207,5 @@ export const HIGHLIGHTS: HighlightThread[] = [
         card: { app: 'Investor note', title: 'March update · review before it sends' },
       },
     ],
-  },
+  }
 ]
