@@ -1171,3 +1171,12 @@
 .hits__figure .thread-stamp {
   margin-top: 2px;
 }
+/* The bubble's own tail corner (4px) was squaring off the card's left edge —
+ * samples curve fully on both sides. */
+.hits__bubble--them {
+  border-bottom-left-radius: 18px;
+}
+
+.hits__bubble--me {
+  border-bottom-right-radius: 18px;
+}
