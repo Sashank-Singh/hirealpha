@@ -1,7 +1,7 @@
 /**
- * Static catalog for the mini-app pages: what each persona can open, what the
- * old kinds were renamed to, and how the App Store grid groups them. Data only —
- * no components — so any file can import it without pulling in React.
+ * Static catalog for the mini-app pages: what each persona can open and what
+ * the old kinds were renamed to. Data only — no components — so any file can
+ * import it without pulling in React.
  */
 
 export interface MenuFeature {
@@ -54,31 +54,9 @@ export const MENU_FEATURES: Record<string, MenuFeature[]> = {
   ],
 }
 
-export const APP_STORE_GROUPS: Record<string, { label: string; kinds: string[] }[]> = {
-  friend: [
-    { label: 'Home', kinds: ['home'] },
-    { label: 'Body', kinds: ['body'] },
-    { label: 'People', kinds: ['networking_crm'] },
-    { label: 'Brief', kinds: ['digest', 'pick_night', 'tonight'] },
-    { label: 'Later', kinds: ['later'] },
-  ],
-  coworker: [
-    { label: 'Home', kinds: ['home'] },
-    { label: 'Work', kinds: ['meeting_mode', 'approve_send', 'pick_slot', 'linear_triage', 'standup_paste', 'open_loops'] },
-    { label: 'People', kinds: ['networking_crm'] },
-    { label: 'Later', kinds: ['drop_zone'] },
-  ],
-  cofounder: [
-    { label: 'Home', kinds: ['home'] },
-    { label: 'Work', kinds: ['pipeline_board', 'decision_ledger', 'hire_decision', 'approve_investor_note', 'open_loops'] },
-    { label: 'People', kinds: ['networking_crm'] },
-    { label: 'Later', kinds: ['drop_zone'] },
-  ],
-}
-
 export const KIND_TITLES: Record<string, { title: string; blurb: string }> = {
-  menu: { title: 'Apps', blurb: 'Tap one to open it.' },
-  apps: { title: 'Apps', blurb: 'Tap one to open it.' },
+  menu: { title: 'Your day', blurb: 'The day and the few things Alpha keeps for you.' },
+  apps: { title: 'Your day', blurb: 'The day and the few things Alpha keeps for you.' },
   digest: { title: 'Morning brief', blurb: 'Who is next, what to do, what can wait.' },
   next_move: { title: 'Next', blurb: 'The one thing to do now.' },
   approve_send: { title: 'Approve & send', blurb: 'Review the draft and approve it to send.' },

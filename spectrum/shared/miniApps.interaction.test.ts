@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'bun:test'
 import {
   detectMiniAppRequest,
+  isMinimalCardKind,
   mintMiniAppCard,
   mintMiniAppUrl,
   type MiniAppKind,
@@ -530,6 +531,50 @@ describe('Mini-app Interaction Tests: Full Flow', () => {
       const card = await mintMiniAppCard('5551234567', 'friend', 'sleep_tracker')
       expect(card.live).toBe(false)
       expect(typeof card.url).toBe('string')
+    })
+  })
+
+  describe('Minimal card taxonomy (no-OS, text-first)', () => {
+    it('organizer/confirm kinds still mint cards', () => {
+      const organizers = [
+        'digest',
+        'pick_night',
+        'later',
+        'networking_crm',
+        'open_loops',
+        'drop_zone',
+        'pipeline_board',
+        'decision_ledger',
+        'hire_decision',
+        'weekly_review',
+        'spending_snapshot',
+        'approve_send',
+        'approve_investor_note',
+        'pick_slot',
+        'meeting_mode',
+      ] as MiniAppKind[]
+      for (const kind of organizers) {
+        expect(isMinimalCardKind(kind)).toBe(true)
+      }
+    })
+
+    it('note-tracking kinds mint NO card — they are answered in text', () => {
+      const textOnly = [
+        'nutrition',
+        'sleep_tracker',
+        'workout_log',
+        'habit_streak',
+        'mood_tracker',
+        'gratitude_journal',
+        'learning_queue',
+        'tonight',
+        'standup_paste',
+        'linear_triage',
+        'kill_keep_park',
+      ] as MiniAppKind[]
+      for (const kind of textOnly) {
+        expect(isMinimalCardKind(kind)).toBe(false)
+      }
     })
   })
 })

@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Shell(bun:*)",
+      "Shell(npx tsc -b 2 >& 1)"
+    ],
+    "deny": [],
+    "defaultMode": "default"
+  }
+}

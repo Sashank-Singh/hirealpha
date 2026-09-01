@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import { briefRowFresh } from './hire-api'
+import { briefRowFresh, briefRowSameDay } from './hire-api'
 
 describe('briefRowFresh', () => {
   it('serves a row built today within the last-minute window', () => {
@@ -18,5 +18,22 @@ describe('briefRowFresh', () => {
 
   it('rejects a missing row', () => {
     expect(briefRowFresh(null, '2026-08-23', '2026-08-23')).toBe(false)
+  })
+})
+
+describe('briefRowSameDay', () => {
+  it('lets same-day rows through the rationing path', () => {
+    expect(briefRowSameDay('2026-08-23', '2026-08-23')).toBe(true)
+  })
+
+  it('refuses cross-day rows even on the rationing path', () => {
+    /* This is the "stuck on Aug 29" gate: a row stamped on Aug 29 must not
+     * be served to a user opening the brief on Aug 31, no matter what the
+     * free-tier build cap says. */
+    expect(briefRowSameDay('2026-08-29', '2026-08-31')).toBe(false)
+  })
+
+  it('refuses a missing day', () => {
+    expect(briefRowSameDay(null, '2026-08-23')).toBe(false)
   })
 })

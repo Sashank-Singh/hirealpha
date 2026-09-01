@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import {
   BRIEF_CACHE_MAX_AGE_MS,
   briefCacheKey,
+  briefDayOf,
   packBrief,
   readBriefCache,
   shouldCacheBrief,
@@ -22,18 +23,19 @@ function memStore(seed: Record<string, string> = {}): StorageLike & { map: Map<s
 
 const NOW = 1_700_000_000_000
 const TODAY = '2026-08-22'
+const YESTERDAY = '2026-08-21'
 const AMY = { email: 'a@x.com', persona: 'friend' }
 const brief = (heading = 'Left this evening') => ({
   kind: 'pick_night',
   title: 'Evening brief',
-  date: 'Saturday, Aug 22',
+  date: 'Saturday, August 22, 2026',
   sections: [{ heading, items: ['6:00 PM  Amy  Meeting'] }],
 })
 
 describe('briefCacheKey', () => {
   test('separates the two briefs so morning never paints over evening', () => {
-    expect(briefCacheKey(AMY, 'digest')).toBe('brief:v1:friend:digest:e:a@x.com')
-    expect(briefCacheKey(AMY, 'pick_night')).toBe('brief:v1:friend:pick_night:e:a@x.com')
+    expect(briefCacheKey(AMY, 'digest')).toBe('brief:v2:friend:digest:e:a@x.com')
+    expect(briefCacheKey(AMY, 'pick_night')).toBe('brief:v2:friend:pick_night:e:a@x.com')
   })
 
   test('separates personas, since one device opens more than one', () => {
@@ -81,8 +83,57 @@ describe('unpackBrief', () => {
   })
 
   test('refuses yesterday, because a brief carries its own date line', () => {
-    const raw = packBrief(brief(), 'pick_night', '2026-08-21', NOW)
+    const yesterBrief = { ...brief(), date: 'Friday, August 21, 2026' }
+    const raw = packBrief(yesterBrief, 'pick_night', YESTERDAY, NOW)
     expect(unpackBrief(raw, 'pick_night', TODAY, NOW)).toBeNull()
+  })
+
+  test('refuses yesterday even when the envelope day was stamped at write time as today — the brief itself says so', () => {
+    /* This is the "stuck on Aug 29" shape: a brief whose payload date is
+     * yesterday, written into localStorage under an envelope that claimed
+     * today. The previous code accepted it because it compared envelope.day
+     * to localYmd(); the fix reads the brief's own date. */
+    const yesterBrief = { ...brief(), date: 'Friday, August 29, 2026' }
+    const raw = packBrief(yesterBrief, 'pick_night', TODAY, NOW)
+    expect(unpackBrief(raw, 'pick_night', TODAY, NOW)).toBeNull()
+  })
+
+  test('refuses garbage, a missing entry, and an older envelope shape', () => {
+    expect(unpackBrief(null, 'digest', TODAY, NOW)).toBeNull()
+    expect(unpackBrief('{not json', 'digest', TODAY, NOW)).toBeNull()
+    expect(unpackBrief('"a string"', 'digest', TODAY, NOW)).toBeNull()
+    expect(
+      unpackBrief(JSON.stringify({ v: 0, day: TODAY, kind: 'digest', at: NOW, brief: brief() }), 'digest', TODAY, NOW),
+    ).toBeNull()
+    // The bumped version: prior envelopes must be refused too.
+    expect(
+      unpackBrief(
+        JSON.stringify({ v: 1, day: TODAY, kind: 'digest', at: NOW, brief: brief() }),
+        'digest',
+        TODAY,
+        NOW,
+      ),
+    ).toBeNull()
+  })
+})
+
+describe('briefDayOf', () => {
+  test('reads ISO dates', () => {
+    expect(briefDayOf({ date: '2026-08-22' })).toBe('2026-08-22')
+  })
+
+  test('reads "Friday, August 29, 2026"', () => {
+    expect(briefDayOf({ date: 'Friday, August 29, 2026' })).toBe('2026-08-29')
+  })
+
+  test('reads "August 29"', () => {
+    expect(briefDayOf({ date: 'August 29' })).toBeNull() // no year — refuse so cross-year bugs surface, not silently match
+  })
+
+  test('returns null when there is no date', () => {
+    expect(briefDayOf({})).toBeNull()
+    expect(briefDayOf(null)).toBeNull()
+    expect(briefDayOf({ date: 42 })).toBeNull()
   })
 
   test('refuses the other brief even if the key were reused', () => {

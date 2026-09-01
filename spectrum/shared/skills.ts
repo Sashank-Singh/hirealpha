@@ -12,8 +12,8 @@ export const SKILLS: Record<
   }
 > = {
   friend: {
-    tools: ['gmail', 'calendar.read', 'calendar.soft_book', 'drive', 'maps', 'plaid'],
-    executable: ['gmail', 'calendar', 'drive', 'maps', 'plaid'],
+    tools: ['gmail', 'calendar.read', 'calendar.soft_book', 'drive', 'maps', 'plaid', 'spotify', 'youtube', 'whatsapp', 'telegram'],
+    executable: ['gmail', 'calendar', 'drive', 'maps', 'plaid', 'spotify', 'youtube', 'whatsapp', 'telegram'],
     miniApps: [
       'home', 'tonight', 'pick_night', 'body', 'later', 'check_in', 'open_loops', 'drop_zone', 'artifact',
       'nutrition', 'habit_streak', 'mood_tracker', 'workout_log', 'learning_queue', 'weekly_review',
@@ -30,10 +30,37 @@ export const SKILLS: Record<
       'notion',
       'linear',
       'github',
+      'gitlab',
+      'jira',
+      'sentry',
+      'postman',
       'drive',
       'figma',
+      'miro',
+      'coda',
+      'confluence',
+      'airtable',
+      'discord',
     ],
-    executable: ['gmail', 'calendar', 'slack', 'linear', 'notion', 'github', 'drive', 'figma'],
+    executable: [
+      'gmail',
+      'calendar',
+      'slack',
+      'linear',
+      'notion',
+      'github',
+      'gitlab',
+      'jira',
+      'sentry',
+      'postman',
+      'drive',
+      'figma',
+      'miro',
+      'coda',
+      'confluence',
+      'airtable',
+      'discord',
+    ],
     miniApps: [
       'next_move', 'home', 'approve_send', 'pick_slot', 'standup_paste', 'linear_triage', 'open_loops', 'meeting_mode', 'artifact',
       'drop_zone', 'learning_queue', 'weekly_review', 'networking_crm',
@@ -42,8 +69,36 @@ export const SKILLS: Record<
     deny: ['therapy_mode', 'fundraising_strategy', 'uber_lifestyle'],
   },
   cofounder: {
-    tools: ['notion', 'drive', 'stripe.glance', 'calendar.light', 'gmail.draft', 'plaid'],
-    executable: ['gmail', 'calendar', 'notion', 'drive', 'stripe', 'plaid'],
+    tools: [
+      'notion',
+      'drive',
+      'stripe.glance',
+      'calendar.light',
+      'gmail.draft',
+      'plaid',
+      'quickbooks',
+      'hubspot',
+      'salesforce',
+      'intercom',
+      'linear',
+      'slack',
+      'twitter',
+    ],
+    executable: [
+      'gmail',
+      'calendar',
+      'notion',
+      'drive',
+      'stripe',
+      'plaid',
+      'quickbooks',
+      'hubspot',
+      'salesforce',
+      'intercom',
+      'linear',
+      'slack',
+      'twitter',
+    ],
     miniApps: [
       'next_move', 'home', 'kill_keep_park', 'hire_decision', 'weekly_review', 'approve_investor_note', 'decision_ledger', 'artifact',
       'relationship_radar', 'drop_zone', 'open_loops', 'networking_crm', 'pipeline_board', 'spending_snapshot',
@@ -58,29 +113,26 @@ function canonTool(name: string) {
 }
 
 export function skillsPromptBlock(agentId: AgentId, connected: string[] = []): string {
-  const s = SKILLS[agentId]
-  const connectedSet = new Set(connected.map(canonTool))
-  const freeLookupTools = new Set(['maps'])
-  const live = s.executable.filter((t) => connectedSet.has(t))
-  const missing = s.executable.filter((t) => !connectedSet.has(t) && !freeLookupTools.has(t))
-  const lines = [
-    'Free live lookups available without a connector: web search and OpenStreetMap place search. Use their results when provided; do not claim they are unavailable.',
-    live.length
-      ? `Live tools you can actually use this turn: ${live.join(', ')}. Use a tool result if one is provided. Never invent a send, book, search, or file.`
-      : 'No live tools are connected for this hire.',
-    missing.length
-      ? `Not connected: ${missing.join(', ')}. If they ask for any of these (or services like bank/Plaid, Gmail, Calendar, Slack, Notion, GitHub, Stripe), give them the direct link to connect it instantly: https://hirealpha.chat/app/hires/${agentId}?connect=<tool_name> (e.g. https://hirealpha.chat/app/hires/${agentId}?connect=${missing[0]}). Never mime the action.`
-      : '',
-    `Mini apps that actually run: ${s.liveMiniApps.join(', ') || 'none'}. Put the answer in the text. The card is extra, not a substitute.`,
-    `Never act with: ${s.deny.join(', ')}.`,
-    'Do not claim you completed a tool action unless a tool result is provided in context.',
-    'Never say you sent mail, booked a calendar event, or texted someone. Writes need a card tap: Send, Book, or Text.',
-    'Never diagnose. Never give legal advice. Never venmo, wire, charge a card, or otherwise move money.',
-    'Never replace a human for grief, a live negotiation, or taste they have not taught. Listen. Prep. Ask. Do not close for them and do not invent who they are.',
-    agentId === 'friend'
-      ? 'If they ask to prep for a person, stitch calendar, People notes, and the mail thread into one text. If they ask to run the week, the weekly review is already written from logs. Private logs can save themselves. Mail, texts, calendar, and money over the spend cap still need a tap. Do not ask them to pull pieces or fill the card.'
-      : '',
-    'When tool results are present in context, NEVER say you cannot access the data or that a tool is not connected. The results ARE your answer — use them directly. Do not hedge, apologize, or ask the user to connect something that already returned data.',
-  ]
-  return lines.filter(Boolean).join('\n')
+  const hireSkills = SKILLS[agentId]
+  const live = hireSkills.executable.filter((t) => connected.includes(t))
+  const offline = hireSkills.executable.filter((t) => !connected.includes(t))
+
+  const parts: string[] = []
+
+  if (live.length > 0) {
+    parts.push(
+      `Connected tools (you may use tool results provided in context): ${live.join(', ')}.`,
+      'Do not claim you performed an action unless the tool result is present in your context.',
+    )
+  }
+
+  if (offline.length > 0) {
+    parts.push(
+      `Not connected yet: ${offline.join(', ')}.`,
+      'If the user asks you to read or act on these, tell them they can connect in the HireAlpha console.',
+      'Never pretend or mime that you took an action in an offline tool.',
+    )
+  }
+
+  return parts.join('\n')
 }

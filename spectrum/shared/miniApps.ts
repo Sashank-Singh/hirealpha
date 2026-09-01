@@ -157,6 +157,42 @@ export interface MiniAppRequest {
   query?: Record<string, string>
 }
 
+/**
+ * The ONLY kinds that mint a card into the thread. Everything else is answered
+ * as plain text (the auto-log parsers still record it), so "no OS, no cards
+ * everywhere" holds while the cards that organize or order stay.
+ *
+ * Two groups:
+ *  - CONFIRM: you tap before the outside world hears about it (send/book/slot).
+ *  - ORGANIZE: an ongoing list or board that a quiet card keeps tidy.
+ * Note-trackers (nutrition, sleep, workout, habits, mood, gratitude, learning,
+ * tonight, standup, triage…) deliberately mint nothing — say it, it's logged.
+ */
+export const MINIMAL_CARD_KINDS = new Set<MiniAppKind>([
+  // confirm — tap-to-act
+  'approve_send',
+  'approve_investor_note',
+  'pick_slot',
+  'meeting_mode',
+  // organize — quiet ongoing surfaces
+  'digest',
+  'pick_night',
+  'later',
+  'networking_crm',
+  'open_loops',
+  'drop_zone',
+  'pipeline_board',
+  'decision_ledger',
+  'hire_decision',
+  'weekly_review',
+  'spending_snapshot',
+  'apps',
+])
+
+export function isMinimalCardKind(kind: MiniAppKind): boolean {
+  return MINIMAL_CARD_KINDS.has(kind)
+}
+
 /** Short labels for local fallback copy. No hyphens or dashes. */
 const KIND_LABELS: Record<MiniAppKind, string> = {
   menu: 'setup',

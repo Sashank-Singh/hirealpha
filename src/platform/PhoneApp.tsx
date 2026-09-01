@@ -2,8 +2,6 @@ import { useEffect, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { AlphaFace } from '../AlphaFace'
 import { getAgent } from '../agents'
-import { MENU_FEATURES } from './miniAppCatalog'
-import { MiniAppIcon } from './MiniAppIcons'
 import { getSession } from './roster'
 import { applyMiniTheme, readMiniTheme } from './miniTheme'
 import { localYmd } from './home'
@@ -42,9 +40,16 @@ function countToday(actions: ActionReceipt[]): number {
   }).length
 }
 
+/** The few cards worth keeping on the surface — everything else is text. */
+const PHONE_ORGANIZERS = [
+  { kind: 'digest', title: 'Brief' },
+  { kind: 'networking_crm', title: 'People' },
+  { kind: 'later', title: 'Later' },
+  { kind: 'spending_snapshot', title: 'Spend' },
+] as const
+
 export function PhoneApp() {
   const [searchParams] = useSearchParams()
-  const [showOthers, setShowOthers] = useState(false)
   const session = getSession()
   const agent = getAgent('friend')
 
@@ -136,10 +141,10 @@ export function PhoneApp() {
                   Save Alpha's contact
                 </a>
                 <p className="phone-cta-note">
-                  Alpha texts first sometimes. Your apps appear here once you two start talking.
+                  Alpha texts first sometimes. Once you two start talking, the day and the few things Alpha keeps for you show up right here.
                 </p>
                 <button type="button" className="phone-welcome__skip" onClick={() => markTexted()}>
-                  Show my apps anyway
+                  Show me around
                 </button>
               </div>
             </>
@@ -161,54 +166,16 @@ export function PhoneApp() {
           </a>
           <p className="phone-cta-note">Replies like a person. Usually within a minute.</p>
 
-          <section className="mini__section phone-apps" aria-label="Your apps">
-            <h2>Your apps</h2>
-            <p className="phone-apps-sub">Tap one. Everything lives in your thread too.</p>
-            <nav className="mini__menu phone-grid">
-              {MENU_FEATURES.friend.map((f) => (
-                <Link key={f.kind} className="phone-tile" to={miniLink(f.kind)}>
-                  <span className="phone-app-icon" aria-hidden="true">
-                    <MiniAppIcon kind={f.kind} />
-                  </span>
-                  <span className="phone-tile-name">{f.title}</span>
-                </Link>
-              ))}
-            </nav>
-          </section>
-
-          <button
-            type="button"
-            className="phone-others-btn"
-            onClick={() => setShowOthers((v) => !v)}
-          >
-            {showOthers ? 'Hide others' : 'Others'}
-          </button>
-
-          {showOthers && (
-            <section className="mini__section phone-others" aria-label="Other hires' apps">
-              <h2>Others</h2>
-              <p className="phone-apps-sub">Their apps work today. The hires ship soon.</p>
-              {(['coworker', 'cofounder'] as const).map((p) => (
-                <div key={p} className="phone-others-group">
-                  <p className="phone-others-label">
-                    {p === 'coworker' ? 'Alpha (Coworker)' : 'Alpha(CoFounder)'} · coming soon
-                  </p>
-                  <nav className="mini__menu phone-grid">
-                    {(MENU_FEATURES[p] ?? [])
-                      .filter((f) => f.kind !== 'home')
-                      .map((f) => (
-                        <Link key={`${p}-${f.kind}`} className="phone-tile" to={miniLink(f.kind, p)}>
-                          <span className="phone-app-icon" aria-hidden="true">
-                            <MiniAppIcon kind={f.kind} />
-                          </span>
-                          <span className="phone-tile-name">{f.title}</span>
-                        </Link>
-                      ))}
-                  </nav>
-                </div>
-              ))}
-            </section>
-          )}
+          <nav className="phone-links" aria-label="Alpha keeps these for you">
+            {PHONE_ORGANIZERS.map((o) => (
+              <Link key={o.kind} className="phone-link" to={miniLink(o.kind)}>
+                {o.title}
+              </Link>
+            ))}
+          </nav>
+          <p className="phone-cta-note">
+            Everything else — logs, questions, errands — just say it in the thread.
+          </p>
             </>
           )}
         </div>

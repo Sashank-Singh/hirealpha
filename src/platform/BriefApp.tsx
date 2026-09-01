@@ -57,6 +57,12 @@ export type BriefPayload = {
   /** The one email that needs a human now, or null. Optional until the server ships it. */
   attention?: { id: string; label: string; snippet?: string; why: string } | null
   error?: string
+  /* Free-tier rationing served a stale-but-same-day payload on purpose. The
+   * brief still paints (the data is real), but the UI shows a "refreshes used
+   * up" line so the user knows to upgrade. */
+  limited?: boolean
+  used?: number
+  limit?: number
 }
 
 /** The pick_night mini payload, routed through here so the evening gets the rich UI too. */
@@ -73,6 +79,10 @@ export type EveningPayload = {
   habitsToday?: HabitToday[]
   carryOver?: CarryOverItem[]
   error?: string
+  /* Free-tier rationing served a stale-but-same-day payload on purpose. */
+  limited?: boolean
+  used?: number
+  limit?: number
 }
 
 type Creds = { email?: string; token?: string }
@@ -617,12 +627,14 @@ export function BriefApp({
   evening,
   onOpenMail,
   onOpenDraft,
+  onRefresh,
 }: {
   auth: FeatureAuth
   data: BriefPayload | null
   evening?: EveningPayload | null
   onOpenMail: (id: string, label: string, snippet?: string) => void
   onOpenDraft: (id: string, label: string, snippet: string | undefined, draft: ReplyDraft) => void
+  onRefresh?: (opts?: { force?: boolean }) => Promise<void> | void
 }) {
   const [searchParams] = useSearchParams()
   const q = searchParams.toString()
@@ -641,6 +653,14 @@ export function BriefApp({
   const [openPiles, setOpenPiles] = useState<Set<string>>(new Set())
   const [toast, setToast] = useState<{ msg: string } | null>(null)
   const [prepName, setPrepName] = useState<string | null>(null)
+  /* A tiny "refresh again" affordance: the cached brief on this device can be
+   * minutes old, and a manual refresh rebuilds it server-side and paints when
+   * the response lands. The button stays nearly invisible until you look for it,
+   * so the screen still reads like "this is the brief", not "this is a list of
+   * buttons". */
+  const [refreshing, setRefreshing] = useState(false)
+  const [refreshedAt, setRefreshedAt] = useState<number | null>(null)
+  const refreshTimer = useRef<number | null>(null)
   const toastTimer = useRef<number | null>(null)
 
   const notify = useCallback((msg: string) => {
@@ -648,6 +668,28 @@ export function BriefApp({
     if (toastTimer.current) window.clearTimeout(toastTimer.current)
     toastTimer.current = window.setTimeout(() => setToast(null), 4000)
   }, [])
+
+  /* Manual refresh: rebuild the brief against the live calendar/inbox/model. The
+   * server already does the cache+retry dance, so this is "ask the server
+   * again" — the held copy keeps painting until the fresh payload lands. The
+   * "Updated just now" hint gives the action a verb so users know it did
+   * something; it fades after a few seconds so it doesn't become UI furniture.
+   *
+   * `force: true` makes the parent skip the held-copy paint and bust the
+   * browser cache: a user who taps refresh wants a real rebuild, not the
+   * spinner running over the same data they had a second ago. */
+  const handleRefresh = useCallback(() => {
+    if (!onRefresh || refreshing) return
+    setRefreshing(true)
+    Promise.resolve(onRefresh({ force: true }))
+      .catch(() => {})
+      .finally(() => {
+        setRefreshing(false)
+        setRefreshedAt(Date.now())
+        if (refreshTimer.current) window.clearTimeout(refreshTimer.current)
+        refreshTimer.current = window.setTimeout(() => setRefreshedAt(null), 3500)
+      })
+  }, [onRefresh, refreshing])
 
   const creds = { email: auth.email, token: auth.token }
   const isEvening = !!evening || data?.brief === 'evening'
@@ -714,6 +756,12 @@ export function BriefApp({
 
   const kicker = isEvening ? 'Evening' : data?.brief === 'morning' || story ? 'Morning' : 'Morning'
   const dateLabel = evening?.date || data?.date || story?.date || ''
+  // Free-tier cap hit: the rationing path served a stale-but-same-day payload
+  // on purpose, so the user gets a banner explaining why this brief isn't
+  // freshly rebuilt. Both briefs carry the same shape from the server.
+  const limited = !!data?.limited || !!evening?.limited
+  const limitedUsed = data?.used ?? evening?.used
+  const limitedLimit = data?.limit ?? evening?.limit
   // The lead names the beat, so a prep DO card that names the same beat twice
   // would answer the same question twice. On a prep day the header takes the
   // action ("Get prepped for Maria.") and the card keeps the beat.
@@ -760,10 +808,49 @@ export function BriefApp({
   return (
     <div className="brief">
       <header className="brief-lead">
-        <span className="brief-kicker">{kicker}</span>
+        <div className="brief-lead-row">
+          <span className="brief-kicker">{kicker}</span>
+          {onRefresh ? (
+            <button
+              type="button"
+              className={`brief-refresh${refreshing ? ' is-busy' : ''}`}
+              onClick={handleRefresh}
+              disabled={refreshing}
+              aria-label="Refresh brief"
+              title={refreshing ? 'Refreshing' : 'Refresh brief'}
+            >
+              <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+                <path
+                  d="M8 2.5a5.5 5.5 0 0 1 4.85 2.93M13.5 8a5.5 5.5 0 0 1-9.7 3.57M2.5 8a5.5 5.5 0 0 1 .65-2.5"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                  strokeLinecap="round"
+                />
+                <path
+                  d="M13 1.5l.5 3-3 .5M3 14.5l-.5-3 3-.5"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            </button>
+          ) : null}
+        </div>
         {dateLabel ? <p className="brief-date">{dateLabel}</p> : null}
         <h2 className="brief-title">{leadTitle}</h2>
       </header>
+
+      {refreshedAt ? <p className="brief-refreshed">Updated just now</p> : null}
+
+      {limited && (
+        <p className="brief-limited">
+          Free refreshes done for now ({limitedUsed ?? '?'} of {limitedLimit ?? '?'} this week).{' '}
+          <a href="/app/settings?upgrade=1">Upgrade</a> to refresh anytime.
+        </p>
+      )}
 
       {!isEvening && <FactStrip facts={facts} />}
 

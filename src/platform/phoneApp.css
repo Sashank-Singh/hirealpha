@@ -150,6 +150,29 @@
   max-width: 430px;
   margin: 0 auto;
 }
+
+/* Text-first organizer links: a quiet centered pill row instead of an app grid. */
+.phone-links {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  margin: 16px 0 8px;
+}
+.phone-link {
+  padding: 8px 16px;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--fg);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+}
+.phone-link:active {
+  transform: scale(0.96);
+}
 .phone-cta-ghost {
   display: block;
   margin: 0 auto;

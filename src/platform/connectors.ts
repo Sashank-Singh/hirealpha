@@ -8,99 +8,268 @@ export type ConnectorId =
   | 'notion'
   | 'linear'
   | 'github'
+  | 'gitlab'
+  | 'jira'
+  | 'sentry'
+  | 'postman'
   | 'drive'
+  | 'coda'
+  | 'confluence'
+  | 'airtable'
   | 'figma'
+  | 'miro'
+  | 'hubspot'
+  | 'salesforce'
+  | 'intercom'
+  | 'discord'
+  | 'whatsapp'
+  | 'telegram'
+  | 'twitter'
+  | 'calendly'
   | 'maps'
   | 'spotify'
+  | 'youtube'
   | 'stripe'
   | 'plaid'
+  | 'quickbooks'
 
 export interface ConnectorDef {
   id: ConnectorId
   name: string
+  category: 'Communication' | 'Productivity' | 'Development' | 'CRM & Sales' | 'Finance' | 'Media & Lifestyle'
   blurb: string
   /** Tool id prefixes / exact tools that map to this connector */
   toolMatchers: string[]
   /**
    * True when the tool works without an OAuth connection (e.g. OSM-backed Maps).
-   * Show "On" badge and skip the Connect button; never show a dead connect flow.
    */
   noAuth?: boolean
 }
 
 export const CONNECTOR_CATALOG: ConnectorDef[] = [
+  // Communication
   {
     id: 'gmail',
     name: 'Gmail',
-    blurb: 'Read and draft email from texts.',
+    category: 'Communication',
+    blurb: 'Read, search, and draft email messages.',
     toolMatchers: ['gmail'],
-  },
-  {
-    id: 'calendar',
-    name: 'Google Calendar',
-    blurb: 'Check free time and soft book plans.',
-    toolMatchers: ['calendar'],
   },
   {
     id: 'slack',
     name: 'Slack',
-    blurb: 'Catch threads and draft follow ups.',
+    category: 'Communication',
+    blurb: 'Catch threads, channel updates, and send DMs.',
     toolMatchers: ['slack'],
+  },
+  {
+    id: 'discord',
+    name: 'Discord',
+    category: 'Communication',
+    blurb: 'Monitor server channels and webhook notices.',
+    toolMatchers: ['discord'],
+  },
+  {
+    id: 'whatsapp',
+    name: 'WhatsApp',
+    category: 'Communication',
+    blurb: 'Direct message relay and thread follow-ups.',
+    toolMatchers: ['whatsapp'],
+  },
+  {
+    id: 'telegram',
+    name: 'Telegram',
+    category: 'Communication',
+    blurb: 'Bot notifications and group summaries.',
+    toolMatchers: ['telegram'],
+  },
+  {
+    id: 'twitter',
+    name: 'X (Twitter)',
+    category: 'Communication',
+    blurb: 'Search tweets, mentions, and draft posts.',
+    toolMatchers: ['twitter', 'x'],
+  },
+
+  // Productivity & Scheduling
+  {
+    id: 'calendar',
+    name: 'Google Calendar',
+    category: 'Productivity',
+    blurb: 'Check free/busy time and book meetings.',
+    toolMatchers: ['calendar'],
+  },
+  {
+    id: 'calendly',
+    name: 'Calendly',
+    category: 'Productivity',
+    blurb: 'Share booking slots and fetch schedule events.',
+    toolMatchers: ['calendly'],
   },
   {
     id: 'notion',
     name: 'Notion',
-    blurb: 'Pull notes, docs, and decisions.',
+    category: 'Productivity',
+    blurb: 'Query databases, pull meeting notes, and edit pages.',
     toolMatchers: ['notion'],
   },
   {
+    id: 'drive',
+    name: 'Google Drive',
+    category: 'Productivity',
+    blurb: 'Find decks, spreadsheets, and shared docs.',
+    toolMatchers: ['drive'],
+  },
+  {
+    id: 'coda',
+    name: 'Coda',
+    category: 'Productivity',
+    blurb: 'Search team docs, tables, and project wikis.',
+    toolMatchers: ['coda'],
+  },
+  {
+    id: 'confluence',
+    name: 'Confluence',
+    category: 'Productivity',
+    blurb: 'Internal knowledge base and company wiki search.',
+    toolMatchers: ['confluence'],
+  },
+  {
+    id: 'airtable',
+    name: 'Airtable',
+    category: 'Productivity',
+    blurb: 'Query records, update bases, and sync rows.',
+    toolMatchers: ['airtable'],
+  },
+
+  // Development & Engineering
+  {
     id: 'linear',
     name: 'Linear',
-    blurb: 'Triage issues and standup blockers.',
+    category: 'Development',
+    blurb: 'Triage backlog, assign issues, and track sprints.',
     toolMatchers: ['linear'],
   },
   {
     id: 'github',
     name: 'GitHub',
-    blurb: 'PRs, issues, and ship status.',
+    category: 'Development',
+    blurb: 'Review pull requests, issues, and commit statuses.',
     toolMatchers: ['github'],
   },
   {
-    id: 'drive',
-    name: 'Google Drive',
-    blurb: 'Find decks and shared files.',
-    toolMatchers: ['drive'],
+    id: 'gitlab',
+    name: 'GitLab',
+    category: 'Development',
+    blurb: 'Inspect pipelines, merge requests, and repos.',
+    toolMatchers: ['gitlab'],
   },
+  {
+    id: 'jira',
+    name: 'Jira',
+    category: 'Development',
+    blurb: 'Create tickets, inspect sprints, and track epics.',
+    toolMatchers: ['jira'],
+  },
+  {
+    id: 'sentry',
+    name: 'Sentry',
+    category: 'Development',
+    blurb: 'Monitor exceptions, stacktraces, and release errors.',
+    toolMatchers: ['sentry'],
+  },
+  {
+    id: 'postman',
+    name: 'Postman',
+    category: 'Development',
+    blurb: 'Inspect API collections, environments, and mock runs.',
+    toolMatchers: ['postman'],
+  },
+
+  // Design & Product
   {
     id: 'figma',
     name: 'Figma',
-    blurb: 'Link design context for reviews.',
+    category: 'Productivity',
+    blurb: 'Link design frames, components, and review comments.',
     toolMatchers: ['figma'],
   },
   {
-    id: 'maps',
-    name: 'Google Maps',
-    blurb: 'Pick places and get there.',
-    toolMatchers: ['maps'],
-    noAuth: true,
+    id: 'miro',
+    name: 'Miro',
+    category: 'Productivity',
+    blurb: 'Extract whiteboard diagrams and brainstorming boards.',
+    toolMatchers: ['miro'],
+  },
+
+  // CRM & Sales
+  {
+    id: 'hubspot',
+    name: 'HubSpot',
+    category: 'CRM & Sales',
+    blurb: 'Manage leads, contacts, deals, and sales pipelines.',
+    toolMatchers: ['hubspot'],
   },
   {
-    id: 'spotify',
-    name: 'Spotify',
-    blurb: 'Mood and hangout playlists.',
-    toolMatchers: ['spotify'],
+    id: 'salesforce',
+    name: 'Salesforce',
+    category: 'CRM & Sales',
+    blurb: 'Query enterprise accounts, opportunities, and contacts.',
+    toolMatchers: ['salesforce'],
   },
+  {
+    id: 'intercom',
+    name: 'Intercom',
+    category: 'CRM & Sales',
+    blurb: 'Customer support conversations and user tickets.',
+    toolMatchers: ['intercom'],
+  },
+
+  // Finance & Commerce
   {
     id: 'stripe',
     name: 'Stripe',
-    blurb: 'Glance revenue, not move money.',
+    category: 'Finance',
+    blurb: 'Glance MRR, revenue trends, and subscription status.',
     toolMatchers: ['stripe'],
   },
   {
     id: 'plaid',
-    name: 'Plaid / Bank',
-    blurb: 'Connect bank & spending balances.',
+    name: 'Plaid',
+    category: 'Finance',
+    blurb: 'Read bank balances, account transactions, and burn pacing.',
     toolMatchers: ['plaid', 'bank'],
+  },
+  {
+    id: 'quickbooks',
+    name: 'QuickBooks',
+    category: 'Finance',
+    blurb: 'Invoice tracking, expenses, and accounting records.',
+    toolMatchers: ['quickbooks'],
+  },
+
+  // Media, Search & Lifestyle
+  {
+    id: 'spotify',
+    name: 'Spotify',
+    category: 'Media & Lifestyle',
+    blurb: 'Playback queue, playlists, and focus music.',
+    toolMatchers: ['spotify'],
+  },
+  {
+    id: 'youtube',
+    name: 'YouTube',
+    category: 'Media & Lifestyle',
+    blurb: 'Search video transcripts and saved tutorials.',
+    toolMatchers: ['youtube'],
+  },
+  {
+    id: 'maps',
+    name: 'Google Maps',
+    category: 'Media & Lifestyle',
+    blurb: 'Location search, commute times, and place discovery.',
+    toolMatchers: ['maps'],
+    noAuth: true,
   },
 ]
 
@@ -110,7 +279,6 @@ export interface ContextField {
   hint: string
   placeholder: string
   multiline?: boolean
-  /** Renders a timezone <select> instead of a text input. */
   timezone?: boolean
 }
 
@@ -119,154 +287,81 @@ export const TIMEZONES: string[] = (() => {
     const zones = Intl.supportedValuesOf('timeZone')
     if (zones?.length) return zones
   } catch {
-    /* fall through */
+    // fallback
   }
   return [
-    'America/Los_Angeles',
-    'America/Denver',
-    'America/Chicago',
     'America/New_York',
+    'America/Chicago',
+    'America/Denver',
+    'America/Los_Angeles',
+    'America/Phoenix',
     'Europe/London',
     'Europe/Paris',
-    'Asia/Kolkata',
+    'Europe/Berlin',
     'Asia/Tokyo',
+    'Asia/Singapore',
+    'Asia/Kolkata',
     'Australia/Sydney',
+    'UTC',
   ]
 })()
 
-/** Context we ask for per hire. Only shown for bought hires. */
-export const CONTEXT_FIELDS: Record<AgentId, ContextField[]> = {
+export const HIRE_CONTEXT_FIELDS: Record<AgentId, ContextField[]> = {
   friend: [
     {
-      id: 'preferred_name',
-      label: 'What should Friend call you?',
-      hint: 'Name or nickname in texts.',
-      placeholder: 'e.g. Sashank',
+      id: 'name',
+      label: 'Your name',
+      hint: 'What to call you in texts.',
+      placeholder: 'Sashank',
     },
     {
       id: 'timezone',
       label: 'Timezone',
-      hint: 'For check ins, plans, and reminders.',
+      hint: 'Used to anchor morning briefings and scheduling.',
       placeholder: 'America/Los_Angeles',
       timezone: true,
     },
     {
-      id: 'people',
-      label: 'People to remember',
-      hint: 'Names that matter in your life.',
-      placeholder: 'Mom, Alex, …',
-      multiline: true,
-    },
-    {
-      id: 'check_ins',
-      label: 'Check in style',
-      hint: 'How often / how soft.',
-      placeholder: 'Light Sunday check in is fine',
-      multiline: true,
+      id: 'location',
+      label: 'Home base',
+      hint: 'Neighborhood or city for local references.',
+      placeholder: 'San Francisco, CA',
     },
   ],
   coworker: [
     {
       id: 'company',
-      label: 'Company',
-      hint: 'Where you work together.',
-      placeholder: 'e.g. HireAlpha',
+      label: 'Company / Project',
+      hint: 'The venture, company, or team you operate in.',
+      placeholder: 'HireAlpha',
     },
     {
-      id: 'role_title',
+      id: 'role',
       label: 'Your role',
-      hint: 'So standup language fits.',
-      placeholder: 'e.g. Founding engineer',
-    },
-    {
-      id: 'timezone',
-      label: 'Timezone',
-      hint: 'For standups, syncs, and reminders.',
-      placeholder: 'America/Los_Angeles',
-      timezone: true,
-    },
-    {
-      id: 'projects',
-      label: 'Active projects',
-      hint: 'What Coworker should already know.',
-      placeholder: 'Auth rewrite, staging fixes, …',
-      multiline: true,
-    },
-    {
-      id: 'standup_time',
-      label: 'Standup / sync time',
-      hint: 'Optional daily rhythm.',
-      placeholder: 'Weekdays 9:30am',
+      hint: 'What you lead (Engineering, Product, Operations).',
+      placeholder: 'Founder / CTO',
     },
   ],
   cofounder: [
     {
-      id: 'company_name',
-      label: 'Company',
-      hint: 'The thing you are building.',
-      placeholder: 'e.g. HireAlpha',
+      id: 'venture',
+      label: 'Venture Name',
+      hint: 'Name of the startup or organization.',
+      placeholder: 'HireAlpha',
     },
     {
-      id: 'stage',
-      label: 'Stage',
-      hint: 'Pre seed, seed, PMF hunt, …',
-      placeholder: 'e.g. Pre seed, building wedge',
-    },
-    {
-      id: 'timezone',
-      label: 'Timezone',
-      hint: 'For check-ins and reminders.',
-      placeholder: 'America/Los_Angeles',
-      timezone: true,
-    },
-    {
-      id: 'weekly_focus',
-      label: 'This week’s real decision',
-      hint: 'What Cofounder should push on.',
-      placeholder: 'Ship hire flow vs more demos',
-      multiline: true,
-    },
-    {
-      id: 'hard_nos',
-      label: 'Hard constraints',
-      hint: 'Cash, time, or principles.',
-      placeholder: 'No VP sales before PMF',
+      id: 'focus',
+      label: 'Primary North Star',
+      hint: 'Current top priority this quarter.',
+      placeholder: 'Scale self-driving proactive agents',
       multiline: true,
     },
   ],
 }
 
-function toolMatchesConnector(tool: string, connector: ConnectorDef): boolean {
-  return connector.toolMatchers.some(
-    (m) => tool === m || tool.startsWith(`${m}.`) || tool.startsWith(m),
-  )
-}
-
-/** Connectors this hire is allowed to use (from skills allowlist). */
 export function connectorsForHire(agentId: AgentId): ConnectorDef[] {
-  const tools = SKILLS[agentId].tools
-  return CONNECTOR_CATALOG.filter((c) => tools.some((t) => toolMatchesConnector(t, c)))
-}
-
-export function setupProgress(input: {
-  agentId: AgentId
-  connected: ConnectorId[]
-  context: Record<string, string>
-}): { done: number; total: number; pct: number; missingConnectors: ConnectorDef[]; missingContext: ContextField[] } {
-  const needed = connectorsForHire(input.agentId)
-  const fields = CONTEXT_FIELDS[input.agentId]
-  const missingConnectors = needed.filter((c) => !input.connected.includes(c.id))
-  const missingContext = fields.filter((f) => !(input.context[f.id] || '').trim())
-  const done =
-    needed.length -
-    missingConnectors.length +
-    (fields.length - missingContext.length)
-  const total = needed.length + fields.length
-  return {
-    done,
-    total,
-    pct: total === 0 ? 100 : Math.round((done / total) * 100),
-    missingConnectors,
-    missingContext,
-  }
+  const executable = new Set(SKILLS[agentId].executable)
+  return CONNECTOR_CATALOG.filter((c) =>
+    c.toolMatchers.some((matcher) => executable.has(matcher) || c.noAuth),
+  )
 }

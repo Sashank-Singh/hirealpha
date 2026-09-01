@@ -68,6 +68,12 @@ interface DigestData {
    * load is still running behind that response, so the right move is to come
    * back for it rather than to tell the user anything. */
   pending?: boolean
+  /* Free-tier rationing served a stale-but-same-day payload on purpose. The
+   * brief still paints (the data is real), but the UI shows a "refreshes used
+   * up" line so the user knows to upgrade. */
+  limited?: boolean
+  used?: number
+  limit?: number
 }
 
 interface MiniSection {
@@ -91,6 +97,10 @@ interface MiniPayload {
    * server answers before it is built rather than holding the request open. */
   pending?: boolean
   note?: string
+  /* Free-tier rationing served a stale-but-same-day payload on purpose. */
+  limited?: boolean
+  used?: number
+  limit?: number
 }
 
 /** The two kinds the device holds onto. Everything else is small and fast enough
@@ -245,21 +255,24 @@ export function MiniAppPage() {
    * return-to-focus (see useRefreshOnFocus below): the cache read up front is
    * what keeps a reopened brief instant — the network only refreshes behind
    * whatever is already on screen. */
-  const refresh = useCallback(() => {
+  const refresh = useCallback((opts?: { force?: boolean }): Promise<void> => {
     if (!isLiveMini) {
       setLoading(false)
-      return
+      return Promise.resolve()
     }
     if (!token && !getSession()?.email) {
       setLoading(false)
-      return
+      return Promise.resolve()
     }
     setLoading(true)
     setBriefTries(0)
-    /* Navigating between briefs on a mounted page misses the mount-time seed, so
-     * read the cache here too. Painting the old copy first means the spinner only
-     * shows on a brief this device has never held. */
-    const held = cachedBrief(persona || '', kind || '', token)
+    /* The held copy is what makes a normal reopen instant: paint it, fetch over
+     * the top. A manual refresh must NOT paint the held copy first — the user
+     * asked for fresh data and showing them their stale copy while a request is
+     * in flight is the bug that "the brief never updates" describes. The seed
+     * stays so the next normal open still paints instantly; this open shows the
+     * spinner instead. */
+    const held = opts?.force ? null : cachedBrief(persona || '', kind || '', token)
     if (held) {
       if (isDigest) setData(held)
       else setMini(held)
@@ -268,8 +281,16 @@ export function MiniAppPage() {
     const qs = new URLSearchParams({ persona: persona || '' })
     if (token) qs.set('t', token)
     else qs.set('email', getSession()?.email || '')
+    /* The server already sends short stale-while-revalidate headers, so a normal
+     * open is cheap. A manual refresh must always hit the server, though: the
+     * browser can otherwise serve the same body from its own cache for the whole
+     * SWR window and the user sees nothing change. `_t` busts both the browser
+     * cache (it's a different query) and the server's brief cache (the loader
+     * keys on userId+persona+kind only, but the in-memory layer is per-process
+     * and the SWR covers it). */
+    if (opts?.force) qs.set('_t', Date.now().toString())
     const url = isDigest ? `/api/digest?${qs}` : `/api/mini?${qs}&kind=${encodeURIComponent(kind || '')}`
-    fetch(url)
+    return fetch(url)
       .then((res) =>
         res.ok ? (res.json() as Promise<BriefPayload>) : Promise.reject({ status: res.status }),
       )
@@ -576,6 +597,7 @@ export function MiniAppPage() {
                 token: token || undefined,
               }}
               data={data}
+              onRefresh={refresh}
               onOpenMail={openMail}
               onOpenDraft={openReplyDraft}
             />
@@ -621,6 +643,7 @@ export function MiniAppPage() {
               }}
               data={null}
               evening={mini}
+              onRefresh={refresh}
               onOpenMail={openMail}
               onOpenDraft={openReplyDraft}
             />

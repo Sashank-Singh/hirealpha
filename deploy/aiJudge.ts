@@ -6,6 +6,8 @@
  * path taken when the model answers nothing.
  */
 
+import { extractJsonValue } from './gmailHelpers'
+
 export type JudgeMailIn = { id: string; from: string; subject: string; snippet?: string }
 export type JudgeMeetIn = { id: string; time: string; title: string; who?: string }
 
@@ -110,11 +112,11 @@ function idFor(ref: unknown, pool: Array<{ id: string }>, index: number): string
 /** Parse the judge's reply. Tolerates a fenced object and missing fields; unknown ids are dropped. */
 export function parseJudgeAll(raw: string, mails: JudgeMailIn[], meets: JudgeMeetIn[]): JudgeAll {
   const out: JudgeAll = { mails: new Map(), meets: new Map() }
-  const fence = String(raw || '').match(/\{[\s\S]*\}/)
+  const fence = extractJsonValue(String(raw || ''))
   if (!fence) return out
   let data: { mails?: unknown; meets?: unknown }
   try {
-    data = JSON.parse(fence[0]) as { mails?: unknown; meets?: unknown }
+    data = JSON.parse(fence) as { mails?: unknown; meets?: unknown }
   } catch {
     return out
   }

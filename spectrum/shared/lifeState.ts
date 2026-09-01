@@ -17,6 +17,7 @@ export type LifeState = {
   loops?: string[]
   calendar?: string[]
   mail?: string[]
+  meetingsCountToday?: number
   weekly?: {
     meals: number; calories: number; moodLogs: number; avgEnergy: number; habitChecks: number
     sleepNights: number; avgSleepHours: number; spend: number; weeklyBudget: number
@@ -246,12 +247,16 @@ export function computeLifeInsights(state: LifeState): LifeInsight[] {
     card: 'digest',
   })
 
-  const nightRec = calendarEmpty
-    ? 'Tonight is open. Want a place, or stay in?'
-    : `Tonight still has ${calendar.length} on the book. Wrap the rest.`
+  const meetingCount = state.meetingsCountToday ?? calendar.length
+  const heavyMeetingDay = meetingCount >= 5
+  const nightRec = heavyMeetingDay
+    ? `Heavy day with ${meetingCount} meetings. Keep tonight low key.`
+    : calendarEmpty
+      ? 'Tonight is open. Want a place, or stay in?'
+      : `Tonight still has ${calendar.length} on the book. Wrap the rest.`
   out.push({
-    topic: calendarEmpty ? 'tonight' : 'debrief',
-    severity: calendarEmpty ? 58 : 48,
+    topic: heavyMeetingDay ? 'wind_down' : calendarEmpty ? 'tonight' : 'debrief',
+    severity: heavyMeetingDay ? 62 : calendarEmpty ? 58 : 48,
     loop: 'night',
     line: [
       sleepLastNight && lastHours > 0 ? `Last night was ${fmtHours(lastHours)}h.` : '',
@@ -260,7 +265,7 @@ export function computeLifeInsights(state: LifeState): LifeInsight[] {
     ]
       .filter(Boolean)
       .join(' '),
-    tap: calendarEmpty ? 'Reply in, out, or skip.' : 'Reply done, leftover, or skip.',
+    tap: heavyMeetingDay ? 'Reply in, unwind, or skip.' : calendarEmpty ? 'Reply in, out, or skip.' : 'Reply done, leftover, or skip.',
     card: calendarEmpty ? 'pick_night' : 'digest',
   })
 

@@ -162,3 +162,68 @@ export function formatProgressText(task: string, stepPct: number, nextStep: stri
   const pct = Math.max(0, Math.min(100, Math.round(Number.isFinite(stepPct) ? stepPct : 0)))
   return `${String(task || 'Task').trim()} is ${pct}% done, next up ${String(nextStep || 'the next step').trim()}`
 }
+
+/* ---- Post-meeting debrief ---- */
+
+export const POST_MEETING_MIN_MINS = 10
+export const POST_MEETING_MAX_MINS = 45
+
+export function shouldNudgePostMeeting(
+  minutesSinceEnd: number,
+  lastNudgeAt: number | string | null,
+  now: number,
+): boolean {
+  if (!Number.isFinite(minutesSinceEnd)) return false
+  if (minutesSinceEnd < POST_MEETING_MIN_MINS || minutesSinceEnd > POST_MEETING_MAX_MINS) return false
+  const last = lastNudgeAt == null ? NaN : new Date(lastNudgeAt).getTime()
+  if (Number.isFinite(last) && now - last < 2 * 60 * 60 * 1000) return false
+  return true
+}
+
+export function postMeetingDebriefText(title: string, who?: string): string {
+  const target = who ? `with ${who}` : `on ${title}`
+  return `Just wrapped ${target}. Want to capture any next steps or follow-ups while it's fresh?`
+}
+
+/* ---- Commitment detection ---- */
+
+export interface DetectedCommitment {
+  action: string
+  rawTime: string
+  dueHour: number
+  dueMinute: number
+  followUpHour: number
+  followUpMinute: number
+}
+
+export function detectUserCommitment(text: string): DetectedCommitment | null {
+  const m = text.match(
+    /\b(?:i(?:'ll|'d|ll| will)|gonna|going to)\s+([a-zA-Z\s]{3,40}?)\s+(?:by|at|around|before)\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b/i,
+  )
+  if (!m) return null
+  const action = (m[1] || '').trim()
+  if (!action || action.length < 3 || /^(be|go|get|have|see)$/i.test(action)) return null
+  let hour = Number(m[2])
+  const minute = Number(m[3] || '0')
+  const mer = (m[4] || '').toLowerCase()
+  if (mer.startsWith('p') && hour < 12) hour += 12
+  if (mer.startsWith('a') && hour === 12) hour = 0
+  if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return null
+
+  let followUpMinute = minute + 30
+  let followUpHour = hour
+  if (followUpMinute >= 60) {
+    followUpMinute -= 60
+    followUpHour = (followUpHour + 1) % 24
+  }
+
+  return {
+    action,
+    rawTime: m[0],
+    dueHour: hour,
+    dueMinute: minute,
+    followUpHour,
+    followUpMinute,
+  }
+}
+

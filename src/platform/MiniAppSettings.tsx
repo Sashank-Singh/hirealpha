@@ -66,7 +66,7 @@ export function MiniAppSettings({
     <div className="ma mini-set">
       <div className="ma-hero">
         <span className="ma-hero-kicker">Settings</span>
-        <span className="ma-hero-num">{showAll ? 'Your apps' : 'This app'}</span>
+        <span className="ma-hero-num">{showAll ? 'Your settings' : 'This app'}</span>
         <span className="ma-hero-label">
           {known
             ? 'Change goals, connectors, place, sleep times, and budget. Saved on this phone and your account.'

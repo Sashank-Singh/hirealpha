@@ -29,6 +29,7 @@ import {
   looksLikeAffirmedBrief,
   looksLikeDigestIntent,
   looksLikeEveningBriefIntent,
+  isMinimalCardKind,
   mintMiniAppCard,
   miniAppFallbackText,
   buildDigestBriefing,
@@ -78,14 +79,11 @@ export function splitBubbles(text: string): string[] {
   return blocks.length > 1 ? blocks : [cleaned]
 }
 
-/** Card every text reply gets when the turn produced no specific one: the Apps
- * launcher, so a mini-app is always one tap below the last bubble. */
-export async function defaultReplyCard(phone: string, persona: AgentId): Promise<MiniAppCard | null> {
-  try {
-    return await mintMiniAppCard(phone, persona, 'apps')
-  } catch {
-    return null
-  }
+/* No default card: a text-first hire replies in text. If the turn minted no
+ * specific organizer/confirm card, it delivers none — a menu is never the
+ * default. (Kept as an async null so the call sites stay unchanged.) */
+export async function defaultReplyCard(_phone: string, _persona: AgentId): Promise<MiniAppCard | null> {
+  return null
 }
 
 /** After a slash capability's reply is built, perform the real write the feature
@@ -458,46 +456,16 @@ function buildMemoryBlock(
   return parts.join('\n\n')
 }
 
-/** Handle stop/pause/resume proactive and quiet hours in one turn. */
+/** Handle stop/pause/resume proactive in one turn. */
 function looksLikeProactiveControl(text: string): boolean {
   const t = foldQuotes(text)
   return (
-    /\bquiet hours\b/i.test(t) ||
     /\b(stop|pause|resume|enable|disable)\b.{0,40}\b(proactive|check[- ]?ins?|pokes?|outreach|reaching out)\b/i.test(t) ||
     /\bproactive\b.{0,24}\b(off|on|pause|stop|resume)\b/i.test(t) ||
     /\b(turn everything off|pause for today|kill switch)\b/i.test(t) ||
     /\b(stop|don't) texting me first\b/i.test(t) ||
     /\bdon't (text|message|ping) me (first|proactively)\b/i.test(t)
   )
-}
-
-function parseQuietHours(text: string): string | null {
-  const m = foldQuotes(text).match(
-    /quiet hours?\s*(?:from\s*)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\s*(?:-|to|until)\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm)?/i,
-  )
-  if (!m) return null
-  const clock = (h: string, min: string | undefined, ap?: string) => {
-    let hour = Number(h)
-    const minute = Number(min || '0')
-    const mer = (ap || '').toLowerCase()
-    if (mer.startsWith('p') && hour < 12) hour += 12
-    if (mer.startsWith('a') && hour === 12) hour = 0
-    return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`
-  }
-  return `${clock(m[1] || '22', m[2], m[3])}-${clock(m[4] || '8', m[5], m[6])}`
-}
-
-function prettyQuietHours(raw: string): string {
-  const fmt = (hhmm: string) => {
-    const [h, m] = hhmm.split(':').map(Number)
-    const hour = h || 0
-    const mer = hour >= 12 ? 'pm' : 'am'
-    const h12 = hour % 12 || 12
-    return m ? `${h12}:${String(m).padStart(2, '0')}${mer}` : `${h12}${mer}`
-  }
-  const parts = raw.match(/^(\d{1,2}:\d{2})-(\d{1,2}:\d{2})$/)
-  if (!parts) return raw
-  return `${fmt(parts[1] || '')} to ${fmt(parts[2] || '')}`
 }
 
 async function handleProactiveControl(input: {
@@ -507,7 +475,6 @@ async function handleProactiveControl(input: {
 }): Promise<string | null> {
   if (!looksLikeProactiveControl(input.userText)) return null
   const t = foldQuotes(input.userText)
-  const quiet = parseQuietHours(t)
   const pauseToday = /\bpause for today\b/i.test(t)
   const off =
     (/\b(stop|turn(?: everything)? off|disable|kill switch)\b/i.test(t) ||
@@ -518,8 +485,7 @@ async function handleProactiveControl(input: {
   const resume = /\b(resume|turn(?: it| them| proactive)? (back )?on|enable)\b/i.test(t)
   const pause = /\bpause\b/i.test(t) && !resume && !off
 
-  const patch: { proactive?: string; quietHours?: string; pauseToday?: boolean; pausedUntil?: string | null } = {}
-  if (quiet) patch.quietHours = quiet
+  const patch: { proactive?: string; pauseToday?: boolean; pausedUntil?: string | null } = {}
   if (off) patch.proactive = 'off'
   else if (pauseToday) patch.pauseToday = true
   else if (pause) {
@@ -530,15 +496,14 @@ async function handleProactiveControl(input: {
     patch.pausedUntil = null
   }
 
-  if (!patch.proactive && !patch.quietHours && !patch.pauseToday) return null
+  if (!patch.proactive && !patch.pauseToday) return null
 
   const ok = await setProactiveMode(input.phone, input.persona, patch)
   if (!ok) return "I couldn't change that right now. Try again in a sec?"
   if (off) return "Got it. I won't text first anymore. Say resume proactive if you want me back."
   if (pauseToday) return "Paused for today. I'll start again tomorrow."
   if (pause) return 'Paused. Say resume proactive when you want check ins again.'
-  if (quiet && !resume) return `Quiet hours are ${prettyQuietHours(quiet)}. I won't text first inside that window.`
-  return "I'll text first again when something is actually useful. Quiet hours stay in place."
+  return "I'll text first again when something is actually useful."
 }
 
 /** Handle "remind me..." / "my reminders" / "cancel reminder" in one turn. */
@@ -876,7 +841,7 @@ export async function runHireTurn(input: {
           : `Nutrition was automatically logged as ${nutrition.guess || input.userText} (${nutrition.calories || 0} calories, ${nutrition.protein || 0}g protein, ${nutrition.carbs || 0}g carbs, ${nutrition.fat || 0}g fat). Confirm the log briefly in the reply; do not ask them to log it again.`,
       )
     } else if (nutrition?.error) {
-      extras.push('Nutrition auto-log failed. Do not claim the meal was logged; offer the Nutrition card instead.')
+      extras.push('Nutrition auto-log failed. Do not claim the meal was logged; in one line ask what they ate and log it from their reply text.')
     }
   }
   if (miniApp?.kind === 'workout_log' && looksLikeWorkoutLog(input.userText)) {
@@ -886,7 +851,7 @@ export async function runHireTurn(input: {
         `Workout was automatically logged as ${workout.exercise} ${workout.sets}x${workout.reps}${workout.weight ? ` @ ${workout.weight}` : ''}. Confirm briefly; do not ask them to log it again.`,
       )
     } else {
-      extras.push('Could not parse a workout from that text. Do not claim it was logged. Tell them to open the Workout log card and enter exercise, sets, reps, and weight.')
+      extras.push('Could not parse a workout from that text. Do not claim it was logged. In one line ask for the missing piece (exercise, sets, reps, weight) and log it from their reply text.')
     }
   }
   if (miniApp?.kind === 'sleep_tracker') {
@@ -896,7 +861,7 @@ export async function runHireTurn(input: {
         `Sleep was automatically logged for last night, ${sleep.bedtime} to ${sleep.wake}. Confirm briefly; do not ask them to log it again.`,
       )
     } else {
-      extras.push('No bedtime/wake times found in the text. Do not claim sleep was logged. Tell them to open the Sleep card and tap Log last night.')
+      extras.push('No bedtime/wake times found in the text. Do not claim sleep was logged. In one line ask for bedtime and wake time and log it from their reply text.')
     }
   }
   if (miniApp?.kind === 'gratitude_journal' && looksLikeGratitudeLog(input.userText)) {
@@ -906,7 +871,7 @@ export async function runHireTurn(input: {
         `Gratitude was automatically logged: "${gratitude.text}". Confirm briefly; do not ask them to log it again.`,
       )
     } else {
-      extras.push('Could not parse what they are grateful for. Do not claim it was logged. Tell them to open the Gratitude card.')
+      extras.push('Could not parse what they are grateful for. Do not claim it was logged. In one line ask what they are grateful for and log it from their reply text.')
     }
   }
   if (looksLikeMoodReply(input.userText)) {
@@ -984,7 +949,7 @@ export async function runHireTurn(input: {
         `That spend would break the weekly cap ($${Math.round(Number(spend.weekTotal) || 0)} of $${Math.round(Number(spend.weeklyBudget) || 0)}, plus $${spend.amount}). Do not log it. Tell them to tap the Spending card if they still want it on the book. Never claim it was logged.`,
       )
     } else {
-      extras.push('Could not parse an amount to log. Do not claim spend was logged. Tell them to open the Spending card.')
+      extras.push('Could not parse an amount to log. Do not claim spend was logged. In one line ask what they spent and on what, then log it from their reply text.')
     }
   }
   if (
@@ -1556,11 +1521,14 @@ export async function runHireTurn(input: {
   const cardKind = confirmKind || miniApp?.kind || null
   const cardQuery = confirmQuery || miniApp?.query
   /* One card per intent, not one per turn: back-to-back taps used to stack the
-   * same card twice in the thread. Suppress the same kind for 90 seconds, and
-   * never attach one when the reply text already links the mini app. */
-  const card = cardKind && !/\/app\/mini\//.test(finalReply) && allowMiniAppCard(input.senderId, agent.id, cardKind)
-    ? await mintMiniAppCard(input.senderId, agent.id, cardKind, cardQuery)
-    : null
+   * same card twice in the thread. Only the minimal organizer/confirm kinds
+   * mint at all — note-trackers are answered in text, so no card here. Suppress
+   * the same kind for 90 seconds, and never attach one when the reply text
+   * already links the mini app. */
+  const card =
+    cardKind && isMinimalCardKind(cardKind) && !/\/app\/mini\//.test(finalReply) && allowMiniAppCard(input.senderId, agent.id, cardKind)
+      ? await mintMiniAppCard(input.senderId, agent.id, cardKind, cardQuery)
+      : null
 
   return { reply: finalReply, bubbles: splitBubbles(finalReply), source, authoritative, card }
 }

@@ -79,6 +79,32 @@ describe('parseJudgeAll', () => {
     expect(out.mails.size).toBe(0)
   })
 
+  it('recovers the JSON from narrated or fenced replies', () => {
+    const raw =
+      'Here is what I chose:\n' +
+      '```json\n' +
+      '{"mails":[{"id":"g1","keep":true,"kind":"intro","needsYou":true,"score":70}]}' +
+      '\n```'
+    const out = parseJudgeAll(raw, mails, meets)
+    expect(out.mails.get('g1')?.kind).toBe('intro')
+    expect(out.mails.get('g1')?.needsYou).toBe(true)
+  })
+
+  it('survives a closing brace inside a quoted reason and trailing commentary', () => {
+    const raw =
+      '{"mails":[{"id":"g2","keep":true,"kind":"invoice","needsYou":true,"score":85,"why":"send payment } Friday"}]} and also {"meets":[{"id":"10:00 AM|Standup","prep":true}]}'
+    const out = parseJudgeAll(raw, mails, meets)
+    expect(out.mails.get('g2')?.why).toBe('send payment } Friday')
+    expect(out.meets.size).toBe(0)
+  })
+
+  it('takes the first object when the model emits several', () => {
+    const raw =
+      '{"mails":[{"id":"g1","keep":true,"kind":"intro"}]} then a retry {"mails":[{"id":"g1","keep":false,"kind":"promo"}]}'
+    const out = parseJudgeAll(raw, mails, [])
+    expect(out.mails.get('g1')?.kind).toBe('intro')
+  })
+
   it('treats needsYou strings and missing keep as the tolerant old judge did', () => {
     const out = parseJudgeAll(JSON.stringify({ mails: [{ id: 'g1', needsYou: 'true' }] }), mails, [])
     expect(out.mails.get('g1')?.keep).toBe(true)

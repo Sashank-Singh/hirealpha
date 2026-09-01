@@ -1850,7 +1850,185 @@ button, input { font: inherit; }
 }
 .plat-phone span { color: var(--muted-fg); padding-bottom: 8px; }
 
-/* Auth */
+/* Auth / Onboarding — Instinct-style clean minimal */
+.onb-root {
+  display: grid;
+  place-items: center;
+  min-height: 100dvh;
+  padding: 40px 20px;
+  background: #f5f5f5;
+}
+.onb-card {
+  width: min(400px, 100%);
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0;
+}
+.onb-logo {
+  width: 56px;
+  height: 56px;
+  border-radius: 14px;
+  background: #ffffff;
+  border: 1px solid #e0e0e0;
+  display: grid;
+  place-items: center;
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: 28px;
+  font-weight: 700;
+  color: #0d0d0d;
+  margin: 0 auto 28px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+}
+.onb-h1 {
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: clamp(26px, 6vw, 34px);
+  font-weight: 700;
+  color: #0d0d0d;
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+  margin: 0 0 10px;
+}
+.onb-sub {
+  font-size: 15px;
+  color: #666;
+  line-height: 1.55;
+  margin: 0 0 28px;
+}
+.onb-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0 0 12px;
+}
+.onb-input {
+  width: 100%;
+  padding: 14px 16px;
+  border: 1px solid #e0e0e0;
+  border-radius: 12px;
+  background: #fff;
+  color: #0d0d0d;
+  font-family: inherit;
+  font-size: 15px;
+  outline: none;
+  transition: border-color 0.15s ease;
+  box-sizing: border-box;
+}
+.onb-input::placeholder { color: #aaa; }
+.onb-input:focus { border-color: #999; }
+.onb-pw-wrap { position: relative; }
+.onb-pw-wrap .onb-input { padding-right: 60px; }
+.onb-pw-toggle {
+  position: absolute;
+  right: 14px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: 0;
+  padding: 0;
+  font-size: 13px;
+  color: #888;
+  cursor: pointer;
+  font-family: inherit;
+}
+.onb-pw-toggle:hover { color: #333; }
+.onb-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  padding: 16px 20px;
+  border: none;
+  border-radius: 14px;
+  background: #0d0d0d;
+  color: #ffffff;
+  font-family: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  margin-bottom: 10px;
+  transition: background 0.15s ease, opacity 0.15s ease;
+  letter-spacing: -0.01em;
+}
+.onb-btn:hover { background: #1a1a1a; }
+.onb-btn:disabled { opacity: 0.5; cursor: default; }
+.onb-btn--google {
+  background: #fff;
+  color: #0d0d0d;
+  border: 1px solid #e0e0e0;
+}
+.onb-btn--google:hover { background: #f5f5f5; }
+.onb-skip {
+  display: block;
+  width: 100%;
+  padding: 10px 0;
+  background: none;
+  border: 0;
+  font-family: inherit;
+  font-size: 14px;
+  color: #666;
+  text-align: center;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  margin-bottom: 6px;
+}
+.onb-skip:hover { color: #333; }
+.onb-error {
+  font-size: 13px;
+  color: #cc2200;
+  margin: 4px 0 0;
+  line-height: 1.4;
+}
+.onb-foot {
+  margin-top: 20px;
+  text-align: center;
+}
+.onb-foot-link {
+  font-size: 13px;
+  color: #999;
+  text-decoration: none;
+}
+.onb-foot-link:hover { color: #555; }
+
+/* Trial screen features list */
+.onb-features {
+  list-style: none;
+  margin: 0 0 24px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+.onb-features li {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+  padding: 14px 0;
+  border-bottom: 1px solid #e8e8e8;
+}
+.onb-features li:first-child { border-top: 1px solid #e8e8e8; }
+.onb-feat-icon {
+  font-size: 20px;
+  flex: none;
+  margin-top: 1px;
+}
+.onb-features strong {
+  display: block;
+  font-size: 14px;
+  font-weight: 600;
+  color: #0d0d0d;
+  margin-bottom: 2px;
+}
+.onb-features p {
+  margin: 0;
+  font-size: 13px;
+  color: #888;
+  line-height: 1.45;
+}
+
+/* Legacy .plat--auth for any remaining uses */
 .plat--auth {
   display: grid;
   place-items: center;
@@ -1900,6 +2078,7 @@ button, input { font: inherit; }
   .plat-id__call { text-align: left; }
   .plat-auth { padding: 24px; }
 }
+
 
 /* Mini-app pages (opened inside iMessage via the Spectrum launcher) */
 .mini {
@@ -2798,6 +2977,155 @@ button.ma-callout, button.ma-row {
 .spend-hero { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; }
 .spend-total { font-size: 28px; font-weight: 800; line-height: 1.1; }
 .spend-total span { font-size: 14px; font-weight: 600; color: var(--muted-fg); }
+
+/* Learning Queue Mini-App (Minimal) */
+.lq-tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 8px;
+}
+.lq-tab {
+  background: transparent;
+  border: 0;
+  color: var(--muted-fg);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 4px 8px;
+  cursor: pointer;
+  border-radius: 6px;
+  transition: all 0.1s ease;
+}
+.lq-tab:hover {
+  color: var(--fg);
+}
+.lq-tab.is-on {
+  color: var(--fg);
+  background: color-mix(in srgb, var(--fg) 8%, transparent);
+}
+.lq-filters-row {
+  display: flex;
+  gap: 4px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+  scrollbar-width: none;
+}
+.lq-filters-row::-webkit-scrollbar { display: none; }
+.lq-tag-btn {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--muted-fg);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 999px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.lq-tag-btn:hover { border-color: var(--fg); color: var(--fg); }
+.lq-tag-btn.is-on {
+  background: var(--fg);
+  color: var(--bg);
+  border-color: var(--fg);
+}
+.lq-note-drawer {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 0 4px;
+  border-top: 1px dashed var(--border);
+  margin-top: 4px;
+}
+.lq-note-snippet {
+  font-size: 12px;
+  color: var(--muted-fg);
+  line-height: 1.35;
+  margin-top: 2px;
+}
+.lq-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
+.lq-link-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted-fg);
+  cursor: pointer;
+  text-decoration: none;
+}
+.lq-link-btn:hover {
+  color: var(--fg);
+  text-decoration: underline;
+}
+.lq-link-btn--del:hover {
+  color: #ef4444;
+}
+
+.lq-suggested {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+.lq-suggested-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--muted-fg);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.lq-suggested-item {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg);
+}
+.lq-suggested-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.lq-suggested-title {
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--fg);
+  text-decoration: none;
+}
+.lq-suggested-title:hover {
+  text-decoration: underline;
+}
+.lq-suggested-sub {
+  font-size: 11px;
+  color: var(--muted-fg);
+  line-height: 1.35;
+}
+.lq-suggested-reason {
+  font-size: 10px;
+  color: var(--mini-accent, #2a6f7a);
+  font-weight: 600;
+}
 
 /* Expandable feature cards (platform) */
 .feat-card__emoji svg { display: block; }
@@ -3919,6 +4247,73 @@ html[data-mini-theme='light'] .ma-where-label { color: #6d28d9; }
   gap: 18px;
 }
 .brief-lead { display: flex; flex-direction: column; gap: 4px; }
+/* The kicker line: text on the left, a near-invisible refresh control on the
+ * right. The button starts muted and only earns its color on hover, so the
+ * screen still reads as "the brief" instead of "a list of controls". */
+.brief-lead-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.brief-refresh {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: 999px;
+  color: var(--muted-fg);
+  opacity: 0.45;
+  cursor: pointer;
+  transition: opacity 0.15s ease, color 0.15s ease, transform 0.12s ease;
+}
+.brief-refresh:hover,
+.brief-refresh:focus-visible {
+  opacity: 1;
+  color: var(--mini-accent, var(--fg));
+  outline: none;
+}
+.brief-refresh:active { transform: scale(0.92); }
+.brief-refresh.is-busy { opacity: 1; color: var(--mini-accent, var(--fg)); }
+.brief-refresh svg { animation: none; }
+.brief-refresh.is-busy svg { animation: brief-spin 0.9s linear infinite; transform-origin: 50% 50%; }
+@keyframes brief-spin {
+  to { transform: rotate(360deg); }
+}
+/* "Updated just now" lives where the lead card's footnote would, so the verb
+ * reads as part of the brief instead of chrome. Fades after a few seconds so
+ * it does not become UI furniture. */
+.brief-refreshed {
+  margin: -8px 0 0;
+  font-size: 12px;
+  color: var(--muted-fg);
+  letter-spacing: 0.01em;
+}
+/* The free-tier cap-hit banner sits right under "Updated just now" so the
+ * explanation belongs to the brief, not the chrome. The accent line on the
+ * left marks it as something worth reading — the user just hit refresh and
+ * got told "nothing changed" otherwise. */
+.brief-limited {
+  margin: 4px 0 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--mini-accent, var(--fg));
+  background: rgba(255, 255, 255, 0.03);
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--fg);
+}
+.brief-limited a {
+  color: var(--mini-accent, var(--fg));
+  font-weight: 700;
+  text-decoration: none;
+}
+.brief-limited a:hover { text-decoration: underline; }
 .brief-kicker {
   font-size: 11px;
   font-weight: 800;

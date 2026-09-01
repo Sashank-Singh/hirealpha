@@ -22,7 +22,7 @@ export type JudgmentState = {
   timezone: string
   tick: string
   proactive: string
-  quietHours: string
+  quietHours?: string
   lastInboundMinutesAgo: number | null
   lastProactiveMinutesAgo: number | null
   lastProactiveTopic: string | null
@@ -196,23 +196,10 @@ export async function setProactiveMode(
   }
 }
 
-function inQuietHours(localTime: string, quietHours: string): boolean {
-  const m = quietHours.match(/^(\d{1,2}):(\d{2})\s*-\s*(\d{1,2}):(\d{2})$/)
-  if (!m) return false
-  const [lh, lm] = localTime.slice(11, 16).split(':').map(Number)
-  const now = (lh || 0) * 60 + (lm || 0)
-  const start = Number(m[1]) * 60 + Number(m[2])
-  const end = Number(m[3]) * 60 + Number(m[4])
-  if (start === end) return false
-  if (start < end) return now >= start && now < end
-  return now >= start || now < end
-}
-
 function hardGuard(state: JudgmentState): string | null {
   const mode = (state.proactive || 'on').toLowerCase()
   if (mode === 'off') return 'proactive off'
   if (mode === 'paused') return 'paused'
-  if (inQuietHours(state.localTime, state.quietHours || '22:00-08:00')) return 'quiet hours'
   if (state.lastInboundMinutesAgo != null && state.lastInboundMinutesAgo < 20) return 'in conversation'
   if (state.lastProactiveMinutesAgo != null && state.lastProactiveMinutesAgo < 60) return 'sent recently'
   const unanswered = Number(state.unansweredProactive) || 0

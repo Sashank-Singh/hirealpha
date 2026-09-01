@@ -4,6 +4,7 @@ import { apiExchangeGoogle, apiLoginPassword, apiRegisterPassword, apiSignIn } f
 import { getSession, hydrateFromServer, signIn } from './roster'
 
 type AuthMode = 'signin' | 'signup'
+type Step = 'auth' | 'trial'
 
 export function LoginPage() {
   const existing = getSession()
@@ -11,6 +12,7 @@ export function LoginPage() {
   const [params, setParams] = useSearchParams()
   const emailParam = params.get('email') || ''
   const [mode, setMode] = useState<AuthMode>(existing?.name ? 'signin' : 'signup')
+  const [step, setStep] = useState<Step>('auth')
   const [name, setName] = useState(existing?.name || '')
   const [email, setEmail] = useState(existing?.email || emailParam)
   const [phone, setPhone] = useState(existing?.phone || '')
@@ -115,11 +117,10 @@ export function LoginPage() {
     if (mode === 'signup') {
       void apiRegisterPassword({ email: nextEmail, password, phone: nextPhone, name: nextName })
         .then(async (data) => {
-          // Persist exactly like the Google exchange: the session carries the
-          // same email, name, and phone fields.
           signIn(data.email, data.phone || nextPhone, data.name || nextName)
           await hydrateFromServer().catch(() => undefined)
-          navigate('/app')
+          // Show the trial pricing screen after first sign-up
+          setStep('trial')
         })
         .catch((err) => {
           setError(err instanceof Error ? err.message : 'Could not create account')
@@ -147,138 +148,183 @@ export function LoginPage() {
 
   const needsPhoneStep = googleUser || pwSignedIn
 
+  async function startTrial() {
+    const use = email.trim().toLowerCase()
+    if (!use.includes('@')) { navigate('/app'); return }
+    setBusy(true)
+    try {
+      const res = await fetch('/api/billing/checkout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: use, hire: 'friend', plan: 'single', trial_days: 7 }),
+      })
+      const data = (await res.json().catch(() => ({}))) as { url?: string }
+      if (data.url) { window.location.href = data.url; return }
+    } catch { /* fall through */ } finally { setBusy(false) }
+    navigate('/app')
+  }
+
+  /* ─── Trial / pricing screen ─────────────────────────────────── */
+  if (step === 'trial') {
+    return (
+      <div className="onb-root">
+        <div className="onb-card">
+          <div className="onb-logo">A</div>
+          <h1 className="onb-h1">Try Alpha free</h1>
+          <p className="onb-sub">7 days free, then $5/month for 2 months, then $19/month. Cancel anytime.</p>
+          <ul className="onb-features">
+            <li>
+              <span className="onb-feat-icon">💬</span>
+              <div>
+                <strong>Unlimited iMessage texts</strong>
+                <p>Alpha lives in your Messages app. Just text.</p>
+              </div>
+            </li>
+            <li>
+              <span className="onb-feat-icon">🔗</span>
+              <div>
+                <strong>Connect your tools</strong>
+                <p>Gmail, Calendar, Notion, Linear, GitHub, and more.</p>
+              </div>
+            </li>
+            <li>
+              <span className="onb-feat-icon">🤖</span>
+              <div>
+                <strong>Background tasks &amp; loops</strong>
+                <p>Alpha works autonomously, even when you&apos;re not watching.</p>
+              </div>
+            </li>
+          </ul>
+          <button id="onb-trial-cta" type="button" className="onb-btn" onClick={() => void startTrial()} disabled={busy}>
+            {busy ? 'Opening…' : 'Start free trial →'}
+          </button>
+          <button type="button" className="onb-skip" onClick={() => navigate('/app')}>
+            Skip for now
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  /* ─── Auth screen ─────────────────────────────────────────────── */
   return (
-    <div className="plat plat--auth">
-      <div className="plat-auth">
-        <p className="plat-auth__brand">HireAlpha</p>
-        <h1>{mode === 'signup' ? 'Create account' : 'Sign in'}</h1>
-        <p className="plat-auth__sub">
+    <div className="onb-root">
+      <div className="onb-card">
+        <div className="onb-logo">A</div>
+        <h1 className="onb-h1">
           {needsPhoneStep
-            ? 'Signed in. Add the phone you text the hires from so they can find you.'
+            ? 'One more step'
             : mode === 'signup'
-              ? 'Create your account. Hire people for your texts, then connect what they need.'
-              : 'Hire people for your texts, then connect what they need.'}
+              ? 'Get started with Alpha'
+              : 'Welcome back'}
+        </h1>
+        <p className="onb-sub">
+          {needsPhoneStep
+            ? 'Add the phone you text from so Alpha can find you in Messages.'
+            : mode === 'signup'
+              ? 'Your personal AI, right in iMessage.'
+              : 'Sign in to your account.'}
         </p>
 
-        <div className="plat-auth__methods">
-          {!googleUser && (
-            <button type="button" className="plat-btn plat-btn--block" onClick={onGoogle} disabled={busy}>
-              <GoogleMark />
-              {busy ? 'Signing in…' : mode === 'signup' ? 'Sign up with Google' : 'Continue with Google'}
+        {!googleUser && !needsPhoneStep && (
+          <button
+            id="onb-google-btn"
+            type="button"
+            className="onb-btn onb-btn--google"
+            onClick={onGoogle}
+            disabled={busy}
+          >
+            <GoogleMark />
+            {mode === 'signup' ? 'Continue with Google' : 'Sign in with Google'}
+          </button>
+        )}
+
+        {!emailMode && !googleUser ? (
+          <button type="button" className="onb-skip" onClick={() => setEmailMode(true)}>
+            Use email instead
+          </button>
+        ) : (
+          <form onSubmit={onEmailSubmit} className="onb-form">
+            {mode === 'signup' && !pwSignedIn && !needsPhoneStep && (
+              <input
+                type="text"
+                required
+                autoComplete="name"
+                className="onb-input"
+                placeholder="First name"
+                value={name}
+                onChange={(e) => { setName(e.target.value); if (error) setError('') }}
+              />
+            )}
+            {!googleUser && !needsPhoneStep && (
+              <input
+                type="email"
+                required
+                autoComplete="email"
+                className="onb-input"
+                placeholder="you@example.com"
+                value={email}
+                onChange={(e) => { setEmail(e.target.value); if (error) setError('') }}
+              />
+            )}
+            {!needsPhoneStep && (
+              <div className="onb-pw-wrap">
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  required
+                  autoComplete={mode === 'signup' ? 'new-password' : 'current-password'}
+                  className="onb-input"
+                  placeholder={mode === 'signup' ? 'Password (8+ chars)' : 'Password'}
+                  value={password}
+                  onChange={(e) => { setPassword(e.target.value); if (error) setError('') }}
+                />
+                <button
+                  type="button"
+                  className="onb-pw-toggle"
+                  onClick={() => setShowPassword((s) => !s)}
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
+                >
+                  {showPassword ? 'Hide' : 'Show'}
+                </button>
+              </div>
+            )}
+            {(mode === 'signup' || needsPhoneStep) && (
+              <input
+                type="tel"
+                required
+                autoFocus={needsPhoneStep}
+                autoComplete="tel"
+                className="onb-input"
+                placeholder="+1 (555) 010-9876"
+                value={phone}
+                onChange={(e) => { setPhone(e.target.value); if (error) setError('') }}
+              />
+            )}
+            {error && <p className="onb-error" role="alert">{error}</p>}
+            <button id="onb-submit-btn" type="submit" className="onb-btn" disabled={busy}>
+              {busy
+                ? 'One moment…'
+                : needsPhoneStep
+                  ? 'Continue →'
+                  : mode === 'signup'
+                    ? 'Create account →'
+                    : 'Sign in →'}
             </button>
-          )}
+          </form>
+        )}
 
-          {!emailMode && !googleUser ? (
-            <button type="button" className="plat-link plat-link--center" onClick={() => setEmailMode(true)}>
-              Use email instead
-            </button>
-          ) : (
-            <form onSubmit={onEmailSubmit} className="plat-auth__form">
-              {mode === 'signup' && !pwSignedIn && (
-                <label>
-                  Your name
-                  <input
-                    type="text"
-                    required
-                    autoComplete="name"
-                    value={name}
-                    onChange={(e) => {
-                      setName(e.target.value)
-                      if (error) setError('')
-                    }}
-                    placeholder="Sashank"
-                  />
-                </label>
-              )}
-              {!googleUser && (
-                <label>
-                  Email
-                  <input
-                    type="email"
-                    required
-                    autoComplete="email"
-                    value={email}
-                    onChange={(e) => {
-                      setEmail(e.target.value)
-                      if (error) setError('')
-                    }}
-                    placeholder="you@example.com"
-                  />
-                </label>
-              )}
-              {!needsPhoneStep && (
-                <label>
-                  Password
-                  <span className="plat-auth__pw">
-                    <input
-                      type={showPassword ? 'text' : 'password'}
-                      required
-                      autoComplete={mode === 'signup' ? 'new-password' : 'current-password'}
-                      value={password}
-                      onChange={(e) => {
-                        setPassword(e.target.value)
-                        if (error) setError('')
-                      }}
-                      placeholder={mode === 'signup' ? 'At least 8 characters' : 'Your password'}
-                    />
-                    <button
-                      type="button"
-                      className="plat-link"
-                      onClick={() => setShowPassword((s) => !s)}
-                      aria-label={showPassword ? 'Hide password' : 'Show password'}
-                    >
-                      {showPassword ? 'Hide' : 'Show'}
-                    </button>
-                  </span>
-                </label>
-              )}
-              {(mode === 'signup' || needsPhoneStep) && (
-                <label>
-                  iMessage phone
-                  <input
-                    type="tel"
-                    required
-                    autoFocus={needsPhoneStep}
-                    autoComplete="tel"
-                    value={phone}
-                    onChange={(e) => {
-                      setPhone(e.target.value)
-                      if (error) setError('')
-                    }}
-                    placeholder="+1 555 010 9876"
-                  />
-                </label>
-              )}
-              {error && <p className="plat-auth__error">{error}</p>}
-              <button type="submit" className="plat-btn plat-btn--block" disabled={busy}>
-                {busy
-                  ? 'Signing in…'
-                  : needsPhoneStep
-                    ? 'Save and continue'
-                    : mode === 'signup'
-                      ? 'Create account'
-                      : 'Sign in'}
-              </button>
-            </form>
-          )}
+        {!googleUser && !pwSignedIn && (
+          <button
+            type="button"
+            className="onb-skip"
+            onClick={() => setMode((m) => (m === 'signup' ? 'signin' : 'signup'))}
+          >
+            {mode === 'signup' ? 'Already have an account? Sign in' : 'New here? Create account'}
+          </button>
+        )}
 
-          {!googleUser && !pwSignedIn && (
-            <button
-              type="button"
-              className="plat-link plat-link--center"
-              onClick={() => setMode((m) => (m === 'signup' ? 'signin' : 'signup'))}
-            >
-              {mode === 'signup' ? 'Already have an account? Sign in' : 'New here? Create account'}
-            </button>
-          )}
-        </div>
-
-        {error && !emailMode && !googleUser && <p className="plat-auth__error">{error}</p>}
-
-        <p className="plat-auth__foot">
-          <Link to="/" className="plat-link">
-            Back to site
-          </Link>
+        <p className="onb-foot">
+          <Link to="/" className="onb-foot-link">← Back to site</Link>
         </p>
       </div>
     </div>

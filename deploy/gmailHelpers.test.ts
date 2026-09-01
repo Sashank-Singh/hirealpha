@@ -180,13 +180,13 @@ describe('topNeedsYou', () => {
 })
 
 describe('importantMailQuery', () => {
-  it('fetches recent inbox minus promotions spam social forums', () => {
+  it('fetches recent inbox minus spam, keeping Gmail tab categories', () => {
     const q = importantMailQuery('16h')
     expect(q).toContain('is:inbox')
     expect(q).toContain('-is:spam')
-    expect(q).toContain('-category:promotions')
-    expect(q).toContain('-category:social')
-    expect(q).toContain('-category:forums')
+    expect(q).not.toContain('-category:promotions')
+    expect(q).not.toContain('-category:social')
+    expect(q).not.toContain('-category:forums')
     expect(q).toContain('newer_than:16h')
   })
 
@@ -606,6 +606,29 @@ describe('parseMailJudgeVerdicts', () => {
     expect(parseMailJudgeVerdicts('{"items":[null,7]}', items)).toEqual([])
     expect(parseMailJudgeVerdicts('not json', items)).toEqual([])
     expect(parseMailJudgeVerdicts('{oops', items)).toEqual([])
+  })
+
+  it('recovers the JSON from narrated or fenced replies', () => {
+    const narrated = 'Here is the verdict I would give:\n{"items":[{"i":1,"keep":true,"kind":"intro"}]}'
+    expect(parseMailJudgeKeepIds(narrated, items)).toEqual(['a'])
+    const fenced =
+      '```json\n{"items":[{"i":2,"keep":true,"kind":"invoice","promise":"Bo pays the invoice"}]}\n```'
+    expect(parseMailJudgeVerdicts(fenced, items)).toEqual([
+      { id: 'b', keep: true, kind: 'invoice', promise: 'Bo pays the invoice' },
+    ])
+  })
+
+  it('survives a closing brace inside a string and trailing commentary', () => {
+    const raw =
+      '{"items":[{"i":1,"keep":true,"kind":"intro","promise":"wants the notes } by Friday"}]} then I would also flag {"keep":[2]}'
+    expect(parseMailJudgeVerdicts(raw, items)).toEqual([
+      { id: 'a', keep: true, kind: 'intro', promise: 'wants the notes } by Friday' },
+    ])
+  })
+
+  it('takes the first object when the model emits several', () => {
+    const raw = '{"items":[{"i":1,"keep":true}]} and again {"items":[{"i":2,"keep":true}]}'
+    expect(parseMailJudgeKeepIds(raw, items)).toEqual(['a'])
   })
 
   it('keeps one verdict per item when the model repeats itself', () => {

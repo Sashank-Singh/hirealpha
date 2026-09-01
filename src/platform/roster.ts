@@ -66,6 +66,9 @@ export function signOut() {
   localStorage.removeItem(SESSION_KEY)
 }
 
+export const clearSession = signOut
+
+
 export function getRoster(): HireEntitlement[] {
   return readJson<HireEntitlement[]>(ROSTER_KEY, [])
 }

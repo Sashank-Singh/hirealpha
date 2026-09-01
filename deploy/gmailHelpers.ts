@@ -4,13 +4,14 @@
  */
 
 /**
- * Recent inbox batch for the brief. Hygiene only: skip spam and Gmail Promotions
- * (and social/forums tabs). Does NOT require starred, Gmail important, or Primary.
- * category:updates is left in so banks, shipping, and receipts can still arrive.
- * The brief groups what remains (reply, thanks, assessments) instead of hiding most of it.
+ * Recent inbox batch for the brief. Hygiene only: spam stays out. Gmail's tab
+ * categories (promotions, social, forums) are NOT excluded — Gmail mis-tabs a
+ * real invoice or intro into Promotions often enough that filtering here would
+ * hide mail the judge never gets to see. The model pass drops the noise
+ * instead, and the regex tiers back it up only when the model answers nothing.
  */
 export function importantMailQuery(timespan: string): string {
-  return `is:inbox -is:spam -category:promotions -category:social -category:forums newer_than:${timespan}`
+  return `is:inbox -is:spam newer_than:${timespan}`
 }
 
 export type MailJudgeItem = {
@@ -64,17 +65,68 @@ function judgeItemAt(ref: unknown, items: MailJudgeItem[]): MailJudgeItem | unde
 }
 
 /**
+ * Pull the first balanced JSON value out of model output. The judge is told to
+ * reply JSON only, but models still fence, narrate, or drop a `}` inside a
+ * string ("send it by Fri}" or a promise quoting a brace). Slicing from the
+ * first `{` to the last `}` fails on all of those. This walks from the first
+ * `{` or `[`, matching brackets while respecting quotes and escapes, and hands
+ * back only that balanced block — the first object wins when the model emits
+ * more than one. Null means there is no parseable JSON value at all.
+ */
+export function extractJsonValue(text: string): string | null {
+  const src = String(text || '')
+  let start = -1
+  for (let i = 0; i < src.length; i++) {
+    const c = src[i]
+    if (c === '{' || c === '[') {
+      start = i
+      break
+    }
+  }
+  if (start < 0) return null
+  const open = src[start]!
+  const close = open === '{' ? '}' : ']'
+  let depth = 0
+  let inString = false
+  let escaped = false
+  for (let i = start; i < src.length; i++) {
+    const c = src[i]
+    if (inString) {
+      if (escaped) escaped = false
+      else if (c === '\\') escaped = true
+      else if (c === '"') inString = false
+      continue
+    }
+    if (c === '"') {
+      inString = true
+      continue
+    }
+    if (c === open) depth++
+    else if (c === close && --depth === 0) {
+      const block = src.slice(start, i + 1)
+      try {
+        JSON.parse(block)
+      } catch {
+        return null
+      }
+      return block
+    }
+  }
+  return null
+}
+
+/**
  * Parse the judge's reply into a verdict per item. Accepts the current
  * {"items":[{"i":1,"keep":true,"kind":"invoice"}]} shape and the older
  * {"keep":[1,3]} one, because a model that has seen the old format in the wild
  * still answers in it sometimes and dropping the batch would cost the brief.
  */
 export function parseMailJudgeVerdicts(raw: string, items: MailJudgeItem[]): MailJudgeVerdict[] {
-  const fence = String(raw || '').match(/\{[\s\S]*\}/)
+  const fence = extractJsonValue(String(raw || ''))
   if (!fence) return []
   let data: { items?: unknown; keep?: unknown }
   try {
-    data = JSON.parse(fence[0]) as { items?: unknown; keep?: unknown }
+    data = JSON.parse(fence) as { items?: unknown; keep?: unknown }
   } catch {
     return []
   }

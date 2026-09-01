@@ -11,12 +11,15 @@ function looksLikeHtml(text: string, res: Response) {
 async function parseJson<T>(res: Response): Promise<T> {
   const text = await res.text()
   if (looksLikeHtml(text, res)) {
-    throw new Error('Could not load this. Try again in a minute.')
+    if (!res.ok) {
+      throw new Error(`Endpoint returned HTTP ${res.status}. OAuth service may still be starting or unreachable.`)
+    }
+    throw new Error('Received HTML response instead of JSON. Please verify backend API proxy.')
   }
   try {
     return JSON.parse(text) as T
   } catch {
-    throw new Error(`Request failed (${res.status})`)
+    throw new Error(`Request failed with status ${res.status}`)
   }
 }
 
@@ -203,20 +206,38 @@ export async function apiConnectorStatus() {
 export async function apiConnectUrl(input: {
   connector: ConnectorId
   email: string
-  persona: AgentId
+  persona?: AgentId
 }) {
   const qs = new URLSearchParams({
     email: input.email,
-    persona: input.persona,
-    redirect: `/app/hires/${input.persona}`,
+    persona: input.persona || 'friend',
+    redirect: `/app?tab=connectors&connected=${input.connector}`,
     json: '1',
   })
   const res = await fetch(`${API}/api/connect/${input.connector}?${qs}`)
   const data = await parseJson<{ url?: string; error?: string; message?: string }>(res)
   if (!res.ok || !data.url) {
-    throw new Error(data.message || data.error || 'Connect is not configured yet')
+    throw new Error(data.message || data.error || 'Connect is not configured yet. Make sure COMPOSIO_API_KEY is set in your environment.')
   }
   return data.url
+}
+
+export async function apiDisconnect(input: {
+  connector: ConnectorId
+  email: string
+  persona?: AgentId
+}) {
+  const qs = new URLSearchParams({ email: input.email })
+  if (input.persona) qs.set('persona', input.persona)
+  const res = await fetch(`${API}/api/connect/${input.connector}?${qs}`, { method: 'DELETE' })
+  if (res.status === 404) {
+    // Endpoint or token not found on server — treat as disconnected
+    return
+  }
+  const data = await parseJson<{ ok?: boolean; error?: string }>(res)
+  if (!res.ok || !data.ok) {
+    throw new Error(data.error || 'Disconnect failed.')
+  }
 }
 
 export async function apiSetup(input: {
@@ -518,8 +539,21 @@ export const apiListLearning = (a: { email?: string; token?: string }) =>
 export const apiAddLearning = (a: {
   email?: string; token?: string; title: string; url?: string; kind?: string; minutes?: number; notes?: string
 }) => featurePost<{ ok: boolean; id: string }>('/api/learning', { ...authParams(a), title: a.title, url: a.url, kind: a.kind, minutes: a.minutes, notes: a.notes })
-export const apiPatchLearning = (a: { email?: string; token?: string; id: string; status?: string; _delete?: boolean }) =>
-  featurePost<{ ok: boolean }>(`/api/learning/${a.id}`, { ...authParams(a), status: a.status, _delete: a._delete })
+export const apiPatchLearning = (a: {
+  email?: string; token?: string; id: string; status?: string; _delete?: boolean
+  title?: string; url?: string | null; kind?: string; minutes?: number; notes?: string | null; bumpTop?: boolean
+}) =>
+  featurePost<{ ok: boolean }>(`/api/learning/${a.id}`, {
+    ...authParams(a),
+    status: a.status,
+    _delete: a._delete,
+    title: a.title,
+    url: a.url,
+    kind: a.kind,
+    minutes: a.minutes,
+    notes: a.notes,
+    bumpTop: a.bumpTop,
+  })
 
 /* ---- Standup ---- */
 export const apiStandupToday = (a: { email?: string; token?: string }) =>

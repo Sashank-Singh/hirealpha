@@ -1,17 +1,18 @@
 import { useEffect, useState, type CSSProperties } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { getAgent } from '../agents'
-import { connectorsForHire, type ConnectorId } from './connectors'
+import { CONNECTOR_CATALOG, connectorsForHire, type ConnectorId } from './connectors'
 import { ConnectorLogo } from './ConnectorLogo'
 import {
   apiConnectUrl,
   apiConnectorStatus,
   apiDeleteLocation,
+  apiDisconnect,
   apiLocations,
   apiSaveLocation,
   type SavedLocation,
 } from './api'
-import { connectedIds, getSession, hydrateFromServer, signOut } from './roster'
+import { connectedIds, getSession, hydrateFromServer, setConnection, signOut } from './roster'
 import './SettingsSheet.css'
 
 /* ---- Helpers moved from the old pages (pure, copied verbatim) ---- */
@@ -83,6 +84,7 @@ export function SettingsSheet() {
   /* Connectors (from HireConfigPage) */
   const [connectError, setConnectError] = useState('')
   const [connecting, setConnecting] = useState<ConnectorId | null>(null)
+  const [disconnecting, setDisconnecting] = useState<ConnectorId | null>(null)
   const [ready, setReady] = useState<{ google: boolean; composio: boolean } | null>(null)
 
   /* Location (from LocationPage) */
@@ -216,7 +218,7 @@ export function SettingsSheet() {
     )
   }
 
-  const connectors = connectorsForHire('friend')
+  const connectors = CONNECTOR_CATALOG
   const connected = connectedIds()
   const connectedCount = connectors.filter((c) => connected.includes(c.id)).length
   const targetConnector = params.get('connect')
@@ -237,6 +239,32 @@ export function SettingsSheet() {
     } catch (err) {
       setConnectError(err instanceof Error ? err.message : 'Could not start connect')
       setConnecting(null)
+    }
+  }
+
+  /* ---- Disconnect: tear the tool down server-side and flip the local chip.
+   * A confirm dialog costs more than it saves here — the action is reversible
+   * by tapping Connect again, so we just do it. ---- */
+  async function disconnect(id: ConnectorId) {
+    if (!session?.email) {
+      setConnectError('Sign in again to manage tools.')
+      return
+    }
+    setConnectError('')
+    setDisconnecting(id)
+    try {
+      await apiDisconnect({
+        connector: id,
+        email: session.email,
+        persona: 'friend',
+      })
+      // Flip the local chip immediately so the row repaints as "Connect";
+      // the next /api/me refresh from the same session will agree.
+      setConnection(id, false)
+    } catch (err) {
+      setConnectError(err instanceof Error ? err.message : 'Disconnect failed.')
+    } finally {
+      setDisconnecting(null)
     }
   }
 
@@ -480,7 +508,18 @@ export function SettingsSheet() {
                     {c.noAuth ? (
                       <span className="set-chip">On</span>
                     ) : on ? (
-                      <span className="set-chip">Connected</span>
+                      <div className="set-conn-actions">
+                        <span className="set-chip">Connected</span>
+                        <button
+                          type="button"
+                          className="set-btn set-btn--ghost"
+                          disabled={disconnecting === c.id}
+                          onClick={() => void disconnect(c.id)}
+                          aria-label={`Disconnect ${c.name}`}
+                        >
+                          {disconnecting === c.id ? 'Disconnecting…' : 'Disconnect'}
+                        </button>
+                      </div>
                     ) : (
                       <button
                         type="button"

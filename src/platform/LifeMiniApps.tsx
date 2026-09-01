@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   apiAddGratitude,
@@ -514,20 +514,189 @@ export function WorkoutLogApp({ auth }: { auth: FeatureAuth }) {
 /* ----------------------------- Learning Queue --------------------------- */
 
 const LEARN_KINDS = [
-  { value: 'article', label: 'Article' },
-  { value: 'video', label: 'Video' },
-  { value: 'podcast', label: 'Podcast' },
+  { value: 'article', label: 'Article', defaultMin: 10 },
+  { value: 'video', label: 'Video', defaultMin: 15 },
+  { value: 'podcast', label: 'Podcast', defaultMin: 30 },
+  { value: 'book', label: 'Book', defaultMin: 60 },
+  { value: 'paper', label: 'Paper', defaultMin: 20 },
+  { value: 'thread', label: 'Thread', defaultMin: 5 },
 ] as const
+
+type SuggestedArticle = {
+  title: string
+  url: string
+  kind: string
+  minutes: number
+  topic: string
+  tags: string[]
+  notes: string
+}
+
+const ESSAY_SUGGESTIONS: SuggestedArticle[] = [
+  {
+    title: 'How to Do Great Work',
+    url: 'https://paulgraham.com/greatwork.html',
+    kind: 'article',
+    minutes: 18,
+    topic: 'Startups & Strategy',
+    tags: ['work', 'startup', 'founder', 'create', 'essay', 'paul graham', 'strategy', 'execution'],
+    notes: 'The four steps: choose a field, learn enough to reach the frontier, notice anomalies, explore promising ones.',
+  },
+  {
+    title: 'Patrick Collison: Fast Execution & Compounding',
+    url: 'https://patrickcollison.com/fast',
+    kind: 'article',
+    minutes: 8,
+    topic: 'Engineering & Systems',
+    tags: ['speed', 'engineering', 'systems', 'stripe', 'fast', 'execution', 'build', 'compounding'],
+    notes: 'Historical examples of how quickly world-changing projects were actually built.',
+  },
+  {
+    title: 'The Bitter Lesson in AI Scaling',
+    url: 'http://www.incompleteideas.net/IncIdeas/BitterLesson.html',
+    kind: 'paper',
+    minutes: 7,
+    topic: 'AI & Machine Learning',
+    tags: ['ai', 'llm', 'neural', 'model', 'scale', 'learning', 'gpt', 'deep learning', 'machine learning', 'openai'],
+    notes: 'General methods that leverage computation are ultimately the most effective in AI by a large margin.',
+  },
+  {
+    title: 'Do Things that Don\'t Scale',
+    url: 'https://paulgraham.com/ds.html',
+    kind: 'article',
+    minutes: 10,
+    topic: 'Startups & Growth',
+    tags: ['startup', 'founder', 'growth', 'sales', 'users', 'product', 'customer', 'market', 'scale'],
+    notes: 'Recruit users manually, delight them individually, and make founders do customer service early on.',
+  },
+  {
+    title: 'Choose Boring Technology',
+    url: 'https://mcfunley.com/choose-boring-technology',
+    kind: 'article',
+    minutes: 12,
+    topic: 'Engineering & Architecture',
+    tags: ['tech', 'engineering', 'code', 'stack', 'database', 'postgres', 'architecture', 'infra', 'software', 'dev'],
+    notes: 'Spend your innovation tokens wisely on core problems, not on unproven infrastructure components.',
+  },
+  {
+    title: 'Superhuman: Product-Market Fit Engine',
+    url: 'https://review.firstround.com/how-superhuman-built-an-engine-for-product-market-fit/',
+    kind: 'article',
+    minutes: 15,
+    topic: 'Product & Design',
+    tags: ['product', 'design', 'pmf', 'saas', 'ux', 'user', 'superhuman', 'metrics', 'retention'],
+    notes: 'A systematic methodology to quantify, segment, and iterate your way to strong PMF.',
+  },
+  {
+    title: 'Deep Work & Attention Anchoring',
+    url: 'https://calnewport.com/deep-work-rules-for-focused-success-in-a-distracted-world/',
+    kind: 'article',
+    minutes: 11,
+    topic: 'Focus & Productivity',
+    tags: ['focus', 'productivity', 'deep work', 'habits', 'routine', 'attention', 'time', 'distraction', 'calendar'],
+    notes: 'Protecting uninterrupted 90-minute blocks of high-cognition creative flow.',
+  },
+  {
+    title: 'You and Your Research (Richard Hamming)',
+    url: 'https://www.cs.virginia.edu/~robins/YouAndYourResearch.html',
+    kind: 'article',
+    minutes: 20,
+    topic: 'Thinking & Mastery',
+    tags: ['research', 'thinking', 'philosophy', 'mastery', 'science', 'math', 'learning', 'knowledge', 'ideas'],
+    notes: 'Why do so few scientists make significant contributions and so many are forgotten? A blueprint for important work.',
+  },
+]
+
+function getDynamicSuggestions(userItems: LearningItem[]): Array<SuggestedArticle & { reason: string }> {
+  const userText = userItems
+    .map((i) => `${i.title} ${i.url || ''} ${i.notes || ''} ${i.kind}`)
+    .join(' ')
+    .toLowerCase()
+  const savedUrls = new Set(userItems.map((i) => (i.url || '').toLowerCase()).filter(Boolean))
+  const savedTitles = new Set(userItems.map((i) => i.title.toLowerCase().trim()))
+
+  const candidates = ESSAY_SUGGESTIONS.filter(
+    (s) => !savedUrls.has(s.url.toLowerCase()) && !savedTitles.has(s.title.toLowerCase())
+  )
+
+  if (candidates.length === 0) return []
+
+  const scored = candidates.map((c) => {
+    let score = 0
+    let matchedTag = ''
+    for (const tag of c.tags) {
+      if (userText.includes(tag.toLowerCase())) {
+        score += 1
+        if (!matchedTag) matchedTag = tag
+      }
+    }
+    const reason = matchedTag
+      ? `Based on saved items in ${c.topic}`
+      : `Suggested for you in ${c.topic}`
+    return { ...c, score, reason }
+  })
+
+  scored.sort((a, b) => b.score - a.score)
+  return scored.slice(0, 3)
+}
+
+function getDomain(rawUrl: string | null | undefined): string {
+  if (!rawUrl) return ''
+  try {
+    const parsed = new URL(openHttp(rawUrl))
+    return parsed.hostname.replace(/^www\./i, '')
+  } catch {
+    return ''
+  }
+}
+
+function parseUrlInput(input: string) {
+  const raw = input.trim()
+  const urlMatch = raw.match(/https?:\/\/\S+/i)?.[0]?.replace(/[),.;]+$/, '')
+  let kind = 'article'
+  let min = 10
+
+  if (urlMatch) {
+    const l = urlMatch.toLowerCase()
+    if (l.includes('youtube.com') || l.includes('youtu.be') || l.includes('vimeo.com')) {
+      kind = 'video'
+      min = 15
+    } else if (l.includes('spotify.com') || l.includes('podcasts.apple.com') || l.includes('overcast.fm')) {
+      kind = 'podcast'
+      min = 30
+    } else if (l.includes('arxiv.org') || l.endsWith('.pdf')) {
+      kind = 'paper'
+      min = 20
+    } else if (l.includes('goodreads.com') || l.includes('amazon.com/dp')) {
+      kind = 'book'
+      min = 60
+    } else if (l.includes('x.com') || l.includes('twitter.com') || l.includes('threads.net')) {
+      kind = 'thread'
+      min = 5
+    }
+  }
+
+  const cleanTitle = raw.replace(/https?:\/\/\S+/gi, '').trim() || (urlMatch ? getDomain(urlMatch) : '') || 'Saved link'
+  return { url: urlMatch, title: cleanTitle, kind, min }
+}
 
 export function LearningQueueApp({ auth }: { auth: FeatureAuth }) {
   const a = useAuth(auth)
   const [items, setItems] = useState<LearningItem[]>([])
   const [title, setTitle] = useState('')
+  const [urlInput, setUrlInput] = useState('')
   const [kind, setKind] = useState<string>('article')
+  const [minutes, setMinutes] = useState<number>(10)
   const [notes, setNotes] = useState('')
+  const [tab, setTab] = useState<'queue' | 'done'>('queue')
+  const [durFilter, setDurFilter] = useState<'all' | 'quick' | 'medium' | 'deep'>('all')
+  const [editingNoteId, setEditingNoteId] = useState<string | null>(null)
+  const [itemNoteDraft, setItemNoteDraft] = useState('')
+  const [editItem, setEditItem] = useState<LearningItem | null>(null)
+  const [showAdd, setShowAdd] = useState(false)
+  const [showSuggestions, setShowSuggestions] = useState(true)
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState('')
-  const [showAdd, setShowAdd] = useState(false)
 
   const load = useCallback(() => {
     apiListLearning(a)
@@ -541,23 +710,39 @@ export function LearningQueueApp({ auth }: { auth: FeatureAuth }) {
   }, [a])
   useEffect(() => { load() }, [load])
 
+  function onTitleChange(val: string) {
+    setTitle(val)
+    if (/https?:\/\/\S+/i.test(val)) {
+      const p = parseUrlInput(val)
+      if (p.url && !urlInput) {
+        setUrlInput(p.url)
+        setKind(p.kind)
+        setMinutes(p.min)
+      }
+    }
+  }
+
   async function add(e: FormEvent) {
     e.preventDefault()
     if (!title.trim() || busy) return
     setBusy(true)
+    setMsg('')
     try {
-      const raw = title.trim()
-      const urlMatch = raw.match(/https?:\/\/\S+/i)?.[0]?.replace(/[),.;]+$/, '')
-      const cleanTitle = raw.replace(/https?:\/\/\S+/gi, '').trim() || urlMatch || 'Saved'
+      const p = parseUrlInput(title.trim())
+      const finalUrl = urlInput.trim() || p.url || undefined
+      const finalTitle = (p.url ? p.title : title.trim()) || 'Saved link'
       await apiAddLearning({
         ...a,
-        title: cleanTitle.slice(0, 160),
-        url: urlMatch,
+        title: finalTitle.slice(0, 240),
+        url: finalUrl,
         kind,
+        minutes: Number(minutes) || 10,
         notes: notes.trim() || undefined,
       })
       setTitle('')
+      setUrlInput('')
       setNotes('')
+      setMinutes(10)
       setShowAdd(false)
       load()
     } catch (err) {
@@ -567,16 +752,35 @@ export function LearningQueueApp({ auth }: { auth: FeatureAuth }) {
     }
   }
 
-  const queued = items.filter((i) => i.status !== 'done')
-  const next = queued[0]
-  const nextUrl = next?.url ? openHttp(next.url) : ''
-  const kindLabel = (k: string) => LEARN_KINDS.find((x) => x.value === k)?.label || k
+  const suggested = useMemo(() => getDynamicSuggestions(items), [items])
 
-  async function markDone(id: string) {
+  async function addSuggested(s: SuggestedArticle) {
     if (busy) return
     setBusy(true)
+    setMsg('')
     try {
-      await apiPatchLearning({ ...a, id, status: 'done' })
+      await apiAddLearning({
+        ...a,
+        title: s.title,
+        url: s.url,
+        kind: s.kind,
+        minutes: s.minutes,
+        notes: s.notes,
+      })
+      load()
+    } catch {
+      setMsg('Could not add suggestion.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function toggleStatus(item: LearningItem) {
+    if (busy) return
+    setBusy(true)
+    const nextStatus = item.status === 'done' ? 'queued' : 'done'
+    try {
+      await apiPatchLearning({ ...a, id: item.id, status: nextStatus })
       load()
     } catch {
       setMsg('Could not update.')
@@ -585,32 +789,115 @@ export function LearningQueueApp({ auth }: { auth: FeatureAuth }) {
     }
   }
 
+  async function bumpTop(id: string) {
+    if (busy) return
+    setBusy(true)
+    try {
+      await apiPatchLearning({ ...a, id, bumpTop: true })
+      load()
+    } catch {
+      setMsg('Could not reorder.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function saveNotes(id: string) {
+    if (busy) return
+    setBusy(true)
+    try {
+      await apiPatchLearning({ ...a, id, notes: itemNoteDraft })
+      setEditingNoteId(null)
+      load()
+    } catch {
+      setMsg('Could not save note.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function saveEdit(e: FormEvent) {
+    e.preventDefault()
+    if (!editItem || !editItem.title.trim() || busy) return
+    setBusy(true)
+    try {
+      await apiPatchLearning({
+        ...a,
+        id: editItem.id,
+        title: editItem.title.trim(),
+        url: editItem.url?.trim() || null,
+        kind: editItem.kind,
+        minutes: Number(editItem.minutes) || 10,
+        notes: editItem.notes?.trim() || null,
+      })
+      setEditItem(null)
+      load()
+    } catch {
+      setMsg('Could not update.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function remove(id: string) {
+    if (busy) return
+    setBusy(true)
+    try {
+      await apiPatchLearning({ ...a, id, _delete: true })
+      load()
+    } catch {
+      setMsg('Could not remove.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const kindLabel = (k: string) => LEARN_KINDS.find((x) => x.value === k)?.label || k
+
+  const queued = items.filter((i) => i.status !== 'done')
+  const doneItems = items.filter((i) => i.status === 'done')
+  const next = queued[0]
+  const nextUrl = next?.url ? openHttp(next.url) : ''
+  const nextDomain = next ? getDomain(next.url) : ''
+
+  const currentList = tab === 'queue' ? queued : doneItems
+  const filteredList = currentList.filter((i) => {
+    if (durFilter === 'quick') return (i.minutes || 10) <= 10
+    if (durFilter === 'medium') return (i.minutes || 10) > 10 && (i.minutes || 10) <= 30
+    if (durFilter === 'deep') return (i.minutes || 10) > 30
+    return true
+  })
+
   return (
     <div className="ma">
+      {/* Hero */}
       <div className="ma-hero">
-        <span className="ma-hero-kicker">{next ? 'Next' : 'Queue'}</span>
-        <span className="ma-hero-num">{next ? next.title : 'Nothing queued'}</span>
+        <span className="ma-hero-kicker">{next ? 'Next up' : 'Queue'}</span>
+        <span className="ma-hero-num">{next ? next.title : 'All caught up'}</span>
         <span className="ma-hero-label">
           {next
-            ? `${kindLabel(next.kind)}${queued.length > 1 ? `. ${queued.length - 1} more` : ''}`
-            : 'Save one article. It becomes next up.'}
+            ? `${kindLabel(next.kind)} · ${next.minutes || 10}m${nextDomain ? ` · ${nextDomain}` : ''}${queued.length > 1 ? ` · ${queued.length - 1} more in queue` : ''}`
+            : 'Save an article or link to queue it up.'}
         </span>
       </div>
 
-      {next && nextUrl && (
-        <a className="ma-btn ma-btn--block" href={nextUrl} target="_blank" rel="noreferrer">
-          Open next
-        </a>
-      )}
-      {next && !nextUrl && (
-        <button className="ma-btn ma-btn--block" type="button" disabled={busy} onClick={() => void markDone(next.id)}>
-          Mark done
-        </button>
-      )}
-      {next && nextUrl && (
-        <button className="ma-btn ma-btn--quiet ma-btn--block" type="button" disabled={busy} onClick={() => void markDone(next.id)}>
-          Mark done
-        </button>
+      {next && (
+        <div style={{ display: 'flex', gap: 8 }}>
+          {nextUrl ? (
+            <a className="ma-btn ma-btn--block" style={{ flex: 1 }} href={nextUrl} target="_blank" rel="noreferrer">
+              Open next
+            </a>
+          ) : null}
+          <button
+            className={`ma-btn${nextUrl ? ' ma-btn--quiet' : ' ma-btn--block'}`}
+            style={{ flex: nextUrl ? 'none' : 1 }}
+            type="button"
+            disabled={busy}
+            onClick={() => void toggleStatus(next)}
+          >
+            Mark done
+          </button>
+        </div>
       )}
 
       {msg && (
@@ -620,64 +907,315 @@ export function LearningQueueApp({ auth }: { auth: FeatureAuth }) {
         </p>
       )}
 
-      {queued.length > 0 && (
-        <ul className="ma-list">
-          {queued.map((i) => (
-            <li key={i.id} className="ma-row">
-              <div className="ma-row-main">
-                <span className="ma-title">
-                  {i.url ? (
-                    <a className="ma-title-link" href={openHttp(i.url)} target="_blank" rel="noreferrer">
-                      {i.title}
-                    </a>
-                  ) : (
-                    i.title
-                  )}
-                </span>
-                <span className="ma-sub">
-                  {kindLabel(i.kind)}
-                  {i.notes ? `. ${i.notes}` : ''}
-                </span>
-              </div>
-              {i.id !== next?.id && (
-                <button className="ma-chip" type="button" disabled={busy} onClick={() => void markDone(i.id)}>Mark done</button>
-              )}
-              <button className="ma-x" type="button" onClick={() => void apiPatchLearning({ ...a, id: i.id, _delete: true }).then(load)} title="Remove">×</button>
-            </li>
+      {/* Tabs */}
+      <div className="lq-tabs">
+        <button
+          className={`lq-tab${tab === 'queue' ? ' is-on' : ''}`}
+          type="button"
+          onClick={() => setTab('queue')}
+        >
+          Queue ({queued.length})
+        </button>
+        <button
+          className={`lq-tab${tab === 'done' ? ' is-on' : ''}`}
+          type="button"
+          onClick={() => setTab('done')}
+        >
+          Done ({doneItems.length})
+        </button>
+      </div>
+
+      {/* Duration filter chips */}
+      {currentList.length > 2 && (
+        <div className="lq-filters-row">
+          {(
+            [
+              ['all', 'All'],
+              ['quick', '≤ 10m'],
+              ['medium', '15–30m'],
+              ['deep', '30m+'],
+            ] as const
+          ).map(([val, label]) => (
+            <button
+              key={val}
+              className={`lq-tag-btn${durFilter === val ? ' is-on' : ''}`}
+              type="button"
+              onClick={() => setDurFilter(val)}
+            >
+              {label}
+            </button>
           ))}
+        </div>
+      )}
+
+      {/* List */}
+      {filteredList.length > 0 && (
+        <ul className="ma-list">
+          {filteredList.map((i) => {
+            const domain = getDomain(i.url)
+            const itemUrl = i.url ? openHttp(i.url) : ''
+            const isDone = i.status === 'done'
+            const isEditingNote = editingNoteId === i.id
+
+            return (
+              <li key={i.id} className={`ma-row${isDone ? ' ma-row--done' : ''}`}>
+                <div className="ma-row-main">
+                  <span className="ma-title">
+                    {itemUrl ? (
+                      <a className="ma-title-link" href={itemUrl} target="_blank" rel="noreferrer">
+                        {i.title}
+                      </a>
+                    ) : (
+                      i.title
+                    )}
+                  </span>
+                  <span className="ma-sub">
+                    {kindLabel(i.kind)} · {i.minutes || 10}m{domain ? ` · ${domain}` : ''}
+                  </span>
+
+                  {i.notes && !isEditingNote && (
+                    <div className="lq-note-snippet">
+                      {i.notes}
+                    </div>
+                  )}
+
+                  {isEditingNote && (
+                    <div className="lq-note-drawer">
+                      <textarea
+                        className="ma-area"
+                        rows={2}
+                        placeholder="Key takeaways..."
+                        value={itemNoteDraft}
+                        onChange={(e) => setItemNoteDraft(e.target.value)}
+                      />
+                      <div style={{ display: 'flex', gap: 6 }}>
+                        <button className="ma-btn ma-btn--sm" type="button" onClick={() => void saveNotes(i.id)}>
+                          Save
+                        </button>
+                        <button className="ma-btn ma-btn--quiet ma-btn--sm" type="button" onClick={() => setEditingNoteId(null)}>
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="lq-actions">
+                    <button
+                      className="lq-link-btn"
+                      type="button"
+                      onClick={() => void toggleStatus(i)}
+                    >
+                      {isDone ? 'Requeue' : 'Done'}
+                    </button>
+                    <button
+                      className="lq-link-btn"
+                      type="button"
+                      onClick={() => {
+                        if (editingNoteId === i.id) {
+                          setEditingNoteId(null)
+                        } else {
+                          setEditingNoteId(i.id)
+                          setItemNoteDraft(i.notes || '')
+                        }
+                      }}
+                    >
+                      {i.notes ? 'Edit note' : 'Add note'}
+                    </button>
+                    {!isDone && i.id !== next?.id && (
+                      <button
+                        className="lq-link-btn"
+                        type="button"
+                        onClick={() => void bumpTop(i.id)}
+                      >
+                        Top
+                      </button>
+                    )}
+                    <button
+                      className="lq-link-btn"
+                      type="button"
+                      onClick={() => setEditItem(i)}
+                    >
+                      Edit
+                    </button>
+                    <button
+                      className="lq-link-btn lq-link-btn--del"
+                      type="button"
+                      onClick={() => void remove(i.id)}
+                    >
+                      Remove
+                    </button>
+                  </div>
+                </div>
+              </li>
+            )
+          })}
         </ul>
       )}
 
-      {items.length > 0 && !showAdd && (
-        <button className="ma-btn ma-btn--quiet ma-btn--block" type="button" onClick={() => setShowAdd(true)}>Add to queue</button>
+      {/* Edit Form */}
+      {editItem && (
+        <form className="ma-stack" onSubmit={saveEdit}>
+          <span style={{ fontSize: 13, fontWeight: 700 }}>Edit Item</span>
+          <input
+            className="ma-input"
+            value={editItem.title}
+            onChange={(e) => setEditItem({ ...editItem, title: e.target.value })}
+            placeholder="Title"
+          />
+          <input
+            className="ma-input"
+            value={editItem.url || ''}
+            onChange={(e) => setEditItem({ ...editItem, url: e.target.value })}
+            placeholder="URL"
+          />
+          <div style={{ display: 'flex', gap: 8 }}>
+            <label className="ma-field" style={{ flex: 1 }}>
+              <span>Kind</span>
+              <select
+                className="ma-input"
+                value={editItem.kind}
+                onChange={(e) => setEditItem({ ...editItem, kind: e.target.value })}
+              >
+                {LEARN_KINDS.map((k) => (
+                  <option key={k.value} value={k.value}>{k.label}</option>
+                ))}
+              </select>
+            </label>
+            <label className="ma-field" style={{ flex: 1 }}>
+              <span>Minutes</span>
+              <input
+                className="ma-input"
+                type="number"
+                min={1}
+                max={360}
+                value={editItem.minutes}
+                onChange={(e) => setEditItem({ ...editItem, minutes: Number(e.target.value) || 10 })}
+              />
+            </label>
+          </div>
+          <textarea
+            className="ma-area"
+            rows={2}
+            value={editItem.notes || ''}
+            onChange={(e) => setEditItem({ ...editItem, notes: e.target.value })}
+            placeholder="Notes"
+          />
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button className="ma-btn" type="submit" disabled={busy || !editItem.title.trim()}>Save</button>
+            <button className="ma-btn ma-btn--quiet" type="button" onClick={() => setEditItem(null)}>Cancel</button>
+          </div>
+        </form>
       )}
-      {(items.length === 0 || showAdd) && (
+
+      {/* Add Button & Form */}
+      {!showAdd && (
+        <button
+          className="ma-btn ma-btn--quiet ma-btn--block"
+          type="button"
+          onClick={() => setShowAdd(true)}
+        >
+          Add to queue
+        </button>
+      )}
+
+      {showAdd && (
         <form className="ma-stack" onSubmit={add}>
           <input
             className="ma-input"
             value={title}
-            onChange={(e) => setTitle(e.target.value)}
+            onChange={(e) => onTitleChange(e.target.value)}
             placeholder="Title or URL"
             aria-label="Title or URL"
+            autoFocus
           />
-          <label className="ma-field">
-            <span>Kind</span>
-            <select className="ma-input" value={kind} onChange={(e) => setKind(e.target.value)}>
-              {LEARN_KINDS.map((k) => (
-                <option key={k.value} value={k.value}>{k.label}</option>
-              ))}
-            </select>
-          </label>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <label className="ma-field" style={{ flex: 1 }}>
+              <span>Kind</span>
+              <select className="ma-input" value={kind} onChange={(e) => setKind(e.target.value)}>
+                {LEARN_KINDS.map((k) => (
+                  <option key={k.value} value={k.value}>{k.label}</option>
+                ))}
+              </select>
+            </label>
+            <label className="ma-field" style={{ flex: 1 }}>
+              <span>Minutes</span>
+              <input
+                className="ma-input"
+                type="number"
+                min={1}
+                max={360}
+                value={minutes}
+                onChange={(e) => setMinutes(Number(e.target.value) || 10)}
+              />
+            </label>
+          </div>
           <textarea
             className="ma-area"
-            rows={3}
+            rows={2}
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
-            placeholder="Notes"
+            placeholder="Notes (optional)"
             aria-label="Notes"
           />
-          <button className="ma-btn ma-btn--block" type="submit" disabled={busy || !title.trim()}>Save</button>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button className="ma-btn ma-btn--block" style={{ flex: 1 }} type="submit" disabled={busy || !title.trim()}>
+              Save
+            </button>
+            <button className="ma-btn ma-btn--quiet" type="button" onClick={() => setShowAdd(false)}>
+              Cancel
+            </button>
+          </div>
         </form>
+      )}
+
+      {/* Essays and articles suggested based on saved items */}
+      {suggested.length > 0 && (
+        <div className="lq-suggested">
+          <div className="lq-suggested-header">
+            <span>Essays and articles suggested</span>
+            <button
+              className="ma-btn ma-btn--quiet"
+              style={{ fontSize: 11, padding: 0 }}
+              type="button"
+              onClick={() => setShowSuggestions(!showSuggestions)}
+            >
+              {showSuggestions ? 'Hide' : 'Show'}
+            </button>
+          </div>
+
+          {showSuggestions && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {suggested.map((s) => (
+                <div key={s.url} className="lq-suggested-item">
+                  <div className="lq-suggested-main">
+                    <a
+                      className="lq-suggested-title"
+                      href={s.url}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      {s.title}
+                    </a>
+                    <span className="lq-suggested-sub">
+                      {s.kind} · {s.minutes}m · {getDomain(s.url)}
+                    </span>
+                    <span className="lq-suggested-reason">
+                      {s.reason}
+                    </span>
+                  </div>
+                  <button
+                    className="ma-chip"
+                    type="button"
+                    disabled={busy}
+                    onClick={() => void addSuggested(s)}
+                  >
+                    + Add
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       )}
     </div>
   )

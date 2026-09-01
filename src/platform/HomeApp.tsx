@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { MENU_FEATURES } from './miniAppCatalog'
 import { Link, useSearchParams } from 'react-router-dom'
 import {
   apiListNetwork,
@@ -98,7 +97,6 @@ export function HomeApp({ auth }: { auth: FeatureAuth }) {
   const [doneId, setDoneId] = useState<string | null>(null)
   const [snoozed, setSnoozed] = useState<string[]>([])
   const [actMsg, setActMsg] = useState('')
-  const [showOthers, setShowOthers] = useState(false)
 
   const load = useCallback(() => {
     setLoading(true)
@@ -479,40 +477,6 @@ export function HomeApp({ auth }: { auth: FeatureAuth }) {
         <section className="home-block">
           <h3 className="home-section-title">This week&apos;s spend</h3>
           <SpendDonut rows={snap?.spendByCategory || []} centerLabel="this week" />
-        </section>
-      )}
-
-      <button
-        type="button"
-        className="home-others-btn"
-        onClick={() => setShowOthers((v) => !v)}
-      >
-        {showOthers ? 'Hide others' : 'Others'}
-      </button>
-
-      {showOthers && (
-        <section className="home-block" aria-label="Other hires' apps">
-          <h3 className="home-section-title">Others</h3>
-          {(['coworker', 'cofounder'] as const).map((p) => (
-            <div key={p} style={{ marginBottom: 12 }}>
-              <p className="home-vital-label" style={{ marginBottom: 6 }}>
-                {p === 'coworker' ? 'Alpha (Coworker)' : 'Alpha(CoFounder)'} · coming soon
-              </p>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                {(MENU_FEATURES[p] ?? [])
-                  .filter((f) => f.kind !== 'home')
-                  .map((f) => (
-                    <Link
-                      key={`${p}-${f.kind}`}
-                      className="home-others-chip"
-                      to={miniLink(f.kind, p)}
-                    >
-                      {f.emoji} {f.title}
-                    </Link>
-                  ))}
-              </div>
-            </div>
-          ))}
         </section>
       )}
 

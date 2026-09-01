@@ -1,15 +1,33 @@
 import {
+  siAirtable,
+  siCalendly,
+  siCoda,
+  siConfluence,
+  siDiscord,
   siFigma,
   siGithub,
+  siGitlab,
   siGmail,
   siGooglecalendar,
   siGoogledrive,
   siGooglemaps,
+  siHubspot,
+  siIntercom,
+  siJira,
   siLinear,
+  siMiro,
   siNotion,
+  siPostman,
+  siQuickbooks,
+  siSalesforce,
+  siSentry,
   siSlack,
   siSpotify,
   siStripe,
+  siTelegram,
+  siWhatsapp,
+  siX,
+  siYoutube,
   type SimpleIcon,
 } from 'simple-icons'
 import type { ConnectorId } from './connectors'
@@ -33,9 +51,27 @@ const ICONS: Record<ConnectorId, SimpleIcon> = {
   notion: siNotion,
   linear: siLinear,
   github: siGithub,
+  gitlab: siGitlab,
+  jira: siJira,
+  sentry: siSentry,
+  postman: siPostman,
+  coda: siCoda,
+  confluence: siConfluence,
+  airtable: siAirtable,
   figma: siFigma,
+  miro: siMiro,
+  hubspot: siHubspot,
+  salesforce: siSalesforce,
+  intercom: siIntercom,
+  discord: siDiscord,
+  whatsapp: siWhatsapp,
+  telegram: siTelegram,
+  twitter: siX,
+  calendly: siCalendly,
+  youtube: siYoutube,
   stripe: siStripe,
   plaid: PLAID_ICON,
+  quickbooks: siQuickbooks,
 }
 
 function fillFor(hex: string) {
@@ -47,11 +83,12 @@ function fillFor(hex: string) {
   return lum < 0.18 ? '#f4f4f5' : `#${hex}`
 }
 
-export function ConnectorLogo({ id, size = 28 }: { id: ConnectorId; size?: number }) {
+export function ConnectorLogo({ id, size = 20 }: { id: ConnectorId; size?: number }) {
   const icon = ICONS[id]
-  const mark = Math.round(size * 0.58)
+  if (!icon) return null
+  const mark = Math.round(size * 0.7)
   return (
-    <span className="conn-mark" aria-hidden="true" style={{ width: size, height: size }}>
+    <span className="conn-mark" aria-hidden="true" style={{ width: size, height: size, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
       <svg viewBox="0 0 24 24" width={mark} height={mark} focusable="false">
         <path d={icon.path} fill={fillFor(icon.hex)} />
       </svg>

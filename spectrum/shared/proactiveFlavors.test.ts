@@ -9,7 +9,10 @@ import {
   needsApproval,
   pickMemoryResurface,
   postHandoff,
+  postMeetingDebriefText,
   shouldNudgeNearby,
+  shouldNudgePostMeeting,
+  detectUserCommitment,
 } from './proactiveFlavors'
 
 const NOW = Date.parse('2026-08-20T12:00:00Z')
@@ -169,3 +172,46 @@ describe('progress narration', () => {
     expect(formatProgressText('Deck', 40, 'ship')).not.toMatch(/[-\u2013\u2014]/)
   })
 })
+
+describe('post-meeting debrief', () => {
+  it('nudges when in the 10-45 minute window after meeting ends', () => {
+    expect(shouldNudgePostMeeting(20, null, NOW)).toBe(true)
+    expect(shouldNudgePostMeeting(5, null, NOW)).toBe(false)
+    expect(shouldNudgePostMeeting(60, null, NOW)).toBe(false)
+  })
+  it('respects 2-hour cooldown', () => {
+    const oneHourAgo = NOW - 1 * 60 * 60 * 1000
+    const threeHoursAgo = NOW - 3 * 60 * 60 * 1000
+    expect(shouldNudgePostMeeting(20, oneHourAgo, NOW)).toBe(false)
+    expect(shouldNudgePostMeeting(20, threeHoursAgo, NOW)).toBe(true)
+  })
+  it('formats debrief message', () => {
+    const text = postMeetingDebriefText('1-1 Sync', 'Sarah')
+    expect(text).toContain('with Sarah')
+    expect(text).toContain('next steps')
+  })
+})
+
+describe('commitment detection', () => {
+  it('detects simple time commitments', () => {
+    const c1 = detectUserCommitment("I'll email the client by 4pm")
+    expect(c1).not.toBeNull()
+    expect(c1!.action).toBe('email the client')
+    expect(c1!.dueHour).toBe(16)
+    expect(c1!.followUpHour).toBe(16)
+    expect(c1!.followUpMinute).toBe(30)
+  })
+  it('handles minutes and am/pm roll-over', () => {
+    const c2 = detectUserCommitment('I will send the deck at 2:45 pm')
+    expect(c2).not.toBeNull()
+    expect(c2!.dueHour).toBe(14)
+    expect(c2!.dueMinute).toBe(45)
+    expect(c2!.followUpHour).toBe(15)
+    expect(c2!.followUpMinute).toBe(15)
+  })
+  it('ignores generic non-commitment statements', () => {
+    expect(detectUserCommitment('how are you doing')).toBeNull()
+    expect(detectUserCommitment('I will be there')).toBeNull()
+  })
+})
+

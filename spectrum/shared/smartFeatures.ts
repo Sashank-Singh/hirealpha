@@ -343,3 +343,25 @@ export function handleToolbox(builds: Array<{ title: string; url: string }>): st
   if (!builds.length) return 'No keeps yet. Build something and say keep it and it lives here.'
   return `Your toolbox:\n${builds.map((b, i) => `${i + 1}. ${b.title} — ${b.url}`).join('\n')}`
 }
+
+/* ---- Action Draft synthesis ---- */
+
+export interface ActionDraft {
+  recipient: string
+  subject?: string
+  body: string
+  confirmPrompt: string
+}
+
+export function buildActionDraft(
+  recipient: string,
+  contextSnippet: string,
+  proposedText?: string,
+): ActionDraft {
+  const body = proposedText || `Following up regarding ${contextSnippet}. Let me know if that works.`
+  return {
+    recipient,
+    body,
+    confirmPrompt: `Prepared a draft to ${recipient}: "${body.slice(0, 100)}...". Reply 'send' to fire it off.`,
+  }
+}
