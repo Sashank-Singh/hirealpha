@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
+import {afterAll, afterEach, beforeEach, describe, expect, it} from 'bun:test'
 import { ackIntro, claimIntros, enqueueIntro, ensurePhoneUser, handleHireApi } from './hire-api'
 
 /* The intro queue is the signup-to-first-text pipeline: the waitlist enqueues
@@ -23,7 +23,7 @@ beforeEach(() => {
   process.env.HIREALPHA_INTERNAL_KEY = 'test-key'
 })
 
-afterEach(() => {
+afterAll(() => {
   if (savedKey === undefined) delete process.env.HIREALPHA_INTERNAL_KEY
   else process.env.HIREALPHA_INTERNAL_KEY = savedKey
 })

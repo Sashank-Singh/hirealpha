@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'bun:test'
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'bun:test'
 import { handleHireApi } from './hire-api'
 import { detectMiniAppRequest } from '../spectrum/shared/miniApps'
 import { parseNetworkContact } from '../spectrum/shared/liveContext'
@@ -19,7 +19,19 @@ import {
  * endpoint the bot calls writes into the exact table the app reads back. */
 
 const KEY_ENV = ['GMI_API_KEY', 'NUTRITION_API_KEY', 'HIREALPHA_API_KEY', 'NUTRITION_BASE_URL', 'GMI_BASE_URL', 'HIREALPHA_BASE_URL']
-for (const k of KEY_ENV) delete process.env[k]
+const savedKeyEnv = new Map<string, string | undefined>()
+for (const k of KEY_ENV) savedKeyEnv.set(k, process.env[k])
+
+beforeAll(() => {
+  for (const k of KEY_ENV) delete process.env[k]
+})
+
+afterAll(() => {
+  for (const [k, v] of savedKeyEnv) {
+    if (v === undefined) delete process.env[k]
+    else process.env[k] = v
+  }
+})
 
 const USER = {
   id: 'u-test',
@@ -56,9 +68,7 @@ function internalPost(path: string, body: unknown) {
   })
 }
 
-afterEach(() => {
-  delete process.env.HIREALPHA_INTERNAL_KEY
-})
+
 
 describe('log everything from chat — end to end routing', () => {
   it('save this link → Learning Queue row', async () => {

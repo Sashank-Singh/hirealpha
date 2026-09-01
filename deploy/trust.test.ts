@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
+import {afterAll, afterEach, beforeEach, describe, expect, it} from 'bun:test'
 import { generateInviteCode, handleHireApi, PERSONAS } from './hire-api'
 
 /* The trust surface: invite codes people read aloud over iMessage, a kill
@@ -39,7 +39,7 @@ beforeEach(() => {
   saved.secret = process.env.STRIPE_SECRET_KEY
 })
 
-afterEach(() => {
+afterAll(() => {
   if (saved.key === undefined) delete process.env.HIREALPHA_INTERNAL_KEY
   else process.env.HIREALPHA_INTERNAL_KEY = saved.key
   if (saved.secret === undefined) delete process.env.STRIPE_SECRET_KEY
@@ -434,6 +434,10 @@ describe('billing checkout plans', () => {
   })
 
   it('a plan price that is not configured stays a 503', async () => {
+    // Earlier tests in this file leak their price envs (by design: env restores
+    // happen once in afterAll so cross-file pollution stays dead) — clear them
+    // so this test really exercises the not-configured path.
+    for (const k of Object.keys(process.env)) if (k.startsWith('STRIPE_PRICE_')) delete process.env[k]
     process.env.STRIPE_SECRET_KEY = 'sk_test'
     const { sql } = fakeSql((text) => (/FROM hire_users/i.test(text) ? [{ id: 'u1' }] : []))
     const res = await handleHireApi(

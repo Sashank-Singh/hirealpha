@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
+import {afterAll, afterEach, beforeEach, describe, expect, it} from 'bun:test'
 import {
   TASK_LOOP_MAX_ATTEMPTS,
   claimDueLoops,
@@ -32,7 +32,7 @@ beforeEach(() => {
   process.env.HIREALPHA_INTERNAL_KEY = 'test-key'
 })
 
-afterEach(() => {
+afterAll(() => {
   if (savedKey === undefined) delete process.env.HIREALPHA_INTERNAL_KEY
   else process.env.HIREALPHA_INTERNAL_KEY = savedKey
 })

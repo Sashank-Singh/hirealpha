@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'bun:test'
+import {afterAll, afterEach, describe, expect, it} from 'bun:test'
 import { handleHireApi } from './hire-api'
 
 /* ---- Route-level harness ----
@@ -48,7 +48,7 @@ for (const k of KEY_ENV) {
   delete process.env[k] // no live estimator calls in route tests
 }
 
-afterEach(() => {
+afterAll(() => {
   delete process.env.HIREALPHA_INTERNAL_KEY
   for (const [k, v] of savedKeys) {
     if (v === undefined) delete process.env[k]

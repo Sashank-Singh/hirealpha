@@ -9,18 +9,26 @@
  * `username` is whatever identifier the portal needs (email or user id); the
  * password comes pre-decrypted from the vault and is gone when this returns.
  */
-import { chromium, type Browser } from 'playwright'
+import type { Browser, BrowserType } from 'playwright'
 import type { PortalTask, PortalRun } from './browserVault'
 
 const TIMEOUT_MS = 25_000
 
+/** Playwright is loaded at call time, not import time: the bundler cannot
+ * resolve its full dependency graph statically, and the container installs
+ * the real package at runtime. */
+async function launchChromium(): Promise<Browser> {
+  const mod = (await eval('import("playwright")')) as { chromium: BrowserType }
+  return mod.chromium.launch({
+    headless: true,
+    args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
+  })
+}
+
 export async function runPortalTask(task: PortalTask): Promise<PortalRun> {
   let browser: Browser | null = null
   try {
-    browser = await chromium.launch({
-      headless: true,
-      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
-    })
+    browser = await launchChromium()
     // Fresh context = zero persistence. No storageState, no userDataDir.
     const context = await browser.newContext({
       userAgent:

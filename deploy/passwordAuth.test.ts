@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
+import {afterAll, afterEach, beforeEach, describe, expect, it} from 'bun:test'
 import { handleHireApi, resetLoginFailures } from './hire-api'
 import { handleWaitlist } from './web-server'
 
@@ -25,7 +25,7 @@ beforeEach(() => {
   ) => verifyResult(password, hash)
 })
 
-afterEach(() => {
+afterAll(() => {
   ;(Bun.password as unknown as { hash: (p: string) => Promise<string> }).hash = realHash
   ;(Bun.password as unknown as { verify: (p: string, h: string) => Promise<boolean> }).verify = realVerify
   if (process.env.HIREALPHA_INTERNAL_KEY === 'test-key') delete process.env.HIREALPHA_INTERNAL_KEY

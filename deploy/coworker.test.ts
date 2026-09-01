@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
+import {afterAll, afterEach, beforeEach, describe, expect, it} from 'bun:test'
 import {
   assembleAutoStandup,
   assembleStandupText,
@@ -37,7 +37,7 @@ beforeEach(() => {
   process.env.COMPOSIO_API_KEY = ''
 })
 
-afterEach(() => {
+afterAll(() => {
   if (savedKey === undefined) delete process.env.HIREALPHA_INTERNAL_KEY
   else process.env.HIREALPHA_INTERNAL_KEY = savedKey
   if (savedComposio === undefined) delete process.env.COMPOSIO_API_KEY

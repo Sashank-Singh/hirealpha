@@ -9424,6 +9424,7 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     const rawPlan = String(body.plan || '')
     const basePlan = rawPlan.endsWith('-annual') ? rawPlan.slice(0, -'-annual'.length) : rawPlan
     const plan = basePlan === 'bundle' || basePlan === 'ultra' || basePlan === 'free' ? basePlan : 'single'
+    const annual = body.interval === 'annual' || rawPlan.endsWith('-annual')
     const persona = String(body.hire || (body as { persona?: string }).persona || '')
     if (!email.includes('@') || (plan === 'single' && !isPersona(persona))) {
       return json({ error: 'email and hire required' }, 400)

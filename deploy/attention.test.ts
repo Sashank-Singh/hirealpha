@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
+import { afterAll, beforeEach, describe, expect, it } from 'bun:test'
 import { handleHireApi, pickAttentionEmail, remainingTodayMeets } from './hire-api'
 
 /* ---- Attention + remaining meetings ----
@@ -149,16 +149,13 @@ function fakeSql(rowsFor: (text: string) => unknown[] = () => []) {
 
 const KEY_ENV = ['GMI_API_KEY', 'NUTRITION_API_KEY', 'HIREALPHA_API_KEY', 'COMPOSIO_API_KEY']
 const savedKeys = new Map<string, string | undefined>()
+/* Saved at collection, wiped in afterAll — a module-level delete here runs while
+ * other test files are mid-test (bun shares process.env across files). */
 for (const k of KEY_ENV) {
   savedKeys.set(k, process.env[k])
-  delete process.env[k] // no live model or connector calls in these tests
 }
 
-beforeEach(() => {
-  for (const k of KEY_ENV) delete process.env[k]
-})
-
-afterEach(() => {
+afterAll(() => {
   for (const [k, v] of savedKeys) {
     if (v === undefined) delete process.env[k]
     else process.env[k] = v

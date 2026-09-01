@@ -376,6 +376,12 @@ export async function handleVaultApi(req: Request, sql: SQL, deps: VaultDeps): P
     return json(result, result.ok ? 200 : 409)
   }
 
+  // Everything below is /api/vault* or /api/browser/*. Any other path belongs
+  // to the main dispatcher — without this guard the user resolution 401s
+  // requests like the bot's internal learning/task endpoints before they ever
+  // reach their own auth.
+  if (!path.startsWith('/api/vault') && !path.startsWith('/api/browser')) return null
+
   const user = await deps.resolveUser(sql, req)
   if (!user) return json({ error: 'Sign in first.' }, 401)
 

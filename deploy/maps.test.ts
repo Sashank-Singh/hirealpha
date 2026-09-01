@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
+import {afterAll, afterEach, beforeEach, describe, expect, it} from 'bun:test'
 import { buildOverpassQuery, classifyMapQuery, fetchMapSearch, formatMapResults } from './hire-api'
 
 /* Maps has two paths: Overpass for category asks ("good coffee") around known
@@ -13,7 +13,7 @@ beforeEach(() => {
   process.env.HIREALPHA_INTERNAL_KEY = 'test-key'
 })
 
-afterEach(() => {
+afterAll(() => {
   globalThis.fetch = savedFetch
   if (savedKey === undefined) delete process.env.HIREALPHA_INTERNAL_KEY
   else process.env.HIREALPHA_INTERNAL_KEY = savedKey
