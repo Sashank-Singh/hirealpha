@@ -8674,6 +8674,29 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     return json({ ok: true, email, userId: user.id })
   }
 
+  if (path === '/api/billing/status' && req.method === 'GET') {
+    const email = String(url.searchParams.get('email') || '')
+      .trim()
+      .toLowerCase()
+    const user = email.includes('@') ? await getUserByEmail(sql, email) : null
+    if (!user) return json({ error: 'Sign in first' }, 401)
+    const rows = (await sql`
+      SELECT persona, status, current_period_end AS "currentPeriodEnd"
+      FROM hire_subscriptions WHERE user_id = ${user.id}
+    `) as Array<{ persona: Persona; status: string; currentPeriodEnd: string | null }>
+    const hires: Record<string, boolean> = {}
+    for (const p of PERSONAS) hires[p] = false
+    for (const row of rows) {
+      if (row.persona === 'all') {
+        // A bundle covers every hire at once.
+        if (subscriptionActive(row.status)) for (const p of PERSONAS) hires[p] = true
+        continue
+      }
+      hires[row.persona] = subscriptionActive(row.status)
+    }
+    return json({ hires })
+  }
+
   // Credential vault, browser approval gates, and the internal browser task
   // endpoint. Returns null for paths it does not own so the chain below keeps
   // dispatching.
@@ -9545,29 +9568,6 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
         'Cache-Control': 'public, max-age=3600',
       },
     })
-  }
-
-  if (path === '/api/billing/status' && req.method === 'GET') {
-    const email = String(url.searchParams.get('email') || '')
-      .trim()
-      .toLowerCase()
-    const user = email.includes('@') ? await getUserByEmail(sql, email) : null
-    if (!user) return json({ error: 'Sign in first' }, 401)
-    const rows = (await sql`
-      SELECT persona, status, current_period_end AS "currentPeriodEnd"
-      FROM hire_subscriptions WHERE user_id = ${user.id}
-    `) as Array<{ persona: Persona; status: string; currentPeriodEnd: string | null }>
-    const hires: Record<string, boolean> = {}
-    for (const p of PERSONAS) hires[p] = false
-    for (const row of rows) {
-      if (row.persona === 'all') {
-        // A bundle covers every hire at once.
-        if (subscriptionActive(row.status)) for (const p of PERSONAS) hires[p] = true
-        continue
-      }
-      hires[row.persona] = subscriptionActive(row.status)
-    }
-    return json({ hires })
   }
 
   if (path === '/api/invites/for-phone' && req.method === 'GET') {
