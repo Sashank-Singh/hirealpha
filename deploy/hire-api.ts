@@ -8651,6 +8651,29 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
 
   if (!sql) return json({ error: 'Database unavailable' }, 503)
 
+  // TEMPORARY ADMIN — grant premium bundle access to an email. Remove after use.
+  if (path === '/api/admin/grant-premium' && req.method === 'POST') {
+    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
+    const body = (await req.json().catch(() => ({}))) as { email?: string }
+    const email = String(body.email || '').trim().toLowerCase()
+    if (!email || !email.includes('@')) return json({ error: 'valid email required' }, 400)
+    let user = await getUserByEmail(sql, email)
+    if (!user) {
+      const userId = crypto.randomUUID()
+      await sql`INSERT INTO hire_users (id, email, created_at, updated_at) VALUES (${userId}, ${email}, now(), now())`
+      user = { id: userId, email, name: null, timezone: null, phone: null }
+    }
+    await sql`
+      INSERT INTO hire_subscriptions (id, user_id, persona, status, price_id, current_period_end, created_at, updated_at)
+      VALUES (${crypto.randomUUID()}, ${user.id}, 'all', 'active', 'grant_admin', now() + interval '100 years', now(), now())
+      ON CONFLICT (user_id, persona) DO UPDATE SET status = 'active', price_id = 'grant_admin', current_period_end = now() + interval '100 years', updated_at = now()
+    `
+    for (const p of ['friend', 'coworker', 'cofounder'] as const) {
+      await sql`INSERT INTO hire_roster (user_id, persona, hired_at) VALUES (${user.id}, ${p}, now()) ON CONFLICT (user_id, persona) DO NOTHING`
+    }
+    return json({ ok: true, email, userId: user.id })
+  }
+
   // Credential vault, browser approval gates, and the internal browser task
   // endpoint. Returns null for paths it does not own so the chain below keeps
   // dispatching.
@@ -9545,29 +9568,6 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
       hires[row.persona] = subscriptionActive(row.status)
     }
     return json({ hires })
-  }
-
-  // TEMPORARY ADMIN — grant premium bundle access to an email. Remove after use.
-  if (path === '/api/admin/grant-premium' && req.method === 'POST') {
-    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
-    const body = (await req.json().catch(() => ({}))) as { email?: string }
-    const email = String(body.email || '').trim().toLowerCase()
-    if (!email || !email.includes('@')) return json({ error: 'valid email required' }, 400)
-    let user = await getUserByEmail(sql, email)
-    if (!user) {
-      const userId = crypto.randomUUID()
-      await sql`INSERT INTO hire_users (id, email, created_at, updated_at) VALUES (${userId}, ${email}, now(), now())`
-      user = { id: userId, email, name: null, timezone: null, phone: null }
-    }
-    await sql`
-      INSERT INTO hire_subscriptions (id, user_id, persona, status, price_id, current_period_end, created_at, updated_at)
-      VALUES (${crypto.randomUUID()}, ${user.id}, 'all', 'active', 'grant_admin', now() + interval '100 years', now(), now())
-      ON CONFLICT (user_id, persona) DO UPDATE SET status = 'active', price_id = 'grant_admin', current_period_end = now() + interval '100 years', updated_at = now()
-    `
-    for (const p of ['friend', 'coworker', 'cofounder'] as const) {
-      await sql`INSERT INTO hire_roster (user_id, persona, hired_at) VALUES (${user.id}, ${p}, now()) ON CONFLICT (user_id, persona) DO NOTHING`
-    }
-    return json({ ok: true, email, userId: user.id })
   }
 
   if (path === '/api/invites/for-phone' && req.method === 'GET') {
