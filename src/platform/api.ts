@@ -346,7 +346,7 @@ export type OpenLoop = {
   createdAt: string
 }
 
-export const apiListLoops = (a: { email?: string; token?: string }) =>
+export const apiListLoops = (a: { email?: string; token?: string; persona?: string }) =>
   featureGet<{ loops: OpenLoop[] }>('/api/loops', authQuery(a))
 export const apiAddLoop = (a: { email?: string; token?: string; persona?: string; title: string; context?: string; dueAt?: string }) =>
   featurePost<{ ok: boolean; id: string }>('/api/loops', { ...authParams(a), persona: a.persona, title: a.title, context: a.context, dueAt: a.dueAt })
@@ -365,7 +365,7 @@ export type Decision = {
   status: string
   createdAt: string
 }
-export const apiListDecisions = (a: { email?: string; token?: string }) =>
+export const apiListDecisions = (a: { email?: string; token?: string; persona?: string }) =>
   featureGet<{ decisions: Decision[] }>('/api/decisions', authQuery(a))
 export const apiAddDecision = (a: {
   email?: string; token?: string; persona?: string; decision: string

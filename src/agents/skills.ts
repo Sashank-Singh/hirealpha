@@ -108,10 +108,6 @@ export const SKILLS: Record<
   },
 }
 
-function canonTool(name: string) {
-  return name.split('.')[0]
-}
-
 /** Prompt block: only live tools, and never mime a disconnected one. */
 export function skillsPromptBlock(agentId: AgentId, connected: string[] = []): string {
   const hireSkills = SKILLS[agentId]

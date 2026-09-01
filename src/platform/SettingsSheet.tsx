@@ -1,7 +1,7 @@
 import { useEffect, useState, type CSSProperties } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { getAgent } from '../agents'
-import { CONNECTOR_CATALOG, connectorsForHire, type ConnectorId } from './connectors'
+import { CONNECTOR_CATALOG, type ConnectorId } from './connectors'
 import { ConnectorLogo } from './ConnectorLogo'
 import {
   apiConnectUrl,

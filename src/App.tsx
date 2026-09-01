@@ -68,7 +68,6 @@ const MiniAppPage = lazy(() => import('./platform/MiniAppPage').then((m) => ({ d
 const LoginPage = lazy(() => import('./platform/LoginPage').then((m) => ({ default: m.LoginPage })))
 const RequireAuth = lazy(() => import('./platform/PlatformShell').then((m) => ({ default: m.RequireAuth })))
 const PlatformDashboard = lazy(() => import('./platform/PlatformDashboard').then((m) => ({ default: m.PlatformDashboard })))
-const SettingsSheet = lazy(() => import('./platform/SettingsSheet').then((m) => ({ default: m.SettingsSheet })))
 
 /* Old dashboard routes deep-link from texts and chat (hirealpha.chat/app/hires/
  * friend?connect=gmail). They land on Settings carrying their query so the

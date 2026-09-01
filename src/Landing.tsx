@@ -885,6 +885,7 @@ function WaitlistForm() {
   const [code, setCode] = useState('')
   const [showCode, setShowCode] = useState(false)
   const [myCode, setMyCode] = useState('')
+  const [waitlisted, setWaitlisted] = useState(false)
   const [plan, setPlan] = useState<{ tier: 'free' | 'single' | 'bundle' | 'ultra'; annual: boolean } | null>(null)
 
   useEffect(() => {
@@ -914,12 +915,13 @@ function WaitlistForm() {
           ...(code.trim() ? { code: code.trim() } : {}),
         }),
       })
-      const data = (await res.json().catch(() => ({}))) as { error?: string }
+      const data = (await res.json().catch(() => ({}))) as { error?: string; waitlisted?: boolean }
       if (!res.ok) {
         setError(data.error || 'Could not save your info. Try again.')
         setBusy(false)
         return
       }
+      setWaitlisted(Boolean(data.waitlisted))
       setDone(true)
       track('waitlist_joined', { hire, via: code.trim() ? 'invite' : 'direct' })
     } catch {
@@ -981,9 +983,18 @@ function WaitlistForm() {
     const line = HIRE_LINES[hire]
     return (
       <div className="waitlist-success" role="status">
-        You're in. {line.label} will reach out in about a minute. If nothing lands, text hi to{' '}
-        {line.phoneDisplay} and the conversation starts there.
-        {plan && plan.tier !== 'free' && (
+        {waitlisted ? (
+          <>
+            You're on the waitlist. The first 100 spots are taken, and {line.label} texts the
+            moment the next batch opens.
+          </>
+        ) : (
+          <>
+            You're in. {line.label} will reach out in about a minute. If nothing lands, text hi to{' '}
+            {line.phoneDisplay} and the conversation starts there.
+          </>
+        )}
+        {!waitlisted && plan && plan.tier !== 'free' && (
           <>
             <p className="waitlist-success__cta">
               Your plan: {PLAN_LABEL[plan.tier]}
@@ -999,7 +1010,14 @@ function WaitlistForm() {
             </button>
           </>
         )}
-        <p className="waitlist-success__cta">Text Alpha now</p>
+        {!waitlisted && (
+          <>
+            <p className="waitlist-success__cta">Text Alpha now</p>
+            <a className="btn btn--accent" href="sms:+14155951440">
+              Open Messages
+            </a>
+          </>
+        )}
         <a className="btn btn--accent" href="sms:+14155951440">
           Open Messages
         </a>
@@ -1159,7 +1177,7 @@ export default function Landing() {
                 App
               </a> */}
               <a href="#waitlist" className="btn btn--primary btn--sm">
-                Sign up
+                Get started
               </a>
             </div>
           </div>

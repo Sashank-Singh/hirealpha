@@ -264,6 +264,11 @@ export async function handleWaitlist(req: Request, db: SQL | null) {
   const sql = db
   if (!sql) return json({ error: 'Waitlist storage unavailable' }, 503)
 
+  // Founding cohort: the first 100 phone signups get in and start texting.
+  // After that the same form records them as waitlisted — no phone provisioning,
+  // no intro text — until more spots open.
+  const CAPACITY = 100
+
   let body: { email?: string; phone?: string; hire?: string; code?: string; password?: string }
   try {
     body = (await req.json()) as { email?: string; phone?: string; hire?: string; code?: string; password?: string }
@@ -312,10 +317,26 @@ export async function handleWaitlist(req: Request, db: SQL | null) {
     // and a placeholder account arms memory and pokes for the first reply.
     // A not-yet-live hire lands on the soon list instead — captured, never
     // texted, converted to intros the day that hire ships.
+    let waitlisted = false
     if (rawPhone) {
       if (hireIsLive(hire)) {
-        await ensurePhoneUser(sql, rawPhone, hire)
+        const cohort = (await sql`
+          SELECT count(*)::int AS n FROM hire_intro_queue
+        `) as Array<{ n: number }>
+        const spotsTaken = cohort[0]?.n ?? 0
+        if (spotsTaken >= CAPACITY) {
+          // Founding cohort is full: capture on the waitlist, no intro text.
+          waitlisted = true
+          await sql`
+            INSERT INTO hire_soon_waitlist (phone_e164, persona)
+            VALUES (${normalizePhone(rawPhone)}, ${hire})
+            ON CONFLICT (phone_e164, persona) DO NOTHING
+          `
+        } else {
+          await ensurePhoneUser(sql, rawPhone, hire)
+        }
       } else {
+        waitlisted = true
         await sql`
           INSERT INTO hire_soon_waitlist (phone_e164, persona)
           VALUES (${normalizePhone(rawPhone)}, ${hire})
@@ -341,7 +362,7 @@ export async function handleWaitlist(req: Request, db: SQL | null) {
         console.error('[waitlist] invite claim failed', err)
       }
     }
-    return json({ ok: true })
+    return json({ ok: true, waitlisted })
   } catch (err) {
     console.error('[waitlist] insert failed', err)
     return json({ error: 'Could not save your info' }, 500)
