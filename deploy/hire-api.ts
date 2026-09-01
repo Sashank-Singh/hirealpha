@@ -104,12 +104,30 @@ export const UI_TO_COMPOSIO: Record<string, string> = {
   notion: 'notion',
   linear: 'linear',
   github: 'github',
+  gitlab: 'gitlab',
+  jira: 'jira',
+  sentry: 'sentry',
+  postman: 'postman',
   drive: 'googledrive',
+  coda: 'coda',
+  confluence: 'confluence',
+  airtable: 'airtable',
   figma: 'figma',
+  miro: 'miro',
+  hubspot: 'hubspot',
+  salesforce: 'salesforce',
+  intercom: 'intercom',
+  discord: 'discord',
+  whatsapp: 'whatsapp',
+  telegram: 'telegram',
+  twitter: 'twitter',
+  calendly: 'calendly',
   maps: 'googlemaps',
   spotify: 'spotify',
+  youtube: 'youtube',
   stripe: 'stripe',
   plaid: 'plaid',
+  quickbooks: 'quickbooks',
 }
 
 const COMPOSIO_SLUG_ALIASES: Record<string, string> = {
@@ -2627,6 +2645,35 @@ async function composioConnected(userId: string): Promise<string[]> {
   }
 }
 
+/** Drop a Composio toolkit connection for a user. The list call already
+ * filters by our internal user.id and status=ACTIVE — the matching item is
+ * the one to delete, by `id`. Returns true when something was actually removed,
+ * false when nothing matched (so the caller can decide whether to surface a
+ * "you were not connected" error). */
+async function composioDisconnect(userId: string, toolkit: string): Promise<boolean> {
+  const composio = composioClient()
+  if (!composio) return false
+  const target = toolkit.toLowerCase()
+  try {
+    const data = await Promise.race([
+      composio.connectedAccounts.list({
+        userIds: [userId],
+        statuses: ['ACTIVE'],
+        limit: 50,
+      }),
+      new Promise<never>((_, reject) => setTimeout(() => reject(new Error('composio list timeout')), 4000)),
+    ])
+    const items = (data.items || []) as Array<{ id?: string; isDisabled?: boolean; toolkit?: { slug?: string } }>
+    const match = items.find((i) => !i.isDisabled && (i.toolkit?.slug || '').toLowerCase() === target && !!i.id)
+    if (!match?.id) return false
+    await composio.connectedAccounts.delete(match.id)
+    return true
+  } catch (err) {
+    console.warn('[composio] disconnect failed', target, err)
+    return false
+  }
+}
+
 function googleUiConnected(scopes: string): string[] {
   const out: string[] = []
   if (scopes.includes('gmail')) out.push('gmail')
@@ -3980,14 +4027,17 @@ async function judgeMailBatch(
   return new Map(parseMailJudgeVerdicts(raw, batch).map((v) => [v.id, v]))
 }
 
-/** Model judges a recent inbox batch. Empty on failure so we never dump promo. */
+/** Model judges a recent inbox batch. On failure the head survives un-bucketed, so the brief never loses mail. */
 async function judgeBriefMail<T extends { id: string; from: string; subject: string; snippet?: string }>(
   items: T[],
   limit = 5,
   vocab: string[] = [],
 ): Promise<Array<T & { kind: string }>> {
   const verdicts = await judgeMailBatch(items, vocab)
-  if (!verdicts.size) return []
+  // No verdicts must never blank the brief's mail: hand back the head of the
+  // batch un-bucketed so the caller's groupMailByKind falls back to the regex
+  // classifier per item. A judge failure costs the reasons, not the mail.
+  if (!verdicts.size) return items.slice(0, limit).map((m) => ({ ...m, kind: '' }))
   return items
     .filter((m) => verdicts.get(m.id)?.keep)
     .slice(0, limit)
@@ -4197,9 +4247,9 @@ const homeWorldCache = createStaleCache<HomeWorld>({
 
 /* The brief is home's problem at a heavier weight: two calendar reads, an inbox
  * pull, a model pass over the mail, and a dozen small queries, all inside one
- * request that used to run them serially. Four minutes stays honest about mail
- * that landed since the last look; past that the refresh runs behind whatever
- * is already on screen.
+ * request that used to run them serially. Ninety seconds stays honest about
+ * mail that landed since the last look — past that the refresh runs behind
+ * whatever is already on screen.
  *
  * maxWaitMs is a floor on how long a first open can feel slow, not a deadline on
  * the work — the load keeps running into the cache after the wait expires, so a
@@ -4208,7 +4258,7 @@ const homeWorldCache = createStaleCache<HomeWorld>({
  * finishes under it is served on the spot, and anything slower is better handed
  * to the client's retry ladder than held open. */
 const digestCache = createStaleCache<Awaited<ReturnType<typeof digestPayload>>>({
-  ttlMs: 240_000,
+  ttlMs: 90_000,
   maxWaitMs: 900,
   failureCooldownMs: 20_000,
   maxEntries: 200,
@@ -4221,9 +4271,9 @@ const digestCache = createStaleCache<Awaited<ReturnType<typeof digestPayload>>>(
  *
  * Its own cache rather than a shared one: the two briefs have different payload
  * shapes, and keying them together would let a morning read serve an evening
- * open. Same 4-minute window, since both are answering "what has landed". */
+ * open. Same 90-second window, since both are answering "what has landed". */
 const eveningCache = createStaleCache<Awaited<ReturnType<typeof miniPayload>>>({
-  ttlMs: 240_000,
+  ttlMs: 90_000,
   maxWaitMs: 900,
   failureCooldownMs: 20_000,
   maxEntries: 200,
@@ -4254,6 +4304,17 @@ const BRIEF_STALE_MS = 60_000
 export function briefRowFresh(rowAgeMs: number | null, today: string, rowDay: string | null): boolean {
   if (!rowAgeMs || rowDay !== today) return false
   return rowAgeMs < BRIEF_STALE_MS
+}
+
+/** A persisted row is at least for *today* (cross-day is always a miss). The
+ * rationing path that serves stale rows on purpose MUST still gate on this: a
+ * brief stamped for yesterday, served "stale on purpose" because the user is
+ * over the free-tier build cap, is the bug that reports the brief as stuck on
+ * a date two days ago. Cross-day → refuse, and let the caller's loader rebuild
+ * (or surface the build failure) instead of painting yesterday's brief as
+ * today's. */
+export function briefRowSameDay(rowDay: string | null, today: string): boolean {
+  return !!rowDay && rowDay === today
 }
 
 async function readBriefDb(
@@ -4296,29 +4357,60 @@ async function writeBriefDb(sql: SQL, userId: string, persona: string, kind: str
  * (persona, kind) row in hire_brief_cache, so counting rows touched this week
  * counts builds. Past the cap the last cached build is served stale; a kind
  * with no cache row still builds once, because there is nothing to serve.
- */
-async function briefBuildAllowed(sql: SQL, userId: string): Promise<boolean> {
+ *
+ * Returns { allowed, used, limit } so the caller can surface "you've used N of
+ * M brief refreshes this week" instead of silently serving yesterday's brief
+ * as today's. */
+export interface BriefBuildStatus {
+  allowed: boolean
+  used?: number
+  limit?: number
+}
+async function briefBuildAllowed(sql: SQL, userId: string): Promise<BriefBuildStatus> {
   const limit = Number(process.env.FREE_TIER_LIMIT || '')
-  if (!Number.isFinite(limit) || limit <= 0) return true
+  if (!Number.isFinite(limit) || limit <= 0) return { allowed: true }
   try {
     const subs = (await sql`
       SELECT 1 FROM hire_subscriptions
       WHERE user_id = ${userId} AND status IN ('active', 'trialing')
       LIMIT 1
     `) as unknown[]
-    if (subs.length) return true
+    if (subs.length) return { allowed: true }
     const counts = (await sql`
       SELECT count(*) AS n FROM hire_brief_cache
       WHERE user_id = ${userId} AND built_at > now() - interval '7 days'
     `) as Array<{ n: string | number }>
-    return Number(counts[0]?.n ?? 0) < limit
+    const used = Number(counts[0]?.n ?? 0)
+    return { allowed: used < limit, used, limit }
   } catch {
     // Rationing must never take the brief down.
-    return true
+    return { allowed: true }
   }
 }
 
-/** Serve today's persisted brief when it is still fresh-ish; otherwise build and persist. */
+/** What the route handler hands back: the payload it was going to serve, plus
+ * a flag telling the client that this came from the rationing path so the
+ * brief can show "free refreshes used up, here's what we have until next week"
+ * instead of pretending today's brief was fresh. */
+export interface BriefLoadResult<T> {
+  payload: T
+  throttled: boolean
+  used?: number
+  limit?: number
+}
+
+/** Serve today's persisted brief when it is still fresh-ish; otherwise build and persist.
+ *
+ * `force: true` skips every stale cache (in-memory, persisted, and rationing)
+ * and rebuilds against the live calendar/inbox/model — the right answer for the
+ * user's "I just hit refresh, give me a real answer" button. Without it the
+ * rationing path can serve yesterday's row for a user who is over the free-tier
+ * cap, and the brief looks frozen on the wrong day.
+ *
+ * When the rationing path serves a stale-but-same-day row on purpose, the
+ * returned result is marked `throttled: true` with the `used`/`limit` numbers
+ * so the route handler can surface "you've used N of M" — silent stale
+ * delivery is what made users think the brief never updated. */
 async function briefLoader<T>(
   sql: SQL,
   userId: string,
@@ -4326,15 +4418,25 @@ async function briefLoader<T>(
   kind: string,
   build: () => Promise<T>,
   day: string,
-): Promise<T> {
+  opts?: { force?: boolean },
+): Promise<BriefLoadResult<T>> {
   const row = await readBriefDb(sql, userId, persona, kind)
-  if (row && briefRowFresh(Date.now() - new Date(row.builtAt).getTime(), day, row.day)) {
-    return row.payload as T
+  if (!opts?.force && row && briefRowFresh(Date.now() - new Date(row.builtAt).getTime(), day, row.day)) {
+    return { payload: row.payload as T, throttled: false }
   }
-  if (row && !(await briefBuildAllowed(sql, userId))) return row.payload as T
+  /* The rationing path intentionally serves a stale rows for users past the free-tier
+   * build cap — but only when that rows is for TODAY. A cross-day rows served "stale
+   * on purpose" would paint yesterday's brief as today's, which is the bug that
+   * reports the brief as stuck on the wrong date. Same-day stale is still OK. */
+  if (!opts?.force && row && briefRowSameDay(row.day, day)) {
+    const status = await briefBuildAllowed(sql, userId)
+    if (!status.allowed) {
+      return { payload: row.payload as T, throttled: true, used: status.used, limit: status.limit }
+    }
+  }
   const payload = await build()
   await writeBriefDb(sql, userId, persona, kind, day, payload)
-  return payload
+  return { payload, throttled: false }
 }
 
 async function loadHomeWorld(sql: SQL, user: AuthedUser, tzLocal: string): Promise<HomeWorld> {
@@ -4373,7 +4475,7 @@ async function loadHomeWorld(sql: SQL, user: AuthedUser, tzLocal: string): Promi
   jobs.push(
     withTimeout(
       (async () => {
-        const rich = await loadGmailRich(sql, user.id, importantMailQuery('2d'), 12)
+        const rich = await loadGmailRich(sql, user.id, importantMailQuery('2d'), JUDGE_MAIL_CAP)
         if (!rich.length) return []
         // One model call judged everything, from cache when fresh. The regex
         // pick stays only for the run where the model answers nothing.
@@ -4745,7 +4847,7 @@ async function digestPayload(
           triagedMailIds(sql, user.id),
           loadMailSenderSignals(sql, user.id),
           withTimeout(
-            loadGmailRich(sql, user.id, importantMailQuery('3d'), 30),
+            loadGmailRich(sql, user.id, importantMailQuery('3d'), JUDGE_MAIL_CAP),
             9000,
             [] as Array<{ id: string; from: string; date: string; subject: string; snippet: string }>,
           ),
@@ -4877,7 +4979,7 @@ async function digestPayload(
   if (!finalEmails.length) {
     try {
       const mailBlock = await withTimeout(
-        loadGmail(sql, user.id, importantMailQuery('3d'), 20),
+        loadGmail(sql, user.id, importantMailQuery('3d'), JUDGE_MAIL_CAP),
         8000,
         '',
       )
@@ -5499,7 +5601,7 @@ async function armPokes(
     }
     await ensureJudgeTick(sql, user.id, persona, `${JUDGE_MARKER}afternoon`, nextLocalTimeUtc(tz, 17, 0), 'daily', tz)
     await ensureJudgeTick(sql, user.id, persona, `${JUDGE_MARKER}evening`, nextLocalTimeUtc(tz, 21, 0), 'daily', tz)
-    await ensureJudgeTick(sql, user.id, persona, `${JUDGE_MARKER}weekly`, nextWeekdayLocalUtc(tz, 0, 19, 0), 'weekly', tz)
+    await ensureJudgeTick(sql, user.id, persona, `${JUDGE_MARKER}weekly`, nextWeekdayLocalUtc(tz, 5, 21, 0), 'weekly', tz)
   } else if (persona === 'coworker') {
     // The work personas get the same 8 AM morning digest friend does — the one
     // that now carries their Linear/PR/draft or pipeline/decision/runway pull.
@@ -5529,7 +5631,7 @@ async function armPokes(
       'daily',
       tz,
     )
-    await ensureJudgeTick(sql, user.id, persona, `${JUDGE_MARKER}weekly`, nextWeekdayLocalUtc(tz, 5, 17, 0), 'weekly', tz)
+    await ensureJudgeTick(sql, user.id, persona, `${JUDGE_MARKER}weekly`, nextWeekdayLocalUtc(tz, 5, 21, 0), 'weekly', tz)
   } else {
     // Cofounder keeps its own 8 AM pull too.
     const morning = await sql`
@@ -5547,7 +5649,7 @@ async function armPokes(
       user.id,
       persona,
       `${JUDGE_MARKER}weekly`,
-      nextWeekdayLocalUtc(tz, 0, 18, 0),
+      nextWeekdayLocalUtc(tz, 5, 21, 0),
       'weekly',
       tz,
     )
@@ -5556,10 +5658,9 @@ async function armPokes(
     DELETE FROM hire_reminders
     WHERE user_id = ${user.id} AND persona = ${persona} AND text LIKE ${POKE_MARKER + '%'}
   `
-  if (!context.proactive || !context.quiet_hours) {
+  if (!context.proactive) {
     await upsertContext(sql, user.id, persona, {
       proactive: context.proactive || 'on',
-      quiet_hours: context.quiet_hours || '22:00-08:00',
     })
   }
 }
@@ -5578,18 +5679,6 @@ function minutesAgo(iso: string | Date | null | undefined): number | null {
   const t = new Date(iso).getTime()
   if (Number.isNaN(t)) return null
   return Math.max(0, Math.round((Date.now() - t) / 60_000))
-}
-
-function inQuietHoursLocal(localTime: string, quietHours: string): boolean {
-  const m = quietHours.match(/^(\d{1,2}):(\d{2})\s*-\s*(\d{1,2}):(\d{2})$/)
-  if (!m) return false
-  const [lh, lm] = localTime.slice(11, 16).split(':').map(Number)
-  const now = (lh || 0) * 60 + (lm || 0)
-  const start = Number(m[1]) * 60 + Number(m[2])
-  const end = Number(m[3]) * 60 + Number(m[4])
-  if (start === end) return false
-  if (start < end) return now >= start && now < end
-  return now >= start || now < end
 }
 
 function localClock(timezone: string) {
@@ -5659,7 +5748,7 @@ function outboundNudgeBlock(
   timezone: string,
   urgent: boolean,
 ): string | null {
-  const { localTime, today } = localClock(timezone)
+  const { today } = localClock(timezone)
   const pausedUntil = String(context.paused_until || '')
   let proactive = String(context.proactive || 'on').toLowerCase()
   if (proactive === 'paused' && pausedUntil && new Date(pausedUntil).getTime() < Date.now()) {
@@ -5667,7 +5756,6 @@ function outboundNudgeBlock(
   }
   if (proactive === 'off') return 'proactive off'
   if (proactive === 'paused') return 'paused'
-  if (!urgent && inQuietHoursLocal(localTime, String(context.quiet_hours || '22:00-08:00'))) return 'quiet hours'
   const inboundAgo = minutesAgo(lastInboundAt)
   if (inboundAgo != null && inboundAgo < 20) return 'in conversation'
   const unanswered = Math.max(0, Number(context.unanswered_proactive) || 0)
@@ -5812,6 +5900,35 @@ async function collectEventNudgesForUser(
     }
   }
 
+  // Debrief check: scan recent calendar events that ended 10-45 minutes ago
+  if (meetingOwner === persona || persona === 'friend') {
+    try {
+      const access = await googleAccessToken(sql, user.id, 'calendar')
+      if (access) {
+        const pastFrom = new Date(now - 45 * 60_000).toISOString()
+        const pastTo = new Date(now - 10 * 60_000).toISOString()
+        const got = await fetchCalendarItems(access, { timeMin: pastFrom, timeMax: pastTo, maxResults: 4 })
+        const events = got.ok ? got.items.filter((e) => !e.allDay && !isHotelStayEvent(e)) : []
+        for (const ev of events) {
+          const key = `debrief:${ev.start.toISOString().slice(0, 16)}:${slugNudge(ev.title)}`
+          if (sentKeys.has(key)) continue
+          const who = meetingWho(ev.title)
+          const target = who ? `with ${who}` : `on ${ev.title}`
+          const text = `Just wrapped ${target}. Want to capture any next steps or follow-ups while it's fresh?`
+          candidates.push({
+            order: 1,
+            topic: 'meeting_debrief',
+            key,
+            urgent: false,
+            text: stripNudgeDashes(text),
+          })
+        }
+      }
+    } catch (err) {
+      console.warn('[nudge] post-meeting debrief scan failed', err)
+    }
+  }
+
   const loops = await sql`
     SELECT id, title, due_at AS "dueAt", persona FROM hire_loops
     WHERE user_id = ${user.id} AND status = 'open' AND due_at IS NOT NULL
@@ -5935,7 +6052,7 @@ async function loadWorldCalendar(
 }
 
 async function loadWorldMail(sql: SQL, userId: string): Promise<string[]> {
-  const rich = await loadGmailRich(sql, userId, importantMailQuery('16h'), 12)
+  const rich = await loadGmailRich(sql, userId, importantMailQuery('2d'), JUDGE_MAIL_CAP)
   if (!rich.length) return []
   const kept = await judgeBriefMail(rich, 3)
   return kept.map((m) => `id=${m.id} | ${formatMailLineFromParts(m.from, m.subject)}`)
@@ -6822,7 +6939,7 @@ async function miniPayload(
       }
     })()
 
-    // Mail since morning: recent inbox minus Promotions, then a model judges.
+    // Mail since morning: recent inbox minus spam, then a model judges.
     // Keep enough to break into sub-category piles like the morning brief.
     let mailItems: Array<{ id: string; label: string; snippet?: string }> = []
     let mailGroups: Array<{
@@ -6835,12 +6952,12 @@ async function miniPayload(
       if (!connected.includes('gmail')) return
       try {
         const richMail = await withTimeout(
-          loadGmailRich(sql, user.id, importantMailQuery('12h'), 12),
+          loadGmailRich(sql, user.id, importantMailQuery('2d'), JUDGE_MAIL_CAP),
           6000,
           [] as Array<{ id: string; from: string; date: string; subject: string; snippet: string }>,
         )
         const doneIdsE = await triagedMailIds(sql, user.id)
-        const kept = (await judgeBriefMail(richMail, 12)).filter((m) => !doneIdsE.has(m.id))
+        const kept = (await judgeBriefMail(richMail, JUDGE_MAIL_CAP)).filter((m) => !doneIdsE.has(m.id))
         // A few lead the flat "Mail since this morning"; the rest become the
         // sub-category piles. Morning keeps these separate, and so does this —
         // otherwise every mail renders twice (flat + grouped).
@@ -8328,7 +8445,7 @@ async function buildNextStack(
 
   if (connected.includes('gmail')) {
     try {
-      const richMail = await loadGmailRich(sql, user.id, importantMailQuery('2d'), 12)
+      const richMail = await loadGmailRich(sql, user.id, importantMailQuery('2d'), JUDGE_MAIL_CAP)
       const keptMail = await judgeBriefMail(richMail, 3)
       for (const m of keptMail) {
         items.push({
@@ -8938,9 +9055,6 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
       url.searchParams.get('redirect') || `${appBase(req)}/app/hires/${persona || 'friend'}`
     const user = await getUserByEmail(sql, email)
     if (!user) return json({ error: 'Sign in first' }, 401)
-    if (isPersona(persona) && PERSONA_DENIED[persona].has(connector)) {
-      return json({ error: 'This hire cannot use that tool' }, 403)
-    }
 
     const toolkit = UI_TO_COMPOSIO[connector]
     const after = redirectAfter.startsWith('http')
@@ -8985,6 +9099,39 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
       },
       501,
     )
+  }
+
+  /* Disconnect a tool. Same path as connect, but DELETE. Removes the
+   * Composio toolkit connection for non-Google tools, or the whole Google
+   * token row for gmail/calendar/drive (the row carries all three scopes
+   * together, so dropping it disconnects them all — same shape a re-Connect
+   * would land back on). Auth: same email-keyed lookup the rest of the API
+   * uses; the cookie session token backs the same route. */
+  if (path.startsWith('/api/connect/') && req.method === 'DELETE') {
+    const connector = path.slice('/api/connect/'.length).split('?')[0]
+    if (!connector) return json({ error: 'connector required' }, 400)
+    const email = String(url.searchParams.get('email') || '')
+      .trim()
+      .toLowerCase()
+    const persona = url.searchParams.get('persona') || ''
+    if (!email.includes('@')) return json({ error: 'sign in required' }, 401)
+    const user = await getUserByEmail(sql, email)
+    if (!user) return json({ error: 'sign in required' }, 401)
+    try {
+      if (GOOGLE_CONNECTORS.has(connector)) {
+        await sql`DELETE FROM hire_google_tokens WHERE user_id = ${user.id}`
+        return json({ ok: true, connector, provider: 'google' })
+      }
+      const toolkit = UI_TO_COMPOSIO[connector]
+      if (!toolkit) return json({ error: 'Unknown connector' }, 400)
+      const removed = await composioDisconnect(user.id, toolkit)
+      // Nothing to delete is still "this connector is off" — the end state the
+      // caller wanted. Client just clears its local chip.
+      return json({ ok: true, connector, provider: 'composio', wasConnected: removed })
+    } catch (err) {
+      console.warn('[disconnect] failed', connector, err)
+      return json({ error: 'Disconnect failed. Try again.' }, 500)
+    }
   }
 
   if (path === '/api/oauth/google/callback' && req.method === 'GET') {
@@ -9231,8 +9378,7 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     const rawPlan = String(body.plan || '')
     const basePlan = rawPlan.endsWith('-annual') ? rawPlan.slice(0, -'-annual'.length) : rawPlan
     const plan = basePlan === 'bundle' || basePlan === 'ultra' || basePlan === 'free' ? basePlan : 'single'
-    const annual = body.interval === 'annual' || rawPlan.endsWith('-annual')
-    const persona = String(body.hire || '')
+    const persona = String(body.hire || (body as { persona?: string }).persona || '')
     if (!email.includes('@') || (plan === 'single' && !isPersona(persona))) {
       return json({ error: 'email and hire required' }, 400)
     }
@@ -9399,6 +9545,29 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
       hires[row.persona] = subscriptionActive(row.status)
     }
     return json({ hires })
+  }
+
+  // TEMPORARY ADMIN — grant premium bundle access to an email. Remove after use.
+  if (path === '/api/admin/grant-premium' && req.method === 'POST') {
+    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
+    const body = (await req.json().catch(() => ({}))) as { email?: string }
+    const email = String(body.email || '').trim().toLowerCase()
+    if (!email || !email.includes('@')) return json({ error: 'valid email required' }, 400)
+    let user = await getUserByEmail(sql, email)
+    if (!user) {
+      const userId = crypto.randomUUID()
+      await sql`INSERT INTO hire_users (id, email, created_at, updated_at) VALUES (${userId}, ${email}, now(), now())`
+      user = { id: userId, email, name: null, timezone: null, phone: null }
+    }
+    await sql`
+      INSERT INTO hire_subscriptions (id, user_id, persona, status, price_id, current_period_end, created_at, updated_at)
+      VALUES (${crypto.randomUUID()}, ${user.id}, 'all', 'active', 'grant_admin', now() + interval '100 years', now(), now())
+      ON CONFLICT (user_id, persona) DO UPDATE SET status = 'active', price_id = 'grant_admin', current_period_end = now() + interval '100 years', updated_at = now()
+    `
+    for (const p of ['friend', 'coworker', 'cofounder'] as const) {
+      await sql`INSERT INTO hire_roster (user_id, persona, hired_at) VALUES (${user.id}, ${p}, now()) ON CONFLICT (user_id, persona) DO NOTHING`
+    }
+    return json({ ok: true, email, userId: user.id })
   }
 
   if (path === '/api/invites/for-phone' && req.method === 'GET') {
@@ -9862,8 +10031,29 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     if (!user) return json({ error: 'No account found for that phone/email' }, 404)
     try {
       const day = localDateStrInTz(new Date(), user!.timezone || 'America/Los_Angeles')
+      /* A user tapping the brief's refresh button sends `_t=<now>`. The cache
+       * buster makes the browser skip its SWR, but the server still has its own
+       * short-TTL in-memory cache and a persisted row keyed by user+persona+kind
+       * that could be reused. `force` propagates through every layer so the
+       * answer that comes back is a real rebuild against the live calendar /
+       * inbox / model — the answer a "refresh" button is supposed to mean.
+       *
+       * The in-memory layer must drop its row too: otherwise the 90s window
+       * can hand back yesterday's payload even after the loader has the new
+       * one in hand. */
+      const force = url.searchParams.has('_t')
+      if (force) digestCache.drop(`${user!.id}|${persona}`)
       const brief = await digestCache.read(`${user!.id}|${persona}`, () =>
-        briefLoader(sql, user!.id, persona, 'digest', () => digestPayload(sql, user!, persona), day),
+        briefLoader(
+          sql,
+          user!.id,
+          persona,
+          'digest',
+          () => digestPayload(sql, user!, persona),
+          day,
+          { force },
+        ),
+        force ? 0 : undefined,
       )
       if (!brief.value && brief.pending) {
         /* Not an error — the load is still running behind this response and will
@@ -9878,10 +10068,18 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
        * ask six times, get this same answer six times, and then say "keep waiting"
        * — which isn't true. Fall into the catch below and say so instead. */
       if (!brief.value) throw new Error('digest payload unavailable')
+      const load = brief.value
       // A stale hit refreshing behind the response must not be served from the
       // browser cache on the next open, or the refresh would never be seen.
-      return jsonRevalidated(req, brief.pending ? 0 : 120, {
-        ...brief.value,
+      // The `limited` flag tells the client that the rationing path served a
+      // stale-but-same-day row on purpose — the brief still paints (the data is
+      // real, just not rebuilt on this tap) but the user gets a "refreshes
+      // used up" line at the top so they know to upgrade.
+      return jsonRevalidated(req, brief.pending ? 0 : 60, {
+        ...load.payload,
+        limited: load.throttled || undefined,
+        used: load.used,
+        limit: load.limit,
         cardUrl: `${appBase(req)}/app/mini/${persona}/digest`,
       })
     } catch (err) {
@@ -10447,8 +10645,21 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
      * query or two and are cheaper to just run. */
     if (kind === 'pick_night') {
       const day = localDateStrInTz(new Date(), user!.timezone || 'America/Los_Angeles')
-      const brief = await eveningCache.read(`${user!.id}|${persona}`, () =>
-        briefLoader(sql, user!.id, persona, 'pick_night', () => miniPayload(sql, user!, persona, 'pick_night'), day),
+      const force = url.searchParams.has('_t')
+      if (force) eveningCache.drop(`${user!.id}|${persona}`)
+      const brief = await eveningCache.read(
+        `${user!.id}|${persona}`,
+        () =>
+          briefLoader(
+            sql,
+            user!.id,
+            persona,
+            'pick_night',
+            () => miniPayload(sql, user!, persona, 'pick_night'),
+            day,
+            { force },
+          ),
+        force ? 0 : undefined,
       )
       if (!brief.value && brief.pending) {
         // Still loading behind this response. Never cached, or the retry reads it.
@@ -10460,9 +10671,15 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
       if (!brief.value) {
         return json({ error: 'Your evening brief did not build. Open again in a minute.' }, 200)
       }
+      const load = brief.value
       // A stale hit refreshing behind the response must not come from the browser
       // cache next open, or that refresh would never be seen.
-      return jsonRevalidated(req, brief.pending ? 0 : 120, brief.value)
+      return jsonRevalidated(req, brief.pending ? 0 : 60, {
+        ...load.payload,
+        limited: load.throttled || undefined,
+        used: load.used,
+        limit: load.limit,
+      })
     }
     return json(await miniPayload(sql, user, persona, kind))
   }
@@ -12480,6 +12697,42 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     return json({ ok: true })
   }
 
+  if (path === '/api/internal/events/webhook' && req.method === 'POST') {
+    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
+    const body = (await req.json().catch(() => ({}))) as {
+      phone?: string
+      persona?: string
+      eventType?: string
+      title?: string
+      text?: string
+      urgent?: boolean
+    }
+    const persona = body.persona || 'friend'
+    if (!body.phone || !isPersona(persona)) {
+      return json({ error: 'phone and persona required' }, 400)
+    }
+    const user = await getUserByPhone(sql, body.phone)
+    if (!user) return json({ error: 'User not found' }, 404)
+    if (body.text && body.title) {
+      const key = `evt:${crypto.randomUUID()}`
+      const claimed = await claimNudge(sql, user.id, persona, key)
+      if (claimed) {
+        return json({
+          ok: true,
+          nudge: {
+            phone: user.phone,
+            topic: body.eventType || 'webhook_event',
+            key,
+            text: stripNudgeDashes(body.text),
+            urgent: body.urgent ?? false,
+          },
+        })
+      }
+    }
+    const nudge = await collectEventNudgesForUser(sql, user, persona)
+    return json({ ok: true, nudge })
+  }
+
   if (path === '/api/internal/proactive' && req.method === 'POST') {
     if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
     const body = (await req.json().catch(() => ({}))) as {
@@ -12906,7 +13159,7 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     const items = await sql`
       SELECT id, title, url, kind, minutes, notes, status, created_at AS "createdAt"
       FROM hire_learning WHERE user_id = ${user!.id}
-      ORDER BY CASE WHEN status = 'queued' THEN 0 ELSE 1 END, minutes ASC, created_at DESC
+      ORDER BY CASE WHEN status = 'queued' THEN 0 ELSE 1 END, created_at DESC
     `
     return json({ items })
   }
@@ -12915,14 +13168,15 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     const body = (await req.json().catch(() => ({}))) as {
       token?: string; email?: string; title?: string; url?: string; kind?: string; minutes?: number; notes?: string
     }
-    const title = String(body.title || '').trim().slice(0, 160)
+    const title = String(body.title || '').trim().slice(0, 240)
     if (!title) return json({ error: 'title required' }, 400)
     const { user, error } = await resolveAuthedUser(sql, { token: body.token, session: body.session, email: body.email })
     if (error) return error
-    const kind = ['article', 'video', 'podcast'].includes(String(body.kind)) ? String(body.kind) : 'article'
-    const minutes = Math.max(1, Math.min(240, Math.round(body.minutes || 10)))
+    const allowedKinds = ['article', 'video', 'podcast', 'book', 'paper', 'thread']
+    const kind = allowedKinds.includes(String(body.kind)) ? String(body.kind) : 'article'
+    const minutes = Math.max(1, Math.min(360, Math.round(Number(body.minutes) || 10)))
     const itemUrl = String(body.url || '').trim().slice(0, 500) || null
-    const notes = String(body.notes || '').trim().slice(0, 500) || null
+    const notes = String(body.notes || '').trim().slice(0, 2000) || null
     const id = crypto.randomUUID()
     await sql`
       INSERT INTO hire_learning (id, user_id, title, url, kind, minutes, notes)
@@ -12933,7 +13187,9 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
 
   if (path.startsWith('/api/learning/') && req.method === 'POST') {
     const body = (await req.json().catch(() => ({}))) as {
-      token?: string; email?: string; _delete?: boolean; status?: string
+      token?: string; email?: string; _delete?: boolean; status?: string;
+      title?: string; url?: string | null; kind?: string; minutes?: number; notes?: string | null;
+      bumpTop?: boolean
     }
     const id = path.split('/')[3]
     if (!id) return json({ error: 'id required' }, 400)
@@ -12943,8 +13199,33 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
       await sql`DELETE FROM hire_learning WHERE id = ${id} AND user_id = ${user!.id}`
       return json({ ok: true })
     }
-    const status = body.status === 'done' ? 'done' : 'queued'
-    await sql`UPDATE hire_learning SET status = ${status} WHERE id = ${id} AND user_id = ${user!.id}`
+    if (body.status !== undefined) {
+      const status = body.status === 'done' ? 'done' : 'queued'
+      await sql`UPDATE hire_learning SET status = ${status} WHERE id = ${id} AND user_id = ${user!.id}`
+    }
+    if (body.title !== undefined) {
+      const title = String(body.title).trim().slice(0, 240)
+      if (title) await sql`UPDATE hire_learning SET title = ${title} WHERE id = ${id} AND user_id = ${user!.id}`
+    }
+    if (body.url !== undefined) {
+      const itemUrl = body.url ? String(body.url).trim().slice(0, 500) : null
+      await sql`UPDATE hire_learning SET url = ${itemUrl} WHERE id = ${id} AND user_id = ${user!.id}`
+    }
+    if (body.kind !== undefined) {
+      const kind = ['article', 'video', 'podcast', 'book', 'paper', 'thread'].includes(String(body.kind)) ? String(body.kind) : 'article'
+      await sql`UPDATE hire_learning SET kind = ${kind} WHERE id = ${id} AND user_id = ${user!.id}`
+    }
+    if (body.minutes !== undefined) {
+      const minutes = Math.max(1, Math.min(360, Math.round(Number(body.minutes) || 10)))
+      await sql`UPDATE hire_learning SET minutes = ${minutes} WHERE id = ${id} AND user_id = ${user!.id}`
+    }
+    if (body.notes !== undefined) {
+      const notes = body.notes ? String(body.notes).trim().slice(0, 2000) : null
+      await sql`UPDATE hire_learning SET notes = ${notes} WHERE id = ${id} AND user_id = ${user!.id}`
+    }
+    if (body.bumpTop) {
+      await sql`UPDATE hire_learning SET created_at = now() WHERE id = ${id} AND user_id = ${user!.id}`
+    }
     return json({ ok: true })
   }
 
