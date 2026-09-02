@@ -1176,7 +1176,7 @@ export default function Landing() {
               {/* <a href="/app" className="btn btn--ghost btn--sm">
                 App
               </a> */}
-              <a href="#waitlist" className="btn btn--primary btn--sm">
+              <a href="#pricing" className="btn btn--primary btn--sm">
                 Get started
               </a>
             </div>
