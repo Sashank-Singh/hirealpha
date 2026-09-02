@@ -751,24 +751,29 @@ async function handleBillingWebhook(req: Request, sql: SQL) {
       subscriptionId &&
       customerId &&
       persona === 'friend' &&
-      stripePromoPrice() &&
-      !String(obj['metadata']?.['promo_scheduled'] || '').length
+      stripePromoPrice()
     ) {
       try {
         const remote = (await stripeRequest(
           `/subscriptions/${subscriptionId}`,
           new URLSearchParams(),
-        )) as { items?: { data?: Array<{ id: string; price?: { id: string } }> } }
+        )) as { items?: { data?: Array<{ id: string; price?: { id: string } }> }; metadata?: Record<string, string> }
         const item = remote.items?.data?.[0]
         const onPromo = item?.price?.id === stripePromoPrice()
-        if (onPromo && item?.id) {
+        const alreadyScheduled = String(remote.metadata?.promo_scheduled || '').length > 0
+        if (onPromo && item?.id && !alreadyScheduled) {
+          // Mark the subscription FIRST so a webhook retry cannot double-build
+          // the schedule (Stripe replays events; the metadata write is the lock).
+          await stripeRequest(
+            `/subscriptions/${subscriptionId}`,
+            new URLSearchParams({ 'metadata[promo_scheduled]': 'true' }),
+          )
           // Cancel this sub at period end and replace it with the schedule.
           await stripeRequest(
             `/subscriptions/${subscriptionId}`,
             new URLSearchParams({ cancel_at_period_end: 'true' }),
           )
           const nowSec = Math.floor(Date.now() / 1000)
-          const monthSec = 30 * 24 * 60 * 60
           const regular = stripePriceFor('friend')
           await stripeRequest('/subscription_schedules', new URLSearchParams({
             'customer': customerId,
