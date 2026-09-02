@@ -11,6 +11,7 @@ export function LoginPage() {
   const navigate = useNavigate()
   const [params, setParams] = useSearchParams()
   const emailParam = params.get('email') || ''
+  const planParam = params.get('plan') || ''
   const [mode, setMode] = useState<AuthMode>(existing?.name ? 'signin' : 'signup')
   const [step, setStep] = useState<Step>('auth')
   const [name, setName] = useState(existing?.name || '')
@@ -23,6 +24,30 @@ export function LoginPage() {
   const [pwSignedIn, setPwSignedIn] = useState(false)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+
+  /** A plan carried from the pricing card opens Stripe the moment auth
+   * completes — the checkout email IS the account email. */
+  async function continueToCheckout(email: string) {
+    if (!planParam) {
+      navigate('/app')
+      return
+    }
+    try {
+      const res = await fetch('/api/billing/checkout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, hire: 'friend', plan: planParam, trial_days: 7 }),
+      })
+      const data = (await res.json().catch(() => ({}))) as { url?: string }
+      if (data.url) {
+        window.location.href = data.url
+        return
+      }
+    } catch {
+      /* fall through to the app */
+    }
+    navigate('/app')
+  }
 
   useEffect(() => {
     const err = params.get('error')
@@ -42,7 +67,7 @@ export function LoginPage() {
         if (data.phone) {
           signIn(data.email, data.phone, data.name)
           await hydrateFromServer().catch(() => undefined)
-          navigate('/app')
+          void continueToCheckout(data.email)
           return
         }
         setEmailMode(true)
