@@ -742,6 +742,50 @@ async function handleBillingWebhook(req: Request, sql: SQL) {
     const [userId, persona] = ref.split(':')
     const subscriptionId = typeof obj['subscription'] === 'string' ? obj['subscription'] : null
     const customerId = typeof obj['customer'] === 'string' ? obj['customer'] : null
+
+    // Friend monthly with the promo: Strip's checkout cannot run schedules,
+    // so the checkout sub is just the first $5 month. Convert it to the real
+    // lifecycle here — the promo price for two months, then the regular price
+    // forever — and let Stripe's schedule drive the rest.
+    if (
+      subscriptionId &&
+      customerId &&
+      persona === 'friend' &&
+      stripePromoPrice() &&
+      !String(obj['metadata']?.['promo_scheduled'] || '').length
+    ) {
+      try {
+        const remote = (await stripeRequest(
+          `/subscriptions/${subscriptionId}`,
+          new URLSearchParams(),
+        )) as { items?: { data?: Array<{ id: string; price?: { id: string } }> } }
+        const item = remote.items?.data?.[0]
+        const onPromo = item?.price?.id === stripePromoPrice()
+        if (onPromo && item?.id) {
+          // Cancel this sub at period end and replace it with the schedule.
+          await stripeRequest(
+            `/subscriptions/${subscriptionId}`,
+            new URLSearchParams({ cancel_at_period_end: 'true' }),
+          )
+          const nowSec = Math.floor(Date.now() / 1000)
+          const monthSec = 30 * 24 * 60 * 60
+          const regular = stripePriceFor('friend')
+          await stripeRequest('/subscription_schedules', new URLSearchParams({
+            'customer': customerId,
+            'start_date': String(nowSec),
+            // Phase 1: two $5 months (iterations 2), phase 2: $19 forever.
+            'phases[0][items][0][price]': stripePromoPrice(),
+            'phases[0][items][0][quantity]': '1',
+            'phases[0][iterations]': '2',
+            'phases[1][items][0][price]': regular,
+            'phases[1][items][0][quantity]': '1',
+            'phases[1][end_behavior]': 'release',
+          }))
+        }
+      } catch (err) {
+        console.error('[billing] promo schedule conversion failed', err)
+      }
+    }
     // 'all' is the synthetic persona a bundle checkout writes; it owns one
     // subscription row that covers every hire.
     if (userId && persona && (isPersona(persona) || persona === 'all') && subscriptionId) {
