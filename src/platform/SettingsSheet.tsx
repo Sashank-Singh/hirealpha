@@ -1,6 +1,5 @@
-import { useEffect, useState, type CSSProperties } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
-import { getAgent } from '../agents'
 import { CONNECTOR_CATALOG, type ConnectorId } from './connectors'
 import { ConnectorLogo } from './ConnectorLogo'
 import {
@@ -109,7 +108,6 @@ export function SettingsSheet() {
 
   const session = getSession()
   const e164 = toE164(session?.phone || '')
-  const friend = getAgent('friend')
 
   useEffect(() => {
     void hydrateFromServer()
@@ -195,23 +193,17 @@ export function SettingsSheet() {
 
   if (!session?.email) {
     return (
-      <div className="mini" style={{ '--mini-accent': friend.color, '--mini-accent-fg': '#f4f4f5' } as CSSProperties}>
-        <div className="mini__card">
-          <header className="mini__head">
-            <Link className="mini__nav" to="/app" aria-label="Back to Alpha">
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                <path d="M15 6l-6 6 6 6" stroke="currentColor" strokeWidth="2.25" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
-            </Link>
-            <div className="mini__who">
-              <p className="mini__name">Settings</p>
-            </div>
-            <Link className="mini__back" to="/app/login">
-              Sign in
+      <div className="ws-page">
+        <div className="ws-scroll">
+          <header className="ws-header">
+            <div className="ws-header__back" />
+            <p className="ws-header__title">Alpha</p>
+            <Link to="/app/login" className="ws-header__avatar" style={{ textDecoration: 'none', fontSize: 12 }} aria-label="Sign in">
+              In
             </Link>
           </header>
           <div className="mini__body">
-            <p className="mini__empty">Sign in to see your account, tools, and controls.</p>
+            <p className="mini__empty" style={{ margin: '48px 24px', color: '#666' }}>Sign in to see your account, tools, and controls.</p>
           </div>
         </div>
       </div>
@@ -432,27 +424,45 @@ export function SettingsSheet() {
   }
 
   return (
-    <div className="mini" style={{ '--mini-accent': friend.color, '--mini-accent-fg': '#f4f4f5' } as CSSProperties}>
-      <div className="mini__card">
-        <header className="mini__head">
-          <Link className="mini__nav" to="/app" aria-label="Back to Alpha">
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-              <path d="M15 6l-6 6 6 6" stroke="currentColor" strokeWidth="2.25" strokeLinecap="round" strokeLinejoin="round" />
+    <div className="ws-page">
+      <div className="ws-scroll">
+        {/* ── Instinct-style Workspace header ── */}
+        <header className="ws-header">
+          <a className="ws-header__back" href="/" aria-label="Home">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path d="M15 6l-6 6 6 6" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
-          </Link>
-          <div className="mini__who">
-            <p className="mini__name">Settings</p>
-            <p className="mini__role">Account, tools, location, controls</p>
+          </a>
+          <p className="ws-header__title">Alpha</p>
+          <div className="ws-header__avatar" aria-label={session.name || session.email}>
+            {(session.name || session.email || 'A')[0].toUpperCase()}
           </div>
-          <Link className="mini__back" to="/app">
-            Back to Alpha
-          </Link>
         </header>
 
         <div className="mini__body">
-          {/* 1. ACCOUNT */}
+          {/* ── Contact section (iMessage number) ── */}
+          {session.phone && (
+            <section className="mini__section">
+              <p className="ws-section-label">Contact <span className="ws-info-icon">ⓘ</span></p>
+              <a
+                href={`sms:+14155951440`}
+                className="ws-contact-btn"
+                aria-label="Open iMessage with Alpha"
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
+                  <rect x="2" y="4" width="20" height="16" rx="5" fill="#22c55e" />
+                  <circle cx="8" cy="12" r="1.5" fill="#fff" />
+                  <circle cx="12" cy="12" r="1.5" fill="#fff" />
+                  <circle cx="16" cy="12" r="1.5" fill="#fff" />
+                </svg>
+                Messages
+              </a>
+            </section>
+          )}
+
+          {/* ── Account ── */}
           <section className="mini__section">
-            <h2>Account</h2>
+            <p className="ws-section-label">Account</p>
             <dl className="set-account">
               <div className="set-account-row">
                 <dt>Name</dt>
@@ -467,23 +477,15 @@ export function SettingsSheet() {
                 <dd>{session.phone || 'Not set yet'}</dd>
               </div>
             </dl>
-            <div className="set-actions">
-              <button type="button" className="set-link" onClick={onSignOut}>
-                Sign out
-              </button>
-            </div>
           </section>
 
           {/* 2. CONNECTORS */}
           <section className="mini__section">
-            <h2>
-              Tools
-              <span>
-                {' '}
-                {connectedCount}/{connectors.length}
-              </span>
-            </h2>
-            <p className="mini__blurb">What Friend can reach. Connect once, every hire uses it.</p>
+            <div className="ws-section-row">
+              <p className="ws-section-label">Tools</p>
+              <span className="ws-section-count">{connectedCount}/{connectors.length} connected</span>
+            </div>
+            <p className="mini__blurb" style={{ marginBottom: 12 }}>Connect once — Alpha can reach them from any message.</p>
             {ready && !ready.composio && !ready.google && (
               <p className="set-err">
                 Connect is not live yet. Add COMPOSIO_API_KEY on HireAlpha-Web, then tap Connect again.
@@ -739,10 +741,24 @@ export function SettingsSheet() {
             )}
           </section>
 
-          {/* 5. COMING SOON */}
+          {/* ── Data privacy ── */}
           <section className="mini__section">
-            <h2>Coming soon</h2>
-            <p className="mini__blurb">Coworker and Cofounder are coming soon. Your number is saved for both.</p>
+            <p className="ws-section-label">Data privacy</p>
+            <p className="mini__blurb" style={{ color: '#666', marginBottom: 12 }}>Manage data from connected services</p>
+            <div className="ws-privacy-card">
+              <div className="ws-privacy-card__text">
+                <span className="ws-privacy-card__title">External data <span className="ws-info-icon">ⓘ</span></span>
+                <span className="ws-privacy-card__sub">Manage emails and other data imported from your connected services.</span>
+              </div>
+              <button
+                type="button"
+                className="set-btn set-btn--danger"
+                onClick={onSignOut}
+              >
+                Sign out
+              </button>
+            </div>
+            <p className="mini__blurb" style={{ marginTop: 10, color: '#555' }}>Coworker and Cofounder are coming soon. Your number is saved for both.</p>
           </section>
         </div>
       </div>

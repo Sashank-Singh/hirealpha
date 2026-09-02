@@ -95,37 +95,7 @@ async function choosePlan(tier: Tier, annual: boolean, email?: string) {
 
 export function Pricing() {
   const [annual, setAnnual] = useState(false)
-  const [emailTier, setEmailTier] = useState<Tier | null>(null)
-  const [guestEmail, setGuestEmail] = useState('')
-  const [busy, setBusy] = useState(false)
-  const [note, setNote] = useState('')
 
-  async function onCta(tier: Tier) {
-    setNote('')
-    if (tier === 'free') {
-      void choosePlan(tier, annual)
-      return
-    }
-    if (!getSession()?.email) {
-      setEmailTier(tier)
-      return
-    }
-    setBusy(true)
-    await choosePlan(tier, annual)
-    setBusy(false)
-  }
-
-  async function submitGuestEmail(tier: Tier) {
-    if (!guestEmail.includes('@')) {
-      setNote('That email looks off. One more try.')
-      return
-    }
-    setBusy(true)
-    setNote('')
-    const out = await choosePlan(tier, annual, guestEmail.trim())
-    setBusy(false)
-    if (!out.ok) setNote('Checkout did not open. Try again in a moment.')
-  }
 
   return (
     <section className="pricing section" id="pricing" aria-labelledby="pricing-heading">
@@ -183,33 +153,10 @@ export function Pricing() {
                     <button
                       type="button"
                       className={`btn ${tier.badge ? 'btn--accent' : 'btn--ghost'}`}
-                      disabled={busy}
-                      onClick={() => void onCta(tier.id)}
+                      onClick={() => void choosePlan(tier.id, annual)}
                     >
-                      {busy && emailTier === tier.id ? 'Opening Stripe…' : tier.cta}
+                      {tier.cta}
                     </button>
-                    {emailTier === tier.id && (
-                      <form
-                        className="price-card__email"
-                        onSubmit={(e) => {
-                          e.preventDefault()
-                          void submitGuestEmail(tier.id)
-                        }}
-                      >
-                        <input
-                          type="email"
-                          required
-                          placeholder="you@email.com"
-                          value={guestEmail}
-                          onChange={(e) => setGuestEmail(e.target.value)}
-                          aria-label="Email for checkout"
-                          autoFocus
-                        />
-                        <button type="submit" className="btn btn--accent" disabled={busy}>
-                          Continue
-                        </button>
-                      </form>
-                    )}
                   </>
                 )}
               </article>
@@ -217,11 +164,6 @@ export function Pricing() {
           })}
         </div>
 
-        {note && (
-          <p className="pricing__note" role="alert">
-            {note}
-          </p>
-        )}
         <p className="pricing__family">One bill, many numbers. Ask us.</p>
       </div>
     </section>
