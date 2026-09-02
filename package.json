@@ -13,7 +13,7 @@
   },
   "dependencies": {
     "@ai-sdk/openai": "^4.0.51",
-    "@composio/core": "^0.16.0",
+    "@composio/core": "^0.18.0",
     "ai": "^7.0.84",
     "crawlee": "^3.18.1",
     "duck-duck-scrape": "^2.2.7",

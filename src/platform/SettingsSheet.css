@@ -1,5 +1,139 @@
 /* SettingsSheet — Instinct-style dark workspace */
 
+/* ─── Full-page shell ────────────────────────────────────────── */
+.ws-page {
+  min-height: 100dvh;
+  background: #111111;
+  color: #f0f0f0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  color-scheme: dark;
+}
+.ws-scroll {
+  max-width: 520px;
+  margin: 0 auto;
+  padding-bottom: 48px;
+}
+
+/* ─── Workspace header ────────────────────────────────────────── */
+.ws-header {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  padding: 16px 20px 14px;
+  border-bottom: 1px solid #222;
+}
+.ws-header__back {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 36px;
+  height: 36px;
+  color: #888;
+  text-decoration: none;
+  -webkit-tap-highlight-color: transparent;
+  transition: color 0.15s;
+}
+.ws-header__back:hover { color: #ccc; }
+.ws-header__title {
+  flex: 1;
+  text-align: center;
+  font-size: 16px;
+  font-weight: 600;
+  color: #f0f0f0;
+  letter-spacing: -0.01em;
+  margin: 0;
+}
+.ws-header__avatar {
+  flex: none;
+  width: 32px;
+  height: 32px;
+  border-radius: 999px;
+  background: #2a2a2a;
+  border: 1px solid #444;
+  display: grid;
+  place-items: center;
+  font-size: 13px;
+  font-weight: 700;
+  color: #c0c0c0;
+  cursor: default;
+}
+
+/* ─── Section label (Instinct style: small caps, gray) ──────────── */
+.ws-section-label {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: #666;
+  margin: 0 0 10px;
+}
+.ws-section-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+.ws-section-row .ws-section-label { margin: 0; }
+.ws-section-count {
+  font-size: 11px;
+  font-weight: 600;
+  color: #555;
+  letter-spacing: 0.03em;
+}
+.ws-info-icon {
+  font-style: normal;
+  font-size: 11px;
+  color: #555;
+  vertical-align: middle;
+}
+
+/* ─── Contact button (Messages pill) ────────────────────────────── */
+.ws-contact-btn {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 13px 16px;
+  background: #1c1c1c;
+  border: 1px solid #2e2e2e;
+  border-radius: 14px;
+  color: #e0e0e0;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  text-decoration: none;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+.ws-contact-btn:hover { border-color: #444; background: #242424; }
+
+/* ─── Privacy card ──────────────────────────────────────────────── */
+.ws-privacy-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  background: #1c1c1c;
+  border: 1px solid #2e2e2e;
+  border-radius: 14px;
+}
+.ws-privacy-card__text {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+.ws-privacy-card__title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #e0e0e0;
+}
+.ws-privacy-card__sub {
+  font-size: 12.5px;
+  color: #777;
+  line-height: 1.4;
+}
+
 /* ─── Connector list ─────────────────────────────────────────── */
 .set-conn {
   list-style: none;
@@ -7,7 +141,18 @@
   padding: 0;
   display: grid;
   gap: 10px;
+  max-height: 420px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  /* subtle fade at the bottom to hint more items */
+  -webkit-mask-image: linear-gradient(to bottom, black calc(100% - 32px), transparent 100%);
+  mask-image: linear-gradient(to bottom, black calc(100% - 32px), transparent 100%);
+  padding-bottom: 28px;
 }
+.set-conn::-webkit-scrollbar { width: 4px; }
+.set-conn::-webkit-scrollbar-track { background: transparent; }
+.set-conn::-webkit-scrollbar-thumb { background: #333; border-radius: 2px; }
+
 .set-conn li {
   display: flex;
   align-items: flex-start;
