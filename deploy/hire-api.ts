@@ -9092,7 +9092,7 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
   }
 
   if (path.startsWith('/api/connect/') && req.method === 'GET') {
-    const connector = path.slice('/api/connect/'.length)
+    const connector = path.slice('/api/connect/'.length).split('?')[0]
     const email = String(url.searchParams.get('email') || '')
       .trim()
       .toLowerCase()
@@ -9115,8 +9115,20 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
       asJson ? json({ url: target }) : Response.redirect(target, 302)
 
     if (toolkit && composioKey()) {
-      const urlOut = await composioAuthorize(sql, user.id, toolkit, afterWithFlag)
-      if (urlOut) return sendUrl(urlOut)
+      try {
+        const urlOut = await composioAuthorize(sql, user.id, toolkit, afterWithFlag)
+        if (urlOut) return sendUrl(urlOut)
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        console.error('[composio] authorize error', toolkit, msg)
+        return json(
+          {
+            error: 'Composio authorization failed',
+            message: `Could not start OAuth for ${connector}: ${msg}`,
+          },
+          502,
+        )
+      }
     }
 
     if (GOOGLE_CONNECTORS.has(connector) && googleCreds()) {
@@ -9425,6 +9437,7 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     const basePlan = rawPlan.endsWith('-annual') ? rawPlan.slice(0, -'-annual'.length) : rawPlan
     const plan = basePlan === 'bundle' || basePlan === 'ultra' || basePlan === 'free' ? basePlan : 'single'
     const annual = body.interval === 'annual' || rawPlan.endsWith('-annual')
+    let promoApplied = false
     const persona = String(body.hire || (body as { persona?: string }).persona || '')
     if (!email.includes('@') || (plan === 'single' && !isPersona(persona))) {
       return json({ error: 'email and hire required' }, 400)
@@ -9449,6 +9462,7 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     const promoPrice = stripePromoPrice()
     if (plan === 'single' && persona === 'friend' && !annual && promoPrice) {
       priceId = promoPrice
+      promoApplied = true
     }
     // An annual price that was never configured quietly falls back to monthly
     // rather than failing checkout; the response says so.
@@ -9526,6 +9540,11 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
       cancel_url: `${appBase(req)}/app/login`,
       'subscription_data[metadata][user_id]': user.id,
       'subscription_data[metadata][persona]': effectivePersona,
+      ...(promoApplied
+        ? {
+            'custom_text[submit][message]': 'Your first 2 months are $5. Then it is $19 a month. You can cancel anytime.',
+          }
+        : {}),
       ...(effectiveTrialDays !== null ? { 'subscription_data[trial_period_days]': String(effectiveTrialDays) } : {}),
     })
     if (referralCouponId) params.set('discounts[0][coupon]', referralCouponId)
@@ -14280,10 +14299,20 @@ export async function upgradePromoSubscriptions(sql: SQL) {
 
   for (const sub of stale) {
     try {
+      // The price swap targets the subscription ITEM (si_...), which only
+      // Stripe knows — our table stores the subscription id (sub_...). The
+      // old code passed sub_... as the item id and Stripe rejected it, so the
+      // day-60 upgrade never fired and promo customers stayed at $5 forever.
+      const remote = (await stripeRequest(
+        `/subscriptions/${sub.stripe_subscription_id}`,
+        new URLSearchParams(),
+      )) as { items?: { data?: Array<{ id: string }> } }
+      const itemId = remote.items?.data?.[0]?.id
+      if (!itemId) throw new Error('no subscription item on remote sub')
       await stripeRequest(
         `/subscriptions/${sub.stripe_subscription_id}`,
         new URLSearchParams({
-          'items[0][id]': sub.stripe_subscription_id,
+          'items[0][id]': itemId,
           'items[0][price]': regularPrice,
           'proration_behavior': 'create_prorations',
         }),
