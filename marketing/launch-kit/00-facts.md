@@ -38,7 +38,11 @@
   has this yet. It is why AI search/agents can find and describe you.
 
 ## Constraints
-- Companion ≠ therapist; never imply otherwise.
+- **Marketing voice: Alpha is an assistant / personal secretary — NOT an "AI
+  friend," never a loneliness fix.** The product names (Friend, Coworker,
+  Cofounder) are internal hire types; externally, sell the job done (assistant,
+  does it for you, texts you first, catches what you'd miss). Never imply it
+  fills a grief or mental-health gap.
 - Drafts never send without approval.
 - Coworker/Cofounder are "in the workshop" until they actually ship; do not say
   they are live.

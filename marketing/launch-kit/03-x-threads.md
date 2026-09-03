@@ -8,14 +8,15 @@ comment; the algorithm rewards engagement, and the product *is* the content.
 
 ## Day 1 — The hook (the whole story in one thread)
 
-1. (screenshot: Friend checking you in / moving dinner)
-2. "I hired an AI employee that lives in my iMessage. This is not a screenshot
-   of a demo. It checked me in, noticed the flight slip, and asked whether to
+1. (screenshot: Alpha the assistant checking you in / moving dinner)
+2. "I hired an assistant that lives in my iMessage. This is not a screenshot of
+   a demo. It checked me in, noticed the flight slipped, and asked whether to
    move dinner. It texts like a person because it is a contact, not an app."
-3. "No new app. No dashboard. It saved a number in Contacts and started texting.
+3. "No new app. No dashboard. It saved a number in Contacts and started working.
    That is the entire UX."
-4. "I built three of them with separate numbers, memories, and personalities:
-   Friend, Coworker, Cofounder. hirealpha.chat — Friend is live now."
+4. "You don't hire it to be your friend. You hire it to be your assistant:
+   texts you first, does the thing, and only asks when it has to.
+   hirealpha.chat — Alpha is live now."
 
 ## Day 2 — The canon screenshot (post the *best* single moment)
 
@@ -31,19 +32,20 @@ comment; the algorithm rewards engagement, and the product *is* the content.
   Alternative: $19/mo, texts you pushback, never quits."
 - Screenshot: Cofounder "a VP is a $300k way to avoid the calls."
 
-## Day 4 — The "AI friend" question (reframe honestly)
+## Day 4 — The accountability post
 
-- "Asked what the AI friend is *for*. Honest answer: it's a companion with a
-  calendar, a memory, and a conscience module that texts you when you owe
-  someone a reply. It is not a therapist, and it will say so."
-- (screenshot: Friend night wrap)
+- "Asked what Alpha is *for*. Honest answer: it's the assistant that catches
+  the thing you'd have missed — a draft waiting for your tap, a nudge that you
+  owe someone a reply. It's not a therapist, and it will say so."
+- (screenshot: night wrap / "handled it")
 
 ## Day 5 — Build-in-public post
 
-- "Six weeks ago HireAlpha was an idea. Today: three bots live in iMessage,
-  Stripe billing with a 7-day trial, and an agent-ready site (llms.txt,
-  openapi.json) because I think agents will shop for products like this too."
-- Ask: "what would you want a hired AI to take off your plate?"
+- "Six weeks ago HireAlpha was an idea. Today: an assistant lives in iMessage,
+  texts first, and ships the thing — Stripe billing with a 7-day trial, and an
+  agent-ready site (llms.txt, openapi.json) because I think agents will shop
+  for products like this too."
+- Ask: "what would you want an assistant to take off your plate?"
 
 ## Day 6 — Proof over promises
 

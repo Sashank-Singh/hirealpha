@@ -57,7 +57,7 @@ const AGENTS: Agent[] = [
         from: 'them',
         kind: 'action',
         app: 'Wallet',
-        title: 'Boarding pass · 6:15 AM departure',
+        title: 'Boarding pass · 8:35 AM departure',
       },
       { text: 'you read my mind', from: 'me' },
     ],
@@ -1193,7 +1193,7 @@ export default function Landing() {
               transition={{ duration: 5.5, repeat: Infinity, ease: 'easeInOut' }}
             >
               <AlphaFace color="#2a6f7a" mood="soft" size={28} />
-              <span>checked you in. flight lands 6:15 now</span>
+              <span>checked you in. flight lands 8:35 now</span>
             </motion.div>
             <motion.div
               className="stage-bubble stage-bubble--b"

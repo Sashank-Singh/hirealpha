@@ -7,18 +7,19 @@ angles, all honest.
 
 ## r/artificial — "What actually made an AI feel like software → a person"
 
-> The moment something clicked for me with AI companionship was when I stopped
+> The moment something clicked for me with AI as an assistant was when I stopped
 > treating it as an app and started treating it as a contact. Different number,
-> separate memory, personality that doesn't bleed into my work chat.
+> separate memory, and it doesn't bleed into my work chat.
 >
-> I built three of them into normal iMessage: a Friend that texts first with
-> briefs and actually remembers my week, a Coworker that drafts replies and
-> refuses to send anything until I approve it, and a Cofounder that gives hiring
-> and fundraising pushback instead of validation.
+> I put it into normal iMessage: an assistant that texts me first with briefs
+> and actually remembers my week, drafts replies and refuses to send anything
+> until I approve it, and tells me when I'm about to do something dumb instead
+> of validating me.
 >
-> The honest catch: it is not a therapist and I don't want it to be. The
-> boundaries are the product. What boundary would you want from a contact that
-> texts like a person?
+> The honest catch: it is not a therapist and I don't want it to be. It's a
+> secretary — you hire it to run things, not to fix loneliness. The boundaries
+> are the product. What boundary would you want from a contact that does things
+> for you?
 
 ## r/SideProject — "Show: I forgot an app exists, so I made my product a contact"
 
@@ -36,17 +37,20 @@ angles, all honest.
 
 ## r/Apple — "iMessage is a platform, actually"
 
-> Three AI contacts living in iMessage with real numbers. Check-in, calendar,
+> An assistant living in iMessage with a real number. Check-in, calendar,
 > drafts, all in the thread you already live in — approving a draft is one tap,
-> not a dashboard workflow.
+> not a dashboard workflow. It also builds you small apps in the chat, instead
+> of the App Store.
 >
 > Interested in the honest UX tradeoffs (what iMessage does well for this, what
-> it still can't do). What would you want in a contact that texts like a person?
+> it still can't do). What would you want in a contact that does things for
+> you?
 
 ## Discord / Slack groups (founders, indie dev)
 
 Adapt the r/SideProject post, drop the URL, talk about flow. Founders respond
-to the Cofounder story; devs respond to the approve-before-send UX.
+to the "tells you when you're doing something wrong" story; devs respond to the
+approve-before-send UX.
 
 ## Reddit rules that matter
 

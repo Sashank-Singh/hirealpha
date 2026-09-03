@@ -12,6 +12,10 @@ feature, and the constraints at the bottom are non‑negotiables.
 - `03-x-threads.md` — a week of X/Twitter threads, all built on real screenshots
 - `04-communities.md` — Reddit/Discord/HN-native posts (no links in some places)
 - `05-launch-day-checklist.md` — the order of operations for one big day
+- `06-30day-content-calendar.md` — 30 days of LinkedIn + X posts with image
+  guidance, built on the five-layer launch system (honesty-filtered)
+- `07-week1-publish-copy.md` — Days 1–7 fully written, publish-ready posts
+  + reply playbook (fill the [REAL: …] slots from your actual life)
 
 ## Before you post anywhere — 30-minute setup
 
@@ -36,14 +40,13 @@ feature, and the constraints at the bottom are non‑negotiables.
 
 ## The one-line positioning (use it everywhere)
 
-> HireAlpha is where you **hire people, not download another app**. Three AI
-> contacts with their own numbers and personalities — Friend, Coworker,
-> Cofounder — who text you like they know you. Friend is live now. $19/mo.
+> Alpha is your assistant. It lives in your texts, texts you first, does the
+> thing — and only asks when it has to. You just exist. ($19/mo, 7-day trial.)
 
 ## Honesty rules (do not break these)
 
-- Friend is a companion, never a replacement for a therapist or for real
-  people. Never imply it fills a grief or mental-health gap.
+- **Alpha is an assistant / personal secretary, NOT an "AI friend" and never a
+  loneliness fix.** Never imply it fills a grief or mental-health gap.
 - Drafts never send without approval — say that; it is a differentiator.
 - Coworker and Cofounder are "in the workshop" until they actually ship.
 - "Waitlist" is real: joiners get a number and the hire texts first.
