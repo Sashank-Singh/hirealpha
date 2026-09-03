@@ -879,13 +879,13 @@ function WaitlistForm() {
   const [phone, setPhone] = useState('')
   const [email, setEmail] = useState('')
   const [name, setName] = useState('')
-  const [tz, setTz] = useState(() => {
+  const tz = (() => {
     try {
       return Intl.DateTimeFormat().resolvedOptions().timeZone || ''
     } catch {
       return ''
     }
-  })
+  })()
   const [hire, setHire] = useState<AgentId>('friend')
   const [done, setDone] = useState(false)
   const [busy, setBusy] = useState(false)
