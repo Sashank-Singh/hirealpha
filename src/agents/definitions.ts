@@ -21,7 +21,7 @@ export const ALPHA: AgentDefinition = {
   id: 'friend',
   name: 'Friend',
   imsgName: 'Alpha',
-  role: 'Personal companion',
+  role: 'Personal Assistant',
   initial: 'A',
   color: '#2a6f7a',
   pitch:

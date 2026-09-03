@@ -4,7 +4,7 @@
 
 | Hire | In Messages as | Role | Price |
 | --- | --- | --- | --- |
-| Friend | `Alpha` | Personal companion — briefs, body, money, people | $19/mo |
+| Friend | `Alpha` | Personal Assistant — briefs, body, money, people | $19/mo |
 | Coworker | `Alpha (Coworker)` | Work colleague — standup, drafts, triage, loops | $19/mo |
 | Cofounder | `Alpha(CoFounder)` | Startup partner — pipeline, decisions, investor notes | $19/mo |
 

@@ -3,12 +3,18 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { CONNECTOR_CATALOG, type ConnectorId } from './connectors'
 import { ConnectorLogo } from './ConnectorLogo'
 import {
+  apiBillingManage,
+  apiBillingStatus,
   apiConnectUrl,
   apiConnectorStatus,
   apiDeleteLocation,
+  apiDeleteMemory,
   apiDisconnect,
+  apiHireMemory,
   apiLocations,
   apiSaveLocation,
+  type BillingSubscription,
+  type HireMemory,
   type SavedLocation,
 } from './api'
 import { connectedIds, getSession, hydrateFromServer, setConnection, signOut } from './roster'
@@ -53,19 +59,9 @@ async function reversePlace(lat: number, lng: number): Promise<string> {
   return label
 }
 
-function timeAgo(iso: string): string {
-  const minutes = Math.round((Date.now() - new Date(iso).getTime()) / 60000)
-  if (minutes < 1) return 'just now'
-  if (minutes < 60) return `${minutes}m ago`
-  const hours = Math.round(minutes / 60)
-  if (hours < 24) return `${hours}h ago`
-  return new Date(iso).toLocaleDateString()
-}
-
 /* ---- Local types ---- */
 
-type LocationKind = 'current' | 'home' | 'work'
-type KillState = { armed?: boolean; error?: string }
+type LocationKind = 'home' | 'work'
 type Loop = { id: string; kind: string; title: string; status: string; next_run: string | null }
 
 /**
@@ -94,13 +90,18 @@ export function SettingsSheet() {
   const [capturing, setCapturing] = useState(false)
   const [manual, setManual] = useState('')
   const [openKind, setOpenKind] = useState<LocationKind | null>(null)
+  const [toolFilter, setToolFilter] = useState<'all' | 'connected'>('all')
+  const [copiedPhone, setCopiedPhone] = useState(false)
 
-  /* Controls (from KillSwitch + LoopsPanel) */
-  const [armed, setArmed] = useState<boolean | null>(null)
-  const [killLoaded, setKillLoaded] = useState(false)
-  const [killConfirming, setKillConfirming] = useState(false)
-  const [killBusy, setKillBusy] = useState(false)
-  const [killError, setKillError] = useState('')
+  /* Billing */
+  const [billing, setBilling] = useState<{ active: boolean; subscriptions: BillingSubscription[] } | null>(null)
+  const [manageBusy, setManageBusy] = useState(false)
+
+  /* Memory */
+  const [memories, setMemories] = useState<HireMemory[] | null>(null)
+  const [memError, setMemError] = useState('')
+
+  /* Loops (from LoopsPanel) */
   const [loops, setLoops] = useState<Loop[] | null>(null)
   const [loopsLoaded, setLoopsLoaded] = useState(false)
   const [loopsError, setLoopsError] = useState('')
@@ -117,6 +118,21 @@ export function SettingsSheet() {
       .then(setReady)
       .catch(() => setReady({ google: false, composio: false }))
   }, [])
+
+  useEffect(() => {
+    if (!session?.email) return
+    void apiBillingStatus(session.email)
+      .then((s) =>
+        setBilling({
+          active: Object.values(s.hires).some(Boolean),
+          subscriptions: s.subscriptions,
+        }),
+      )
+      .catch(() => setBilling({ active: false, subscriptions: [] }))
+    void apiHireMemory(session.email, 'friend')
+      .then((d) => setMemories(d.memories))
+      .catch(() => setMemories([]))
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   /* After a connector OAuth round-trip lands back with ?connected=, rehydrate
    * and clear the param — same as HireConfigPage. */
@@ -138,26 +154,6 @@ export function SettingsSheet() {
       el.scrollIntoView({ behavior: 'smooth', block: 'center' })
     }
   }, [params])
-
-  /* Kill switch state (same GET as marketing/KillSwitch). */
-  useEffect(() => {
-    if (!e164) return
-    let live = true
-    setKillLoaded(false)
-    fetch(`/api/kill-switch?phone=${encodeURIComponent(e164)}`)
-      .then((res) => (res.ok ? (res.json() as Promise<KillState>) : Promise.reject(new Error(String(res.status)))))
-      .then((data) => {
-        if (!live) return
-        setArmed(!!data.armed)
-        setKillLoaded(true)
-      })
-      .catch(() => {
-        if (live) setKillLoaded(true)
-      })
-    return () => {
-      live = false
-    }
-  }, [e164])
 
   /* Loops (same GET as marketing/LoopsPanel). */
   async function loadLoops(value: string) {
@@ -193,30 +189,59 @@ export function SettingsSheet() {
 
   if (!session?.email) {
     return (
-      <div className="ws-page">
-        <div className="ws-scroll">
-          <header className="ws-header">
-            <div className="ws-header__back" />
-            <p className="ws-header__title">Alpha</p>
-            <Link to="/app/login" className="ws-header__avatar" style={{ textDecoration: 'none', fontSize: 12 }} aria-label="Sign in">
-              In
+      <div className="ha-page">
+        <div className="ha-scroll">
+          <header className="ha-header">
+            <a className="ha-header__back" href="/" aria-label="Home">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path d="M15 6l-6 6 6 6" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </a>
+            <div className="ha-header__brand">
+              <img src="/HireAlpha_logo.png" alt="HireAlpha" className="ha-header__logo" />
+              <span className="ha-header__title">Alpha</span>
+            </div>
+            <Link to="/app/login" className="ha-header__signin" aria-label="Sign in">
+              Sign in
             </Link>
           </header>
-          <div className="mini__body">
-            <p className="mini__empty" style={{ margin: '48px 24px', color: '#666' }}>Sign in to see your account, tools, and controls.</p>
+          <div className="ha-body">
+            <div className="ha-card ha-empty-card">
+              <div className="ha-empty-logo-wrap">
+                <img src="/HireAlpha_logo.png" alt="HireAlpha" className="ha-empty-logo" />
+              </div>
+              <h2 className="ha-empty-title">Welcome to Alpha</h2>
+              <p className="ha-empty-sub">Sign in to manage your connected tools, location preferences, and personal assistant settings.</p>
+              <Link to="/app/login" className="ha-btn ha-btn--primary">
+                Sign in to continue →
+              </Link>
+            </div>
           </div>
         </div>
       </div>
     )
   }
 
-  const connectors = CONNECTOR_CATALOG
+  const connectors = CONNECTOR_CATALOG.filter((c) => c.id !== 'plaid')
   const connected = connectedIds()
   const connectedCount = connectors.filter((c) => connected.includes(c.id)).length
+  const isPlaidConnected = connected.includes('plaid')
   const targetConnector = params.get('connect')
 
+  /* Calendar is the flagship second row: catalog has Gmail first, so reorder
+   * so Google Calendar sits right behind the lead app in the list. */
+  const orderedConnectors = [...connectors].sort((a, b) => {
+    if (a.id === 'calendar') return 1
+    if (b.id === 'calendar') return -1
+    return 0
+  })
+
+  const filteredConnectors = orderedConnectors.filter((c) => {
+    if (toolFilter === 'connected') return connected.includes(c.id)
+    return true
+  })
+
   const latest = (kind: LocationKind) => locations.find((l) => l.kind === kind) ?? null
-  const current = latest('current')
   const home = latest('home')
   const work = latest('work')
 
@@ -261,25 +286,6 @@ export function SettingsSheet() {
   }
 
   /* ---- Location: same endpoints and flows as LocationPage. ---- */
-  function persistLocation(lat: number, lng: number, accuracy: number | null, kind: LocationKind, label: string) {
-    const email = getSession()?.email
-    if (!email) return
-    setLocBusy(true)
-    setLocError('')
-    setLocNotice('')
-    void (async () => {
-      try {
-        const next = await apiSaveLocation({ email, kind, latitude: lat, longitude: lng, accuracy_m: accuracy, label, source: 'gps' })
-        setLocations(next)
-        setLocNotice(kind === 'current' ? 'Location saved.' : `${label} saved. Nearby searches will use it.`)
-      } catch (err) {
-        setLocError(err instanceof Error ? err.message : 'Could not save location')
-      } finally {
-        setLocBusy(false)
-      }
-    })()
-  }
-
   function manualSave(kind: LocationKind) {
     const label = manual.trim()
     if (!label) {
@@ -331,7 +337,7 @@ export function SettingsSheet() {
       .catch((err) => setLocError(err instanceof Error ? err.message : 'Could not delete'))
   }
 
-  async function captureCurrent() {
+  async function captureCurrent(kind: 'home' | 'work') {
     if (!('geolocation' in navigator)) {
       setLocError('This browser has no location support. Enter a city or address manually.')
       return
@@ -349,49 +355,17 @@ export function SettingsSheet() {
       )
       const { latitude, longitude, accuracy } = pos.coords
       const place = await reversePlace(latitude, longitude)
-      const label = place || 'My current location'
+      const fallback = kind === 'home' ? 'My home' : 'My work'
+      const label = place || fallback
       const email = getSession()?.email
       if (!email) return
-      const next = await apiSaveLocation({ email, kind: 'current', latitude, longitude, accuracy_m: accuracy, label, source: 'gps' })
+      const next = await apiSaveLocation({ email, kind, latitude, longitude, accuracy_m: accuracy, label, source: 'gps' })
       setLocations(next)
-      setLocNotice(`Saved ${label}.`)
+      setLocNotice(`${label} saved. Nearby searches will use it.`)
     } catch {
       setLocError('Location permission denied or unavailable. You can still enter a city or address manually.')
     } finally {
       setCapturing(false)
-    }
-  }
-
-  function saveCurrentAs(kind: 'home' | 'work') {
-    const cur = latest('current')
-    if (!cur) return
-    const label = prompt(kind === 'home' ? 'Label for Home (e.g. Home in SoMa):' : 'Label for Work (e.g. Work in FiDi):', kind === 'home' ? 'Home' : 'Work')?.trim()
-    if (!label) return
-    persistLocation(cur.latitude, cur.longitude, cur.accuracy_m, kind, label)
-  }
-
-  /* ---- Kill switch: same POST as marketing/KillSwitch. ---- */
-  async function stopEverything() {
-    if (!e164) return
-    setKillBusy(true)
-    setKillError('')
-    try {
-      const res = await fetch('/api/kill-switch', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone: e164 }),
-      })
-      const data = (await res.json().catch(() => ({}))) as KillState
-      if (!res.ok) {
-        setKillError(data.error || 'Could not stop anything. Try again.')
-      } else {
-        setArmed(!!data.armed)
-        setKillConfirming(false)
-      }
-    } catch {
-      setKillError('Could not reach the server. Try again.')
-    } finally {
-      setKillBusy(false)
     }
   }
 
@@ -423,233 +397,341 @@ export function SettingsSheet() {
     setOpenKind((k) => (k === kind ? null : kind))
   }
 
+  async function openBilling() {
+    if (!session?.email) return
+    setManageBusy(true)
+    try {
+      const url = await apiBillingManage(session.email)
+      window.location.href = url
+    } catch (err) {
+      setLocError(err instanceof Error ? err.message : 'Could not open billing')
+    } finally {
+      setManageBusy(false)
+    }
+  }
+
+  async function clearMemory(key: string) {
+    if (!session?.email) return
+    setMemError('')
+    try {
+      const next = await apiDeleteMemory(session.email, 'friend', key)
+      setMemories(next)
+    } catch (err) {
+      setMemError(err instanceof Error ? err.message : 'Could not clear that memory')
+    }
+  }
+
+  const friendSub = billing?.subscriptions.find((s) => s.persona === 'friend')
+
   return (
-    <div className="ws-page">
-      <div className="ws-scroll">
-        {/* ── Instinct-style Workspace header ── */}
-        <header className="ws-header">
-          <a className="ws-header__back" href="/" aria-label="Home">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-              <path d="M15 6l-6 6 6 6" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+    <div className="ss-page">
+      <div className="ss-shell">
+        <header className="ss-top">
+          <a className="ss-nav-back" href="/" aria-label="Home">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <polyline points="15 18 9 12 15 6" />
             </svg>
           </a>
-          <p className="ws-header__title">Alpha</p>
-          <div className="ws-header__avatar" aria-label={session.name || session.email}>
-            {(session.name || session.email || 'A')[0].toUpperCase()}
-          </div>
         </header>
 
-        <div className="mini__body">
-          {/* ── Contact section (iMessage number) ── */}
-          {session.phone && (
-            <section className="mini__section">
-              <p className="ws-section-label">Contact <span className="ws-info-icon">ⓘ</span></p>
-              <a
-                href={`sms:+14155951440`}
-                className="ws-contact-btn"
-                aria-label="Open iMessage with Alpha"
+        <section className="ss-contact">
+          <img src="/HireAlpha_logo.png" alt="" className="ss-contact-logo" />
+          <div className="ss-contact-body">
+            <h1 className="ss-contact-name">Alpha</h1>
+            <span className="ss-contact-role">Personal Assistant</span>
+            <p className="ss-contact-phone">
+              <a href="sms:+14155951440">(415) 595-1440</a>
+              <button
+                type="button"
+                className="ss-copy"
+                onClick={() => {
+                  void navigator.clipboard.writeText('+14155951440')
+                  setCopiedPhone(true)
+                  setTimeout(() => setCopiedPhone(false), 2000)
+                }}
               >
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
-                  <rect x="2" y="4" width="20" height="16" rx="5" fill="#22c55e" />
-                  <circle cx="8" cy="12" r="1.5" fill="#fff" />
-                  <circle cx="12" cy="12" r="1.5" fill="#fff" />
-                  <circle cx="16" cy="12" r="1.5" fill="#fff" />
-                </svg>
-                Messages
-              </a>
-            </section>
-          )}
+                {copiedPhone ? 'Copied' : 'Copy'}
+              </button>
+            </p>
+          </div>
+          <div className="ss-contact-actions">
+            <a href="sms:+14155951440" className="ss-btn-primary">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+                <path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z" />
+              </svg>
+              <span>Message</span>
+            </a>
+            <a
+              href="/api/contact/alpha.vcf"
+              download="Alpha.vcf"
+              className="ss-btn-ghost"
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+                <circle cx="8.5" cy="7" r="4" />
+                <line x1="20" y1="8" x2="20" y2="14" />
+                <line x1="23" y1="11" x2="17" y2="11" />
+              </svg>
+              <span>Add to Contacts</span>
+            </a>
+          </div>
+        </section>
 
-          {/* ── Account ── */}
-          <section className="mini__section">
-            <p className="ws-section-label">Account</p>
-            <dl className="set-account">
-              <div className="set-account-row">
-                <dt>Name</dt>
-                <dd>{session.name || 'Not set yet'}</dd>
-              </div>
-              <div className="set-account-row">
-                <dt>Email</dt>
-                <dd>{session.email}</dd>
-              </div>
-              <div className="set-account-row">
-                <dt>Phone</dt>
-                <dd>{session.phone || 'Not set yet'}</dd>
-              </div>
-            </dl>
-          </section>
-
-          {/* 2. CONNECTORS */}
-          <section className="mini__section">
-            <div className="ws-section-row">
-              <p className="ws-section-label">Tools</p>
-              <span className="ws-section-count">{connectedCount}/{connectors.length} connected</span>
+        {/* Plan — its own card, set apart from the list sections */}
+        <section className="ss-plan">
+          <div className="ss-plan-row">
+            <div className="ss-body">
+              {friendSub && subscriptionActiveLabel(friendSub.status) ? (
+                <>
+                  <span className="ss-name">Alpha the Friend</span>
+                  <span className="ss-subline">
+                    {friendSub.status === 'trialing' ? 'Trial' : 'Active'}
+                    {friendSub.currentPeriodEnd ? ` · renews ${dateLabel(friendSub.currentPeriodEnd)}` : ''}
+                  </span>
+                </>
+              ) : billing ? (
+                <>
+                  <span className="ss-name">Free</span>
+                  <span className="ss-subline">No active subscription. Start a trial to text with Alpha.</span>
+                </>
+              ) : (
+                <>
+                  <span className="ss-name">Plan</span>
+                  <span className="ss-subline">Checking…</span>
+                </>
+              )}
             </div>
-            <p className="mini__blurb" style={{ marginBottom: 12 }}>Connect once — Alpha can reach them from any message.</p>
+            <div className="ss-actions">
+              {friendSub && subscriptionActiveLabel(friendSub.status) ? (
+                <button type="button" className="ss-btn" disabled={manageBusy} onClick={() => void openBilling()}>
+                  {manageBusy ? 'Opening…' : 'Manage billing'}
+                </button>
+              ) : (
+                <Link to="/app/login" className="ss-btn">
+                  Start trial
+                </Link>
+              )}
+            </div>
+          </div>
+        </section>
+
+        {/* ── Sections: one hairline-divided surface, native-settings style ── */}
+        <div className="ss">
+          {/* Connected Tools */}
+          <section className="ss-sec">
+            <header className="ss-sec-head">
+              <div>
+                <h2 className="ss-title">Connected Tools</h2>
+                <p className="ss-sub">Services Alpha can search, check, and act on during your conversations.</p>
+              </div>
+            </header>
+
+            <div className="ss-filters">
+              {(['all', 'connected'] as const).map((filter) => (
+                <button
+                  key={filter}
+                  type="button"
+                  className={`ss-filter${toolFilter === filter ? ' is-active' : ''}`}
+                  onClick={() => setToolFilter(filter)}
+                >
+                  {filter === 'all' && `All (${connectors.length})`}
+                  {filter === 'connected' && `Connected (${connectedCount})`}
+                </button>
+              ))}
+            </div>
+
             {ready && !ready.composio && !ready.google && (
-              <p className="set-err">
-                Connect is not live yet. Add COMPOSIO_API_KEY on HireAlpha-Web, then tap Connect again.
-              </p>
+              <p className="set-err">Connect is not configured on the server yet.</p>
             )}
             {connectError && <p className="set-err">{connectError}</p>}
-            <ul className="set-conn">
-              {connectors.map((c) => {
+
+            <div className="ss-list ss-list--scroll">
+              {filteredConnectors.map((c) => {
                 const on = connected.includes(c.id)
                 const isTarget = targetConnector === c.id
                 return (
-                  <li
+                  <div
                     key={c.id}
                     id={`connector-${c.id}`}
-                    className={`${on ? 'set-conn--on' : ''} ${isTarget ? 'set-conn--highlight' : ''}`.trim()}
+                    className={`ss-row${isTarget ? ' is-target' : ''}`}
                   >
-                    <ConnectorLogo id={c.id} size={26} />
-                    <div className="set-conn-text">
-                      <span className="set-conn-name">{c.name}</span>
-                      <span className="set-conn-blurb">{c.blurb}</span>
-                    </div>
-                    {c.noAuth ? (
-                      <span className="set-chip">On</span>
-                    ) : on ? (
-                      <div className="set-conn-actions">
-                        <span className="set-chip">Connected</span>
-                        <button
-                          type="button"
-                          className="set-btn set-btn--ghost"
-                          disabled={disconnecting === c.id}
-                          onClick={() => void disconnect(c.id)}
-                          aria-label={`Disconnect ${c.name}`}
-                        >
-                          {disconnecting === c.id ? 'Disconnecting…' : 'Disconnect'}
-                        </button>
+                    <div className="ss-cell">
+                      <div className="ss-icon">
+                        <ConnectorLogo id={c.id} size={22} />
                       </div>
-                    ) : (
-                      <button
-                        type="button"
-                        className="set-btn"
-                        disabled={connecting === c.id}
-                        onClick={() => void connect(c.id)}
-                      >
-                        {connecting === c.id ? 'Opening…' : 'Connect'}
-                      </button>
-                    )}
-                  </li>
-                )
-              })}
-            </ul>
-          </section>
-
-          {/* 3. LOCATION */}
-          <section className="mini__section">
-            <h2>Location</h2>
-            <p className="mini__blurb">
-              Alpha uses this for nearby places, weather, and plans. You control it from here.
-            </p>
-            {locError && <p className="set-err">{locError}</p>}
-            {locNotice && <p className="set-note">{locNotice}</p>}
-            <div className="set-loc">
-              {(
-                [
-                  {
-                    kind: 'current' as LocationKind,
-                    title: 'Current location',
-                    saved: current,
-                    sub: current
-                      ? `${current.label}${current.accuracy_m ? ` (${Math.round(current.accuracy_m)}m)` : ''} · ${timeAgo(current.updated_at)}`
-                      : 'Not set. Nearby features stay blocked until it is set.',
-                  },
-                  {
-                    kind: 'home' as LocationKind,
-                    title: 'Home',
-                    saved: home,
-                    sub: home ? `${home.label} · ${timeAgo(home.updated_at)}` : 'Not set.',
-                  },
-                  {
-                    kind: 'work' as LocationKind,
-                    title: 'Work',
-                    saved: work,
-                    sub: work ? `${work.label} · ${timeAgo(work.updated_at)}` : 'Not set.',
-                  },
-                ]
-              ).map((row) => (
-                <div key={row.kind} className={`set-loc-row${openKind === row.kind ? ' is-open' : ''}`}>
-                  <button type="button" className="set-loc-head" onClick={() => toggleKind(row.kind)}>
-                    <span className="set-loc-head-text">
-                      <span className="set-loc-title">{row.title}</span>
-                      <span className="set-loc-sub">{row.sub}</span>
-                    </span>
-                    <svg
-                      className="set-loc-chev"
-                      width="16"
-                      height="16"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      aria-hidden="true"
-                    >
-                      <path d="M9 6l6 6-6 6" stroke="currentColor" strokeWidth="2.25" strokeLinecap="round" strokeLinejoin="round" />
-                    </svg>
-                  </button>
-                  {openKind === row.kind && (
-                    <div className="set-loc-body">
-                      {row.kind === 'current' && (
-                        <>
-                          <p className="set-note">
-                            Exact location only when you allow it. Raw coordinates never reach Alpha&apos;s chat —
-                            the label is all the bot sees.
-                          </p>
-                          <div className="set-actions">
+                      <div className="ss-body">
+                        <span className="ss-name">{c.name}</span>
+                        <span className="ss-subline">{c.blurb}</span>
+                      </div>
+                      {c.noAuth ? (
+                        <span className="ss-included">Included</span>
+                      ) : (
+                        <div className="ss-actions">
+                          {on ? (
                             <button
                               type="button"
-                              className="set-btn"
-                              disabled={locBusy || capturing}
-                              onClick={() => void captureCurrent()}
+                              className="ss-btn-text ss-btn-danger"
+                              disabled={disconnecting === c.id}
+                              onClick={() => void disconnect(c.id)}
                             >
-                              {capturing ? 'Locating…' : 'Allow current location'}
+                              {disconnecting === c.id ? 'Disconnecting…' : 'Disconnect'}
                             </button>
-                            {current && (
-                              <button type="button" className="set-btn set-btn--ghost" onClick={() => removeLocation('current')}>
-                                Remove current
-                              </button>
-                            )}
-                          </div>
-                        </>
-                      )}
-                      {row.kind !== 'current' && (
-                        <div className="set-actions">
-                          <button
-                            type="button"
-                            className="set-btn"
-                            disabled={!current || locBusy}
-                            onClick={() => saveCurrentAs(row.kind === 'home' ? 'home' : 'work')}
-                          >
-                            Save current as {row.title}
-                          </button>
-                          {row.saved && (
-                            <button type="button" className="set-link" onClick={() => removeLocation(row.kind)}>
-                              Delete {row.title}
+                          ) : (
+                            <button
+                              type="button"
+                              className="ss-btn"
+                              disabled={connecting === c.id}
+                              onClick={() => void connect(c.id)}
+                            >
+                              {connecting === c.id ? 'Connecting…' : 'Connect'}
                             </button>
                           )}
                         </div>
                       )}
-                      <label className="mini__field">
-                        <span>Or enter a place, city, or address</span>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </section>
+
+          {/* Bank Account (Plaid) */}
+          <section id="connector-plaid" className={`ss-sec${isPlaidConnected ? ' is-connected' : ''}${targetConnector === 'plaid' ? ' is-target' : ''}`}>
+            <header className="ss-sec-head">
+              <div>
+                <h2 className="ss-title">Bank Account</h2>
+                <p className="ss-sub">Read-only balance queries and spending summaries in Messages.</p>
+              </div>
+              {isPlaidConnected && <span className="ss-connected-badge">Connected</span>}
+            </header>
+
+            <div className="ss-list">
+              <div className="ss-row">
+                <div className="ss-cell">
+                  <div className="ss-icon">
+                    <ConnectorLogo id="plaid" size={22} />
+                  </div>
+                  <div className="ss-body">
+                    <span className="ss-name">
+                      {isPlaidConnected ? 'Primary account' : 'Link your bank'}
+                    </span>
+                    <span className="ss-subline">
+                      {isPlaidConnected
+                        ? 'Balances and spending summaries are read-only. Alpha cannot move money.'
+                        : 'Alpha reads balances and spending summaries. It cannot move money or see your login.'}
+                    </span>
+                  </div>
+                  <div className="ss-actions">
+                    {isPlaidConnected ? (
+                      <>
+                        <Link to="/app/mini/friend/spending_snapshot" className="ss-link">
+                          Spending Snapshot
+                        </Link>
+                        <button
+                          type="button"
+                          className="ss-btn-text ss-btn-danger"
+                          disabled={disconnecting === 'plaid'}
+                          onClick={() => void disconnect('plaid')}
+                        >
+                          {disconnecting === 'plaid' ? 'Disconnecting…' : 'Disconnect'}
+                        </button>
+                      </>
+                    ) : (
+                      <button
+                        type="button"
+                        className="ss-btn"
+                        disabled={connecting === 'plaid'}
+                        onClick={() => void connect('plaid')}
+                      >
+                        {connecting === 'plaid' ? 'Connecting…' : 'Link'}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          {/* Places */}
+          <section className="ss-sec">
+            <header className="ss-sec-head">
+              <div>
+                <h2 className="ss-title">Places</h2>
+                <p className="ss-sub">Used for weather, commute timing, and local recommendations.</p>
+              </div>
+            </header>
+
+            {locError && <p className="set-err">{locError}</p>}
+            {locNotice && <p className="set-note">{locNotice}</p>}
+
+            <div className="ss-list">
+              {[
+                {
+                  kind: 'home' as LocationKind,
+                  title: 'Home',
+                  saved: home,
+                },
+                {
+                  kind: 'work' as LocationKind,
+                  title: 'Work',
+                  saved: work,
+                },
+              ].map((row) => (
+                <div key={row.kind} className={`ss-row${openKind === row.kind ? ' is-open' : ''}`}>
+                  <button
+                    type="button"
+                    className="ss-cell ss-cell-btn"
+                    aria-expanded={openKind === row.kind}
+                    onClick={() => toggleKind(row.kind)}
+                  >
+                    <div className="ss-body">
+                      <span className="ss-name">{row.title}</span>
+                      <span className="ss-subline">{row.saved ? row.saved.label : 'Not set yet'}</span>
+                    </div>
+                    <span className={`ss-chevron${openKind === row.kind ? ' is-open' : ''}`} aria-hidden="true">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+                        <polyline points="6 9 12 15 18 9" />
+                      </svg>
+                    </span>
+                  </button>
+
+                  {openKind === row.kind && (
+                    <div className="ss-edit">
+                      <button
+                        type="button"
+                        className="ss-btn ss-btn-ghost"
+                        disabled={capturing || locBusy}
+                        onClick={() => void captureCurrent(row.kind as 'home' | 'work')}
+                      >
+                        {capturing ? 'Locating…' : 'Use my current location'}
+                      </button>
+                      <div className="ss-input-row">
                         <input
-                          className="set-input"
+                          className="bento-input"
                           type="text"
-                          placeholder="SoMa, San Francisco"
+                          placeholder="Enter street address or city"
                           value={manual}
                           onChange={(e) => setManual(e.target.value)}
                         />
-                      </label>
-                      <div className="set-actions">
                         <button
                           type="button"
-                          className="set-btn set-btn--ghost"
+                          className="ss-btn"
                           disabled={locBusy || !manual.trim()}
                           onClick={() => manualSave(row.kind)}
                         >
-                          Save as {row.title}
+                          Save
                         </button>
                       </div>
+                      {row.saved && (
+                        <button
+                          type="button"
+                          className="ss-btn-text ss-btn-danger"
+                          disabled={locBusy}
+                          onClick={() => removeLocation(row.kind)}
+                        >
+                          Clear
+                        </button>
+                      )}
                     </div>
                   )}
                 </div>
@@ -657,111 +739,132 @@ export function SettingsSheet() {
             </div>
           </section>
 
-          {/* 4. CONTROLS */}
-          <section className="mini__section">
-            <h2>Controls</h2>
-            <div className="set-kill">
-              <p className="set-kill-state" role="status">
-                <span
-                  className={`set-dot${armed ? ' set-dot--down' : killLoaded ? '' : ' set-dot--unknown'}`}
-                  aria-hidden
-                />
-                {!e164
-                  ? 'Add the phone you text from to see the switch.'
-                  : armed
-                    ? 'Everything is stopped. Text your hire to turn it back on.'
-                    : killLoaded
-                      ? 'Everything is running.'
-                      : 'Checking the switch…'}
+          {/* Scheduled Routines */}
+          <section className="ss-sec">
+            <header className="ss-sec-head">
+              <div>
+                <h2 className="ss-title">Scheduled Routines</h2>
+                <p className="ss-sub">Proactive tasks Alpha runs on a schedule in Messages.</p>
+              </div>
+            </header>
+
+            {loopsError && <p className="set-err">{loopsError}</p>}
+            {!e164 && <p className="ss-empty">Add your phone number to view scheduled routines.</p>}
+            {e164 && !loopsLoaded && <p className="ss-empty">Checking routines…</p>}
+            {e164 && loopsLoaded && (loops?.length ?? 0) === 0 && (
+              <p className="ss-empty">
+                No scheduled routines yet. Text Alpha in Messages to set one up, like &ldquo;brief me every morning at 8am&rdquo;.
               </p>
-              {!armed && e164 && (
-                <>
-                  {!killConfirming ? (
-                    <button type="button" className="set-btn set-btn--danger" onClick={() => setKillConfirming(true)}>
-                      Stop everything
-                    </button>
-                  ) : (
-                    <div className="set-confirm">
-                      <p>All hires go quiet until you turn them back on. Stop?</p>
-                      <div className="set-actions">
-                        <button type="button" className="set-btn set-btn--danger" onClick={() => void stopEverything()} disabled={killBusy}>
-                          {killBusy ? 'Stopping…' : 'Yes, stop'}
-                        </button>
-                        <button type="button" className="set-btn set-btn--ghost" onClick={() => setKillConfirming(false)}>
-                          Keep going
+            )}
+            {e164 && loopsLoaded && (loops?.length ?? 0) > 0 && (
+              <div className="ss-list">
+                {loops!.map((loop) => (
+                  <div key={loop.id} className="ss-row">
+                    <div className="ss-cell">
+                      <div className="ss-body">
+                        <span className="ss-name">{loop.title}</span>
+                        <span className="ss-subline">
+                          {loop.kind}
+                          {loop.status === 'paused' ? ' · Paused' : ''}
+                          {loop.status !== 'paused' && loop.next_run ? ` · Next run ${nextRunLabel(loop.next_run, Date.now())}` : ''}
+                        </span>
+                      </div>
+                      <div className="ss-actions">
+                        <button
+                          type="button"
+                          className="ss-btn-text"
+                          disabled={busyLoopId === loop.id}
+                          onClick={() => void toggleLoop(loop)}
+                        >
+                          {loop.status === 'paused' ? 'Resume' : 'Pause'}
                         </button>
                       </div>
                     </div>
-                  )}
-                </>
-              )}
-              {killError && (
-                <p className="set-err" role="alert">
-                  {killError}
-                </p>
-              )}
-            </div>
-
-            <p className="mini__blurb" style={{ marginTop: 12 }}>
-              Task loops — what your hires watch on a schedule.
-            </p>
-            {!e164 && <p className="mini__empty">Add the phone you text from to see your loops.</p>}
-            {e164 && !loopsLoaded && <p className="mini__empty">Checking your loops…</p>}
-            {e164 && loopsLoaded && loopsError && (
-              <p className="set-err" role="alert">
-                {loopsError}
-              </p>
-            )}
-            {e164 && loopsLoaded && !loopsError && (loops?.length ?? 0) === 0 && (
-              <p className="mini__empty">No loops running. Ask a hire to watch something for you.</p>
-            )}
-            {e164 && loopsLoaded && !loopsError && (loops?.length ?? 0) > 0 && (
-              <ul className="set-loop">
-                {loops!.map((loop) => (
-                  <li key={loop.id}>
-                    <div className="set-loop-text">
-                      <span className="set-loop-title">{loop.title}</span>
-                      <span className="set-loop-sub">
-                        {loop.kind}
-                        {loop.status === 'paused' ? ' · paused' : ''}
-                        {loop.status !== 'paused' && loop.next_run ? ` · ${nextRunLabel(loop.next_run, Date.now())}` : ''}
-                      </span>
-                    </div>
-                    <button
-                      type="button"
-                      className="set-btn set-btn--ghost"
-                      disabled={busyLoopId === loop.id}
-                      onClick={() => void toggleLoop(loop)}
-                    >
-                      {loop.status === 'paused' ? 'Resume' : 'Pause'}
-                    </button>
-                  </li>
+                  </div>
                 ))}
-              </ul>
+              </div>
             )}
           </section>
 
-          {/* ── Data privacy ── */}
-          <section className="mini__section">
-            <p className="ws-section-label">Data privacy</p>
-            <p className="mini__blurb" style={{ color: '#666', marginBottom: 12 }}>Manage data from connected services</p>
-            <div className="ws-privacy-card">
-              <div className="ws-privacy-card__text">
-                <span className="ws-privacy-card__title">External data <span className="ws-info-icon">ⓘ</span></span>
-                <span className="ws-privacy-card__sub">Manage emails and other data imported from your connected services.</span>
+          {/* Memory */}
+          <section className="ss-sec">
+            <header className="ss-sec-head">
+              <div>
+                <h2 className="ss-title">Memory</h2>
+                <p className="ss-sub">What Alpha remembers about you from your conversations.</p>
               </div>
-              <button
-                type="button"
-                className="set-btn set-btn--danger"
-                onClick={onSignOut}
-              >
-                Sign out
-              </button>
+            </header>
+
+            {memError && <p className="set-err">{memError}</p>}
+            {memories === null && <p className="ss-empty">Checking memories…</p>}
+            {memories !== null && memories.length === 0 && (
+              <p className="ss-empty">
+                Nothing saved yet. Alpha remembers the things you tell it in Messages — family, work, routines.
+              </p>
+            )}
+            {memories !== null && memories.length > 0 && (
+              <div className="ss-list">
+                {memories.map((m) => (
+                  <div key={m.key} className="ss-row">
+                    <div className="ss-cell">
+                      <div className="ss-body">
+                        <span className="ss-name">{m.value}</span>
+                        <span className="ss-subline">{m.key}</span>
+                      </div>
+                      <div className="ss-actions">
+                        <button
+                          type="button"
+                          className="ss-btn-text ss-btn-danger"
+                          onClick={() => void clearMemory(m.key)}
+                        >
+                          Clear
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+
+          {/* Account */}
+          <section className="ss-sec">
+            <header className="ss-sec-head">
+              <div>
+                <h2 className="ss-title">Account</h2>
+              </div>
+            </header>
+            <div className="ss-list">
+              <div className="ss-row">
+                <div className="ss-cell">
+                  <div className="ss-body">
+                    <span className="ss-name">{session.name || 'Alpha User'}</span>
+                    <span className="ss-subline">
+                      {session.email}
+                      {session.phone ? ` · ${session.phone}` : ''}
+                    </span>
+                  </div>
+                  <div className="ss-actions">
+                    <button type="button" className="ss-btn-text ss-btn-danger" onClick={onSignOut}>
+                      Sign out
+                    </button>
+                  </div>
+                </div>
+              </div>
             </div>
-            <p className="mini__blurb" style={{ marginTop: 10, color: '#555' }}>Coworker and Cofounder are coming soon. Your number is saved for both.</p>
           </section>
         </div>
       </div>
     </div>
   )
+}
+
+function subscriptionActiveLabel(status: string): boolean {
+  return status === 'active' || status === 'trialing'
+}
+
+function dateLabel(iso: string): string {
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ''
+  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
 }

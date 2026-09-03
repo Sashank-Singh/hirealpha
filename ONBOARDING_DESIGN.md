@@ -14,7 +14,7 @@ Alpha should know which location to search, use real map data, and return one co
 
 - Exact GPS is required during initial setup.
 - Home and work locations are supported.
-- Alpha is both a personal companion and a broader personal operating system.
+- Alpha is both a personal assistant and a broader personal operating system.
 - Setup is split into two stages rather than one giant form.
 - Connectors are offered upfront through an explicit "Connect all" action.
 - Alpha is controlled-proactive by default, with visible schedules, quiet hours, categories, pause, and kill controls.

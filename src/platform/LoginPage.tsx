@@ -19,7 +19,6 @@ export function LoginPage() {
   const [phone, setPhone] = useState(existing?.phone || '')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
-  const [emailMode, setEmailMode] = useState(!!existing?.email || !!emailParam || !existing?.phone)
   const [googleUser, setGoogleUser] = useState(false)
   const [pwSignedIn, setPwSignedIn] = useState(false)
   const [error, setError] = useState('')
@@ -70,7 +69,6 @@ export function LoginPage() {
           void continueToCheckout(data.email)
           return
         }
-        setEmailMode(true)
       })
       .catch((e) => {
         setError(e instanceof Error ? e.message : 'Google sign in failed')
@@ -192,38 +190,18 @@ export function LoginPage() {
   /* ─── Trial / pricing screen ─────────────────────────────────── */
   if (step === 'trial') {
     return (
-      <div className="onb-root">
-        <div className="onb-card">
-          <div className="onb-logo">A</div>
-          <h1 className="onb-h1">Try Alpha free</h1>
-          <p className="onb-sub">7 days free, then $5/month for 2 months, then $19/month. Cancel anytime.</p>
-          <ul className="onb-features">
-            <li>
-              <span className="onb-feat-icon">💬</span>
-              <div>
-                <strong>Unlimited iMessage texts</strong>
-                <p>Alpha lives in your Messages app. Just text.</p>
-              </div>
-            </li>
-            <li>
-              <span className="onb-feat-icon">🔗</span>
-              <div>
-                <strong>Connect your tools</strong>
-                <p>Gmail, Calendar, Notion, Linear, GitHub, and more.</p>
-              </div>
-            </li>
-            <li>
-              <span className="onb-feat-icon">🤖</span>
-              <div>
-                <strong>Background tasks &amp; loops</strong>
-                <p>Alpha works autonomously, even when you&apos;re not watching.</p>
-              </div>
-            </li>
-          </ul>
-          <button id="onb-trial-cta" type="button" className="onb-btn" onClick={() => void startTrial()} disabled={busy}>
-            {busy ? 'Opening…' : 'Start free trial →'}
+      <div className="auth-page">
+        <div className="auth-card">
+          <div className="auth-brand">
+            <img src="/HireAlpha_logo.png" alt="HireAlpha" className="auth-brand-logo" />
+          </div>
+          <h1 className="auth-title">Try Alpha Free</h1>
+          <p className="auth-subtitle">7 days free, then $5/mo for 2 months, then $19/mo.</p>
+
+          <button id="onb-trial-cta" type="button" className="auth-btn auth-btn--primary" onClick={() => void startTrial()} disabled={busy}>
+            {busy ? 'Opening…' : 'Start free trial'}
           </button>
-          <button type="button" className="onb-skip" onClick={() => navigate('/app')}>
+          <button type="button" className="auth-btn-ghost" onClick={() => navigate('/app')}>
             Skip for now
           </button>
         </div>
@@ -231,126 +209,156 @@ export function LoginPage() {
     )
   }
 
-  /* ─── Auth screen ─────────────────────────────────────────────── */
+  /* ─── Main Auth Screen ────────────────────────────────────────── */
   return (
-    <div className="onb-root">
-      <div className="onb-card">
-        <div className="onb-logo">A</div>
-        <h1 className="onb-h1">
-          {needsPhoneStep
-            ? 'One more step'
-            : mode === 'signup'
-              ? 'Get started with Alpha'
-              : 'Welcome back'}
-        </h1>
-        <p className="onb-sub">
-          {needsPhoneStep
-            ? 'Add the phone you text from so Alpha can find you in Messages.'
-            : mode === 'signup'
-              ? 'Your personal AI, right in iMessage.'
-              : 'Sign in to your account.'}
-        </p>
+    <div className="auth-page">
+      <div className="auth-card">
+        <div className="auth-brand">
+          <Link to="/" aria-label="HireAlpha Home">
+            <img src="/HireAlpha_logo.png" alt="HireAlpha" className="auth-brand-logo" />
+          </Link>
+        </div>
 
-        {!googleUser && !needsPhoneStep && (
-          <button
-            id="onb-google-btn"
-            type="button"
-            className="onb-btn onb-btn--google"
-            onClick={onGoogle}
-            disabled={busy}
-          >
-            <GoogleMark />
-            {mode === 'signup' ? 'Continue with Google' : 'Sign in with Google'}
-          </button>
+        {/* Mode Switcher Tabs */}
+        {!needsPhoneStep && (
+          <div className="auth-tabs" role="tablist">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={mode === 'signin'}
+              className={`auth-tab${mode === 'signin' ? ' is-active' : ''}`}
+              onClick={() => setMode('signin')}
+            >
+              Sign In
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={mode === 'signup'}
+              className={`auth-tab${mode === 'signup' ? ' is-active' : ''}`}
+              onClick={() => setMode('signup')}
+            >
+              Create Account
+            </button>
+          </div>
         )}
 
-        {!emailMode && !googleUser ? (
-          <button type="button" className="onb-skip" onClick={() => setEmailMode(true)}>
-            Use email instead
-          </button>
-        ) : (
-          <form onSubmit={onEmailSubmit} className="onb-form">
-            {mode === 'signup' && !pwSignedIn && !needsPhoneStep && (
+        <div className="auth-header">
+          <h1 className="auth-title">
+            {needsPhoneStep
+              ? 'Complete Account'
+              : mode === 'signin'
+                ? 'Welcome back'
+                : 'Create your account'}
+          </h1>
+          <p className="auth-subtitle">
+            {needsPhoneStep
+              ? 'Enter the number Alpha texts in Messages.'
+              : mode === 'signup'
+                ? 'One number in Messages. Alpha texts first.'
+                : ''}
+          </p>
+        </div>
+
+        {!googleUser && !needsPhoneStep && (
+          <>
+            <button
+              id="onb-google-btn"
+              type="button"
+              className="auth-btn auth-btn--google"
+              onClick={onGoogle}
+              disabled={busy}
+            >
+              <GoogleMark />
+              <span>{mode === 'signin' ? 'Sign in with Google' : 'Continue with Google'}</span>
+            </button>
+
+            <div className="auth-divider">
+              <span>or</span>
+            </div>
+          </>
+        )}
+
+        <form onSubmit={onEmailSubmit} className="auth-form">
+          {mode === 'signup' && !pwSignedIn && !needsPhoneStep && (
+            <div className="auth-field">
+              <label className="auth-label">Name</label>
               <input
                 type="text"
                 required
                 autoComplete="name"
-                className="onb-input"
+                className="auth-input"
                 placeholder="First name"
                 value={name}
                 onChange={(e) => { setName(e.target.value); if (error) setError('') }}
               />
-            )}
-            {!googleUser && !needsPhoneStep && (
+            </div>
+          )}
+          {!googleUser && !needsPhoneStep && (
+            <div className="auth-field">
+              <label className="auth-label">Email</label>
               <input
                 type="email"
                 required
                 autoComplete="email"
-                className="onb-input"
-                placeholder="you@example.com"
+                className="auth-input"
+                placeholder="name@example.com"
                 value={email}
                 onChange={(e) => { setEmail(e.target.value); if (error) setError('') }}
               />
-            )}
-            {!needsPhoneStep && (
-              <div className="onb-pw-wrap">
-                <input
-                  type={showPassword ? 'text' : 'password'}
-                  required
-                  autoComplete={mode === 'signup' ? 'new-password' : 'current-password'}
-                  className="onb-input"
-                  placeholder={mode === 'signup' ? 'Password (8+ chars)' : 'Password'}
-                  value={password}
-                  onChange={(e) => { setPassword(e.target.value); if (error) setError('') }}
-                />
+            </div>
+          )}
+          {!needsPhoneStep && (
+            <div className="auth-field">
+              <div className="auth-label-row">
+                <label className="auth-label">Password</label>
                 <button
                   type="button"
-                  className="onb-pw-toggle"
+                  className="auth-link-text"
                   onClick={() => setShowPassword((s) => !s)}
-                  aria-label={showPassword ? 'Hide password' : 'Show password'}
                 >
                   {showPassword ? 'Hide' : 'Show'}
                 </button>
               </div>
-            )}
-            {(mode === 'signup' || needsPhoneStep) && (
+              <input
+                type={showPassword ? 'text' : 'password'}
+                required
+                autoComplete={mode === 'signup' ? 'new-password' : 'current-password'}
+                className="auth-input"
+                placeholder={mode === 'signup' ? 'At least 8 characters' : 'Password'}
+                value={password}
+                onChange={(e) => { setPassword(e.target.value); if (error) setError('') }}
+              />
+            </div>
+          )}
+          {(mode === 'signup' || needsPhoneStep) && (
+            <div className="auth-field">
+              <label className="auth-label">Mobile Phone (for iMessage)</label>
               <input
                 type="tel"
                 required
                 autoFocus={needsPhoneStep}
                 autoComplete="tel"
-                className="onb-input"
-                placeholder="+1 (555) 010-9876"
+                className="auth-input"
+                placeholder="+1 (555) 000-0000"
                 value={phone}
                 onChange={(e) => { setPhone(e.target.value); if (error) setError('') }}
               />
-            )}
-            {error && <p className="onb-error" role="alert">{error}</p>}
-            <button id="onb-submit-btn" type="submit" className="onb-btn" disabled={busy}>
-              {busy
-                ? 'One moment…'
-                : needsPhoneStep
-                  ? 'Continue →'
-                  : mode === 'signup'
-                    ? 'Create account →'
-                    : 'Sign in →'}
-            </button>
-          </form>
-        )}
+            </div>
+          )}
 
-        {!googleUser && !pwSignedIn && (
-          <button
-            type="button"
-            className="onb-skip"
-            onClick={() => setMode((m) => (m === 'signup' ? 'signin' : 'signup'))}
-          >
-            {mode === 'signup' ? 'Already have an account? Sign in' : 'New here? Create account'}
+          {error && <p className="auth-error" role="alert">{error}</p>}
+
+          <button id="onb-submit-btn" type="submit" className="auth-btn auth-btn--primary" disabled={busy}>
+            {busy
+              ? 'Please wait…'
+              : needsPhoneStep
+                ? 'Save and Continue'
+                : mode === 'signin'
+                  ? 'Sign In'
+                  : 'Create Account'}
           </button>
-        )}
-
-        <p className="onb-foot">
-          <Link to="/" className="onb-foot-link">← Back to site</Link>
-        </p>
+        </form>
       </div>
     </div>
   )

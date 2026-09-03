@@ -203,6 +203,26 @@ export async function apiConnectorStatus() {
   return parseJson<{ google: boolean; composio: boolean }>(res)
 }
 
+export type BillingSubscription = { persona: string; status: string; currentPeriodEnd: string | null }
+
+export async function apiBillingStatus(email: string) {
+  const res = await fetch(`${API}/api/billing/status?email=${encodeURIComponent(email)}`)
+  const data = await parseJson<{
+    hires?: Record<string, boolean>
+    subscriptions?: BillingSubscription[]
+    error?: string
+  }>(res)
+  if (!res.ok) throw new Error(data.error || 'Could not load billing status')
+  return { hires: data.hires || {}, subscriptions: data.subscriptions || [] }
+}
+
+export async function apiBillingManage(email: string) {
+  const res = await fetch(`${API}/api/billing/manage?email=${encodeURIComponent(email)}`)
+  const data = await parseJson<{ url?: string; error?: string }>(res)
+  if (!res.ok || !data.url) throw new Error(data.error || 'Could not open billing')
+  return data.url
+}
+
 export async function apiConnectUrl(input: {
   connector: ConnectorId
   email: string

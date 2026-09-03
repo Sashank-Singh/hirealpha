@@ -8752,7 +8752,46 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
       }
       hires[row.persona] = subscriptionActive(row.status)
     }
-    return json({ hires })
+    const subscriptions = rows.map((r) => ({
+      persona: r.persona,
+      status: r.status,
+      currentPeriodEnd: r.currentPeriodEnd,
+    }))
+    return json({ hires, subscriptions })
+  }
+
+  if (path === '/api/billing/manage' && req.method === 'GET') {
+    // Stripe customer portal: where a user cancels or updates the card.
+    const email = String(url.searchParams.get('email') || '')
+      .trim()
+      .toLowerCase()
+    const user = email.includes('@') ? await getUserByEmail(sql, email) : null
+    if (!user) return json({ error: 'Sign in first' }, 401)
+    const rows = (await sql`
+      SELECT stripe_customer_id AS "stripeCustomerId"
+      FROM hire_subscriptions
+      WHERE user_id = ${user.id} AND stripe_customer_id IS NOT NULL
+      LIMIT 1
+    `) as Array<{ stripeCustomerId: string }>
+    const customer = rows[0]?.stripeCustomerId
+    if (!customer) return json({ error: 'No billing account yet' }, 404)
+    if (!stripeSecret()) return json({ error: 'Billing is not configured on the server yet.' }, 503)
+    try {
+      const session = (await stripeRequest(
+        '/billing_portal/sessions',
+        new URLSearchParams({
+          customer,
+          return_url: `${appBase(req)}/app`,
+        }),
+      )) as { url?: string }
+      if (!session.url) throw new Error('Portal session returned no URL')
+      return json({ url: session.url })
+    } catch (err) {
+      return json(
+        { error: err instanceof Error ? err.message : 'Could not open billing portal' },
+        502,
+      )
+    }
   }
 
   // Credential vault, browser approval gates, and the internal browser task
