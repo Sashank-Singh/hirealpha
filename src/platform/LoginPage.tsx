@@ -79,7 +79,15 @@ export function LoginPage() {
       })
   }, [navigate, params, setParams])
 
-  if (existing?.email && existing.phone) return <Navigate to="/app" replace />
+  /* A returning, complete account with a plan in the URL goes straight to
+   * Stripe — never strand a paid intent on the app home. */
+  if (existing?.email && existing.phone) {
+    if (planParam) {
+      void continueToCheckout(existing.email)
+      return null
+    }
+    return <Navigate to="/app" replace />
+  }
 
   async function finish(nextName: string, nextEmail: string, nextPhone: string) {
     setBusy(true)
@@ -88,6 +96,10 @@ export function LoginPage() {
       await apiSignIn(nextEmail, nextPhone, nextName)
       signIn(nextEmail, nextPhone, nextName)
       await hydrateFromServer().catch(() => undefined)
+      if (planParam) {
+        void continueToCheckout(nextEmail)
+        return
+      }
       navigate('/app')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not sign in')
@@ -142,7 +154,12 @@ export function LoginPage() {
         .then(async (data) => {
           signIn(data.email, data.phone || nextPhone, data.name || nextName)
           await hydrateFromServer().catch(() => undefined)
-          // Show the trial pricing screen after first sign-up
+          // A plan from the pricing card continues straight to Stripe; a plain
+          // signup lands on the trial screen.
+          if (planParam) {
+            void continueToCheckout(data.email)
+            return
+          }
           setStep('trial')
         })
         .catch((err) => {
