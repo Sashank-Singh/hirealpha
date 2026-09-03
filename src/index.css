@@ -3586,6 +3586,28 @@ html[data-mini-theme='light'] .ma-where-label { color: #6d28d9; }
 }
 .setup__nav { display: flex; justify-content: space-between; align-items: center; margin-top: 4px; }
 
+/* ---- One-shot home tour after onboarding ---- */
+.home-tour {
+  position: fixed; inset: 0; z-index: 900;
+  background: rgba(0,0,0,0.35);
+  display: flex; align-items: flex-end; justify-content: center;
+  padding: 16px;
+}
+.home-tour__card {
+  width: 100%; max-width: 420px;
+  background: var(--card, #1c1c1e); color: var(--fg, #f4f4f5);
+  border-radius: 18px; padding: 20px;
+  box-shadow: 0 12px 40px rgba(0,0,0,0.5);
+  display: flex; flex-direction: column; gap: 10px;
+}
+.home-tour__step {
+  font-size: 11px; font-weight: 700; letter-spacing: 0.08em;
+  text-transform: uppercase; opacity: 0.55; margin: 0;
+}
+.home-tour__title { margin: 0; font-size: 18px; }
+.home-tour__body { margin: 0; font-size: 14px; line-height: 1.5; opacity: 0.9; }
+.home-tour__nav { display: flex; justify-content: space-between; align-items: center; margin-top: 6px; }
+
 /* ---- Email reader sheet ---- */
 .email-reader-overlay {
   position: fixed; inset: 0; z-index: 1100;

@@ -97,6 +97,11 @@ export function HomeApp({ auth }: { auth: FeatureAuth }) {
   const [doneId, setDoneId] = useState<string | null>(null)
   const [snoozed, setSnoozed] = useState<string[]>([])
   const [actMsg, setActMsg] = useState('')
+  /* One-shot tour after onboarding: only when the setup wizard sent us here
+   * with ?tour=1 and this device has not dismissed it before. */
+  const [tourStep, setTourStep] = useState(() =>
+    searchParams.get('tour') === '1' && !localStorage.getItem('ha_tour_done') ? 0 : -1,
+  )
 
   const load = useCallback(() => {
     setLoading(true)
@@ -492,6 +497,56 @@ export function HomeApp({ auth }: { auth: FeatureAuth }) {
       </nav>
 
       {msg && <p className="mini__hint home-msg">{msg}</p>}
+
+      {tourStep >= 0 && (
+        <HomeTour
+          step={tourStep}
+          onNext={() => setTourStep((s) => (s >= TOUR_STEPS.length - 1 ? s : s + 1))}
+          onDone={() => {
+            localStorage.setItem('ha_tour_done', '1')
+            setTourStep(-1)
+            const u = new URL(window.location.href)
+            u.searchParams.delete('tour')
+            window.history.replaceState(null, '', u.toString())
+          }}
+        />
+      )}
+    </div>
+  )
+}
+
+const TOUR_STEPS = [
+  {
+    title: 'This is your day',
+    body: 'Alpha picks the one thing that matters right now and puts it on top. Tap the button to handle it, or snooze it and it comes back later.',
+  },
+  {
+    title: 'Your queue',
+    body: 'Below the top card is everything else waiting: people to check in on, meals to log, spend to review. Alpha reorders it as your day moves.',
+  },
+  {
+    title: 'Alpha texts first',
+    body: 'You do not have to open this screen. Alpha sends the day brief and nudges you in Messages. This page is just the place things land.',
+  },
+]
+
+function HomeTour({ step, onNext, onDone }: { step: number; onNext: () => void; onDone: () => void }) {
+  const s = TOUR_STEPS[step]!
+  return (
+    <div className="home-tour" role="dialog" aria-label="Welcome tour">
+      <div className="home-tour__card">
+        <p className="home-tour__step">{step + 1} of {TOUR_STEPS.length}</p>
+        <h3 className="home-tour__title">{s.title}</h3>
+        <p className="home-tour__body">{s.body}</p>
+        <div className="home-tour__nav">
+          <button type="button" className="wk-act" onClick={onDone}>
+            Skip
+          </button>
+          <button type="button" className="ma-btn" onClick={step >= TOUR_STEPS.length - 1 ? onDone : onNext}>
+            {step >= TOUR_STEPS.length - 1 ? 'Done' : 'Next'}
+          </button>
+        </div>
+      </div>
     </div>
   )
 }

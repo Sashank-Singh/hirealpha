@@ -149,12 +149,13 @@ export function SetupApp({ auth }: { auth: FeatureAuth }) {
     }
   }
 
-  /* Finished: mark setup complete and land on the home screen. */
+  /* Finished: mark setup complete and land on home with the one-shot tour. */
   if (done) {
     void apiSetup({ persona, done: true, ...a }).catch(() => undefined)
     window.dispatchEvent(new Event(MINI_SETTINGS_EVENT))
     const q = window.location.search
-    return <Navigate to={`/app/mini/${persona}/home${q}`} replace />
+    const joiner = q ? '&' : '?'
+    return <Navigate to={`/app/mini/${persona}/home${q}${joiner}tour=1`} replace />
   }
 
   return (
