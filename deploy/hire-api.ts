@@ -915,17 +915,26 @@ function verifyMiniToken(token: string): MiniToken | null {
 }
 
 /* Alpha's contact photo for the vCard, loaded once and cached. A missing file
- * just means a text-only card. */
+ * just means a text-only card. Vite copies public/ into dist/, so in prod the
+ * image lives at STATIC_ROOT; in dev it is still at ../public. Try both. */
 let alphaContactB64: string | null = null
 async function alphaContactPhoto(): Promise<string | null> {
   if (alphaContactB64 !== null) return alphaContactB64
-  try {
-    const png = await readFile(join(import.meta.dir, '..', 'public', 'alpha-contact.png'))
-    alphaContactB64 = png.toString('base64')
-  } catch {
-    alphaContactB64 = ''
+  const candidates = [
+    join(import.meta.dir, '..', 'dist', 'alpha-contact.png'),
+    join(import.meta.dir, '..', 'public', 'alpha-contact.png'),
+  ]
+  for (const file of candidates) {
+    try {
+      const png = await readFile(file)
+      alphaContactB64 = png.toString('base64')
+      return alphaContactB64
+    } catch {
+      /* try next */
+    }
   }
-  return alphaContactB64 || null
+  alphaContactB64 = ''
+  return null
 }
 
 /** How long a signed web-session token stays valid. */
