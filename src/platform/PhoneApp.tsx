@@ -7,8 +7,9 @@ import { applyMiniTheme, readMiniTheme } from './miniTheme'
 import { localYmd } from './home'
 import './phoneApp.css'
 
-/** Alpha texts from this number; the Text Alpha button opens the thread. */
-const ALPHA_SMS = 'sms:+14155951440'
+/** Alpha texts from this number; the Text Alpha button opens the thread
+ * prefilled with the first text. */
+const ALPHA_SMS = 'sms:+14155951440&body=Hey%2C%20Alpha!'
 
 /** One row of the receipts ledger. */
 interface ActionReceipt {

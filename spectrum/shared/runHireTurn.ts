@@ -31,6 +31,7 @@ import {
   looksLikeEveningBriefIntent,
   isMinimalCardKind,
   mintMiniAppCard,
+  onboardingCard,
   miniAppFallbackText,
   buildDigestBriefing,
   type MiniAppCard,
@@ -781,7 +782,7 @@ export async function runHireTurn(input: {
     extras.push(formatNowForAgent(timezone))
     if (isFirst) {
       extras.push(
-        `This is their first iMessage to you${live.name ? `. Their name is ${live.name}` : ''}. Introduce yourself once, briefly, in the same text as the answer. No taglines. No second bubble.`,
+        `This is their first iMessage to you${live.name ? `. Their name is ${live.name}` : ''}. Greet them like a real person would, introduce yourself in one line (you are ${agent.imsgName}, their hired ${agent.name}), say in ONE short line what you can do for them (keep it to the highest-value thing, no feature list), and tell them a card is coming in this thread to pick how they want to use you. Keep the whole text short, like a real first text. No taglines. No second bubble.`,
       )
     } else {
       extras.push(
@@ -1525,10 +1526,17 @@ export async function runHireTurn(input: {
    * mint at all — note-trackers are answered in text, so no card here. Suppress
    * the same kind for 90 seconds, and never attach one when the reply text
    * already links the mini app. */
-  const card =
-    cardKind && isMinimalCardKind(cardKind) && !/\/app\/mini\//.test(finalReply) && allowMiniAppCard(input.senderId, agent.id, cardKind)
-      ? await mintMiniAppCard(input.senderId, agent.id, cardKind, cardQuery)
-      : null
+  let card: MiniAppCard | null = null
+  if (cardKind && isMinimalCardKind(cardKind) && !/\/app\/mini\//.test(finalReply) && allowMiniAppCard(input.senderId, agent.id, cardKind)) {
+    card = await mintMiniAppCard(input.senderId, agent.id, cardKind, cardQuery)
+  }
+  /* Very first text to a hire: no specific intent yet, so attach the onboarding
+   * home card. It shows what this hire can do and starts the "how do you want
+   * to use me" conversation; picks land via /api/setup. Never re-send on later
+   * texts — that is what the 90s throttle plus this isFirst gate are for. */
+  if (!card && isFirst && allowMiniAppCard(input.senderId, agent.id, 'home')) {
+    card = await onboardingCard(input.senderId, agent.id)
+  }
 
   return { reply: finalReply, bubbles: splitBubbles(finalReply), source, authoritative, card }
 }

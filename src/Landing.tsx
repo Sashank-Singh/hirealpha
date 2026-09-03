@@ -1013,12 +1013,12 @@ function WaitlistForm() {
         {!waitlisted && (
           <>
             <p className="waitlist-success__cta">Text Alpha now</p>
-            <a className="btn btn--accent" href="sms:+14155951440">
+            <a className="btn btn--accent" href="sms:+14155951440&body=Hey%2C%20Alpha!">
               Open Messages
             </a>
           </>
         )}
-        <a className="btn btn--accent" href="sms:+14155951440">
+        <a className="btn btn--accent" href="sms:+14155951440&body=Hey%2C%20Alpha!">
           Open Messages
         </a>
         <p style={{ margin: '10px 0 0' }}>

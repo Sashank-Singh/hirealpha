@@ -469,11 +469,11 @@ export async function mintMiniAppCard(
 
 /**
  * Onboarding chooser card sent on a user's very first text to a hire.
- * The page lists the features that hire can do and lets the user pick;
- * picks are stored via /api/setup so the bot sees them as context.
+ * Opens the apps grid so the person sees what this hire can do; picks land
+ * via /api/setup so the bot sees them as context.
  */
 export async function onboardingCard(phone: string, persona: AgentId): Promise<MiniAppCard> {
-  return mintMiniAppCard(phone, persona, 'home')
+  return mintMiniAppCard(phone, persona, 'menu')
 }
 
 /**
