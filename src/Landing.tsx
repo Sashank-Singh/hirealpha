@@ -878,6 +878,14 @@ const PLAN_LABEL: Record<string, string> = {
 function WaitlistForm() {
   const [phone, setPhone] = useState('')
   const [email, setEmail] = useState('')
+  const [name, setName] = useState('')
+  const [tz, setTz] = useState(() => {
+    try {
+      return Intl.DateTimeFormat().resolvedOptions().timeZone || ''
+    } catch {
+      return ''
+    }
+  })
   const [hire, setHire] = useState<AgentId>('friend')
   const [done, setDone] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -912,6 +920,8 @@ function WaitlistForm() {
           phone: phoneValue,
           email: emailValue,
           hire,
+          name: name.trim(),
+          timezone: tz,
           ...(code.trim() ? { code: code.trim() } : {}),
         }),
       })
@@ -1060,6 +1070,15 @@ function WaitlistForm() {
       />
       <form className="waitlist-form" onSubmit={onSubmit}>
         <input
+          type="text"
+          placeholder="First name"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          aria-label="Your first name"
+          disabled={busy}
+          autoComplete="given-name"
+        />
+        <input
           type="tel"
           placeholder="(555) 555-0100"
           value={phone}
@@ -1072,6 +1091,7 @@ function WaitlistForm() {
           {busy ? 'Saving…' : 'Get my invite'}
         </button>
       </form>
+      {tz && <p className="waitlist-tz">Briefs land in your timezone · {tz}</p>}
       <div className="waitlist-hire" role="radiogroup" aria-label="Who do you want to hire?">
         {(Object.keys(HIRE_LINES) as AgentId[]).map((id) => (
           <button

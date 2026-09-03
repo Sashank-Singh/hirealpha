@@ -269,12 +269,15 @@ export async function handleWaitlist(req: Request, db: SQL | null) {
   // no intro text — until more spots open.
   const CAPACITY = 100
 
-  let body: { email?: string; phone?: string; hire?: string; code?: string; password?: string }
+  let body: { email?: string; phone?: string; hire?: string; code?: string; password?: string; name?: string; timezone?: string }
   try {
-    body = (await req.json()) as { email?: string; phone?: string; hire?: string; code?: string; password?: string }
+    body = (await req.json()) as { email?: string; phone?: string; hire?: string; code?: string; password?: string; name?: string; timezone?: string }
   } catch {
     return json({ error: 'Invalid JSON' }, 400)
   }
+
+  const name = String(body.name || '').trim().slice(0, 80)
+  const timezone = String(body.timezone || '').trim()
 
   const email = String(body.email || '')
     .trim()
@@ -333,7 +336,7 @@ export async function handleWaitlist(req: Request, db: SQL | null) {
             ON CONFLICT (phone_e164, persona) DO NOTHING
           `
         } else {
-          await ensurePhoneUser(sql, rawPhone, hire)
+          await ensurePhoneUser(sql, rawPhone, hire, name || undefined, timezone || undefined)
         }
       } else {
         waitlisted = true

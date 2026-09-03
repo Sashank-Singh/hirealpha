@@ -324,31 +324,44 @@ export async function ackIntro(sql: SQL, id: string, ok: boolean, error?: string
  * Google, ensureUser adopts this row by phone instead of colliding with the
  * phone_e164 unique index.
  */
-export async function ensurePhoneUser(sql: SQL, phone: string, persona: Persona) {
+export async function ensurePhoneUser(sql: SQL, phone: string, persona: Persona, name?: string, timezone?: string) {
   await enqueueIntro(sql, phone, persona)
   const e164 = normalizePhone(phone)
   if (!e164) return
+  const cleanName = String(name || '').trim().slice(0, 80) || null
+  const cleanTz = timezone && isValidTimeZone(timezone) ? timezone : null
   const existing = await getUserByPhone(sql, e164)
   let userId = existing?.id
   if (!userId) {
     const placeholder = `${e164.replace(/\D/g, '')}@phone.hirealpha.chat`
     const inserted = (await sql`
-      INSERT INTO hire_users (id, email, phone_e164)
-      VALUES (${crypto.randomUUID()}, ${placeholder}, ${e164})
-      ON CONFLICT (phone_e164) DO UPDATE SET updated_at = now()
+      INSERT INTO hire_users (id, email, phone_e164, name, timezone)
+      VALUES (${crypto.randomUUID()}, ${placeholder}, ${e164}, ${cleanName}, ${cleanTz})
+      ON CONFLICT (phone_e164) DO UPDATE SET
+        name = COALESCE(${cleanName}, hire_users.name),
+        timezone = COALESCE(${cleanTz}, hire_users.timezone),
+        updated_at = now()
       RETURNING id
     `) as Array<{ id: string }>
     userId = inserted[0]?.id
+  } else if (cleanName || cleanTz) {
+    await sql`
+      UPDATE hire_users SET
+        name = COALESCE(${cleanName}, name),
+        timezone = COALESCE(${cleanTz}, timezone),
+        updated_at = now()
+      WHERE id = ${existing!.id}
+    `
   }
   if (!userId) return
   await sql`
     INSERT INTO hire_roster (user_id, persona) VALUES (${userId}, ${persona})
     ON CONFLICT (user_id, persona) DO NOTHING
   `
-  // The number is armed: give this hire its default recurring jobs. No
-  // timezone is known for a phone-only signup yet, so the wakeup lands at
-  // 8am Pacific until the user's zone is learned.
-  await seedDefaultLoops(sql, userId, e164, persona)
+  // The number is armed: give this hire its default recurring jobs. The
+  // wakeup lands at 8am in the user's zone when one was captured at signup,
+  // else 8am Pacific until the zone is learned later.
+  await seedDefaultLoops(sql, userId, e164, persona, cleanTz || undefined)
 }
 
 /* ---- Task loops ----
