@@ -68,18 +68,22 @@ function displayPrice(tier: { id: Tier; price: number; promo?: number; per: stri
   return { price: '$' + tier.price, per: 'a month', freebie: '', was: '' }
 }
 
-/** Checkout needs an email and nothing else: a known account fires Stripe
- * immediately, a fresh visitor types theirs into the card and follows it.
- * Free has nothing to charge, so it walks to the signup form. */
+/** Checkout needs a signed-in email: a known session fires Stripe immediately;
+ * a fresh visitor is sent to /app/login?plan=... which collects the account
+ * (name, email, phone) and auto-continues to checkout on success. Free has
+ * nothing to charge, so it walks to the signup form. */
 async function choosePlan(tier: Tier, annual: boolean, email?: string) {
   if (tier === 'free') {
     document.getElementById('waitlist')?.scrollIntoView({ behavior: 'smooth' })
-    return { ok: false, needsEmail: false }
+    return
   }
   const fromSession = getSession()?.email || ''
   const use = email || fromSession
-  if (!use.includes('@')) return { ok: false, needsEmail: true }
   const plan = annual ? `${tier}-annual` : tier
+  if (!use.includes('@')) {
+    window.location.href = `/app/login?plan=${plan}`
+    return
+  }
   const res = await fetch('/api/billing/checkout', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -88,9 +92,10 @@ async function choosePlan(tier: Tier, annual: boolean, email?: string) {
   const data = (await res.json().catch(() => ({}))) as { url?: string }
   if (data.url) {
     window.location.href = data.url
-    return { ok: true, needsEmail: false }
+    return
   }
-  return { ok: false, needsEmail: true }
+  // Checkout refused: land on login so the account exists, then retry there.
+  window.location.href = `/app/login?plan=${plan}`
 }
 
 export function Pricing() {
