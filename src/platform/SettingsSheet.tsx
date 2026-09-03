@@ -595,7 +595,9 @@ export function SettingsSheet() {
             </div>
           </section>
 
-          {/* Bank Account (Plaid) */}
+          {/* Bank Account (Plaid): only surfaces once a real connection exists.
+           * Not provisioned end to end yet, so no affordance and no copy. */}
+          {isPlaidConnected && (
           <section id="connector-plaid" className={`ss-sec${isPlaidConnected ? ' is-connected' : ''}${targetConnector === 'plaid' ? ' is-target' : ''}`}>
             <header className="ss-sec-head">
               <div>
@@ -651,6 +653,7 @@ export function SettingsSheet() {
               </div>
             </div>
           </section>
+          )}
 
           {/* Places */}
           <section className="ss-sec">

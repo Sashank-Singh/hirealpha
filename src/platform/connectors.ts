@@ -362,6 +362,9 @@ export const HIRE_CONTEXT_FIELDS: Record<AgentId, ContextField[]> = {
 export function connectorsForHire(agentId: AgentId): ConnectorDef[] {
   const executable = new Set(SKILLS[agentId].executable)
   return CONNECTOR_CATALOG.filter((c) =>
+    // Plaid/bank reads are not provisioned end to end yet; keep the tile from
+    // offering a link that cannot complete. No coming-soon copy — just quiet.
+    c.id !== 'plaid' &&
     c.toolMatchers.some((matcher) => executable.has(matcher) || c.noAuth),
   )
 }
