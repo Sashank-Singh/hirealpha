@@ -3551,6 +3551,29 @@ html[data-mini-theme='light'] .ma-where-label { color: #6d28d9; }
 .conn-row .habit-info { min-width: 0; }
 .conn-list--scroll { max-height: 17rem; overflow-y: auto; -webkit-overflow-scrolling: touch; }
 
+/* ---- Onboarding setup wizard (menu card) ---- */
+.setup { display: flex; flex-direction: column; gap: 16px; }
+.setup__step {
+  font-size: 11px; font-weight: 600; letter-spacing: 0.08em;
+  text-transform: uppercase; opacity: 0.55; margin: 0;
+}
+.setup__block { display: flex; flex-direction: column; gap: 12px; }
+.setup__lead { margin: 0; font-size: 14px; line-height: 1.45; opacity: 0.9; }
+.setup__chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.setup__chips .ma-chip.is-pick {
+  display: inline-flex; align-items: center; gap: 6px; cursor: pointer; user-select: none;
+}
+.setup__chips .ma-chip input { accent-color: var(--mini-accent, #2a6f7a); margin: 0; }
+.setup__row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.setup__row span { font-size: 14px; opacity: 0.9; }
+.setup__row input {
+  width: 110px; text-align: right;
+  background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 10px; color: inherit; font: inherit; padding: 8px 10px;
+}
+.setup__row input:focus { outline: none; border-color: var(--mini-accent, #2a6f7a); }
+.setup__nav { display: flex; justify-content: space-between; align-items: center; margin-top: 4px; }
+
 /* ---- Email reader sheet ---- */
 .email-reader-overlay {
   position: fixed; inset: 0; z-index: 1100;

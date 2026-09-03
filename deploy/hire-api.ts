@@ -10883,6 +10883,39 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     return json({ ok: true, features: requested, setup: next, setupDone })
   }
 
+  /* Public mini-prefs write for the onboarding wizard: workout days and sleep
+   * baseline. The bot-side path is /api/internal/prefs (text-parsed); this one
+   * takes structured values straight from the setup card. */
+  if (path === '/api/mini-prefs' && req.method === 'PUT') {
+    const body = (await req.json().catch(() => ({}))) as {
+      email?: string
+      token?: string
+      session?: string
+      workoutDays?: number[]
+      sleepBedtime?: string
+      sleepWake?: string
+    }
+    const { user, error } = await resolveAuthedUser(sql, {
+      token: body.token,
+      session: body.session,
+      email: body.email,
+    })
+    if (error) return error
+    const patch: Partial<MiniPrefs> = {}
+    if (Array.isArray(body.workoutDays)) patch.workoutDays = body.workoutDays
+    if (typeof body.sleepBedtime === 'string' && body.sleepBedtime.trim()) {
+      patch.sleepBedtime = body.sleepBedtime.trim().slice(0, 5)
+    }
+    if (typeof body.sleepWake === 'string' && body.sleepWake.trim()) {
+      patch.sleepWake = body.sleepWake.trim().slice(0, 5)
+    }
+    if (!Object.keys(patch).length) {
+      return json({ error: 'Nothing to update' }, 400)
+    }
+    const prefs = await saveMiniPrefs(sql, user!.id, patch)
+    return json({ ok: true, workoutDays: prefs.workoutDays, sleepBedtime: prefs.sleepBedtime, sleepWake: prefs.sleepWake })
+  }
+
   // Phone lookup for the hires' own clients: every task loop on the number,
   // across all personas. The authed branch below stays for the dashboard.
   if (path === '/api/loops' && req.method === 'GET' && url.searchParams.has('phone')) {

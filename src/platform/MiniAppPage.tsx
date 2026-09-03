@@ -16,6 +16,7 @@ import {
   RelationshipRadarApp,
 } from './FeatureMiniApps'
 import { MiniAppSettings } from './MiniAppSettings'
+import { SetupApp } from './SetupApp'
 import {
   GratitudeJournalApp,
   LearningQueueApp,
@@ -44,6 +45,7 @@ import { EmailReader } from './EmailReader'
 import { readBriefCache, writeBriefCache } from './briefCache'
 import { applyMiniTheme, readMiniTheme } from './miniTheme'
 import { localYmd } from './home'
+import { apiSetupStatus } from './api'
 import type { ReplyDraft } from './api'
 
 
@@ -207,6 +209,8 @@ export function MiniAppPage() {
   const [expired, setExpired] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [settingsTick, setSettingsTick] = useState(0)
+  /** menu card doubles as the onboarding wizard until setup is done. */
+  const [setupDone, setSetupDone] = useState<boolean | null>(null)
   const [openEmailId, setOpenEmailId] = useState<string | null>(null)
   const [openEmailLabel, setOpenEmailLabel] = useState<string | undefined>(undefined)
   const [openEmailSummary, setOpenEmailSummary] = useState<string | undefined>(undefined)
@@ -362,6 +366,27 @@ export function MiniAppPage() {
   }, [isDigest, isEveningBrief, data?.pending, mini?.pending, briefTries, kind, persona, token])
 
   const email = getSession()?.email
+
+  /* The menu card is the onboarding wizard until the person has told Alpha
+   * what to watch: features, goals, sleep, workout days, budget, connectors. */
+  const isMenuCard = isMenu && persona === 'friend'
+  useEffect(() => {
+    if (!isMenuCard || !(token || email)) {
+      setSetupDone(null)
+      return
+    }
+    let cancelled = false
+    apiSetupStatus({ persona: 'friend', email: email || undefined, token: token || undefined })
+      .then((s) => {
+        if (!cancelled) setSetupDone(!!s.setupDone)
+      })
+      .catch(() => {
+        if (!cancelled) setSetupDone(true) // status offline: skip the wizard, do not block home
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [isMenuCard, token, email])
   const authed = !!token || !!email
   const miniAccent = agent.color
   const miniAccentFg = '#f4f4f5'
@@ -531,7 +556,15 @@ export function MiniAppPage() {
 
         {authed && !expired && isApps && !settingsOpen && (
           <div className="mini__body mini__body--home-screen">
-            {persona === 'coworker' ? (
+            {isMenuCard && setupDone === false ? (
+              <SetupApp
+                auth={{
+                  persona: (persona as AgentId) || 'friend',
+                  email: email || undefined,
+                  token: token || undefined,
+                }}
+              />
+            ) : persona === 'coworker' ? (
               <CoworkerHomeApp
                 auth={{
                   persona: (persona as AgentId) || 'friend',
