@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react'
 import { Navigate } from 'react-router-dom'
 import {
+  apiAddRelationship,
   apiConnectUrl,
   apiGetMiniPrefs,
   apiNutritionToday,
   apiPutMiniPrefs,
+  apiSetDigestTime,
   apiSetNutritionGoals,
   apiSetSpendBudget,
   apiSetup,
@@ -28,12 +30,14 @@ export function SetupApp({ auth }: { auth: FeatureAuth }) {
   const persona = auth.persona
   const email = auth.email || getSession()?.email
 
-  type Step = 'features' | 'goals' | 'sleep' | 'days' | 'budget' | 'connect'
+  type Step = 'features' | 'time' | 'goals' | 'sleep' | 'days' | 'people' | 'budget' | 'connect'
   const STEPS: { id: Step; title: string }[] = [
-    { id: 'features', title: 'What Alpha helps with' },
+    { id: 'features', title: 'What Alpha watches' },
+    { id: 'time', title: 'Daily brief time' },
     { id: 'goals', title: 'Food goals' },
     { id: 'sleep', title: 'Sleep' },
     { id: 'days', title: 'Workout days' },
+    { id: 'people', title: 'People who matter' },
     { id: 'budget', title: 'Weekly spend' },
     { id: 'connect', title: 'Connect tools' },
   ]
@@ -41,11 +45,15 @@ export function SetupApp({ auth }: { auth: FeatureAuth }) {
   const idx = STEPS.findIndex((s) => s.id === step)
 
   const [features, setFeatures] = useState<string[]>([])
+  const [digestTime, setDigestTime] = useState('08:00')
   const [calories, setCalories] = useState(2200)
   const [protein, setProtein] = useState(150)
   const [bedtime, setBedtime] = useState('23:00')
   const [wake, setWake] = useState('07:00')
   const [days, setDays] = useState<WorkoutDay[]>(() => readWorkoutDays() || [0, 1, 2, 3, 4])
+  const [personName, setPersonName] = useState('')
+  const [personKind, setPersonKind] = useState('personal')
+  const [personCadence, setPersonCadence] = useState(14)
   const [budget, setBudget] = useState(400)
   const [ids, setIds] = useState<ConnectorId[]>(() => connectedIds())
   const [connecting, setConnecting] = useState<ConnectorId | null>(null)
@@ -90,6 +98,9 @@ export function SetupApp({ auth }: { auth: FeatureAuth }) {
       if (step === 'features') {
         const f = features.length ? features : ['digest']
         await apiSetup({ persona, features: f, ...a })
+        if (features.includes('digest')) await apiSetDigestTime({ persona, time: digestTime, ...a })
+      } else if (step === 'time') {
+        await apiSetDigestTime({ persona, time: digestTime, ...a })
       } else if (step === 'goals') {
         await apiSetNutritionGoals({ ...a, calorieGoal: calories, proteinGoal: protein })
       } else if (step === 'sleep') {
@@ -97,6 +108,11 @@ export function SetupApp({ auth }: { auth: FeatureAuth }) {
       } else if (step === 'days') {
         writeWorkoutDays(days)
         await apiPutMiniPrefs({ ...a, workoutDays: days })
+      } else if (step === 'people') {
+        const name = personName.trim()
+        if (name) {
+          await apiAddRelationship({ ...a, name, kind: personKind, cadenceDays: personCadence })
+        }
       } else if (step === 'budget') {
         await apiSetSpendBudget({ ...a, weeklyBudget: budget })
       }
@@ -149,31 +165,49 @@ export function SetupApp({ auth }: { auth: FeatureAuth }) {
 
       {step === 'features' && (
         <div className="setup__block">
-          <p className="setup__lead">What should Alpha watch for you? Pick any. You can change this later.</p>
+          <p className="setup__lead">What should Alpha watch for you? Pick any — you can change this later.</p>
           <div className="setup__chips">
             {connectors.length ? (
               <>
                 <label className="ma-chip is-pick">
                   <input type="checkbox" checked={features.includes('digest')} onChange={(e) => setFeatures((f) => (e.target.checked ? [...f, 'digest'] : f.filter((x) => x !== 'digest')))} />
-                  Daily brief
+                  Daily brief — your morning and evening wrap
                 </label>
                 <label className="ma-chip is-pick">
                   <input type="checkbox" checked={features.includes('spending_snapshot')} onChange={(e) => setFeatures((f) => (e.target.checked ? [...f, 'spending_snapshot'] : f.filter((x) => x !== 'spending_snapshot')))} />
-                  Spending watch
+                  Spending watch — catches duplicate and wild charges
                 </label>
                 <label className="ma-chip is-pick">
                   <input type="checkbox" checked={features.includes('nutrition')} onChange={(e) => setFeatures((f) => (e.target.checked ? [...f, 'nutrition'] : f.filter((x) => x !== 'nutrition')))} />
-                  Food + macros
+                  Food + macros — logs meals from a photo
                 </label>
                 <label className="ma-chip is-pick">
                   <input type="checkbox" checked={features.includes('habit_streak')} onChange={(e) => setFeatures((f) => (e.target.checked ? [...f, 'habit_streak'] : f.filter((x) => x !== 'habit_streak')))} />
-                  Habits
+                  Habits — streaks Alpha keeps honest
+                </label>
+                <label className="ma-chip is-pick">
+                  <input type="checkbox" checked={features.includes('learning_queue')} onChange={(e) => setFeatures((f) => (e.target.checked ? [...f, 'learning_queue'] : f.filter((x) => x !== 'learning_queue')))} />
+                  Learning queue — articles and courses saved for later
+                </label>
+                <label className="ma-chip is-pick">
+                  <input type="checkbox" checked={features.includes('drop_zone')} onChange={(e) => setFeatures((f) => (e.target.checked ? [...f, 'drop_zone'] : f.filter((x) => x !== 'drop_zone')))} />
+                  Drop zone — text anything, Alpha files it and follows up
                 </label>
               </>
             ) : (
               <p className="mini__hint">Features for {persona} load after you sign in.</p>
             )}
           </div>
+        </div>
+      )}
+
+      {step === 'time' && (
+        <div className="setup__block">
+          <p className="setup__lead">When should the daily brief land? Alpha texts the morning wrap then.</p>
+          <label className="setup__row">
+            <span>Brief time</span>
+            <input type="time" value={digestTime} onChange={(e) => setDigestTime(e.target.value)} />
+          </label>
         </div>
       )}
 
@@ -228,6 +262,28 @@ export function SetupApp({ auth }: { auth: FeatureAuth }) {
               </button>
             ))}
           </div>
+        </div>
+      )}
+
+      {step === 'people' && (
+        <div className="setup__block">
+          <p className="setup__lead">Who should Alpha nudge you to stay close to? Add one — or skip and do this later.</p>
+          <input className="setup__text" type="text" placeholder="Name (e.g. Mom, Priya, Jordan)" value={personName} onChange={(e) => setPersonName(e.target.value)} />
+          <div className="setup__chips">
+            {(['personal', 'work', 'partner', 'investor'] as const).map((k) => (
+              <button key={k} className={`ma-chip${personKind === k ? ' ma-chip--on' : ''}`} type="button" onClick={() => setPersonKind(k)}>
+                {k}
+              </button>
+            ))}
+          </div>
+          <label className="setup__row">
+            <span>Check in every</span>
+            <select className="setup__select" value={personCadence} onChange={(e) => setPersonCadence(Number(e.target.value))}>
+              <option value={7}>week</option>
+              <option value={14}>2 weeks</option>
+              <option value={30}>month</option>
+            </select>
+          </label>
         </div>
       )}
 

@@ -10883,6 +10883,50 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     return json({ ok: true, features: requested, setup: next, setupDone })
   }
 
+  /* Set the daily brief time: upserts the [digest] daily reminder at the chosen
+   * local hour (defaults to 8:00) and re-arms the judge morning tick to match. */
+  if (path === '/api/digest/time' && req.method === 'PUT') {
+    const body = (await req.json().catch(() => ({}))) as {
+      email?: string
+      token?: string
+      session?: string
+      persona?: string
+      time?: string
+    }
+    const persona = body.persona || ''
+    if (!isPersona(persona)) return json({ error: 'persona required' }, 400)
+    const { user, error } = await resolveAuthedUser(sql, { token: body.token, session: body.session, email: body.email })
+    if (error) return error
+    const tz = user!.timezone || 'America/Los_Angeles'
+    const m = String(body.time || '').match(/^(\d{1,2})(?::(\d{2}))?\s*(am|pm)?$/i)
+    if (!m) return json({ error: 'time must be like 8:00, 8am, or 19:30' }, 400)
+    let h = Number(m[1])
+    const min = m[2] ? Number(m[2]) : 0
+    const ap = (m[3] || '').toLowerCase()
+    if (ap === 'pm' && h < 12) h += 12
+    if (ap === 'am' && h === 12) h = 0
+    if (h > 23 || min > 59) return json({ error: 'time out of range' }, 400)
+    const existing = await sql`
+      SELECT id FROM hire_reminders
+      WHERE user_id = ${user!.id} AND persona = ${persona} AND recurrence = 'daily'
+        AND text LIKE '[digest]%' LIMIT 1
+    `
+    if (existing[0]) {
+      await sql`
+        UPDATE hire_reminders SET scheduled_at = ${nextLocalTimeUtc(tz, h, min)}, timezone = ${tz},
+          status = 'pending', updated_at = now()
+        WHERE id = ${(existing[0] as { id: string }).id}
+      `
+    } else {
+      await sql`
+        INSERT INTO hire_reminders (id, user_id, persona, text, scheduled_at, recurrence, timezone, status)
+        VALUES (${crypto.randomUUID()}, ${user!.id}, ${persona}, '[digest]Daily brief',
+          ${nextLocalTimeUtc(tz, h, min)}, 'daily', ${tz}, 'pending')
+      `
+    }
+    return json({ ok: true, time: `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}` })
+  }
+
   /* Public mini-prefs write for the onboarding wizard: workout days and sleep
    * baseline. The bot-side path is /api/internal/prefs (text-parsed); this one
    * takes structured values straight from the setup card. */

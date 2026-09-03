@@ -302,6 +302,18 @@ export async function apiSetupStatus(input: { persona: AgentId; email?: string; 
   return { setup: data.setup || [], setupDone: !!data.setupDone }
 }
 
+/** Set the daily brief hour (server re-arms the [digest] reminder). */
+export async function apiSetDigestTime(a: { persona: AgentId; time: string; email?: string; token?: string }) {
+  const res = await fetch(`${API}/api/digest/time`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ persona: a.persona, time: a.time, email: a.email, token: a.token }),
+  })
+  const data = await parseJson<{ ok?: boolean; time?: string; error?: string }>(res)
+  if (!res.ok) throw new Error(data.error || 'Could not set brief time')
+  return data.time || a.time
+}
+
 /** Auth params shared by the feature mini-app endpoints. */
 function authParams(input: { email?: string; token?: string }) {
   if (input.email) return { email: input.email }

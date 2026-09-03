@@ -3572,6 +3572,15 @@ html[data-mini-theme='light'] .ma-where-label { color: #6d28d9; }
   border-radius: 10px; color: inherit; font: inherit; padding: 8px 10px;
 }
 .setup__row input:focus { outline: none; border-color: var(--mini-accent, #2a6f7a); }
+.setup__text {
+  width: 100%; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 10px; color: inherit; font: inherit; padding: 10px 12px; box-sizing: border-box;
+}
+.setup__text:focus { outline: none; border-color: var(--mini-accent, #2a6f7a); }
+.setup__select {
+  background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 10px; color: inherit; font: inherit; padding: 8px 10px;
+}
 .setup__nav { display: flex; justify-content: space-between; align-items: center; margin-top: 4px; }
 
 /* ---- Email reader sheet ---- */
