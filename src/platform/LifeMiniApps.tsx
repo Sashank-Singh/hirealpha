@@ -1852,7 +1852,9 @@ export function NetworkingCrmApp({ auth }: { auth: FeatureAuth }) {
                     </div>
                   )}
                 </div>
-                <button className="ma-chip" type="button" onClick={() => void talked(p.id, logNotes[p.id])}>Talked</button>
+                {!(due[0] && due[0]!.id === p.id) && (
+                  <button className="ma-chip" type="button" onClick={() => void talked(p.id, logNotes[p.id])}>Talked</button>
+                )}
                 {late && (
                   <button className="ma-chip" type="button" onClick={() => nudgePerson(p)}>
                     Nudge
