@@ -3594,6 +3594,14 @@ html[data-mini-theme='light'] .ma-where-label { color: #6d28d9; }
   border-radius: 10px; color: inherit; font: inherit; padding: 8px 10px;
 }
 .setup__nav { display: flex; justify-content: space-between; align-items: center; margin-top: 14px; }
+.setup__people-row { display: flex; gap: 8px; align-items: center; }
+.setup__people-row .setup__text { flex: 1; }
+.setup__people-list { display: flex; flex-wrap: wrap; gap: 8px; }
+.setup__people-list .ma-chip.is-pick { white-space: normal; }
+.setup__x {
+  border: 0; background: transparent; color: inherit; font-size: 14px;
+  cursor: pointer; margin-left: 4px; opacity: 0.7; padding: 0 2px; line-height: 1;
+}
 
 /* ---- One-shot home tour after onboarding ---- */
 .home-tour {

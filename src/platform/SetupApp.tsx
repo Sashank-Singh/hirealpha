@@ -56,6 +56,7 @@ export function SetupApp({ auth }: { auth: FeatureAuth }) {
   const [personName, setPersonName] = useState('')
   const [personKind, setPersonKind] = useState('personal')
   const [personCadence, setPersonCadence] = useState(14)
+  const [people, setPeople] = useState<Array<{ name: string; kind: string; cadence: number }>>([])
   const [budget, setBudget] = useState(400)
   const [ids, setIds] = useState<ConnectorId[]>(() => connectedIds())
   const [connecting, setConnecting] = useState<ConnectorId | null>(null)
@@ -112,9 +113,10 @@ export function SetupApp({ auth }: { auth: FeatureAuth }) {
         writeWorkoutDays(days)
         await apiPutMiniPrefs({ ...a, workoutDays: days })
       } else if (step === 'people') {
-        const name = personName.trim()
-        if (name) {
-          await apiAddRelationship({ ...a, name, kind: personKind, cadenceDays: personCadence })
+        // Save every person the user added (each keeps its own kind/cadence).
+        const all = people.length ? people : (personName.trim() ? [{ name: personName.trim(), kind: personKind, cadence: personCadence }] : [])
+        for (const p of all) {
+          await apiAddRelationship({ ...a, name: p.name, kind: p.kind as 'personal' | 'work' | 'partner' | 'investor', cadenceDays: p.cadence })
         }
       } else if (step === 'budget') {
         await apiSetSpendBudget({ ...a, weeklyBudget: budget })
@@ -279,8 +281,35 @@ export function SetupApp({ auth }: { auth: FeatureAuth }) {
 
       {step === 'people' && (
         <div className="setup__block">
-          <p className="setup__lead">Who should Alpha nudge you to stay close to? Add one — or skip and do this later.</p>
-          <input className="setup__text" type="text" placeholder="Name (e.g. Mom, Priya, Jordan)" value={personName} onChange={(e) => setPersonName(e.target.value)} />
+          <p className="setup__lead">Who should Alpha nudge you to stay close to? Add anyone — then tap Next when done.</p>
+          <div className="setup__people-row">
+            <input className="setup__text" type="text" placeholder="Name (e.g. Mom, Priya, Jordan)" value={personName} onChange={(e) => setPersonName(e.target.value)} />
+            <button
+              type="button"
+              className="wk-act"
+              disabled={!personName.trim()}
+              onClick={() => {
+                const name = personName.trim()
+                if (!name) return
+                setPeople((p) => [...p, { name, kind: personKind, cadence: personCadence }])
+                setPersonName('')
+              }}
+            >
+              Add
+            </button>
+          </div>
+          {people.length > 0 && (
+            <div className="setup__people-list">
+              {people.map((p, i) => (
+                <span key={`${p.name}-${i}`} className="ma-chip is-pick">
+                  {p.name}
+                  <button type="button" className="setup__x" aria-label={`Remove ${p.name}`} onClick={() => setPeople((list) => list.filter((_, idx) => idx !== i))}>
+                    ×
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
           <div className="setup__chips">
             {(['personal', 'work', 'partner', 'investor'] as const).map((k) => (
               <button key={k} className={`ma-chip${personKind === k ? ' ma-chip--on' : ''}`} type="button" onClick={() => setPersonKind(k)}>
