@@ -133,7 +133,18 @@ startTaskLoopPoller({
     await space.responding(async () => {
       const cleaned = sanitizeOutbound(text)
       if (cleaned) await space.send(cleaned)
+      // One-off "save Alpha's number" nudge: a loop text that starts with the
+      // marker also shares the native contact card so the person can Add us.
+      if (/^\[savecontact\]/i.test(text)) {
+        await space.shareContactCard().catch(() => undefined)
+      }
     })
+  },
+  runKind: {
+    save_contact: async () => ({
+      text: "[savecontact] If you haven't saved Alpha's number, tap Add so I always reach you.",
+      outcome: 'done',
+    }),
   },
 })
 
