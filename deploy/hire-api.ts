@@ -11036,6 +11036,23 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
       `
     }
 
+    // Setup finished: the friend bot texts one onboarding-complete welcome
+    // (connected tools + Alpha Apps). Only fires once per (user, persona): the
+    // unique index plus the WHERE NOT EXISTS guard means re-submitting done can
+    // never queue a second row. next_run = now() so the bot sends it on its
+    // very next claim pass, once the row exists under an account with a phone.
+    if (body.done === true && persona === 'friend' && user!.phone) {
+      await sql`
+        INSERT INTO hire_task_loops (id, user_id, persona, phone_e164, kind, title, payload, status, next_run)
+        VALUES (${crypto.randomUUID()}, ${user!.id}, ${persona}, ${user!.phone}, 'onboard_done',
+          'Welcome Alpha to the connected setup', '{}'::jsonb, 'pending', now())
+        WHERE NOT EXISTS (
+          SELECT 1 FROM hire_task_loops
+          WHERE user_id = ${user!.id} AND persona = ${persona} AND kind = 'onboard_done'
+        )
+      `
+    }
+
     return json({ ok: true, features: requested, setup: next, setupDone })
   }
 

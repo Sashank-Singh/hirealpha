@@ -3,7 +3,7 @@ import { imessage } from '@spectrum-ts/imessage'
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { defaultReplyCard, getAgent, runHireTurn, runMemoryMaintenance, sanitizeOutbound } from '../../shared/runHireTurn'
-import { extractMessageText, handleInboundPhoto } from '../../shared/liveContext'
+import { extractMessageText, fetchLiveProfile, handleInboundPhoto } from '../../shared/liveContext'
 import { claimInbound } from '../../shared/inboundGuard'
 import { startReminderScheduler } from '../../shared/reminders'
 import { startTaskLoopPoller } from '../../shared/taskLoops'
@@ -146,6 +146,36 @@ startTaskLoopPoller({
       text: "[savecontact] If you haven't saved Alpha's number, tap Add so I always reach you.",
       outcome: 'done',
     }),
+    // Onboarding just completed in the setup wizard: one warm welcome that names
+    // the connected tools, offers the week review, and introduces Alpha Apps.
+    // The server enqueues this exactly once per (user, persona) on done: true.
+    onboard_done: async (task) => {
+      const profile = await fetchLiveProfile(task.phone, 'friend')
+      const first = String(profile?.name || '').trim().split(/\s+/)[0] || ''
+      const connected = Array.isArray(profile?.connected)
+        ? profile.connected.map((id) => String(id).toLowerCase())
+        : []
+      const tools = connected.includes('calendar')
+        ? connected.includes('gmail')
+          ? ['Gmail', 'Calendar']
+          : ['Calendar']
+        : connected.includes('gmail')
+          ? ['Gmail']
+          : []
+      const pieces: string[] = []
+      if (tools.length) {
+        const greet = first ? `You're all set, ${first}.` : "You're all set."
+        pieces.push(
+          `${greet} I'm connected to ${tools.join(' and ')}. I can tell you which emails matter and which are junk, and review the week's email and calendar.`,
+        )
+      } else {
+        const greet = first ? `You're all set, ${first}.` : "You're all set."
+        pieces.push(`${greet} I'm your Alpha in texts, ready when you are.`)
+      }
+      pieces.push('Text @ apps to open Alpha apps, your nutrition, sleep, spending, and everything else in one place.')
+      pieces.push('I will start using your connected tools now.')
+      return { text: pieces.join(' '), outcome: 'done' }
+    },
   },
 })
 

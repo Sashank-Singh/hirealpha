@@ -227,13 +227,22 @@ export async function apiConnectUrl(input: {
   connector: ConnectorId
   email: string
   persona?: AgentId
+  /**
+   * Where the OAuth dance should land the browser afterwards. The server route
+   * appends `&connected=<connector>` to this itself. Defaults to the main
+   * dashboard's connectors tab; a caller inside a mini app (onboarding wizard,
+   * settings) passes its own URL — pathname + query, e.g.
+   * `/app/mini/friend/menu?t=…` — so the user returns to the mini app instead
+   * of leaving it for `/app`.
+   */
+  redirect?: string
 }) {
   const qs = new URLSearchParams({
     email: input.email,
     persona: input.persona || 'friend',
-    redirect: `/app?tab=connectors&connected=${input.connector}`,
     json: '1',
   })
+  qs.set('redirect', input.redirect || `/app?tab=connectors&connected=${input.connector}`)
   const res = await fetch(`${API}/api/connect/${input.connector}?${qs}`)
   const data = await parseJson<{ url?: string; error?: string; message?: string }>(res)
   if (!res.ok || !data.url) {

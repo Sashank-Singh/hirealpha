@@ -146,7 +146,16 @@ export function SetupApp({ auth }: { auth: FeatureAuth }) {
     setConnecting(id)
     setMsg('')
     try {
-      const url = await apiConnectUrl({ connector: id, email, persona })
+      const url = await apiConnectUrl({
+        connector: id,
+        email,
+        persona,
+        // Land back on this same wizard screen (path plus the t/email query that
+        // authenticates it) after the OAuth dance, so the user can connect more
+        // tools and press Done. Without this the OAuth redirect drops them on the
+        // main dashboard and they never return to the wizard.
+        redirect: window.location.pathname + window.location.search,
+      })
       window.location.href = url
     } catch (error) {
       setMsg(error instanceof Error ? error.message : 'Could not start connect.')

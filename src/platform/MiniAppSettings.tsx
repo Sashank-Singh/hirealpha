@@ -145,7 +145,14 @@ function ConnectorSettings({ auth }: { auth: FeatureAuth }) {
     setConnecting(id)
     setMsg('')
     try {
-      const url = await apiConnectUrl({ connector: id, email, persona })
+      const url = await apiConnectUrl({
+        connector: id,
+        email,
+        persona,
+        // Settings lives inside a mini app (/app/mini/…). Return to that same
+        // mini-app screen after OAuth instead of dropping the user on /app.
+        redirect: window.location.pathname + window.location.search,
+      })
       window.location.href = url
     } catch (error) {
       setMsg(error instanceof Error ? error.message : 'Could not start connect.')
