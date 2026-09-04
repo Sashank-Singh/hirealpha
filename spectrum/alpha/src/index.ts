@@ -1,4 +1,4 @@
-import { Spectrum, app as appCard } from 'spectrum-ts'
+import { Spectrum, app as appCard, contact, fromVCard } from 'spectrum-ts'
 import { imessage } from '@spectrum-ts/imessage'
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
@@ -87,6 +87,35 @@ async function respondWithRetry(
   }
 }
 
+/** Send Alpha's .vcf as a real file attachment so iOS shows "Add Contact".
+ * Uses the user's assigned line when it can be resolved, else Alpha's own. */
+async function sendContactVcf(
+  space: { send: (content: unknown) => Promise<unknown> },
+  phone: string,
+): Promise<void> {
+  const base = (process.env.HIREALPHA_API_URL || 'https://hirealpha.chat').replace(/\/$/, '')
+  let vcfUrl = `${base}/api/contact/alpha.vcf`
+  try {
+    const res = await fetch(`${base}/api/assigned-phone?phone=${encodeURIComponent(phone)}`, {
+      headers: { Authorization: `Bearer ${process.env.HIREALPHA_INTERNAL_KEY || ''}` },
+    })
+    const body = res.ok ? ((await res.json()) as { assignedPhone?: string | null }) : null
+    if (body?.assignedPhone) vcfUrl += `?phone=${encodeURIComponent(body.assignedPhone)}`
+  } catch {
+    /* default line */
+  }
+  const vcf = await fetch(vcfUrl).then((r) => (r.ok ? r.text() : null))
+  if (vcf) {
+    try {
+      await space.send(contact(fromVCard(vcf)))
+      console.log(`[${agentId}] sent vcf contact card to ${phone}`)
+    } catch (err) {
+      console.warn(`[${agentId}] vcf contact send failed, falling back to raw`, err)
+      await space.send(contact(vcf)).catch(() => undefined)
+    }
+  }
+}
+
 if (introTo) {
   try {
     const user = await im.user(introTo)
@@ -135,9 +164,12 @@ startTaskLoopPoller({
       const visible = text.replace(/^\[savecontact\]\s*/i, '')
       const cleaned = sanitizeOutbound(visible)
       if (cleaned) await space.send(cleaned)
-      // One-off "save Alpha's number" nudge rides the contact card too.
+      // One-off "save Alpha's number" nudge: share the native card AND send a
+      // real .vcf file so iOS offers "Add Contact" regardless of the line
+      // identity sync state (native card alone showed nothing).
       if (/^\[savecontact\]/i.test(text)) {
         await space.shareContactCard().catch(() => undefined)
+        await sendContactVcf(space, phone).catch(() => undefined)
       }
     })
   },
