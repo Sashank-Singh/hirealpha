@@ -225,7 +225,7 @@ for await (const [space, message] of app.messages) {
         logTurn(dataDir, {
           ts: new Date().toISOString(),
           persona: agentId,
-          sender: hashSender(senderId),
+          sender: hashPhone(senderId),
           userText,
           reply: reply || '',
           card: !!card,
@@ -249,7 +249,7 @@ for await (const [space, message] of app.messages) {
       logTurn(dataDir, {
         ts: new Date().toISOString(),
         persona: agentId,
-        sender: hashSender(senderId),
+        sender: hashPhone(senderId),
         userText,
         reply,
         card: !!delivered,
