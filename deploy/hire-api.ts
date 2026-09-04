@@ -9117,8 +9117,17 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     // A number arriving on an account means the hires on that account can now
     // greet it — queue intros for everything in the roster that has not yet.
     // Each hire also gets its default recurring jobs, in the user's timezone
-    // when the account has one.
+    // when the account has one. And Photon must know this number NOW: the
+    // webhook/guest path may have created the account without one, so this
+    // endpoint is the guaranteed place the number meets the project.
     try {
+      const assigned = await registerPhotonUser(phone, user.name || body.name || null, email)
+      if (assigned) {
+        await sql`
+          UPDATE hire_users SET assigned_phone = ${assigned}, updated_at = now()
+          WHERE id = ${user.id} AND (assigned_phone IS NULL OR assigned_phone <> ${assigned})
+        `
+      }
       const roster = await loadRoster(sql, user.id)
       for (const persona of roster) {
         await enqueueIntro(sql, phone, persona)
@@ -9127,7 +9136,11 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     } catch (err) {
       console.error('[hire] intro enqueue after phone set failed', err)
     }
-    return json({ user })
+    const fresh = { ...user, assignedPhone: await (async () => {
+      const rows2 = (await sql`SELECT assigned_phone AS "assignedPhone" FROM hire_users WHERE id = ${user.id} LIMIT 1`) as Array<{ assignedPhone: string | null }>
+      return rows2[0]?.assignedPhone ?? null
+    })() }
+    return json({ user: fresh })
   }
 
   if (path === '/api/me/roster' && req.method === 'PUT') {

@@ -185,6 +185,9 @@ export function LoginPage() {
       .then(async (data) => {
         if (data.phone) {
           signIn(data.email, data.phone, data.name || nextName)
+          // Same re-assert as register: the phone must reach the DB no matter
+          // which path created the account (guest checkout, webhook).
+          void apiSavePhone(data.email, data.phone, data.name || nextName).catch(() => undefined)
           await hydrateFromServer().catch(() => undefined)
           // A returning sign-in only starts checkout when there is no active
           // subscription yet — never re-charge someone who already pays.
