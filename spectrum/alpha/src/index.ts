@@ -131,10 +131,11 @@ startTaskLoopPoller({
     const user = await im.user(phone)
     const space = await im.space.create(user)
     await space.responding(async () => {
-      const cleaned = sanitizeOutbound(text)
+      // Strip the internal marker so it never shows to the user.
+      const visible = text.replace(/^\[savecontact\]\s*/i, '')
+      const cleaned = sanitizeOutbound(visible)
       if (cleaned) await space.send(cleaned)
-      // One-off "save Alpha's number" nudge: a loop text that starts with the
-      // marker also shares the native contact card so the person can Add us.
+      // One-off "save Alpha's number" nudge rides the contact card too.
       if (/^\[savecontact\]/i.test(text)) {
         await space.shareContactCard().catch(() => undefined)
       }
