@@ -17,7 +17,7 @@ import { SettingsSheet } from './SettingsSheet'
 import { TIERS, type Tier } from '../marketing/Pricing'
 import './dashboard.css'
 
-const ALPHA_SMS = 'sms:+14155951440'
+const ALPHA_SMS = 'sms:+14155951440&body=Hey%2C%20Alpha!'
 
 export type DashTab =
   | 'overview'

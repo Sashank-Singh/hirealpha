@@ -442,7 +442,7 @@ export function SettingsSheet() {
             <h1 className="ss-contact-name">Alpha</h1>
             <span className="ss-contact-role">Personal Assistant</span>
             <p className="ss-contact-phone">
-              <a href="sms:+14155951440">(415) 595-1440</a>
+              <a href="sms:+14155951440&body=Hey%2C%20Alpha!">(415) 595-1440</a>
               <button
                 type="button"
                 className="ss-copy"
@@ -457,7 +457,7 @@ export function SettingsSheet() {
             </p>
           </div>
           <div className="ss-contact-actions">
-            <a href="sms:+14155951440" className="ss-btn-primary">
+            <a href="sms:+14155951440&body=Hey%2C%20Alpha!" className="ss-btn-primary">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
                 <path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z" />
               </svg>
