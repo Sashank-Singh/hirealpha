@@ -294,7 +294,7 @@ export function LoginPage() {
                 required
                 autoComplete="name"
                 className="auth-input"
-                placeholder="First name"
+                placeholder="Full name"
                 value={name}
                 onChange={(e) => { setName(e.target.value); if (error) setError('') }}
               />

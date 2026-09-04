@@ -1093,12 +1093,12 @@ function WaitlistForm() {
       <form className="waitlist-form" onSubmit={onSubmit}>
         <input
           type="text"
-          placeholder="First name"
+          placeholder="Full name"
           value={name}
           onChange={(e) => setName(e.target.value)}
-          aria-label="Your first name"
+          aria-label="Your full name"
           disabled={busy}
-          autoComplete="given-name"
+          autoComplete="name"
         />
         <input
           type="tel"

@@ -620,7 +620,8 @@ export async function runHireTurn(input: {
   // with a real question still goes to the model.
   const bareGreeting =
     isFirst && /^(hey|hi|hello|yo|hola|sup|whats up|what's up|howdy)\b/i.test(input.userText.trim())
-  const greetingName = (live.name || '').trim() || 'there'
+  // Full name is captured at signup now; the greeting stays first-name warm.
+  const greetingName = (live.name || '').trim().split(/\s+/)[0] || 'there'
   const WELCOME = `Hey ${greetingName}, I'm Alpha, your hired friend. I keep the day sane, save the stuff you'd lose, and check in when you need a real person. One card should show up here in a sec to pick how you want to use me.`
 
   if (live.hired) {
