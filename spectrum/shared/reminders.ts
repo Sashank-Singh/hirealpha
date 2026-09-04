@@ -2,6 +2,7 @@ import { gmiChat } from './gmi'
 import { buildDigestBriefing, mintMiniAppCard, type MiniAppCard } from './miniApps'
 import { fetchDueEventNudges, revertEventNudge } from './eventNudges'
 import {
+  fetchJudgmentState,
   freezeProactiveUntilReply,
   isJudgeTick,
   isRecipientSendBlocked,
@@ -10,6 +11,16 @@ import {
 } from './judgment'
 import type { AgentId } from '../../src/agents/types'
 import { killSwitchBlocksSend } from './taskLoops'
+
+/** A reminder text that carries the scheduled morning or evening brief: the
+ * "[digest]…" markers created when a user picks a brief time, plus the
+ * "[judge]morning" / "[judge]evening" ticks that are the default brief time
+ * (8am / 9pm). The brief is an expected daily touch, not a discretionary
+ * "should I bother" judgment, so these ticks bypass the judgment decline
+ * gate entirely. */
+export function isBriefTick(text: string): boolean {
+  return /^\[digest\]/.test(text) || /^\[judge\]\s*(morning|evening)\b/i.test(text)
+}
 
 export type ReminderIntent =
   | { action: 'set'; text: string; localTime: string; recurrence: 'once' | 'daily' | 'weekly' }
@@ -430,43 +441,93 @@ export function startReminderScheduler(opts: {
         let card: MiniAppCard | undefined
         let judgedTopic: string | undefined
         if (isJudgeTick(r.text)) {
-          const judged = await runJudgmentLoop({
-            phone: r.phone,
-            persona: opts.persona as AgentId,
-            reminderText: r.text,
-          })
-          if (!judged) {
-            // Judgment skipped this tick (in conversation, sent recently, a
-            // cold life-state…). The claim already pushed the reminder to
-            // tomorrow — that turned any transient skip into a lost day of
-            // briefs. Re-arm the same tick later today instead.
-            if (r.recurrence === 'daily' && /^\[(digest|judge\]*(morning|evening))/.test(r.text)) {
+          if (isBriefTick(r.text)) {
+            // Morning and evening briefs are an expected daily touch. Unlike a
+            // poke, they are never gated on "did the person go quiet" or "did
+            // we just text them". They only hold when the person is actively
+            // mid conversation (texted within the last ~10 minutes) or a
+            // recipient-level kill switch is armed; both re-arm the tick for
+            // later instead of silently losing the day's brief.
+            const briefTime = briefTimeOf(r.text)
+            const inConversation = await wasRecentInbound(r.phone, opts.persona as AgentId, 10)
+            if (inConversation) {
               const retryAt = new Date(Date.now() + 75 * 60_000).toISOString()
               await markReminderDone(r.id, retryAt).catch(() => undefined)
-              console.log(`[reminders:${opts.persona}] skip ${r.id}, re-armed +75min`)
+              console.log(`[reminders:${opts.persona}] brief ${r.id} mid conversation, re-armed +75min`)
+              continue
             }
-            continue
-          }
-          text = judged.text
-          judgedTopic = judged.topic
-          if (judged.cardKind) {
             try {
-              if (judged.cardKind === 'digest') {
-                const briefing = await buildDigestBriefing(r.phone, opts.persona as AgentId)
-                if (briefing) {
-                  card = briefing.card
-                  const preview = briefing.preview?.trim()
-                  if (preview) {
-                    text = `${judged.text}\n\n${preview}`.slice(0, 700)
+              const briefing = await buildDigestBriefing(r.phone, opts.persona as AgentId)
+              if (briefing) {
+                card = briefing.card
+                const preview = briefing.preview?.trim()
+                const meta = briefing.meta
+                // The server stamps morning vs evening from the wall clock at
+                // build time; fall back to the reminder text when absent.
+                const morning =
+                  meta?.brief !== undefined
+                    ? meta.brief === 'morning'
+                    : briefTime === 'morning'
+                const sleepMissing = morning && meta?.sleepLogged === false
+                if (sleepMissing) {
+                  // No sleep logged: ask first, never pretend hours exist. The
+                  // card is still delivered (its lead is the same ask, no fake
+                  // sleep number). Preview is skipped so the ask never doubles.
+                  text =
+                    "Morning brief is ready, open the card when you get a sec. I didn't see your sleep last night. How many hours did you get?"
+                } else if (morning && preview) {
+                  // Real preview content rides under the warm line for the
+                  // morning digest. The evening wrap is skipped: its card opens
+                  // the pick_night screen, whose payload differs from the digest
+                  // preview the server returned, so only the warm line rides it.
+                  text = `${morningReadyLine(true)}\n\n${preview}`.slice(0, 700)
+                } else {
+                  text = morningReadyLine(morning)
+                }
+                judgedTopic = 'daily_brief'
+              } else {
+                const fallbackCardKind = briefTime === 'evening' ? 'pick_night' : 'digest'
+                card = await mintMiniAppCard(r.phone, opts.persona as AgentId, fallbackCardKind)
+                text = morningReadyLine(briefTime === 'morning')
+                judgedTopic = 'daily_brief'
+              }
+            } catch (err) {
+              console.warn(`[reminders:${opts.persona}] brief card mint failed ${r.id}`, err)
+              const fallbackCardKind = briefTime === 'evening' ? 'pick_night' : 'digest'
+              card = await mintMiniAppCard(r.phone, opts.persona as AgentId, fallbackCardKind)
+              text = morningReadyLine(briefTime === 'morning')
+              judgedTopic = 'daily_brief'
+            }
+          } else {
+            const judged = await runJudgmentLoop({
+              phone: r.phone,
+              persona: opts.persona as AgentId,
+              reminderText: r.text,
+            })
+            if (!judged) {
+              continue
+            }
+            text = judged.text
+            judgedTopic = judged.topic
+            if (judged.cardKind) {
+              try {
+                if (judged.cardKind === 'digest') {
+                  const briefing = await buildDigestBriefing(r.phone, opts.persona as AgentId)
+                  if (briefing) {
+                    card = briefing.card
+                    const preview = briefing.preview?.trim()
+                    if (preview) {
+                      text = `${judged.text}\n\n${preview}`.slice(0, 700)
+                    }
+                  } else {
+                    card = await mintMiniAppCard(r.phone, opts.persona as AgentId, judged.cardKind)
                   }
                 } else {
                   card = await mintMiniAppCard(r.phone, opts.persona as AgentId, judged.cardKind)
                 }
-              } else {
-                card = await mintMiniAppCard(r.phone, opts.persona as AgentId, judged.cardKind)
+              } catch (err) {
+                console.warn(`[reminders:${opts.persona}] card mint failed`, err)
               }
-            } catch (err) {
-              console.warn(`[reminders:${opts.persona}] card mint failed`, err)
             }
           }
         }
@@ -491,4 +552,38 @@ export function startReminderScheduler(opts: {
   }, pollMs)
   timer.unref?.()
   console.log(`[reminders:${opts.persona}] scheduler started every ${pollMs / 1000}s`)
+}
+
+/** Which brief a tick text carries: "morning" for [digest]/[judge]morning,
+ * "evening" for [judge]evening. Defaults to morning (most briefs are the 8am
+ * digest; the standalone [digest]Daily brief seed is the morning one). */
+function briefTimeOf(text: string): 'morning' | 'evening' {
+  return /evening|night/i.test(text) ? 'evening' : 'morning'
+}
+
+/** True when the person last texted within `minutes`. Briefs hold only for a
+ * genuine mid conversation; the judgment state fetch is the single source. */
+async function wasRecentInbound(
+  phone: string,
+  persona: AgentId,
+  minutes: number,
+): Promise<boolean> {
+  try {
+    const state = await fetchJudgmentState(phone, persona, 'digest')
+    if (!state) return false
+    const m = state.lastInboundMinutesAgo
+    return m != null && m < minutes
+  } catch {
+    return false
+  }
+}
+
+/** Warm line that rides with the brief card. No system language, no dashes. */
+function morningReadyLine(morning: boolean): string {
+  const hour = Number(
+    new Intl.DateTimeFormat('en-US', { hour: 'numeric', hour12: false }).format(new Date()),
+  )
+  if (morning && hour < 12) return 'Morning brief is ready. Open the card when you get a sec.'
+  if (morning) return 'Your morning brief is ready. Open the card when you get a sec.'
+  return 'Evening brief is ready. Open the card when you get a sec.'
 }

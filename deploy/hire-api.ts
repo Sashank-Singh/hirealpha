@@ -386,6 +386,10 @@ export async function ensurePhoneUser(
   // wakeup lands at 8am in the user's zone when one was captured at signup,
   // else 8am Pacific until the zone is learned later.
   await seedDefaultLoops(sql, userId, e164, persona, cleanTz || undefined)
+  // Anyone who gets a hire by phone is set up enough for the daily brief: arm
+  // the default 8am digest unless a digest reminder or judge morning already
+  // exists (a chosen brief time or the poke defaults win).
+  await armMorningBrief(sql, { id: userId, timezone: cleanTz }, persona)
   return assigned
 }
 
@@ -5397,15 +5401,19 @@ async function digestPayload(
   }
 
   const nextBeat = beats[0]
+  // A morning with no sleep logged leads with the ask, never a fake number or
+  // a weather report that pretends last night never happened.
   const lead = nextBeat
     ? `${nextBeat.name} at ${nextBeat.time}`
     : peopleDue[0]
       ? `${peopleDue[0].name} is due`
-      : lastNightLogged
-        ? `Last night ${Math.round(lastNightHours * 10) / 10}h`
-        : calToday.calendarConnected
-          ? 'A quiet day so far'
-          : 'Connect Calendar in Settings'
+      : !lastNightLogged && hour < 14
+        ? "I didn't see your sleep last night. How many hours did you get?"
+        : lastNightLogged
+          ? `Last night ${Math.round(lastNightHours * 10) / 10}h`
+          : calToday.calendarConnected
+            ? 'A quiet day so far'
+            : 'Connect Calendar in Settings'
   const leadReason = (reasons: string[]): string => {
     if (reasons.includes('waiting_on_you')) return 'They are waiting on you.'
     if (reasons.includes('deadline')) return 'There is a deadline on this.'
@@ -5562,6 +5570,15 @@ async function digestPayload(
     text,
     preview,
     brief,
+    // Ground truth for the bot's outbound text: the brief already knows whether
+    // last night was logged, so the morning message can ask for sleep instead
+    // of ever claiming hours that are not there.
+    lastNight: {
+      logged: lastNightLogged,
+      hours: Math.round(lastNightHours * 10) / 10,
+      bedtime: lastNight?.bedtime ?? null,
+      wake: lastNight?.wake ?? null,
+    },
     story: {
       kicker: brief === 'evening' ? 'Evening' : 'Morning',
       date: dateLabel,
@@ -5868,10 +5885,58 @@ async function armPokes(
     DELETE FROM hire_reminders
     WHERE user_id = ${user.id} AND persona = ${persona} AND text LIKE ${POKE_MARKER + '%'}
   `
+  // Heal: a daily digest row (a chosen brief time) supersedes the default
+  // [judge]morning tick. Both being armed now that briefs send unconditionally
+  // would fire two morning briefs, so a stale judge morning is dropped whenever
+  // the digest exists.
+  await sql`
+    DELETE FROM hire_reminders
+    WHERE user_id = ${user.id} AND persona = ${persona} AND text = ${JUDGE_MARKER + 'morning'}
+      AND EXISTS (
+        SELECT 1 FROM hire_reminders d
+        WHERE d.user_id = hire_reminders.user_id AND d.persona = hire_reminders.persona
+          AND d.text LIKE '[digest]%' AND d.status = 'pending'
+      )
+  `
   if (!context.proactive) {
     await upsertContext(sql, user.id, persona, {
       proactive: context.proactive || 'on',
     })
+  }
+}
+
+/** The digest reminder row that fires the daily brief. Every persona seeds the
+ * same marker; the reminder text after the marker only names it. */
+const DIGEST_BRIEF_TEXT = '[digest]Daily brief'
+
+/** Arm-if-missing backstop for the morning brief: a phone user who has ever set
+ * a brief time or finished onboarding expects a daily brief, so if the DB was
+ * wiped or they re-signed without the wizard, an inbound or roster change
+ * re-arms the default 8am digest reminder. Idempotent: no-op when a digest
+ * reminder already exists (a chosen brief time is never overridden) or when a
+ * daily [judge]morning tick already carries the brief (the armPokes default),
+ * so the person can never receive two briefs at the same hour. */
+async function armMorningBrief(sql: SQL, user: { id: string; timezone: string | null }, persona: Persona) {
+  try {
+    const existing = await sql`
+      SELECT id FROM hire_reminders
+      WHERE user_id = ${user.id} AND persona = ${persona}
+        AND (text LIKE '[digest]%'
+             OR text = ${JUDGE_MARKER + 'morning'})
+        AND (status = 'pending' OR recurrence = 'daily')
+      LIMIT 1
+    `
+    if (existing[0]) return
+    const tz = user.timezone || 'America/Los_Angeles'
+    await sql`
+      INSERT INTO hire_reminders (id, user_id, persona, text, scheduled_at, recurrence, timezone, status)
+      VALUES (${crypto.randomUUID()}, ${user.id}, ${persona}, ${DIGEST_BRIEF_TEXT},
+        ${nextLocalTimeUtc(tz, 8, 0)}, 'daily', ${tz}, 'pending')
+    `
+    console.log(`[brief] ${persona} ${user.id}: re-armed default 8am digest`)
+  } catch (err) {
+    // A backstop must never fail the inbound that triggered it.
+    console.warn(`[brief] ${persona} arm morning failed`, err)
   }
 }
 
@@ -7015,6 +7080,10 @@ async function touchInbound(sql: SQL, phone: string, persona: Persona) {
     unanswered_day_count: '0',
   })
   await armPokes(sql, user, persona, context)
+  // A first (or any) inbound re-arms the morning brief for someone whose DB row
+  // or wizard state got lost. Cheap and idempotent: no-op when a digest
+  // reminder already exists, so it never duplicates a chosen brief time.
+  await armMorningBrief(sql, user, persona)
   return { armed: true, first }
 }
 
@@ -9179,6 +9248,7 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
       for (const persona of roster) {
         await enqueueIntro(sql, phone, persona)
         await seedDefaultLoops(sql, user.id, phone, persona, user.timezone)
+        await armMorningBrief(sql, { id: user.id, timezone: user.timezone }, persona)
       }
     } catch (err) {
       console.error('[hire] intro enqueue after phone set failed', err)
@@ -9209,10 +9279,12 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
         INSERT INTO hire_roster (user_id, persona) VALUES (${user.id}, ${persona})
         ON CONFLICT (user_id, persona) DO NOTHING
       `
-      // New hire on an account with a number: that hire says hi first.
+      // New hire on an account with a number: that hire says hi first and its
+      // default morning brief arms right away (idempotent).
       if (user.phone) {
         try {
           await enqueueIntro(sql, user.phone, persona)
+          await armMorningBrief(sql, { id: user.id, timezone: user.timezone }, persona)
         } catch (err) {
           console.error('[hire] intro enqueue after roster change failed', err)
         }
@@ -11073,7 +11145,7 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
       if (!existingReminder[0]) {
         await sql`
           INSERT INTO hire_reminders (id, user_id, persona, text, scheduled_at, recurrence, timezone, status)
-          VALUES (${crypto.randomUUID()}, ${user!.id}, ${persona}, '[digest]Daily brief',
+          VALUES (${crypto.randomUUID()}, ${user!.id}, ${persona}, ${DIGEST_BRIEF_TEXT},
             ${nextLocalTimeUtc(tz, 8, 0)}, 'daily', ${tz}, 'pending')
         `
       }
@@ -11140,10 +11212,16 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     } else {
       await sql`
         INSERT INTO hire_reminders (id, user_id, persona, text, scheduled_at, recurrence, timezone, status)
-        VALUES (${crypto.randomUUID()}, ${user!.id}, ${persona}, '[digest]Daily brief',
+        VALUES (${crypto.randomUUID()}, ${user!.id}, ${persona}, ${DIGEST_BRIEF_TEXT},
           ${nextLocalTimeUtc(tz, h, min)}, 'daily', ${tz}, 'pending')
       `
     }
+    // A digest row at a chosen hour supersedes the default judge morning tick;
+    // leaving both would fire two briefs now that both are unconditional.
+    await sql`
+      DELETE FROM hire_reminders
+      WHERE user_id = ${user!.id} AND persona = ${persona} AND text = ${JUDGE_MARKER + 'morning'}
+    `
     return json({ ok: true, time: `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}` })
   }
 
@@ -11829,7 +11907,11 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     }
     const user = await getUserByPhone(sql, body.phone)
     if (!user) return json({ error: 'User not found' }, 404)
-    const parsed = parseSleepText(String(body.text))
+    // A "slept 7 hours" style answer is a real log too: anchor the night on the
+    // user's usual bedtime (their sleep baseline when set, else 11pm) and work
+    // back from the hours they name so the brief stops asking and starts showing.
+    const prefs = await loadMiniPrefs(sql, user.id)
+    const parsed = parseSleepText(String(body.text)) || sleepFromHours(String(body.text), prefs.sleepBedtime)
     if (!parsed) return json({ ok: false, logged: false, error: 'Could not parse sleep times' })
     const sleepDate = shiftDateStr(localDateStrInTz(new Date(), user.timezone), -1)
     const id = crypto.randomUUID()
@@ -11839,6 +11921,7 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
       ON CONFLICT (user_id, sleep_date) DO UPDATE SET
         bedtime = excluded.bedtime, wake = excluded.wake
     `
+    await saveMiniPrefs(sql, user.id, { sleepBedtime: parsed.bedtime, sleepWake: parsed.wake })
     return json({ ok: true, logged: true, id, sleepDate, ...parsed })
   }
 
@@ -14650,6 +14733,31 @@ function parseSleepText(text: string): { bedtime: string; wake: string } | null 
     if (wh <= 11) wake = toHHMM(m[3]!, 'am') || wake
   }
   return { bedtime, wake }
+}
+
+/** "slept 7 hours" / "about 6.5" / bare "7" replies, anchored on the user's
+ * usual bedtime (passed as a HH:MM clock, default 23:00). Returns real
+ * bedtime/wake clocks whose spread equals the hours they named. Only the
+ * internal sleep endpoint calls this, and only after a sleep-shaped gate on
+ * the bot side, so a bare number is safe to treat as hours. */
+function sleepFromHours(
+  text: string,
+  usualBedtime: string,
+): { bedtime: string; wake: string } | null {
+  const m = text.match(
+    /(\d{1,2}(?:\.\d)?)\s*(?:hours?|hrs?|h)\b|\b(?:slept|got|about|roughly|around|only)\s+(\d{1,2}(?:\.\d)?)\b|(?:^|\s)(\d{1,2}(?:\.\d)?)\s*$/i,
+  )
+  const raw = m?.[1] || m?.[2] || m?.[3]
+  if (!raw) return null
+  const hours = Number(raw)
+  if (!Number.isFinite(hours) || hours <= 0 || hours > 16) return null
+  const bedtime = isClock(usualBedtime) ? usualBedtime : '23:00'
+  const [bh, bm] = bedtime.split(':').map(Number)
+  const totalMin = Math.round(hours * 60)
+  let wakeMin = bh * 60 + bm + totalMin
+  if (wakeMin >= 24 * 60) wakeMin -= 24 * 60
+  const p = (n: number) => String(n).padStart(2, '0')
+  return { bedtime, wake: `${p(Math.floor(wakeMin / 60))}:${p(wakeMin % 60)}` }
 }
 
 function parseGratitudeText(text: string): string | null {

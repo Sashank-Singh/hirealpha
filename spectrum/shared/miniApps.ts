@@ -137,7 +137,7 @@ export const PATTERNS: Partial<Record<MiniAppKind, RegExp>> = {
     /\bnetwork(?:ing)?(?: crm)?\b|\bi (?:met|ran into|bumped into)\b|\badd .{1,30} to (?:my )?(?:network|contacts|networking)\b|\bfollow(?:ing)? up with\b|\bwho should i follow up\b|\breconnect with\b|\bneed to reach out to\b|\badd a contact\b|\bmy contacts\b|\bnew contact\b|\b(?:open|show|pull up|bring back) (?:my |the )?network(?:ing)?(?: crm)?\b/i,
   // sleep_tracker: explicit name + reopen + natural phrases including "log last night"
   sleep_tracker:
-    /\bsleep(?: tracker)?\b|\b(?:log|track) (?:my )?sleep\b|\bhow (?:did i|long did i) sleep\b|\bsleep debt\b|\bsleep last night\b|\blast night.{0,20}sleep\b|\bslept .{0,10}hours\b|\bwoke up at\b|\bbed(?:time)? at\b|\b(?:open|show|pull up|bring back) (?:my )?sleep(?: tracker)?\b/i,
+    /\bsleep(?: tracker)?\b|\b(?:log|track) (?:my )?sleep\b|\bhow (?:did i|long did i) sleep\b|\bsleep debt\b|\bsleep last night\b|\blast night.{0,20}sleep\b|\bslept .{0,10}hours\b|\bwoke up at\b|\bbed(?:time)? at\b|\b(?:open|show|pull up|bring back) (?:my )?sleep(?: tracker)?\b|^(?:i(?:'?m| am)? )?(?:slept|got|only|about|around|roughly|maybe|like|close to)?\s*\d{1,2}(?:\.\d)?\s*(?:hours?|hrs?|h)\s*(?:last night)?$/i,
   // pipeline_board: explicit name + reopen + job/deal phrases
   pipeline_board:
     /\bpipeline(?: board)?\b|\b(?:job|deal|lead) (?:board|pipeline|status)\b|\bmove .{0,20}to (?:interview|offer)\b|\bapplication status\b|\bjob board\b|\b(?:open|show|pull up|bring back) (?:my )?pipeline\b|\b(?:move|push|advance|add|put)\s+.{0,30}\s+(?:to|into|as)(?:\s+(?:a|an|the))?\s+(?:lead|active|interview|offer|won|lost)\b/i,
@@ -480,11 +480,24 @@ export async function onboardingCard(phone: string, persona: AgentId): Promise<M
  * Generate the text of a daily briefing plus the live card that opens the
  * matching dashboard view. The text doubles as the plain-SMS fallback when
  * the recipient has no app card support.
+ *
+ * `meta` carries flags the reminder scheduler needs to phrase the outgoing
+ * text correctly. `sleepLogged` is false when the user has not logged last
+ * night yet, so the morning text can ask for their sleep instead of letting
+ * the card pretend there is none.
  */
 export async function buildDigestBriefing(
   phone: string,
   persona: AgentId,
-): Promise<{ text: string; preview?: string; card: MiniAppCard } | null> {
+): Promise<
+  | {
+      text: string
+      preview?: string
+      card: MiniAppCard
+      meta?: { sleepLogged?: boolean; brief?: string }
+    }
+  | null
+> {
   const base = apiBase()
   if (!base) return null
   try {
@@ -493,15 +506,27 @@ export async function buildDigestBriefing(
       { headers: authHeaders() },
     )
     if (!res.ok) return null
-    const data = (await res.json()) as { text?: string; preview?: string; cardUrl?: string; cardKind?: string }
+    const data = (await res.json()) as {
+      text?: string
+      preview?: string
+      cardUrl?: string
+      cardKind?: string
+      brief?: string
+      lastNight?: { logged?: boolean }
+    }
     const text = data.text?.trim()
     if (!text) return null
     // The server knows morning vs evening; the 9pm wrap opens the evening brief.
     const cardKind = data.cardKind === 'pick_night' ? 'pick_night' : 'digest'
+    const sleepLogged = data.lastNight?.logged !== false
     return {
       text,
       preview: data.preview?.trim() || undefined,
       card: await mintMiniAppCard(phone, persona, cardKind),
+      meta: {
+        sleepLogged,
+        brief: data.brief || (cardKind === 'pick_night' ? 'evening' : 'morning'),
+      },
     }
   } catch (err) {
     console.warn(`[miniApps] digest brief failed for ${persona}`, err)
