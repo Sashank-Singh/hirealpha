@@ -11083,6 +11083,33 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     return json({ ok: true, time: `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}` })
   }
 
+  /* Set the evening brief time: re-arms the judge evening tick (pick_night) at
+   * the chosen local hour (defaults to 21:00) so Alpha text the wrap at night. */
+  if (path === '/api/evening/time' && req.method === 'PUT') {
+    const body = (await req.json().catch(() => ({}))) as {
+      email?: string
+      token?: string
+      session?: string
+      persona?: string
+      time?: string
+    }
+    const persona = body.persona || ''
+    if (!isPersona(persona)) return json({ error: 'persona required' }, 400)
+    const { user, error } = await resolveAuthedUser(sql, { token: body.token, session: body.session, email: body.email })
+    if (error) return error
+    const tz = user!.timezone || 'America/Los_Angeles'
+    const m = String(body.time || '').match(/^(\d{1,2})(?::(\d{2}))?\s*(am|pm)?$/i)
+    if (!m) return json({ error: 'time must be like 21:00, 9pm, or 08:30' }, 400)
+    let h = Number(m[1])
+    const min = m[2] ? Number(m[2]) : 0
+    const ap = (m[3] || '').toLowerCase()
+    if (ap === 'pm' && h < 12) h += 12
+    if (ap === 'am' && h === 12) h = 0
+    if (h > 23 || min > 59) return json({ error: 'time out of range' }, 400)
+    await ensureJudgeTick(sql, user!.id, persona, `${JUDGE_MARKER}evening`, nextLocalTimeUtc(tz, h, min), 'daily', tz)
+    return json({ ok: true, time: `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}` })
+  }
+
   /* Public mini-prefs write for the onboarding wizard: workout days and sleep
    * baseline. The bot-side path is /api/internal/prefs (text-parsed); this one
    * takes structured values straight from the setup card. */

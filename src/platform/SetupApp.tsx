@@ -7,6 +7,7 @@ import {
   apiNutritionToday,
   apiPutMiniPrefs,
   apiSetDigestTime,
+  apiSetEveningTime,
   apiSetNutritionGoals,
   apiSetSpendBudget,
   apiSetup,
@@ -33,7 +34,7 @@ export function SetupApp({ auth }: { auth: FeatureAuth }) {
   type Step = 'features' | 'time' | 'goals' | 'sleep' | 'days' | 'people' | 'budget' | 'connect'
   const STEPS: { id: Step; title: string }[] = [
     { id: 'features', title: 'What Alpha watches' },
-    { id: 'time', title: 'Daily brief time' },
+    { id: 'time', title: 'Brief times' },
     { id: 'goals', title: 'Food goals' },
     { id: 'sleep', title: 'Sleep' },
     { id: 'days', title: 'Workout days' },
@@ -46,6 +47,7 @@ export function SetupApp({ auth }: { auth: FeatureAuth }) {
 
   const [features, setFeatures] = useState<string[]>([])
   const [digestTime, setDigestTime] = useState('08:00')
+  const [eveningTime, setEveningTime] = useState('21:00')
   const [calories, setCalories] = useState(2200)
   const [protein, setProtein] = useState(150)
   const [bedtime, setBedtime] = useState('23:00')
@@ -101,6 +103,7 @@ export function SetupApp({ auth }: { auth: FeatureAuth }) {
         if (features.includes('digest')) await apiSetDigestTime({ persona, time: digestTime, ...a })
       } else if (step === 'time') {
         await apiSetDigestTime({ persona, time: digestTime, ...a })
+        await apiSetEveningTime({ persona, time: eveningTime, ...a })
       } else if (step === 'goals') {
         await apiSetNutritionGoals({ ...a, calorieGoal: calories, proteinGoal: protein })
       } else if (step === 'sleep') {
@@ -172,27 +175,31 @@ export function SetupApp({ auth }: { auth: FeatureAuth }) {
               <>
                 <label className="ma-chip is-pick">
                   <input type="checkbox" checked={features.includes('digest')} onChange={(e) => setFeatures((f) => (e.target.checked ? [...f, 'digest'] : f.filter((x) => x !== 'digest')))} />
-                  Daily brief — your morning and evening wrap
+                  Daily brief: your morning and evening wrap
                 </label>
                 <label className="ma-chip is-pick">
                   <input type="checkbox" checked={features.includes('spending_snapshot')} onChange={(e) => setFeatures((f) => (e.target.checked ? [...f, 'spending_snapshot'] : f.filter((x) => x !== 'spending_snapshot')))} />
-                  Spending watch — catches duplicate and wild charges
+                  Spending watch: catches duplicate and wild charges
                 </label>
                 <label className="ma-chip is-pick">
                   <input type="checkbox" checked={features.includes('nutrition')} onChange={(e) => setFeatures((f) => (e.target.checked ? [...f, 'nutrition'] : f.filter((x) => x !== 'nutrition')))} />
-                  Food + macros — logs meals from a photo
+                  Nutrition: logs meals from a photo
+                </label>
+                <label className="ma-chip is-pick">
+                  <input type="checkbox" checked={features.includes('sleep_tracker')} onChange={(e) => setFeatures((f) => (e.target.checked ? [...f, 'sleep_tracker'] : f.filter((x) => x !== 'sleep_tracker')))} />
+                  Sleep: tracks bedtime and wake
                 </label>
                 <label className="ma-chip is-pick">
                   <input type="checkbox" checked={features.includes('habit_streak')} onChange={(e) => setFeatures((f) => (e.target.checked ? [...f, 'habit_streak'] : f.filter((x) => x !== 'habit_streak')))} />
-                  Habits — streaks Alpha keeps honest
+                  Habits: streaks Alpha keeps honest
                 </label>
                 <label className="ma-chip is-pick">
                   <input type="checkbox" checked={features.includes('learning_queue')} onChange={(e) => setFeatures((f) => (e.target.checked ? [...f, 'learning_queue'] : f.filter((x) => x !== 'learning_queue')))} />
-                  Learning queue — articles and courses saved for later
+                  Learning queue: articles and courses saved for later
                 </label>
                 <label className="ma-chip is-pick">
                   <input type="checkbox" checked={features.includes('drop_zone')} onChange={(e) => setFeatures((f) => (e.target.checked ? [...f, 'drop_zone'] : f.filter((x) => x !== 'drop_zone')))} />
-                  Drop zone — text anything, Alpha files it and follows up
+                  Drop zone: dump anything you'd forget, links, thoughts, to-dos, and Alpha files it and follows up
                 </label>
               </>
             ) : (
@@ -204,10 +211,14 @@ export function SetupApp({ auth }: { auth: FeatureAuth }) {
 
       {step === 'time' && (
         <div className="setup__block">
-          <p className="setup__lead">When should the daily brief land? Alpha texts the morning wrap then.</p>
+          <p className="setup__lead">When should the briefs land? Alpha texts the morning wrap then, and the evening wrap at night.</p>
           <label className="setup__row">
-            <span>Brief time</span>
+            <span>Morning brief</span>
             <input type="time" value={digestTime} onChange={(e) => setDigestTime(e.target.value)} />
+          </label>
+          <label className="setup__row">
+            <span>Evening brief</span>
+            <input type="time" value={eveningTime} onChange={(e) => setEveningTime(e.target.value)} />
           </label>
         </div>
       )}
@@ -280,6 +291,9 @@ export function SetupApp({ auth }: { auth: FeatureAuth }) {
           <label className="setup__row">
             <span>Check in every</span>
             <select className="setup__select" value={personCadence} onChange={(e) => setPersonCadence(Number(e.target.value))}>
+              <option value={1}>daily</option>
+              <option value={2}>every 2 days</option>
+              <option value={3}>twice a week</option>
               <option value={7}>week</option>
               <option value={14}>2 weeks</option>
               <option value={30}>month</option>

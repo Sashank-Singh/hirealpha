@@ -3300,6 +3300,7 @@ button.ma-callout, button.ma-row {
   display: grid;
   gap: 0;
   width: 100%;
+  box-sizing: border-box;
   border: 1px solid var(--border);
   border-radius: 8px;
   overflow: hidden;
@@ -3307,7 +3308,7 @@ button.ma-callout, button.ma-row {
 }
 .wk-places { grid-template-columns: 1fr 1fr; }
 .wk-counts { grid-template-columns: 1fr 1fr 1fr; }
-.wk-days { grid-template-columns: repeat(auto-fit, minmax(42px, 1fr)); }
+.wk-days { grid-template-columns: repeat(7, 1fr); }
 .wk-place,
 .wk-day {
   border: 0;
@@ -3320,9 +3321,11 @@ button.ma-callout, button.ma-row {
   font-weight: 600;
   cursor: pointer;
   min-width: 0;
+  flex: none;
   height: 36px;
   padding: 0 4px;
   text-align: center;
+  letter-spacing: 0.02em;
   box-sizing: border-box;
   transition: background 0.1s, color 0.1s;
 }
@@ -3559,6 +3562,7 @@ html[data-mini-theme='light'] .ma-where-label { color: #6d28d9; }
   display: flex; flex-direction: column; gap: 16px;
   max-height: 72vh; overflow-y: auto; -webkit-overflow-scrolling: touch;
   padding-right: 4px;
+  padding-bottom: 8px;
 }
 .setup__step {
   font-size: 11px; font-weight: 600; letter-spacing: 0.08em;
@@ -3573,11 +3577,11 @@ html[data-mini-theme='light'] .ma-where-label { color: #6d28d9; }
 }
 .setup__chips .ma-chip input { accent-color: var(--mini-accent, #2a6f7a); margin: 0; }
 .setup__row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.setup__row span { font-size: 14px; opacity: 0.9; }
+.setup__row span { font-size: 14px; opacity: 0.9; min-width: 0; }
 .setup__row input {
-  width: 110px; text-align: right;
+  width: 110px; max-width: 100%; min-width: 0; text-align: right; box-sizing: border-box;
   background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12);
-  border-radius: 10px; color: inherit; font: inherit; padding: 8px 10px;
+  border-radius: 10px; color: inherit; font: inherit; padding: 10px;
 }
 .setup__row input:focus { outline: none; border-color: var(--mini-accent, #2a6f7a); }
 .setup__text {
@@ -3589,7 +3593,7 @@ html[data-mini-theme='light'] .ma-where-label { color: #6d28d9; }
   background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12);
   border-radius: 10px; color: inherit; font: inherit; padding: 8px 10px;
 }
-.setup__nav { display: flex; justify-content: space-between; align-items: center; margin-top: 4px; }
+.setup__nav { display: flex; justify-content: space-between; align-items: center; margin-top: 14px; }
 
 /* ---- One-shot home tour after onboarding ---- */
 .home-tour {
