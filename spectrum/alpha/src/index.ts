@@ -63,6 +63,30 @@ async function sendCardSafe(
   }
 }
 
+/** Run a turn's send body inside space.responding, tolerating Photon's
+ * new-user gate: the typing indicator RPC can reject with "Target not allowed"
+ * for a few seconds after first contact. Retry once after 3s unless something
+ * already sent (never double-send). */
+async function respondWithRetry(
+  space: { responding: <T>(fn: () => T | Promise<T>) => Promise<T> },
+  sent: () => boolean,
+  fn: () => Promise<void>,
+): Promise<void> {
+  const attempt = () => space.responding(fn)
+  try {
+    await attempt()
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    if (/Target not allowed/i.test(msg) && !sent()) {
+      console.warn(`[${agentId}] gate on first turn, retrying in 3s`)
+      await new Promise((r) => setTimeout(r, 3000))
+      await attempt()
+      return
+    }
+    throw err
+  }
+}
+
 if (introTo) {
   try {
     const user = await im.user(introTo)
@@ -207,80 +231,63 @@ for await (const [space, message] of app.messages) {
     await message.react('👍').catch(() => undefined)
     await message.read().catch(() => undefined)
     let sentAnything = false
-    const run = async () => {
-      await space.responding(async () => {
-        const t0 = Date.now()
-        const { bubbles, source, authoritative, reply, card, contactCardFirst } = await runHireTurn({
-          agentId,
-          dataDir,
-          senderId,
-          userText,
-        })
-        const texts = bubbles.map((b) => sanitizeOutbound(b)).filter(Boolean)
-        if (!texts.length) {
-          if (card) {
-            console.log(`[${agent.id}] sending card only: ${card.url}`)
-            await sendCardSafe(space, card.url, card.live)
-          } else {
-            console.warn(`[${agent.id}] dropped empty/banned outbound`)
-          }
-          logTurn(dataDir, {
-            ts: new Date().toISOString(),
-            persona: agentId,
-            sender: hashPhone(senderId),
-            userText,
-            reply: reply || '',
-            card: !!card,
-            texts: 0,
-            source,
-            totalMs: Date.now() - t0,
-          })
-          return
-        }
-        console.log(`[${agent.id}] sending ${texts.length} text(s), card: ${!!card}`)
-        console.log(`[${agent.id}] bubble: ${JSON.stringify(texts[0]!.slice(0, 200))}`)
-        if (contactCardFirst) await space.shareContactCard().catch(() => undefined)
-        await message.reply(texts[0]!)
-        sentAnything = true
-        for (let i = 1; i < texts.length; i++) await space.send(texts[i]!)
-        // Every response carries the mini-app card, attached after the LAST bubble.
-        const delivered = card ?? (await defaultReplyCard(senderId, agentId))
-        if (delivered) {
-          console.log(`[${agent.id}] sending card: ${delivered.url}`)
-          await sendCardSafe(space, delivered.url, delivered.live)
+    await respondWithRetry(space, () => sentAnything, async () => {
+      const t0 = Date.now()
+      const { bubbles, source, authoritative, reply, card, contactCardFirst } = await runHireTurn({
+        agentId,
+        dataDir,
+        senderId,
+        userText,
+      })
+      const texts = bubbles.map((b) => sanitizeOutbound(b)).filter(Boolean)
+      if (!texts.length) {
+        if (card) {
+          console.log(`[${agent.id}] sending card only: ${card.url}`)
+          await sendCardSafe(space, card.url, card.live)
+        } else {
+          console.warn(`[${agent.id}] dropped empty/banned outbound`)
         }
         logTurn(dataDir, {
           ts: new Date().toISOString(),
           persona: agentId,
           sender: hashPhone(senderId),
           userText,
-          reply,
-          card: !!delivered,
-          texts: texts.length,
+          reply: reply || '',
+          card: !!card,
+          texts: 0,
           source,
           totalMs: Date.now() - t0,
         })
-        if (source === 'gmi') {
-          void runMemoryMaintenance({ dataDir, senderId, agentId, authoritative, userText, reply })
-            .catch(() => undefined)
-        }
-      })
-    }
-    try {
-      await run()
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err)
-      // Photon gates a brand-new user for a few seconds (typing indicator /
-      // rich RPCs "Target not allowed") while plain sends settle. Wait and
-      // retry once — the intro poller proved the gate clears that fast.
-      if (/Target not allowed/i.test(msg) && !sentAnything) {
-        console.warn(`[${agent.id}] gate on first turn, retrying in 3s`)
-        await new Promise((r) => setTimeout(r, 3000))
-        await run()
         return
       }
-      throw err
-    }
+      console.log(`[${agent.id}] sending ${texts.length} text(s), card: ${!!card}`)
+      console.log(`[${agent.id}] bubble: ${JSON.stringify(texts[0]!.slice(0, 200))}`)
+      if (contactCardFirst) await space.shareContactCard().catch(() => undefined)
+      await message.reply(texts[0]!)
+      sentAnything = true
+      for (let i = 1; i < texts.length; i++) await space.send(texts[i]!)
+      // Every response carries the mini-app card, attached after the LAST bubble.
+      const delivered = card ?? (await defaultReplyCard(senderId, agentId))
+      if (delivered) {
+        console.log(`[${agent.id}] sending card: ${delivered.url}`)
+        await sendCardSafe(space, delivered.url, delivered.live)
+      }
+      logTurn(dataDir, {
+        ts: new Date().toISOString(),
+        persona: agentId,
+        sender: hashPhone(senderId),
+        userText,
+        reply,
+        card: !!delivered,
+        texts: texts.length,
+        source,
+        totalMs: Date.now() - t0,
+      })
+      if (source === 'gmi') {
+        void runMemoryMaintenance({ dataDir, senderId, agentId, authoritative, userText, reply })
+          .catch(() => undefined)
+      }
+    })
   } catch (err) {
     console.error(`[${agent.id}] turn failed:`, err)
     try {
