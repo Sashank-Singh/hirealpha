@@ -771,7 +771,12 @@ async function handleBillingWebhook(req: Request, sql: SQL) {
         const remote = (await stripeRequest(
           `/subscriptions/${subscriptionId}`,
           new URLSearchParams(),
-        )) as { items?: { data?: Array<{ id: string; price?: { id: string } }> }; metadata?: Record<string, string> }
+        )) as {
+          items?: { data?: Array<{ id: string; price?: { id: string } }> }
+          metadata?: Record<string, string>
+          trial_end?: number | null
+          status?: string
+        }
         const item = remote.items?.data?.[0]
         const onPromo = item?.price?.id === stripePromoPrice()
         const alreadyScheduled = String(remote.metadata?.promo_scheduled || '').length > 0
@@ -788,14 +793,20 @@ async function handleBillingWebhook(req: Request, sql: SQL) {
             new URLSearchParams({ cancel_at_period_end: 'true' }),
           )
           const nowSec = Math.floor(Date.now() / 1000)
+          // A trialing checkout hands over to the schedule when the trial ends;
+          // otherwise the schedule starts now. Starting it mid-trial would bill
+          // the first $5 before the free days are up.
+          const start = remote.trial_end && remote.trial_end > nowSec ? remote.trial_end : nowSec
           const regular = stripePriceFor('friend')
+          // Phase 1: two $5 months (bounded by an end date — this API version
+          // rejects phases[iterations]), phase 2: $19 forever (open-ended).
+          const promoEnd = start + 61 * 24 * 60 * 60
           await stripeRequest('/subscription_schedules', new URLSearchParams({
             'customer': customerId,
-            'start_date': String(nowSec),
-            // Phase 1: two $5 months (iterations 2), phase 2: $19 forever.
+            'start_date': String(start),
             'phases[0][items][0][price]': stripePromoPrice(),
             'phases[0][items][0][quantity]': '1',
-            'phases[0][iterations]': '2',
+            'phases[0][end_date]': String(promoEnd),
             'phases[1][items][0][price]': regular,
             'phases[1][items][0][quantity]': '1',
           }))
