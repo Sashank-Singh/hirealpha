@@ -8925,6 +8925,16 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
       UPDATE hire_users SET password_hash = ${hash}, updated_at = now()
       WHERE id = ${user.id}
     `
+    // A number on the account means Alpha (friend) can greet it: same wiring
+    // the landing waitlist uses — roster, intro queue, default loops — so a
+    // /app registration is never invisible to the bot or missing from Photon.
+    if (user.phone) {
+      try {
+        await ensurePhoneUser(sql, user.phone, 'friend', user.name || undefined)
+      } catch (err) {
+        console.warn('[hire] auto-hire after register failed', err)
+      }
+    }
     return sessionTokenResponse(user)
   }
 
