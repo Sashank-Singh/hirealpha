@@ -9,11 +9,25 @@ import { startReminderScheduler } from '../../shared/reminders'
 import { startTaskLoopPoller } from '../../shared/taskLoops'
 import { INTRO_TEXTS, startIntroPoller } from '../../shared/introQueue'
 import { startHealthServer, startHeartbeat } from '../../shared/health'
+import { backfillScores, hashPhone, logTurn, readTurns } from '../../shared/evals'
 
 const agentId = 'friend' as const
 const agent = getAgent(agentId)
 const dataDir = join(import.meta.dir, '..', 'data')
 mkdirSync(dataDir, { recursive: true })
+
+/** Score recent turns in the background so quality numbers exist without ever
+ * slowing a reply: once at boot, then every 15 minutes. */
+let scoredAt = 0
+async function maybeBackfill() {
+  const now = Date.now()
+  if (now - scoredAt < 15 * 60 * 1000) return
+  scoredAt = now
+  const n = await backfillScores(dataDir, 8)
+  if (n > 0) console.log(`[${agent.id}] evals: scored ${n} recent turns`)
+}
+void maybeBackfill()
+setInterval(() => void maybeBackfill(), 15 * 60 * 1000).unref?.()
 
 const introTo =
   process.env.SKIP_INTRO === '1' ? undefined : process.env.INTRO_TO
@@ -57,7 +71,10 @@ startIntroPoller({
   },
 })
 
-startHealthServer(agent.id)
+startHealthServer(agent.id, {
+  readEvals: () => readTurns(dataDir, { limit: 60 }),
+  scoreEvals: () => backfillScores(dataDir, 20),
+})
 startHeartbeat(agent.id)
 console.log(`[${agent.id}] listening as ${agent.imsgName} (${agent.phoneNumber})`)
 
@@ -167,6 +184,7 @@ for await (const [space, message] of app.messages) {
     await message.react('👍').catch(() => undefined)
     await message.read().catch(() => undefined)
     await space.responding(async () => {
+      const t0 = Date.now()
       const { bubbles, source, authoritative, reply, card } = await runHireTurn({
         agentId,
         dataDir,
@@ -181,6 +199,17 @@ for await (const [space, message] of app.messages) {
         } else {
           console.warn(`[${agent.id}] dropped empty/banned outbound`)
         }
+        logTurn(dataDir, {
+          ts: new Date().toISOString(),
+          persona: agentId,
+          sender: hashSender(senderId),
+          userText,
+          reply: reply || '',
+          card: !!card,
+          texts: 0,
+          source,
+          totalMs: Date.now() - t0,
+        })
         return
       }
       console.log(`[${agent.id}] sending ${texts.length} text(s), card: ${!!card}`)
@@ -193,6 +222,17 @@ for await (const [space, message] of app.messages) {
         console.log(`[${agent.id}] sending card: ${delivered.url}`)
         await space.send(appCard(delivered.url, { live: delivered.live }))
       }
+      logTurn(dataDir, {
+        ts: new Date().toISOString(),
+        persona: agentId,
+        sender: hashSender(senderId),
+        userText,
+        reply,
+        card: !!delivered,
+        texts: texts.length,
+        source,
+        totalMs: Date.now() - t0,
+      })
       if (source === 'gmi') {
         void runMemoryMaintenance({ dataDir, senderId, agentId, authoritative, userText, reply })
           .catch(() => undefined)
