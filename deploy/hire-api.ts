@@ -2300,6 +2300,12 @@ function clampNum(v: unknown, fallback = 0): number {
   return Number.isFinite(n) ? n : fallback
 }
 
+/** Words that mean the food actually contains protein; used to refuse a 0-protein estimate. */
+const PROTEIN_FOOD_RE = /\b(chicken|beef|steak|turkey|fish|salmon|tuna|shrimp|egg|eggs|tofu|beans|lentil|yogurt|paneer|meat|pork|lamb|protein|whey)\b/i
+
+/** Words that mean the item carries calories (not plain water/coffee/tea/diet soda). */
+const CALORIE_FOOD_RE = /\b(food|meal|diet|snack|lunch|dinner|breakfast|soda|juice|shake|milk|burger|pizza|pasta|rice|bread|salad|soup|smoothie|steak|fries|chip|cheese|sandwich|taco|burrito|wrap|plate|bowl|dish|chicken|beef|pork|lamb|meat|protein|tofu|beans|lentil|paneer|yogurt|egg|salmon|tuna|shrimp|turkey|fish|noodle|curry|stew|oats|cereal|fruit|vegetable|veggie)\b/i
+
 /** Day window in the user's timezone as UTC [start,end] for "today". */
 export function todayWindowUtc(timezone: string, now = new Date()): { start: Date; end: Date } {
   const tz = timezone || 'America/Los_Angeles'
@@ -2592,6 +2598,15 @@ async function estimateNutrition(
     'You are a nutrition estimator. Estimate the macronutrients of the described meal. ' +
     'Reply with JSON only: {"guess":"<short name>","calories":N,"protein":N,"carbs":N,"fat":N}. ' +
     'protein/carbs/fat are grams, calories is kcal. Use realistic single-serving estimates. ' +
+    'ALWAYS include all four fields with a real number in each — never omit protein, carbs, or fat. ' +
+    'NEVER report 0 protein for a food that contains meat, poultry, fish, eggs, dairy, legumes, tofu, beans, or any animal or plant protein — ' +
+    'if a dish has any protein source it has at least 1g of protein (typically 15-60g per serving). ' +
+    '0 is only correct for calorie-free items with no protein source at all (plain water, black coffee, unsweetened tea, diet soda). ' +
+    'For a plain vegetable side or a mostly-carb plate, give a small-but-nonzero protein figure rather than 0. ' +
+    'Examples: ' +
+    '"chicken over rice": {"guess":"chicken over rice bowl","calories":650,"protein":40,"carbs":75,"fat":18}; ' +
+    '"grilled salmon with broccoli": {"guess":"salmon and broccoli","calories":520,"protein":38,"carbs":12,"fat":30}; ' +
+    '"diet coke": {"guess":"diet coke","calories":0,"protein":0,"carbs":0,"fat":0}. ' +
     'Print the object and nothing else — no explanation, no markdown fence.'
 
   const userContent: unknown[] = imageBase64
@@ -2652,10 +2667,42 @@ async function estimateNutrition(
   if (!hit) {
     return { ok: false, error: 'Could not read the estimate. Try naming the food and the portion.' }
   }
+
+  // A chicken meal is never 0g protein. When the text model produced a parseable
+  // estimate that claims no protein for a description that names a protein source
+  // (no photo to judge by), give it one corrective pass and keep it only if it
+  // actually returns protein — otherwise the first (wrong) estimate stands.
+  if (
+    hit.macros.protein <= 0 &&
+    !imageBase64 &&
+    description.trim() &&
+    PROTEIN_FOOD_RE.test(description)
+  ) {
+    const retry = await attempt(cfg.textModel, [
+      {
+        type: 'text',
+        text:
+          `Re-estimate the macros for: ${description.trim().slice(0, 300)}. ` +
+          'Your previous estimate reported 0g protein, but this item contains a protein source (meat, poultry, fish, eggs, dairy, legumes, tofu, or beans), so 0g is impossible. ' +
+          'Re-estimate realistically: protein MUST be greater than 0 grams. ' +
+          'Reply with JSON only: {"guess":"<short name>","calories":N,"protein":N,"carbs":N,"fat":N} with protein > 0.',
+      },
+    ])
+    if (retry && retry.macros.protein > 0) hit = retry
+  }
+
+  // When the model omits a macro, the returned 0 would be a confident lie for a
+  // real food, so leave the field out and let callers treat it as unknown. The
+  // honest 0s survive: a description with no food (plain water, coffee, tea,
+  // diet soda) genuinely has no protein/carbs/fat. Calories are always present.
+  const macros: Record<string, number> = { calories: hit.macros.calories }
+  if (hit.macros.protein > 0 || !CALORIE_FOOD_RE.test(description)) macros.protein = hit.macros.protein
+  if (hit.macros.carbs > 0 || !CALORIE_FOOD_RE.test(description)) macros.carbs = hit.macros.carbs
+  if (hit.macros.fat > 0 || !CALORIE_FOOD_RE.test(description)) macros.fat = hit.macros.fat
   return {
     ok: true,
     guess: hit.guess || description.slice(0, 60) || 'meal',
-    ...hit.macros,
+    ...macros,
   }
 }
 
