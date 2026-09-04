@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Navigate } from 'react-router-dom'
 import {
   apiAddRelationship,
@@ -6,6 +6,8 @@ import {
   apiGetMiniPrefs,
   apiNutritionToday,
   apiPutMiniPrefs,
+  apiSaveLocation,
+  apiSavePhone,
   apiSetDigestTime,
   apiSetEveningTime,
   apiSetNutritionGoals,
@@ -26,12 +28,26 @@ import {
 } from './workoutProgram'
 import { MINI_SETTINGS_EVENT } from './MiniAppSettings'
 
+/** Common IANA zones offered on the timezone step (detected one always included). */
+const COMMON_ZONES = [
+  'America/Los_Angeles',
+  'America/New_York',
+  'America/Chicago',
+  'America/Denver',
+  'Europe/London',
+  'Europe/Berlin',
+  'Asia/Kolkata',
+  'Asia/Dubai',
+  'Australia/Sydney',
+  'Pacific/Auckland',
+]
+
 /** Onboarding wizard shown in the menu card while setup is incomplete. */
 export function SetupApp({ auth }: { auth: FeatureAuth }) {
   const persona = auth.persona
   const email = auth.email || getSession()?.email
 
-  type Step = 'features' | 'time' | 'goals' | 'sleep' | 'days' | 'people' | 'budget' | 'connect'
+  type Step = 'features' | 'time' | 'goals' | 'sleep' | 'days' | 'people' | 'budget' | 'tz' | 'home' | 'work' | 'connect'
   const STEPS: { id: Step; title: string }[] = [
     { id: 'features', title: 'What Alpha watches' },
     { id: 'time', title: 'Brief times' },
@@ -40,6 +56,9 @@ export function SetupApp({ auth }: { auth: FeatureAuth }) {
     { id: 'days', title: 'Workout days' },
     { id: 'people', title: 'People who matter' },
     { id: 'budget', title: 'Weekly spend' },
+    { id: 'tz', title: 'Time zone' },
+    { id: 'home', title: 'Home' },
+    { id: 'work', title: 'Work' },
     { id: 'connect', title: 'Connect tools' },
   ]
   const [step, setStep] = useState<Step>('features')
@@ -58,6 +77,17 @@ export function SetupApp({ auth }: { auth: FeatureAuth }) {
   const [personCadence, setPersonCadence] = useState(14)
   const [people, setPeople] = useState<Array<{ name: string; kind: string; cadence: number }>>([])
   const [budget, setBudget] = useState(400)
+  const detectedTz = useMemo(() => {
+    try {
+      return Intl.DateTimeFormat().resolvedOptions().timeZone || 'America/New_York'
+    } catch {
+      return 'America/New_York'
+    }
+  }, [])
+  const [tz, setTz] = useState(detectedTz)
+  const zoneOptions = useMemo(() => (detectedTz && !COMMON_ZONES.includes(detectedTz) ? [detectedTz, ...COMMON_ZONES] : COMMON_ZONES), [detectedTz])
+  const [homeQuery, setHomeQuery] = useState('')
+  const [workQuery, setWorkQuery] = useState('')
   const [ids, setIds] = useState<ConnectorId[]>(() => connectedIds())
   const [connecting, setConnecting] = useState<ConnectorId | null>(null)
   const [busy, setBusy] = useState(false)
@@ -120,6 +150,28 @@ export function SetupApp({ auth }: { auth: FeatureAuth }) {
         }
       } else if (step === 'budget') {
         await apiSetSpendBudget({ ...a, weeklyBudget: budget })
+      } else if (step === 'tz') {
+        // The timezone rides on the phone record. Token-only setups have no
+        // phone to attach it to, so persist best-effort and move on silently.
+        const session = getSession()
+        if (email && session?.phone) {
+          await apiSavePhone(email, session.phone, session.name, tz)
+        }
+      } else if (step === 'home' || step === 'work') {
+        const kind = step
+        const query = (kind === 'home' ? homeQuery : workQuery).trim()
+        if (email && query) {
+          const hit = await geocodePlace(query)
+          await apiSaveLocation({
+            email,
+            kind,
+            latitude: hit.lat,
+            longitude: hit.lon,
+            label: query,
+            source: 'manual',
+          })
+        }
+        // No text typed (or token-only): skip persisting and advance.
       }
     } catch (error) {
       setMsg(error instanceof Error ? error.message : 'Could not save that step.')
@@ -130,6 +182,20 @@ export function SetupApp({ auth }: { auth: FeatureAuth }) {
     const i = STEPS.findIndex((s) => s.id === step)
     if (i < STEPS.length - 1) setStep(STEPS[i + 1]!.id)
     else setDone(true)
+  }
+
+  /** Geocode free text to a lat/lon via Nominatim, like the settings sheet. */
+  async function geocodePlace(query: string): Promise<{ lat: number; lon: number }> {
+    const url = new URL('https://nominatim.openstreetmap.org/search')
+    url.searchParams.set('q', query)
+    url.searchParams.set('format', 'jsonv2')
+    url.searchParams.set('limit', '1')
+    const res = await fetch(url, { headers: { Accept: 'application/json' } })
+    if (!res.ok) throw new Error('Could not look up that address')
+    const rows = (await res.json()) as Array<{ lat?: string; lon?: string }>
+    const row = rows[0]
+    if (!row || !row.lat || !row.lon) throw new Error('No place found. Try a city or address.')
+    return { lat: Number(row.lat), lon: Number(row.lon) }
   }
 
   function skip() {
@@ -347,6 +413,52 @@ export function SetupApp({ auth }: { auth: FeatureAuth }) {
             <span>Weekly budget</span>
             <input type="number" inputMode="decimal" value={budget} onChange={(e) => setBudget(Number(e.target.value) || 0)} />
           </label>
+        </div>
+      )}
+
+      {step === 'tz' && (
+        <div className="setup__block">
+          <p className="setup__lead">
+            {detectedTz ? `Alpha clocked your device and thinks you're in ${detectedTz}. That right?` : 'Which timezone should Alpha use for briefs and reminders?'}
+          </p>
+          <label className="setup__row">
+            <span>Time zone</span>
+            <select className="setup__select" value={tz} onChange={(e) => setTz(e.target.value)}>
+              {zoneOptions.map((zone) => (
+                <option key={zone} value={zone}>
+                  {zone}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+      )}
+
+      {step === 'home' && (
+        <div className="setup__block">
+          <p className="setup__lead">Where&rsquo;s home? Alpha uses it for weather, commute timing, and local picks.</p>
+          <input
+            className="setup__text"
+            type="text"
+            placeholder="Where's home? (city or address)"
+            value={homeQuery}
+            onChange={(e) => setHomeQuery(e.target.value)}
+          />
+          {homeQuery.trim() && <p className="setup__hint">Tap Next to save {homeQuery.trim()}. Leave blank to skip.</p>}
+        </div>
+      )}
+
+      {step === 'work' && (
+        <div className="setup__block">
+          <p className="setup__lead">And where do you work? Alpha keeps commute timing honest.</p>
+          <input
+            className="setup__text"
+            type="text"
+            placeholder="Where do you work?"
+            value={workQuery}
+            onChange={(e) => setWorkQuery(e.target.value)}
+          />
+          {workQuery.trim() && <p className="setup__hint">Tap Next to save {workQuery.trim()}. Leave blank to skip.</p>}
         </div>
       )}
 
