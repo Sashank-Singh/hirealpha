@@ -78,6 +78,7 @@ export function startIntroPoller(options: {
 
     for (const claim of claims) {
       try {
+        await ensurePhotonUser(claim.phone, persona)
         await send(claim.phone, INTRO_TEXTS[persona])
         console.log(`[${persona}] intro sent to ${claim.phone}`)
         await ack(claim.id, true)
@@ -94,4 +95,36 @@ export function startIntroPoller(options: {
   }
   run()
   setInterval(run, intervalMs)
+}
+
+/** Register the number with Photon before the first text. The imessage SDK
+ * resolves existing project users but never CREATES them, so a fresh signup
+ * bounced "Target not allowed for this project" forever. Pro projects allow
+ * shared users; an already-registered number 409s, which is fine. */
+async function ensurePhotonUser(phone: string, persona: AgentId): Promise<void> {
+  const projectId = process.env.PROJECT_ID || ''
+  const projectSecret = process.env.PROJECT_SECRET || ''
+  if (!projectId || !projectSecret) return
+  try {
+    const res = await fetch(`https://spectrum.photon.codes/projects/${projectId}/users/`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Basic ${Buffer.from(`${projectId}:${projectSecret}`).toString('base64')}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ type: 'shared', phoneNumber: phone }),
+    })
+    if (res.ok) {
+      console.log(`[${persona}] photon user created for ${phone}`)
+      return
+    }
+    const body = (await res.json().catch(() => ({}))) as { message?: string; error?: string }
+    const msg = body.message || body.error || `status ${res.status}`
+    // Already registered is success for our purpose; anything else blocks the send.
+    if (res.status === 409 || /already|exist/i.test(msg)) return
+    throw new Error(`photon create-user failed: ${msg}`)
+  } catch (err) {
+    if (err instanceof Error && err.message.startsWith('photon create-user failed')) throw err
+    console.warn(`[${persona}] photon create-user skipped`, err)
+  }
 }
