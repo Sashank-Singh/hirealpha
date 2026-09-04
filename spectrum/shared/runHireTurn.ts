@@ -1054,14 +1054,22 @@ export async function runHireTurn(input: {
     live.hired &&
     history.length <= 8 &&
     (agent.id === 'friend' || agent.id === 'cofounder' || agent.id === 'coworker') &&
-    onboardingStage(live.memories || []) !== 'done'
+    onboardingStage([
+      ...(live.memories || []),
+      // The signup already knows their name (web account) — never re-ask what
+      // the DB holds. City/priority still come from chat.
+      ...(live.name ? [{ key: 'preferred_name', value: live.name }] : []),
+    ]) !== 'done'
   ) {
     try {
       const question = await runOnboardingTurn(
         input.senderId,
         agent.id,
         input.userText,
-        live.memories || [],
+        [
+          ...(live.memories || []),
+          ...(live.name ? [{ key: 'preferred_name', value: live.name }] : []),
+        ],
       )
       if (question) {
         extras.push(
