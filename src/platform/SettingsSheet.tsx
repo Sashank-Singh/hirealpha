@@ -507,7 +507,7 @@ export function SettingsSheet() {
                   {manageBusy ? 'Opening…' : 'Manage billing'}
                 </button>
               ) : (
-                <Link to="/app/login" className="ss-btn">
+                <Link to="/app/login?plan=single" className="ss-btn">
                   Start trial
                 </Link>
               )}
