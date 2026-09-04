@@ -324,10 +324,16 @@ export async function ackIntro(sql: SQL, id: string, ok: boolean, error?: string
  * Google, ensureUser adopts this row by phone instead of colliding with the
  * phone_e164 unique index.
  */
-export async function ensurePhoneUser(sql: SQL, phone: string, persona: Persona, name?: string, timezone?: string) {
+export async function ensurePhoneUser(
+  sql: SQL,
+  phone: string,
+  persona: Persona,
+  name?: string,
+  timezone?: string,
+): Promise<string | null> {
   await enqueueIntro(sql, phone, persona)
   const e164 = normalizePhone(phone)
-  if (!e164) return
+  if (!e164) return null
   const cleanName = String(name || '').trim().slice(0, 80) || null
   const cleanTz = timezone && isValidTimeZone(timezone) ? timezone : null
   const existing = await getUserByPhone(sql, e164)
@@ -353,13 +359,25 @@ export async function ensurePhoneUser(sql: SQL, phone: string, persona: Persona,
       WHERE id = ${existing!.id}
     `
   }
+  if (!userId) return null
   // Register the number with Photon right here, carrying the person's name and
   // email so the dashboard shows a contact, not "Unnamed user". Idempotent per
-  // the create-user API: an existing shared phoneNumber is updated in place.
-  // (The bot retries the same call as a fallback, phone-only.)
+  // the create-user API. The assigned shared number is what this user must
+  // text — await it, store it, and return it so every CTA can point at the
+  // right line instead of the hardcoded bot number.
   const existingEmail = existing?.email || `${e164.replace(/\D/g, '')}@phone.hirealpha.chat`
-  void registerPhotonUser(e164, cleanName, existingEmail).catch(() => undefined)
-  if (!userId) return
+  let assigned: string | null = existing?.assignedPhone || null
+  try {
+    assigned = (await registerPhotonUser(e164, cleanName, existingEmail)) || assigned
+    if (assigned) {
+      await sql`
+        UPDATE hire_users SET assigned_phone = ${assigned}, updated_at = now()
+        WHERE id = ${userId} AND (assigned_phone IS NULL OR assigned_phone <> ${assigned})
+      `
+    }
+  } catch (err) {
+    console.warn('[photon] register failed', err)
+  }
   await sql`
     INSERT INTO hire_roster (user_id, persona) VALUES (${userId}, ${persona})
     ON CONFLICT (user_id, persona) DO NOTHING
@@ -368,16 +386,19 @@ export async function ensurePhoneUser(sql: SQL, phone: string, persona: Persona,
   // wakeup lands at 8am in the user's zone when one was captured at signup,
   // else 8am Pacific until the zone is learned later.
   await seedDefaultLoops(sql, userId, e164, persona, cleanTz || undefined)
+  return assigned
 }
 
 /** Best-effort Photon project-user registration. Needs PHOTON_PROJECT_ID and
- * PHOTON_PROJECT_SECRET on the web app; silently skipped when unset (the bot
+ * PHOTON_PROJECT_SECRET on the web app; resolves to null when unset (the bot
  * retries phone-only before each intro send). The create-user API is
- * idempotent on an existing shared phoneNumber, updating name/email. */
-async function registerPhotonUser(phone: string, name: string | null, email: string): Promise<void> {
+ * idempotent on an existing shared phoneNumber, updating name/email. Returns
+ * the shared number Photon assigned (null when skipped/failed) so callers can
+ * point the user at the right line. */
+async function registerPhotonUser(phone: string, name: string | null, email: string): Promise<string | null> {
   const pid = process.env.PHOTON_PROJECT_ID || ''
   const secret = process.env.PHOTON_PROJECT_SECRET || ''
-  if (!pid || !secret) return
+  if (!pid || !secret) return null
   try {
     const res = await fetch(`https://spectrum.photon.codes/projects/${pid}/users/`, {
       method: 'POST',
@@ -390,9 +411,15 @@ async function registerPhotonUser(phone: string, name: string | null, email: str
     if (!res.ok) {
       const body = (await res.json().catch(() => ({}))) as { message?: string }
       console.warn(`[photon] register ${phone} -> ${res.status} ${body.message || ''}`)
+      return null
     }
+    const body = (await res.json().catch(() => ({}))) as {
+      data?: { assignedPhoneNumber?: string }
+    }
+    return body.data?.assignedPhoneNumber || null
   } catch (err) {
     console.warn('[photon] register failed', err)
+    return null
   }
 }
 
@@ -1162,6 +1189,7 @@ export async function ensureHireSchema(sql: SQL) {
     )
   `
   await sql`ALTER TABLE hire_users ADD COLUMN IF NOT EXISTS name TEXT`
+  await sql`ALTER TABLE hire_users ADD COLUMN IF NOT EXISTS assigned_phone TEXT`
   await sql`ALTER TABLE hire_users ADD COLUMN IF NOT EXISTS timezone TEXT`
   await sql`ALTER TABLE hire_users ADD COLUMN IF NOT EXISTS password_hash TEXT`
   await sql`
@@ -2130,11 +2158,11 @@ function coordsUsable(lat: unknown, lng: unknown): lat is number {
   )
 }
 
-type AuthedUser = { id: string; email: string; name: string | null; timezone: string | null; phone: string | null }
+type AuthedUser = { id: string; email: string; name: string | null; timezone: string | null; phone: string | null; assignedPhone?: string | null }
 
 async function getUserByEmail(sql: SQL, email: string) {
   const rows = await sql`
-    SELECT id, email, name, timezone, phone_e164 AS phone FROM hire_users WHERE email = ${email} LIMIT 1
+    SELECT id, email, name, timezone, phone_e164 AS phone, assigned_phone AS "assignedPhone" FROM hire_users WHERE email = ${email} LIMIT 1
   `
   return (rows[0] as AuthedUser | undefined) ?? null
 }
@@ -2163,7 +2191,7 @@ async function getUserByPhone(sql: SQL, phone: string) {
   if (!e164) return null
   const last10 = e164.replace(/\D/g, '').slice(-10)
   const rows = await sql`
-    SELECT id, email, name, timezone, phone_e164 AS phone FROM hire_users
+    SELECT id, email, name, timezone, phone_e164 AS phone, assigned_phone AS "assignedPhone" FROM hire_users
     WHERE phone_e164 = ${e164}
        OR right(regexp_replace(coalesce(phone_e164, ''), '[^0-9]', '', 'g'), 10) = ${last10}
     LIMIT 1
@@ -2198,7 +2226,7 @@ async function getUserByPhone(sql: SQL, phone: string) {
   const memId = (mem[0] as { id?: string } | undefined)?.id
   if (memId) {
     const urows = await sql`
-      SELECT id, email, name, timezone, phone_e164 AS phone FROM hire_users WHERE id = ${memId} LIMIT 1
+      SELECT id, email, name, timezone, phone_e164 AS phone, assigned_phone AS "assignedPhone" FROM hire_users WHERE id = ${memId} LIMIT 1
     `
     const fromMem = (urows[0] as AuthedUser | undefined) ?? null
     if (fromMem) return linkPhoneIfMissing(sql, fromMem, e164)
@@ -9739,13 +9767,18 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
   /* Save-the-contact: a vCard with the name, number, and face already filled
    * in. Photo is folded base64 per RFC 6350 so Android parsers do not choke. */
   if (path === '/api/contact/alpha.vcf' && req.method === 'GET') {
+    // The assigned shared line is per-user; a caller that knows it (post
+    // signup) passes ?phone= so the saved contact matches the number they
+    // actually text. Falls back to Alpha's primary line.
+    const override = normalizePhone(url.searchParams.get('phone') || '')
+    const tel = override || '+14155951440'
     const lines = [
       'BEGIN:VCARD',
       'VERSION:3.0',
       'N:;Alpha;;;',
       'FN:Alpha',
       'ORG:HireAlpha',
-      'TEL;TYPE=CELL:+14155951440',
+      `TEL;TYPE=CELL:${tel}`,
     ]
     const b64 = await alphaContactPhoto()
     if (b64) {

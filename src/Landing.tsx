@@ -888,6 +888,7 @@ function WaitlistForm() {
   })()
   const [hire, setHire] = useState<AgentId>('friend')
   const [done, setDone] = useState(false)
+  const [assignedPhone, setAssignedPhone] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [code, setCode] = useState('')
@@ -925,7 +926,8 @@ function WaitlistForm() {
           ...(code.trim() ? { code: code.trim() } : {}),
         }),
       })
-      const data = (await res.json().catch(() => ({}))) as { error?: string; waitlisted?: boolean }
+      const data = (await res.json().catch(() => ({}))) as { error?: string; waitlisted?: boolean; assignedPhone?: string }
+      if (data.assignedPhone) setAssignedPhone(data.assignedPhone)
       if (!res.ok) {
         setError(data.error || 'Could not save your info. Try again.')
         setBusy(false)
@@ -1045,22 +1047,22 @@ function WaitlistForm() {
         {!waitlisted && (
           <>
             <p className="waitlist-success__cta">Text Alpha now</p>
-            <a className="btn btn--accent" href="sms:+14155951440&body=Hey%2C%20Alpha!">
+            <a className="btn btn--accent" href={`sms:${assignedPhone || '+14155951440'}&body=Hey%2C%20Alpha!`}>
               Open Messages
             </a>
           </>
         )}
-        <a className="btn btn--accent" href="sms:+14155951440&body=Hey%2C%20Alpha!">
+        <a className="btn btn--accent" href={`sms:${assignedPhone || '+14155951440'}&body=Hey%2C%20Alpha!`}>
           Open Messages
         </a>
         <p style={{ margin: '10px 0 0' }}>
-          <a className="btn btn--ghost" href="/api/contact/alpha.vcf">
+          <a className="btn btn--ghost" href={`/api/contact/alpha.vcf${assignedPhone ? `?phone=${encodeURIComponent(assignedPhone)}` : ''}`}>
             Save Alpha's contact
           </a>
         </p>
         <div className="qr">
           <img
-            src="https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=sms%3A%2B14155951440"
+            src={`https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=${encodeURIComponent(`sms:${assignedPhone || "+14155951440"}`)}`}
             alt="QR code that opens a text to Alpha"
             loading="lazy"
             width={96}

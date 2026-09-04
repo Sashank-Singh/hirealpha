@@ -336,7 +336,10 @@ export async function handleWaitlist(req: Request, db: SQL | null) {
             ON CONFLICT (phone_e164, persona) DO NOTHING
           `
         } else {
-          await ensurePhoneUser(sql, rawPhone, hire, name || undefined, timezone || undefined)
+          const assigned = await ensurePhoneUser(sql, rawPhone, hire, name || undefined, timezone || undefined)
+          if (assigned) {
+            return json({ ok: true, waitlisted: false, assignedPhone: assigned })
+          }
         }
       } else {
         waitlisted = true
