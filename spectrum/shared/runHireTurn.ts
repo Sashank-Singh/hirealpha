@@ -615,6 +615,14 @@ export async function runHireTurn(input: {
     looksLikeDigestIntent(input.userText) || looksLikeAffirmedBrief(input.userText, lastAssistant)
   const eveningBriefIntent = looksLikeEveningBriefIntent(input.userText)
 
+  // A first text that is just a greeting ("Hey, Alpha!", "hi", "yo") gets the
+  // pinned welcome verbatim — fast, deterministic, always on copy. Anything
+  // with a real question still goes to the model.
+  const bareGreeting =
+    isFirst && /^(hey|hi|hello|yo|hola|sup|whats up|what's up|howdy)\b/i.test(input.userText.trim())
+  const greetingName = (live.name || '').trim() || 'there'
+  const WELCOME = `Hey ${greetingName}, I'm Alpha, your hired friend. I keep the day sane, save the stuff you'd lose, and check in when you need a real person. One card should show up here in a sec to pick how you want to use me.`
+
   if (live.hired) {
     void touchInbound(input.senderId, agent.id)
   }
@@ -1423,6 +1431,19 @@ export async function runHireTurn(input: {
     if (isTheaterCopy(m.content)) return false
     return true
   })
+
+  // Pinned welcome: a bare first greeting is answered by the template, not the
+  // model — no latency, no drift, exact copy. The onboarding card still rides.
+  if (bareGreeting) {
+    const onboarding = allowMiniAppCard(input.senderId, agent.id, 'menu')
+      ? await onboardingCard(input.senderId, agent.id)
+      : null
+    appendThread(input.dataDir, input.senderId, [
+      { role: 'user', content: input.userText },
+      { role: 'assistant', content: WELCOME },
+    ])
+    return { reply: WELCOME, bubbles: splitBubbles(WELCOME), source: 'local', authoritative: [], card: onboarding }
+  }
 
   try {
     const firstHint = isFirst
