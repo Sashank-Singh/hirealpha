@@ -4246,6 +4246,32 @@ html[data-mini-theme='light'] .ma-where-label { color: #6d28d9; }
 }
 .home-plain-meta { color: var(--muted-fg); font-size: 12px; }
 
+/* "People due" fold control. Small text button, aligned to the list rows above
+   so the fold reads as a continuation of them rather than a section of its own;
+   the muted resting colour darkens toward the accent on press and hover. */
+.home-people-toggle {
+  align-self: flex-start;
+  margin: -2px 0 0;
+  padding: 4px 2px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--muted-fg);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: color 0.12s ease;
+}
+.home-people-toggle:hover,
+.home-people-toggle:focus-visible {
+  color: var(--mini-accent, #2a6f7a);
+}
+.home-people-toggle:focus-visible {
+  outline: 2px solid var(--mini-accent, #2a6f7a);
+  outline-offset: 2px;
+}
+.home-people-toggle:active { color: var(--fg); }
+
 /* Today at a glance: the soonest meetings as inline chips and the one mail line
  * that needs a human. Both ride the home payload and vanish when it is empty. */
 .home-meets {
@@ -5069,7 +5095,75 @@ a.brief-fact { cursor: pointer; }
   color: var(--mini-accent, #2a6f7a);
 }
 .brief-prep-title { margin: 0; font-size: 18px; font-weight: 800; letter-spacing: -0.02em; }
-.brief-prep-loading { margin: 0; color: var(--muted-fg); font-size: 14px; }
+/* Live "assistant at work" list shown while a brief/prep is gathering data. The
+ * active step marches down the list, ticks a check, then loops — pending rows
+ * are muted, the active one wears the accent, finished ones go subtle. */
+.brief-activity {
+  margin: 0;
+  padding: 2px 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+.brief-activity-step {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 18px;
+  font-size: 14px;
+  line-height: 1.3;
+  color: var(--muted-fg);
+  transition: color 0.25s ease, opacity 0.25s ease;
+}
+.brief-activity-mark {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 1.5px solid var(--border);
+  color: transparent;
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1;
+  transition: background 0.25s ease, border-color 0.25s ease, color 0.25s ease;
+}
+.brief-activity-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--mini-accent, #2a6f7a);
+  animation: brief-activity-pulse 0.9s ease-in-out infinite;
+}
+.brief-activity-step.is-current {
+  color: var(--fg);
+}
+.brief-activity-step.is-current .brief-activity-mark {
+  border-color: var(--mini-accent, #2a6f7a);
+}
+.brief-activity-step.is-done {
+  color: var(--muted-fg);
+  opacity: 0.7;
+}
+.brief-activity-step.is-done .brief-activity-mark {
+  border-color: color-mix(in srgb, var(--mini-accent, #2a6f7a) 45%, transparent);
+  color: color-mix(in srgb, var(--mini-accent, #2a6f7a) 75%, var(--muted-fg));
+}
+@keyframes brief-activity-pulse {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.4); opacity: 0.5; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .brief-activity-step,
+  .brief-activity-mark {
+    transition: none;
+  }
+  .brief-activity-dot {
+    animation: none;
+  }
+}
 .brief-prep-text { margin: 0; white-space: pre-wrap; font-size: 14px; line-height: 1.5; }
 .brief-prep-chat {
   align-self: flex-start;

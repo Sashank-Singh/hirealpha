@@ -150,6 +150,56 @@ function FactStrip({ facts }: { facts: BriefFact[] }) {
   )
 }
 
+/* The brief/prep build is a handful of slow reads — mail, calendar, meetings,
+ * then a pass to rank what matters. While that runs, walk the user through the
+ * steps so the wait reads as the assistant actually working: each step lights
+ * up, ticks a check, and the sequence loops until the real data lands. People
+ * who prefer reduced motion get the same list frozen — nothing marches. */
+const BRIEF_ACTIVITY_STEPS = [
+  "Pulling today's email",
+  'Scanning your calendar',
+  'Checking meetings',
+  'Finding what matters',
+  'Writing your brief',
+]
+
+function BriefActivity() {
+  /* Read once at mount. The march is pure decoration, so when the user prefers
+   * reduced motion we freeze on the first step and never advance the interval. */
+  const reduceMotion = useRef(
+    typeof window !== 'undefined' &&
+      typeof window.matchMedia === 'function' &&
+      window.matchMedia('(prefers-reduced-motion: reduce)').matches,
+  ).current
+  const [current, setCurrent] = useState(0)
+  useEffect(() => {
+    if (reduceMotion) return
+    const id = window.setInterval(() => {
+      setCurrent((n) => (n + 1) % BRIEF_ACTIVITY_STEPS.length)
+    }, 800)
+    return () => window.clearInterval(id)
+  }, [reduceMotion])
+  return (
+    <ul className="brief-activity">
+      {BRIEF_ACTIVITY_STEPS.map((label, i) => {
+        const done = i < current
+        const isCurrent = i === current
+        return (
+          <li
+            key={label}
+            className={`brief-activity-step${isCurrent ? ' is-current' : ''}${done ? ' is-done' : ''}`}
+          >
+            <span className="brief-activity-mark" aria-hidden="true">
+              {done ? '✓' : isCurrent ? <span className="brief-activity-dot" /> : null}
+            </span>
+            <span className="brief-activity-label">{label}</span>
+          </li>
+        )
+      })}
+    </ul>
+  )
+}
+
 function PrepSheet({
   name,
   creds,
@@ -187,7 +237,7 @@ function PrepSheet({
         <span className="brief-prep-kicker">Prep</span>
         <h3 className="brief-prep-title">{name}</h3>
         {loading ? (
-          <p className="brief-prep-loading">Pulling mail, notes, and the web…</p>
+          <BriefActivity />
         ) : (
           <>
             <p className="brief-prep-text">{text}</p>

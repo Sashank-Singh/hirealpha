@@ -35,6 +35,10 @@ import { aggregateSpend } from './spendChart'
 const SLEEP_TARGET_H = 8
 const SLEEP_SCALE_H = 10
 
+/* How many of the most-overdue people Home leads with before the list folds
+ * behind a "Show more" toggle. The rest stays one tap away, not a scroll wall. */
+const PEOPLE_DUE_PREVIEW = 2
+
 function fmtDay(iso: string | null | undefined) {
   if (!iso) return ''
   const raw = iso.slice(0, 10)
@@ -102,6 +106,9 @@ export function HomeApp({ auth }: { auth: FeatureAuth }) {
   const [tourStep, setTourStep] = useState(() =>
     searchParams.get('tour') === '1' && !localStorage.getItem('ha_tour_done') ? 0 : -1,
   )
+  /* Whether the full "People due" list is open. Closed by default so Home leads
+   * with the two most overdue instead of every due person at once. */
+  const [peopleOpen, setPeopleOpen] = useState(false)
 
   const load = useCallback(() => {
     setLoading(true)
@@ -344,7 +351,7 @@ export function HomeApp({ auth }: { auth: FeatureAuth }) {
         <section className="home-block">
           <h3 className="home-section-title">People due</h3>
           <ul className="home-plain-list">
-            {peopleDue.map((p) => (
+            {(peopleOpen ? peopleDue : peopleDue.slice(0, PEOPLE_DUE_PREVIEW)).map((p) => (
               <li key={p.name}>
                 <Link className="home-plain-link" to={miniLink('networking_crm')}>
                   <span>{p.name}</span>
@@ -358,6 +365,16 @@ export function HomeApp({ auth }: { auth: FeatureAuth }) {
               </li>
             ))}
           </ul>
+          {peopleDue.length > PEOPLE_DUE_PREVIEW && (
+            <button
+              type="button"
+              className="home-people-toggle"
+              aria-expanded={peopleOpen}
+              onClick={() => setPeopleOpen((open) => !open)}
+            >
+              {peopleOpen ? 'Show less' : `Show more (${peopleDue.length - PEOPLE_DUE_PREVIEW})`}
+            </button>
+          )}
         </section>
       )}
 
