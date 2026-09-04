@@ -4,7 +4,6 @@ import { apiExchangeGoogle, apiLoginPassword, apiRegisterPassword, apiSignIn } f
 import { getSession, hydrateFromServer, signIn } from './roster'
 
 type AuthMode = 'signin' | 'signup'
-type Step = 'auth' | 'trial'
 
 export function LoginPage() {
   const existing = getSession()
@@ -13,7 +12,6 @@ export function LoginPage() {
   const emailParam = params.get('email') || ''
   const planParam = params.get('plan') || ''
   const [mode, setMode] = useState<AuthMode>(existing?.name ? 'signin' : 'signup')
-  const [step, setStep] = useState<Step>('auth')
   const [name, setName] = useState(existing?.name || '')
   const [email, setEmail] = useState(existing?.email || emailParam)
   const [phone, setPhone] = useState(existing?.phone || '')
@@ -208,44 +206,6 @@ export function LoginPage() {
   }
 
   const needsPhoneStep = googleUser || pwSignedIn
-
-  async function startTrial() {
-    const use = email.trim().toLowerCase()
-    if (!use.includes('@')) { navigate('/app'); return }
-    setBusy(true)
-    try {
-      const res = await fetch('/api/billing/checkout', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: use, hire: 'friend', plan: 'single', trial_days: 7 }),
-      })
-      const data = (await res.json().catch(() => ({}))) as { url?: string }
-      if (data.url) { window.location.href = data.url; return }
-    } catch { /* fall through */ } finally { setBusy(false) }
-    navigate('/app')
-  }
-
-  /* ─── Trial / pricing screen ─────────────────────────────────── */
-  if (step === 'trial') {
-    return (
-      <div className="auth-page">
-        <div className="auth-card">
-          <div className="auth-brand">
-            <img src="/HireAlpha_logo.png" alt="HireAlpha" className="auth-brand-logo" />
-          </div>
-          <h1 className="auth-title">Try Alpha Free</h1>
-          <p className="auth-subtitle">7 days free, then $5/mo for 2 months, then $19/mo.</p>
-
-          <button id="onb-trial-cta" type="button" className="auth-btn auth-btn--primary" onClick={() => void startTrial()} disabled={busy}>
-            {busy ? 'Opening…' : 'Start free trial'}
-          </button>
-          <button type="button" className="auth-btn-ghost" onClick={() => navigate('/app')}>
-            Skip for now
-          </button>
-        </div>
-      </div>
-    )
-  }
 
   /* ─── Main Auth Screen ────────────────────────────────────────── */
   return (
