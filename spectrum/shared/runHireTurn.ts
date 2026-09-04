@@ -583,6 +583,13 @@ export async function runHireTurn(input: {
   const agent = getAgent(input.agentId)
   const mem = loadMemory(input.dataDir, input.senderId)
   const history = mem.history
+  // Judgment state starts BEFORE the profile fetch and overlaps it — its 18s
+  // worst case must never serialize behind profile. A thread with zero local
+  // history is a first contact: skip it (no state to judge yet).
+  const friendJudgmentP =
+    agent.id === 'friend' && (history.length > 0 || mem.summary.trim().length > 0)
+      ? fetchJudgmentState(input.senderId, agent.id, 'turn').catch(() => null)
+      : null
   const [live, contacts, spending] = await Promise.all([
     fetchLiveProfile(input.senderId, agent.id),
     input.senderId ? fetchContacts(input.senderId) : Promise.resolve([]),
@@ -811,7 +818,7 @@ export async function runHireTurn(input: {
     const remembered = formatHireMemories(live.memories)
     if (remembered) extras.push(remembered)
     if (agent.id === 'friend') {
-      friendLife = await fetchJudgmentState(input.senderId, agent.id, 'turn')
+      friendLife = friendJudgmentP ? await friendJudgmentP : null
       if (friendLife) extras.push(formatLifeStateBlock(friendLife))
       extras.push(TOOL_LOOP_INSTRUCTIONS)
       if (looksLikeLifeTap(input.userText)) {

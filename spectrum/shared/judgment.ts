@@ -95,7 +95,9 @@ export async function fetchJudgmentState(
   if (!base || !key) return null
   try {
     const qs = new URLSearchParams({ phone, persona, tick })
-    const res = await timedFetch(`${base}/api/internal/judgment-state?${qs}`, { headers: authHeaders() }, 18000)
+    // Bounded: judgment rides alongside the reply path now; 6s is plenty for
+    // state and 18s was stalling turns outright.
+    const res = await timedFetch(`${base}/api/internal/judgment-state?${qs}`, { headers: authHeaders() }, 6000)
     if (!res.ok) return null
     return (await res.json()) as JudgmentState
   } catch (err) {
