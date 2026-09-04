@@ -3555,7 +3555,11 @@ html[data-mini-theme='light'] .ma-where-label { color: #6d28d9; }
 .conn-list--scroll { max-height: 17rem; overflow-y: auto; -webkit-overflow-scrolling: touch; }
 
 /* ---- Onboarding setup wizard (menu card) ---- */
-.setup { display: flex; flex-direction: column; gap: 16px; }
+.setup {
+  display: flex; flex-direction: column; gap: 16px;
+  max-height: 72vh; overflow-y: auto; -webkit-overflow-scrolling: touch;
+  padding-right: 4px;
+}
 .setup__step {
   font-size: 11px; font-weight: 600; letter-spacing: 0.08em;
   text-transform: uppercase; opacity: 0.55; margin: 0;
@@ -3565,6 +3569,7 @@ html[data-mini-theme='light'] .ma-where-label { color: #6d28d9; }
 .setup__chips { display: flex; flex-wrap: wrap; gap: 8px; }
 .setup__chips .ma-chip.is-pick {
   display: inline-flex; align-items: center; gap: 6px; cursor: pointer; user-select: none;
+  white-space: normal; text-align: left; line-height: 1.3; max-width: 100%; flex: 0 1 auto;
 }
 .setup__chips .ma-chip input { accent-color: var(--mini-accent, #2a6f7a); margin: 0; }
 .setup__row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
