@@ -116,7 +116,9 @@ export function SettingsSheet() {
       .catch(() => undefined)
     void apiConnectorStatus()
       .then(setReady)
-      .catch(() => setReady({ google: false, composio: false }))
+      // A failed probe is unknown, not "unconfigured" — never tell the user the
+      // server is broken because their network hiccuped.
+      .catch(() => setReady(null))
   }, [])
 
   useEffect(() => {
