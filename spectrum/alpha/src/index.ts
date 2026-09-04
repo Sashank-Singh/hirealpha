@@ -32,6 +32,7 @@ if (introTo) {
     const space = await im.space.create(user)
     await space.responding(async () => {
       await space.send(INTRO_TEXTS[agent.id])
+      await space.shareContactCard().catch(() => undefined)
     })
     console.log(`[${agent.id}] intro sent to ${introTo}`)
   } catch (err) {
@@ -41,6 +42,8 @@ if (introTo) {
 
 // Numbers that signed up on the site get the intro text without anyone adding
 // them by hand; failures ack back to the server and retry on the next poll.
+// The native contact card rides along so iOS offers "New contact information
+// — Add" right in the thread (name + photo come from the project profile).
 startIntroPoller({
   persona: agent.id,
   send: async (phone, text) => {
@@ -49,6 +52,7 @@ startIntroPoller({
     await space.responding(async () => {
       const cleaned = sanitizeOutbound(text)
       if (cleaned) await space.send(cleaned)
+      await space.shareContactCard().catch(() => undefined)
     })
   },
 })

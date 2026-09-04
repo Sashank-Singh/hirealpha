@@ -50,6 +50,7 @@ startIntroPoller({
     await space.responding(async () => {
       const cleaned = sanitizeOutbound(text)
       if (cleaned) await space.send(cleaned)
+      await space.shareContactCard().catch(() => undefined)
     })
   },
 })
