@@ -7396,6 +7396,14 @@ async function livePayload(sql: SQL, phone: string, persona: Persona) {
     : []
   const memories = hired ? await loadMemories(sql, user.id, persona, 12) : []
   const active = hired ? await pickActiveLocation(sql, user.id) : null
+  let pro = false
+  if (hired) {
+    const subs = (await sql`
+      SELECT 1 FROM hire_subscriptions
+      WHERE user_id = ${user.id} AND status IN ('active', 'trialing') LIMIT 1
+    `) as unknown[]
+    pro = subs.length > 0
+  }
   let lastInboundAt: string | null = null
   if (hired) {
     const inbound = await sql`
@@ -7416,6 +7424,7 @@ async function livePayload(sql: SQL, phone: string, persona: Persona) {
     timezone: user.timezone,
     userId: user.id,
     lastInboundAt,
+    pro,
     location: active
       ? { kind: active.kind, label: locationLabel(active), label_text: active.label }
       : null,

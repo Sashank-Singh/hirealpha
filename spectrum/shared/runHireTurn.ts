@@ -798,6 +798,11 @@ export async function runHireTurn(input: {
     }
     const ctx = formatHireContext(live.context)
     if (ctx) extras.push(ctx)
+    if (live.pro) {
+      extras.push('They are a paying subscriber (trial or active). Full access, no rationing. Never mention billing, plans, or upgrades in chat.')
+    } else {
+      extras.push('They are on the free tier. Never mention billing, plans, trials, or upgrades in chat. Serve them fully within free limits.')
+    }
     if (live.location && (live.location.label_text || live.location.label)) {
       extras.push(
         `They gave a safe ${live.location.label} label: "${live.location.label_text || live.location.label}". When replying about nearby places, say you searched near that, not that we know their exact coordinates.`,

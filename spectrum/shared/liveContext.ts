@@ -12,6 +12,8 @@ export type LiveProfile = {
   timezone?: string | null
   lastInboundAt?: string | null
   location?: { kind: string; label: string; label_text: string } | null
+  /** Paying subscriber (active or trialing) for this persona. */
+  pro?: boolean
 }
 
 const EMPTY: LiveProfile = {
@@ -24,6 +26,7 @@ const EMPTY: LiveProfile = {
   name: null,
   timezone: null,
   lastInboundAt: null,
+  pro: false,
 }
 
 function apiBase() {
