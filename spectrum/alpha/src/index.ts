@@ -336,7 +336,10 @@ for await (const [space, message] of app.messages) {
       }
       console.log(`[${agent.id}] sending ${texts.length} text(s), card: ${!!card}`)
       console.log(`[${agent.id}] bubble: ${JSON.stringify(texts[0]!.slice(0, 200))}`)
-      if (contactCardFirst) await space.shareContactCard().catch(() => undefined)
+      if (contactCardFirst) {
+        await space.shareContactCard().catch(() => undefined)
+        await sendContactVcf(space, senderId).catch(() => undefined)
+      }
       await message.reply(texts[0]!)
       sentAnything = true
       for (let i = 1; i < texts.length; i++) await space.send(texts[i]!)
