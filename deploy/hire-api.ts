@@ -6906,6 +6906,13 @@ async function touchInbound(sql: SQL, phone: string, persona: Persona) {
     UPDATE hire_roster SET last_inbound_at = now()
     WHERE user_id = ${user.id} AND persona = ${persona}
   `
+  // The person just texted us: the queued cold intro is obsolete (Photon
+  // shared lines cannot cold-text anyway) and sending it after this would
+  // duplicate the welcome. Mark it sent.
+  await sql`
+    UPDATE hire_intro_queue SET status = 'sent', sent_at = now(), last_error = NULL
+    WHERE phone_e164 = ${phone} AND persona = ${persona} AND status IN ('pending', 'claiming', 'failed')
+  `
   const context = await loadContext(sql, user.id, persona)
   await upsertContext(sql, user.id, persona, {
     unanswered_proactive: '0',

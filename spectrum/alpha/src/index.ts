@@ -40,6 +40,29 @@ const app = await Spectrum({
 
 const im = imessage(app)
 
+/** Mini-app cards ride a different RPC than text (SendCustomizedMiniAppMessage)
+ * and Photon briefly rejects rich sends to a brand-new project user with
+ * "Target not allowed" even after the text reply landed. Retry past it — the
+ * thread is real, the gate just settles late. */
+async function sendCardSafe(
+  space: { send: (content: unknown) => Promise<unknown> },
+  url: string,
+  live: boolean,
+): Promise<void> {
+  const delays = [0, 2000, 5000]
+  for (let i = 0; i < delays.length; i++) {
+    if (delays[i]) await new Promise((r) => setTimeout(r, delays[i]))
+    try {
+      await space.send(appCard(url, { live }))
+      return
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      if (i === delays.length - 1 || !/Target not allowed/i.test(msg)) throw err
+      console.warn(`[${agentId}] card send gated, retry ${i + 1}`)
+    }
+  }
+}
+
 if (introTo) {
   try {
     const user = await im.user(introTo)
@@ -98,7 +121,7 @@ startReminderScheduler({
     await space.responding(async () => {
       const cleaned = sanitizeOutbound(text)
       if (cleaned) await space.send(cleaned)
-      if (card) await space.send(appCard(card.url, { live: card.live }))
+      if (card) await sendCardSafe(space, card.url, card.live)
     })
   },
 })
@@ -146,14 +169,14 @@ for await (const [space, message] of app.messages) {
           })
           const texts = bubbles.map((b) => sanitizeOutbound(b)).filter(Boolean)
           if (!texts.length) {
-            if (card) await space.send(appCard(card.url, { live: card.live }))
+            if (card) await sendCardSafe(space, card.url, card.live)
             return
           }
           await message.reply(texts[0]!)
           for (let i = 1; i < texts.length; i++) await space.send(texts[i]!)
           // The mini-app card lands after the LAST bubble only, never between them.
           const delivered = card ?? (await defaultReplyCard(senderId, agentId))
-          if (delivered) await space.send(appCard(delivered.url, { live: delivered.live }))
+          if (delivered) await sendCardSafe(space, delivered.url, delivered.live)
           if (source === 'gmi') {
             void runMemoryMaintenance({ dataDir, senderId, agentId, authoritative, userText: photoText, reply })
               .catch(() => undefined)
@@ -195,7 +218,7 @@ for await (const [space, message] of app.messages) {
       if (!texts.length) {
         if (card) {
           console.log(`[${agent.id}] sending card only: ${card.url}`)
-          await space.send(appCard(card.url, { live: card.live }))
+          await sendCardSafe(space, card.url, card.live)
         } else {
           console.warn(`[${agent.id}] dropped empty/banned outbound`)
         }
@@ -220,7 +243,7 @@ for await (const [space, message] of app.messages) {
       const delivered = card ?? (await defaultReplyCard(senderId, agentId))
       if (delivered) {
         console.log(`[${agent.id}] sending card: ${delivered.url}`)
-        await space.send(appCard(delivered.url, { live: delivered.live }))
+        await sendCardSafe(space, delivered.url, delivered.live)
       }
       logTurn(dataDir, {
         ts: new Date().toISOString(),
