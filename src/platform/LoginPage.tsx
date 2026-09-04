@@ -24,18 +24,17 @@ export function LoginPage() {
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
 
-  /** A plan carried from the pricing card opens Stripe the moment auth
-   * completes — the checkout email IS the account email. */
-  async function continueToCheckout(email: string) {
-    if (!planParam) {
-      navigate('/app')
-      return
-    }
+  /** The moment auth completes the account goes to Stripe — always. A plan
+   * picked on the pricing card is honored; otherwise the single-hire trial is
+   * the default (7 days free, then $5 x 2 months, then $19). The checkout
+   * email IS the account email. */
+  async function continueToCheckout(email: string, planOverride?: string) {
+    const plan = planOverride || planParam || 'single'
     try {
       const res = await fetch('/api/billing/checkout', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, hire: 'friend', plan: planParam, trial_days: 7 }),
+        body: JSON.stringify({ email, hire: 'friend', plan, trial_days: 7 }),
       })
       const data = (await res.json().catch(() => ({}))) as { url?: string }
       if (data.url) {
@@ -100,7 +99,19 @@ export function LoginPage() {
         void continueToCheckout(nextEmail)
         return
       }
-      navigate('/app')
+      // Phone just landed on the account: if they already pay, home; else the
+      // default single trial checkout.
+      try {
+        const res = await fetch(`/api/billing/status?email=${encodeURIComponent(nextEmail)}`)
+        const st = (await res.json().catch(() => ({}))) as { hires?: Record<string, boolean> }
+        if (st.hires?.friend) {
+          navigate('/app')
+          return
+        }
+      } catch {
+        /* fall through to checkout */
+      }
+      void continueToCheckout(nextEmail)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not sign in')
     } finally {
@@ -154,13 +165,9 @@ export function LoginPage() {
         .then(async (data) => {
           signIn(data.email, data.phone || nextPhone, data.name || nextName)
           await hydrateFromServer().catch(() => undefined)
-          // A plan from the pricing card continues straight to Stripe; a plain
-          // signup lands on the trial screen.
-          if (planParam) {
-            void continueToCheckout(data.email)
-            return
-          }
-          setStep('trial')
+          // A fresh account always goes to Stripe (defaults to the single-hire
+          // trial when no plan was picked on the pricing card).
+          void continueToCheckout(data.email)
         })
         .catch((err) => {
           setError(err instanceof Error ? err.message : 'Could not create account')
@@ -173,7 +180,21 @@ export function LoginPage() {
         if (data.phone) {
           signIn(data.email, data.phone, data.name || nextName)
           await hydrateFromServer().catch(() => undefined)
-          navigate('/app')
+          // A returning sign-in only starts checkout when there is no active
+          // subscription yet — never re-charge someone who already pays.
+          void (async () => {
+            try {
+              const res = await fetch(`/api/billing/status?email=${encodeURIComponent(data.email)}`)
+              const st = (await res.json().catch(() => ({}))) as { hires?: Record<string, boolean> }
+              if (st.hires?.friend) {
+                navigate('/app')
+                return
+              }
+              void continueToCheckout(data.email)
+            } catch {
+              void continueToCheckout(data.email)
+            }
+          })()
           return
         }
         // Signed in, but the account has no number yet: same completion step
