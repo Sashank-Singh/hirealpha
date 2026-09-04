@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { Link, Navigate, useNavigate, useSearchParams } from 'react-router-dom'
-import { apiExchangeGoogle, apiLoginPassword, apiRegisterPassword, apiSignIn } from './api'
+import { apiExchangeGoogle, apiLoginPassword, apiRegisterPassword, apiSavePhone, apiSignIn } from './api'
 import { getSession, hydrateFromServer, signIn } from './roster'
 
 type AuthMode = 'signin' | 'signup'
@@ -92,6 +92,9 @@ export function LoginPage() {
     try {
       await apiSignIn(nextEmail, nextPhone, nextName)
       signIn(nextEmail, nextPhone, nextName)
+      // Same phone re-assert as the register path: the DB row must carry the
+      // number even if a guest checkout raced ahead of this step.
+      void apiSavePhone(nextEmail, nextPhone, nextName).catch(() => undefined)
       await hydrateFromServer().catch(() => undefined)
       if (planParam) {
         void continueToCheckout(nextEmail)
@@ -162,6 +165,11 @@ export function LoginPage() {
       void apiRegisterPassword({ email: nextEmail, password, phone: nextPhone, name: nextName })
         .then(async (data) => {
           signIn(data.email, data.phone || nextPhone, data.name || nextName)
+          // Re-assert the phone on the server no matter what raced ahead of
+          // us (guest checkout, webhook) — PUT /api/me/phone backfills the
+          // row and queues intros for every hire on the roster.
+          void apiSavePhone(data.email, data.phone || nextPhone, data.name || nextName)
+            .catch(() => undefined)
           await hydrateFromServer().catch(() => undefined)
           // A fresh account always goes to Stripe (defaults to the single-hire
           // trial when no plan was picked on the pricing card).
