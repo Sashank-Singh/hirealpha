@@ -5,11 +5,12 @@ import { getAgent } from '../agents'
 import { getSession } from './roster'
 import { applyMiniTheme, readMiniTheme } from './miniTheme'
 import { localYmd } from './home'
+import { apiAssignedPhone } from './api'
 import './phoneApp.css'
 
 /** Alpha texts from this number; the Text Alpha button opens the thread
  * prefilled with the first text. */
-const ALPHA_SMS = 'sms:+14155951440&body=Hey%2C%20Alpha!'
+const ALPHA_SMS = (phone: string) => `sms:${phone || '+14155951440'}&body=Hey%2C%20Alpha!`
 
 /** One row of the receipts ledger. */
 interface ActionReceipt {
@@ -53,6 +54,14 @@ export function PhoneApp() {
   const [searchParams] = useSearchParams()
   const session = getSession()
   const agent = getAgent('friend')
+  const [alphaPhone, setAlphaPhone] = useState('+14155951440')
+
+  useEffect(() => {
+    void apiAssignedPhone(session?.phone).then((p) => {
+      if (p) setAlphaPhone(p)
+    }).catch(() => undefined)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session?.phone])
 
   /* Texted-card links carry a session token in `t`; a signed-in device carries
    * the email. Mini links hand the query this screen arrived with onward —
@@ -135,7 +144,7 @@ export function PhoneApp() {
                 <p className="phone-welcome__sub">
                   Alpha has your number and texts like a person. Say hi and the friendship starts there.
                 </p>
-                <a className="mini__cta phone-cta" href={ALPHA_SMS} onClick={markTexted}>
+                <a className="mini__cta phone-cta" href={ALPHA_SMS(alphaPhone)} onClick={markTexted}>
                   Text Alpha
                 </a>
                 <a className="phone-cta-ghost" href="/api/contact/alpha.vcf">
@@ -159,7 +168,7 @@ export function PhoneApp() {
           )}
           <p className="phone-date">{todayLine()}</p>
 
-          <a className="mini__cta phone-cta" href={ALPHA_SMS}>
+          <a className="mini__cta phone-cta" href={ALPHA_SMS(alphaPhone)}>
             Text Alpha
           </a>
           <a className="phone-cta-ghost" href="/api/contact/alpha.vcf">

@@ -4,6 +4,7 @@ import { CONNECTOR_CATALOG, type ConnectorId } from './connectors'
 import { ConnectorLogo } from './ConnectorLogo'
 import {
   apiBillingManage,
+  apiAssignedPhone,
   apiBillingStatus,
   apiConnectUrl,
   apiConnectorStatus,
@@ -109,6 +110,14 @@ export function SettingsSheet() {
 
   const session = getSession()
   const e164 = toE164(session?.phone || '')
+  const [alphaPhone, setAlphaPhone] = useState('+14155951440')
+
+  useEffect(() => {
+    void apiAssignedPhone(session?.phone).then((p) => {
+      if (p) setAlphaPhone(p)
+    }).catch(() => undefined)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session?.phone])
 
   useEffect(() => {
     void hydrateFromServer()
@@ -442,12 +451,12 @@ export function SettingsSheet() {
             <h1 className="ss-contact-name">Alpha</h1>
             <span className="ss-contact-role">Personal Assistant</span>
             <p className="ss-contact-phone">
-              <a href="sms:+14155951440&body=Hey%2C%20Alpha!">(415) 595-1440</a>
+              <a href={`sms:${alphaPhone}&body=Hey%2C%20Alpha!`}>{alphaPhone.replace(/\+1(\d{3})(\d{3})(\d{4})/, '($1) $2-$3')}</a>
               <button
                 type="button"
                 className="ss-copy"
                 onClick={() => {
-                  void navigator.clipboard.writeText('+14155951440')
+                  void navigator.clipboard.writeText(alphaPhone)
                   setCopiedPhone(true)
                   setTimeout(() => setCopiedPhone(false), 2000)
                 }}
@@ -457,14 +466,14 @@ export function SettingsSheet() {
             </p>
           </div>
           <div className="ss-contact-actions">
-            <a href="sms:+14155951440&body=Hey%2C%20Alpha!" className="ss-btn-primary">
+            <a href={`sms:${alphaPhone}&body=Hey%2C%20Alpha!`} className="ss-btn-primary">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
                 <path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z" />
               </svg>
               <span>Message</span>
             </a>
             <a
-              href="/api/contact/alpha.vcf"
+              href={`/api/contact/alpha.vcf?phone=${encodeURIComponent(alphaPhone)}`}
               download="Alpha.vcf"
               className="ss-btn-ghost"
             >

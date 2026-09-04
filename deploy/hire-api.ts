@@ -423,6 +423,27 @@ async function registerPhotonUser(phone: string, name: string | null, email: str
   }
 }
 
+/** Live lookup of the shared number Photon currently assigns a phone, so
+ * contact cards and CTAs always show the right line even if the pool
+ * re-assigns. Null when unconfigured / not registered. */
+async function photonAssignedNumber(phone: string): Promise<string | null> {
+  const pid = process.env.PHOTON_PROJECT_ID || ''
+  const secret = process.env.PHOTON_PROJECT_SECRET || ''
+  if (!pid || !secret) return null
+  try {
+    const res = await fetch(`https://spectrum.photon.codes/projects/${pid}/users/`, {
+      headers: { Authorization: `Basic ${Buffer.from(`${pid}:${secret}`).toString('base64')}` },
+    })
+    if (!res.ok) return null
+    const body = (await res.json().catch(() => ({}))) as { data?: { users?: Array<{ phoneNumber?: string; assignedPhoneNumber?: string }> } }
+    const hit = (body.data?.users || []).find((u) => u.phoneNumber === phone)
+    return hit?.assignedPhoneNumber || null
+  } catch (err) {
+    console.warn('[photon] assigned lookup failed', err)
+    return null
+  }
+}
+
 /* ---- Task loops ----
  * Recurring jobs a hire runs for one person: a morning wakeup, a weekly refund
  * hunt, a one-shot day 1 check-in, a handoff from another hire. Bots claim due
@@ -9766,6 +9787,13 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
 
   /* Save-the-contact: a vCard with the name, number, and face already filled
    * in. Photo is folded base64 per RFC 6350 so Android parsers do not choke. */
+  if (path === '/api/assigned-phone' && req.method === 'GET') {
+    const phone = normalizePhone(url.searchParams.get('phone') || '')
+    if (!phone) return json({ error: 'phone required' }, 400)
+    const assigned = await photonAssignedNumber(phone)
+    return json({ assignedPhone: assigned })
+  }
+
   if (path === '/api/contact/alpha.vcf' && req.method === 'GET') {
     // The assigned shared line is per-user; a caller that knows it (post
     // signup) passes ?phone= so the saved contact matches the number they

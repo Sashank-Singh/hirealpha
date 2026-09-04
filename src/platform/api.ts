@@ -1130,3 +1130,17 @@ export const apiKeepArtifact = (a: { email?: string; token?: string; id: string 
   featurePost<{ ok: boolean; state?: string }>(`/api/artifacts/${a.id}/keep`, { ...authParams(a) })
 export const apiTossArtifact = (a: { email?: string; token?: string; id: string }) =>
   featurePost<{ ok: boolean }>(`/api/artifacts/${a.id}/delete`, { ...authParams(a) })
+
+/** Live Photon-assigned line for a phone — the number this user must text.
+ * Falls back to null so callers keep their default. */
+export async function apiAssignedPhone(phone?: string): Promise<string | null> {
+  if (!phone) return null
+  try {
+    const res = await fetch(`${API}/api/assigned-phone?phone=${encodeURIComponent(phone)}`)
+    const data = await parseJson<{ assignedPhone?: string | null }>(res)
+    if (!res.ok) return null
+    return data.assignedPhone || null
+  } catch {
+    return null
+  }
+}
