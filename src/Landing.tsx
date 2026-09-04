@@ -934,6 +934,14 @@ function WaitlistForm() {
       setWaitlisted(Boolean(data.waitlisted))
       setDone(true)
       track('waitlist_joined', { hire, via: code.trim() ? 'invite' : 'direct' })
+      // Picked a paid plan on the pricing card: the signup just armed the
+      // account, so carry them straight into Stripe instead of making them
+      // find a button on the success screen.
+      if (!data.waitlisted && plan && plan.tier !== 'free') {
+        setBusy(false)
+        void checkoutChosenPlan()
+        return
+      }
     } catch {
       setError('Could not reach the server. Try again.')
     } finally {
@@ -961,8 +969,9 @@ function WaitlistForm() {
     }
   }, [done, phone])
 
-  async function checkoutChosenPlan() {
-    if (!plan || plan.tier === 'free') return
+  async function checkoutChosenPlan(fallback?: { tier: 'single'; annual: boolean }) {
+    const use = plan && plan.tier !== 'free' ? plan : fallback
+    if (!use) return
     setBusy(true)
     setError('')
     try {
@@ -972,7 +981,7 @@ function WaitlistForm() {
         body: JSON.stringify({
           email: email.trim().toLowerCase(),
           hire: 'friend',
-          plan: plan.annual ? `${plan.tier}-annual` : plan.tier,
+          plan: use.annual ? `${use.tier}-annual` : use.tier,
           trial_days: 7,
         }),
       })
@@ -1017,6 +1026,19 @@ function WaitlistForm() {
               onClick={() => void checkoutChosenPlan()}
             >
               {busy ? 'Opening checkout…' : 'Continue to checkout'}
+            </button>
+          </>
+        )}
+        {!waitlisted && (!plan || plan.tier === 'free') && (
+          <>
+            <p className="waitlist-success__cta">7 days free, then $5 for 2 months, then $19</p>
+            <button
+              type="button"
+              className="btn btn--accent"
+              disabled={busy}
+              onClick={() => void checkoutChosenPlan({ tier: 'single', annual: false })}
+            >
+              {busy ? 'Opening checkout…' : 'Start 7-day free trial'}
             </button>
           </>
         )}
