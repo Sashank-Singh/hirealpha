@@ -353,6 +353,12 @@ export async function ensurePhoneUser(sql: SQL, phone: string, persona: Persona,
       WHERE id = ${existing!.id}
     `
   }
+  // Register the number with Photon right here, carrying the person's name and
+  // email so the dashboard shows a contact, not "Unnamed user". Idempotent per
+  // the create-user API: an existing shared phoneNumber is updated in place.
+  // (The bot retries the same call as a fallback, phone-only.)
+  const existingEmail = existing?.email || `${e164.replace(/\D/g, '')}@phone.hirealpha.chat`
+  void registerPhotonUser(e164, cleanName, existingEmail).catch(() => undefined)
   if (!userId) return
   await sql`
     INSERT INTO hire_roster (user_id, persona) VALUES (${userId}, ${persona})
@@ -362,6 +368,32 @@ export async function ensurePhoneUser(sql: SQL, phone: string, persona: Persona,
   // wakeup lands at 8am in the user's zone when one was captured at signup,
   // else 8am Pacific until the zone is learned later.
   await seedDefaultLoops(sql, userId, e164, persona, cleanTz || undefined)
+}
+
+/** Best-effort Photon project-user registration. Needs PHOTON_PROJECT_ID and
+ * PHOTON_PROJECT_SECRET on the web app; silently skipped when unset (the bot
+ * retries phone-only before each intro send). The create-user API is
+ * idempotent on an existing shared phoneNumber, updating name/email. */
+async function registerPhotonUser(phone: string, name: string | null, email: string): Promise<void> {
+  const pid = process.env.PHOTON_PROJECT_ID || ''
+  const secret = process.env.PHOTON_PROJECT_SECRET || ''
+  if (!pid || !secret) return
+  try {
+    const res = await fetch(`https://spectrum.photon.codes/projects/${pid}/users/`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Basic ${Buffer.from(`${pid}:${secret}`).toString('base64')}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ type: 'shared', phoneNumber: phone, firstName: name, email }),
+    })
+    if (!res.ok) {
+      const body = (await res.json().catch(() => ({}))) as { message?: string }
+      console.warn(`[photon] register ${phone} -> ${res.status} ${body.message || ''}`)
+    }
+  } catch (err) {
+    console.warn('[photon] register failed', err)
+  }
 }
 
 /* ---- Task loops ----
