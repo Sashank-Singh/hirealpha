@@ -208,7 +208,7 @@ for await (const [space, message] of app.messages) {
     await message.read().catch(() => undefined)
     await space.responding(async () => {
       const t0 = Date.now()
-      const { bubbles, source, authoritative, reply, card } = await runHireTurn({
+      const { bubbles, source, authoritative, reply, card, contactCardFirst } = await runHireTurn({
         agentId,
         dataDir,
         senderId,
@@ -237,6 +237,7 @@ for await (const [space, message] of app.messages) {
       }
       console.log(`[${agent.id}] sending ${texts.length} text(s), card: ${!!card}`)
       console.log(`[${agent.id}] bubble: ${JSON.stringify(texts[0]!.slice(0, 200))}`)
+      if (contactCardFirst) await space.shareContactCard().catch(() => undefined)
       await message.reply(texts[0]!)
       for (let i = 1; i < texts.length; i++) await space.send(texts[i]!)
       // Every response carries the mini-app card, attached after the LAST bubble.

@@ -579,6 +579,9 @@ export async function runHireTurn(input: {
   source: 'gmi' | 'local'
   authoritative: string[]
   card: MiniAppCard | null
+  /** True on the pinned first-text welcome: the bot should share its contact
+   * card BEFORE the reply so the Add banner leads the conversation. */
+  contactCardFirst?: boolean
 }> {
   const agent = getAgent(input.agentId)
   const mem = loadMemory(input.dataDir, input.senderId)
@@ -1443,7 +1446,7 @@ export async function runHireTurn(input: {
       { role: 'user', content: input.userText },
       { role: 'assistant', content: WELCOME },
     ])
-    return { reply: WELCOME, bubbles: splitBubbles(WELCOME), source: 'local', authoritative: [], card: onboarding }
+    return { reply: WELCOME, bubbles: splitBubbles(WELCOME), source: 'local', authoritative: [], card: onboarding, contactCardFirst: true }
   }
 
   try {
