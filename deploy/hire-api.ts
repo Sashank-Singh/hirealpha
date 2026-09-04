@@ -755,6 +755,7 @@ async function handleBillingWebhook(req: Request, sql: SQL) {
     const [userId, persona] = ref.split(':')
     const subscriptionId = typeof obj['subscription'] === 'string' ? obj['subscription'] : null
     const customerId = typeof obj['customer'] === 'string' ? obj['customer'] : null
+    const promoPrice = stripePromoPrice()
 
     // Friend monthly with the promo: Strip's checkout cannot run schedules,
     // so the checkout sub is just the first $5 month. Convert it to the real
@@ -797,7 +798,6 @@ async function handleBillingWebhook(req: Request, sql: SQL) {
             'phases[0][iterations]': '2',
             'phases[1][items][0][price]': regular,
             'phases[1][items][0][quantity]': '1',
-            'phases[1][end_behavior]': 'release',
           }))
         }
       } catch (err) {
