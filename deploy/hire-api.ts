@@ -2554,7 +2554,7 @@ function nutritionModelConfig() {
     process.env.NUTRITION_MODEL ||
     process.env.GMI_MODEL ||
     'deepseek-ai/DeepSeek-V4-Flash-0731'
-  const visionModel = process.env.NUTRITION_VISION_MODEL || 'MiniMaxAI/MiniMax-M3'
+  const visionModel = process.env.NUTRITION_VISION_MODEL || 'deepseek-v4-flash-exp'
   return { apiKey, baseUrl, textModel, visionModel }
 }
 
