@@ -1,0 +1,994 @@
+/* ============================================================================
+   HomeApp — "Warm Human / Cozy Ambient" visual layer (dark shell variant)
+   ----------------------------------------------------------------------------
+   Loaded AFTER index.css (imported first in HomeApp.tsx), so these rules win on
+   equal specificity. Everything is scoped under `.hc-home` — the marker class
+   HomeApp puts on its root — so nothing here leaks onto the coworker / cofounder
+   home screens, which share the same `home-*` class names inside the same shell.
+
+   Design language: a friend's morning ritual, not a SaaS panel.
+     - Deep warm-charcoal canvas (never pure #141414) with a soft amber-teal
+       "lamplight" ambient glow behind the whole column.
+     - Cards are soft, layered, gently luminous: rounded (20-26px), hairline
+       warm borders, inner top highlight (candlelight), outer breathing shadow.
+     - The date block reads like the opening of a handwritten morning note.
+     - The lead action card is the caring nudge: warm gradient panel, amber
+       underline, a soft "presence glow" that warms up when the rung is hot.
+     - Vitals become a habit journal: warm ink on soft tiles, 10px uppercase
+       labels kept as the quiet voice, big friendly numerals.
+     - Lists breathe (rows get their own soft card), the dock sits on a warm
+       floating surface with one glowing tile for the current home.
+   Typography: Inter Variable everywhere; display sizes use tight tracking.
+   ========================================================================== */
+
+/* ---------------------------------------------------------------------------
+   1. Screen surface & ambient warmth
+--------------------------------------------------------------------------- */
+.hc-home {
+  --warm-bg: #171412;
+  --warm-card: #1e1a17;
+  --warm-card-2: #221d19;
+  --warm-line: rgba(255, 221, 178, 0.12);
+  --warm-line-soft: rgba(255, 221, 178, 0.07);
+  --amber: #ffb36b;
+  --amber-deep: #d98a4a;
+  --amber-soft: #ffc98f;
+  --amber-pale: #ffe0c0;
+  --teal: #4f9aa6;
+  --teal-deep: #2a6f7a;
+  --danger-soft: #ff9d9d;
+  --over: #ff8f6e;
+  --glow-amber: rgba(255, 176, 107, 0.15);
+  --glow-teal: rgba(79, 154, 166, 0.12);
+
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  padding-bottom: 10px;
+  position: relative;
+  /* The ambient lamplight: warm top center, teal bottom left. Painted on the
+     column itself so the whole screen feels lit, not boxed. */
+  background:
+    radial-gradient(120% 64% at 50% -6%, rgba(255, 169, 98, 0.14) 0%, rgba(255, 169, 98, 0.045) 46%, transparent 72%),
+    radial-gradient(86% 42% at 88% 104%, rgba(42, 111, 122, 0.15) 0%, transparent 72%),
+    radial-gradient(70% 36% at 4% 74%, rgba(255, 176, 107, 0.07) 0%, transparent 70%),
+    linear-gradient(180deg, #16120f 0%, var(--warm-bg) 30%, #1b1511 100%);
+  border-radius: 0 0 30px 30px;
+}
+
+.hc-home.hc-screen--loading {
+  gap: 14px;
+  min-height: 190px;
+}
+
+/* ---------------------------------------------------------------------------
+   2. Day header — the opening line of the note
+--------------------------------------------------------------------------- */
+.hc-home .hc-day {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 5px;
+  padding: 6px 4px 0;
+  position: relative;
+}
+
+.hc-home .hc-day-kicker {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.26em;
+  text-transform: uppercase;
+  color: #cf9359;
+  font-style: normal;
+}
+
+/* A tiny amber "presence" dot before the word Today — Alpha is here with you.
+   Purely decorative; it sits inside the kicker's inline-flex flow. */
+.hc-home .hc-day-kicker::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 36% 30%, #ffd9a8, var(--amber-deep) 72%);
+  box-shadow: 0 0 8px rgba(255, 179, 107, 0.85);
+}
+
+/* The date is the headline of the day — large, warm, hand-set. */
+.hc-home .hc-day-title {
+  margin: 0;
+  font-size: 30px;
+  font-weight: 760;
+  letter-spacing: -0.032em;
+  line-height: 1.06;
+  color: #fbf3e9;
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.35);
+}
+
+/* The state line reads like a friend summarising what today holds. */
+.hc-home .hc-day-state {
+  margin: 5px 0 0;
+  font-size: 12px;
+  font-weight: 540;
+  color: #c8a88c;
+  font-feature-settings: 'tnum' 1;
+  letter-spacing: 0.01em;
+}
+
+.hc-home .hc-day-state .hc-day-count {
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+}
+
+/* Loading shimmer state */
+.hc-home .hc-shimmer {
+  animation: ha-home-shimmer 1.4s ease-in-out infinite;
+  opacity: 0.5;
+}
+@keyframes ha-home-shimmer {
+  0%, 100% { opacity: 0.3; }
+  50% { opacity: 0.8; }
+}
+
+/* ---------------------------------------------------------------------------
+   3. Lead action card — the caring nudge
+--------------------------------------------------------------------------- */
+.hc-home .hc-action {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 7px;
+  padding: 20px 20px 18px;
+  border-radius: 24px;
+  border: 1px solid rgba(255, 205, 150, 0.17);
+  /* Warm gradient panel, like lamplight on amber silk. */
+  background:
+    radial-gradient(120% 120% at 88% -10%, rgba(255, 255, 255, 0.10) 0%, transparent 46%),
+    linear-gradient(180deg, #292019 0%, #221a14 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 244, 230, 0.09),
+    0 18px 40px -14px rgba(0, 0, 0, 0.55);
+  overflow: hidden;
+}
+
+/* Soft halo drifting behind the card, so it feels alive rather than printed. */
+.hc-home .hc-action::before {
+  content: '';
+  position: absolute;
+  left: 12%;
+  right: -14%;
+  bottom: -64%;
+  height: 130%;
+  pointer-events: none;
+  background: radial-gradient(56% 52% at 50% 50%, rgba(255, 156, 74, 0.17) 0%, transparent 72%);
+}
+
+/* A "hot" rung (something is genuinely overdue): the amber warms into ember. */
+.hc-home .hc-action--hot {
+  border-color: rgba(255, 161, 89, 0.4);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 232, 205, 0.14),
+    0 0 0 1px rgba(255, 176, 107, 0.08),
+    0 18px 44px -12px rgba(255, 133, 51, 0.22);
+}
+.hc-home .hc-action--hot::before {
+  background: radial-gradient(62% 60% at 50% 50%, rgba(255, 138, 52, 0.26) 0%, transparent 74%);
+}
+
+/* The kicker on the lead is the reason this nudge exists — amber ink, and an
+   amber rule underneath so it reads as a heading line, not a caption. */
+.hc-home .hc-action-kicker {
+  position: relative;
+  z-index: 1;
+  margin: 0;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--amber);
+}
+
+/* A warm title, large enough to feel spoken. */
+.hc-home .hc-action-title {
+  position: relative;
+  z-index: 1;
+  margin: 0;
+  font-size: 21px;
+  font-weight: 740;
+  letter-spacing: -0.022em;
+  line-height: 1.24;
+  color: #fdf6ee;
+}
+
+.hc-home .hc-action-hint {
+  position: relative;
+  z-index: 1;
+  margin: 0;
+  max-width: 38ch;
+  font-size: 13px;
+  line-height: 1.52;
+  color: #dcc3a8;
+}
+
+/* Buttons: pill-soft amber on the dark card. */
+.hc-home .hc-action-row {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.hc-home .hc-action-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  align-self: flex-start;
+  padding: 10px 19px;
+  border-radius: 999px;
+  border: 0;
+  text-decoration: none;
+  cursor: pointer;
+  white-space: nowrap;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: #21130a;
+  background: linear-gradient(180deg, #ffc9a0 0%, #ffab63 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.5),
+    inset 0 -1px 0 rgba(154, 78, 24, 0.35),
+    0 6px 16px -6px rgba(255, 158, 74, 0.5);
+  transition: transform 0.1s ease, filter 0.15s ease, opacity 0.15s ease;
+}
+.hc-home .hc-action-btn:hover {
+  filter: brightness(1.07);
+}
+.hc-home .hc-action-btn:active {
+  transform: translateY(1px) scale(0.985);
+  filter: brightness(0.97);
+}
+.hc-home .hc-action-btn:focus-visible {
+  outline: 2px solid #fff0dc;
+  outline-offset: 2px;
+}
+.hc-home .hc-action-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* Snooze: a quiet ghost chip, softer than the verb so the verb leads. */
+.hc-home .hc-action-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 9px 16px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 209, 160, 0.22);
+  background: rgba(255, 235, 214, 0.04);
+  color: #e7cdb0;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 650;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: border-color 0.15s ease, background-color 0.15s ease, color 0.15s ease;
+}
+.hc-home .hc-action-chip:hover {
+  border-color: rgba(255, 209, 160, 0.45);
+  background: rgba(255, 235, 214, 0.08);
+  color: #fdf0e0;
+}
+.hc-home .hc-action-chip:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.hc-home .hc-action--skeleton {
+  min-height: 92px;
+  border-color: transparent;
+  background:
+    linear-gradient(180deg, #241e19 0%, #1d1814 100%);
+}
+
+/* ---------------------------------------------------------------------------
+   4. Secondary queue rows
+--------------------------------------------------------------------------- */
+.hc-home .hc-queue {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.hc-home .hc-queue .ma-chip {
+  text-decoration: none;
+}
+
+/* Soft card rows, hairline-warm like the rest of the surface. */
+.hc-home .hc-queue .ma-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--warm-line-soft);
+  border-radius: 16px;
+  background:
+    radial-gradient(120% 130% at 92% -20%, rgba(255, 220, 180, 0.045) 0%, transparent 55%),
+    linear-gradient(180deg, var(--warm-card) 0%, #1b1713 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 244, 230, 0.045), 0 10px 24px -12px rgba(0, 0, 0, 0.45);
+}
+
+/* Done rows go quiet: the accomplishment, not the errand. */
+.hc-home .hc-queue .ma-row--done {
+  opacity: 0.52;
+}
+
+.hc-home .hc-queue .ma-title {
+  font-size: 14px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  color: #f6ece1;
+}
+
+.hc-home .hc-queue .ma-sub {
+  font-size: 12px;
+  line-height: 1.4;
+  color: #b89f86;
+}
+
+/* The little Do chip on queue rows: warm outlined, with amber text. */
+.hc-home .hc-queue .ma-chip,
+.hc-home .hc-queue button.ma-chip {
+  padding: 7px 13px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 195, 133, 0.35);
+  background: transparent;
+  color: #ffc08a;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+.hc-home .hc-queue .ma-chip:hover {
+  background: rgba(255, 181, 108, 0.14);
+  color: #ffe6c8;
+}
+.hc-home .hc-queue button.ma-chip:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* A warning rung on the friend screen keeps its own soft ember tint. */
+.hc-home .hc-queue .ma-row--warn {
+  border-color: rgba(255, 148, 76, 0.32);
+}
+
+.hc-home .hc-msg {
+  margin: 4px 0 0;
+  font-size: 13px;
+  color: #d9b494;
+  text-align: center;
+}
+
+/* ---------------------------------------------------------------------------
+   5. Sections, soft panels
+--------------------------------------------------------------------------- */
+.hc-home .hc-block {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 12px;
+  margin: 0;
+  padding: 18px 18px 20px;
+  border-radius: 22px;
+  border: 1px solid var(--warm-line-soft);
+  background:
+    radial-gradient(110% 120% at 100% -30%, rgba(255, 223, 184, 0.05) 0%, transparent 56%),
+    linear-gradient(180deg, #201b17 0%, #1c1813 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 244, 230, 0.05), 0 16px 36px -16px rgba(0, 0, 0, 0.5);
+}
+
+/* A slim "now" strip (meeting chips + the attention line): no card, just a
+   quiet inlay on the ambient surface, with a teal left rule. */
+.hc-home .hc-block--now {
+  align-items: stretch;
+  gap: 9px;
+  padding: 4px 2px;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+}
+
+.hc-home .hc-block--now .hc-meets,
+.hc-home .hc-meets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.hc-home .hc-meet {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 7px;
+  max-width: 100%;
+  min-width: 0;
+  padding: 7px 13px;
+  border: 1px solid rgba(255, 209, 160, 0.15);
+  border-radius: 999px;
+  background: rgba(255, 232, 205, 0.035);
+  font-size: 12px;
+  font-weight: 620;
+  color: #efe2d2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  box-shadow: inset 0 1px 0 rgba(255, 244, 230, 0.05);
+}
+.hc-home .hc-meet b {
+  flex: none;
+  font-weight: 800;
+  font-feature-settings: 'tnum' 1;
+  color: #c9a481;
+}
+
+/* The soon chip picks up a soft teal rim so the eye finds what is next. */
+.hc-home .hc-meet--soon {
+  border-color: rgba(79, 154, 166, 0.45);
+  background: rgba(79, 154, 166, 0.1);
+}
+.hc-home .hc-meet--soon b {
+  color: #7cc4d0;
+}
+
+/* The attention mail line: a caring "you" strip, so it gets the warm accent. */
+.hc-home .hc-attention {
+  display: block;
+  padding: 11px 13px;
+  border: 1px solid rgba(255, 205, 150, 0.18);
+  border-left: 3px solid var(--amber-deep);
+  border-radius: 13px;
+  background: rgba(255, 176, 107, 0.07);
+  color: #ffe0bf;
+  font-size: 13px;
+  font-weight: 640;
+  line-height: 1.45;
+  text-decoration: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+.hc-home .hc-attention:hover {
+  background: rgba(255, 176, 107, 0.12);
+}
+
+/* ---------------------------------------------------------------------------
+   6. Section titles & plain lists (Today / People due)
+--------------------------------------------------------------------------- */
+.hc-home .hc-section-title {
+  margin: 0;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: #c39a6d;
+}
+
+.hc-home .hc-plain-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+/* Rows breathe: a soft hairline between them instead of full card walls. */
+.hc-home .hc-plain-list li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 46px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--warm-line-soft);
+  font-size: 14px;
+  color: #f2e7db;
+}
+.hc-home .hc-plain-list li:last-child {
+  border-bottom: 0;
+  padding-bottom: 2px;
+}
+
+.hc-home .hc-plain-list .hc-plain-time {
+  flex: none;
+  min-width: 74px;
+  font-size: 12px;
+  font-weight: 740;
+  font-feature-settings: 'tnum' 1;
+  letter-spacing: 0.02em;
+  color: #c9a481;
+}
+
+.hc-home .hc-plain-link {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  flex: 1;
+  min-width: 0;
+  text-decoration: none;
+  color: inherit;
+}
+
+/* Person names carry a warm presence dot; it is decorative only. */
+.hc-home .hc-plain-link > span:first-child {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.hc-home .hc-plain-link > span:first-child::before {
+  content: '';
+  flex: none;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #8a5a33;
+}
+
+.hc-home .hc-plain-meta {
+  flex: none;
+  font-size: 12px;
+  color: #a98c6d;
+  font-variant-numeric: tabular-nums;
+}
+
+/* "Text" — iMessage blue, because that is where Alpha lives. */
+.hc-home .hc-plain-sms {
+  flex: none;
+  margin-left: auto;
+  padding: 6px 12px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #63b7c9;
+  background: rgba(99, 183, 201, 0.08);
+  text-decoration: none;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+.hc-home .hc-plain-sms:hover {
+  background: rgba(99, 183, 201, 0.16);
+  color: #9ad9e6;
+}
+
+/* Show more / Show less — quiet, warm text. */
+.hc-home .hc-people-toggle {
+  align-self: flex-start;
+  margin: 4px 0 0;
+  padding: 4px 2px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: #d2a87c;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 680;
+  cursor: pointer;
+  transition: color 0.15s ease;
+}
+.hc-home .hc-people-toggle:hover,
+.hc-home .hc-people-toggle:focus-visible {
+  color: #ffc08a;
+}
+.hc-home .hc-people-toggle:active {
+  color: #ffe6c8;
+}
+
+/* ---------------------------------------------------------------------------
+   7. Vitals — the habit journal (the load-bearing 2x2 grid)
+--------------------------------------------------------------------------- */
+.hc-home .hc-vitals {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.hc-home .hc-vital {
+  position: relative;
+  display: grid;
+  align-content: start;
+  gap: 7px;
+  height: 100%;
+  min-height: 0;
+  padding: 13px 13px 14px;
+  border: 1px solid rgba(255, 215, 170, 0.1);
+  border-radius: 18px;
+  background:
+    radial-gradient(120% 120% at 100% -20%, rgba(255, 225, 185, 0.06) 0%, transparent 55%),
+    linear-gradient(180deg, #221d19 0%, #1b1713 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 244, 230, 0.05), 0 12px 26px -14px rgba(0, 0, 0, 0.5);
+  text-decoration: none;
+  color: inherit;
+  overflow: hidden;
+  transition: border-color 0.15s ease, transform 0.12s ease;
+}
+.hc-home .hc-vital:hover {
+  border-color: rgba(255, 209, 160, 0.3);
+  transform: translateY(-1px);
+}
+.hc-home .hc-vital:active {
+  transform: scale(0.985);
+}
+.hc-home .hc-vital:focus-visible {
+  outline: 2px solid var(--amber);
+  outline-offset: 2px;
+}
+
+.hc-home .hc-vital-label {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: #c09a72;
+}
+
+/* Values: big warm ink, tabular so the four tiles line up. */
+.hc-home .hc-vital-val {
+  font-size: 22px;
+  font-weight: 780;
+  letter-spacing: -0.035em;
+  line-height: 1.08;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+  min-width: 0;
+  color: #faf1e6;
+}
+.hc-home .hc-vital-val i {
+  font-style: normal;
+  font-size: 11.5px;
+  font-weight: 620;
+  color: #b49370;
+  letter-spacing: 0;
+}
+
+/* Viz slot keeps its 20px rhythm so all values share a baseline. */
+.hc-home .hc-vital-viz {
+  display: flex;
+  align-items: flex-end;
+  height: 20px;
+}
+.hc-home .hc-vital-viz > * {
+  width: 100%;
+}
+
+/* Bed-to-wake foot line: a whisper under the value. */
+.hc-home .hc-vital-foot {
+  font-size: 10px;
+  font-weight: 620;
+  color: #b49370;
+}
+.hc-home .hc-vital-foot--over {
+  color: var(--danger-soft);
+}
+
+/* "Logged / Not logged" state word. */
+.hc-home .hc-vital-state {
+  align-self: flex-end;
+  font-size: 11px;
+  font-weight: 700;
+  color: #b49370;
+}
+/* Not-logged gets a bare amber dot so the state is scan-able, not just ink.
+   Only "Logged" is a completed circle; the resting state keeps the amber dot,
+   so which state is showing stays legible. */
+.hc-home .hc-vital-state::before {
+  content: '';
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 5px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 36% 30%, #ffd9a8, var(--amber-deep) 72%);
+  box-shadow: 0 0 7px rgba(255, 179, 107, 0.5);
+}
+.hc-home .hc-vital-state.hc-vital-state--done {
+  color: #8fd0a9;
+}
+.hc-home .hc-vital-state.hc-vital-state--done::before {
+  background: radial-gradient(circle at 36% 30%, #c9f0dc, #57a97c 72%);
+  box-shadow: 0 0 7px rgba(115, 210, 160, 0.45);
+}
+
+/* Sleep sparkline: soft gradient bars and an amber today-bar. The 8h target
+   hairline keeps the same meaning it had before — restyled, not removed. */
+.hc-home .hc-spark {
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  height: 20px;
+}
+.hc-home .hc-spark-bar {
+  flex: 1;
+  min-height: 2px;
+  border-radius: 3px 3px 1px 1px;
+  background: linear-gradient(180deg, #b2774a 0%, #7d5231 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 225, 190, 0.28);
+  transition: background 0.3s ease;
+}
+.hc-home .hc-spark-bar--today {
+  background: linear-gradient(180deg, #ffc98f 0%, #ff9e4f 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 240, 220, 0.55), 0 0 10px rgba(255, 158, 79, 0.4);
+}
+.hc-home .hc-spark-ref {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: rgba(255, 221, 178, 0.1);
+}
+
+/* Food / Spend rules: soft warm track, amber fill, danger only for over. */
+.hc-home .hc-receipt-rule {
+  position: relative;
+  display: block;
+  height: 3px;
+  margin-top: 4px;
+  border-radius: 999px;
+  background: rgba(255, 221, 178, 0.09);
+  overflow: hidden;
+}
+.hc-home .hc-receipt-rule i {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #e8a25f 0%, #ffc07e 100%);
+  box-shadow: 0 0 8px rgba(255, 179, 107, 0.35);
+}
+.hc-home .hc-receipt-rule--over i {
+  background: linear-gradient(90deg, #e8624a 0%, #ff8f6e 100%);
+  box-shadow: 0 0 8px rgba(255, 111, 76, 0.35);
+}
+
+/* Over-budget foot tint (warm red, still readable on the tile). */
+.hc-home .hc-vital-foot--over {
+  color: #ff9d85;
+}
+
+/* ---------------------------------------------------------------------------
+   8. Spend donut section — the split drawn, legend warm
+--------------------------------------------------------------------------- */
+.hc-home .hc-block .spend-donut {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  flex-wrap: nowrap;
+}
+.hc-home .spend-donut-ring {
+  width: 118px;
+  height: 118px;
+  flex: none;
+}
+.hc-home .spend-donut-mid b {
+  font-size: 21px;
+  font-weight: 780;
+  letter-spacing: -0.02em;
+  color: #faf1e6;
+}
+.hc-home .spend-donut-mid span {
+  color: #a98c6d;
+}
+
+.hc-home .spend-donut-key {
+  flex: 1 1 130px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.hc-home .spend-donut-key li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: #efe2d2;
+  min-width: 0;
+}
+.hc-home .spend-swatch {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  box-shadow: 0 0 6px rgba(255, 200, 140, 0.18);
+}
+.hc-home .spend-donut-key-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.hc-home .spend-donut-key-val {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.hc-home .spend-donut-key-pct {
+  min-width: 32px;
+  text-align: right;
+  color: #a98c6d;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------------------------------------------------------------------------
+   9. Bottom dock — warm launcher on a floating surface
+--------------------------------------------------------------------------- */
+.hc-home .hc-dock {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+  margin: 2px 0 6px;
+  padding: 12px 8px;
+  border: 1px solid rgba(255, 221, 178, 0.09);
+  border-radius: 24px;
+  background:
+    radial-gradient(120% 150% at 50% -30%, rgba(255, 197, 140, 0.08) 0%, transparent 60%),
+    linear-gradient(180deg, #1d1814 0%, #191512 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 244, 230, 0.06),
+    0 20px 44px -18px rgba(0, 0, 0, 0.6);
+}
+
+.hc-home .hc-dock-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 2px 6px;
+  background: none;
+  border: 0;
+  border-radius: 16px;
+  text-decoration: none;
+  color: #d9c3ab;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 720;
+  letter-spacing: 0.01em;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: color 0.15s ease;
+}
+.hc-home .hc-dock-btn:hover {
+  color: #f4e7d8;
+}
+
+/* A pressed tile settles instead of shrinking its whole column. */
+.hc-home .hc-dock-btn:active .hc-dock-icon {
+  transform: translateY(1px) scale(0.94);
+}
+
+/* Each launcher tile is a soft warm chip with a candlelight top. The "glow on
+   the active" is expressed per-tile through this resting warmth (they all lead
+   somewhere alive) plus the icon colour lift on hover. */
+.hc-home .hc-dock-icon {
+  display: grid;
+  place-items: center;
+  width: 54px;
+  height: 54px;
+  border-radius: 18px;
+  background: linear-gradient(180deg, #2b2420 0%, #221c18 100%);
+  border: 1px solid rgba(255, 215, 170, 0.12);
+  color: #d8ad81;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 244, 230, 0.08),
+    0 8px 16px -6px rgba(0, 0, 0, 0.5);
+  transition: transform 0.12s, color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.hc-home .hc-dock-btn:hover .hc-dock-icon {
+  color: #ffc08a;
+  border-color: rgba(255, 209, 160, 0.3);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 244, 230, 0.1),
+    0 0 16px rgba(255, 176, 107, 0.2),
+    0 8px 16px -6px rgba(0, 0, 0, 0.5);
+}
+.hc-home .hc-dock-icon svg {
+  width: 24px;
+  height: 24px;
+}
+
+/* The friend home's own tile (Brief) sits on the accent surface — the one
+   place the screen lets the teal "Alpha" colour glow. */
+.hc-home .hc-dock-tile--on .hc-dock-icon {
+  color: #ecf6f7;
+  background: linear-gradient(180deg, #3b8794 0%, #2a6f7a 100%);
+  border-color: rgba(158, 224, 235, 0.35);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.22),
+    0 6px 18px -6px rgba(42, 111, 122, 0.7);
+}
+.hc-home .hc-dock-tile--on .hc-dock-icon svg {
+  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.2));
+}
+.hc-home .hc-dock-tile--on {
+  color: #bde4ea;
+}
+
+/* ---------------------------------------------------------------------------
+   10. The one-shot tour overlay (friend persona): warmth consistent with the
+   screen, without touching other personas' copies of this component's CSS.
+--------------------------------------------------------------------------- */
+.hc-home .hc-tour {
+  position: fixed;
+  inset: 0;
+  z-index: 900;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(2px);
+}
+.hc-home .hc-tour__card {
+  width: 100%;
+  max-width: 420px;
+  padding: 22px;
+  border-radius: 26px;
+  border: 1px solid rgba(255, 215, 170, 0.16);
+  background:
+    radial-gradient(130% 130% at 90% -20%, rgba(255, 223, 184, 0.07) 0%, transparent 55%),
+    linear-gradient(180deg, #251f1a 0%, #1e1915 100%);
+  color: #f6ece1;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 244, 230, 0.08);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.hc-home .hc-tour__step {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #c39a6d;
+}
+.hc-home .hc-tour__title {
+  margin: 0;
+  font-size: 19px;
+  font-weight: 740;
+  letter-spacing: -0.02em;
+}
+.hc-home .hc-tour__body {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.55;
+  color: #dcc3a8;
+}
+.hc-home .hc-tour__nav {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  margin-top: 8px;
+}
+/* The tour's own ma-btn rides the global .ma-btn teal, which is exactly right
+   here: this overlay belongs to Alpha the friend, so teal on amber feels warm. */

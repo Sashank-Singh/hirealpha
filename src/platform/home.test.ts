@@ -115,7 +115,7 @@ describe('pickHomeQueue verbs', () => {
     const a = lead({ ...clear, peopleDue: [{ name: 'Maya Lin', days: 16, id: 'p1', phone: '+1 (555) 010-2030' }] })
     expect(a.action).toBe('person')
     expect(a.personId).toBe('p1')
-    expect(a.doLabel).toBe('Talked')
+    expect(a.doLabel).toBe('Already talked')
     // And a prefilled text, so the ping and the log are one gesture.
     expect(a.sms).toContain('sms:+15550102030')
     expect(a.sms).toContain('Maya')

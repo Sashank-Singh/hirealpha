@@ -1,0 +1,874 @@
+/* ==========================================================================
+   Home — "Warm ambient glass"
+   --------------------------------------------------------------------------
+   A layered, luminous take on the daily home screen: deep char-black space,
+   soft teal blooms drifting behind the hero card, glass panels that catch a
+   warm light from above, and precise Inter typography with tabular figures.
+
+   Every rule is scoped under .hA-screen so nothing leaks onto other surfaces
+   (the shell, WorkHomes, other mini apps). Two class names travel outside
+   this file by contract — ActionButtons receives `home-action-btn` and
+   `home-action-chip` — so they are styled here as descendants of .hA-action.
+   Rows are the shared ActionRow (`ma-row`), restyled here via descendant
+   scope. The load-bearing 2×2 vitals grid keeps its structure; only its
+   surface changes.
+
+   Geometry: page width is 430px max. Radii 18–26px on cards, 999px on
+   pills/chips. Fonts inherit the shell's Inter Variable stack.
+
+   Palette (derived from the shell's dark tokens):
+     --hA-ink      #050505   near-black stage
+     --hA-ink-2    #0b0b0d   ambient falloff
+     --hA-glass    #16161a   panel base (translucent warm grey)
+     --hA-raised   #1e1e23   tile base
+     --hA-ice      #f2f4f0   crisp text
+     --hA-mist     #9aa0a6   muted text (kept cool for quiet lines)
+     --hA-line     #303038   hairline over glass
+     --hA-accent   #7fe3c4   mint-teal emissive light
+     --hA-accent-2 #3fd9f5   aqua rim light (bloom partner)
+     --hA-mint     #b9f2dd   accent text with enough contrast on charcoal
+     --hA-amber    #f4c46c   warm hour accents (dawn/evening rungs)
+     --hA-ember    #ff9470   hot overdue light (red family)
+     --hA-rose     #ff9f9f   readable "over" text
+   ========================================================================== */
+
+/* ---- Ambience: a stage of soft light, pinned to the column ----------- */
+.hA-screen {
+  position: relative;
+  z-index: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 14px 0 8px;
+  isolation: isolate;
+  color: var(--fg, #f4f4f4);
+  font-family: var(--mini-font, 'Inter Variable', ui-sans-serif, system-ui, sans-serif);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.005em;
+}
+
+/* Background layers sit behind the screen's own content. Two soft bloom
+   washes + a fine grain + a warm rim make the column read as its own small
+   world floating on the shell's black. */
+.hA-screen::before {
+  content: '';
+  position: absolute;
+  inset: -40px -90px -60px;
+  z-index: -2;
+  pointer-events: none;
+  background:
+    radial-gradient(660px 380px at 28% -8%, rgb(127 227 196 / 0.10), transparent 62%),
+    radial-gradient(700px 420px at 96% 12%, rgb(42 111 122 / 0.13), transparent 60%),
+    radial-gradient(900px 560px at 50% 120%, rgb(63 217 245 / 0.06), transparent 60%);
+}
+/* Warm-rim key light, top-of-glass, reads as the desktop lamp above. */
+.hA-screen::after {
+  content: '';
+  position: absolute;
+  inset: 0 -70px auto;
+  height: 130px;
+  z-index: -2;
+  pointer-events: none;
+  background: radial-gradient(440px 130px at 50% -30px, rgb(255 244 216 / 0.075), transparent 70%);
+}
+
+/* ---- Day header -------------------------------------------------------- */
+.hA-day {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.hA-day-kicker {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.26em;
+  text-transform: uppercase;
+  color: var(--hA-mint, #b9f2dd);
+  margin: 0;
+}
+.hA-day-kicker::before {
+  content: '';
+  width: 18px;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgb(185 242 221 / 0.7));
+}
+.hA-day-title {
+  margin: 0;
+  font-size: 27px;
+  font-weight: 680;
+  letter-spacing: -0.035em;
+  line-height: 1.06;
+  color: var(--fg, #f4f4f4);
+  text-wrap: balance;
+}
+.hA-day-state {
+  margin: 1px 0 0;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  color: var(--muted-fg, #9d9da5);
+}
+
+/* ---- Hero action card --------------------------------------------------- */
+/* The lead rung. A dark glass slab, softly elevated, carrying two overlapping
+   light washes: a mint-teal bloom from above-left and a faint cyan ember from
+   the right edge — always the person's hue (--mini-accent), never painted over
+   another personality. */
+.hA-action {
+  position: relative;
+  overflow: hidden;
+  padding: 19px 18px 18px;
+  border-radius: 22px;
+  background:
+    radial-gradient(140% 120% at 0% 0%, rgb(127 227 196 / 0.135), transparent 52%),
+    radial-gradient(120% 110% at 100% 12%, rgb(63 217 245 / 0.05), transparent 55%),
+    linear-gradient(180deg, rgb(30 30 36 / 0.92), rgb(21 21 25 / 0.94));
+  border: 1px solid rgb(255 255 255 / 0.065);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.09),
+    inset 0 0 0 1px rgb(0 0 0 / 0.28),
+    0 1px 0 rgb(255 255 255 / 0.02),
+    0 14px 32px rgb(0 0 0 / 0.35);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  transition: transform 0.2s ease, box-shadow 0.25s ease, border-color 0.2s ease;
+}
+/* A whisper of the persona hue on the hairline — overdue rungs stay quiet,
+   not urgent-red, because red on this card reads as an alarm. */
+.hA-action--hot {
+  border-color: rgb(127 227 196 / 0.3);
+  background:
+    radial-gradient(150% 130% at 0% 0%, rgb(127 227 196 / 0.18), transparent 55%),
+    radial-gradient(130% 120% at 100% 20%, rgb(63 217 245 / 0.06), transparent 58%),
+    linear-gradient(180deg, rgb(31 33 38 / 0.94), rgb(22 22 27 / 0.95));
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.1),
+    inset 0 0 24px rgb(127 227 196 / 0.05),
+    inset 0 0 0 1px rgb(0 0 0 / 0.28),
+    0 16px 36px rgb(0 0 0 / 0.42),
+    0 0 0 1px rgb(127 227 196 / 0.16);
+}
+.hA-action-kicker {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--hA-mint, #b9f2dd);
+}
+.hA-action-title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: -0.025em;
+  line-height: 1.2;
+  color: var(--fg, #f4f4f4);
+  text-wrap: balance;
+}
+.hA-action-hint {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--muted-fg, #9d9da5);
+  text-wrap: pretty;
+}
+.hA-action-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 9px;
+  position: relative;
+  z-index: 1;
+}
+
+/* The action cluster's buttons travel in as `home-action-btn` / chips —
+   contract names, styled here only under this card. */
+.hA-action .home-action-btn {
+  flex: none;
+  margin: 0;
+  padding: 10px 18px;
+  border: 0;
+  border-radius: 999px;
+  background: linear-gradient(180deg, rgb(255 255 255 / 0.16), rgb(255 255 255 / 0.03));
+  color: var(--hA-ice, #f2f4f0);
+  font-size: 13.5px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  text-decoration: none;
+  cursor: pointer;
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.22),
+    inset 0 0 0 1px rgb(255 255 255 / 0.07),
+    0 6px 16px rgb(0 0 0 / 0.3);
+  transition: transform 0.15s ease, background 0.2s ease, box-shadow 0.2s ease;
+}
+.hA-action .home-action-btn:hover {
+  background: linear-gradient(180deg, rgb(255 255 255 / 0.22), rgb(255 255 255 / 0.06));
+  transform: translateY(-1px);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.26),
+    inset 0 0 0 1px rgb(255 255 255 / 0.09),
+    0 9px 20px rgb(0 0 0 / 0.35);
+}
+.hA-action .home-action-btn:active {
+  transform: translateY(0) scale(0.985);
+}
+.hA-action .home-action-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+  transform: none;
+}
+/* Snooze is a quiet glass chip with a moon glyph. */
+.hA-action .home-action-chip {
+  flex: none;
+  margin: 0;
+  padding: 9px 15px 9px 32px;
+  border: 1px solid rgb(255 255 255 / 0.1);
+  border-radius: 999px;
+  background: rgb(255 255 255 / 0.035);
+  color: var(--muted-fg, #9d9da5);
+  font-size: 12.5px;
+  font-weight: 650;
+  cursor: pointer;
+  position: relative;
+  transition: color 0.15s ease, background 0.15s ease, border-color 0.15s ease;
+}
+.hA-action .home-action-chip::before {
+  content: '';
+  position: absolute;
+  left: 13px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 65% 35%, rgb(255 244 216 / 0.9), rgb(160 160 170 / 0.25) 60%, transparent 61%);
+  box-shadow: inset 0 0 0 0.5px rgb(0 0 0 / 0.4);
+  opacity: 0.8;
+}
+.hA-action .home-action-chip:hover {
+  background: rgb(255 255 255 / 0.07);
+  color: var(--fg, #f4f4f4);
+}
+.hA-action .home-action-chip:active {
+  background: rgb(255 255 255 / 0.1);
+}
+.hA-action .home-action-chip:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* ---- Queue rows (shared ActionRow inside hA-queue) --------------------- */
+/* The row surface is glassy but quiet — same arc as the card above, one
+   step darker, with a 1px light cap. */
+.hA-queue {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.hA-queue .ma-row {
+  padding: 11px 14px;
+  border: 1px solid rgb(255 255 255 / 0.055);
+  border-radius: 16px;
+  background: linear-gradient(180deg, rgb(28 28 33 / 0.85), rgb(22 22 26 / 0.9));
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.055),
+    0 1px 0 rgb(255 255 255 / 0.015),
+    0 8px 20px rgb(0 0 0 / 0.14);
+  transition: transform 0.15s ease, border-color 0.15s ease, background 0.2s ease;
+}
+.hA-queue .ma-row:hover {
+  border-color: rgb(127 227 196 / 0.22);
+  transform: translateY(-1px);
+}
+.hA-queue .ma-row:active {
+  transform: scale(0.992);
+}
+.hA-queue .ma-row--done {
+  opacity: 0.5;
+}
+.hA-queue .ma-title {
+  font-size: 14px;
+  font-weight: 650;
+  letter-spacing: -0.008em;
+  color: var(--fg, #f4f4f4);
+  line-height: 1.3;
+}
+.hA-queue .ma-sub {
+  font-size: 12px;
+  color: var(--muted-fg, #9d9da5);
+}
+.hA-queue .ma-chip {
+  flex: none;
+  margin: 0;
+  padding: 5px 12px;
+  border: 1px solid rgb(255 255 255 / 0.11);
+  border-radius: 999px;
+  background: rgb(255 255 255 / 0.045);
+  color: var(--hA-mint, #b9f2dd);
+  font-size: 12px;
+  font-weight: 650;
+  text-decoration: none;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.hA-queue .ma-chip:hover {
+  background: rgb(255 255 255 / 0.09);
+  border-color: rgb(127 227 196 / 0.32);
+}
+.hA-queue .ma-chip:disabled {
+  opacity: 0.5;
+}
+.hA-queue .ma-row.mail-row {
+  cursor: pointer;
+}
+
+/* ---- Section headers ---------------------------------------------------- */
+.hA-section-title {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin: 2px 0 10px;
+  padding-left: 11px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: var(--hA-mist, #8d939b);
+}
+.hA-section-title::before {
+  content: '';
+  flex: none;
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: rgb(127 227 196 / 0.7);
+  box-shadow: 0 0 6px rgb(127 227 196 / 0.6);
+}
+
+.hA-block {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+/* "Today" plain list + "People due" share one row grammar: time/name left,
+   quiet meta right, Text pill for an sms. */
+.hA-plain-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.hA-plain-list li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 34px;
+  padding: 3px 4px 3px 0;
+  font-size: 14px;
+}
+.hA-plain-time {
+  flex: none;
+  min-width: 64px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  color: var(--fg, #f4f4f4);
+}
+/* A faint sunrise chip on the hour so meeting times warm the list. */
+.hA-plain-time::after {
+  content: '';
+  display: block;
+  height: 1px;
+  width: 18px;
+  margin-top: 3px;
+  border-radius: 1px;
+  background: linear-gradient(90deg, rgb(127 227 196 / 0.55), transparent);
+}
+.hA-plain-link {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  flex: 1;
+  min-width: 0;
+  text-decoration: none;
+  color: inherit;
+  border-radius: 10px;
+  transition: color 0.15s ease;
+}
+.hA-plain-link:hover span:first-child {
+  color: var(--hA-mint, #b9f2dd);
+}
+.hA-plain-meta {
+  flex: none;
+  color: var(--muted-fg, #9d9da5);
+  font-size: 12px;
+  font-weight: 550;
+}
+.hA-plain-sms {
+  flex: none;
+  align-self: center;
+  padding: 5px 13px;
+  border: 1px solid rgb(255 255 255 / 0.1);
+  border-radius: 999px;
+  background: rgb(255 255 255 / 0.04);
+  color: var(--hA-mint, #b9f2dd);
+  font-size: 12px;
+  font-weight: 650;
+  text-decoration: none;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.hA-plain-sms:hover {
+  background: rgb(127 227 196 / 0.12);
+  border-color: rgb(127 227 196 / 0.3);
+}
+.hA-people-toggle {
+  align-self: flex-start;
+  margin: 4px 0 0;
+  padding: 5px 12px 5px 0;
+  border: 0;
+  border-radius: 10px;
+  background: none;
+  color: var(--hA-mint, #b9f2dd);
+  font-size: 12px;
+  font-weight: 650;
+  cursor: pointer;
+  transition: color 0.15s ease;
+}
+.hA-people-toggle:hover {
+  color: var(--hA-mint, #b9f2dd);
+  text-shadow: 0 0 14px rgb(127 227 196 / 0.45);
+}
+.hA-people-toggle:focus-visible {
+  outline: 2px solid rgb(127 227 196 / 0.6);
+  outline-offset: 2px;
+}
+
+/* ---- Now strip: up-next chips + attention mail -------------------------- */
+.hA-block--now {
+  gap: 8px;
+}
+.hA-meets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+.hA-meet {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  max-width: 100%;
+  min-width: 0;
+  padding: 6px 13px;
+  border: 1px solid rgb(255 255 255 / 0.07);
+  border-radius: 999px;
+  background: linear-gradient(180deg, rgb(30 30 35 / 0.8), rgb(23 23 28 / 0.85));
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.06), 0 5px 14px rgb(0 0 0 / 0.18);
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--fg, #f4f4f4);
+}
+.hA-meet b {
+  flex: none;
+  font-weight: 750;
+  color: var(--hA-mint, #b9f2dd);
+  font-size: 11.5px;
+}
+.hA-meet--soon {
+  border-color: rgb(127 227 196 / 0.3);
+  background:
+    radial-gradient(120% 130% at 0% 0%, rgb(127 227 196 / 0.16), transparent 55%),
+    linear-gradient(180deg, rgb(31 33 38 / 0.85), rgb(24 26 30 / 0.9));
+}
+.hA-meet--soon b {
+  color: var(--hA-mint, #b9f2dd);
+  text-shadow: 0 0 12px rgb(127 227 196 / 0.5);
+}
+/* One mail line that needs a person, as a soft ember capsule. */
+.hA-attention {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 12px 15px;
+  border: 1px solid rgb(244 196 108 / 0.2);
+  border-radius: 15px;
+  background:
+    radial-gradient(120% 130% at 0% 0%, rgb(244 196 108 / 0.11), transparent 55%),
+    linear-gradient(180deg, rgb(29 28 28 / 0.85), rgb(23 23 23 / 0.9));
+  color: var(--fg, #f4f4f4);
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+}
+.hA-attention:hover {
+  border-color: rgb(244 196 108 / 0.34);
+}
+
+/* ---- Vitals: the 2×2 grid, kept -----------------------------------------
+   Four glass chips. Same slots as before — label, 21px value, a small shape
+   of the value, foot note — but the surface is luminous, with a 1px light
+   cap, a soft under-shadow and a pressure spot on press. */
+.hA-vitals {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.hA-vital {
+  position: relative;
+  display: grid;
+  align-content: start;
+  gap: 5px;
+  height: 100%;
+  min-height: 108px;
+  padding: 13px 14px 12px;
+  border: 1px solid rgb(255 255 255 / 0.06);
+  border-radius: 19px;
+  background:
+    radial-gradient(130% 90% at 50% 0%, rgb(255 255 255 / 0.055), transparent 60%),
+    linear-gradient(180deg, rgb(27 27 32 / 0.9), rgb(21 21 25 / 0.94));
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.08),
+    inset 0 0 18px rgb(0 0 0 / 0.2),
+    0 9px 22px rgb(0 0 0 / 0.22);
+  text-decoration: none;
+  color: inherit;
+  transition: transform 0.15s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+  overflow: hidden;
+}
+/* The four chips carry one faint wash each — a quiet spectrum so a glance
+   can tell tiles apart without labels doing all the work. */
+.hA-vitals li:nth-child(1) .hA-vital {
+  background:
+    radial-gradient(130% 90% at 50% 0%, rgb(127 227 196 / 0.07), transparent 60%),
+    linear-gradient(180deg, rgb(27 28 32 / 0.9), rgb(21 21 25 / 0.94));
+}
+.hA-vitals li:nth-child(2) .hA-vital {
+  background:
+    radial-gradient(130% 90% at 50% 0%, rgb(244 196 108 / 0.05), transparent 60%),
+    linear-gradient(180deg, rgb(28 27 29 / 0.9), rgb(21 21 25 / 0.94));
+}
+.hA-vitals li:nth-child(3) .hA-vital {
+  background:
+    radial-gradient(130% 90% at 50% 0%, rgb(63 217 245 / 0.055), transparent 60%),
+    linear-gradient(180deg, rgb(27 29 31 / 0.9), rgb(21 21 25 / 0.94));
+}
+.hA-vitals li:nth-child(4) .hA-vital {
+  background:
+    radial-gradient(130% 90% at 50% 0%, rgb(255 148 112 / 0.05), transparent 60%),
+    linear-gradient(180deg, rgb(29 27 27 / 0.9), rgb(21 21 25 / 0.94));
+}
+.hA-vital:hover {
+  transform: translateY(-1px);
+  border-color: rgb(127 227 196 / 0.25);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.1),
+    0 12px 26px rgb(0 0 0 / 0.3);
+}
+.hA-vital:active {
+  transform: scale(0.98);
+}
+.hA-vital:focus-visible {
+  outline: 2px solid rgb(127 227 196 / 0.6);
+  outline-offset: 2px;
+}
+.hA-vital-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--hA-mist, #9aa0a6);
+}
+.hA-vital-label::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  max-width: 30px;
+  margin-left: 2px;
+  background: linear-gradient(90deg, rgb(255 255 255 / 0.1), transparent);
+}
+/* The values sit on a tight number baseline; tabular figures keep the four
+   aligned across the grid. */
+.hA-vital-val {
+  font-size: 21px;
+  font-weight: 720;
+  letter-spacing: -0.04em;
+  line-height: 1.05;
+  color: var(--fg, #f4f4f4);
+  font-variant-numeric: tabular-nums;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.hA-vital-val i {
+  font-style: normal;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0;
+  color: var(--hA-mist, #9aa0a6);
+  margin-left: 3px;
+}
+.hA-vital-viz {
+  display: flex;
+  align-items: flex-end;
+  height: 24px;
+  margin-top: 3px;
+}
+.hA-vital-viz > * {
+  width: 100%;
+}
+/* The 2px rules become 4px rounded glass tracks with gradient fills. */
+.hA-receipt-rule {
+  position: relative;
+  height: 4px;
+  border-radius: 999px;
+  background: rgb(255 255 255 / 0.06);
+  box-shadow: inset 0 1px 1px rgb(0 0 0 / 0.3);
+  overflow: hidden;
+}
+.hA-receipt-rule i {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: 999px;
+  background: linear-gradient(90deg, rgb(127 227 196 / 0.55), var(--hA-accent, #7fe3c4));
+  box-shadow: 0 0 10px rgb(127 227 196 / 0.3);
+}
+.hA-receipt-rule--over {
+  background: rgb(255 148 112 / 0.08);
+}
+.hA-receipt-rule--over i {
+  background: linear-gradient(90deg, rgb(255 148 112 / 0.5), var(--hA-ember, #ff9470));
+  box-shadow: 0 0 10px rgb(255 148 112 / 0.3);
+}
+/* Sleep week: pill bars on a quiet track, the 8h target a brighter hairline. */
+.hA-spark {
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+  height: 22px;
+}
+.hA-spark-bar {
+  flex: 1;
+  min-height: 2px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, rgb(185 242 221 / 0.75), rgb(127 227 196 / 0.35));
+  box-shadow: 0 0 6px rgb(127 227 196 / 0.12);
+}
+.hA-spark-bar--today {
+  background: linear-gradient(180deg, var(--hA-accent, #7fe3c4), rgb(127 227 196 / 0.5));
+  box-shadow: 0 0 8px rgb(127 227 196 / 0.4);
+}
+.hA-spark-ref {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgb(185 242 221 / 0.45) 18%, rgb(185 242 221 / 0.45) 82%, transparent);
+}
+/* State word under Training — a quiet status line, not a data glow. */
+.hA-vital-state {
+  align-self: flex-end;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--hA-mist, #9aa0a6);
+}
+.hA-vital-foot {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: var(--hA-mist, #9aa0a6);
+  line-height: 1.3;
+}
+.hA-vital-foot--over {
+  color: var(--hA-rose, #ff9f9f);
+}
+.hA-vital-foot--over::before {
+  content: '▲ ';
+  font-size: 8px;
+}
+
+/* The donut sits on Home at a smaller glance size than in the Spending app;
+   its centre and key live inside SpendCharts, so they are shaped here. */
+.hA-screen .spend-donut-ring {
+  width: 118px;
+  height: 118px;
+}
+.hA-screen .spend-donut-key {
+  flex: 1 1 130px;
+}
+.hA-screen .spend-donut-mid b {
+  color: var(--fg, #f4f4f4);
+}
+.hA-screen .spend-donut-key-val {
+  color: var(--fg, #f4f4f4);
+}
+
+/* ---- Launcher dock -------------------------------------------------------
+   Four pill launchers on a glass ledge, iOS-dock energy: a soft shelf bar
+   behind them, icon chips with per-app aura, tiny labels beneath. */
+.hA-dock {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+  margin-top: 6px;
+  padding: 12px 10px 11px;
+  border-radius: 26px;
+  background: linear-gradient(180deg, rgb(255 255 255 / 0.045), rgb(255 255 255 / 0.015));
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.07),
+    inset 0 0 0 1px rgb(255 255 255 / 0.03),
+    0 -1px 0 rgb(0 0 0 / 0.3),
+    0 10px 28px rgb(0 0 0 / 0.2);
+  position: relative;
+}
+.hA-dock-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 2px 0;
+  background: none;
+  border: 0;
+  text-decoration: none;
+  color: var(--muted-fg, #9d9da5);
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0.03em;
+  -webkit-tap-highlight-color: transparent;
+  transition: color 0.15s ease;
+  cursor: pointer;
+}
+.hA-dock-btn:hover {
+  color: var(--fg, #f4f4f4);
+}
+.hA-dock-btn:hover .hA-dock-icon {
+  transform: translateY(-2px) scale(1.03);
+}
+.hA-dock-btn:active .hA-dock-icon {
+  transform: scale(0.92);
+  filter: brightness(1.15);
+}
+.hA-dock-icon {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 52px;
+  height: 52px;
+  border-radius: 17px;
+  background: linear-gradient(180deg, rgb(255 255 255 / 0.1), rgb(255 255 255 / 0.02));
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.18),
+    inset 0 0 0 1px rgb(255 255 255 / 0.06),
+    inset 0 -6px 12px rgb(0 0 0 / 0.18),
+    0 4px 12px rgb(0 0 0 / 0.28);
+  color: var(--hA-accent, #7fe3c4);
+  transition: transform 0.16s ease, color 0.2s ease, filter 0.2s ease;
+}
+.hA-dock-icon svg {
+  width: 24px;
+  height: 24px;
+}
+/* A faint persona-tinted bloom per launcher chip. */
+.hA-dock-btn:nth-child(1) .hA-dock-icon {
+  background:
+    radial-gradient(120% 120% at 50% 0%, rgb(63 217 245 / 0.13), transparent 60%),
+    linear-gradient(180deg, rgb(255 255 255 / 0.1), rgb(255 255 255 / 0.02));
+}
+.hA-dock-btn:nth-child(2) .hA-dock-icon {
+  background:
+    radial-gradient(120% 120% at 50% 0%, rgb(127 227 196 / 0.16), transparent 62%),
+    linear-gradient(180deg, rgb(255 255 255 / 0.1), rgb(255 255 255 / 0.02));
+}
+.hA-dock-btn:nth-child(3) .hA-dock-icon {
+  background:
+    radial-gradient(120% 120% at 50% 0%, rgb(185 142 255 / 0.13), transparent 62%),
+    linear-gradient(180deg, rgb(255 255 255 / 0.1), rgb(255 255 255 / 0.02));
+}
+.hA-dock-btn:nth-child(4) .hA-dock-icon {
+  background:
+    radial-gradient(120% 120% at 50% 0%, rgb(244 196 108 / 0.12), transparent 62%),
+    linear-gradient(180deg, rgb(255 255 255 / 0.1), rgb(255 255 255 / 0.02));
+}
+
+/* ---- Loading + messages -------------------------------------------------- */
+.hA-shimmer {
+  animation: hA-shimmer 1.4s ease-in-out infinite;
+  opacity: 0.5;
+}
+@keyframes hA-shimmer {
+  0%, 100% { opacity: 0.3; }
+  50% { opacity: 0.85; }
+}
+.hA-action--skeleton {
+  min-height: 104px;
+  border-radius: 22px;
+  border: 1px solid rgb(255 255 255 / 0.05);
+  background:
+    linear-gradient(110deg, transparent 30%, rgb(255 255 255 / 0.035) 50%, transparent 70%),
+    linear-gradient(180deg, rgb(27 27 32 / 0.7), rgb(20 20 24 / 0.8));
+  background-size: 220% 100%, 100% 100%;
+  animation: hA-sweep 1.5s linear infinite;
+}
+@keyframes hA-sweep {
+  0% { background-position: 130% 0, 0 0; }
+  100% { background-position: -30% 0, 0 0; }
+}
+.hA-msg {
+  text-align: center;
+  color: var(--muted-fg, #9d9da5);
+}
+
+.hA-screen--loading {
+  min-height: 180px;
+  gap: 12px;
+}
+
+/* ---- Bleed mode: ?skin=a home runs full-bleed (edge to edge) ----
+   The shell normally pads 24px around a 430px card. On the friend home we
+   drop the gutters and the head chrome so the screen owns the whole column. */
+.mini--bleed {
+  padding: 0 !important;
+}
+
+.mini--bleed .mini__card {
+  max-width: none;
+  width: 100%;
+}
+
+.mini--bleed .mini__head {
+  display: none;
+}
+
+.mini--bleed .mini__body--home-screen {
+  padding: 0;
+}
+
+.mini--bleed .hA-screen {
+  min-height: 100dvh;
+  padding: 18px 0 12px;
+}

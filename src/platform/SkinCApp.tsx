@@ -1,6 +1,6 @@
 /* Home's visual layer — warm ambient glass. Loaded after index.css; every
- * class here is scoped under .hA-screen, so no other surface is touched. */
-import './homeA.css'
+ * class here is scoped under .hc-screen, so no other surface is touched. */
+import './homeC.css'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import {
@@ -71,7 +71,7 @@ const DOCK = [
   { kind: 'later', iconKind: 'later', label: 'Later' },
 ] as const
 
-export function HomeApp({ auth }: { auth: FeatureAuth }) {
+export function SkinCApp({ auth }: { auth: FeatureAuth }) {
   const [searchParams] = useSearchParams()
   const q = searchParams.toString()
   const suffix = q ? `?${q}` : ''
@@ -177,9 +177,9 @@ export function HomeApp({ auth }: { auth: FeatureAuth }) {
 
   if (loading && !snap) {
     return (
-      <div className="hA-screen hA-screen--loading">
-        <div className="hA-day-kicker hA-shimmer">Loading today</div>
-        <div className="hA-action hA-action--skeleton" />
+      <div className="hc-screen hc-screen--loading">
+        <div className="hc-day-kicker hc-shimmer">Loading today</div>
+        <div className="hc-action hc-action--skeleton" />
       </div>
     )
   }
@@ -293,18 +293,18 @@ export function HomeApp({ auth }: { auth: FeatureAuth }) {
   const spendParts = aggregateSpend(snap?.spendByCategory || []).parts
 
   return (
-    <div className="hA-screen">
-      <header className="hA-day">
-        <span className="hA-day-kicker">Today</span>
-        <h2 className="hA-day-title">{dateLabel || 'Today'}</h2>
-        {stateLine ? <p className="hA-day-state">{stateLine}</p> : null}
+    <div className="hc-screen">
+      <header className="hc-day">
+        <span className="hc-day-kicker">Today</span>
+        <h2 className="hc-day-title">{dateLabel || 'Today'}</h2>
+        {stateLine ? <p className="hc-day-state">{stateLine}</p> : null}
       </header>
 
-      <section className={`hA-action${lead.hot ? ' hA-action--hot' : ''}`}>
-        <span className="hA-action-kicker">{lead.kicker}</span>
-        <h3 className="hA-action-title">{lead.title}</h3>
-        {lead.hint ? <p className="hA-action-hint">{lead.hint}</p> : null}
-        <div className="hA-action-row">
+      <section className={`hc-action${lead.hot ? ' hc-action--hot' : ''}`}>
+        <span className="hc-action-kicker">{lead.kicker}</span>
+        <h3 className="hc-action-title">{lead.title}</h3>
+        {lead.hint ? <p className="hc-action-hint">{lead.hint}</p> : null}
+        <div className="hc-action-row">
           <ActionButtons
             item={lead}
             persona={auth.persona}
@@ -320,7 +320,7 @@ export function HomeApp({ auth }: { auth: FeatureAuth }) {
       </section>
 
       {queued.length > 0 && (
-        <ul className="ma-list hA-queue">
+        <ul className="ma-list hc-queue">
           {queued.map((item) => (
             <ActionRow
               key={item.id}
@@ -334,15 +334,15 @@ export function HomeApp({ auth }: { auth: FeatureAuth }) {
           ))}
         </ul>
       )}
-      {actMsg && <p className="mini__hint hA-msg">{actMsg}</p>}
+      {actMsg && <p className="mini__hint hc-msg">{actMsg}</p>}
 
       {upcoming.length > 0 && (
-        <section className="hA-block">
-          <h3 className="hA-section-title">Today</h3>
-          <ul className="hA-plain-list">
+        <section className="hc-block">
+          <h3 className="hc-section-title">Today</h3>
+          <ul className="hc-plain-list">
             {upcoming.map((e, i) => (
               <li key={`${e.time}-${e.title}-${i}`}>
-                <span className="hA-plain-time">{e.time}</span>
+                <span className="hc-plain-time">{e.time}</span>
                 <span>{e.title}</span>
               </li>
             ))}
@@ -351,17 +351,17 @@ export function HomeApp({ auth }: { auth: FeatureAuth }) {
       )}
 
       {peopleDue.length > 0 && (
-        <section className="hA-block">
-          <h3 className="hA-section-title">People due</h3>
-          <ul className="hA-plain-list">
+        <section className="hc-block">
+          <h3 className="hc-section-title">People due</h3>
+          <ul className="hc-plain-list">
             {(peopleOpen ? peopleDue : peopleDue.slice(0, PEOPLE_DUE_PREVIEW)).map((p) => (
               <li key={p.name}>
-                <Link className="hA-plain-link" to={miniLink('networking_crm')}>
+                <Link className="hc-plain-link" to={miniLink('networking_crm')}>
                   <span>{p.name}</span>
-                  <span className="hA-plain-meta">{p.days >= 900 ? 'No touch yet' : `${p.days} days`}</span>
+                  <span className="hc-plain-meta">{p.days >= 900 ? 'No touch yet' : `${p.days} days`}</span>
                 </Link>
                 {p.phone ? (
-                  <a className="hA-plain-sms" href={`sms:${p.phone.replace(/[^\d+]/g, '')}`}>
+                  <a className="hc-plain-sms" href={`sms:${p.phone.replace(/[^\d+]/g, '')}`}>
                     Text
                   </a>
                 ) : null}
@@ -371,7 +371,7 @@ export function HomeApp({ auth }: { auth: FeatureAuth }) {
           {peopleDue.length > PEOPLE_DUE_PREVIEW && (
             <button
               type="button"
-              className="hA-people-toggle"
+              className="hc-people-toggle"
               aria-expanded={peopleOpen}
               onClick={() => setPeopleOpen((open) => !open)}
             >
@@ -386,13 +386,13 @@ export function HomeApp({ auth }: { auth: FeatureAuth }) {
       {/* Both ride the home payload and are absent until the server ships them,
         * so this strip renders nothing and today's screen stays as it was. */}
       {(snap?.meetings?.length || snap?.attention) && (
-        <section className="hA-block hA-block--now">
+        <section className="hc-block hc-block--now">
           {snap?.meetings && snap.meetings.length > 0 && (
-            <div className="hA-meets" aria-label="Up next">
+            <div className="hc-meets" aria-label="Up next">
               {snap.meetings.slice(0, 3).map((m, i) => (
                 <span
                   key={`${m.time}-${m.title}-${i}`}
-                  className={i === 0 && m.startsInMin != null && m.startsInMin <= 60 ? 'hA-meet hA-meet--soon' : 'hA-meet'}
+                  className={i === 0 && m.startsInMin != null && m.startsInMin <= 60 ? 'hc-meet hc-meet--soon' : 'hc-meet'}
                 >
                   <b>{m.time}</b> {m.title}
                 </span>
@@ -400,36 +400,36 @@ export function HomeApp({ auth }: { auth: FeatureAuth }) {
             </div>
           )}
           {snap?.attention && (
-            <Link className="hA-attention" to={miniLink(briefKind)}>
+            <Link className="hc-attention" to={miniLink(briefKind)}>
               1 in mail needs you · {snap.attention.why} · {snap.attention.label}
             </Link>
           )}
         </section>
       )}
 
-      <section className="hA-block" aria-label="Where you are">
-        <h3 className="hA-section-title">Where you are</h3>
-        <ul className="hA-vitals">
+      <section className="hc-block" aria-label="Where you are">
+        <h3 className="hc-section-title">Where you are</h3>
+        <ul className="hc-vitals">
           <li>
-            <Link className="hA-vital" to={miniLink('sleep_tracker')}>
-              <span className="hA-vital-label">Sleep</span>
-              <span className="hA-vital-val">
+            <Link className="hc-vital" to={miniLink('sleep_tracker')}>
+              <span className="hc-vital-label">Sleep</span>
+              <span className="hc-vital-val">
                 {lastNight.logged ? <>{lastNight.hours}<i>h</i></> : 'Not logged'}
               </span>
               {/* The week the Nights section used to be, at the size a glance
                 * needs. Scaled against the same 10h so a bar's height still
                 * means the same thing it did in the chart. */}
-              <span className="hA-vital-viz">
+              <span className="hc-vital-viz">
                 {sleepWeek.length > 0 ? (
-                  <span className="hA-spark">
+                  <span className="hc-spark">
                     <span
-                      className="hA-spark-ref"
+                      className="hc-spark-ref"
                       style={{ bottom: `${(SLEEP_TARGET_H / SLEEP_SCALE_H) * 100}%` }}
                     />
                     {sleepWeek.map((n, i) => (
                       <span
                         key={n.date}
-                        className={`hA-spark-bar${i === sleepWeek.length - 1 ? ' hA-spark-bar--today' : ''}`}
+                        className={`hc-spark-bar${i === sleepWeek.length - 1 ? ' hc-spark-bar--today' : ''}`}
                         style={{ height: `${Math.min(100, (n.hours / SLEEP_SCALE_H) * 100)}%` }}
                         title={`${fmtDay(n.date)}  ${n.hours}h`}
                       />
@@ -437,18 +437,18 @@ export function HomeApp({ auth }: { auth: FeatureAuth }) {
                   </span>
                 ) : null}
               </span>
-              {sleepFoot ? <span className="hA-vital-foot">{sleepFoot}</span> : null}
+              {sleepFoot ? <span className="hc-vital-foot">{sleepFoot}</span> : null}
             </Link>
           </li>
           <li>
-            <Link className="hA-vital" to={miniLink('nutrition')}>
-              <span className="hA-vital-label">Food</span>
-              <span className="hA-vital-val">
+            <Link className="hc-vital" to={miniLink('nutrition')}>
+              <span className="hc-vital-label">Food</span>
+              <span className="hc-vital-val">
                 {Math.round(protein)}<i>g of {Math.round(proteinGoal)}</i>
               </span>
-              <span className="hA-vital-viz">
+              <span className="hc-vital-viz">
                 {proteinGoal > 0 ? (
-                  <span className="hA-receipt-rule" aria-hidden="true">
+                  <span className="hc-receipt-rule" aria-hidden="true">
                     <i style={{ width: `${Math.min(100, (protein / proteinGoal) * 100)}%` }} />
                   </span>
                 ) : null}
@@ -456,27 +456,27 @@ export function HomeApp({ auth }: { auth: FeatureAuth }) {
             </Link>
           </li>
           <li>
-            <Link className="hA-vital" to={miniLink('workout_log')}>
-              <span className="hA-vital-label">Training</span>
-              <span className="hA-vital-val">{workout.name}</span>
+            <Link className="hc-vital" to={miniLink('workout_log')}>
+              <span className="hc-vital-label">Training</span>
+              <span className="hc-vital-val">{workout.name}</span>
               {/* Logged or not is a state, not a ratio, so it takes the viz slot
                 * as a word. Keeps every value on the same baseline. */}
-              <span className="hA-vital-viz">
-                <span className="hA-vital-state">{workout.done ? 'Logged' : 'Not logged'}</span>
+              <span className="hc-vital-viz">
+                <span className="hc-vital-state">{workout.done ? 'Logged' : 'Not logged'}</span>
               </span>
             </Link>
           </li>
           <li>
-            <Link className="hA-vital" to={miniLink('spending_snapshot')}>
-              <span className="hA-vital-label">Spend</span>
-              <span className="hA-vital-val">
+            <Link className="hc-vital" to={miniLink('spending_snapshot')}>
+              <span className="hc-vital-label">Spend</span>
+              <span className="hc-vital-val">
                 ${Math.round(spend)}
                 {budget > 0 ? <i> of ${Math.round(budget)}</i> : null}
               </span>
-              <span className="hA-vital-viz">
+              <span className="hc-vital-viz">
                 {budget > 0 ? (
                   <span
-                    className={`hA-receipt-rule${spend > budget ? ' hA-receipt-rule--over' : ''}`}
+                    className={`hc-receipt-rule${spend > budget ? ' hc-receipt-rule--over' : ''}`}
                     aria-hidden="true"
                   >
                     <i style={{ width: `${Math.min(100, (spend / budget) * 100)}%` }} />
@@ -486,7 +486,7 @@ export function HomeApp({ auth }: { auth: FeatureAuth }) {
               {/* Over budget says so in words. The red rule alone would be the
                 * only signal otherwise, and colour alone is not a signal. */}
               {budget > 0 && spend > budget ? (
-                <span className="hA-vital-foot hA-vital-foot--over">
+                <span className="hc-vital-foot hc-vital-foot--over">
                   ${Math.round(spend - budget)} over
                 </span>
               ) : null}
@@ -499,16 +499,16 @@ export function HomeApp({ auth }: { auth: FeatureAuth }) {
         * this screen shows is the split, so the section that follows it shows
         * only that. */}
       {spendParts.length > 0 && (
-        <section className="hA-block">
-          <h3 className="hA-section-title">This week&apos;s spend</h3>
+        <section className="hc-block">
+          <h3 className="hc-section-title">This week&apos;s spend</h3>
           <SpendDonut rows={snap?.spendByCategory || []} centerLabel="this week" />
         </section>
       )}
 
-      <nav className="hA-dock" aria-label="Quick travel">
+      <nav className="hc-dock" aria-label="Quick travel">
         {dock.map((d) => (
-          <Link key={d.label} className="hA-dock-btn" to={miniLink(d.kind)}>
-            <span className="hA-dock-icon" aria-hidden="true">
+          <Link key={d.label} className="hc-dock-btn" to={miniLink(d.kind)}>
+            <span className="hc-dock-icon" aria-hidden="true">
               <MiniAppIcon kind={d.iconKind} />
             </span>
             <span>{d.label}</span>
@@ -516,7 +516,7 @@ export function HomeApp({ auth }: { auth: FeatureAuth }) {
         ))}
       </nav>
 
-      {msg && <p className="mini__hint hA-msg">{msg}</p>}
+      {msg && <p className="mini__hint hc-msg">{msg}</p>}
 
       {tourStep >= 0 && (
         <HomeTour

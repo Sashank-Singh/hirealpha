@@ -4373,7 +4373,7 @@ html[data-mini-theme='light'] .ma-where-label { color: #6d28d9; }
 }
 .home-receipt-val { font-size: 14px; font-weight: 600; text-align: right; }
 
-.mini__body--home-screen { padding-bottom: 0; }
+.mini__body--home-screen { padding: 0 22px 0; }
 
 /* ---- People knowledge graph (3D network) ---- */
 .people-graph-wrap { position: relative; }

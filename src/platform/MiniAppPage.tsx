@@ -28,6 +28,8 @@ import {
   WorkoutLogApp,
 } from './LifeMiniApps'
 import { HomeApp } from './HomeApp'
+import { SkinBApp } from './SkinBApp'
+import { SkinCApp } from './SkinCApp'
 import { ArtifactApp, CofounderHomeApp, CoworkerHomeApp } from './WorkHomes'
 import { BuildsApp } from './FeatureMiniApps'
 import { BriefApp } from './BriefApp'
@@ -587,13 +589,19 @@ export function MiniAppPage() {
                 }}
               />
             ) : (
-              <HomeApp
-                auth={{
+              (() => {
+                /* Design-review switch: ?skin=b / ?skin=c previews the other
+                 * home variants on the friend apps screen. Default = A (HomeApp). */
+                const skin = searchParams.get('skin')
+                const skinAuth = {
                   persona: (persona as AgentId) || 'friend',
                   email: email || undefined,
                   token: token || undefined,
-                }}
-              />
+                }
+                if (skin === 'b') return <SkinBApp auth={skinAuth} />
+                if (skin === 'c') return <SkinCApp auth={skinAuth} />
+                return <HomeApp auth={skinAuth} />
+              })()
             )}
           </div>
         )}

@@ -957,7 +957,7 @@ async function fallbackNextStack(a: { email?: string; token?: string; persona?: 
       hint: overdue.context || 'Overdue',
       hot: true,
       action: 'person',
-      doLabel: 'Talked',
+      doLabel: 'Already talked',
       personId: overdue.id,
       sms: `sms:&body=${encodeURIComponent(`Hey ${overdue.name.split(' ')[0] || overdue.name} — checking in.`)}`,
     })

@@ -1,0 +1,809 @@
+/* ============================================================================
+   HOME — "Modern Editorial Brutalist" variant (HomeApp.tsx visual layer)
+   ----------------------------------------------------------------------------
+   Design language:
+   · Typography is the hero. The date is a statement: huge, thin, tracked-out
+     numerals in Inter, with an index-kicker above and a hairline index rule
+     below. Letterspaced uppercase micro-labels own hierarchy.
+   · Hard-edged structure: 8-12px corners, 1px crisp rules, no box-in-box, no
+     soft glow. Raised panels come from tone steps (#1c1c1e on #141414) and
+     hairlines, not from shadows.
+   · Monochrome ink + ONE accent (persona accent, teal for Alpha-the-friend)
+     used surgically: lead-card edge & verbs, sparkline bars, focus states.
+     Status stays worded — red is reserved for over-budget spend.
+   · Everything engineered: fixed-height viz slots keep every value on the same
+     baseline; tabular figures keep digits in rank; rules are 2px ink lines.
+   · Noise: two stacked SVG turbulence fills at 4-6% — industrial, not grey.
+   ----------------------------------------------------------------------------
+   The original rules live in src/index.css (loaded first); this file loads
+   after it from HomeApp.tsx and overrides by order with equal specificity.
+   Only home-surface classes are restyled — shared shell (.mini), the tour
+   (.hb-tour) and generic action atoms (.ma-*) stay as they are, except the
+   home queue's own .ma-chip usage which is scoped below.
+   ========================================================================== */
+
+/* ---- Sheet tokens (scoped to this surface) ---- */
+.hb-screen {
+  --hb-bg: var(--bg, #141414);
+  --hb-raised: #1c1c1e;
+  --hb-raised-2: #232326;
+  --hb-line: var(--border, #3a3a3a);
+  --hb-line-soft: #26262a;
+  --hb-ink: var(--fg, #f4f4f4);
+  --hb-muted: #8f8f97;
+  --hb-faint: #5f5f66;
+  --hb-accent: var(--mini-accent, #2a6f7a);
+  --hb-accent-fg: var(--mini-accent-fg, #f4f4f5);
+  --hb-red: #e0645f;
+  --hb-pad-x: 22px;
+
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+  padding-bottom: 0;
+}
+.hb-screen--loading {
+  min-height: 180px;
+  gap: 12px;
+}
+
+/* Subtle industrial grain over the whole body (behind text: it sits between the
+   backgrounds and the content, so it never greys the type). */
+.mini__body--home-screen > .hb-screen {
+  position: relative;
+}
+.mini__body--home-screen > .hb-screen::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0.05;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3CfeComponentTransfer%3E%3CfeFuncA type='linear' slope='0.32'/%3E%3C/feComponentTransfer%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+.hb-screen > * {
+  position: relative;
+  z-index: 1;
+}
+
+/* ---- Day header: the date is the statement ---- */
+.hb-day {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 6px;
+}
+.hb-day-kicker {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.34em;
+  text-transform: uppercase;
+  color: var(--hb-accent);
+}
+/* Index-rule glyph, like a hairline dagger between kicker and page. */
+.hb-day-kicker::after {
+  content: '';
+  width: 34px;
+  height: 1px;
+  background: var(--hb-accent);
+  opacity: 0.9;
+}
+.hb-day-title {
+  margin: 0;
+  font-size: 44px;
+  font-weight: 250;
+  letter-spacing: -0.045em;
+  line-height: 1.02;
+  font-variant-numeric: tabular-nums;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  text-wrap: balance;
+}
+.hb-day-state {
+  margin: 3px 0 0;
+  padding-top: 12px;
+  border-top: 1px solid var(--hb-line-soft);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--hb-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- Lead action: the one thing, on a panel with an accent knife-edge ---- */
+.hb-action {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 15px 16px 16px 20px;
+  border: 1px solid var(--hb-line);
+  border-left: 3px solid var(--hb-accent);
+  border-radius: 10px;
+  background: var(--hb-raised);
+}
+/* Hot (overdue/deadline) rungs get the knife-edge flipped to a full cap. */
+.hb-action--hot {
+  border-left-color: var(--hb-accent);
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--hb-accent) 15%, var(--hb-raised)) 0, var(--hb-raised) 46%);
+}
+.hb-action--skeleton {
+  min-height: 92px;
+  border-left-color: var(--hb-line-soft);
+  background: var(--hb-raised);
+}
+.hb-action-kicker {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  color: var(--hb-accent);
+  background: color-mix(in srgb, var(--hb-accent) 10%, var(--hb-raised));
+  border: 1px solid color-mix(in srgb, var(--hb-accent) 45%, var(--hb-line));
+  border-radius: 4px;
+  padding: 4px 8px 4px 9px;
+}
+.hb-action-title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: -0.025em;
+  line-height: 1.22;
+  overflow-wrap: anywhere;
+}
+.hb-action-hint {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--hb-muted);
+  overflow-wrap: anywhere;
+}
+/* The button row draws a hard rule above itself — verbs act at the edge. */
+.hb-action-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 7px;
+  padding-top: 12px;
+  border-top: 1px solid var(--hb-line-soft);
+}
+/* Sharp solid action verbs. */
+.hb-action-btn {
+  flex: none;
+  margin-top: 0;
+  padding: 9px 18px;
+  border: 1px solid var(--hb-accent);
+  border-radius: 6px;
+  background: var(--hb-accent);
+  color: var(--hb-accent-fg);
+  text-decoration: none;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  transition: background-color 0.1s ease, color 0.1s ease, filter 0.1s ease;
+}
+.hb-action-btn:hover {
+  background: color-mix(in srgb, var(--hb-accent) 82%, #fff);
+}
+.hb-action-btn:active {
+  background: color-mix(in srgb, var(--hb-accent) 60%, #000);
+}
+.hb-action-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+/* Snooze stays an outline key: reversible, so it never carries the fill. */
+.hb-action-chip {
+  flex: none;
+  margin-top: 0;
+  padding: 9px 16px;
+  border: 1px solid var(--hb-line);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--hb-muted);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color 0.1s ease, border-color 0.1s ease, background-color 0.1s ease;
+}
+.hb-action-chip:hover {
+  color: var(--hb-ink);
+  border-color: var(--hb-faint);
+}
+.hb-action-chip:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* ---- Secondary queue: hairline-divided ledger rows, no boxes ---- */
+.hb-queue {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0 2px 0 4px;
+  list-style: none;
+}
+/* ActionRow renders .ma-row; inside the home queue those generic raised boxes
+   become sharp hairline rows. Scoped so every other .ma-row surface is untouched. */
+.hb-queue .ma-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 52px;
+  padding: 9px 2px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  border-bottom: 1px solid var(--hb-line-soft);
+  cursor: pointer;
+  transition: background-color 0.1s ease;
+}
+.hb-queue .ma-row:hover {
+  background: #171718;
+}
+.hb-queue .ma-row:active {
+  background: #1a1b1d;
+}
+.hb-queue .ma-row:first-child {
+  border-top: 1px solid var(--hb-line-soft);
+}
+.hb-queue .ma-row--done {
+  opacity: 0.45;
+}
+.hb-queue .ma-row-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.hb-queue .ma-title {
+  font-size: 14px;
+  font-weight: 650;
+  letter-spacing: -0.008em;
+  overflow-wrap: anywhere;
+}
+.hb-queue .ma-sub {
+  font-size: 11.5px;
+  line-height: 1.4;
+  color: var(--hb-muted);
+  overflow-wrap: anywhere;
+}
+/* The "Do/Open" verb on a queue row: a quiet, keyed action — outline chip with
+   sharp 4px corners, accent only for links. */
+.hb-queue .ma-chip {
+  flex: none;
+  padding: 6px 12px;
+  border: 1px solid var(--hb-line);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--hb-fg, var(--fg));
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  text-decoration: none;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: border-color 0.1s ease, color 0.1s ease;
+}
+.hb-queue .ma-chip:hover {
+  border-color: var(--hb-accent);
+  color: var(--hb-accent);
+}
+
+/* ---- Section frame ---- */
+.hb-block {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.hb-section-title {
+  margin: 0 0 2px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.34em;
+  text-transform: uppercase;
+  color: var(--hb-muted);
+}
+.hb-msg {
+  text-align: center;
+}
+
+/* ---- Lists: sharp hairlines, aligned times (Today / People) ---- */
+.hb-plain-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+}
+.hb-plain-list li {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 10px 2px;
+  border-bottom: 1px solid var(--hb-line-soft);
+  font-size: 14px;
+  min-width: 0;
+}
+.hb-plain-list li:first-child {
+  padding-top: 2px;
+  border-top: 1px solid var(--hb-line);
+}
+.hb-plain-list li:last-child {
+  border-bottom: 0;
+  padding-bottom: 4px;
+}
+.hb-plain-time {
+  flex: none;
+  min-width: 62px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--hb-accent);
+  font-variant-numeric: tabular-nums;
+}
+.hb-plain-link {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  text-decoration: none;
+  color: inherit;
+  font-weight: 500;
+}
+.hb-plain-meta {
+  flex: none;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--hb-faint);
+  font-variant-numeric: tabular-nums;
+}
+.hb-plain-sms {
+  flex: none;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--hb-ink);
+  text-decoration: none;
+  border: 1px solid var(--hb-line);
+  border-radius: 4px;
+  padding: 4px 10px 5px;
+  transition: border-color 0.1s ease, color 0.1s ease;
+}
+.hb-plain-sms:hover {
+  border-color: var(--hb-accent);
+  color: var(--hb-accent);
+}
+
+/* "Show more" fold control: a full-width hairline key with a block arrow —
+   reads as part of the ledger, not a floating text link. */
+.hb-people-toggle {
+  align-self: stretch;
+  margin: 8px 0 0;
+  padding: 11px 2px 12px;
+  border: 1px solid var(--hb-line);
+  border-radius: 6px;
+  background: var(--hb-raised);
+  color: var(--hb-muted);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: color 0.1s ease, border-color 0.1s ease;
+}
+.hb-people-toggle::after {
+  content: '↓';
+  display: inline-block;
+  margin-left: 10px;
+  letter-spacing: 0;
+  font-weight: 500;
+  transition: transform 0.12s ease;
+}
+.hb-people-toggle:hover {
+  color: var(--hb-accent);
+  border-color: color-mix(in srgb, var(--hb-accent) 55%, var(--hb-line));
+}
+.hb-people-toggle[aria-expanded='true']::after {
+  content: '↑';
+  transform: none;
+}
+.hb-people-toggle:focus-visible {
+  outline: 2px solid var(--hb-accent);
+  outline-offset: 2px;
+}
+.hb-people-toggle:active {
+  background: #1a1a1c;
+}
+
+/* ---- Up-next strip: meeting chips + the one mail line ---- */
+.hb-block--now {
+  gap: 6px;
+}
+.hb-meets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.hb-meet {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  max-width: 100%;
+  padding: 6px 11px 7px;
+  border: 1px solid var(--hb-line);
+  border-radius: 4px;
+  font-size: 12.5px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  background: var(--hb-bg);
+}
+.hb-meet b {
+  flex: none;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  color: var(--hb-muted);
+  font-variant-numeric: tabular-nums;
+}
+.hb-meet--soon {
+  border-color: color-mix(in srgb, var(--hb-accent) 60%, var(--hb-line));
+  background: color-mix(in srgb, var(--hb-accent) 9%, var(--hb-bg));
+}
+.hb-meet--soon b {
+  color: var(--hb-accent);
+}
+/* The mail attention line: one spare sentence, edged with the accent dagger. */
+.hb-attention {
+  display: block;
+  position: relative;
+  margin: 4px 0 0;
+  padding: 10px 12px 10px 14px;
+  border: 0;
+  border-left: 3px solid var(--hb-accent);
+  border-radius: 0 6px 6px 0;
+  background: var(--hb-raised);
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: var(--hb-ink);
+  text-decoration: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition: background-color 0.1s ease;
+}
+.hb-attention:hover {
+  background: color-mix(in srgb, var(--hb-accent) 6%, var(--hb-raised));
+}
+
+/* ---- Vitals: the engineered 2×2 ---- */
+.hb-vitals {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.hb-vital {
+  position: relative;
+  display: grid;
+  align-content: start;
+  gap: 5px;
+  height: 100%;
+  min-width: 0;
+  padding: 15px 15px 12px;
+  border: 1px solid var(--hb-line);
+  border-radius: 8px;
+  background: var(--hb-bg);
+  text-decoration: none;
+  color: inherit;
+  transition: border-color 0.12s ease;
+}
+.hb-vital:hover,
+.hb-vital:focus-visible {
+  border-color: var(--hb-accent);
+}
+.hb-vital:active {
+  border-color: var(--hb-accent);
+}
+.hb-vital:focus-visible {
+  outline: 2px solid var(--hb-accent);
+  outline-offset: 2px;
+}
+/* Small top corner index for each tile — engineered part numbers. */
+.hb-vital:nth-child(1)::before { content: '01'; }
+.hb-vital:nth-child(2)::before { content: '02'; }
+.hb-vital:nth-child(3)::before { content: '03'; }
+.hb-vital:nth-child(4)::before { content: '04'; }
+.hb-vital::before {
+  position: absolute;
+  top: 10px;
+  right: 11px;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  color: var(--hb-faint);
+  font-variant-numeric: tabular-nums;
+}
+.hb-vital-label {
+  font-size: 9.5px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.3em;
+  color: var(--hb-muted);
+}
+.hb-vital-val {
+  font-size: 24px;
+  font-weight: 600;
+  letter-spacing: -0.04em;
+  line-height: 1.05;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+/* the numeral + unit: the unit is an exponent tag, not prose */
+.hb-vital-val i {
+  font-style: normal;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--hb-muted);
+  margin-left: 2px;
+}
+/* Fixed-height viz slot keeps every value on the same baseline across tiles.
+   Each encoding starts below the same 1px divider, so the four slots read as
+   one instrument panel: height 24px = 7px divider shelf + 16px content bed. */
+.hb-vital-viz {
+  display: flex;
+  align-items: flex-end;
+  height: 24px;
+  margin-top: 5px;
+  padding-top: 7px;
+  border-top: 1px solid var(--hb-line-soft);
+}
+.hb-vital-viz > * {
+  width: 100%;
+}
+.hb-vital-foot {
+  margin-top: 5px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: var(--hb-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.hb-vital-foot--over {
+  color: var(--hb-red);
+}
+.hb-vital-state {
+  align-self: flex-end;
+  margin-left: auto;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--hb-faint);
+}
+
+/* Sleep sparkline: sharp 1px bars (engineered tick marks) on the tile's own
+   top rule; the 8h target is the hairline behind them. */
+.hb-spark {
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+  height: 16px;
+}
+.hb-spark-bar {
+  flex: 1;
+  min-width: 2px;
+  background: var(--hb-accent);
+  border-radius: 1px 1px 0 0;
+  transition: background-color 0.12s ease;
+}
+.hb-spark-bar:hover {
+  background: var(--hb-ink);
+}
+.hb-spark-bar--today {
+  background: var(--hb-ink);
+}
+.hb-spark-ref {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: var(--hb-faint);
+  z-index: 0;
+  opacity: 0.8;
+}
+
+/* Ratio rules: a sharp 2px measured line. Track is a step lighter than the
+   surface so an empty rule is visible; the accent fill is the share. Over
+   budget swaps in the reserved status red — and the words say it too. */
+.hb-receipt-rule {
+  position: relative;
+  height: 2px;
+  margin-top: 7px;
+  border-radius: 0;
+  background: #29292f;
+}
+.hb-receipt-rule i {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  background: var(--hb-accent);
+}
+.hb-receipt-rule--over i {
+  background: var(--hb-red);
+}
+.hb-receipt-rule--over i {
+  background: var(--hb-red);
+}
+
+/* ---- Vitals section container keeps the index grid airy ---- */
+/* ---- Spend split: donut + value list as a printed table ---- */
+.hb-block > .spend-donut {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding: 14px 14px 12px;
+  border: 1px solid var(--hb-line);
+  border-radius: 8px;
+  background: var(--hb-raised);
+}
+/* Donut arcs keep their categorical hues; the ring is slightly opened up by
+   making the mid label recessive ink. */
+.hb-screen .spend-donut-ring {
+  width: 120px;
+  height: 120px;
+  flex: none;
+}
+.hb-screen .spend-donut-mid b {
+  font-size: 21px;
+  font-weight: 650;
+  letter-spacing: -0.03em;
+  color: var(--hb-ink);
+}
+.hb-screen .spend-donut-mid span {
+  font-size: 9px;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: var(--hb-faint);
+  padding-top: 3px;
+}
+.hb-screen .spend-donut-key {
+  flex: 1 1 130px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+}
+.hb-screen .spend-donut-key li {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--hb-line-soft);
+  font-size: 12px;
+}
+.hb-screen .spend-donut-key li:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+.hb-screen .spend-swatch {
+  width: 7px;
+  height: 7px;
+  align-self: center;
+  border-radius: 0;
+  flex: none;
+}
+.hb-screen .spend-donut-key-name {
+  flex: 1;
+  min-width: 0;
+  font-weight: 500;
+  color: var(--hb-ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.hb-screen .spend-donut-key-val {
+  font-size: 12px;
+  font-weight: 650;
+  color: var(--hb-ink);
+  font-variant-numeric: tabular-nums;
+}
+.hb-screen .spend-donut-key-pct {
+  min-width: 32px;
+  text-align: right;
+  font-size: 11px;
+  color: var(--hb-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- Bottom dock: the launcher as an index row ---- */
+.hb-dock {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+  margin-top: 14px;
+  padding: 14px 2px 2px;
+  border-top: 1px solid var(--hb-line);
+}
+.hb-dock-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 9px;
+  padding: 3px 2px;
+  background: none;
+  border: 0;
+  text-decoration: none;
+  color: var(--hb-ink);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.hb-dock-icon {
+  display: grid;
+  place-items: center;
+  width: 46px;
+  height: 46px;
+  border-radius: 10px;
+  background: var(--hb-raised);
+  color: var(--hb-ink);
+  border: 1px solid var(--hb-line);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.05);
+  transition: border-color 0.12s ease, color 0.12s ease, transform 0.12s ease, background-color 0.12s ease;
+}
+.hb-dock-icon svg {
+  width: 21px;
+  height: 21px;
+  stroke-width: 1.6;
+}
+.hb-dock-btn:hover .hb-dock-icon {
+  border-color: var(--hb-accent);
+  color: var(--hb-accent);
+  background: color-mix(in srgb, var(--hb-accent) 8%, var(--hb-raised));
+}
+.hb-dock-btn:active .hb-dock-icon {
+  transform: scale(0.9);
+}
+.hb-dock-btn:nth-child(2) .hb-dock-icon {
+  /* Primary launcher — the brief — gets the single filled accent square. */
+  background: var(--hb-accent);
+  border-color: var(--hb-accent);
+  color: var(--hb-accent-fg);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.16);
+}

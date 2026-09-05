@@ -230,7 +230,7 @@ export function pickHomeQueue(s: HomeSlice, now = new Date()): NextItem[] {
             hint: who.context || quiet,
             hot: true,
             action: 'person',
-            doLabel: 'Talked',
+            doLabel: 'Already talked',
             personId: who.id,
             sms: smsTo(who.phone, `Hey ${who.name.split(' ')[0]} — ${who.context || 'been a minute, how are you'}`),
           }
