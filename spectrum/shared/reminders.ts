@@ -470,11 +470,11 @@ export function startReminderScheduler(opts: {
                     : briefTime === 'morning'
                 const sleepMissing = morning && meta?.sleepLogged === false
                 if (sleepMissing) {
-                  // No sleep logged: ask first, never pretend hours exist. The
-                  // card is still delivered (its lead is the same ask, no fake
-                  // sleep number). Preview is skipped so the ask never doubles.
-                  text =
-                    "Morning brief is ready, open the card when you get a sec. I didn't see your sleep last night. How many hours did you get?"
+                  // Sleep is asked inside the card, never in the text — the
+                  // text stays a plain "brief's ready" so it reads like a
+                  // person, not a survey. The card's lead already prompts the
+                  // sleep log (no fake hours).
+                  text = morningReadyLine(true)
                 } else if (morning && preview) {
                   // Real preview content rides under the warm line for the
                   // morning digest. The evening wrap is skipped: its card opens
