@@ -16,6 +16,7 @@ feature, and the constraints at the bottom are non‑negotiables.
   guidance, built on the five-layer launch system (honesty-filtered)
 - `07-week1-publish-copy.md` — Days 1–7 fully written, publish-ready posts
   + reply playbook (fill the [REAL: …] slots from your actual life)
+  30-sec / 2-min spoken answers, the killer question, lines not to say
 
 ## Before you post anywhere — 30-minute setup
 

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState, type CSSProperties } from 'react'
 import { Link, Navigate, useParams, useSearchParams } from 'react-router-dom'
 import { AlphaFace, type AlphaFaceMood } from '../AlphaFace'
-import { getAgent } from '../agents'
+import { AGENTS, getAgent } from '../agents'
 import type { AgentId } from '../agents/types'
 import { getSession } from './roster'
 import { APP_ALIASES, KIND_TITLES } from './miniAppCatalog'
@@ -186,10 +186,16 @@ const FRIEND_KIND_TITLES: Record<string, { title: string; blurb: string }> = {
 
 
 export function MiniAppPage() {
-  const { persona, kind } = useParams()
+  const params = useParams()
+  /* Only real hires exist. Anything else in the URL (stale link, hand-typed,
+   * old "feature" persona from an earlier shell) falls back to friend here so
+   * the apps grid and every link it builds stay on valid personas; the server
+   * rejects unknown personas with a 400. */
+  const persona = (AGENTS.some((a) => a.id === params.persona) ? params.persona : 'friend') as AgentId
+  const kind = params.kind
   const [searchParams] = useSearchParams()
   const token = searchParams.get('t') || ''
-  const agent = getAgent((persona as AgentId) || 'friend')
+  const agent = getAgent(persona)
   const kindInfo =
     (persona === 'friend' ? FRIEND_KIND_TITLES[kind || ''] : undefined) ??
     KIND_TITLES[kind || ''] ?? {

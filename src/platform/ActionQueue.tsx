@@ -48,7 +48,7 @@ export function ActionButtons({
       )}
       {item.sms && (
         <a className={btnClass} href={item.sms}>
-          {item.doLabel || 'Text'}
+          Text
         </a>
       )}
       {!item.sms && !item.messageId && href && item.action === 'open' && (
