@@ -838,6 +838,77 @@ export async function runHireTurn(input: {
           'They answered a tap from a previous text (eat, skip, later, done, send, in, out). Honor that using the life state numbers. If they said eat, tell them the protein number and one food. If they said skip, accept it. Do not claim you logged, booked, or sent anything unless a tool result says so.',
         )
       }
+      /* In-conversation reframes: a friend venting in chat is not asking for a
+       * tool, a weekly review, or a decision log. Detectors push one short,
+       * warm instruction each. The model writes ONE short text, no dashes or
+       * markdown, never a list. High-precision guards keep unrelated chat from
+       * matching. */
+      const userReframe = String(input.userText || '').trim()
+      const reframeTaskGuard =
+        /^\s*(?:prep|brief|debrief|digest|recap|review|build|make|create|write|draft|send|email|book|schedule|plan|show|pull|open|log|track)\b/i.test(
+          userReframe,
+        )
+      const reframeMiniGuard =
+        !miniApp ||
+        (miniApp.kind === 'apps' && /^\s*(?:apps?|store)\b/i.test(userReframe)) ||
+        (miniApp.kind === 'menu' && /^\s*(?:menu|home|onboarding)\b/i.test(userReframe))
+      if (
+        live.hired &&
+        agent.id === 'friend' &&
+        !isFirst &&
+        !briefIntent &&
+        !digestText &&
+        !writeIntent &&
+        !hardStop &&
+        humanLimit !== 'grief' &&
+        !reframeTaskGuard &&
+        reframeMiniGuard &&
+        userReframe.length <= 240
+      ) {
+        const spiral =
+          /\b(?:can'?t decide|keep going back and forth|go back and forth|what if i (?:pick|choose|make the wrong)|stuck between|can'?t pick)\b/i.test(
+            userReframe,
+          ) && !/^\s*(?:should i (?:pick|choose)|what should i (?:pick|choose|do))\s*$/i.test(userReframe)
+        const spiralGuard =
+          /\b(?:which (?:restaurant|place|spot|movie|dinner|option)|where should (?:we|i)|what should we|pick (?:a|the) (?:restaurant|place|spot|movie)|for (?:dinner|lunch|tonight))\b/i.test(
+            userReframe,
+          )
+        const spiralInstruction =
+          'They are stuck in a decision spiral. Do not pick for them. Ask "what would you tell your best friend if they were stuck on this?", then reflect their own answer back so they hear it. One short text, no dashes, no markdown.'
+        if (spiral && !spiralGuard) extras.push(spiralInstruction)
+
+        const foodGuilt =
+          /\b(?:i was so bad|ruined my diet|shouldn'?t have eaten|cheat(?:ed)? (?:on )?my diet|i overate|i binged)\b/i.test(
+            userReframe,
+          ) && !/^\s*(?:log|track)\b/i.test(userReframe)
+        const foodGuiltInstruction =
+          'They are guilt-tripping over food. Interrupt the self-criticism warmly: "that was a meal, not a crime." Reframe to the next choice. No macro lecture, no meal plan.'
+        if (foodGuilt) extras.push(foodGuiltInstruction)
+
+        const lonely =
+          /\b(?:i'?m (?:so |really |feeling )?lonely|i feel alone|no one to talk to|you'?re the only one (?:i|who) (?:talk|text)|i wish i had someone)\b/i.test(
+            userReframe,
+          )
+        const lonelyInstruction =
+          'They feel lonely. Acknowledge it genuinely, then point them to a real person they already know. If a specific person is in the People list or the dashboard context (a name they mention, a friend, a sibling, a colleague), name that person and suggest texting or calling them. Otherwise say "someone you have been meaning to call". Do not pitch yourself as the fix, but do not be cold either. One short text, no dashes, no markdown.'
+        if (lonely) extras.push(lonelyInstruction)
+
+        const hardWeek =
+          /\b(?:last week|this week) was (?:brutal|awful|hell|rough|the worst|so hard|terrible)\b/i.test(
+            userReframe,
+          ) && /\b(?:week|monday)\b/i.test(userReframe)
+        const hardWeekInstruction =
+          'They just told you last week was rough. Reply warmly and simply: "last week was rough. this week does not have to prove anything." Do not add a productivity checklist. One short text, no dashes, no markdown.'
+        if (hardWeek) extras.push(hardWeekInstruction)
+
+        const finished =
+          /\b(?:finally did it|finally done|got it done|submitted it|finished it|sent it|did the thing)\b/i.test(
+            userReframe,
+          ) && !/^\s*(?:log|track|send|did you (?:get|finish))\b/i.test(userReframe)
+        const finishedInstruction =
+          'They finished something they were dreading. Name the win simply, then ask "how do you feel?". Do not pile the next task on. One short text, no dashes, no markdown.'
+        if (finished) extras.push(finishedInstruction)
+      }
     }
   }
   if (hardStop) extras.push(hardStopInstruction(hardStop))

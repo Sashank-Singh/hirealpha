@@ -2577,9 +2577,10 @@ function salvageMacros(text: string): { calories: number; protein: number; carbs
 
 /**
  * Estimate calories/protein/carbs/fat for a meal. Uses the same GMI setup as
- * the bots — a vision model (MiniMax M3) for photos, the standard GMI model
- * for text descriptions. Returns needsKey=true when no GMI key is configured
- * so the UI can fall back to manual/description entry.
+ * the bots — a vision model (deepseek-v4-flash-exp, or NUTRITION_VISION_MODEL)
+ * for photos, the standard GMI model for text descriptions. Returns
+ * needsKey=true when no GMI key is configured so the UI can fall back to
+ * manual/description entry.
  */
 async function estimateNutrition(
   description: string,

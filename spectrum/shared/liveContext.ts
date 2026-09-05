@@ -496,7 +496,7 @@ export async function handleInboundPhoto(
       return `Logged your meal from the photo: ${logged.calories} cal, ${logged.protein || 0}g protein. Want me to note what it was?`
     }
     if (logged.needsKey) {
-      return 'Got it, that meal is saved. Add a GMI key in settings and I can estimate macros from photos.'
+      return 'Got it, that meal is saved. Set the vision model key in settings and I can estimate macros from photos.'
     }
     return 'Logged that meal from the photo. It\'s in your Nutrition log.'
   } catch (err) {
