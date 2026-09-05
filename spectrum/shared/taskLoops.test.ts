@@ -1,13 +1,18 @@
 import { describe, expect, it } from 'bun:test'
 import {
   LOOP_HANDLERS,
+  buildBillIncreaseText,
   buildFlightCheckinTexts,
   buildRefundText,
+  buildTrialEndingText,
   buildWakeupText,
+  flightCrossesTimezones,
+  flightLandingRetimeNote,
   isKillSwitchArmed,
   runLoopTask,
   scanRefundCandidates,
   startTaskLoopPoller,
+  trialEndWeekday,
   type LoopHandlerResult,
   type LoopTask,
 } from './taskLoops'
@@ -61,6 +66,145 @@ describe('flight check in texts', () => {
     }))
     expect(late.outcome).toBe('done')
     expect(late.text).toContain('Check in now')
+  })
+})
+
+describe('flight landing re-time note', () => {
+  it('mentions re-timing briefs to the destination zone on a cross-zone flight', () => {
+    const out = buildFlightCheckinTexts(
+      {
+        airline: 'United',
+        flight: 'UA 220',
+        date: '2026-08-20T18:00:00Z',
+        home_tz: 'America/Los_Angeles',
+        destination: 'Tokyo',
+        destination_tz: 'Asia/Tokyo',
+      },
+      NOW,
+    )
+    expect(out.checkin).toContain('Check in now')
+    expect(out.checkin).toContain('After you land, I will move briefs and reminders to Tokyo time.')
+    expect(flightCrossesTimezones(
+      { home_tz: 'America/Los_Angeles', destination_tz: 'Asia/Tokyo' },
+      NOW,
+    )).toBe(true)
+  })
+
+  it('stays silent when destination matches home time', () => {
+    const out = buildFlightCheckinTexts(
+      {
+        airline: 'United',
+        date: '2026-08-20T18:00:00Z',
+        home_tz: 'America/New_York',
+        destination: 'New York',
+        destination_tz: 'America/New_York',
+      },
+      NOW,
+    )
+    expect(out.checkin).toBe('Check in now on the United site, the window is open.')
+    expect(flightLandingRetimeNote(
+      { home_tz: 'America/New_York', destination_tz: 'America/New_York' },
+      NOW,
+    )).toBe('')
+  })
+
+  it('appends the retime note after a confirmation URL with a clean break', () => {
+    const out = buildFlightCheckinTexts(
+      {
+        airline: 'United',
+        date: '2026-08-20T18:00:00Z',
+        confirmation_url: 'https://united.example/checkin',
+        home_tz: 'America/Los_Angeles',
+        destination: 'London',
+        destination_tz: 'Europe/London',
+      },
+      NOW,
+    )
+    expect(out.checkin).toContain('Check in now: https://united.example/checkin')
+    expect(out.checkin).toContain('. After you land, I will move briefs and reminders to London time.')
+  })
+
+  it('resolves a destination from a known city when only the city is supplied', () => {
+    const note = flightLandingRetimeNote(
+      { home_tz: 'America/Los_Angeles', destination: 'Tokyo' },
+      NOW,
+    )
+    expect(note).toBe('After you land, I will move briefs and reminders to Tokyo time.')
+  })
+
+  it('no-ops when the zone cannot be resolved', () => {
+    expect(flightLandingRetimeNote({ home_tz: 'America/Los_Angeles', destination: 'Mars' }, NOW)).toBe('')
+    expect(buildFlightCheckinTexts({ airline: 'Delta', date: '2026-08-20T18:00:00Z' }, NOW).checkin).toBe(
+      'Check in now on the Delta site, the window is open.',
+    )
+  })
+})
+
+describe('trial ending', () => {
+  it('names the weekday and asks to keep or cancel, no dashes', () => {
+    // 2026-08-21 is a Friday (UTC). America/Los_Angeles is 7h behind UTC.
+    const payload = {
+      trial_end: '2026-08-21T23:59:00.000Z',
+      tier: 'Alpha',
+      tz: 'America/Los_Angeles',
+    }
+    expect(trialEndWeekday(payload)).toBe('Friday')
+    const text = buildTrialEndingText(payload)
+    expect(text).toBe('Your Alpha trial ends Friday. Keep it or cancel?')
+    expect(text).not.toMatch(/[-\u2013\u2014]/)
+  })
+
+  it('falls back to a friendly weekday without a tier or zone', () => {
+    const text = buildTrialEndingText({ trial_end: '2026-08-22T00:00:00.000Z' })
+    expect(text).toContain('Your trial ends')
+    expect(buildTrialEndingText({})).toBe('')
+  })
+
+  it('handler sends once and marks done', async () => {
+    const out = await LOOP_HANDLERS.trial_ending!(makeTask({
+      kind: 'trial_ending',
+      payload: { trial_end: '2026-08-21T12:00:00.000Z', tier: 'Alpha' },
+    }))
+    expect(out.outcome).toBe('done')
+    expect(out.text).toContain('trial ends')
+    const missing = await LOOP_HANDLERS.trial_ending!(makeTask({ kind: 'trial_ending', payload: {} }))
+    expect(missing.outcome).toBe('failed')
+  })
+})
+
+describe('bill increase', () => {
+  it('builds the negotiation text for a single real increase', () => {
+    const text = buildBillIncreaseText([{ merchant: 'your internet bill', from: 60, to: 68, period: 'month' }])
+    expect(text).toBe('your internet bill went up from $60 to $68. Want me to draft the negotiation?')
+    expect(text).not.toMatch(/[-\u2013\u2014]/)
+  })
+
+  it('counts several bills and skips empty input', () => {
+    const text = buildBillIncreaseText([
+      { merchant: 'Netflix', to: 18 },
+      { merchant: 'Verizon', to: 82 },
+    ])
+    expect(text).toContain('2 recurring bills went up')
+    expect(buildBillIncreaseText([])).toBe('')
+  })
+
+  it('handler no-ops with a console note when no price-change data source is wired', async () => {
+    const out = (await LOOP_HANDLERS.bill_increase!(makeTask({
+      kind: 'bill_increase',
+      payload: {},
+    }))) as LoopHandlerResult
+    expect(out.text).toBeUndefined()
+    expect(out.outcome).toBe('done')
+    expect(out.note).toContain('not wired')
+  })
+
+  it('handler sends when a wired source supplies increases', async () => {
+    const out = await LOOP_HANDLERS.bill_increase!(makeTask({
+      kind: 'bill_increase',
+      payload: { increases: [{ merchant: 'Comcast', from: 70, to: 78 }] },
+    }))
+    expect(out.outcome).toBe('done')
+    expect(out.text).toContain('Comcast went up')
   })
 })
 

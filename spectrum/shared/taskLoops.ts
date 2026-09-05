@@ -142,12 +142,96 @@ export interface FlightPayload {
   date?: string
   checkin_at?: string
   confirmation_url?: string
+  /** The person's home IANA timezone; used to detect a cross-zone flight. */
+  home_tz?: string
+  /** Destination city or region in plain text (already timezone-resolved by
+   * the caller). Only drives the landing re-time note. */
+  destination?: string
+  /** Destination IANA timezone when known. */
+  destination_tz?: string
 }
 
 export interface FlightCheckinTexts {
   announce: string | null
   checkin: string | null
   windowAt: Date | null
+}
+
+/** Known city/region → IANA zone for the landing re-time note. The carrier
+ * payload normally carries an explicit destination_tz; this map only rescues
+ * flights booked without one. Intentionally short: unresolvable stays null. */
+const DESTINATION_TZ: Record<string, string> = {
+  tokyo: 'Asia/Tokyo', osaka: 'Asia/Tokyo', kyoto: 'Asia/Tokyo',
+  paris: 'Europe/Paris', london: 'Europe/London', barcelona: 'Europe/Madrid',
+  madrid: 'Europe/Madrid', rome: 'Europe/Rome', berlin: 'Europe/Berlin',
+  amsterdam: 'Europe/Amsterdam', dubai: 'Asia/Dubai', singapore: 'Asia/Singapore',
+  nyc: 'America/New_York', 'new york': 'America/New_York',
+  'san francisco': 'America/Los_Angeles', sf: 'America/Los_Angeles',
+  la: 'America/Los_Angeles', 'los angeles': 'America/Los_Angeles',
+  bali: 'Asia/Makassar', sydney: 'Australia/Sydney',
+  'mexico city': 'America/Mexico_City', bangkok: 'Asia/Bangkok',
+  'hong kong': 'Asia/Hong_Kong', seoul: 'Asia/Seoul',
+  honolulu: 'Pacific/Honolulu', maui: 'Pacific/Honolulu',
+}
+
+function isValidZone(tz: string | undefined): tz is string {
+  if (!tz) return false
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: tz }).format()
+    return true
+  } catch {
+    return false
+  }
+}
+
+/** UTC offset in minutes for a zone at an instant; NaN on any failure. */
+function zoneOffsetMinutes(tz: string, at: Date): number {
+  try {
+    const fmt = new Intl.DateTimeFormat('en-US', {
+      timeZone: tz,
+      timeZoneName: 'longOffset',
+    })
+    const name = fmt.formatToParts(at).find((p) => p.type === 'timeZoneName')?.value || ''
+    const m = name.match(/GMT([+-])(\d{2}):(\d{2})/)
+    if (!m) return NaN
+    const sign = m[1] === '-' ? -1 : 1
+    return sign * (Number(m[2]) * 60 + Number(m[3]))
+  } catch {
+    return NaN
+  }
+}
+
+/** Resolve the destination zone from an explicit tz or a known city name. */
+export function resolveDestinationZone(payload: FlightPayload): string | null {
+  if (isValidZone(payload.destination_tz)) return payload.destination_tz
+  const dest = String(payload.destination || '').trim().toLowerCase()
+  if (!dest) return null
+  return DESTINATION_TZ[dest] || null
+}
+
+/** True when the flight lands somewhere that runs on a different clock than
+ * home: both zones resolvable and their offsets differ at the flight date. */
+export function flightCrossesTimezones(payload: FlightPayload, at: Date): boolean {
+  const home = payload.home_tz
+  const dest = resolveDestinationZone(payload)
+  if (!isValidZone(home) || !dest) return false
+  if (home === dest) return false
+  const homeOffset = zoneOffsetMinutes(home, at)
+  const destOffset = zoneOffsetMinutes(dest, at)
+  return Number.isFinite(homeOffset) && Number.isFinite(destOffset) && homeOffset !== destOffset
+}
+
+/** Warm one-liner appended to the check-in text when the trip lands in another
+ * timezone: briefs and pings re-time to destination local time after landing.
+ * Nothing here schedules or reschedules — the scheduler already shifts on the
+ * stored travel_tz; this is the heads-up the person actually sees. */
+export function flightLandingRetimeNote(payload: FlightPayload, at: Date): string {
+  const dest = resolveDestinationZone(payload)
+  if (!flightCrossesTimezones(payload, at) || !dest) return ''
+  // Name the destination clock in plain words, city first.
+  const city = String(payload.destination || '').trim()
+  const place = city || dest.split('/').pop()?.replace(/_/g, ' ') || dest
+  return `After you land, I will move briefs and reminders to ${place} time.`
 }
 
 /** Check in opens 24h before departure unless the payload says otherwise. */
@@ -167,11 +251,17 @@ export function buildFlightCheckinTexts(payload: FlightPayload, now: Date): Flig
       windowAt,
     }
   }
+  const base = payload.confirmation_url
+    ? `Check in now: ${payload.confirmation_url}`
+    : `Check in now on the ${payload.airline || 'airline'} site, the window is open.`
+  const retime = flightLandingRetimeNote(payload, windowAt)
+  let checkin = base
+  if (retime) {
+    checkin = /[.!?]$/.test(base) ? `${base} ${retime}` : `${base}. ${retime}`
+  }
   return {
     announce: null,
-    checkin: payload.confirmation_url
-      ? `Check in now: ${payload.confirmation_url}`
-      : `Check in now on the ${payload.airline || 'airline'} site, the window is open.`,
+    checkin,
     windowAt,
   }
 }
@@ -247,6 +337,111 @@ const refundHunterHandler: LoopHandler = async (task) => {
   return { text: buildRefundText(candidates), outcome: 'done' }
 }
 
+/* ---- Trial ending (backlog #58) ----
+ * The server arms a trial_ending loop for each subscription whose trial is
+ * within the window (see armTrialEndingLoops in deploy/hire-api.ts). Fact
+ * triggered only: the handler never guesses a trial date, it reads
+ * payload.trial_end. One nudge per trial: the arm scan skips rows already
+ * sent (done with a matching marker) so a re-run never double texts. */
+
+export interface TrialEndingPayload {
+  trial_end?: string
+  tier?: string
+  tz?: string
+}
+
+/** Weekday (e.g. "Thursday") the trial ends, in the user's zone when given.
+ * Falls back to the product default zone (America/Los_Angeles) so a missing
+ * tz still yields the true calendar weekday, never a guess. */
+export function trialEndWeekday(payload: TrialEndingPayload): string | null {
+  const end = payload.trial_end ? new Date(payload.trial_end) : null
+  if (!end || Number.isNaN(end.getTime())) return null
+  const zone = payload.tz && isValidZone(payload.tz) ? payload.tz : 'America/Los_Angeles'
+  try {
+    return new Intl.DateTimeFormat('en-US', { weekday: 'long', timeZone: zone }).format(end)
+  } catch {
+    return new Intl.DateTimeFormat('en-US', { weekday: 'long', timeZone: 'America/Los_Angeles' }).format(end)
+  }
+}
+
+export function buildTrialEndingText(payload: TrialEndingPayload): string {
+  const weekday = trialEndWeekday(payload)
+  if (!weekday) return ''
+  const tier = String(payload.tier || '').trim()
+  const what = tier ? `Your ${tier} trial` : 'Your trial'
+  return `${what} ends ${weekday}. Keep it or cancel?`
+}
+
+const trialEndingHandler: LoopHandler = (task) => {
+  const payload = (task.payload || {}) as TrialEndingPayload
+  const text = buildTrialEndingText(payload)
+  if (!text) return { outcome: 'failed', note: 'missing trial_end payload' }
+  const marker = (payload.trial_end || '').slice(0, 10)
+  return { text, outcome: 'done', note: `trial_ending sent ${marker}` }
+}
+
+/* ---- Recurring bill went up (backlog #62) ----
+ * Fact triggered only. There is no recurring-bill price history wired yet
+ * (composio/plaid transactions or a similar source), so this handler never
+ * invents an increase. It consumes a future `increases` payload when a real
+ * data source lands; without one it no-ops with a console note. */
+
+export interface BillIncreaseHit {
+  merchant: string
+  /** Previous charge amount; omitted when only the new price is known. */
+  from?: number
+  to: number
+  period?: string
+}
+
+export function buildBillIncreaseText(hits: BillIncreaseHit[]): string {
+  const n = hits.length
+  if (n === 0) return ''
+  const first = hits[0]!
+  const merchant = String(first.merchant || 'a recurring bill').trim()
+  const delta =
+    first.from != null && Number.isFinite(first.from)
+      ? ` from $${first.from} to $${first.to}`
+      : ` to $${first.to}`
+  return n === 1
+    ? `${merchant} went up${delta}. Want me to draft the negotiation?`
+    : `${n} recurring bills went up, starting with ${merchant}${delta}. Want me to draft the negotiation?`
+}
+
+function parseBillIncreaseHits(raw: unknown): BillIncreaseHit[] {
+  if (!Array.isArray(raw)) return []
+  const hits: BillIncreaseHit[] = []
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue
+    const o = item as Record<string, unknown>
+    const to = Number(o['to'])
+    if (!Number.isFinite(to) || to <= 0) continue
+    const from = o['from'] == null ? undefined : Number(o['from'])
+    hits.push({
+      merchant: String(o['merchant'] || '').trim().slice(0, 60),
+      ...(from != null && Number.isFinite(from) ? { from } : {}),
+      to,
+      period: o['period'] == null ? undefined : String(o['period']).slice(0, 20),
+    })
+  }
+  return hits
+}
+
+const billIncreaseHandler: LoopHandler = (task) => {
+  const hits = parseBillIncreaseHits(task.payload?.increases)
+  if (hits.length > 0) {
+    return {
+      text: buildBillIncreaseText(hits),
+      outcome: 'done',
+      note: `bill_increase ${hits.length} hit${hits.length === 1 ? '' : 's'}`,
+    }
+  }
+  console.warn(
+    `[taskLoops] bill_increase has no recurring-bill price-change data source wired yet, skipping a real text for ${task.phone}`,
+  )
+  return { outcome: 'done', note: 'bill_increase not wired: no price-change data source' }
+}
+
 /* ---- Wake up ---- */
 
 /** Text only for now. Real voice call wake ups come later. */
@@ -272,6 +467,8 @@ const wakeupHandler: LoopHandler = (task) => {
 export const LOOP_HANDLERS: Record<string, LoopHandler> = {
   flight_checkin: flightCheckinHandler,
   refund_hunter: refundHunterHandler,
+  trial_ending: trialEndingHandler,
+  bill_increase: billIncreaseHandler,
   wakeup: wakeupHandler,
 }
 

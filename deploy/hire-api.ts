@@ -509,6 +509,24 @@ export function nextWeeklyUtc(
   return when.toISOString()
 }
 
+/** The next `intervalDays`-out run at `hour`:00 local time in `tz`, as a UTC
+ * ISO string. Used by the cadence loops that fire every N days (the quiet
+ * check runs roughly every three days). */
+export function nextEveryDaysUtc(
+  tz: string | null | undefined,
+  hour: number,
+  intervalDays: number,
+  from = new Date(),
+): string {
+  const zone = loopTimezone(tz)
+  let when = wallTimeToUtc(localWall(zone, from).ymd, hour, 0, zone)
+  if (when.getTime() <= from.getTime()) {
+    const later = localWall(zone, new Date(from.getTime() + intervalDays * 24 * 60 * 60 * 1000)).ymd
+    when = wallTimeToUtc(later, hour, 0, zone)
+  }
+  return when.toISOString()
+}
+
 /** Default loops armed when a phone joins a roster. Deduped per (user, persona,
  * kind), so re-arming the same number never grows the list. */
 export async function seedDefaultLoops(
@@ -532,6 +550,138 @@ export async function seedDefaultLoops(
       ON CONFLICT (user_id, persona, kind) DO NOTHING
     `
   }
+}
+
+/** Friendly tier label for the trial-ending text, from what the checkout
+ * wrote. persona 'all' means a bundle/ultra subscription: price_id picks
+ * Ultra when it matches, otherwise every 'all' row covers all three hires.
+ * A bare friend row is the single hire, which the product calls Alpha. */
+function trialTierLabel(persona: string, priceId: string | null): string {
+  if (persona === 'all') {
+    const ultra = process.env.STRIPE_PRICE_ULTRA?.trim()
+    return ultra && priceId === ultra ? 'Ultra' : 'All three'
+  }
+  if (persona === 'coworker') return 'Coworker'
+  if (persona === 'cofounder') return 'Cofounder'
+  return 'Alpha'
+}
+
+/** Daily arm for backlog #58 (free-trial ending in 2 days). Fact triggered:
+ * only trialing hire_subscriptions whose current_period_end is inside the
+ * window get a trial_ending loop, and only once per trial — an already-sent
+ * (done) loop whose last_result marker matches the trial-end date is skipped,
+ * as are loops still queued (pending/running). Bundle/ultra rows live
+ * under persona 'all', so one loop is armed per roster hire they actually own. */
+export async function armTrialEndingLoops(sql: SQL, windowDays = 2): Promise<number> {
+  const rows = (await sql`
+    SELECT s.user_id AS "userId", s.persona, u.phone_e164 AS phone, u.timezone,
+           s.current_period_end AS "currentPeriodEnd", s.price_id AS "priceId"
+    FROM hire_subscriptions s
+    JOIN hire_users u ON u.id = s.user_id
+    WHERE s.status = 'trialing'
+      AND s.current_period_end IS NOT NULL
+      AND s.current_period_end > now()
+      AND s.current_period_end <= now() + make_interval(days => ${windowDays})
+      AND u.phone_e164 IS NOT NULL
+    ORDER BY s.current_period_end
+  `) as Array<{
+    userId: string
+    persona: string
+    phone: string
+    timezone: string | null
+    currentPeriodEnd: Date
+    priceId: string | null
+  }>
+
+  let armed = 0
+  for (const sub of rows) {
+    const periodEnd = new Date(sub.currentPeriodEnd)
+    if (Number.isNaN(periodEnd.getTime())) continue
+    // A bundle/ultra row owns every hire; arm the touch for each persona on
+    // the roster. Single rows arm only for their own hire.
+    let personas: string[]
+    if (sub.persona === 'all') {
+      const roster = (await sql`
+        SELECT persona FROM hire_roster WHERE user_id = ${sub.userId}
+      `) as Array<{ persona: string }>
+      personas = roster.map((r) => r.persona).filter((p) => isPersona(p))
+      if (!personas.length) personas = ['friend']
+    } else {
+      personas = isPersona(sub.persona) ? [sub.persona] : []
+    }
+    if (!personas.length) continue
+
+    for (const persona of personas) {
+      const existing = (await sql`
+        SELECT status, last_result AS "lastResult", payload
+        FROM hire_task_loops
+        WHERE user_id = ${sub.userId} AND persona = ${persona} AND kind = 'trial_ending'
+        LIMIT 1
+      `) as Array<{ status: string; lastResult: string | null; payload: unknown }>
+      const row = existing[0]
+      const marker = periodEnd.toISOString().slice(0, 10)
+      if (row) {
+        // Still queued or in flight: already armed, do not double arm. If the
+        // trial date shifted (webhook re-sync), refresh the payload so the bot
+        // texts the true end date.
+        if (row.status === 'pending' || row.status === 'running') {
+          const oldEnd = (row.payload as { trial_end?: string } | null)?.trial_end?.slice(0, 10) || ''
+          if (oldEnd && oldEnd !== marker) {
+            await sql`
+              UPDATE hire_task_loops SET payload = ${JSON.stringify({
+                trial_end: periodEnd.toISOString(),
+                tier: trialTierLabel(sub.persona, sub.priceId),
+                tz: sub.timezone || undefined,
+              })}::jsonb, updated_at = now()
+              WHERE id = (SELECT id FROM hire_task_loops
+                WHERE user_id = ${sub.userId} AND persona = ${persona} AND kind = 'trial_ending' LIMIT 1)
+            `
+          }
+          continue
+        }
+        // Already sent for this exact trial end (marker lives in last_result),
+        // or permanently parked: never text the same trial twice.
+        const sentFor = row.lastResult?.includes(marker)
+        if (row.status === 'done' && sentFor) continue
+        if (row.status === 'failed' || row.status === 'paused') continue
+        // A done loop from an older trial, or an aborted one: re-arm for the
+        // new trial cycle.
+        await sql`
+          UPDATE hire_task_loops SET
+            title = 'Free trial ends in two days',
+            payload = ${JSON.stringify({
+              trial_end: periodEnd.toISOString(),
+              tier: trialTierLabel(sub.persona, sub.priceId),
+              tz: sub.timezone || undefined,
+            })}::jsonb,
+            status = 'pending',
+            attempts = 0,
+            last_result = NULL,
+            next_run = now(),
+            updated_at = now()
+          WHERE id = (SELECT id FROM hire_task_loops
+            WHERE user_id = ${sub.userId} AND persona = ${persona} AND kind = 'trial_ending' LIMIT 1)
+        `
+        armed++
+        continue
+      }
+      await sql`
+        INSERT INTO hire_task_loops (id, user_id, persona, phone_e164, kind, title, payload, status, next_run)
+        VALUES (${crypto.randomUUID()}, ${sub.userId}, ${persona}, ${sub.phone}, 'trial_ending',
+          'Free trial ends in two days',
+          ${JSON.stringify({
+            trial_end: periodEnd.toISOString(),
+            tier: trialTierLabel(sub.persona, sub.priceId),
+            tz: sub.timezone || undefined,
+          })}::jsonb,
+          'pending', now())
+        ON CONFLICT (user_id, persona, kind) DO NOTHING
+      `
+      armed++
+    }
+  }
+  if (armed) console.log(`[billing] trial_ending armed: ${armed} loop${armed === 1 ? '' : 's'}`)
+  return armed
 }
 
 /** Day 1 check-in: one day after the first text lands, the same hire follows
@@ -1622,6 +1772,10 @@ export async function ensureHireSchema(sql: SQL) {
   await sql`ALTER TABLE hire_network ADD COLUMN IF NOT EXISTS phone TEXT NOT NULL DEFAULT ''`
   await sql`ALTER TABLE hire_network ADD COLUMN IF NOT EXISTS email TEXT NOT NULL DEFAULT ''`
   await sql`ALTER TABLE hire_network ADD COLUMN IF NOT EXISTS company TEXT NOT NULL DEFAULT ''`
+  // Backlog #33: a person's birthday (YYYY-MM-DD) arms the friend hire's
+  // yearly birthday touch. Nullable on purpose: most contacts have no date
+  // on file, and the reminder only ever fires off a real stored value.
+  await sql`ALTER TABLE hire_network ADD COLUMN IF NOT EXISTS birthday DATE`
 
   /* One people list, not two. The Relationship Radar used to keep its own
    * table so the mini app and the CRM could disagree about the same person —

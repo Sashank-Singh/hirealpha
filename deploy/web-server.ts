@@ -599,10 +599,15 @@ await loadManifest()
 
 // Daily promo upgrade check: upgrade $5/mo → $19/mo after 60 days
 if (sql) {
-  const { upgradePromoSubscriptions, prewarmJudgeCaches } = await import('./hire-api')
+  const { upgradePromoSubscriptions, armTrialEndingLoops, prewarmJudgeCaches } = await import('./hire-api')
   setInterval(() => upgradePromoSubscriptions(sql!), 24 * 60 * 60 * 1000)
   // Run once on boot to catch any overdue upgrades
   upgradePromoSubscriptions(sql).catch((e) => console.error('[billing] initial promo check failed', e))
+  // Daily trial-ending arm: any subscription whose free trial is inside the
+  // 2-day window gets a trial_ending task loop for each hire it covers. Runs
+  // on the same daily cadence as the promo upgrade check.
+  setInterval(() => armTrialEndingLoops(sql!).catch((e) => console.error('[billing] trial_ending arm failed', e)), 24 * 60 * 60 * 1000)
+  armTrialEndingLoops(sql).catch((e) => console.error('[billing] initial trial_ending arm failed', e))
   // Judgment prewarm: every 15 minutes re-judge mail + meetings for recently
   // active users so opening a brief is a cache hit, never a model call.
   setInterval(() => prewarmJudgeCaches(sql!), 15 * 60 * 1000)

@@ -1,6 +1,7 @@
 import {afterAll, afterEach, beforeEach, describe, expect, it} from 'bun:test'
 import {
   TASK_LOOP_MAX_ATTEMPTS,
+  armTrialEndingLoops,
   claimDueLoops,
   ensurePhoneUser,
   finishTaskLoop,
@@ -86,6 +87,66 @@ describe('ensurePhoneUser arms seeded loops', () => {
     const seeds = queries.filter((q) => q.text.includes('INSERT INTO hire_task_loops'))
     expect(seeds.length).toBe(3)
     expect(seeds.every((q) => q.values.includes('u-new') && q.values.includes('coworker'))).toBe(true)
+  })
+})
+
+describe('armTrialEndingLoops', () => {
+  it('arms one trial_ending loop per roster hire for subscriptions inside the window', async () => {
+    const rowsFor = (text: string): unknown[] => {
+      if (/FROM hire_subscriptions s/.test(text)) {
+        return [
+          {
+            userId: 'u1',
+            persona: 'all',
+            phone: '+14155551212',
+            timezone: 'America/New_York',
+            currentPeriodEnd: new Date(Date.now() + 24 * 60 * 60 * 1000),
+            priceId: 'price_bundle',
+          },
+        ]
+      }
+      if (/SELECT persona FROM hire_roster/.test(text)) {
+        return [{ persona: 'friend' }, { persona: 'coworker' }]
+      }
+      return []
+    }
+    const { sql, queries } = fakeSql(rowsFor)
+    const n = await armTrialEndingLoops(sql)
+    expect(n).toBe(2)
+    const inserts = queries.filter((q) => q.text.includes('INSERT INTO hire_task_loops'))
+    expect(inserts.length).toBe(2)
+    expect(inserts[0]!.values).toContain('friend')
+    expect(inserts[1]!.values).toContain('coworker')
+    const payloads = inserts.map((q) => JSON.parse(String(q.values.find((v) => String(v).startsWith('{')))))
+    expect(payloads[0]!.trial_end).toContain('T')
+    expect(payloads[0]!.tier).toBe('All three')
+    expect(payloads[0]!.tz).toBe('America/New_York')
+  })
+
+  it('skips subscriptions that already have a done trial_ending loop for that trial date', async () => {
+    const marker = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+    const rowsFor = (text: string): unknown[] => {
+      if (/FROM hire_subscriptions s/.test(text)) {
+        return [
+          {
+            userId: 'u1',
+            persona: 'friend',
+            phone: '+14155551212',
+            timezone: 'America/New_York',
+            currentPeriodEnd: new Date(Date.now() + 24 * 60 * 60 * 1000),
+            priceId: 'price_friend',
+          },
+        ]
+      }
+      if (/kind = 'trial_ending'/.test(text)) {
+        return [{ status: 'done', lastResult: `trial_ending sent ${marker}`, payload: { trial_end: `${marker}T12:00:00.000Z` } }]
+      }
+      return []
+    }
+    const { sql, queries } = fakeSql(rowsFor)
+    const n = await armTrialEndingLoops(sql)
+    expect(n).toBe(0)
+    expect(queries.some((q) => q.text.includes('INSERT INTO hire_task_loops'))).toBe(false)
   })
 })
 

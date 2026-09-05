@@ -4,6 +4,7 @@ import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { defaultReplyCard, getAgent, runHireTurn, runMemoryMaintenance, sanitizeOutbound } from '../../shared/runHireTurn'
 import { extractMessageText, fetchLiveProfile, handleInboundPhoto } from '../../shared/liveContext'
+import { mintMiniAppCard } from '../../shared/miniApps'
 import { claimInbound } from '../../shared/inboundGuard'
 import { startReminderScheduler } from '../../shared/reminders'
 import { startTaskLoopPoller } from '../../shared/taskLoops'
@@ -284,7 +285,18 @@ for await (const [space, message] of app.messages) {
       }
       if (photoReply) {
         const cleaned = sanitizeOutbound(photoReply)
-        if (cleaned) await message.reply(cleaned)
+        if (cleaned) {
+          await message.reply(cleaned)
+          /* A photo log has a natural destination: the Nutrition app. Send its
+           * card so the tap-through goes straight to the log instead of a
+           * general menu the user has to search. Only on photo-log replies. */
+          try {
+            const card = await mintMiniAppCard(senderId, agentId, 'nutrition')
+            if (card) await sendCardSafe(space, card.url, card.live)
+          } catch (err) {
+            console.warn(`[${agent.id}] nutrition card after photo log failed`, err)
+          }
+        }
       }
     } catch (err) {
       console.warn(`[${agent.id}] photo handling failed`, err)
