@@ -600,7 +600,7 @@ await loadManifest()
 // Daily promo upgrade check: upgrade $5/mo → $19/mo after 60 days
 if (sql) {
   const { upgradePromoSubscriptions, armTrialEndingLoops, prewarmJudgeCaches,
-    armBirthdayReminders, armStreakEndedLoops, armOverworkCheckLoops, armQuietCheckLoops } = await import('./hire-api')
+    armBirthdayReminders, armStreakEndedLoops, armOverworkCheckLoops, armQuietCheckLoops, armSaveContactLoops, armInboxWatchtower } = await import('./hire-api')
   setInterval(() => upgradePromoSubscriptions(sql!), 24 * 60 * 60 * 1000)
   // Run once on boot to catch any overdue upgrades
   upgradePromoSubscriptions(sql).catch((e) => console.error('[billing] initial promo check failed', e))
@@ -626,6 +626,15 @@ if (sql) {
   armOverworkCheckLoops(sql).catch((e) => console.error('[loops] initial overwork_check arm failed', e))
   setInterval(() => armQuietCheckLoops(sql!).catch((e) => console.error('[loops] quiet_check arm failed', e)), sixHours)
   armQuietCheckLoops(sql).catch((e) => console.error('[loops] initial quiet_check arm failed', e))
+  // Save-contact backfill: anyone whose intro already went out before the
+  // save_contact loop existed gets the nudge once. Idempotent (unique index).
+  setInterval(() => armSaveContactLoops(sql!).catch((e) => console.error('[loops] save_contact arm failed', e)), 24 * 60 * 60 * 1000)
+  armSaveContactLoops(sql).catch((e) => console.error('[loops] initial save_contact arm failed', e))
+  // Inbox watchtower: every 30 min scan Gmail-connected actives for new
+  // high-signal mail. Zero model cost when nothing urgent is waiting.
+  const halfHour = 30 * 60 * 1000
+  setInterval(() => armInboxWatchtower(sql!).catch((e) => console.error('[loops] watchtower arm failed', e)), halfHour)
+  armInboxWatchtower(sql).catch((e) => console.error('[loops] initial watchtower arm failed', e))
 }
 
 Bun.serve({

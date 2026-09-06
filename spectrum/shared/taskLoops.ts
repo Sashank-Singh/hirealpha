@@ -562,6 +562,53 @@ const quietCheckHandler: LoopHandler = (task) => {
   return { text: buildQuietCheckText(), outcome: 'done', note }
 }
 
+/* ---- Save-contact nudge ----
+ * The server arms one of these per (user, persona) after the intro lands.
+ * Bots that override it (friend) send the native card + .vcf; everyone else
+ * sends the plain-text nudge so the task never fails with "no handler". */
+
+export function buildSaveContactText(): string {
+  return "If you haven't saved my number yet, add it to your contacts so I always reach you."
+}
+
+const saveContactHandler: LoopHandler = () => {
+  return { text: buildSaveContactText(), outcome: 'done', note: 'save_contact' }
+}
+
+/* ---- Day-1 check-in ----
+ * Enqueued by scheduleDay1Checkin 24h after a successful intro. Previously no
+ * bot registered this kind, so every one failed with "no handler". */
+
+export function buildDay1CheckinText(): string {
+  return "Day one check-in: how are we doing so far? Anything you want me to start tracking for you?"
+}
+
+const day1CheckinHandler: LoopHandler = () => {
+  return { text: buildDay1CheckinText(), outcome: 'done', note: 'day1_checkin' }
+}
+
+/* ---- Inbox ping (watchtower) ----
+ * Payload carries the single confirmed hit: { mailId, from, subject, why }.
+ * Empty payload resolves done with no send so the server never re-claims. */
+
+export function buildInboxPingText(p: { from: string; subject: string; why: string }): string {
+  const who = String(p.from || '').trim() || 'Someone'
+  const subj = String(p.subject || '').trim()
+  const why = String(p.why || '').trim()
+  return `Heads up — ${who}${subj ? `: "${subj}"` : ''}${why ? `. ${why}.` : '.'}`
+}
+
+const inboxPingHandler: LoopHandler = (task) => {
+  const p = (task.payload || {}) as { mailId?: unknown; from?: unknown; subject?: unknown; why?: unknown }
+  const mailId = String(p.mailId || '').trim()
+  if (!mailId) return { outcome: 'done', note: 'inbox_ping empty' }
+  return {
+    text: buildInboxPingText({ from: String(p.from || ''), subject: String(p.subject || ''), why: String(p.why || '') }),
+    outcome: 'done',
+    note: `inbox_ping ${mailId}`,
+  }
+}
+
 /* ---- Registry ---- */
 
 export const LOOP_HANDLERS: Record<string, LoopHandler> = {
@@ -574,6 +621,9 @@ export const LOOP_HANDLERS: Record<string, LoopHandler> = {
   streak_ended: streakEndedHandler,
   overwork_check: overworkCheckHandler,
   quiet_check: quietCheckHandler,
+  save_contact: saveContactHandler,
+  day1_checkin: day1CheckinHandler,
+  inbox_ping: inboxPingHandler,
 }
 
 /**

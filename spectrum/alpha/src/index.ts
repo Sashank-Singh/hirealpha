@@ -88,32 +88,32 @@ async function respondWithRetry(
   }
 }
 
-/** Send Alpha's .vcf as a real file attachment so iOS shows "Add Contact".
- * Uses the user's assigned line when it can be resolved, else Alpha's own. */
+/** Send Alpha's contact as a real .vcf attachment so iOS shows a tappable
+ * contact card. Builds the vCard locally (no HTTP round-trip) so it can't
+ * fail because the API URL is unreachable from this host; resolves the
+ * user's assigned line best-effort, falling back to Alpha's primary line. */
 async function sendContactVcf(
   space: { send: (content: unknown) => Promise<unknown> },
   phone: string,
 ): Promise<void> {
   const base = (process.env.HIREALPHA_API_URL || 'https://hirealpha.chat').replace(/\/$/, '')
-  let vcfUrl = `${base}/api/contact/alpha.vcf`
+  let tel = '+14155951440'
   try {
     const res = await fetch(`${base}/api/assigned-phone?phone=${encodeURIComponent(phone)}`, {
       headers: { Authorization: `Bearer ${process.env.HIREALPHA_INTERNAL_KEY || ''}` },
     })
     const body = res.ok ? ((await res.json()) as { assignedPhone?: string | null }) : null
-    if (body?.assignedPhone) vcfUrl += `?phone=${encodeURIComponent(body.assignedPhone)}`
-  } catch {
-    /* default line */
+    if (body?.assignedPhone) tel = body.assignedPhone
+  } catch (err) {
+    console.warn(`[${agentId}] assigned-phone lookup failed, using default line`, err)
   }
-  const vcf = await fetch(vcfUrl).then((r) => (r.ok ? r.text() : null))
-  if (vcf) {
-    try {
-      await space.send(contact(fromVCard(vcf)))
-      console.log(`[${agentId}] sent vcf contact card to ${phone}`)
-    } catch (err) {
-      console.warn(`[${agentId}] vcf contact send failed, falling back to raw`, err)
-      await space.send(contact(vcf)).catch(() => undefined)
-    }
+  const vcf = ['BEGIN:VCARD', 'VERSION:3.0', 'N:;Alpha;;;', 'FN:Alpha', 'ORG:HireAlpha', `TEL;TYPE=CELL:${tel}`, 'END:VCARD'].join('\r\n')
+  try {
+    await space.send(contact(await fromVCard(vcf)))
+    console.log(`[${agentId}] sent vcf contact card to ${phone} (${tel})`)
+  } catch (err) {
+    console.error(`[${agentId}] vcf contact send failed`, err)
+    throw err
   }
 }
 
@@ -143,7 +143,11 @@ startIntroPoller({
     await space.responding(async () => {
       const cleaned = sanitizeOutbound(text)
       if (cleaned) await space.send(cleaned)
-      await space.shareContactCard().catch(() => undefined)
+      await space.shareContactCard().catch((err) => console.error(`[${agent.id}] intro shareContactCard failed`, err))
+      // Native card alone doesn't always render — the .vcf attachment is what
+      // iOS reliably offers "Add Contact" for. The save_contact loop (~15 min
+      // later) repeats the nudge for anyone who missed it.
+      await sendContactVcf(space, phone).catch((err) => console.error(`[${agent.id}] intro vcf failed`, err))
     })
   },
 })
@@ -169,8 +173,8 @@ startTaskLoopPoller({
       // real .vcf file so iOS offers "Add Contact" regardless of the line
       // identity sync state (native card alone showed nothing).
       if (/^\[savecontact\]/i.test(text)) {
-        await space.shareContactCard().catch(() => undefined)
-        await sendContactVcf(space, phone).catch(() => undefined)
+        await space.shareContactCard().catch((err) => console.error(`[${agentId}] shareContactCard failed`, err))
+        await sendContactVcf(space, phone).catch((err) => console.error(`[${agentId}] sendContactVcf failed`, err))
       }
     })
   },
@@ -349,8 +353,8 @@ for await (const [space, message] of app.messages) {
       console.log(`[${agent.id}] sending ${texts.length} text(s), card: ${!!card}`)
       console.log(`[${agent.id}] bubble: ${JSON.stringify(texts[0]!.slice(0, 200))}`)
       if (contactCardFirst) {
-        await space.shareContactCard().catch(() => undefined)
-        await sendContactVcf(space, senderId).catch(() => undefined)
+        await space.shareContactCard().catch((err) => console.error(`[${agent.id}] shareContactCard failed`, err))
+        await sendContactVcf(space, senderId).catch((err) => console.error(`[${agent.id}] sendContactVcf failed`, err))
       }
       await message.reply(texts[0]!)
       sentAnything = true

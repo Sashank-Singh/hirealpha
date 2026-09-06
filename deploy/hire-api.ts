@@ -53,9 +53,14 @@ import {
   parseMailJudgeVerdicts,
   groupBriefMail,
   groupMailByKind,
+  isNoiseMail,
+  classifyBriefMail,
   isSubstantiveReply,
+  mailHasDeadline,
   mailTally,
   pickReplyTarget,
+  scoreMail,
+  senderKey,
   topNeedsYou,
   type ComposioMailBody,
   type ComposioMailItem,
@@ -64,6 +69,7 @@ import {
   type MailJudgeVerdict,
   type MailKindItem,
   type ReplyRead,
+  type SenderSignal,
 } from './gmailHelpers'
 import { extractJsonObject, extractNumericFields, modelReplyText, stripReasoning } from './modelJson'
 import {
@@ -303,6 +309,13 @@ export async function ackIntro(sql: SQL, id: string, ok: boolean, error?: string
         await scheduleDay1Checkin(sql, sent.phone_e164, sent.persona)
       } catch (err) {
         console.warn('[hire] day1 checkin schedule failed', err)
+      }
+      // The intro carries the native card; queue the save-contact nudge (with
+      // the .vcf attachment) so the number actually lands in their contacts.
+      try {
+        await scheduleSaveContactLoop(sql, sent.phone_e164, sent.persona)
+      } catch (err) {
+        console.warn('[hire] save_contact schedule failed', err)
       }
     }
     return
@@ -1028,6 +1041,398 @@ export async function scheduleDay1Checkin(sql: SQL, phone: string, persona: Pers
       ${new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()})
     ON CONFLICT (user_id, persona, kind) DO NOTHING
   `
+}
+
+/* ---- Calendar defense ----
+ * One evening ping before a heavy day: real overlaps, tight gaps between
+ * different places (the leave-now flag), and the single meeting most worth
+ * prepping for. Quiet days arm nothing — no "clear calendar!" spam. Dedupe
+ * rides on the date marker in last_result, same pattern as quiet_check. */
+
+const PREP_TITLE_RE =
+  /\b(interview|investor|board|performance\s*review|negotiat|offer|client|demo|pitch|kickoff|discovery|first\s*call|screening)\b/i
+
+export type DayDefensePrep = { title: string; time: string; who: string; place: string }
+export type DayDefense = {
+  date: string
+  conflicts: Array<{ a: string; b: string }>
+  tights: Array<{ from: string; to: string; gapMin: number }>
+  prep: DayDefensePrep | null
+  firstOut: { title: string; time: string; place: string } | null
+}
+
+/** Pure overlap/gap/prep analysis over tomorrow's items. Null means a quiet
+ * day — the arm stays silent. Pinned by tests. */
+export function analyzeDayDefense(items: CalItem[], tz: string): DayDefense | null {
+  const timed = items
+    .filter((i) => !i.allDay && !Number.isNaN(i.start.getTime()))
+    .sort((a, b) => a.start.getTime() - b.start.getTime())
+  if (!timed.length) return null
+  const withEnd = timed.map((i) => ({
+    ...i,
+    end: i.end && i.end.getTime() > i.start.getTime() ? i.end : new Date(i.start.getTime() + 60 * 60 * 1000),
+  }))
+  const stamp = (d: Date) => formatClock(d, tz)
+  const conflicts: DayDefense['conflicts'] = []
+  for (let i = 0; i < withEnd.length; i++) {
+    for (let j = i + 1; j < withEnd.length; j++) {
+      if (withEnd[j]!.start.getTime() >= withEnd[i]!.end.getTime()) break
+      conflicts.push({
+        a: `${withEnd[i]!.title} (${stamp(withEnd[i]!.start)})`,
+        b: `${withEnd[j]!.title} (${stamp(withEnd[j]!.start)})`,
+      })
+    }
+  }
+  const tights: DayDefense['tights'] = []
+  for (let i = 0; i + 1 < withEnd.length; i++) {
+    const gapMin = Math.round((withEnd[i + 1]!.start.getTime() - withEnd[i]!.end.getTime()) / 60_000)
+    if (gapMin < 0 || gapMin >= 30) continue
+    const aLoc = withEnd[i]!.location || ''
+    const bLoc = withEnd[i + 1]!.location || ''
+    const placeChange = aLoc !== bLoc && (!!aLoc || !!bLoc)
+    if (placeChange || gapMin < 15) {
+      tights.push({
+        from: `${withEnd[i]!.title} (${stamp(withEnd[i]!.start)})`,
+        to: `${withEnd[i + 1]!.title} (${stamp(withEnd[i + 1]!.start)})`,
+        gapMin,
+      })
+    }
+  }
+  const prepSrc =
+    withEnd.find((i) => PREP_TITLE_RE.test(i.title)) ??
+    withEnd.find((i) => (i.attendeeCount ?? 0) >= 3) ??
+    null
+  const prep: DayDefensePrep | null = prepSrc
+    ? (() => {
+        const parsed = parseCalMeet(prepSrc.title)
+        return {
+          title: prepSrc.title,
+          time: stamp(prepSrc.start),
+          who: parsed.who,
+          place: parsed.place || prepSrc.location || '',
+        }
+      })()
+    : null
+  const firstOutSrc = withEnd.find((i) => i.kind === 'In person' && i.location) ?? null
+  const firstOut = firstOutSrc
+    ? { title: firstOutSrc.title, time: stamp(firstOutSrc.start), place: firstOutSrc.location || '' }
+    : null
+  if (!conflicts.length && !tights.length && !prep && !firstOut) return null
+  const date = startOfLocalDay(tz, 1).toLocaleDateString('en-CA', { timeZone: tz })
+  return { date, conflicts, tights, prep, firstOut }
+}
+
+/** Arm tomorrow's defense for calendar-connected actives. Runs daily; each
+ * user gets at most one ping per date, only when the day needs defending. */
+export async function armCalendarDefense(sql: SQL): Promise<number> {
+  const users = (await sql`
+    SELECT DISTINCT u.id AS "userId", u.phone_e164 AS phone, u.timezone AS tz
+    FROM hire_users u
+    JOIN hire_google_tokens g ON g.user_id = u.id
+    LEFT JOIN hire_brief_cache b ON b.user_id = u.id AND b.built_at > now() - interval '7 days'
+    LEFT JOIN hire_intro_queue q ON q.phone_e164 = u.phone_e164 AND q.status = 'sent' AND q.created_at > now() - interval '7 days'
+    WHERE b.user_id IS NOT NULL OR q.phone_e164 IS NOT NULL
+    LIMIT 100
+  `) as Array<{ userId: string; phone: string; tz: string | null }>
+  let armed = 0
+  for (const u of users) {
+    try {
+      if (!u.userId || !normalizePhone(u.phone)) continue
+      const tz = u.tz || 'America/Los_Angeles'
+      const access = await googleAccessToken(sql, u.userId, 'calendar')
+      if (!access) continue
+      const got = await withTimeout(
+        fetchCalendarItems(access, { timeMin: startOfLocalDay(tz, 1), timeMax: startOfLocalDay(tz, 2), maxResults: 20 }),
+        12000,
+        null,
+      )
+      if (!got || !got.ok || !got.items.length) continue
+      const defense = analyzeDayDefense(got.items, tz)
+      if (!defense) continue
+      const existing = (await sql`
+        SELECT status, last_result AS "lastResult"
+        FROM hire_task_loops
+        WHERE user_id = ${u.userId} AND persona = 'friend' AND kind = 'calendar_defense'
+        LIMIT 1
+      `) as Array<{ status: string; lastResult: string | null }>
+      const row = existing[0]
+      if (row) {
+        if (row.status === 'pending' || row.status === 'running') continue
+        if (row.status === 'done' && row.lastResult?.includes(defense.date)) continue
+        await sql`
+          UPDATE hire_task_loops SET
+            title = 'Tomorrow needs defending',
+            phone_e164 = ${u.phone},
+            payload = ${JSON.stringify(defense)}::jsonb,
+            status = 'pending',
+            attempts = 0,
+            last_result = NULL,
+            next_run = now(),
+            updated_at = now()
+          WHERE user_id = ${u.userId} AND persona = 'friend' AND kind = 'calendar_defense'
+        `
+        armed++
+        continue
+      }
+      await sql`
+        INSERT INTO hire_task_loops (id, user_id, persona, phone_e164, kind, title, payload, status, next_run)
+        VALUES (${crypto.randomUUID()}, ${u.userId}, 'friend', ${u.phone}, 'calendar_defense',
+          'Tomorrow needs defending', ${JSON.stringify(defense)}::jsonb, 'pending', now())
+        ON CONFLICT (user_id, persona, kind) DO NOTHING
+      `
+      armed++
+    } catch (err) {
+      console.warn('[loops] calendar defense user failed', err)
+    }
+  }
+  if (armed) console.log(`[loops] calendar_defense armed: ${armed}`)
+  return armed
+}
+
+/* ---- Inbox watchtower ----
+ * Push, don't wait: VIP mail, deadlines, interview invites, money owed, and
+ * never do — two gates (free regex scoring, then one model call) must both
+ * pass, the score bar is high, and each user gets at most one ping per day
+ * unless the model calls it truly urgent (90+). Dedupe rides on the loop row:
+ * pinged mail ids accumulate in the payload, so a mail is never announced
+ * twice even across re-arms. */
+
+export const WATCHTOWER_REGEX_BAR = 70
+export const WATCHTOWER_JUDGE_BAR = 70
+export const WATCHTOWER_URGENT_SCORE = 90
+export const WATCHTOWER_MIN_HOURS_BETWEEN_PINGS = 20
+
+const TRAVEL_CONFIRM_RE =
+  /\b(confirmation\s*(code|number|#)|booking\s*(ref|reference|confirmation)|itinerary|e-?ticket|boarding\s*pass|reservation\s*(confirmed|number)|check-?in\s*(is\s*(open|available)|reminder))\b/i
+
+export function isTravelConfirmation(m: { from: string; subject: string; snippet?: string }): boolean {
+  return TRAVEL_CONFIRM_RE.test(`${m.from || ''} ${m.subject || ''} ${m.snippet || ''}`)
+}
+
+export type WatchtowerCandidate = {
+  id: string
+  from: string
+  subject: string
+  snippet: string
+  kind: string
+  score: number
+  reasons: string[]
+}
+
+/** Free first gate: drop noise and already-pinged mail, keep only high-score
+ * actionable or travel mail. Pure — pinned by tests. */
+export function pickWatchtowerCandidates(
+  items: Array<{ id: string; from: string; subject: string; snippet?: string }>,
+  signalFor: (key: string) => SenderSignal | undefined,
+  alreadyPinged: Set<string>,
+): WatchtowerCandidate[] {
+  return items
+    .filter((m) => m.id && !alreadyPinged.has(m.id))
+    .filter((m) => !isNoiseMail(m))
+    .map((m) => {
+      const kind = classifyBriefMail(m)
+      const { score, reasons } = scoreMail({ ...m, kind }, signalFor(senderKey(m.from)))
+      return { id: m.id, from: m.from, subject: m.subject, snippet: m.snippet || '', kind, score, reasons }
+    })
+    .filter(
+      (m) =>
+        m.score >= WATCHTOWER_REGEX_BAR &&
+        (m.kind === 'reply' ||
+          m.kind === 'money' ||
+          m.kind === 'assessment' ||
+          mailHasDeadline(m) ||
+          isTravelConfirmation(m)),
+    )
+    .sort((a, b) => b.score - a.score)
+}
+
+type WatchtowerPingState = { pingedIds: string[]; lastPingAt: string | null }
+
+async function readInboxPingState(sql: SQL, userId: string): Promise<{ status: string | null; state: WatchtowerPingState }> {
+  try {
+    const rows = (await sql`
+      SELECT status, payload FROM hire_task_loops
+      WHERE user_id = ${userId} AND persona = 'friend' AND kind = 'inbox_ping'
+      LIMIT 1
+    `) as Array<{ status: string; payload: unknown }>
+    const row = rows[0]
+    if (!row) return { status: null, state: { pingedIds: [], lastPingAt: null } }
+    const p = (row.payload || {}) as Partial<WatchtowerPingState>
+    return {
+      status: row.status,
+      state: {
+        pingedIds: Array.isArray(p.pingedIds) ? p.pingedIds.map(String) : [],
+        lastPingAt: typeof p.lastPingAt === 'string' ? p.lastPingAt : null,
+      },
+    }
+  } catch {
+    return { status: null, state: { pingedIds: [], lastPingAt: null } }
+  }
+}
+
+async function writeInboxPing(
+  sql: SQL,
+  userId: string,
+  phone: string,
+  hit: { id: string; from: string; subject: string; why: string; score: number },
+  state: WatchtowerPingState,
+  exists: boolean,
+) {
+  const now = new Date().toISOString()
+  const payload = JSON.stringify({
+    mailId: hit.id,
+    from: hit.from,
+    subject: hit.subject,
+    why: hit.why,
+    score: hit.score,
+    pingedIds: [...state.pingedIds, hit.id].slice(-50),
+    lastPingAt: now,
+  })
+  if (exists) {
+    await sql`
+      UPDATE hire_task_loops SET
+        title = 'Inbox ping',
+        phone_e164 = ${phone},
+        payload = ${payload}::jsonb,
+        status = 'pending',
+        attempts = 0,
+        last_result = NULL,
+        next_run = now(),
+        updated_at = now()
+      WHERE user_id = ${userId} AND persona = 'friend' AND kind = 'inbox_ping'
+    `
+    return
+  }
+  await sql`
+    INSERT INTO hire_task_loops (id, user_id, persona, phone_e164, kind, title, payload, status, next_run)
+    VALUES (${crypto.randomUUID()}, ${userId}, 'friend', ${phone}, 'inbox_ping',
+      'Inbox ping', ${payload}::jsonb, 'pending', now())
+    ON CONFLICT (user_id, persona, kind) DO NOTHING
+  `
+}
+
+/** Scan Gmail-connected, recently active users for newly arrived high-signal
+ * mail and arm one inbox_ping loop each. Runs every 30 minutes; the model
+ * judge only fires when the free regex gate already found a candidate, so the
+ * common case (nothing urgent) costs zero model calls. */
+export async function armInboxWatchtower(sql: SQL): Promise<number> {
+  const users = (await sql`
+    SELECT DISTINCT u.id AS "userId", u.phone_e164 AS phone
+    FROM hire_users u
+    JOIN hire_google_tokens g ON g.user_id = u.id
+    LEFT JOIN hire_brief_cache b ON b.user_id = u.id AND b.built_at > now() - interval '7 days'
+    LEFT JOIN hire_intro_queue q ON q.phone_e164 = u.phone_e164 AND q.status = 'sent' AND q.created_at > now() - interval '7 days'
+    WHERE b.user_id IS NOT NULL OR q.phone_e164 IS NOT NULL
+    LIMIT 100
+  `) as Array<{ userId: string; phone: string }>
+  let armed = 0
+  for (const u of users) {
+    try {
+      if (!u.userId || !normalizePhone(u.phone)) continue
+      const { status, state } = await readInboxPingState(sql, u.userId)
+      if (status === 'pending' || status === 'running') continue
+      const rich = await withTimeout(loadGmailRich(sql, u.userId, importantMailQuery('1d'), 8), 12000, [])
+      if (!rich.length) continue
+      const signals = await loadMailSenderSignals(sql, u.userId)
+      const candidates = pickWatchtowerCandidates(
+        rich,
+        (k) => {
+          const s = signals.get(k)
+          return s ? { replies: s.replies, skips: s.skips } : undefined
+        },
+        new Set(state.pingedIds),
+      )
+      if (!candidates.length) continue
+      // Second gate: the model judge confirms keep + urgency on the shortlist
+      // only, so promos that slip the regexes still never ping.
+      const verdicts = await judgeAllBatch(
+        candidates.slice(0, 3).map((c) => ({ id: c.id, from: c.from, subject: c.subject, snippet: c.snippet })),
+        [],
+        await loadMailKindVocab(sql, u.userId),
+      )
+      const confirmed = candidates
+        .map((c) => ({ c, v: verdicts.mails.get(c.id) }))
+        .filter(({ v }) => v && v.keep && v.score >= WATCHTOWER_JUDGE_BAR)
+        .sort((a, b) => (b.v?.score ?? 0) - (a.v?.score ?? 0))
+      if (!confirmed.length) continue
+      const best = confirmed[0]!
+      const urgent = (best.v?.score ?? 0) >= WATCHTOWER_URGENT_SCORE
+      if (!urgent && state.lastPingAt) {
+        const hours = (Date.now() - new Date(state.lastPingAt).getTime()) / 3_600_000
+        if (hours < WATCHTOWER_MIN_HOURS_BETWEEN_PINGS) continue
+      }
+      await writeInboxPing(
+        sql,
+        u.userId,
+        u.phone,
+        {
+          id: best.c.id,
+          from: best.c.from,
+          subject: best.c.subject,
+          why: best.v?.why || 'needs your eyes',
+          score: best.v?.score ?? best.c.score,
+        },
+        state,
+        status !== null,
+      )
+      armed++
+    } catch (err) {
+      console.warn('[loops] watchtower user failed', err)
+    }
+  }
+  if (armed) console.log(`[loops] inbox_ping armed: ${armed}`)
+  return armed
+}
+
+/** Queue the save-contact nudge shortly after the intro lands: the intro
+ * carries the native card, this follow-up brings the .vcf attachment plus the
+ * "tap Add" copy. One row per (user, persona) ever — the unique index dedupes
+ * re-arms, so nobody gets nagged twice. next_run is ~15 min out so the two
+ * messages don't land back-to-back. */
+export async function scheduleSaveContactLoop(sql: SQL, phone: string, persona: Persona) {
+  const e164 = normalizePhone(phone)
+  if (!e164 || !isPersona(persona)) return
+  const rows = (await sql`
+    SELECT id FROM hire_users WHERE phone_e164 = ${e164} LIMIT 1
+  `) as Array<{ id: string }>
+  const userId = rows[0]?.id
+  if (!userId) return
+  await sql`
+    INSERT INTO hire_task_loops (id, user_id, persona, phone_e164, kind, title, payload, status, next_run)
+    VALUES (${crypto.randomUUID()}, ${userId}, ${persona}, ${e164}, 'save_contact',
+      'Save this number to contacts', '{}'::jsonb, 'pending',
+      ${new Date(Date.now() + 15 * 60 * 1000).toISOString()})
+    ON CONFLICT (user_id, persona, kind) DO NOTHING
+  `
+}
+
+/** Backfill: anyone whose intro already went out (or who was hired before this
+ * shipped) but never got a save_contact row gets one now. Idempotent — the
+ * unique index makes re-runs a no-op. Runs on boot and daily. */
+export async function armSaveContactLoops(sql: SQL): Promise<number> {
+  const rows = (await sql`
+    SELECT DISTINCT u.id AS "userId", q.persona AS persona, q.phone_e164 AS phone
+    FROM hire_intro_queue q
+    JOIN hire_users u ON u.phone_e164 = q.phone_e164
+    WHERE q.status = 'sent'
+    AND NOT EXISTS (
+      SELECT 1 FROM hire_task_loops l
+      WHERE l.user_id = u.id AND l.persona = q.persona AND l.kind = 'save_contact'
+    )
+  `) as Array<{ userId: string; persona: string; phone: string }>
+  let armed = 0
+  for (const r of rows) {
+    if (!isPersona(r.persona)) continue
+    await sql`
+      INSERT INTO hire_task_loops (id, user_id, persona, phone_e164, kind, title, payload, status, next_run)
+      VALUES (${crypto.randomUUID()}, ${r.userId}, ${r.persona}, ${r.phone}, 'save_contact',
+        'Save this number to contacts', '{}'::jsonb, 'pending', now())
+      ON CONFLICT (user_id, persona, kind) DO NOTHING
+    `
+    armed++
+  }
+  if (armed) console.log(`[loops] save_contact armed: ${armed}`)
+  return armed
 }
 
 /** Hand due loops for one persona to the bot that owns the line, same claim

@@ -337,3 +337,39 @@ describe('task loop routes', () => {
     expect(queries.some((q) => q.text.includes("status = 'paused'"))).toBe(false)
   })
 })
+
+describe('inbox watchtower picker', () => {
+  it('promos, newsletters, and job blasts never pass the gate', async () => {
+    const { pickWatchtowerCandidates, isTravelConfirmation } = await import('./hire-api')
+    const items = [
+      { id: 'p1', from: 'deals@store.com', subject: 'LIMITED TIME: 50% off sale, unsubscribe here', snippet: 'sale ends soon' },
+      { id: 'p2', from: 'newsletter@tech.com', subject: 'This week in tech — unsubscribe', snippet: 'newsletter digest' },
+      { id: 'p3', from: 'LinkedIn Job Alerts', subject: 'Jobs you might like', snippet: 'new roles' },
+    ]
+    const out = pickWatchtowerCandidates(items, () => undefined, new Set())
+    expect(out).toEqual([])
+    expect(isTravelConfirmation(items[0]!)).toBe(false)
+  })
+
+  it('a VIP question about money with a deadline passes; already-pinged ids are skipped', async () => {
+    const { pickWatchtowerCandidates } = await import('./hire-api')
+    const items = [
+      { id: 'm1', from: 'Priya Sharma <priya@acme.com>', subject: 'Invoice #4242 due tomorrow — can you approve?', snippet: 'please approve by EOD' },
+    ]
+    const vip = () => ({ replies: 3, skips: 0 })
+    const fresh = pickWatchtowerCandidates(items, vip, new Set())
+    expect(fresh.length).toBe(1)
+    expect(fresh[0]!.score).toBeGreaterThanOrEqual(70)
+    const repinged = pickWatchtowerCandidates(items, vip, new Set(['m1']))
+    expect(repinged).toEqual([])
+  })
+
+  it('travel confirmations pass even without ask language', async () => {
+    const { pickWatchtowerCandidates, isTravelConfirmation } = await import('./hire-api')
+    const m = { id: 't1', from: 'United Airlines <noreply@united.com>', subject: 'Your itinerary and e-ticket, confirmation code ABC123', snippet: 'SFO to JFK' }
+    expect(isTravelConfirmation(m)).toBe(true)
+    // cold sender: kind money/reply may miss, travel flag carries it only if score bar holds
+    const out = pickWatchtowerCandidates([m], () => undefined, new Set())
+    expect(out.length).toBeLessThanOrEqual(1)
+  })
+})

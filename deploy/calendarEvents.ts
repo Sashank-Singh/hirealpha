@@ -7,6 +7,12 @@ export type CalItem = {
   allDay: boolean
   kind: string
   rawStart?: string
+  /** End time when Google provides one; absent for all-day and open-ended events. */
+  end?: Date
+  /** Physical location string when the event has one (drives leave-time math). */
+  location?: string
+  /** Attendee count (excluding the user) when Google provides the roster. */
+  attendeeCount?: number
 }
 
 export function parseGoogleEventStart(
@@ -68,6 +74,8 @@ export function parseGoogleCalendarItems(
     location?: string
     hangoutLink?: string
     start?: { dateTime?: string; date?: string }
+    end?: { dateTime?: string; date?: string }
+    attendees?: Array<{ self?: boolean }>
     conferenceData?: { entryPoints?: Array<{ entryPointType?: string; uri?: string }> }
   }>,
 ): CalItem[] {
@@ -75,6 +83,15 @@ export function parseGoogleCalendarItems(
   for (const e of items) {
     const parsed = parseGoogleEventStart(e.start)
     if (!parsed) continue
+    let end: Date | undefined
+    const rawEnd = e.end?.dateTime
+    if (rawEnd) {
+      const d = new Date(rawEnd)
+      if (!Number.isNaN(d.getTime()) && d.getTime() > parsed.start.getTime()) end = d
+    }
+    const attendeeCount = Array.isArray(e.attendees)
+      ? e.attendees.filter((a) => !a?.self).length
+      : undefined
     out.push({
       start: parsed.start,
       allDay: parsed.allDay,
@@ -86,6 +103,9 @@ export function parseGoogleCalendarItems(
         .trim()
         .slice(0, 240),
       kind: inferEventKind(e),
+      ...(end ? { end } : {}),
+      ...(e.location?.trim() ? { location: e.location.trim().slice(0, 160) } : {}),
+      ...(attendeeCount !== undefined ? { attendeeCount } : {}),
     })
   }
   return out
