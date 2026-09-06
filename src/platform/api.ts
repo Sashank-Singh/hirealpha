@@ -756,6 +756,9 @@ export type NetworkPerson = {
   phone?: string
   contactEmail?: string
   company?: string
+  /* Backlog #33: YYYY-MM-DD in the user's zone. Drives the friend's yearly
+   * birthday nudge. Optional everywhere — most contacts do not have a date. */
+  birthday?: string | null
 }
 export type NetworkToday = { time: string; title: string; who: string; place: string; kind: string }
 export type NetworkStay = { title: string; place: string }
@@ -766,7 +769,7 @@ export const apiListNetwork = (a: { email?: string; token?: string; persona?: st
 }
 export const apiAddNetwork = (a: {
   email?: string; token?: string; name: string; whereMet?: string; context?: string; cadenceDays?: number
-  phone?: string; contactEmail?: string; company?: string
+  phone?: string; contactEmail?: string; company?: string; birthday?: string
 }) => featurePost<{ ok: boolean; id: string }>('/api/network', {
   ...authParams(a),
   name: a.name,
@@ -776,6 +779,7 @@ export const apiAddNetwork = (a: {
   phone: a.phone,
   contactEmail: a.contactEmail,
   company: a.company,
+  birthday: a.birthday,
 })
 export const apiTouchNetwork = (a: { email?: string; token?: string; id: string; context?: string; _delete?: boolean }) =>
   featurePost<{ ok: boolean }>(`/api/network/${a.id}`, { ...authParams(a), context: a.context, _delete: a._delete })
@@ -783,6 +787,7 @@ export const apiSaveNetwork = (a: {
   email?: string; token?: string; id: string
   name: string; phone?: string; contactEmail?: string; company?: string
   whereMet?: string; context?: string; cadenceDays?: number
+  birthday?: string
 }) => featurePost<{ ok: boolean }>(`/api/network/${a.id}`, {
   ...authParams(a),
   save: true,
@@ -793,6 +798,7 @@ export const apiSaveNetwork = (a: {
   whereMet: a.whereMet,
   context: a.context,
   cadenceDays: a.cadenceDays,
+  birthday: a.birthday,
 })
 
 /* ---- Sleep ---- */

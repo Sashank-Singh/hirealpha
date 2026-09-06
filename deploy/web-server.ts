@@ -599,7 +599,8 @@ await loadManifest()
 
 // Daily promo upgrade check: upgrade $5/mo → $19/mo after 60 days
 if (sql) {
-  const { upgradePromoSubscriptions, armTrialEndingLoops, prewarmJudgeCaches } = await import('./hire-api')
+  const { upgradePromoSubscriptions, armTrialEndingLoops, prewarmJudgeCaches,
+    armBirthdayReminders, armStreakEndedLoops, armOverworkCheckLoops, armQuietCheckLoops } = await import('./hire-api')
   setInterval(() => upgradePromoSubscriptions(sql!), 24 * 60 * 60 * 1000)
   // Run once on boot to catch any overdue upgrades
   upgradePromoSubscriptions(sql).catch((e) => console.error('[billing] initial promo check failed', e))
@@ -612,6 +613,19 @@ if (sql) {
   // active users so opening a brief is a cache hit, never a model call.
   setInterval(() => prewarmJudgeCaches(sql!), 15 * 60 * 1000)
   prewarmJudgeCaches(sql).catch((e) => console.error('[judge] initial prewarm failed', e))
+  /* Proactive loops (#33, #25, #48/#80, #93). Birthday, streak-ended and
+   * overwork fire once a day; quiet check fires every three days so the user
+   * gets nudged before the silence becomes a habit, not after. Each arm is
+   * idempotent and dedupes against last_result so the bot never double-fires. */
+  const sixHours = 6 * 60 * 60 * 1000
+  setInterval(() => armBirthdayReminders(sql!).catch((e) => console.error('[loops] birthday arm failed', e)), 24 * 60 * 60 * 1000)
+  armBirthdayReminders(sql).catch((e) => console.error('[loops] initial birthday arm failed', e))
+  setInterval(() => armStreakEndedLoops(sql!).catch((e) => console.error('[loops] streak_ended arm failed', e)), 24 * 60 * 60 * 1000)
+  armStreakEndedLoops(sql).catch((e) => console.error('[loops] initial streak_ended arm failed', e))
+  setInterval(() => armOverworkCheckLoops(sql!).catch((e) => console.error('[loops] overwork_check arm failed', e)), 24 * 60 * 60 * 1000)
+  armOverworkCheckLoops(sql).catch((e) => console.error('[loops] initial overwork_check arm failed', e))
+  setInterval(() => armQuietCheckLoops(sql!).catch((e) => console.error('[loops] quiet_check arm failed', e)), sixHours)
+  armQuietCheckLoops(sql).catch((e) => console.error('[loops] initial quiet_check arm failed', e))
 }
 
 Bun.serve({

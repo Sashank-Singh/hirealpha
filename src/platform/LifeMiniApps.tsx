@@ -1406,7 +1406,10 @@ export function NetworkingCrmApp({ auth }: { auth: FeatureAuth }) {
   const [addCadence, setAddCadence] = useState(14)
   const [openId, setOpenId] = useState<string | null>(null)
   const [confirmDel, setConfirmDel] = useState<string | null>(null)
-  const [edit, setEdit] = useState({ name: '', phone: '', contactEmail: '', company: '', whereMet: '', context: '', cadenceDays: 14 })
+  const [edit, setEdit] = useState({ name: '', phone: '', contactEmail: '', company: '', whereMet: '', context: '', cadenceDays: 14, birthday: '' })
+  /* Backlog #33: optional date picker for the add form. Stored separately
+   * from `edit` because the add form has its own minimal layout. */
+  const [addBirthday, setAddBirthday] = useState('')
   const [logNotes, setLogNotes] = useState<Record<string, string>>({})
   const [drafts, setDrafts] = useState<WorkDraft[]>([])
   const [nudge, setNudge] = useState<{ id: string; text: string } | null>(null)
@@ -1492,11 +1495,13 @@ export function NetworkingCrmApp({ auth }: { auth: FeatureAuth }) {
         contactEmail: contactEmail.trim(),
         company: company.trim(),
         cadenceDays: addCadence,
+        birthday: addBirthday.trim() || undefined,
       })
       setLine('')
       setPhone('')
       setContactEmail('')
       setCompany('')
+      setAddBirthday('')
       setShowAdd(false)
       load()
     } catch {
@@ -1517,6 +1522,7 @@ export function NetworkingCrmApp({ auth }: { auth: FeatureAuth }) {
       whereMet: p.whereMet || '',
       context: p.context || '',
       cadenceDays: p.cadenceDays || 14,
+      birthday: p.birthday || '',
     })
   }
 
@@ -1534,6 +1540,7 @@ export function NetworkingCrmApp({ auth }: { auth: FeatureAuth }) {
         whereMet: edit.whereMet.trim(),
         context: edit.context.trim(),
         cadenceDays: Math.max(3, Math.min(365, Math.round(edit.cadenceDays) || 14)),
+        birthday: edit.birthday.trim() || undefined,
       })
       setOpenId(null)
       load()
@@ -1810,6 +1817,12 @@ export function NetworkingCrmApp({ auth }: { auth: FeatureAuth }) {
                         <span>Company</span>
                         <input className="ma-input" value={edit.company} onChange={(e) => setEdit({ ...edit, company: e.target.value })} />
                       </label>
+                      {/* Backlog #33: optional birthday drives the yearly friend nudge.
+                       * The browser native picker keeps it a single short field. */}
+                      <label className="ma-field">
+                        <span>Birthday</span>
+                        <input className="ma-input" type="date" value={edit.birthday} onChange={(e) => setEdit({ ...edit, birthday: e.target.value })} />
+                      </label>
                       <label className="ma-field">
                         <span>Where you met</span>
                         <input className="ma-input" value={edit.whereMet} onChange={(e) => setEdit({ ...edit, whereMet: e.target.value })} />
@@ -1893,6 +1906,11 @@ export function NetworkingCrmApp({ auth }: { auth: FeatureAuth }) {
           <label className="ma-field">
             <span>Company</span>
             <input className="ma-input" value={company} onChange={(e) => setCompany(e.target.value)} placeholder="Stripe" />
+          </label>
+          {/* Backlog #33: optional birthday drives the yearly friend nudge. */}
+          <label className="ma-field">
+            <span>Birthday</span>
+            <input className="ma-input" type="date" value={addBirthday} onChange={(e) => setAddBirthday(e.target.value)} />
           </label>
           <label className="ma-field">
             <span>Reach out every</span>

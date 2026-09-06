@@ -462,6 +462,106 @@ const wakeupHandler: LoopHandler = (task) => {
   return { text: buildWakeupText(items), outcome: 'done' }
 }
 
+/* ---- Birthday reminder (#33) ----
+ * Server arms one birthday_reminder loop per (user, today) when any of their
+ * contacts shares today's month-day in the user's zone. The handler asks the
+ * server which contacts match and texts once per person, never the whole
+ * list. A short marker in the loop's last_result keeps dedupe honest across
+ * rerun. */
+
+async function fetchLoopContext(
+  phone: string,
+  kind: string,
+  extra?: Record<string, string>,
+): Promise<Record<string, unknown>> {
+  const base = apiBase()
+  if (!base) return {}
+  const qs = new URLSearchParams({ phone, kind })
+  for (const [k, v] of Object.entries(extra || {})) qs.set(k, v)
+  try {
+    const res = await fetch(`${base}/api/internal/loops/context?${qs.toString()}`, {
+      headers: authHeaders(),
+    })
+    if (!res.ok) return {}
+    const body = (await res.json()) as { data?: Record<string, unknown> }
+    return body.data || {}
+  } catch {
+    return {}
+  }
+}
+
+export function buildBirthdayText(name: string): string {
+  const safe = String(name || '').trim().split(/\s+/)[0] || 'them'
+  return `It's ${safe}'s birthday. Want a card idea or a call?`
+}
+
+const birthdayReminderHandler: LoopHandler = async (task) => {
+  const date = String(task.payload?.date || '').trim()
+  const data = await fetchLoopContext(task.phone, 'birthday_reminder', date ? { date } : {})
+  const people = Array.isArray(data.people) ? (data.people as Array<{ id: string; name: string }>) : []
+  if (people.length === 0) return { outcome: 'done', note: 'no birthday matches' }
+  const first = people[0]!
+  const text = buildBirthdayText(first.name)
+  const remaining = people.length - 1
+  const note = remaining > 0
+    ? `birthday ${first.id.slice(0, 8)}${remaining > 0 ? ` +${remaining} more` : ''}`
+    : `birthday ${first.id.slice(0, 8)}`
+  return { text, outcome: 'done', note }
+}
+
+/* ---- Streak ended (#25) ----
+ * Server finds habits with a past streak of at least 21 days where the user
+ * has not logged in 3+ days, and arms a single row per (user, habit). The
+ * handler trusts the payload the server wrote: streak count, last logged
+ * date, and habit name. No data call needed; one warm text, no shame. */
+
+export function buildStreakEndedText(habitName: string, streak: number): string {
+  const name = String(habitName || '').trim() || 'your habit'
+  const n = Math.max(1, Math.floor(Number(streak) || 0))
+  return `You went ${n} days on ${name} and stopped. That was a real run. New target or a break?`
+}
+
+const streakEndedHandler: LoopHandler = (task) => {
+  const streak = Math.max(1, Math.floor(Number(task.payload?.streak) || 0))
+  const habitName = String(task.payload?.habitName || '').trim()
+  const lastDate = String(task.payload?.lastDate || '').trim()
+  const text = buildStreakEndedText(habitName, streak)
+  const note = lastDate ? `streak_ended ${habitName.slice(0, 30)} ${lastDate}` : `streak_ended ${habitName.slice(0, 30)}`
+  return { text, outcome: 'done', note }
+}
+
+/* ---- Overwork check (#48/#80) ----
+ * Server arms a row once it sees clear late-evidence (4+ distinct log touches
+ * after 8pm in the user's zone, or any inbound after 8pm). The handler stays
+ * conservative: if the server armed it, send the warm acknowledgment. If the
+ * arming side ever lies, the text is still small and never shaming. */
+
+export function buildOverworkText(): string {
+  return "You have been at it late. That is load, not laziness. What can wait till tomorrow?"
+}
+
+const overworkCheckHandler: LoopHandler = (task) => {
+  const note = `overwork_check ${String(task.payload?.date || '').trim()}`
+  return { text: buildOverworkText(), outcome: 'done', note }
+}
+
+/* ---- Cross-domain quiet check (#93) ----
+ * Server arms when the user has gone silent on every surface (no inbound, no
+ * habit/nutrition/workout/spend logs) for 3+ days but was previously active.
+ * One warm text per quiet window; the marker in the payload is the window
+ * start, not the day, so the bot can stay quiet across multiple silent days
+ * without a follow-up. */
+
+export function buildQuietCheckText(): string {
+  return "You've gone quiet everywhere this week, not just one thing. Everything ok?"
+}
+
+const quietCheckHandler: LoopHandler = (task) => {
+  const windowStart = String(task.payload?.windowStart || '').trim()
+  const note = windowStart ? `quiet_check ${windowStart}` : 'quiet_check'
+  return { text: buildQuietCheckText(), outcome: 'done', note }
+}
+
 /* ---- Registry ---- */
 
 export const LOOP_HANDLERS: Record<string, LoopHandler> = {
@@ -470,6 +570,10 @@ export const LOOP_HANDLERS: Record<string, LoopHandler> = {
   trial_ending: trialEndingHandler,
   bill_increase: billIncreaseHandler,
   wakeup: wakeupHandler,
+  birthday_reminder: birthdayReminderHandler,
+  streak_ended: streakEndedHandler,
+  overwork_check: overworkCheckHandler,
+  quiet_check: quietCheckHandler,
 }
 
 /**
