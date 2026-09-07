@@ -337,14 +337,20 @@ export async function apiSetEveningTime(a: { persona: AgentId; time: string; ema
 
 /** Auth params shared by the feature mini-app endpoints. */
 function authParams(input: { email?: string; token?: string }) {
+  // Token first. Email-only requests authenticate via the session cookie, which
+  // exists on /app but NOT in the iMessage card webview — preferring email there
+  // dropped a perfectly valid card token and every composer POST 401'd with
+  // "Sign in required" while the same card's GETs (which pass ?t=) worked.
+  if (input.token) return { token: input.token }
   if (input.email) return { email: input.email }
-  return { token: input.token }
+  return {}
 }
 
 function authQuery(a: { email?: string; token?: string; persona?: string }) {
   const qs = new URLSearchParams()
-  if (a.email) qs.set('email', a.email)
-  else if (a.token) qs.set('t', a.token)
+  // Same priority as authParams: the mini token outranks a localStorage email.
+  if (a.token) qs.set('t', a.token)
+  else if (a.email) qs.set('email', a.email)
   if (a.persona) qs.set('persona', a.persona)
   return qs
 }
