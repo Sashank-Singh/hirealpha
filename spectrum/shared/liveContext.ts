@@ -2,6 +2,8 @@ import { gmiChat } from './gmi'
 import type { AgentId } from '../../src/agents/types'
 
 export type LiveProfile = {
+  /** Lookup failure is not evidence that an account or connector is missing. */
+  unavailable?: boolean
   found: boolean
   hired: boolean
   context: Record<string, string>
@@ -17,6 +19,7 @@ export type LiveProfile = {
 }
 
 const EMPTY: LiveProfile = {
+  unavailable: true,
   found: false,
   hired: false,
   context: {},
@@ -105,9 +108,11 @@ export async function fetchLiveProfile(phone: string, persona: AgentId): Promise
     const res = await timedFetch(url, { headers: authHeaders() }, 8000)
     if (!res.ok) return EMPTY
     const data = (await res.json()) as LiveProfile
+    if (typeof data.found !== 'boolean' || typeof data.hired !== 'boolean') return EMPTY
     return {
       ...EMPTY,
       ...data,
+      unavailable: false,
       context: data.context || {},
       connected: data.connected || [],
       memories: data.memories || [],

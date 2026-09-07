@@ -1,40 +1,60 @@
 #!/bin/bash
-# Deploy the HireAlpha web app + API/bot to production.
-#
-# Production runs at https://hirealpha.chat — the SPA served from dist/ and the
-# API/bot behind it (bun src/index.ts). This rebuilds the frontend, uploads it,
-# pulls the latest server code, restarts the services, and verifies health.
+# Legacy systemd release path. Coolify deployments use their configured app.
+# Refuse dirty checkouts and verify committed source; never discard changes.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
 PROD="${PROD:-hirealpha.chat}"
-: "${SSH_HOST:=root@${PROD}}"
-: "${SSH_USER:=root}"
+SSH_HOST="${SSH_HOST:-${SSH_USER:-root}@${PROD}}"
 APP_DIR="${APP_DIR:-/opt/hirealpha}"
-REMOTE_BUN="~/.bun/bin/bun"
+API_SERVICE="${API_SERVICE:-hirealpha-api}"
+if [[ ! "$APP_DIR" =~ ^/[a-zA-Z0-9_./-]+$ || "$APP_DIR" == / || "$APP_DIR" == *..* || ! "$API_SERVICE" =~ ^[a-zA-Z0-9_.@-]+$ ]]; then
+  echo 'Invalid APP_DIR or API_SERVICE' >&2
+  exit 1
+fi
+if [[ -n "$(git status --porcelain)" ]]; then
+  echo 'Commit or isolate local changes before releasing.' >&2
+  exit 1
+fi
+REVISION=$(git rev-parse HEAD)
+SSH=(ssh -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=yes "$SSH_HOST")
 
-echo "== 1/6 building the client bundle =="
-npm run build
+echo 'Checking the remote checkout and systemd service'
+"${SSH[@]}" "cd '$APP_DIR' && test -z \"\$(git status --porcelain)\" && systemctl cat '$API_SERVICE' >/dev/null"
 
-echo "== 2/6 uploading dist to ${SSH_USER}@${PROD} =="
-rsync -az --delete dist/ "${SSH_USER}@${PROD}:${APP_DIR}/dist/"
-rsync -az deploy/ "${SSH_USER}@${PROD}:${APP_DIR}/deploy/"
+echo 'Running release checks and building the committed client bundle'
+npm run check
 
-echo "== 3/6 updating the API server code + deps =="
-ssh "${SSH_USER}@${PROD}" "cd ${APP_DIR} && git fetch origin && git reset --hard origin/main && cd deploy && ${REMOTE_DIR_BUN:-bun} install --frozen-lockfile --production"
-echo "== 4/6 restarting the API service =="
-ssh "${SSH_USER}@${PROD}" "sudo systemctl restart hirealpha-api || sudo systemctl restart hireapi || true"
+echo 'Fast-forwarding remote source and verifying the release revision'
+"${SSH[@]}" "cd '$APP_DIR' && git fetch origin && git merge --ff-only origin/main && test \"\$(git rev-parse HEAD)\" = '$REVISION' && npm ci --omit=dev"
 
-echo "== 5/6 health checks =="
-sleep 5
+# Keep old hashed assets for tabs still using the previous release.
+rsync -az dist/ "${SSH_HOST}:${APP_DIR}/dist/"
+
+echo 'Restarting the API service'
+"${SSH[@]}" "sudo systemctl restart '$API_SERVICE' && systemctl is-active --quiet '$API_SERVICE'"
+
+healthy=false
 for i in 1 2 3 4 5; do
-  code=$(curl -s -o /dev/null -w "%{http_code}" "https://${PROD}/healthz" || true)
-  echo "  healthz: ${code}"
-  [ "$code" = "200" ] && break
+  code=$(curl --connect-timeout 5 --max-time 10 -s -o /dev/null -w '%{http_code}' "https://${PROD}/healthz" || true)
+  if [[ "$code" == 200 ]]; then healthy=true; break; fi
   sleep 3
 done
+if [[ "$healthy" != true ]]; then
+  echo 'Deployment failed: health check did not recover.' >&2
+  exit 1
+fi
 
-echo "== 6/6 verifying the new bundle is live =="
-curl -s "https://${PROD}/" | grep -oE 'assets/index-[^"]+\.js' | sort -u | head -5
-
-echo "== done =="
+echo 'Verifying the deployed bundle matches this release'
+ASSET=$(sed -n 's/.*src="\([^"]*assets\/index-[^"]*\.js\)".*/\1/p' dist/index.html | head -1)
+if [[ -z "$ASSET" ]]; then
+  echo 'Could not identify the built client asset.' >&2
+  exit 1
+fi
+PAGE=$(curl --connect-timeout 5 --max-time 10 -fsS "https://${PROD}/")
+if ! grep -Fq "$ASSET" <<< "$PAGE"; then
+  echo 'Deployment failed: production serves a different client bundle.' >&2
+  exit 1
+fi
+curl --connect-timeout 5 --max-time 10 -fsS -o /dev/null "https://${PROD}/${ASSET#/}"
+echo "Deployed revision $REVISION"

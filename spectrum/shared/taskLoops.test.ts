@@ -345,10 +345,10 @@ describe('loop runner', () => {
 })
 
 describe('poller and kill switch defaults', () => {
-  it('kill switch check is a no-op without env', async () => {
+  it('kill switch blocks proactive sends without env', async () => {
     const saved = process.env.HIREALPHA_API_URL
     delete process.env.HIREALPHA_API_URL
-    expect(await isKillSwitchArmed('+15551234567')).toBe(false)
+    expect(await isKillSwitchArmed('+15551234567')).toBe(true)
     if (saved) process.env.HIREALPHA_API_URL = saved
   })
   it('poller stays off without env and does not throw', () => {

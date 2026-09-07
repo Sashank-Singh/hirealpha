@@ -1,5 +1,5 @@
 /** Tiny liveness HTTP surface for Coolify (bots otherwise have no HTTP). */
-export function startHealthServer(
+export function healthHandler(
   label: string,
   opts?: {
     /** Serve recent turn-eval rows at /evals. */
@@ -7,11 +7,8 @@ export function startHealthServer(
     /** Score recent turns on demand (POST /evals/score). */
     scoreEvals?: () => Promise<number>
   },
-): void {
-  const port = Number(process.env.HEALTH_PORT ?? 3000)
-  Bun.serve({
-    port,
-    fetch(req) {
+) {
+    return (req: Request) => {
       const path = new URL(req.url).pathname
       if (path === '/healthz' || path === '/') {
         return Response.json({
@@ -19,6 +16,14 @@ export function startHealthServer(
           service: label,
           ts: new Date().toISOString(),
         })
+      }
+      // Evals contain conversation text; scoring also spends model credits.
+      // Keep liveness public, but never expose diagnostics without a secret.
+      if (path === '/evals' || path === '/evals/score') {
+        const key = process.env.HIREALPHA_INTERNAL_KEY
+        if (!key || req.headers.get('Authorization') !== `Bearer ${key}`) {
+          return Response.json({ error: 'Unauthorized' }, { status: 401 })
+        }
       }
       if (path === '/evals' && req.method === 'GET' && opts?.readEvals) {
         const rows = opts.readEvals()
@@ -44,12 +49,16 @@ export function startHealthServer(
       if (path === '/evals/score' && req.method === 'POST' && opts?.scoreEvals) {
         return opts.scoreEvals().then(
           (n) => Response.json({ ok: true, scored: n }),
-          (err) => Response.json({ ok: false, error: String(err) }, 500),
+          () => Response.json({ ok: false, error: 'Scoring failed' }, { status: 500 }),
         )
       }
       return new Response('not found', { status: 404 })
-    },
-  })
+    }
+}
+
+export function startHealthServer(label: string, opts?: Parameters<typeof healthHandler>[1]): void {
+  const port = Number(process.env.HEALTH_PORT ?? 3000)
+  Bun.serve({ port, fetch: healthHandler(label, opts) })
   console.log(`[${label}] health on :${port} (/healthz)`)
 }
 
@@ -73,6 +82,7 @@ export function startHeartbeat(persona: string, intervalMs = 60_000): void {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({ persona }),
+      signal: AbortSignal.timeout(8000),
     }).catch(() => undefined)
   }
   ping()

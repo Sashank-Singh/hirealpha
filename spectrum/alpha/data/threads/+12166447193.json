@@ -1,0 +1,66 @@
+{
+  "facts": [],
+  "summary": "",
+  "history": [
+    {
+      "role": "user",
+      "content": "I did saved already",
+      "ts": 1788675414405
+    },
+    {
+      "role": "assistant",
+      "content": "Hey, I'm Alpha. Good to have you texting in. And nice, saving already, that's a habit most people skip. What else is on your mind today?",
+      "ts": 1788675414405
+    },
+    {
+      "role": "user",
+      "content": "Connect to my calendar",
+      "ts": 1788675434074
+    },
+    {
+      "role": "assistant",
+      "content": "You can hook it up at hirealpha.chat/app with the same phone you're texting from. Tap Connect next to Calendar and I'll be able to see your schedule after that.",
+      "ts": 1788675434074
+    },
+    {
+      "role": "user",
+      "content": "Plan my day for tomorrow",
+      "ts": 1788675637654
+    },
+    {
+      "role": "assistant",
+      "content": "I can't see your schedule yet since Calendar isn't connected. Head to hirealpha.chat/app and tap Connect on Calendar, then text me \"plan tomorrow\" and I'll build the whole day from real events.",
+      "ts": 1788675637654
+    },
+    {
+      "role": "user",
+      "content": "Apps",
+      "ts": 1788675665275
+    },
+    {
+      "role": "assistant",
+      "content": "I can't see your calendar yet since it's not connected. Hook it up at hirealpha.chat/app and I'll plan tomorrow like a pro.",
+      "ts": 1788675665275
+    },
+    {
+      "role": "user",
+      "content": "Show me the apps",
+      "ts": 1788675677289
+    },
+    {
+      "role": "assistant",
+      "content": "Can't see your calendar until you connect Gmail or Calendar at hirealpha.chat/app with this phone number. Once that's done I can plan your whole day around what's actually on it. Want to knock that out now?",
+      "ts": 1788675677289
+    },
+    {
+      "role": "user",
+      "content": "Yes",
+      "ts": 1788684936660
+    },
+    {
+      "role": "assistant",
+      "content": "Once you connect your calendar at hirealpha.chat/app, I can plan your whole day from what's actually on it. Right now I can't see your schedule yet. Tap Connect and I'll take it from there.",
+      "ts": 1788684936660
+    }
+  ]
+}

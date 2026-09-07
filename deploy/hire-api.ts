@@ -4,6 +4,7 @@
  */
 import { Composio } from '@composio/core'
 import { createHmac, timingSafeEqual } from 'node:crypto'
+import { AsyncLocalStorage } from 'node:async_hooks'
 import { readFile, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { gateWorkshopCode, runWorkshopCode, sweepExpiredArtifacts } from './workshop'
@@ -363,14 +364,6 @@ export async function ensurePhoneUser(
       RETURNING id
     `) as Array<{ id: string }>
     userId = inserted[0]?.id
-  } else if (cleanName || cleanTz) {
-    await sql`
-      UPDATE hire_users SET
-        name = COALESCE(${cleanName}, name),
-        timezone = COALESCE(${cleanTz}, timezone),
-        updated_at = now()
-      WHERE id = ${existing!.id}
-    `
   }
   if (!userId) return null
   // Register the number with Photon right here, carrying the person's name and
@@ -1191,6 +1184,7 @@ export async function armCalendarDefense(sql: SQL): Promise<number> {
 
 /* ---- Inbox watchtower ----
  * Push, don't wait: VIP mail, deadlines, interview invites, money owed, and
+ * travel confirmations earn a proactive text. Promos, newsletters, and blasts
  * never do — two gates (free regex scoring, then one model call) must both
  * pass, the score bar is high, and each user gets at most one ping per day
  * unless the model calls it truly urgent (90+). Dedupe rides on the loop row:
@@ -2030,21 +2024,16 @@ export function resetLoginFailures() {
 /** The exact response shape the Google ticket exchange returns, plus the session token. */
 function sessionTokenResponse(user: { email: string; name: string | null; phone: string | null }) {
   const session = mintSessionToken(user.email)
-  return json({
+  if (!session) return json({ error: 'Sign in temporarily unavailable' }, 503)
+  const response = json({
     email: user.email,
     name: user.name,
     phone: user.phone,
     ...(session ? { session } : {}),
   })
-}
-
-/** Read only the stored hash for a user id. Never logged, never sent to clients. */
-async function getPasswordHashById(sql: SQL, userId: string): Promise<string | null> {
-  const rows = await sql`
-    SELECT password_hash FROM hire_users WHERE id = ${userId} LIMIT 1
-  `
-  const hash = (rows[0] as { password_hash?: unknown } | undefined)?.password_hash
-  return typeof hash === 'string' && hash ? hash : null
+  response.headers.set('Set-Cookie', `hirealpha_session=${session}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${SESSION_TOKEN_TTL_MS / 1000}`)
+  response.headers.set('Cache-Control', 'no-store')
+  return response
 }
 
 /** Guard for raw password input: string, 8 to 200 chars. */
@@ -2053,10 +2042,8 @@ function isPlausiblePassword(password: unknown): password is string {
 }
 
 /**
- * Set a password on the account for an email, creating the account if needed.
- * Used by register and by the waitlist. Waitlist callers treat every outcome
- * as quiet: 'exists' means the account already has a password, and any storage
- * error resolves to 'skipped' rather than blocking the signup.
+ * Public signup may only create a new account, never set a password on an
+ * existing passwordless account. The insert is atomic against competing signups.
  */
 export async function attachPasswordToAccount(
   sql: SQL,
@@ -2067,14 +2054,13 @@ export async function attachPasswordToAccount(
   const addr = String(email || '').trim().toLowerCase()
   if (!isValidEmailFormat(addr) || !isPlausiblePassword(password)) return 'invalid'
   try {
-    const user = await ensureUser(sql, addr, phone || undefined)
-    if (await getPasswordHashById(sql, user.id)) return 'exists'
     const hash = await hashPassword(password)
-    await sql`
-      UPDATE hire_users SET password_hash = ${hash}, updated_at = now()
-      WHERE id = ${user.id}
+    const rows = await sql`
+      INSERT INTO hire_users (id, email, phone_e164, password_hash)
+      VALUES (${crypto.randomUUID()}, ${addr}, ${normalizePhone(phone || '')}, ${hash})
+      ON CONFLICT (email) DO NOTHING RETURNING id
     `
-    return 'set'
+    return rows.length ? 'set' : 'exists'
   } catch {
     // Waitlist is not a conflict surface: a phone already owned by another
     // account (or any storage hiccup) just leaves the password unset.
@@ -3144,7 +3130,9 @@ async function getUserByPhone(sql: SQL, phone: string) {
   return null
 }
 
-/** Resolve the caller from a signed web session, a signed mini token, or a session email. */
+const requestIdentity = new AsyncLocalStorage<{ email: string }>()
+
+/** Resolve only verified identities. Email is a selector, never a credential. */
 async function resolveAuthedUser(
   sql: SQL,
   input: { token?: string; session?: string; email?: string },
@@ -3170,8 +3158,9 @@ async function resolveAuthedUser(
       return { user }
     }
   }
-  if (email.includes('@')) {
-    const user = await getUserByEmail(sql, email)
+  const verified = requestIdentity.getStore()
+  if (verified && (!email || email === verified.email)) {
+    const user = await getUserByEmail(sql, verified.email)
     if (!user) return { user: null, error: json({ error: 'No account found for that email' }, 404) }
     return { user }
   }
@@ -3352,6 +3341,8 @@ async function ensureUser(
   if (e164) {
     const byPhone = await getUserByPhone(sql, e164)
     if (byPhone) {
+      // Knowing a phone number is not permission to rename its account.
+      if (requestIdentity.getStore()?.email !== byPhone.email) throw new Error('That phone is already linked to another account')
       await sql`
         UPDATE hire_users SET
           email = ${email},
@@ -9811,7 +9802,72 @@ export async function miniCardOgDescription(
   return null
 }
 
+/** All personal routes share this boundary, including legacy email-only handlers. */
 export async function handleHireApi(req: Request, sql: SQL | null): Promise<Response | null> {
+  const url = new URL(req.url)
+  const path = url.pathname
+  const publicPaths = new Set([
+    '/api/waitlist', '/api/auth/google', '/api/auth/ticket', '/api/auth/register', '/api/auth/login',
+    '/api/oauth/google/callback', '/api/billing/webhook', '/api/billing/checkout',
+    '/api/assigned-phone', '/api/contact/alpha.vcf', '/api/connectors/status', '/api/status',
+    '/api/invites/redeem', '/api/wishlist',
+  ])
+  if (path === '/api/auth/logout' && req.method === 'POST') {
+    const response = json({ ok: true })
+    response.headers.set('Set-Cookie', 'hirealpha_session=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0')
+    return response
+  }
+  if (!path.startsWith('/api/') || publicPaths.has(path) || req.method === 'OPTIONS') {
+    return handleAuthorizedHireApi(req, sql)
+  }
+  if (path.startsWith('/api/internal/') || path.startsWith('/api/admin/')) {
+    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
+    return handleAuthorizedHireApi(req, sql)
+  }
+  let body: Record<string, unknown> = {}
+  if (req.method !== 'GET' && req.method !== 'HEAD') {
+    const parsed = await req.clone().json().catch(() => null)
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) body = parsed
+  }
+  const cookie = (req.headers.get('cookie') || '').split(';').map((v) => v.trim()).find((v) => v.startsWith('hirealpha_session='))?.slice('hirealpha_session='.length)
+  const bearer = req.headers.get('authorization')?.replace(/^Bearer\s+/i, '')
+  const explicitSession = body.session || url.searchParams.get('s') || bearer
+  const session = String(explicitSession || cookie || '')
+  const token = String(body.token || url.searchParams.get('t') || '')
+  const ses = session ? verifySessionToken(session) : null
+  const mini = token ? verifyMiniToken(token) : null
+  if ((explicitSession && !ses) || (token && !mini) || (!ses && !mini)) return json({ error: 'Sign in required', code: 'session_invalid' }, 401)
+  const origin = req.headers.get('origin')
+  if (origin && !['GET', 'HEAD'].includes(req.method) && origin !== new URL(appBase(req)).origin) {
+    return json({ error: 'Origin not allowed' }, 403)
+  }
+  if (!sql) return json({ error: 'Database unavailable' }, 503)
+  const miniUser = mini ? await getUserByPhone(sql, mini.phone) : null
+  const email = ses?.email || miniUser?.email
+  if (!email || (ses && miniUser && ses.email !== miniUser.email)) return json({ error: 'Invalid account identity' }, 403)
+  for (const requested of [url.searchParams.get('email'), body.email]) {
+    if (requested && String(requested).trim().toLowerCase() !== email) return json({ error: 'Account mismatch' }, 403)
+  }
+  // These legacy endpoints select the owner by phone rather than account ID.
+  if (path === '/api/kill-switch' || path === '/api/actions' || path.startsWith('/api/invites/') || /^\/api\/loops\/[^/]+\/(?:pause|resume)$/.test(path) || (path === '/api/loops' && url.searchParams.has('phone'))) {
+    const rawPhone = String(body.phone || url.searchParams.get('phone') || '')
+    const phone = normalizePhone(rawPhone)
+    if (rawPhone && !phone) return json({ error: 'valid phone required' }, 400)
+    const owner = miniUser || await getUserByEmail(sql, email)
+    if (!owner || (phone && phone !== normalizePhone(owner.phone || ''))) return json({ error: 'Account mismatch' }, 403)
+  }
+  url.searchParams.set('email', email)
+  const headers = new Headers(req.headers)
+  headers.delete('content-length')
+  const hasBody = req.method !== 'GET' && req.method !== 'HEAD'
+  const forwarded = new Request(url, { method: req.method, headers, ...(hasBody ? { body: JSON.stringify({ ...body, email }) } : {}) })
+  return requestIdentity.run({ email }, async () => {
+    if (path === '/api/auth/session') return json({ email })
+    return handleAuthorizedHireApi(forwarded, sql)
+  })
+}
+
+async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<Response | null> {
   const url = new URL(req.url)
   const path = url.pathname
   // /b/ serves deployed builds, /a/ their legacy files — both are API-owned
@@ -9970,18 +10026,15 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     const ticket = url.searchParams.get('ticket') || ''
     if (!ticket) return json({ error: 'ticket required' }, 400)
     const rows = await sql`
-      SELECT email, name, phone_e164 AS phone, created_at
-      FROM hire_login_tickets
-      WHERE ticket = ${ticket}
-      LIMIT 1
+      DELETE FROM hire_login_tickets WHERE ticket = ${ticket}
+      RETURNING email, name, phone_e164 AS phone, created_at
     `
     const row = rows[0] as { email: string; name: string | null; phone: string | null; created_at: Date } | undefined
     if (!row) return json({ error: 'Sign in expired. Try Google again.' }, 400)
-    await sql`DELETE FROM hire_login_tickets WHERE ticket = ${ticket}`
     if (Date.now() - new Date(row.created_at).getTime() > 10 * 60 * 1000) {
       return json({ error: 'Sign in expired. Try Google again.' }, 400)
     }
-    return json({ email: row.email, name: row.name, phone: row.phone })
+    return sessionTokenResponse(row)
   }
 
   if (path === '/api/auth/register' && req.method === 'POST') {
@@ -9998,7 +10051,15 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     }
     let user: AuthedUser
     try {
-      user = await ensureUser(sql, email, phone, name)
+      const hash = await hashPassword(password)
+      const rows = await sql`
+        INSERT INTO hire_users (id, email, phone_e164, name, password_hash)
+        VALUES (${crypto.randomUUID()}, ${email}, ${normalizePhone(phone || '')}, ${name?.trim() || null}, ${hash})
+        ON CONFLICT (email) DO NOTHING
+        RETURNING id, email, name, timezone, phone_e164 AS phone
+      `
+      if (!rows.length) return json({ error: 'Account already exists. Sign in instead.' }, 409)
+      user = rows[0] as AuthedUser
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       if (msg.toLowerCase().includes('unique') || msg.includes('hire_users_phone')) {
@@ -10007,14 +10068,6 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
       console.error('[hire] register user failed', err)
       return json({ error: 'Could not create account' }, 500)
     }
-    if (await getPasswordHashById(sql, user.id)) {
-      return json({ error: 'Already has a password. Sign in instead.' }, 409)
-    }
-    const hash = await hashPassword(password)
-    await sql`
-      UPDATE hire_users SET password_hash = ${hash}, updated_at = now()
-      WHERE id = ${user.id}
-    `
     // A number on the account means Alpha (friend) can greet it: same wiring
     // the landing waitlist uses — roster, intro queue, default loops — so a
     // /app registration is never invisible to the bot or missing from Photon.
@@ -11001,9 +11054,9 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     const id = path.slice('/api/actions/'.length, -'/undo'.length)
     if (!id) return json({ error: 'id required' }, 400)
     // Undo semantics live with the bots; here a row just stops reading as done.
-    await sql`
-      UPDATE hire_action_log SET undone_at = now() WHERE id = ${id}
-    `
+    const { user, error } = await resolveAuthedUser(sql, {})
+    if (error) return error
+    await sql`UPDATE hire_action_log SET undone_at = now() WHERE id = ${id} AND user_id = ${user!.id}`
     return json({ ok: true })
   }
 

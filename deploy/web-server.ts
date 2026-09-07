@@ -315,6 +315,12 @@ export async function handleWaitlist(req: Request, db: SQL | null) {
         )
       }
     }
+    // Create the password account before phone onboarding can return an assigned
+    // number. Otherwise the success response silently skips password creation.
+    // This helper never changes credentials on an existing account.
+    if (email && password) {
+      await attachPasswordToAccount(sql, email, password, rawPhone || null)
+    }
     // A phone number is not just a waitlist entry: it books the first text.
     // A live hire's bot picks the number up from the intro queue and says hi,
     // and a placeholder account arms memory and pokes for the first reply.
@@ -349,13 +355,6 @@ export async function handleWaitlist(req: Request, db: SQL | null) {
           ON CONFLICT (phone_e164, persona) DO NOTHING
         `
       }
-    }
-    // A password on the waitlist arms the account for email sign in later.
-    // Passing the phone too lets it adopt the placeholder account the intro
-    // pipeline just created, so signup and waitlist land on one person. Any
-    // existing password wins quietly: the waitlist is not a conflict surface.
-    if (email && password) {
-      await attachPasswordToAccount(sql, email, password, rawPhone || null)
     }
     // Referral: an invite code ties this signup to a friend who shared theirs.
     // A failed claim never blocks the signup — the friend still joins, we just

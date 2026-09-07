@@ -5,6 +5,12 @@
       "value": "San Francisco",
       "ts": 1786829531921,
       "lastSeen": 1786829531921
+    },
+    {
+      "key": "movie_preference",
+      "value": "likes Hangover-style comedy",
+      "ts": 1788678151317,
+      "lastSeen": 1788678151317
     }
   ],
   "summary": "Sashank lives in San Francisco. He likes Chinese food, especially chow mein. He eats at Halal City. He has a draft email to send to Stephen Levis.",
@@ -38,6 +44,46 @@
       "role": "user",
       "content": "Debrief me",
       "ts": 1786857981246
+    },
+    {
+      "role": "user",
+      "content": "Apps",
+      "ts": 1788675712436
+    },
+    {
+      "role": "assistant",
+      "content": "You had two rounds of 7 11 wings and a chocolate eclair. Not the worst, but nowhere near real food. You need something with actual protein and veggies before today's done. Want me to find a spot near you?",
+      "ts": 1788675712436
+    },
+    {
+      "role": "user",
+      "content": "I like movies like Hangover but I watched all three recommended something funny like that",
+      "ts": 1788678147751
+    },
+    {
+      "role": "assistant",
+      "content": "Try Game Night. It's got that same chaotic, bad decisions energy. Also Blockers if you want more raunchy humor.",
+      "ts": 1788678147751
+    },
+    {
+      "role": "user",
+      "content": "Something else",
+      "ts": 1788678155608
+    },
+    {
+      "role": "assistant",
+      "content": "We're the Millers hits that same messy group energy. Or 21 Jump Street if you want it dumber and faster.",
+      "ts": 1788678155608
+    },
+    {
+      "role": "user",
+      "content": "Bet due date it is",
+      "ts": 1788678162637
+    },
+    {
+      "role": "assistant",
+      "content": "Ha, good choice. We're the Millers is a solid rewatch. Let me know how it lands.",
+      "ts": 1788678162637
     }
   ]
 }

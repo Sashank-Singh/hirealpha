@@ -56,7 +56,7 @@ function authRows() {
       return [{ id: 'u1', email: 'a@b.co', name: 'A', timezone: null, phone: null, password_hash: STUB_HASH }]
     }
     if (/SELECT password_hash/.test(text)) return []
-    if (/INSERT INTO hire_users/.test(text)) return [{ id: 'u1' }]
+    if (/INSERT INTO hire_users/.test(text)) return [{ id: 'u1', email: 'a@b.co', name: 'A', timezone: null, phone: null }]
     return []
   }
 }
@@ -70,7 +70,7 @@ describe('register', () => {
     expect(body.email).toBe('a@b.co')
     expect(typeof body.session).toBe('string')
     expect(body.session!.includes('.')).toBe(true)
-    const stored = queries.find((q) => /password_hash = /.test(q.text))
+    const stored = queries.find((q) => /INSERT INTO hire_users[\s\S]*password_hash/.test(q.text))
     expect(stored).toBeTruthy()
     expect(stored!.values).toContain(STUB_HASH)
     expect(stored!.values).not.toContain('correct horse')
@@ -158,7 +158,7 @@ describe('waitlist password', () => {
       sql,
     )
     expect((await res.json() as { ok?: boolean }).ok).toBe(true)
-    const stored = queries.find((q) => /password_hash = /.test(q.text))
+    const stored = queries.find((q) => /INSERT INTO hire_users[\s\S]*password_hash/.test(q.text))
     expect(stored).toBeTruthy()
     expect(stored!.values).toContain(STUB_HASH)
     expect(stored!.values).not.toContain('correct horse')

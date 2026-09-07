@@ -253,6 +253,9 @@ function stripReasoning(text: string, returning = false): string {
   const kept = paras
     .slice(firstReal)
     .filter((p) => !isTheaterCopy(p))
+    .map((p) => returning
+      ? p.replace(/^(?:(?:hey|hi|hello)[,!]?\s*)?(?:i'?m|i am|this is)\s+Alpha(?:\s*\((?:Coworker|CoFounder)\))?(?:\s+here)?(?:\s*,\s*your\s+[^.!?]+)?[.!?]\s*/i, '').trim()
+      : p)
     .map((p) => (returning ? p.replace(FIRST_MEET, '').replace(/\s{2,}/g, ' ').replace(/\s+([,.!?])/g, '$1').trim() : p))
     .map((p) =>
       returning
@@ -586,6 +589,34 @@ export async function runHireTurn(input: {
   const agent = getAgent(input.agentId)
   const mem = loadMemory(input.dataDir, input.senderId)
   const history = mem.history
+
+  // Navigation is independent of account/profile availability and prior topics.
+  // Do this before any profile, judgment, onboarding, or model work. The card's
+  // destination still enforces authentication; a token failure falls back to login.
+  const navigation = detectMiniAppRequest(input.userText, agent.id)
+  if (navigation?.kind === 'apps' || navigation?.kind === 'menu') {
+    const card = await mintMiniAppCard(input.senderId, agent.id, navigation.kind, navigation.query)
+    appendThread(input.dataDir, input.senderId, [
+      { role: 'user', content: input.userText },
+      { role: 'assistant', content: '[Alpha Apps card]' },
+    ])
+    return { reply: '', bubbles: [], source: 'local', authoritative: [], card }
+  }
+
+  const connection = /^\s*(?:(?:please|can you|could you|help me)\s+)?(?:connect|link|hook up)\s+(?:to\s+)?(?:my\s+|the\s+)?(calendar|google calendar|gmail)\s*[.!?]?\s*$/i.exec(input.userText)
+  const savedContact = /^\s*(?:i\s+)?(?:did\s+)?(?:already\s+)?saved?\s+(?:(?:your|the)\s+(?:contact|number)\s*)?(?:already)?\s*[.!]?\s*$/i.test(input.userText)
+    && (/\b(?:contact|number)\b/i.test(input.userText) || (history.length === 0 && /\balready\b/i.test(input.userText)))
+  if (connection || savedContact) {
+    const connector = connection?.[1]?.toLowerCase() === 'gmail' ? 'gmail' : 'calendar'
+    const reply = connection
+      ? `Open https://hirealpha.chat/app?connect=${connector} and tap Connect next to ${connector === 'gmail' ? 'Gmail' : 'Calendar'}. If asked, sign in with the account you use for Alpha.`
+      : 'Got it, you saved my contact. What would you like help with?'
+    appendThread(input.dataDir, input.senderId, [
+      { role: 'user', content: input.userText },
+      { role: 'assistant', content: reply },
+    ])
+    return { reply, bubbles: [reply], source: 'local', authoritative: [], card: null }
+  }
   // Judgment state starts BEFORE the profile fetch and overlaps it — its 18s
   // worst case must never serialize behind profile. A thread with zero local
   // history is a first contact: skip it (no state to judge yet).
@@ -598,6 +629,14 @@ export async function runHireTurn(input: {
     input.senderId ? fetchContacts(input.senderId) : Promise.resolve([]),
     input.senderId ? fetchSpending(input.senderId) : Promise.resolve({ logs: [], weekly: 0, budget: 0 }),
   ])
+  if (live.unavailable && wantsLiveData(input.userText)) {
+    const reply = 'I could not load your connected account data right now. Please try again in a moment. You do not need to reconnect anything based on this error.'
+    appendThread(input.dataDir, input.senderId, [
+      { role: 'user', content: input.userText },
+      { role: 'assistant', content: reply },
+    ])
+    return { reply, bubbles: [reply], source: 'local', authoritative: [], card: null }
+  }
   const spokenTz = timezoneFromText(input.userText)
   if (spokenTz && live.hired) {
     void persistLiveFacts(input.senderId, agent.id, [{ key: 'timezone', value: spokenTz }])
@@ -622,7 +661,7 @@ export async function runHireTurn(input: {
   // pinned welcome verbatim — fast, deterministic, always on copy. Anything
   // with a real question still goes to the model.
   const bareGreeting =
-    isFirst && /^(hey|hi|hello|yo|hola|sup|whats up|what's up|howdy)\b/i.test(input.userText.trim())
+    isFirst && /^(?:hey|hi|hello|yo|hola|sup|what'?s up|howdy)(?:[ ,]+alpha)?[!.?\s]*$/i.test(input.userText.trim())
   // Full name is captured at signup now; the greeting stays first-name warm.
   const greetingName = (live.name || '').trim().split(/\s+/)[0] || 'there'
   const WELCOME = `Hey ${greetingName}, I'm Alpha, your hired friend. I keep the day sane, save the stuff you'd lose, and check in when you need a real person. One card should show up here in a sec to pick how you want to use me.`
@@ -671,12 +710,6 @@ export async function runHireTurn(input: {
         ? { kind: 'pick_night' as const }
         : detectMiniAppRequest(input.userText, agent.id, recentUserTexts)
     : null
-
-  if (miniApp && (miniApp.kind === 'apps' || miniApp.kind === 'menu')) {
-    appendThread(input.dataDir, input.senderId, [{ role: 'user', content: input.userText }])
-    const card = await mintMiniAppCard(input.senderId, agent.id, miniApp.kind, miniApp.query)
-    return { reply: '', bubbles: [], source: 'local', authoritative: [], card }
-  }
 
   let digestText: string | null = null
   if (live.found && live.hired && briefIntent) {
@@ -789,7 +822,9 @@ export async function runHireTurn(input: {
   let confirmKind: MiniAppKind | null = null
   let confirmQuery: Record<string, string> | undefined
   let friendLife: Awaited<ReturnType<typeof fetchJudgmentState>> = null
-  if (!live.found) {
+  if (live.unavailable) {
+    extras.push('The account lookup is temporarily unavailable. Do not claim this person has no account, has not hired you, or has disconnected tools. Answer general questions normally; be honest that personal data could not be loaded.')
+  } else if (!live.found) {
     extras.push(
       'This sender is not linked to a HireAlpha account yet. If they ask about email, calendar, or personal setup, tell them to sign in at hirealpha.chat/app with the same phone they are texting from.',
     )
@@ -1143,6 +1178,11 @@ export async function runHireTurn(input: {
   if (
     live.hired &&
     history.length <= 8 &&
+    // Onboarding questions must not override an actual request or capture it
+    // as a name/priority. Resume only when answering the previous setup prompt.
+    (bareGreeting || /what should i call you|what city are you in|what should i help with most/i.test(lastAssistant || '')) &&
+    !miniApp && !writeIntent && !wantsLiveData(input.userText) &&
+    !/^\s*(?:can you|could you|please|build|make|create|show|open|connect|help|explain)\b/i.test(input.userText) &&
     (agent.id === 'friend' || agent.id === 'cofounder' || agent.id === 'coworker') &&
     onboardingStage([
       ...(live.memories || []),

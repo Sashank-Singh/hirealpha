@@ -1,5 +1,5 @@
 import {afterAll, afterEach, describe, expect, it} from 'bun:test'
-import { handleHireApi } from './hire-api'
+import { handleHireApi } from './authenticatedTestApi'
 
 /* ---- Route-level harness ----
  * The 221 helper tests never executed the request handlers, so the bugs that

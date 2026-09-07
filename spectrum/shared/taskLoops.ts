@@ -46,22 +46,22 @@ function authHeaders() {
   }
 }
 
-/** True means armed: no proactive sends to this phone. Unreachable server or
- * missing env means not armed, so a broken check never silences the bot. */
+/** Unknown stop-switch state blocks proactive sends until it can be checked. */
 export async function isKillSwitchArmed(phone: string): Promise<boolean> {
   const base = apiBase()
-  if (!base) return false
+  if (!base || !process.env.HIREALPHA_INTERNAL_KEY) return true
   try {
     const res = await fetch(`${base}/api/internal/kill-switch/check`, {
       method: 'POST',
       headers: authHeaders(),
       body: JSON.stringify({ phone }),
+      signal: AbortSignal.timeout(5000),
     })
-    if (!res.ok) return false
+    if (!res.ok) return true
     const data = (await res.json()) as { armed?: boolean }
-    return data.armed === true
+    return data.armed !== false
   } catch {
-    return false
+    return true
   }
 }
 
@@ -85,11 +85,13 @@ async function postLoopResult(
   const base = apiBase()
   if (!base) return
   try {
-    await fetch(`${base}/api/internal/loops/result`, {
+    const res = await fetch(`${base}/api/internal/loops/result`, {
       method: 'POST',
       headers: authHeaders(),
       body: JSON.stringify({ id, ...result }),
+      signal: AbortSignal.timeout(8000),
     })
+    if (!res.ok) throw new Error(`Loop acknowledgement returned HTTP ${res.status}`)
   } catch (err) {
     console.warn(`[taskLoops] result post failed for ${id}`, err)
   }
@@ -107,9 +109,11 @@ export async function runLoopTask(task: LoopTask, handler: LoopHandler, ctx: Loo
     if (needsApproval(action)) {
       const detail = typeof task.payload?.detail === 'string' ? task.payload.detail : undefined
       const text = buildApprovalText(action, detail)
-      if (!(await check(task.phone))) {
-        await ctx.send(task.phone, text)
+      if (await check(task.phone)) {
+        await post(task.id, { outcome: 'snoozed', note: 'kill switch armed', next_run: new Date(Date.now() + 60 * 60 * 1000).toISOString() })
+        return
       }
+      await ctx.send(task.phone, text)
       await post(task.id, { outcome: 'done', note: 'approval requested' })
       return
     }
@@ -650,7 +654,7 @@ export function startTaskLoopPoller(opts: {
     try {
       const res = await fetch(
         `${base}/api/internal/loops/claim?persona=${encodeURIComponent(String(opts.persona))}`,
-        { headers: authHeaders() },
+        { headers: authHeaders(), signal: AbortSignal.timeout(8000) },
       )
       if (!res.ok) return
       const data = (await res.json()) as { loops?: LoopTask[] }
@@ -670,11 +674,16 @@ export function startTaskLoopPoller(opts: {
     }
   }
 
+  let running = false
   const run = () => {
+    if (running) return
+    running = true
     tick().catch((err) => console.warn(`[taskLoops:${opts.persona}] tick failed`, err))
+      .finally(() => { running = false })
   }
   run()
   const timer = setInterval(run, pollMs)
   timer.unref?.()
   console.log(`[taskLoops:${opts.persona}] started every ${pollMs / 1000}s`)
+  return () => clearInterval(timer)
 }

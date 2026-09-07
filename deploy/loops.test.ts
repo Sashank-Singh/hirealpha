@@ -9,7 +9,7 @@ import {
   nextWeeklyUtc,
   scheduleDay1Checkin,
   seedDefaultLoops,
-} from './hire-api'
+} from './authenticatedTestApi'
 
 /* Task loops are the proactive side of a hire: seeded jobs arm when a phone
  * joins a roster, a bot claims what is due, and each run reports back through
@@ -22,6 +22,7 @@ function fakeSql(rowsFor: (text: string) => unknown[] = () => []) {
   const queries: Captured[] = []
   const sql = ((strings: TemplateStringsArray, ...values: unknown[]) => {
     queries.push({ text: strings.join('?'), values })
+    if (/FROM hire_users[\s\S]*WHERE email/.test(strings.join('?'))) return Promise.resolve([{ id: 'u1', email: 'a@b.co', phone: '+14155551212' }])
     return Promise.resolve(rowsFor(strings.join('?')))
   }) as unknown as Parameters<typeof claimDueLoops>[0]
   return { sql, queries }
@@ -225,7 +226,7 @@ describe('finishTaskLoop', () => {
 describe('task loop routes', () => {
   it('internal claim requires the internal key', async () => {
     const { sql } = fakeSql()
-    const { handleHireApi } = await import('./hire-api')
+    const { handleHireApi } = await import('./authenticatedTestApi')
     const res = await handleHireApi(
       new Request('https://hirealpha.chat/api/internal/loops/claim?persona=friend'),
       sql,
@@ -237,7 +238,7 @@ describe('task loop routes', () => {
     const { sql } = fakeSql(() => [
       { id: 't1', userId: 'u1', persona: 'friend', phone: '+14155551212', kind: 'wakeup', title: 'Morning wakeup', payload: {} },
     ])
-    const { handleHireApi } = await import('./hire-api')
+    const { handleHireApi } = await import('./authenticatedTestApi')
     const res = await handleHireApi(
       new Request('https://hirealpha.chat/api/internal/loops/claim?persona=friend', {
         headers: { Authorization: 'Bearer test-key' },
@@ -251,7 +252,7 @@ describe('task loop routes', () => {
 
   it('internal result rejects an unknown outcome', async () => {
     const { sql, queries } = fakeSql()
-    const { handleHireApi } = await import('./hire-api')
+    const { handleHireApi } = await import('./authenticatedTestApi')
     const res = await handleHireApi(
       new Request('https://hirealpha.chat/api/internal/loops/result', {
         method: 'POST',
@@ -266,7 +267,7 @@ describe('task loop routes', () => {
 
   it('internal result routes a snooze into the state machine', async () => {
     const { sql, queries } = fakeSql()
-    const { handleHireApi } = await import('./hire-api')
+    const { handleHireApi } = await import('./authenticatedTestApi')
     const res = await handleHireApi(
       new Request('https://hirealpha.chat/api/internal/loops/result', {
         method: 'POST',
@@ -283,7 +284,7 @@ describe('task loop routes', () => {
     const { sql } = fakeSql(() => [
       { id: 't1', persona: 'friend', kind: 'wakeup', title: 'Morning wakeup', status: 'pending' },
     ])
-    const { handleHireApi } = await import('./hire-api')
+    const { handleHireApi } = await import('./authenticatedTestApi')
     const res = await handleHireApi(
       new Request('https://hirealpha.chat/api/loops?phone=(415)%20555-1212'),
       sql,
@@ -295,7 +296,7 @@ describe('task loop routes', () => {
 
   it('pause and resume need the loop owner phone and flip the status', async () => {
     const { sql, queries } = fakeSql(() => [{ phone: '+14155551212' }])
-    const { handleHireApi } = await import('./hire-api')
+    const { handleHireApi } = await import('./authenticatedTestApi')
     const paused = await handleHireApi(
       new Request('https://hirealpha.chat/api/loops/t1/pause', {
         method: 'POST',
@@ -324,7 +325,7 @@ describe('task loop routes', () => {
 
   it('pause rejects a phone that does not own the loop', async () => {
     const { sql, queries } = fakeSql(() => [{ phone: '+14155551212' }])
-    const { handleHireApi } = await import('./hire-api')
+    const { handleHireApi } = await import('./authenticatedTestApi')
     const res = await handleHireApi(
       new Request('https://hirealpha.chat/api/loops/t1/pause', {
         method: 'POST',
@@ -333,14 +334,14 @@ describe('task loop routes', () => {
       }),
       sql,
     )
-    expect(res!.status).toBe(404)
+    expect(res!.status).toBe(403)
     expect(queries.some((q) => q.text.includes("status = 'paused'"))).toBe(false)
   })
 })
 
 describe('inbox watchtower picker', () => {
   it('promos, newsletters, and job blasts never pass the gate', async () => {
-    const { pickWatchtowerCandidates, isTravelConfirmation } = await import('./hire-api')
+    const { pickWatchtowerCandidates, isTravelConfirmation } = await import('./authenticatedTestApi')
     const items = [
       { id: 'p1', from: 'deals@store.com', subject: 'LIMITED TIME: 50% off sale, unsubscribe here', snippet: 'sale ends soon' },
       { id: 'p2', from: 'newsletter@tech.com', subject: 'This week in tech — unsubscribe', snippet: 'newsletter digest' },
@@ -352,7 +353,7 @@ describe('inbox watchtower picker', () => {
   })
 
   it('a VIP question about money with a deadline passes; already-pinged ids are skipped', async () => {
-    const { pickWatchtowerCandidates } = await import('./hire-api')
+    const { pickWatchtowerCandidates } = await import('./authenticatedTestApi')
     const items = [
       { id: 'm1', from: 'Priya Sharma <priya@acme.com>', subject: 'Invoice #4242 due tomorrow — can you approve?', snippet: 'please approve by EOD' },
     ]
@@ -365,7 +366,7 @@ describe('inbox watchtower picker', () => {
   })
 
   it('travel confirmations pass even without ask language', async () => {
-    const { pickWatchtowerCandidates, isTravelConfirmation } = await import('./hire-api')
+    const { pickWatchtowerCandidates, isTravelConfirmation } = await import('./authenticatedTestApi')
     const m = { id: 't1', from: 'United Airlines <noreply@united.com>', subject: 'Your itinerary and e-ticket, confirmation code ABC123', snippet: 'SFO to JFK' }
     expect(isTravelConfirmation(m)).toBe(true)
     // cold sender: kind money/reply may miss, travel flag carries it only if score bar holds

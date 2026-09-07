@@ -64,6 +64,7 @@ export function signIn(email: string, phone = '', name?: string, timezone?: stri
 
 export function signOut() {
   localStorage.removeItem(SESSION_KEY)
+  void fetch('/api/auth/logout', { method: 'POST' }).catch(() => undefined)
 }
 
 export const clearSession = signOut

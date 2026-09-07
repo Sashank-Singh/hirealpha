@@ -1,5 +1,5 @@
 import { afterAll, beforeEach, describe, expect, it } from 'bun:test'
-import { handleHireApi, pickAttentionEmail, remainingTodayMeets } from './hire-api'
+import { handleHireApi, pickAttentionEmail, remainingTodayMeets } from './authenticatedTestApi'
 
 /* ---- Attention + remaining meetings ----
  * The briefs and home already load the calendar and the inbox; these pin the

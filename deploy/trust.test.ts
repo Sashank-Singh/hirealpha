@@ -1,5 +1,5 @@
 import {afterAll, afterEach, beforeEach, describe, expect, it} from 'bun:test'
-import { generateInviteCode, handleHireApi, PERSONAS } from './hire-api'
+import { generateInviteCode, handleHireApi, PERSONAS } from './authenticatedTestApi'
 
 /* The trust surface: invite codes people read aloud over iMessage, a kill
  * switch a person can arm before a hire texts them, the public status page,
@@ -12,6 +12,7 @@ function fakeSql(rowsFor: (text: string) => unknown[] = () => []) {
   const queries: Captured[] = []
   const sql = ((strings: TemplateStringsArray, ...values: unknown[]) => {
     queries.push({ text: strings.join('?'), values })
+    if (/FROM hire_users[\s\S]*WHERE email/.test(strings.join('?'))) return Promise.resolve([{ id: 'u1', email: 'a@b.co', phone: '+14155551212' }])
     return Promise.resolve(rowsFor(strings.join('?')))
   }) as unknown as Parameters<typeof handleHireApi>[1]
   return { sql, queries }
@@ -237,7 +238,7 @@ describe('action log routes', () => {
     const { sql, queries } = fakeSql()
     const res = await handleHireApi(route('/api/actions/a1/undo', { method: 'POST' }), sql)
     expect(res!.status).toBe(200)
-    expect(queries[0].text).toContain('undone_at = now()')
+    expect(queries.find((q) => q.text.includes('UPDATE hire_action_log'))?.text).toContain('AND user_id =')
   })
 })
 

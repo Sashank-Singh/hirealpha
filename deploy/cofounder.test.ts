@@ -4,7 +4,7 @@ import {
   cofounderDigest,
   handleHireApi,
   type CofounderCaptureKind,
-} from './hire-api'
+} from './authenticatedTestApi'
 
 /* The cofounder tools promise a partner who already did the work: capture
  * files what was said without cloning it, the digest surfaces staleness, and
@@ -315,7 +315,7 @@ describe('pipeline move and investor note routes', () => {
       }),
       sql,
     )
-    expect(res!.status).toBe(400)
+    expect(res!.status).toBe(401)
   })
 
   it('drafts an investor note with month over month deltas and runway', async () => {

@@ -6,6 +6,7 @@ import { defaultReplyCard, getAgent, runHireTurn, runMemoryMaintenance, sanitize
 import { extractMessageText, fetchLiveProfile, handleInboundPhoto } from '../../shared/liveContext'
 import { mintMiniAppCard } from '../../shared/miniApps'
 import { claimInbound } from '../../shared/inboundGuard'
+import { onceAsync } from '../../shared/delivery'
 import { startReminderScheduler } from '../../shared/reminders'
 import { startTaskLoopPoller } from '../../shared/taskLoops'
 import { INTRO_TEXTS, startIntroPoller } from '../../shared/introQueue'
@@ -321,19 +322,16 @@ for await (const [space, message] of app.messages) {
     await message.react('👍').catch(() => undefined)
     await message.read().catch(() => undefined)
     let sentAnything = false
+    const getTurn = onceAsync(() => runHireTurn({ agentId, dataDir, senderId, userText }))
     await respondWithRetry(space, () => sentAnything, async () => {
       const t0 = Date.now()
-      const { bubbles, source, authoritative, reply, card, contactCardFirst } = await runHireTurn({
-        agentId,
-        dataDir,
-        senderId,
-        userText,
-      })
+      const { bubbles, source, authoritative, reply, card, contactCardFirst } = await getTurn()
       const texts = bubbles.map((b) => sanitizeOutbound(b)).filter(Boolean)
       if (!texts.length) {
         if (card) {
           console.log(`[${agent.id}] sending card only: ${card.url}`)
           await sendCardSafe(space, card.url, card.live)
+          sentAnything = true
         } else {
           console.warn(`[${agent.id}] dropped empty/banned outbound`)
         }

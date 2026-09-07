@@ -9,7 +9,7 @@ import {
   scoreLinearIssues,
   suggestSlotsFromBusy,
   type PrepCandidate,
-} from './hire-api'
+} from './authenticatedTestApi'
 
 /* The coworker sells a day that runs itself: prep shows up before the meeting,
  * the standup writes itself from rows, slots come from the real calendar, and
@@ -256,7 +256,7 @@ describe('coworker routes', () => {
   it('meeting prep rejects a request with no auth', async () => {
     const { sql } = fakeSql()
     const res = await handleHireApi(new Request('https://hirealpha.chat/api/meeting/prep?persona=coworker'), sql)
-    expect(res!.status).toBe(400)
+    expect(res!.status).toBe(401)
   })
 
   it('meeting prep returns event null when no calendar exists', async () => {
@@ -279,7 +279,7 @@ describe('coworker routes', () => {
       new Request('https://hirealpha.chat/api/standup/auto', { method: 'POST', body: '{}' }),
       sql,
     )
-    expect(res!.status).toBe(400)
+    expect(res!.status).toBe(401)
   })
 
   it('standup auto writes the day and returns the text', async () => {

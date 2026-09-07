@@ -10,6 +10,8 @@ export interface GmiChatOptions {
   model?: string
   apiKey?: string
   baseUrl?: string
+  /** Total deadline across the initial request and any retries. */
+  timeoutMs?: number
 }
 
 export async function gmiChat(options: GmiChatOptions): Promise<string> {
@@ -37,6 +39,7 @@ export async function gmiChat(options: GmiChatOptions): Promise<string> {
     'deepseek-ai/DeepSeek-V4-Flash-0731'
 
   const url = `${baseUrl}/chat/completions`
+  const signal = AbortSignal.timeout(options.timeoutMs ?? 30_000)
   const headers = {
     'Content-Type': 'application/json',
     Authorization: `Bearer ${apiKey}`,
@@ -61,16 +64,16 @@ export async function gmiChat(options: GmiChatOptions): Promise<string> {
 
   // Some endpoints accept 'low' | 'medium' | 'high', some accept 'none', and
   // standard OpenAI-compatible endpoints reject reasoning_effort completely.
-  let res = await fetch(url, { method: 'POST', headers, body: payload('omit') })
+  let res = await fetch(url, { method: 'POST', headers, body: payload('omit'), signal })
   if (!res.ok) {
     const errText = await res.text().catch(() => '')
     if (res.status === 400 && /reasoning_effort/i.test(errText)) {
       // If endpoint strictly requires reasoning_effort (e.g. low/medium/high)
       const fallbackEffort = /'low'/i.test(errText) || /must be one of/i.test(errText) ? 'low' : 'none'
-      res = await fetch(url, { method: 'POST', headers, body: payload(fallbackEffort) })
+      res = await fetch(url, { method: 'POST', headers, body: payload(fallbackEffort), signal })
     } else if (res.status === 429 || res.status >= 500) {
       await sleep(800)
-      res = await fetch(url, { method: 'POST', headers, body: payload('omit') })
+      res = await fetch(url, { method: 'POST', headers, body: payload('omit'), signal })
     }
   }
 
@@ -90,7 +93,7 @@ export async function gmiChat(options: GmiChatOptions): Promise<string> {
   // beats failing every caller on a transient empty.
   if (!reply) {
     await sleep(600)
-    res = await fetch(url, { method: 'POST', headers, body: payload('none') })
+    res = await fetch(url, { method: 'POST', headers, body: payload('none'), signal })
     if (res.ok) {
       const retry = (await res.json()) as { choices?: Array<{ message?: { content?: string } }> }
       reply = (retry.choices?.[0]?.message?.content ?? '').trim()

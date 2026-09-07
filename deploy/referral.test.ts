@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'bun:test'
-import { claimInvite, handleHireApi } from './hire-api'
+import { claimInvite, handleHireApi } from './authenticatedTestApi'
 
 /* Referral rewards: a redeemed invite code earns the referrer one free month
  * (a hire_referral_credits row), and the next checkout spends it as a 100% off
@@ -43,6 +43,7 @@ describe('claimInvite credits', () => {
 describe('/api/invites/status', () => {
   it('counts only unused credits as free months', async () => {
     const { sql } = fakeSql((text) => {
+      if (/FROM hire_users/.test(text)) return [userRow(REFERRER)]
       if (/SELECT code FROM hire_invites/i.test(text)) return [{ code: 'ALPHA-ABC234' }, { code: 'ALPHA-DEF345' }]
       if (/FROM hire_invites\s.*WHERE phone_e164.*redeemed_by_phone IS NOT NULL/is.test(text)) return [{ n: 2 }]
       if (/FROM hire_referral_rewards/i.test(text)) return []
