@@ -529,7 +529,14 @@ export function ArtifactApp({ auth, id }: { auth: FeatureAuth; id?: string }) {
     }
     setLoading(true)
     apiGetArtifact({ email: auth.email, token: auth.token, id })
-      .then((d) => setArtifact({ ...d, id } as Artifact))
+      .then((d) => {
+        const files = Array.isArray(d.files)
+          ? d.files
+          : typeof d.files === 'string'
+            ? (JSON.parse(d.files || '[]') as string[])
+            : []
+        setArtifact({ ...d, files, id } as Artifact)
+      })
       .catch(() => setGone(true))
       .finally(() => setLoading(false))
   }, [auth.email, auth.token, id])

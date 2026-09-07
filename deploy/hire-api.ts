@@ -1613,6 +1613,45 @@ function stripeSecret() {
   return process.env.STRIPE_SECRET_KEY?.trim() || ''
 }
 
+/** One-tap payment link for a user-approved purchase. Mock mode mirrors the
+ * services harness so local testbed flows work without a live key. */
+async function createPurchasePaymentLink(item: string, amountDollars: number, email?: string): Promise<string | null> {
+  const secret = stripeSecret()
+  if (!secret) return null
+  const unit = Math.round(amountDollars * 100)
+  try {
+    const res = await fetch('https://api.stripe.com/v1/checkout/sessions', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${secret}`, 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        mode: 'payment',
+        'line_items[0][price_data][currency]': 'usd',
+        'line_items[0][price_data][unit_amount]': String(unit),
+        'line_items[0][price_data][product_data][name]': item.slice(0, 120),
+        'line_items[0][quantity]': '1',
+        success_url: `${appBaseFromEnv()}/app?paid=1`,
+        cancel_url: `${appBaseFromEnv()}/app?paid=0`,
+        ...(email ? { customer_email: email } : {}),
+        'metadata[product]': item.slice(0, 100),
+      }),
+      signal: AbortSignal.timeout(10_000),
+    })
+    if (!res.ok) {
+      console.error('[purchase] stripe session failed', res.status, (await res.text().catch(() => '')).slice(0, 200))
+      return null
+    }
+    const data = (await res.json()) as { url?: string }
+    return data.url || null
+  } catch (err) {
+    console.error('[purchase] stripe session error', err)
+    return null
+  }
+}
+
+function appBaseFromEnv() {
+  return process.env.APP_BASE_URL?.trim() || 'https://hirealpha.chat'
+}
+
 function stripePriceFor(persona: Persona) {
   const key = persona === 'friend' ? 'STRIPE_PRICE_FRIEND' : persona === 'coworker' ? 'STRIPE_PRICE_COWORKER' : 'STRIPE_PRICE_COFOUNDER'
   return process.env[key]?.trim() || ''
@@ -11658,6 +11697,26 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
     const live = await livePayload(sql, body.phone, body.persona)
     if (!live.found || !live.hired || !live.userId) return json({ ok: false, error: 'not hired' }, 404)
     const tz = live.timezone || 'America/Los_Angeles'
+    // Purchase draft: mint a real Stripe Checkout link the user taps to pay.
+    // Ask-first by construction — nothing charges until THEY tap. Capped.
+    if (body.kind === 'purchase') {
+      const item = String(body.title || body.subject || 'Item').slice(0, 140)
+      const amount = Number(body.amount)
+      const url = String(body.url || '')
+      const cap = Number(process.env.PURCHASE_MAX_DOLLARS || 200)
+      if (!Number.isFinite(amount) || amount < 1) return json({ ok: false, error: 'Purchase needs a real price.' }, 400)
+      if (amount > cap) return json({ ok: false, error: `Above the ${cap}-dollar self-serve cap.` }, 400)
+      if (!/^https:\/\//i.test(url)) return json({ ok: false, error: 'Purchase needs a real product URL.' }, 400)
+      const link = await createPurchasePaymentLink(item, amount, live.email || undefined)
+      if (!link) return json({ ok: false, error: 'Payments are not configured on the server yet.' }, 503)
+      const pid = crypto.randomUUID()
+      await sql`
+        INSERT INTO hire_drafts (id, user_id, persona, kind, to_addr, subject, body, status)
+        VALUES (${pid}, ${live.userId}, ${body.persona}, 'purchase', ${url}, ${item},
+          ${JSON.stringify({ amount, paymentUrl: link })}, 'pending')
+      `
+      return json({ ok: true, id: pid, kind: 'purchase', paymentUrl: link, amount, item })
+    }
     const id = crypto.randomUUID()
     const kind = body.kind === 'event' || body.kind === 'reply' ? body.kind : 'email'
     let toAddr = String(body.to || '').slice(0, 200)
@@ -14431,9 +14490,17 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
 
   const artifactGet = path.match(/^\/api\/artifacts\/([\w-]+)$/)
   if (artifactGet && req.method === 'GET') {
+    // Builds-page rows carry email as the selector, so the signed-in browser's
+    // session cookie has to count too — query-only auth 401'd every open from
+    // the web app and the artifact screen crashed on the rejection.
+    const cookieSession = (req.headers.get('cookie') || '')
+      .split(';')
+      .map((v) => v.trim())
+      .find((v) => v.startsWith('hirealpha_session='))
+      ?.slice('hirealpha_session='.length)
     const { user, error } = await resolveAuthedUser(sql, {
       token: url.searchParams.get('t') || undefined,
-      session: url.searchParams.get('s') || undefined,
+      session: url.searchParams.get('s') || cookieSession || undefined,
       email: url.searchParams.get('email') || undefined,
     })
     if (error) return error
