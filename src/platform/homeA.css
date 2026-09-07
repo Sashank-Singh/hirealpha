@@ -728,6 +728,65 @@
   color: var(--fg, #f4f4f4);
 }
 
+/* ---- Your build: the wide launcher ---------------------------------------
+   One full-width rectangular row above the dock. Icon chip left, name and
+   one-line promise center, chevron right — reads as a destination, not a
+   fifth dock icon. */
+.hA-builds-btn {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 14px;
+  padding: 12px 14px;
+  border-radius: 17px;
+  background: linear-gradient(180deg, rgb(255 255 255 / 0.055), rgb(255 255 255 / 0.02));
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.08),
+    inset 0 0 0 1px rgb(255 255 255 / 0.04),
+    0 8px 22px rgb(0 0 0 / 0.18);
+  color: var(--fg, #f4f4f4);
+  text-decoration: none;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 0.15s ease;
+}
+.hA-builds-btn:active {
+  background: linear-gradient(180deg, rgb(255 255 255 / 0.085), rgb(255 255 255 / 0.03));
+}
+.hA-builds-btn .hA-builds-icon {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  flex-shrink: 0;
+  border-radius: 11px;
+  color: var(--fg, #f4f4f4);
+  background: radial-gradient(120% 130% at 0% 0%, rgb(244 196 108 / 0.2), rgb(244 196 108 / 0.05) 60%);
+}
+.hA-builds-btn .hA-builds-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  flex: 1;
+}
+.hA-builds-btn .hA-builds-copy strong {
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+.hA-builds-btn .hA-builds-copy small {
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--muted-fg, #9d9da5);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.hA-builds-btn .hA-builds-go {
+  flex-shrink: 0;
+  color: var(--muted-fg, #9d9da5);
+}
+
 /* ---- Launcher dock -------------------------------------------------------
    Four pill launchers on a glass ledge, iOS-dock energy: a soft shelf bar
    behind them, icon chips with per-app aura, tiny labels beneath. */

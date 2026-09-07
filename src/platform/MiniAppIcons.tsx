@@ -384,6 +384,16 @@ const ICONS: Record<string, ReactNode> = {
       <path d="M13 6l6 6-6 6" />
     </g>
   ),
+
+  builds: (
+    <g {...STROKE}>
+      {/* wrench over a window: software it built, in one place */}
+      <rect x="4.6" y="5.2" width="14.8" height="10.6" rx="2" />
+      <path d="M8.2 18.4h7.6" />
+      <path d="M9.4 8.8l1.9 1.9-1.9 1.9" />
+      <path d="M12.6 12.6h3" />
+    </g>
+  ),
 }
 
 const FALLBACK = (

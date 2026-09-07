@@ -199,11 +199,17 @@ export function HomeApp({ auth }: { auth: FeatureAuth }) {
       : fromTrend
         ? { logged: true, hours: fromTrend.hours, bedtime: undefined as string | undefined, wake: undefined as string | undefined }
         : { logged: false, hours: 0 }
-  const upcoming = remainingMeets(
+  // The Today section lists everything on the calendar for the day. The lead
+  // card's actions (Text / Talked / Snooze) need a person, so only person
+  // meetings feed that one.
+  const allMeets = remainingMeets(
     mergeMeets(
       raw?.upcoming || [],
       todayMeets.map((m) => ({ time: m.time, title: m.who || m.title })),
-    ).filter((e) => isPersonMeetSuggestion({ time: e.time, title: e.title, who: e.title })),
+    ),
+  )
+  const upcoming = allMeets.filter((e) =>
+    isPersonMeetSuggestion({ time: e.time, title: e.title, who: e.title }),
   )
   const peopleDue =
     raw?.peopleDue && raw.peopleDue.length > 0 ? raw.peopleDue : duePeopleFrom(people)
@@ -286,7 +292,7 @@ export function HomeApp({ auth }: { auth: FeatureAuth }) {
   // The action card already leads with the next meeting, and the Today list
   // repeats it a third time. The header counts what is left instead.
   const stateBits: string[] = []
-  if (upcoming.length) stateBits.push(`${upcoming.length} left today`)
+  if (allMeets.length) stateBits.push(`${allMeets.length} left today`)
   if (peopleDue.length) stateBits.push(`${peopleDue.length} ${peopleDue.length === 1 ? 'person' : 'people'} due`)
   if (mailCount) stateBits.push(`${mailCount} in mail`)
   const stateLine = stateBits.join('   ')
@@ -336,11 +342,11 @@ export function HomeApp({ auth }: { auth: FeatureAuth }) {
       )}
       {actMsg && <p className="mini__hint hA-msg">{actMsg}</p>}
 
-      {upcoming.length > 0 && (
+      {allMeets.length > 0 && (
         <section className="hA-block">
           <h3 className="hA-section-title">Today</h3>
           <ul className="hA-plain-list">
-            {upcoming.map((e, i) => (
+            {allMeets.map((e, i) => (
               <li key={`${e.time}-${e.title}-${i}`}>
                 <span className="hA-plain-time">{e.time}</span>
                 <span>{e.title}</span>
@@ -504,6 +510,25 @@ export function HomeApp({ auth }: { auth: FeatureAuth }) {
           <SpendDonut rows={snap?.spendByCategory || []} centerLabel="this week" />
         </section>
       )}
+
+      {/* One wide row before the dock: everything Alpha has built for the
+        * user lives here, and nothing else on this screen says it. */}
+      <Link className="hA-builds-btn" to={miniLink('builds')}>
+        <span className="hA-builds-icon" aria-hidden="true">
+          <MiniAppIcon kind="builds" />
+        </span>
+        <span className="hA-builds-copy">
+          <strong>Your build</strong>
+          <small>Every app Alpha built for you</small>
+        </span>
+        <span className="hA-builds-go" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="16" height="16" focusable="false">
+            <g fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M9.4 7l5 5-5 5" />
+            </g>
+          </svg>
+        </span>
+      </Link>
 
       <nav className="hA-dock" aria-label="Quick travel">
         {dock.map((d) => (

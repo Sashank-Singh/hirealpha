@@ -511,13 +511,16 @@ export async function buildDigestBriefing(
       preview?: string
       cardUrl?: string
       cardKind?: string
+      briefKind?: string
       brief?: string
       lastNight?: { logged?: boolean }
     }
     const text = data.text?.trim()
     if (!text) return null
-    // The server knows morning vs evening; the 9pm wrap opens the evening brief.
-    const cardKind = data.cardKind === 'pick_night' ? 'pick_night' : 'digest'
+    /* The server names the field briefKind (cardKind was the bot-side guess and
+     * never arrived, so the 9pm wrap kept opening the morning brief screen). */
+    const served = data.briefKind || data.cardKind
+    const cardKind = served === 'pick_night' ? 'pick_night' : 'digest'
     const sleepLogged = data.lastNight?.logged !== false
     return {
       text,

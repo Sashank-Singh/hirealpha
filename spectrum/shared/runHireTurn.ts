@@ -576,6 +576,9 @@ export async function runHireTurn(input: {
   userText: string
   /** Optional note appended to context, e.g. that an image was auto-logged. */
   inboundNote?: string
+  /** The bot already texted "on it" when this build ask arrived, so the final
+   * reply must deliver the result, not more status talk. */
+  buildAckSent?: boolean
 }): Promise<{
   reply: string
   bubbles: string[]
@@ -1215,21 +1218,24 @@ export async function runHireTurn(input: {
    * in it must cost the build, not the whole turn — the outer catch would turn
    * a failed build into the canned "Got tripped up" reply. */
   if (miniApp?.kind === 'artifact') {
+    const ackNote = input.buildAckSent
+      ? 'You already texted that you are building it, so do NOT say "working on it", "still on it", or promise any arrival time. Deliver the result or the failure now, in one or two lines.\n\n'
+      : ''
     try {
       const built = await autoRunWorkshop(input.senderId, agent.id, input.userText)
       if (built?.logged && built.url) {
         extras.push(
-          `A FRESH build was deployed just now — even if something similar existed before, this is a new one; never say it was already built. Title: "${built.title}". Send them this exact link in your reply so they can open it: ${built.url}. Tell them to try it, then say "keep it" (stays forever) or "toss it" (deleted). Unkept builds auto-delete in 7 days. Do not restate the code.`,
+          `${ackNote}A FRESH build was deployed just now — even if something similar existed before, this is a new one; never say it was already built. Title: "${built.title}". Send them this exact link in your reply so they can open it: ${built.url}. Tell them to try it, then say "keep it" (stays forever) or "toss it" (deleted). Unkept builds auto-delete in 7 days. Do not restate the code. Never promise an arrival time.`,
         )
       } else {
         extras.push(
-          `The build failed — ${built?.error || 'unknown error'}. In one line, say honestly that the build did not work and include the exact error in parentheses so they can see why, then ask what they wanted it to do. Never claim something was already built, and never tell them to build it themselves from a card.`,
+          `${ackNote}The build failed — ${built?.error || 'unknown error'}. Open your reply with the admission that the build did not finish (for example "That didn't finish, sorry"), include the exact error in parentheses so they can see why, then ask what they wanted it to do. Do NOT say "working on it" or "I'll spin that up", and never tell them to build it themselves from a card.`,
         )
       }
     } catch (err) {
       console.warn('[turn] workshop build crashed', err)
       extras.push(
-        'The build failed — the builder hit an unexpected error. In one line, say honestly that the build did not work and ask what they wanted it to do. Never claim something was already built.',
+        `${ackNote}The build failed — the builder hit an unexpected error. Open your reply with the admission that the build did not finish, then ask what they wanted it to do. Do NOT say "working on it" or promise a retry time.`,
       )
     }
   }

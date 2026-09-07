@@ -599,7 +599,8 @@ await loadManifest()
 // Daily promo upgrade check: upgrade $5/mo → $19/mo after 60 days
 if (sql) {
   const { upgradePromoSubscriptions, armTrialEndingLoops, prewarmJudgeCaches,
-    armBirthdayReminders, armStreakEndedLoops, armOverworkCheckLoops, armQuietCheckLoops, armSaveContactLoops, armInboxWatchtower } = await import('./hire-api')
+    armBirthdayReminders, armStreakEndedLoops, armOverworkCheckLoops, armQuietCheckLoops, armSaveContactLoops, armInboxWatchtower,
+    armCalendarDefense } = await import('./hire-api')
   setInterval(() => upgradePromoSubscriptions(sql!), 24 * 60 * 60 * 1000)
   // Run once on boot to catch any overdue upgrades
   upgradePromoSubscriptions(sql).catch((e) => console.error('[billing] initial promo check failed', e))
@@ -634,7 +635,24 @@ if (sql) {
   const halfHour = 30 * 60 * 1000
   setInterval(() => armInboxWatchtower(sql!).catch((e) => console.error('[loops] watchtower arm failed', e)), halfHour)
   armInboxWatchtower(sql).catch((e) => console.error('[loops] initial watchtower arm failed', e))
+  // Calendar defense: daily scan of tomorrow's calendar for connected users —
+  // overbooked days and back-to-backs earn a heads-up text. Was exported but
+  // never scheduled; without this it never armed for anyone.
+  setInterval(() => armCalendarDefense(sql!).catch((e) => console.error('[loops] calendar defense arm failed', e)), 24 * 60 * 60 * 1000)
+  armCalendarDefense(sql).catch((e) => console.error('[loops] initial calendar defense arm failed', e))
 }
+
+/* A stray async rejection outside the request path (a connector SDK callback,
+ * a timer arm) must log, not kill the process — Bun exits on unhandled
+ * rejections, and that exit looked like the crash-loop the web container went
+ * through on 2026-09-07. Handlers stay out of the request path; each route
+ * already catches its own errors. */
+process.on('unhandledRejection', (err) => {
+  console.error('[web] unhandled rejection', err)
+})
+process.on('uncaughtException', (err) => {
+  console.error('[web] uncaught exception', err)
+})
 
 Bun.serve({
   port: PORT,
@@ -644,6 +662,18 @@ Bun.serve({
     const url = new URL(req.url)
     if (url.pathname === '/healthz') {
       return new Response('ok', { headers: { 'Content-Type': 'text/plain' } })
+    }
+    // Readiness: a real DB roundtrip, not liveness theater. 503 tells Coolify
+    // (and me, at 2am) the process is up but cannot serve users.
+    if (url.pathname === '/readyz') {
+      if (!sql) return json({ ok: false, checks: { db: false } }, 503)
+      try {
+        await sql`SELECT 1`
+        return json({ ok: true, checks: { db: true } })
+      } catch (err) {
+        console.error('[web] readyz db check failed', err)
+        return json({ ok: false, checks: { db: false } }, 503)
+      }
     }
     if (url.pathname === '/api/waitlist') return handleWaitlist(req, sql)
     if (url.pathname === '/api/public/info') return json(PUBLIC_INFO)

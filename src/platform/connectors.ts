@@ -29,6 +29,11 @@ export type ConnectorId =
   | 'maps'
   | 'spotify'
   | 'youtube'
+  | 'twitch'
+  | 'vimeo'
+  | 'loom'
+  | 'zoom'
+  | 'meet'
   | 'stripe'
   | 'plaid'
   | 'quickbooks'
@@ -36,7 +41,14 @@ export type ConnectorId =
 export interface ConnectorDef {
   id: ConnectorId
   name: string
-  category: 'Communication' | 'Productivity' | 'Development' | 'CRM & Sales' | 'Finance' | 'Media & Lifestyle'
+  category:
+    | 'Communication'
+    | 'Productivity'
+    | 'Video & Meetings'
+    | 'Development'
+    | 'CRM & Sales'
+    | 'Finance'
+    | 'Media & Lifestyle'
   blurb: string
   /** Tool id prefixes / exact tools that map to this connector */
   toolMatchers: string[]
@@ -257,19 +269,56 @@ export const CONNECTOR_CATALOG: ConnectorDef[] = [
     toolMatchers: ['spotify'],
   },
   {
-    id: 'youtube',
-    name: 'YouTube',
-    category: 'Media & Lifestyle',
-    blurb: 'Search video transcripts and saved tutorials.',
-    toolMatchers: ['youtube'],
-  },
-  {
     id: 'maps',
     name: 'Google Maps',
     category: 'Media & Lifestyle',
     blurb: 'Location search, commute times, and place discovery.',
     toolMatchers: ['maps'],
     noAuth: true,
+  },
+
+  // Video & Meetings
+  {
+    id: 'youtube',
+    name: 'YouTube',
+    category: 'Video & Meetings',
+    blurb: 'Search video transcripts and saved tutorials.',
+    toolMatchers: ['youtube'],
+  },
+  {
+    id: 'twitch',
+    name: 'Twitch',
+    category: 'Video & Meetings',
+    blurb: 'Live channels, clips, and stream schedules.',
+    toolMatchers: ['twitch'],
+  },
+  {
+    id: 'vimeo',
+    name: 'Vimeo',
+    category: 'Video & Meetings',
+    blurb: 'Showcase videos, reviews, and embeds.',
+    toolMatchers: ['vimeo'],
+  },
+  {
+    id: 'loom',
+    name: 'Loom',
+    category: 'Video & Meetings',
+    blurb: 'Async video updates and walkthroughs.',
+    toolMatchers: ['loom'],
+  },
+  {
+    id: 'zoom',
+    name: 'Zoom',
+    category: 'Video & Meetings',
+    blurb: 'Start or join calls and pull meeting links.',
+    toolMatchers: ['zoom'],
+  },
+  {
+    id: 'meet',
+    name: 'Google Meet',
+    category: 'Video & Meetings',
+    blurb: 'Instant rooms and calendar-linked calls.',
+    toolMatchers: ['meet'],
   },
 ]
 
@@ -359,12 +408,47 @@ export const HIRE_CONTEXT_FIELDS: Record<AgentId, ContextField[]> = {
   ],
 }
 
+/**
+ * Connectors with a real read implementation behind them (native Google OAuth,
+ * Composio recipes in deploy/composioPlugins.ts, or the noAuth OSM maps path).
+ * Everything else in the catalog can start an OAuth dance but the bot would
+ * have nothing to read after — a tester-visible failure — so the UI only
+ * offers this set. Mirrors deploy/composioPlugins.ts COMPOSIO_READ keys plus
+ * the native google + maps paths; plaid is in COMPOSIO_READ but unprovisioned
+ * end to end.
+ */
+export const LIVE_CONNECTOR_IDS: ReadonlySet<ConnectorId> = new Set([
+  'gmail',
+  'calendar',
+  'drive',
+  'slack',
+  'linear',
+  'notion',
+  'github',
+  'figma',
+  'spotify',
+  'stripe',
+  'maps',
+  'youtube',
+  'twitch',
+  'vimeo',
+  'loom',
+  'zoom',
+  'meet',
+])
+
+export function isLiveConnector(id: ConnectorId): boolean {
+  return LIVE_CONNECTOR_IDS.has(id) && id !== 'plaid'
+}
+
+/** Catalog subset with real reads, pre-narrowed to what a hire may use. */
+export function liveCatalog(): ConnectorDef[] {
+  return CONNECTOR_CATALOG.filter((c) => isLiveConnector(c.id))
+}
+
 export function connectorsForHire(agentId: AgentId): ConnectorDef[] {
   const executable = new Set(SKILLS[agentId].executable)
-  return CONNECTOR_CATALOG.filter((c) =>
-    // Plaid/bank reads are not provisioned end to end yet; keep the tile from
-    // offering a link that cannot complete. No coming-soon copy — just quiet.
-    c.id !== 'plaid' &&
-    c.toolMatchers.some((matcher) => executable.has(matcher) || c.noAuth),
+  return CONNECTOR_CATALOG.filter(
+    (c) => isLiveConnector(c.id) && (c.toolMatchers.some((matcher) => executable.has(matcher)) || c.noAuth),
   )
 }

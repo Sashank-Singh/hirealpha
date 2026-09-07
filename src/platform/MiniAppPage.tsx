@@ -384,6 +384,17 @@ export function MiniAppPage() {
       return
     }
     let cancelled = false
+    // Local mirror: a finished wizard must never reappear just because the
+    // status read failed or the done-POST raced a stale token. The server row
+    // stays the source of truth for everyone else.
+    try {
+      if (localStorage.getItem('ha_setup_done') === 'friend') {
+        setSetupDone(true)
+        return
+      }
+    } catch {
+      /* private mode */
+    }
     apiSetupStatus({ persona: 'friend', email: email || undefined, token: token || undefined })
       .then((s) => {
         if (!cancelled) setSetupDone(!!s.setupDone)
@@ -615,6 +626,16 @@ export function MiniAppPage() {
         {authed && !expired && !settingsOpen && isDigest && !loading && data?.error && (
           <div className="mini__body">
             <p className="mini__blurb">{data.error}</p>
+            <button
+              className="mini__btn"
+              type="button"
+              onClick={() => {
+                setData(null)
+                void refresh({ force: true })
+              }}
+            >
+              Try again
+            </button>
           </div>
         )}
 

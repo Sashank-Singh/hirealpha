@@ -272,6 +272,24 @@
   border-top: 1px solid #333336;
 }
 
+/* Category label inside the scroll list — a kicker line, not a section break:
+ * the native-list rhythm stays, the group just gets a name. */
+.ss-group-label {
+  padding: 12px 20px 4px;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #8f8f97;
+}
+.ss-row + .ss-row .ss-group-label {
+  border-top: 1px solid #333336;
+  padding-top: 14px;
+}
+.ss-row:has(> .ss-group-label) + .ss-row {
+  border-top: 0;
+}
+
 .ss-cell {
   display: flex;
   align-items: center;
@@ -393,6 +411,14 @@
 
 .ss-btn-danger:hover {
   color: #fca5a5;
+}
+
+/* Vault run note: free-form server text under a login row. */
+.ss-note {
+  font-size: 13px;
+  color: #9d9da5;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
 }
 
 .ss-link {

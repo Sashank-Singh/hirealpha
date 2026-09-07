@@ -137,4 +137,29 @@ export const COMPOSIO_READ: Record<
     args: () => ({}),
     empty: 'Plaid / Bank is connected but nothing came back. Say that. Do not invent balances.',
   },
+  youtube: {
+    slugs: ['YOUTUBE_SEARCH', 'YOUTUBE_SEARCH_YOUTUBE'],
+    args: (message) => ({ query: message.slice(0, 60), q: message.slice(0, 60), maxResults: 6 }),
+    empty: 'YouTube is connected but nothing came back. Say that. Do not invent a video.',
+  },
+  twitch: {
+    slugs: ['TWITCH_SEARCH_CATEGORIES', 'TWITCH_GET_TOP_GAMES', 'TWITCH_GET_STREAMS_BY_USER'],
+    args: (message) => ({ query: message.slice(0, 60) }),
+    empty: 'Twitch is connected but nothing came back. Say that. Do not invent a stream.',
+  },
+  vimeo: {
+    slugs: ['VIMEO_SEARCH_VIDEOS', 'VIMEO_GET_USER_VIDEOS'],
+    args: (message) => ({ query: message.slice(0, 60), per_page: 6 }),
+    empty: 'Vimeo is connected but nothing came back. Say that. Do not invent a video.',
+  },
+  loom: {
+    slugs: ['LOOM_GET_LIST_OF_LOOM_VIDEOS_IN_A_WORKSPACE_OR_FOLDER', 'LOOM_FETCH_LOOM_VIDEO_DETAILS'],
+    args: () => ({}),
+    empty: 'Loom is connected but nothing came back. Say that. Do not invent a video.',
+  },
+  zoom: {
+    slugs: ['ZOOM_LIST_MEETINGS', 'ZOOM_GET_MEETING', 'ZOOM_LIST_USER_MEETINGS'],
+    args: () => ({ type: 'scheduled' }),
+    empty: 'Zoom is connected but nothing came back. Say that. Do not invent a meeting.',
+  },
 }

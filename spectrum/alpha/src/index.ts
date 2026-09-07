@@ -4,7 +4,7 @@ import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { defaultReplyCard, getAgent, runHireTurn, runMemoryMaintenance, sanitizeOutbound } from '../../shared/runHireTurn'
 import { extractMessageText, fetchLiveProfile, handleInboundPhoto } from '../../shared/liveContext'
-import { mintMiniAppCard } from '../../shared/miniApps'
+import { mintMiniAppCard, PATTERNS } from '../../shared/miniApps'
 import { claimInbound } from '../../shared/inboundGuard'
 import { onceAsync } from '../../shared/delivery'
 import { startReminderScheduler } from '../../shared/reminders'
@@ -322,7 +322,24 @@ for await (const [space, message] of app.messages) {
     await message.react('👍').catch(() => undefined)
     await message.read().catch(() => undefined)
     let sentAnything = false
-    const getTurn = onceAsync(() => runHireTurn({ agentId, dataDir, senderId, userText }))
+    /* A build ask takes minutes of planner + sandbox inside the turn. Silence
+     * for that long read as "is it even doing anything" (the 10:45pm Lamborghini
+     * thread: ETA, What is happening, then an apology at 11:19). An instant
+     * one-liner when the ask IS a build ask buys the turn its minutes. */
+    let buildAckSent = false
+    if (agentId === 'friend' && PATTERNS.artifact?.test(userText)) {
+      const ack = 'On it. Builds take a few minutes — I will send the link here the second it is live.'
+      try {
+        await message.reply(ack)
+        sentAnything = true
+        buildAckSent = true
+      } catch (err) {
+        console.warn(`[${agent.id}] build ack send failed`, err)
+      }
+    }
+    const getTurn = onceAsync(() =>
+      runHireTurn({ agentId, dataDir, senderId, userText, buildAckSent }),
+    )
     await respondWithRetry(space, () => sentAnything, async () => {
       const t0 = Date.now()
       const { bubbles, source, authoritative, reply, card, contactCardFirst } = await getTurn()

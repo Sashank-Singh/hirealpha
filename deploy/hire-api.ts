@@ -30,6 +30,8 @@ import {
 import { COMPOSIO_READ, composioLooksFailed, formatComposioData } from './composioPlugins'
 import { ensureBrowserVaultSchema, handleVaultApi } from './browserVault'
 import { runPortalTask } from './browserRunner'
+import { ensureUserPaymentsSchema, handleUserPaymentsApi, noteSetupCompleted } from './userPayments'
+import { ensureBrowserJobsSchema } from './browserJobs'
 import { parseChatExport, scanSubscriptions } from '../spectrum/shared/smartFeatures'
 import {
   isValidTimeZone,
@@ -132,6 +134,11 @@ export const UI_TO_COMPOSIO: Record<string, string> = {
   maps: 'googlemaps',
   spotify: 'spotify',
   youtube: 'youtube',
+  twitch: 'twitch',
+  vimeo: 'vimeo',
+  loom: 'loom',
+  zoom: 'zoom',
+  meet: 'googlemeet',
   stripe: 'stripe',
   plaid: 'plaid',
   quickbooks: 'quickbooks',
@@ -1709,6 +1716,12 @@ async function handleBillingWebhook(req: Request, sql: SQL) {
   const obj = event.data?.object || {}
   const type = event.type || ''
   if (type === 'checkout.session.completed') {
+    // Wallet-connect sessions (mode=setup, purpose=user_wallet) carry no
+    // subscription — log and return before the subscription machinery.
+    if (String(obj['metadata']?.purpose || '') === 'user_wallet') {
+      await noteSetupCompleted({ data: { object: obj as Record<string, unknown> } })
+      return new Response('ok')
+    }
     // client_reference_id is `${userId}:${persona}` set at checkout creation.
     const ref = String(obj['client_reference_id'] || '')
     const [userId, persona] = ref.split(':')
@@ -2812,6 +2825,8 @@ export async function ensureHireSchema(sql: SQL) {
   }
   // Credential vault + browser-approval gates (per-user, per-portal, encrypted).
   await ensureBrowserVaultSchema(sql)
+  await ensureUserPaymentsSchema(sql)
+  await ensureBrowserJobsSchema(sql)
 }
 
 /**
@@ -3434,14 +3449,31 @@ function nutritionModelConfig() {
   return { apiKey, baseUrl, textModel, visionModel }
 }
 
-/** Detect the image MIME type from base64 magic bytes (JPEG/PNG/WebP/GIF). */
+/** Detect the image MIME type from base64 magic bytes (JPEG/PNG/WebP/GIF).
+ * HEIC (iMessage's native photo format) has no ftyp here because it is not
+ * decodable by the vision model anyway — callers treat unknown bytes as a
+ * failed photo and fall back to the description path. */
 function imageMimeFromBase64(base64: string): string {
   const head = base64.slice(0, 32)
   if (head.startsWith('/9j/')) return 'image/jpeg'
   if (head.startsWith('iVBORw0KGgo')) return 'image/png'
   if (head.startsWith('UklGR')) return 'image/webp'
   if (head.startsWith('R0lGOD')) return 'image/gif'
-  return 'image/jpeg'
+  // ISO BMFF containers (HEIC/HEIF — iMessage's native photo format) carry a
+  // "ftyp" box at byte 4. The vision model cannot decode these, so name them
+  // instead of mislabeling as jpeg.
+  try {
+    const b = Buffer.from(base64.slice(0, 24), 'base64')
+    if (b.length >= 12 && b.toString('latin1', 4, 8) === 'ftyp') return 'image/heic'
+  } catch {
+    /* fall through */
+  }
+  return 'image/unknown'
+}
+
+/** True when the bytes are a format the vision model can actually decode. */
+function isDecodableImage(mime: string): boolean {
+  return mime !== 'image/unknown'
 }
 
 /** Macros out of a reply no parser could rescue. Null when there is no calorie number to stand on. */
@@ -3474,6 +3506,14 @@ async function estimateNutrition(
   const cfg = nutritionModelConfig()
   if (!cfg) return { ok: false, needsKey: true }
   if (!description.trim() && !imageBase64) return { ok: false, error: 'Describe or photograph the meal first.' }
+  // iMessage photos arrive as HEIC most of the time; the vision model cannot
+  // decode them and "answers" without the image, which reads as 0/0/0/0. Don't
+  // spend a model call pretending: fall back to the description, or say the
+  // photo needs a caption.
+  const decodable = !imageBase64 || isDecodableImage(imageMimeFromBase64(imageBase64))
+  if (imageBase64 && !decodable && !description.trim()) {
+    return { ok: false, error: 'Photo needs a caption — tell me what it was.' }
+  }
 
   const system =
     'You are a nutrition estimator. Estimate the macronutrients of the described meal. ' +
@@ -3496,6 +3536,11 @@ async function estimateNutrition(
         { type: 'image_url', image_url: { url: `data:${imageMimeFromBase64(imageBase64)};base64,${imageBase64}` } },
       ]
     : [{ type: 'text', text: description.trim() }]
+  // Undecodable bytes never go to the model — the description carries the
+  // estimate instead (route-level fallback below handles the no-caption case).
+  const partsForModel = decodable
+    ? userContent
+    : [{ type: 'text', text: description.trim() || 'Estimate the macros of this meal.' }]
 
   /* One parse is not a verdict: the vision model flakes intermittently, and a
    * named meal can go through the text model alone. Each attempt is a fresh
@@ -3538,15 +3583,23 @@ async function estimateNutrition(
     }
   }
 
-  const model = imageBase64 ? cfg.visionModel : cfg.textModel
-  let hit = await attempt(model, userContent)
+  const model = imageBase64 && decodable ? cfg.visionModel : cfg.textModel
+  let hit = await attempt(model, partsForModel)
   if (!hit && imageBase64 && description.trim()) {
     // A failed photo retries through the text model: named food parses there.
     hit = await attempt(cfg.textModel, [{ type: 'text', text: description.trim() }])
   }
-  if (!hit) hit = await attempt(model, userContent)
+  if (!hit) hit = await attempt(model, partsForModel)
   if (!hit) {
     return { ok: false, error: 'Could not read the estimate. Try naming the food and the portion.' }
+  }
+  // A photo the model could not actually see comes back as a confident all-zero
+  // estimate (it "answers" without the image — decode failures look identical
+  // to it). An empty plate is not a real photo outcome: treat a zero-everything
+  // photo estimate as a failed one so the log says "estimate pending" instead
+  // of recording 0/0/0/0 as fact.
+  if (imageBase64 && decodable && !hit.macros.calories && !hit.macros.protein && !hit.macros.carbs && !hit.macros.fat) {
+    return { ok: false, error: 'Vision model could not read the photo.' }
   }
 
   // A chicken meal is never 0g protein. When the text model produced a parseable
@@ -3714,9 +3767,16 @@ function composioClient(): Composio | null {
   return new Composio({ allowTracking: false })
 }
 
-async function composioConnected(userId: string): Promise<string[]> {
+/** Resolves a Composio tool run when the user has more than one ACTIVE
+ * connected account on a toolkit (a Gmail re-auth leaves the old one behind):
+ * the SDK refuses to guess and every execute throws. Picking the most recent
+ * ACTIVE account matches what the user just re-authorized. */
+async function composioResolveAccountId(
+  userId: string,
+  toolkit: string,
+): Promise<string | null> {
   const composio = composioClient()
-  if (!composio) return []
+  if (!composio) return null
   try {
     const data = await Promise.race([
       composio.connectedAccounts.list({
@@ -3726,13 +3786,49 @@ async function composioConnected(userId: string): Promise<string[]> {
       }),
       new Promise<never>((_, reject) => setTimeout(() => reject(new Error('composio list timeout')), 4000)),
     ])
+    const items = (data.items || []) as Array<{
+      id?: string
+      isDisabled?: boolean
+      toolkit?: { slug?: string }
+      createdAt?: string | null
+    }>
+    const forToolkit = items
+      .filter((i) => !i.isDisabled && (i.toolkit?.slug || '').toLowerCase() === toolkit.toLowerCase() && !!i.id)
+      .sort((a, b) => Date.parse(b.createdAt || '') - Date.parse(a.createdAt || ''))
+    return forToolkit[0]?.id || null
+  } catch {
+    return null
+  }
+}
+
+async function composioConnected(userId: string): Promise<string[]> {
+  const composio = composioClient()
+  if (!composio) return []
+  const read = async () => {
+    const data = await Promise.race([
+      composio.connectedAccounts.list({
+        userIds: [userId],
+        statuses: ['ACTIVE'],
+        limit: 50,
+      }),
+      new Promise<never>((_, reject) => setTimeout(() => reject(new Error('composio list timeout')), 8000)),
+    ])
     return (data.items || [])
       .filter((i) => !i.isDisabled)
       .map((i) => (i.toolkit?.slug || '').toLowerCase())
       .filter(Boolean)
-  } catch (err) {
-    console.warn('[composio] connected list failed', err)
-    return []
+  }
+  try {
+    return await read()
+  } catch {
+    // One retry: a Composio latency spike answered as [] and Settings flipped
+    // every connected tool to "Connect" for that page load.
+    try {
+      return await read()
+    } catch (err) {
+      console.warn('[composio] connected list failed', err)
+      return []
+    }
   }
 }
 
@@ -3824,7 +3920,14 @@ async function composioAuthorize(sql: SQL, userId: string, toolkit: string, call
   if (!authConfigId) return null
   const composio = composioClient()
   if (!composio) return null
-  const request = await composio.connectedAccounts.link(userId, authConfigId, { callbackUrl })
+  // Reconnecting the same toolkit after a second OAuth (an email change, a
+  // re-auth) leaves more than one connected account in the config — Composio
+  // refuses further links unless this is opt-in, and the refusal read as a
+  // hard authorize failure in Settings.
+  const request = await composio.connectedAccounts.link(userId, authConfigId, {
+    callbackUrl,
+    allowMultiple: true,
+  })
   return request.redirectUrl || null
 }
 
@@ -4020,15 +4123,40 @@ function formatEmailOverview(data: unknown): string {
  * into prose for the model; the mail rows need the structure kept so a message
  * id survives to the client.
  */
+/** Maps the tool slugs we execute to their Composio toolkit slug, used to pin
+ * a connected account when a user has more than one on the same toolkit. */
+function toolkitForToolSlug(tool: string): string {
+  const m = /^(GMAIL|GOOGLECALENDAR|GOOGLEDRIVE|SLACK|LINEAR|NOTION|GITHUB|AIRTABLE|SERPAPI|FIRECRAWL|TWILIO)_/.exec(tool)
+  if (!m) return ''
+  const name = m[1]
+  if (name === 'GOOGLECALENDAR') return 'googlecalendar'
+  if (name === 'GOOGLEDRIVE') return 'googledrive'
+  return name.toLowerCase()
+}
+
 async function composioExecuteData(userId: string, tool: string, args: Record<string, unknown>): Promise<unknown> {
   const composio = composioClient()
   if (!composio) return null
-  try {
-    const res = await composio.tools.execute(tool, {
+  const run = (connectedAccountId?: string) =>
+    composio.tools.execute(tool, {
       userId,
       arguments: args,
       dangerouslySkipVersionCheck: true,
+      ...(connectedAccountId ? { connectedAccountId } : {}),
     })
+  try {
+    let res: Awaited<ReturnType<typeof run>>
+    try {
+      res = await run()
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      // Two ACTIVE accounts on one toolkit make plain execute throw; pin the
+      // newest account and retry once rather than dropping the read.
+      if (!/multiple connected accounts/i.test(msg)) throw err
+      const accountId = await composioResolveAccountId(userId, toolkitForToolSlug(tool))
+      if (!accountId) throw err
+      res = await run(accountId)
+    }
     if (!res?.successful || res.error) {
       console.warn(`[composio] ${tool} failed`, res?.error || 'unknown error')
       return null
@@ -4043,12 +4171,26 @@ async function composioExecuteData(userId: string, tool: string, args: Record<st
 async function composioExecute(userId: string, tool: string, args: Record<string, unknown>) {
   const composio = composioClient()
   if (!composio) return null
-  try {
-    const res = await composio.tools.execute(tool, {
+  const run = (connectedAccountId?: string) =>
+    composio.tools.execute(tool, {
       userId,
       arguments: args,
       dangerouslySkipVersionCheck: true,
+      ...(connectedAccountId ? { connectedAccountId } : {}),
     })
+  try {
+    let res: Awaited<ReturnType<typeof run>>
+    try {
+      res = await run()
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      // Same pin-and-retry as composioExecuteData: an extra connected account
+      // must not turn every tool call into a failure.
+      if (!/multiple connected accounts/i.test(msg)) throw err
+      const accountId = await composioResolveAccountId(userId, toolkitForToolSlug(tool))
+      if (!accountId) throw err
+      res = await run(accountId)
+    }
     if (!res?.successful || res.error) {
       return `Tool ${tool} failed: ${res.error || 'unknown error'}`
     }
@@ -4101,6 +4243,21 @@ function wantsFigma(text: string) {
 }
 function wantsSpotify(text: string) {
   return /\b(spotify|playlist|now playing|what.?s playing)\b/i.test(text)
+}
+function wantsTwitch(text: string) {
+  return /\b(twitch|stream(er|ing)?|live channel)\b/i.test(text)
+}
+function wantsVimeo(text: string) {
+  return /\bvimeo\b/i.test(text)
+}
+function wantsLoom(text: string) {
+  return /\bloom\b/i.test(text)
+}
+function wantsZoom(text: string) {
+  return /\b(zoom|zoom meeting|zoom link)\b/i.test(text)
+}
+function wantsMeet(text: string) {
+  return /\b(google meet|gmeet|meet link|meet room)\b/i.test(text)
 }
 function wantsStripe(text: string) {
   return /\b(stripe|revenue|mrr|arr|charges?|invoices?)\b/i.test(text)
@@ -4825,6 +4982,31 @@ export async function runToolsForMessage(
     results.push(await runComposioPlugin(input.userId, 'spotify', input.message))
   } else {
     askedAllowed('spotify', wantsSpotify(input.message))
+  }
+  if (wantsTwitch(input.message) && can('twitch')) {
+    results.push(await runComposioPlugin(input.userId, 'twitch', input.message))
+  } else {
+    askedAllowed('twitch', wantsTwitch(input.message))
+  }
+  if (wantsVimeo(input.message) && can('vimeo')) {
+    results.push(await runComposioPlugin(input.userId, 'vimeo', input.message))
+  } else {
+    askedAllowed('vimeo', wantsVimeo(input.message))
+  }
+  if (wantsLoom(input.message) && can('loom')) {
+    results.push(await runComposioPlugin(input.userId, 'loom', input.message))
+  } else {
+    askedAllowed('loom', wantsLoom(input.message))
+  }
+  if (wantsZoom(input.message) && can('zoom')) {
+    results.push(await runComposioPlugin(input.userId, 'zoom', input.message))
+  } else {
+    askedAllowed('zoom', wantsZoom(input.message))
+  }
+  if (wantsMeet(input.message) && can('meet')) {
+    results.push(await runComposioPlugin(input.userId, 'meet', input.message))
+  } else {
+    askedAllowed('meet', wantsMeet(input.message))
   }
   if (wantsStripe(input.message) && can('stripe')) {
     results.push(await runComposioPlugin(input.userId, 'stripe', input.message))
@@ -9839,7 +10021,12 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
   if ((explicitSession && !ses) || (token && !mini) || (!ses && !mini)) return json({ error: 'Sign in required', code: 'session_invalid' }, 401)
   const origin = req.headers.get('origin')
   if (origin && !['GET', 'HEAD'].includes(req.method) && origin !== new URL(appBase(req)).origin) {
-    return json({ error: 'Origin not allowed' }, 403)
+    // The dev proxy (vite on localhost) forwards the browser's Origin header
+    // verbatim, so every POST from the local dev server 403'd here even with a
+    // valid session. Localhost origins are safe to allow: the session cookie is
+    // host-scoped to the real domain, so a localhost page can never carry it.
+    const localhostOrigin = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)
+    if (!localhostOrigin) return json({ error: 'Origin not allowed' }, 403)
   }
   if (!sql) return json({ error: 'Database unavailable' }, 503)
   const miniUser = mini ? await getUserByPhone(sql, mini.phone) : null
@@ -9992,6 +10179,21 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
     launch: runPortalTask,
   })
   if (vaultRes) return vaultRes
+
+  // Per-user wallet connect + spend approvals (user's own card; the operator
+  // never funds purchases). Same resolveUser shape as the vault mount.
+  const paymentsRes = await handleUserPaymentsApi(req, sql, {
+    resolveUser: async (db, r) => {
+      const q = new URL(r.url).searchParams
+      const { user } = await resolveAuthedUser(db, {
+        token: q.get('t') || undefined,
+        session: q.get('s') || undefined,
+        email: q.get('email') || undefined,
+      })
+      return user ? { id: user.id } : null
+    },
+  })
+  if (paymentsRes) return paymentsRes
 
   if (path === '/api/connectors/status' && req.method === 'GET') {
     return json({
@@ -10558,6 +10760,22 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
         scopes = excluded.scopes,
         updated_at = now()
     `
+    // Proactive defaults-on: the moment calendar/mail is connected, arm the
+    // morning brief (idempotent) and the calendar-defense scan so the bot
+    // texts first without waiting for an inbound. Never blocks the redirect.
+    void (async () => {
+      try {
+        const cu = (await sql`
+          SELECT id, timezone FROM hire_users WHERE id = ${st.user_id} LIMIT 1
+        `) as Array<{ id: string; timezone: string | null }>
+        if (cu[0]) {
+          await armMorningBrief(sql, { id: cu[0].id, timezone: cu[0].timezone }, 'friend')
+          await armCalendarDefense(sql)
+        }
+      } catch (err) {
+        console.warn('[oauth] proactive arm after connect failed', err)
+      }
+    })()
     return Response.redirect(st.redirect_after || `${appBase(req)}/app`, 302)
   }
 
@@ -12103,7 +12321,27 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
     if (error) return error
     const fields = await loadContext(sql, user!.id, persona)
     const setup = parseSetupField(fields.setup)
-    return json({ setup, setupDone: fields.setup_done === true || fields.setup_done === 'true' })
+    let setupDone = fields.setup_done === true || fields.setup_done === 'true'
+    // Auto-detect: the wizard's per-step writes land in their own tables even
+    // when the final done-POST is lost (stale token, closed tab). When the
+    // account carries nutrition goals + mini prefs + a person + a saved place,
+    // the wizard ran — report done instead of re-trapping the user in it.
+    if (!setupDone && persona === 'friend') {
+      try {
+        const proof = (await sql`
+          SELECT
+            (SELECT 1 FROM hire_nutrition_goals WHERE user_id = ${user!.id} LIMIT 1) AS goals,
+            (SELECT 1 FROM hire_mini_prefs WHERE user_id = ${user!.id} LIMIT 1) AS prefs,
+            (SELECT 1 FROM hire_network WHERE user_id = ${user!.id} LIMIT 1) AS people,
+            (SELECT 1 FROM hire_user_locations WHERE user_id = ${user!.id} AND kind IN ('home','work') LIMIT 1) AS places
+        `) as Array<{ goals?: unknown; prefs?: unknown; people?: unknown; places?: unknown }>
+        const p = proof[0]
+        if (p && p.goals && p.prefs && p.people && p.places) setupDone = true
+      } catch {
+        /* status stays not-done; the wizard is the safe default */
+      }
+    }
+    return json({ setup, setupDone })
   }
 
   if (path === '/api/setup' && req.method === 'POST') {
