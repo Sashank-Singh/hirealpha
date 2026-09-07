@@ -511,7 +511,18 @@ export function SkinBApp({ auth }: { auth: FeatureAuth }) {
         </section>
       )}
 
-      {/* One wide row before the dock: everything Alpha has built for the
+      <nav className="hb-dock" aria-label="Quick travel">
+        {dock.map((d) => (
+          <Link key={d.label} className="hb-dock-btn" to={miniLink(d.kind)}>
+            <span className="hb-dock-icon" aria-hidden="true">
+              <MiniAppIcon kind={d.iconKind} />
+            </span>
+            <span>{d.label}</span>
+          </Link>
+        ))}
+      </nav>
+
+      {/* One wide row under the dock:  everything Alpha has built for the
         * user lives here, and nothing else on this screen says it. */}
       <Link className="hb-builds-btn" to={miniLink('builds')}>
         <span className="hb-builds-icon" aria-hidden="true">
@@ -530,16 +541,6 @@ export function SkinBApp({ auth }: { auth: FeatureAuth }) {
         </span>
       </Link>
 
-      <nav className="hb-dock" aria-label="Quick travel">
-        {dock.map((d) => (
-          <Link key={d.label} className="hb-dock-btn" to={miniLink(d.kind)}>
-            <span className="hb-dock-icon" aria-hidden="true">
-              <MiniAppIcon kind={d.iconKind} />
-            </span>
-            <span>{d.label}</span>
-          </Link>
-        ))}
-      </nav>
 
       {msg && <p className="mini__hint hb-msg">{msg}</p>}
 

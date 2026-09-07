@@ -511,8 +511,19 @@ export function HomeApp({ auth }: { auth: FeatureAuth }) {
         </section>
       )}
 
-      {/* One wide row before the dock: everything Alpha has built for the
-        * user lives here, and nothing else on this screen says it. */}
+      <nav className="hA-dock" aria-label="Quick travel">
+        {dock.map((d) => (
+          <Link key={d.label} className="hA-dock-btn" to={miniLink(d.kind)}>
+            <span className="hA-dock-icon" aria-hidden="true">
+              <MiniAppIcon kind={d.iconKind} />
+            </span>
+            <span>{d.label}</span>
+          </Link>
+        ))}
+      </nav>
+
+      {/* One wide row under the dock: everything Alpha has built for the user
+        * lives here, and nothing else on this screen says it. */}
       <Link className="hA-builds-btn" to={miniLink('builds')}>
         <span className="hA-builds-icon" aria-hidden="true">
           <MiniAppIcon kind="builds" />
@@ -529,17 +540,6 @@ export function HomeApp({ auth }: { auth: FeatureAuth }) {
           </svg>
         </span>
       </Link>
-
-      <nav className="hA-dock" aria-label="Quick travel">
-        {dock.map((d) => (
-          <Link key={d.label} className="hA-dock-btn" to={miniLink(d.kind)}>
-            <span className="hA-dock-icon" aria-hidden="true">
-              <MiniAppIcon kind={d.iconKind} />
-            </span>
-            <span>{d.label}</span>
-          </Link>
-        ))}
-      </nav>
 
       {msg && <p className="mini__hint hA-msg">{msg}</p>}
 
