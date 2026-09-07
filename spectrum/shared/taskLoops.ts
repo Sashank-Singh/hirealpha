@@ -84,17 +84,29 @@ async function postLoopResult(
 ): Promise<void> {
   const base = apiBase()
   if (!base) return
-  try {
-    const res = await fetch(`${base}/api/internal/loops/result`, {
-      method: 'POST',
-      headers: authHeaders(),
-      body: JSON.stringify({ id, ...result }),
-      signal: AbortSignal.timeout(8000),
-    })
-    if (!res.ok) throw new Error(`Loop acknowledgement returned HTTP ${res.status}`)
-  } catch (err) {
-    console.warn(`[taskLoops] result post failed for ${id}`, err)
+  // The send already happened by the time this runs. A swallowed ack leaves
+  // the task 'running' until lease expiry, where the retry re-sends it — a
+  // duplicate to the user. Retry the ack with backoff before giving up; each
+  // failure is loud because the next tick WILL duplicate the send.
+  const delays = [0, 2_000, 8_000, 20_000]
+  let lastErr: unknown
+  for (const wait of delays) {
+    if (wait) await new Promise((r) => setTimeout(r, wait))
+    try {
+      const res = await fetch(`${base}/api/internal/loops/result`, {
+        method: 'POST',
+        headers: authHeaders(),
+        body: JSON.stringify({ id, ...result }),
+        signal: AbortSignal.timeout(8000),
+      })
+      if (!res.ok) throw new Error(`Loop acknowledgement returned HTTP ${res.status}`)
+      return
+    } catch (err) {
+      lastErr = err
+      console.warn(`[taskLoops] result post failed for ${id} (will retry)`, err)
+    }
   }
+  console.error(`[taskLoops] result post EXHAUSTED for ${id} — task may re-send:`, lastErr)
 }
 
 /** Run one claimed loop: gate gated actions, honor the kill switch, send,
@@ -613,6 +625,20 @@ const inboxPingHandler: LoopHandler = (task) => {
   }
 }
 
+/* ---- Browser run result ----
+ * The server queues one of these after a portal run completes (settings-UI
+ * "Run" on a saved login). Payload carries the finished text — the bot only
+ * delivers it, so all personas share the plain handler. */
+
+export function buildBrowserResultText(p: { text?: unknown }): string {
+  return String(p.text || '').trim() || 'Browser task finished.'
+}
+
+const browserResultHandler: LoopHandler = (task) => {
+  const text = buildBrowserResultText((task.payload || {}) as { text?: unknown })
+  return { text, outcome: 'done', note: 'browser_result' }
+}
+
 /* ---- Registry ---- */
 
 export const LOOP_HANDLERS: Record<string, LoopHandler> = {
@@ -628,6 +654,7 @@ export const LOOP_HANDLERS: Record<string, LoopHandler> = {
   save_contact: saveContactHandler,
   day1_checkin: day1CheckinHandler,
   inbox_ping: inboxPingHandler,
+  browser_result: browserResultHandler,
 }
 
 /**

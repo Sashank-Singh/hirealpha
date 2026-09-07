@@ -1,11 +1,14 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
-import { CONNECTOR_CATALOG, type ConnectorId } from './connectors'
+import { liveCatalog, type ConnectorId } from './connectors'
 import { ConnectorLogo } from './ConnectorLogo'
 import {
-  apiBillingManage,
   apiAssignedPhone,
+  apiBillingManage,
   apiBillingStatus,
+  apiBrowserApprovalDecide,
+  apiBrowserApprovalsList,
+  apiBrowserRun,
   apiConnectUrl,
   apiConnectorStatus,
   apiDeleteLocation,
@@ -14,9 +17,14 @@ import {
   apiHireMemory,
   apiLocations,
   apiSaveLocation,
+  apiVaultDelete,
+  apiVaultList,
+  apiVaultSave,
   type BillingSubscription,
+  type BrowserApproval,
   type HireMemory,
   type SavedLocation,
+  type VaultEntry,
 } from './api'
 import { connectedIds, getSession, hydrateFromServer, setConnection, signOut } from './roster'
 import './SettingsSheet.css'
@@ -108,6 +116,21 @@ export function SettingsSheet() {
   const [loopsError, setLoopsError] = useState('')
   const [busyLoopId, setBusyLoopId] = useState('')
 
+  /* Vault (saved logins) */
+  const [vault, setVault] = useState<VaultEntry[] | null>(null)
+  const [vaultError, setVaultError] = useState('')
+  const [vaultPortal, setVaultPortal] = useState('')
+  const [vaultUser, setVaultUser] = useState('')
+  const [vaultSecret, setVaultSecret] = useState('')
+  const [vaultBusy, setVaultBusy] = useState(false)
+  const [runningId, setRunningId] = useState('')
+  const [runNotes, setRunNotes] = useState<Record<string, { text: string; kind: 'ok' | 'error' | 'info' }>>({})
+  const [openNoteId, setOpenNoteId] = useState('')
+  /** Entry id → requestId when a run answered 202 approval_required. */
+  const [pendingApproval, setPendingApproval] = useState<Record<string, string>>({})
+  const [approvals, setApprovals] = useState<BrowserApproval[]>([])
+  const [approvalBusy, setApprovalBusy] = useState('')
+
   const session = getSession()
   const e164 = toE164(session?.phone || '')
   const [alphaPhone, setAlphaPhone] = useState('+14155951440')
@@ -198,6 +221,25 @@ export function SettingsSheet() {
       .catch((err) => setLocError(err instanceof Error ? err.message : 'Could not load locations'))
   }, [])
 
+  /* Vault entries + any pending browser approvals (same GET pair). */
+  async function loadVault(email: string) {
+    setVaultError('')
+    try {
+      const [v, b] = await Promise.all([apiVaultList({ email }), apiBrowserApprovalsList({ email })])
+      setVault(v.entries || [])
+      setApprovals((b.approvals || []).filter((ap) => ap.status === 'pending'))
+    } catch (err) {
+      setVault(null)
+      setVaultError(err instanceof Error ? err.message : 'Could not load saved logins')
+    }
+  }
+  useEffect(() => {
+    const email = getSession()?.email
+    if (!email) return
+    void loadVault(email)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   if (!session?.email) {
     return (
       <div className="ha-page">
@@ -233,9 +275,13 @@ export function SettingsSheet() {
     )
   }
 
-  const connectors = CONNECTOR_CATALOG.filter((c) => c.id !== 'plaid')
+  // Only connectors with a real read implementation behind them. The rest can
+  // OAuth but the bot has no recipe to read afterward — a promise we can't keep.
+  const connectors = liveCatalog()
   const connected = connectedIds()
   const connectedCount = connectors.filter((c) => connected.includes(c.id)).length
+  // Plaid never appears in the live catalog, but an account that connected it
+  // through an older path still gets its read-only management section.
   const isPlaidConnected = connected.includes('plaid')
   const targetConnector = params.get('connect')
 
@@ -432,6 +478,128 @@ export function SettingsSheet() {
     }
   }
 
+  /* ---- Vault: same email auth as Memory; no confirm dialogs, like Memory. ---- */
+  async function saveLogin() {
+    const email = session?.email
+    if (!email) return
+    const portal = vaultPortal.trim()
+    const secret = vaultSecret
+    if (!portal) {
+      setVaultError('Enter the portal URL (https://…).')
+      return
+    }
+    if (!secret) {
+      setVaultError('Enter the password or secret.')
+      return
+    }
+    setVaultBusy(true)
+    setVaultError('')
+    try {
+      await apiVaultSave({ email, portal, username: vaultUser.trim() || undefined, secret })
+      setVaultPortal('')
+      setVaultUser('')
+      setVaultSecret('')
+      await loadVault(email)
+    } catch (err) {
+      setVaultError(err instanceof Error ? err.message : 'Could not save that login')
+    } finally {
+      setVaultBusy(false)
+    }
+  }
+
+  async function removeEntry(id: string) {
+    const email = session?.email
+    if (!email) return
+    setVaultError('')
+    try {
+      await apiVaultDelete({ email, id })
+      setVault((prev) => (prev ? prev.filter((e) => e.id !== id) : prev))
+      setRunNotes((prev) => {
+        if (!prev[id]) return prev
+        const next = { ...prev }
+        delete next[id]
+        return next
+      })
+      setPendingApproval((prev) => {
+        if (!prev[id]) return prev
+        const next = { ...prev }
+        delete next[id]
+        return next
+      })
+      if (openNoteId === id) setOpenNoteId('')
+    } catch (err) {
+      setVaultError(err instanceof Error ? err.message : 'Could not delete that login')
+    }
+  }
+
+  async function runEntry(entry: VaultEntry) {
+    const email = session?.email
+    if (!email) return
+    setVaultError('')
+    setRunningId(entry.id)
+    try {
+      const res = await apiBrowserRun({ email, entryId: entry.id, kind: 'task' })
+      if (res.approvalRequired && res.requestId) {
+        /* 202: the server parked a pending approval. Surface Approve/Deny for
+         * that requestId — never auto-approve — and ask for a re-tap after. */
+        const requestId = res.requestId
+        setPendingApproval((prev) => ({ ...prev, [entry.id]: requestId }))
+        setRunNotes((prev) => ({
+          ...prev,
+          [entry.id]: { text: res.message || 'Alpha needs your OK before opening a private browser session.', kind: 'info' },
+        }))
+      } else if (!res.ok) {
+        const text = [res.error, res.detail].filter(Boolean).join(' — ') || 'Run failed.'
+        setRunNotes((prev) => ({ ...prev, [entry.id]: { text, kind: 'error' } }))
+      } else {
+        setRunNotes((prev) => ({
+          ...prev,
+          [entry.id]: { text: res.insights || 'Done. No notes from this run.', kind: 'ok' },
+        }))
+      }
+    } catch (err) {
+      setRunNotes((prev) => ({ ...prev, [entry.id]: { text: err instanceof Error ? err.message : 'Run failed.', kind: 'error' } }))
+    } finally {
+      setRunningId('')
+      setOpenNoteId(entry.id)
+    }
+  }
+
+  function toggleNote(id: string) {
+    setOpenNoteId((cur) => (cur === id ? '' : id))
+  }
+
+  async function decideApproval(requestId: string, decision: 'approve' | 'deny') {
+    const email = session?.email
+    if (!email) return
+    setApprovalBusy(requestId)
+    setVaultError('')
+    try {
+      await apiBrowserApprovalDecide({ email, requestId, decision })
+      const entryId = Object.keys(pendingApproval).find((k) => pendingApproval[k] === requestId)
+      if (entryId) {
+        setPendingApproval((prev) => {
+          if (!prev[entryId]) return prev
+          const next = { ...prev }
+          delete next[entryId]
+          return next
+        })
+        setRunNotes((prev) => ({
+          ...prev,
+          [entryId]: {
+            text: decision === 'approve' ? 'Approved. Tap Run again to check this portal.' : 'Denied. Alpha will not open this portal.',
+            kind: decision === 'approve' ? 'info' : 'error',
+          },
+        }))
+      }
+      await loadVault(email)
+    } catch (err) {
+      setVaultError(err instanceof Error ? err.message : 'Could not record that decision')
+    } finally {
+      setApprovalBusy('')
+    }
+  }
+
   const friendSub = billing?.subscriptions.find((s) => s.persona === 'friend')
 
   return (
@@ -557,15 +725,21 @@ export function SettingsSheet() {
             {connectError && <p className="set-err">{connectError}</p>}
 
             <div className="ss-list ss-list--scroll">
-              {filteredConnectors.map((c) => {
+              {filteredConnectors.map((c, i) => {
                 const on = connected.includes(c.id)
                 const isTarget = targetConnector === c.id
+                const newGroup = i === 0 || filteredConnectors[i - 1].category !== c.category
                 return (
                   <div
                     key={c.id}
                     id={`connector-${c.id}`}
                     className={`ss-row${isTarget ? ' is-target' : ''}`}
                   >
+                    {newGroup && (
+                      <div className="ss-group-label" aria-hidden="true">
+                        {c.category}
+                      </div>
+                    )}
                     <div className="ss-cell">
                       <div className="ss-icon">
                         <ConnectorLogo id={c.id} size={22} />
@@ -800,6 +974,176 @@ export function SettingsSheet() {
             )}
           </section>
 
+          {/* Vault */}
+          <section className="ss-sec">
+            <header className="ss-sec-head">
+              <div>
+                <h2 className="ss-title">Saved Logins</h2>
+                <p className="ss-sub">Logins Alpha can use in a private browser session. Encrypted at rest; never leaves the server except into that session.</p>
+              </div>
+            </header>
+
+            {vaultError && <p className="set-err">{vaultError}</p>}
+            {vault === null && <p className="ss-empty">Checking logins…</p>}
+            {vault !== null && (
+              <div className="ss-list">
+                <div className="ss-row">
+                  <div className="ss-edit">
+                    <div className="ss-input-row">
+                      <input
+                        className="bento-input"
+                        type="url"
+                        placeholder="Portal URL — https://…"
+                        value={vaultPortal}
+                        onChange={(e) => setVaultPortal(e.target.value)}
+                      />
+                    </div>
+                    <div className="ss-input-row">
+                      <input
+                        className="bento-input"
+                        type="text"
+                        placeholder="Username (optional)"
+                        value={vaultUser}
+                        onChange={(e) => setVaultUser(e.target.value)}
+                      />
+                    </div>
+                    <div className="ss-input-row">
+                      <input
+                        className="bento-input"
+                        type="password"
+                        placeholder="Password"
+                        value={vaultSecret}
+                        onChange={(e) => setVaultSecret(e.target.value)}
+                      />
+                      <button
+                        type="button"
+                        className="ss-btn"
+                        disabled={vaultBusy || !vaultPortal.trim() || !vaultSecret}
+                        onClick={() => void saveLogin()}
+                      >
+                        {vaultBusy ? 'Saving…' : 'Save'}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {vault.length === 0 && (
+                  <p className="ss-empty">
+                    Nothing saved yet. Add a portal login above and Alpha can check it for you in a private browser session.
+                  </p>
+                )}
+
+                {vault.map((entry) => {
+                  const note = runNotes[entry.id]
+                  return (
+                    <div key={entry.id} className="ss-row">
+                      <div className="ss-cell">
+                        <div className="ss-body">
+                          <span className="ss-name">{hostOf(entry.portal)}</span>
+                          <span className="ss-subline">
+                            {[
+                              entry.persona,
+                              `added ${dateLabel(entry.created_at)}`,
+                              entry.backed === 'onepassword' ? 'stored in 1Password' : '',
+                            ].filter(Boolean).join(' • ')}
+                          </span>
+                        </div>
+                        <div className="ss-actions">
+                          <button
+                            type="button"
+                            className="ss-btn-text"
+                            disabled={runningId === entry.id}
+                            onClick={() => void runEntry(entry)}
+                          >
+                            {runningId === entry.id ? 'Checking…' : 'Run'}
+                          </button>
+                          <button
+                            type="button"
+                            className="ss-btn-text ss-btn-danger"
+                            onClick={() => void removeEntry(entry.id)}
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      </div>
+                      {note && (
+                        <div className="ss-edit">
+                          <button
+                            type="button"
+                            className={`ss-btn-text${note.kind === 'error' ? ' ss-btn-danger' : ''}`}
+                            onClick={() => toggleNote(entry.id)}
+                          >
+                            {openNoteId === entry.id
+                              ? 'Hide'
+                              : note.kind === 'error'
+                                ? 'Run failed — details'
+                                : note.kind === 'ok'
+                                  ? 'Insight'
+                                  : 'Approval needed'}
+                          </button>
+                          {openNoteId === entry.id && <span className="ss-note">{note.text}</span>}
+                          {openNoteId === entry.id && pendingApproval[entry.id] && (
+                            <div className="ss-actions">
+                              <button
+                                type="button"
+                                className="ss-btn-text"
+                                disabled={approvalBusy === pendingApproval[entry.id]}
+                                onClick={() => void decideApproval(pendingApproval[entry.id], 'approve')}
+                              >
+                                {approvalBusy === pendingApproval[entry.id] ? 'Saving…' : 'Approve'}
+                              </button>
+                              <button
+                                type="button"
+                                className="ss-btn-text ss-btn-danger"
+                                disabled={approvalBusy === pendingApproval[entry.id]}
+                                onClick={() => void decideApproval(pendingApproval[entry.id], 'deny')}
+                              >
+                                Deny
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+
+            {approvals.length > 0 && (
+              <div className="ss-list">
+                {approvals.map((ap) => (
+                  <div key={ap.id} className="ss-row">
+                    <div className="ss-cell">
+                      <div className="ss-body">
+                        <span className="ss-name">{ap.purpose}</span>
+                        <span className="ss-subline">{ap.origin || ap.portal}</span>
+                      </div>
+                      <div className="ss-actions">
+                        <button
+                          type="button"
+                          className="ss-btn-text"
+                          disabled={approvalBusy === ap.id}
+                          onClick={() => void decideApproval(ap.id, 'approve')}
+                        >
+                          Approve
+                        </button>
+                        <button
+                          type="button"
+                          className="ss-btn-text ss-btn-danger"
+                          disabled={approvalBusy === ap.id}
+                          onClick={() => void decideApproval(ap.id, 'deny')}
+                        >
+                          Deny
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+
           {/* Memory */}
           <section className="ss-sec">
             <header className="ss-sec-head">
@@ -881,4 +1225,13 @@ function dateLabel(iso: string): string {
   const d = new Date(iso)
   if (Number.isNaN(d.getTime())) return ''
   return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+}
+
+/** Vault row name: just the portal's hostname (e.g. "adp.com"). */
+function hostOf(portal: string): string {
+  try {
+    return new URL(portal).hostname.replace(/^www\./, '')
+  } catch {
+    return portal
+  }
 }

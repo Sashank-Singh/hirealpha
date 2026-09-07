@@ -229,9 +229,17 @@ export function SetupApp({ auth }: { auth: FeatureAuth }) {
     }
   }
 
-  /* Finished: mark setup complete and land on home with the one-shot tour. */
+  /* Finished: mark setup complete and land on home with the one-shot tour.
+   * The POST failure path matters: a stale token used to swallow the error and
+   * the wizard reappeared on every menu open. Mirror the flag locally so the
+   * gate clears immediately, then re-assert the server row in the background. */
   if (done) {
     void apiSetup({ persona, done: true, ...a }).catch(() => undefined)
+    try {
+      localStorage.setItem('ha_setup_done', persona)
+    } catch {
+      /* private mode: server row is the only source */
+    }
     window.dispatchEvent(new Event(MINI_SETTINGS_EVENT))
     const q = window.location.search
     const joiner = q ? '&' : '?'

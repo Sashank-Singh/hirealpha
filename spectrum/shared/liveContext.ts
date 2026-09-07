@@ -503,6 +503,12 @@ export async function handleInboundPhoto(
     if (logged.needsKey) {
       return 'Got it, that meal is saved. Set the vision model key in settings and I can estimate macros from photos.'
     }
+    if (!logged.estimated) {
+      // Photo could not be estimated (HEIC or unreadable): the log is saved
+      // with macros pending — pull the food name out of them instead of
+      // leaving a 0/0/0/0 row sitting there.
+      return "Saved the photo — what was it? I'll fill in the macros."
+    }
     return 'Logged that meal from the photo. It\'s in your Nutrition log.'
   } catch (err) {
     console.warn('[live] photo read failed', err)

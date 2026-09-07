@@ -1171,3 +1171,74 @@ export async function apiAssignedPhone(phone?: string): Promise<string | null> {
     return null
   }
 }
+
+/* ---- Vault (saved logins) + private browser runs ---- */
+export type VaultEntry = {
+  id: string
+  persona: string
+  portal: string
+  origin: string
+  masked: string
+  username_masked?: string
+  /** Where the secret lives: 'local' (encrypted at rest) or 'onepassword'. */
+  backed?: 'local' | 'onepassword'
+  created_at: string
+  last_used_at: string | null
+}
+export const apiVaultList = (a: { email?: string; token?: string }) =>
+  featureGet<{ entries: VaultEntry[] }>('/api/vault', authQuery(a))
+export const apiVaultSave = (a: {
+  email?: string; token?: string; persona?: string; portal: string; username?: string; secret: string
+}) =>
+  featurePost<{ ok: boolean }>('/api/vault', {
+    ...authParams(a), persona: a.persona, portal: a.portal, username: a.username, secret: a.secret,
+  })
+export const apiVaultDelete = (a: { email?: string; token?: string; id: string }) => {
+  const qs = authQuery(a)
+  qs.set('id', a.id)
+  return featureDelete<{ ok: boolean }>(`/api/vault?${qs}`, authParams(a))
+}
+
+export type BrowserApproval = {
+  id: string
+  portal: string
+  origin: string
+  purpose: string
+  status: string
+  created_at: string
+}
+export const apiBrowserApprovalsList = (a: { email?: string; token?: string }) =>
+  featureGet<{ approvals: BrowserApproval[] }>('/api/browser/approvals', authQuery(a))
+export const apiBrowserApprovalDecide = (a: {
+  email?: string; token?: string; requestId: string; decision: 'approve' | 'deny'
+}) =>
+  featurePost<{ ok: boolean }>('/api/browser/approvals', {
+    ...authParams(a), requestId: a.requestId, decision: a.decision,
+  })
+
+export type BrowserRunResult = {
+  ok: boolean
+  /** 200 success: echoed run kind plus the findings. The same result is also
+   * queued into the iMessage thread by the server. */
+  kind?: string
+  insights?: string
+  artifactKind?: 'insights' | 'chart'
+  /** 202 approval gate: the server parked a pending approval for this run.
+   * Show Approve/Deny for `requestId`; the user re-taps Run once approved. */
+  approvalRequired?: boolean
+  requestId?: string
+  origin?: string
+  message?: string
+  /** Present when ok is false (409/404 surface here as thrown errors). */
+  error?: string
+  detail?: string
+}
+/** Runs a headless browser pass on the stored portal login; takes ~5–30s, so
+ * callers should keep a busy state on the row while it is in flight. A 202
+ * means approval is required first (see BrowserRunResult). */
+export const apiBrowserRun = (a: {
+  email?: string; token?: string; entryId: string; kind?: 'newsletter' | 'ticker' | 'task'; steps?: unknown
+}) =>
+  featurePost<BrowserRunResult>('/api/browser/run', {
+    ...authParams(a), entryId: a.entryId, kind: a.kind, steps: a.steps,
+  })

@@ -7,11 +7,14 @@ import {
   deleteVaultEntry,
   extractNewsletterInsights,
   extractTickerRows,
+  getVaultCredentialsForTask,
   getVaultSecretForTask,
   handleVaultApi,
   listVaultEntries,
+  pushBrowserResultLoop,
   requestBrowserApproval,
   runBrowserTask,
+  sanitizeSteps,
   saveVaultEntry,
   withUserBrowserLock,
   type PortalTask,
@@ -591,5 +594,222 @@ describe('vault API routes', () => {
   it('unknown vault route passes through (null, not 404-own)', async () => {
     const res = await handleVaultApi(new Request('https://hirealpha.chat/api/other'), fakeSql().sql, authedDeps())
     expect(res).toBeNull()
+  })
+})
+
+/* ---------------------------- task steps -------------------------------- */
+
+describe('sanitizeSteps', () => {
+  it('keeps valid actions, drops junk, clamps bounds', () => {
+    const steps = sanitizeSteps([
+      { action: 'goto', value: 'https://portal.nseindia.com/markets' },
+      { action: 'fill', selector: '#username', value: '{{username}}' },
+      { action: 'fill', selector: '#password', value: '{{password}}' },
+      { action: 'click', selector: 'button[type=submit]' },
+      { action: 'wait', ms: 999_999 },
+      { action: 'extract' },
+      { action: 'exec', value: 'process.exit(1)' },
+      'not an object',
+      null,
+      { action: 'fill' },
+      { action: 'click', selector: 'x'.repeat(5000) },
+    ])
+    expect(steps).toBeTruthy()
+    expect(steps!.length).toBe(6)
+    expect(steps!.find((s) => s.action === 'wait')!.ms).toBeLessThanOrEqual(15_000)
+    expect(steps!.find((s) => s.action === 'click' && s.selector!.length > 300)).toBeUndefined()
+    expect(JSON.stringify(steps)).not.toContain('process.exit')
+  })
+
+  it('caps the step count and tolerates non-array input', () => {
+    const many = Array.from({ length: 30 }, (_, i) => ({ action: 'wait', ms: 100 + i }))
+    expect(sanitizeSteps(many)!.length).toBe(12)
+    expect(sanitizeSteps('drop table')).toBeUndefined()
+    expect(sanitizeSteps([{ action: 'wait', ms: 0 }])!.length).toBe(1)
+  })
+})
+
+/* ------------------------- run route + thread loop ----------------------- */
+
+const RUN_URL = 'https://hirealpha.chat/api/browser/run'
+
+function sqlForRun(opts: { approval?: 'none' | 'pending' | 'approved'; secret?: string; withPhone?: boolean } = {}) {
+  return fakeSql((text, values) => {
+    if (/FROM hire_vault_entries WHERE id/i.test(text)) {
+      return values?.[0] === 'e1' ? [{ id: 'e1', persona: 'friend', origin: NSE }] : []
+    }
+    if (/UPDATE hire_browser_approvals/i.test(text)) return [{ id: 'r1' }]
+    // The run route's live-approval lookup (status unconsumed, inside TTL).
+    if (/FROM hire_browser_approvals/i.test(text) && /consumed_at IS NULL/i.test(text)) {
+      if (!opts.approval || opts.approval === 'none') return []
+      return [{ id: 'r1', status: opts.approval === 'pending' ? 'pending' : 'approved' }]
+    }
+    if (/FROM hire_browser_approvals/i.test(text)) {
+      return opts.approval === 'approved'
+        ? [{ id: 'r1', status: 'approved', origin: NSE, created_at: new Date(), consumed_at: null }]
+        : []
+    }
+    if (/FROM hire_vault_entries/i.test(text)) {
+      return opts.secret ? [{ id: 'e1', secret_encrypted: encryptSecret(opts.secret, KEY_A) }] : []
+    }
+    if (/FROM hire_users/i.test(text)) {
+      return opts.withPhone === false ? [] : [{ phone_e164: '+14155550100' }]
+    }
+    return []
+  })
+}
+
+describe('POST /api/browser/run (ask-first run route)', () => {
+  const runReq = (entryId = 'e1') =>
+    new Request(RUN_URL, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: 'Bearer sess' },
+      body: JSON.stringify({ entryId, kind: 'task' }),
+    })
+
+  it('creates an approval and returns 202 when none is live', async () => {
+    const { sql, queries } = sqlForRun({ approval: 'none', secret: 'hunter2!' })
+    const res = await handleVaultApi(runReq(), sql, authedDeps())
+    expect(res?.status).toBe(202)
+    const body = (await res!.json()) as { ok: boolean; approvalRequired: boolean; requestId: string }
+    expect(body.ok).toBe(false)
+    expect(body.approvalRequired).toBe(true)
+    expect(body.requestId).toBeTruthy()
+    expect(queries.some((q) => /INSERT INTO hire_browser_approvals/i.test(q.text))).toBe(true)
+  })
+
+  it('returns 202 without creating a duplicate while one is pending', async () => {
+    const { sql, queries } = sqlForRun({ approval: 'pending', secret: 'hunter2!' })
+    const res = await handleVaultApi(runReq(), sql, authedDeps())
+    expect(res?.status).toBe(202)
+    const body = (await res!.json()) as { requestId: string }
+    expect(body.requestId).toBe('r1')
+    expect(queries.some((q) => /INSERT INTO hire_browser_approvals/i.test(q.text))).toBe(false)
+  })
+
+  it('runs the task on an approved approval and queues a browser_result loop', async () => {
+    const { sql, queries } = sqlForRun({ approval: 'approved', secret: 'hunter2!' })
+    const res = await handleVaultApi(runReq(), sql, authedDeps())
+    expect(res?.status).toBe(200)
+    const body = (await res!.json()) as { ok: boolean; insights: string }
+    expect(body.ok).toBe(true)
+    const loopInsert = queries.find((q) => /INSERT INTO hire_task_loops/i.test(q.text))
+    expect(loopInsert).toBeTruthy()
+    expect(loopInsert!.text).toContain('browser_result')
+    expect(JSON.stringify(loopInsert!.values)).not.toContain('hunter2!')
+  })
+
+  it('404s for another user’s entry and for a missing entryId', async () => {
+    const res = await handleVaultApi(runReq('nope'), sqlForRun({ approval: 'approved', secret: 's' }).sql, authedDeps())
+    expect(res?.status).toBe(404)
+    const bad = new Request(RUN_URL, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: 'Bearer sess' },
+      body: JSON.stringify({}),
+    })
+    expect((await handleVaultApi(bad, sqlForRun().sql, authedDeps()))?.status).toBe(404)
+  })
+})
+
+describe('pushBrowserResultLoop', () => {
+  it('queues a pending browser_result row with the portal host in the text', async () => {
+    const { sql, queries } = fakeSql(() => [{ phone_e164: '+14155550100' }])
+    const ok = await pushBrowserResultLoop(sql, { userId: USER, persona: 'friend', origin: NSE, insights: 'Nifty ends higher' })
+    expect(ok).toBe(true)
+    const insert = queries.find((q) => /INSERT INTO hire_task_loops/i.test(q.text))!
+    expect(insert.text).toContain("'browser_result'")
+    expect(JSON.stringify(insert.values)).toContain('portal.nseindia.com')
+  })
+
+  it('skips users with no phone on file', async () => {
+    const { sql, queries } = fakeSql(() => [{ phone_e164: null }])
+    const ok = await pushBrowserResultLoop(sql, { userId: USER, persona: 'friend', origin: NSE, insights: 'x' })
+    expect(ok).toBe(false)
+    expect(queries.some((q) => /INSERT INTO hire_task_loops/i.test(q.text))).toBe(false)
+  })
+})
+
+describe('vault save with username + op backing marker', () => {
+  it('stores username alongside the encrypted secret; plaintext never in SQL', async () => {
+    const { sql, queries } = fakeSql()
+    const res = await saveVaultEntry(sql, {
+      userId: USER,
+      persona: 'coworker',
+      portal: 'https://portal.nseindia.com',
+      username: 'me@example.com',
+      secret: 'hunter2!',
+      key: KEY_A,
+    })
+    expect(res.ok).toBe(true)
+    if (res.ok) expect(res.backed).toBe('local')
+    const insert = queries.find((q) => /INSERT INTO hire_vault_entries/i.test(q.text))!
+    expect(JSON.stringify(insert.values)).toContain('me@example.com')
+    expect(JSON.stringify(insert.values)).not.toContain('hunter2!')
+    expect(JSON.stringify(insert.values)).not.toContain('op1p:')
+  })
+
+  it('lists username_masked and backed=local for AES entries', async () => {
+    const { sql } = fakeSql(() => [
+      {
+        id: 'e1',
+        persona: 'coworker',
+        portal: 'portal.nseindia.com',
+        origin: 'https://portal.nseindia.com',
+        secret_encrypted: encryptSecret('hunter2!', KEY_A),
+        username: 'me@example.com',
+        secret_ref: null,
+        created_at: new Date(),
+        last_used_at: null,
+      },
+    ])
+    const list = await listVaultEntries(sql, USER, KEY_A)
+    expect(list[0]!.backed).toBe('local')
+    expect(list[0]!.username_masked).toContain('••')
+    expect(JSON.stringify(list)).not.toContain('hunter2!')
+    expect(JSON.stringify(list)).not.toContain('me@example.com')
+  })
+
+  it('lists backed=onepassword without decrypting the marker as a secret', async () => {
+    const { sql } = fakeSql(() => [
+      {
+        id: 'e2',
+        persona: 'friend',
+        portal: 'portal.nseindia.com',
+        origin: 'https://portal.nseindia.com',
+        secret_encrypted: encryptSecret('in-1password', KEY_A),
+        username: null,
+        secret_ref: 'op1p:vault-1:item-9',
+        created_at: new Date(),
+        last_used_at: null,
+      },
+    ])
+    const list = await listVaultEntries(sql, USER, KEY_A)
+    expect(list[0]!.backed).toBe('onepassword')
+  })
+
+  it('resolves credentials through the 1Password ref at task time', async () => {
+    process.env.OP_CONNECT_HOST = 'http://op-connect:8080'
+    process.env.OP_CONNECT_TOKEN = 'tok'
+    process.env.OP_VAULT_ID = 'vault-1'
+    try {
+      const realFetch = globalThis.fetch
+      globalThis.fetch = (async (url: string | URL) =>
+        new Response(
+          JSON.stringify({ id: 'item-9', fields: [{ label: 'username', value: 'me@x.com' }, { label: 'password', value: 'hunter2!' }] }),
+          { status: 200 },
+        )) as typeof fetch
+      const { sql } = fakeSql((text, values) =>
+        /FROM hire_vault_entries/i.test(text) && values?.includes('https://portal.nseindia.com')
+          ? [{ id: 'e2', secret_encrypted: encryptSecret('in-1password', KEY_A), username: null, secret_ref: 'op1p:vault-1:item-9' }]
+          : [],
+      )
+      const creds = await getVaultCredentialsForTask(sql, USER, 'https://portal.nseindia.com', KEY_A)
+      expect(creds).toEqual({ username: 'me@x.com', password: 'hunter2!' })
+      globalThis.fetch = realFetch
+    } finally {
+      delete process.env.OP_CONNECT_HOST
+      delete process.env.OP_CONNECT_TOKEN
+      delete process.env.OP_VAULT_ID
+    }
   })
 })

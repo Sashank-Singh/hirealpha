@@ -11,7 +11,7 @@ import {
   type OpenLoop,
   type Decision,
 } from './api'
-import { CONNECTOR_CATALOG, type ConnectorId } from './connectors'
+import { liveCatalog, type ConnectorId } from './connectors'
 import { ConnectorLogo } from './ConnectorLogo'
 import { SettingsSheet } from './SettingsSheet'
 import { TIERS, type Tier } from '../marketing/Pricing'
@@ -576,10 +576,10 @@ export function PlatformDashboard() {
           <div style={{ flex: 1, overflowY: 'auto' }}>
             <div className="rc-pane-header">
               <span className="rc-pane-title">Extensions Registry</span>
-              <span className="rc-pane-meta">{CONNECTOR_CATALOG.length} Integrations</span>
+              <span className="rc-pane-meta">{liveCatalog().length} Integrations</span>
             </div>
             <div className="rc-extensions-grid">
-              {CONNECTOR_CATALOG.map((c) => {
+              {liveCatalog().map((c) => {
                 const isConn = connectedTools.includes(c.id) || c.noAuth
                 return (
                   <div key={c.id} className="rc-ext-tile">

@@ -13,7 +13,7 @@ export const SKILLS: Record<
 > = {
   friend: {
     tools: ['gmail', 'calendar.read', 'calendar.soft_book', 'drive', 'maps', 'plaid', 'spotify', 'youtube', 'whatsapp', 'telegram'],
-    executable: ['gmail', 'calendar', 'drive', 'maps', 'plaid', 'spotify', 'youtube', 'whatsapp', 'telegram'],
+    executable: ['gmail', 'calendar', 'drive', 'maps', 'plaid', 'spotify', 'youtube', 'whatsapp', 'telegram', 'twitch', 'vimeo', 'loom', 'zoom', 'meet'],
     miniApps: [
       'home', 'tonight', 'pick_night', 'body', 'later', 'check_in', 'open_loops', 'drop_zone', 'artifact',
       'nutrition', 'habit_streak', 'mood_tracker', 'workout_log', 'learning_queue', 'weekly_review',

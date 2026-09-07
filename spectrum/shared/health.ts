@@ -17,6 +17,35 @@ export function healthHandler(
           ts: new Date().toISOString(),
         })
       }
+      // Readiness: can this bot actually complete a user task right now? The
+      // API must be reachable and the internal key present — liveness alone
+      // let a half-dead bot pass deploys.
+      if (path === '/readyz') {
+        const base = (process.env.HIREALPHA_API_URL || '').replace(/\/$/, '')
+        const hasKey = !!process.env.HIREALPHA_INTERNAL_KEY
+        const probe = base && hasKey
+          ? fetch(`${base}/api/public/info`, { signal: AbortSignal.timeout(5000) })
+          : Promise.resolve(new Response('', { status: 503 }))
+        return probe
+          .then((res) => {
+            const ready = res.ok && hasKey
+            return Response.json(
+              {
+                ok: ready,
+                service: label,
+                checks: { api: !!base && res.ok, key: hasKey },
+                ts: new Date().toISOString(),
+              },
+              { status: ready ? 200 : 503 },
+            )
+          })
+          .catch(() =>
+            Response.json(
+              { ok: false, service: label, checks: { api: false, key: hasKey }, ts: new Date().toISOString() },
+              { status: 503 },
+            ),
+          )
+      }
       // Evals contain conversation text; scoring also spends model credits.
       // Keep liveness public, but never expose diagnostics without a secret.
       if (path === '/evals' || path === '/evals/score') {

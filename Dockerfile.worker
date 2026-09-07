@@ -1,0 +1,27 @@
+# HireAlpha browser-worker: dedicated container that owns Chromium.
+# Claims hire_browser_jobs rows, runs headless sessions (scripted or
+# agent-driven), closes the job and queues the thread text.
+FROM oven/bun:1-slim
+WORKDIR /app
+# Coolify healthchecks use curl/wget; playwright needs the rest via --with-deps
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends curl \
+  && rm -rf /var/lib/apt/lists/*
+
+COPY package.json package-lock.json ./
+RUN bun install --production
+
+COPY deploy/browserWorker.ts ./browserWorker.ts
+COPY deploy/browserSession.ts ./browserSession.ts
+COPY deploy/browserRunner.ts ./browserRunner.ts
+COPY deploy/browserVault.ts ./browserVault.ts
+COPY deploy/browserJobs.ts ./browserJobs.ts
+COPY deploy/agentDriver.ts ./agentDriver.ts
+COPY deploy/vaultCrypto.ts ./vaultCrypto.ts
+COPY deploy/onePassword.ts ./onePassword.ts
+
+# Headless Chromium (playwright-matched build + system libraries).
+RUN bunx playwright install --with-deps chromium
+
+# No HTTP port: the worker polls Postgres directly.
+CMD ["bun", "run", "browserWorker.ts"]

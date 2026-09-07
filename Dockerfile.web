@@ -32,9 +32,19 @@ COPY deploy/httpCache.ts ./httpCache.ts
 COPY deploy/browserVault.ts ./browserVault.ts
 COPY deploy/browserRunner.ts ./browserRunner.ts
 COPY deploy/vaultCrypto.ts ./vaultCrypto.ts
+COPY deploy/onePassword.ts ./onePassword.ts
+COPY deploy/userPayments.ts ./userPayments.ts
+COPY deploy/browserJobs.ts ./browserJobs.ts
+COPY deploy/browserSession.ts ./browserSession.ts
+COPY deploy/browserWorker.ts ./browserWorker.ts
+COPY deploy/agentDriver.ts ./agentDriver.ts
 COPY spectrum ../spectrum
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
+
+# Headless Chromium for the browser runner (vault tasks): downloads the
+# playwright-matched browser build plus the system libraries it needs.
+RUN bunx playwright install --with-deps chromium
 
 ENV PORT=80
 ENV STATIC_ROOT=/app/dist
