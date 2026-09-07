@@ -4252,6 +4252,9 @@ function wantsSpotify(text: string) {
 function wantsTwitch(text: string) {
   return /\b(twitch|stream(er|ing)?|live channel)\b/i.test(text)
 }
+function wantsYoutube(text: string) {
+  return /\b(?:youtube|yt)\b.{0,24}\b(search|find|video|tutorial|transcript|channel)\b|\b(?:search|find)\b.{0,16}\b(youtube|yt)\b|\bhow to\b.{0,40}\bvideo\b/i.test(text)
+}
 function wantsVimeo(text: string) {
   return /\bvimeo\b/i.test(text)
 }
@@ -4987,6 +4990,11 @@ export async function runToolsForMessage(
     results.push(await runComposioPlugin(input.userId, 'spotify', input.message))
   } else {
     askedAllowed('spotify', wantsSpotify(input.message))
+  }
+  if (wantsYoutube(input.message) && can('youtube')) {
+    results.push(await runComposioPlugin(input.userId, 'youtube', input.message))
+  } else {
+    askedAllowed('youtube', wantsYoutube(input.message))
   }
   if (wantsTwitch(input.message) && can('twitch')) {
     results.push(await runComposioPlugin(input.userId, 'twitch', input.message))
