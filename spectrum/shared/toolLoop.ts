@@ -29,6 +29,7 @@ export async function runToolConversation(input: {
   let savedDraft = input.existingDraft
   let draftAttempted = !!savedDraft
   const seen = new Set<string>()
+  let nudged = false
   const maxSteps = Math.min(8, Math.max(1, input.maxSteps ?? 6))
   const deadline = Date.now() + (input.maxDurationMs ?? 90_000)
   const fallback = () => savedDraft
@@ -56,7 +57,19 @@ When finished, respond in plain text with the outcome, useful source links, and 
       : parseToolCall(raw)
     const draft = json ? parseExtractedWrite(JSON.stringify(json)) : parseDraftCall(raw)
     const directive = !!json || /^\s*(?:TOOL\b|DRAFT_|```|\{\s*"action")/i.test(raw)
-    if (!lookup && !draft && !directive) return { reply: stripToolDirectives(raw) || fallback(), draft: savedDraft }
+    if (!lookup && !draft && !directive) {
+      // Lazy-answer guard: for time-sensitive asks, a plain-text answer with
+      // zero lookups is an invention risk (the model will claim it "searched").
+      const userAsk = [...messages].reverse().find((m) => m.role === 'user')?.content || ''
+      const needsFresh = /\b(news|latest|price|prices|how much (?:is|does|do)|score|who won|release date|say this week|this week|today|yesterday|tonight|right now)\b/i.test(userAsk)
+      if (needsFresh && input.availableTools.includes('web') && !seen.size && !nudged) {
+        nudged = true
+        messages.push({ role: 'assistant', content: raw })
+        messages.push({ role: 'system', content: 'You have NOT run any lookup. Do not answer from memory and do not claim you searched. Run {"action":"lookup","tool":"web","query":"..."} now, then answer from the results.' })
+        continue
+      }
+      return { reply: stripToolDirectives(raw) || fallback(), draft: savedDraft }
+    }
     if (step === maxSteps || Date.now() >= deadline) return { reply: fallback(), draft: savedDraft }
     messages.push({ role: 'assistant', content: raw })
     let result: Record<string, unknown>

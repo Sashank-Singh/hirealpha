@@ -62,6 +62,13 @@ import {
 
 export { isBannedTagline } from './outboundFilter'
 
+/** Time-sensitive asks the model must never answer from memory. */
+export function wantsFreshInfo(text: string): boolean {
+  return /\b(news|latest|price|prices|how much (?:is|does|do)|score|who won|release date|say this week|this week|today|yesterday|tonight|right now)\b/i.test(
+    text,
+  )
+}
+
 /** A degenerate model completion (reasoning loop) repeats one phrase many
  * times. Delivering it is worse than an error message: catch it before send. */
 export function isDegenerateRepetition(text: string): boolean {
@@ -326,7 +333,7 @@ function wantsLiveData(text: string) {
 const BRIEF_TOOL_QUERY = 'calendar today tomorrow inbox important email debrief'
 
 function maybeToolIntent(text: string) {
-  return /\b(near(?: by)?|around|where\b|recommend|suggest|show me|find|search|look(?:ing|ing for| up| it up)|dinner|lunch|breakfast|eat|food|restaurant|cafe|bar|coffee|spot|place|tonight|weekend|date night|hangout|movie|weather|news|latest|price|how much|delivery|takeout|reservation|book|maps?|directions)\b/i.test(
+  return /\b(near(?: by)?|around|where\b|recommend|suggest|show me|find|search|look(?:ing|ing for| up| it up)|dinner|lunch|breakfast|eat|food|restaurant|cafe|bar|coffee|spot|place|tonight|weekend|date night|hangout|movie|weather|news|latest|price|how much|delivery|takeout|reservation|book|maps?|directions|inbox|unread|mail|e-?mail|texts?|messages?|whatsapp|telegram|slack|notion|linear|github|calendar|schedule|agenda)\b/i.test(
     text,
   )
 }
@@ -773,6 +780,14 @@ export async function runHireTurn(input: {
       ])
       return { reply: fail, bubbles: [fail], source: 'local', authoritative: [], card: null }
     }
+    // No retained draft: "send it" must never reach the model — with nothing in
+    // the delegate slot it improvised a random send target from thread noise.
+    const nodraft = "Nothing's queued to send right now. Want me to draft something?"
+    appendThread(input.dataDir, input.senderId, [
+      { role: 'user', content: input.userText },
+      { role: 'assistant', content: nodraft },
+    ])
+    return { reply: nodraft, bubbles: [nodraft], source: 'local', authoritative: [], card: null }
   }
 
   if (live.hired && input.userText.trim().startsWith('/')) {
@@ -1539,7 +1554,22 @@ export async function runHireTurn(input: {
       ...cleanHistory,
       { role: 'user', content: input.userText },
     ]
-    if (live.hired && agent.id === 'friend') {
+    // Simple-ask short-circuit: short conversational texts with no tool, write,
+    // brief, or card intent go straight to the model. The decision loop adds
+    // latency and a second failure surface to the most common messages ("ok
+    // cool", "remember: gym is Barezz") and buys nothing there.
+    const simpleAsk =
+      input.userText.length <= 120 &&
+      !maybeToolIntent(input.userText) &&
+      !wantsOperatorWrite(input.userText) &&
+      !/\b(draft|reply|forward|send)\b/i.test(input.userText) &&
+      !briefIntent &&
+      !eveningBriefIntent &&
+      !miniApp &&
+      !hardStop &&
+      !humanLimit &&
+      !wantsFreshInfo(input.userText)
+    if (live.hired && agent.id === 'friend' && !simpleAsk) {
       const outcome = await runToolConversation({
         messages: baseMessages,
         chat: (messages, timeoutMs) => gmiChat({ temperature: Math.min(agent.temperature, 0.3), maxTokens: Math.max(maxTokens, 1200), messages, timeoutMs }),

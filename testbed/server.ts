@@ -239,13 +239,18 @@ function broadcast(msg: unknown) {
   }
 }
 
-let running = false
+// Prod processes inbound serially per thread; a second text waits its turn
+// instead of vanishing. FIFO here too — dropping differed from iMessage.
+let queue: Promise<void> = Promise.resolve()
+function enqueue(job: () => Promise<void>) {
+  queue = queue.then(job).catch(() => undefined)
+}
 async function handleInbound(text: string, photo?: { bytes: Uint8Array; mime: string }) {
-  if (running) {
-    broadcast({ type: 'notice', text: '(turn already running — queued messages are the dedup risk, dropped here)' })
-    return
-  }
-  running = true
+  return enqueue(async () => {
+    await runTurn(text, photo)
+  })
+}
+async function runTurn(text: string, photo?: { bytes: Uint8Array; mime: string }) {
   const f = loadFixtures()
   try {
     let userText = text.trim()
@@ -279,8 +284,6 @@ async function handleInbound(text: string, photo?: { bytes: Uint8Array; mime: st
   } catch (err) {
     broadcast({ type: 'typing', on: false })
     broadcast({ type: 'notice', text: `turn error: ${err instanceof Error ? err.message : String(err)}` })
-  } finally {
-    running = false
   }
 }
 
