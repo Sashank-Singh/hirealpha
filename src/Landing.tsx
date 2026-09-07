@@ -910,7 +910,10 @@ function WaitlistForm() {
     e.preventDefault()
     const phoneValue = phone.trim()
     const emailValue = email.trim().toLowerCase()
-    if (!phoneValue || !emailValue || !emailValue.includes('@')) return
+    if (!phoneValue || !/^\S+@\S+\.\S+$/.test(emailValue)) {
+      setError('Enter a valid email address and phone number.')
+      return
+    }
     setBusy(true)
     setError('')
     try {
@@ -1091,6 +1094,8 @@ function WaitlistForm() {
         aria-label="Email for invites"
         disabled={busy}
         className="waitlist-form__email waitlist-form__email--top"
+        required
+        autoComplete="email"
       />
       <form className="waitlist-form" onSubmit={onSubmit}>
         <input
@@ -1110,6 +1115,7 @@ function WaitlistForm() {
           aria-label="Your phone number"
           disabled={busy}
           autoComplete="tel"
+          required
         />
         <button type="submit" className="btn btn--accent" disabled={busy}>
           {busy ? 'Saving…' : 'Get my invite'}
@@ -1476,6 +1482,7 @@ export default function Landing() {
             <a href="/about">About</a>
             <a href="/faq">FAQs</a>
             <a href="/privacy">Privacy</a>
+            <a href="/terms">Terms</a>
             <a href="/contact">Contact</a>
             <a href="/developers">Developers</a>
           </nav>

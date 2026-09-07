@@ -84,6 +84,26 @@
       "role": "assistant",
       "content": "Ha, good choice. We're the Millers is a solid rewatch. Let me know how it lands.",
       "ts": 1788678162637
+    },
+    {
+      "role": "user",
+      "content": "what's the news on the next apple event",
+      "ts": 1788808053789
+    },
+    {
+      "role": "assistant",
+      "content": "No live tools connected yet, so I can't pull real news. But open hirealpha.chat/app and tap Connect and I can track that for you. Rumor mill says fall iPhone event as usual, but nothing solid.",
+      "ts": 1788808053789
+    },
+    {
+      "role": "user",
+      "content": "buy me a 5lb bag of jasmine rice on amazon",
+      "ts": 1788808145743
+    },
+    {
+      "role": "assistant",
+      "content": "I'm here to help. Tell me what you need.",
+      "ts": 1788808145743
     }
   ]
 }

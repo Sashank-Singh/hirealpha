@@ -4903,6 +4903,51 @@ export async function runToolsForMessage(
     asked(id, hit)
   }
 
+  // A model-selected tool is an explicit operation, not another natural-language
+  // intent classification. Preserve its query and never fan out because a mail
+  // subject happens to contain "calendar", "drive", or another connector name.
+  if (input.want) {
+    const query = input.message.trim().slice(0, 1000)
+    if (!query) return ['A lookup query is required.']
+    if (input.want === 'web') return [await fetchWebSearch(query)]
+    if (input.want === 'maps') return [await fetchMapSearch(query, timezoneCountry(input.timezone), input.location)]
+    if (!can(input.want)) {
+      asked(input.want, true)
+      return results
+    }
+    if (input.want === 'gmail') {
+      const byId = /^id=([A-Za-z0-9_-]+)$/.exec(query)
+      if (byId) {
+        const messageId = byId[1]!
+        let text = await loadGmailMessageBody(sql, input.userId, messageId, 12000)
+        if (!text) {
+          const mail = await composioMailBody(input.userId, messageId)
+          if (mail?.id === messageId) text = mail.bodyText || stripHtml(mail.bodyHtml) || mail.snippet || ''
+        }
+        return [text ? `Email body id=${messageId} (up to 12000 characters; attachments not included):\n${text.slice(0, 12000)}` : `Could not retrieve the body for id=${messageId}. Do not infer its contents from the subject.`]
+      }
+      const mail = await loadGmailRich(sql, input.userId, query, 8)
+      return [mail.length
+        ? `Email results for ${JSON.stringify(query)}:\n${mail.map((m) => `- id=${m.id} | ${m.from} | ${m.date} | ${m.subject} | ${m.snippet}`).join('\n')}`
+        : 'Email lookup returned no usable records. Try a different query if needed. This does not establish that the inbox is empty.']
+    }
+    if (input.want === 'drive') return [await loadDrive(sql, input.userId, query)]
+    if (input.want === 'calendar') {
+      // Explicit instants avoid a second model call and ambiguous server-local
+      // date parsing. An invalid range must not silently become "next week".
+      const range = /^start=(\S+)\s+end=(\S+)$/.exec(query)
+      const iso = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:\d{2})$/
+      if (!range || !iso.test(range[1]) || !iso.test(range[2])) return ['Calendar lookup needs start=<ISO datetime with offset> end=<ISO datetime with offset>, using the user timezone. No calendar lookup ran.']
+      const timeMin = new Date(range[1])
+      const timeMax = new Date(range[2])
+      const span = timeMax.getTime() - timeMin.getTime()
+      if (!Number.isFinite(span) || span <= 0 || span > 31 * 86400000) return ['Calendar range must be valid, increasing, and no longer than 31 days. No calendar lookup ran.']
+      const calendar = await loadCalendar(sql, input.userId, { timeMin, timeMax, maxResults: 100 }, input.timezone || 'UTC')
+      const block = calendar.replace('No events on the calendar in the next 7 days.', 'No events found in the requested window.')
+      return [`Calendar window ${range[1]} to ${range[2]}:\n${block}\nThis is an event listing; do not assume complete availability if results are capped.`]
+    }
+  }
+
   const mailHit = input.want === 'gmail' || wantsEmail(input.message)
   const calHit = input.want === 'calendar' || wantsCalendar(input.message)
   const mailQuery = /\b(debrief|digest|brief)\b/i.test(input.message)
@@ -7463,7 +7508,7 @@ function firstNameOf(name: string) {
   return (name.split(/\s+/)[0] || name).trim()
 }
 
-async function loadGmailMessageBody(sql: SQL, userId: string, messageId: string): Promise<string> {
+async function loadGmailMessageBody(sql: SQL, userId: string, messageId: string, maxChars = 800): Promise<string> {
   const access = await googleAccessToken(sql, userId, 'gmail')
   if (!access) return ''
   const res = await fetch(
@@ -7474,7 +7519,7 @@ async function loadGmailMessageBody(sql: SQL, userId: string, messageId: string)
   const data = (await res.json()) as { snippet?: string; payload?: GmailMimePart }
   const { text, html } = extractGmailBody(data.payload)
   const raw = (text || stripHtml(html) || data.snippet || '').replace(/\s+/g, ' ').trim()
-  return raw.slice(0, 800)
+  return raw.slice(0, Math.min(12000, Math.max(1, maxChars)))
 }
 
 /* The prep sheet format. Fixed sections so the sheet scans the same way every
@@ -11372,7 +11417,9 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
     ) {
       const city = live.memories.find((m) => m.key === 'city' && m.value)?.value
       if (city && !message.toLowerCase().includes(city.toLowerCase())) {
-        message = `restaurants in ${city}`
+        // Preserve cuisine, budget, and explicit destinations. Only resolve
+        // relative location words; never replace the entire request with a city.
+        message = message.replace(/\b(?:near (?:me|us)|nearby|around (?:me|us|here))\b/gi, `in ${city}`)
       }
     }
     const loc = live.location ? await getLocation(sql, live.userId, live.location.kind) : null
@@ -12349,7 +12396,10 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
             (SELECT 1 FROM hire_user_locations WHERE user_id = ${user!.id} AND kind IN ('home','work') LIMIT 1) AS places
         `) as Array<{ goals?: unknown; prefs?: unknown; people?: unknown; places?: unknown }>
         const p = proof[0]
-        if (p && p.goals && p.prefs && p.people && p.places) setupDone = true
+        // Two of four signals is enough proof the wizard ran: skipping a page
+        // (home/work blank, no people added) must not re-trap an onboarded user.
+        const signals = [p?.goals, p?.prefs, p?.people, p?.places].filter(Boolean).length
+        if (p && signals >= 2) setupDone = true
       } catch {
         /* status stays not-done; the wizard is the safe default */
       }

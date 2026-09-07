@@ -42,7 +42,6 @@ import { formatNowForAgent, pickUserTimezone, timezoneFromText } from '../../dep
 import { dispatch as dispatchSmart, type DispatchContext, matchedCapability } from './dispatcher'
 import { fetchContacts, fetchSpending, peekDelegateDraft, retainDelegateDraft, sendMailDirect, takeDelegateDraft } from './liveContext'
 import {
-  looksLikeEventWrite,
   looksLikeFollowUp,
   looksLikeMailWrite,
   looksLikePrep,
@@ -53,15 +52,10 @@ import {
   humanLimitInstruction,
   matchPerson,
   prepTarget,
-  parseDraftCall,
-  parseExtractedWrite,
-  parsePlannerTool,
-  parseToolCall,
   pingMail,
-  pickMapRecommendation,
-  stripToolDirectives,
   wantsOperatorWrite,
-  TOOL_LOOP_INSTRUCTIONS,
+  runToolConversation,
+  LIVE_TOOLS,
   type DraftCall,
   type PersonHit,
 } from './toolLoop'
@@ -77,7 +71,10 @@ export function splitBubbles(text: string): string[] {
     .split(/\n\s*\n+/)
     .map((b) => b.trim())
     .filter(Boolean)
-  return blocks.length > 1 ? blocks : [cleaned]
+  const parts = blocks.length > 1 ? blocks : [cleaned]
+  // A repeated identical bubble reads as a glitch (and a delivery retry can
+  // double the whole text) — say it once.
+  return parts.filter((b, i) => i === 0 || b !== parts[i - 1])
 }
 
 /* No default card: a text-first hire replies in text. If the turn minted no
@@ -740,7 +737,7 @@ export async function runHireTurn(input: {
       takeDelegateDraft(input.senderId, agent.id)
       const sent = await sendMailDirect(input.senderId, draft.to, draft.subject, draft.body)
       if (sent.ok) {
-        const reply = `Sent to ${draft.toName}. I will nudge you if nothing comes back.`
+        const reply = `Sent to ${draft.toName}.`
         appendThread(input.dataDir, input.senderId, [
           { role: 'user', content: input.userText },
           { role: 'assistant', content: reply },
@@ -808,7 +805,7 @@ export async function runHireTurn(input: {
         }
       }
     }
-    if (!toolResults.length && maybeToolIntent(input.userText)) {
+    if (agent.id !== 'friend' && !toolResults.length && maybeToolIntent(input.userText)) {
       const intent = await classifyFreeLookup(input.userText)
       if (intent && intent.tool !== 'none' && (intent.query || input.userText)) {
         toolResults = await fetchLiveTools(
@@ -870,7 +867,6 @@ export async function runHireTurn(input: {
     if (agent.id === 'friend') {
       friendLife = friendJudgmentP ? await friendJudgmentP : null
       if (friendLife) extras.push(formatLifeStateBlock(friendLife))
-      extras.push(TOOL_LOOP_INSTRUCTIONS)
       if (looksLikeLifeTap(input.userText)) {
         extras.push(
           'They answered a tap from a previous text (eat, skip, later, done, send, in, out). Honor that using the life state numbers. If they said eat, tell them the protein number and one food. If they said skip, accept it. Do not claim you logged, booked, or sent anything unless a tool result says so.',
@@ -1334,14 +1330,12 @@ export async function runHireTurn(input: {
       ...(friendLife?.peopleDue || []),
     ]
     const smsAsk = /\b(?:text|sms)\b/i.test(input.userText)
-    let prepLoaded = false
     const weekAsk =
       looksLikeWeekRun(input.userText) ||
       (miniApp?.kind === 'weekly_review' && !/\b(?:open|show|pull up|bring back)\b/i.test(input.userText))
     if (!hardStop && humanLimit !== 'grief' && weekAsk) {
       const week = await fetchWeekBundle(input.senderId, agent.id)
       if (week?.text) {
-        prepLoaded = true
         extras.push(
           `Week bundle (ground truth, already saved. Stitch into one iMessage. Do not ask them to fill the weekly review card):\n${week.text}`,
         )
@@ -1378,7 +1372,6 @@ export async function runHireTurn(input: {
         prepTarget(input.userText) || input.userText,
       )
       if (prep?.text) {
-        prepLoaded = true
         extras.push(
           `Prep bundle (ground truth, stitch this into one iMessage. Do not ask them to pull the calendar, notes, or thread separately):\n${prep.text}\n\nWrite who, when, last note, what the thread said, and what to say. If a Send card is attached, tell them to tap Send. Never claim you sent.`,
         )
@@ -1416,67 +1409,16 @@ export async function runHireTurn(input: {
         }
       }
     } else if (!hardStop && humanLimit !== 'grief' && humanLimit !== 'negotiation' && writeIntent) {
-      let draft: DraftCall | null = null
+      // SMS still needs the People card. Email and event drafts are decided
+      // inside the tool loop, after it has looked up the required context.
       const person = matchPerson(input.userText, people)
-      if (looksLikeFollowUp(input.userText) && !looksLikeEventWrite(input.userText)) {
-        if (smsAsk && person?.phone) {
-          confirmKind = 'networking_crm'
-          extras.push(
-            `They want to text ${person.name}. Number on file: ${person.phone}. Tell them to tap Text on the People card. Never claim you sent a text.`,
-          )
-        } else if (person?.email) {
-          draft = looksLikeMailWrite(input.userText)
-            ? (await extractFriendWrite(input.userText, people, friendLife?.mail || [], timezone)) || pingMail(person)
-            : pingMail(person)
-        } else if (person?.phone) {
-          confirmKind = 'networking_crm'
-          extras.push(
-            `They want to follow up with ${person.name}. Number on file: ${person.phone}. Tell them to tap Text on the People card. Never claim you sent a text.`,
-          )
-        }
-      }
-      if (!draft && !confirmKind && (looksLikeMailWrite(input.userText) || looksLikeEventWrite(input.userText))) {
-        draft = await extractFriendWrite(input.userText, people, friendLife?.mail || [], timezone)
-        if (draft?.type === 'mail' && !draft.to.includes('@') && person?.email) {
-          draft = { ...draft, to: person.email }
-        }
-      }
-      if (draft) {
-        const proposed = await saveFriendDraft(input.senderId, agent.id, draft)
-        if (proposed.ok && proposed.id) {
-          confirmKind = draft.type === 'event' ? 'pick_slot' : 'approve_send'
-          confirmQuery = { draft: proposed.id }
-          extras.push(
-            `A confirm card is attached for ${draft.type === 'event' ? 'the calendar event' : 'the mail'}. Tell them to tap ${draft.type === 'event' ? 'Book' : 'Send'}. Never claim you sent or booked.`,
-          )
-        } else {
-          extras.push(
-            `Could not save that draft. ${proposed.error || 'Try again.'} Do not claim you sent or booked.`,
-          )
-        }
+      if (smsAsk && person?.phone) {
+        confirmKind = 'networking_crm'
+        extras.push(`They want to text ${person.name}. Number on file: ${person.phone}. Tell them to tap Text on the People card. Never claim you sent a text.`)
       }
     }
-
-    let roundsUsed = toolResults.length ? 1 : 0
-    let already = [
-      (friendLife?.calendar || []).join('; '),
-      (friendLife?.mail || []).join('; '),
-      toolResults.join('\n'),
-    ]
-      .filter(Boolean)
-      .join('\n')
-    if (!skipFreeLookup && !prepLoaded && !hardStop && humanLimit !== 'grief') {
-      for (; roundsUsed < 3; roundsUsed++) {
-        const next = await planNextTool(input.userText, already)
-        if (!next) break
-        const got = await fetchLiveTools(input.senderId, agent.id, next.query, next.tool)
-        const block = got.length
-          ? got.join('\n\n')
-          : `Lookup for ${next.tool} came back empty. Do not invent.`
-        toolResults.push(block)
-        already = `${already}\n${block}`
-      }
-    }
+    const roster = [...people, ...contacts]
+    if (roster.length) extras.push(`Known contacts (use these details; never invent recipients):\n${JSON.stringify(roster)}`)
   }
 
   if (digestText) {
@@ -1486,11 +1428,8 @@ export async function runHireTurn(input: {
   } else if (toolResults.length) {
     const calLive = toolResults.some((t) => t.startsWith('Upcoming events') || t.startsWith('No events'))
     const mapBlock = toolResults.find((t) => t.startsWith('Map results for'))
-    const mapPick = mapBlock ? pickMapRecommendation(mapBlock) : null
-    const mapHint = mapPick
-      ? ` Map results are present: recommend ${mapPick.pick} in your own voice with one reason, name ${
-          mapPick.alternate || 'one other place from the list'
-        } as the alternate, and include the OSM link for your pick. Never invent places.`
+    const mapHint = mapBlock
+      ? ' Compare the actual map results against their request and remembered preferences. Recommend the best supported fit with one reason and one alternate, and include the selected result’s link. Search order is not a quality ranking. Do not invent prices, ratings, opening hours, availability, or quietness.'
       : ''
     extras.push(
       `Live tool results (ground truth, use these, do not invent):\n${toolResults.join('\n\n')}\n\n${
@@ -1580,49 +1519,21 @@ export async function runHireTurn(input: {
       { role: 'user', content: input.userText },
     ]
     if (live.hired && agent.id === 'friend') {
-      const loopMessages = [...baseMessages]
-      reply = await gmiChat({
-        temperature: agent.temperature,
-        maxTokens,
-        messages: loopMessages,
+      const outcome = await runToolConversation({
+        messages: baseMessages,
+        chat: (messages, timeoutMs) => gmiChat({ temperature: Math.min(agent.temperature, 0.3), maxTokens: Math.max(maxTokens, 1200), messages, timeoutMs }),
+        lookup: (tool, query) => fetchLiveTools(input.senderId, agent.id, query, tool),
+        propose: (draft) => saveFriendDraft(input.senderId, agent.id, draft),
+        availableTools: LIVE_TOOLS.filter((tool) => tool === 'maps' || tool === 'web' || live.connected.includes(tool)),
+        canDraft: !hardStop && humanLimit !== 'grief' && humanLimit !== 'negotiation' && !confirmKind,
+        existingDraft: confirmQuery?.draft ? { id: confirmQuery.draft, type: 'mail' } : undefined,
       })
-      const leftoverTool = parseToolCall(reply)
-      const leftoverDraft = parseDraftCall(reply)
-      if (leftoverTool && !digestText) {
-        const got = await fetchLiveTools(input.senderId, agent.id, leftoverTool.query, leftoverTool.tool)
-        const block = got.length
-          ? got.join('\n\n')
-          : `Lookup for ${leftoverTool.tool} came back empty. Do not invent.`
-        loopMessages.push(
-          { role: 'assistant', content: stripToolDirectives(reply) || 'Looking that up.' },
-          { role: 'user', content: `Tool result for ${leftoverTool.tool} (ground truth, use this):\n${block}` },
-        )
-        reply = await gmiChat({
-          temperature: agent.temperature,
-          maxTokens,
-          messages: loopMessages,
-        })
-      } else if (leftoverDraft && !confirmKind && !hardStop && humanLimit !== 'grief' && humanLimit !== 'negotiation') {
-        const proposed = await saveFriendDraft(input.senderId, agent.id, leftoverDraft)
-        if (proposed.ok && proposed.id) {
-          confirmKind = leftoverDraft.type === 'event' ? 'pick_slot' : 'approve_send'
-          confirmQuery = { draft: proposed.id }
-          loopMessages.push(
-            { role: 'assistant', content: stripToolDirectives(reply) || 'Draft is ready.' },
-            {
-              role: 'user',
-              content:
-                'Draft is saved. A confirm card is attached. Tell them to tap Send or Book. Never claim you sent or booked.',
-            },
-          )
-          reply = await gmiChat({
-            temperature: agent.temperature,
-            maxTokens: Math.max(agent.maxTokens, 320),
-            messages: loopMessages,
-          })
-        }
+      reply = outcome.reply
+      if (outcome.draft) {
+        confirmKind = outcome.draft.type === 'event' ? 'pick_slot' : 'approve_send'
+        confirmQuery = { draft: outcome.draft.id }
       }
-      reply = stripToolDirectives(reply)
+
     } else {
       reply = await gmiChat({
         temperature: agent.temperature,
@@ -1689,7 +1600,7 @@ export async function runHireTurn(input: {
    * the same kind for 90 seconds, and never attach one when the reply text
    * already links the mini app. */
   let card: MiniAppCard | null = null
-  if (cardKind && isMinimalCardKind(cardKind) && !/\/app\/mini\//.test(finalReply) && allowMiniAppCard(input.senderId, agent.id, cardKind)) {
+  if (cardKind && isMinimalCardKind(cardKind) && !/\/app\/mini\//.test(finalReply) && (confirmQuery?.draft || allowMiniAppCard(input.senderId, agent.id, cardKind))) {
     card = await mintMiniAppCard(input.senderId, agent.id, cardKind, cardQuery)
   }
   /* Very first text to a hire: no specific intent yet, so attach the onboarding
@@ -1711,67 +1622,6 @@ function allowMiniAppCard(senderId: string, persona: string, kind: string): bool
   if (now - (lastMiniAppCard.get(key) || 0) < 90_000) return false
   lastMiniAppCard.set(key, now)
   return true
-}
-
-async function planNextTool(
-  userText: string,
-  already: string,
-): Promise<{ tool: 'maps' | 'web' | 'gmail' | 'calendar' | 'drive'; query: string } | null> {
-  try {
-    const raw = await gmiChat({
-      temperature: 0,
-      maxTokens: 80,
-      messages: [
-        {
-          role: 'system',
-          content:
-            'Decide if another live lookup is needed before answering this iMessage. JSON only, exactly one of {"tool":"maps","query":"..."}, {"tool":"web","query":"..."}, {"tool":"gmail","query":"..."}, {"tool":"calendar","query":"..."}, {"tool":"drive","query":"..."}, {"tool":"none"}. Use none if calendar, mail, or people are already in context, they are only chatting, or they only asked to send mail, book, or follow up.',
-        },
-        {
-          role: 'user',
-          content: `Message: ${userText}\nAlready have:\n${already.slice(0, 1200) || '(none)'}`,
-        },
-      ],
-    })
-    return parsePlannerTool(raw)
-  } catch {
-    return null
-  }
-}
-
-async function extractFriendWrite(
-  userText: string,
-  people: PersonHit[],
-  mail: string[],
-  timezone: string,
-): Promise<DraftCall | null> {
-  try {
-    const roster = people
-      .map((p) => `${p.name} phone=${p.phone || ''} email=${p.email || ''}`)
-      .join('; ')
-    const raw = await gmiChat({
-      temperature: 0,
-      maxTokens: 220,
-      messages: [
-        {
-          role: 'system',
-          content: `Extract a mail send, mail reply, or calendar event from one iMessage. JSON only: {"action":"mail","to":"","subject":"","body":""} or {"action":"reply","id":"","body":""} or {"action":"event","title":"","start":"","end":""} or {"action":"none"}. Use the People roster for email addresses. Use judged mail id= for replies. Event times are in ${timezone}. start can be ISO like 2026-08-21T15:00 or spoken tomorrow 3pm. No markdown.`,
-        },
-        {
-          role: 'user',
-          content: `People: ${roster || 'none'}\nMail: ${mail.join('; ') || 'none'}\nMessage: ${userText}`,
-        },
-      ],
-    })
-    const hit = parseExtractedWrite(raw)
-    if (hit?.type === 'mail' && !hit.to.includes('@')) {
-      const p = matchPerson(`email ${hit.to}`, people) || matchPerson(userText, people)
-      if (p?.email) return { ...hit, to: p.email }
-    }
-    return hit
-  } catch {
-    return null
-  }
 }
 
 async function saveFriendDraft(

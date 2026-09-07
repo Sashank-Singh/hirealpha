@@ -126,7 +126,17 @@ export async function fetchLiveProfile(phone: string, persona: AgentId): Promise
     await new Promise((r) => setTimeout(r, 300))
     return await attempt()
   } catch (err) {
-    console.warn('[live] profile lookup failed', err)
+    // AbortError = the 8s timer fired (api mid-restart, pool churning). One
+    // patient retry before giving up: EMPTY flips live.found off, which skips
+    // every tool block and made a news ask answer "no live tools connected".
+    console.warn('[live] profile lookup failed, retrying once', err)
+    await new Promise((r) => setTimeout(r, 1500))
+    try {
+      const second = await attempt()
+      if (second.found) return second
+    } catch {
+      /* fall through to EMPTY */
+    }
     return EMPTY
   }
 }

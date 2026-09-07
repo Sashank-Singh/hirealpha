@@ -42,26 +42,31 @@ const COMMON_ZONES = [
   'Pacific/Auckland',
 ]
 
-/** Onboarding wizard shown in the menu card while setup is incomplete. */
+/** Onboarding wizard shown in the menu card while setup is incomplete.
+ * Five pages, each bundling related questions, so the whole thing is done in
+ * five taps-or-less per topic instead of eleven pages of one question. */
 export function SetupApp({ auth }: { auth: FeatureAuth }) {
   const persona = auth.persona
   const email = auth.email || getSession()?.email
 
-  type Step = 'features' | 'time' | 'goals' | 'sleep' | 'days' | 'people' | 'budget' | 'tz' | 'home' | 'work' | 'connect'
+  type Step = 'you' | 'watch' | 'body' | 'people' | 'connect'
   const STEPS: { id: Step; title: string }[] = [
-    { id: 'features', title: 'What Alpha watches' },
-    { id: 'time', title: 'Brief times' },
-    { id: 'goals', title: 'Food goals' },
-    { id: 'sleep', title: 'Sleep' },
-    { id: 'days', title: 'Workout days' },
-    { id: 'people', title: 'People who matter' },
-    { id: 'budget', title: 'Weekly spend' },
-    { id: 'tz', title: 'Time zone' },
-    { id: 'home', title: 'Home' },
-    { id: 'work', title: 'Work' },
+    { id: 'you', title: 'You & places' },
+    { id: 'watch', title: 'What Alpha watches' },
+    { id: 'body', title: 'Sleep, training & food' },
+    { id: 'people', title: 'People & spend' },
     { id: 'connect', title: 'Connect tools' },
   ]
-  const [step, setStep] = useState<Step>('features')
+  // Resume where the user left off — closing the tab mid-wizard must not send
+  // them back to page one on return.
+  const [step, setStep] = useState<Step>(() => {
+    try {
+      const saved = localStorage.getItem('ha_setup_step') as Step | null
+      return saved && STEPS.some((s) => s.id === saved) ? saved : 'you'
+    } catch {
+      return 'you'
+    }
+  })
   const idx = STEPS.findIndex((s) => s.id === step)
 
   const [features, setFeatures] = useState<string[]>([])
@@ -124,54 +129,72 @@ export function SetupApp({ auth }: { auth: FeatureAuth }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [email, auth.token, persona])
 
+  function goto(i: number) {
+    if (i < STEPS.length - 1) {
+      const id = STEPS[i + 1]!.id
+      try {
+        localStorage.setItem('ha_setup_step', id)
+      } catch {
+        /* private mode: resume just restarts from page one */
+      }
+      setStep(id)
+    } else setDone(true)
+  }
+
   async function next() {
     setMsg('')
     setBusy(true)
     try {
-      if (step === 'features') {
+      if (step === 'you') {
+        // Time zone rides the phone record; home and work geocode on save.
+        // Independent writes run together so the page lands in one round trip.
+        const jobs: Promise<unknown>[] = []
+        const session = getSession()
+        if (email && session?.phone) {
+          jobs.push(apiSavePhone(email, session.phone, session.name, tz))
+        }
+        const homeQ = homeQuery.trim()
+        if (email && homeQ) {
+          jobs.push(
+            geocodePlace(homeQ).then((hit) =>
+              apiSaveLocation({ email, kind: 'home', latitude: hit.lat, longitude: hit.lon, label: homeQ, source: 'manual' }),
+            ),
+          )
+        }
+        const workQ = workQuery.trim()
+        if (email && workQ) {
+          jobs.push(
+            geocodePlace(workQ).then((hit) =>
+              apiSaveLocation({ email, kind: 'work', latitude: hit.lat, longitude: hit.lon, label: workQ, source: 'manual' }),
+            ),
+          )
+        }
+        await Promise.all(jobs)
+      } else if (step === 'watch') {
         const f = features.length ? features : ['digest']
-        await apiSetup({ persona, features: f, ...a })
-        if (features.includes('digest')) await apiSetDigestTime({ persona, time: digestTime, ...a })
-      } else if (step === 'time') {
-        await apiSetDigestTime({ persona, time: digestTime, ...a })
-        await apiSetEveningTime({ persona, time: eveningTime, ...a })
-      } else if (step === 'goals') {
-        await apiSetNutritionGoals({ ...a, calorieGoal: calories, proteinGoal: protein })
-      } else if (step === 'sleep') {
-        await apiPutMiniPrefs({ ...a, sleepBedtime: bedtime, sleepWake: wake })
-      } else if (step === 'days') {
+        await Promise.all([
+          apiSetup({ persona, features: f, ...a }),
+          apiSetDigestTime({ persona, time: digestTime, ...a }),
+          apiSetEveningTime({ persona, time: eveningTime, ...a }),
+        ])
+      } else if (step === 'body') {
         writeWorkoutDays(days)
-        await apiPutMiniPrefs({ ...a, workoutDays: days })
+        // One prefs PUT carries sleep + workout days (server merges per field).
+        await Promise.all([
+          apiPutMiniPrefs({ ...a, sleepBedtime: bedtime, sleepWake: wake, workoutDays: days }),
+          apiSetNutritionGoals({ ...a, calorieGoal: calories, proteinGoal: protein }),
+        ])
       } else if (step === 'people') {
         // Save every person the user added (each keeps its own kind/cadence).
         const all = people.length ? people : (personName.trim() ? [{ name: personName.trim(), kind: personKind, cadence: personCadence }] : [])
-        for (const p of all) {
-          await apiAddRelationship({ ...a, name: p.name, kind: p.kind as 'personal' | 'work' | 'partner' | 'investor', cadenceDays: p.cadence })
-        }
-      } else if (step === 'budget') {
-        await apiSetSpendBudget({ ...a, weeklyBudget: budget })
-      } else if (step === 'tz') {
-        // The timezone rides on the phone record. Token-only setups have no
-        // phone to attach it to, so persist best-effort and move on silently.
-        const session = getSession()
-        if (email && session?.phone) {
-          await apiSavePhone(email, session.phone, session.name, tz)
-        }
-      } else if (step === 'home' || step === 'work') {
-        const kind = step
-        const query = (kind === 'home' ? homeQuery : workQuery).trim()
-        if (email && query) {
-          const hit = await geocodePlace(query)
-          await apiSaveLocation({
-            email,
-            kind,
-            latitude: hit.lat,
-            longitude: hit.lon,
-            label: query,
-            source: 'manual',
-          })
-        }
-        // No text typed (or token-only): skip persisting and advance.
+        await Promise.all([
+          ...all.map((p) =>
+            apiAddRelationship({ ...a, name: p.name, kind: p.kind as 'personal' | 'work' | 'partner' | 'investor', cadenceDays: p.cadence }),
+          ),
+          apiSetSpendBudget({ ...a, weeklyBudget: budget }),
+        ])
+      } else if (step === 'connect') {
+        // Nothing to save here — connectors bind themselves via OAuth.
       }
     } catch (error) {
       setMsg(error instanceof Error ? error.message : 'Could not save that step.')
@@ -179,9 +202,7 @@ export function SetupApp({ auth }: { auth: FeatureAuth }) {
       return
     }
     setBusy(false)
-    const i = STEPS.findIndex((s) => s.id === step)
-    if (i < STEPS.length - 1) setStep(STEPS[i + 1]!.id)
-    else setDone(true)
+    goto(idx)
   }
 
   /** Geocode free text to a lat/lon via Nominatim, like the settings sheet. */
@@ -199,9 +220,7 @@ export function SetupApp({ auth }: { auth: FeatureAuth }) {
   }
 
   function skip() {
-    const i = STEPS.findIndex((s) => s.id === step)
-    if (i < STEPS.length - 1) setStep(STEPS[i + 1]!.id)
-    else setDone(true)
+    goto(idx)
   }
 
   async function connect(id: ConnectorId) {
@@ -237,6 +256,7 @@ export function SetupApp({ auth }: { auth: FeatureAuth }) {
     void apiSetup({ persona, done: true, ...a }).catch(() => undefined)
     try {
       localStorage.setItem('ha_setup_done', persona)
+      localStorage.removeItem('ha_setup_step')
     } catch {
       /* private mode: server row is the only source */
     }
@@ -252,9 +272,42 @@ export function SetupApp({ auth }: { auth: FeatureAuth }) {
         {idx + 1} of {STEPS.length} · {STEPS[idx]!.title}
       </p>
 
-      {step === 'features' && (
+      {step === 'you' && (
         <div className="setup__block">
-          <p className="setup__lead">What should Alpha watch for you? Pick any — you can change this later.</p>
+          <p className="setup__lead">
+            {detectedTz ? `Alpha clocked your device and thinks you're in ${detectedTz}. That right? Add where you live and work while you're here.` : 'Your time zone and places — Alpha uses them for briefs, weather, and commute timing.'}
+          </p>
+          <label className="setup__row">
+            <span>Time zone</span>
+            <select className="setup__select" value={tz} onChange={(e) => setTz(e.target.value)}>
+              {zoneOptions.map((zone) => (
+                <option key={zone} value={zone}>
+                  {zone}
+                </option>
+              ))}
+            </select>
+          </label>
+          <input
+            className="setup__text"
+            type="text"
+            placeholder="Where's home? (city or address)"
+            value={homeQuery}
+            onChange={(e) => setHomeQuery(e.target.value)}
+          />
+          <input
+            className="setup__text"
+            type="text"
+            placeholder="Where do you work? (optional)"
+            value={workQuery}
+            onChange={(e) => setWorkQuery(e.target.value)}
+          />
+          {homeQuery.trim() && <p className="setup__hint">Tap Next to save {homeQuery.trim()}. Leave blank to skip.</p>}
+        </div>
+      )}
+
+      {step === 'watch' && (
+        <div className="setup__block">
+          <p className="setup__lead">What should Alpha watch, and when should the briefs land? Pick any — change it all later.</p>
           <div className="setup__chips">
             {connectors.length ? (
               <>
@@ -291,12 +344,6 @@ export function SetupApp({ auth }: { auth: FeatureAuth }) {
               <p className="mini__hint">Features for {persona} load after you sign in.</p>
             )}
           </div>
-        </div>
-      )}
-
-      {step === 'time' && (
-        <div className="setup__block">
-          <p className="setup__lead">When should the briefs land? Alpha texts the morning wrap then, and the evening wrap at night.</p>
           <label className="setup__row">
             <span>Morning brief</span>
             <input type="time" value={digestTime} onChange={(e) => setDigestTime(e.target.value)} />
@@ -308,23 +355,9 @@ export function SetupApp({ auth }: { auth: FeatureAuth }) {
         </div>
       )}
 
-      {step === 'goals' && (
+      {step === 'body' && (
         <div className="setup__block">
-          <p className="setup__lead">Daily food targets. Alpha logs meals and keeps the count.</p>
-          <label className="setup__row">
-            <span>Calories</span>
-            <input type="number" inputMode="numeric" value={calories} onChange={(e) => setCalories(Number(e.target.value) || 0)} />
-          </label>
-          <label className="setup__row">
-            <span>Protein (g)</span>
-            <input type="number" inputMode="numeric" value={protein} onChange={(e) => setProtein(Number(e.target.value) || 0)} />
-          </label>
-        </div>
-      )}
-
-      {step === 'sleep' && (
-        <div className="setup__block">
-          <p className="setup__lead">Rough sleep times. Alpha uses them for your briefs and wind-down.</p>
+          <p className="setup__lead">Rough rhythms. Alpha keeps the times and counts honest.</p>
           <label className="setup__row">
             <span>Bedtime</span>
             <input type="time" value={bedtime} onChange={(e) => setBedtime(e.target.value)} />
@@ -333,12 +366,7 @@ export function SetupApp({ auth }: { auth: FeatureAuth }) {
             <span>Wake</span>
             <input type="time" value={wake} onChange={(e) => setWake(e.target.value)} />
           </label>
-        </div>
-      )}
-
-      {step === 'days' && (
-        <div className="setup__block">
-          <p className="setup__lead">Which days do you train? Tap to change.</p>
+          <p className="setup__hint">Which days do you train? Tap to change.</p>
           <div className="wk-days" role="group" aria-label="Workout days">
             {([0, 1, 2, 3, 4, 5, 6] as WorkoutDay[]).map((day) => (
               <button
@@ -359,6 +387,14 @@ export function SetupApp({ auth }: { auth: FeatureAuth }) {
               </button>
             ))}
           </div>
+          <label className="setup__row">
+            <span>Calories</span>
+            <input type="number" inputMode="numeric" value={calories} onChange={(e) => setCalories(Number(e.target.value) || 0)} />
+          </label>
+          <label className="setup__row">
+            <span>Protein (g)</span>
+            <input type="number" inputMode="numeric" value={protein} onChange={(e) => setProtein(Number(e.target.value) || 0)} />
+          </label>
         </div>
       )}
 
@@ -411,62 +447,11 @@ export function SetupApp({ auth }: { auth: FeatureAuth }) {
               <option value={30}>month</option>
             </select>
           </label>
-        </div>
-      )}
-
-      {step === 'budget' && (
-        <div className="setup__block">
-          <p className="setup__lead">Weekly spend limit. Alpha flags when a purchase would break it.</p>
           <label className="setup__row">
             <span>Weekly budget</span>
             <input type="number" inputMode="decimal" value={budget} onChange={(e) => setBudget(Number(e.target.value) || 0)} />
           </label>
-        </div>
-      )}
-
-      {step === 'tz' && (
-        <div className="setup__block">
-          <p className="setup__lead">
-            {detectedTz ? `Alpha clocked your device and thinks you're in ${detectedTz}. That right?` : 'Which timezone should Alpha use for briefs and reminders?'}
-          </p>
-          <label className="setup__row">
-            <span>Time zone</span>
-            <select className="setup__select" value={tz} onChange={(e) => setTz(e.target.value)}>
-              {zoneOptions.map((zone) => (
-                <option key={zone} value={zone}>
-                  {zone}
-                </option>
-              ))}
-            </select>
-          </label>
-        </div>
-      )}
-
-      {step === 'home' && (
-        <div className="setup__block">
-          <p className="setup__lead">Where&rsquo;s home? Alpha uses it for weather, commute timing, and local picks.</p>
-          <input
-            className="setup__text"
-            type="text"
-            placeholder="Where's home? (city or address)"
-            value={homeQuery}
-            onChange={(e) => setHomeQuery(e.target.value)}
-          />
-          {homeQuery.trim() && <p className="setup__hint">Tap Next to save {homeQuery.trim()}. Leave blank to skip.</p>}
-        </div>
-      )}
-
-      {step === 'work' && (
-        <div className="setup__block">
-          <p className="setup__lead">And where do you work? Alpha keeps commute timing honest.</p>
-          <input
-            className="setup__text"
-            type="text"
-            placeholder="Where do you work?"
-            value={workQuery}
-            onChange={(e) => setWorkQuery(e.target.value)}
-          />
-          {workQuery.trim() && <p className="setup__hint">Tap Next to save {workQuery.trim()}. Leave blank to skip.</p>}
+          <p className="setup__hint">Alpha flags when a purchase would break your weekly budget.</p>
         </div>
       )}
 

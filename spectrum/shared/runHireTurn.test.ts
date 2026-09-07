@@ -14,6 +14,9 @@ describe('explicit navigation wins over conversation history', () => {
   let profileUnavailable: boolean
   let hired: boolean
   let modelInputs: string[]
+  let answers: string[]
+  let toolRequests: Array<{ want: string; message: string }>
+  let drafts: unknown[]
 
   beforeEach(() => {
     dataDir = mkdtempSync(join(tmpdir(), 'hirealpha-turn-test-'))
@@ -25,16 +28,33 @@ describe('explicit navigation wins over conversation history', () => {
     profileUnavailable = false
     hired = false
     modelInputs = []
+    answers = []
+    toolRequests = []
+    drafts = []
     globalThis.fetch = (async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
       const url = String(input)
       requests.push(url)
       if (url.includes('/chat/completions')) {
         modelInputs.push(String(init?.body || ''))
+        if (answers.length) {
+          const prompt = String(init?.body || '')
+          const content = prompt.includes('CAPABILITY MANIFESTO') ? answers.shift()! : '{"tool":"none","action":"none"}'
+          return Response.json({ choices: [{ message: { content } }] })
+        }
         return Response.json({ choices: [{ message: { content: "Hey, I'm Alpha, your personal sidekick. Your calendar isn't connected." } }] })
+      }
+      if (url.endsWith('/api/internal/live/tools')) {
+        const call = JSON.parse(String(init?.body))
+        toolRequests.push(call)
+        return Response.json({ results: [call.want === 'gmail' ? 'id=flight123 from=airline@example.com subject=Flight confirmation. Departure September 8 at 3 PM PDT.' : 'No events September 8, 2 PM to 5 PM PDT.'] })
+      }
+      if (url.endsWith('/api/internal/propose')) {
+        drafts.push(JSON.parse(String(init?.body)))
+        return Response.json({ ok: true, id: `draft-flight-${drafts.length}` })
       }
       if (url.includes('/api/internal/mini/token')) return new Response('Unavailable', { status: 503 })
       if (profileUnavailable && url.includes('/api/internal/live?')) return new Response('Unavailable', { status: 503 })
-      if (hired && url.includes('/api/internal/live?')) return Response.json({ found: true, hired: true, connected: [], context: {}, memories: [{ key: 'preferred_name', value: 'Test' }, { key: 'city', value: 'Austin' }] })
+      if (hired && url.includes('/api/internal/live?')) return Response.json({ found: true, hired: true, connected: answers.length ? ['gmail', 'calendar', 'drive'] : [], context: {}, memories: [{ key: 'preferred_name', value: 'Test' }, { key: 'city', value: 'Austin' }] })
       return Response.json({ found: false, hired: false })
     }) as typeof fetch
   })
@@ -120,5 +140,27 @@ describe('explicit navigation wins over conversation history', () => {
     expect(modelInputs.length).toBeGreaterThan(0)
     expect(modelInputs.every((body) => !body.includes('You are mid onboarding'))).toBe(true)
     expect(requests.some((url) => url.endsWith('/api/internal/memory'))).toBe(false)
+  })
+
+  it('chains mail and calendar lookups into a saved reply, without sending it', async () => {
+    hired = true
+    answers = [
+      'TOOL gmail subject:confirmation from:airline@example.com',
+      'TOOL calendar September 8 2 PM to 5 PM PDT',
+      'DRAFT_REPLY id=flight123 | body=Thanks, I confirm the September 8 flight.',
+      'Your flight does not conflict with your calendar. The reply is ready for your review. Tap Send on the card.',
+    ]
+    const result = await runHireTurn({ agentId: 'friend', dataDir, senderId: 'test-chain', userText: 'Locate my flight confirmation, check for calendar conflicts, then draft a reply to the airline.' })
+    expect(toolRequests.map((r) => r.want)).toEqual(['gmail', 'calendar'])
+    expect(drafts).toHaveLength(1)
+    expect(drafts[0]).toMatchObject({ kind: 'reply', messageId: 'flight123' })
+    expect(result.reply).toContain('ready for your review')
+    expect(result.reply).not.toMatch(/TOOL |DRAFT_/)
+    expect(result.card?.url).toContain('draft-flight')
+    expect(requests.some((url) => /send-direct|send-mail/.test(url))).toBe(false)
+    answers = ['DRAFT_REPLY id=flight123 | body=Please confirm my seat as well.', 'Your second draft is ready for review.']
+    const followup = await runHireTurn({ agentId: 'friend', dataDir, senderId: 'test-chain', userText: 'Draft another reply asking for my seat confirmation.' })
+    expect(drafts).toHaveLength(2)
+    expect(followup.card?.url).toContain('draft-flight-2')
   })
 })

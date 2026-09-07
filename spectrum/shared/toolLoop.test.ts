@@ -23,7 +23,114 @@ import {
   prepTarget,
   stripToolDirectives,
   wantsOperatorWrite,
+  runToolConversation,
 } from './toolLoop'
+
+describe('multi-step agent execution', () => {
+  function scenario(answers: string[], overrides: Partial<Parameters<typeof runToolConversation>[0]> = {}) {
+    const lookups: string[] = []
+    const drafts: unknown[] = []
+    const prompts: string[] = []
+    const run = () => runToolConversation({
+      messages: [{ role: 'user', content: 'Find the confirmation, check my availability, and draft a reply.' }],
+      availableTools: ['gmail', 'calendar', 'drive', 'web', 'maps'],
+      canDraft: true,
+      chat: async (messages) => { prompts.push(JSON.stringify(messages)); const answer = answers.shift(); if (!answer) throw new Error('model unavailable'); return answer },
+      lookup: async (tool, query) => { lookups.push(`${tool}:${query}`); return ['id=flight123; confirmed departure 3 PM'] },
+      propose: async (draft) => { drafts.push(draft); return { ok: true, id: 'draft123' } },
+      ...overrides,
+    })
+    return { run, lookups, drafts, prompts }
+  }
+
+  it('uses sequential JSON actions and gives the model each preceding result', async () => {
+    const s = scenario([
+      '{"action":"lookup","tool":"gmail","query":"subject:confirmation"}',
+      '{"action":"lookup","tool":"calendar","query":"start=2026-09-08T14:00:00-07:00 end=2026-09-08T17:00:00-07:00"}',
+      '{"action":"reply","id":"flight123","body":"Thanks, I confirm."}',
+      'The reply is ready for review.',
+    ])
+    const result = await s.run()
+    expect(s.lookups).toHaveLength(2)
+    expect(s.drafts).toEqual([{ type: 'reply', id: 'flight123', body: 'Thanks, I confirm.' }])
+    expect(s.prompts[1]).toContain('confirmed departure 3 PM')
+    expect(s.prompts[3]).toContain('draft_saved')
+    expect(result.draft).toEqual({ id: 'draft123', type: 'reply' })
+  })
+
+  it('suppresses repeated equivalent searches and still lets the model answer', async () => {
+    const s = scenario(['TOOL gmail from:maya', 'TOOL GMAIL FROM:maya', 'I found the thread.'])
+    expect((await s.run()).reply).toBe('I found the thread.')
+    expect(s.lookups).toEqual(['gmail:from:maya'])
+    expect(s.prompts[2]).toContain('duplicate')
+  })
+
+  it('can use another source after a lookup fails', async () => {
+    const calls: string[] = []
+    const s = scenario(['TOOL maps vegan dinner Austin', 'TOOL web vegan dinner Austin', 'Here is the restaurant website.'], {
+      lookup: async (tool) => { calls.push(tool); if (tool === 'maps') throw new Error('offline'); return ['https://restaurant.example.com'] },
+    })
+    expect((await s.run()).reply).toContain('restaurant website')
+    expect(calls).toEqual(['maps', 'web'])
+    expect(s.prompts[1]).toContain('Lookup failed')
+  })
+
+  it('never invokes a disconnected lookup or saves a blocked draft', async () => {
+    const s = scenario(['TOOL gmail from:maya', 'DRAFT_REPLY id=123 | body=hello', 'Please connect Gmail.'], { availableTools: ['web'], canDraft: false })
+    expect((await s.run()).reply).toContain('connect Gmail')
+    expect(s.lookups).toHaveLength(0)
+    expect(s.drafts).toHaveLength(0)
+  })
+
+  it('does not lose a saved draft when the next model call fails', async () => {
+    const s = scenario(['DRAFT_REPLY id=flight123 | body=Thanks.'])
+    const result = await s.run()
+    expect(result.reply).toContain('draft is saved')
+    expect(result.reply).toContain('Nothing has been sent')
+    expect(result.draft?.id).toBe('draft123')
+  })
+
+  it('does not retry an uncertain draft write', async () => {
+    let writes = 0
+    const s = scenario(['DRAFT_REPLY id=flight123 | body=Thanks.', 'DRAFT_REPLY id=flight123 | body=Thanks.'], {
+      propose: async () => { writes++; throw new Error('connection lost') },
+    })
+    const result = await s.run()
+    expect(writes).toBe(1)
+    expect(result.draft).toBeUndefined()
+    expect(result.reply).toContain('could not confirm')
+  })
+
+  it('stops an endless sequence within its action budget without leaking directives', async () => {
+    let calls = 0
+    const s = scenario([], { maxSteps: 2, chat: async () => `TOOL web query ${++calls}` })
+    const result = await s.run()
+    expect(s.lookups).toHaveLength(2)
+    expect(calls).toBe(3)
+    expect(result.reply).not.toContain('TOOL')
+    expect(result.reply).toContain('could not finish')
+  })
+
+  it('rejects malformed and unsupported actions instead of exposing them to the user', async () => {
+    const s = scenario(['{"action":"mail","to":"x@example.com",', '{"action":"execute_shell","command":"whoami"}', 'I cannot perform that action.'])
+    expect((await s.run()).reply).toBe('I cannot perform that action.')
+    expect(s.drafts).toHaveLength(0)
+    expect(s.lookups).toHaveLength(0)
+  })
+
+  it('parses escaped quotes, newlines and pipe characters without truncating a draft', () => {
+    const body = 'Please confirm "aisle".\nOption A | Option B.'
+    expect(parseExtractedWrite(JSON.stringify({ action: 'reply', id: 'abc', body }))).toEqual({ type: 'reply', id: 'abc', body })
+    expect(parseExtractedWrite('{"action":"reply","id":"abc","body":"cut off')).toBeNull()
+  })
+
+  it('does not start model or tool work after the turn deadline', async () => {
+    const s = scenario(['TOOL gmail from:maya'], { maxDurationMs: 0 })
+    expect((await s.run()).reply).toContain('could not finish')
+    expect(s.prompts).toHaveLength(0)
+    expect(s.lookups).toHaveLength(0)
+  })
+})
 
 describe('tool loop directives', () => {
   it('parses a maps tool line even after a sentence', () => {

@@ -1,5 +1,6 @@
 import { Component, lazy, Suspense, type ReactNode } from 'react'
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom'
+import { NotFoundPage, TrustPage } from './TrustPage'
 
 class ErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean; error: Error | null }> {
   constructor(props: { children: ReactNode }) {
@@ -78,6 +79,8 @@ export default function App() {
           <Routes>
             <Route path="/" element={<Landing />} />
             <Route path="/app/login" element={<LoginPage />} />
+            <Route path="/privacy" element={<TrustPage kind="privacy" />} />
+            <Route path="/terms" element={<TrustPage kind="terms" />} />
             <Route path="/app/mini/:persona/:kind" element={<MiniAppPage />} />
             <Route path="/app" element={<RequireAuth />}>
               {/* SettingsSheet is the whole authenticated app */}
@@ -85,7 +88,7 @@ export default function App() {
               {/* Redirect every old sub-route back to /app */}
               <Route path="*" element={<AppRedirect />} />
             </Route>
-            <Route path="*" element={<Navigate to="/" replace />} />
+            <Route path="*" element={<NotFoundPage />} />
           </Routes>
         </Suspense>
       </ErrorBoundary>

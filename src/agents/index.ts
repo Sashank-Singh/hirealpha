@@ -46,10 +46,14 @@ export function toChatMessages(thread: Msg[]): ChatMessage[] {
 
 export function buildSystemPrompt(agent: AgentDefinition, connectedApps: string[] = []): string {
   const live = SKILLS[agent.id].executable.filter((t) => connectedApps.includes(t))
+  // Maps and web search are no-auth free lookups — they work with zero
+  // connectors. Telling the model "no live tools connected" made it answer a
+  // plain news question with "I can't pull real news, connect tools", which
+  // is both wrong and the exact sentence a benchmark tester screenshots.
   const tools =
     live.length > 0
-      ? `\nLive tools for this user: ${live.join(', ')}.\nYou may use a tool result if one is provided. Do not claim you completed an action unless the tool result is in context.`
-      : `\nNo live tools connected yet. If they ask for Gmail, Calendar, or another tool this hire can run, tell them to open hirealpha.chat/app and tap Connect. Do not mime the action.`
+      ? `\nLive tools for this user: ${live.join(', ')}, plus always-on free lookups (web search, maps). You may use a tool result if one is provided. Do not claim you completed an action unless the tool result is in context.`
+      : `\nNo app connectors are linked, but web search and maps lookups ALWAYS work for you with no setup — use what a tool result provides. For app-bound tools (Gmail, Calendar, and similar this hire can run), tell them to open hirealpha.chat/app and tap Connect. Do not mime any action.`
 
   return `${agent.systemPrompt}\n${tools}\n${CAPABILITY_MANIFESTO}`
 }
