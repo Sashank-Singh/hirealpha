@@ -71,3 +71,5 @@ skills-lock.json
 
 opencode.json 
 .gstack/
+testbed/data/
+testbed/fixtures.json

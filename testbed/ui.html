@@ -1,0 +1,223 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Alpha Testbed — local iMessage</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: #000; color: #fff;
+    font-family: -apple-system, system-ui, -apple-system-font, "SF Pro Text", sans-serif;
+    display: flex; justify-content: center;
+  }
+  .phone {
+    width: 420px; max-width: 100vw; height: 100dvh; display: flex; flex-direction: column;
+    border-left: 1px solid #1c1c1e; border-right: 1px solid #1c1c1e;
+  }
+  header {
+    padding: 14px 16px 10px; border-bottom: 1px solid #1c1c1e; background: #0a0a0a;
+    display: flex; align-items: center; gap: 10px; flex-shrink: 0;
+  }
+  .avatar {
+    width: 40px; height: 40px; border-radius: 50%; background: #111; border: 1px solid #2c2c2e;
+    display: grid; place-items: center; font-size: 20px; font-family: Georgia, serif; font-style: italic;
+  }
+  .who { flex: 1; }
+  .who b { display: block; font-size: 15px; }
+  .who span { font-size: 11px; color: #8e8e93; }
+  .hdr-actions { display: flex; gap: 8px; }
+  button.hdr {
+    background: #1c1c1e; color: #eee; border: 1px solid #2c2c2e; border-radius: 8px;
+    font-size: 12px; padding: 6px 10px; cursor: pointer;
+  }
+  button.hdr:hover { background: #2c2c2e; }
+  #log { flex: 1; overflow-y: auto; padding: 16px 12px; display: flex; flex-direction: column; gap: 4px; }
+  .row { display: flex; margin-top: 6px; }
+  .row.me { justify-content: flex-end; }
+  .bubble {
+    max-width: 74%; padding: 8px 13px; border-radius: 18px; font-size: 15px; line-height: 1.32;
+    white-space: pre-wrap; word-break: break-word;
+  }
+  .me .bubble { background: #0a84ff; border-bottom-right-radius: 5px; }
+  .alpha .bubble { background: #262629; border-bottom-left-radius: 5px; }
+  .meta { font-size: 10px; color: #555; margin: 2px 6px 0; }
+  .card-chip {
+    align-self: flex-start; margin: 6px 0 2px; background: #111; border: 1px solid #2c2c2e;
+    border-radius: 12px; padding: 10px 14px; font-size: 13px; max-width: 74%;
+  }
+  .card-chip a { color: #0a84ff; text-decoration: none; font-weight: 600; }
+  .notice { align-self: center; background: #1c1c1e; color: #aaa; font-size: 11px; border-radius: 10px; padding: 4px 10px; margin: 6px 0; }
+  .event-chip { align-self: flex-start; background: #141414; border: 1px dashed #333; color: #9a9a9f; font-size: 11px; border-radius: 10px; padding: 5px 10px; margin: 4px 0; max-width: 80%; }
+  #typing { display: none; padding: 4px 14px 10px; color: #8e8e93; font-size: 13px; }
+  footer { border-top: 1px solid #1c1c1e; padding: 10px; display: flex; gap: 8px; flex-shrink: 0; background: #0a0a0a; }
+  #entry {
+    flex: 1; background: #1c1c1e; border: 1px solid #2c2c2e; color: #fff; border-radius: 18px;
+    padding: 9px 14px; font-size: 15px; outline: none;
+  }
+  #send { background: #0a84ff; color: #fff; border: none; border-radius: 50%; width: 38px; height: 38px; font-size: 16px; cursor: pointer; }
+  label.photo {
+    background: #1c1c1e; border-radius: 50%; width: 38px; height: 38px; display: grid; place-items: center;
+    cursor: pointer; font-size: 16px; border: 1px solid #2c2c2e; flex-shrink: 0;
+  }
+  input[type=file] { display: none; }
+  #fixtures {
+    display: none; position: fixed; inset: 0; background: rgba(0,0,0,.7); z-index: 10;
+    align-items: center; justify-content: center;
+  }
+  #fixtures.open { display: flex; }
+  .panel { background: #111; border: 1px solid #2c2c2e; border-radius: 14px; padding: 18px; width: 360px; max-height: 80vh; overflow-y: auto; font-size: 13px; }
+  .panel h3 { margin: 0 0 10px; font-size: 15px; }
+  .panel label { display: block; margin: 8px 0 2px; color: #8e8e93; font-size: 11px; }
+  .panel input, .panel textarea {
+    width: 100%; background: #1c1c1e; border: 1px solid #2c2c2e; color: #fff; border-radius: 8px; padding: 7px 9px; font-size: 13px;
+  }
+  .panel .save { margin-top: 14px; width: 100%; background: #0a84ff; color: #fff; border: none; border-radius: 8px; padding: 9px; font-size: 14px; cursor: pointer; }
+  .checks { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+  .checks label { display: flex; gap: 4px; align-items: center; margin: 0; color: #eee; font-size: 12px; background: #1c1c1e; padding: 4px 8px; border-radius: 8px; }
+</style>
+</head>
+<body>
+<div class="phone">
+  <header>
+    <div class="avatar">α</div>
+    <div class="who"><b>Alpha</b><span id="sub">testbed · local only</span></div>
+    <div class="hdr-actions">
+      <button class="hdr" id="fixtures-btn" title="Toggle connected tools / profile">⚙︎ Fixtures</button>
+      <button class="hdr" id="reset-btn" title="Wipe local thread memory">Reset</button>
+    </div>
+  </header>
+  <div id="log"></div>
+  <div id="typing">Alpha is typing…</div>
+  <footer>
+    <label class="photo" title="Send a food photo">＋<input type="file" id="photo" accept="image/*"></label>
+    <input id="entry" placeholder="iMessage" autocomplete="off">
+    <button id="send">↑</button>
+  </footer>
+</div>
+
+<div id="fixtures">
+  <div class="panel">
+    <h3>Fixtures (the faked world)</h3>
+    <label>Name</label><input id="f-name">
+    <label>Timezone</label><input id="f-tz">
+    <label>Connected tools</label>
+    <div class="checks" id="f-tools"></div>
+    <label>Hired</label>
+    <div class="checks">
+      <label><input type="checkbox" id="f-hired"> account exists + hired</label>
+    </div>
+    <label>Memories (key: value per line)</label><textarea id="f-mem" rows="4"></textarea>
+    <button class="save" id="f-save">Save &amp; apply</button>
+  </div>
+</div>
+
+<script>
+const log = document.getElementById('log')
+const typing = document.getElementById('typing')
+const entry = document.getElementById('entry')
+function add(cls, html) {
+  const d = document.createElement('div')
+  d.className = cls
+  d.innerHTML = html
+  log.appendChild(d)
+  log.scrollTop = log.scrollHeight
+  return d
+}
+function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML }
+function linkify(s) { return esc(s).replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" style="color:#9cc7ff">$1</a>') }
+
+let ws
+function connect() {
+  ws = new WebSocket(`ws://${location.host}/ws`)
+  ws.onmessage = (e) => {
+    const m = JSON.parse(e.data)
+    if (m.type === 'bubble') {
+      const row = add(`row alpha`, `<div class="bubble">${linkify(m.text)}</div>`)
+      if (m.source === 'local') row.querySelector('.meta') ?? row.insertAdjacentHTML('beforeend', '')
+    } else if (m.type === 'typing') {
+      typing.style.display = m.on ? 'block' : 'none'
+      if (m.on) log.scrollTop = log.scrollHeight
+    } else if (m.type === 'card') {
+      add('card-chip', `📎 mini app card → <a href="${m.url}" target="_blank">open ${m.url.split('/').pop()}</a>`)
+    } else if (m.type === 'event') {
+      const d = m.event
+      const short = d.kind === 'draft' ? '✏️ draft written' : d.kind === 'reminder' ? '⏰ reminder created'
+        : d.kind === 'nutrition-log' ? '🍽 nutrition logged' : d.kind === 'photo-log' ? '📷 photo logged'
+        : d.kind === 'sleep-log' ? '😴 sleep logged' : d.kind === 'workout-log' ? '💪 workout logged'
+        : `⚙︎ ${d.kind}`
+      add('event-chip', esc(short))
+    } else if (m.type === 'notice') {
+      add('notice', esc(m.text))
+    } else if (m.type === 'reset') {
+      log.innerHTML = ''
+      add('notice', 'memory wiped — next text is a first text')
+    }
+  }
+  ws.onclose = () => setTimeout(connect, 1000)
+}
+connect()
+
+function send() {
+  const t = entry.value.trim()
+  if (!t) return
+  add('row me', `<div class="bubble">${linkify(t)}</div>`)
+  entry.value = ''
+  fetch('/api/send', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: t }) })
+}
+document.getElementById('send').onclick = send
+entry.addEventListener('keydown', (e) => { if (e.key === 'Enter') send() })
+
+document.getElementById('photo').onchange = async (e) => {
+  const f = e.target.files[0]
+  if (!f) return
+  add('row me', `<div class="bubble">📷 ${esc(f.name)}</div>`)
+  const fd = new FormData()
+  fd.append('photo', f)
+  await fetch('/api/photo', { method: 'POST', body: fd })
+  e.target.value = ''
+}
+
+/* fixtures panel */
+const TOOLS = ['gmail','calendar','drive','slack','linear','notion','github','figma','spotify','stripe','maps']
+let fixtures = null
+async function loadFixtures() {
+  fixtures = await (await fetch('/api/fixtures')).json()
+  document.getElementById('f-name').value = fixtures.name
+  document.getElementById('f-tz').value = fixtures.timezone
+  document.getElementById('f-hired').checked = !!fixtures.hired
+  document.getElementById('f-mem').value = (fixtures.memories || []).map((m) => `${m.key}: ${m.value}`).join('\n')
+  const box = document.getElementById('f-tools')
+  box.innerHTML = ''
+  for (const t of TOOLS) {
+    const l = document.createElement('label')
+    l.innerHTML = `<input type="checkbox" value="${t}" ${fixtures.connected?.includes(t) ? 'checked' : ''}> ${t}`
+    box.appendChild(l)
+  }
+}
+document.getElementById('fixtures-btn').onclick = () => {
+  const p = document.getElementById('fixtures')
+  if (p.classList.contains('open')) p.classList.remove('open')
+  else { loadFixtures(); p.classList.add('open') }
+}
+document.getElementById('fixtures').onclick = (e) => { if (e.target.id === 'fixtures') e.target.classList.remove('open') }
+document.getElementById('f-save').onclick = async () => {
+  const connected = [...document.querySelectorAll('#f-tools input:checked')].map((i) => i.value)
+  const memories = document.getElementById('f-mem').value.split('\n').filter(Boolean).map((line) => {
+    const [k, ...v] = line.split(':')
+    return { key: k.trim(), value: v.join(':').trim() }
+  })
+  await fetch('/api/fixtures', {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: document.getElementById('f-name').value, timezone: document.getElementById('f-tz').value, hired: document.getElementById('f-hired').checked, connected, memories }),
+  })
+  document.getElementById('fixtures').classList.remove('open')
+  add('notice', 'fixtures applied')
+}
+document.getElementById('reset-btn').onclick = () => {
+  if (confirm('Wipe local thread memory?')) fetch('/api/reset', { method: 'POST' })
+}
+</script>
+</body>
+</html>

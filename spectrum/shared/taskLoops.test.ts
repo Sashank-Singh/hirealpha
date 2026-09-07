@@ -1,8 +1,9 @@
-import { describe, expect, it } from 'bun:test'
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
 import {
   LOOP_HANDLERS,
   buildBillIncreaseText,
   buildFlightCheckinTexts,
+  buildMemoryResurfaceText,
   buildRefundText,
   buildTrialEndingText,
   buildWakeupText,
@@ -359,4 +360,55 @@ describe('poller and kill switch defaults', () => {
     ).not.toThrow()
     if (saved) process.env.HIREALPHA_API_URL = saved
   })
+})
+
+describe('memory resurface', () => {
+  const savedFetch = globalThis.fetch
+  const savedUrl = process.env.HIREALPHA_API_URL
+  const savedKey = process.env.HIREALPHA_INTERNAL_KEY
+  beforeEach(() => {
+    process.env.HIREALPHA_API_URL = 'https://hirealpha.test'
+    process.env.HIREALPHA_INTERNAL_KEY = 'test'
+  })
+  afterEach(() => {
+    globalThis.fetch = savedFetch
+    if (savedUrl === undefined) delete process.env.HIREALPHA_API_URL
+    else process.env.HIREALPHA_API_URL = savedUrl
+    if (savedKey === undefined) delete process.env.HIREALPHA_INTERNAL_KEY
+    else process.env.HIREALPHA_INTERNAL_KEY = savedKey
+  })
+  it('builds a short quote-and-ask text without dashes', () => {
+      const text = buildMemoryResurfaceText('Call grandma every Sunday evening')
+      expect(text).toContain('Call grandma every Sunday evening')
+      expect(text).toContain('Still true')
+      expect(text).not.toContain(' - ')
+      expect(buildMemoryResurfaceText('   ')).toBe('')
+    })
+    it('truncates long memories at ~80 chars', () => {
+      const long = 'x'.repeat(300)
+      const text = buildMemoryResurfaceText(long)
+      expect(text.length).toBeLessThan(140)
+      expect(text.includes('…')).toBe(true)
+    })
+    it('handler sends the stale memory once and marks done', async () => {
+      globalThis.fetch = (async () =>
+        Response.json({ ok: true, data: { memory: { key: 'grandma', value: 'Call grandma every Sunday evening', updatedAt: '2026-07-01T00:00:00.000Z' } } })) as typeof fetch
+      const out = await LOOP_HANDLERS.memory_resurface!(makeTask({ kind: 'memory_resurface' }))
+      expect(out.outcome).toBe('done')
+      expect(out.text).toContain('Call grandma')
+      expect(out.note).toContain('grandma')
+    })
+    it('stays silent when nothing is stale — no filler text', async () => {
+      globalThis.fetch = (async () => Response.json({ ok: true, data: { memory: null } })) as typeof fetch
+      const out = await LOOP_HANDLERS.memory_resurface!(makeTask({ kind: 'memory_resurface' }))
+      expect(out.outcome).toBe('done')
+      expect(out.text).toBeUndefined()
+      expect(out.note).toContain('nothing stale')
+    })
+    it('stays silent when the context endpoint is unreachable', async () => {
+      globalThis.fetch = (async () => { throw new Error('offline') }) as typeof fetch
+      const out = await LOOP_HANDLERS.memory_resurface!(makeTask({ kind: 'memory_resurface' }))
+      expect(out.outcome).toBe('done')
+      expect(out.text).toBeUndefined()
+    })
 })

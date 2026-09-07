@@ -89,6 +89,10 @@ export async function gmiChat(options: GmiChatOptions): Promise<string> {
   }
   const message = data.choices?.[0]?.message
   let reply = (message?.content ?? '').trim()
+  // DeepSeek reasoning models can inline their chain-of-thought in content.
+  // It must never reach a user: strip every <think>…</think> block.
+  reply = reply.replace(/<think>[\s\S]*?<\/think>/gi, '').trim()
+  reply = reply.replace(/^\s*<\/?think>\s*/i, '').trim()
   // Backends occasionally answer 200 with nothing in content; one clean retry
   // beats failing every caller on a transient empty.
   if (!reply) {

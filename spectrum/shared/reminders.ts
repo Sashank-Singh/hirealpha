@@ -1,6 +1,6 @@
 import { gmiChat } from './gmi'
 import { buildDigestBriefing, mintMiniAppCard, type MiniAppCard } from './miniApps'
-import { fetchDueEventNudges, revertEventNudge } from './eventNudges'
+import { ackEventNudge, fetchDueEventNudges, revertEventNudge } from './eventNudges'
 import {
   fetchJudgmentState,
   freezeProactiveUntilReply,
@@ -409,6 +409,10 @@ export function startReminderScheduler(opts: {
         try {
           await opts.send(n.phone, n.text)
           await recordProactiveSent(n.phone, opts.persona as AgentId, n.topic)
+          // Pushed trigger events get a hard finalizer: the inbox row was
+          // claimed (marked sent) at fetch time, so ack closes the loop on a
+          // successful delivery instead of trusting the claim alone.
+          if (n.key.startsWith('evt:')) await ackEventNudge(n.key)
         } catch (err) {
           if (isRecipientSendBlocked(err)) {
             console.warn(`[reminders:${opts.persona}] recipient blocked ${n.phone}, freezing until reply`)

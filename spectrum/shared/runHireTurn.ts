@@ -62,6 +62,27 @@ import {
 
 export { isBannedTagline } from './outboundFilter'
 
+/** A degenerate model completion (reasoning loop) repeats one phrase many
+ * times. Delivering it is worse than an error message: catch it before send. */
+export function isDegenerateRepetition(text: string): boolean {
+  const clean = text.replace(/<think>[\s\S]*?<\/think>/gi, ' ').trim()
+  if (clean.length < 400) return false
+  const words = clean.split(/\s+/)
+  for (let n = 4; n <= 10; n++) {
+    for (let i = 0; i + n * 3 <= words.length; i += n) {
+      const gram = words.slice(i, i + n).join(' ').toLowerCase()
+      let count = 0
+      let from = 0
+      while ((from = clean.toLowerCase().indexOf(gram, from)) !== -1) {
+        count++
+        from += gram.length
+        if (count >= 3) return true
+      }
+    }
+  }
+  return false
+}
+
 export function splitBubbles(text: string): string[] {
   const cleaned = sanitizeOutbound(text.replace(/\r/g, ''))
   if (!cleaned) return []
@@ -1572,6 +1593,9 @@ export async function runHireTurn(input: {
     finalReply = miniApp ? miniAppFallbackText(miniApp.kind) : 'I hit a snag. Try that again?'
   }
   finalReply = sanitizeOutbound(finalReply)
+  if (isDegenerateRepetition(finalReply)) {
+    finalReply = 'That one got away from me mid-thought. Say it again?'
+  }
   if (isBannedTagline(finalReply) || !finalReply.trim()) {
     finalReply =
       briefIntent && digestText

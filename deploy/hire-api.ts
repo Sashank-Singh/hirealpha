@@ -2164,6 +2164,21 @@ export async function ensureHireSchema(sql: SQL) {
     )
   `
   await sql`ALTER TABLE hire_login_tickets ADD COLUMN IF NOT EXISTS name TEXT`
+  await sql`
+    CREATE TABLE IF NOT EXISTS hire_event_inbox (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES hire_users(id) ON DELETE CASCADE,
+      persona TEXT NOT NULL DEFAULT 'friend',
+      topic TEXT NOT NULL,
+      key TEXT NOT NULL UNIQUE,
+      text TEXT NOT NULL,
+      urgent BOOLEAN NOT NULL DEFAULT false,
+      status TEXT NOT NULL DEFAULT 'pending',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      sent_at TIMESTAMPTZ
+    )
+  `
+  await sql`CREATE INDEX IF NOT EXISTS idx_hire_event_inbox_due ON hire_event_inbox (persona, status, created_at ASC)`
   await sql`ALTER TABLE hire_roster ADD COLUMN IF NOT EXISTS last_inbound_at TIMESTAMPTZ`
   await sql`
     CREATE TABLE IF NOT EXISTS hire_memories (
@@ -7173,6 +7188,129 @@ async function claimNudge(sql: SQL, userId: string, persona: Persona, key: strin
   return !!rows[0]
 }
 
+/* ---- Trigger-based nudges: Slack mentions + Linear assignments ----
+ * The collector polls, so a "trigger" here means: scan on every poll cycle,
+ * throttle per user, and only fire on items strictly newer than the last
+ * scan. Scans cost two Composio calls per user per 10 minutes; the mention
+ * key (channel+ts / issue id) makes dedupe honest even across restarts. */
+
+const TRIGGER_SCAN_THROTTLE_MS = 10 * 60_000
+const triggerScanMemory = new Map<string, number>()
+
+async function scanSlackMentions(userId: string, displayName: string): Promise<Array<{ channel: string; ts: string; text: string; permalink?: string }>> {
+  // Slack search indexes rendered mentions, so the user's display name is the
+  // honest v1 query until we store their Slack member ID on connect.
+  const query = displayName.trim()
+  if (!query) return []
+  const data = await composioExecuteData(userId, 'SLACK_SEARCH_MESSAGES', {
+    query,
+    limit: 10,
+    verbose: false,
+  })
+  const messages = Array.isArray(data) ? data : []
+  const out: Array<{ channel: string; ts: string; text: string; permalink?: string }> = []
+  for (const raw of messages) {
+    const o = (raw || {}) as Record<string, unknown>
+    const ts = String(o.ts || '')
+    const text = String(o.text || o.text_original || '').trim()
+    const channel = String(
+      (typeof o.channel === 'object' && o.channel ? (o.channel as { name?: string; id?: string }).name || (o.channel as { id?: string }).id : o.channel) || '',
+    )
+    if (!ts || !text) continue
+    out.push({
+      channel,
+      ts,
+      text,
+      permalink: typeof o.permalink === 'string' ? o.permalink : undefined,
+    })
+  }
+  return out
+}
+
+export function slackMentionText(m: { channel: string; text: string }): string {
+  const ch = m.channel ? ` in #${m.channel}` : ''
+  const body = m.text.replace(/<@[^>]+>/g, '').replace(/\s+/g, ' ').trim() || 'You were mentioned.'
+  return `Slack mention${ch}: ${body}`.slice(0, 300)
+}
+
+async function scanLinearAssigned(userId: string): Promise<Array<{ id: string; identifier: string; title: string; state?: string }>> {
+  for (const slug of ['LINEAR_LIST_ISSUES', 'LINEAR_LIST_LINEAR_ISSUES', 'LINEAR_GET_ISSUES']) {
+    const data = await composioExecuteData(userId, slug, { limit: 12 })
+    if (!data) continue
+    const all = walkLinearIssues(data)
+    const issues = all
+      .filter((i) => {
+        const s = (i.state || '').toLowerCase()
+        return s !== 'done' && s !== 'canceled' && s !== 'completed'
+      })
+      .slice(0, 12)
+    if (issues.length) return issues
+    // Data came back but empty: that is a real "nothing assigned", stop.
+    if (!all.length) return []
+  }
+  return []
+}
+
+export function linearAssignedText(i: { identifier: string; title: string }): string {
+  const title = i.title.replace(/\s+/g, ' ').trim()
+  // The walker falls back to a truncated-title identifier when Linear gives
+  // no key; prefix-matched identifiers add noise, drop them.
+  const id = i.identifier && !title.startsWith(i.identifier) ? `${i.identifier} ` : ''
+  return `Linear: ${id}${title}`.slice(0, 240)
+}
+
+async function collectTriggerNudges(
+  sql: SQL,
+  user: { id: string; phone: string | null; name?: string | null },
+  persona: Persona,
+  sentKeys: Set<string>,
+  candidates: Array<Omit<EventNudge, 'phone'> & { order: number }>,
+) {
+  if (!user.phone) return
+  // Throttle: one Composio scan per user per throttle window, friend only —
+  // Slack/Linear pings belong to the personal assistant, not the work hires
+  // (coworker already surfaces Linear in its own loop).
+  if (persona !== 'friend') return
+  const now = Date.now()
+  const last = triggerScanMemory.get(user.id) || 0
+  if (now - last < TRIGGER_SCAN_THROTTLE_MS) return
+  triggerScanMemory.set(user.id, now)
+  try {
+    const connected = await composioConnected(user.id)
+    const wantsSlack = connected.includes('slack')
+    const wantsLinear = connected.includes('linear')
+    if (!wantsSlack && !wantsLinear) return
+    const [mentions, issues] = await Promise.all([
+      wantsSlack ? scanSlackMentions(user.id, user.name || '') : Promise.resolve([]),
+      wantsLinear ? scanLinearAssigned(user.id) : Promise.resolve([]),
+    ])
+    for (const m of mentions) {
+      const key = `slackmention:${m.channel}:${m.ts}`
+      if (sentKeys.has(key)) continue
+      candidates.push({
+        order: 0,
+        topic: 'slack_mention',
+        key,
+        urgent: true,
+        text: stripNudgeDashes(slackMentionText(m)),
+      })
+    }
+    for (const i of issues) {
+      const key = `linearassign:${i.id}`
+      if (sentKeys.has(key)) continue
+      candidates.push({
+        order: 0,
+        topic: 'linear_assigned',
+        key,
+        urgent: false,
+        text: stripNudgeDashes(linearAssignedText(i)),
+      })
+    }
+  } catch (err) {
+    console.warn('[nudge] trigger scan failed', err)
+  }
+}
+
 async function collectEventNudgesForUser(
   sql: SQL,
   user: { id: string; phone: string | null; timezone: string | null; name?: string | null },
@@ -7363,6 +7501,8 @@ async function collectEventNudgesForUser(
     }
   }
 
+  await collectTriggerNudges(sql, user, persona, sentKeys, candidates)
+
   candidates.sort((a, b) => a.order - b.order)
   for (const c of candidates) {
     const blocked = outboundNudgeBlock(context, lastInboundAt, tz, c.urgent)
@@ -7378,6 +7518,28 @@ async function collectEventNudgesForUser(
 }
 
 async function dueEventNudges(sql: SQL, persona: Persona): Promise<EventNudge[]> {
+  const out: EventNudge[] = []
+  // Pushed trigger events first: they are the reason the poller woke up.
+  // Claim with SKIP LOCKED so overlapping poll cycles can never double-send.
+  const inbox = (await sql`
+    SELECT i.id, i.user_id, i.topic, i.key, i.text, i.urgent, u.phone_e164 AS phone
+    FROM hire_event_inbox i
+    JOIN hire_users u ON u.id = i.user_id
+    WHERE i.persona = ${persona} AND i.status = 'pending' AND u.phone_e164 IS NOT NULL
+    ORDER BY i.created_at ASC
+    LIMIT 8
+    FOR UPDATE OF i SKIP LOCKED
+  `) as Array<{ id: string; user_id: string; topic: string; key: string; text: string; urgent: boolean; phone: string }>
+  for (const row of inbox) {
+    await sql`UPDATE hire_event_inbox SET status = 'sent', sent_at = now() WHERE id = ${row.id}`
+    out.push({
+      phone: row.phone,
+      topic: row.topic,
+      key: row.key,
+      text: row.text,
+      urgent: row.urgent,
+    })
+  }
   const rows = await sql`
     SELECT u.id, u.phone_e164 AS phone, u.timezone, u.name
     FROM hire_roster r
@@ -7385,7 +7547,6 @@ async function dueEventNudges(sql: SQL, persona: Persona): Promise<EventNudge[]>
     WHERE r.persona = ${persona} AND u.phone_e164 IS NOT NULL
     LIMIT 40
   `
-  const out: EventNudge[] = []
   for (const row of rows as Array<{ id: string; phone: string; timezone: string | null; name: string | null }>) {
     try {
       const nudge = await collectEventNudgesForUser(sql, row, persona)
@@ -11015,6 +11176,24 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
       return json({ ok: true, data: { people } })
     }
 
+    if (kind === 'memory_resurface') {
+      // Weekly resurface: the durable memory untouched longest is the one most
+      // at risk of being forgotten — that is the whole point of the loop.
+      // Only memories idle 21+ days qualify; a just-saved fact resurfaced the
+      // same week feels like a bot reading a script. No match = no text.
+      const mem = (await sql`
+        SELECT key, value, updated_at::text AS "updatedAt"
+        FROM hire_memories
+        WHERE user_id = ${user.id}
+          AND persona = ${url.searchParams.get('persona') || 'friend'}
+          AND value <> ''
+          AND updated_at < now() - interval '21 days'
+        ORDER BY durable DESC, updated_at ASC
+        LIMIT 1
+      `) as Array<{ key: string; value: string; updatedAt: string }>
+      return json({ ok: true, data: { memory: mem[0] || null } })
+    }
+
     if (kind === 'streak_ended') {
       // The handler sends payload.streak, payload.lastDate, payload.habitName
       // — the bot does not need extra data, it just acks with those. This
@@ -14541,6 +14720,28 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
       DELETE FROM hire_nudge_log
       WHERE user_id = ${user.id} AND persona = ${persona} AND nudge_key = ${body.key}
     `
+    // Inbox-keyed nudges: a failed send re-pends the row so the next poll
+    // retries instead of silently dropping the trigger event.
+    if (String(body.key).startsWith('evt:')) {
+      await sql`
+        UPDATE hire_event_inbox SET status = 'pending', sent_at = NULL
+        WHERE user_id = ${user.id} AND key = ${String(body.key).slice(0, 220)} AND status = 'sent'
+      `
+    }
+    return json({ ok: true })
+  }
+
+  if (path === '/api/internal/event-nudges/ack' && req.method === 'POST') {
+    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
+    const body = (await req.json().catch(() => ({}))) as { key?: string }
+    if (!body.key) return json({ error: 'key required' }, 400)
+    // Confirm a delivered inbox event. Rows are marked sent at claim time and
+    // re-pended on revert, so ack is a hard finalizer: belt-and-braces against
+    // a crash between claim and send leaving a row live forever.
+    await sql`
+      UPDATE hire_event_inbox SET status = 'sent', sent_at = now()
+      WHERE key = ${String(body.key).slice(0, 220)} AND status = 'pending'
+    `
     return json({ ok: true })
   }
 
@@ -14548,34 +14749,39 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
     if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
     const body = (await req.json().catch(() => ({}))) as {
       phone?: string
+      email?: string
       persona?: string
       eventType?: string
+      key?: string
       title?: string
       text?: string
       urgent?: boolean
     }
     const persona = body.persona || 'friend'
-    if (!body.phone || !isPersona(persona)) {
-      return json({ error: 'phone and persona required' }, 400)
+    if ((!body.phone && !body.email) || !isPersona(persona)) {
+      return json({ error: 'phone or email, and persona required' }, 400)
     }
-    const user = await getUserByPhone(sql, body.phone)
+    const user = body.phone
+      ? await getUserByPhone(sql, body.phone)
+      : await getUserByEmail(sql, String(body.email).toLowerCase())
     if (!user) return json({ error: 'User not found' }, 404)
-    if (body.text && body.title) {
-      const key = `evt:${crypto.randomUUID()}`
-      const claimed = await claimNudge(sql, user.id, persona, key)
-      if (claimed) {
-        return json({
-          ok: true,
-          nudge: {
-            phone: user.phone,
-            topic: body.eventType || 'webhook_event',
-            key,
-            text: stripNudgeDashes(body.text),
-            urgent: body.urgent ?? false,
-          },
-        })
-      }
+    // Trigger mode: an external system (Composio triggers, Slack/Linear
+    // webhooks, cron scanners) pushes a ready-to-text event. It lands in
+    // hire_event_inbox and the bot delivers it within one poll cycle, riding
+    // the same kill-switch/quiet-hours machinery as every other nudge.
+    if (body.text) {
+      const key = body.key ? `evt:${String(body.key).slice(0, 200)}` : `evt:${crypto.randomUUID()}`
+      const inserted = await sql`
+        INSERT INTO hire_event_inbox (id, user_id, persona, topic, key, text, urgent)
+        VALUES (${crypto.randomUUID()}, ${user.id}, ${persona},
+          ${String(body.eventType || 'webhook_event').slice(0, 60)}, ${key},
+          ${stripNudgeDashes(String(body.text)).slice(0, 500)}, ${body.urgent === true})
+        ON CONFLICT (key) DO NOTHING
+        RETURNING id
+      `
+      return json({ ok: true, queued: !!inserted[0], key })
     }
+    // Poll-compat mode: no text supplied, run the live collector for this user.
     const nudge = await collectEventNudgesForUser(sql, user, persona)
     return json({ ok: true, nudge })
   }

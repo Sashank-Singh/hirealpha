@@ -50,3 +50,20 @@ export async function revertEventNudge(phone: string, persona: AgentId, key: str
     console.warn('[nudge] revert failed', err)
   }
 }
+
+/** Confirm a delivered pushed-trigger event. Inbox rows are claimed at fetch
+ * time and re-pended on revert; ack is the belt-and-braces finalizer so a
+ * crash between claim and send can never leave a row live forever. */
+export async function ackEventNudge(key: string) {
+  const base = apiBase()
+  if (!base) return
+  try {
+    await fetch(`${base}/api/internal/event-nudges/ack`, {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify({ key }),
+    })
+  } catch (err) {
+    console.warn('[nudge] ack failed', err)
+  }
+}

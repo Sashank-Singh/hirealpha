@@ -525,6 +525,30 @@ const birthdayReminderHandler: LoopHandler = async (task) => {
   return { text, outcome: 'done', note }
 }
 
+/* ---- Memory resurface ----
+ * Seeded weekly for every account, but the handler was missing so every run
+ * died as "no handler" and the user never heard from it. Now the server picks
+ * the durable memory untouched longest; no stale memory = silent run, never a
+ * filler text. */
+
+export function buildMemoryResurfaceText(value: string): string {
+  const v = String(value || '').trim().replace(/\s+/g, ' ')
+  if (!v) return ''
+  const short = v.length > 80 ? `${v.slice(0, 77).trimEnd()}…` : v
+  return `You told me to keep this: "${short}". Still true, or can I let it go?`
+}
+
+const memoryResurfaceHandler: LoopHandler = async (task) => {
+  const data = await fetchLoopContext(task.phone, 'memory_resurface')
+  const mem = (data.memory || null) as { key?: string; value?: string; updatedAt?: string } | null
+  const value = String(mem?.value || '').trim()
+  if (!value) return { outcome: 'done', note: 'memory_resurface nothing stale to resurface' }
+  const text = buildMemoryResurfaceText(value)
+  if (!text) return { outcome: 'done', note: 'memory_resurface empty value' }
+  const when = mem?.updatedAt ? ` ${String(mem.updatedAt).slice(0, 10)}` : ''
+  return { text, outcome: 'done', note: `memory_resurface ${String(mem?.key || '').slice(0, 30)}${when}` }
+}
+
 /* ---- Streak ended (#25) ----
  * Server finds habits with a past streak of at least 21 days where the user
  * has not logged in 3+ days, and arms a single row per (user, habit). The
@@ -651,6 +675,7 @@ export const LOOP_HANDLERS: Record<string, LoopHandler> = {
   streak_ended: streakEndedHandler,
   overwork_check: overworkCheckHandler,
   quiet_check: quietCheckHandler,
+  memory_resurface: memoryResurfaceHandler,
   save_contact: saveContactHandler,
   day1_checkin: day1CheckinHandler,
   inbox_ping: inboxPingHandler,
