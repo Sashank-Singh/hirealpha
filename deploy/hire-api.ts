@@ -2238,6 +2238,11 @@ export async function ensureHireSchema(sql: SQL) {
   `
   await sql`CREATE INDEX IF NOT EXISTS idx_hire_relationships_user ON hire_relationships (user_id, updated_at DESC)`
 
+  // Heal: prod's hire_relationships predates last_touch_at (CREATE IF NOT
+  // EXISTS never adds columns), and the radar queries read it — the 42703
+  // "column does not exist" behind judgment-state and home load failures.
+  await sql`ALTER TABLE hire_relationships ADD COLUMN IF NOT EXISTS last_touch_at TIMESTAMPTZ`
+
   await sql`
     CREATE TABLE IF NOT EXISTS hire_dropzone (
       id TEXT PRIMARY KEY,
