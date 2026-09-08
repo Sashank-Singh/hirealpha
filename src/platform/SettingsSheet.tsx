@@ -20,10 +20,17 @@ import {
   apiVaultDelete,
   apiVaultList,
   apiVaultSave,
+  apiPaymentsConnect,
+  apiPaymentMethods,
+  apiPaymentMethodDelete,
+  apiSpendRequests,
+  apiSpendRequestDecide,
   type BillingSubscription,
   type BrowserApproval,
   type HireMemory,
+  type PaymentMethodView,
   type SavedLocation,
+  type SpendRequest,
   type VaultEntry,
 } from './api'
 import { connectedIds, getSession, hydrateFromServer, setConnection, signOut } from './roster'
@@ -131,9 +138,71 @@ export function SettingsSheet() {
   const [approvals, setApprovals] = useState<BrowserApproval[]>([])
   const [approvalBusy, setApprovalBusy] = useState('')
 
+  const [paymentMethods, setPaymentMethods] = useState<PaymentMethodView[] | null>(null)
+  const [paymentBusy, setPaymentBusy] = useState(false)
+  const [paymentError, setPaymentError] = useState('')
+  const [spendRequests, setSpendRequests] = useState<SpendRequest[]>([])
+  const [spendBusyId, setSpendBusyId] = useState('')
+
   const session = getSession()
   const e164 = toE164(session?.phone || '')
   const [alphaPhone, setAlphaPhone] = useState('+14155951440')
+
+  async function loadPayments() {
+    if (!session?.email) return
+    try {
+      const d = await apiPaymentMethods({ email: session.email })
+      setPaymentMethods(d.methods || [])
+    } catch {
+      setPaymentMethods([])
+    }
+    try {
+      const s = await apiSpendRequests({ email: session.email })
+      setSpendRequests(s.requests || [])
+    } catch {
+      setSpendRequests([])
+    }
+  }
+
+  async function connectWallet() {
+    setPaymentBusy(true)
+    setPaymentError('')
+    try {
+      const res = await apiPaymentsConnect({ email: session?.email })
+      if (res.url) {
+        window.location.href = res.url
+      } else {
+        setPaymentError(res.error || 'Could not start payment setup.')
+        setPaymentBusy(false)
+      }
+    } catch (err) {
+      setPaymentError(err instanceof Error ? err.message : 'Could not connect wallet.')
+      setPaymentBusy(false)
+    }
+  }
+
+  async function removeMethod(id: string) {
+    if (!session?.email) return
+    try {
+      await apiPaymentMethodDelete({ email: session.email, id })
+      void loadPayments()
+    } catch {
+      setPaymentError('Could not remove card.')
+    }
+  }
+
+  async function decideSpend(requestId: string, action: 'approve' | 'deny') {
+    if (!session?.email) return
+    setSpendBusyId(requestId)
+    try {
+      await apiSpendRequestDecide({ email: session.email, requestId, action })
+      void loadPayments()
+    } catch {
+      setPaymentError('Could not record decision.')
+    } finally {
+      setSpendBusyId('')
+    }
+  }
 
   useEffect(() => {
     void apiAssignedPhone(session?.phone).then((p) => {
@@ -155,6 +224,7 @@ export function SettingsSheet() {
 
   useEffect(() => {
     if (!session?.email) return
+    void loadPayments()
     void apiBillingStatus(session.email)
       .then((s) =>
         setBilling({
@@ -167,6 +237,13 @@ export function SettingsSheet() {
       .then((d) => setMemories(d.memories))
       .catch(() => setMemories([]))
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (params.get('payments') === 'connected') {
+      if (session?.email) void loadPayments()
+      setParams({}, { replace: true })
+    }
+  }, [params, session?.email])
 
   /* After a connector OAuth round-trip lands back with ?connected=, rehydrate
    * and clear the param — same as HireConfigPage. */
@@ -183,6 +260,11 @@ export function SettingsSheet() {
   useEffect(() => {
     const toConnect = params.get('connect')
     if (!toConnect) return
+    if (toConnect === 'payments') {
+      const el = document.getElementById('payments-section')
+      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      return
+    }
     const el = document.getElementById(`connector-${toConnect}`)
     if (el) {
       el.scrollIntoView({ behavior: 'smooth', block: 'center' })
@@ -982,6 +1064,97 @@ export function SettingsSheet() {
                     </div>
                   </div>
                 ))}
+              </div>
+            )}
+          </section>
+
+          {/* Payment Method / Link Wallet */}
+          <section id="payments-section" className="ss-sec">
+            <header className="ss-sec-head">
+              <div>
+                <h2 className="ss-title">Payment Method &amp; Link Wallet</h2>
+                <p className="ss-sub">
+                  Saved card or Link wallet for autonomous purchases. Charges require your explicit approval in chat and are capped at $200.
+                </p>
+              </div>
+              <button
+                type="button"
+                className="ss-btn"
+                disabled={paymentBusy}
+                onClick={() => void connectWallet()}
+              >
+                {paymentBusy ? 'Connecting…' : (paymentMethods?.length ? 'Update Card / Wallet' : 'Connect Card / Wallet')}
+              </button>
+            </header>
+
+            {paymentError && <p className="set-err">{paymentError}</p>}
+            {paymentMethods === null && <p className="ss-empty">Checking payment methods…</p>}
+            {paymentMethods !== null && paymentMethods.length === 0 && (
+              <p className="ss-empty">
+                No payment method connected yet. Tap <strong>Connect Card / Wallet</strong> to connect your card or Link wallet for in-chat purchases.
+              </p>
+            )}
+
+            {paymentMethods !== null && paymentMethods.length > 0 && (
+              <div className="ss-list">
+                {paymentMethods.map((pm) => (
+                  <div key={pm.id} className="ss-row">
+                    <div className="ss-cell">
+                      <div className="ss-body">
+                        <span className="ss-name" style={{ textTransform: 'capitalize' }}>
+                          {pm.brand} •••• {pm.last4}
+                          {pm.link_wallet && <span style={{ marginLeft: 8, fontSize: 12, color: '#58a6ff' }}>(Link Wallet)</span>}
+                        </span>
+                        <span className="ss-subline">Expires {pm.exp}</span>
+                      </div>
+                      <div className="ss-actions">
+                        <button
+                          type="button"
+                          className="ss-btn-text ss-btn-danger"
+                          onClick={() => void removeMethod(pm.id)}
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {spendRequests.filter((r) => r.pending).length > 0 && (
+              <div style={{ marginTop: 24 }}>
+                <h3 className="ss-title" style={{ fontSize: 15, marginBottom: 8 }}>Pending In-Chat Purchase Approvals</h3>
+                <div className="ss-list">
+                  {spendRequests.filter((r) => r.pending).map((sr) => (
+                    <div key={sr.id} className="ss-row">
+                      <div className="ss-cell">
+                        <div className="ss-body">
+                          <span className="ss-name">{sr.purpose}</span>
+                          <span className="ss-subline">{sr.merchant} · {sr.amount}</span>
+                        </div>
+                        <div className="ss-actions">
+                          <button
+                            type="button"
+                            className="ss-btn-text"
+                            disabled={spendBusyId === sr.id}
+                            onClick={() => void decideSpend(sr.id, 'approve')}
+                          >
+                            Approve
+                          </button>
+                          <button
+                            type="button"
+                            className="ss-btn-text ss-btn-danger"
+                            disabled={spendBusyId === sr.id}
+                            onClick={() => void decideSpend(sr.id, 'deny')}
+                          >
+                            Deny
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
           </section>

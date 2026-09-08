@@ -64,10 +64,14 @@ export function judgeAllPrompt(mails: JudgeMailIn[], meets: JudgeMeetIn[], vocab
   return `Mail${mails.length ? `:\n${mailList}` : ':\n(none)'}${meetBlock}${reuse}
 
 Judge the content, not Gmail stars or labels. For each mail decide:
-- "keep": would a person act on this today? Drop marketing, newsletters, blasts, receipts with nothing owed.
-- "kind": one or two plain words for the pile a person would file it under, like take home, invoice, intro, scheduling. Not a summary.
-- "needsYou": true only when the ball is in the user's court — someone asks them for something, a reply is wanted, money is owed, a deadline or RSVP lands soon.
-- "score": 0-100 for how much this needs the user today. Reserve 80+ for money owed, hard deadlines, and people they wrote to first waiting on an answer. A plain FYI sits near 30.
+- "keep": would a person act on this or need to know this today? Drop marketing, promotional blasts, spam.
+- "kind": one or two plain words for the pile, like reply, promo, receipt, update, thanks, intro, scheduling.
+- "needsYou": true ONLY when an actual person directly emailed the user asking a question, scheduling 1-on-1, or waiting on their direct reply.
+CRITICAL NEGATIVE RULES for "needsYou":
+1. NEVER mark as needsYou: automated promotional emails, webinars, tickets expiring, discounts, sales, marketing campaigns, newsletters. (needsYou: false, kind: "promo", score: <= 15).
+2. NEVER mark as needsYou: automated job application updates, candidate tracking rejections, or automated status alerts (e.g. "Application Update", "Thank you for applying", "reviewing your application"). (needsYou: false, kind: "update", score: <= 15).
+3. NEVER mark as needsYou: payment receipts, order confirmations, or simple thank-you acknowledgments ("thanks!", "received"). (needsYou: false, kind: "receipt" or "thanks", score: <= 15).
+- "score": 0-100 for urgency. Reserve 80+ STRICTLY for real individual human inquiries, urgent replies owed, or time-critical personal commitments. Marketing deadlines and automated notifications must never score above 20.
 - "why": at most six words naming the concrete reason, like "invoice due tomorrow" or "Priya wants an answer".
 When an email carries a commitment about the future, someone promising to send, deliver, review, reply, or follow up by a time, add "promise": one short phrase naming who owes what, like "Priya sends the specs by Friday". Omit "promise" when there is none. Never invent a commitment; quote the obligation as the email states it.
 

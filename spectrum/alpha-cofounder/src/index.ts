@@ -8,6 +8,7 @@ import { claimInbound } from '../../shared/inboundGuard'
 import { startReminderScheduler } from '../../shared/reminders'
 import { startTaskLoopPoller } from '../../shared/taskLoops'
 import { startCofounderLoop } from '../../shared/cofounderPro'
+import { determineInboundReaction } from '../../shared/smartReactions'
 import { INTRO_TEXTS, startIntroPoller } from '../../shared/introQueue'
 import { startHealthServer, startHeartbeat } from '../../shared/health'
 
@@ -175,7 +176,10 @@ for await (const [space, message] of app.messages) {
   console.log(`[${agent.id}] inbound from ${senderId}: ${userText.slice(0, 120)}`)
 
   try {
-    await message.react('👍').catch(() => undefined)
+    const reaction = determineInboundReaction({ dataDir, senderId, userText })
+    if (reaction) {
+      await message.react(reaction).catch(() => undefined)
+    }
     await message.read().catch(() => undefined)
     await space.responding(async () => {
       const { bubbles, source, authoritative, reply, card } = await runHireTurn({

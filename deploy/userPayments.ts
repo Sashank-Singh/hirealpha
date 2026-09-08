@@ -268,6 +268,119 @@ export async function handleUserPaymentsApi(req: Request, sql: SQL, deps: UserPa
   const path = url.pathname
   if (!path.startsWith('/api/payments')) return null
 
+  // One-tap spend approval from iMessage / chat links
+  if (path === '/api/payments/spend/approve' && req.method === 'GET') {
+    const id = url.searchParams.get('id') || ''
+    const isJson = url.searchParams.get('format') === 'json' || req.headers.get('accept')?.includes('application/json')
+    if (!id) return isJson ? json({ error: 'Missing request id' }, 400) : new Response('Missing request id', { status: 400 })
+    const rows = (await sql`
+      SELECT id, user_id, amount_cents, merchant, purpose, status, payment_intent_id
+      FROM hire_spend_approvals WHERE id = ${id} LIMIT 1
+    `) as Array<{ id: string; user_id: string; amount_cents: number; merchant: string; purpose: string; status: string; payment_intent_id: string | null }>
+    const item = rows[0]
+    if (!item) {
+      if (isJson) return json({ error: 'Request not found' }, 404)
+      return new Response('<html><body style="font-family:sans-serif;padding:40px;text-align:center;"><h2>Request Not Found</h2><p>This spend approval link has expired or is invalid.</p></body></html>', {
+        headers: { 'Content-Type': 'text/html; charset=utf-8' },
+        status: 404,
+      })
+    }
+    const amountStr = `$${(item.amount_cents / 100).toFixed(2)}`
+    if (item.status === 'consumed' || item.payment_intent_id) {
+      if (isJson) {
+        return json({ ok: true, already_approved: true, status: 'consumed', merchant: item.merchant, purpose: item.purpose, amount: amountStr })
+      }
+      return new Response(`<html><body style="font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#0d1117;color:#fff;padding:40px 16px;text-align:center;">
+        <div style="max-width:400px;margin:0 auto;background:#161b22;padding:32px;border-radius:16px;border:1px solid #30363d;">
+          <h2 style="color:#2ea043;margin-top:0;">✓ Already Approved</h2>
+          <p style="color:#8b949e;font-size:15px;">You have already approved this purchase.</p>
+          <div style="background:#21262d;padding:16px;border-radius:12px;margin:20px 0;text-align:left;">
+            <div style="font-size:12px;color:#8b949e;">Merchant</div>
+            <div style="font-weight:600;font-size:15px;color:#f0f6fc;margin-bottom:8px;">${item.merchant}</div>
+            <div style="font-size:12px;color:#8b949e;">Item</div>
+            <div style="font-weight:600;font-size:15px;color:#f0f6fc;margin-bottom:8px;">${item.purpose}</div>
+            <div style="font-size:12px;color:#8b949e;">Amount</div>
+            <div style="font-weight:700;font-size:20px;color:#58a6ff;">${amountStr}</div>
+          </div>
+          <p style="font-size:13px;color:#8b949e;">Alpha has confirmed your order in iMessage.</p>
+        </div>
+      </body></html>`, {
+        headers: { 'Content-Type': 'text/html; charset=utf-8' },
+      })
+    }
+    if (item.status !== 'pending') {
+      if (isJson) return json({ ok: false, error: `Request ${item.status}`, status: item.status }, 409)
+      return new Response(`<html><body style="font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#0d1117;color:#fff;padding:40px 16px;text-align:center;">
+        <div style="max-width:400px;margin:0 auto;background:#161b22;padding:32px;border-radius:16px;border:1px solid #30363d;">
+          <h2 style="color:#f85149;margin-top:0;">Request ${item.status}</h2>
+          <p style="color:#8b949e;">This purchase request was ${item.status}.</p>
+        </div>
+      </body></html>`, {
+        headers: { 'Content-Type': 'text/html; charset=utf-8' },
+      })
+    }
+
+    const confirm = url.searchParams.get('confirm') === '1'
+    if (!confirm) {
+      if (isJson) {
+        return json({ ok: true, id: item.id, merchant: item.merchant, purpose: item.purpose, amount_cents: item.amount_cents, amount: amountStr, status: item.status })
+      }
+      return new Response(`<html><body style="font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#0d1117;color:#fff;padding:40px 16px;text-align:center;">
+        <div style="max-width:400px;margin:0 auto;background:#161b22;padding:32px;border-radius:16px;border:1px solid #30363d;box-shadow:0 8px 24px rgba(0,0,0,0.4);">
+          <div style="display:inline-block;padding:6px 14px;background:#238636;color:#fff;border-radius:20px;font-size:12px;font-weight:600;margin-bottom:16px;">SPEND APPROVAL</div>
+          <h2 style="margin:0 0 8px 0;font-size:22px;color:#f0f6fc;">Approve Purchase</h2>
+          <p style="color:#8b949e;font-size:14px;margin-bottom:24px;">Alpha is requesting permission to charge your saved card.</p>
+          <div style="background:#21262d;padding:20px;border-radius:12px;margin-bottom:24px;text-align:left;">
+            <div style="font-size:12px;color:#8b949e;text-transform:uppercase;letter-spacing:0.5px;">Merchant</div>
+            <div style="font-weight:600;font-size:15px;color:#f0f6fc;margin-bottom:12px;">${item.merchant}</div>
+            <div style="font-size:12px;color:#8b949e;text-transform:uppercase;letter-spacing:0.5px;">Item</div>
+            <div style="font-weight:600;font-size:15px;color:#f0f6fc;margin-bottom:12px;">${item.purpose}</div>
+            <div style="font-size:12px;color:#8b949e;text-transform:uppercase;letter-spacing:0.5px;">Total Charge</div>
+            <div style="font-weight:700;font-size:24px;color:#58a6ff;">${amountStr}</div>
+          </div>
+          <a href="/api/payments/spend/approve?id=${id}&confirm=1" style="display:block;background:#238636;color:#fff;text-decoration:none;padding:16px;border-radius:12px;font-weight:600;font-size:16px;margin-bottom:12px;">Approve &amp; Pay ${amountStr}</a>
+          <p style="font-size:12px;color:#8b949e;margin:0;">Charged securely via Stripe using your connected payment method.</p>
+        </div>
+      </body></html>`, {
+        headers: { 'Content-Type': 'text/html; charset=utf-8' },
+      })
+    }
+
+    await decideSpendApproval(sql, item.user_id, id, 'approve')
+    const chargeRes = await chargeApprovedSpend(sql, item.user_id, id)
+    if (!chargeRes.ok) {
+      if (isJson) return json({ ok: false, error: chargeRes.error || 'Payment failed' }, 402)
+      return new Response(`<html><body style="font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#0d1117;color:#fff;padding:40px 16px;text-align:center;">
+        <div style="max-width:400px;margin:0 auto;background:#161b22;padding:32px;border-radius:16px;border:1px solid #da3633;">
+          <h2 style="color:#f85149;margin-top:0;">Payment Failed</h2>
+          <p style="color:#8b949e;font-size:15px;">${chargeRes.error || 'The card charge could not be completed.'}</p>
+          <p style="color:#8b949e;font-size:13px;">Please check your card details or connect a new payment method in Alpha settings.</p>
+        </div>
+      </body></html>`, {
+        headers: { 'Content-Type': 'text/html; charset=utf-8' },
+        status: 402,
+      })
+    }
+
+    if (isJson) {
+      return json({ ok: true, charged: true, id: item.id, merchant: item.merchant, purpose: item.purpose, amount: amountStr })
+    }
+
+    return new Response(`<html><body style="font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#0d1117;color:#fff;padding:40px 16px;text-align:center;">
+      <div style="max-width:400px;margin:0 auto;background:#161b22;padding:32px;border-radius:16px;border:1px solid #238636;box-shadow:0 8px 24px rgba(0,0,0,0.4);">
+        <div style="font-size:48px;margin-bottom:16px;">✓</div>
+        <h2 style="margin:0 0 8px 0;color:#3fb950;font-size:22px;">Purchase Approved!</h2>
+        <p style="color:#8b949e;font-size:14px;margin-bottom:20px;">Your saved card was successfully charged <strong>${amountStr}</strong> for ${item.purpose}.</p>
+        <div style="background:#21262d;padding:16px;border-radius:12px;margin-bottom:20px;font-size:13px;color:#8b949e;">
+          Payment ID: <span style="color:#f0f6fc;font-family:monospace;">${chargeRes.paymentIntentId}</span>
+        </div>
+        <p style="font-size:13px;color:#8b949e;margin:0;">Alpha has confirmed your order. You can return to Messages now.</p>
+      </div>
+    </body></html>`, {
+      headers: { 'Content-Type': 'text/html; charset=utf-8' },
+    })
+  }
+
   const user = await deps.resolveUser(sql, req)
   if (!user) return json({ error: 'Sign in first.' }, 401)
   if (!stripeKey()) return json({ error: 'Stripe is not configured on this server.' }, 503)

@@ -574,8 +574,8 @@ export function ArtifactApp({ auth, id }: { auth: FeatureAuth; id?: string }) {
     )
   }
 
-  const htmlFile = artifact.files.find((f) => /\.html?$/i.test(f))
-  const previewUrl = htmlFile ? `/a/${artifact.id}/${htmlFile}${auth.token ? `?t=${encodeURIComponent(auth.token)}` : ''}` : ''
+  const hasHtml = artifact.files.some((f) => /\.html?$/i.test(f))
+  const previewUrl = hasHtml ? `/b/${artifact.id}` : ''
 
   return (
     <div className="ma">

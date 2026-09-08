@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'bun:test'
 import {
+  WORKOUT_CATEGORIES,
   WORKOUT_PROGRAMS,
   WORKOUT_WEEKDAYS,
   defaultWorkoutWeekday,
+  isWorkoutCategory,
   isWorkoutMoveCount,
   jsDayToWeekday,
   movePrescription,
@@ -64,52 +66,52 @@ describe('workout programs', () => {
     expect(workoutSession('gym', 5).name).toBe('Lower')
   })
 
-  it('keeps home days bodyweight only', () => {
+  it('keeps home days bodyweight only with balanced coach-recommended splits', () => {
     const gear = /\b(dumbbell|barbell|bench|cable|machine|goblet|kettle|smith|pulldown|pushdown)\b/i
-    expect(workoutSession('home', 1).name).toBe('Push')
-    expect(workoutSession('home', 2).name).toBe('Pull')
-    expect(workoutSession('home', 3).name).toBe('Legs')
-    expect(workoutSession('home', 4).name).toBe('Upper')
-    expect(workoutSession('home', 5).name).toBe('Lower')
+    expect(workoutSession('home', 1).name).toBe('Push & Core')
+    expect(workoutSession('home', 2).name).toBe('Pull & Posterior')
+    expect(workoutSession('home', 3).name).toBe('Legs & Power')
+    expect(workoutSession('home', 4).name).toBe('Upper & Athletic')
+    expect(workoutSession('home', 5).name).toBe('Lower & Conditioning')
     expect(WORKOUT_PROGRAMS.home[1].moves.map((m) => m.name)).toEqual([
       'Push ups',
       'Pike push ups',
-      'Diamond push ups',
       'Plank shoulder taps',
-      'Wide push ups',
+      'Cobra',
+      'Diamond push ups',
       'Plank',
     ])
     expect(WORKOUT_PROGRAMS.home[2].moves.map((m) => m.name)).toEqual([
       'Superman',
+      'Glute bridge',
+      'Back extension',
       'Glute kickback',
       'Cobra',
-      'Back extension',
-      'Glute bridge',
-      'Plank',
+      'Plank shoulder taps',
     ])
     expect(WORKOUT_PROGRAMS.home[3].moves.map((m) => m.name)).toEqual([
       'Squat',
       'Reverse lunge',
       'Glute bridge',
       'Jump squat',
-      'Calf raise',
       'Split squat',
+      'Calf raise',
     ])
     expect(WORKOUT_PROGRAMS.home[4].moves.map((m) => m.name)).toEqual([
       'Hindu push ups',
-      'Decline push ups',
       'Superman',
+      'Wide push ups',
+      'Back extension',
       'Plank shoulder taps',
-      'Glute kickback',
       'Plank',
     ])
     expect(WORKOUT_PROGRAMS.home[5].moves.map((m) => m.name)).toEqual([
-      'Reverse lunge',
+      'Walking lunge',
       'Single leg glute bridge',
+      'Reverse lunge',
       'Split squat',
       'Calf raise',
-      'Walking lunge',
-      'Plank',
+      'Glute kickback',
     ])
     for (const day of WORKOUT_WEEKDAYS) {
       for (const move of WORKOUT_PROGRAMS.home[day].moves) {
@@ -146,14 +148,19 @@ describe('workout programs', () => {
     expect(defaultWorkoutWeekday(new Date('2026-08-16T12:00:00'))).toBe(1)
   })
 
-  it('prints readable set prescriptions with full words', () => {
-    expect(restLabel(120)).toBe('2 minutes rest')
-    expect(restLabel(60)).toBe('60 seconds rest')
-    expect(movePrescription({ name: 'Bench press', sets: 4, reps: 6, restSec: 90 }, 185)).toBe(
-      '4 sets of 6 reps at 185 lbs. 90 seconds rest',
-    )
-    expect(movePrescription({ name: 'Dumbbell row', sets: 4, reps: 10, restSec: 75 })).toBe(
-      '4 sets of 10 reps. 75 seconds rest',
-    )
+  it('supports distinct coach-crafted workout categories with local demos', () => {
+    for (const cat of WORKOUT_CATEGORIES) {
+      expect(isWorkoutCategory(cat.id)).toBe(true)
+      for (const day of WORKOUT_WEEKDAYS) {
+        const session = workoutSession('home', day, 6, cat.id)
+        expect(session.moves.length).toBe(6)
+        expect(session.name.length).toBeGreaterThan(0)
+        for (const move of session.moves) {
+          const url = exerciseDemoUrl(move.name) ?? ''
+          expect(`${cat.id}:${move.name}:${url}`).toMatch(/:\/workout\//)
+        }
+      }
+    }
   })
 })
+

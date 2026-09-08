@@ -60,6 +60,7 @@ export const KIND_TITLES: Record<string, { title: string; blurb: string }> = {
   digest: { title: 'Morning brief', blurb: 'Who is next, what to do, what can wait.' },
   next_move: { title: 'Next', blurb: 'The one thing to do now.' },
   approve_send: { title: 'Approve & send', blurb: 'Review the draft and approve it to send.' },
+  approve_purchase: { title: 'Approve purchase', blurb: 'Review the item and approve the charge with one tap.' },
   pick_slot: { title: 'Pick a slot', blurb: 'Compare meeting times and pick the one that works.' },
   pick_night: { title: 'Evening brief', blurb: 'What happened, what is left, and what is on tomorrow.' },
   tonight: { title: 'Tonight', blurb: 'Places to eat or hang near you.' },

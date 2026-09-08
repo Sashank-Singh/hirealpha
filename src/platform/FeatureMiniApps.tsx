@@ -625,27 +625,42 @@ export function BuildsApp({ auth, persona }: { auth: FeatureAuth; persona: Agent
   }
 
   return (
-    <div className="ma-block">
-      <p className="ma-callout-kicker">Your builds</p>
-      {error && <p className="ma-body">{error}</p>}
-      {!error && builds === null && <p className="ma-body">Loading your builds…</p>}
+    <div className="ma">
+      <div className="ma-hero">
+        <span className="ma-hero-kicker">Workshop</span>
+        <span className="ma-hero-num">Your builds</span>
+        <span className="ma-hero-label">Every app Alpha built for you</span>
+      </div>
+
+      {error && <p className="mini__hint">{error}</p>}
+      {!error && builds === null && <p className="mini__empty">Loading your builds…</p>}
       {!error && builds !== null && builds.length === 0 && (
-        <p className="ma-body">
-          Nothing built yet. Text Alpha what you want, like "build a habit tracker", and it lands here.
-        </p>
+        <div className="ma-callout">
+          <span className="ma-callout-kicker">Build on demand</span>
+          <strong>Nothing built yet</strong>
+          <span className="ma-sub">
+            Ask Alpha: <em>&ldquo;build a flappy bird game&rdquo;</em> or <em>&ldquo;make a habit tracker&rdquo;</em>. Alpha writes the code, tests it in the sandbox, delivers a live link in chat, and saves it right here.
+          </span>
+          <div className="ma-callout-actions">
+            <a className="ma-btn" href="sms:+14155951440&body=Build%20a%20game">Text Alpha to build</a>
+          </div>
+        </div>
       )}
       {!error && builds !== null && builds.length > 0 && (
         <ul className="ma-list">
           {builds.map((b) => (
             <li key={b.id}>
-              <Link className="ma-row" to={`/app/mini/${persona}/artifact?id=${b.id}${auth.token ? `&t=${auth.token}` : auth.email ? `&email=${encodeURIComponent(auth.email)}` : ''}`}>
-                <span className="ma-row-main">
-                  <strong>{b.title}</strong>
-                  <span className="ma-row-sub">
+              <Link
+                className="ma-row"
+                to={`/app/mini/${persona}/artifact?id=${b.id}${auth.token ? `&t=${auth.token}` : auth.email ? `&email=${encodeURIComponent(auth.email)}` : ''}`}
+              >
+                <div className="ma-row-main">
+                  <span className="ma-title">{b.title}</span>
+                  <span className="ma-sub">
                     {fmtDay(b.createdAt)}
-                    {b.state === 'kept' ? ' · saved' : ' · expires in 7 days unless you keep it'}
+                    {b.state === 'kept' ? ' · saved permanently' : ' · auto-expires in 7 days unless kept'}
                   </span>
-                </span>
+                </div>
                 <span aria-hidden="true">›</span>
               </Link>
             </li>
@@ -890,7 +905,7 @@ export function MeetingModeApp({ auth }: { auth: FeatureAuth }) {
       .then((d) => {
         if (on) setPrep(d)
       })
-      .catch(() => {})
+      .catch(() => { })
     return () => {
       on = false
     }
@@ -1078,8 +1093,8 @@ export function MeetingModeApp({ auth }: { auth: FeatureAuth }) {
   const titleKey = (t: string) => (t || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
   const priorFollowups = next
     ? meetings
-        .filter((m) => m.id !== next.id && m.phase === 'done' && titleKey(m.title) === titleKey(next.title))
-        .flatMap((m) => m.followups || [])
+      .filter((m) => m.id !== next.id && m.phase === 'done' && titleKey(m.title) === titleKey(next.title))
+      .flatMap((m) => m.followups || [])
     : []
   const hasPromises = next?.followups?.length
   const promisePool = hasPromises ? next.followups! : priorFollowups
@@ -1238,10 +1253,16 @@ function CalorieRing({ current, goal }: { current: number; goal: number }) {
   return (
     <div className="nutr-ring-wrap">
       <svg className="nutr-ring" viewBox="0 0 132 132">
-        <circle cx="66" cy="66" r={r} fill="none" stroke="var(--border)" strokeWidth="10" />
+        <defs>
+          <linearGradient id="nutrCalGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stopColor="var(--hA-accent, #7fe3c4)" />
+            <stop offset="100%" stopColor="var(--hA-accent-2, #3fd9f5)" />
+          </linearGradient>
+        </defs>
+        <circle cx="66" cy="66" r={r} fill="none" stroke="rgba(255, 255, 255, 0.07)" strokeWidth="10" />
         <circle
           cx="66" cy="66" r={r} fill="none"
-          stroke="var(--mini-accent, #22c55e)"
+          stroke="url(#nutrCalGrad)"
           strokeWidth="10"
           strokeLinecap="round"
           strokeDasharray={circ}

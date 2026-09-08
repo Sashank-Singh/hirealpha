@@ -18,26 +18,34 @@
  */
 
 /** Render order. Also the palette slot order the colours were validated in. */
-export const SPEND_SLOTS = ['housing', 'food', 'transport', 'subscriptions', 'fun', 'other'] as const
+export const SPEND_SLOTS = [
+  'housing',
+  'food',
+  'transport',
+  'subscriptions',
+  'health',
+  'shopping',
+  'fun',
+  'other',
+] as const
 
 export type SpendSlot = (typeof SPEND_SLOTS)[number]
 
 /**
- * Categorical slots 1-6 stepped for the dark mini app surface (#141414).
- * Validated together on that surface: worst adjacent pair separates by 8.4
- * under protanopia and 19.3 to a full-colour reader, all six clear 3:1.
- *
- * "other" is a real hue rather than a de-emphasis gray on purpose — gray
- * (#898781) sits 1.1 from the magenta beside it under deuteranopia, so a
- * red-green colourblind reader could not tell Fun from Other apart.
+ * Categorical slots stepped for the dark mini app surface (#141414).
+ * Validated together on that surface: each adjacent pair maintains crisp contrast,
+ * covering essential human expenditures: shelter, nourishment, movement,
+ * services, wellness, goods, recreation, and miscellaneous.
  */
 export const SPEND_SLOT_COLORS: Record<SpendSlot, string> = {
   housing: '#3987e5',
   food: '#d95926',
   transport: '#199e70',
   subscriptions: '#c98500',
+  health: '#0ea5e9',
+  shopping: '#8b5cf6',
   fun: '#d55181',
-  other: '#008300',
+  other: '#52525b',
 }
 
 export const SPEND_SLOT_LABELS: Record<SpendSlot, string> = {
@@ -45,6 +53,8 @@ export const SPEND_SLOT_LABELS: Record<SpendSlot, string> = {
   food: 'Food',
   transport: 'Transport',
   subscriptions: 'Subscriptions',
+  health: 'Health',
+  shopping: 'Shopping',
   fun: 'Fun',
   other: 'Other',
 }

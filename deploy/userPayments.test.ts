@@ -195,4 +195,45 @@ describe('user payments API routes', () => {
     expect(await handleUserPaymentsApi(req('/api/payments/other'), fakeSql().sql, authedDeps)).toBeNull()
     expect(await handleUserPaymentsApi(req('/api/other'), fakeSql().sql, authedDeps)).toBeNull()
   })
+
+  it('spend approval GET renders approval confirmation page for pending request', async () => {
+    const { sql } = fakeSql(() => [
+      { id: 'req_123', user_id: USER, amount_cents: 1899, merchant: 'amazon.com', purpose: '5lb Jasmine Rice', status: 'pending', payment_intent_id: null },
+    ])
+    const res = await handleUserPaymentsApi(req('/api/payments/spend/approve?id=req_123'), sql, noAuthDeps)
+    expect(res?.status).toBe(200)
+    const html = await res!.text()
+    expect(html).toContain('Approve Purchase')
+    expect(html).toContain('5lb Jasmine Rice')
+    expect(html).toContain('$18.99')
+    expect(html).toContain('/api/payments/spend/approve?id=req_123&confirm=1')
+  })
+
+  it('spend approval GET returns already approved view when already consumed', async () => {
+    const { sql } = fakeSql(() => [
+      { id: 'req_123', user_id: USER, amount_cents: 1899, merchant: 'amazon.com', purpose: '5lb Jasmine Rice', status: 'consumed', payment_intent_id: 'pi_test123' },
+    ])
+    const res = await handleUserPaymentsApi(req('/api/payments/spend/approve?id=req_123'), sql, noAuthDeps)
+    expect(res?.status).toBe(200)
+    const html = await res!.text()
+    expect(html).toContain('Already Approved')
+  })
+
+  it('spend approval GET returns JSON for in-iMessage MiniApp when requested', async () => {
+    const { sql } = fakeSql(() => [
+      { id: 'req_123', user_id: USER, amount_cents: 1899, merchant: 'amazon.com', purpose: '5lb Jasmine Rice', status: 'pending', payment_intent_id: null },
+    ])
+    const res = await handleUserPaymentsApi(req('/api/payments/spend/approve?id=req_123&format=json'), sql, noAuthDeps)
+    expect(res?.status).toBe(200)
+    const data = await res!.json()
+    expect(data).toMatchObject({
+      ok: true,
+      id: 'req_123',
+      merchant: 'amazon.com',
+      purpose: '5lb Jasmine Rice',
+      amount: '$18.99',
+      status: 'pending',
+    })
+  })
 })
+

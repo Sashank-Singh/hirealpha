@@ -1254,3 +1254,45 @@ export const apiBrowserRun = (a: {
   featurePost<BrowserRunResult>('/api/browser/run', {
     ...authParams(a), entryId: a.entryId, kind: a.kind, steps: a.steps,
   })
+
+export type PaymentMethodView = {
+  id: string
+  brand: string
+  last4: string
+  exp: string
+  link_wallet: boolean
+}
+
+export type SpendRequest = {
+  id: string
+  amount: string
+  amount_cents: number
+  merchant: string
+  purpose: string
+  status: string
+  pending: boolean
+  created_at: string
+  last_error: string | null
+}
+
+export const apiPaymentsConnect = (a: { email?: string; token?: string }) =>
+  featurePost<{ url?: string; error?: string }>('/api/payments/connect', authParams(a))
+
+export const apiPaymentMethods = (a: { email?: string; token?: string }) =>
+  featureGet<{ methods: PaymentMethodView[] }>('/api/payments/methods', authQuery(a))
+
+export const apiPaymentMethodDelete = (a: { email?: string; token?: string; id: string }) => {
+  const qs = authQuery(a)
+  qs.set('id', a.id)
+  return featureDelete<{ ok: boolean }>(`/api/payments/methods?${qs}`, authParams(a))
+}
+
+export const apiSpendRequests = (a: { email?: string; token?: string }) =>
+  featureGet<{ requests: SpendRequest[]; cap_cents: number }>('/api/payments/spend', authQuery(a))
+
+export const apiSpendRequestDecide = (a: {
+  email?: string; token?: string; requestId: string; action: 'approve' | 'deny'
+}) =>
+  featurePost<{ ok: boolean }>('/api/payments/spend', {
+    ...authParams(a), requestId: a.requestId, action: a.action,
+  })

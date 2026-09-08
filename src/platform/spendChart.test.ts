@@ -9,7 +9,7 @@ import {
 } from './spendChart'
 
 describe('spendCategorySlot', () => {
-  it('keeps the six known categories', () => {
+  it('keeps all known categories', () => {
     for (const slot of SPEND_SLOTS) expect(spendCategorySlot(slot)).toBe(slot)
   })
 
@@ -23,6 +23,8 @@ describe('spendCategorySlot', () => {
   it('is forgiving about case and stray whitespace', () => {
     expect(spendCategorySlot('  Food ')).toBe('food')
     expect(spendCategorySlot('SUBSCRIPTIONS')).toBe('subscriptions')
+    expect(spendCategorySlot('Health')).toBe('health')
+    expect(spendCategorySlot('  shopping  ')).toBe('shopping')
   })
 })
 

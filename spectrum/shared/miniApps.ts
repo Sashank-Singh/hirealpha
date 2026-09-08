@@ -14,6 +14,7 @@ export type MiniAppKind =
   | 'apps'
   | 'digest'
   | 'approve_send'
+  | 'approve_purchase'
   | 'pick_slot'
   | 'pick_night'
   | 'tonight'
@@ -171,6 +172,7 @@ export interface MiniAppRequest {
 export const MINIMAL_CARD_KINDS = new Set<MiniAppKind>([
   // confirm — tap-to-act
   'approve_send',
+  'approve_purchase',
   'approve_investor_note',
   'pick_slot',
   'meeting_mode',
@@ -199,6 +201,7 @@ const KIND_LABELS: Record<MiniAppKind, string> = {
   apps: 'Apps',
   digest: 'Morning brief',
   approve_send: 'Approve and send',
+  approve_purchase: 'Approve purchase',
   pick_slot: 'Pick a slot',
   pick_night: 'Evening brief',
   tonight: 'Tonight',

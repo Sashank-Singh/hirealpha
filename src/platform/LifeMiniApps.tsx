@@ -45,18 +45,23 @@ import {
 import type { FeatureAuth } from './FeatureMiniApps'
 import { useStableAuth } from './useStableAuth'
 import {
+  WORKOUT_CATEGORIES,
   defaultWorkoutDay,
+  formatTimerDisplay,
   movePrescription,
+  readWorkoutCategory,
   readWorkoutDays,
   readWorkoutMoveCount,
   readWorkoutPlace,
   WORKOUT_DAY_LABELS_ALL,
   WORKOUT_DAY_LETTERS_ALL,
   workoutSession,
+  writeWorkoutCategory,
   writeWorkoutDays,
   writeWorkoutMoveCount,
   writeWorkoutPlace,
   setsRepsLabel,
+  type WorkoutCategory,
   type WorkoutDay,
   type WorkoutMove,
   type WorkoutMoveCount,
@@ -67,7 +72,7 @@ import { isPersonMeetSuggestion, isTravelOrStayTitle, stayWhereFrom, CADENCE_OPT
 import { pickLastNight } from './home'
 import { PeopleGraph } from './PeopleGraph'
 import { useRefreshOnFocus } from './useRefreshOnFocus'
-import { SpendBar, SpendDonut, SpendSwatch } from './SpendCharts'
+import { SpendDonut, SpendSwatch } from './SpendCharts'
 import { SPEND_SLOTS, SPEND_SLOT_LABELS } from './spendChart'
 
 const useAuth = useStableAuth
@@ -185,11 +190,71 @@ function lastWeightFor(logs: WorkoutLog[], name: string): number {
   return hit?.weight || 0
 }
 
+function playWorkoutChime(kind: 'complete' | 'rest-end' | 'tick' = 'complete') {
+  try {
+    const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext
+    if (!AudioCtx) return
+    const ctx = new AudioCtx()
+    if (ctx.state === 'suspended') {
+      void ctx.resume()
+    }
+    const now = ctx.currentTime
+    if (kind === 'rest-end') {
+      [880, 1174].forEach((freq, idx) => {
+        const osc = ctx.createOscillator()
+        const gain = ctx.createGain()
+        osc.type = 'triangle'
+        osc.frequency.setValueAtTime(freq, now + idx * 0.14)
+        gain.gain.setValueAtTime(0.25, now + idx * 0.14)
+        gain.gain.exponentialRampToValueAtTime(0.001, now + idx * 0.14 + 0.3)
+        osc.connect(gain)
+        gain.connect(ctx.destination)
+        osc.start(now + idx * 0.14)
+        osc.stop(now + idx * 0.14 + 0.3)
+      })
+    } else if (kind === 'complete') {
+      [523.25, 659.25, 783.99, 1046.5].forEach((freq, idx) => {
+        const osc = ctx.createOscillator()
+        const gain = ctx.createGain()
+        osc.type = 'sine'
+        osc.frequency.setValueAtTime(freq, now + idx * 0.08)
+        gain.gain.setValueAtTime(0.2, now + idx * 0.08)
+        gain.gain.exponentialRampToValueAtTime(0.001, now + idx * 0.08 + 0.4)
+        osc.connect(gain)
+        gain.connect(ctx.destination)
+        osc.start(now + idx * 0.08)
+        osc.stop(now + idx * 0.08 + 0.4)
+      })
+    } else {
+      const osc = ctx.createOscillator()
+      const gain = ctx.createGain()
+      osc.type = 'sine'
+      osc.frequency.setValueAtTime(700, now)
+      gain.gain.setValueAtTime(0.12, now)
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.08)
+      osc.connect(gain)
+      gain.connect(ctx.destination)
+      osc.start(now)
+      osc.stop(now + 0.08)
+    }
+  } catch {
+    /* ignore audio block */
+  }
+}
+
+type SetTrackerRow = {
+  setNum: number
+  reps: number
+  weight: number
+  completed: boolean
+}
+
 export function WorkoutLogApp({ auth }: { auth: FeatureAuth }) {
   const a = useAuth(auth)
   const [logs, setLogs] = useState<WorkoutLog[]>([])
   const [prs, setPrs] = useState<WorkoutPr[]>([])
   const [place, setPlace] = useState<WorkoutPlace>(() => readWorkoutPlace())
+  const [category, setCategory] = useState<WorkoutCategory>(() => readWorkoutCategory())
   const [moveCount, setMoveCount] = useState<WorkoutMoveCount>(() => readWorkoutMoveCount())
   const [viewDay, setViewDay] = useState<WorkoutDay>(() => defaultWorkoutDay(readWorkoutDays()))
   const [exercise, setExercise] = useState('')
@@ -199,8 +264,27 @@ export function WorkoutLogApp({ auth }: { auth: FeatureAuth }) {
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState('')
   const [showNew, setShowNew] = useState(false)
-  const [demoExercise, setDemoExercise] = useState<string | null>(null)
-  const [demoUrls, setDemoUrls] = useState<Record<string, string | null>>({})
+
+  // Active Runner State
+  const [activeMove, setActiveMove] = useState<WorkoutMove | null>(null)
+  const [runnerMode, setRunnerMode] = useState<'reps' | 'time'>('reps')
+  const [setRows, setSetRows] = useState<SetTrackerRow[]>([])
+  
+  // Rest Timer State
+  const [restSeconds, setRestSeconds] = useState(0)
+  const [restRunning, setRestRunning] = useState(false)
+  const [restTarget, setRestTarget] = useState(60)
+
+  // Work / Homework Timer State
+  const [workTimerSec, setWorkTimerSec] = useState(45)
+  const [workTimerRunning, setWorkTimerRunning] = useState(false)
+  const [workTimerMode, setWorkTimerMode] = useState<'countdown' | 'stopwatch'>('countdown')
+  const [workRepsLogged, setWorkRepsLogged] = useState('')
+
+  // Quick Standalone Timer State (in overview)
+  const [quickTimerOpen, setQuickTimerOpen] = useState(false)
+  const [quickTimerSec, setQuickTimerSec] = useState(60)
+  const [quickTimerRunning, setQuickTimerRunning] = useState(false)
 
   const load = useCallback(() => {
     apiListWorkouts(a)
@@ -221,7 +305,197 @@ export function WorkoutLogApp({ auth }: { auth: FeatureAuth }) {
       })
       .catch(() => setMsg('Could not load workouts.'))
   }, [a])
+
   useEffect(() => { load() }, [load])
+
+  // Rest timer ticker
+  useEffect(() => {
+    if (!restRunning || restSeconds <= 0) return
+    const id = window.setInterval(() => {
+      setRestSeconds((prev) => {
+        if (prev <= 1) {
+          setRestRunning(false)
+          playWorkoutChime('rest-end')
+          return 0
+        }
+        return prev - 1
+      })
+    }, 1000)
+    return () => window.clearInterval(id)
+  }, [restRunning, restSeconds])
+
+  // Work timer ticker
+  useEffect(() => {
+    if (!workTimerRunning) return
+    const id = window.setInterval(() => {
+      setWorkTimerSec((prev) => {
+        if (workTimerMode === 'stopwatch') {
+          return prev + 1
+        }
+        if (prev <= 1) {
+          setWorkTimerRunning(false)
+          playWorkoutChime('rest-end')
+          return 0
+        }
+        return prev - 1
+      })
+    }, 1000)
+    return () => window.clearInterval(id)
+  }, [workTimerRunning, workTimerMode])
+
+  // Quick timer ticker
+  useEffect(() => {
+    if (!quickTimerRunning || quickTimerSec <= 0) return
+    const id = window.setInterval(() => {
+      setQuickTimerSec((prev) => {
+        if (prev <= 1) {
+          setQuickTimerRunning(false)
+          playWorkoutChime('rest-end')
+          return 0
+        }
+        return prev - 1
+      })
+    }, 1000)
+    return () => window.clearInterval(id)
+  }, [quickTimerRunning, quickTimerSec])
+
+  // Launch interactive runner for a move
+  function startExerciseRunner(move: WorkoutMove) {
+    const lw = lastWeightFor(logs, move.name)
+    const initialMode: 'reps' | 'time' =
+      move.defaultMode || (place === 'home' && move.name.toLowerCase() === 'plank' ? 'time' : 'reps')
+
+    const rows: SetTrackerRow[] = Array.from({ length: Math.max(1, move.sets) }, (_, i) => ({
+      setNum: i + 1,
+      reps: move.reps,
+      weight: lw,
+      completed: false,
+    }))
+
+    setActiveMove(move)
+    setRunnerMode(initialMode)
+    setSetRows(rows)
+    setRestRunning(false)
+    setRestSeconds(0)
+    setRestTarget(move.restSec || 60)
+    setWorkTimerSec(move.targetSec || (move.defaultMode === 'time' ? 30 : 45))
+    setWorkTimerRunning(false)
+    setWorkTimerMode('countdown')
+    setWorkRepsLogged(move.defaultMode === 'time' ? '' : String(move.reps))
+    setMsg('')
+  }
+
+  function handleSetToggle(idx: number) {
+    setSetRows((prev) => {
+      const next = [...prev]
+      const current = next[idx]
+      if (!current) return prev
+      const willBeCompleted = !current.completed
+      next[idx] = { ...current, completed: willBeCompleted }
+
+      if (willBeCompleted) {
+        playWorkoutChime('tick')
+        // Automatically start rest timer if more sets are left
+        const hasUnfinishedSets = next.some((r, i) => i !== idx && !r.completed)
+        if (hasUnfinishedSets && activeMove) {
+          const rest = activeMove.restSec || 60
+          setRestTarget(rest)
+          setRestSeconds(rest)
+          setRestRunning(true)
+        }
+      }
+      return next
+    })
+  }
+
+  function updateSetRow(idx: number, field: 'reps' | 'weight', val: number) {
+    setSetRows((prev) => {
+      const next = [...prev]
+      const curr = next[idx]
+      if (!curr) return prev
+      next[idx] = { ...curr, [field]: Math.max(0, val) }
+      return next
+    })
+  }
+
+  function addSetRow() {
+    setSetRows((prev) => [
+      ...prev,
+      {
+        setNum: prev.length + 1,
+        reps: prev[prev.length - 1]?.reps || 10,
+        weight: prev[prev.length - 1]?.weight || 0,
+        completed: false,
+      },
+    ])
+  }
+
+  function removeSetRow() {
+    if (setRows.length <= 1) return
+    setSetRows((prev) => prev.slice(0, -1))
+  }
+
+  async function finishRunnerAndLog() {
+    if (!activeMove || busy) return
+    setBusy(true)
+    setMsg('')
+    try {
+      const completedSets = setRows.filter((r) => r.completed)
+      const count = completedSets.length > 0 ? completedSets.length : setRows.length
+      const avgReps =
+        completedSets.length > 0
+          ? Math.round(completedSets.reduce((sum, r) => sum + r.reps, 0) / completedSets.length)
+          : activeMove.reps
+      const maxWeight =
+        completedSets.length > 0
+          ? Math.max(...completedSets.map((r) => r.weight))
+          : lastWeightFor(logs, activeMove.name)
+
+      const notes = `${place === 'home' ? 'Home' : 'Gym'} ${activeMove.name} (${count} sets)`
+      await apiLogWorkout({
+        ...a,
+        exercise: activeMove.name,
+        sets: count,
+        reps: avgReps,
+        weight: maxWeight,
+        notes,
+      })
+      playWorkoutChime('complete')
+      load()
+      setActiveMove(null)
+      setRestRunning(false)
+    } catch {
+      setMsg('Could not log exercise.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function logWorkTimerSet() {
+    if (!activeMove || busy) return
+    setBusy(true)
+    setMsg('')
+    try {
+      const repsNum = Number(workRepsLogged) || (activeMove.defaultMode === 'time' ? activeMove.reps : 1)
+      const notes = `${place === 'home' ? 'Home' : 'Gym'} ${activeMove.name} (Timer: ${formatTimerDisplay(workTimerSec)})`
+      await apiLogWorkout({
+        ...a,
+        exercise: activeMove.name,
+        sets: 1,
+        reps: repsNum,
+        weight: 0,
+        notes,
+      })
+      playWorkoutChime('complete')
+      load()
+      setActiveMove(null)
+      setWorkTimerRunning(false)
+    } catch {
+      setMsg('Could not log timed set.')
+    } finally {
+      setBusy(false)
+    }
+  }
 
   async function choosePlace(next: WorkoutPlace) {
     setPlace(next)
@@ -230,6 +504,16 @@ export function WorkoutLogApp({ auth }: { auth: FeatureAuth }) {
       await apiPutMiniPrefs({ ...a, workoutPlace: next })
     } catch {
       setMsg('Could not save place.')
+    }
+  }
+
+  function chooseCategory(next: WorkoutCategory) {
+    setCategory(next)
+    writeWorkoutCategory(next)
+    if ((next === 'calisthenics' || next === 'hiit') && place !== 'home') {
+      void choosePlace('home')
+    } else if ((next === 'strength' || next === 'legs') && place !== 'gym') {
+      void choosePlace('gym')
     }
   }
 
@@ -259,6 +543,7 @@ export function WorkoutLogApp({ auth }: { auth: FeatureAuth }) {
           notes,
         })
       }
+      playWorkoutChime('complete')
       load()
     } catch {
       setMsg('Could not log that.')
@@ -297,6 +582,7 @@ export function WorkoutLogApp({ auth }: { auth: FeatureAuth }) {
         reps: Number(reps) || 1,
         weight: Number(weight) || 0,
       })
+      playWorkoutChime('complete')
       setExercise('')
       setShowNew(false)
       load()
@@ -307,17 +593,7 @@ export function WorkoutLogApp({ auth }: { auth: FeatureAuth }) {
     }
   }
 
-  function handleDemoToggle(name: string) {
-    if (demoExercise === name) {
-      setDemoExercise(null)
-      return
-    }
-    const key = name.toLowerCase()
-    setDemoUrls((prev) => (key in prev ? prev : { ...prev, [key]: exerciseDemoUrl(name) }))
-    setDemoExercise(name)
-  }
-
-  const session = workoutSession(place, viewDay, moveCount)
+  const session = workoutSession(place, viewDay, moveCount, category)
   const today = localDateStr()
   const todayDay = new Date().getDay() as WorkoutDay
   const viewingToday = todayDay === viewDay
@@ -336,10 +612,10 @@ export function WorkoutLogApp({ auth }: { auth: FeatureAuth }) {
 
   let heroKicker = viewingToday ? 'Today' : session.dayLabel
   let heroNum = session.name
-  let heroLabel = `${session.moves.length} moves. ${placeLabel}.`
+  let heroLabel = `${session.moves.length} coach moves. ${placeLabel}.`
   if (allDone) {
     heroNum = 'All done'
-    heroLabel = `${session.name}. ${placeLabel}.`
+    heroLabel = `${session.name}. ${placeLabel}. Great work!`
   } else if (doneCount > 0) {
     heroNum = `${doneCount} of ${session.moves.length}`
     heroLabel = left[0] ? `${left[0].name} is next` : heroLabel
@@ -355,12 +631,367 @@ export function WorkoutLogApp({ auth }: { auth: FeatureAuth }) {
     </form>
   )
 
+  /* ------------------- Active Interactive Runner ------------------- */
+  if (activeMove) {
+    const demoUrl = exerciseDemoUrl(activeMove.name)
+    const pr = prMap.get(activeMove.name.toLowerCase())
+    const completedCount = setRows.filter((r) => r.completed).length
+
+    return (
+      <div className="ma workout wk-runner">
+        {/* Runner Header Bar */}
+        <div className="wk-runner-header">
+          <button
+            className="wk-runner-back"
+            type="button"
+            onClick={() => {
+              setActiveMove(null)
+              setRestRunning(false)
+              setWorkTimerRunning(false)
+            }}
+          >
+            ‹ Routine
+          </button>
+          <div className="wk-runner-titles">
+            <span className="wk-runner-badge">{placeLabel} · {session.name}</span>
+            <h2 className="wk-runner-title">{activeMove.name}</h2>
+          </div>
+          <div className="wk-mode-tabs" role="tablist" aria-label="Exercise Mode">
+            <button
+              className={`wk-mode-btn${runnerMode === 'reps' ? ' is-on' : ''}`}
+              type="button"
+              role="tab"
+              aria-selected={runnerMode === 'reps'}
+              onClick={() => {
+                setRunnerMode('reps')
+                setWorkTimerRunning(false)
+              }}
+            >
+              Reps
+            </button>
+            <button
+              className={`wk-mode-btn${runnerMode === 'time' ? ' is-on' : ''}`}
+              type="button"
+              role="tab"
+              aria-selected={runnerMode === 'time'}
+              onClick={() => {
+                setRunnerMode('time')
+                setRestRunning(false)
+              }}
+            >
+              Timer
+            </button>
+          </div>
+        </div>
+
+        {/* Animated Exercise GIF Demo */}
+        <div className="wk-demo-wrapper">
+          {demoUrl ? (
+            <img
+              className="wk-demo-img wk-runner-gif"
+              src={demoUrl}
+              alt={`Demonstration of ${activeMove.name}`}
+              loading="eager"
+            />
+          ) : (
+            <div className="wk-demo-placeholder">
+              <span>{activeMove.name}</span>
+            </div>
+          )}
+          {activeMove.cue && (
+            <div className="wk-cue-pill">
+              <span className="wk-cue-text">{activeMove.cue}</span>
+            </div>
+          )}
+        </div>
+
+        {/* PR & Prescription Summary */}
+        <div className="wk-runner-meta">
+          <span className="wk-meta-target">
+            Target: {movePrescription(activeMove)}
+          </span>
+          {pr && (
+            <span className="wk-meta-pr">
+              PR: {Math.round(pr.weight)} lbs × {pr.reps}
+            </span>
+          )}
+        </div>
+
+        {/* REPS & SETS MODE */}
+        {runnerMode === 'reps' && (
+          <div className="wk-reps-view">
+            {/* Rest Timer Banner */}
+            <div className={`wk-rest-banner${restRunning ? ' is-active' : ''}`}>
+              <div className="wk-rest-left">
+                <span className="wk-rest-label">
+                  {restRunning ? 'Resting...' : restSeconds > 0 ? 'Rest Paused' : 'Rest Timer'}
+                </span>
+                <span className="wk-rest-time">{formatTimerDisplay(restSeconds)}</span>
+              </div>
+              <div className="wk-rest-actions">
+                {restRunning ? (
+                  <button className="wk-rest-btn" type="button" onClick={() => setRestRunning(false)}>
+                    Pause
+                  </button>
+                ) : (
+                  <button
+                    className="wk-rest-btn"
+                    type="button"
+                    onClick={() => {
+                      if (restSeconds <= 0) setRestSeconds(restTarget)
+                      setRestRunning(true)
+                    }}
+                  >
+                    Start ({restTarget}s)
+                  </button>
+                )}
+                <button
+                  className="wk-rest-btn"
+                  type="button"
+                  onClick={() => setRestSeconds((prev) => prev + 30)}
+                >
+                  +30s
+                </button>
+                {restSeconds > 0 && (
+                  <button
+                    className="wk-rest-btn wk-rest-btn--skip"
+                    type="button"
+                    onClick={() => {
+                      setRestRunning(false)
+                      setRestSeconds(0)
+                    }}
+                  >
+                    Skip
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Set Tracker Table */}
+            <div className="wk-sets-table">
+              <div className="wk-table-head">
+                <span>Set</span>
+                <span>Weight (lbs)</span>
+                <span>Reps</span>
+                <span>Log</span>
+              </div>
+              {setRows.map((row, idx) => (
+                <div key={row.setNum} className={`wk-table-row${row.completed ? ' is-done' : ''}`}>
+                  <span className="wk-set-idx">#{row.setNum}</span>
+                  <div className="wk-input-stepper">
+                    <button
+                      type="button"
+                      className="wk-step-btn"
+                      onClick={() => updateSetRow(idx, 'weight', row.weight - 5)}
+                      aria-label="Decrease weight"
+                    >
+                      -
+                    </button>
+                    <input
+                      type="number"
+                      className="wk-step-input"
+                      value={row.weight === 0 ? '' : row.weight}
+                      placeholder={place === 'home' ? 'BW' : '0'}
+                      onChange={(e) => updateSetRow(idx, 'weight', Number(e.target.value) || 0)}
+                    />
+                    <button
+                      type="button"
+                      className="wk-step-btn"
+                      onClick={() => updateSetRow(idx, 'weight', row.weight + 5)}
+                      aria-label="Increase weight"
+                    >
+                      +
+                    </button>
+                  </div>
+                  <div className="wk-input-stepper">
+                    <button
+                      type="button"
+                      className="wk-step-btn"
+                      onClick={() => updateSetRow(idx, 'reps', row.reps - 1)}
+                      aria-label="Decrease reps"
+                    >
+                      -
+                    </button>
+                    <input
+                      type="number"
+                      className="wk-step-input"
+                      value={row.reps}
+                      onChange={(e) => updateSetRow(idx, 'reps', Number(e.target.value) || 0)}
+                    />
+                    <button
+                      type="button"
+                      className="wk-step-btn"
+                      onClick={() => updateSetRow(idx, 'reps', row.reps + 1)}
+                      aria-label="Increase reps"
+                    >
+                      +
+                    </button>
+                  </div>
+                  <button
+                    type="button"
+                    className={`wk-set-check${row.completed ? ' is-checked' : ''}`}
+                    onClick={() => handleSetToggle(idx)}
+                    aria-label={`Mark set ${row.setNum} complete`}
+                  >
+                    {row.completed ? '✓ Done' : 'Done'}
+                  </button>
+                </div>
+              ))}
+            </div>
+
+            <div className="wk-table-foot-actions">
+              <button type="button" className="wk-foot-btn" onClick={addSetRow}>
+                + Add Set
+              </button>
+              {setRows.length > 1 && (
+                <button type="button" className="wk-foot-btn" onClick={removeSetRow}>
+                  - Remove Set
+                </button>
+              )}
+            </div>
+
+            {/* Complete & Finish Exercise Button */}
+            <div className="wk-runner-finish-bar">
+              <button
+                className="ma-btn ma-btn--block wk-finish-btn"
+                type="button"
+                disabled={busy}
+                onClick={() => void finishRunnerAndLog()}
+              >
+                {completedCount > 0
+                  ? `Save ${completedCount} Completed Set${completedCount === 1 ? '' : 's'}`
+                  : `Finish & Save ${activeMove.name}`}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* TIMER / INTERVAL / HOMEWORK MODE */}
+        {runnerMode === 'time' && (
+          <div className="wk-timer-view">
+            <div className="wk-timer-clock">
+              <span className="wk-clock-digits">{formatTimerDisplay(workTimerSec)}</span>
+              <span className="wk-clock-sub">
+                {workTimerMode === 'stopwatch' ? 'Stopwatch active' : workTimerRunning ? 'Interval in progress' : 'Ready'}
+              </span>
+            </div>
+
+            {/* Preset chips */}
+            <div className="wk-timer-presets" role="group" aria-label="Timer presets">
+              {([30, 45, 60, 90, 120] as const).map((sec) => (
+                <button
+                  key={sec}
+                  type="button"
+                  className={`wk-preset-chip${workTimerMode === 'countdown' && workTimerSec === sec ? ' is-on' : ''}`}
+                  onClick={() => {
+                    setWorkTimerMode('countdown')
+                    setWorkTimerSec(sec)
+                    setWorkTimerRunning(false)
+                  }}
+                >
+                  {sec >= 60 ? `${sec / 60}m` : `${sec}s`}
+                </button>
+              ))}
+              <button
+                type="button"
+                className={`wk-preset-chip${workTimerMode === 'stopwatch' ? ' is-on' : ''}`}
+                onClick={() => {
+                  setWorkTimerMode('stopwatch')
+                  setWorkTimerSec(0)
+                  setWorkTimerRunning(false)
+                }}
+              >
+                Stopwatch
+              </button>
+            </div>
+
+            {/* Clock Controls */}
+            <div className="wk-timer-controls">
+              <button
+                type="button"
+                className="wk-btn-pill"
+                onClick={() => setWorkTimerSec((prev) => Math.max(0, prev - 15))}
+              >
+                -15s
+              </button>
+              <button
+                type="button"
+                className={`wk-btn-primary${workTimerRunning ? ' is-running' : ''}`}
+                onClick={() => setWorkTimerRunning(!workTimerRunning)}
+              >
+                {workTimerRunning ? 'Pause' : 'Start'}
+              </button>
+              <button
+                type="button"
+                className="wk-btn-pill"
+                onClick={() => setWorkTimerSec((prev) => prev + 15)}
+              >
+                +15s
+              </button>
+              <button
+                type="button"
+                className="wk-btn-pill"
+                onClick={() => {
+                  setWorkTimerRunning(false)
+                  setWorkTimerSec(activeMove.targetSec || (activeMove.defaultMode === 'time' ? 30 : 45))
+                }}
+              >
+                Reset
+              </button>
+            </div>
+
+            {/* Reps Completed Input (e.g. 25 push-ups during the 45s timer) */}
+            <div className="wk-timer-reps-box">
+              <label className="wk-label">Reps completed (optional):</label>
+              <input
+                type="number"
+                className="ma-input ma-input--sm"
+                value={workRepsLogged}
+                onChange={(e) => setWorkRepsLogged(e.target.value)}
+                placeholder="Reps done"
+              />
+            </div>
+
+            <button
+              className="ma-btn ma-btn--block wk-finish-btn"
+              type="button"
+              disabled={busy}
+              onClick={() => void logWorkTimerSet()}
+            >
+              Log Interval for {activeMove.name}
+            </button>
+          </div>
+        )}
+
+        {msg && <p className="mini__hint">{msg}</p>}
+      </div>
+    )
+  }
+
+  /* ------------------- Routine Overview View ------------------- */
   return (
     <div className="ma workout">
       <div className="ma-hero">
         <span className="ma-hero-kicker">{heroKicker}</span>
         <span className="ma-hero-num">{heroNum}</span>
         <span className="ma-hero-label">{heroLabel}</span>
+      </div>
+
+      {/* Category / Goal Selector */}
+      <div className="wk-category-bar" role="group" aria-label="Workout Style">
+        <div className="wk-cat-chips">
+          {WORKOUT_CATEGORIES.map((cat) => (
+            <button
+              key={cat.id}
+              type="button"
+              className={`wk-cat-chip${category === cat.id ? ' is-on' : ''}`}
+              onClick={() => chooseCategory(cat.id)}
+              title={cat.blurb}
+            >
+              <span className="wk-cat-name">{cat.shortLabel}</span>
+            </button>
+          ))}
+        </div>
       </div>
 
       <div className="wk-controls">
@@ -392,7 +1023,7 @@ export function WorkoutLogApp({ auth }: { auth: FeatureAuth }) {
               aria-pressed={moveCount === n}
               onClick={() => void chooseCount(n)}
             >
-              {n}
+              {n} moves
             </button>
           ))}
         </div>
@@ -414,6 +1045,69 @@ export function WorkoutLogApp({ auth }: { auth: FeatureAuth }) {
         </div>
       </div>
 
+      {/* Standalone Quick Homework & Rest Timer Bar */}
+      <div className="wk-quick-timer-bar">
+        <button
+          type="button"
+          className="wk-quick-timer-toggle"
+          onClick={() => setQuickTimerOpen(!quickTimerOpen)}
+        >
+          <span>Quick Homework / Rest Timer</span>
+          <span className="wk-timer-pill">
+            {quickTimerRunning ? `${formatTimerDisplay(quickTimerSec)} · Running` : `${formatTimerDisplay(quickTimerSec)}`}
+          </span>
+        </button>
+
+        {quickTimerOpen && (
+          <div className="wk-quick-timer-content">
+            <div className="wk-quick-clock-row">
+              <span className="wk-quick-digits">{formatTimerDisplay(quickTimerSec)}</span>
+              <div className="wk-quick-btn-group">
+                <button
+                  type="button"
+                  className="wk-btn-pill"
+                  onClick={() => setQuickTimerRunning(!quickTimerRunning)}
+                >
+                  {quickTimerRunning ? 'Pause' : 'Start'}
+                </button>
+                <button
+                  type="button"
+                  className="wk-btn-pill"
+                  onClick={() => setQuickTimerSec((prev) => prev + 30)}
+                >
+                  +30s
+                </button>
+                <button
+                  type="button"
+                  className="wk-btn-pill"
+                  onClick={() => {
+                    setQuickTimerRunning(false)
+                    setQuickTimerSec(60)
+                  }}
+                >
+                  Reset
+                </button>
+              </div>
+            </div>
+            <div className="wk-timer-presets">
+              {([30, 45, 60, 90, 120] as const).map((s) => (
+                <button
+                  key={s}
+                  type="button"
+                  className={`wk-preset-chip${quickTimerSec === s ? ' is-on' : ''}`}
+                  onClick={() => {
+                    setQuickTimerSec(s)
+                    setQuickTimerRunning(false)
+                  }}
+                >
+                  {s >= 60 ? `${s / 60}m` : `${s}s`}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+
       {left.length > 0 && (
         <button
           className="ma-btn ma-btn--block"
@@ -421,82 +1115,88 @@ export function WorkoutLogApp({ auth }: { auth: FeatureAuth }) {
           disabled={busy}
           onClick={() => void logMoves(left, session.name)}
         >
-          Done for today
+          Mark all {left.length} remaining done
         </button>
       )}
 
       {msg && <p className="mini__hint">{msg}</p>}
 
-      <ul className="habit-list">
+      {/* Routine Moves List */}
+      <ul className="habit-list wk-list">
         {session.moves.map((move) => {
           const done = todayNames.has(move.name.toLowerCase())
           const lw = lastWeightFor(logs, move.name)
           const pr = prMap.get(move.name.toLowerCase())
-          const isExpanded = demoExercise === move.name
-          const demoKey = move.name.toLowerCase()
-          const demoFetched = demoKey in demoUrls
-          const demoUrl = demoUrls[demoKey]
-          const demoLoading = isExpanded && !demoFetched
           return (
-            <li key={move.name} className={`habit-card wk-card${isExpanded ? ' is-expanded' : ''}`}>
-              <div className="habit-info">
-                <button
-                  className="wk-name-btn"
-                  type="button"
-                  aria-expanded={isExpanded}
-                  onClick={() => handleDemoToggle(move.name)}
-                >
-                  {move.name}
-                </button>
+            <li key={move.name} className={`habit-card wk-card${done ? ' is-done' : ''}`}>
+              <div
+                className="habit-info wk-info-clickable"
+                onClick={() => startExerciseRunner(move)}
+                role="button"
+                tabIndex={0}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault()
+                    startExerciseRunner(move)
+                  }
+                }}
+              >
+                <div className="wk-title-row">
+                  <span className="wk-name">{move.name}</span>
+                  {done && <span className="wk-done-tag">✓ Done</span>}
+                </div>
                 <div className="habit-streak">
                   {movePrescription(move, lw)}
-                  {pr ? `. PR ${Math.round(pr.weight)} x ${pr.reps}` : ''}
+                  {pr ? ` · PR ${Math.round(pr.weight)} × ${pr.reps}` : ''}
                 </div>
               </div>
-              <button
-                className={`wk-act${done ? ' is-on' : ''}`}
-                type="button"
-                disabled={busy}
-                onClick={() => void (done ? unlogMove(move.name) : logMoves([move], session.name))}
-              >
-                Done
-              </button>
-              {isExpanded && (
-                <div className="wk-demo">
-                  {demoLoading && <span className="wk-demo-hint">Loading...</span>}
-                  {!demoLoading && demoUrl && (
-                    <img
-                      className="wk-demo-img"
-                      src={demoUrl}
-                      alt={`How to do ${move.name}`}
-                      loading="lazy"
-                      onError={() => setDemoUrls((prev) => ({ ...prev, [demoKey]: null }))}
-                    />
-                  )}
-                  {!demoLoading && demoFetched && !demoUrl && (
-                    <span className="wk-demo-hint">No demo for this lift</span>
-                  )}
-                </div>
-              )}
+
+              <div className="wk-card-actions">
+                <button
+                  className="wk-launch-btn"
+                  type="button"
+                  onClick={() => startExerciseRunner(move)}
+                  title="Open interactive runner with demo and timer"
+                >
+                  Start
+                </button>
+                <button
+                  className={`wk-act${done ? ' is-on' : ''}`}
+                  type="button"
+                  disabled={busy}
+                  onClick={() => void (done ? unlogMove(move.name) : logMoves([move], session.name))}
+                  title={done ? 'Unmark done' : 'Quick mark done'}
+                >
+                  {done ? '✓' : 'Done'}
+                </button>
+              </div>
             </li>
           )
         })}
       </ul>
 
+      {/* Log History */}
       {history.length > 0 && (
         <ul className="habit-list">
-          {history.slice(0, 20).map((l) => {
+          {history.slice(0, 15).map((l) => {
             const pr = prMap.get(l.exercise.toLowerCase())
             const isPr = pr && pr.weight === l.weight && pr.reps === l.reps
             return (
               <li key={l.id} className="habit-card">
                 <div className="habit-info">
-                  <div className="habit-name">{l.exercise}{isPr ? ' PR' : ''}</div>
+                  <div className="habit-name">{l.exercise}{isPr ? ' — PR' : ''}</div>
                   <div className="habit-streak">
-                    {setsRepsLabel(l.sets, l.reps)}{l.weight ? ` at ${l.weight} lbs` : ''} {fmtDay(l.loggedAt)}
+                    {setsRepsLabel(l.sets, l.reps)}{l.weight ? ` @ ${l.weight} lbs` : ''} · {fmtDay(l.loggedAt)}
                   </div>
                 </div>
-                <button className="habit-delete" type="button" onClick={() => void apiDeleteWorkout({ ...a, id: l.id }).then(load)} title="Remove">×</button>
+                <button
+                  className="habit-delete"
+                  type="button"
+                  onClick={() => void apiDeleteWorkout({ ...a, id: l.id }).then(load)}
+                  title="Remove"
+                >
+                  ×
+                </button>
               </li>
             )
           })}
@@ -504,12 +1204,15 @@ export function WorkoutLogApp({ auth }: { auth: FeatureAuth }) {
       )}
 
       {!showNew && (
-        <button className="ma-btn ma-btn--quiet ma-btn--block" type="button" onClick={() => setShowNew(true)}>New lift</button>
+        <button className="ma-btn ma-btn--quiet ma-btn--block" type="button" onClick={() => setShowNew(true)}>
+          + Custom lift
+        </button>
       )}
       {showNew && addForm}
     </div>
   )
 }
+
 
 /* ----------------------------- Learning Queue --------------------------- */
 
@@ -2493,7 +3196,7 @@ export function SpendingSnapshotApp({ auth }: { auth: FeatureAuth }) {
 
   return (
     <div className="ma">
-      <div className="spend-hero">
+      <div className={`spend-hero${over ? ' spend-hero--over' : ''}`}>
         <div className="ma-hero">
           <span className="ma-hero-kicker">{over ? 'Over budget' : 'This week'}</span>
           <div className="spend-total">
@@ -2520,7 +3223,6 @@ export function SpendingSnapshotApp({ auth }: { auth: FeatureAuth }) {
           <button className="ma-btn" type="submit">Save budget</button>
         </form>
       )}
-      <SpendBar rows={chartRows} budget={budget} />
       <SpendDonut rows={chartRows} />
       <div className="ma-pills">
         {SPEND_SLOTS.map((c) => {

@@ -477,12 +477,27 @@ export function mailHasDeadline(m: { subject: string; snippet?: string }): boole
   return DEADLINE_RE.test(`${m.subject || ''} ${m.snippet || ''}`)
 }
 
+const AUTOMATED_NOISE_RE =
+  /\b(no[-_]?reply|donotreply|notifications?|mailer[-_]?daemon|newsletter|marketing|promotions?|updates?@|recruiting@|team@|automated|support@|digest|news@)\b/i
+
+const PROMO_OR_STATUS_RE =
+  /\b(free ticket|claim your|webinar|discount|sale|deal|save \d+%|coupon|exclusive offer|invitation to join|last chance to|expires? soon|special offer|order confirm(?:ed|ation)|receipt for|payment received|thank you for applying|application (?:status|update)|reviewing your application|unfortunately|not moving forward|thank you for your order)\b/i
+
 export function scoreMail(
   m: { id: string; from: string; subject: string; snippet?: string; kind?: string },
   sender?: SenderSignal,
 ): { score: number; reasons: MailScoreReason[] } {
+  const isAutomated = AUTOMATED_NOISE_RE.test(m.from || '')
+  const isPromoOrStatus = PROMO_OR_STATUS_RE.test(`${m.subject || ''} ${m.snippet || ''}`)
+
   let score = 40
   const reasons: MailScoreReason[] = []
+
+  if (isAutomated || isPromoOrStatus) {
+    score -= 30
+    return { score: Math.max(0, Math.min(100, score)), reasons }
+  }
+
   if (m.kind === 'reply' || mailWaitingOnYou(m)) {
     score += 25
     reasons.push('waiting_on_you')

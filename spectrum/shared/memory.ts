@@ -26,6 +26,8 @@ export interface MemoryFact {
 
 export interface ThreadMemory {
   pendingConnection?: { connector: string; request: string; createdAt: number }
+  pendingSpend?: { id: string; item: string; amount: number; url?: string; createdAt: number }
+  lastCardDeliveredAt?: number
   /** Durable facts about the person, never sliced by recency. */
   facts: MemoryFact[]
   /** Rolling summary of everything older than MAX_RAW. */
@@ -39,10 +41,10 @@ function threadPath(dataDir: string, senderId: string) {
   return join(dataDir, 'threads', `${safe}.json`)
 }
 
-const EMPTY: ThreadMemory = { facts: [], summary: '', history: [] }
+const createEmpty = (): ThreadMemory => ({ facts: [], summary: '', history: [] })
 
 function normalize(raw: unknown): ThreadMemory {
-  if (!raw || typeof raw !== 'object') return EMPTY
+  if (!raw || typeof raw !== 'object') return createEmpty()
   const r = raw as Record<string, unknown>
   const facts: MemoryFact[] = []
   if (Array.isArray(r.facts)) {
@@ -65,6 +67,10 @@ function normalize(raw: unknown): ThreadMemory {
       typeof (r.pendingConnection as Record<string, unknown>).request === 'string' &&
       typeof (r.pendingConnection as Record<string, unknown>).createdAt === 'number'
       ? { pendingConnection: r.pendingConnection as ThreadMemory['pendingConnection'] } : {}),
+    ...(r.pendingSpend && typeof r.pendingSpend === 'object' &&
+      typeof (r.pendingSpend as Record<string, unknown>).id === 'string'
+      ? { pendingSpend: r.pendingSpend as ThreadMemory['pendingSpend'] } : {}),
+    ...(typeof r.lastCardDeliveredAt === 'number' ? { lastCardDeliveredAt: r.lastCardDeliveredAt } : {}),
     facts,
     summary: typeof r.summary === 'string' ? r.summary : '',
     history,
@@ -73,11 +79,11 @@ function normalize(raw: unknown): ThreadMemory {
 
 export function loadMemory(dataDir: string, senderId: string): ThreadMemory {
   const path = threadPath(dataDir, senderId)
-  if (!existsSync(path)) return EMPTY
+  if (!existsSync(path)) return createEmpty()
   try {
     return normalize(JSON.parse(readFileSync(path, 'utf8')))
   } catch {
-    return EMPTY
+    return createEmpty()
   }
 }
 
@@ -88,9 +94,22 @@ function writeMemory(dataDir: string, senderId: string, mem: ThreadMemory) {
 }
 
 export function setPendingConnection(dataDir: string, senderId: string, pending?: ThreadMemory['pendingConnection']) {
-  const mem = loadMemory(dataDir, senderId)
+  const mem = { ...loadMemory(dataDir, senderId) }
   if (pending) mem.pendingConnection = pending
   else delete mem.pendingConnection
+  writeMemory(dataDir, senderId, mem)
+}
+
+export function setPendingSpend(dataDir: string, senderId: string, pending?: ThreadMemory['pendingSpend']) {
+  const mem = { ...loadMemory(dataDir, senderId) }
+  if (pending) mem.pendingSpend = pending
+  else delete mem.pendingSpend
+  writeMemory(dataDir, senderId, mem)
+}
+
+export function recordCardDelivered(dataDir: string, senderId: string, ts = Date.now()): void {
+  const mem = { ...loadMemory(dataDir, senderId) }
+  mem.lastCardDeliveredAt = ts
   writeMemory(dataDir, senderId, mem)
 }
 

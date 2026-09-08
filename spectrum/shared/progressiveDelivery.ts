@@ -1,5 +1,5 @@
 export const REACTIONS = ['❤️', '😂', '🎉', '👀', '👍'] as const
-export type Reaction = typeof REACTIONS[number]
+export type Reaction = string
 export type DeliveryHooks = {
   onProgress?: (text: string) => Promise<void>
   onReaction?: (reaction: Reaction) => Promise<void>
@@ -44,8 +44,9 @@ export function createReactionGate(now: () => number = Date.now, cooldownMs = 18
   return async (key: string, reaction: Reaction, send: (reaction: Reaction) => Promise<unknown>) => {
     const time = now()
     for (const [user, at] of last) if (time - at >= cooldownMs) last.delete(user)
-    if (!REACTIONS.includes(reaction) || last.has(key)) return
+    if (!reaction || last.has(key)) return
     last.set(key, time)
     try { await send(reaction) } catch { /* An optional reaction must not fail the task. */ }
   }
 }
+

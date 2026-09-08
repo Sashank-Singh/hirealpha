@@ -108,7 +108,7 @@ export function CategoryDonut({
   const total = clean.reduce((a, r) => a + r.value, 0)
   if (!clean.length || total <= 0) return null
 
-  const radius = 36
+  const radius = 39
   const gap = 2
   const circ = 2 * Math.PI * radius
   let walked = 0
@@ -140,7 +140,7 @@ export function CategoryDonut({
                 r={radius}
                 fill="none"
                 stroke={s.color}
-                strokeWidth="14"
+                strokeWidth="11"
                 strokeDasharray={s.dashArray}
                 strokeDashoffset={s.dashOffset}
               >
@@ -174,7 +174,7 @@ export function CategoryDonut({
  * as arcs, so the list is the point rather than decoration.
  */
 export function SpendDonut({ rows, centerLabel }: { rows: SpendInput[]; centerLabel?: string }) {
-  const { slices, total, radius } = spendSlices(rows, { radius: 36 })
+  const { slices, total, radius } = spendSlices(rows, { radius: 39 })
   if (!slices.length) return null
 
   return (
@@ -190,7 +190,7 @@ export function SpendDonut({ rows, centerLabel }: { rows: SpendInput[]; centerLa
                 r={radius}
                 fill="none"
                 stroke={s.color}
-                strokeWidth="14"
+                strokeWidth="11"
                 strokeDasharray={s.dashArray}
                 strokeDashoffset={s.dashOffset}
               >

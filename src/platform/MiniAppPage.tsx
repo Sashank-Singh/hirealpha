@@ -12,6 +12,7 @@ import { localYmd } from './home'
 import { apiSetupStatus } from './api'
 import type { ReplyDraft } from './api'
 import { BriefLoading } from './BriefLoading'
+import './homeA.css'
 
 
 // Download only the screen being opened; keep the surrounding navigation visible.
@@ -35,8 +36,6 @@ const WorkoutLogApp = lazy(() => import('./LifeMiniApps').then(m => ({ default: 
 const MiniAppSettings = lazy(() => import('./MiniAppSettings').then(m => ({ default: m.MiniAppSettings })))
 const SetupApp = lazy(() => import('./SetupApp').then(m => ({ default: m.SetupApp })))
 const HomeApp = lazy(() => import('./HomeApp').then(m => ({ default: m.HomeApp })))
-const SkinBApp = lazy(() => import('./SkinBApp').then(m => ({ default: m.SkinBApp })))
-const SkinCApp = lazy(() => import('./SkinCApp').then(m => ({ default: m.SkinCApp })))
 const ArtifactApp = lazy(() => import('./WorkHomes').then(m => ({ default: m.ArtifactApp })))
 const CofounderHomeApp = lazy(() => import('./WorkHomes').then(m => ({ default: m.CofounderHomeApp })))
 const CoworkerHomeApp = lazy(() => import('./WorkHomes').then(m => ({ default: m.CoworkerHomeApp })))
@@ -48,6 +47,7 @@ const PickSlotApp = lazy(() => import('./WorkMiniApps').then(m => ({ default: m.
 const LinearTriageApp = lazy(() => import('./WorkMiniApps').then(m => ({ default: m.LinearTriageApp })))
 const HireDecisionApp = lazy(() => import('./WorkMiniApps').then(m => ({ default: m.HireDecisionApp })))
 const InvestorNoteApp = lazy(() => import('./WorkMiniApps').then(m => ({ default: m.InvestorNoteApp })))
+const ApprovePurchaseApp = lazy(() => import('./ApprovePurchaseApp').then(m => ({ default: m.ApprovePurchaseApp })))
 const StandupPasteApp = lazy(() => import('./WorkMiniApps').then(m => ({ default: m.StandupPasteApp })))
 const EmailReader = lazy(() => import('./EmailReader').then(m => ({ default: m.EmailReader })))
 
@@ -96,6 +96,7 @@ interface MiniPayload {
   dayFacts?: Array<{ key: string; label: string; detail: string; state: 'done' | 'miss' | 'partial' }>
   habitsToday?: Array<{ id: string; name: string; emoji: string; done: boolean }>
   carryOver?: Array<{ id: string; title: string; dueLabel?: string }>
+  mailGroups?: import('./briefStory').BriefMailGroup[]
   error?: string
   /* Same contract as the morning brief: the evening one is heavy enough that the
    * server answers before it is built rather than holding the request open. */
@@ -429,7 +430,7 @@ export function MiniAppPage() {
   /* Your builds: every workshop artifact, newest first. */
   if (kind === 'builds') {
     return (
-      <div className="mini" style={{ '--mini-accent': miniAccent, '--mini-accent-fg': miniAccentFg } as CSSProperties}>
+      <div className="mini hA-screen" style={{ '--mini-accent': miniAccent, '--mini-accent-fg': miniAccentFg } as CSSProperties}>
         <div className="mini__card">
           <header className="mini__head">
             <Link className="mini__nav" to={appsHref} aria-label="Back to all apps">
@@ -452,7 +453,7 @@ export function MiniAppPage() {
   /* Workshop artifacts: the built thing, with keep-or-toss. */
   if (kind === 'artifact') {
     return (
-      <div className="mini" style={{ '--mini-accent': miniAccent, '--mini-accent-fg': miniAccentFg } as CSSProperties}>
+      <div className="mini hA-screen" style={{ '--mini-accent': miniAccent, '--mini-accent-fg': miniAccentFg } as CSSProperties}>
         <div className="mini__card">
           <header className="mini__head">
             <Link className="mini__nav" to={appsHref} aria-label="Back to all apps">
@@ -480,7 +481,7 @@ export function MiniAppPage() {
   }
 
   return (
-    <div className="mini" style={{ '--mini-accent': miniAccent, '--mini-accent-fg': miniAccentFg } as CSSProperties}>
+    <div className="mini hA-screen" style={{ '--mini-accent': miniAccent, '--mini-accent-fg': miniAccentFg } as CSSProperties}>
       <div className="mini__card">
         <header className="mini__head">
           {!isApps && (
@@ -602,16 +603,12 @@ export function MiniAppPage() {
               />
             ) : (
               (() => {
-                /* Design-review switch: ?skin=b / ?skin=c previews the other
-                 * home variants on the friend apps screen. Default = A (HomeApp). */
-                const skin = searchParams.get('skin')
+                /* Home A (HomeApp) is the canonical home screen. */
                 const skinAuth = {
                   persona: (persona as AgentId) || 'friend',
                   email: email || undefined,
                   token: token || undefined,
                 }
-                if (skin === 'b') return <SkinBApp auth={skinAuth} />
-                if (skin === 'c') return <SkinCApp auth={skinAuth} />
                 return <HomeApp auth={skinAuth} />
               })()
             )}
@@ -643,7 +640,8 @@ export function MiniAppPage() {
         {/* Still assembling. Reads as one continuous load while the retries run,
           * and only asks for a tap once they are spent — an empty BriefApp here
           * would look like a day with nothing in it. */}
-        {authed && !expired && !settingsOpen && isDigest && !loading && !data?.error && data?.pending && (
+        {/* If pending with no data yet, show loading progress */}
+        {authed && !expired && !settingsOpen && isDigest && !loading && !data?.error && data?.pending && (!data?.calendar?.length && !data?.story && !data?.meetings?.length && !data?.emails?.length) && (
           <div className="mini__body">
             <BriefLoading attempt={briefTries} />
             {briefTries >= BRIEF_RETRY_MS.length + 30 && (
@@ -654,7 +652,7 @@ export function MiniAppPage() {
           </div>
         )}
 
-        {authed && !expired && !settingsOpen && isDigest && !loading && !data?.error && !data?.pending && (
+        {authed && !expired && !settingsOpen && isDigest && !loading && !data?.error && (!data?.pending || !!(data?.calendar?.length || data?.story || data?.meetings?.length || data?.emails?.length)) && (
           <div className="mini__body">
             <BriefApp
               auth={{
@@ -682,10 +680,8 @@ export function MiniAppPage() {
           </div>
         )}
 
-        {/* Same shape as the morning brief's wait: the evening one now answers
-          * `pending` too rather than holding the request open, and an empty
-          * BriefApp would read as an evening with nothing in it. */}
-        {authed && !expired && !settingsOpen && isEveningBrief && !loading && !mini?.error && mini?.pending && (
+        {/* Same shape as morning: show loading only when cold with no data */}
+        {authed && !expired && !settingsOpen && isEveningBrief && !loading && !mini?.error && mini?.pending && (!mini?.sections?.length && !mini?.mailGroups?.length) && (
           <div className="mini__body">
             <BriefLoading evening attempt={briefTries} />
             {briefTries >= BRIEF_RETRY_MS.length + 30 && (
@@ -696,7 +692,7 @@ export function MiniAppPage() {
           </div>
         )}
 
-        {authed && !expired && !settingsOpen && isLiveMini && !isDigest && kind === 'pick_night' && !loading && !mini?.error && !mini?.pending && (
+        {authed && !expired && !settingsOpen && isLiveMini && !isDigest && kind === 'pick_night' && !loading && !mini?.error && (!mini?.pending || !!(mini?.sections?.length || mini?.mailGroups?.length)) && (
           <div className="mini__body">
             <BriefApp
               auth={{
@@ -855,6 +851,12 @@ export function MiniAppPage() {
             )}
             {kind === 'approve_investor_note' && (
               <InvestorNoteApp auth={{ persona: (persona as AgentId) || 'friend', email: email || undefined, token: token || undefined }} />
+            )}
+            {kind === 'approve_purchase' && (
+              <ApprovePurchaseApp
+                auth={{ persona: (persona as AgentId) || 'friend', email: email || undefined, token: token || undefined }}
+                spendId={searchParams.get('id') || searchParams.get('spend') || undefined}
+              />
             )}
           </div>
         )}

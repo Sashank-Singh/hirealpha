@@ -1,0 +1,89 @@
+# browser-use/web-ui — Coolify-ready Docker Compose
+#
+# Deploys the full browser-use AI agent stack (Gradio UI + noVNC + Chromium)
+# behind Coolify's Traefik reverse proxy.
+#
+# Quick start (Coolify):
+#   1. Create a new "Docker Compose" resource in Coolify.
+#   2. Paste this file (or point to the deploy/browser-use/ directory).
+#   3. Set BROWSER_USE_DOMAIN to your desired domain (e.g. browser.hirealpha.chat).
+#   4. Set at least one LLM API key (OPENAI_API_KEY or ANTHROPIC_API_KEY).
+#   5. Change CHROME_VNC_PASSWORD from the default.
+#   6. Deploy.
+#
+# noVNC (live browser stream): https://${BROWSER_USE_DOMAIN}/vnc/
+# Gradio Web UI:                https://${BROWSER_USE_DOMAIN}/
+#
+# Upstream: https://github.com/browser-use/web-ui (Apache-2.0)
+
+services:
+  browser-use:
+    image: ghcr.io/browser-use/web-ui:main
+    container_name: browser-use-webui
+    restart: unless-stopped
+
+    # Coolify / Traefik routing labels
+    labels:
+      - "traefik.enable=true"
+
+      # Gradio UI (port 7788) → root path
+      - "traefik.http.routers.browser-use.rule=Host(`${BROWSER_USE_DOMAIN:-browser.hirealpha.chat}`)"
+      - "traefik.http.routers.browser-use.entrypoints=https"
+      - "traefik.http.routers.browser-use.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.browser-use.service=browser-use-svc"
+      - "traefik.http.services.browser-use-svc.loadbalancer.server.port=7788"
+
+      # noVNC stream (port 6080) → /vnc/ path
+      - "traefik.http.routers.browser-use-vnc.rule=Host(`${BROWSER_USE_DOMAIN:-browser.hirealpha.chat}`) && PathPrefix(`/vnc/`)"
+      - "traefik.http.routers.browser-use-vnc.entrypoints=https"
+      - "traefik.http.routers.browser-use-vnc.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.browser-use-vnc.service=browser-use-vnc-svc"
+      - "traefik.http.services.browser-use-vnc-svc.loadbalancer.server.port=6080"
+
+    environment:
+      # ── LLM providers ──────────────────────────────────────────────────────
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - OPENAI_ENDPOINT=${OPENAI_ENDPOINT:-https://api.openai.com/v1}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - ANTHROPIC_ENDPOINT=${ANTHROPIC_ENDPOINT:-https://api.anthropic.com}
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY:-}
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
+      - DEEPSEEK_ENDPOINT=${DEEPSEEK_ENDPOINT:-https://api.deepseek.com}
+      - OLLAMA_ENDPOINT=${OLLAMA_ENDPOINT:-http://localhost:11434}
+      - MISTRAL_API_KEY=${MISTRAL_API_KEY:-}
+      - MISTRAL_ENDPOINT=${MISTRAL_ENDPOINT:-https://api.mistral.ai/v1}
+
+      # ── Chromium / VNC ─────────────────────────────────────────────────────
+      - CHROME_VNC_PASSWORD=${CHROME_VNC_PASSWORD:-changeme}
+
+      # ── Gradio UI auth (set both to enable basic auth) ────────────────────
+      - GRADIO_USERNAME=${GRADIO_USERNAME:-}
+      - GRADIO_PASSWORD=${GRADIO_PASSWORD:-}
+
+      # ── Browser-use agent defaults ─────────────────────────────────────────
+      - ANONYMIZED_TELEMETRY=${ANONYMIZED_TELEMETRY:-false}
+
+    # Only expose locally; Traefik handles TLS termination externally
+    expose:
+      - "7788"   # Gradio Web UI
+      - "6080"   # noVNC web client
+      - "5901"   # raw VNC (optional, not routed publicly)
+      - "9222"   # Chrome DevTools Protocol (optional)
+
+    # Persist browser profile / state between container restarts
+    volumes:
+      - browser-use-data:/app/browser_data
+
+    # Shared memory — Chromium needs at least 2 GB or it will crash on heavy pages
+    shm_size: "2gb"
+
+    # Health check: Gradio returns 200 on /
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:7788/ > /dev/null || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+volumes:
+  browser-use-data:

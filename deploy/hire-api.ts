@@ -18,7 +18,6 @@ import {
   googleTokenHasScope,
   hydrateCalItems,
   isHotelStayEvent,
-  isPersonMeetSuggestion,
   isTravelOrStayTitle,
   isWalkIn,
   parseComposioCalendarData,
@@ -31,7 +30,14 @@ import {
 import { COMPOSIO_READ, composioLooksFailed, formatComposioData } from './composioPlugins'
 import { ensureBrowserVaultSchema, handleVaultApi } from './browserVault'
 import { runPortalTask } from './browserRunner'
-import { ensureUserPaymentsSchema, handleUserPaymentsApi, noteSetupCompleted } from './userPayments'
+import {
+  ensureUserPaymentsSchema,
+  handleUserPaymentsApi,
+  noteSetupCompleted,
+  listPaymentMethodsForUser,
+  createConnectSession,
+  createSpendRequest,
+} from './userPayments'
 import { ensureBrowserJobsSchema } from './browserJobs'
 import { parseChatExport, scanSubscriptions } from '../spectrum/shared/smartFeatures'
 import {
@@ -4103,29 +4109,65 @@ async function fetchCalendarItems(
 ): Promise<{ ok: true; items: CalItem[] } | { ok: false; status: number }> {
   const now = opts?.timeMin || new Date()
   const end = opts?.timeMax || new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000)
-  const url = new URL('https://www.googleapis.com/calendar/v3/calendars/primary/events')
-  url.searchParams.set('timeMin', now.toISOString())
-  url.searchParams.set('timeMax', end.toISOString())
-  url.searchParams.set('singleEvents', 'true')
-  url.searchParams.set('orderBy', 'startTime')
-  url.searchParams.set('conferenceDataVersion', '1')
-  url.searchParams.set('maxResults', String(opts?.maxResults || 8))
-  const res = await fetch(url, { headers: { Authorization: `Bearer ${access}` } })
-  if (!res.ok) {
-    console.warn('[calendar] google list failed', res.status)
-    return { ok: false, status: res.status }
+  const maxResults = opts?.maxResults || 50
+
+  async function fetchEventsForCal(calId: string): Promise<CalItem[]> {
+    const url = new URL(`https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calId)}/events`)
+    url.searchParams.set('timeMin', now.toISOString())
+    url.searchParams.set('timeMax', end.toISOString())
+    url.searchParams.set('singleEvents', 'true')
+    url.searchParams.set('orderBy', 'startTime')
+    url.searchParams.set('conferenceDataVersion', '1')
+    url.searchParams.set('maxResults', String(maxResults))
+    const res = await fetch(url, { headers: { Authorization: `Bearer ${access}` } })
+    if (!res.ok) return []
+    const data = (await res.json()) as {
+      items?: Array<{
+        summary?: string
+        description?: string
+        location?: string
+        hangoutLink?: string
+        start?: { dateTime?: string; date?: string }
+        conferenceData?: { entryPoints?: Array<{ entryPointType?: string; uri?: string }> }
+      }>
+    }
+    return parseGoogleCalendarItems(data.items || [])
   }
-  const data = (await res.json()) as {
-    items?: Array<{
-      summary?: string
-      description?: string
-      location?: string
-      hangoutLink?: string
-      start?: { dateTime?: string; date?: string }
-      conferenceData?: { entryPoints?: Array<{ entryPointType?: string; uri?: string }> }
-    }>
+
+  const primaryItems = await fetchEventsForCal('primary')
+
+  if (opts?.checkSecondary) {
+    try {
+      const listRes = await fetch('https://www.googleapis.com/calendar/v3/users/me/calendarList', {
+        headers: { Authorization: `Bearer ${access}` },
+      })
+      if (listRes.ok) {
+        const listData = (await listRes.json()) as { items?: Array<{ id: string; selected?: boolean; primary?: boolean }> }
+        const secondaryCals = (listData.items || [])
+          .filter((c) => !c.primary && c.selected && c.id)
+          .slice(0, 4)
+        if (secondaryCals.length > 0) {
+          const extraItemsArrays = await Promise.all(secondaryCals.map((c) => fetchEventsForCal(c.id)))
+          const allItems = [...primaryItems, ...extraItemsArrays.flat()]
+          const seen = new Set<string>()
+          const deduped: CalItem[] = []
+          for (const it of allItems) {
+            const key = `${it.title}|${it.start.getTime()}`
+            if (!seen.has(key)) {
+              seen.add(key)
+              deduped.push(it)
+            }
+          }
+          deduped.sort((a, b) => a.start.getTime() - b.start.getTime())
+          return { ok: true, items: deduped }
+        }
+      }
+    } catch {
+      // Fall back to primary if calendarList fails
+    }
   }
-  return { ok: true, items: parseGoogleCalendarItems(data.items || []) }
+
+  return { ok: true, items: primaryItems }
 }
 
 function isCalendarToolResult(t: string) {
@@ -5187,7 +5229,7 @@ async function todayCalendarMeets(
     const meets: TodayMeet[] = []
     for (const e of items) {
       const calParsed = parseCalMeet(e.title)
-      const travel = e.allDay || isTravelOrStayTitle(e.title, calParsed.place) || isHotelStayEvent(e)
+      const travel = isHotelStayEvent(e) || isTravelOrStayTitle(e.title, calParsed.place)
       if (travel) {
         if (!stay && (isHotelStayEvent(e) || isTravelOrStayTitle(e.title, calParsed.place))) {
           stay = stayWhere(e.title, calParsed.place)
@@ -5196,13 +5238,12 @@ async function todayCalendarMeets(
       }
       const who = extractOtherPerson(e.title, myName) || calParsed.who || e.title
       const row = {
-        time: formatClock(e.start, tz),
+        time: e.allDay ? 'All day' : formatClock(e.start, tz),
         title: e.title,
         who,
         place: calParsed.place,
         kind: e.kind,
       }
-      if (!isPersonMeetSuggestion(row)) continue
       meets.push(row)
     }
     return { meets, stay, calendarConnected: true }
@@ -5213,14 +5254,15 @@ async function todayCalendarMeets(
     const got = await fetchCalendarItems(access, {
       timeMin: startOfLocalDay(tz),
       timeMax: startOfLocalDay(tz, 1),
-      maxResults: 16,
+      maxResults: 100,
+      checkSecondary: true,
     })
     if (got.ok) return itemsToResult(got.items)
   }
   const cached = await googleEventsRaw(sql, user.id, {
     timeMin: startOfLocalDay(tz),
     timeMax: startOfLocalDay(tz, 1),
-    maxResults: 16,
+    maxResults: 100,
   }).catch(() => [])
   if (cached.length) {
     return itemsToResult(
@@ -5257,7 +5299,6 @@ async function todayCalendarMeets(
       if (!stay && isTravelOrStayTitle(e.title, e.place)) stay = stayWhere(e.title, e.place)
       continue
     }
-    if (!isPersonMeetSuggestion(row)) continue
     meets.push(row)
   }
   return { meets, stay, calendarConnected: true }
@@ -5581,8 +5622,8 @@ const homeWorldCache = createStaleCache<HomeWorld>({
  * to the client's retry ladder than held open. */
 const digestCache = createStaleCache<Awaited<ReturnType<typeof digestPayload>>>({
   ttlMs: 90_000,
-  maxWaitMs: 900,
-  failureCooldownMs: 20_000,
+  maxWaitMs: 4000,
+  failureCooldownMs: 10_000,
   maxEntries: 200,
   onError: (key, err) => console.warn('[digest] load failed', key, err),
 })
@@ -5596,8 +5637,8 @@ const digestCache = createStaleCache<Awaited<ReturnType<typeof digestPayload>>>(
  * open. Same 90-second window, since both are answering "what has landed". */
 const eveningCache = createStaleCache<Awaited<ReturnType<typeof miniPayload>>>({
   ttlMs: 90_000,
-  maxWaitMs: 900,
-  failureCooldownMs: 20_000,
+  maxWaitMs: 4000,
+  failureCooldownMs: 10_000,
   maxEntries: 200,
   onError: (key, err) => console.warn('[evening] load failed', key, err),
 })
@@ -5776,7 +5817,6 @@ async function loadHomeWorld(sql: SQL, user: AuthedUser, tzLocal: string): Promi
         EMPTY_TODAY_RESULT,
       )
       world.upcoming = cal.meets
-        .filter((m) => isPersonMeetSuggestion(m))
         .map((m) => ({ time: m.time, title: m.who || m.title }))
       world.meetings = remainingTodayMeets(cal.meets, tzLocal)
       if (world.upcoming.length) return
@@ -5787,7 +5827,6 @@ async function loadHomeWorld(sql: SQL, user: AuthedUser, tzLocal: string): Promi
           const parts = line.split(' · ')
           return { time: parts[0] || '', title: parts.slice(1).join(' · ') || line }
         })
-        .filter((e) => isPersonMeetSuggestion({ time: e.time, title: e.title, who: e.title }))
       world.meetings = remainingTodayMeets(
         world.upcoming.map((e) => ({ time: e.time, title: e.title, who: e.title })),
         tzLocal,
@@ -6215,7 +6254,7 @@ async function digestPayload(
               .map((m) => ({ m, v: verdicts.get(m.id) }))
               .filter((r): r is { m: (typeof visible)[number]; v: MailVerdict } => !!r.v && r.v.needsYou && r.v.keep)
               .sort((a, b) => b.v.score - a.v.score)
-              .slice(0, 3)
+              .slice(0, 8)
               .map(({ m, v }) => ({
                 id: m.id,
                 from: m.from,
@@ -6229,12 +6268,24 @@ async function digestPayload(
           leads = topNeedsYou(
             visible.filter((m) => m.id && !m.id.startsWith('text-')),
             (key) => signals.get(key),
-            3,
+            8,
           )
-            .filter((m) => m.score >= 55)
+            .filter((m) => m.score >= 50)
             .map((m) => ({ ...m, reasons: m.reasons }))
         }
         const leadIds = new Set(leads.map((m) => m.id))
+        const replyMails = visible.filter((m) => !leadIds.has(m.id) && (m.kind === 'reply' || classifyBriefMail(m) === 'reply'))
+        for (const m of replyMails) {
+          leads.push({
+            id: m.id,
+            from: m.from,
+            subject: m.subject,
+            snippet: m.snippet,
+            score: 80,
+            reasons: ['waiting_on_you'],
+          })
+          leadIds.add(m.id)
+        }
         ny = leads.map((m) => ({
           id: m.id,
           label: formatMailLineFromParts(m.from, m.subject),
@@ -6273,7 +6324,6 @@ async function digestPayload(
   ])
 
   const beats = calToday.meets
-    .filter((m) => isPersonMeetSuggestion(m))
     .map((m) => ({ time: m.time, name: m.who || m.title, kind: m.kind }))
   const todayCal = beats.map((b) =>
     b.kind && b.kind !== 'Meeting' ? `${b.time} · ${b.name} · ${b.kind}` : `${b.time} · ${b.name}`,
@@ -11697,15 +11747,43 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
       if (!Number.isFinite(amount) || amount < 1) return json({ ok: false, error: 'Purchase needs a real price.' }, 400)
       if (amount > cap) return json({ ok: false, error: `Above the ${cap}-dollar self-serve cap.` }, 400)
       if (!/^https:\/\//i.test(url)) return json({ ok: false, error: 'Purchase needs a real product URL.' }, 400)
-      const link = await createPurchasePaymentLink(item, amount, live.email || undefined)
-      if (!link) return json({ ok: false, error: 'Payments are not configured on the server yet.' }, 503)
+
+      // Check if user has a connected payment method / Link wallet on file
+      const userCard = await listPaymentMethodsForUser(sql, live.userId!).catch(() => null)
+      if (!userCard) {
+        // First-time buyer: create Stripe setup session so they connect their card or Link wallet
+        const session = await createConnectSession(sql, req, live.userId!, live.email || `${body.phone}@phone.hirealpha.chat`)
+        const setupUrl = ('url' in session && session.url) ? session.url : await createPurchasePaymentLink(item, amount, live.email || undefined)
+        if (!setupUrl) return json({ ok: false, error: 'Payments are not configured on the server yet.' }, 503)
+        const pid = crypto.randomUUID()
+        await sql`
+          INSERT INTO hire_drafts (id, user_id, persona, kind, to_addr, subject, body, status)
+          VALUES (${pid}, ${live.userId}, ${body.persona}, 'purchase', ${url}, ${item},
+            ${JSON.stringify({ amount, setupUrl, needsSetup: true })}, 'pending')
+        `
+        return json({ ok: true, id: pid, kind: 'purchase', needsSetup: true, setupUrl, paymentUrl: setupUrl, amount, item })
+      }
+
+      // Subsequent purchases: user already has a saved card. Create ask-first spend request.
+      const amountCents = Math.round(amount * 100)
+      let merchant = 'Merchant'
+      try { merchant = new URL(url).hostname } catch {}
+      const spend = await createSpendRequest(sql, live.userId!, {
+        amountCents,
+        merchant,
+        purpose: item,
+      })
+      if (!spend.requestId) {
+        return json({ ok: false, error: spend.error || 'Could not create spend approval' }, 400)
+      }
+      const approvalUrl = `${appBaseFromEnv()}/api/payments/spend/approve?id=${spend.requestId}`
       const pid = crypto.randomUUID()
       await sql`
         INSERT INTO hire_drafts (id, user_id, persona, kind, to_addr, subject, body, status)
         VALUES (${pid}, ${live.userId}, ${body.persona}, 'purchase', ${url}, ${item},
-          ${JSON.stringify({ amount, paymentUrl: link })}, 'pending')
+          ${JSON.stringify({ amount, requestId: spend.requestId, approvalUrl, needsSetup: false })}, 'pending')
       `
-      return json({ ok: true, id: pid, kind: 'purchase', paymentUrl: link, amount, item })
+      return json({ ok: true, id: pid, kind: 'purchase', needsSetup: false, requestId: spend.requestId, approvalUrl, paymentUrl: approvalUrl, amount, item })
     }
     const id = crypto.randomUUID()
     const kind = body.kind === 'event' || body.kind === 'reply' ? body.kind : 'email'
@@ -11746,6 +11824,23 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
       )
     `
     return json({ ok: true, id, kind: kind === 'event' ? 'event' : 'email' })
+  }
+
+  if (path === '/api/internal/spend/decide' && req.method === 'POST') {
+    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
+    const body = (await req.json().catch(() => ({}))) as { phone?: string; requestId?: string; decision?: string }
+    if (!body.phone || !body.requestId) return json({ error: 'phone and requestId required' }, 400)
+    const live = await getLiveProfile(sql, body.phone, 'friend')
+    if (!live.found || !live.userId) return json({ error: 'User not found' }, 404)
+    const decision = body.decision === 'deny' ? 'deny' : 'approve'
+    const approval = await decideSpendApproval(sql, live.userId, body.requestId, decision)
+    if (!approval.ok) return json(approval, 400)
+    if (decision === 'approve') {
+      const chargeRes = await chargeApprovedSpend(sql, live.userId, body.requestId)
+      if (!chargeRes.ok) return json({ ok: false, error: chargeRes.error || 'Charge failed' }, 402)
+      return json({ ok: true, charged: true, paymentIntentId: chargeRes.paymentIntentId, amount: chargeRes.amount, merchant: chargeRes.merchant })
+    }
+    return json({ ok: true, decision: 'denied' })
   }
 
   if (path === '/api/internal/prep' && req.method === 'POST') {
@@ -11956,7 +12051,13 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
        * can hand back yesterday's payload even after the loader has the new
        * one in hand. */
       const force = url.searchParams.has('_t')
-      if (force) digestCache.drop(`${user!.id}|${persona}`)
+      if (force) {
+        digestCache.drop(`${user!.id}|${persona}`)
+        todayMeetsCache.drop(`${user!.id}|${persona}`)
+      }
+      const dbRow = await readBriefDb(sql, user!.id, persona, 'digest')
+      const sameDayCached = !force && dbRow && briefRowSameDay(dbRow.day, day) ? dbRow : null
+
       const brief = await digestCache.read(`${user!.id}|${persona}`, () =>
         briefLoader(
           sql,
@@ -11967,21 +12068,31 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
           day,
           { force },
         ),
-        force ? 0 : undefined,
+        force ? 6000 : 4000,
       )
       if (!brief.value && brief.pending) {
+        if (sameDayCached) {
+          return jsonRevalidated(req, 0, {
+            ...sameDayCached.payload,
+            revalidating: true,
+            cardUrl: `${appBase(req)}/app/mini/${persona}/digest`,
+          })
+        }
         /* Not an error — the load is still running behind this response and will
          * be in the cache shortly. Saying `error` here made the client stop and
          * tell the user to reopen the screen by hand; `pending` alone lets it
          * come back on its own. Never cached, or the retry reads this. */
         return json({ pending: true, note: 'Pulling your day together.' }, 200)
       }
-      /* No value and nothing in flight means the build failed, or failed moments
-       * ago and the cache is still in its cooldown. Claiming `pending` here would
-       * send the client down a retry ladder shorter than the cooldown, so it would
-       * ask six times, get this same answer six times, and then say "keep waiting"
-       * — which isn't true. Fall into the catch below and say so instead. */
-      if (!brief.value) throw new Error('digest payload unavailable')
+      if (!brief.value) {
+        if (sameDayCached) {
+          return jsonRevalidated(req, 0, {
+            ...sameDayCached.payload,
+            cardUrl: `${appBase(req)}/app/mini/${persona}/digest`,
+          })
+        }
+        throw new Error('digest payload unavailable')
+      }
       const load = brief.value
       // A stale hit refreshing behind the response must not be served from the
       // browser cache on the next open, or the refresh would never be seen.
@@ -16230,7 +16341,7 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
 }
 
 const PIPELINE_STAGES = ['lead', 'active', 'interview', 'offer', 'won', 'lost'] as const
-const SPEND_CATEGORIES = ['food', 'transport', 'subscriptions', 'housing', 'fun', 'other'] as const
+const SPEND_CATEGORIES = ['food', 'transport', 'subscriptions', 'housing', 'health', 'shopping', 'fun', 'other'] as const
 
 function toHHMM(raw: string, mer: string | undefined): string | null {
   const [hPart, mPart] = raw.split(':')
@@ -16416,10 +16527,12 @@ function parseSpendText(text: string): { amount: number; category: string; descr
   const lower = text.toLowerCase()
   let category = 'other'
   if (/\b(food|lunch|dinner|breakfast|coffee|uber\s*eats|doordash|restaurant|snack|grocer)/.test(lower)) category = 'food'
-  else if (/\b(uber|lyft|gas|transit|train|bus|parking|taxi)/.test(lower)) category = 'transport'
-  else if (/\b(netflix|spotify|subscription|prime|icloud)/.test(lower)) category = 'subscriptions'
-  else if (/\b(rent|mortgage|housing|utilities)/.test(lower)) category = 'housing'
-  else if (/\b(fun|movie|game|bar|drinks|concert)/.test(lower)) category = 'fun'
+  else if (/\b(uber|lyft|gas|transit|train|bus|parking|taxi|flight|airline)/.test(lower)) category = 'transport'
+  else if (/\b(netflix|spotify|subscription|prime|icloud|patreon|hulu|chatgpt)/.test(lower)) category = 'subscriptions'
+  else if (/\b(rent|mortgage|housing|utilities|electric|water|gas\s*bill|wifi|internet)/.test(lower)) category = 'housing'
+  else if (/\b(health|doctor|dentist|copay|meds|medicine|pharmacy|prescription|therapy|clinic|hospital|dental|vitamin)/.test(lower)) category = 'health'
+  else if (/\b(shopping|clothes|shoes|amazon|haircut|salon|cosmetics|electronics|retail|bought|mall|target)/.test(lower)) category = 'shopping'
+  else if (/\b(fun|movie|game|bar|drinks|concert|party|club)/.test(lower)) category = 'fun'
   const description = text.replace(/^(log|track|logged)\s+(my\s+)?(spend|spending|expense)?\s*/i, '').trim().slice(0, 160)
   return { amount, category, description }
 }

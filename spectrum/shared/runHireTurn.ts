@@ -6,11 +6,12 @@ import {
 } from '../../src/agents'
 import { runAgentLocally } from '../../src/agents/runtime'
 import { runConversationalFriend } from './conversationalFriend'
+import { isAffirmativeApprovalIntent, isNegativeCancellationIntent } from './conversationalApproval'
 import { skillsPromptBlock, SKILLS } from './skills'
 import { gmiChat } from './gmi'
-import { appendThread, loadMemory, upsertFacts, pruneExpiredFacts, setSummary, trimHistory, MAX_RAW, type ThreadMemory } from './memory'
+import { appendThread, loadMemory, setPendingSpend, upsertFacts, pruneExpiredFacts, setSummary, trimHistory, MAX_RAW, type ThreadMemory } from './memory'
 import { extractFacts, summarizeOld } from './memoryMaintain'
-import { autoIterateWorkshop, autoLogGratitude, autoLogHabit, autoLogMood, autoLogNutrition, autoLogSleep, autoLogSpend, autoLogWorkout, autoLogNetwork, autoLogDecision, autoLogLoops, autoLogPipeline, autoLogStandup, autoRunWorkshop, autoWorkshopKeep, autoWorkshopToss, autoSaveLearning, autoSetBudget, autoSetPrefs, fetchLiveProfile, fetchLiveTools, fetchMiniRun, fetchPrepBundle, fetchWeekBundle, formatHireContext, formatHireMemories, persistLiveFacts, proposeLiveDraft,
+import { autoIterateWorkshop, autoLogGratitude, autoLogHabit, autoLogMood, autoLogNutrition, autoLogSleep, autoLogSpend, autoLogWorkout, autoLogNetwork, autoLogDecision, autoLogLoops, autoLogPipeline, autoLogStandup, autoRunWorkshop, autoWorkshopKeep, autoWorkshopToss, autoSaveLearning, autoSetBudget, autoSetPrefs, executeSpendApproval, fetchLiveProfile, fetchLiveTools, fetchMiniRun, fetchPrepBundle, fetchWeekBundle, formatHireContext, formatHireMemories, persistLiveFacts, proposeLiveDraft,
   proposePurchase, proposeBrowserTask, touchInbound, importChatExport, addMeeting, fetchRenewalRadar, setTravel } from './liveContext'
 import { captureFromChat } from './cofounderPro'
 import { coworkerCaptureFromChat } from './coworkerPro'
@@ -655,6 +656,39 @@ export async function runHireTurn(input: {
     return { reply: '', bubbles: [], source: 'local', authoritative: [], card }
   }
 
+  const pendingSpend = mem.pendingSpend
+  if (pendingSpend && isNegativeCancellationIntent(input.userText)) {
+    setPendingSpend(input.dataDir, input.senderId)
+    const reply = `Cancelled the order for ${pendingSpend.item}. Let me know if you want to look for something else!`
+    appendThread(input.dataDir, input.senderId, [
+      { role: 'user', content: input.userText },
+      { role: 'assistant', content: reply },
+    ])
+    return { reply, bubbles: [reply], source: 'local' as const, authoritative: [], card: null }
+  }
+
+  if (pendingSpend && isAffirmativeApprovalIntent(input.userText)) {
+    const chargeRes = await executeSpendApproval(input.senderId, pendingSpend.id, 'approve')
+    setPendingSpend(input.dataDir, input.senderId)
+    if (chargeRes.ok) {
+      const amountStr = chargeRes.amount || `$${pendingSpend.amount ? pendingSpend.amount.toFixed(2) : ''}`
+      const reply = `Approved & Paid! Charged ${amountStr} to your card for ${pendingSpend.item}. Your order has been placed!`
+      appendThread(input.dataDir, input.senderId, [
+        { role: 'user', content: input.userText },
+        { role: 'assistant', content: reply },
+      ])
+      return { reply, bubbles: [reply], source: 'local' as const, authoritative: [], card: null }
+    } else {
+      const reply = `Could not complete the charge: ${chargeRes.error || 'Card charge failed'}. Tap the card below to retry or check Settings.`
+      const retryCard = await mintMiniAppCard(input.senderId, agent.id, 'approve_purchase', { id: pendingSpend.id })
+      appendThread(input.dataDir, input.senderId, [
+        { role: 'user', content: input.userText },
+        { role: 'assistant', content: reply },
+      ])
+      return { reply, bubbles: [reply], source: 'local' as const, authoritative: [], card: retryCard }
+    }
+  }
+
   const connection = /^\s*(?:(?:please|can you|could you|help me)\s+)?(?:connect|link|hook up)\s+(?:to\s+)?(?:my\s+|the\s+)?(calendar|google calendar|gmail)\s*[.!?]?\s*$/i.exec(input.userText)
   const savedContact = /^\s*(?:i\s+)?(?:did\s+)?(?:already\s+)?saved?\s+(?:(?:your|the)\s+(?:contact|number)\s*)?(?:already)?\s*[.!]?\s*$/i.test(input.userText)
     && (/\b(?:contact|number)\b/i.test(input.userText) || (history.length === 0 && /\balready\b/i.test(input.userText)))
@@ -681,7 +715,7 @@ export async function runHireTurn(input: {
     input.senderId ? fetchContacts(input.senderId) : Promise.resolve([]),
     input.senderId && (agent.id !== 'friend' || input.userText.trim().startsWith('/')) ? fetchSpending(input.senderId) : Promise.resolve({ logs: [], weekly: 0, budget: 0 }),
   ])
-  if (agent.id === 'friend' && live.hired && !input.userText.trim().startsWith('/')) {
+  if (live.hired && !input.userText.trim().startsWith('/')) {
     void touchInbound(input.senderId, agent.id)
     // Exact opt-out controls remain available even when the model is down.
     if (/^\s*(?:stop|stop texting me|stop texting me first|pause proactive|resume proactive)\s*[.!]?\s*$/i.test(input.userText)) {
@@ -692,7 +726,7 @@ export async function runHireTurn(input: {
       appendThread(input.dataDir, input.senderId, [{ role: 'user', content: input.userText }, { role: 'assistant', content: reply }])
       return { reply, bubbles: [reply], source: 'local', authoritative: [], card: null }
     }
-    return runConversationalFriend({ ...input, live, memory: mem, contacts })
+    return runConversationalFriend({ ...input, agentId: agent.id, live, memory: mem, contacts })
   }
   if (live.unavailable && wantsLiveData(input.userText)) {
     const reply = 'I could not load your connected account data right now. Please try again in a moment. You do not need to reconnect anything based on this error.'
@@ -1614,14 +1648,28 @@ export async function runHireTurn(input: {
       !humanLimit &&
       !wantsFreshInfo(input.userText)
     if (live.hired && agent.id === 'friend' && !simpleAsk) {
-      let purchasePayUrl: string | null = null
+      let purchaseSetupUrl: string | null = null
+      let purchaseRequestId: string | null = null
       const outcome = await runToolConversation({
         messages: baseMessages,
         chat: (messages, timeoutMs) => gmiChat({ temperature: Math.min(agent.temperature, 0.3), maxTokens: Math.max(maxTokens, 1200), messages, timeoutMs }),
         lookup: (tool, query) => fetchLiveTools(input.senderId, agent.id, query, tool),
         propose: (draft) =>
-          saveFriendDraft(input.senderId, agent.id, draft).then((r) => {
-            if (draft.type === 'purchase' && r.ok && r.url) purchasePayUrl = r.url
+          saveFriendDraft(input.senderId, agent.id, draft).then((r: any) => {
+            if (draft.type === 'purchase' && r.ok) {
+              if (r.needsSetup && r.setupUrl) {
+                purchaseSetupUrl = r.setupUrl
+              } else if (r.requestId || r.id) {
+                purchaseRequestId = r.requestId || r.id
+                setPendingSpend(input.dataDir, input.senderId, {
+                  id: purchaseRequestId!,
+                  item: draft.item,
+                  amount: draft.amount,
+                  url: draft.url,
+                  createdAt: Date.now(),
+                })
+              }
+            }
             return r
           }),
         availableTools: LIVE_TOOLS.filter((tool) => tool === 'maps' || tool === 'web' || live.connected.includes(tool)),
@@ -1635,10 +1683,14 @@ export async function runHireTurn(input: {
           // list in Settings; the result lands back in this thread via the
           // browser_result loop when the worker finishes.
           reply = `${reply}\nApprove it here: https://hirealpha.chat/app/hires/friend?vault=1 (the run needs your OK before it starts; I'll report back when it's done)`.trim()
-        } else if (outcome.draft.type === 'purchase' && purchasePayUrl) {
-          // The payment link IS the approval: tapping the card opens Stripe
-          // Checkout. No separate approve card — the link is the gate.
-          reply = `${reply}\n${purchasePayUrl}`.trim()
+        } else if (outcome.draft.type === 'purchase') {
+          if (purchaseSetupUrl) {
+            reply = `${reply}\nRegister your card or Link wallet here to authorize purchases (one-time setup): ${purchaseSetupUrl}\nOnce registered, reply or text me to complete the order!`.trim()
+          } else if (purchaseRequestId) {
+            confirmKind = 'approve_purchase'
+            confirmQuery = { id: purchaseRequestId }
+            reply = `${reply}\n\nTap the card below in iMessages to approve, or text "approve" to buy!`.trim()
+          }
         } else {
           confirmKind = outcome.draft.type === 'event' ? 'pick_slot' : 'approve_send'
           confirmQuery = { draft: outcome.draft.id }

@@ -8,6 +8,7 @@ import { mintMiniAppCard } from '../../shared/miniApps'
 import { claimInbound } from '../../shared/inboundGuard'
 import { onceAsync } from '../../shared/delivery'
 import { createReactionGate } from '../../shared/progressiveDelivery'
+import { determineInboundReaction } from '../../shared/smartReactions'
 import { createMessageBursts } from '../../shared/messageBursts'
 import { startReminderScheduler } from '../../shared/reminders'
 import { startTaskLoopPoller } from '../../shared/taskLoops'
@@ -333,6 +334,14 @@ async function handleIncoming([space, message]: Incoming, combinedText?: string)
   const senderId = message.sender?.id ?? space.id
   console.log(`[${agent.id}] inbound from ${senderId}: ${userText.slice(0, 120)}`)
 
+  let reacted = false
+  const smartReaction = determineInboundReaction({ dataDir, senderId, userText })
+  if (smartReaction) {
+    reacted = true
+    console.log(`[${agent.id}] smart reaction to ${senderId}: ${smartReaction}`)
+    message.react(smartReaction).catch(err => console.warn(`[${agent.id}] initial react failed:`, err))
+  }
+
   try {
     let sentAnything = false
     let progressTexts = 0
@@ -346,7 +355,13 @@ async function handleIncoming([space, message]: Incoming, combinedText?: string)
           await space.send(clean)
           progressTexts++
         },
-        onReaction: reaction => reactOccasionally(JSON.stringify([space.id, senderId]), reaction, value => message.react(value)),
+        onReaction: reaction => {
+          if (reacted) return Promise.resolve()
+          return reactOccasionally(JSON.stringify([space.id, senderId]), reaction, value => {
+            reacted = true
+            return message.react(value)
+          })
+        },
       } }),
     )
     await respondWithRetry(space, () => sentAnything, async () => {
