@@ -17,6 +17,7 @@ RUN apt-get update \
   && rm -rf /var/lib/apt/lists/*
 
 COPY deploy/web-server.ts ./web-server.ts
+COPY deploy/appPreload.ts ./appPreload.ts
 COPY deploy/agentReady.ts ./agentReady.ts
 COPY deploy/workshop.ts ./workshop.ts
 COPY deploy/hire-api.ts ./hire-api.ts
