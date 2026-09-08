@@ -1011,6 +1011,13 @@ export const apiSendDraft = (a: {
 }) => featurePost<{ ok: boolean; error?: string }>('/api/work/send', {
   ...authParams(a), persona: a.persona, id: a.id, toAddr: a.toAddr, subject: a.subject, body: a.body,
 })
+/** Alpha writes a brand-new email draft from a recipient + intent. */
+export const apiDraftNewEmail = (a: {
+  email?: string; token?: string; persona?: string
+  to: string; about: string
+}) => featurePost<{ ok: boolean; id?: string; to?: string; subject?: string; body?: string; error?: string }>('/api/work/draft/new', {
+  ...authParams(a), persona: a.persona, to: a.to, about: a.about,
+})
 /** Save the reply into Gmail's Drafts folder. Server-side this never sends. */
 export const apiSaveGmailDraft = (a: {
   email?: string; token?: string; persona?: string

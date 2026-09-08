@@ -12495,6 +12495,55 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
   /* Save the draft into Gmail's Drafts folder. Deliberately a different path
    * from /api/work/send: nothing here can transmit, so the compose screen's
    * safe default action can never fire an email. */
+  // AI-drafted new email: the user names the recipient + what it's about,
+  // the model writes the draft, the client shows it for edits before the
+  // normal two-click send. Same approve flow as reply drafts.
+  if (path === '/api/work/draft/new' && req.method === 'POST') {
+    const body = (await req.json().catch(() => ({}))) as {
+      token?: string; session?: string; email?: string; persona?: string
+      to?: string; about?: string
+    }
+    const { user, error } = await resolveAuthedUser(sql, { token: body.token, session: body.session, email: body.email })
+    if (error) return error
+    const to = String(body.to || '').trim().slice(0, 200)
+    const about = String(body.about || '').trim().slice(0, 600)
+    if (!/^[^\s@]+[^\s@]*@[^\s@]+\.[^\s@]+$/.test(to)) return json({ error: 'A valid recipient email is needed.' }, 400)
+    if (about.length < 3) return json({ error: 'Say what the email is about.' }, 400)
+    const { gmiChat } = await import('../spectrum/shared/gmi')
+    const name = user!.name ? ` The user's name is ${user!.name}.` : ''
+    let subject = ''
+    let text = ''
+    try {
+      const raw = await gmiChat({
+        temperature: 0.4,
+        maxTokens: 500,
+        messages: [
+          {
+            role: 'system',
+            content:
+              'You draft short emails for the user. Given a recipient and what the email is about, write the email. ' +
+              'Plain text only, no markdown, no signatures, no placeholders like [Name]. Keep it under 130 words unless the ask clearly needs more. ' +
+              'Human, warm, direct. Match the intent (introduction, follow-up, application, question, RSVP).' + name +
+              ' Reply with JSON only: {"subject":"...","body":"..."} — the body is the full email text.',
+          },
+          { role: 'user', content: `To: ${to}\nAbout: ${about}` },
+        ],
+      })
+      const parsed = extractJsonObject(raw, ['subject', 'body'])
+      subject = String(parsed?.subject || '').slice(0, 200)
+      text = String(parsed?.body || '').slice(0, 6000)
+    } catch {
+      return json({ error: 'The draft writer is unreachable right now. Try again in a moment.' }, 502)
+    }
+    if (!subject || !text) return json({ error: 'The draft came back empty. Try rephrasing the ask.' }, 502)
+    const id = crypto.randomUUID()
+    await sql`
+      INSERT INTO hire_drafts (id, user_id, persona, kind, to_addr, subject, body, status)
+      VALUES (${id}, ${user!.id}, ${body.persona && isPersona(body.persona) ? body.persona : 'friend'}, 'email', ${to}, ${subject}, ${text}, 'pending')
+    `
+    return json({ ok: true, id, to, subject, body: text })
+  }
+
   if (path === '/api/work/draft/save' && req.method === 'POST') {
     const body = (await req.json().catch(() => ({}))) as {
       token?: string; session?: string; email?: string; id?: string

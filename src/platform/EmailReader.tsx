@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent, type KeyboardEvent } from 'react'
 import type { MailMessage, ReplyDraft } from './api'
-import { apiGetMailMessage, apiRewriteDraft, apiSaveGmailDraft, apiSendDraft } from './api'
+import { apiDraftNewEmail, apiGetMailMessage, apiRewriteDraft, apiSaveGmailDraft, apiSendDraft } from './api'
 import type { FeatureAuth } from './FeatureMiniApps'
 import { useStableAuth } from './useStableAuth'
 
@@ -83,7 +83,7 @@ const ASK_CHIPS = [
 
 /** Enter in a one-line input used to submit the form, which on this screen
  * means send. Editing To or Subject must never transmit, so inputs swallow it. */
-const blockEnter = (e: KeyboardEvent<HTMLInputElement>) => {
+const blockEnter = (e: KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>) => {
   if (e.key === 'Enter') e.preventDefault()
 }
 
@@ -118,6 +118,11 @@ export function EmailReader({ messageId, label, summary, auth, persona, onClose,
   const [newBody, setNewBody] = useState('')
   const [newBusy, setNewBusy] = useState(false)
   const [newMsg, setNewMsg] = useState('')
+  // AI-draft step: user gives recipient + intent, Alpha writes the email,
+  // then the editable preview sends through the normal two-click flow.
+  const [newAbout, setNewAbout] = useState('')
+  const [draftBusy, setDraftBusy] = useState(false)
+  const [draftReady, setDraftReady] = useState(false)
   // Sending is a two-click act: the first click arms ("Really send?"), the
   // second transmits. Any edit disarms. This is what stopped "Send draft"
   // firing off an email on a stray Enter or an easy mis-click.
@@ -256,9 +261,59 @@ export function EmailReader({ messageId, label, summary, auth, persona, onClose,
           ＋ Send email
         </button>
 
-        {newMail && (
+        {newMail && !draftReady && (
+          <form
+            className="reply-compose"
+            onSubmit={(e) => {
+              e.preventDefault()
+              if (draftBusy || !newTo.trim() || !newAbout.trim()) return
+              setDraftBusy(true)
+              setNewMsg('')
+              apiDraftNewEmail({ ...auth, persona, to: newTo.trim(), about: newAbout.trim() })
+                .then((d) => {
+                  if (!d.ok || !d.id) throw new Error(d.error || 'Could not write the draft.')
+                  setNewSubject(d.subject || '')
+                  setNewBody(d.body || '')
+                  setDraftReady(true)
+                })
+                .catch((err) => setNewMsg(err instanceof Error ? err.message : 'Could not write the draft.'))
+                .finally(() => setDraftBusy(false))
+            }}
+          >
+            <h4 className="reply-compose-title">New email — Alpha writes it</h4>
+            <input
+              className="mini__input"
+              value={newTo}
+              onChange={(e) => { setNewTo(e.target.value); setConfirmNew(false) }}
+              onKeyDown={blockEnter}
+              placeholder="To — their email"
+              aria-label="To"
+              inputMode="email"
+            />
+            <textarea
+              className="mini__textarea"
+              rows={3}
+              value={newAbout}
+              onChange={(e) => setNewAbout(e.target.value)}
+              onKeyDown={blockEnter}
+              placeholder="What's it about? e.g. applying to the fellowship, ask about the founder track"
+              aria-label="What the email is about"
+            />
+            <div className="reply-compose-actions">
+              <button className="mini__btn" type="submit" disabled={draftBusy || !newTo.trim() || !newAbout.trim()}>
+                {draftBusy ? 'Writing…' : '✨ Draft with Alpha'}
+              </button>
+              <button className="mini__btn reply-compose-cancel" type="button" onClick={() => { setNewMail(false); setDraftReady(false) }} disabled={draftBusy}>
+                Cancel
+              </button>
+            </div>
+            {newMsg && <p className="reply-compose-msg">{newMsg}</p>}
+          </form>
+        )}
+
+        {newMail && draftReady && (
           <form className="reply-compose" onSubmit={sendNewEmail}>
-            <h4 className="reply-compose-title">New email</h4>
+            <h4 className="reply-compose-title">Review — edit anything, then send</h4>
             <input
               className="mini__input"
               value={newTo}
@@ -266,6 +321,7 @@ export function EmailReader({ messageId, label, summary, auth, persona, onClose,
               onKeyDown={blockEnter}
               placeholder="To"
               aria-label="To"
+              inputMode="email"
             />
             <input
               className="mini__input"
@@ -277,16 +333,24 @@ export function EmailReader({ messageId, label, summary, auth, persona, onClose,
             />
             <textarea
               className="mini__textarea"
+              rows={8}
               value={newBody}
               onChange={(e) => { setNewBody(e.target.value); setConfirmNew(false) }}
-              placeholder="Write your email…"
               aria-label="Body"
             />
             <div className="reply-compose-actions">
-              <button className="mini__btn" type="submit" disabled={newBusy || !newTo.trim() || !newSubject.trim()}>
+              <button className="mini__btn" type="submit" disabled={newBusy || !newTo.trim() || !newSubject.trim() || !newBody.trim()}>
                 {newBusy ? 'Sending…' : confirmNew ? 'Really send?' : 'Send email'}
               </button>
-              <button className="mini__btn reply-compose-cancel" type="button" onClick={() => setNewMail(false)} disabled={newBusy}>
+              <button
+                className="mini__btn reply-compose-cancel"
+                type="button"
+                disabled={draftBusy || newBusy}
+                onClick={() => { setConfirmNew(false); setDraftReady(false); setNewMsg('') }}
+              >
+                ↻ Redraft
+              </button>
+              <button className="mini__btn reply-compose-cancel" type="button" onClick={() => { setNewMail(false); setDraftReady(false) }} disabled={newBusy}>
                 Cancel
               </button>
             </div>
