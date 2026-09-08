@@ -510,11 +510,6 @@ export function WorkoutLogApp({ auth }: { auth: FeatureAuth }) {
   function chooseCategory(next: WorkoutCategory) {
     setCategory(next)
     writeWorkoutCategory(next)
-    if ((next === 'calisthenics' || next === 'hiit') && place !== 'home') {
-      void choosePlace('home')
-    } else if ((next === 'strength' || next === 'legs') && place !== 'gym') {
-      void choosePlace('gym')
-    }
   }
 
   async function chooseCount(next: WorkoutMoveCount) {

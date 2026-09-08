@@ -3449,8 +3449,7 @@ button.ma-callout, button.ma-row {
   border-bottom: 1px solid var(--border);
 }
 .wk-places,
-.wk-counts,
-.wk-days {
+.wk-counts {
   display: grid;
   gap: 0;
   width: 100%;
@@ -3462,9 +3461,16 @@ button.ma-callout, button.ma-row {
 }
 .wk-places { grid-template-columns: 1fr 1fr; }
 .wk-counts { grid-template-columns: 1fr 1fr 1fr; }
-.wk-days { grid-template-columns: repeat(7, 1fr); }
-.wk-place,
-.wk-day {
+.wk-days {
+  display: flex;
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  background: transparent;
+}
+.wk-place {
   border: 0;
   border-right: 1px solid var(--border);
   border-radius: 0;
@@ -3475,9 +3481,33 @@ button.ma-callout, button.ma-row {
   font-weight: 600;
   cursor: pointer;
   min-width: 0;
-  flex: none;
   height: 36px;
   padding: 0 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  letter-spacing: 0.02em;
+  box-sizing: border-box;
+  transition: background 0.1s, color 0.1s;
+}
+.wk-day {
+  flex: 1 1 0;
+  min-width: 0;
+  border: 0;
+  border-right: 1px solid var(--border);
+  border-radius: 0;
+  background: transparent;
+  color: var(--muted-fg);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  height: 36px;
+  padding: 0 2px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   text-align: center;
   letter-spacing: 0.02em;
   box-sizing: border-box;
@@ -3497,32 +3527,68 @@ button.ma-callout, button.ma-row {
   color: var(--mini-accent-fg, #f4f4f5);
 }
 .wk-act {
-  border: 1px solid var(--fg);
+  border: 1px solid var(--border);
   background: transparent;
   color: var(--fg);
   font: inherit;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 700;
   cursor: pointer;
-  border-radius: 10px;
-  min-width: 64px;
-  min-height: 40px;
-  padding: 8px 14px;
-  flex: none;
-  align-self: center;
+  border-radius: 8px;
+  min-width: 50px;
+  height: 32px;
+  padding: 4px 10px;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   white-space: nowrap;
   box-sizing: border-box;
   transition: background 0.1s, color 0.1s, border-color 0.1s;
 }
+.wk-act:hover {
+  border-color: var(--fg);
+  background: rgba(255, 255, 255, 0.06);
+}
 .wk-act.is-on {
-  background: var(--mini-accent);
-  border-color: var(--mini-accent);
-  color: var(--mini-accent-fg, #f4f4f5);
+  background: #10b981;
+  border-color: #10b981;
+  color: #ffffff;
 }
 .ma.workout { gap: 10px; }
-.ma.workout .habit-card { flex-wrap: nowrap; align-items: center; }
+.ma.workout .habit-card {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 12px 14px;
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+}
 .ma.workout .habit-card.is-expanded { flex-wrap: wrap; align-items: flex-start; }
-.ma.workout .habit-streak { margin-bottom: 0; color: var(--muted-fg); }
+.ma.workout .habit-info { flex: 1 1 auto; min-width: 0; overflow: hidden; }
+.ma.workout .wk-name {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--fg);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: block;
+}
+.ma.workout .habit-streak {
+  margin-bottom: 0;
+  margin-top: 2px;
+  color: var(--muted-fg);
+  font-size: 11.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: block;
+}
 
 /* Exercise name as tap target */
 .wk-name-btn {
@@ -4056,17 +4122,24 @@ button.ma-callout, button.ma-row {
   display: flex;
   align-items: center;
   gap: 6px;
-  flex: none;
+  flex: 0 0 auto;
+  flex-shrink: 0;
 }
 .wk-launch-btn {
   background: var(--mini-accent);
   color: var(--mini-accent-fg, #fff);
   border: 1px solid var(--mini-accent);
   border-radius: 8px;
-  font-size: 12.5px;
+  font-size: 12px;
   font-weight: 700;
-  padding: 6px 12px;
+  padding: 4px 10px;
+  height: 32px;
   cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  white-space: nowrap;
+  flex: 0 0 auto;
   transition: all 0.15s ease;
 }
 .wk-launch-btn:hover {
@@ -6757,17 +6830,24 @@ a.brief-fact { cursor: pointer; }
   min-width: 0;
 }
 .mini__body { overflow-x: hidden; }
-/* Flex rows: wrap instead of clip (Start/Done button pairs etc). */
-.mini .wk-card-actions,
+/* Flex rows: wrap instead of clip for generic rows, but keep action buttons and day tracks on one row. */
 .mini .wk-rest-actions,
 .mini .wk-quick-clock-row,
 .mini .wk-table-foot-actions,
-.mini .wk-days,
 .mini .ma-row,
-.mini .habit-card,
 .mini .habit-week {
   flex-wrap: wrap;
   max-width: 100%;
+}
+.mini .wk-card-actions {
+  flex-wrap: nowrap !important;
+  flex-shrink: 0;
+}
+.mini .wk-days {
+  flex-wrap: nowrap !important;
+}
+.mini .ma.workout .habit-card {
+  flex-wrap: nowrap !important;
 }
 /* Buttons keep readable size but may never force the row wider. */
 .mini .wk-launch-btn,
@@ -6780,40 +6860,29 @@ a.brief-fact { cursor: pointer; }
   max-width: 100%;
 }
 .mini table { display: block; overflow-x: auto; }
-/* Grids collapse to fewer columns on narrow screens. */
-@media (max-width: 380px) {
-  .mini .wk-days { grid-template-columns: repeat(4, 1fr); }
-}
 
 /* ── Narrow screens (and narrow desktop tabs): fit, don't clip. ── */
 @media (max-width: 430px) {
-  .mini { padding-left: 14px; padding-right: 14px; }
+  .mini { padding-left: 12px; padding-right: 12px; }
   .mini.hA-screen .mini__head { padding-inline: 12px; gap: 8px; }
   .mini.hA-screen .mini__card { max-width: none; }
-  /* Vitals 2×2 collapses to one column when the halves can't hold their
-   * content ("12:00 AM to 7:00 AM", legend rows). */
-  .mini .hA-vitals { grid-template-columns: 1fr; }
+  /* Vitals stay 2×2 at every width — dashboard contract. Cells shrink:
+   * tighter padding, smaller type, wrapped labels. */
+  .mini .hA-vitals { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .mini .hA-vital { padding: 10px 10px 9px; min-height: 88px; border-radius: 15px; }
+  .mini .hA-vital-label { font-size: 8.5px; letter-spacing: 0.1em; gap: 4px; }
+  .mini .hA-vital-val { font-size: 17px; }
   /* Nowrap is a desktop luxury; below 430px text wraps so nothing runs
    * past the right edge (Settings chip, Open workout, spend legend). */
-  .mini .hA-screen * { white-space: normal; }
+  .mini.hA-screen * { white-space: normal; }
   /* Quick-apps tile row: tiles shrink equally instead of overflowing. */
   .mini .hA-quickapps { grid-template-columns: repeat(auto-fit, minmax(60px, 1fr)); }
 }
 
-/* Resize-proof segmented controls: 1fr tracks floor at content min-width,
- * which overflowed narrow viewports ('6 moves' chip, Done buttons). auto-fit
- * with minmax(0,1fr) lets every track shrink below its content; cells wrap
- * or ellipsize instead of clipping. */
-.mini .wk-places,
-.mini .wk-counts,
-.mini .wk-days {
-  grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
-}
 .mini .wk-place,
 .mini .wk-count,
 .mini .wk-day {
   min-width: 0;
-  white-space: normal;
   overflow: hidden;
 }
 .mini .wk-place > *, .mini .wk-count > *, .mini .wk-day > * {
@@ -6829,7 +6898,13 @@ a.brief-fact { cursor: pointer; }
 
 /* Narrow: stack the spend donut above its legend so labels aren't crushed. */
 @media (max-width: 430px) {
-  .mini .hA-screen .spend-donut { flex-direction: column !important; align-items: center !important; gap: 10px !important; }
-  .mini .hA-screen .spend-donut .spend-donut-key { width: 100%; }
+  /* One line even on small screens: shrink the ring, compact the legend. */
+  .mini .hA-screen .spend-donut { flex-direction: row !important; align-items: center !important; gap: 10px !important; }
+  .mini .hA-screen .spend-donut-ring { width: 76px; height: 76px; flex-shrink: 0; }
+  .mini .hA-screen .spend-donut-mid b { font-size: 15px; }
+  .mini .hA-screen .spend-donut-mid span { font-size: 8px; letter-spacing: 0.06em; }
+  .mini .hA-screen .spend-donut-key { width: auto; flex: 1 1 0%; min-width: 0; }
+  .mini .hA-screen .spend-donut-key li { gap: 5px; font-size: 10.5px; padding: 2px 0; }
+  .mini .hA-screen .spend-donut-key .spend-donut-key-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .mini .spend-donut .spend-legend { width: 100%; }
 }

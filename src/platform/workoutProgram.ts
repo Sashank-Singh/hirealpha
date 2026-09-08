@@ -141,10 +141,10 @@ const HOME: Record<WorkoutWeekday, WorkoutSession> = {
     moves: [
       { name: 'Push ups', sets: 4, reps: 12, restSec: 60, defaultMode: 'reps', targetSec: 45, cue: 'Body in a straight plank, elbows 45 degrees, chest touches floor.' },
       { name: 'Pike push ups', sets: 3, reps: 8, restSec: 60, defaultMode: 'reps', targetSec: 40, cue: 'Hips high in V shape, lower crown of head between hands.' },
-      { name: 'Diamond push ups', sets: 3, reps: 8, restSec: 60, defaultMode: 'reps', targetSec: 40, cue: 'Thumbs and index fingers touch, tricep overload.' },
       { name: 'Plank shoulder taps', sets: 3, reps: 16, restSec: 45, defaultMode: 'reps', targetSec: 45, cue: 'Widen feet, lock hips to eliminate rocking while tapping.' },
-      { name: 'Plank', sets: 3, reps: 30, restSec: 45, defaultMode: 'time', targetSec: 30, cue: 'Squeeze glutes, tuck pelvis, push floor through forearms.' },
       { name: 'Cobra', sets: 3, reps: 12, restSec: 30, defaultMode: 'reps', targetSec: 30, cue: 'Peel chest off floor using spine erectors, open shoulders.' },
+      { name: 'Diamond push ups', sets: 3, reps: 8, restSec: 60, defaultMode: 'reps', targetSec: 40, cue: 'Thumbs and index fingers touch, tricep overload.' },
+      { name: 'Plank', sets: 3, reps: 30, restSec: 45, defaultMode: 'time', targetSec: 30, cue: 'Squeeze glutes, tuck pelvis, push floor through forearms.' },
     ],
   },
   2: {
@@ -152,12 +152,12 @@ const HOME: Record<WorkoutWeekday, WorkoutSession> = {
     dayLabel: 'Tuesday',
     name: 'Pull & Posterior',
     moves: [
-      { name: 'Superman hold', sets: 4, reps: 12, restSec: 45, defaultMode: 'reps', targetSec: 40, cue: 'Lift chest and quads together, hold 2s squeeze at apex.' },
+      { name: 'Superman', sets: 4, reps: 12, restSec: 45, defaultMode: 'reps', targetSec: 40, cue: 'Lift chest and quads together, hold 2s squeeze at apex.' },
       { name: 'Glute bridge', sets: 4, reps: 15, restSec: 60, defaultMode: 'reps', targetSec: 45, cue: 'Drive through heels, squeeze glutes hard at the top.' },
-      { name: 'Reverse hyperextension', sets: 3, reps: 12, restSec: 60, defaultMode: 'reps', targetSec: 40, cue: 'Face down on edge of surface, lift legs with glute and hamstring.' },
-      { name: 'Glute kickback', sets: 3, reps: 12, restSec: 45, defaultMode: 'reps', targetSec: 40, cue: 'From all fours, drive sole of foot toward ceiling.' },
-      { name: 'Single leg glute bridge', sets: 3, reps: 10, restSec: 60, defaultMode: 'reps', targetSec: 40, cue: 'One leg extended, drive floor away with active heel.' },
       { name: 'Back extension', sets: 3, reps: 12, restSec: 45, defaultMode: 'reps', targetSec: 35, cue: 'Hands behind head, articulate spine smoothly upward.' },
+      { name: 'Glute kickback', sets: 3, reps: 12, restSec: 45, defaultMode: 'reps', targetSec: 40, cue: 'From all fours, drive sole of foot toward ceiling.' },
+      { name: 'Cobra', sets: 3, reps: 12, restSec: 30, defaultMode: 'reps', targetSec: 30, cue: 'Smooth thoracic extension, breathe deep into diaphragm.' },
+      { name: 'Plank shoulder taps', sets: 3, reps: 16, restSec: 45, defaultMode: 'reps', targetSec: 45, cue: 'Lock core like iron, zero torso sway.' },
     ],
   },
   3: {
@@ -166,10 +166,10 @@ const HOME: Record<WorkoutWeekday, WorkoutSession> = {
     name: 'Legs & Power',
     moves: [
       { name: 'Squat', sets: 4, reps: 15, restSec: 60, defaultMode: 'reps', targetSec: 60, cue: 'Knees track over toes, break parallel, chest upright.' },
-      { name: 'Jump squat', sets: 3, reps: 10, restSec: 60, defaultMode: 'reps', targetSec: 30, cue: 'Explode up off the ground, land softly bending knees.' },
       { name: 'Reverse lunge', sets: 3, reps: 10, restSec: 60, defaultMode: 'reps', targetSec: 45, cue: 'Step back softly, 90 degree angles at both knees, drive front heel.' },
+      { name: 'Glute bridge', sets: 3, reps: 15, restSec: 45, defaultMode: 'reps', targetSec: 45, cue: 'Power hips to ceiling, hold full glute extension.' },
+      { name: 'Jump squat', sets: 3, reps: 10, restSec: 60, defaultMode: 'reps', targetSec: 30, cue: 'Explode up off the ground, land softly bending knees.' },
       { name: 'Split squat', sets: 3, reps: 10, restSec: 60, defaultMode: 'reps', targetSec: 45, cue: 'Static stance, lower straight down into front hip.' },
-      { name: 'Wall sit', sets: 3, reps: 40, restSec: 60, defaultMode: 'time', targetSec: 40, cue: 'Thighs parallel, back flat against wall, arms crossed.' },
       { name: 'Calf raise', sets: 3, reps: 20, restSec: 45, defaultMode: 'reps', targetSec: 45, cue: 'High rise on tiptoes, slow eccentric lower.' },
     ],
   },
@@ -179,9 +179,9 @@ const HOME: Record<WorkoutWeekday, WorkoutSession> = {
     name: 'Upper & Athletic',
     moves: [
       { name: 'Hindu push ups', sets: 3, reps: 10, restSec: 60, defaultMode: 'reps', targetSec: 45, cue: 'Swoop chest down and through into cobra, reverse back to pike.' },
+      { name: 'Superman', sets: 3, reps: 12, restSec: 45, defaultMode: 'reps', targetSec: 40, cue: 'Posterior chain recruitment, lengthen body from fingers to toes.' },
       { name: 'Wide push ups', sets: 3, reps: 12, restSec: 60, defaultMode: 'reps', targetSec: 45, cue: 'Hands 1.5x shoulder width, stretches outer chest.' },
-      { name: 'Tricep dip', sets: 3, reps: 10, restSec: 60, defaultMode: 'reps', targetSec: 40, cue: 'Use a chair or low surface, elbows point straight back.' },
-      { name: 'Superman hold', sets: 3, reps: 12, restSec: 45, defaultMode: 'reps', targetSec: 40, cue: 'Posterior chain recruitment, lengthen body from fingers to toes.' },
+      { name: 'Back extension', sets: 3, reps: 12, restSec: 45, defaultMode: 'reps', targetSec: 40, cue: 'Target upper erectors and postural stabilizers.' },
       { name: 'Plank shoulder taps', sets: 3, reps: 16, restSec: 45, defaultMode: 'reps', targetSec: 45, cue: 'Keep core engaged like a steel plank.' },
       { name: 'Plank', sets: 3, reps: 40, restSec: 45, defaultMode: 'time', targetSec: 40, cue: 'Tuck chin, maintain maximum tension throughout core.' },
     ],
@@ -193,7 +193,9 @@ const HOME: Record<WorkoutWeekday, WorkoutSession> = {
     moves: [
       { name: 'Walking lunge', sets: 3, reps: 12, restSec: 60, defaultMode: 'reps', targetSec: 60, cue: 'Smooth stride, tap back knee lightly, continuous tension.' },
       { name: 'Single leg glute bridge', sets: 3, reps: 10, restSec: 60, defaultMode: 'reps', targetSec: 45, cue: 'One leg extended straight, drive floor away with active heel.' },
-      { name: 'Step up', sets: 3, reps: 10, restSec: 60, defaultMode: 'reps', targetSec: 45, cue: 'Drive through the entire front foot, squeeze glute at the top.' },
+      { name: 'Reverse lunge', sets: 3, reps: 10, restSec: 60, defaultMode: 'reps', targetSec: 45, cue: 'Alternating backward steps with upright torso.' },
+      { name: 'Split squat', sets: 3, reps: 10, restSec: 60, defaultMode: 'reps', targetSec: 45, cue: 'Lower straight into front heel, isolate quadriceps.' },
+      { name: 'Calf raise', sets: 3, reps: 20, restSec: 45, defaultMode: 'reps', targetSec: 45, cue: 'Slow controlled 2s raise and 2s lowering.' },
       { name: 'Glute kickback', sets: 3, reps: 12, restSec: 45, defaultMode: 'reps', targetSec: 40, cue: 'Target upper glute without over-arching lumbar spine.' },
     ],
   },
@@ -218,16 +220,85 @@ export const WORKOUT_CATEGORIES: WorkoutCategoryMeta[] = [
 
 export const WORKOUT_CATEGORY_KEY = 'hire.workout.category'
 
-const HIIT_PROGRAM: Record<WorkoutWeekday, WorkoutSession> = {
+/* ---------------- Home Category Splits ---------------- */
+const HOME_CALISTHENICS: Record<WorkoutWeekday, WorkoutSession> = {
+  1: {
+    weekday: 1,
+    dayLabel: 'Monday',
+    name: 'Push & Stability',
+    moves: [
+      { name: 'Push ups', sets: 4, reps: 12, restSec: 60, defaultMode: 'reps', targetSec: 45, cue: 'Full range push up with rigid hollow body.' },
+      { name: 'Plank shoulder taps', sets: 3, reps: 16, restSec: 45, defaultMode: 'reps', targetSec: 45, cue: 'Anti-rotational stability, wide base.' },
+      { name: 'Squat', sets: 3, reps: 15, restSec: 60, defaultMode: 'reps', targetSec: 45, cue: 'Bodyweight deep squats, track knees with toes.' },
+      { name: 'Back extension', sets: 3, reps: 12, restSec: 45, defaultMode: 'reps', targetSec: 40, cue: 'Smooth thoracic spine activation.' },
+      { name: 'Glute bridge', sets: 3, reps: 15, restSec: 45, defaultMode: 'reps', targetSec: 40, cue: 'Drive heels through floor for peak contraction.' },
+      { name: 'Cobra', sets: 3, reps: 12, restSec: 30, defaultMode: 'reps', targetSec: 30, cue: 'Diaphragm breathing and spine decompression.' },
+    ],
+  },
+  2: {
+    weekday: 2,
+    dayLabel: 'Tuesday',
+    name: 'Posterior & Core',
+    moves: [
+      { name: 'Superman', sets: 4, reps: 12, restSec: 45, defaultMode: 'reps', targetSec: 40, cue: 'Hold 2-second squeeze at top apex.' },
+      { name: 'Glute kickback', sets: 3, reps: 14, restSec: 45, defaultMode: 'reps', targetSec: 40, cue: 'Drive heel to ceiling, keep lumbar neutral.' },
+      { name: 'Single leg glute bridge', sets: 3, reps: 10, restSec: 60, defaultMode: 'reps', targetSec: 45, cue: 'Isolate each glute without hip dip.' },
+      { name: 'Plank', sets: 3, reps: 40, restSec: 45, defaultMode: 'time', targetSec: 40, cue: 'Full body isometric core tension.' },
+      { name: 'Calf raise', sets: 3, reps: 20, restSec: 45, defaultMode: 'reps', targetSec: 40, cue: 'Pause 1s at top, controlled lowering.' },
+      { name: 'Cobra', sets: 3, reps: 12, restSec: 30, defaultMode: 'reps', targetSec: 30, cue: 'Open shoulders and chest.' },
+    ],
+  },
+  3: {
+    weekday: 3,
+    dayLabel: 'Wednesday',
+    name: 'Explosive Bodyweight',
+    moves: [
+      { name: 'Jump squat', sets: 4, reps: 10, restSec: 60, defaultMode: 'reps', targetSec: 35, cue: 'Explosive triple extension, soft quiet landing.' },
+      { name: 'Pike push ups', sets: 3, reps: 8, restSec: 60, defaultMode: 'reps', targetSec: 40, cue: 'Vertical pushing mechanics for shoulder power.' },
+      { name: 'Plank shoulder taps', sets: 3, reps: 18, restSec: 45, defaultMode: 'reps', targetSec: 45, cue: 'High-rep core stabilization.' },
+      { name: 'Glute bridge', sets: 3, reps: 15, restSec: 45, defaultMode: 'reps', targetSec: 40, cue: 'Fast lockout with sustained squeeze.' },
+      { name: 'Reverse lunge', sets: 3, reps: 10, restSec: 60, defaultMode: 'reps', targetSec: 45, cue: 'Power out of the front heel.' },
+      { name: 'Plank', sets: 3, reps: 45, restSec: 45, defaultMode: 'time', targetSec: 45, cue: 'Maximum hollow body core hold.' },
+    ],
+  },
+  4: {
+    weekday: 4,
+    dayLabel: 'Thursday',
+    name: 'Upper Body Control',
+    moves: [
+      { name: 'Wide push ups', sets: 3, reps: 12, restSec: 60, defaultMode: 'reps', targetSec: 45, cue: 'Wide chest stretch with controlled negative.' },
+      { name: 'Diamond push ups', sets: 3, reps: 8, restSec: 60, defaultMode: 'reps', targetSec: 40, cue: 'Tricep close-grip overload.' },
+      { name: 'Back extension', sets: 3, reps: 12, restSec: 45, defaultMode: 'reps', targetSec: 40, cue: 'Strengthen erector chain.' },
+      { name: 'Split squat', sets: 3, reps: 10, restSec: 60, defaultMode: 'reps', targetSec: 45, cue: 'Unilateral quad balance and depth.' },
+      { name: 'Superman', sets: 3, reps: 12, restSec: 45, defaultMode: 'reps', targetSec: 40, cue: 'Long reach forward and backward.' },
+      { name: 'Cobra', sets: 3, reps: 12, restSec: 30, defaultMode: 'reps', targetSec: 30, cue: 'Gentle spinal extension recovery.' },
+    ],
+  },
+  5: {
+    weekday: 5,
+    dayLabel: 'Friday',
+    name: 'Full Calisthenics Flow',
+    moves: [
+      { name: 'Hindu push ups', sets: 3, reps: 10, restSec: 60, defaultMode: 'reps', targetSec: 45, cue: 'Fluid dive-bomber swoop and press.' },
+      { name: 'Walking lunge', sets: 3, reps: 12, restSec: 60, defaultMode: 'reps', targetSec: 60, cue: 'Smooth rhythmic locomotive strides.' },
+      { name: 'Single leg glute bridge', sets: 3, reps: 10, restSec: 60, defaultMode: 'reps', targetSec: 45, cue: 'Pelvic symmetry and glute drive.' },
+      { name: 'Plank', sets: 3, reps: 50, restSec: 45, defaultMode: 'time', targetSec: 50, cue: 'Finishing endurance core plank.' },
+      { name: 'Calf raise', sets: 3, reps: 20, restSec: 45, defaultMode: 'reps', targetSec: 45, cue: 'Tiptoe balance with slow descent.' },
+      { name: 'Back extension', sets: 3, reps: 12, restSec: 45, defaultMode: 'reps', targetSec: 40, cue: 'Upper back posture correction.' },
+    ],
+  },
+}
+
+const HOME_HIIT: Record<WorkoutWeekday, WorkoutSession> = {
   1: {
     weekday: 1,
     dayLabel: 'Monday',
     name: 'Metabolic Push & Core',
     moves: [
-      { name: 'Jump squat', sets: 4, reps: 15, restSec: 45, defaultMode: 'time', targetSec: 40, cue: 'Explode off the ground, land softly into the squat.' },
-      { name: 'Push ups', sets: 4, reps: 15, restSec: 45, defaultMode: 'time', targetSec: 45, cue: 'Fast rhythmic tempo, maintain rigid plank line.' },
+      { name: 'Jump squat', sets: 4, reps: 15, restSec: 45, defaultMode: 'time', targetSec: 40, cue: 'Explode off the ground, land softly into squat.' },
+      { name: 'Push ups', sets: 4, reps: 12, restSec: 45, defaultMode: 'time', targetSec: 40, cue: 'Fast rhythmic tempo, maintain rigid plank line.' },
       { name: 'Plank shoulder taps', sets: 3, reps: 20, restSec: 30, defaultMode: 'time', targetSec: 40, cue: 'Brace core tightly to prevent hip sway.' },
-      { name: 'Walking lunge', sets: 3, reps: 14, restSec: 45, defaultMode: 'time', targetSec: 45, cue: 'Continuous fluid strides, keeping heart rate up.' },
+      { name: 'Reverse lunge', sets: 3, reps: 14, restSec: 45, defaultMode: 'time', targetSec: 45, cue: 'Continuous fluid strides, heart rate elevated.' },
       { name: 'Cobra', sets: 3, reps: 12, restSec: 30, defaultMode: 'reps', targetSec: 30, cue: 'Active recovery breath, extend upper spine.' },
       { name: 'Plank', sets: 3, reps: 45, restSec: 45, defaultMode: 'time', targetSec: 45, cue: 'Maximum full-body isometric tension.' },
     ],
@@ -235,12 +306,12 @@ const HIIT_PROGRAM: Record<WorkoutWeekday, WorkoutSession> = {
   2: {
     weekday: 2,
     dayLabel: 'Tuesday',
-    name: 'Cardio & Posterior Power',
+    name: 'Cardio & Posterior',
     moves: [
       { name: 'Jump squat', sets: 4, reps: 15, restSec: 45, defaultMode: 'time', targetSec: 40, cue: 'Powerful triple extension at ankles, knees, hips.' },
-      { name: 'Superman', sets: 4, reps: 15, restSec: 30, defaultMode: 'time', targetSec: 40, cue: 'Pulse reps to burn the posterior chain.' },
-      { name: 'Split squat', sets: 3, reps: 12, restSec: 45, defaultMode: 'time', targetSec: 45, cue: 'Quick turnaround, drive off front mid-foot.' },
+      { name: 'Superman', sets: 4, reps: 14, restSec: 30, defaultMode: 'time', targetSec: 40, cue: 'Pulse reps to burn the posterior chain.' },
       { name: 'Glute bridge', sets: 3, reps: 20, restSec: 30, defaultMode: 'reps', targetSec: 40, cue: 'High-rep glute burn with rapid hip lockouts.' },
+      { name: 'Split squat', sets: 3, reps: 12, restSec: 45, defaultMode: 'time', targetSec: 45, cue: 'Quick turnaround, drive off front mid-foot.' },
       { name: 'Plank shoulder taps', sets: 3, reps: 20, restSec: 30, defaultMode: 'time', targetSec: 45, cue: 'Steady anti-rotational core pump.' },
       { name: 'Plank', sets: 3, reps: 40, restSec: 30, defaultMode: 'time', targetSec: 40, cue: 'Breathe steadily while bracing against fatigue.' },
     ],
@@ -261,117 +332,117 @@ const HIIT_PROGRAM: Record<WorkoutWeekday, WorkoutSession> = {
   4: {
     weekday: 4,
     dayLabel: 'Thursday',
-    name: 'Upper & Calisthenics Burn',
+    name: 'Upper & Core Burn',
     moves: [
-      { name: 'Hindu push ups', sets: 4, reps: 12, restSec: 45, defaultMode: 'time', targetSec: 45, cue: 'Dynamic flowing dive-bomber reps.' },
+      { name: 'Hindu push ups', sets: 4, reps: 10, restSec: 45, defaultMode: 'time', targetSec: 45, cue: 'Dynamic flowing dive-bomber reps.' },
       { name: 'Jump squat', sets: 3, reps: 15, restSec: 45, defaultMode: 'time', targetSec: 40, cue: 'Interval cardio spike between pushes.' },
-      { name: 'Wide push ups', sets: 3, reps: 14, restSec: 45, defaultMode: 'time', targetSec: 40, cue: 'Deep outer chest stretch and pump.' },
-      { name: 'Superman', sets: 3, reps: 15, restSec: 30, defaultMode: 'time', targetSec: 40, cue: 'Upper back and erector engagement.' },
-      { name: 'Diamond push ups', sets: 3, reps: 10, restSec: 45, defaultMode: 'time', targetSec: 35, cue: 'Tricep conditioning burnout.' },
+      { name: 'Wide push ups', sets: 3, reps: 12, restSec: 45, defaultMode: 'time', targetSec: 40, cue: 'Deep outer chest stretch and pump.' },
+      { name: 'Back extension', sets: 3, reps: 12, restSec: 30, defaultMode: 'time', targetSec: 35, cue: 'Upper back and erector engagement.' },
+      { name: 'Diamond push ups', sets: 3, reps: 8, restSec: 45, defaultMode: 'time', targetSec: 35, cue: 'Tricep conditioning burnout.' },
       { name: 'Plank', sets: 3, reps: 45, restSec: 30, defaultMode: 'time', targetSec: 45, cue: 'Solid hollow-body hold to finish.' },
     ],
   },
   5: {
     weekday: 5,
     dayLabel: 'Friday',
-    name: 'Total Body Shred Finisher',
+    name: 'Total Body Shred',
     moves: [
       { name: 'Jump squat', sets: 4, reps: 15, restSec: 45, defaultMode: 'time', targetSec: 40, cue: 'Maximum vertical effort on each rep.' },
-      { name: 'Push ups', sets: 4, reps: 15, restSec: 45, defaultMode: 'time', targetSec: 45, cue: 'Steady rhythmic push tempo.' },
+      { name: 'Push ups', sets: 4, reps: 12, restSec: 45, defaultMode: 'time', targetSec: 45, cue: 'Steady rhythmic push tempo.' },
       { name: 'Single leg glute bridge', sets: 3, reps: 12, restSec: 30, defaultMode: 'time', targetSec: 40, cue: 'Drive through the active heel.' },
       { name: 'Walking lunge', sets: 3, reps: 14, restSec: 45, defaultMode: 'time', targetSec: 45, cue: 'Long locomotive lunges across room.' },
-      { name: 'Reverse lunge', sets: 3, reps: 12, restSec: 45, defaultMode: 'time', targetSec: 40, cue: 'Final quad and glute effort.' },
+      { name: 'Superman', sets: 3, reps: 14, restSec: 30, defaultMode: 'time', targetSec: 35, cue: 'Final posterior chain effort.' },
       { name: 'Plank', sets: 3, reps: 60, restSec: 45, defaultMode: 'time', targetSec: 60, cue: 'Endurance champion: 60s iron plank.' },
     ],
   },
 }
 
-const LEGS_GLUTES_PROGRAM: Record<WorkoutWeekday, WorkoutSession> = {
+const HOME_LEGS: Record<WorkoutWeekday, WorkoutSession> = {
   1: {
     weekday: 1,
     dayLabel: 'Monday',
-    name: 'Quad & Glute Builder',
+    name: 'Quad & Glute Drive',
     moves: [
-      { name: 'Back squat', sets: 4, reps: 8, restSec: 120, cue: 'Deep hip hinge, knees outward, power through whole foot.' },
-      { name: 'Leg press', sets: 3, reps: 10, restSec: 90, cue: 'Feet high on platform for maximum glute recruitment.' },
-      { name: 'Bulgarian split squat', sets: 3, reps: 10, restSec: 75, cue: 'Elevate rear foot, sink deep into front glute pocket.' },
-      { name: 'Walking lunge', sets: 3, reps: 12, restSec: 60, cue: 'Drive through front heel, chest upright.' },
-      { name: 'Leg extension', sets: 3, reps: 12, restSec: 60, cue: 'Peak contraction quad squeeze at top.' },
-      { name: 'Calf raise', sets: 3, reps: 15, restSec: 45, cue: 'Pause 2 seconds at the peak of each raise.' },
+      { name: 'Squat', sets: 4, reps: 15, restSec: 60, defaultMode: 'reps', targetSec: 50, cue: 'Sit deep between hips, power through mid-foot.' },
+      { name: 'Reverse lunge', sets: 3, reps: 12, restSec: 60, defaultMode: 'reps', targetSec: 45, cue: 'Step back softly, drive through front heel.' },
+      { name: 'Glute bridge', sets: 4, reps: 16, restSec: 45, defaultMode: 'reps', targetSec: 45, cue: 'Hard glute contraction at lockout.' },
+      { name: 'Single leg glute bridge', sets: 3, reps: 10, restSec: 60, defaultMode: 'reps', targetSec: 40, cue: 'Isolate each side to balance glute power.' },
+      { name: 'Calf raise', sets: 3, reps: 20, restSec: 45, defaultMode: 'reps', targetSec: 45, cue: 'Slow controlled 2s pause at top squeeze.' },
+      { name: 'Glute kickback', sets: 3, reps: 14, restSec: 45, defaultMode: 'reps', targetSec: 40, cue: 'Target upper glute with neutral spine.' },
     ],
   },
   2: {
     weekday: 2,
     dayLabel: 'Tuesday',
-    name: 'Hamstring & Glute Hinge',
+    name: 'Hamstring & Posterior',
     moves: [
-      { name: 'Romanian deadlift', sets: 4, reps: 8, restSec: 120, cue: 'Push hips backward until deep hamstring tension is reached.' },
-      { name: 'Glute bridge', sets: 4, reps: 15, restSec: 60, cue: 'Drive hips up into complete terminal glute squeeze.' },
-      { name: 'Leg curl', sets: 3, reps: 12, restSec: 60, cue: 'Strict hamstring curls without lifting lower back.' },
-      { name: 'Single leg glute bridge', sets: 3, reps: 10, restSec: 60, cue: 'Unilateral glute isolation and hip symmetry.' },
-      { name: 'Glute kickback', sets: 3, reps: 15, restSec: 45, cue: 'Drive heel upward, keeping core locked.' },
-      { name: 'Calf raise', sets: 3, reps: 15, restSec: 45, cue: 'Slow 3-second descent for stretch.' },
+      { name: 'Split squat', sets: 4, reps: 10, restSec: 60, defaultMode: 'reps', targetSec: 45, cue: 'Drop back knee toward floor, load front quad & hip.' },
+      { name: 'Glute kickback', sets: 3, reps: 15, restSec: 45, defaultMode: 'reps', targetSec: 40, cue: 'Drive sole of shoe toward ceiling.' },
+      { name: 'Glute bridge', sets: 4, reps: 15, restSec: 60, defaultMode: 'reps', targetSec: 45, cue: 'Full hip extension, squeeze glutes at apex.' },
+      { name: 'Walking lunge', sets: 3, reps: 12, restSec: 60, defaultMode: 'reps', targetSec: 60, cue: 'Long strides for glute and hamstring bias.' },
+      { name: 'Superman', sets: 3, reps: 12, restSec: 45, defaultMode: 'reps', targetSec: 40, cue: 'Strengthen entire posterior kinetic chain.' },
+      { name: 'Calf raise', sets: 3, reps: 20, restSec: 45, defaultMode: 'reps', targetSec: 45, cue: 'High rise on tiptoes, slow eccentric drop.' },
     ],
   },
   3: {
     weekday: 3,
     dayLabel: 'Wednesday',
-    name: 'Lower Unilateral & Power',
+    name: 'Unilateral & Plyo',
     moves: [
-      { name: 'Bulgarian split squat', sets: 3, reps: 10, restSec: 90, cue: 'Load front leg heavily, upright posture.' },
-      { name: 'Reverse lunge', sets: 3, reps: 12, restSec: 60, cue: 'Step back into 90° angle, spring back up.' },
-      { name: 'Split squat', sets: 3, reps: 10, restSec: 60, cue: 'Pure static unilateral quad burn.' },
-      { name: 'Walking lunge', sets: 3, reps: 12, restSec: 60, cue: 'Continuous locomotion with knee drive.' },
-      { name: 'Glute kickback', sets: 3, reps: 15, restSec: 45, cue: 'Target upper glute without swaying back.' },
-      { name: 'Calf raise', sets: 3, reps: 18, restSec: 45, cue: 'Explosive rise, deliberate slow descent.' },
+      { name: 'Jump squat', sets: 4, reps: 10, restSec: 60, defaultMode: 'reps', targetSec: 35, cue: 'Explosive spring from full squat depth.' },
+      { name: 'Split squat', sets: 3, reps: 10, restSec: 60, defaultMode: 'reps', targetSec: 45, cue: 'Stay tall, keep front heel firmly planted.' },
+      { name: 'Single leg glute bridge', sets: 3, reps: 10, restSec: 60, defaultMode: 'reps', targetSec: 40, cue: 'Level pelvis, no hip rotation.' },
+      { name: 'Reverse lunge', sets: 3, reps: 10, restSec: 60, defaultMode: 'reps', targetSec: 45, cue: 'Smooth backward step, 90° bend at both knees.' },
+      { name: 'Calf raise', sets: 3, reps: 20, restSec: 45, defaultMode: 'reps', targetSec: 45, cue: 'Full stretch at bottom, strong calf squeeze.' },
+      { name: 'Glute kickback', sets: 3, reps: 12, restSec: 45, defaultMode: 'reps', targetSec: 40, cue: 'Controlled lift, pause 1s at apex.' },
     ],
   },
   4: {
     weekday: 4,
     dayLabel: 'Thursday',
-    name: 'Heavy Lower Power',
+    name: 'Glute Hypertrophy',
     moves: [
-      { name: 'Deadlift', sets: 4, reps: 5, restSec: 150, cue: 'Maximum total lower posterior power from floor.' },
-      { name: 'Back squat', sets: 3, reps: 8, restSec: 120, cue: 'Solid braced core, break parallel with ease.' },
-      { name: 'Romanian deadlift', sets: 3, reps: 8, restSec: 90, cue: 'Controlled descent, feel hamstrings stretch.' },
-      { name: 'Leg press', sets: 3, reps: 12, restSec: 75, cue: 'Smooth pump sets to exhaust the quads.' },
-      { name: 'Glute bridge', sets: 3, reps: 15, restSec: 60, cue: 'Barbell or bodyweight hip extension finisher.' },
-      { name: 'Calf raise', sets: 3, reps: 15, restSec: 45, cue: 'Full range of motion ankle pump.' },
+      { name: 'Glute bridge', sets: 4, reps: 18, restSec: 45, defaultMode: 'reps', targetSec: 45, cue: 'High-rep burner, hold each rep 1 second at top.' },
+      { name: 'Single leg glute bridge', sets: 3, reps: 10, restSec: 60, defaultMode: 'reps', targetSec: 40, cue: 'Unilateral glute motor unit recruitment.' },
+      { name: 'Squat', sets: 4, reps: 15, restSec: 60, defaultMode: 'reps', targetSec: 50, cue: 'Break parallel, keep chest proud.' },
+      { name: 'Walking lunge', sets: 3, reps: 12, restSec: 60, defaultMode: 'reps', targetSec: 60, cue: 'Continuous lunging with upright spine.' },
+      { name: 'Glute kickback', sets: 3, reps: 15, restSec: 45, defaultMode: 'reps', targetSec: 40, cue: 'Squeeze upper glute pocket.' },
+      { name: 'Calf raise', sets: 3, reps: 20, restSec: 45, defaultMode: 'reps', targetSec: 45, cue: 'Controlled tempo, burn out the calves.' },
     ],
   },
   5: {
     weekday: 5,
     dayLabel: 'Friday',
-    name: 'Glute Pump & Conditioning',
+    name: 'Lower Burnout',
     moves: [
-      { name: 'Glute bridge', sets: 4, reps: 16, restSec: 60, cue: 'High-rep metabolic glute activation.' },
-      { name: 'Single leg glute bridge', sets: 3, reps: 12, restSec: 45, cue: 'Isolate each side to eliminate strength imbalances.' },
-      { name: 'Glute kickback', sets: 3, reps: 15, restSec: 45, cue: 'Full extension squeeze at apex.' },
-      { name: 'Bulgarian split squat', sets: 3, reps: 8, restSec: 75, cue: 'Deep hip stretch and recruitment.' },
-      { name: 'Walking lunge', sets: 3, reps: 12, restSec: 60, cue: 'Strides to burn out remaining leg reserves.' },
-      { name: 'Calf raise', sets: 3, reps: 20, restSec: 45, cue: 'Burnout set on the calves.' },
+      { name: 'Squat', sets: 4, reps: 16, restSec: 60, defaultMode: 'reps', targetSec: 50, cue: 'Deep clean reps, maximum quad fatigue.' },
+      { name: 'Jump squat', sets: 3, reps: 10, restSec: 60, defaultMode: 'reps', targetSec: 35, cue: 'Final explosive plyometric burst.' },
+      { name: 'Reverse lunge', sets: 3, reps: 12, restSec: 60, defaultMode: 'reps', targetSec: 45, cue: 'Steady rhythm, deep knee bends.' },
+      { name: 'Glute bridge', sets: 3, reps: 15, restSec: 45, defaultMode: 'reps', targetSec: 40, cue: 'Drive from heels, lock hips high.' },
+      { name: 'Split squat', sets: 3, reps: 10, restSec: 60, defaultMode: 'reps', targetSec: 45, cue: 'Burn out remaining unilateral reserves.' },
+      { name: 'Calf raise', sets: 3, reps: 25, restSec: 45, defaultMode: 'reps', targetSec: 45, cue: 'Endurance pump set on the calves.' },
     ],
   },
 }
 
-const CORE_MOBILITY_PROGRAM: Record<WorkoutWeekday, WorkoutSession> = {
+const HOME_CORE_MOBILITY: Record<WorkoutWeekday, WorkoutSession> = {
   1: {
     weekday: 1,
     dayLabel: 'Monday',
-    name: 'Anti-Rotation & Anterior Core',
+    name: 'Anti-Rotation & Anterior',
     moves: [
       { name: 'Plank', sets: 4, reps: 45, restSec: 45, defaultMode: 'time', targetSec: 45, cue: 'Lock ribcage to pelvis, squeeze glutes.' },
       { name: 'Plank shoulder taps', sets: 3, reps: 20, restSec: 45, defaultMode: 'reps', targetSec: 45, cue: 'Resist all rotational torque through torso.' },
-      { name: 'Hanging knee raise', sets: 3, reps: 12, restSec: 45, cue: 'Posterior pelvic tilt to fire deep lower abs.' },
       { name: 'Cobra', sets: 3, reps: 12, restSec: 30, defaultMode: 'reps', targetSec: 30, cue: 'Chest opening, reverse slouch posture.' },
       { name: 'Back extension', sets: 3, reps: 12, restSec: 45, defaultMode: 'reps', targetSec: 40, cue: 'Articulate thoracic vertebrae with control.' },
       { name: 'Glute bridge', sets: 3, reps: 15, restSec: 45, defaultMode: 'reps', targetSec: 40, cue: 'Activate glutes to unload the lumbar spine.' },
+      { name: 'Superman', sets: 3, reps: 12, restSec: 45, defaultMode: 'reps', targetSec: 40, cue: 'Strengthen the posterior erector sheath.' },
     ],
   },
   2: {
     weekday: 2,
     dayLabel: 'Tuesday',
-    name: 'Spine Health & Posterior Chain',
+    name: 'Spine Health & Decompression',
     moves: [
       { name: 'Superman', sets: 4, reps: 12, restSec: 45, defaultMode: 'time', targetSec: 45, cue: 'Strengthen entire erector spinae sheath.' },
       { name: 'Back extension', sets: 3, reps: 14, restSec: 45, defaultMode: 'reps', targetSec: 40, cue: 'Slow smooth cadence, zero jerking.' },
@@ -388,37 +459,327 @@ const CORE_MOBILITY_PROGRAM: Record<WorkoutWeekday, WorkoutSession> = {
     moves: [
       { name: 'Glute bridge', sets: 3, reps: 15, restSec: 45, defaultMode: 'reps', targetSec: 40, cue: 'Neutral spine, drive from heels.' },
       { name: 'Single leg glute bridge', sets: 3, reps: 10, restSec: 45, defaultMode: 'reps', targetSec: 40, cue: 'Level hips, no dipping on the free side.' },
-      { name: 'Glute kickback', sets: 3, reps: 12, restSec: 45, defaultMode: 'reps', targetSec: 40, cue: 'Strict glute recruitment without lumbar arch.' },
       { name: 'Plank shoulder taps', sets: 3, reps: 16, restSec: 45, defaultMode: 'reps', targetSec: 45, cue: 'Wide stable foot stance, quiet hips.' },
-      { name: 'Superman', sets: 3, reps: 12, restSec: 45, defaultMode: 'reps', targetSec: 40, cue: 'Hold 2-second isometric contraction at top.' },
+      { name: 'Glute kickback', sets: 3, reps: 12, restSec: 45, defaultMode: 'reps', targetSec: 40, cue: 'Strict glute recruitment without lumbar arch.' },
+      { name: 'Cobra', sets: 3, reps: 12, restSec: 30, defaultMode: 'reps', targetSec: 30, cue: 'Restorative thoracic extension.' },
       { name: 'Plank', sets: 3, reps: 45, restSec: 45, defaultMode: 'time', targetSec: 45, cue: 'Push floor away through active serratus.' },
     ],
   },
   4: {
     weekday: 4,
     dayLabel: 'Thursday',
-    name: 'Full Torso Armor',
+    name: 'Torso Strength',
     moves: [
       { name: 'Plank', sets: 4, reps: 45, restSec: 45, defaultMode: 'time', targetSec: 45, cue: 'Lock abs, glutes and quads together.' },
-      { name: 'Hanging knee raise', sets: 3, reps: 12, restSec: 45, cue: 'Slow knee tuck without swinging.' },
       { name: 'Superman', sets: 3, reps: 14, restSec: 45, defaultMode: 'reps', targetSec: 45, cue: 'Long reach forward and backward.' },
       { name: 'Back extension', sets: 3, reps: 12, restSec: 45, defaultMode: 'reps', targetSec: 40, cue: 'Mid-back thoracic focus.' },
       { name: 'Cobra', sets: 3, reps: 12, restSec: 30, defaultMode: 'reps', targetSec: 30, cue: 'Chest proud, pull shoulder blades together.' },
       { name: 'Plank shoulder taps', sets: 3, reps: 20, restSec: 45, defaultMode: 'reps', targetSec: 45, cue: 'Anti-rotation core brace.' },
+      { name: 'Glute bridge', sets: 3, reps: 15, restSec: 45, defaultMode: 'reps', targetSec: 40, cue: 'Posterior chain recruitment.' },
     ],
   },
   5: {
     weekday: 5,
     dayLabel: 'Friday',
-    name: 'Mobility & Decompression',
+    name: 'Full Mobility Flow',
     moves: [
       { name: 'Cobra', sets: 3, reps: 12, restSec: 30, defaultMode: 'reps', targetSec: 30, cue: 'Restorative spinal extension.' },
       { name: 'Superman', sets: 3, reps: 12, restSec: 45, defaultMode: 'reps', targetSec: 40, cue: 'Activate back postural chain.' },
       { name: 'Back extension', sets: 3, reps: 12, restSec: 45, defaultMode: 'reps', targetSec: 40, cue: 'Fluid spinal mobility.' },
       { name: 'Single leg glute bridge', sets: 3, reps: 10, restSec: 45, defaultMode: 'reps', targetSec: 40, cue: 'Fix hip asymmetries.' },
-      { name: 'Glute bridge', sets: 3, reps: 15, restSec: 45, defaultMode: 'reps', targetSec: 40, cue: 'Deep hip opening at top.' },
+      { name: 'Glute kickback', sets: 3, reps: 12, restSec: 45, defaultMode: 'reps', targetSec: 40, cue: 'Target glute medius and hip stabilizers.' },
       { name: 'Plank', sets: 3, reps: 45, restSec: 45, defaultMode: 'time', targetSec: 45, cue: 'Clean finishing core brace.' },
     ],
+  },
+}
+
+/* ---------------- Gym Category Splits ---------------- */
+const GYM_CALISTHENICS: Record<WorkoutWeekday, WorkoutSession> = {
+  1: {
+    weekday: 1,
+    dayLabel: 'Monday',
+    name: 'Gym Calisthenics & Cables',
+    moves: [
+      { name: 'Pull ups', sets: 4, reps: 8, restSec: 90, cue: 'Full dead hang to chin over bar, strict form.' },
+      { name: 'Push ups', sets: 4, reps: 15, restSec: 60, defaultMode: 'reps', targetSec: 45, cue: 'Clean floor push ups with full chest touch.' },
+      { name: 'Cable fly', sets: 3, reps: 12, restSec: 60, cue: 'Squeeze inner chest, slight bend in elbows.' },
+      { name: 'Hanging knee raise', sets: 3, reps: 12, restSec: 45, cue: 'Curl pelvis up toward ribcage, avoid swinging.' },
+      { name: 'Tricep pushdown', sets: 3, reps: 12, restSec: 60, cue: 'Lock out triceps with pin-point control.' },
+      { name: 'Plank', sets: 3, reps: 45, restSec: 45, defaultMode: 'time', targetSec: 45, cue: 'Rigid body line to finish upper workout.' },
+    ],
+  },
+  2: {
+    weekday: 2,
+    dayLabel: 'Tuesday',
+    name: 'Lower Power & Calisthenics',
+    moves: [
+      { name: 'Bulgarian split squat', sets: 4, reps: 8, restSec: 90, cue: 'Elevate back foot, sink deep into front hip.' },
+      { name: 'Jump squat', sets: 3, reps: 10, restSec: 60, cue: 'Explosive vertical jump, soft controlled landing.' },
+      { name: 'Romanian deadlift', sets: 3, reps: 8, restSec: 90, cue: 'Hinge back deeply to load hamstrings.' },
+      { name: 'Calf raise', sets: 3, reps: 15, restSec: 45, cue: 'Full range of motion, rise high on balls of feet.' },
+      { name: 'Hanging knee raise', sets: 3, reps: 12, restSec: 45, cue: 'Core anterior brace and grip endurance.' },
+      { name: 'Glute bridge', sets: 3, reps: 15, restSec: 60, cue: 'Terminal hip lockout for glute burn.' },
+    ],
+  },
+  3: {
+    weekday: 3,
+    dayLabel: 'Wednesday',
+    name: 'Shoulders & Bodyweight',
+    moves: [
+      { name: 'Pike push ups', sets: 3, reps: 8, restSec: 75, cue: 'Overhead pressing simulation, lower head between hands.' },
+      { name: 'Pull ups', sets: 3, reps: 8, restSec: 90, cue: 'Pronated grip, pull chest to bar.' },
+      { name: 'Lateral raise', sets: 3, reps: 12, restSec: 60, cue: 'Lead with elbows, pause 1s at parallel.' },
+      { name: 'Face pull', sets: 3, reps: 12, restSec: 60, cue: 'External rotation, pull rope to eye level.' },
+      { name: 'Hanging knee raise', sets: 3, reps: 12, restSec: 45, cue: 'Strict pelvic tuck to burn lower abs.' },
+      { name: 'Plank', sets: 3, reps: 45, restSec: 45, defaultMode: 'time', targetSec: 45, cue: 'Solid serratus push-away hold.' },
+    ],
+  },
+  4: {
+    weekday: 4,
+    dayLabel: 'Thursday',
+    name: 'Athletic Legs',
+    moves: [
+      { name: 'Back squat', sets: 4, reps: 8, restSec: 120, cue: 'Drive out of the hole, knees tracking over toes.' },
+      { name: 'Walking lunge', sets: 3, reps: 12, restSec: 75, cue: 'Dynamic continuous strides across gym floor.' },
+      { name: 'Split squat', sets: 3, reps: 10, restSec: 60, cue: 'Unilateral quad endurance and depth.' },
+      { name: 'Calf raise', sets: 3, reps: 15, restSec: 45, cue: 'Explosive rise, deliberate 2s lowering.' },
+      { name: 'Hanging knee raise', sets: 3, reps: 12, restSec: 45, cue: 'Engage abs and stabilize hips.' },
+      { name: 'Glute bridge', sets: 3, reps: 15, restSec: 60, cue: 'Deep glute burn finisher.' },
+    ],
+  },
+  5: {
+    weekday: 5,
+    dayLabel: 'Friday',
+    name: 'Pull & Core Mastery',
+    moves: [
+      { name: 'Pull ups', sets: 4, reps: 8, restSec: 90, cue: 'Wide grip pull ups, squeeze lats hard at top.' },
+      { name: 'Seated cable row', sets: 3, reps: 10, restSec: 75, cue: 'Drive elbows back, proud chest.' },
+      { name: 'Push ups', sets: 3, reps: 15, restSec: 60, cue: 'Controlled horizontal push finisher.' },
+      { name: 'Dumbbell curl', sets: 3, reps: 10, restSec: 60, cue: 'Strict supinated bicep curls.' },
+      { name: 'Hammer curl', sets: 3, reps: 10, restSec: 60, cue: 'Neutral grip for forearm and brachialis density.' },
+      { name: 'Plank', sets: 3, reps: 60, restSec: 45, defaultMode: 'time', targetSec: 60, cue: 'Maximum tension 60s finisher.' },
+    ],
+  },
+}
+
+const GYM_HIIT: Record<WorkoutWeekday, WorkoutSession> = {
+  1: {
+    weekday: 1,
+    dayLabel: 'Monday',
+    name: 'Metabolic Weights Circuit',
+    moves: [
+      { name: 'Incline dumbbell press', sets: 4, reps: 10, restSec: 60, cue: 'Brisk controlled cadence, full stretch.' },
+      { name: 'Jump squat', sets: 4, reps: 12, restSec: 45, cue: 'Plyometric interval between upper body sets.' },
+      { name: 'Cable fly', sets: 3, reps: 12, restSec: 45, cue: 'Continuous tension on the chest.' },
+      { name: 'Seated cable row', sets: 3, reps: 12, restSec: 45, cue: 'Rapid rhythmic rows with solid back brace.' },
+      { name: 'Hanging knee raise', sets: 3, reps: 14, restSec: 45, cue: 'High-rep core conditioning.' },
+      { name: 'Lateral raise', sets: 3, reps: 12, restSec: 45, cue: 'Side delt pump with zero swing.' },
+    ],
+  },
+  2: {
+    weekday: 2,
+    dayLabel: 'Tuesday',
+    name: 'Lower Burn Circuit',
+    moves: [
+      { name: 'Leg press', sets: 4, reps: 12, restSec: 60, cue: 'Smooth piston-like reps, no lockout at knees.' },
+      { name: 'Walking lunge', sets: 3, reps: 14, restSec: 60, cue: 'Non-stop stride pace across gym floor.' },
+      { name: 'Romanian deadlift', sets: 3, reps: 10, restSec: 60, cue: 'Hamstring loading with tight flat back.' },
+      { name: 'Jump squat', sets: 3, reps: 10, restSec: 45, cue: 'Explosive legs finisher.' },
+      { name: 'Leg extension', sets: 3, reps: 12, restSec: 45, cue: 'Constant quad tension.' },
+      { name: 'Calf raise', sets: 3, reps: 20, restSec: 30, cue: 'Brisk calf pump.' },
+    ],
+  },
+  3: {
+    weekday: 3,
+    dayLabel: 'Wednesday',
+    name: 'Push-Pull HIIT',
+    moves: [
+      { name: 'Bench press', sets: 4, reps: 8, restSec: 60, cue: 'Explosive press off chest, controlled descent.' },
+      { name: 'Barbell row', sets: 4, reps: 8, restSec: 60, cue: 'Pull bar firmly into naval.' },
+      { name: 'Push ups', sets: 3, reps: 15, restSec: 45, cue: 'Rapid bodyweight push burner.' },
+      { name: 'Lat pulldown', sets: 3, reps: 10, restSec: 45, cue: 'Drive elbows to pockets.' },
+      { name: 'Hanging knee raise', sets: 3, reps: 12, restSec: 45, cue: 'Knees to chest, controlled drop.' },
+      { name: 'Tricep pushdown', sets: 3, reps: 12, restSec: 45, cue: 'Fast pump sets on cables.' },
+    ],
+  },
+  4: {
+    weekday: 4,
+    dayLabel: 'Thursday',
+    name: 'Lower Engine',
+    moves: [
+      { name: 'Back squat', sets: 4, reps: 8, restSec: 90, cue: 'Solid brace, quick power ascent.' },
+      { name: 'Leg curl', sets: 3, reps: 12, restSec: 45, cue: 'Squeeze hamstrings tightly.' },
+      { name: 'Bulgarian split squat', sets: 3, reps: 10, restSec: 60, cue: 'Unilateral leg stamina.' },
+      { name: 'Leg press', sets: 3, reps: 15, restSec: 60, cue: 'High-rep quad exhaust.' },
+      { name: 'Calf raise', sets: 3, reps: 20, restSec: 30, cue: 'Rapid calf burn.' },
+      { name: 'Glute bridge', sets: 3, reps: 15, restSec: 45, cue: 'Full terminal hip drive.' },
+    ],
+  },
+  5: {
+    weekday: 5,
+    dayLabel: 'Friday',
+    name: 'Full Body Blitz',
+    moves: [
+      { name: 'Deadlift', sets: 3, reps: 6, restSec: 90, cue: 'Total body power pull from floor.' },
+      { name: 'Overhead press', sets: 3, reps: 8, restSec: 60, cue: 'Strict pressing power.' },
+      { name: 'Walking lunge', sets: 3, reps: 12, restSec: 60, cue: 'Continuous movement rhythm.' },
+      { name: 'Cable fly', sets: 3, reps: 12, restSec: 45, cue: 'Hug the imaginary barrel.' },
+      { name: 'Dumbbell curl', sets: 3, reps: 10, restSec: 45, cue: 'Arms conditioning finish.' },
+      { name: 'Plank', sets: 3, reps: 60, restSec: 45, defaultMode: 'time', targetSec: 60, cue: 'Full body iron plank lock.' },
+    ],
+  },
+}
+
+const GYM_LEGS: Record<WorkoutWeekday, WorkoutSession> = {
+  1: {
+    weekday: 1,
+    dayLabel: 'Monday',
+    name: 'Heavy Quad & Glute',
+    moves: [
+      { name: 'Back squat', sets: 4, reps: 8, restSec: 120, cue: 'Deep hip hinge, knees outward, power through whole foot.' },
+      { name: 'Leg press', sets: 3, reps: 10, restSec: 90, cue: 'Feet high on platform for maximum glute recruitment.' },
+      { name: 'Bulgarian split squat', sets: 3, reps: 10, restSec: 75, cue: 'Elevate rear foot, sink deep into front glute pocket.' },
+      { name: 'Leg extension', sets: 3, reps: 12, restSec: 60, cue: 'Peak contraction quad squeeze at top.' },
+      { name: 'Walking lunge', sets: 3, reps: 12, restSec: 60, cue: 'Drive through front heel, chest upright.' },
+      { name: 'Calf raise', sets: 3, reps: 15, restSec: 45, cue: 'Pause 2 seconds at the peak of each raise.' },
+    ],
+  },
+  2: {
+    weekday: 2,
+    dayLabel: 'Tuesday',
+    name: 'Hamstring & Posterior',
+    moves: [
+      { name: 'Romanian deadlift', sets: 4, reps: 8, restSec: 120, cue: 'Push hips backward until deep hamstring tension is reached.' },
+      { name: 'Leg curl', sets: 4, reps: 12, restSec: 60, cue: 'Strict hamstring curls without lifting lower back.' },
+      { name: 'Glute bridge', sets: 4, reps: 15, restSec: 60, cue: 'Drive hips up into complete terminal glute squeeze.' },
+      { name: 'Bulgarian split squat', sets: 3, reps: 10, restSec: 75, cue: 'Unilateral glute & hamstring overload.' },
+      { name: 'Hip abductor', sets: 3, reps: 15, restSec: 45, cue: 'Squeeze outer hips and hold 1s.' },
+      { name: 'Calf raise', sets: 3, reps: 15, restSec: 45, cue: 'Slow 3-second descent for stretch.' },
+    ],
+  },
+  3: {
+    weekday: 3,
+    dayLabel: 'Wednesday',
+    name: 'Unilateral Leg Power',
+    moves: [
+      { name: 'Bulgarian split squat', sets: 3, reps: 10, restSec: 90, cue: 'Load front leg heavily, upright posture.' },
+      { name: 'Leg press', sets: 3, reps: 12, restSec: 75, cue: 'Single leg or standard leg press for volume.' },
+      { name: 'Walking lunge', sets: 3, reps: 12, restSec: 60, cue: 'Continuous locomotion with knee drive.' },
+      { name: 'Leg curl', sets: 3, reps: 12, restSec: 60, cue: 'Isolate hamstrings.' },
+      { name: 'Glute kickback', sets: 3, reps: 15, restSec: 45, cue: 'Cable or machine glute kickback.' },
+      { name: 'Calf raise', sets: 3, reps: 18, restSec: 45, cue: 'Explosive rise, deliberate slow descent.' },
+    ],
+  },
+  4: {
+    weekday: 4,
+    dayLabel: 'Thursday',
+    name: 'Heavy Lower Compound',
+    moves: [
+      { name: 'Deadlift', sets: 4, reps: 5, restSec: 150, cue: 'Maximum total lower posterior power from floor.' },
+      { name: 'Back squat', sets: 3, reps: 8, restSec: 120, cue: 'Solid braced core, break parallel with ease.' },
+      { name: 'Romanian deadlift', sets: 3, reps: 8, restSec: 90, cue: 'Controlled descent, feel hamstrings stretch.' },
+      { name: 'Leg press', sets: 3, reps: 12, restSec: 75, cue: 'Smooth pump sets to exhaust the quads.' },
+      { name: 'Leg extension', sets: 3, reps: 12, restSec: 60, cue: 'Quad burn out finisher.' },
+      { name: 'Calf raise', sets: 3, reps: 15, restSec: 45, cue: 'Full range of motion ankle pump.' },
+    ],
+  },
+  5: {
+    weekday: 5,
+    dayLabel: 'Friday',
+    name: 'Glute Pump & Conditioning',
+    moves: [
+      { name: 'Glute bridge', sets: 4, reps: 16, restSec: 60, cue: 'Barbell or bodyweight hip extension finisher.' },
+      { name: 'Romanian deadlift', sets: 3, reps: 10, restSec: 90, cue: 'Deep hamstring stretch and glute recruitment.' },
+      { name: 'Leg curl', sets: 3, reps: 12, restSec: 60, cue: 'Strict knee flexion without swinging hips.' },
+      { name: 'Hip abductor', sets: 3, reps: 15, restSec: 45, cue: 'Target upper glute medius.' },
+      { name: 'Walking lunge', sets: 3, reps: 12, restSec: 60, cue: 'Strides to burn out remaining leg reserves.' },
+      { name: 'Calf raise', sets: 3, reps: 20, restSec: 45, cue: 'Burnout set on the calves.' },
+    ],
+  },
+}
+
+const GYM_CORE_MOBILITY: Record<WorkoutWeekday, WorkoutSession> = {
+  1: {
+    weekday: 1,
+    dayLabel: 'Monday',
+    name: 'Spine & Core Strength',
+    moves: [
+      { name: 'Hanging knee raise', sets: 4, reps: 12, restSec: 45, cue: 'Posterior pelvic tilt to fire deep lower abs.' },
+      { name: 'Face pull', sets: 3, reps: 15, restSec: 60, cue: 'External shoulder rotation for posture health.' },
+      { name: 'Cable fly', sets: 3, reps: 12, restSec: 60, cue: 'Chest opening with controlled eccentric.' },
+      { name: 'Back extension', sets: 3, reps: 12, restSec: 45, cue: 'Articulate thoracic vertebrae with control.' },
+      { name: 'Lat pulldown', sets: 3, reps: 10, restSec: 60, cue: 'Decompress spine, stretch lats at top.' },
+      { name: 'Plank', sets: 3, reps: 45, restSec: 45, defaultMode: 'time', targetSec: 45, cue: 'Solid 45-second iron core brace.' },
+    ],
+  },
+  2: {
+    weekday: 2,
+    dayLabel: 'Tuesday',
+    name: 'Posterior Decompression',
+    moves: [
+      { name: 'Hanging knee raise', sets: 3, reps: 12, restSec: 45, cue: 'Hang freely from bar to decompress lower back.' },
+      { name: 'Romanian deadlift', sets: 3, reps: 8, restSec: 90, cue: 'Gentle hamstring and posterior chain stretch.' },
+      { name: 'Face pull', sets: 3, reps: 12, restSec: 60, cue: 'Pull rope toward eye level, separate thumbs.' },
+      { name: 'Back extension', sets: 3, reps: 12, restSec: 45, cue: 'Smooth spinal extension.' },
+      { name: 'Glute bridge', sets: 3, reps: 15, restSec: 45, cue: 'Activate glutes to unload the lumbar spine.' },
+      { name: 'Plank', sets: 3, reps: 40, restSec: 45, defaultMode: 'time', targetSec: 40, cue: 'Lock in core stability.' },
+    ],
+  },
+  3: {
+    weekday: 3,
+    dayLabel: 'Wednesday',
+    name: 'Torso Resilience',
+    moves: [
+      { name: 'Hanging knee raise', sets: 3, reps: 12, restSec: 45, cue: 'Control the descent, zero swing.' },
+      { name: 'Seated cable row', sets: 3, reps: 12, restSec: 60, cue: 'Retract shoulder blades, tall spine.' },
+      { name: 'Lateral raise', sets: 3, reps: 12, restSec: 60, cue: 'Shoulder stability and posture balance.' },
+      { name: 'Back extension', sets: 3, reps: 12, restSec: 45, cue: 'Full range erector spinae control.' },
+      { name: 'Calf raise', sets: 3, reps: 15, restSec: 45, cue: 'Ankle mobility and plantar flexion.' },
+      { name: 'Plank', sets: 3, reps: 45, restSec: 45, defaultMode: 'time', targetSec: 45, cue: 'Push floor away through active serratus.' },
+    ],
+  },
+  4: {
+    weekday: 4,
+    dayLabel: 'Thursday',
+    name: 'Shoulder & Hip Mobility',
+    moves: [
+      { name: 'Hanging knee raise', sets: 3, reps: 12, restSec: 45, cue: 'Strict pelvic tuck to activate lower abs.' },
+      { name: 'Incline dumbbell press', sets: 3, reps: 10, restSec: 60, cue: 'Deep stretch at bottom, open chest.' },
+      { name: 'Face pull', sets: 3, reps: 15, restSec: 60, cue: 'Fix forward-shoulder computer posture.' },
+      { name: 'Glute bridge', sets: 3, reps: 15, restSec: 45, cue: 'Open hip flexors at full extension.' },
+      { name: 'Romanian deadlift', sets: 3, reps: 8, restSec: 90, cue: 'Slow 3-second descent for hamstring flexibility.' },
+      { name: 'Plank', sets: 3, reps: 45, restSec: 45, defaultMode: 'time', targetSec: 45, cue: 'Solid full-body isometric tension.' },
+    ],
+  },
+  5: {
+    weekday: 5,
+    dayLabel: 'Friday',
+    name: 'Restorative Core',
+    moves: [
+      { name: 'Hanging knee raise', sets: 3, reps: 12, restSec: 45, cue: 'Slow controlled knees to chest.' },
+      { name: 'Barbell row', sets: 3, reps: 10, restSec: 60, cue: 'Reinforce strong thoracic posture.' },
+      { name: 'Back extension', sets: 3, reps: 12, restSec: 45, cue: 'Fluid spinal mobility.' },
+      { name: 'Face pull', sets: 3, reps: 12, restSec: 60, cue: 'Rear delt and rotator cuff strengthener.' },
+      { name: 'Calf raise', sets: 3, reps: 15, restSec: 45, cue: 'Full ankle stretch on step edge.' },
+      { name: 'Plank', sets: 3, reps: 50, restSec: 45, defaultMode: 'time', targetSec: 50, cue: 'Clean finishing core brace.' },
+    ],
+  },
+}
+
+export const WORKOUT_PROGRAM_MATRIX: Record<WorkoutPlace, Record<WorkoutCategory, Record<WorkoutWeekday, WorkoutSession>>> = {
+  home: {
+    strength: HOME,
+    calisthenics: HOME_CALISTHENICS,
+    hiit: HOME_HIIT,
+    legs: HOME_LEGS,
+    core_mobility: HOME_CORE_MOBILITY,
+  },
+  gym: {
+    strength: GYM,
+    calisthenics: GYM_CALISTHENICS,
+    hiit: GYM_HIIT,
+    legs: GYM_LEGS,
+    core_mobility: GYM_CORE_MOBILITY,
   },
 }
 
@@ -429,10 +790,10 @@ export const WORKOUT_PROGRAMS: Record<WorkoutPlace, Record<WorkoutWeekday, Worko
 
 export const WORKOUT_CATEGORY_PROGRAMS: Record<WorkoutCategory, Record<WorkoutWeekday, WorkoutSession>> = {
   strength: GYM,
-  calisthenics: HOME,
-  hiit: HIIT_PROGRAM,
-  legs: LEGS_GLUTES_PROGRAM,
-  core_mobility: CORE_MOBILITY_PROGRAM,
+  calisthenics: GYM_CALISTHENICS,
+  hiit: GYM_HIIT,
+  legs: GYM_LEGS,
+  core_mobility: GYM_CORE_MOBILITY,
 }
 
 export function isWorkoutCategory(value: unknown): value is WorkoutCategory {
@@ -533,12 +894,9 @@ export function programFor(
   category?: WorkoutCategory,
 ): WorkoutSession {
   const source: WorkoutWeekday = day === 6 ? 4 : day === 0 ? 5 : day
-  let full: WorkoutSession
-  if (category && category in WORKOUT_CATEGORY_PROGRAMS) {
-    full = WORKOUT_CATEGORY_PROGRAMS[category][source]
-  } else {
-    full = WORKOUT_PROGRAMS[place][source]
-  }
+  const placeKey: WorkoutPlace = place === 'home' ? 'home' : 'gym'
+  const catKey: WorkoutCategory = category && isWorkoutCategory(category) ? category : 'strength'
+  const full = WORKOUT_PROGRAM_MATRIX[placeKey][catKey][source]
   return { ...full, weekday: day, dayLabel: WORKOUT_DAY_LABELS_ALL[day] }
 }
 

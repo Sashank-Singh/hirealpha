@@ -162,5 +162,31 @@ describe('workout programs', () => {
       }
     }
   })
+
+  it('guarantees home and gym workouts are strictly different for every category', () => {
+    const gear = /\b(dumbbell|barbell|bench|cable|machine|goblet|kettle|smith|pulldown|pushdown)\b/i
+    for (const cat of WORKOUT_CATEGORIES) {
+      for (const day of WORKOUT_WEEKDAYS) {
+        const homeSession = workoutSession('home', day, 6, cat.id)
+        const gymSession = workoutSession('gym', day, 6, cat.id)
+        const homeMoveNames = homeSession.moves.map((m) => m.name)
+        const gymMoveNames = gymSession.moves.map((m) => m.name)
+
+        // Home and Gym must NEVER be the same moveset
+        expect(homeMoveNames).not.toEqual(gymMoveNames)
+
+        // Home workouts must never require gym gear
+        for (const move of homeSession.moves) {
+          expect(move.name).not.toMatch(gear)
+        }
+
+        // Gym workouts must have local demos for all moves
+        for (const move of gymSession.moves) {
+          const url = exerciseDemoUrl(move.name) ?? ''
+          expect(`gym:${cat.id}:${move.name}:${url}`).toMatch(/:\/workout\//)
+        }
+      }
+    }
+  })
 })
 
