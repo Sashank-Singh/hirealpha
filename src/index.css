@@ -6784,3 +6784,23 @@ a.brief-fact { cursor: pointer; }
 @media (max-width: 380px) {
   .mini .wk-days { grid-template-columns: repeat(4, 1fr); }
 }
+
+/* Resize-proof segmented controls: 1fr tracks floor at content min-width,
+ * which overflowed narrow viewports ('6 moves' chip, Done buttons). auto-fit
+ * with minmax(0,1fr) lets every track shrink below its content; cells wrap
+ * or ellipsize instead of clipping. */
+.mini .wk-places,
+.mini .wk-counts,
+.mini .wk-days {
+  grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
+}
+.mini .wk-place,
+.mini .wk-count,
+.mini .wk-day {
+  min-width: 0;
+  white-space: normal;
+  overflow: hidden;
+}
+.mini .wk-place > *, .mini .wk-count > *, .mini .wk-day > * {
+  max-width: 100%;
+}
