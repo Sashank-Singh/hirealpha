@@ -250,8 +250,24 @@ async function handleIncoming([space, message]: Incoming, combinedText?: string)
   }
 
   if (message.content.type !== 'text') {
-    // Non-text: a bare food photo, or an iMessage text+photo group.
+    // Non-text: a bare food photo, an iMessage text+photo group, or a location
+    // share ("You started sharing location with Alpha" rides the thread as a
+    // system bubble — acknowledge it instead of ignoring it silently).
     const senderId = message.sender?.id ?? space.id
+    const contentKind = (message.content as { type?: string; payload?: { type?: string } }).type || ''
+    if (contentKind === 'location' || (message.content as { location?: unknown }).location) {
+      try {
+        const reply = sanitizeOutbound("Got your location — I'll use it for nearby searches. What are we finding?")
+        if (reply) {
+          await space.responding(async () => {
+            await message.reply(reply)
+          })
+        }
+      } catch (err) {
+        console.warn(`[${agent.id}] location ack failed`, err)
+      }
+      return
+    }
     try {
       const photoReply = await handleInboundPhoto(senderId, agent.id, message.content)
       const photoText = extractMessageText(message.content)

@@ -282,7 +282,13 @@ function stripReasoning(text: string, returning = false): string {
     .slice(firstReal)
     .filter((p) => !isTheaterCopy(p))
     .map((p) => returning
-      ? p.replace(/^(?:(?:hey|hi|hello)[,!]?\s*)?(?:i'?m|i am|this is)\s+Alpha(?:\s*\((?:Coworker|CoFounder)\))?(?:\s+here)?(?:\s*,\s*your\s+[^.!?]+)?[.!?]\s*/i, '').trim()
+      ? p
+        // "Hey! I'm Alpha, your assistant. I can help with that. Let me..."
+        // — a full self-intro on a returning thread reads like amnesia, so
+        // cut the intro sentence(s) and keep the actual answer.
+        .replace(/^(?:hey!\s*)?i'?m alpha,? (?:your|their|the) (?:assistant|personal assistant|friend|hired friend)[^.!?]*[.!?]\s*/i, '')
+        .replace(/^(?:(?:hey|hi|hello)[,!]?\s*)?(?:i'?m|i am|this is)\s+Alpha(?:\s*\((?:Coworker|CoFounder)\))?(?:\s+here)?(?:\s*,\s*your\s+[^.!?]+)?[.!?]\s*/i, '')
+        .trim()
       : p)
     .map((p) => (returning ? p.replace(FIRST_MEET, '').replace(/\s{2,}/g, ' ').replace(/\s+([,.!?])/g, '$1').trim() : p))
     .map((p) =>
@@ -322,7 +328,20 @@ export function stripDashes(text: string): string {
 
 /** Last pass before any iMessage send. */
 export function sanitizeOutbound(text: string): string {
-  const cleaned = stripDashes(dropBannedTaglines(text))
+  // Stage acks ("I'm checking...") were never sent as bubbles but the model
+  // sometimes echoes them as its opener anyway. Cut leading ack noise.
+  const noAck = text.replace(
+    /^[ \t]*(?:(?:i['’]?m|i am) (?:checking|looking|pulling|searching|digging)[^.!?\n]*(?:for this|for you|now|it up)?[.!]?\s*\n?)+/i,
+    '',
+  )
+  // iMessage renders no markdown: **bold** / *italic* / `code` / ## headers
+  // arrive as literal characters. Strip the markup, keep the words.
+  const stripped = noAck
+    .replace(/\*\*(\S[^*]*?)\*\*/g, '$1')
+    .replace(/(^|\s)\*(\S[^*]*?)\*(?=\s|$|[.,!?])/g, '$1$2')
+    .replace(/(^|\s)(#{1,3})\s+/g, '$1')
+    .replace(/`([^`]*)`/g, '$1')
+  const cleaned = stripDashes(dropBannedTaglines(stripped))
   if (!cleaned || isBannedTagline(cleaned)) return ''
   return cleaned
 }
@@ -914,6 +933,13 @@ export async function runHireTurn(input: {
     if (live.location && (live.location.label_text || live.location.label)) {
       extras.push(
         `They gave a safe ${live.location.label} label: "${live.location.label_text || live.location.label}". When replying about nearby places, say you searched near that, not that we know their exact coordinates.`,
+      )
+    } else {
+      // No location on file: never dead-end a "near me" ask with a demand for
+      // their city. Use the ZIP/landmark in their message if present; only ask
+      // when truly missing, and offer the one-tap fix (set Home in the app).
+      extras.push(
+        'They have no saved location. If their message names a city, neighborhood, ZIP, or landmark, search near that — do NOT ask them to repeat it. Only if there is truly no location anywhere in the ask, ask once for a city or ZIP and mention they can save Home at hirealpha.chat/app for next time. Never say you cannot get their location.',
       )
     }
     const remembered = formatHireMemories(live.memories)

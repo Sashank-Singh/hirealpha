@@ -5383,6 +5383,71 @@ a.brief-fact { cursor: pointer; }
   color: var(--mini-accent, #2a6f7a);
 }
 .brief-prep-title { margin: 0; font-size: 18px; font-weight: 800; letter-spacing: -0.02em; }
+.brief-loading {
+  position: relative;
+  overflow: hidden;
+  padding: 18px;
+  border: 1px solid color-mix(in srgb, var(--mini-accent, #2a6f7a) 28%, var(--border));
+  border-radius: 18px;
+  background:
+    radial-gradient(circle at 94% 8%, color-mix(in srgb, var(--mini-accent, #2a6f7a) 16%, transparent), transparent 34%),
+    color-mix(in srgb, var(--card, var(--bg)) 96%, var(--mini-accent, #2a6f7a));
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.brief-loading::after {
+  content: '';
+  position: absolute;
+  width: 96px;
+  height: 96px;
+  right: -54px;
+  bottom: -62px;
+  border: 1px solid color-mix(in srgb, var(--mini-accent, #2a6f7a) 25%, transparent);
+  border-radius: 50%;
+}
+.brief-loading__top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.brief-loading__kicker,
+.brief-loading__count {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+.brief-loading__kicker { color: var(--mini-accent, #2a6f7a); }
+.brief-loading__count { color: var(--muted-fg); }
+.brief-loading__title {
+  margin: -4px 0 0;
+  max-width: 260px;
+  font-size: 21px;
+  line-height: 1.1;
+  letter-spacing: -0.035em;
+}
+.brief-loading__ellipsis { display: inline-block; animation: brief-loading-breathe 1.2s ease-in-out infinite; }
+.brief-loading__track {
+  height: 3px;
+  overflow: hidden;
+  border-radius: 99px;
+  background: color-mix(in srgb, var(--mini-accent, #2a6f7a) 12%, var(--border));
+}
+.brief-loading__track span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--mini-accent, #2a6f7a);
+  transition: width 0.45s ease;
+}
+.brief-loading__aside {
+  margin: -2px 0 0;
+  color: var(--muted-fg);
+  font-size: 12px;
+  line-height: 1.4;
+}
 /* Live "assistant at work" list shown while a brief/prep is gathering data. The
  * active step marches down the list, ticks a check, then loops — pending rows
  * are muted, the active one wears the accent, finished ones go subtle. */
@@ -5443,6 +5508,10 @@ a.brief-fact { cursor: pointer; }
   0%, 100% { transform: scale(1); opacity: 1; }
   50% { transform: scale(1.4); opacity: 0.5; }
 }
+@keyframes brief-loading-breathe {
+  0%, 100% { opacity: 0.35; transform: translateX(0); }
+  50% { opacity: 1; transform: translateX(2px); }
+}
 @media (prefers-reduced-motion: reduce) {
   .brief-activity-step,
   .brief-activity-mark {
@@ -5451,6 +5520,8 @@ a.brief-fact { cursor: pointer; }
   .brief-activity-dot {
     animation: none;
   }
+  .brief-loading__ellipsis { animation: none; }
+  .brief-loading__track span { transition: none; }
 }
 .brief-prep-text { margin: 0; white-space: pre-wrap; font-size: 14px; line-height: 1.5; }
 .brief-prep-chat {

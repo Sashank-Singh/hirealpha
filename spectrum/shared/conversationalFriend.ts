@@ -1,4 +1,5 @@
 import type { DeliveryHooks } from './progressiveDelivery'
+import { sanitizeOutbound } from './runHireTurn'
 import { getAgent } from '../../src/agents'
 import { formatNowForAgent, pickUserTimezone } from '../../deploy/timezones'
 import { gmiChat } from './gmi'
@@ -210,7 +211,9 @@ export async function runConversationalFriend(input: {
     maxSteps: 8,
   })
   if (outcome.draft && outcome.draft.type !== 'purchase' && outcome.draft.type !== 'browser') card = await mintMiniAppCard(senderId, 'friend', outcome.draft.type === 'event' ? 'pick_slot' : 'approve_send', { draft: outcome.draft.id })
-  let reply = outcome.reply.trim()
+  // Same outbound contract as the classic path: iMessage renders no
+  // markdown, so strip **/*/`/## before delivery; drop empty bubbles.
+  let reply = sanitizeOutbound(outcome.reply)
   if (paymentUrl && !reply.includes(paymentUrl)) reply += `\n${paymentUrl}`
   if (browserQueued) reply += '\nNothing runs until you approve it: https://hirealpha.chat/app/hires/friend?vault=1 — I\'ll report back here when the run finishes.'
   if (returning) reply = reply.replace(/^(?:(?:hey|hi|hello)[,!]?\s*)?(?:i'm|i am|this is)\s+Alpha(?:\s*,\s*your\s+[^.!?]+)?[.!?]\s*/i, '').trim()

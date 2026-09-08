@@ -11,6 +11,7 @@ import { applyMiniTheme, readMiniTheme } from './miniTheme'
 import { localYmd } from './home'
 import { apiSetupStatus } from './api'
 import type { ReplyDraft } from './api'
+import { BriefLoading } from './BriefLoading'
 
 
 // Download only the screen being opened; keep the surrounding navigation visible.
@@ -619,7 +620,7 @@ export function MiniAppPage() {
 
         {authed && !expired && !settingsOpen && isDigest && loading && (
           <div className="mini__body">
-            <p className="mini__blurb">Pulling your day together…</p>
+            <BriefLoading attempt={briefTries} />
           </div>
         )}
 
@@ -644,10 +645,7 @@ export function MiniAppPage() {
           * would look like a day with nothing in it. */}
         {authed && !expired && !settingsOpen && isDigest && !loading && !data?.error && data?.pending && (
           <div className="mini__body">
-            <p className="mini__blurb">Pulling your day together…</p>
-            {briefTries >= BRIEF_RETRY_MS.length && (
-              <p className="mini__blurb">First build of the day takes a minute. It will land here on its own.</p>
-            )}
+            <BriefLoading attempt={briefTries} />
             {briefTries >= BRIEF_RETRY_MS.length + 30 && (
               <button className="mini__btn" type="button" onClick={() => setBriefTries(0)}>
                 Try again
@@ -674,7 +672,7 @@ export function MiniAppPage() {
 
         {authed && !expired && !settingsOpen && isLiveMini && !isDigest && loading && (
           <div className="mini__body">
-            <p className="mini__blurb">Working it out…</p>
+            {isEveningBrief ? <BriefLoading evening attempt={briefTries} /> : <p className="mini__blurb">Working it out…</p>}
           </div>
         )}
 
@@ -689,10 +687,7 @@ export function MiniAppPage() {
           * BriefApp would read as an evening with nothing in it. */}
         {authed && !expired && !settingsOpen && isEveningBrief && !loading && !mini?.error && mini?.pending && (
           <div className="mini__body">
-            <p className="mini__blurb">{mini.note || 'Closing out your day…'}</p>
-            {briefTries >= BRIEF_RETRY_MS.length && (
-              <p className="mini__blurb">First build of the day takes a minute. It will land here on its own.</p>
-            )}
+            <BriefLoading evening attempt={briefTries} />
             {briefTries >= BRIEF_RETRY_MS.length + 30 && (
               <button className="mini__btn" type="button" onClick={() => setBriefTries(0)}>
                 Try again
