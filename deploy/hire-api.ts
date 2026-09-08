@@ -12815,17 +12815,28 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
       email?: string
       token?: string
       session?: string
+      workoutPlace?: string
+      workoutMoveCount?: number
       workoutDays?: number[]
       sleepBedtime?: string
       sleepWake?: string
     }
+    const cookieSession = (req.headers.get('cookie') || '')
+      .split(';')
+      .map((v) => v.trim())
+      .find((v) => v.startsWith('hirealpha_session='))
+      ?.slice('hirealpha_session='.length)
     const { user, error } = await resolveAuthedUser(sql, {
       token: body.token,
-      session: body.session,
+      session: body.session || cookieSession || undefined,
       email: body.email,
     })
     if (error) return error
     const patch: Partial<MiniPrefs> = {}
+    if (body.workoutPlace === 'home' || body.workoutPlace === 'gym') patch.workoutPlace = body.workoutPlace
+    if (body.workoutMoveCount === 4 || body.workoutMoveCount === 5 || body.workoutMoveCount === 6) {
+      patch.workoutMoveCount = body.workoutMoveCount
+    }
     if (Array.isArray(body.workoutDays)) patch.workoutDays = body.workoutDays
     if (typeof body.sleepBedtime === 'string' && body.sleepBedtime.trim()) {
       patch.sleepBedtime = body.sleepBedtime.trim().slice(0, 5)
