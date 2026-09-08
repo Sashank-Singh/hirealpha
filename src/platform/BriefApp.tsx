@@ -35,7 +35,6 @@ import {
   type NeedsYouItem,
 } from './briefStory'
 import { duePeopleFrom, localYmd, pickLastNight } from './home'
-import { isPersonMeetSuggestion } from './peopleMeets'
 import { BriefLoading } from './BriefLoading'
 
 export type BriefPayload = {
@@ -51,6 +50,7 @@ export type BriefPayload = {
   /** The work personas' thread slice: Linear/PRs/drafts or pipeline/decisions/runway. */
   work?: Array<{ title: string; lines: string[] }> | { sections: Array<{ title: string; lines: string[] }> }
   reminders?: Array<{ id?: string; time?: string; text?: string }>
+  loops?: string[]
   tomorrow?: string[]
   story?: BriefStory
   /** Today's soonest meetings, soonest first. Optional until the server ships it. */
@@ -58,6 +58,7 @@ export type BriefPayload = {
   /** The one email that needs a human now, or null. Optional until the server ships it. */
   attention?: { id: string; label: string; snippet?: string; why: string } | null
   error?: string
+  revalidating?: boolean
   /* Free-tier rationing served a stale-but-same-day payload on purpose. The
    * brief still paints (the data is real), but the UI shows a "refreshes used
    * up" line so the user knows to upgrade. */
@@ -102,7 +103,7 @@ function mailBits(label: string) {
 }
 
 function beatsFromToday(today: NetworkToday[]): BriefBeat[] {
-  return today.filter(isPersonMeetSuggestion).map((e) => ({
+  return today.map((e) => ({
     time: e.time,
     name: e.who || e.title,
     kind: e.kind || 'Meeting',
@@ -548,7 +549,7 @@ function DayClosed({
               className={`brief-habit ${h.done ? 'brief-habit--done' : ''}`}
               onClick={() => void toggle(h)}
             >
-              <span className="brief-habit-mark">{h.done ? '✓' : h.emoji || '·'}</span>
+              <span className="brief-habit-mark">{h.done ? '✓' : '·'}</span>
               {h.name}
             </button>
           ))}
@@ -713,7 +714,40 @@ export function BriefApp({
   }, [auth.email, auth.token, auth.persona])
 
   useEffect(() => {
-    setNeedsYou(data?.story?.needsYou || data?.needsYou || [])
+    const raw = data?.story?.needsYou || data?.needsYou || []
+    // Promote any reply group items from mailGroups so emails needing reply are never buried in bottom trays
+    const replyGroup = (data?.story?.mailGroups || data?.mailGroups || []).find((g) => g.kind === 'reply')
+    const replyItems: NeedsYouItem[] = (replyGroup?.items || []).map((m) => ({
+      id: m.id,
+      label: m.label,
+      snippet: m.snippet,
+      score: 90,
+      reasons: ['waiting_on_you'],
+    }))
+
+    const PROMO_OR_STATUS =
+      /\b(free ticket|claim your|webinar|discount|sale|deal|save \d+%|coupon|exclusive offer|invitation to join|last chance to|expires? soon|special offer|order confirm(?:ed|ation)|receipt for|payment received|thank you for applying|application (?:status|update)|reviewing your application|unfortunately|not moving forward|thank you for your order)\b/i
+    const AUTOMATED_FROM =
+      /\b(no[-_]?reply|donotreply|notifications?|mailer[-_]?daemon|newsletter|marketing|promotions?|recruiting|updates?@|team@)\b/i
+
+    const seenIds = new Set<string>()
+    const combined: NeedsYouItem[] = []
+    for (const item of [...raw, ...replyItems]) {
+      const idKey = item.id || item.label
+      if (idKey && !seenIds.has(idKey)) {
+        seenIds.add(idKey)
+        combined.push(item)
+      }
+    }
+
+    const cleaned = combined.filter((item) => {
+      const text = `${item.label || ''} ${item.snippet || ''}`
+      const from = mailBits(item.label).from
+      if (AUTOMATED_FROM.test(from)) return false
+      if (PROMO_OR_STATUS.test(text)) return false
+      return true
+    })
+    setNeedsYou(cleaned)
   }, [data])
 
   useEffect(() => {
@@ -725,18 +759,43 @@ export function BriefApp({
   }, [evening])
 
   const story = data?.story
+  const fromCalendar: BriefBeat[] = (data?.calendar || []).map((line) => {
+    const parts = line.split(' · ')
+    return {
+      time: parts[0] || '',
+      name: parts[1] || line,
+      kind: parts[2] || 'Meeting',
+    }
+  })
   const fromNet = beatsFromToday(todayMeets)
-  const beats = (story?.beats && story.beats.length ? story.beats : fromNet)
-  const facts: BriefFact[] = story?.factLine || data?.factLine || []
+  // Merge all calendar events from story, digest calendar, and network today to guarantee full-day schedule
+  const allBeatsMap = new Map<string, BriefBeat>()
+  for (const b of [...(story?.beats || []), ...fromCalendar, ...fromNet]) {
+    if (!b.name || !b.name.trim()) continue
+    const key = `${(b.time || '').toLowerCase().trim()}|${b.name.toLowerCase().trim()}`
+    if (!allBeatsMap.has(key)) {
+      allBeatsMap.set(key, b)
+    }
+  }
+  const beats = Array.from(allBeatsMap.values()).sort((a, b) => {
+    const ma = beatMinutes(a.time)
+    const mb = beatMinutes(b.time)
+    if (ma < 0 && mb >= 0) return -1
+    if (mb < 0 && ma >= 0) return 1
+    return ma - mb
+  })
+  const loops = (data?.loops || []).filter(Boolean)
+  const rawFacts: BriefFact[] = story?.factLine || data?.factLine || []
   const groups: BriefMailGroup[] = story?.mailGroups?.length
     ? story.mailGroups
     : data?.mailGroups?.length
       ? data.mailGroups
       : []
-  // Morning gets piles from the digest payload; evening from pick_night.
-  const mailPiles: BriefMailGroup[] = isEvening ? (evening?.mailGroups || []) : groups
+  // Filter out 'reply' from sub-trays because they are elevated to the top Action Required section!
+  const rawPiles: BriefMailGroup[] = isEvening ? (evening?.mailGroups || []) : groups
+  const mailPiles: BriefMailGroup[] = rawPiles.filter((g) => g.kind !== 'reply')
   const work = Array.isArray(data?.work) ? data.work : data?.work?.sections || []
-  const tally = story?.mailTally || data?.mailTally || ''
+  const tally = mailPiles.map((g) => `${g.count} ${g.label.toLowerCase()}`).join(' · ')
   const due = story?.due?.length ? story.due : duePeopleFrom(people)
   const lastNight = pickLastNight(nights, localYmd())
   const later = (story?.later?.length ? story.later : data?.tomorrow || []).slice(0, 2)
@@ -774,7 +833,33 @@ export function BriefApp({
   const leadTitle =
     doCard?.kind === 'prep' && doCard.prepName
       ? `Get prepped for ${firstName(doCard.prepName)}.`
-      : story?.lead || 'Your day'
+      : beats.length > 1
+        ? `${nextBeat ? nextBeat.name : beats[0]?.name} at ${nextBeat ? nextBeat.time : beats[0]?.time} (+${beats.length - 1} more events)`
+        : beats.length === 1
+          ? `${beats[0]?.name} at ${beats[0]?.time}`
+          : story?.lead || 'Your day'
+
+  const actionFact: BriefFact | null =
+    needsYou.length > 0
+      ? {
+          key: 'action-emails',
+          text: `${needsYou.length} to reply`,
+          state: 'ok',
+        }
+      : null
+  const scheduleFact: BriefFact | null =
+    beats.length > 0
+      ? {
+          key: 'today-schedule',
+          text: `${beats.length} event${beats.length === 1 ? '' : 's'}`,
+          state: 'ok',
+        }
+      : null
+  const facts: BriefFact[] = [
+    ...(actionFact ? [actionFact] : []),
+    ...(scheduleFact ? [scheduleFact] : []),
+    ...rawFacts.filter((f) => !/reply|event/i.test(f.text)),
+  ]
 
   // Evening sections come from the pick_night payload headings.
   const eveSection = (heading: string) => evening?.sections?.find((s) => s.heading === heading)
@@ -864,12 +949,14 @@ export function BriefApp({
 
       {!isEvening && <FactStrip facts={facts} />}
 
-      <DoCard
-        card={doCard}
-        creds={creds}
-        onOpenMailId={() => openFirstMail()}
-        miniLink={miniLink}
-      />
+      {doCard && doCard.kind !== 'mail' && (
+        <DoCard
+          card={doCard}
+          creds={creds}
+          onOpenMailId={() => openFirstMail()}
+          miniLink={miniLink}
+        />
+      )}
 
       {isEvening && evening?.dayScore && (
         <p className="brief-score">
@@ -907,29 +994,68 @@ export function BriefApp({
         </section>
       )}
 
-      {!isEvening && beats.length > 0 && (
-        <section className="brief-block">
-          <h3 className="brief-label">The day</h3>
-          <ol className="brief-day">
-            {beats.map((b, i) => {
-              const mins = beatMinutes(b.time)
-              const past = mins >= 0 && mins < nowMinutes - 5
-              return (
-                <li key={`${b.time}-${b.name}-${i}`} className={past ? 'brief-day--past' : undefined}>
-                  <span className="brief-day-time">{b.time}</span>
-                  <span className="brief-day-name">{b.name}</span>
-                  {b.kind && b.kind !== 'Meeting' ? <span className="brief-day-kind">{b.kind}</span> : null}
-                  {!past && (
-                    <button className="brief-tap" type="button" onClick={() => setPrepName(b.name)}>
-                      Prep
-                    </button>
-                  )}
-                </li>
-              )
-            })}
-          </ol>
-        </section>
-      )}
+      {/* Full-Day Calendar & Priority Email Triage */}
+      <div className="brief-split-layout">
+        {!isEvening && (
+          <section className="brief-block brief-calendar-block">
+            <div className="brief-block-head">
+              <h3 className="brief-label">The day · Schedule</h3>
+              <span className="brief-count-pill">{beats.length} event{beats.length === 1 ? '' : 's'}</span>
+            </div>
+            {beats.length > 0 ? (
+              <ol className="brief-day">
+                {beats.map((b, i) => {
+                  const mins = beatMinutes(b.time)
+                  const past = mins >= 0 && mins < nowMinutes - 5
+                  const isNext = !past && b === nextBeat
+                  return (
+                    <li key={`${b.time}-${b.name}-${i}`} className={past ? 'brief-day--past' : isNext ? 'brief-day--next' : undefined}>
+                      <span className="brief-day-time">{b.time}</span>
+                      <div className="brief-day-info">
+                        <span className="brief-day-name">{b.name}</span>
+                        {b.kind && b.kind !== 'Meeting' ? <span className="brief-day-kind">{b.kind}</span> : null}
+                      </div>
+                      {!past && (
+                        <button className="brief-tap brief-tap--prep" type="button" onClick={() => setPrepName(b.name)}>
+                          Prep
+                        </button>
+                      )}
+                    </li>
+                  )
+                })}
+              </ol>
+            ) : (
+              <p className="brief-empty-note">No scheduled meetings today.</p>
+            )}
+          </section>
+        )}
+
+        {(needsYou.length > 0 || (isEvening && eveMail.length > 0)) && (
+          <section className="brief-block brief-actions-block">
+            <div className="brief-block-head">
+              <h3 className="brief-label">Action Required · Needs Reply</h3>
+              <span className="brief-count-pill">{needsYou.length} to reply</span>
+            </div>
+            <ul className="brief-asks">
+              {isEvening
+                ? eveMail.map((e) => (
+                    <PileRow key={e.id || e.label} e={e} creds={creds} onOpenMail={onOpenMail} onOpenDraft={onOpenDraft} notify={notify} />
+                  ))
+                : needsYou.map((item) => (
+                    <NeedsYouRow
+                      key={item.id}
+                      item={item}
+                      creds={creds}
+                      onOpenMail={onOpenMail}
+                      onOpenDraft={onOpenDraft}
+                      onGone={() => setNeedsYou((prev) => prev.filter((x) => x.id !== item.id))}
+                      notify={notify}
+                    />
+                  ))}
+            </ul>
+          </section>
+        )}
+      </div>
 
       {work.length > 0 && (
         <section className="brief-block">
@@ -947,25 +1073,19 @@ export function BriefApp({
         </section>
       )}
 
-      {(needsYou.length > 0 || (isEvening && eveMail.length > 0)) && (
+      {!isEvening && loops.length > 0 && (
         <section className="brief-block">
-          <h3 className="brief-label">Needs you{needsYou.length ? ` · ${needsYou.length}` : ''}</h3>
-          <ul className="brief-asks">
-            {isEvening
-              ? eveMail.map((e) => (
-                  <PileRow key={e.id || e.label} e={e} creds={creds} onOpenMail={onOpenMail} onOpenDraft={onOpenDraft} notify={notify} />
-                ))
-              : needsYou.map((item) => (
-                  <NeedsYouRow
-                    key={item.id}
-                    item={item}
-                    creds={creds}
-                    onOpenMail={onOpenMail}
-                    onOpenDraft={onOpenDraft}
-                    onGone={() => setNeedsYou((prev) => prev.filter((x) => x.id !== item.id))}
-                    notify={notify}
-                  />
-                ))}
+          <div className="brief-block-head">
+            <h3 className="brief-label">Today's Focus & Promises</h3>
+            <span className="brief-count-pill">{loops.length}</span>
+          </div>
+          <ul className="brief-loops">
+            {loops.map((l, i) => (
+              <li key={i} className="brief-loop-item">
+                <span className="brief-loop-dot" />
+                <span className="brief-loop-text">{l}</span>
+              </li>
+            ))}
           </ul>
         </section>
       )}
@@ -1045,7 +1165,7 @@ export function BriefApp({
         </section>
       )}
 
-      {attention && (
+      {attention && !/receipt|paid|bill|order confirmation|thank you/i.test(`${attention.label} ${attention.snippet || ''} ${attention.why || ''}`) && (
         <section className="brief-block">
           <button
             className={attentionTappable ? 'brief-att brief-att--tap' : 'brief-att'}
@@ -1062,15 +1182,28 @@ export function BriefApp({
 
       {mailPiles.length > 0 && (
         <section className="brief-block">
-          <h3 className="brief-label">Mail</h3>
-          {tally ? <p className="brief-mail-tally">{tally}</p> : null}
+          <div className="brief-block-head">
+            <h3 className="brief-label">Inbox Sub-trays</h3>
+            {tally ? <span className="brief-count-pill">{tally}</span> : null}
+          </div>
           <div className="brief-piles">
             {mailPiles.map((g) => {
               const open = openPiles.has(g.kind)
+              const kindTag =
+                g.kind === 'money' || g.kind === 'receipt'
+                  ? 'RECEIPT'
+                  : g.kind === 'thanks'
+                    ? 'THANKS'
+                    : g.kind === 'promo' || g.kind === 'marketing'
+                      ? 'PROMO'
+                      : 'UPDATE'
               return (
                 <div key={g.kind} className="brief-pile">
                   <button className="brief-pile-head" type="button" onClick={() => togglePile(g.kind)}>
-                    <span>{mailGroupHeading(g.kind, g.count, g.label)}</span>
+                    <span className="brief-pile-title-wrap">
+                      <span className="brief-pile-tag">{kindTag}</span>
+                      <span>{mailGroupHeading(g.kind, g.count, g.label)}</span>
+                    </span>
                     <span className="brief-pile-caret">{open ? '▾' : '▸'}</span>
                   </button>
                   {open && (
