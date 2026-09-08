@@ -6785,6 +6785,21 @@ a.brief-fact { cursor: pointer; }
   .mini .wk-days { grid-template-columns: repeat(4, 1fr); }
 }
 
+/* ── Narrow screens (and narrow desktop tabs): fit, don't clip. ── */
+@media (max-width: 430px) {
+  .mini { padding-left: 14px; padding-right: 14px; }
+  .mini.hA-screen .mini__head { padding-inline: 12px; gap: 8px; }
+  .mini.hA-screen .mini__card { max-width: none; }
+  /* Vitals 2×2 collapses to one column when the halves can't hold their
+   * content ("12:00 AM to 7:00 AM", legend rows). */
+  .mini .hA-vitals { grid-template-columns: 1fr; }
+  /* Nowrap is a desktop luxury; below 430px text wraps so nothing runs
+   * past the right edge (Settings chip, Open workout, spend legend). */
+  .mini .hA-screen * { white-space: normal; }
+  /* Quick-apps tile row: tiles shrink equally instead of overflowing. */
+  .mini .hA-quickapps { grid-template-columns: repeat(auto-fit, minmax(60px, 1fr)); }
+}
+
 /* Resize-proof segmented controls: 1fr tracks floor at content min-width,
  * which overflowed narrow viewports ('6 moves' chip, Done buttons). auto-fit
  * with minmax(0,1fr) lets every track shrink below its content; cells wrap
@@ -6803,4 +6818,18 @@ a.brief-fact { cursor: pointer; }
 }
 .mini .wk-place > *, .mini .wk-count > *, .mini .wk-day > * {
   max-width: 100%;
+}
+
+/* Column-flex .mini + margin:auto on the card lets wide content stretch the
+ * card past the viewport (auto margins size the item to content). Force the
+ * card to the container width; the centered look returns on wide screens. */
+.mini.hA-screen { align-items: stretch; }
+.mini.hA-screen .mini__card { width: 100%; margin: 0; }
+.mini.hA-screen .mini__card > * { min-width: 0; }
+
+/* Narrow: stack the spend donut above its legend so labels aren't crushed. */
+@media (max-width: 430px) {
+  .mini .hA-screen .spend-donut { flex-direction: column !important; align-items: center !important; gap: 10px !important; }
+  .mini .hA-screen .spend-donut .spend-donut-key { width: 100%; }
+  .mini .spend-donut .spend-legend { width: 100%; }
 }
