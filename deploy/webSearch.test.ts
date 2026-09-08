@@ -2,6 +2,17 @@ import { describe, expect, it } from 'bun:test'
 import { fetchPageText, parseBingRss, parseDuckDuckGoResults, parseYahooResults, searchWeb, webSearchContext } from './webSearch'
 
 describe('web search evidence', () => {
+  it('does not let fast off-topic results cancel a relevant provider', async () => {
+    const results = await searchWeb('94109 San Francisco restaurants official menu address', 5, (async input => {
+      if (String(input).includes('bing.com')) return new Response('<rss><channel><item><title>94109 San Francisco homes for sale</title><link>https://example.com/homes</link><description>San Francisco real estate in 94109.</description></item></channel></rss>')
+      if (String(input).includes('html.duckduckgo.com')) {
+        await new Promise(resolve => setTimeout(resolve, 20))
+        return new Response('<a class="result__a" href="https://sorellasf.com/">Sorella Restaurant</a><a class="result__snippet">Italian restaurant in San Francisco 94109.</a>')
+      }
+      return new Response('blocked', { status: 403 })
+    }) as typeof fetch)
+    expect(results.map(r => r.url)).toEqual(['https://sorellasf.com/'])
+  })
   it('reads Bing RSS titles, links and descriptions', () => {
     const xml = `<?xml version="1.0"?><rss><channel><item><title>Official event</title><link>https://example.com/event</link><description>September 9 &amp; streaming live.</description></item><item><title>Official event</title><link>https://example.com/event</link><description>Dupe.</description></item></channel></rss>`
     expect(parseBingRss(xml)).toEqual([{ title: 'Official event', url: 'https://example.com/event', snippet: 'September 9 & streaming live.' }])

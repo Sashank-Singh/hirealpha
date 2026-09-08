@@ -44,7 +44,7 @@ describe('browser job queue', () => {
     expect(JSON.stringify(insert.values)).toContain('click')
   })
 
-  it('claim resets stale running rows and returns claimed jobs', async () => {
+  it('claim fails stale running rows and requires a fresh, scoped, unused approval', async () => {
     const { sql, queries } = fakeSql((text) =>
       /RETURNING id, user_id/i.test(text)
         ? [{ id: 'j1', userId: USER, persona: 'friend', phone: null, kind: 'task', url: 'https://x.com', steps: null, goal: null, status: 'running', attempts: 1, result: null, error: null }]
@@ -55,8 +55,13 @@ describe('browser job queue', () => {
     expect(jobs[0]!.kind).toBe('task')
     const stale = queries.find((q) => /status = 'running' AND claimed_at/i.test(q.text))
     expect(stale).toBeTruthy()
-    const claim = queries.find((q) => /FOR UPDATE SKIP LOCKED/i.test(q.text))
+    expect(stale!.text).toContain("status = 'failed'")
+    const claim = queries.find((q) => /FOR UPDATE OF j SKIP LOCKED/i.test(q.text))
     expect(claim!.text).toContain('attempts < 3')
+    expect(claim!.text).toContain('a.user_id = j.user_id')
+    expect(claim!.text).toContain('a.consumed_at IS NULL')
+    expect(claim!.text).toContain("interval '10 minutes'")
+    expect(claim!.text).toContain('a.origin = substring')
   })
 
   it('finish: done closes the row; failure without retry marks failed', async () => {

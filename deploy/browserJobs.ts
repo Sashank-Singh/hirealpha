@@ -25,6 +25,7 @@ export type BrowserJobRow = {
   attempts: number
   result: string | null
   error: string | null
+  approval_id: string | null
 }
 
 export async function ensureBrowserJobsSchema(sql: SQL): Promise<void> {
@@ -47,6 +48,8 @@ export async function ensureBrowserJobsSchema(sql: SQL): Promise<void> {
       finished_at TIMESTAMPTZ
     )
   `
+  await sql`ALTER TABLE hire_browser_jobs ADD COLUMN IF NOT EXISTS approval_id UUID`
+  await sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_hire_browser_jobs_approval ON hire_browser_jobs (approval_id) WHERE approval_id IS NOT NULL`
   await sql`CREATE INDEX IF NOT EXISTS idx_hire_browser_jobs_status ON hire_browser_jobs (status, created_at)`
 }
 
@@ -60,21 +63,25 @@ export async function enqueueBrowserJob(
     url: string
     steps?: PortalStep[] | null
     goal?: string | null
+    approvalId?: string | null
   },
 ): Promise<string> {
+  const target = new URL(input.url)
+  if (target.protocol !== 'https:' || target.username || target.password) throw new Error('Browser target must be a public HTTPS URL without embedded credentials.')
   const id = randomUUID()
   await sql`
     INSERT INTO hire_browser_jobs (id, user_id, persona, phone_e164, kind, url, steps, goal, status, approval_id)
-    VALUES (${id}, ${input.userId}, ${input.persona}, ${input.phone}, ${input.kind}, ${input.url},
+    VALUES (${id}, ${input.userId}, ${input.persona}, ${input.phone}, ${input.kind}, ${target.href},
       ${input.steps ? JSON.stringify(input.steps) : null}::jsonb, ${input.goal ?? null}, 'pending', ${input.approvalId ?? null})
   `
   return id
 }
 
-/** Worker claim: stale running rows (>5 min) go back to pending, then SKIP LOCKED. */
+/** Claim only fresh approvals scoped to this user and origin. Interrupted jobs
+ * fail with an unknown outcome instead of automatically repeating side effects. */
 export async function claimBrowserJobs(sql: SQL, limit: number): Promise<BrowserJobRow[]> {
   await sql`
-    UPDATE hire_browser_jobs SET status = 'pending', claimed_at = NULL
+    UPDATE hire_browser_jobs SET status = 'failed', error = 'Worker interrupted; outcome unknown. Review before retrying.', finished_at = now()
     WHERE status = 'running' AND claimed_at < now() - interval '5 minutes'
   `
   // Ask-first sweep: a denied approval kills its queued job; an unapproved one waits.
@@ -87,14 +94,16 @@ export async function claimBrowserJobs(sql: SQL, limit: number): Promise<Browser
     UPDATE hire_browser_jobs SET status = 'running', attempts = attempts + 1, claimed_at = now()
     WHERE id IN (
       SELECT j.id FROM hire_browser_jobs j
-      LEFT JOIN hire_browser_approvals a ON a.id = j.approval_id
+      JOIN hire_browser_approvals a ON a.id = j.approval_id AND a.user_id = j.user_id AND a.persona = j.persona
       WHERE j.status = 'pending' AND j.attempts < 3
-        AND (j.approval_id IS NULL OR a.status = 'approved')
+        AND a.status = 'approved' AND a.consumed_at IS NULL
+        AND a.created_at > now() - interval '10 minutes'
+        AND a.origin = substring(j.url from '^https://[^/]+')
       ORDER BY j.created_at ASC
       LIMIT ${limit}
-      FOR UPDATE SKIP LOCKED
+      FOR UPDATE OF j SKIP LOCKED
     )
-    RETURNING id, user_id AS "userId", persona, phone_e164 AS phone, kind, url, steps, goal, status, attempts, result, error
+    RETURNING id, user_id, persona, phone_e164, kind, url, steps, goal, status, attempts, result, error, approval_id
   `) as unknown as BrowserJobRow[]
   return rows
 }

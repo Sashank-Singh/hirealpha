@@ -96,7 +96,7 @@ export function NextMoveApp({ auth }: { auth: FeatureAuth }) {
           <span className="ma-callout-kicker">{top.kicker}</span>
           <strong>{top.title}</strong>
           {top.hint && <span className="ma-sub">{top.hint}</span>}
-          <div className="ma-callout-actions">
+          <div className="ma-callout-actions ma-callout-actions--fit">
             <ActionButtons
               item={top}
               persona={auth.persona}

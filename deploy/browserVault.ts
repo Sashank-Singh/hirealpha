@@ -547,9 +547,7 @@ export async function handleVaultApi(req: Request, sql: SQL, deps: VaultDeps): P
     }
 
     if (process.env.HIREALPHA_BROWSER_WORKER === '1') {
-      // The tap burns the approval: one session (its retries included).
-      const gate = await consumeBrowserApproval(sql, user.id, live.id, entry.origin)
-      if (gate !== 'ok') return json({ ok: false, error: 'approval_required', detail: gate }, 409)
+      // The worker consumes this one-time approval immediately before launch.
       const phone = (await sql`SELECT phone_e164 FROM hire_users WHERE id = ${user.id} LIMIT 1`) as unknown as Array<{ phone_e164: string | null }>
       const jobId = await enqueueBrowserJob(sql, {
         userId: user.id,
@@ -559,6 +557,7 @@ export async function handleVaultApi(req: Request, sql: SQL, deps: VaultDeps): P
         url: entry.origin,
         steps,
         goal: goal ?? null,
+        approvalId: live.id,
       })
       return json({ ok: false, queued: true, jobId, error: 'queued', message: 'Running on the browser worker — the result lands in your thread.' }, 202)
     }

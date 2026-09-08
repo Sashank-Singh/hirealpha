@@ -1,5 +1,18 @@
 export type WebSearchResult = { title: string; url: string; snippet: string }
 
+/** A provider returning HTML successfully is not enough: reject obvious topic
+ * misses before it can win the race and abort the other providers. */
+function relevantResults(query: string, rows: WebSearchResult[]): WebSearchResult[] {
+  const ignored = new Set('a an the in at on for of to and or near me can you find search best nice good official website websites menu address latest please'.split(' '))
+  const terms = [...new Set(query.toLowerCase().match(/[a-z0-9]+/g) || [])].filter(t => t.length > 2 && !ignored.has(t))
+  const dining = /\b(?:restaurants?|dining|dinner|cafes?|ristorante|pizzeria)\b/i.test(query)
+  return rows.filter(row => {
+    const content = `${row.title} ${row.snippet} ${row.url}`.toLowerCase()
+    if (dining && !/\b(?:restaurants?|dining|dinner|cafes?|ristorante|bistro|pizzeria|steakhouse|seafood|italian|sushi)\b/i.test(content)) return false
+    return !terms.length || terms.filter(t => content.includes(t.replace(/s$/, ''))).length >= Math.min(3, Math.ceil(terms.length / 2))
+  })
+}
+
 const UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36'
 
 function plain(value: string): string {
@@ -103,13 +116,13 @@ export function parseDuckDuckGoResults(html: string, limit = 6): WebSearchResult
 /** Open a recommended URL and extract readable text. Returns null when the
  * page blocks bots, fails, or yields nothing — never fabricated content.
  * Bounded: 12s timeout, ~4000 characters, HTML junk stripped. */
-export async function fetchPageText(rawUrl: string, request: typeof fetch = fetch): Promise<string | null> {
+export async function fetchPageText(rawUrl: string, request: typeof fetch = fetch, timeoutMs = 12000): Promise<string | null> {
   const url = validUrl(rawUrl)
   if (!url) return null
   try {
     const response = await request(url, {
       headers: { 'User-Agent': UA, Accept: 'text/html' },
-      signal: AbortSignal.timeout(12000),
+      signal: AbortSignal.timeout(timeoutMs),
       redirect: 'follow',
     })
     if (!response.ok) return null
@@ -164,7 +177,7 @@ export async function searchWeb(query: string, limit = 6, request: typeof fetch 
         signal: AbortSignal.any([controller.signal, AbortSignal.timeout(timeout)]),
       })
       if (!response.ok) return null
-      const results = parse(await response.text(), limit)
+      const results = relevantResults(q, parse(await response.text(), limit))
       return results.length ? results : null
     } catch { return null }
   }
@@ -194,14 +207,9 @@ export async function webSearchContext(query: string): Promise<string> {
   // so the answer carries verified page content, not just the snippet.
   // Fortress sites (Yelp, TripAdvisor) block bots; guides and restaurant
   // sites usually open. When nothing opens the snippets stand on their own.
-  let page = ''
-  for (const top of results.slice(0, 3)) {
-    const opened = await fetchPageText(top.url)
-    if (opened) {
-      page = `\nOpened ${top.url} (page text excerpt, up to 4000 characters):\n${opened}`
-      break
-    }
-  }
+  const openedPages = await Promise.all(results.slice(0, 3).map(async top => ({ top, text: await fetchPageText(top.url, fetch, 5000) })))
+  const opened = openedPages.find(p => p.text)
+  let page = opened ? `\nOpened ${opened.top.url} (page text excerpt, up to 4000 characters):\n${opened.text}` : ''
   if (!page) page = `\nTop results could not be opened (bot blocks or fetch failures); rely on the snippets above.`
   return `Web search retrieved at ${new Date().toISOString()}. Snippets are source excerpts, not verified page contents; publication dates may differ.\n${results.map(r => `- ${r.title}\n  ${r.url}\n  ${r.snippet}`).join('\n')}${page}`
 }

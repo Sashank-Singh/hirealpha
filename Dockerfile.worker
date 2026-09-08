@@ -23,5 +23,9 @@ COPY deploy/onePassword.ts ./onePassword.ts
 # Headless Chromium (playwright-matched build + system libraries).
 RUN bunx playwright install --with-deps chromium
 
-# No HTTP port: the worker polls Postgres directly.
+ENV WORKER_HEALTH_PORT=3000
+EXPOSE 3000
+HEALTHCHECK --interval=15s --timeout=5s --start-period=30s --retries=3 \
+  CMD curl -fsS http://127.0.0.1:3000/healthz || exit 1
+# Only health is served over HTTP; jobs come from the approved Postgres queue.
 CMD ["bun", "run", "browserWorker.ts"]

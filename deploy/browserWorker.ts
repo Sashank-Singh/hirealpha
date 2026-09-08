@@ -10,9 +10,10 @@
  * HIREALPHA_VAULT_KEY / OP_* (via the vault functions).
  */
 import { SQL } from 'bun'
-import { getVaultCredentialsForTask, pushBrowserResultLoop } from './browserVault'
+import { consumeBrowserApproval, ensureBrowserVaultSchema, getVaultCredentialsForTask, pushBrowserResultLoop } from './browserVault'
 import { vaultKey } from './vaultCrypto'
 import { runBrowserSession } from './browserSession'
+import { claimBrowserJobs, ensureBrowserJobsSchema, finishBrowserJob, type BrowserJobRow } from './browserJobs'
 
 const DATABASE_URL = process.env.DATABASE_URL || ''
 const CONCURRENCY = Math.max(Number(process.env.WORKER_CONCURRENCY) || 2, 1)
@@ -26,22 +27,12 @@ function hostOf(url: string): string {
   }
 }
 
-type JobRow = {
-  id: string
-  user_id: string
-  persona: string
-  phone_e164: string | null
-  kind: string
-  url: string
-  steps: unknown
-  goal: string | null
-}
+type JobRow = BrowserJobRow
 
 type JobOutcome = { ok: true; result: string } | { ok: false; error: string }
 
-async function runJob(sql: SQL, job: JobRow): Promise<JobOutcome> {
+export async function runJob(sql: SQL, job: JobRow, launch = runBrowserSession): Promise<JobOutcome> {
   const key = vaultKey()
-  if (!key) return { ok: false, error: 'Vault key not configured.' }
   const origin = (() => {
     try {
       return new URL(job.url).origin
@@ -51,14 +42,16 @@ async function runJob(sql: SQL, job: JobRow): Promise<JobOutcome> {
   })()
   if (!origin || !job.url.startsWith('https:')) return { ok: false, error: 'Job URL must be https.' }
 
-  const creds = await getVaultCredentialsForTask(sql, job.user_id, origin, key)
-  if (!creds) return { ok: false, error: 'No saved login for that portal.' }
+  if (!job.approval_id) return { ok: false, error: 'A one-time approval is required.' }
+  const gate = await consumeBrowserApproval(sql, job.user_id, job.approval_id, origin)
+  if (gate !== 'ok') return { ok: false, error: `Approval could not be consumed: ${gate}` }
+  const creds = key ? await getVaultCredentialsForTask(sql, job.user_id, origin, key) : null
 
   const kind = job.kind as 'newsletter' | 'ticker' | 'task'
-  const run = await runBrowserSession({
+  const run = await launch({
     url: job.url,
-    username: creds.username,
-    password: creds.password,
+    username: creds?.username || '',
+    password: creds?.password || '',
     kind,
     steps: (job.steps as never) || undefined,
     goal: job.goal || undefined,
@@ -72,21 +65,8 @@ async function report(sql: SQL, job: JobRow, outcome: JobOutcome): Promise<void>
     await pushBrowserResultLoop(sql, { userId: job.user_id, persona: job.persona, origin: job.url, insights: outcome.result })
     return
   }
-  // Retryable failures (network, page flake) go back to pending while the
-  // attempts guard still allows it; terminal failures close the row.
-  if (job.kind === 'task') {
-    await sql`
-      UPDATE hire_browser_jobs SET status = 'pending', error = ${outcome.error}
-      WHERE id = ${job.id} AND attempts < 3
-    `
-    const still = (await sql`
-      UPDATE hire_browser_jobs SET status = 'failed', error = ${outcome.error}, finished_at = now()
-      WHERE id = ${job.id} AND attempts >= 3 RETURNING id
-    `) as Array<{ id: string }>
-    if (!still.length) return
-  } else {
-    await sql`UPDATE hire_browser_jobs SET status = 'failed', error = ${outcome.error}, finished_at = now() WHERE id = ${job.id}`
-  }
+  // Do not replay a task that may already have submitted a form or order.
+  await finishBrowserJob(sql, job.id, { ok: false, error: outcome.error })
   await pushBrowserResultLoop(sql, {
     userId: job.user_id,
     persona: job.persona,
@@ -101,6 +81,16 @@ async function main() {
     process.exit(1)
   }
   const sql = new SQL(DATABASE_URL, { max: 4, idleTimeout: 30, connectionTimeout: 10, connection: { options: '-c timezone=UTC' } })
+  await ensureBrowserVaultSchema(sql)
+  await ensureBrowserJobsSchema(sql)
+  Bun.serve({
+    port: Number(process.env.WORKER_HEALTH_PORT || 3000),
+    async fetch(request) {
+      if (new URL(request.url).pathname !== '/healthz') return new Response('Not found', { status: 404 })
+      try { await sql`SELECT 1`; return new Response('ok') }
+      catch { return new Response('Database unavailable', { status: 503 }) }
+    },
+  })
   console.log(`[browser-worker] up: concurrency=${CONCURRENCY}`)
 
   let busy = 0
@@ -108,15 +98,7 @@ async function main() {
     if (busy >= CONCURRENCY) return
     busy++
     try {
-      const rows = (await sql`
-        UPDATE hire_browser_jobs SET status = 'running', attempts = attempts + 1, claimed_at = now()
-        WHERE id = (
-          SELECT id FROM hire_browser_jobs
-          WHERE status = 'pending' AND attempts < 3
-          ORDER BY created_at ASC LIMIT 1 FOR UPDATE SKIP LOCKED
-        )
-        RETURNING id, user_id, persona, phone_e164, kind, url, steps, goal
-      `) as unknown as JobRow[]
+      const rows = await claimBrowserJobs(sql, 1)
       const job = rows[0]
       if (!job) return
       console.log(`[browser-worker] job ${job.id} (${job.kind}${job.goal ? ', agent' : ''}) for ${job.persona}:${job.user_id}`)
@@ -130,9 +112,9 @@ async function main() {
   }
 
   await tick()
-  setInterval(() => void tick(), POLL_MS).unref?.()
+  setInterval(() => void tick(), POLL_MS)
   // Worker runs forever; Bun keeps the interval alive.
   await new Promise(() => {})
 }
 
-await main()
+if (import.meta.main) await main()

@@ -42,7 +42,7 @@ export async function runBrowserSession(task: SessionTask): Promise<{ ok: true; 
       if (task.steps?.length) {
         await runSteps(page, task)
       } else {
-        await runPortalLogin(page, task)
+        await openTaskPage(page, task)
       }
       const content = await extractPageText(page)
       if (!content) return { ok: false, error: 'The page came back empty.' }
@@ -55,6 +55,12 @@ export async function runBrowserSession(task: SessionTask): Promise<{ ok: true; 
   } finally {
     await browser?.close().catch(() => {})
   }
+}
+
+/** Public sites do not require a saved login. Credentials are used only when supplied. */
+export async function openTaskPage(page: import('playwright').Page, task: SessionTask): Promise<void> {
+  if (task.username || task.password) await runPortalLogin(page, task)
+  else await page.goto(task.url, { waitUntil: 'domcontentloaded', timeout: 25000 })
 }
 
 /* ------------------------------ agent loop ------------------------------- */
@@ -80,7 +86,7 @@ async function agentLoop(
 
   // Log in first with the real credentials, then hand the session to the
   // agent: the model never sees the password, only the post-login screen.
-  await runPortalLogin(page, task)
+  await openTaskPage(page, task)
   const goal = task.goal!.slice(0, 500)
   const recentActions: string[] = []
   const started = Date.now()

@@ -240,6 +240,17 @@ export function SettingsSheet() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  /* ?vault=1 (from Alpha's browser-task reply): land the user on Saved Logins
+   * where pending run approvals are decided. */
+  useEffect(() => {
+    if (params.get('vault') !== '1') return
+    const t = setTimeout(() => {
+      document.getElementById('vault-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }, 600)
+    return () => clearTimeout(t)
+  }, [params])
+
+
   if (!session?.email) {
     return (
       <div className="ha-page">
@@ -285,15 +296,6 @@ export function SettingsSheet() {
   const isPlaidConnected = connected.includes('plaid')
   const targetConnector = params.get('connect')
 
-  /* ?vault=1 (from Alpha's browser-task reply): land the user on Saved Logins
-   * where pending run approvals are decided. */
-  useEffect(() => {
-    if (params.get('vault') !== '1') return
-    const t = setTimeout(() => {
-      document.getElementById('vault-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-    }, 600)
-    return () => clearTimeout(t)
-  }, [params])
 
   /* Calendar is the flagship second row: catalog has Gmail first, so reorder
    * so Google Calendar sits right behind the lead app in the list. */
