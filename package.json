@@ -11,7 +11,9 @@
     "test": "bun test spectrum/shared/ deploy/ services/ src/",
     "check": "npm run lint && npm test && npm run build",
     "test:mini": "bun test spectrum/shared/miniApps.test.ts",
-    "testbed": "bun run testbed/server.ts"
+    "testbed": "bun run testbed/server.ts",
+    "test:load": "bun run testbed/load/run.ts",
+    "test:app-load": "npm run build && bun testbed/performance/app-load.ts"
   },
   "dependencies": {
     "@1password/sdk": "^0.5.0",

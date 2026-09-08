@@ -1,55 +1,54 @@
-import { useCallback, useEffect, useState, type CSSProperties } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useState, type CSSProperties } from 'react'
 import { Link, Navigate, useParams, useSearchParams } from 'react-router-dom'
 import { AlphaFace, type AlphaFaceMood } from '../AlphaFace'
 import { AGENTS, getAgent } from '../agents'
 import type { AgentId } from '../agents/types'
 import { getSession } from './roster'
 import { APP_ALIASES, KIND_TITLES } from './miniAppCatalog'
-import {
-  DecisionLedgerApp,
-  DropZoneApp,
-  HabitStreakApp,
-  MeetingModeApp,
-  MoodTrackerApp,
-  NutritionApp,
-  OpenLoopsApp,
-  RelationshipRadarApp,
-} from './FeatureMiniApps'
-import { MiniAppSettings } from './MiniAppSettings'
-import { SetupApp } from './SetupApp'
-import {
-  GratitudeJournalApp,
-  LearningQueueApp,
-  NetworkingCrmApp,
-  PipelineBoardApp,
-  SleepTrackerApp,
-  SpendingSnapshotApp,
-  WeeklyReviewApp,
-  WorkoutLogApp,
-} from './LifeMiniApps'
-import { HomeApp } from './HomeApp'
-import { SkinBApp } from './SkinBApp'
-import { SkinCApp } from './SkinCApp'
-import { ArtifactApp, CofounderHomeApp, CoworkerHomeApp } from './WorkHomes'
-import { BuildsApp } from './FeatureMiniApps'
-import { BriefApp } from './BriefApp'
 import { useRefreshOnFocus } from './useRefreshOnFocus'
-import { BodyHubApp, LaterHubApp } from './FriendHubApps'
-import {
-  ApproveSendApp,
-  PickSlotApp,
-  LinearTriageApp,
-  HireDecisionApp,
-  InvestorNoteApp,
-  StandupPasteApp,
-} from './WorkMiniApps'
-import { EmailReader } from './EmailReader'
 import { readBriefCache, writeBriefCache } from './briefCache'
 import { applyMiniTheme, readMiniTheme } from './miniTheme'
 import { localYmd } from './home'
 import { apiSetupStatus } from './api'
 import type { ReplyDraft } from './api'
 
+
+// Download only the screen being opened; keep the surrounding navigation visible.
+const DecisionLedgerApp = lazy(() => import('./FeatureMiniApps').then(m => ({ default: m.DecisionLedgerApp })))
+const DropZoneApp = lazy(() => import('./FeatureMiniApps').then(m => ({ default: m.DropZoneApp })))
+const HabitStreakApp = lazy(() => import('./FeatureMiniApps').then(m => ({ default: m.HabitStreakApp })))
+const MeetingModeApp = lazy(() => import('./FeatureMiniApps').then(m => ({ default: m.MeetingModeApp })))
+const MoodTrackerApp = lazy(() => import('./FeatureMiniApps').then(m => ({ default: m.MoodTrackerApp })))
+const NutritionApp = lazy(() => import('./FeatureMiniApps').then(m => ({ default: m.NutritionApp })))
+const OpenLoopsApp = lazy(() => import('./FeatureMiniApps').then(m => ({ default: m.OpenLoopsApp })))
+const RelationshipRadarApp = lazy(() => import('./FeatureMiniApps').then(m => ({ default: m.RelationshipRadarApp })))
+const BuildsApp = lazy(() => import('./FeatureMiniApps').then(m => ({ default: m.BuildsApp })))
+const GratitudeJournalApp = lazy(() => import('./LifeMiniApps').then(m => ({ default: m.GratitudeJournalApp })))
+const LearningQueueApp = lazy(() => import('./LifeMiniApps').then(m => ({ default: m.LearningQueueApp })))
+const NetworkingCrmApp = lazy(() => import('./LifeMiniApps').then(m => ({ default: m.NetworkingCrmApp })))
+const PipelineBoardApp = lazy(() => import('./LifeMiniApps').then(m => ({ default: m.PipelineBoardApp })))
+const SleepTrackerApp = lazy(() => import('./LifeMiniApps').then(m => ({ default: m.SleepTrackerApp })))
+const SpendingSnapshotApp = lazy(() => import('./LifeMiniApps').then(m => ({ default: m.SpendingSnapshotApp })))
+const WeeklyReviewApp = lazy(() => import('./LifeMiniApps').then(m => ({ default: m.WeeklyReviewApp })))
+const WorkoutLogApp = lazy(() => import('./LifeMiniApps').then(m => ({ default: m.WorkoutLogApp })))
+const MiniAppSettings = lazy(() => import('./MiniAppSettings').then(m => ({ default: m.MiniAppSettings })))
+const SetupApp = lazy(() => import('./SetupApp').then(m => ({ default: m.SetupApp })))
+const HomeApp = lazy(() => import('./HomeApp').then(m => ({ default: m.HomeApp })))
+const SkinBApp = lazy(() => import('./SkinBApp').then(m => ({ default: m.SkinBApp })))
+const SkinCApp = lazy(() => import('./SkinCApp').then(m => ({ default: m.SkinCApp })))
+const ArtifactApp = lazy(() => import('./WorkHomes').then(m => ({ default: m.ArtifactApp })))
+const CofounderHomeApp = lazy(() => import('./WorkHomes').then(m => ({ default: m.CofounderHomeApp })))
+const CoworkerHomeApp = lazy(() => import('./WorkHomes').then(m => ({ default: m.CoworkerHomeApp })))
+const BriefApp = lazy(() => import('./BriefApp').then(m => ({ default: m.BriefApp })))
+const BodyHubApp = lazy(() => import('./FriendHubApps').then(m => ({ default: m.BodyHubApp })))
+const LaterHubApp = lazy(() => import('./FriendHubApps').then(m => ({ default: m.LaterHubApp })))
+const ApproveSendApp = lazy(() => import('./WorkMiniApps').then(m => ({ default: m.ApproveSendApp })))
+const PickSlotApp = lazy(() => import('./WorkMiniApps').then(m => ({ default: m.PickSlotApp })))
+const LinearTriageApp = lazy(() => import('./WorkMiniApps').then(m => ({ default: m.LinearTriageApp })))
+const HireDecisionApp = lazy(() => import('./WorkMiniApps').then(m => ({ default: m.HireDecisionApp })))
+const InvestorNoteApp = lazy(() => import('./WorkMiniApps').then(m => ({ default: m.InvestorNoteApp })))
+const StandupPasteApp = lazy(() => import('./WorkMiniApps').then(m => ({ default: m.StandupPasteApp })))
+const EmailReader = lazy(() => import('./EmailReader').then(m => ({ default: m.EmailReader })))
 
 interface DigestData {
   date?: string
@@ -537,6 +536,7 @@ export function MiniAppPage() {
             )}
           </div>
         </header>
+        <Suspense fallback={<div className="mini__loading" role="status" style={{ padding: 24 }}>Loading your app…</div>}>
 
         {!authed && (
           <div className="mini__body">
@@ -863,8 +863,10 @@ export function MiniAppPage() {
             )}
           </div>
         )}
+        </Suspense>
       </div>
       {openEmailId && (
+        <Suspense fallback={<p role="status">Opening email…</p>}>
         <EmailReader
           messageId={openEmailId}
           label={openEmailLabel}
@@ -879,6 +881,7 @@ export function MiniAppPage() {
             setOpenDraft(null)
           }}
         />
+        </Suspense>
       )}
     </div>
   )

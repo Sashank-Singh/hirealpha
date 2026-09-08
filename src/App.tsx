@@ -61,7 +61,11 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { hasError: boole
 const Landing = lazy(() => import('./Landing'))
 const MiniAppPage = lazy(() => import('./platform/MiniAppPage').then((m) => ({ default: m.MiniAppPage })))
 const LoginPage = lazy(() => import('./platform/LoginPage').then((m) => ({ default: m.LoginPage })))
-const RequireAuth = lazy(() => import('./platform/PlatformShell').then((m) => ({ default: m.RequireAuth })))
+const RequireAuth = lazy(() => {
+  // Start the app download while its independent session check is loading.
+  void import('./platform/SettingsSheet').catch(() => undefined)
+  return import('./platform/PlatformShell').then(m => ({ default: m.RequireAuth }))
+})
 const SettingsSheet = lazy(() => import('./platform/SettingsSheet').then((m) => ({ default: m.SettingsSheet })))
 
 /* Old deep-link paths that still come in from texts and chat links —
@@ -75,7 +79,7 @@ export default function App() {
   return (
     <BrowserRouter>
       <ErrorBoundary>
-        <Suspense fallback={<div className="route-boot" />}>
+        <Suspense fallback={<div className="route-boot" role="status" aria-label="Loading Alpha" />}>
           <Routes>
             <Route path="/" element={<Landing />} />
             <Route path="/app/login" element={<LoginPage />} />

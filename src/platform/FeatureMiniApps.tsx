@@ -1592,9 +1592,21 @@ export function NutritionApp({ auth }: { auth: FeatureAuth }) {
 
       {/* Input row */}
       <div className="nutr-input-row">
-        <label className="nutr-photo-btn">
+        <label className="nutr-photo-btn" title="Photo of food">
           <input ref={fileRef} type="file" accept="image/*" onChange={(e) => pickImage(e.target.files?.[0])} aria-label="Photo of food" />
-          <span className="nutr-photo-text">{analyzing ? 'Wait' : 'Photo'}</span>
+          {analyzing ? (
+            <span className="nutr-photo-text">…</span>
+          ) : (
+            <>
+              <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" focusable="false">
+                <g fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M4.6 8.2h3l1.6-2.4h5.6l1.6 2.4h3v10.2H4.6z" />
+                  <circle cx="12" cy="13" r="3.2" />
+                </g>
+              </svg>
+              <span className="nutr-photo-text">Upload</span>
+            </>
+          )}
         </label>
         <form className="nutr-input-form" onSubmit={add}>
           <input
@@ -1649,12 +1661,13 @@ export function NutritionApp({ auth }: { auth: FeatureAuth }) {
           </div>
         </div>
       ) : (
-        <div className="nutr-goal-btns">
+        <div className="nutr-goal-btns nutr-goal-btns--2">
           <button type="button" className="nutr-edit-goals" onClick={() => setShowWeight((v) => !v)}>
-            {prefs.currentWeightLb ? `${prefs.currentWeightLb} lb` : 'Current'}
-          </button>
-          <button type="button" className="nutr-edit-goals" onClick={() => setShowWeight((v) => !v)}>
-            {prefs.targetWeightLb ? `${prefs.targetWeightLb} lb` : 'Target'}
+            {prefs.currentWeightLb
+              ? prefs.targetWeightLb && prefs.targetWeightLb !== prefs.currentWeightLb
+                ? `${prefs.currentWeightLb} → ${prefs.targetWeightLb} lb`
+                : `${prefs.currentWeightLb} lb`
+              : 'Weight'}
           </button>
           <button type="button" className="nutr-edit-goals" onClick={() => setShowGoals(true)}>
             Goals
@@ -1664,6 +1677,7 @@ export function NutritionApp({ auth }: { auth: FeatureAuth }) {
 
       {showWeight && !showGoals && (
         <div className="nutr-goals-form">
+          <strong className="nutr-weight-title">Your weight plan</strong>
           <div className="nutr-weight-goal-picker" role="radiogroup" aria-label="Goal">
             {(['loss', 'gain', 'muscle'] as const).map((g) => (
               <button

@@ -1,3 +1,4 @@
+import { appScreenChunk } from './appPreload'
 /**
  * HireAlpha marketing site: static files + waitlist API.
  * Stores emails in HireAlpha Postgres (Coolify).
@@ -192,6 +193,8 @@ function preloadTags(pathname: string) {
     for (const i of node.imports || []) walk(i)
   }
   walk(key)
+  const screen = appScreenChunk(pathname)
+  if (screen) walk(screen)
   return [
     ...css.map((f) => `<link rel="stylesheet" href="/${f}" />`),
     ...js.map((f) => `<link rel="modulepreload" crossorigin href="/${f}" />`),

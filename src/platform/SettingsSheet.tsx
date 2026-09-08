@@ -285,6 +285,16 @@ export function SettingsSheet() {
   const isPlaidConnected = connected.includes('plaid')
   const targetConnector = params.get('connect')
 
+  /* ?vault=1 (from Alpha's browser-task reply): land the user on Saved Logins
+   * where pending run approvals are decided. */
+  useEffect(() => {
+    if (params.get('vault') !== '1') return
+    const t = setTimeout(() => {
+      document.getElementById('vault-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }, 600)
+    return () => clearTimeout(t)
+  }, [params])
+
   /* Calendar is the flagship second row: catalog has Gmail first, so reorder
    * so Google Calendar sits right behind the lead app in the list. */
   const orderedConnectors = [...connectors].sort((a, b) => {
@@ -975,7 +985,7 @@ export function SettingsSheet() {
           </section>
 
           {/* Vault */}
-          <section className="ss-sec">
+          <section id="vault-section" className="ss-sec">
             <header className="ss-sec-head">
               <div>
                 <h2 className="ss-title">Saved Logins</h2>

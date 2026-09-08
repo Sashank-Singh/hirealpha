@@ -306,6 +306,33 @@ export async function proposePurchase(
   }
 }
 
+export async function proposeBrowserTask(
+  phone: string,
+  persona: AgentId,
+  task: { portal: string; goal: string },
+): Promise<{ ok: boolean; id?: string; requestId?: string; origin?: string; error?: string }> {
+  const base = apiBase()
+  const key = process.env.HIREALPHA_INTERNAL_KEY || ''
+  if (!base || !key) return { ok: false, error: 'API not configured' }
+  try {
+    const res = await timedFetch(
+      `${base}/api/internal/propose`,
+      {
+        method: 'POST',
+        headers: authHeaders(),
+        body: JSON.stringify({ phone, persona, kind: 'browser', url: task.portal, body: task.goal }),
+      },
+      15000,
+    )
+    const data = (await res.json().catch(() => ({}))) as { ok?: boolean; id?: string; requestId?: string; origin?: string; error?: string }
+    if (!res.ok || !data.ok) return { ok: false, error: data.error || `browser propose failed (${res.status})` }
+    return { ok: true, id: data.id, requestId: data.requestId, origin: data.origin }
+  } catch (err) {
+    console.warn('[live] browser propose failed', err)
+    return { ok: false, error: 'Could not queue the browser run.' }
+  }
+}
+
 export async function persistLiveFacts(
   phone: string,
   persona: AgentId,

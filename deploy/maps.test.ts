@@ -118,6 +118,19 @@ describe('formatMapResults', () => {
 })
 
 describe('fetchMapSearch nearby path', () => {
+  it('resolves a US ZIP explicitly and prioritizes it over the saved location', async () => {
+    const calls: URL[] = []
+    globalThis.fetch = (async input => {
+      const url = new URL(String(input)); calls.push(url)
+      if (url.hostname.includes('nominatim')) return Response.json([{ lat: '37.79', lon: '-122.42' }])
+      return Response.json({ elements: [{ tags: { name: 'Sorella', 'addr:street': 'Polk Street', 'addr:housenumber': '1760' }, lat: 37.79, lon: -122.42 }] })
+    }) as typeof fetch
+    const result = await fetchMapSearch('best restaurants in 94109', 'us', fakeLocation)
+    const geo = calls.find(url => url.hostname.includes('nominatim'))
+    expect(geo?.searchParams.get('postalcode')).toBe('94109')
+    expect(geo?.searchParams.get('countrycodes')).toBe('us')
+    expect(result).toContain('1760 Polk Street')
+  })
   it('uses Overpass when coords exist and formats the elements', async () => {
     const calls: string[] = []
     globalThis.fetch = (async (input: RequestInfo | URL) => {

@@ -152,3 +152,30 @@ boundaries with their existing handling. This queue is process-local, does not
 survive restarts, and does not consume typing events or revise an active task.
 Timing, isolation, ordering, failure recovery, and duplicate-delivery tests pass;
 the bot bundles. Deployment has not been performed.
+
+## Progressive replies and optional reactions
+
+Friend iMessage delivery now passes callbacks into the existing decision loop.
+For slower tasks, a subsequent action can carry a partial result based on a
+previous successful tool response. It is delivered before the next tool runs,
+without an additional model call. Slow tool stages can provide one factual
+working acknowledgment. Fast tasks stay quiet for 2.5 seconds after the runtime
+starts. There are at most two intermediate texts, spaced at least 1.5 seconds
+apart, followed by the final reply. Successful intermediate texts are included
+in conversation memory; failed sends consume their slot and are not retried.
+The local testbed displays progress bubbles as they arrive.
+
+Every-message thumbs-up reactions and keyword-triggered build acknowledgments
+were removed from the Friend transport. The model may optionally choose a
+supported reaction as metadata on an existing action or final answer. Default
+is no reaction, with a three-minute cooldown per conversation and at most one
+reaction per turn. Reactions do not add a model request. Reaction delivery
+failure does not fail the task. Photos no longer get an automatic thumbs-up.
+
+The 100-user slow-service simulation completed 100 tasks with 200 texts and no
+failures, duplicates, or conversation mixing. First-text p95 was 4.365 seconds
+and full-completion p95 5.868 seconds after the last incoming fragment, using
+1-second simulated model calls and 0.5-second lookups. These are local simulated
+results, not production latency or proof of semantic judgment. Progressive
+results still depend on model choice; this is not token streaming. No deployment
+or external messaging was performed.

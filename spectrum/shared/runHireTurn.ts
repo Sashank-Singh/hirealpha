@@ -1,3 +1,4 @@
+import type { DeliveryHooks } from './progressiveDelivery'
 import {
   getAgent,
   buildSystemPrompt,
@@ -10,7 +11,7 @@ import { gmiChat } from './gmi'
 import { appendThread, loadMemory, upsertFacts, pruneExpiredFacts, setSummary, trimHistory, MAX_RAW, type ThreadMemory } from './memory'
 import { extractFacts, summarizeOld } from './memoryMaintain'
 import { autoIterateWorkshop, autoLogGratitude, autoLogHabit, autoLogMood, autoLogNutrition, autoLogSleep, autoLogSpend, autoLogWorkout, autoLogNetwork, autoLogDecision, autoLogLoops, autoLogPipeline, autoLogStandup, autoRunWorkshop, autoWorkshopKeep, autoWorkshopToss, autoSaveLearning, autoSetBudget, autoSetPrefs, fetchLiveProfile, fetchLiveTools, fetchMiniRun, fetchPrepBundle, fetchWeekBundle, formatHireContext, formatHireMemories, persistLiveFacts, proposeLiveDraft,
-  proposePurchase, touchInbound, importChatExport, addMeeting, fetchRenewalRadar, setTravel } from './liveContext'
+  proposePurchase, proposeBrowserTask, touchInbound, importChatExport, addMeeting, fetchRenewalRadar, setTravel } from './liveContext'
 import { captureFromChat } from './cofounderPro'
 import { coworkerCaptureFromChat } from './coworkerPro'
 import { onboardingStage, runOnboardingTurn, suggestConnector } from './onboarding'
@@ -606,6 +607,7 @@ export async function runHireTurn(input: {
   /** The bot already texted "on it" when this build ask arrived, so the final
    * reply must deliver the result, not more status talk. */
   buildAckSent?: boolean
+  delivery?: DeliveryHooks
 }): Promise<{
   reply: string
   bubbles: string[]
@@ -1602,7 +1604,12 @@ export async function runHireTurn(input: {
       })
       reply = outcome.reply
       if (outcome.draft) {
-        if (outcome.draft.type === 'purchase' && purchasePayUrl) {
+        if (outcome.draft.type === 'browser') {
+          // Ask-first: nothing runs until they approve. Point at the approvals
+          // list in Settings; the result lands back in this thread via the
+          // browser_result loop when the worker finishes.
+          reply = `${reply}\nApprove it here: https://hirealpha.chat/app/hires/friend?vault=1 (the run needs your OK before it starts; I'll report back when it's done)`.trim()
+        } else if (outcome.draft.type === 'purchase' && purchasePayUrl) {
           // The payment link IS the approval: tapping the card opens Stripe
           // Checkout. No separate approve card — the link is the gate.
           reply = `${reply}\n${purchasePayUrl}`.trim()
@@ -1712,6 +1719,9 @@ async function saveFriendDraft(
 ): Promise<{ ok: boolean; id?: string; url?: string; error?: string }> {
   if (draft.type === 'purchase') {
     return proposePurchase(phone, persona, { item: draft.item, amount: draft.amount, url: draft.url })
+  }
+  if (draft.type === 'browser') {
+    return proposeBrowserTask(phone, persona, { portal: draft.portal, goal: draft.goal })
   }
   if (draft.type === 'mail') {
     return proposeLiveDraft(phone, persona, {

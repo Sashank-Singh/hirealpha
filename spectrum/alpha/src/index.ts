@@ -4,9 +4,10 @@ import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { defaultReplyCard, getAgent, runHireTurn, runMemoryMaintenance, sanitizeOutbound } from '../../shared/runHireTurn'
 import { extractMessageText, fetchLiveProfile, handleInboundPhoto } from '../../shared/liveContext'
-import { mintMiniAppCard, PATTERNS } from '../../shared/miniApps'
+import { mintMiniAppCard } from '../../shared/miniApps'
 import { claimInbound } from '../../shared/inboundGuard'
 import { onceAsync } from '../../shared/delivery'
+import { createReactionGate } from '../../shared/progressiveDelivery'
 import { createMessageBursts } from '../../shared/messageBursts'
 import { startReminderScheduler } from '../../shared/reminders'
 import { startTaskLoopPoller } from '../../shared/taskLoops'
@@ -14,6 +15,7 @@ import { INTRO_TEXTS, startIntroPoller } from '../../shared/introQueue'
 import { startHealthServer, startHeartbeat } from '../../shared/health'
 import { backfillScores, hashPhone, logTurn, readTurns } from '../../shared/evals'
 
+const reactOccasionally = createReactionGate()
 const agentId = 'friend' as const
 const agent = getAgent(agentId)
 const dataDir = join(import.meta.dir, '..', 'data')
@@ -251,7 +253,6 @@ async function handleIncoming([space, message]: Incoming, combinedText?: string)
     // Non-text: a bare food photo, or an iMessage text+photo group.
     const senderId = message.sender?.id ?? space.id
     try {
-      await message.react('👍').catch(() => undefined)
       const photoReply = await handleInboundPhoto(senderId, agent.id, message.content)
       const photoText = extractMessageText(message.content)
       if (!photoReply && !photoText) return
@@ -317,25 +318,20 @@ async function handleIncoming([space, message]: Incoming, combinedText?: string)
   console.log(`[${agent.id}] inbound from ${senderId}: ${userText.slice(0, 120)}`)
 
   try {
-    await message.react('👍').catch(() => undefined)
     let sentAnything = false
-    /* A build ask takes minutes of planner + sandbox inside the turn. Silence
-     * for that long read as "is it even doing anything" (the 10:45pm Lamborghini
-     * thread: ETA, What is happening, then an apology at 11:19). An instant
-     * one-liner when the ask IS a build ask buys the turn its minutes. */
-    let buildAckSent = false
-    if (agentId === 'friend' && PATTERNS.artifact?.test(userText)) {
-      const ack = 'On it. Builds take a few minutes — I will send the link here the second it is live.'
-      try {
-        await message.reply(ack)
-        sentAnything = true
-        buildAckSent = true
-      } catch (err) {
-        console.warn(`[${agent.id}] build ack send failed`, err)
-      }
-    }
+    let progressTexts = 0
     const getTurn = onceAsync(() =>
-      runHireTurn({ agentId, dataDir, senderId, userText, buildAckSent }),
+      runHireTurn({ agentId, dataDir, senderId, userText, delivery: {
+        onProgress: async text => {
+          const clean = sanitizeOutbound(text)
+          if (!clean) throw new Error('Progress text was filtered')
+          // Mark attempted before sending: ambiguous delivery must not restart work.
+          sentAnything = true
+          await space.send(clean)
+          progressTexts++
+        },
+        onReaction: reaction => reactOccasionally(JSON.stringify([space.id, senderId]), reaction, value => message.react(value)),
+      } }),
     )
     await respondWithRetry(space, () => sentAnything, async () => {
       const t0 = Date.now()
@@ -384,7 +380,7 @@ async function handleIncoming([space, message]: Incoming, combinedText?: string)
         userText,
         reply,
         card: !!delivered,
-        texts: texts.length,
+        texts: texts.length + progressTexts,
         source,
         totalMs: Date.now() - t0,
       })

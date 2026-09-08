@@ -1,3 +1,4 @@
+import { webSearchContext } from './webSearch'
 /**
  * HireAlpha live config + connectors API (Postgres).
  * Dashboard writes here. iMessage bots read here.
@@ -4535,15 +4536,6 @@ function stripHtml(text: string) {
     .trim()
 }
 
-function decodeHtml(text: string) {
-  return text
-    .replace(/&amp;/g, '&')
-    .replace(/&quot;/g, '"')
-    .replace(/&#x27;|&#39;/g, "'")
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-}
-
 async function fetchPublic(url: URL, init: RequestInit, timeoutMs = 8000) {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), timeoutMs)
@@ -4555,78 +4547,7 @@ async function fetchPublic(url: URL, init: RequestInit, timeoutMs = 8000) {
 }
 
 async function fetchWebSearch(query: string) {
-  const q = query.trim().slice(0, 180)
-  if (!q) return 'Web search needs a query.'
-  const results: string[] = []
-  
-  // 1. DuckDuckGo HTML & Lite Search with standard browser headers
-  try {
-    const url = new URL('https://html.duckduckgo.com/html/')
-    url.searchParams.set('q', q)
-    const res = await fetchPublic(url, {
-      headers: {
-        Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-        'Accept-Language': 'en-US,en;q=0.9',
-      },
-    })
-    if (res.ok) {
-      const html = await res.text()
-      const pattern = /<a[^>]*class="result__a"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/gi
-      for (const match of html.matchAll(pattern)) {
-        let href = decodeHtml(match[1] || '')
-        try {
-          const parsed = new URL(href.startsWith('//') ? `https:${href}` : href)
-          href = parsed.searchParams.get('uddg') || href
-        } catch {
-          /* keep original */
-        }
-        const title = decodeHtml(stripHtml(match[2] || ''))
-        if (title && href && !href.includes('duckduckgo.com')) {
-          results.push(`- ${title}\n  ${href}`)
-        }
-        if (results.length >= 6) break
-      }
-    }
-  } catch {
-    /* fallback to instant answer / wikipedia */
-  }
-
-  // 2. DuckDuckGo Instant Answer JSON API Fallback
-  if (!results.length) {
-    try {
-      const apiUrl = new URL('https://api.duckduckgo.com/')
-      apiUrl.searchParams.set('q', q)
-      apiUrl.searchParams.set('format', 'json')
-      apiUrl.searchParams.set('no_html', '1')
-      apiUrl.searchParams.set('skip_disambig', '1')
-      const apiRes = await fetchPublic(apiUrl, {
-        headers: { Accept: 'application/json', 'User-Agent': 'HireAlpha/1.0 (https://hirealpha.chat)' },
-      })
-      if (apiRes.ok) {
-        const data = (await apiRes.json()) as {
-          AbstractText?: string
-          AbstractURL?: string
-          Heading?: string
-          RelatedTopics?: Array<{ Text?: string; FirstURL?: string }>
-        }
-        if (data.AbstractText && data.AbstractURL) {
-          results.push(`- ${data.Heading || q}: ${data.AbstractText}\n  ${data.AbstractURL}`)
-        }
-        if (Array.isArray(data.RelatedTopics)) {
-          for (const topic of data.RelatedTopics.slice(0, 4)) {
-            if (topic.Text && topic.FirstURL) {
-              results.push(`- ${topic.Text}\n  ${topic.FirstURL}`)
-            }
-          }
-        }
-      }
-    } catch {
-      /* continue */
-    }
-  }
-
-  return results.length ? `Web results for "${q}":\n${results.join('\n')}` : `No web results found for "${q}".`
+  return webSearchContext(query)
 }
 
 const FOREIGN_PLACE = /\b(bali|jakarta|thailand|indonesia|london|paris|tokyo|kyoto|athens|rome|madrid|berlin|amsterdam|sydney|melbourne|mumbai|delhi|bangkok|marrakech|dubai|singapore|hong\s?kong|europe|asia|africa|mexico city|canada|australia|india|france|italy|spain|germany|brazil|argentina|colombia|philippines|panama|uk|england|scotland|ireland)\b/i
@@ -4775,7 +4696,7 @@ export function formatMapResults(
       typeof row.lat === 'number' && typeof row.lon === 'number'
         ? `https://www.openstreetmap.org/?mlat=${row.lat}&mlon=${row.lon}#map=16/${row.lat}/${row.lon}`
         : ''
-    lines.push(`- ${name}${cuisine ? ` (${cuisine})` : ''}${link ? `\n  ${link}` : ''}`)
+    lines.push(`- ${name}${cuisine ? ` (${cuisine})` : ''}${link ? `\n  ${link}` : ''}${row.addr ? `\n  ${row.addr}` : ''}`)
     if (lines.length >= 6) break
   }
   if (!lines.length) return `No map results found for "${label}".`
@@ -4785,7 +4706,9 @@ export function formatMapResults(
 async function geocodeMapArea(area: string, countryHint: string) {
   try {
     const url = new URL('https://nominatim.openstreetmap.org/search')
-    url.searchParams.set('q', area)
+    const zip = /^\d{5}(?:-\d{4})?$/.test(area) && (!countryHint || countryHint === 'us')
+    url.searchParams.set(zip ? 'postalcode' : 'q', area)
+    if (zip) url.searchParams.set('countrycodes', 'us')
     url.searchParams.set('format', 'jsonv2')
     url.searchParams.set('limit', '1')
     if (countryHint && !FOREIGN_PLACE.test(area)) url.searchParams.set('countrycodes', countryHint)
@@ -4811,21 +4734,19 @@ async function fetchNearbyPlaces(
   location: LocationRow | null,
 ): Promise<string | null> {
   try {
-    const area = (query.match(/\b(?:in|near|around|at|by)\s+([a-z0-9\s]+)$/i)?.[1] || '')
+    const area = (query.match(/\b(?:in|near|around|at|by)\s+([a-z0-9\s]+)$/i)?.[1] || query.match(/\b\d{5}(?:-\d{4})?\b/)?.[0] || '')
       .replace(/\b(?:me|us|tonight)\b/gi, '')
       .replace(/\s+/g, ' ')
       .trim()
     let lat: number | null = null
     let lon: number | null = null
-    if (location && coordsUsable(location.latitude, location.longitude)) {
+    if (area) {
+      // An explicit destination wins over the user's saved/home location.
+      const geo = await geocodeMapArea(area, countryHint)
+      if (geo) { lat = geo.lat; lon = geo.lon }
+    } else if (location && coordsUsable(location.latitude, location.longitude)) {
       lat = location.latitude
       lon = location.longitude
-    } else if (area) {
-      const geo = await geocodeMapArea(area, countryHint)
-      if (geo) {
-        lat = geo.lat
-        lon = geo.lon
-      }
     }
     if (lat === null || lon === null) return null
     const ql = buildOverpassQuery(kinds, lat, lon)

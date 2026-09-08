@@ -42,7 +42,7 @@ globalThis.fetch = (async (input: Parameters<typeof fetch>[0], init?: RequestIni
     modelCalls++
     await sleep(config.modelMs)
     const messages = body.messages as Array<{ role: string; content: string }>
-    const userIndex = messages.findLastIndex(message => message.role === 'user')
+    const userIndex = messages.findLastIndex(message => message.role === 'user' && message.content.includes('[load-user-'))
     const text = messages[userIndex]?.content || ''
     const id = text.match(/load-user-(\d+)/)?.[0] || ''
     const index = Number(id.replace('load-user-', ''))
@@ -52,7 +52,7 @@ globalThis.fetch = (async (input: Parameters<typeof fetch>[0], init?: RequestIni
     }
     const actions = messages.slice(userIndex + 1).filter(message => message.role === 'assistant').length
     const content = actions === 0 ? JSON.stringify({ action: 'lookup', tool: 'maps', query: `Chinese restaurant nearby at 8 pm ${id}` })
-      : actions === 1 ? JSON.stringify({ action: 'lookup', tool: 'web', query: `Restaurant menu ${id}` })
+      : actions === 1 ? JSON.stringify({ action: 'lookup', tool: 'web', query: `Restaurant menu ${id}`, progress: `Example Chinese is open at 8 pm for ${id}. I’m checking its menu.` })
         : `Result for ${id}: Example Chinese is open at 8 pm. Simulated dinner price: $25. Live Uber pricing is unavailable.`
     return Response.json({ choices: [{ message: { content } }] })
   }
@@ -62,14 +62,14 @@ globalThis.fetch = (async (input: Parameters<typeof fetch>[0], init?: RequestIni
   }
   if (url.pathname === '/api/internal/live') return Response.json({ found: true, hired: true, name: 'Load tester', timezone: 'America/Los_Angeles', connected: [], context: {}, memories: [] })
   // Read-only context and heartbeat endpoints used by the Friend intake.
-  if (url.pathname === '/api/internal/contacts') return Response.json({ contacts: [] })
+  if (url.pathname === '/api/internal/network') return Response.json({ contacts: [] })
   if (/inbound|touch/.test(url.pathname)) return Response.json({ ok: true })
   unexpectedRequests++
   throw new Error(`Unmocked endpoint: ${url.pathname}`)
 }) as typeof fetch
 
 type Fragment = { user: string; round: number; part: number; text: string; sentAt: number }
-type Sample = { user: string; round: number; started: number; elapsed: number; afterLastMs: number; processingMs: number; success: boolean; error: string; fragments: number }
+type Sample = { user: string; round: number; started: number; elapsed: number; afterLastMs: number; processingMs: number; firstTextMs: number; textCount: number; success: boolean; error: string; fragments: number }
 const samples: Sample[] = []
 const errors: string[] = []
 const completions = new Map<string, () => void>()
@@ -87,18 +87,23 @@ const queue = createMessageBursts<Fragment>({
     seen.add(key)
     activeUsers.add(first.user); active++; peakActive = Math.max(peakActive, active)
     let error = ''
+    let firstTextAt: number | undefined
+    const intermediate: string[] = []
+    let finalTexts = 0
     try {
       if (items.some(item => item.user !== first.user || item.round !== first.round)) { mixed++; throw new Error('Mixed users/rounds') }
       if (items.length !== 4 || items.some((item, i) => item.part !== i)) throw new Error('Missing or reordered fragments')
-      const result = await runHireTurn({ agentId: 'friend', senderId: first.user, dataDir, userText: items.map(item => item.text).join('\n') })
+      const result = await runHireTurn({ agentId: 'friend', senderId: first.user, dataDir, userText: items.map(item => item.text).join('\n'), delivery: { onProgress: async text => { firstTextAt ??= Date.now(); intermediate.push(text) } } })
       if (!result.reply.includes(`Result for ${first.user}:`)) throw new Error('Task did not complete with its own result')
-      if (result.bubbles.length !== 1) throw new Error('Expected one response')
+      firstTextAt ??= Date.now()
+      finalTexts = result.bubbles.length
+      if (finalTexts !== 1 || intermediate.length > 2 || new Set(intermediate).size !== intermediate.length) throw new Error('Invalid progressive delivery count or duplicate update')
       const foreign = loadMemory(dataDir, first.user).history.some(message => [...message.content.matchAll(/load-user-\d+/g)].some(match => match[0] !== first.user))
       if (foreign) { mixed++; throw new Error('Cross-user memory contamination') }
     } catch (cause) { error = String(cause) }
     finally {
       active--; activeUsers.delete(first.user)
-      samples.push({ user: first.user, round: first.round, started: first.sentAt, elapsed: Date.now() - first.sentAt, afterLastMs: Date.now() - last.sentAt, processingMs: Date.now() - started, success: !error, error, fragments: items.length })
+      samples.push({ user: first.user, round: first.round, started: first.sentAt, elapsed: Date.now() - first.sentAt, afterLastMs: Date.now() - last.sentAt, processingMs: Date.now() - started, firstTextMs: (firstTextAt ?? Date.now()) - last.sentAt, textCount: intermediate.length + finalTexts, success: !error, error, fragments: items.length })
       completions.get(key)?.(); completions.delete(key)
     }
   },
@@ -136,6 +141,8 @@ const report = {
   turnsPerSecond: samples.length / (elapsedMs / 1000), peakActive, modelCalls, toolCalls, injectedFailures,
   overlap, mixed, duplicates, unexpectedRequests, errors,
   responseAfterLastFragmentMs: { p50: percentile(samples.map(s => s.afterLastMs), .5), p95, p99: percentile(samples.map(s => s.afterLastMs), .99) },
+  firstTextP95Ms: percentile(samples.map(s => s.firstTextMs), .95),
+  totalTexts: samples.reduce((sum, sample) => sum + sample.textCount, 0),
   processingP95Ms: percentile(samples.map(s => s.processingMs), .95),
   eventLoopP99Ms: Number((lag.percentile(99) / 1e6).toFixed(2)), rssMB: Number((process.memoryUsage().rss / 1048576).toFixed(1)),
 }

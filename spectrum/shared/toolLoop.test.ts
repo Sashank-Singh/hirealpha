@@ -73,6 +73,55 @@ describe('multi-step agent execution', () => {
     expect(s.prompts[1]).toContain('blocked')
   })
 
+  it('delivers a supported partial result before the remaining tool completes', async () => {
+    const updates: string[] = []
+    const s = scenario([
+      '{"action":"lookup","tool":"maps","query":"Chinese restaurant"}',
+      '{"action":"lookup","tool":"web","query":"menu","progress":"Example Chinese is open at 8. I’m checking its menu."}',
+      'The menu is $25. Live Uber pricing is unavailable.',
+    ], {
+      delivery: { onProgress: async text => { updates.push(text) } },
+      chat: async messages => {
+        const actions = messages.filter(m => m.role === 'assistant').length
+        if (actions === 0) return '{"action":"lookup","tool":"maps","query":"Chinese restaurant"}'
+        if (actions === 1) {
+          await new Promise(resolve => setTimeout(resolve, 2550))
+          return '{"action":"lookup","tool":"web","query":"menu","progress":"Example Chinese is open at 8. I’m checking its menu."}'
+        }
+        return 'The menu is $25. Live Uber pricing is unavailable.'
+      },
+      lookup: async tool => {
+        if (tool === 'web') expect(updates).toEqual(['Example Chinese is open at 8. I’m checking its menu.'])
+        return ['Example Chinese: open until 10 pm, menu $25.']
+      },
+    })
+    const result = await s.run()
+    expect(result.reply).toContain('Live Uber pricing is unavailable')
+    expect(updates).toHaveLength(1)
+  })
+
+  it('uses an optional reaction with the final answer without an extra model call', async () => {
+    const reactions: string[] = []
+    const s = scenario(['{"action":"answer","text":"Congratulations on the offer!","reaction":"🎉"}'], {
+      delivery: { onReaction: async emoji => { reactions.push(emoji) } },
+    })
+    expect((await s.run()).reply).toBe('Congratulations on the offer!')
+    expect(reactions).toEqual(['🎉'])
+    expect(s.prompts).toHaveLength(1)
+    expect(s.lookups).toHaveLength(0)
+  })
+
+  it('does not react by default or publish an ungrounded first-action update', async () => {
+    const updates: string[] = []
+    const reactions: string[] = []
+    const s = scenario(['{"action":"lookup","tool":"maps","query":"restaurant","progress":"I booked it!"}', 'Here are the options.'], {
+      delivery: { onProgress: async text => { updates.push(text) }, onReaction: async emoji => { reactions.push(emoji) } },
+    })
+    await s.run()
+    expect(updates).toEqual([])
+    expect(reactions).toEqual([])
+  })
+
   it('uses sequential JSON actions and gives the model each preceding result', async () => {
     const s = scenario([
       '{"action":"lookup","tool":"gmail","query":"subject:confirmation"}',
@@ -101,8 +150,9 @@ describe('multi-step agent execution', () => {
       lookup: async (tool) => { calls.push(tool); if (tool === 'maps') throw new Error('offline'); return ['https://restaurant.example.com'] },
     })
     expect((await s.run()).reply).toContain('restaurant website')
+    // The loop auto-falls-back maps→web inside the same step when maps comes
+    // back empty/failed, so the failure never reaches the model as text.
     expect(calls).toEqual(['maps', 'web'])
-    expect(s.prompts[1]).toContain('Lookup failed')
   })
 
   it('never invokes a disconnected lookup or saves a blocked draft', async () => {
@@ -368,5 +418,19 @@ describe('purchase draft', () => {
     const problem = validatePurchase({ type: 'purchase', item: 'macbook', amount: 2400, url: 'https://a.com' })
     expect(problem).toContain('cap')
     expect(validatePurchase({ type: 'purchase', item: 'rice', amount: 25, url: 'https://a.com' })).toBeNull()
+  })
+})
+
+describe('browser task draft', () => {
+  it('parses a browser action with portal and goal', () => {
+    const d = parseExtractedWrite(JSON.stringify({
+      action: 'browser', portal: 'https://www.opentable.com', goal: 'Book a table for 2 at Foreign Cinema Friday 8pm',
+    }))
+    expect(d).toMatchObject({ type: 'browser', portal: 'https://www.opentable.com' })
+    expect((d as { goal: string }).goal).toContain('Foreign Cinema')
+  })
+  it('rejects non-https portals and empty goals', () => {
+    expect(parseExtractedWrite(JSON.stringify({ action: 'browser', portal: 'opentable.com', goal: 'book a table' }))).toBeNull()
+    expect(parseExtractedWrite(JSON.stringify({ action: 'browser', portal: 'https://x.com', goal: 'hi' }))).toBeNull()
   })
 })

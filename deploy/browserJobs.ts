@@ -64,9 +64,9 @@ export async function enqueueBrowserJob(
 ): Promise<string> {
   const id = randomUUID()
   await sql`
-    INSERT INTO hire_browser_jobs (id, user_id, persona, phone_e164, kind, url, steps, goal, status)
+    INSERT INTO hire_browser_jobs (id, user_id, persona, phone_e164, kind, url, steps, goal, status, approval_id)
     VALUES (${id}, ${input.userId}, ${input.persona}, ${input.phone}, ${input.kind}, ${input.url},
-      ${input.steps ? JSON.stringify(input.steps) : null}::jsonb, ${input.goal ?? null}, 'pending')
+      ${input.steps ? JSON.stringify(input.steps) : null}::jsonb, ${input.goal ?? null}, 'pending', ${input.approvalId ?? null})
   `
   return id
 }
@@ -77,12 +77,20 @@ export async function claimBrowserJobs(sql: SQL, limit: number): Promise<Browser
     UPDATE hire_browser_jobs SET status = 'pending', claimed_at = NULL
     WHERE status = 'running' AND claimed_at < now() - interval '5 minutes'
   `
+  // Ask-first sweep: a denied approval kills its queued job; an unapproved one waits.
+  await sql`
+    UPDATE hire_browser_jobs j SET status = 'failed', error = 'Approval denied', finished_at = now()
+    FROM hire_browser_approvals a
+    WHERE j.approval_id = a.id AND a.status = 'denied' AND j.status = 'pending'
+  `
   const rows = (await sql`
     UPDATE hire_browser_jobs SET status = 'running', attempts = attempts + 1, claimed_at = now()
     WHERE id IN (
-      SELECT id FROM hire_browser_jobs
-      WHERE status = 'pending' AND attempts < 3
-      ORDER BY created_at ASC
+      SELECT j.id FROM hire_browser_jobs j
+      LEFT JOIN hire_browser_approvals a ON a.id = j.approval_id
+      WHERE j.status = 'pending' AND j.attempts < 3
+        AND (j.approval_id IS NULL OR a.status = 'approved')
+      ORDER BY j.created_at ASC
       LIMIT ${limit}
       FOR UPDATE SKIP LOCKED
     )

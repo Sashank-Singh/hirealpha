@@ -6,7 +6,7 @@
  *   - runHireTurn: the exact turn engine the bots run (memory files, tool
  *     loop, onboarding, briefs, stop-limits, outbound sanitizing).
  *   - GMI: real model calls (GMI_API_KEY from .env).
- *   - Web search: real DuckDuckGo via services/tools/searchWeb.
+  *   - Web search: real DuckDuckGo via services/tools/searchWeb.
  *
  * What is FAKED (so nothing touches prod and every state is controllable):
  *   - The HireAlpha API: profile, connected tools, memories, mail/calendar
@@ -85,6 +85,7 @@ let lastProfile: Record<string, unknown> | null = null
 
 globalThis.fetch = (async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
   const url = String(input)
+  if (process.env.TESTBED_TRACE === '1') console.log(`[trace] fetch: ${url.slice(0, 90)}`)
 
   // GMI + public internet stay real so model calls and search behave like prod.
   if (!url.includes('/api/internal/')) {
@@ -103,7 +104,7 @@ globalThis.fetch = (async (input: Parameters<typeof fetch>[0], init?: RequestIni
         const data = (await clone.json()) as { choices?: Array<{ message?: { content?: string } }> }
         const sys = String(init?.body || '')
         const tag = /free live lookup/i.test(sys) ? 'CLASSIFY' : /CAPABILITY MANIFESTO/.test(sys) ? 'TURN' : /Pick at most one live tool/.test(sys) ? 'PICK' : 'AUX:'+sys.slice(0,60).replace(/\\n/g,' ')
-        console.log(`[testbed] ${tag} → ${String(data.choices?.[0]?.message?.content || '').slice(0, 120).replace(/\n/g, ' ')}`)
+        console.log(`[testbed] ${tag} → ${String(data.choices?.[0]?.message?.content || '').slice(0, 600)}`)
       } catch { /* logging only */ }
       return res
     }
@@ -187,7 +188,11 @@ globalThis.fetch = (async (input: Parameters<typeof fetch>[0], init?: RequestIni
   }
 
   if (url.includes('/api/internal/propose') || url.includes('/api/internal/mail/send')) {
+    console.log(`[testbed] PROPOSE kind=${body.kind} url=${String(body.url || '').slice(0, 60)}`)
     appendEvent({ kind: 'draft', detail: body })
+    if (body.kind === 'browser') {
+      return Response.json({ ok: true, id: 'browser-testbed', requestId: 'approval-testbed', origin: body.url })
+    }
     return Response.json({ ok: true, id: 'draft-testbed' })
   }
 
@@ -279,6 +284,9 @@ async function runTurn(text: string, photo?: { bytes: Uint8Array; mime: string }
       senderId: f.phone,
       userText: userText || 'sent a photo',
       inboundNote,
+      delivery: {
+        onProgress: async text => { broadcast({ type: 'bubble', from: 'alpha', text, source: 'gmi' }) },
+      },
     })
     broadcast({ type: 'typing', on: false })
     for (const bubble of result.bubbles.length ? result.bubbles : [result.reply]) {

@@ -73,3 +73,5 @@ opencode.json
 .gstack/
 testbed/data/
 testbed/fixtures.json
+
+testbed/load-results/
