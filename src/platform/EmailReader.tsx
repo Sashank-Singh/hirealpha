@@ -122,6 +122,7 @@ export function EmailReader({ messageId, label, summary, auth, persona, onClose,
   // second transmits. Any edit disarms. This is what stopped "Send draft"
   // firing off an email on a stray Enter or an easy mis-click.
   const [confirmSend, setConfirmSend] = useState(false)
+  const [toLocked, setToLocked] = useState(true)
   const [confirmNew, setConfirmNew] = useState(false)
   const [saveBusy, setSaveBusy] = useState(false)
   const [saveMsg, setSaveMsg] = useState('')
@@ -347,14 +348,36 @@ export function EmailReader({ messageId, label, summary, auth, persona, onClose,
           <>
             <form className="reply-compose" onSubmit={sendReply}>
               <h4 className="reply-compose-title">Reply draft</h4>
-            <input
-              className="mini__input"
-              value={to}
-              onChange={(e) => { setTo(e.target.value); setConfirmSend(false) }}
-              onKeyDown={blockEnter}
-              placeholder="To"
-              aria-label="To"
-            />
+            {/* Reply target is locked to the thread's sender: a wrong address
+              * here is the one mistake this screen must not allow. Editing is
+              * still possible behind a warning toggle. */}
+            <div className="reply-to">
+              <span className="reply-to-label">To</span>
+              <span className={`reply-to-addr${toLocked ? '' : ' is-edited'}`}>{to || '—'}</span>
+              <button
+                type="button"
+                className="reply-to-unlock"
+                title={toLocked ? 'Change recipient' : 'Recipient edited'}
+                onClick={() => { setToLocked((v) => !v); setConfirmSend(false) }}
+              >
+                {toLocked ? 'Change' : 'Lock back'}
+              </button>
+            </div>
+            {toLocked ? null : (
+              <input
+                className="mini__input"
+                value={to}
+                onChange={(e) => { setTo(e.target.value.trim()); setConfirmSend(false) }}
+                onKeyDown={blockEnter}
+                placeholder="their@email.com"
+                aria-label="To"
+                inputMode="email"
+                autoFocus
+              />
+            )}
+            {to.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to.trim()) && (
+              <p className="reply-compose-msg reply-compose-msg--warn">That address doesn't look valid.</p>
+            )}
             <input
               className="mini__input"
               value={subject}
@@ -364,24 +387,35 @@ export function EmailReader({ messageId, label, summary, auth, persona, onClose,
               aria-label="Subject"
             />
             <textarea
-              className="mini__textarea"
+              className="mini__textarea reply-body"
               value={body}
               onChange={(e) => { setBody(e.target.value); setConfirmSend(false) }}
               placeholder="Write your reply…"
               aria-label="Reply body"
+              rows={9}
             />
+            {confirmSend && !busy && (
+              <p className="reply-confirm">
+                Send to <strong>{to.trim()}</strong> as “{subject.trim() || '(no subject)'}”? Tap send again.
+              </p>
+            )}
+            <div className="reply-send-row">
+              <button
+                className={`mini__btn reply-send-btn${confirmSend ? ' is-confirm' : ''}`}
+                type="submit"
+                disabled={busy || saveBusy || !to.trim() || !subject.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to.trim())}
+              >
+                {busy ? 'Sending…' : confirmSend ? `Confirm — send to ${to.trim().split('@')[0]}` : 'Send reply'}
+              </button>
+            </div>
             <div className="reply-compose-actions">
               <button className="mini__btn" type="button" disabled={saveBusy || busy || !to.trim()} onClick={saveReply}>
                 {saveBusy ? 'Saving…' : 'Save to Gmail'}
-              </button>
-              <button className="mini__btn" type="submit" disabled={busy || saveBusy || !to.trim() || !subject.trim()}>
-                {busy ? 'Sending…' : confirmSend ? 'Really send?' : 'Send…'}
               </button>
               <button className="mini__btn reply-compose-cancel" type="button" onClick={onClose} disabled={busy || saveBusy}>
                 Cancel
               </button>
             </div>
-            {confirmSend && !busy && <p className="reply-compose-msg">This sends the email for real. Click again to confirm.</p>}
             {composeMsg && <p className="reply-compose-msg">{composeMsg}</p>}
           </form>
           {saveMsg && <p className="reply-compose-msg">{saveMsg}</p>}
