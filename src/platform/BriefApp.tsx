@@ -827,11 +827,15 @@ export function BriefApp({
   const leftTonight = eveSection('Left this evening')
   const mailSince = eveSection('Mail since this morning')
   const tomorrowEve = eveSection('Tomorrow')
-  const eveMail: BriefAsk[] = (mailSince?.items || []).map((label, i) => ({
-    id: mailSince?.emailMeta?.[i]?.id || '',
-    label,
-    snippet: mailSince?.emailMeta?.[i]?.snippet,
-  }))
+  // Placeholder strings ("No important mail") carry no meta id — they are not
+  // mail, and PileRow renders them as fake senders with Done/Skip buttons.
+  const eveMail: BriefAsk[] = (mailSince?.items || [])
+    .map((label, i) => ({
+      id: mailSince?.emailMeta?.[i]?.id || '',
+      label,
+      snippet: mailSince?.emailMeta?.[i]?.snippet,
+    }))
+    .filter((e) => !!e.id)
 
   const nowMinutes = new Date().getHours() * 60 + new Date().getMinutes()
 

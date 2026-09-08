@@ -8836,15 +8836,45 @@ async function miniPayload(
       sections.push({ heading: 'Left this evening', items: ['Calendar is not connected. Tap Settings to add it.'] })
     }
 
+    // Tonight's own tasks: reminders scheduled through tomorrow morning and
+    // open loops due. The evening brief used to end at the calendar, which is
+    // how a day with real work left read as "nothing left".
+    const tonightTasks: string[] = []
+    try {
+      const remRows = await sql`
+        SELECT text, scheduled_at AS "scheduledAt" FROM hire_reminders
+        WHERE user_id = ${user.id} AND status = 'pending'
+          AND scheduled_at >= ${startOfLocalDay(tz)} AND scheduled_at <= ${startOfLocalDay(tz, 2)}
+        ORDER BY scheduled_at ASC LIMIT 5
+      `
+      for (const r of remRows as Array<{ text: string; scheduledAt: Date }>) {
+        tonightTasks.push(`${formatCalTime(new Date(r.scheduledAt).toISOString(), tz)} ${r.text.replace(/^\[digest\]/i, '').trim()}`)
+      }
+      const loopRows = await sql`
+        SELECT title, due_at AS "dueAt" FROM hire_loops
+        WHERE user_id = ${user.id} AND status = 'open'
+          AND due_at IS NOT NULL AND due_at <= ${startOfLocalDay(tz, 2)}
+        ORDER BY due_at ASC LIMIT 5
+      `
+      for (const l of loopRows as Array<{ title: string; dueAt: Date | null }>) {
+        tonightTasks.push(l.dueAt ? `${l.title} · due ${formatCalTime(new Date(l.dueAt).toISOString(), tz)}` : l.title)
+      }
+    } catch {
+      /* best-effort */
+    }
+    if (tonightTasks.length) {
+      sections.push({ heading: 'Needs you', items: tonightTasks })
+    }
+
     if (mailItems.length) {
       sections.push({
         heading: 'Mail since this morning',
         items: mailItems.map((m) => m.label),
         emailMeta: mailItems.map((m) => ({ id: m.id, snippet: m.snippet })),
       })
-    } else {
-      sections.push({ heading: 'Mail since this morning', items: ['No important mail'] })
     }
+    // No "No important mail" placeholder row: plain strings render as fake
+    // actionable mail rows (from: "No", Done/Skip buttons) in the client.
 
     if (tomorrowEvents.length) {
       sections.push({ heading: 'Tomorrow', items: tomorrowEvents.slice(0, 5).map(formatEvent) })
@@ -11715,6 +11745,29 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
     const tz = live.timezone || 'America/Los_Angeles'
     // Purchase draft: mint a real Stripe Checkout link the user taps to pay.
     // Ask-first by construction — nothing charges until THEY tap. Capped.
+    // Browser task: ask-first approval + enqueue on the worker (goal mode).
+    // Nothing runs until the user taps Approve; the result lands in-thread via
+    // the browser_result loop kind the bots already deliver.
+    if (body.kind === 'browser') {
+      const portal = String(body.url || '').trim()
+      const goal = String(body.body || '').trim()
+      if (!/^https:\/\//i.test(portal)) return json({ ok: false, error: 'Browser task needs an https site URL.' }, 400)
+      if (goal.length < 8) return json({ ok: false, error: 'Browser task needs a real goal.' }, 400)
+      const phoneE164 = live.phone || ''
+      const { requestBrowserApproval } = await import('./browserVault')
+      const { enqueueBrowserJob } = await import('./browserJobs')
+      const approval = await requestBrowserApproval(sql, {
+        userId: live.userId!, persona: body.persona, portal,
+        purpose: goal.slice(0, 200),
+      })
+      if ('error' in approval) return json({ ok: false, error: approval.error }, 400)
+      const jobId = await enqueueBrowserJob(sql, {
+        userId: live.userId!, persona: body.persona, phone: phoneE164,
+        kind: 'task', url: portal, goal: goal.slice(0, 400),
+        approvalId: approval.requestId,
+      })
+      return json({ ok: true, id: jobId, kind: 'browser', requestId: approval.requestId, origin: approval.portal })
+    }
     if (body.kind === 'purchase') {
       const item = String(body.title || body.subject || 'Item').slice(0, 140)
       const amount = Number(body.amount)
