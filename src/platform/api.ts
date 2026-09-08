@@ -1121,6 +1121,9 @@ export type MiniPrefs = {
   workoutDays: number[]
   sleepBedtime: string
   sleepWake: string
+  currentWeightLb?: number | null
+  targetWeightLb?: number | null
+  weightGoal?: 'loss' | 'gain' | 'muscle' | null
 }
 export const apiGetMiniPrefs = (a: { email?: string; token?: string }) =>
   featureGet<MiniPrefs>('/api/mini-prefs', authQuery(a))
@@ -1134,6 +1137,9 @@ export const apiPutMiniPrefs = async (
       ...authParams(a),
       workoutPlace: a.workoutPlace,
       workoutMoveCount: a.workoutMoveCount,
+      currentWeightLb: a.currentWeightLb,
+      targetWeightLb: a.targetWeightLb,
+      weightGoal: a.weightGoal,
       workoutDays: a.workoutDays,
       sleepBedtime: a.sleepBedtime,
       sleepWake: a.sleepWake,

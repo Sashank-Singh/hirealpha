@@ -50,6 +50,8 @@ import {
   type NutritionLog,
   type OpenLoop,
   type Relationship,
+  apiGetMiniPrefs,
+  apiPutMiniPrefs,
 } from './api'
 import type { Artifact } from './api'
 
@@ -1247,7 +1249,7 @@ function CalorieRing({ current, goal }: { current: number; goal: number }) {
           className="nutr-ring-progress"
         />
       </svg>
-      <div className="nutr-ring-label">
+      <div className={`nutr-ring-label${pct === 0 ? ' is-empty' : ''}`}>
         <span className="nutr-ring-num">{Math.round(current)}</span>
         <span className="nutr-ring-unit">/ {goal} cal</span>
       </div>
@@ -1308,6 +1310,9 @@ export function NutritionApp({ auth }: { auth: FeatureAuth }) {
   const fileRef = useRef<HTMLInputElement | null>(null)
   const [showGoals, setShowGoals] = useState(false)
   const [goalInput, setGoalInput] = useState({ calories: 2200, protein: 150, carbs: 220, fat: 70 })
+  const [prefs, setPrefs] = useState<{ currentWeightLb: number | null; targetWeightLb: number | null; weightGoal: 'loss' | 'gain' | 'muscle' | null }>({ currentWeightLb: null, targetWeightLb: null, weightGoal: null })
+  const [weightInput, setWeightInput] = useState({ current: '', target: '' })
+  const [showWeight, setShowWeight] = useState(false)
   const [selectedMeal, setSelectedMeal] = useState<NutritionLog | null>(null)
   const [pending, setPending] = useState<{
     description: string
@@ -1335,6 +1340,13 @@ export function NutritionApp({ auth }: { auth: FeatureAuth }) {
         }
       })
       .catch(() => setMsg('Could not load today.'))
+    apiGetMiniPrefs(a)
+      .then((d) => {
+        const next = { currentWeightLb: d.currentWeightLb ?? null, targetWeightLb: d.targetWeightLb ?? null, weightGoal: d.weightGoal ?? null }
+        setPrefs(next)
+        setWeightInput((w) => ({ current: w.current || (next.currentWeightLb ? String(next.currentWeightLb) : ''), target: w.target || (next.targetWeightLb ? String(next.targetWeightLb) : '') }))
+      })
+      .catch(() => undefined)
   }, [a])
 
   useEffect(() => { load() }, [load])
@@ -1479,6 +1491,53 @@ export function NutritionApp({ auth }: { auth: FeatureAuth }) {
         ? 'Calories are at the goal.'
         : `${Math.round(calLeft)} cal left. ${nextMeal} still fits.`
 
+  /* Nutritionist math (Mifflin-St Jeor approximation, activity folded flat):
+   * loss = maintenance - 500, gain = +300, muscle = +200 with high protein.
+   * Protein anchors on target weight (0.8g/lb), fat 25% of calories, carbs the rest. */
+  function recommendMacros(cur: number, target: number, goal: 'loss' | 'gain' | 'muscle') {
+    const age = 30, heightIn = 69, male = true
+    const base = 10 * (cur * 0.4536) + 6.25 * (heightIn * 2.54) - 5 * age + (male ? 5 : -161)
+    const maintenance = Math.round(base * 1.5)
+    const calories = goal === 'loss' ? maintenance - 500 : goal === 'gain' ? maintenance + 300 : maintenance + 200
+    const proteinPerLb = goal === 'muscle' ? 1.0 : goal === 'loss' ? 0.9 : 0.8
+    const protein = Math.round((goal === 'gain' ? cur : target || cur) * proteinPerLb)
+    const fat = Math.round((calories * 0.25) / 9)
+    const carbs = Math.max(50, Math.round((calories - protein * 4 - fat * 9) / 4))
+    return { calories, protein, carbs, fat, maintenance }
+  }
+
+  async function saveWeights(applyRecs: boolean) {
+    if (busy) return
+    const cur = Number(weightInput.current)
+    const target = Number(weightInput.target)
+    if (!cur || cur < 60 || cur > 600) { setMsg('Enter a current weight in lb.'); return }
+    setBusy(true)
+    try {
+      const goal = prefs.weightGoal || 'loss'
+      const res = await apiPutMiniPrefs({
+        ...a,
+        currentWeightLb: cur,
+        targetWeightLb: target && target >= 60 && target <= 600 ? target : undefined,
+        weightGoal: goal,
+      })
+      setPrefs((p) => ({ ...p, currentWeightLb: res.currentWeightLb ?? cur, targetWeightLb: res.targetWeightLb ?? (target || null), weightGoal: goal }))
+      if (applyRecs) {
+        const rec = recommendMacros(cur, target || cur, goal)
+        setGoalInput({ calories: rec.calories, protein: rec.protein, carbs: rec.carbs, fat: rec.fat })
+        await apiSetNutritionGoals({ ...a, calorieGoal: rec.calories, proteinGoal: rec.protein, carbsGoal: rec.carbs, fatGoal: rec.fat })
+        load()
+        setMsg(`Plan set: ${rec.calories} cal, ${rec.protein}g protein for ${goal === 'loss' ? 'weight loss' : goal === 'gain' ? 'weight gain' : 'muscle gain'}.`)
+      } else {
+        setMsg('Weights saved.')
+      }
+      setShowWeight(false)
+    } catch {
+      setMsg('Could not save weights.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   async function saveGoals() {
     if (busy) return
     setBusy(true)
@@ -1590,9 +1649,69 @@ export function NutritionApp({ auth }: { auth: FeatureAuth }) {
           </div>
         </div>
       ) : (
-        <button type="button" className="nutr-edit-goals" onClick={() => setShowGoals(true)}>
-          Goals
-        </button>
+        <div className="nutr-goal-btns">
+          <button type="button" className="nutr-edit-goals" onClick={() => setShowWeight((v) => !v)}>
+            {prefs.currentWeightLb ? `${prefs.currentWeightLb} lb` : 'Current'}
+          </button>
+          <button type="button" className="nutr-edit-goals" onClick={() => setShowWeight((v) => !v)}>
+            {prefs.targetWeightLb ? `${prefs.targetWeightLb} lb` : 'Target'}
+          </button>
+          <button type="button" className="nutr-edit-goals" onClick={() => setShowGoals(true)}>
+            Goals
+          </button>
+        </div>
+      )}
+
+      {showWeight && !showGoals && (
+        <div className="nutr-goals-form">
+          <div className="nutr-weight-goal-picker" role="radiogroup" aria-label="Goal">
+            {(['loss', 'gain', 'muscle'] as const).map((g) => (
+              <button
+                key={g}
+                type="button"
+                role="radio"
+                aria-checked={(prefs.weightGoal || 'loss') === g}
+                className={`nutr-weight-goal${(prefs.weightGoal || 'loss') === g ? ' is-on' : ''}`}
+                onClick={() => setPrefs((p) => ({ ...p, weightGoal: g }))}
+              >
+                {g === 'loss' ? 'Weight loss' : g === 'gain' ? 'Weight gain' : 'Muscle gain'}
+              </button>
+            ))}
+          </div>
+          <div className="nutr-goals-grid">
+            <label className="nutr-goal-field">
+              <span>Current (lb)</span>
+              <input
+                className="nutr-goal-input" type="number" min={60} max={600} inputMode="decimal"
+                placeholder="180"
+                value={weightInput.current}
+                onChange={(e) => setWeightInput((w) => ({ ...w, current: e.target.value }))}
+              />
+            </label>
+            <label className="nutr-goal-field">
+              <span>Target (lb)</span>
+              <input
+                className="nutr-goal-input" type="number" min={60} max={600} inputMode="decimal"
+                placeholder="165"
+                value={weightInput.target}
+                onChange={(e) => setWeightInput((w) => ({ ...w, target: e.target.value }))}
+              />
+            </label>
+          </div>
+          <div className="nutr-goals-actions">
+            <button type="button" className="nutr-save-btn" disabled={busy} onClick={() => void saveWeights(true)}>
+              {busy ? 'Saving…' : 'Save + set my plan'}
+            </button>
+            <button type="button" className="nutr-cancel-btn" onClick={() => void saveWeights(false)} disabled={busy}>
+              Just save
+            </button>
+          </div>
+          <p className="nutr-weight-note">
+            {prefs.currentWeightLb && prefs.targetWeightLb && prefs.weightGoal
+              ? `On it: ${prefs.weightGoal === 'loss' ? 'losing' : prefs.weightGoal === 'gain' ? 'gaining' : 'building'} toward ${prefs.targetWeightLb} lb. Ask Alpha what to eat anytime.`
+              : 'Alpha becomes your nutritionist: calories, protein, carbs, and fat tuned to your goal.'}
+          </p>
+        </div>
       )}
 
       {/* Today's meals */}
@@ -1607,7 +1726,10 @@ export function NutritionApp({ auth }: { auth: FeatureAuth }) {
                 <div className="nutr-meal-info">
                   <span className="nutr-meal-name">{l.description}</span>
                   <span className="nutr-meal-macros">
-                    {Math.round(l.calories)} cal · {Math.round(l.protein)}p · {Math.round(l.carbs)}c · {Math.round(l.fat)}f
+                    {Math.round(l.calories)} cal
+                    {l.protein || l.carbs || l.fat
+                      ? ` · ${Math.round(l.protein)}p · ${Math.round(l.carbs)}c · ${Math.round(l.fat)}f`
+                      : ''}
                   </span>
                 </div>
                 <button className="nutr-meal-delete" type="button" onClick={(e) => { e.stopPropagation(); void deleteMeal(l.id) }} title="Remove">

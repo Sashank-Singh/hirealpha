@@ -2608,15 +2608,11 @@ button, input { font: inherit; }
 /* ---- Nutrition: glass skin (matches homeA luminous tiles) ---- */
 .nutr { display: flex; flex-direction: column; gap: 12px; overflow: hidden; }
 .nutr-hero {
-  padding: 16px 15px;
-  border-radius: 20px;
-  background:
-    radial-gradient(130% 120% at 0% 0%, rgb(127 227 196 / 0.10), transparent 55%),
-    linear-gradient(180deg, rgb(30 30 36 / 0.9), rgb(21 21 25 / 0.94));
-  border: 1px solid rgb(255 255 255 / 0.07);
-  box-shadow:
-    inset 0 1px 0 rgb(255 255 255 / 0.08),
-    0 10px 26px rgb(0 0 0 / 0.28);
+  padding: 4px 2px;
+  align-items: center;
+  background: none;
+  border: 0;
+  box-shadow: none;
 }
 .nutr-hero .nutr-ring-num { text-shadow: 0 0 22px rgb(127 227 196 / 0.35); }
 .nutr-pill-track { border-radius: 999px; background: rgb(255 255 255 / 0.05); border-color: transparent; }
@@ -2629,14 +2625,22 @@ button, input { font: inherit; }
 .nutr-pill:nth-child(3) .nutr-pill-fill { box-shadow: 0 0 10px rgb(255 148 112 / 0.3); }
 .nutr-insight { padding: 0 2px; }
 .nutr-hero { display: flex; align-items: center; gap: 16px; padding: 2px 0; }
-.nutr-insight { font-size: 12px; color: var(--muted-fg); line-height: 1.4; margin: 0; }
-.nutr-ring-wrap { position: relative; flex-shrink: 0; width: 132px; height: 132px; }
+.nutr-insight {
+  align-self: flex-start;
+  font-size: 12px; font-weight: 650; color: #b9f2dd;
+  line-height: 1.4; margin: 0;
+  padding: 6px 12px; border-radius: 999px;
+  background: rgb(127 227 196 / 0.08);
+  border: 1px solid rgb(127 227 196 / 0.14);
+}
+.nutr-ring-wrap { position: relative; flex-shrink: 0; width: 112px; height: 112px; }
 .nutr-ring { width: 100%; height: 100%; }
 .nutr-ring-progress { transition: stroke-dashoffset 0.6s ease; transform: rotate(-90deg); transform-origin: center; }
 .nutr-ring-label { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; }
-.nutr-ring-num { font-size: 28px; font-weight: 800; line-height: 1; }
+.nutr-ring-num { font-size: 26px; font-weight: 800; line-height: 1; color: var(--fg); }
 .nutr-ring-unit { font-size: 11px; color: var(--muted-fg); text-transform: uppercase; letter-spacing: 0.04em; font-weight: 700; }
-.nutr-pills { flex: 1; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.nutr-pills { flex: 1; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.nutr-pill-val { color: var(--fg); }
 .nutr-pill { display: flex; flex-direction: column; gap: 4px; }
 .nutr-pill-top { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
 .nutr-pill-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted-fg); }
@@ -2693,7 +2697,14 @@ button, input { font: inherit; }
   transition: filter 0.15s ease, transform 0.1s ease;
 }
 .nutr-log-btn:not(:disabled):active { transform: scale(0.97); filter: brightness(1.2); }
-.nutr-log-btn:disabled { opacity: 0.5; cursor: default; }
+.nutr-log-btn:disabled { opacity: 0.55; cursor: default; filter: saturate(0.4); }
+.nutr-ring { opacity: 0.92; }
+.nutr-ring-label.is-empty { opacity: 0.75; }
+html[data-mini-theme='light'] .nutr-insight {
+  color: #0b5d4f;
+  background: rgb(16 122 104 / 0.07);
+  border-color: rgb(16 122 104 / 0.16);
+}
 
 .nutr-edit-goals {
   align-self: flex-start;
@@ -2704,6 +2715,26 @@ button, input { font: inherit; }
 }
 .nutr-edit-goals:hover { color: var(--fg); border-color: rgb(255 255 255 / 0.2); }
 
+.nutr-goal-btns { display: flex; gap: 8px; flex-wrap: wrap; }
+.nutr-weight-goal-picker { display: flex; gap: 8px; flex-wrap: wrap; }
+.nutr-weight-goal {
+  padding: 8px 14px; border: 1px solid rgb(255 255 255 / 0.12); border-radius: 999px;
+  background: rgb(255 255 255 / 0.03); color: var(--muted-fg);
+  font-size: 12px; font-weight: 700; cursor: pointer;
+  transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease;
+}
+.nutr-weight-goal.is-on {
+  border-color: rgb(127 227 196 / 0.45);
+  background: rgb(127 227 196 / 0.1);
+  color: #b9f2dd;
+}
+.nutr-weight-note { margin: 0; font-size: 12px; line-height: 1.45; color: var(--muted-fg); }
+html[data-mini-theme='light'] .nutr-weight-goal {
+  background: #fff; border-color: rgba(26, 25, 23, 0.14); color: #1a1917;
+}
+html[data-mini-theme='light'] .nutr-weight-goal.is-on {
+  border-color: rgb(16 122 104 / 0.45); background: rgb(16 122 104 / 0.08); color: #0b5d4f;
+}
 .nutr-goals-form {
   display: flex; flex-direction: column; gap: 12px;
   padding: 10px 12px; border: 1px solid var(--border); border-radius: 12px;
@@ -2747,7 +2778,7 @@ button, input { font: inherit; }
   width: 36px; height: 36px; border-radius: 10px; object-fit: cover;
   flex-shrink: 0; border: 1px solid var(--border);
 }
-.nutr-meal-time { font-size: 11px; font-weight: 700; color: var(--muted-fg); white-space: nowrap; text-transform: uppercase; letter-spacing: 0.04em; }
+.nutr-meal-time { font-size: 10.5px; font-weight: 700; color: var(--muted-fg); white-space: nowrap; letter-spacing: 0.02em; }
 .nutr-meal-info { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
 .nutr-meal-name { font-size: 14px; font-weight: 650; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .nutr-meal-macros { font-size: 11.5px; color: #7fe3c4; opacity: 0.85; }
@@ -3585,11 +3616,9 @@ html[data-mini-theme='light'] .hA-msg { color: var(--muted-fg); }
 
 /* Light nutrition: paper surfaces instead of the dark glass recipes. */
 html[data-mini-theme='light'] .nutr-hero {
-  background:
-    radial-gradient(130% 120% at 0% 0%, rgb(16 122 104 / 0.07), transparent 55%),
-    linear-gradient(180deg, #ffffff, #fbfaf7);
-  border-color: rgba(26, 25, 23, 0.12);
-  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.8), 0 8px 20px rgb(26 25 23 / 0.07);
+  background: none;
+  border: 0;
+  box-shadow: none;
 }
 html[data-mini-theme='light'] .nutr-quick-btn,
 html[data-mini-theme='light'] .nutr-photo-btn {

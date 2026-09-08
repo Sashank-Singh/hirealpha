@@ -2666,6 +2666,9 @@ export async function ensureHireSchema(sql: SQL) {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
     )
   `
+  await sql`ALTER TABLE hire_mini_prefs ADD COLUMN IF NOT EXISTS current_weight_lb REAL`
+  await sql`ALTER TABLE hire_mini_prefs ADD COLUMN IF NOT EXISTS target_weight_lb REAL`
+  await sql`ALTER TABLE hire_mini_prefs ADD COLUMN IF NOT EXISTS weight_goal TEXT`
   await sql`ALTER TABLE hire_mini_prefs ADD COLUMN IF NOT EXISTS workout_move_count INTEGER NOT NULL DEFAULT 4`
   await sql`ALTER TABLE hire_mini_prefs ADD COLUMN IF NOT EXISTS workout_days TEXT NOT NULL DEFAULT '1,2,3,4,5'`
 
@@ -3031,6 +3034,9 @@ type MiniPrefs = {
   workoutDays: number[]
   sleepBedtime: string
   sleepWake: string
+  currentWeightLb: number | null
+  targetWeightLb: number | null
+  weightGoal: 'loss' | 'gain' | 'muscle' | null
 }
 
 const DEFAULT_WORKOUT_DAYS = [1, 2, 3, 4, 5]
@@ -3054,7 +3060,8 @@ function clampWorkoutDays(v: unknown): number[] {
 async function loadMiniPrefs(sql: SQL, userId: string): Promise<MiniPrefs> {
   const rows = await sql`
     SELECT workout_place AS "workoutPlace", workout_move_count AS "workoutMoveCount",
-           workout_days AS "workoutDays", sleep_bedtime AS "sleepBedtime", sleep_wake AS "sleepWake"
+           workout_days AS "workoutDays", sleep_bedtime AS "sleepBedtime", sleep_wake AS "sleepWake",
+           current_weight_lb AS "currentWeightLb", target_weight_lb AS "targetWeightLb", weight_goal AS "weightGoal"
     FROM hire_mini_prefs WHERE user_id = ${userId} LIMIT 1
   `
   const row = rows[0] as (MiniPrefs & { workoutMoveCount?: unknown }) | undefined
@@ -3065,6 +3072,9 @@ async function loadMiniPrefs(sql: SQL, userId: string): Promise<MiniPrefs> {
     workoutDays: clampWorkoutDays(row?.workoutDays),
     sleepBedtime: isClock(row?.sleepBedtime || '') ? row!.sleepBedtime : '23:00',
     sleepWake: isClock(row?.sleepWake || '') ? row!.sleepWake : '07:00',
+    currentWeightLb: typeof row?.currentWeightLb === 'number' && row.currentWeightLb > 0 ? row.currentWeightLb : null,
+    targetWeightLb: typeof row?.targetWeightLb === 'number' && row.targetWeightLb > 0 ? row.targetWeightLb : null,
+    weightGoal: row?.weightGoal === 'loss' || row?.weightGoal === 'gain' || row?.weightGoal === 'muscle' ? row.weightGoal : null,
   }
 }
 
@@ -3078,16 +3088,22 @@ async function saveMiniPrefs(sql: SQL, userId: string, patch: Partial<MiniPrefs>
     workoutDays: patch.workoutDays?.length ? clampWorkoutDays(patch.workoutDays) : cur.workoutDays,
     sleepBedtime: isClock(patch.sleepBedtime || '') ? patch.sleepBedtime! : cur.sleepBedtime,
     sleepWake: isClock(patch.sleepWake || '') ? patch.sleepWake! : cur.sleepWake,
+    currentWeightLb: typeof patch.currentWeightLb === 'number' && patch.currentWeightLb > 0 ? Math.round(patch.currentWeightLb * 10) / 10 : cur.currentWeightLb,
+    targetWeightLb: typeof patch.targetWeightLb === 'number' && patch.targetWeightLb > 0 ? Math.round(patch.targetWeightLb * 10) / 10 : cur.targetWeightLb,
+    weightGoal: patch.weightGoal ?? cur.weightGoal,
   }
   await sql`
-    INSERT INTO hire_mini_prefs (user_id, workout_place, workout_move_count, workout_days, sleep_bedtime, sleep_wake, updated_at)
-    VALUES (${userId}, ${next.workoutPlace}, ${next.workoutMoveCount}, ${next.workoutDays.join(',')}, ${next.sleepBedtime}, ${next.sleepWake}, now())
+    INSERT INTO hire_mini_prefs (user_id, workout_place, workout_move_count, workout_days, sleep_bedtime, sleep_wake, current_weight_lb, target_weight_lb, weight_goal, updated_at)
+    VALUES (${userId}, ${next.workoutPlace}, ${next.workoutMoveCount}, ${next.workoutDays.join(',')}, ${next.sleepBedtime}, ${next.sleepWake}, ${next.currentWeightLb}, ${next.targetWeightLb}, ${next.weightGoal}, now())
     ON CONFLICT (user_id) DO UPDATE SET
       workout_place = excluded.workout_place,
       workout_move_count = excluded.workout_move_count,
       workout_days = excluded.workout_days,
       sleep_bedtime = excluded.sleep_bedtime,
       sleep_wake = excluded.sleep_wake,
+      current_weight_lb = excluded.current_weight_lb,
+      target_weight_lb = excluded.target_weight_lb,
+      weight_goal = excluded.weight_goal,
       updated_at = now()
   `
   return next
@@ -12820,6 +12836,9 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
       workoutDays?: number[]
       sleepBedtime?: string
       sleepWake?: string
+      currentWeightLb?: number
+      targetWeightLb?: number
+      weightGoal?: string
     }
     const cookieSession = (req.headers.get('cookie') || '')
       .split(';')
@@ -12844,6 +12863,14 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
     if (typeof body.sleepWake === 'string' && body.sleepWake.trim()) {
       patch.sleepWake = body.sleepWake.trim().slice(0, 5)
     }
+    if (typeof (body as { currentWeightLb?: number }).currentWeightLb === 'number' && (body as { currentWeightLb?: number }).currentWeightLb! > 0) {
+      patch.currentWeightLb = (body as { currentWeightLb?: number }).currentWeightLb
+    }
+    if (typeof (body as { targetWeightLb?: number }).targetWeightLb === 'number' && (body as { targetWeightLb?: number }).targetWeightLb! > 0) {
+      patch.targetWeightLb = (body as { targetWeightLb?: number }).targetWeightLb
+    }
+    const wg = (body as { weightGoal?: string }).weightGoal
+    if (wg === 'loss' || wg === 'gain' || wg === 'muscle') patch.weightGoal = wg
     if (!Object.keys(patch).length) {
       return json({ error: 'Nothing to update' }, 400)
     }
@@ -16214,6 +16241,9 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
       workoutDays: Array.isArray(body.workoutDays) ? body.workoutDays : undefined,
       sleepBedtime: body.sleepBedtime,
       sleepWake: body.sleepWake,
+      currentWeightLb: typeof body.currentWeightLb === 'number' ? body.currentWeightLb : undefined,
+      targetWeightLb: typeof body.targetWeightLb === 'number' ? body.targetWeightLb : undefined,
+      weightGoal: body.weightGoal === 'loss' || body.weightGoal === 'gain' || body.weightGoal === 'muscle' ? body.weightGoal : undefined,
     })
     return json({ ok: true, ...prefs })
   }
