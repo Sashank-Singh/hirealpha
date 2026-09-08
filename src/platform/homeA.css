@@ -989,8 +989,11 @@
 }
 
 .mini--bleed .mini__card {
-  max-width: none;
+  /* Dashboard contract: the home reads identically for everyone — pinned to
+   * the design width and centered, on a phone or a wide desktop tab. */
   width: 100%;
+  max-width: 430px;
+  margin: 0 auto;
 }
 
 .mini--bleed .mini__head {
