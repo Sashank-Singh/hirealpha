@@ -12198,9 +12198,9 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
       )
     }
     const draftId = crypto.randomUUID()
-    const quoted = target.original
-      ? `\n\nThey wrote:\n${target.original.split(/\s+/).slice(0, 90).join(' ')}…`
-      : ''
+    // No quoted-original tail: appending "They wrote:" + their text into the
+    // OUTBOUND body mailed people their own words back. The reader shows the
+    // original; the draft contains only the reply.
     /* The draft has to say something about the email, not just re-paste it:
      * Alpha writes the actual reply from the message content. A model that is
      * down, or that answers with a bare greeting or an echo of the original,
@@ -12211,15 +12211,18 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
     const firstName = senderName.split(/\s+/)[0] || 'me'
     let written = ''
     try {
-      written = String(
-        (await gmiBriefChat(
-          `You are Alpha writing a reply email on behalf of ${senderName}. Reply to the email below on their behalf. Keep it natural, concise, and specific to what was said: answer any question, confirm or decline clearly, move it forward. Plain greeting, no bullet lists unless needed, close with a short signoff in their voice using the name ${firstName}, like "Best," then ${firstName} on the next line. Do not quote the original back. Never leave placeholders such as [Your Name]. Respond with ONLY the body text.`,
-          `To: ${target.toAddr}\nSubject: ${target.subject}\n\nTheir email:\n${target.original || target.subject}\n\nWrite the reply body now.`,
-          500,
-          10000,
-          { plainText: true },
-        )) || '',
-      ).trim()
+      // The draft model needs headroom: 10s timed out on ordinary replies and
+      // turned every first tap into an error. 22s, then one silent retry —
+      // the client shows a writing state instead of bouncing the user.
+      const draftSystem = `You are Alpha writing a reply email on behalf of ${senderName}. Reply to the email below on their behalf. Keep it natural, concise, and specific to what was said: answer any question, confirm or decline clearly, move it forward. Plain greeting, no bullet lists unless needed, close with a short signoff in their voice using the name ${firstName}, like "Best," then ${firstName} on the next line. Do not quote the original back. Never leave placeholders such as [Your Name]. Respond with ONLY the body text.`
+      const draftUser = `To: ${target.toAddr}\nSubject: ${target.subject}\n\nTheir email:\n${target.original || target.subject}\n\nWrite the reply body now.`
+      let writtenRaw = ''
+      try {
+        writtenRaw = String(await gmiBriefChat(draftSystem, draftUser, 500, 22_000, { plainText: true })) || ''
+      } catch {
+        writtenRaw = String(await gmiBriefChat(draftSystem, draftUser, 500, 22_000, { plainText: true })) || ''
+      }
+      written = writtenRaw.trim()
     } catch (err) {
       console.warn('[mail/draft] model draft failed', err)
     }
@@ -12229,7 +12232,7 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
         502,
       )
     }
-    const replyBody = `${fillDraftName(written, firstName)}${quoted}`.slice(0, 4000)
+    const replyBody = fillDraftName(written, firstName).slice(0, 4000)
     await sql`
       INSERT INTO hire_drafts (id, user_id, persona, kind, to_addr, subject, body)
       VALUES (

@@ -327,7 +327,7 @@ function TriageActions({
       </button>
       {onDraft && (
         <button className="brief-tap brief-tap--draft" type="button" disabled={busy} onClick={(e) => { e.stopPropagation(); onDraft() }}>
-          Draft reply
+          {busy ? 'Writing…' : 'Draft reply'}
         </button>
       )}
       <button className="brief-tap brief-tap--skip" type="button" disabled={busy} onClick={(e) => { e.stopPropagation(); onSkip() }}>
