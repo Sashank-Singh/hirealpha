@@ -5889,6 +5889,12 @@ a.brief-fact { cursor: pointer; }
   text-decoration: line-through;
   margin-right: 6px;
 }
+.price-card__was-big {
+  font-size: 24px;
+  color: var(--muted);
+  text-decoration: line-through;
+  margin-right: 6px;
+}
 .price-card__email {
   display: flex;
   gap: 6px;

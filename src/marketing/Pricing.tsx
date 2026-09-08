@@ -20,7 +20,7 @@ export const TIERS: { id: Tier; name: string; price: number; promo?: number; per
     per: 'a month',
     blurb: 'Alpha the Friend. Unlimited texts. Apps in the thread.',
     badge: 'Live now',
-    cta: 'Hire Alpha',
+    cta: 'Start 7-day free trial',
   },
   {
     id: 'bundle',
@@ -45,27 +45,29 @@ export const TIERS: { id: Tier; name: string; price: number; promo?: number; per
 
 /** Display price reacts to the billing period. Annual figures are monthly x 10
  * (2 months free) and must stay in sync with the STRIPE_PRICE_*_ANNUAL envs. */
-function displayPrice(tier: { id: Tier; price: number; promo?: number; per: string }, annual: boolean) {
-  if (tier.id === 'free') return { price: '$0', per: 'forever', freebie: '', was: '' }
+function displayPrice(tier: { id: Tier; price: number; promo?: number; per: string }, annual: boolean): { price: string; per: string; freebie: string; was: string; wasBig: string } {
+  if (tier.id === 'free') return { price: '$0', per: 'forever', freebie: '', was: '', wasBig: '' }
   if (annual) {
     return {
       price: '$' + (tier.price * 10).toLocaleString('en-US'),
       per: 'a year',
       freebie: '2 months free',
       was: '',
+      wasBig: '',
     }
   }
-  // Intro deal on the monthly single: 7 days free to start, then $5 for two
-  // months, then the real price. The old price stays visible, struck through.
+  // Early access is free: $19 struck small, $5 struck big, then Free.
+  // 7-day free trial still starts every plan.
   if (tier.promo) {
     return {
-      price: '$' + tier.promo,
-      per: 'a month',
-      freebie: '7 days free, then $5 for 2 months',
+      price: 'Free',
+      per: 'to start',
+      freebie: '7-day free trial, then $5/mo for 2 months',
       was: '$' + tier.price,
+      wasBig: '$' + tier.promo,
     }
   }
-  return { price: '$' + tier.price, per: 'a month', freebie: '', was: '' }
+  return { price: '$' + tier.price, per: 'a month', freebie: '', was: '', wasBig: '' }
 }
 
 /** Checkout needs a signed-in email: a known session fires Stripe immediately;
@@ -136,7 +138,7 @@ export function Pricing() {
         </div>
 
         <div className="pricing__grid">
-          {TIERS.map((tier) => {
+          {TIERS.filter((tier) => tier.id === 'single').map((tier) => {
             const shown = displayPrice(tier, annual)
             return (
               <article key={tier.id} className={`price-card${tier.badge ? ' price-card--hot' : ''}`}>
@@ -144,6 +146,7 @@ export function Pricing() {
                 <h3>{tier.name}</h3>
                 <p className="price-card__price">
                   {shown.was && <s className="price-card__was">{shown.was}</s>}
+                  {shown.wasBig && <s className="price-card__was-big">{shown.wasBig}</s>}
                   <strong>{shown.price}</strong>
                   <span>{shown.per}</span>
                 </p>
@@ -169,7 +172,6 @@ export function Pricing() {
           })}
         </div>
 
-        <p className="pricing__family">One bill, many numbers. Ask us.</p>
       </div>
     </section>
   )

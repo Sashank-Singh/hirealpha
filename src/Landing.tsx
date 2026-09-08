@@ -1036,7 +1036,7 @@ function WaitlistForm() {
         )}
         {!waitlisted && (!plan || plan.tier === 'free') && (
           <>
-            <p className="waitlist-success__cta">7 days free, then $5 for 2 months, then $19</p>
+            <p className="waitlist-success__cta">7-day free trial, then $5/mo for 2 months</p>
             <button
               type="button"
               className="btn btn--accent"
