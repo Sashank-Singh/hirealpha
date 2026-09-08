@@ -101,3 +101,54 @@ Record verified completion, user interventions, constraint violations, latency,
 and cost across repeated attempts. Establish this baseline before changing the
 model or adding more capabilities. Production deployment and external messaging
 were not performed in this pass.
+
+## Conversation-first follow-up (September 7)
+
+Hired Friend users now enter `conversationalFriend.ts` before the old topic
+routing cascade. Exact navigation, connection shortcuts, and opt-out controls
+remain deterministic. Other personas and slash-command paths retain their
+existing routing. The model receives conversation history, preferences, current
+connection state, and available capabilities before deciding whether to act.
+
+The capability registry exposes existing reminders, preference storage, personal
+records, explicit logging, briefing, meeting prep, app cards, and workshop builds
+and updates alongside the multi-step lookup/draft loop. Ordinary conversation
+requires no tool. The personality prompt encourages contextual, warm replies and
+light humor without forced onboarding or automatic life logging.
+
+A missing Gmail, Calendar, or Drive connection can now save the original request
+in local thread memory. After connecting, a user can say "continue" to resume.
+This survives local process restarts but is not autonomous background execution.
+Each confirmed action receipt survives a later model failure. Uncertain writes
+are not retried within the same turn. Reminder creation supports once/daily/weekly
+notifications; cancellation and arbitrary future tool execution are not exposed
+by this new registry.
+
+Regression checks cover casual/negated messages avoiding automatic writes,
+contextual preference confirmation, connection/resume persistence, chained
+lookups and drafts, and retaining receipts after model failures. These use
+scripted model responses and verify orchestration, not semantic model quality.
+The full suite passed 1,153 tests before the final purchase validation regression;
+all 53 focused tests pass afterward. The web build and bot/API bundles pass.
+Strict bot type checking still reports existing SDK/helper errors outside this
+new runtime. No deployment or live model trial was performed.
+
+Next live acceptance examples: "I'm tired of this app", "I didn't spend $80",
+"brief me on the second email", "same time tomorrow", and a Gmail connection
+interruption followed by "connected, continue". Evaluate task completion,
+unwanted actions, follow-up continuity, latency, and whether the conversation
+feels pleasant. A passing scripted test is not evidence of beating Instinct.
+
+## Incoming text bursts
+
+The Friend iMessage intake now groups consecutive texts from the same sender
+and space after 1.8 seconds of silence, capped at six seconds from the first
+fragment. Receipt is marked read immediately; one combined turn uses all text
+fragments in order and replies to the last message. The intake keeps receiving
+messages while work runs. Each conversation executes serially; other users can
+proceed independently. Texts arriving during execution become the next grouped
+turn, not a restart of potentially completed actions. Photos remain ordered
+boundaries with their existing handling. This queue is process-local, does not
+survive restarts, and does not consume typing events or revise an active task.
+Timing, isolation, ordering, failure recovery, and duplicate-delivery tests pass;
+the bot bundles. Deployment has not been performed.

@@ -90,7 +90,13 @@ globalThis.fetch = (async (input: Parameters<typeof fetch>[0], init?: RequestIni
   if (!url.includes('/api/internal/')) {
     if (url.includes('/chat/completions')) {
       const t0 = Date.now()
-      const res = await realFetch(input, init)
+      let res: Response
+      try {
+        res = await realFetch(input, init)
+      } catch (err) {
+        console.log(`[testbed] completion THROW: ${err instanceof Error ? err.message : String(err)} (${Date.now() - t0}ms)`)
+        throw err
+      }
       console.log(`[testbed] completion ${res.status} ${Date.now() - t0}ms`)
       try {
         const clone = res.clone()

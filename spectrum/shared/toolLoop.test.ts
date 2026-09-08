@@ -16,6 +16,7 @@ import {
   matchTextPerson,
   parseDraftCall,
   parseExtractedWrite,
+  validatePurchase,
   parsePlannerTool,
   parseToolCall,
   pickMapRecommendation,
@@ -42,6 +43,35 @@ describe('multi-step agent execution', () => {
     })
     return { run, lookups, drafts, prompts }
   }
+
+  it('keeps action and draft receipts when the next model call fails', async () => {
+    const s = scenario([
+      '{"action":"use","name":"reminder","input":{}}',
+      '{"action":"reply","id":"flight123","body":"Confirmed."}',
+    ], { capabilities: [{ name: 'reminder', description: 'Schedule', mutates: true, execute: async () => ({ status: 'done', message: 'Reminder saved for tomorrow.' }) }] })
+    const result = await s.run()
+    expect(result.reply).toContain('Reminder saved for tomorrow.')
+    expect(result.reply).toContain('email draft is saved')
+  })
+
+  it('does not retry an uncertain capability write', async () => {
+    let attempts = 0
+    const s = scenario([
+      '{"action":"use","name":"reminder","input":{}}',
+      '{"action":"use","name":"reminder","input":{}}',
+      'I could not confirm the reminder was saved.',
+    ], { capabilities: [{ name: 'reminder', description: 'Schedule', mutates: true, execute: async () => { attempts++; throw new Error('timeout') } }] })
+    await s.run()
+    expect(attempts).toBe(1)
+    expect(s.prompts[2]).toContain('already attempted')
+  })
+
+  it('does not propose a purchase rejected by validation', async () => {
+    const s = scenario(['{"action":"purchase","item":"Laptop","amount":99999,"url":"https://example.com/laptop"}', 'That exceeds the purchase limit.'])
+    await s.run()
+    expect(s.drafts).toHaveLength(0)
+    expect(s.prompts[1]).toContain('blocked')
+  })
 
   it('uses sequential JSON actions and gives the model each preceding result', async () => {
     const s = scenario([
@@ -319,5 +349,24 @@ describe('map recommendations', () => {
     expect(pickMapRecommendation('Maps search unavailable right now.')).toBeNull()
     expect(pickMapRecommendation('just some chatter\nwith no places')).toBeNull()
     expect(pickMapRecommendation('')).toBeNull()
+  })
+})
+
+describe('purchase draft', () => {
+  it('parses a purchase action with amount and https url', () => {
+    const d = parseExtractedWrite(JSON.stringify({
+      action: 'purchase', item: '5lb jasmine rice', amount: 24.99, url: 'https://www.amazon.com/dp/B0XYZ',
+    }))
+    expect(d).toMatchObject({ type: 'purchase', item: '5lb jasmine rice', amount: 24.99, url: 'https://www.amazon.com/dp/B0XYZ' })
+  })
+  it('rejects non-https urls and invented/zero prices', () => {
+    expect(parseExtractedWrite(JSON.stringify({ action: 'purchase', item: 'x', amount: 5, url: 'http://evil.com' }))).toBeNull()
+    expect(parseExtractedWrite(JSON.stringify({ action: 'purchase', item: 'x', amount: 0, url: 'https://a.com' }))).toBeNull()
+    expect(parseExtractedWrite(JSON.stringify({ action: 'purchase', item: 'x', amount: 'lots', url: 'https://a.com' }))).toBeNull()
+  })
+  it('caps purchases above the self-serve limit', () => {
+    const problem = validatePurchase({ type: 'purchase', item: 'macbook', amount: 2400, url: 'https://a.com' })
+    expect(problem).toContain('cap')
+    expect(validatePurchase({ type: 'purchase', item: 'rice', amount: 25, url: 'https://a.com' })).toBeNull()
   })
 })

@@ -4,11 +4,13 @@ import {
   type AgentId,
 } from '../../src/agents'
 import { runAgentLocally } from '../../src/agents/runtime'
+import { runConversationalFriend } from './conversationalFriend'
 import { skillsPromptBlock, SKILLS } from './skills'
 import { gmiChat } from './gmi'
 import { appendThread, loadMemory, upsertFacts, pruneExpiredFacts, setSummary, trimHistory, MAX_RAW, type ThreadMemory } from './memory'
 import { extractFacts, summarizeOld } from './memoryMaintain'
-import { autoIterateWorkshop, autoLogGratitude, autoLogHabit, autoLogMood, autoLogNutrition, autoLogSleep, autoLogSpend, autoLogWorkout, autoLogNetwork, autoLogDecision, autoLogLoops, autoLogPipeline, autoLogStandup, autoRunWorkshop, autoWorkshopKeep, autoWorkshopToss, autoSaveLearning, autoSetBudget, autoSetPrefs, fetchLiveProfile, fetchLiveTools, fetchMiniRun, fetchPrepBundle, fetchWeekBundle, formatHireContext, formatHireMemories, persistLiveFacts, proposeLiveDraft, touchInbound, importChatExport, addMeeting, fetchRenewalRadar, setTravel } from './liveContext'
+import { autoIterateWorkshop, autoLogGratitude, autoLogHabit, autoLogMood, autoLogNutrition, autoLogSleep, autoLogSpend, autoLogWorkout, autoLogNetwork, autoLogDecision, autoLogLoops, autoLogPipeline, autoLogStandup, autoRunWorkshop, autoWorkshopKeep, autoWorkshopToss, autoSaveLearning, autoSetBudget, autoSetPrefs, fetchLiveProfile, fetchLiveTools, fetchMiniRun, fetchPrepBundle, fetchWeekBundle, formatHireContext, formatHireMemories, persistLiveFacts, proposeLiveDraft,
+  proposePurchase, touchInbound, importChatExport, addMeeting, fetchRenewalRadar, setTravel } from './liveContext'
 import { captureFromChat } from './cofounderPro'
 import { coworkerCaptureFromChat } from './coworkerPro'
 import { onboardingStage, runOnboardingTurn, suggestConnector } from './onboarding'
@@ -621,7 +623,8 @@ export async function runHireTurn(input: {
   // Navigation is independent of account/profile availability and prior topics.
   // Do this before any profile, judgment, onboarding, or model work. The card's
   // destination still enforces authentication; a token failure falls back to login.
-  const navigation = detectMiniAppRequest(input.userText, agent.id)
+  const explicitNavigation = /^\s*(?:\/?(?:apps?|menu|home)|(?:show|open|pull up)(?: me)?(?: the| my)? (?:apps?|menu|home))\s*[.!?]?\s*$/i.test(input.userText)
+  const navigation = explicitNavigation ? detectMiniAppRequest(input.userText, agent.id) : null
   if (navigation?.kind === 'apps' || navigation?.kind === 'menu') {
     const card = await mintMiniAppCard(input.senderId, agent.id, navigation.kind, navigation.query)
     appendThread(input.dataDir, input.senderId, [
@@ -649,14 +652,27 @@ export async function runHireTurn(input: {
   // worst case must never serialize behind profile. A thread with zero local
   // history is a first contact: skip it (no state to judge yet).
   const friendJudgmentP =
-    agent.id === 'friend' && (history.length > 0 || mem.summary.trim().length > 0)
+    agent.id === 'friend' && input.userText.trim().startsWith('/') && (history.length > 0 || mem.summary.trim().length > 0)
       ? fetchJudgmentState(input.senderId, agent.id, 'turn').catch(() => null)
       : null
   const [live, contacts, spending] = await Promise.all([
     fetchLiveProfile(input.senderId, agent.id),
     input.senderId ? fetchContacts(input.senderId) : Promise.resolve([]),
-    input.senderId ? fetchSpending(input.senderId) : Promise.resolve({ logs: [], weekly: 0, budget: 0 }),
+    input.senderId && (agent.id !== 'friend' || input.userText.trim().startsWith('/')) ? fetchSpending(input.senderId) : Promise.resolve({ logs: [], weekly: 0, budget: 0 }),
   ])
+  if (agent.id === 'friend' && live.hired && !input.userText.trim().startsWith('/')) {
+    void touchInbound(input.senderId, agent.id)
+    // Exact opt-out controls remain available even when the model is down.
+    if (/^\s*(?:stop|stop texting me|stop texting me first|pause proactive|resume proactive)\s*[.!]?\s*$/i.test(input.userText)) {
+      const resume = /^\s*resume/i.test(input.userText)
+      const paused = /^\s*pause/i.test(input.userText)
+      const ok = await setProactiveMode(input.senderId, agent.id, { proactive: resume ? 'on' : paused ? 'paused' : 'off', pausedUntil: null })
+      const reply = ok ? resume ? "I'll check in when something is useful." : "Got it. I won't text first. Your scheduled reminders are unchanged." : 'I could not change that setting. Please try again.'
+      appendThread(input.dataDir, input.senderId, [{ role: 'user', content: input.userText }, { role: 'assistant', content: reply }])
+      return { reply, bubbles: [reply], source: 'local', authoritative: [], card: null }
+    }
+    return runConversationalFriend({ ...input, live, memory: mem, contacts })
+  }
   if (live.unavailable && wantsLiveData(input.userText)) {
     const reply = 'I could not load your connected account data right now. Please try again in a moment. You do not need to reconnect anything based on this error.'
     appendThread(input.dataDir, input.senderId, [
@@ -1570,19 +1586,30 @@ export async function runHireTurn(input: {
       !humanLimit &&
       !wantsFreshInfo(input.userText)
     if (live.hired && agent.id === 'friend' && !simpleAsk) {
+      let purchasePayUrl: string | null = null
       const outcome = await runToolConversation({
         messages: baseMessages,
         chat: (messages, timeoutMs) => gmiChat({ temperature: Math.min(agent.temperature, 0.3), maxTokens: Math.max(maxTokens, 1200), messages, timeoutMs }),
         lookup: (tool, query) => fetchLiveTools(input.senderId, agent.id, query, tool),
-        propose: (draft) => saveFriendDraft(input.senderId, agent.id, draft),
+        propose: (draft) =>
+          saveFriendDraft(input.senderId, agent.id, draft).then((r) => {
+            if (draft.type === 'purchase' && r.ok && r.url) purchasePayUrl = r.url
+            return r
+          }),
         availableTools: LIVE_TOOLS.filter((tool) => tool === 'maps' || tool === 'web' || live.connected.includes(tool)),
         canDraft: !hardStop && humanLimit !== 'grief' && humanLimit !== 'negotiation' && !confirmKind,
         existingDraft: confirmQuery?.draft ? { id: confirmQuery.draft, type: 'mail' } : undefined,
       })
       reply = outcome.reply
       if (outcome.draft) {
-        confirmKind = outcome.draft.type === 'event' ? 'pick_slot' : 'approve_send'
-        confirmQuery = { draft: outcome.draft.id }
+        if (outcome.draft.type === 'purchase' && purchasePayUrl) {
+          // The payment link IS the approval: tapping the card opens Stripe
+          // Checkout. No separate approve card — the link is the gate.
+          reply = `${reply}\n${purchasePayUrl}`.trim()
+        } else {
+          confirmKind = outcome.draft.type === 'event' ? 'pick_slot' : 'approve_send'
+          confirmQuery = { draft: outcome.draft.id }
+        }
       }
 
     } else {
@@ -1682,7 +1709,10 @@ async function saveFriendDraft(
   phone: string,
   persona: AgentId,
   draft: DraftCall,
-): Promise<{ ok: boolean; id?: string; error?: string }> {
+): Promise<{ ok: boolean; id?: string; url?: string; error?: string }> {
+  if (draft.type === 'purchase') {
+    return proposePurchase(phone, persona, { item: draft.item, amount: draft.amount, url: draft.url })
+  }
   if (draft.type === 'mail') {
     return proposeLiveDraft(phone, persona, {
       kind: 'mail',

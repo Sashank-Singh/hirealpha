@@ -314,6 +314,7 @@ export async function createReminder(input: {
   if (!base) return false
   try {
     const res = await fetch(`${base}/api/internal/reminders`, {
+      signal: AbortSignal.timeout(10000),
       method: 'POST',
       headers: authHeaders(),
       body: JSON.stringify(input),
@@ -330,7 +331,7 @@ export async function listReminders(phone: string, persona: string): Promise<Arr
   try {
     const res = await fetch(
       `${base}/api/internal/reminders/list?phone=${encodeURIComponent(phone)}&persona=${encodeURIComponent(persona)}`,
-      { headers: authHeaders() },
+      { headers: authHeaders(), signal: AbortSignal.timeout(10000) },
     )
     if (!res.ok) return []
     const data = (await res.json()) as { reminders?: Array<{ text: string; scheduledAt: string; recurrence: string; status: string }> }

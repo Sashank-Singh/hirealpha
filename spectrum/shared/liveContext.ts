@@ -279,6 +279,33 @@ export async function proposeLiveDraft(
   }
 }
 
+export async function proposePurchase(
+  phone: string,
+  persona: AgentId,
+  purchase: { item: string; amount: number; url: string },
+): Promise<{ ok: boolean; id?: string; url?: string; error?: string }> {
+  const base = apiBase()
+  const key = process.env.HIREALPHA_INTERNAL_KEY || ''
+  if (!base || !key) return { ok: false, error: 'API not configured' }
+  try {
+    const res = await timedFetch(
+      `${base}/api/internal/propose`,
+      {
+        method: 'POST',
+        headers: authHeaders(),
+        body: JSON.stringify({ phone, persona, kind: 'purchase', title: purchase.item, amount: purchase.amount, url: purchase.url }),
+      },
+      15000,
+    )
+    const data = (await res.json().catch(() => ({}))) as { ok?: boolean; id?: string; paymentUrl?: string; error?: string }
+    if (!res.ok || !data.ok) return { ok: false, error: data.error || `purchase propose failed (${res.status})` }
+    return { ok: true, id: data.id, url: data.paymentUrl }
+  } catch (err) {
+    console.warn('[live] purchase propose failed', err)
+    return { ok: false, error: 'Could not create the payment link.' }
+  }
+}
+
 export async function persistLiveFacts(
   phone: string,
   persona: AgentId,

@@ -25,6 +25,7 @@ export interface MemoryFact {
 }
 
 export interface ThreadMemory {
+  pendingConnection?: { connector: string; request: string; createdAt: number }
   /** Durable facts about the person, never sliced by recency. */
   facts: MemoryFact[]
   /** Rolling summary of everything older than MAX_RAW. */
@@ -59,6 +60,11 @@ function normalize(raw: unknown): ThreadMemory {
       ).slice(-MAX_RAW)
     : []
   return {
+    ...(r.pendingConnection && typeof r.pendingConnection === 'object' &&
+      typeof (r.pendingConnection as Record<string, unknown>).connector === 'string' &&
+      typeof (r.pendingConnection as Record<string, unknown>).request === 'string' &&
+      typeof (r.pendingConnection as Record<string, unknown>).createdAt === 'number'
+      ? { pendingConnection: r.pendingConnection as ThreadMemory['pendingConnection'] } : {}),
     facts,
     summary: typeof r.summary === 'string' ? r.summary : '',
     history,
@@ -79,6 +85,13 @@ function writeMemory(dataDir: string, senderId: string, mem: ThreadMemory) {
   const path = threadPath(dataDir, senderId)
   mkdirSync(dirname(path), { recursive: true })
   writeFileSync(path, JSON.stringify(mem, null, 2))
+}
+
+export function setPendingConnection(dataDir: string, senderId: string, pending?: ThreadMemory['pendingConnection']) {
+  const mem = loadMemory(dataDir, senderId)
+  if (pending) mem.pendingConnection = pending
+  else delete mem.pendingConnection
+  writeMemory(dataDir, senderId, mem)
 }
 
 /** Backwards-compat: raw history only. */

@@ -7,6 +7,7 @@ import { extractMessageText, fetchLiveProfile, handleInboundPhoto } from '../../
 import { mintMiniAppCard, PATTERNS } from '../../shared/miniApps'
 import { claimInbound } from '../../shared/inboundGuard'
 import { onceAsync } from '../../shared/delivery'
+import { createMessageBursts } from '../../shared/messageBursts'
 import { startReminderScheduler } from '../../shared/reminders'
 import { startTaskLoopPoller } from '../../shared/taskLoops'
 import { INTRO_TEXTS, startIntroPoller } from '../../shared/introQueue'
@@ -230,8 +231,9 @@ startReminderScheduler({
   },
 })
 
-for await (const [space, message] of app.messages) {
-  if (message.direction === 'outbound') continue
+type Incoming = typeof app.messages extends AsyncIterable<infer T> ? T : never
+async function handleIncoming([space, message]: Incoming, combinedText?: string) {
+  if (message.direction === 'outbound') return
 
   if (message.content.type === 'read') {
     try {
@@ -242,7 +244,7 @@ for await (const [space, message] of app.messages) {
     } catch {
       /* ignore */
     }
-    continue
+    return
   }
 
   if (message.content.type !== 'text') {
@@ -252,13 +254,13 @@ for await (const [space, message] of app.messages) {
       await message.react('👍').catch(() => undefined)
       const photoReply = await handleInboundPhoto(senderId, agent.id, message.content)
       const photoText = extractMessageText(message.content)
-      if (!photoReply && !photoText) continue
+      if (!photoReply && !photoText) return
       if (photoText) {
         // Text came with the photo: run the normal turn with a note so the
         // reply can acknowledge the logged meal.
         if (!claimInbound(senderId, photoText, message.id)) {
           console.warn(`[${agent.id}] duplicate inbound skipped: ${message.id}`)
-          continue
+          return
         }
         const note = photoReply
           ? `The user sent a food photo with this message. It was auto-logged to nutrition and you just confirmed it in one line ("${photoReply}"). Do not log it again; answer their actual question.`
@@ -286,7 +288,7 @@ for await (const [space, message] of app.messages) {
               .catch(() => undefined)
           }
         })
-        continue
+        return
       }
       if (photoReply) {
         const cleaned = sanitizeOutbound(photoReply)
@@ -306,21 +308,16 @@ for await (const [space, message] of app.messages) {
     } catch (err) {
       console.warn(`[${agent.id}] photo handling failed`, err)
     }
-    continue
+    return
   }
 
-  const userText = message.content.text.trim()
-  if (!userText) continue
+  const userText = combinedText ?? message.content.text.trim()
+  if (!userText) return
   const senderId = message.sender?.id ?? space.id
-  if (!claimInbound(senderId, userText, message.id)) {
-    console.warn(`[${agent.id}] duplicate inbound skipped: ${message.id}`)
-    continue
-  }
   console.log(`[${agent.id}] inbound from ${senderId}: ${userText.slice(0, 120)}`)
 
   try {
     await message.react('👍').catch(() => undefined)
-    await message.read().catch(() => undefined)
     let sentAnything = false
     /* A build ask takes minutes of planner + sandbox inside the turn. Silence
      * for that long read as "is it even doing anything" (the 10:45pm Lamborghini
@@ -404,4 +401,33 @@ for await (const [space, message] of app.messages) {
       /* ignore */
     }
   }
+}
+
+const bursts = createMessageBursts<Incoming>({
+  run: async (items) => {
+    const last = items[items.length - 1]!
+    const combined = items.every(([, message]) => message.content.type === 'text')
+      ? items.map(([, message]) => message.content.type === 'text' ? message.content.text.trim() : '').join('\n')
+      : undefined
+    await handleIncoming(last, combined)
+  },
+  onError: (error) => console.error(`[${agent.id}] inbound batch failed:`, error),
+})
+
+for await (const incoming of app.messages) {
+  const [space, message] = incoming
+  if (message.direction === 'outbound') continue
+  if (message.content.type === 'read') {
+    void handleIncoming(incoming).catch(() => undefined)
+    continue
+  }
+  const senderId = message.sender?.id ?? space.id
+  const isText = message.content.type === 'text'
+  if (isText) {
+    const text = message.content.type === 'text' ? message.content.text.trim() : ''
+    if (!text || !claimInbound(senderId, text, message.id)) continue
+    // Acknowledge receipt immediately; response generation waits for the burst.
+    void message.read().catch(() => undefined)
+  }
+  bursts.enqueue(JSON.stringify([space.id, senderId]), incoming, isText)
 }

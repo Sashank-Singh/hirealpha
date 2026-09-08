@@ -93,6 +93,13 @@ export async function gmiChat(options: GmiChatOptions): Promise<string> {
   // It must never reach a user: strip every <think>…</think> block.
   reply = reply.replace(/<think>[\s\S]*?<\/think>/gi, '').trim()
   reply = reply.replace(/^\s*<\/?think>\s*/i, '').trim()
+  // Some completions begin with orphaned instruction fragments before the real
+  // answer ("You are a helpful assistant. </think>I can't..."). Cut everything
+  // before the first conversational sentence instead of shipping the junk.
+  const convStart = reply.search(/\b(?:i (?:can|cannot|can't|'ll|will|'m|found|set|think)|hey|hi\b|of course|got it|on it|sure|done|quick|heads up|nothing|want me to|here)/i)
+  if (convStart > 0 && /^(?:[A-Z][a-z]+\s){0,3}(?:do not|never|no |use |only if|update_|send_|search_|open_|lookup_)|^\S+_\w+:\s*input\s*\{/i.test(reply.slice(0, 120))) {
+    reply = reply.slice(convStart).trim()
+  }
   // Backends occasionally answer 200 with nothing in content; one clean retry
   // beats failing every caller on a transient empty.
   if (!reply) {
@@ -107,11 +114,16 @@ export async function gmiChat(options: GmiChatOptions): Promise<string> {
   // No emojis...", "If the user asks for a comparison...") instead of answering.
   // It looks like a 200 and reads like garbage. Detect and retry once, then
   // throw so callers use their fallback instead of texting prompt fragments.
+  // Structural signature: several imperative spec fragments + tool-schema
+  // shapes + zero conversational voice in the whole reply.
+  const imperative = (reply.match(/\b(?:do not|never|no |use |only if|must)\b/gi) || []).length
+  const schemaish = /\b\w+_\w+\b:\s*(?:input\s*)?\{/.test(reply) || /\binput\s*\{/.test(reply)
+  const conversational = /\b(?:i (?:can|'ll|will|found|set|think|'m)|you(?:'r| are)|let me|want me to|here(?:'s| is))\b/i.test(reply.slice(0, 300))
   const looksLikeEcho =
-    /^(?:no markdown|no emojis|if the user asks|you are alpha|never (?:say|claim|invent|diagnose)|always |do not (?:mention|include|claim|send|ask))\b/i.test(reply) &&
-    /\b(?:never|do not|no)\b/i.test(reply) &&
+    ((/^(?:no markdown|no emojis|if the user asks|you are alpha|never |always |do not )/i.test(reply) && imperative >= 4) ||
+      (schemaish && imperative >= 3)) &&
     reply.split(/\s+/).length > 24 &&
-    !/\b(?:i|you|we)\b[' ]?(?:ll| will| can|'m)\b/i.test(reply.slice(0, 200))
+    !conversational
   if (looksLikeEcho) {
     await sleep(800)
     res = await fetch(url, { method: 'POST', headers, body: payload('none'), signal })

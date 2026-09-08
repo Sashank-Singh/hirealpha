@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { appendThread } from './memory'
+import { appendThread, loadMemory } from './memory'
 import { runHireTurn } from './runHireTurn'
 
 describe('explicit navigation wins over conversation history', () => {
@@ -17,6 +17,7 @@ describe('explicit navigation wins over conversation history', () => {
   let answers: string[]
   let toolRequests: Array<{ want: string; message: string }>
   let drafts: unknown[]
+  let connected: string[] | undefined
 
   beforeEach(() => {
     dataDir = mkdtempSync(join(tmpdir(), 'hirealpha-turn-test-'))
@@ -31,6 +32,7 @@ describe('explicit navigation wins over conversation history', () => {
     answers = []
     toolRequests = []
     drafts = []
+    connected = undefined
     globalThis.fetch = (async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
       const url = String(input)
       requests.push(url)
@@ -38,7 +40,7 @@ describe('explicit navigation wins over conversation history', () => {
         modelInputs.push(String(init?.body || ''))
         if (answers.length) {
           const prompt = String(init?.body || '')
-          const content = prompt.includes('CAPABILITY MANIFESTO') ? answers.shift()! : '{"tool":"none","action":"none"}'
+          const content = (prompt.includes('CAPABILITY MANIFESTO') || prompt.includes('CONVERSATION_ENGINE')) ? answers.shift()! : '{"tool":"none","action":"none"}'
           return Response.json({ choices: [{ message: { content } }] })
         }
         return Response.json({ choices: [{ message: { content: "Hey, I'm Alpha, your personal sidekick. Your calendar isn't connected." } }] })
@@ -54,7 +56,7 @@ describe('explicit navigation wins over conversation history', () => {
       }
       if (url.includes('/api/internal/mini/token')) return new Response('Unavailable', { status: 503 })
       if (profileUnavailable && url.includes('/api/internal/live?')) return new Response('Unavailable', { status: 503 })
-      if (hired && url.includes('/api/internal/live?')) return Response.json({ found: true, hired: true, connected: answers.length ? ['gmail', 'calendar', 'drive'] : [], context: {}, memories: [{ key: 'preferred_name', value: 'Test' }, { key: 'city', value: 'Austin' }] })
+      if (hired && url.includes('/api/internal/live?')) return Response.json({ found: true, hired: true, connected: connected ?? (answers.length ? ['gmail', 'calendar', 'drive'] : []), context: {}, memories: [{ key: 'preferred_name', value: 'Test' }, { key: 'city', value: 'Austin' }] })
       return Response.json({ found: false, hired: false })
     }) as typeof fetch
   })
@@ -66,6 +68,46 @@ describe('explicit navigation wins over conversation history', () => {
       else process.env[key] = savedEnv[i]
     })
     rmSync(dataDir, { recursive: true, force: true })
+  })
+
+  for (const userText of ["I'm tired of this app", "I didn't spend $80", "Brief me on the second email", "I wish I could sleep for ten hours"]) {
+    it(`understands before acting: ${userText}`, async () => {
+      hired = true
+      answers = ['Tell me what happened.']
+      const result = await runHireTurn({ agentId: 'friend', dataDir, senderId: 'test-user', userText })
+      expect(result.reply).toBe('Tell me what happened.')
+      expect(result.card).toBeNull()
+      expect(modelInputs[0]).toContain('CONVERSATION_ENGINE')
+      expect(requests.some(url => /auto-log|mini\/run|brief|reminder/.test(url))).toBe(false)
+    })
+  }
+
+  it('resolves a contextual follow-up through the model and saves a preference', async () => {
+    hired = true
+    appendThread(dataDir, 'test-user', [
+      { role: 'user', content: 'I prefer vegetarian restaurants.' },
+      { role: 'assistant', content: 'Want me to remember that?' },
+    ])
+    answers = [JSON.stringify({ action: 'use', name: 'remember', input: { key: 'diet', value: 'Vegetarian restaurants' } }), 'Remembered.']
+    const result = await runHireTurn({ agentId: 'friend', dataDir, senderId: 'test-user', userText: 'Yes, please' })
+    expect(result.reply).toBe('Remembered.')
+    expect(loadMemory(dataDir, 'test-user').facts.find(f => f.key === 'diet')?.value).toBe('Vegetarian restaurants')
+    expect(modelInputs[0]).toContain('I prefer vegetarian restaurants.')
+    expect(modelInputs[1]).toContain('Remembered: Vegetarian restaurants.')
+  })
+
+  it('resumes the saved task after connecting without requiring it again', async () => {
+    hired = true
+    connected = []
+    answers = [JSON.stringify({ action: 'use', name: 'connect', input: { connector: 'gmail', request: 'Find my flight confirmation' } }), 'Connect Gmail and tell me when you are back.']
+    await runHireTurn({ agentId: 'friend', dataDir, senderId: 'test-user', userText: 'Find my flight confirmation' })
+    expect(loadMemory(dataDir, 'test-user').pendingConnection?.request).toBe('Find my flight confirmation')
+    connected = ['gmail']
+    answers = [JSON.stringify({ action: 'lookup', tool: 'gmail', query: 'subject:flight' }), JSON.stringify({ action: 'use', name: 'finish_pending_task', input: {} }), 'Your flight departs September 8 at 3 PM PDT.']
+    const result = await runHireTurn({ agentId: 'friend', dataDir, senderId: 'test-user', userText: 'Connected, continue' })
+    expect(result.reply).toContain('September 8')
+    expect(toolRequests).toEqual([expect.objectContaining({ want: 'gmail', message: 'subject:flight' })])
+    expect(loadMemory(dataDir, 'test-user').pendingConnection).toBeUndefined()
   })
 
   for (const prior of ['food', 'calendar']) {
