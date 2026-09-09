@@ -91,9 +91,27 @@ function renderRichText(raw: string): string {
   let inQuote = false
   const closeList = () => { if (inList) { out.push('</ul>'); inList = false } }
   const closeQuote = () => { if (inQuote) { out.push('</blockquote>'); inQuote = false } }
-  for (const line of cleanEmailBody(raw).split('\n')) {
+  // Reply chains (On … wrote: + the quoted block after) and trailing
+  // signature blocks add noise, not content. The opening message is what the
+  // reader is for; drop everything after a quoted-header line.
+  const bodyLines = cleanEmailBody(raw).split('\n')
+  let cut = bodyLines.length
+  for (let i = 0; i < bodyLines.length; i++) {
+    const t = bodyLines[i]!.trim()
+    if (/^On\b.+\bwrote:$/i.test(t) || /^[_\-]{2,}\s*(from:)/i.test(t) || /^>\s{0,3}On .+wrote:$/i.test(t)) {
+      cut = i
+      break
+    }
+  }
+  for (let i = 0; i < cut; i++) {
+    const line = bodyLines[i]!
     const t = line.trim()
     if (!t) { closeList(); closeQuote(); continue }
+    // Quoted-forwarded lines inside the opening message get dimmed, not dropped.
+    if (/^>/.test(t)) {
+      out.push('<p class="emq">' + inline(t.replace(/^>\s*/, '')) + '</p>')
+      continue
+    }
     const h = /^(#{1,4})\s+(.*)$/.exec(t)
     if (h) { closeList(); closeQuote(); out.push(`<strong class="rt-h">${inline(h[2])}</strong>`); continue }
     const li = /^(?:[-*•]|\d+[.)])\s+(.*)$/.exec(t)
