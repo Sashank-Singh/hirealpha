@@ -130,12 +130,8 @@ export function ApprovePurchaseApp({
     fetch(`/api/payments/spend/approve?id=${encodeURIComponent(id)}&format=json`)
       .then((res) => res.json())
       .then((data: SpendDetails) => {
-        if (!data.ok && data.error) {
-          if (paramItem || id === 'req_ldbu6oyo') {
-            setDetails(fallbackDetails)
-          } else {
-            setError(data.error)
-          }
+        if (!data.ok || !data.amount) {
+          setError(data.error || 'This purchase request was not found in the payment gateway. No charge was created.')
         } else {
           setDetails({
             ...fallbackDetails,
@@ -144,16 +140,16 @@ export function ApprovePurchaseApp({
             purpose: data.purpose || fallbackDetails.purpose,
             amount: data.amount || fallbackDetails.amount,
           })
-          if (data.already_approved || data.status === 'consumed') {
-            setApproved(true)
-          }
+          if (data.already_approved) setApproved(true)
         }
       })
       .catch(() => {
-        setDetails(fallbackDetails)
+        setError('Could not verify spend request with payment gateway.')
       })
-      .finally(() => setLoading(false))
-  }, [id, paramItem, paramAmount, paramMerchant, paramUrl])
+      .finally(() => {
+        setLoading(false)
+      })
+  }, [id, paramMerchant, paramItem, paramAmount, paramUrl])
 
   useEffect(() => {
     load()
@@ -205,18 +201,17 @@ export function ApprovePurchaseApp({
     setError(null)
 
     try {
-      if (id && !id.startsWith('req_local_')) {
-        const res = await fetch(`/api/payments/spend/approve?id=${encodeURIComponent(id)}&confirm=1&format=json`)
-        const data = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string }
-        if (!res.ok && !data.ok) {
-          if (data.error && !data.error.includes('Request not found')) {
-            throw new Error(data.error)
-          }
-        }
+      if (!id || id.startsWith('req_local_')) {
+        throw new Error('This order has not been staged with Stripe yet. No money was charged.')
+      }
+      const res = await fetch(`/api/payments/spend/approve?id=${encodeURIComponent(id)}&confirm=1&format=json`)
+      const data = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string; charged?: boolean }
+      if (!res.ok || !data.ok) {
+        throw new Error(data.error || 'Stripe could not process this charge. Please ensure your payment method is connected.')
       }
       setApproved(true)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not approve payment. Please check your card.')
+      setError(err instanceof Error ? err.message : 'Could not approve payment. Please check your connected card.')
     } finally {
       setBusy(false)
     }
@@ -245,8 +240,8 @@ export function ApprovePurchaseApp({
   const productUrl = details?.url || paramUrl
   const imageUrl = details?.image || paramImage
   const subtotal = details?.subtotal || paramSubtotal || amount
-  const shippingDisplay = details?.shipping || paramShipping || 'Free'
-  const taxDisplay = details?.tax || paramTax || '$0.00'
+  const shippingDisplay = details?.shipping || paramShipping || 'Calculated at checkout'
+  const taxDisplay = details?.tax || paramTax || 'Calculated at checkout'
 
   return (
     <div className="ap-container">
