@@ -2,6 +2,7 @@ import { useMemo, type ReactNode } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { getSession, signOut } from './roster'
 import { SettingsSheet, type SettingsView } from './SettingsSheet'
+import { paramsForWorkspaceView, workspaceViewFromParams } from './workspaceNavigation'
 import './workspaceShell.css'
 
 const views: Array<{
@@ -33,18 +34,11 @@ const views: Array<{
 export function WorkspaceShell() {
   const [params, setParams] = useSearchParams()
   const session = getSession()
-  const activeView = useMemo<SettingsView>(() => {
-    const tab = params.get('tab')
-    if (params.get('vault') === '1') return 'vault'
-    if (params.get('connect') === 'payments' || params.get('payments') === 'connected') return 'payments'
-    return tab === 'vault' || tab === 'payments' ? tab : 'workspace'
-  }, [params])
+  const activeView = useMemo<SettingsView>(() => workspaceViewFromParams(params), [params])
   const active = views.find((view) => view.id === activeView)!
 
   function selectView(view: SettingsView) {
-    const next = new URLSearchParams(params)
-    next.set('tab', view)
-    setParams(next, { replace: true })
+    setParams(paramsForWorkspaceView(params, view), { replace: true })
   }
 
   function logout() {
