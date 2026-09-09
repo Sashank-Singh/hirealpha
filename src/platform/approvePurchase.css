@@ -128,6 +128,7 @@
   justify-content: center;
   flex-shrink: 0;
   color: #a1a1aa;
+  overflow: hidden;
 }
 
 .ap-item-content {

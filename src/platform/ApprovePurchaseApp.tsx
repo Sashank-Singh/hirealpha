@@ -13,6 +13,10 @@ interface SpendDetails {
   amount?: string
   status?: string
   url?: string
+  image?: string
+  subtotal?: string
+  tax?: string
+  shipping?: string
   already_approved?: boolean
   error?: string
 }
@@ -65,6 +69,10 @@ export function ApprovePurchaseApp({
     searchParams.get('merchant') ||
     (searchParams.get('url') ? (() => { try { return new URL(searchParams.get('url')!).hostname.replace(/^www\./, '') } catch { return '' } })() : '')
   const paramUrl = searchParams.get('url') || ''
+  const paramImage = searchParams.get('image') || searchParams.get('img') || ''
+  const paramSubtotal = searchParams.get('subtotal') || ''
+  const paramTax = searchParams.get('tax') || ''
+  const paramShipping = searchParams.get('shipping') || ''
 
   // Load user profile & saved settings address
   useEffect(() => {
@@ -233,8 +241,12 @@ export function ApprovePurchaseApp({
 
   const merchant = details?.merchant || paramMerchant || 'Amazon'
   const purpose = details?.purpose || paramItem || '5lb Mahatma Basmati Rice'
-  const amount = details?.amount || paramAmount || '$9.68'
+  const amount = details?.amount || (paramAmount ? (paramAmount.startsWith('$') ? paramAmount : `$${Number(paramAmount).toFixed(2)}`) : '$9.68')
   const productUrl = details?.url || paramUrl
+  const imageUrl = details?.image || paramImage
+  const subtotal = details?.subtotal || paramSubtotal || amount
+  const shippingDisplay = details?.shipping || paramShipping || 'Free'
+  const taxDisplay = details?.tax || paramTax || '$0.00'
 
   return (
     <div className="ap-container">
@@ -252,11 +264,22 @@ export function ApprovePurchaseApp({
       <div className="ap-group">
         <div className="ap-row">
           <div className="ap-item-media">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z" />
-              <line x1="3" y1="6" x2="21" y2="6" />
-              <path d="M16 10a4 4 0 0 1-8 0" />
-            </svg>
+            {imageUrl ? (
+              <img
+                src={imageUrl}
+                alt={purpose}
+                style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '10px' }}
+                onError={(e) => {
+                  (e.currentTarget as HTMLElement).style.display = 'none'
+                }}
+              />
+            ) : (
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z" />
+                <line x1="3" y1="6" x2="21" y2="6" />
+                <path d="M16 10a4 4 0 0 1-8 0" />
+              </svg>
+            )}
           </div>
           <div className="ap-item-content">
             <div className="ap-item-name">{purpose}</div>
@@ -281,15 +304,17 @@ export function ApprovePurchaseApp({
         <div className="ap-breakdown">
           <div className="ap-breakdown-row">
             <span>Subtotal</span>
-            <span>{amount}</span>
+            <span>{subtotal}</span>
           </div>
           <div className="ap-breakdown-row">
             <span>Shipping</span>
-            <span style={{ color: '#30d158', fontWeight: 500 }}>Free</span>
+            <span style={{ color: shippingDisplay.toLowerCase() === 'free' ? '#30d158' : undefined, fontWeight: 500 }}>
+              {shippingDisplay}
+            </span>
           </div>
           <div className="ap-breakdown-row">
             <span>Estimated Tax</span>
-            <span>$0.00</span>
+            <span>{taxDisplay}</span>
           </div>
           <div className="ap-breakdown-row ap-total">
             <span>Total</span>

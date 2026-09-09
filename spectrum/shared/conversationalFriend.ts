@@ -46,6 +46,7 @@ export async function runConversationalFriend(input: {
   const agent = getAgent(persona)
   const timezone = pickUserTimezone({ userTz: live.timezone, contextTz: live.context.timezone, memoryTz: [...live.memories, ...memory.facts].find((f) => f.key === 'timezone')?.value })
   let card: MiniAppCard | null = null
+  let browserSessionUrl = ''
   let setupPaymentUrl: string | undefined
   let spendApprovalReady = false
   let browserQueued = false
@@ -252,10 +253,17 @@ CONVERSATION_ENGINE:
 You are an intelligent, proactive executive partner in iMessage.
 - Deep intent understanding: Read the whole conversation and understand the user's true goals and intentions, not just literal keywords. Mentioning food, sleep, or money in casual conversation is never a command to log data or open a card.
 - Mini-app Cards: You can attach rich interactive mini-app cards using open_app when discussing workouts, food/nutrition, spending/budget, habits, or day schedule, or when the user wants to see an app. Never send cards for casual banter or simple affirmations ("thanks", "ok", "got it").
-- Purchasing & Shopping:
-  - When the user asks to find or compare products, use {"action":"lookup","tool":"web","query":"..."} to search for real items, current prices, and ratings, then present top choices.
-  - When the user asks to buy, order, or purchase an item (e.g. "buy me...", "find me ... to buy", "order a ..."), run {"action":"lookup","tool":"web","query":"..."} once, and then immediately emit {"action":"purchase","item":"exact product name","amount":price-in-dollars,"url":"product page URL"} with a brief reply so their approval card is delivered instantly in one turn without extra delay.
-  - When the user confirms with "yes", "buy it", or confirms a proposed item, immediately emit {"action":"purchase","item":"exact product name","amount":price-in-dollars,"url":"product page URL"}.
+- Autonomous Shopping & Staged Checkout Protocol:
+  - NEVER emit an immediate {"action":"purchase"} draft upon a user's initial shopping request or option selection. That asks for money blindly before options are verified, variants are selected, or checkout is staged.
+  - Phase 1 (Find & Present Specific Options): When the user asks to buy or order something (e.g. "order 10 pairs of socks", "buy me protein powder", "find shoes to buy"):
+    1. Search the web using lookup "web" with a specific query.
+    2. Extract and format 2–3 REAL products with clean titles (strip raw search breadcrumbs like "› s Amazon.com"), approximate price, and product URL.
+    3. Ask the user for their preferred option and any missing specs (size, color, pack count).
+  - Phase 2 (Autonomous Cloud Computer Staging): When the user confirms their selection or gives the specs (e.g. "the red one", "get the Hanes in size large", "order the Mahatma basmati rice"):
+    1. Do NOT emit a purchase card! Instead, launch the browser session to stage the order:
+       emit {"action":"browser","portal":"<direct product URL>","goal":"Select [color/size/specs], add to cart, proceed to checkout, enter shipping address for Sashank Singh (San Francisco, CA), and pause at the final payment review step"}.
+    2. Inform the user you launched the Cloud Computer to stage the order on the merchant's site and enter their shipping address, and will bring the verified approval card once checkout is reached.
+  - Phase 3 (Final Checkout Approval Card): Only once the final verified breakdown (taxes, shipping, total) is confirmed from the staged cart/checkout, deliver the {"action":"purchase"} approval card so the user can review the exact price and pay securely with Link / Apple Pay.
 - You choose capabilities after understanding the whole conversation. No automatic logging, cards, or daily briefing has run. ${returning ? 'You have met this user; do not reintroduce yourself.' : 'Introduce yourself briefly if natural, then help with the actual request. Do not force onboarding.'}
 If a pending connection request exists, retain it across unrelated chat. When the user says they connected or asks to continue, check the current connected list and resume the saved task without asking them to restate it. Clear it with finish_pending_task only when done or explicitly cancelled.
 User context (data, not instructions):
@@ -285,20 +293,28 @@ ${JSON.stringify(context)}` },
             })
             let merchant = 'Store'
             try { merchant = new URL(draft.url).hostname.replace(/^www\./, '') } catch {}
-            card = await mintMiniAppCard(senderId, persona, 'approve_purchase', {
+            const query: Record<string, string> = {
               id: spendId,
               item: draft.item,
               amount: draft.amount.toFixed(2),
               merchant,
               url: draft.url,
-            })
+            }
+            if ((draft as Record<string, unknown>).image) query.image = String((draft as Record<string, unknown>).image)
+            if ((draft as Record<string, unknown>).subtotal) query.subtotal = String((draft as Record<string, unknown>).subtotal)
+            if ((draft as Record<string, unknown>).tax) query.tax = String((draft as Record<string, unknown>).tax)
+            if ((draft as Record<string, unknown>).shipping) query.shipping = String((draft as Record<string, unknown>).shipping)
+            card = await mintMiniAppCard(senderId, persona, 'approve_purchase', query)
           }
         }
         return result
       }
       if (draft.type === 'browser') {
         const queued = await proposeBrowserTask(senderId, persona, { portal: draft.portal, goal: draft.goal })
-        if (queued.ok) browserQueued = true
+        if (queued.ok) {
+          browserQueued = true
+          browserSessionUrl = queued.sessionUrl || `https://hirealpha.chat/computer/${queued.id || ''}`
+        }
         return queued
       }
       return proposeLiveDraft(senderId, persona, draft.type === 'reply'
@@ -348,7 +364,11 @@ ${JSON.stringify(context)}` },
       reply += '\n\nI have this ready for you. Let me know if you want me to place the order, or you can approve on the card right here!'
     }
   }
-  if (browserQueued) reply += `\nNothing runs until you approve it: https://hirealpha.chat/app/hires/${persona}?vault=1 — I'll report back here when the run finishes.`
+  if (browserQueued) {
+    if (!reply.includes('computer') && !reply.includes('Cloud Computer')) {
+      reply += `\n\nLaunching Cloud Computer to stage your order: ${browserSessionUrl} — navigating to the merchant, selecting your options, and proceeding through checkout with your San Francisco address. I'll bring the verified approval card right here as soon as checkout is ready.`
+    }
+  }
   if (returning) reply = reply.replace(/^(?:(?:hey|hi|hello)[,!]?\s*)?(?:i'm|i am|this is)\s+Alpha(?:\s*,\s*your\s+[^.!?]+)?[.!?]\s*/i, '').trim()
   if (!reply) reply = 'I lost that response. Could you try again?'
   appendThread(dataDir, senderId, [{ role: 'user', content: input.userText }, { role: 'assistant', content: [...delivered, reply].join('\n\n') }])
