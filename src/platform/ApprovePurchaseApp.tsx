@@ -268,7 +268,7 @@ export function ApprovePurchaseApp({
                   rel="noopener noreferrer"
                   style={{ color: '#a1a1aa', textDecoration: 'none' }}
                 >
-                  View item on {merchant} &nearr;
+                  View item on {merchant} ↗
                 </a>
               ) : (
                 `Verified on ${merchant}`
