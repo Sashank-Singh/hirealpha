@@ -49,11 +49,10 @@ import {
   ensureUserPaymentsSchema,
   handleUserPaymentsApi,
   noteSetupCompleted,
-  listPaymentMethodsForUser,
-  createConnectSession,
-  createSpendRequest,
+  createLinkBackedSpendRequest,
   queuePaidPurchaseFinalization,
 } from './userPayments'
+import { getLinkStatus } from './linkWallet'
 import { ensureBrowserJobsSchema } from './browserJobs'
 import { parseChatExport, scanSubscriptions } from '../spectrum/shared/smartFeatures'
 import {
@@ -5693,12 +5692,26 @@ const todayMeetsCache = createStaleCache<TodayResult>({
  * 1.5s cold wait is the one case a user waits at all: it beats a blank Today
  * section, and the load keeps going into the cache either way. */
 const homeWorldCache = createStaleCache<HomeWorld>({
-  ttlMs: 90_000,
-  maxWaitMs: 1_500,
+  ttlMs: 300_000,
+  maxWaitMs: 700,
   failureCooldownMs: 15_000,
   maxEntries: 200,
   onError: (key, err) => console.warn('[home] world slice failed', key, err),
 })
+
+/** Warm the home cache off the back of a brief build: the person just read the
+ * brief and will tap Home next. Background single-flight read fills the cache
+ * so the home open paints instantly instead of shimmering through a cold
+ * calendar + mail + judge pass. Never awaited, never fatal. */
+function prewarmHomeWorld(sql: SQL, user: { id: string; name?: string | null; timezone: string | null }, tzLocal: string) {
+  try {
+    void homeWorldCache
+      .read(`${user.id}|${tzLocal}`, () => loadHomeWorld(sql, user as AuthedUser, tzLocal))
+      .catch(() => undefined)
+  } catch {
+    /* prewarm is a nicety */
+  }
+}
 
 /* The brief is home's problem at a heavier weight: two calendar reads, an inbox
  * pull, a model pass over the mail, and a dozen small queries, all inside one
@@ -8277,7 +8290,7 @@ async function judgmentStatePayload(
   }))
 
   const radar = await sql`
-    SELECT name, last_touch_at AS "lastTouch", cadence_days AS "cadenceDays"
+    SELECT name, last_touch AS "lastTouch", cadence_days AS "cadenceDays"
     FROM hire_network WHERE user_id = ${user.id} LIMIT 8
   `
   for (const p of radar as Array<{ name: string; lastTouch: Date | null; cadenceDays: number }>) {
@@ -10420,6 +10433,9 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     }
 
     if (action === 'resume' && req.method === 'POST') {
+      if (job.handoff_kind === 'payment') {
+        return json({ error: 'This task continues automatically after Link confirms approval.' }, 409)
+      }
       const { resumeBrowserHandoff } = await import('./browserJobs')
       const resumed = await resumeBrowserHandoff(sql, jobId)
       return resumed ? json({ ok: true, resumed: true }) : json({ error: 'This task is not waiting for input.' }, 409)
@@ -10444,12 +10460,15 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
         attempts: job.attempts,
         result: job.result,
         error: job.error,
-        streamUrl,
+        streamUrl: ['running', 'waiting'].includes(job.status) ? streamUrl : null,
         currentUrl: job.current_url || job.url,
         steps: job.activity?.length ? job.activity : (job.steps || []),
         handoffKind: job.handoff_kind,
         handoffMessage: job.handoff_message,
         handoffAt: job.handoff_at,
+        paymentUrl: job.handoff_kind === 'payment' && job.spend_request_id
+          ? `${appBase(req)}/api/payments/spend/approve?id=${encodeURIComponent(job.spend_request_id)}`
+          : null,
       },
     })
   }
@@ -11941,13 +11960,11 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
       if (amount > cap) return json({ ok: false, error: `Above the ${cap}-dollar self-serve cap.` }, 400)
       if (!/^https:\/\//i.test(url)) return json({ ok: false, error: 'Purchase needs a real product URL.' }, 400)
 
-      // Check if user has a connected payment method / Link wallet on file
-      const userCard = await listPaymentMethodsForUser(sql, live.userId!).catch(() => null)
-      if (!userCard) {
-        // First-time buyer: create Stripe setup session so they connect their card or Link wallet
-        const session = await createConnectSession(sql, req, live.userId!, live.email || `${body.phone}@phone.hirealpha.chat`)
-        const setupUrl = ('url' in session && session.url) ? session.url : await createPurchasePaymentLink(item, amount, live.email || undefined)
-        if (!setupUrl) return json({ ok: false, error: 'Payments are not configured on the server yet.' }, 503)
+      // The dashboard and iMessage both resolve to the same per-user Link
+      // wallet row. The operator's Link account is never a fallback.
+      const link = await getLinkStatus(sql, live.userId!).catch(() => ({ connected: false, pending: false }))
+      if (!link.connected) {
+        const setupUrl = `${appBaseFromEnv()}/app?tab=settings&connect=payments`
         const pid = crypto.randomUUID()
         await sql`
           INSERT INTO hire_drafts (id, user_id, persona, kind, to_addr, subject, body, status)
@@ -11957,19 +11974,20 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
         return json({ ok: true, id: pid, kind: 'purchase', needsSetup: true, setupUrl, paymentUrl: setupUrl, amount, item })
       }
 
-      // Subsequent purchases: user already has a saved card. Create ask-first spend request.
+      // Link receives the exact merchant and total and returns its own approval URL.
       const amountCents = Math.round(amount * 100)
       let merchant = 'Merchant'
       try { merchant = new URL(url).hostname } catch {}
-      const spend = await createSpendRequest(sql, live.userId!, {
+      const spend = await createLinkBackedSpendRequest(sql, live.userId!, {
         amountCents,
         merchant,
+        merchantUrl: url,
         purpose: item,
       })
       if (!spend.requestId) {
         return json({ ok: false, error: spend.error || 'Could not create spend approval' }, 400)
       }
-      const approvalUrl = `${appBaseFromEnv()}/api/payments/spend/approve?id=${spend.requestId}`
+      const approvalUrl = spend.approvalUrl
       const pid = crypto.randomUUID()
       await sql`
         INSERT INTO hire_drafts (id, user_id, persona, kind, to_addr, subject, body, status)
@@ -12293,6 +12311,8 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
       // stale-but-same-day row on purpose — the brief still paints (the data is
       // real, just not rebuilt on this tap) but the user gets a "refreshes
       // used up" line at the top so they know to upgrade.
+      const tzWarm = user!.timezone || 'America/Los_Angeles'
+      prewarmHomeWorld(sql, user!, tzWarm)
       return jsonRevalidated(req, brief.pending ? 0 : 60, {
         ...load.payload,
         limited: load.throttled || undefined,
@@ -15046,6 +15066,7 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
       new Date().toLocaleString('en-US', { hour: 'numeric', hour12: false, timeZone: user.timezone || 'America/Los_Angeles' }),
     )
     const briefKind = hour >= 16 ? 'pick_night' : 'digest'
+    prewarmHomeWorld(sql, user, user.timezone || 'America/Los_Angeles')
     return json({
       ...payload,
       briefKind,

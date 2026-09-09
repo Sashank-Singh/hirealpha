@@ -192,7 +192,7 @@ export function HomeApp({ auth }: { auth: FeatureAuth }) {
    * quietly, a couple of times at most, and leave the screen as it is if they
    * never arrive. */
   useEffect(() => {
-    if (!snap?.worldPending || worldTries >= 3) return
+    if (!snap?.worldPending || worldTries >= 4) return
     const timer = setTimeout(() => {
       setWorldTries((n) => n + 1)
       apiHome({ email: auth.email, token: auth.token })
@@ -201,7 +201,7 @@ export function HomeApp({ auth }: { auth: FeatureAuth }) {
           writeHomeCache(who, d, localYmd(), Date.now())
         })
         .catch(() => {})
-    }, 1800)
+    }, 900)
     return () => clearTimeout(timer)
   }, [snap?.worldPending, worldTries, auth.email, auth.token, who])
 
