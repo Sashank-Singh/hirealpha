@@ -1,10 +1,16 @@
 import { expect, it } from 'bun:test'
 import type { SQL } from 'bun'
-import { runJob } from './browserWorker'
+import { hasMerchantOrderConfirmation, runJob } from './browserWorker'
 import { openTaskPage } from './browserSession'
 import type { BrowserJobRow } from './browserJobs'
 
-const job: BrowserJobRow = { id: 'test-job', user_id: 'test-user', persona: 'friend', phone_e164: null, kind: 'task', url: 'https://example.com/', steps: null, goal: 'Read the page heading', status: 'running', attempts: 1, result: null, error: null, approval_id: 'test-approval' }
+const job: BrowserJobRow = { id: 'test-job', user_id: 'test-user', persona: 'friend', phone_e164: null, kind: 'task', url: 'https://example.com/', steps: null, goal: 'Read the page heading', status: 'running', attempts: 1, result: null, error: null, approval_id: 'test-approval', spend_request_id: null }
+
+it('requires explicit merchant confirmation evidence for purchase completion', () => {
+  expect(hasMerchantOrderConfirmation('Order number: 113-1234567-1234567')).toBe(true)
+  expect(hasMerchantOrderConfirmation('Confirmation # AB12-CD34')).toBe(true)
+  expect(hasMerchantOrderConfirmation('Checkout finished')).toBe(false)
+})
 
 it('opens a public website without invoking the login form', async () => {
   const visited: string[] = []

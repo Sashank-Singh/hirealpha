@@ -778,9 +778,9 @@ describe('Mini-app Text Triggers', () => {
       expect(result?.kind).toBe('spending_snapshot')
     })
 
-    it('detects gratitude_journal intent', () => {
+    it('no longer routes gratitude to a journal card (gratitude left the capability set)', () => {
       const result = detectMiniAppRequest('grateful for my team', 'friend')
-      expect(result?.kind).toBe('gratitude_journal')
+      expect(result?.kind).not.toBe('gratitude_journal')
     })
 
     it('detects learning_queue intent with URL', () => {
@@ -1155,7 +1155,6 @@ describe('Mini-app Text Triggers', () => {
     it('recognizes reopen phrases for all apps', () => {
       const apps: Array<[MiniAppKind, AgentId, string]> = [
         ['habit_streak', 'friend', 'open my habits'],
-        ['gratitude_journal', 'friend', 'pull up gratitude'],
         ['learning_queue', 'friend', 'bring back my learning'],
         ['weekly_review', 'friend', 'open my weekly review'],
         ['networking_crm', 'coworker', 'show my networking'],

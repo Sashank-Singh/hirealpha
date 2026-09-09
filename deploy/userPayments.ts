@@ -14,6 +14,8 @@
  */
 import { randomUUID } from 'node:crypto'
 import type { SQL } from 'bun'
+import { enqueueBrowserJob } from './browserJobs'
+import { authorizePaidPurchaseBrowserRun, pushBrowserResultLoop } from './browserVault'
 
 /* ------------------------------- schema --------------------------------- */
 
@@ -35,6 +37,10 @@ export async function ensureUserPaymentsSchema(sql: SQL): Promise<void> {
     )
   `
   await sql`CREATE INDEX IF NOT EXISTS idx_hire_spend_approvals_user ON hire_spend_approvals (user_id, status)`
+  await sql`ALTER TABLE hire_spend_approvals ADD COLUMN IF NOT EXISTS paid_at TIMESTAMPTZ`
+  await sql`ALTER TABLE hire_spend_approvals ADD COLUMN IF NOT EXISTS finalization_status TEXT NOT NULL DEFAULT 'pending'`
+  await sql`ALTER TABLE hire_spend_approvals ADD COLUMN IF NOT EXISTS finalization_job_id UUID`
+  await sql`ALTER TABLE hire_spend_approvals ADD COLUMN IF NOT EXISTS order_confirmation TEXT`
 }
 
 /* ------------------------------ stripe io -------------------------------- */
@@ -223,13 +229,144 @@ export async function chargeApprovedSpend(
     }),
     `spend-${requestId}`,
   )
-  if (!intent.ok) {
+  if (!intent.ok || intent.data?.status !== 'succeeded') {
     const msg = String(intent.data?.error?.message || 'The charge was declined.')
     await sql`UPDATE hire_spend_approvals SET last_error = ${msg} WHERE id = ${requestId}`
     return { ok: false, error: msg }
   }
   await sql`UPDATE hire_spend_approvals SET payment_intent_id = ${String(intent.data.id)} WHERE id = ${requestId}`
   return { ok: true, paymentIntentId: String(intent.data.id) }
+}
+
+export type PurchasePaymentIntent = {
+  id?: unknown
+  status?: unknown
+  amount_received?: unknown
+  currency?: unknown
+  metadata?: unknown
+}
+
+export type PurchaseFinalizationResult =
+  | { status: 'ignored'; reason: string }
+  | { status: 'already_queued'; jobId: string }
+  | { status: 'queued'; jobId: string }
+  | { status: 'needs_attention'; reason: string }
+
+/** Turn one verified payment_intent.succeeded event into exactly one final
+ * merchant browser job. Stripe can retry or deliver events concurrently: the
+ * spend UUID is reused for both the browser approval and job IDs, making every
+ * insert idempotent at the database boundary. */
+export async function queuePaidPurchaseFinalization(
+  sql: SQL,
+  intent: PurchasePaymentIntent,
+): Promise<PurchaseFinalizationResult> {
+  const intentId = typeof intent.id === 'string' ? intent.id : ''
+  const metadata = intent.metadata && typeof intent.metadata === 'object'
+    ? intent.metadata as Record<string, unknown>
+    : {}
+  const requestId = typeof metadata.spend_request === 'string' ? metadata.spend_request : ''
+  const metadataUserId = typeof metadata.user_id === 'string' ? metadata.user_id : ''
+  if (!intentId.startsWith('pi_') || intent.status !== 'succeeded' || !requestId || !metadataUserId) {
+    return { status: 'ignored', reason: 'not a HireAlpha succeeded spend PaymentIntent' }
+  }
+
+  const approvals = (await sql`
+    SELECT a.id, a.user_id, a.amount_cents, a.merchant, a.purpose, a.payment_intent_id,
+      a.finalization_job_id, u.phone_e164
+    FROM hire_spend_approvals a
+    JOIN hire_users u ON u.id = a.user_id
+    WHERE a.id = ${requestId} AND a.user_id = ${metadataUserId}
+    LIMIT 1
+  `) as Array<{
+    id: string
+    user_id: string
+    amount_cents: number
+    merchant: string
+    purpose: string
+    payment_intent_id: string | null
+    finalization_job_id: string | null
+    phone_e164: string | null
+  }>
+  const approval = approvals[0]
+  if (!approval) return { status: 'ignored', reason: 'spend approval not found or owner mismatch' }
+  if (approval.payment_intent_id && approval.payment_intent_id !== intentId) {
+    return { status: 'ignored', reason: 'PaymentIntent does not match the spend approval' }
+  }
+  if (String(intent.currency || '').toLowerCase() !== 'usd' || Number(intent.amount_received) !== approval.amount_cents) {
+    return { status: 'ignored', reason: 'paid currency or amount does not match the spend approval' }
+  }
+  if (approval.finalization_job_id) return { status: 'already_queued', jobId: approval.finalization_job_id }
+
+  const drafts = (await sql`
+    SELECT persona, to_addr, subject, body
+    FROM hire_drafts
+    WHERE user_id = ${approval.user_id} AND kind = 'purchase'
+    ORDER BY created_at DESC
+    LIMIT 50
+  `) as Array<{ persona: string; to_addr: string; subject: string; body: string }>
+  const draft = drafts.find((candidate) => {
+    try {
+      return String((JSON.parse(candidate.body) as Record<string, unknown>).requestId || '') === requestId
+    } catch {
+      return false
+    }
+  })
+  let productUrl: URL | null = null
+  try {
+    productUrl = draft?.to_addr ? new URL(draft.to_addr) : null
+  } catch {}
+  const expectedMerchant = approval.merchant.toLowerCase().replace(/^www\./, '')
+  const actualMerchant = productUrl?.hostname.toLowerCase().replace(/^www\./, '') || ''
+  if (!draft || !productUrl || productUrl.protocol !== 'https:' || productUrl.username || productUrl.password || actualMerchant !== expectedMerchant) {
+    const reason = 'Payment succeeded, but the staged merchant checkout could not be found. No merchant order was submitted.'
+    await sql`
+      UPDATE hire_spend_approvals
+      SET payment_intent_id = ${intentId}, paid_at = COALESCE(paid_at, now()), finalization_status = 'needs_attention', last_error = ${reason}
+      WHERE id = ${requestId} AND user_id = ${approval.user_id}
+    `
+    await pushBrowserResultLoop(sql, {
+      userId: approval.user_id,
+      persona: draft?.persona || 'friend',
+      origin: productUrl?.origin || 'https://hirealpha.chat',
+      insights: reason,
+    })
+    return { status: 'needs_attention', reason }
+  }
+
+  const browserApproval = await authorizePaidPurchaseBrowserRun(sql, {
+    requestId,
+    userId: approval.user_id,
+    persona: draft.persona || 'friend',
+    portal: productUrl.href,
+    purpose: `Finalize paid purchase: ${approval.purpose}`.slice(0, 200),
+  })
+  if ('error' in browserApproval) return { status: 'needs_attention', reason: browserApproval.error }
+
+  const amount = `$${(approval.amount_cents / 100).toFixed(2)}`
+  const goal = [
+    `Complete the already authorized checkout for "${approval.purpose}".`,
+    `Use the merchant's existing cart and saved checkout details, and verify the final total is exactly ${amount}.`,
+    'Do not add, remove, substitute, or change quantities. If the cart or total differs, use giveup without ordering and explain the mismatch.',
+    'If everything matches, click the final Place Order/Submit Order control exactly once. Use done only after the confirmation page is visible, and include the merchant order confirmation number.',
+  ].join(' ')
+  const jobId = await enqueueBrowserJob(sql, {
+    userId: approval.user_id,
+    persona: draft.persona || 'friend',
+    phone: approval.phone_e164,
+    kind: 'task',
+    url: productUrl.href,
+    goal,
+    approvalId: browserApproval.requestId,
+    spendRequestId: requestId,
+    idempotencyId: requestId,
+  })
+  await sql`
+    UPDATE hire_spend_approvals
+    SET payment_intent_id = ${intentId}, paid_at = COALESCE(paid_at, now()),
+      finalization_status = 'queued', finalization_job_id = ${jobId}, last_error = NULL
+    WHERE id = ${requestId} AND user_id = ${approval.user_id}
+  `
+  return { status: 'queued', jobId }
 }
 
 /** Customer id + default (newest) payment method in one call. */
@@ -274,9 +411,9 @@ export async function handleUserPaymentsApi(req: Request, sql: SQL, deps: UserPa
     const isJson = url.searchParams.get('format') === 'json' || req.headers.get('accept')?.includes('application/json')
     if (!id) return isJson ? json({ error: 'Missing request id' }, 400) : new Response('Missing request id', { status: 400 })
     const rows = (await sql`
-      SELECT id, user_id, amount_cents, merchant, purpose, status, payment_intent_id
+      SELECT id, user_id, amount_cents, merchant, purpose, status, payment_intent_id, finalization_status
       FROM hire_spend_approvals WHERE id = ${id} LIMIT 1
-    `) as Array<{ id: string; user_id: string; amount_cents: number; merchant: string; purpose: string; status: string; payment_intent_id: string | null }>
+    `) as Array<{ id: string; user_id: string; amount_cents: number; merchant: string; purpose: string; status: string; payment_intent_id: string | null; finalization_status: string }>
     const item = rows[0]
     if (!item) {
       if (isJson) return json({ error: 'Request not found' }, 404)
@@ -288,7 +425,7 @@ export async function handleUserPaymentsApi(req: Request, sql: SQL, deps: UserPa
     const amountStr = `$${(item.amount_cents / 100).toFixed(2)}`
     if (item.status === 'consumed' || item.payment_intent_id) {
       if (isJson) {
-        return json({ ok: true, already_approved: true, status: 'consumed', merchant: item.merchant, purpose: item.purpose, amount: amountStr })
+        return json({ ok: true, already_approved: true, status: 'consumed', finalization_status: item.finalization_status, merchant: item.merchant, purpose: item.purpose, amount: amountStr })
       }
       return new Response(`<html><body style="font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#0d1117;color:#fff;padding:40px 16px;text-align:center;">
         <div style="max-width:400px;margin:0 auto;background:#161b22;padding:32px;border-radius:16px;border:1px solid #30363d;">
@@ -302,7 +439,7 @@ export async function handleUserPaymentsApi(req: Request, sql: SQL, deps: UserPa
             <div style="font-size:12px;color:#8b949e;">Amount</div>
             <div style="font-weight:700;font-size:20px;color:#58a6ff;">${amountStr}</div>
           </div>
-          <p style="font-size:13px;color:#8b949e;">Alpha has confirmed your order in iMessage.</p>
+          <p style="font-size:13px;color:#8b949e;">Payment was received. Alpha will confirm the merchant order separately in iMessage.</p>
         </div>
       </body></html>`, {
         headers: { 'Content-Type': 'text/html; charset=utf-8' },
@@ -363,18 +500,18 @@ export async function handleUserPaymentsApi(req: Request, sql: SQL, deps: UserPa
     }
 
     if (isJson) {
-      return json({ ok: true, charged: true, id: item.id, merchant: item.merchant, purpose: item.purpose, amount: amountStr })
+      return json({ ok: true, charged: true, finalization_status: 'awaiting_webhook', id: item.id, merchant: item.merchant, purpose: item.purpose, amount: amountStr })
     }
 
     return new Response(`<html><body style="font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#0d1117;color:#fff;padding:40px 16px;text-align:center;">
       <div style="max-width:400px;margin:0 auto;background:#161b22;padding:32px;border-radius:16px;border:1px solid #238636;box-shadow:0 8px 24px rgba(0,0,0,0.4);">
         <div style="font-size:48px;margin-bottom:16px;">✓</div>
-        <h2 style="margin:0 0 8px 0;color:#3fb950;font-size:22px;">Purchase Approved!</h2>
+        <h2 style="margin:0 0 8px 0;color:#3fb950;font-size:22px;">Payment Received</h2>
         <p style="color:#8b949e;font-size:14px;margin-bottom:20px;">Your saved card was successfully charged <strong>${amountStr}</strong> for ${item.purpose}.</p>
         <div style="background:#21262d;padding:16px;border-radius:12px;margin-bottom:20px;font-size:13px;color:#8b949e;">
           Payment ID: <span style="color:#f0f6fc;font-family:monospace;">${chargeRes.paymentIntentId}</span>
         </div>
-        <p style="font-size:13px;color:#8b949e;margin:0;">Alpha has confirmed your order. You can return to Messages now.</p>
+        <p style="font-size:13px;color:#8b949e;margin:0;">Alpha is finalizing the merchant checkout. The order confirmation number will arrive in Messages.</p>
       </div>
     </body></html>`, {
       headers: { 'Content-Type': 'text/html; charset=utf-8' },

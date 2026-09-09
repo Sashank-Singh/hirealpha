@@ -14,11 +14,14 @@
 
 export type AgentAction =
   | { type: 'click'; selector: string }
+  | { type: 'click_at'; x: number; y: number }
   | { type: 'fill'; selector: string; value: string }
+  | { type: 'type_text'; value: string }
   | { type: 'press'; key: string }
   | { type: 'navigate'; url: string }
   | { type: 'scroll'; direction: 'down' | 'up' }
   | { type: 'wait'; ms: number }
+  | { type: 'handoff'; kind: 'password' | 'verification' | 'payment' | 'captcha' | 'confirmation'; message: string }
   | { type: 'done'; answer: string }
   | { type: 'giveup'; reason: string }
 
@@ -30,14 +33,22 @@ const AGENT_SYSTEM =
   'You are the action module of a web-browsing agent. You see a screenshot of a web page ' +
   'plus the user goal. Decide the single next action. Reply with ONLY a JSON object, no markdown fence:\n' +
   '{"action":"click","selector":"<css selector>"}\n' +
+  '{"action":"click_at","x":640,"y":400}\n' +
   '{"action":"fill","selector":"<css selector>","value":"<text to type>"}\n' +
+  '{"action":"type_text","value":"<text to type into the focused control>"}\n' +
   '{"action":"press","key":"Enter"}\n' +
   '{"action":"navigate","url":"<absolute https url>"}\n' +
   '{"action":"scroll","direction":"down"}\n' +
   '{"action":"wait","ms":1500}\n' +
+  '{"action":"handoff","kind":"password|verification|payment|captcha|confirmation","message":"<what the user must do>"}\n' +
   '{"action":"done","answer":"<the final answer to the goal, extracted from the page>"}\n' +
   '{"action":"giveup","reason":"<why the goal cannot be reached>"}\n' +
-  'Rules: prefer stable selectors (id, name, aria-label, role). Never invent URLs outside the current site. ' +
+  'Rules: prefer stable selectors (id, name, aria-label, role). When a numbered target has no stable selector, use click_at with the center of its box, then type_text. ' +
+  'Coordinates are CSS pixels in the 1280x800 screenshot. Never invent URLs outside the current site. ' +
+  'Use handoff whenever the site needs a password that was not already filled, a one-time code, CAPTCHA, identity check, or human confirmation. ' +
+  'Use payment handoff BEFORE clicking any final button that places an order, starts a paid subscription, or creates a charge, unless PAYMENT STATUS explicitly says Stripe authorization is verified. ' +
+  'When payment is verified, submit at most once and only when the displayed total exactly matches the goal. ' +
+  'After a handoff appears in RECENT ACTIONS, assume the user completed it and inspect the new page before requesting another handoff. ' +
   'When the goal is answered by something on the page, use "done". If after several tries nothing progresses, "giveup".'
 
 /** Parse one model reply. Unknown shapes are skipped by the caller — never executed. */
@@ -58,10 +69,20 @@ export function parseAgentAction(raw: string): AgentAction | null {
       const selector = str(obj.selector, 300)
       return selector && obj.selector!.length <= 300 ? { type: 'click', selector } : null
     }
+    case 'click_at': {
+      const x = Math.round(Number(obj.x))
+      const y = Math.round(Number(obj.y))
+      if (!Number.isFinite(x) || !Number.isFinite(y) || x < 0 || x > 1280 || y < 0 || y > 800) return null
+      return { type: 'click_at', x, y }
+    }
     case 'fill': {
       const selector = str(obj.selector, 300)
       const value = str(obj.value, 500)
       return selector && obj.selector!.length <= 300 ? { type: 'fill', selector, value } : null
+    }
+    case 'type_text': {
+      const value = str(obj.value, 500)
+      return value ? { type: 'type_text', value } : null
     }
     case 'press': {
       const key = str(obj.key, 20)
@@ -84,6 +105,13 @@ export function parseAgentAction(raw: string): AgentAction | null {
     case 'wait': {
       const ms = Math.min(Math.max(Number(obj.ms) || 1000, 200), 10_000)
       return { type: 'wait', ms }
+    }
+    case 'handoff': {
+      const kinds = new Set(['password', 'verification', 'payment', 'captcha', 'confirmation'])
+      const kind = str(obj.kind, 20)
+      const message = str(obj.message, 400)
+      if (!kinds.has(kind) || !message) return null
+      return { type: 'handoff', kind: kind as 'password' | 'verification' | 'payment' | 'captcha' | 'confirmation', message }
     }
     case 'done': {
       const answer = str(obj.answer, 2000)
@@ -142,6 +170,7 @@ export type AgentStepContext = {
   goal: string
   stepNumber: number
   recentActions: string[]
+  paymentAuthorized?: boolean
 }
 
 export function buildVisionParts(ctx: AgentStepContext): unknown[] {
@@ -150,6 +179,7 @@ export function buildVisionParts(ctx: AgentStepContext): unknown[] {
       type: 'text',
       text:
         `GOAL: ${ctx.goal}\nURL: ${ctx.url}\nSTEP: ${ctx.stepNumber}\n` +
+        `PAYMENT STATUS: ${ctx.paymentAuthorized ? 'verified Stripe authorization; exact-total final submission is permitted once' : 'not authorized; hand off before any charge or order submission'}\n` +
         (ctx.recentActions.length ? `RECENT ACTIONS (avoid repeating what did not work): ${ctx.recentActions.slice(-5).join(' | ')}\n` : '') +
         `PAGE TEXT (truncated):\n${ctx.pageText.slice(0, 3500)}`,
     },
@@ -164,8 +194,14 @@ export async function executeAgentAction(page: import('playwright').Page, action
       case 'click':
         await page.locator(action.selector).first().click({ timeout: 6000 })
         return true
+      case 'click_at':
+        await page.mouse.click(action.x, action.y)
+        return true
       case 'fill':
         await page.locator(action.selector).first().fill(action.value, { timeout: 6000 })
+        return true
+      case 'type_text':
+        await page.keyboard.type(action.value, { delay: 18 })
         return true
       case 'press':
         await page.keyboard.press(action.key)

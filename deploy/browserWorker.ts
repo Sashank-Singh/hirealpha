@@ -13,7 +13,16 @@ import { SQL } from 'bun'
 import { consumeBrowserApproval, ensureBrowserVaultSchema, getVaultCredentialsForTask, pushBrowserResultLoop } from './browserVault'
 import { vaultKey } from './vaultCrypto'
 import { runBrowserSession } from './browserSession'
-import { claimBrowserJobs, ensureBrowserJobsSchema, finishBrowserJob, type BrowserJobRow } from './browserJobs'
+import {
+  appendBrowserActivity,
+  beginBrowserHandoff,
+  claimBrowserJobs,
+  ensureBrowserJobsSchema,
+  finishBrowserJob,
+  generateSessionViewToken,
+  waitForBrowserHandoff,
+  type BrowserJobRow,
+} from './browserJobs'
 
 const DATABASE_URL = process.env.DATABASE_URL || ''
 const CONCURRENCY = Math.max(Number(process.env.WORKER_CONCURRENCY) || 2, 1)
@@ -30,6 +39,14 @@ function hostOf(url: string): string {
 type JobRow = BrowserJobRow
 
 type JobOutcome = { ok: true; result: string } | { ok: false; error: string }
+
+/** Purchase jobs only count as successful when the merchant response carries
+ * an explicit order/confirmation reference. This prevents a model's generic
+ * "done" from becoming a false order-confirmation message. */
+export function hasMerchantOrderConfirmation(text: string): boolean {
+  return /(?:order|confirmation)\s*(?:number|no\.?|id|#)\s*[:#-]?\s*[a-z0-9-]{4,}/i.test(text)
+    || /thank you for your order/i.test(text)
+}
 
 export async function runJob(sql: SQL, job: JobRow, launch = runBrowserSession): Promise<JobOutcome> {
   const key = vaultKey()
@@ -55,23 +72,62 @@ export async function runJob(sql: SQL, job: JobRow, launch = runBrowserSession):
     kind,
     steps: (job.steps as never) || undefined,
     goal: job.goal || undefined,
+    paymentAuthorized: Boolean(job.spend_request_id),
+    onProgress: ({ action, url }) => appendBrowserActivity(sql, job.id, action, url),
+    onHandoff: async ({ kind: handoffKind, message, url }) => {
+      await appendBrowserActivity(sql, job.id, `needs_${handoffKind}`, url)
+      await beginBrowserHandoff(sql, job.id, handoffKind, message)
+      const appBase = (process.env.HIREALPHA_APP_URL || 'https://hirealpha.chat').replace(/\/$/, '')
+      const viewToken = generateSessionViewToken(job.id, job.user_id)
+      const sessionUrl = `${appBase}/computer/${job.id}?token=${encodeURIComponent(viewToken)}`
+      await pushBrowserResultLoop(sql, {
+        userId: job.user_id,
+        persona: job.persona,
+        origin: url,
+        insights: `Alpha paused and needs you to ${message.replace(/[.!]+$/, '').toLowerCase()}. Open the live computer: ${sessionUrl}`,
+      })
+      return waitForBrowserHandoff(sql, job.id)
+    },
   })
-  return run.ok ? { ok: true, result: run.content } : { ok: false, error: run.error }
+  if (!run.ok) return { ok: false, error: run.error }
+  if (job.spend_request_id && !hasMerchantOrderConfirmation(run.content)) {
+    return { ok: false, error: 'Merchant did not return an order confirmation number.' }
+  }
+  return { ok: true, result: run.content }
 }
 
 async function report(sql: SQL, job: JobRow, outcome: JobOutcome): Promise<void> {
   if (outcome.ok) {
     await sql`UPDATE hire_browser_jobs SET status = 'done', result = ${outcome.result}, finished_at = now() WHERE id = ${job.id}`
-    await pushBrowserResultLoop(sql, { userId: job.user_id, persona: job.persona, origin: job.url, insights: outcome.result })
+    if (job.spend_request_id) {
+      await sql`
+        UPDATE hire_spend_approvals
+        SET finalization_status = 'completed', order_confirmation = ${outcome.result}, last_error = NULL
+        WHERE id = ${job.spend_request_id} AND finalization_job_id = ${job.id}
+      `
+    }
+    const insights = job.spend_request_id
+      ? `Order submitted after payment. Merchant confirmation: ${outcome.result}`
+      : outcome.result
+    await pushBrowserResultLoop(sql, { userId: job.user_id, persona: job.persona, origin: job.url, insights })
     return
   }
   // Do not replay a task that may already have submitted a form or order.
   await finishBrowserJob(sql, job.id, { ok: false, error: outcome.error })
+  if (job.spend_request_id) {
+    await sql`
+      UPDATE hire_spend_approvals
+      SET finalization_status = 'needs_attention', last_error = ${outcome.error.slice(0, 500)}
+      WHERE id = ${job.spend_request_id} AND finalization_job_id = ${job.id}
+    `
+  }
   await pushBrowserResultLoop(sql, {
     userId: job.user_id,
     persona: job.persona,
     origin: job.url,
-    insights: `Couldn't check ${hostOf(job.url)}: ${outcome.error.slice(0, 200)}`,
+    insights: job.spend_request_id
+      ? `Payment succeeded, but the merchant order was not confirmed: ${outcome.error.slice(0, 200)}. No retry was attempted because the submission outcome may be uncertain.`
+      : `Couldn't check ${hostOf(job.url)}: ${outcome.error.slice(0, 200)}`,
   })
 }
 

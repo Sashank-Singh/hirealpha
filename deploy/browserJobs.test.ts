@@ -117,11 +117,14 @@ describe('browser job queue', () => {
 describe('agent action parser (the only path from JSON to the browser)', () => {
   it('parses every documented action', () => {
     expect(parseAgentAction('{"action":"click","selector":"#submit"}')).toEqual({ type: 'click', selector: '#submit' })
+    expect(parseAgentAction('{"action":"click_at","x":640,"y":320}')).toEqual({ type: 'click_at', x: 640, y: 320 })
     expect(parseAgentAction('{"action":"fill","selector":"#q","value":"hello"}')).toEqual({ type: 'fill', selector: '#q', value: 'hello' })
+    expect(parseAgentAction('{"action":"type_text","value":"hello"}')).toEqual({ type: 'type_text', value: 'hello' })
     expect(parseAgentAction('{"action":"press","key":"Enter"}')).toEqual({ type: 'press', key: 'Enter' })
     expect(parseAgentAction('{"action":"navigate","url":"https://x.com/a"}')).toEqual({ type: 'navigate', url: 'https://x.com/a' })
     expect(parseAgentAction('{"action":"scroll","direction":"up"}')).toEqual({ type: 'scroll', direction: 'up' })
     expect(parseAgentAction('{"action":"wait","ms":99}')).toEqual({ type: 'wait', ms: 200 })
+    expect(parseAgentAction('{"action":"handoff","kind":"verification","message":"Enter the code from your phone"}')).toEqual({ type: 'handoff', kind: 'verification', message: 'Enter the code from your phone' })
     expect(parseAgentAction('{"action":"done","answer":"Balance is $4.20"}')).toEqual({ type: 'done', answer: 'Balance is $4.20' })
     expect(parseAgentAction('{"action":"giveup","reason":"login wall"}')).toEqual({ type: 'giveup', reason: 'login wall' })
   })
@@ -136,9 +139,11 @@ describe('agent action parser (the only path from JSON to the browser)', () => {
     expect(parseAgentAction('not json at all')).toBeNull()
     expect(parseAgentAction('{"action":"exec","code":"process.exit(1)"}')).toBeNull()
     expect(parseAgentAction('{"action":"click"}')).toBeNull()
+    expect(parseAgentAction('{"action":"click_at","x":9000,"y":20}')).toBeNull()
     expect(parseAgentAction('{"action":"navigate","url":"http://evil.com"}')).toBeNull()
     expect(parseAgentAction('{"action":"navigate","url":"javascript:alert(1)"}')).toBeNull()
     expect(parseAgentAction('{"action":"done"}')).toBeNull()
+    expect(parseAgentAction('{"action":"handoff","kind":"secret","message":"do it"}')).toBeNull()
     expect(parseAgentAction(`{"action":"click","selector":"${'x'.repeat(5000)}"}`)).toBeNull()
   })
 
@@ -162,7 +167,8 @@ describe('vision caller + parts', () => {
     expect(parts[0]!.type).toBe('text')
     expect(parts[0]!.text).toContain('Find the portfolio value')
     expect(parts[0]!.text).toContain('avoid repeating')
-    expect(parts[1]!.image_url!.url).toContain('data:image/png;base64,QUJD')
+    expect(parts[0]!.text).toContain('PAYMENT STATUS: not authorized')
+    expect(parts[1]!.image_url!.url).toContain('data:image/jpeg;base64,QUJD')
   })
 
   it('makeVisionCaller posts to chat/completions and returns the message content', async () => {

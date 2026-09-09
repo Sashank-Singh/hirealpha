@@ -18,6 +18,7 @@ interface SpendDetails {
   tax?: string
   shipping?: string
   already_approved?: boolean
+  finalization_status?: string
   error?: string
 }
 
@@ -205,10 +206,11 @@ export function ApprovePurchaseApp({
         throw new Error('This order has not been staged with Stripe yet. No money was charged.')
       }
       const res = await fetch(`/api/payments/spend/approve?id=${encodeURIComponent(id)}&confirm=1&format=json`)
-      const data = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string; charged?: boolean }
+      const data = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string; charged?: boolean; finalization_status?: string }
       if (!res.ok || !data.ok) {
         throw new Error(data.error || 'Stripe could not process this charge. Please ensure your payment method is connected.')
       }
+      setDetails((current) => current ? { ...current, finalization_status: data.finalization_status || 'awaiting_webhook' } : current)
       setApproved(true)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not approve payment. Please check your connected card.')
@@ -242,6 +244,7 @@ export function ApprovePurchaseApp({
   const subtotal = details?.subtotal || paramSubtotal || amount
   const shippingDisplay = details?.shipping || paramShipping || 'Calculated at checkout'
   const taxDisplay = details?.tax || paramTax || 'Calculated at checkout'
+  const orderConfirmed = details?.finalization_status === 'completed'
 
   return (
     <div className="ap-container">
@@ -440,13 +443,17 @@ export function ApprovePurchaseApp({
               <polyline points="20 6 9 17 4 12" />
             </svg>
           </div>
-          <div className="ap-confirmed-title">Payment Approved</div>
+          <div className="ap-confirmed-title">{orderConfirmed ? 'Order Confirmed' : 'Payment Received'}</div>
           <p className="ap-confirmed-desc">
-            Your order for {purpose} is confirmed and scheduled to deliver to:
+            {orderConfirmed
+              ? `The merchant confirmed your order for ${purpose}, scheduled to deliver to:`
+              : `Alpha is finalizing the merchant checkout for ${purpose}. Shipping destination:`}
           </p>
           <div className="ap-confirmed-dest">{shippingAddress}</div>
           <p style={{ fontSize: '12px', color: '#71717a', margin: 0 }}>
-            Alpha has updated your iMessage thread with order confirmation.
+            {orderConfirmed
+              ? 'Alpha sent the merchant confirmation to your iMessage thread.'
+              : 'The merchant confirmation number will arrive in iMessage after checkout completes.'}
           </p>
         </div>
       ) : (

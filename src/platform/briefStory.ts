@@ -111,15 +111,6 @@ export function pickBriefAction(input: {
       prepName: input.next.name,
     }
   }
-  if (input.due[0]) {
-    return {
-      kicker: 'Due',
-      title: `Ping ${input.due[0].name}`,
-      hint: 'They are due a follow up. Text Alpha to send it.',
-      cta: 'Open People',
-      openKind: 'networking_crm',
-    }
-  }
   if (input.asks[0]) {
     return {
       kicker: 'Ask',
@@ -140,14 +131,13 @@ export function pickBriefAction(input: {
 
 export function buildBriefLead(input: {
   beats: BriefBeat[]
-  due: BriefDue[]
+  due?: BriefDue[]
   lastNightHours?: number
   lastNightLogged?: boolean
   calendarConnected?: boolean
 }): { lead: string; sub?: string } {
   const next = input.beats[0]
   if (next) return { lead: `${next.name} at ${next.time}` }
-  if (input.due[0]) return { lead: `${input.due[0].name} is due` }
   if (input.lastNightLogged && input.lastNightHours) return { lead: `Last night ${input.lastNightHours}h` }
   if (input.calendarConnected === false) return { lead: 'Connect Calendar in Settings' }
   return { lead: 'A quiet day so far' }

@@ -61,6 +61,26 @@
       "role": "assistant",
       "content": "Once you connect your calendar at hirealpha.chat/app, I can plan your whole day from what's actually on it. Right now I can't see your schedule yet. Tap Connect and I'll take it from there.",
       "ts": 1788684936660
+    },
+    {
+      "role": "user",
+      "content": "I’m not feeling good",
+      "ts": 1788928197334
+    },
+    {
+      "role": "assistant",
+      "content": "I'm sorry. Do you want to talk about what's going on, or would it help if I took something practical off your plate? We can also pause the calendar thing for now.",
+      "ts": 1788928197334
+    },
+    {
+      "role": "user",
+      "content": "It’s just personal and mental health problems nothing that could be done physically or artificially done",
+      "ts": 1788928398971
+    },
+    {
+      "role": "assistant",
+      "content": "I could not finish this request with the results available. Please try again or narrow the request.",
+      "ts": 1788928398971
     }
   ]
 }

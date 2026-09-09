@@ -21,11 +21,18 @@ export type BrowserJobRow = {
   url: string
   steps: PortalStep[] | null
   goal: string | null
-  status: 'pending' | 'running' | 'done' | 'failed'
+  status: 'pending' | 'running' | 'waiting' | 'done' | 'failed'
   attempts: number
   result: string | null
   error: string | null
   approval_id: string | null
+  spend_request_id: string | null
+  current_url: string | null
+  activity: Array<{ action: string; at: string }>
+  handoff_kind: 'password' | 'verification' | 'payment' | 'captcha' | 'confirmation' | null
+  handoff_message: string | null
+  handoff_at: Date | null
+  handoff_resumed_at: Date | null
 }
 
 export async function ensureBrowserJobsSchema(sql: SQL): Promise<void> {
@@ -49,7 +56,15 @@ export async function ensureBrowserJobsSchema(sql: SQL): Promise<void> {
     )
   `
   await sql`ALTER TABLE hire_browser_jobs ADD COLUMN IF NOT EXISTS approval_id UUID`
+  await sql`ALTER TABLE hire_browser_jobs ADD COLUMN IF NOT EXISTS spend_request_id UUID`
+  await sql`ALTER TABLE hire_browser_jobs ADD COLUMN IF NOT EXISTS current_url TEXT`
+  await sql`ALTER TABLE hire_browser_jobs ADD COLUMN IF NOT EXISTS activity JSONB NOT NULL DEFAULT '[]'::jsonb`
+  await sql`ALTER TABLE hire_browser_jobs ADD COLUMN IF NOT EXISTS handoff_kind TEXT`
+  await sql`ALTER TABLE hire_browser_jobs ADD COLUMN IF NOT EXISTS handoff_message TEXT`
+  await sql`ALTER TABLE hire_browser_jobs ADD COLUMN IF NOT EXISTS handoff_at TIMESTAMPTZ`
+  await sql`ALTER TABLE hire_browser_jobs ADD COLUMN IF NOT EXISTS handoff_resumed_at TIMESTAMPTZ`
   await sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_hire_browser_jobs_approval ON hire_browser_jobs (approval_id) WHERE approval_id IS NOT NULL`
+  await sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_hire_browser_jobs_spend_request ON hire_browser_jobs (spend_request_id) WHERE spend_request_id IS NOT NULL`
   await sql`CREATE INDEX IF NOT EXISTS idx_hire_browser_jobs_status ON hire_browser_jobs (status, created_at)`
 }
 
@@ -64,15 +79,18 @@ export async function enqueueBrowserJob(
     steps?: PortalStep[] | null
     goal?: string | null
     approvalId?: string | null
+    spendRequestId?: string | null
+    idempotencyId?: string
   },
 ): Promise<string> {
   const target = new URL(input.url)
   if (target.protocol !== 'https:' || target.username || target.password) throw new Error('Browser target must be a public HTTPS URL without embedded credentials.')
-  const id = randomUUID()
+  const id = input.idempotencyId || randomUUID()
   await sql`
-    INSERT INTO hire_browser_jobs (id, user_id, persona, phone_e164, kind, url, steps, goal, status, approval_id)
+    INSERT INTO hire_browser_jobs (id, user_id, persona, phone_e164, kind, url, steps, goal, status, approval_id, spend_request_id)
     VALUES (${id}, ${input.userId}, ${input.persona}, ${input.phone}, ${input.kind}, ${target.href},
-      ${input.steps ? JSON.stringify(input.steps) : null}::jsonb, ${input.goal ?? null}, 'pending', ${input.approvalId ?? null})
+      ${input.steps ? JSON.stringify(input.steps) : null}::jsonb, ${input.goal ?? null}, 'pending', ${input.approvalId ?? null}, ${input.spendRequestId ?? null})
+    ON CONFLICT (id) DO NOTHING
   `
   return id
 }
@@ -103,7 +121,8 @@ export async function claimBrowserJobs(sql: SQL, limit: number): Promise<Browser
       LIMIT ${limit}
       FOR UPDATE OF j SKIP LOCKED
     )
-    RETURNING id, user_id, persona, phone_e164, kind, url, steps, goal, status, attempts, result, error, approval_id
+    RETURNING id, user_id, persona, phone_e164, kind, url, steps, goal, status, attempts, result, error, approval_id, spend_request_id,
+      current_url, activity, handoff_kind, handoff_message, handoff_at, handoff_resumed_at
   `) as unknown as BrowserJobRow[]
   return rows
 }
@@ -140,10 +159,58 @@ export async function finishBrowserJob(
 
 export async function getBrowserJob(sql: SQL, id: string, userId?: string): Promise<BrowserJobRow | null> {
   const rows = (await sql`
-    SELECT id, user_id, persona, phone_e164, kind, url, steps, goal, status, attempts, result, error, approval_id
+    SELECT id, user_id, persona, phone_e164, kind, url, steps, goal, status, attempts, result, error, approval_id, spend_request_id,
+      current_url, activity, handoff_kind, handoff_message, handoff_at, handoff_resumed_at
     FROM hire_browser_jobs WHERE id = ${id} ${userId ? sql`AND user_id = ${userId}` : sql``} LIMIT 1
   `) as unknown as BrowserJobRow[]
   return rows[0] ?? null
+}
+
+export type BrowserHandoffKind = NonNullable<BrowserJobRow['handoff_kind']>
+
+/** Only coarse actions enter the activity stream. Never persist field values or
+ * page text: passwords and verification codes belong only in the live browser. */
+export async function appendBrowserActivity(sql: SQL, id: string, action: string, currentUrl: string): Promise<void> {
+  const event = JSON.stringify([{ action: action.slice(0, 40), at: new Date().toISOString() }])
+  await sql`
+    UPDATE hire_browser_jobs
+    SET current_url = ${currentUrl.slice(0, 2000)}, activity = COALESCE(activity, '[]'::jsonb) || ${event}::jsonb
+    WHERE id = ${id} AND status IN ('running', 'waiting')
+  `
+}
+
+export async function beginBrowserHandoff(sql: SQL, id: string, kind: BrowserHandoffKind, message: string): Promise<void> {
+  await sql`
+    UPDATE hire_browser_jobs
+    SET status = 'waiting', handoff_kind = ${kind}, handoff_message = ${message.slice(0, 400)},
+      handoff_at = now(), handoff_resumed_at = NULL
+    WHERE id = ${id} AND status = 'running'
+  `
+}
+
+export async function resumeBrowserHandoff(sql: SQL, id: string): Promise<boolean> {
+  const rows = (await sql`
+    UPDATE hire_browser_jobs
+    SET status = 'running', handoff_resumed_at = now(), claimed_at = now()
+    WHERE id = ${id} AND status = 'waiting'
+    RETURNING id
+  `) as Array<{ id: string }>
+  return rows.length > 0
+}
+
+/** Keep the streamed browser open while its owner handles a protected step. */
+export async function waitForBrowserHandoff(sql: SQL, id: string, timeoutMs = 10 * 60_000): Promise<'resumed' | 'cancelled' | 'timeout'> {
+  const started = Date.now()
+  while (Date.now() - started < timeoutMs) {
+    const rows = (await sql`
+      SELECT status, handoff_resumed_at FROM hire_browser_jobs WHERE id = ${id} LIMIT 1
+    `) as Array<{ status: string; handoff_resumed_at: Date | null }>
+    const row = rows[0]
+    if (!row || row.status === 'failed') return 'cancelled'
+    if (row.status === 'running' && row.handoff_resumed_at) return 'resumed'
+    await Bun.sleep(1_000)
+  }
+  return 'timeout'
 }
 
 const SESSION_VIEW_SECRET = process.env.SESSION_SECRET || process.env.HIREALPHA_VAULT_KEY || 'alpha-computer-view-secret'
@@ -171,4 +238,3 @@ export function verifySessionViewToken(jobId: string, userId: string, token: str
   const expected = createHmac('sha256', SESSION_VIEW_SECRET).update(`${jobId}:${userId}:${expires}`).digest('hex')
   return sig === expected
 }
-

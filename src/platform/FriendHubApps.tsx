@@ -11,7 +11,6 @@ const LATER_LINKS: HubLink[] = [
   { kind: 'drop_zone', title: 'Drop zone', hint: 'Dump anything. Alpha files it.' },
   { kind: 'learning_queue', title: 'Learning', hint: 'Read and watch list' },
   { kind: 'open_loops', title: 'Promises', hint: 'Catch what you told someone you would do' },
-  { kind: 'gratitude_journal', title: 'Gratitude', hint: 'One sentence a day' },
   { kind: 'weekly_review', title: 'Weekly focus', hint: 'One fix for next week' },
 ]
 

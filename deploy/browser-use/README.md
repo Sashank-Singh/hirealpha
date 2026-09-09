@@ -1,123 +1,55 @@
-# browser-use — Cloud AI Browser Sessions on Coolify
+# HireAlpha Cloud Computer on Coolify
 
-Self-hosted AI web-agent with a live browser stream, deployed on your existing Coolify
-instance. Zero extra cost — everything runs inside a single Docker container on the
-server you already own.
+This deployment runs the HireAlpha browser worker, Chromium, Xvfb, and noVNC
+in the same container. The browser at `https://browser.hirealpha.chat/vnc.html`
+is therefore the exact browser executing the queued task—not a separate demo
+or browser-use Web UI session.
 
-**Stack:** [`browser-use/web-ui`](https://github.com/browser-use/web-ui) · Gradio UI · noVNC
-(live screen cast) · Chromium headless
+## Deploy
 
----
+1. In Coolify, create a Docker Compose resource from this repository and select
+   `deploy/browser-use/docker-compose.yml`.
+2. Route `browser.hirealpha.chat` to the compose service's port `6080`.
+3. Set the environment variables below, then deploy.
+4. On the web/API resource set:
+   `BROWSER_USE_STREAM_URL=https://browser.hirealpha.chat/vnc.html`.
 
-## URLs (after deployment)
+Required variables:
 
-| Interface | URL |
+| Variable | Purpose |
 |---|---|
-| **Gradio Web UI** | `https://browser.hirealpha.chat` |
-| **Live browser stream (noVNC)** | `https://browser.hirealpha.chat/vnc/` |
+| `DATABASE_URL` | Shared Postgres queue used by the API and browser worker |
+| `GMI_API_KEY` | Vision/action model used for arbitrary web tasks |
+| `SESSION_SECRET` | Must match the web/API resource so iMessage view links verify |
+| `CHROME_VNC_PASSWORD` | Password passed to the private noVNC client |
 
----
+Credential variables are optional but recommended:
 
-## Coolify — 1-Click Deployment
-
-### 1. Create a new resource
-
-1. Open your Coolify dashboard → **Projects** → `HireAlpha` → **Add Resource**
-2. Choose **Docker Compose**
-3. Set **Source** to **"Git"** and point it at this repo, subdirectory `deploy/browser-use/`
-   — **or** paste `docker-compose.yml` directly into the Compose editor
-
-### 2. Set environment variables
-
-In the Coolify **Environment Variables** tab, add at minimum:
-
-| Variable | Value |
+| Variable | Purpose |
 |---|---|
-| `BROWSER_USE_DOMAIN` | `browser.hirealpha.chat` |
-| `OPENAI_API_KEY` | your OpenAI key (or use Anthropic/Google) |
-| `CHROME_VNC_PASSWORD` | a strong password (6–8 chars) |
-| `GRADIO_USERNAME` | optional — enables HTTP basic auth |
-| `GRADIO_PASSWORD` | optional |
+| `OP_SERVICE_ACCOUNT_TOKEN` | Resolve saved credentials from 1Password at task time |
+| `OP_VAULT_ID` | 1Password vault containing the login items |
+| `HIREALPHA_VAULT_KEY` | AES fallback for locally encrypted credentials |
 
-> **Tip:** You can use any LLM provider — set `ANTHROPIC_API_KEY` or `GOOGLE_API_KEY`
-> instead of OpenAI. For fully local/free inference, point `OLLAMA_ENDPOINT` at an
-> Ollama instance running on the same host.
+## How a task runs
 
-### 3. Configure the domain
+1. Alpha queues a scoped browser job and texts a signed `/computer/:id` link.
+2. The user approves the one-time browser session from that page.
+3. The worker opens a headful Chromium window on the streamed X display.
+4. The vision loop sees screenshots plus numbered interactive targets. It may
+   use stable selectors or coordinate-based mouse/keyboard actions.
+5. At a password, one-time code, CAPTCHA, identity check, or final payment,
+   the worker pauses without closing Chromium and texts the private link again.
+6. The user takes control, completes the protected step directly on the site,
+   and selects **Done — let Alpha continue**.
+7. Alpha resumes from the same page and reports the verified result in iMessage.
 
-1. In Coolify: **Domains** → Add `browser.hirealpha.chat`
-2. Enable **Let's Encrypt** — Coolify handles the TLS certificate automatically
-3. Coolify injects the Traefik labels from `docker-compose.yml` automatically
+The database activity feed contains only coarse action names and URLs. Field
+values, page text, passwords, and verification codes are not stored there.
 
-### 4. Deploy
+## Scaling
 
-Click **Deploy**. First run pulls `ghcr.io/browser-use/web-ui:main` (~2.5 GB with
-Chromium). Subsequent deploys are instant.
-
-Watch the logs: when you see `Running on http://0.0.0.0:7788` the UI is ready.
-
----
-
-## Running a Task
-
-1. Open `https://browser.hirealpha.chat`
-2. Select your LLM model (e.g. `gpt-4o`, `claude-3-7-sonnet-20250219`)
-3. Type a task in plain English:
-   - _"Go to gmail.com, find emails from Notion, and summarize them"_
-   - _"Order Jasmine rice from Instacart using the saved address"_
-   - _"Check the latest news on TechCrunch and list the top 5 headlines"_
-4. Watch the live browser in the noVNC panel or the embedded Gradio video
-5. The agent reports back with a summary when complete
-
----
-
-## Architecture
-
-```
-Coolify (Traefik)
-  └─ browser-use container
-       ├─ Gradio UI        :7788  ← task input / status output
-       ├─ noVNC web client :6080  ← live browser screen cast
-       ├─ VNC server       :5901  ← raw VNC (not publicly exposed)
-       ├─ Chrome DevTools  :9222  ← CdP (not publicly exposed)
-       └─ Chromium         (headless, managed by browser-use)
-```
-
-The container is stateless between tasks. `browser-use-data` volume persists the
-browser profile (cookies, local storage) so logins survive restarts.
-
----
-
-## Connecting to HireAlpha
-
-HireAlpha's existing browser job queue (`hire_browser_jobs`) and worker
-(`deploy/browserWorker.ts`) can dispatch tasks to this instance. Set the following
-env var on your HireAlpha Coolify resource:
-
-```
-BROWSER_USE_URL=https://browser.hirealpha.chat
-```
-
-The worker will POST tasks to the Gradio API endpoint and poll for results.
-
----
-
-## Shared Memory
-
-The container is configured with `shm_size: 2gb`. Chromium requires large `/dev/shm`
-for rendering; the default Docker 64 MB causes frequent tab crashes on complex pages.
-
----
-
-## Updating
-
-Coolify → resource → **Redeploy** pulls the latest `ghcr.io/browser-use/web-ui:main`.
-Pin to a specific digest in `docker-compose.yml` if you need reproducible deploys.
-
----
-
-## References
-
-- [`browser-use`](https://github.com/browser-use/browser-use) — Python agent library
-- [`web-ui`](https://github.com/browser-use/web-ui) — Gradio + noVNC frontend
-- [Coolify docs — Docker Compose](https://coolify.io/docs/resources/docker-compose)
+`WORKER_CONCURRENCY=1` is intentional because one noVNC display must map to one
+active user session. To run simultaneous sessions, provision isolated worker +
+stream instances (or a session router) and set `BROWSER_USE_STREAM_URL` to a
+template containing `{sessionId}`. The API replaces that token per job.

@@ -167,6 +167,17 @@ describe('1Password SDK transport (service account)', () => {
     expect(opMode()).toBeNull()
   })
 
+  it('stays off when the service account token has no vault id', async () => {
+    process.env.OP_SERVICE_ACCOUNT_TOKEN = 'ops_fake-test-token'
+    delete process.env.OP_VAULT_ID
+    try {
+      expect(opMode()).toBeNull()
+      expect(onePasswordConfigured()).toBe(false)
+    } finally {
+      delete process.env.OP_SERVICE_ACCOUNT_TOKEN
+    }
+  })
+
   it('opSaveItem creates a Login item with Concealed password + website', async () => {
     await withSdkEnv(async () => {
       const { sdk, calls } = sdkFake()
@@ -176,12 +187,13 @@ describe('1Password SDK transport (service account)', () => {
       )
       expect(ref).toBe('op1p:vault-1:item-sdk-1')
       const create = calls.find((c) => c.op === 'create')!
-      const params = create.args[0] as { category: string; vaultId: string; fields: Array<{ fieldType: string; value: string; title: string }>; websites: Array<{ url: string }> }
+      const params = create.args[0] as { category: string; vaultId: string; fields: Array<{ fieldType: string; value: string; title: string }>; websites: Array<{ url: string; autofillBehavior: string }> }
       expect(params.category).toBe('Login')
       expect(params.vaultId).toBe('vault-1')
       expect(params.fields.find((f) => f.title === 'password')!.fieldType).toBe('Concealed')
       expect(params.fields.find((f) => f.title === 'password')!.value).toBe('hunter2!')
       expect(params.websites[0]!.url).toBe('https://portal.nseindia.com')
+      expect(params.websites[0]!.autofillBehavior).toBe('ExactDomain')
     })
   })
 

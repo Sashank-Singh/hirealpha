@@ -4,6 +4,7 @@ import {
   createSpendRequest,
   decideSpendApproval,
   handleUserPaymentsApi,
+  queuePaidPurchaseFinalization,
   spendCapCents,
   type UserPaymentsDeps,
 } from './userPayments'
@@ -136,6 +137,84 @@ describe('spend approval lifecycle', () => {
   })
 })
 
+describe('paid purchase finalization', () => {
+  const requestId = '11111111-1111-4111-8111-111111111111'
+  const intent = {
+    id: 'pi_paid_123',
+    status: 'succeeded',
+    amount_received: 1899,
+    currency: 'usd',
+    metadata: { spend_request: requestId, user_id: USER },
+  }
+
+  it('queues one approved merchant finalization job with the spend id as its replay fence', async () => {
+    const { sql, queries } = fakeSql((text) => {
+      if (/FROM hire_spend_approvals a/i.test(text)) return [{
+        id: requestId,
+        user_id: USER,
+        amount_cents: 1899,
+        merchant: 'amazon.com',
+        purpose: '5lb Jasmine Rice',
+        payment_intent_id: null,
+        finalization_job_id: null,
+        phone_e164: '+14155550100',
+      }]
+      if (/FROM hire_drafts/i.test(text)) return [{
+        persona: 'friend',
+        to_addr: 'https://amazon.com/product/rice',
+        subject: '5lb Jasmine Rice',
+        body: JSON.stringify({ requestId }),
+      }]
+      return []
+    })
+
+    expect(await queuePaidPurchaseFinalization(sql, intent)).toEqual({ status: 'queued', jobId: requestId })
+    const browserApproval = queries.find((q) => /INSERT INTO hire_browser_approvals/i.test(q.text))!
+    expect(browserApproval.text).toContain("'approved'")
+    expect(browserApproval.text).toContain('ON CONFLICT (id) DO NOTHING')
+    const browserJob = queries.find((q) => /INSERT INTO hire_browser_jobs/i.test(q.text))!
+    expect(browserJob.values.filter((v) => v === requestId).length).toBeGreaterThanOrEqual(3)
+    expect(browserJob.values.some((v) => typeof v === 'string' && v.includes('click the final Place Order'))).toBe(true)
+    expect(browserJob.values.some((v) => typeof v === 'string' && v.includes('exactly $18.99'))).toBe(true)
+    const recorded = queries.find((q) => /finalization_status = 'queued'/i.test(q.text))!
+    expect(recorded.values).toContain('pi_paid_123')
+  })
+
+  it('does not queue again when Stripe retries the event', async () => {
+    const { sql, queries } = fakeSql((text) => /FROM hire_spend_approvals a/i.test(text) ? [{
+      id: requestId,
+      user_id: USER,
+      amount_cents: 1899,
+      merchant: 'amazon.com',
+      purpose: '5lb Jasmine Rice',
+      payment_intent_id: 'pi_paid_123',
+      finalization_job_id: requestId,
+      phone_e164: '+14155550100',
+    }] : [])
+    expect(await queuePaidPurchaseFinalization(sql, intent)).toEqual({ status: 'already_queued', jobId: requestId })
+    expect(queries.some((q) => /INSERT INTO hire_browser_jobs/i.test(q.text))).toBe(false)
+  })
+
+  it('rejects mismatched amount and owner metadata before any merchant action', async () => {
+    const { sql, queries } = fakeSql((text) => /FROM hire_spend_approvals a/i.test(text) ? [{
+      id: requestId,
+      user_id: USER,
+      amount_cents: 1899,
+      merchant: 'amazon.com',
+      purpose: '5lb Jasmine Rice',
+      payment_intent_id: null,
+      finalization_job_id: null,
+      phone_e164: '+14155550100',
+    }] : [])
+    const result = await queuePaidPurchaseFinalization(sql, { ...intent, amount_received: 1900 })
+    expect(result.status).toBe('ignored')
+    expect(queries.some((q) => /INSERT INTO hire_browser_jobs/i.test(q.text))).toBe(false)
+
+    const noOwner = fakeSql()
+    expect((await queuePaidPurchaseFinalization(noOwner.sql, { ...intent, metadata: { spend_request: requestId, user_id: OTHER } })).status).toBe('ignored')
+  })
+})
+
 /* ------------------------------- API routes ------------------------------ */
 
 const authedDeps: UserPaymentsDeps = { resolveUser: async () => ({ id: USER }) }
@@ -236,4 +315,3 @@ describe('user payments API routes', () => {
     })
   })
 })
-

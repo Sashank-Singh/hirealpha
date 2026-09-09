@@ -672,7 +672,7 @@ export async function runHireTurn(input: {
     setPendingSpend(input.dataDir, input.senderId)
     if (chargeRes.ok) {
       const amountStr = chargeRes.amount || `$${pendingSpend.amount ? pendingSpend.amount.toFixed(2) : ''}`
-      const reply = `Approved & Paid! Charged ${amountStr} to your card for ${pendingSpend.item}. Your order has been placed!`
+      const reply = `Payment received: ${amountStr} for ${pendingSpend.item}. I'm finalizing the merchant checkout now and will text the order confirmation number once the merchant confirms it.`
       appendThread(input.dataDir, input.senderId, [
         { role: 'user', content: input.userText },
         { role: 'assistant', content: reply },

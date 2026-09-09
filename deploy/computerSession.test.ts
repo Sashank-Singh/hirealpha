@@ -104,7 +104,7 @@ describe('/api/computer/session/:id endpoint', () => {
     expect(data.session.id).toBe(JOB_ID)
     expect(data.session.status).toBe('running')
     expect(data.session.goal).toBe('Check flight UA123')
-    expect(data.session.streamUrl).toContain('browser.hirealpha.chat/vnc/')
+    expect(data.session.streamUrl).toContain('browser.hirealpha.chat/vnc.html')
   })
 
   it('returns 404 when the session does not exist', async () => {
@@ -115,5 +115,23 @@ describe('/api/computer/session/:id endpoint', () => {
 
     const res = await handleHireApi(req, sql)
     expect(res?.status).toBe(404)
+  })
+
+  it('lets the signed session link approve the one-time browser request', async () => {
+    const token = generateSessionViewToken(JOB_ID, USER_ID)
+    const { sql, queries } = fakeSql([{ id: JOB_ID, user_id: USER_ID, kind: 'task', url: 'https://example.com', status: 'pending', approval_id: 'approval-1' }])
+    const req = new Request(`https://hirealpha.chat/api/computer/session/${JOB_ID}/approve?token=${token}`, { method: 'POST' })
+    const res = await handleHireApi(req, sql)
+    expect(res?.status).toBe(200)
+    expect(queries.some((query) => query.text.includes('hire_browser_approvals SET status'))).toBe(true)
+  })
+
+  it('lets the signed owner resume a waiting handoff', async () => {
+    const token = generateSessionViewToken(JOB_ID, USER_ID)
+    const { sql, queries } = fakeSql([{ id: JOB_ID, user_id: USER_ID, kind: 'task', url: 'https://example.com', status: 'waiting', approval_id: 'approval-1' }])
+    const req = new Request(`https://hirealpha.chat/api/computer/session/${JOB_ID}/resume?token=${token}`, { method: 'POST' })
+    const res = await handleHireApi(req, sql)
+    expect(res?.status).toBe(200)
+    expect(queries.some((query) => query.text.includes("status = 'running'"))).toBe(true)
   })
 })

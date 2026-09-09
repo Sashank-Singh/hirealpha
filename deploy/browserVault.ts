@@ -214,6 +214,23 @@ export async function requestBrowserApproval(
   return { requestId: id, portal: origin }
 }
 
+/** A successful Stripe payment is also the user's explicit authorization to
+ * perform the single merchant-side finalization for that spend request. Reuse
+ * the spend UUID so webhook retries cannot mint additional approvals. */
+export async function authorizePaidPurchaseBrowserRun(
+  sql: SQL,
+  input: { requestId: string; userId: string; persona: string; portal: string; purpose: string },
+): Promise<{ requestId: string; portal: string } | { error: string }> {
+  const origin = portalOrigin(input.portal)
+  if (!origin) return { error: 'Portal must be an https URL.' }
+  await sql`
+    INSERT INTO hire_browser_approvals (id, user_id, persona, portal, origin, purpose, status, decided_at)
+    VALUES (${input.requestId}, ${input.userId}, ${input.persona}, ${origin}, ${origin}, ${input.purpose}, 'approved', now())
+    ON CONFLICT (id) DO NOTHING
+  `
+  return { requestId: input.requestId, portal: origin }
+}
+
 export async function decideBrowserApproval(
   sql: SQL,
   userId: string,

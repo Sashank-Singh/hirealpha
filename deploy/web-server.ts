@@ -643,6 +643,29 @@ if (sql) {
   // never scheduled; without this it never armed for anyone.
   setInterval(() => armCalendarDefense(sql!).catch((e) => console.error('[loops] calendar defense arm failed', e)), 24 * 60 * 60 * 1000)
   armCalendarDefense(sql).catch((e) => console.error('[loops] initial calendar defense arm failed', e))
+
+  // Demo workspace: opt-in via DEMO_MODE=1. Seeds one fixed fake account and
+  // prints its direct URLs (no public button anywhere). Never runs when the
+  // flag is unset, so production keeps zero demo rows.
+  if (process.env.DEMO_MODE === '1') {
+    const { seedDemoWorkspace } = await import('./demoData')
+    const seeded = await seedDemoWorkspace(sql!)
+      .catch((e) => {
+        console.error('[demo] seed failed', e)
+        return null
+      })
+    if (seeded) {
+      const { demoDirectUrls } = await import('./hire-api')
+      const base = process.env.DEMO_BASE_URL || `http://localhost:${PORT}`
+      const urls = demoDirectUrls(base)
+      if (urls.length) {
+        console.log('[demo] open a work home directly:')
+        for (const u of urls) console.log(`[demo]   ${u}`)
+      } else {
+        console.warn('[demo] DEMO_MODE is on but HIREALPHA_INTERNAL_KEY is unset, so demo tokens cannot be minted')
+      }
+    }
+  }
 }
 
 /* A stray async rejection outside the request path (a connector SDK callback,

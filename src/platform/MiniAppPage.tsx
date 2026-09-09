@@ -25,7 +25,6 @@ const NutritionApp = lazy(() => import('./FeatureMiniApps').then(m => ({ default
 const OpenLoopsApp = lazy(() => import('./FeatureMiniApps').then(m => ({ default: m.OpenLoopsApp })))
 const RelationshipRadarApp = lazy(() => import('./FeatureMiniApps').then(m => ({ default: m.RelationshipRadarApp })))
 const BuildsApp = lazy(() => import('./FeatureMiniApps').then(m => ({ default: m.BuildsApp })))
-const GratitudeJournalApp = lazy(() => import('./LifeMiniApps').then(m => ({ default: m.GratitudeJournalApp })))
 const LearningQueueApp = lazy(() => import('./LifeMiniApps').then(m => ({ default: m.LearningQueueApp })))
 const NetworkingCrmApp = lazy(() => import('./LifeMiniApps').then(m => ({ default: m.NetworkingCrmApp })))
 const PipelineBoardApp = lazy(() => import('./LifeMiniApps').then(m => ({ default: m.PipelineBoardApp })))
@@ -118,16 +117,27 @@ type BriefPayload = DigestData & MiniPayload
  * seed and a kind change on an already-mounted page read it the same way. */
 function cachedBrief(persona: string, kind: string, token: string): BriefPayload | null {
   if (!BRIEF_CACHE_KINDS.has(kind)) return null
-  return readBriefCache<BriefPayload>(
+  const b = readBriefCache<BriefPayload>(
     { email: getSession()?.email, token, persona },
     kind,
     localYmd(),
     Date.now(),
   )
+  if (b && Array.isArray((b as any).dayFacts)) {
+    (b as any).dayFacts = (b as any).dayFacts.filter(
+      (f: any) => f?.key !== 'gratitude' && !/gratitude/i.test(f?.label || '') && !/gratitude/i.test(f?.key || '')
+    )
+  }
+  return b
 }
 
 function saveBrief(persona: string, kind: string, token: string, brief: BriefPayload) {
   if (!BRIEF_CACHE_KINDS.has(kind)) return
+  if (brief && Array.isArray((brief as any).dayFacts)) {
+    (brief as any).dayFacts = (brief as any).dayFacts.filter(
+      (f: any) => f?.key !== 'gratitude' && !/gratitude/i.test(f?.label || '') && !/gratitude/i.test(f?.key || '')
+    )
+  }
   writeBriefCache({ email: getSession()?.email, token, persona }, kind, brief, localYmd(), Date.now())
 }
 
@@ -162,7 +172,6 @@ export const FEATURE_KINDS = new Set([
   'networking_crm',
   'sleep_tracker',
   'pipeline_board',
-  'gratitude_journal',
   'spending_snapshot',
   'home',
   'body',
@@ -279,7 +288,6 @@ export function MiniAppPage() {
       setLoading(false)
       return Promise.resolve()
     }
-    setLoading(true)
     setBriefTries(0)
     /* The held copy is what makes a normal reopen instant: paint it, fetch over
      * the top. A manual refresh must NOT paint the held copy first — the user
@@ -292,6 +300,23 @@ export function MiniAppPage() {
       if (isDigest) setData(held)
       else setMini(held)
       setLoading(false)
+    } else {
+      // If we already have content on screen, do not show a blank loading spinner on background refresh
+      if (isDigest) {
+        setData((prev) => {
+          if (!prev?.calendar?.length && !prev?.emails?.length && !prev?.story) {
+            setLoading(true)
+          }
+          return prev
+        })
+      } else {
+        setMini((prev) => {
+          if (!prev?.sections?.length && !prev?.mailGroups?.length) {
+            setLoading(true)
+          }
+          return prev
+        })
+      }
     }
     const qs = new URLSearchParams({ persona: persona || '' })
     if (token) qs.set('t', token)
@@ -310,9 +335,14 @@ export function MiniAppPage() {
         res.ok ? (res.json() as Promise<BriefPayload>) : Promise.reject({ status: res.status }),
       )
       .then((d) => {
-        if (isDigest) setData(d)
-        else setMini(d)
-        saveBrief(persona || '', kind || '', token, d)
+        if (isDigest) {
+          setData((prev) => (d.pending && (prev?.calendar?.length || prev?.emails?.length || prev?.story) ? { ...prev, pending: true } : d))
+        } else {
+          setMini((prev) => (d.pending && (prev?.sections?.length || prev?.mailGroups?.length) ? { ...prev, pending: true } : d))
+        }
+        if (!d.pending) {
+          saveBrief(persona || '', kind || '', token, d)
+        }
       })
       .catch((err) => {
         if (err && err.status === 401) {
@@ -808,9 +838,6 @@ export function MiniAppPage() {
             )}
             {kind === 'pipeline_board' && (
               <PipelineBoardApp auth={{ persona: (persona as AgentId) || 'friend', email: email || undefined, token: token || undefined }} />
-            )}
-            {kind === 'gratitude_journal' && (
-              <GratitudeJournalApp auth={{ persona: (persona as AgentId) || 'friend', email: email || undefined, token: token || undefined }} />
             )}
             {kind === 'spending_snapshot' && (
               <SpendingSnapshotApp auth={{ persona: (persona as AgentId) || 'friend', email: email || undefined, token: token || undefined }} />

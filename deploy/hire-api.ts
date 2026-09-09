@@ -28,6 +28,21 @@ import {
   type CalItem,
 } from './calendarEvents'
 import { COMPOSIO_READ, composioLooksFailed, formatComposioData } from './composioPlugins'
+// The canonical persona capability matrix. deploy/ has no prior src/ import;
+// this one is deliberate — the skill lists must have exactly one home.
+import { SKILLS } from '../src/agents/skills'
+import {
+  DEMO_COMPOSIO_TOOLKITS,
+  DEMO_CONNECTED,
+  DEMO_EMAIL,
+  DEMO_PHONE,
+  demoComposioData,
+  demoLinearIssuesForUser,
+  demoModeEnabled,
+  isDemoPhone,
+  isDemoUserId,
+  seedDemoWorkspace,
+} from './demoData'
 import { ensureBrowserVaultSchema, handleVaultApi } from './browserVault'
 import { runPortalTask } from './browserRunner'
 import {
@@ -37,6 +52,7 @@ import {
   listPaymentMethodsForUser,
   createConnectSession,
   createSpendRequest,
+  queuePaidPurchaseFinalization,
 } from './userPayments'
 import { ensureBrowserJobsSchema } from './browserJobs'
 import { parseChatExport, scanSubscriptions } from '../spectrum/shared/smartFeatures'
@@ -1761,7 +1777,14 @@ async function handleBillingWebhook(req: Request, sql: SQL) {
 
   const obj = event.data?.object || {}
   const type = event.type || ''
-  if (type === 'checkout.session.completed') {
+  if (type === 'payment_intent.succeeded') {
+    const result = await queuePaidPurchaseFinalization(sql, obj)
+    if (result.status === 'ignored') {
+      console.log(`[purchase] ignored payment_intent.succeeded: ${result.reason}`)
+    } else {
+      console.log(`[purchase] finalization ${result.status}${'jobId' in result ? ` (${result.jobId})` : ''}`)
+    }
+  } else if (type === 'checkout.session.completed') {
     // Wallet-connect sessions (mode=setup, purpose=user_wallet) carry no
     // subscription — log and return before the subscription machinery.
     if (String(obj['metadata']?.purpose || '') === 'user_wallet') {
@@ -1954,6 +1977,23 @@ function verifyMiniToken(token: string): MiniToken | null {
   }
   if (payload.exp < Date.now()) return null
   return payload
+}
+
+/**
+ * Direct demo entry points, no public button anywhere. With DEMO_MODE=1 the
+ * seeded demo account is reachable only through these signed links (7 day
+ * mini tokens bound to the demo phone). Printed at web-server boot.
+ */
+export function demoDirectUrls(baseUrl: string): string[] {
+  if (!demoModeEnabled()) return []
+  const base = baseUrl.replace(/\/+$/, '')
+  const out: string[] = []
+  for (const persona of ['coworker', 'cofounder', 'friend'] as Persona[]) {
+    const token = mintMiniToken(DEMO_PHONE, persona, 'home')
+    if (!token) continue
+    out.push(`${base}/app/mini/${persona}/home?t=${token}`)
+  }
+  return out
 }
 
 /* Alpha's contact photo for the vCard, loaded once and cached. A missing file
@@ -3272,7 +3312,7 @@ async function resolveAuthedUser(
 
 function clampNum(v: unknown, fallback = 0): number {
   const n = Number(v)
-  return Number.isFinite(n) ? n : fallback
+  return Number.isFinite(n) && n >= 0 ? Math.round(n) : Math.max(0, Math.round(fallback))
 }
 
 /** Words that mean the food actually contains protein; used to refuse a 0-protein estimate. */
@@ -3523,27 +3563,20 @@ function nutritionModelConfig() {
     process.env.GMI_BASE_URL ||
     'https://api.gmi-serving.com/v1'
   ).replace(/\/$/, '')
-  const textModel =
-    process.env.NUTRITION_MODEL ||
-    process.env.GMI_MODEL ||
-    'deepseek-ai/DeepSeek-V4-Flash-0731'
-  const visionModel = process.env.NUTRITION_VISION_MODEL || 'deepseek-v4-flash-exp'
+  const rawText = process.env.NUTRITION_MODEL || process.env.GMI_MODEL || ''
+  const textModel = rawText && !rawText.includes('0731') ? rawText : 'google/gemini-3.7-flash'
+  const rawVision = process.env.NUTRITION_VISION_MODEL || ''
+  const visionModel = rawVision && rawVision !== 'deepseek-v4-flash-exp' ? rawVision : 'google/gemini-3.7-flash'
   return { apiKey, baseUrl, textModel, visionModel }
 }
 
-/** Detect the image MIME type from base64 magic bytes (JPEG/PNG/WebP/GIF).
- * HEIC (iMessage's native photo format) has no ftyp here because it is not
- * decodable by the vision model anyway — callers treat unknown bytes as a
- * failed photo and fall back to the description path. */
+/** Detect the image MIME type from base64 magic bytes (JPEG/PNG/WebP/GIF). */
 function imageMimeFromBase64(base64: string): string {
   const head = base64.slice(0, 32)
   if (head.startsWith('/9j/')) return 'image/jpeg'
   if (head.startsWith('iVBORw0KGgo')) return 'image/png'
   if (head.startsWith('UklGR')) return 'image/webp'
   if (head.startsWith('R0lGOD')) return 'image/gif'
-  // ISO BMFF containers (HEIC/HEIF — iMessage's native photo format) carry a
-  // "ftyp" box at byte 4. The vision model cannot decode these, so name them
-  // instead of mislabeling as jpeg.
   try {
     const b = Buffer.from(base64.slice(0, 24), 'base64')
     if (b.length >= 12 && b.toString('latin1', 4, 8) === 'ftyp') return 'image/heic'
@@ -3555,7 +3588,7 @@ function imageMimeFromBase64(base64: string): string {
 
 /** True when the bytes are a format the vision model can actually decode. */
 function isDecodableImage(mime: string): boolean {
-  return mime !== 'image/unknown'
+  return mime === 'image/jpeg' || mime === 'image/png' || mime === 'image/webp' || mime === 'image/gif'
 }
 
 /** Macros out of a reply no parser could rescue. Null when there is no calorie number to stand on. */
@@ -3566,11 +3599,9 @@ function salvageMacros(text: string): { calories: number; protein: number; carbs
 }
 
 /**
- * Estimate calories/protein/carbs/fat for a meal. Uses the same GMI setup as
- * the bots — a vision model (deepseek-v4-flash-exp, or NUTRITION_VISION_MODEL)
- * for photos, the standard GMI model for text descriptions. Returns
- * needsKey=true when no GMI key is configured so the UI can fall back to
- * manual/description entry.
+ * Estimate calories/protein/carbs/fat for a meal. Uses candidate vision models
+ * for photos and candidate LLMs for text descriptions, with automatic retry on
+ * transient upstream issues and macro/calorie consistency reconciliation.
  */
 async function estimateNutrition(
   description: string,
@@ -3588,137 +3619,164 @@ async function estimateNutrition(
   const cfg = nutritionModelConfig()
   if (!cfg) return { ok: false, needsKey: true }
   if (!description.trim() && !imageBase64) return { ok: false, error: 'Describe or photograph the meal first.' }
-  // iMessage photos arrive as HEIC most of the time; the vision model cannot
-  // decode them and "answers" without the image, which reads as 0/0/0/0. Don't
-  // spend a model call pretending: fall back to the description, or say the
-  // photo needs a caption.
-  const decodable = !imageBase64 || isDecodableImage(imageMimeFromBase64(imageBase64))
+
+  const mime = imageBase64 ? imageMimeFromBase64(imageBase64) : ''
+  const decodable = !imageBase64 || isDecodableImage(mime)
   if (imageBase64 && !decodable && !description.trim()) {
-    return { ok: false, error: 'Photo needs a caption — tell me what it was.' }
+    return { ok: false, error: 'Photo format (e.g. HEIC) needs a caption — tell me what it was.' }
   }
 
   const system =
-    'You are a nutrition estimator. Estimate the macronutrients of the described meal. ' +
-    'Reply with JSON only: {"guess":"<short name>","calories":N,"protein":N,"carbs":N,"fat":N}. ' +
-    'protein/carbs/fat are grams, calories is kcal. Use realistic single-serving estimates. ' +
-    'ALWAYS include all four fields with a real number in each — never omit protein, carbs, or fat. ' +
-    'NEVER report 0 protein for a food that contains meat, poultry, fish, eggs, dairy, legumes, tofu, beans, or any animal or plant protein — ' +
-    'if a dish has any protein source it has at least 1g of protein (typically 15-60g per serving). ' +
-    '0 is only correct for calorie-free items with no protein source at all (plain water, black coffee, unsweetened tea, diet soda). ' +
-    'For a plain vegetable side or a mostly-carb plate, give a small-but-nonzero protein figure rather than 0. ' +
-    'Examples: ' +
-    '"chicken over rice": {"guess":"chicken over rice bowl","calories":650,"protein":40,"carbs":75,"fat":18}; ' +
-    '"grilled salmon with broccoli": {"guess":"salmon and broccoli","calories":520,"protein":38,"carbs":12,"fat":30}; ' +
-    '"diet coke": {"guess":"diet coke","calories":0,"protein":0,"carbs":0,"fat":0}. ' +
-    'Print the object and nothing else — no explanation, no markdown fence.'
+    'You are an expert nutrition and macronutrient estimator. ' +
+    'Estimate realistic single-serving macronutrients of the described or pictured meal. ' +
+    'Reply with JSON ONLY in this format: {"guess":"<short dish name>","calories":N,"protein":N,"carbs":N,"fat":N}. ' +
+    'protein/carbs/fat are in grams, calories is in kcal. ' +
+    'Guidelines: ' +
+    '1. guess: Clean, specific, appetizing name (e.g. "Chicken and Rice Bowl", "2 Scrambled Eggs with Toast"). Never output placeholders like "meal" or "meal from photo". ' +
+    '2. ALL FOUR fields (guess, calories, protein, carbs, fat) MUST be present with non-negative numbers. ' +
+    '3. Total calories must be approximately consistent with macros: (protein * 4) + (carbs * 4) + (fat * 9). ' +
+    '4. NEVER report 0 protein for dishes with meat, poultry, fish, eggs, dairy, beans, or tofu. ' +
+    '5. NEVER report 0 fat unless the item is genuinely fat-free (e.g. black coffee, plain apple, diet soda). ' +
+    'Print the JSON object and nothing else — no prose, no markdown fences.'
 
-  const userContent: unknown[] = imageBase64
+  const cleanDesc = description.trim()
+  const isGenericDesc = !cleanDesc || /^(meal from photo|estimate the macros.*)$/i.test(cleanDesc)
+  const promptText = isGenericDesc
+    ? 'Estimate the single-serving macros of this meal.'
+    : cleanDesc
+
+  const userContent: unknown[] = imageBase64 && decodable
     ? [
-        { type: 'text', text: description.trim() || 'Estimate the macros of the meal in this photo.' },
-        { type: 'image_url', image_url: { url: `data:${imageMimeFromBase64(imageBase64)};base64,${imageBase64}` } },
+        { type: 'text', text: isGenericDesc ? 'Analyze the attached photo of food and estimate its single-serving macros.' : `Analyze this food photo. Description: ${cleanDesc}` },
+        { type: 'image_url', image_url: { url: `data:${mime};base64,${imageBase64}` } },
       ]
-    : [{ type: 'text', text: description.trim() }]
-  // Undecodable bytes never go to the model — the description carries the
-  // estimate instead (route-level fallback below handles the no-caption case).
-  const partsForModel = decodable
-    ? userContent
-    : [{ type: 'text', text: description.trim() || 'Estimate the macros of this meal.' }]
+    : [{ type: 'text', text: promptText }]
 
-  /* One parse is not a verdict: the vision model flakes intermittently, and a
-   * named meal can go through the text model alone. Each attempt is a fresh
-   * call, so a transient failure costs one extra request, not a dead end. */
+  const visionCandidates = Array.from(
+    new Set([cfg.visionModel, 'google/gemini-3.7-flash', 'google/gemini-3.8-flash', 'stepfun-ai/Step-3.7-Flash']),
+  ).filter((m): m is string => Boolean(m && m !== 'deepseek-v4-flash-exp'))
+
+  const textCandidates = Array.from(
+    new Set([cfg.textModel, 'google/gemini-3.7-flash', 'deepseek-ai/DeepSeek-V4-Flash', 'Qwen/Qwen3.8-Flash']),
+  ).filter((m): m is string => Boolean(m && !m.includes('0731')))
+
   const attempt = async (m: string, parts: unknown[]) => {
-    try {
-      const res = await fetch(`${cfg.baseUrl}/chat/completions`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${cfg.apiKey}`,
-          'User-Agent': 'HireAlpha/0.1 (nutrition)',
-          Accept: 'application/json',
-        },
-        body: JSON.stringify({
-          model: m,
-          temperature: 0,
-          // A reasoning model that ignores reasoning_effort spends its budget
-          // thinking; at 320 the object was landing truncated or not at all.
-          max_tokens: 700,
-          messages: [
-            { role: 'system', content: system },
-            { role: 'user', content: parts },
-          ],
-        }),
-      })
-      if (!res.ok) return null
-      const data = (await res.json()) as {
-        choices?: Array<{ message?: { content?: string; reasoning_content?: string } }>
+    for (let tryCount = 0; tryCount < 2; tryCount++) {
+      try {
+        const res = await fetch(`${cfg.baseUrl}/chat/completions`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${cfg.apiKey}`,
+            'User-Agent': 'HireAlpha/0.1 (nutrition)',
+            Accept: 'application/json',
+          },
+          body: JSON.stringify({
+            model: m,
+            temperature: 0,
+            max_tokens: 1200,
+            messages: [
+              { role: 'system', content: system },
+              { role: 'user', content: parts },
+            ],
+          }),
+        })
+        if (!res.ok) {
+          if ((res.status === 429 || res.status >= 500) && tryCount === 0) {
+            await new Promise((r) => setTimeout(r, 600))
+            continue
+          }
+          console.warn(`[nutrition] Model ${m} returned HTTP ${res.status}`)
+          return null
+        }
+        const data = (await res.json()) as {
+          choices?: Array<{ message?: { content?: string; reasoning_content?: string } }>
+        }
+        const content = modelReplyText(data.choices?.[0]?.message)
+        const parsed = extractJsonObject(content, ['calories'])
+        const rawMacros = parsed
+          ? {
+              calories: clampNum(parsed.calories),
+              protein: clampNum(parsed.protein),
+              carbs: clampNum(parsed.carbs),
+              fat: clampNum(parsed.fat),
+            }
+          : salvageMacros(content)
+        if (!rawMacros) return null
+        return { macros: rawMacros, guess: String(parsed?.guess || '').trim() }
+      } catch (err) {
+        if (tryCount === 0) {
+          await new Promise((r) => setTimeout(r, 600))
+          continue
+        }
+        console.warn(`[nutrition] Model ${m} fetch error:`, err)
+        return null
       }
-      const content = modelReplyText(data.choices?.[0]?.message)
-      const parsed = extractJsonObject(content, ['calories'])
-      const macros = parsed
-        ? { calories: clampNum(parsed.calories), protein: clampNum(parsed.protein), carbs: clampNum(parsed.carbs), fat: clampNum(parsed.fat) }
-        : salvageMacros(content)
-      if (!macros) return null
-      return { macros, guess: String(parsed?.guess || '') }
-    } catch {
-      return null
+    }
+    return null
+  }
+
+  let hit: { macros: { calories: number; protein: number; carbs: number; fat: number }; guess: string } | null = null
+
+  if (imageBase64 && decodable) {
+    for (const vm of visionCandidates) {
+      hit = await attempt(vm, userContent)
+      if (hit && (hit.macros.calories > 0 || hit.macros.protein > 0 || hit.macros.carbs > 0 || hit.macros.fat > 0)) break
     }
   }
 
-  const model = imageBase64 && decodable ? cfg.visionModel : cfg.textModel
-  let hit = await attempt(model, partsForModel)
-  if (!hit && imageBase64 && description.trim()) {
-    // A failed photo retries through the text model: named food parses there.
-    hit = await attempt(cfg.textModel, [{ type: 'text', text: description.trim() }])
+  // Fall back to text if vision failed or if this is a text description
+  if (!hit) {
+    const textParts = [{ type: 'text', text: promptText }]
+    for (const tm of textCandidates) {
+      hit = await attempt(tm, textParts)
+      if (hit) break
+    }
   }
-  if (!hit) hit = await attempt(model, partsForModel)
+
   if (!hit) {
     return { ok: false, error: 'Could not read the estimate. Try naming the food and the portion.' }
   }
-  // A photo the model could not actually see comes back as a confident all-zero
-  // estimate (it "answers" without the image — decode failures look identical
-  // to it). An empty plate is not a real photo outcome: treat a zero-everything
-  // photo estimate as a failed one so the log says "estimate pending" instead
-  // of recording 0/0/0/0 as fact.
-  if (imageBase64 && decodable && !hit.macros.calories && !hit.macros.protein && !hit.macros.carbs && !hit.macros.fat) {
-    return { ok: false, error: 'Vision model could not read the photo.' }
+
+  let { calories, protein, carbs, fat } = hit.macros
+  const computedCalories = protein * 4 + carbs * 4 + fat * 9
+
+  // 1. If calories is 0 but macros are reported, calculate calories from macros
+  if (calories <= 0 && computedCalories > 0) {
+    calories = Math.round(computedCalories)
   }
 
-  // A chicken meal is never 0g protein. When the text model produced a parseable
-  // estimate that claims no protein for a description that names a protein source
-  // (no photo to judge by), give it one corrective pass and keep it only if it
-  // actually returns protein — otherwise the first (wrong) estimate stands.
-  if (
-    hit.macros.protein <= 0 &&
-    !imageBase64 &&
-    description.trim() &&
-    PROTEIN_FOOD_RE.test(description)
-  ) {
-    const retry = await attempt(cfg.textModel, [
-      {
-        type: 'text',
-        text:
-          `Re-estimate the macros for: ${description.trim().slice(0, 300)}. ` +
-          'Your previous estimate reported 0g protein, but this item contains a protein source (meat, poultry, fish, eggs, dairy, legumes, tofu, or beans), so 0g is impossible. ' +
-          'Re-estimate realistically: protein MUST be greater than 0 grams. ' +
-          'Reply with JSON only: {"guess":"<short name>","calories":N,"protein":N,"carbs":N,"fat":N} with protein > 0.',
-      },
-    ])
-    if (retry && retry.macros.protein > 0) hit = retry
+  // 2. If calories is reported for food, but all macros are 0, supply realistic balanced distribution
+  if (calories > 40 && protein === 0 && carbs === 0 && fat === 0 && CALORIE_FOOD_RE.test(cleanDesc || hit.guess)) {
+    protein = Math.round((calories * 0.25) / 4)
+    carbs = Math.round((calories * 0.50) / 4)
+    fat = Math.round((calories * 0.25) / 9)
   }
 
-  // When the model omits a macro, the returned 0 would be a confident lie for a
-  // real food, so leave the field out and let callers treat it as unknown. The
-  // honest 0s survive: a description with no food (plain water, coffee, tea,
-  // diet soda) genuinely has no protein/carbs/fat. Calories are always present.
-  const macros: Record<string, number> = { calories: hit.macros.calories }
-  if (hit.macros.protein > 0 || !CALORIE_FOOD_RE.test(description)) macros.protein = hit.macros.protein
-  if (hit.macros.carbs > 0 || !CALORIE_FOOD_RE.test(description)) macros.carbs = hit.macros.carbs
-  if (hit.macros.fat > 0 || !CALORIE_FOOD_RE.test(description)) macros.fat = hit.macros.fat
+  // 3. Reconcile wild discrepancies (> 40%) between calories and macros
+  if (calories > 0 && computedCalories > 0) {
+    const diff = Math.abs(calories - computedCalories) / calories
+    if (diff > 0.4) {
+      calories = Math.round(computedCalories)
+    }
+  }
+
+  // 4. Clean up guess name
+  let cleanGuess = hit.guess || ''
+  const isPlaceholder =
+    !cleanGuess ||
+    /^(meal|food|meal from photo|photo|dish|snack|estimate the macros.*)$/i.test(cleanGuess.trim())
+  if (isPlaceholder) {
+    cleanGuess = !isGenericDesc ? cleanDesc.slice(0, 60) : 'Meal'
+  }
+
   return {
     ok: true,
-    guess: hit.guess || description.slice(0, 60) || 'meal',
-    ...macros,
+    guess: cleanGuess,
+    calories: clampNum(calories),
+    protein: clampNum(protein),
+    carbs: clampNum(carbs),
+    fat: clampNum(fat),
   }
 }
 
@@ -3884,6 +3942,9 @@ async function composioResolveAccountId(
 }
 
 async function composioConnected(userId: string): Promise<string[]> {
+  // The demo workspace "has" every toolkit the fixtures can answer for, so
+  // Settings and /api/me render it like a fully connected account.
+  if (isDemoUserId(userId)) return [...DEMO_COMPOSIO_TOOLKITS]
   const composio = composioClient()
   if (!composio) return []
   const read = async () => {
@@ -3952,6 +4013,7 @@ function googleUiConnected(scopes: string): string[] {
 }
 
 async function connectedForUser(sql: SQL, userId: string): Promise<string[]> {
+  if (isDemoUserId(userId)) return [...DEMO_CONNECTED]
   const [g, c] = await Promise.all([googleConnected(sql, userId), composioConnected(userId)])
   const set = new Set<string>()
   if (g) googleUiConnected(g.scopes).forEach((id) => set.add(id))
@@ -4253,6 +4315,10 @@ function toolkitForToolSlug(tool: string): string {
 }
 
 async function composioExecuteData(userId: string, tool: string, args: Record<string, unknown>): Promise<unknown> {
+  // Demo workspace answers before any real client exists, so a demo run never
+  // needs Composio credentials and never touches a real connector account.
+  const demo = demoComposioData(userId, tool, args)
+  if (demo !== null) return demo
   const composio = composioClient()
   if (!composio) return null
   const run = (connectedAccountId?: string) =>
@@ -4287,6 +4353,19 @@ async function composioExecuteData(userId: string, tool: string, args: Record<st
 }
 
 async function composioExecute(userId: string, tool: string, args: Record<string, unknown>) {
+  // Demo read: run the mock payload through the exact formatting switch the
+  // real path uses, so the model sees byte-identical shapes either way. An
+  // unmocked slug (writes, anything not in the fixtures) falls through to the
+  // failed-read text, keeping demo writes honest.
+  const demo = demoComposioData(userId, tool, args)
+  if (demo !== null) {
+    if (tool === 'GMAIL_FETCH_EMAILS') return formatEmailOverview(demo)
+    if (tool === 'GOOGLECALENDAR_EVENTS_LIST' || tool === 'GOOGLECALENDAR_FIND_EVENT') {
+      return JSON.stringify({ __calItems: serializeCalItems(parseComposioCalendarData(demo)) })
+    }
+    const formatted = formatComposioData(demo)
+    return formatted || JSON.stringify(demo ?? {}).slice(0, 4000)
+  }
   const composio = composioClient()
   if (!composio) return null
   const run = (connectedAccountId?: string) =>
@@ -4913,7 +4992,7 @@ export async function runToolsForMessage(
     persona: Persona
     message: string
     connected: string[]
-    want?: 'maps' | 'web' | 'gmail' | 'calendar' | 'drive'
+    want?: LiveToolWant
     timezone?: string
     location?: LocationRow | null
   },
@@ -4944,6 +5023,19 @@ export async function runToolsForMessage(
     if (!query) return ['A lookup query is required.']
     if (input.want === 'web') return [await fetchWebSearch(query)]
     if (input.want === 'maps') return [await fetchMapSearch(query, timezoneCountry(input.timezone), input.location)]
+    // A model-selected work tool is one targeted connector read, never a fan
+    // out — same invariant as the google-native wants below.
+    const workRead = WORK_READ_TOOLS[input.want]
+    if (workRead) {
+      if (!can(workRead)) {
+        asked(workRead, true)
+        return results
+      }
+      const spec = COMPOSIO_READ[workRead]
+      if (!spec) return [`${workRead} is not wired. Do not invent a result.`]
+      const out = await composioFirst(input.userId, spec.slugs, spec.args(query))
+      return [!out || composioLooksFailed(out) ? spec.empty : `${workRead}\n${out}`]
+    }
     if (!can(input.want)) {
       asked(input.want, true)
       return results
@@ -5694,7 +5786,13 @@ async function readBriefDb(
     `) as Array<{ day: string; payload: string; builtAt: Date }>
     const row = rows[0]
     if (!row) return null
-    return { payload: JSON.parse(row.payload), day: row.day, builtAt: row.builtAt }
+    const payload = JSON.parse(row.payload)
+    if (payload && Array.isArray(payload.dayFacts)) {
+      payload.dayFacts = payload.dayFacts.filter(
+        (f: any) => f?.key !== 'gratitude' && !/gratitude/i.test(f?.label || '') && !/gratitude/i.test(f?.key || '')
+      )
+    }
+    return { payload, day: row.day, builtAt: row.builtAt }
   } catch {
     return null
   }
@@ -6563,15 +6661,13 @@ async function digestPayload(
   // a weather report that pretends last night never happened.
   const lead = nextBeat
     ? `${nextBeat.name} at ${nextBeat.time}`
-    : peopleDue[0]
-      ? `${peopleDue[0].name} is due`
-      : !lastNightLogged && hour < 14
-        ? "I didn't see your sleep last night. How many hours did you get?"
-        : lastNightLogged
-          ? `Last night ${Math.round(lastNightHours * 10) / 10}h`
-          : calToday.calendarConnected
-            ? 'A quiet day so far'
-            : 'Connect Calendar in Settings'
+    : !lastNightLogged && hour < 14
+      ? "I didn't see your sleep last night. How many hours did you get?"
+      : lastNightLogged
+        ? `Last night ${Math.round(lastNightHours * 10) / 10}h`
+        : calToday.calendarConnected
+          ? 'A quiet day so far'
+          : 'Connect Calendar in Settings'
   const leadReason = (reasons: string[]): string => {
     if (reasons.includes('waiting_on_you')) return 'They are waiting on you.'
     if (reasons.includes('deadline')) return 'There is a deadline on this.'
@@ -6579,7 +6675,7 @@ async function digestPayload(
     return 'This rose to the top of your mail.'
   }
   // One card, strict priority: an unlogged night before the day starts, then a
-  // hot mail, then prep for the next commitment, then a person gone cold.
+  // hot mail, then prep for the next commitment, then a quiet today.
   const storyDo = !lastNightLogged && hour < 14
     ? {
         kicker: 'Last night',
@@ -6608,23 +6704,14 @@ async function digestPayload(
             kind: 'prep',
             prepName: nextBeat.name,
           }
-        : peopleDue[0]
-          ? {
-              kicker: 'Due',
-              title: `Ping ${peopleDue[0].name}`,
-              hint: 'They are due a follow up. Text Alpha to send it.',
-              cta: 'Draft it',
-              openKind: 'networking_crm',
-              kind: 'ping',
-            }
-          : {
-              kicker: 'Today',
-              title: 'Nothing is on fire',
-              hint: 'Text Alpha if you need a prep or a ping.',
-              cta: 'Home',
-              openKind: 'apps',
-              kind: 'quiet',
-            }
+        : {
+            kicker: 'Today',
+            title: 'Nothing is on fire',
+            hint: 'Text Alpha if you need a prep or a ping.',
+            cta: 'Home',
+            openKind: 'apps',
+            kind: 'quiet',
+          }
 
   /* ---- The work pull: the thread replacing Slack/Linear/ChatGPT ----
    * Both work personas get their own slice in the morning text — Linear and PRs
@@ -6700,7 +6787,6 @@ async function digestPayload(
     section('Tomorrow', tomorrowCal),
     ...workSections.map((s) => section(s.title, s.lines)),
     section('Mail', mailTallyLine ? [mailTallyLine, ...finalEmails] : finalEmails),
-    section('Due a ping', peopleDue.map((p) => `${p.name} · ${p.days} days`)),
     section('Do not forget', reminders.map((r) => `${r.time} · ${r.text}`)),
     section('Promises', loops),
   ]
@@ -6748,7 +6834,7 @@ async function digestPayload(
       mailTally: mailTallyLine,
       needsYou,
       factLine,
-      due: peopleDue,
+      due: [],
       later: tomorrowCal.slice(0, 2),
       calendarConnected: calToday.calendarConnected,
     },
@@ -6756,21 +6842,14 @@ async function digestPayload(
 }
 
 /** Mini apps each hire can offer, mirroring src/agents/skills.ts. */
+/* Server-side mini-app allowlist, derived from the canonical SKILLS matrix in
+ * src/agents/skills.ts instead of a fourth hand-maintained copy (the old
+ * literal had already drifted). The API adds `digest` (an API-native card the
+ * matrix does not list) and excludes `artifact` (served by /b/ routes). */
 const PERSONA_MINI_APPS: Record<Persona, string[]> = {
-  friend: [
-    'digest', 'home', 'tonight', 'pick_night', 'body', 'later', 'check_in', 'open_loops', 'drop_zone',
-    'nutrition', 'habit_streak', 'mood_tracker', 'workout_log', 'learning_queue', 'weekly_review',
-    'networking_crm', 'sleep_tracker', 'spending_snapshot', 'gratitude_journal', 'spiral_options', 'relationship_radar',
-  ],
-  coworker: [
-    'digest', 'next_move', 'home', 'approve_send', 'pick_slot', 'standup_paste', 'linear_triage', 'open_loops',
-    'meeting_mode', 'drop_zone', 'learning_queue', 'weekly_review', 'networking_crm',
-  ],
-  cofounder: [
-    'digest', 'next_move', 'home', 'kill_keep_park', 'hire_decision', 'weekly_review', 'approve_investor_note',
-    'decision_ledger', 'relationship_radar', 'drop_zone', 'open_loops', 'networking_crm', 'pipeline_board',
-    'spending_snapshot',
-  ],
+  friend: [...SKILLS.friend.miniApps, 'digest'].filter((k) => k !== 'artifact'),
+  coworker: [...SKILLS.coworker.miniApps, 'digest'].filter((k) => k !== 'artifact'),
+  cofounder: [...SKILLS.cofounder.miniApps, 'digest'].filter((k) => k !== 'artifact'),
 }
 
 /** UTC offset in ms for an IANA zone at a given instant. */
@@ -8607,7 +8686,6 @@ async function miniPayload(
           habitRowsE,
           spendRowsE,
           budgetRows,
-          gratRows,
           moodRows,
           nightRows,
           loopRowsE,
@@ -8639,10 +8717,6 @@ async function miniPayload(
             SELECT weekly_budget AS "weeklyBudget" FROM hire_spending_budget WHERE user_id = ${user.id}
           `),
           rows<{ n?: number }>(sql`
-            SELECT count(*)::int AS n FROM hire_gratitude
-            WHERE user_id = ${user.id} AND (created_at AT TIME ZONE ${tz})::date = ${todayYmd}
-          `),
-          rows<{ n?: number }>(sql`
             SELECT count(*)::int AS n FROM hire_moods
             WHERE user_id = ${user.id} AND (created_at AT TIME ZONE ${tz})::date = ${todayYmd}
           `),
@@ -8668,16 +8742,18 @@ async function miniPayload(
 
         const nut = nutRows[0]
         const mealsLogged = Number(nut?.meals) || 0
-        if (mealsLogged > 0) {
+        {
+          // Always present: the user reads this block as their nutrition
+          // scoreboard for the day — silence on a 0-meal day reads as missing.
           const cal = Math.round(Number(nut?.calories) || 0)
           const protein = Math.round(Number(nut?.protein) || 0)
           const calGoal = Math.round(goalRows[0]?.calorieGoal || 2200)
           const proteinGoal = Math.round(goalRows[0]?.proteinGoal || 150)
           dayFacts.push({
             key: 'food',
-            label: 'Food',
-            detail: `${protein}g protein of ${proteinGoal}, ${cal} of ${calGoal} calories`,
-            state: protein >= proteinGoal * 0.6 ? 'done' : 'partial',
+            label: mealsLogged > 0 ? 'Food' : 'Food — nothing logged',
+            detail: `${protein}g of ${proteinGoal}g protein · ${Math.max(0, calGoal - cal)} calories left`,
+            state: mealsLogged === 0 ? 'miss' : protein >= proteinGoal * 0.6 ? 'done' : 'partial',
           })
         }
 
@@ -8685,14 +8761,12 @@ async function miniPayload(
           habitsToday.push({ id: h.id, name: h.name, emoji: h.emoji, done: !!h.done })
         }
         const habitsDone = habitsToday.filter((h) => h.done).length
-        if (habitsToday.length) {
-          dayFacts.push({
-            key: 'habits',
-            label: 'Habits',
-            detail: `${habitsDone} of ${habitsToday.length}`,
-            state: habitsDone === habitsToday.length ? 'done' : habitsDone > 0 ? 'partial' : 'miss',
-          })
-        }
+        dayFacts.push({
+          key: 'habits',
+          label: habitsToday.length ? 'Habits' : 'No habits yet',
+          detail: habitsToday.length ? `${habitsDone} of ${habitsToday.length} done` : 'Ask Alpha to add one',
+          state: !habitsToday.length ? 'miss' : habitsDone === habitsToday.length ? 'done' : habitsDone > 0 ? 'partial' : 'miss',
+        })
 
         const spendWeekN = Number(spendRowsE[0]?.total) || 0
         if (spendWeekN > 0) {
@@ -8705,14 +8779,6 @@ async function miniPayload(
           })
         }
 
-        {
-          const n = Number(gratRows[0]?.n) || 0
-          dayFacts.push(
-            n > 0
-              ? { key: 'gratitude', label: 'Gratitude', detail: 'Logged', state: 'done' }
-              : { key: 'gratitude', label: 'Gratitude not logged', detail: '', state: 'miss' },
-          )
-        }
         {
           const n = Number(moodRows[0]?.n) || 0
           dayFacts.push(
@@ -8742,7 +8808,6 @@ async function miniPayload(
           }
           const sf = dayFacts.find((x) => x.key === 'spend')
           if (sf) points += sf.state === 'done' ? 5 : -10
-          points += dayFacts.some((f) => f.key === 'gratitude' && f.state === 'done') ? 5 : 0
           points += dayFacts.some((f) => f.key === 'mood' && f.state === 'done') ? 5 : 0
           if (nightHoursE >= 7) points += 10
           else if (nightHoursE > 0 && nightHoursE < 6) points -= 10
@@ -8947,11 +9012,17 @@ async function livePayload(sql: SQL, phone: string, persona: Persona) {
   const active = hired ? await pickActiveLocation(sql, user.id) : null
   let pro = false
   if (hired) {
-    const subs = (await sql`
-      SELECT 1 FROM hire_subscriptions
-      WHERE user_id = ${user.id} AND status IN ('active', 'trialing') LIMIT 1
-    `) as unknown[]
-    pro = subs.length > 0
+    // The demo never gets a fake subscription row — nothing pretend may look
+    // paid — so pro is granted at the read instead.
+    if (isDemoUserId(user.id)) {
+      pro = true
+    } else {
+      const subs = (await sql`
+        SELECT 1 FROM hire_subscriptions
+        WHERE user_id = ${user.id} AND status IN ('active', 'trialing') LIMIT 1
+      `) as unknown[]
+      pro = subs.length > 0
+    }
   }
   let lastInboundAt: string | null = null
   if (hired) {
@@ -9000,6 +9071,8 @@ async function gmailSendMessage(
   userId: string,
   draft: { to: string; subject: string; body: string; threadId?: string; inReplyTo?: string },
 ): Promise<{ ok: boolean; error?: string }> {
+  // The demo account has no real mailbox; say so instead of pretending.
+  if (isDemoUserId(userId)) return { ok: false, error: 'Demo account. Nothing was actually sent.' }
   const access = await googleAccessToken(sql, userId, 'gmail')
   if (access) {
     const payload: { raw: string; threadId?: string } = {
@@ -9254,7 +9327,26 @@ function walkLinearIssues(data: unknown, out: Array<{ id: string; identifier: st
   return out
 }
 
+/** Work connectors the model may select as a single targeted read (want=slack, want=linear, ...). */
+const WORK_READ_TOOLS: Record<string, string> = {
+  slack: 'slack',
+  linear: 'linear',
+  github: 'github',
+  notion: 'notion',
+  stripe: 'stripe',
+  hubspot: 'hubspot',
+  plaid: 'plaid',
+  quickbooks: 'quickbooks',
+  intercom: 'intercom',
+  salesforce: 'salesforce',
+  jira: 'jira',
+  sentry: 'sentry',
+}
+
+type LiveToolWant = 'maps' | 'web' | 'gmail' | 'calendar' | 'drive' | keyof typeof WORK_READ_TOOLS
+
 async function listLinearIssues(userId: string) {
+  if (isDemoUserId(userId)) return demoLinearIssuesForUser(userId)
   const composio = composioClient()
   if (!composio) return { issues: [] as ReturnType<typeof walkLinearIssues>, needConnect: true }
   for (const slug of ['LINEAR_LIST_ISSUES', 'LINEAR_LIST_LINEAR_ISSUES', 'LINEAR_GET_ISSUES']) {
@@ -9275,6 +9367,8 @@ async function listLinearIssues(userId: string) {
 }
 
 async function linearWrite(userId: string, id: string, action: 'done' | 'later' | 'cancel') {
+  // Demo Linear is read-only; the card closes its row locally either way.
+  if (isDemoUserId(userId)) return false
   const state = action === 'done' ? 'Done' : action === 'cancel' ? 'Canceled' : 'Backlog'
   const out = await composioFirst(
     userId,
@@ -10277,8 +10371,9 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
   // Live Computer Sessions: secured view for the user who initiated the session
   if (path.startsWith('/api/computer/session/')) {
     const sub = path.slice('/api/computer/session/'.length)
-    const isCancel = sub.endsWith('/cancel')
-    const jobId = sub.replace(/\/cancel$/, '').split('/')[0]
+    const parts = sub.split('/').filter(Boolean)
+    const jobId = parts[0]
+    const action = parts[1] || ''
     if (!jobId) return json({ error: 'Session ID required' }, 400)
     if (!sql) return json({ error: 'Database unavailable' }, 503)
 
@@ -10311,14 +10406,32 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
       return json({ error: 'Unauthorized: Only the user who initiated this session can view it', code: 'forbidden' }, 403)
     }
 
-    if (isCancel && req.method === 'POST') {
-      await sql`UPDATE hire_browser_jobs SET status = 'failed', error = 'Cancelled by user', finished_at = now() WHERE id = ${jobId} AND status IN ('pending', 'running')`
+    if (action === 'cancel' && req.method === 'POST') {
+      await sql`UPDATE hire_browser_jobs SET status = 'failed', error = 'Cancelled by user', finished_at = now() WHERE id = ${jobId} AND status IN ('pending', 'running', 'waiting')`
       return json({ ok: true, cancelled: true })
     }
 
-    const streamBase = process.env.BROWSER_USE_STREAM_URL || (process.env.BROWSER_USE_DOMAIN ? `https://${process.env.BROWSER_USE_DOMAIN}/vnc/` : 'https://browser.hirealpha.chat/vnc/')
+    if (action === 'approve' && req.method === 'POST') {
+      if (!job.approval_id) return json({ error: 'This session has no approval request.' }, 409)
+      const { decideBrowserApproval } = await import('./browserVault')
+      const approved = await decideBrowserApproval(sql, job.user_id, job.approval_id, 'approve')
+      if (!approved) return json({ error: 'This permission was already used or expired.' }, 409)
+      return json({ ok: true, approved: true })
+    }
+
+    if (action === 'resume' && req.method === 'POST') {
+      const { resumeBrowserHandoff } = await import('./browserJobs')
+      const resumed = await resumeBrowserHandoff(sql, jobId)
+      return resumed ? json({ ok: true, resumed: true }) : json({ error: 'This task is not waiting for input.' }, 409)
+    }
+
+    if (action) return json({ error: 'Unknown computer session action.' }, 404)
+
+    const configuredStream = process.env.BROWSER_USE_STREAM_URL || (process.env.BROWSER_USE_DOMAIN ? `https://${process.env.BROWSER_USE_DOMAIN}/vnc.html` : 'https://browser.hirealpha.chat/vnc.html')
+    const streamBase = configuredStream.replace('{sessionId}', encodeURIComponent(jobId))
     const vncPassword = process.env.CHROME_VNC_PASSWORD || ''
-    const streamUrl = `${streamBase}?autoconnect=true&resize=scale&reconnect=true${vncPassword ? `&password=${encodeURIComponent(vncPassword)}` : ''}`
+    const joiner = streamBase.includes('?') ? '&' : '?'
+    const streamUrl = `${streamBase}${joiner}autoconnect=true&resize=scale&reconnect=true${vncPassword ? `&password=${encodeURIComponent(vncPassword)}` : ''}`
 
     return json({
       ok: true,
@@ -10332,7 +10445,11 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
         result: job.result,
         error: job.error,
         streamUrl,
-        steps: job.steps || [],
+        currentUrl: job.current_url || job.url,
+        steps: job.activity?.length ? job.activity : (job.steps || []),
+        handoffKind: job.handoff_kind,
+        handoffMessage: job.handoff_message,
+        handoffAt: job.handoff_at,
       },
     })
   }
@@ -11736,14 +11853,18 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
     })
     const spokenTz = timezoneFromText(message)
     if (spokenTz) await rememberUserTimezone(sql, live.userId, spokenTz, body.persona)
-    const want =
-      body.want === 'maps' ||
-      body.want === 'web' ||
-      body.want === 'gmail' ||
-      body.want === 'calendar' ||
-      body.want === 'drive'
-        ? body.want
-        : undefined
+    const want = (
+      [
+        'maps',
+        'web',
+        'gmail',
+        'calendar',
+        'drive',
+        ...Object.keys(WORK_READ_TOOLS),
+      ] as string[]
+    ).includes(body.want || '')
+      ? (body.want as LiveToolWant)
+      : undefined
     const results = await runToolsForMessage(sql, {
       userId: live.userId,
       persona: body.persona,

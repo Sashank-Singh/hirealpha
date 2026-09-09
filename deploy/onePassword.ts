@@ -3,9 +3,9 @@
  * one contract.
  *
  * Transport 1 (preferred): the official @1password/sdk with a Service Account
- * token. `OP_SERVICE_ACCOUNT_TOKEN` is the only env var needed — no Connect
- * server to host. Matches 1Password's AI-agent guidance: the server (not the
- * agent) resolves secrets, scoped to one vault, least privilege.
+ * token. `OP_SERVICE_ACCOUNT_TOKEN` plus `OP_VAULT_ID` are required — no
+ * Connect server to host. Matches 1Password's AI-agent guidance: the server
+ * (not the agent) resolves secrets, scoped to one vault, least privilege.
  *
  * Transport 2: a self-hosted 1Password Connect server
  * (`OP_CONNECT_HOST` + `OP_CONNECT_TOKEN` + `OP_VAULT_ID`).
@@ -43,7 +43,7 @@ type OpClientOpts = { fetchFn?: typeof fetch; sdk?: OpSdkClient }
 export type OpMode = 'sdk' | 'connect'
 
 export function opMode(): OpMode | null {
-  if (process.env.OP_SERVICE_ACCOUNT_TOKEN?.trim()) return 'sdk'
+  if (process.env.OP_SERVICE_ACCOUNT_TOKEN?.trim() && process.env.OP_VAULT_ID?.trim()) return 'sdk'
   if (process.env.OP_CONNECT_HOST?.trim() && process.env.OP_CONNECT_TOKEN?.trim() && process.env.OP_VAULT_ID?.trim()) return 'connect'
   return null
 }
@@ -124,7 +124,7 @@ async function sdkSaveItem(
       vaultId,
       title,
       fields,
-      websites: [{ url: input.origin, label: 'website' }],
+      websites: [{ url: input.origin, label: 'website', autofillBehavior: 'ExactDomain' }],
     })) as { id?: string }
     return created.id ? `${OP_REF_PREFIX}${vaultId}:${created.id}` : null
   } catch {

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useRef, useState, type CSSProperties, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
 import { rankPromise } from './promisesHint'
 import { buildHabitHeatmap } from './habitHeatmap'
@@ -2074,14 +2074,82 @@ export function HabitStreakApp({ auth }: { auth: FeatureAuth }) {
 
 /* ------------------------------ Mood & Energy Tracker ------------------------------ */
 
-const MOOD_CHOICES = [
-  { emoji: '😄', label: 'Good' },
-  { emoji: '🙂', label: 'Okay' },
-  { emoji: '😐', label: 'Low' },
-  { emoji: '😔', label: 'Off' },
-  { emoji: '😤', label: 'Hot' },
+interface MoodConfig {
+  key: string
+  label: string
+  desc: string
+  color: string
+  badgeBg: string
+}
+
+const MOOD_OPTIONS: MoodConfig[] = [
+  { key: 'great', label: 'Great', desc: 'Energized & dialed in', color: '#10b981', badgeBg: 'rgba(16, 185, 129, 0.15)' },
+  { key: 'good', label: 'Good', desc: 'Positive & balanced', color: '#06b6d4', badgeBg: 'rgba(6, 182, 212, 0.15)' },
+  { key: 'okay', label: 'Okay', desc: 'Steady & cruising', color: '#6366f1', badgeBg: 'rgba(99, 102, 241, 0.15)' },
+  { key: 'low', label: 'Low', desc: 'Drained or tired', color: '#f59e0b', badgeBg: 'rgba(245, 158, 11, 0.15)' },
+  { key: 'off', label: 'Off', desc: 'Stressed or tense', color: '#f43f5e', badgeBg: 'rgba(244, 63, 94, 0.15)' },
+]
+
+function parseMood(val?: string | null): MoodConfig {
+  const v = String(val || '').toLowerCase().trim()
+  if (v === 'great' || v === 'awesome' || v === '😄' || v === '5') return MOOD_OPTIONS[0]
+  if (v === 'good' || v === 'solid' || v === '🙂' || v === '4') return MOOD_OPTIONS[1]
+  if (v === 'okay' || v === 'neutral' || v === 'fine' || v === '😐' || v === '3') return MOOD_OPTIONS[2]
+  if (v === 'low' || v === 'down' || v === 'tired' || v === '😔' || v === '2') return MOOD_OPTIONS[3]
+  if (v === 'off' || v === 'hot' || v === 'stressed' || v === '😤' || v === '1') return MOOD_OPTIONS[4]
+  return MOOD_OPTIONS[1]
+}
+
+function renderMoodIcon(key: string, color: string) {
+  switch (key) {
+    case 'great':
+      return (
+        <svg className="mood-card-svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <circle cx="12" cy="12" r="4" />
+          <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41" />
+        </svg>
+      )
+    case 'good':
+      return (
+        <svg className="mood-card-svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+          <polyline points="22 4 12 14.01 9 11.01" />
+        </svg>
+      )
+    case 'okay':
+      return (
+        <svg className="mood-card-svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <circle cx="12" cy="12" r="9" />
+          <line x1="8" y1="12" x2="16" y2="12" strokeWidth="2.5" />
+        </svg>
+      )
+    case 'low':
+      return (
+        <svg className="mood-card-svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <rect x="2" y="7" width="16" height="10" rx="3" />
+          <line x1="22" y1="11" x2="22" y2="13" />
+          <line x1="6" y1="12" x2="6.01" y2="12" strokeWidth="3" />
+        </svg>
+      )
+    case 'off':
+    default:
+      return (
+        <svg className="mood-card-svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
+        </svg>
+      )
+  }
+}
+
+const ENERGY_LEVELS = [
+  { level: 1, label: 'Drained', hint: 'Low' },
+  { level: 2, label: 'Tired', hint: 'Sluggish' },
+  { level: 3, label: 'Steady', hint: 'Balanced' },
+  { level: 4, label: 'Charged', hint: 'High' },
+  { level: 5, label: 'Peak', hint: 'Max' },
 ] as const
-const MOOD_DAY_LETTERS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'] as const
+
+const MOOD_DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as const
 
 function last7LocalDates(): string[] {
   const out: string[] = []
@@ -2097,6 +2165,8 @@ export function MoodTrackerApp({ auth }: { auth: FeatureAuth }) {
   const [entries, setEntries] = useState<MoodEntry[]>([])
   const [streak, setStreak] = useState(0)
   const [energy, setEnergy] = useState(3)
+  const [note, setNote] = useState('')
+  const [showNote, setShowNote] = useState(false)
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState('')
 
@@ -2116,18 +2186,23 @@ export function MoodTrackerApp({ auth }: { auth: FeatureAuth }) {
 
   const today = localDateStr()
   const todayEntry = entries.find((e) => isoToLocalDate(e.createdAt) === today)
+  const activeMood = todayEntry ? parseMood(todayEntry.emoji) : null
   const last = entries[0]
 
   useEffect(() => {
-    if (todayEntry) setEnergy(todayEntry.energy)
-    else if (last) setEnergy(last.energy)
+    if (todayEntry) {
+      setEnergy(todayEntry.energy)
+      if (todayEntry.note) setNote(todayEntry.note)
+    } else if (last) {
+      setEnergy(last.energy)
+    }
   }, [todayEntry, last])
 
-  async function logEmoji(emoji: string) {
+  async function logMood(choice: MoodConfig) {
     if (busy) return
     setBusy(true)
     try {
-      await apiLogMood({ ...a, emoji, energy })
+      await apiLogMood({ ...a, emoji: choice.label, energy, note: note.trim() || undefined })
       load()
     } catch {
       setMsg('Could not log mood.')
@@ -2141,10 +2216,25 @@ export function MoodTrackerApp({ auth }: { auth: FeatureAuth }) {
     if (!todayEntry || busy) return
     setBusy(true)
     try {
-      await apiLogMood({ ...a, emoji: todayEntry.emoji, energy: n })
+      await apiLogMood({ ...a, emoji: todayEntry.emoji, energy: n, note: note.trim() || undefined })
       load()
     } catch {
       setMsg('Could not log energy.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function saveNote() {
+    if (!todayEntry || busy) return
+    setBusy(true)
+    try {
+      await apiLogMood({ ...a, emoji: todayEntry.emoji, energy: todayEntry.energy, note: note.trim() || undefined })
+      load()
+      setMsg('Note saved.')
+      setTimeout(() => setMsg(''), 2500)
+    } catch {
+      setMsg('Could not save note.')
     } finally {
       setBusy(false)
     }
@@ -2158,86 +2248,234 @@ export function MoodTrackerApp({ auth }: { auth: FeatureAuth }) {
     : 0
 
   return (
-    <div className="ma mood">
-      <div className="ma-hero">
-        <span className="ma-hero-kicker">{todayEntry ? 'Today' : 'Not logged'}</span>
-        <span className="ma-hero-num">
+    <div className="ma mood-pro">
+      {/* Hero Header Card */}
+      <div className="mood-hero-card">
+        <div className="mood-hero-status-row">
+          <span className={`mood-status-pill ${todayEntry ? 'is-logged' : 'is-unlogged'}`}>
+            <span className="mood-status-dot" />
+            {todayEntry ? 'LOGGED TODAY' : 'NOT LOGGED TODAY'}
+          </span>
+          {streak > 0 && (
+            <span className="mood-streak-pill">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z" />
+              </svg>
+              <span>{streak}d streak</span>
+            </span>
+          )}
+        </div>
+
+        <h2 className="mood-hero-title">
+          {todayEntry ? (
+            <>
+              Feeling <span style={{ color: activeMood?.color }}>{activeMood?.label}</span>
+            </>
+          ) : (
+            'How are you feeling?'
+          )}
+        </h2>
+        <p className="mood-hero-sub">
           {todayEntry
-            ? (MOOD_CHOICES.find((c) => c.emoji === todayEntry.emoji)?.label || todayEntry.emoji)
-            : 'How do you feel'}
-        </span>
-        <span className="ma-hero-label">
-          {streak > 0
-            ? `${streak} day streak${avgEnergy ? `. Avg energy ${avgEnergy.toFixed(1)}` : ''}`
-            : todayEntry
-              ? `Energy ${todayEntry.energy}/5`
-              : 'Tap a mood.'}
-        </span>
-      </div>
-
-      <div className="mood-emoji-row">
-        {MOOD_CHOICES.map((choice) => (
-          <button
-            key={choice.emoji}
-            className={`mood-emoji-btn${todayEntry?.emoji === choice.emoji ? ' selected' : ''}`}
-            type="button"
-            disabled={busy}
-            onClick={() => void logEmoji(choice.emoji)}
-          >
-            {choice.label}
-          </button>
-        ))}
-      </div>
-
-      <span className="ma-hero-kicker">Energy</span>
-      <div className="mood-energy-row" aria-label="Energy">
-        {[1, 2, 3, 4, 5].map((n) => (
-          <button
-            key={n}
-            type="button"
-            className={`ma-chip${energy === n ? ' ma-chip--on' : ''}`}
-            disabled={busy}
-            onClick={() => void pickEnergy(n)}
-          >
-            {n}
-          </button>
-        ))}
-      </div>
-
-      {msg && (
-        <p className="mini__hint">
-          {msg}{' '}
-          <button className="ma-btn ma-btn--quiet" type="button" onClick={load}>Retry</button>
+            ? `${activeMood?.desc} · Energy ${todayEntry.energy}/5`
+            : 'Select your state to track clarity, stress, and recovery over time.'}
         </p>
-      )}
 
-      <div className="mood-strip">
-        {week.map((d) => {
-          const [y, m, day] = d.split('-').map(Number)
-          const letter = MOOD_DAY_LETTERS[new Date(y || 1970, (m || 1) - 1, day || 1).getDay()] || ''
-          const hit = byDay.get(d)
-          return (
-            <div key={d} className={`mood-strip-day${d === today ? ' is-today' : ''}`}>
-              <span className="mood-strip-emoji">{hit ? hit.emoji : '·'}</span>
-              <span className="mood-strip-label">{letter}</span>
+        {avgEnergy > 0 && (
+          <div className="mood-hero-meter">
+            <div className="mood-meter-header">
+              <span className="mood-meter-label">7-day average energy</span>
+              <span className="mood-meter-val">{avgEnergy.toFixed(1)} / 5</span>
             </div>
-          )
-        })}
+            <div className="mood-meter-track">
+              <div
+                className="mood-meter-fill"
+                style={{ width: `${Math.min(100, (avgEnergy / 5) * 100)}%` }}
+              />
+            </div>
+          </div>
+        )}
       </div>
 
-      {entries.length > 0 && (
-        <ul className="mood-list">
-          {entries.slice(0, 14).map((e) => (
-            <li key={e.id} className="mood-entry">
-              <span className="mood-entry-emoji">{e.emoji}</span>
-              <div className="mood-entry-info">
-                <span className="mood-entry-time">{fmtWhen(e.createdAt)}</span>
-                {e.note && <span className="mood-entry-note">{e.note}</span>}
+      {/* Mood Selector Grid */}
+      <section className="mood-section">
+        <span className="mood-section-kicker">SELECT MOOD</span>
+        <div className="mood-cards-grid">
+          {MOOD_OPTIONS.map((choice) => {
+            const isSelected = activeMood?.key === choice.key
+            return (
+              <button
+                key={choice.key}
+                type="button"
+                className={`mood-state-card ${isSelected ? 'is-selected' : ''}`}
+                style={{
+                  '--mood-color': choice.color,
+                  '--mood-bg': choice.badgeBg,
+                } as CSSProperties}
+                disabled={busy}
+                onClick={() => void logMood(choice)}
+              >
+                <div className="mood-state-icon-wrap">
+                  {renderMoodIcon(choice.key, choice.color)}
+                </div>
+                <div className="mood-state-text">
+                  <span className="mood-state-label">{choice.label}</span>
+                  <span className="mood-state-desc">{choice.desc}</span>
+                </div>
+                {isSelected && (
+                  <span className="mood-state-check" aria-hidden="true">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                      <polyline points="20 6 9 17 4 12" />
+                    </svg>
+                  </span>
+                )}
+              </button>
+            )
+          })}
+        </div>
+      </section>
+
+      {/* Energy Tier Selector */}
+      <section className="mood-section">
+        <div className="mood-section-split">
+          <span className="mood-section-kicker">ENERGY LEVEL</span>
+          <span className="mood-energy-hint">
+            {ENERGY_LEVELS.find((l) => l.level === energy)?.label} ({energy}/5)
+          </span>
+        </div>
+        <div className="mood-energy-gauge" role="radiogroup" aria-label="Energy level">
+          {ENERGY_LEVELS.map((el) => {
+            const isFilled = energy >= el.level
+            const isSelected = energy === el.level
+            return (
+              <button
+                key={el.level}
+                type="button"
+                role="radio"
+                aria-checked={isSelected}
+                className={`mood-energy-step ${isFilled ? 'is-filled' : ''} ${isSelected ? 'is-selected' : ''}`}
+                disabled={busy}
+                onClick={() => void pickEnergy(el.level)}
+              >
+                <div className="mood-energy-bar-wrap">
+                  <div className="mood-energy-bar" style={{ height: `${el.level * 20}%` }} />
+                </div>
+                <span className="mood-energy-num">{el.level}</span>
+                <span className="mood-energy-tag">{el.hint}</span>
+              </button>
+            )
+          })}
+        </div>
+      </section>
+
+      {/* Optional Note input */}
+      <section className="mood-section">
+        <div className="mood-note-card">
+          <div className="mood-note-head" onClick={() => setShowNote(!showNote)}>
+            <span className="mood-note-title">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+              </svg>
+              {note ? 'Reflection note added' : 'Add context note (optional)'}
+            </span>
+            <span className="mood-note-toggle">{showNote ? 'Hide' : note ? 'Edit' : 'Add'}</span>
+          </div>
+          {(showNote || !!note) && (
+            <div className="mood-note-body">
+              <textarea
+                className="mood-note-input"
+                value={note}
+                placeholder="What drove this state? (e.g. good sleep, intense sprint, workout...)"
+                rows={2}
+                maxLength={400}
+                onChange={(e) => setNote(e.target.value)}
+              />
+              {todayEntry && (
+                <button
+                  type="button"
+                  className="mood-note-save"
+                  disabled={busy}
+                  onClick={() => void saveNote()}
+                >
+                  Save note
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+      </section>
+
+      {msg && <p className="mood-toast">{msg}</p>}
+
+      {/* 7-Day Consistency Rhythm */}
+      <section className="mood-section">
+        <div className="mood-section-split">
+          <span className="mood-section-kicker">LAST 7 DAYS RHYTHM</span>
+          <span className="mood-rhythm-sub">{entries.length} logs on record</span>
+        </div>
+        <div className="mood-rhythm-strip">
+          {week.map((d) => {
+            const [y, m, day] = d.split('-').map(Number)
+            const dateObj = new Date(y || 1970, (m || 1) - 1, day || 1)
+            const dayName = MOOD_DAY_NAMES[dateObj.getDay()]
+            const hit = byDay.get(d)
+            const mood = hit ? parseMood(hit.emoji) : null
+            const isToday = d === today
+
+            return (
+              <div
+                key={d}
+                className={`mood-rhythm-col ${isToday ? 'is-today' : ''} ${hit ? 'is-logged' : ''}`}
+                style={mood ? { '--day-accent': mood.color, '--day-bg': mood.badgeBg } as CSSProperties : undefined}
+              >
+                <span className="mood-rhythm-dayname">{isToday ? 'Today' : dayName}</span>
+                <div className="mood-rhythm-circle">
+                  {hit ? (
+                    <span className="mood-rhythm-dot" />
+                  ) : (
+                    <span className="mood-rhythm-dash">—</span>
+                  )}
+                </div>
+                {hit ? (
+                  <span className="mood-rhythm-metric">{hit.energy}e</span>
+                ) : (
+                  <span className="mood-rhythm-date">{day}</span>
+                )}
               </div>
-              <span className="mood-entry-energy">{e.energy}/5</span>
-            </li>
-          ))}
-        </ul>
+            )
+          })}
+        </div>
+      </section>
+
+      {/* Recent Log History */}
+      {entries.length > 0 && (
+        <section className="mood-section">
+          <span className="mood-section-kicker">RECENT LOGS</span>
+          <div className="mood-history-list">
+            {entries.slice(0, 7).map((e) => {
+              const mood = parseMood(e.emoji)
+              return (
+                <div key={e.id} className="mood-history-item">
+                  <div className="mood-history-badge" style={{ color: mood.color, background: mood.badgeBg }}>
+                    <span className="mood-history-badge-dot" style={{ background: mood.color }} />
+                    {mood.label}
+                  </div>
+                  <div className="mood-history-content">
+                    <span className="mood-history-time">{fmtWhen(e.createdAt)}</span>
+                    {e.note && <p className="mood-history-note">"{e.note}"</p>}
+                  </div>
+                  <div className="mood-history-energy">
+                    <span className="mood-history-energy-val">Energy {e.energy}/5</span>
+                    <div className="mood-history-energy-meter">
+                      <div className="mood-history-energy-fill" style={{ width: `${e.energy * 20}%` }} />
+                    </div>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </section>
       )}
     </div>
   )

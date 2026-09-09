@@ -14,7 +14,9 @@ export default defineConfig({
     open: false,
     proxy: {
       '/api': {
-        target: 'https://hirealpha.chat',
+        // Point at a local API with HIREALPHA_API_TARGET, e.g. for demo mode:
+        //   HIREALPHA_API_TARGET=http://localhost:8081 npm run dev
+        target: process.env.HIREALPHA_API_TARGET || 'https://hirealpha.chat',
         changeOrigin: true,
       },
     },

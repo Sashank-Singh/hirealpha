@@ -34,7 +34,7 @@ import {
   type HabitToday,
   type NeedsYouItem,
 } from './briefStory'
-import { duePeopleFrom, localYmd, pickLastNight } from './home'
+import { localYmd, pickLastNight } from './home'
 import { BriefLoading } from './BriefLoading'
 
 export type BriefPayload = {
@@ -511,11 +511,13 @@ function DayClosed({
   habits,
   creds,
   notify,
+  miniLink,
 }: {
   facts: EveningDayFact[]
   habits: HabitToday[]
   creds: Creds
   notify: (msg: string) => void
+  miniLink: (kind: string) => string
 }) {
   const [rows, setRows] = useState(habits)
   useEffect(() => setRows(habits), [habits])
@@ -529,17 +531,54 @@ function DayClosed({
       notify('Could not save that')
     }
   }
+  // Filter out any legacy or cached gratitude facts completely
+  const activeFacts = facts.filter(
+    (f) => f.key !== 'gratitude' && !/gratitude/i.test(f.label) && !/gratitude/i.test(f.key),
+  )
+
+  // A missed or partial row is one tap from its fix.
+  const FACT_LINK: Record<string, string> = {
+    workout: 'workout_log',
+    workout_log: 'workout_log',
+    food: 'nutrition',
+    nutrition: 'nutrition',
+    mood: 'mood_tracker',
+    mood_tracker: 'mood_tracker',
+    habits: 'habit_streak',
+    habit: 'habit_streak',
+    habit_streak: 'habit_streak',
+    sleep: 'sleep_tracker',
+    sleep_tracker: 'sleep_tracker',
+    spend: 'spending_snapshot',
+    spending: 'spending_snapshot',
+    spending_snapshot: 'spending_snapshot',
+  }
   return (
     <section className="brief-block">
       <h3 className="brief-label">The day, closed</h3>
       <ul className="brief-closed">
-        {facts.map((f) => (
-          <li key={f.key} className={`brief-closed-row brief-closed--${f.state}`}>
-            <span className="brief-closed-mark">{FACT_STATE_MARK[f.state]}</span>
-            <span className="brief-closed-label">{f.label}</span>
-            {f.detail ? <span className="brief-closed-detail">{f.detail}</span> : null}
-          </li>
-        ))}
+        {activeFacts.map((f) => {
+          const link = f.state !== 'done' ? (FACT_LINK[f.key] || FACT_LINK[f.key.toLowerCase()]) : undefined
+          const inner = (
+            <>
+              <span className="brief-closed-mark">{FACT_STATE_MARK[f.state]}</span>
+              <span className="brief-closed-label">{f.label}</span>
+              {f.detail ? <span className="brief-closed-detail">{f.detail}</span> : null}
+              {link ? <span className="brief-closed-go">Fix →</span> : null}
+            </>
+          )
+          return (
+            <li key={f.key} className={`brief-closed-row brief-closed--${f.state}`}>
+              {link ? (
+                <Link className="brief-closed-link" to={miniLink(link)}>
+                  {inner}
+                </Link>
+              ) : (
+                inner
+              )}
+            </li>
+          )
+        })}
       </ul>
       {rows.length > 0 && (
         <div className="brief-habits">
@@ -557,6 +596,96 @@ function DayClosed({
         </div>
       )}
     </section>
+  )
+}
+
+function DayScoreModal({
+  score,
+  verdict,
+  onClose,
+}: {
+  score: number
+  verdict: string
+  onClose: () => void
+}) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
+
+  const formattedVerdict = verdict ? verdict.charAt(0).toUpperCase() + verdict.slice(1) : 'Decent'
+
+  return (
+    <div className="brief-modal-backdrop" onClick={onClose} role="presentation">
+      <div
+        className="brief-modal-card"
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="brief-score-modal-title"
+      >
+        <div className="brief-modal-header">
+          <div className="brief-modal-title-row">
+            <span className="brief-modal-badge">{score}/100</span>
+            <h3 id="brief-score-modal-title" className="brief-modal-title">
+              {formattedVerdict} Day
+            </h3>
+          </div>
+          <button
+            type="button"
+            className="brief-modal-close"
+            onClick={onClose}
+            aria-label="Close"
+          >
+            ✕
+          </button>
+        </div>
+
+        <p className="brief-modal-intro">
+          Your Day Score is a 0–100 reflection of your daily routines, active commitments, habits, and health logs.
+        </p>
+
+        <div className="brief-modal-section">
+          <h4 className="brief-modal-subtitle">Score Tiers</h4>
+          <ul className="brief-modal-tiers">
+            <li className={score >= 80 ? 'active' : ''}>
+              <span className="tier-tag tier-strong">Strong (80–100)</span>
+              <span>Crushed core workouts, met nutrition goals, and resolved daily priorities.</span>
+            </li>
+            <li className={score >= 60 && score < 80 ? 'active' : ''}>
+              <span className="tier-tag tier-solid">Solid (60–79)</span>
+              <span>Consistent momentum across primary routines with minor items remaining.</span>
+            </li>
+            <li className={score >= 40 && score < 60 ? 'active' : ''}>
+              <span className="tier-tag tier-decent">Decent (40–59)</span>
+              <span>Good base, but key routines (workouts, logged meals, or open tasks) slipped today.</span>
+            </li>
+            <li className={score < 40 ? 'active' : ''}>
+              <span className="tier-tag tier-rough">Rough (&lt;40)</span>
+              <span>Most daily habits, workouts, or open loops were left untouched.</span>
+            </li>
+          </ul>
+        </div>
+
+        <div className="brief-modal-section">
+          <h4 className="brief-modal-subtitle">What to do to boost your score</h4>
+          <ul className="brief-modal-tips">
+            <li><strong>Log your meals:</strong> Keep your calories & macros tracked for the day.</li>
+            <li><strong>Get a session in:</strong> Log your workout or an active recovery walk.</li>
+            <li><strong>Triage carry-overs:</strong> Mark tasks done or snooze to tomorrow.</li>
+            <li><strong>Check habits:</strong> Tap uncompleted habits in The Day, Closed.</li>
+            <li><strong>Track sleep:</strong> Log your rest to set up tomorrow's score.</li>
+          </ul>
+        </div>
+
+        <button type="button" className="brief-modal-action" onClick={onClose}>
+          Got it
+        </button>
+      </div>
+    </div>
   )
 }
 
@@ -593,7 +722,10 @@ function CarryOver({
   }
   return (
     <section className="brief-block">
-      <h3 className="brief-label">Carry over</h3>
+      <div className="brief-block-head">
+        <h3 className="brief-label">Carry over</h3>
+        <span className="brief-count-pill">{items.length}</span>
+      </div>
       <ul className="brief-carry">
         {items.map((c) => (
           <li key={c.id} className="brief-carry-row">
@@ -661,6 +793,7 @@ export function BriefApp({
   const [openPiles, setOpenPiles] = useState<Set<string>>(new Set())
   const [toast, setToast] = useState<{ msg: string } | null>(null)
   const [prepName, setPrepName] = useState<string | null>(null)
+  const [showScoreInfo, setShowScoreInfo] = useState(false)
   /* A tiny "refresh again" affordance: the cached brief on this device can be
    * minutes old, and a manual refresh rebuilds it server-side and paints when
    * the response lands. The button stays nearly invisible until you look for it,
@@ -797,7 +930,6 @@ export function BriefApp({
   const mailPiles: BriefMailGroup[] = rawPiles.filter((g) => g.kind !== 'reply')
   const work = Array.isArray(data?.work) ? data.work : data?.work?.sections || []
   const tally = mailPiles.map((g) => `${g.count} ${g.label.toLowerCase()}`).join(' · ')
-  const due = story?.due?.length ? story.due : duePeopleFrom(people)
   const lastNight = pickLastNight(nights, localYmd())
   const later = (story?.later?.length ? story.later : data?.tomorrow || []).slice(0, 2)
   const hour = new Date().getHours()
@@ -810,13 +942,23 @@ export function BriefApp({
     const t = beatMinutes(b.time)
     return t < 0 || t >= nowMin - 5
   })
+  const isDueCard = (card?: BriefDo | null) =>
+    !card ||
+    card.kind === 'ping' ||
+    card.kicker === 'Due' ||
+    /due a follow up/i.test(card.hint || '') ||
+    /^ping /i.test(card.title || '')
+
+  const rawDo = story?.do
+  const cleanDo = rawDo && !isDueCard(rawDo) ? rawDo : undefined
+
   const doCard: BriefDo =
-    story?.do ||
+    cleanDo ||
     pickBriefAction({
       hour,
       lastNightLogged: lastNight.logged,
       next: nextBeat,
-      due,
+      due: [],
       asks: [],
     })
 
@@ -831,6 +973,7 @@ export function BriefApp({
   // The lead names the beat, so a prep DO card that names the same beat twice
   // would answer the same question twice. On a prep day the header takes the
   // action ("Get prepped for Maria.") and the card keeps the beat.
+  const storyLead = story?.lead && !/is due$/i.test(story.lead) ? story.lead : undefined
   const leadTitle =
     doCard?.kind === 'prep' && doCard.prepName
       ? `Prep for ${firstName(doCard.prepName)}`
@@ -838,7 +981,7 @@ export function BriefApp({
         ? `${nextBeat ? nextBeat.name : beats[0]?.name} at ${nextBeat ? nextBeat.time : beats[0]?.time}`
         : isEvening
           ? 'Today in review'
-          : story?.lead || 'Your day'
+          : storyLead || 'Your day'
 
   const leadSub =
     beats.length > 1
@@ -968,10 +1111,30 @@ export function BriefApp({
       )}
 
       {isEvening && evening?.dayScore && (
-        <div className="brief-score">
-          <span className="brief-score-points">Day closed at {evening.dayScore.points}</span>
-          <span className="brief-score-verdict">{evening.dayScore.verdict}</span>
-        </div>
+        <>
+          <div className="brief-score">
+            <div className="brief-score-main">
+              <span className="brief-score-points">Day score: {evening.dayScore.points}/100</span>
+              <span className="brief-score-verdict">{evening.dayScore.verdict.charAt(0).toUpperCase() + evening.dayScore.verdict.slice(1)} day</span>
+            </div>
+            <button
+              type="button"
+              className="brief-score-info-btn"
+              onClick={() => setShowScoreInfo(true)}
+              aria-label="What does Day score mean?"
+              title="What does Day score mean?"
+            >
+              <span className="brief-score-info-icon" aria-hidden="true">i</span>
+            </button>
+          </div>
+          {showScoreInfo && (
+            <DayScoreModal
+              score={evening.dayScore.points}
+              verdict={evening.dayScore.verdict}
+              onClose={() => setShowScoreInfo(false)}
+            />
+          )}
+        </>
       )}
 
       {isEvening && (evening?.dayFacts?.length || evening?.habitsToday?.length) && (
@@ -980,6 +1143,7 @@ export function BriefApp({
           habits={evening?.habitsToday || []}
           creds={creds}
           notify={notify}
+          miniLink={miniLink}
         />
       )}
 
@@ -1131,27 +1295,6 @@ export function BriefApp({
                 onGone={() => setReminders((prev) => prev.filter((x) => x !== r))}
                 notify={notify}
               />
-            ))}
-          </ul>
-        </section>
-      )}
-
-      {!isEvening && due.length > 0 && (
-        <section className="brief-block">
-          <h3 className="brief-label">Due a ping</h3>
-          <ul className="brief-due">
-            {due.map((p) => (
-              <li key={p.name}>
-                <Link className="brief-due-link" to={miniLink('networking_crm')}>
-                  <span>{p.name}</span>
-                  <span>{p.days >= 900 ? 'No touch yet' : `${p.days} days`}</span>
-                </Link>
-                {p.phone ? (
-                  <a className="brief-sms" href={`sms:${p.phone.replace(/[^\d+]/g, '')}`}>
-                    Text
-                  </a>
-                ) : null}
-              </li>
             ))}
           </ul>
         </section>
