@@ -1636,9 +1636,13 @@ export async function runHireTurn(input: {
     // brief, or card intent go straight to the model. The decision loop adds
     // latency and a second failure surface to the most common messages ("ok
     // cool", "remember: gym is Barezz") and buys nothing there.
+    const lastAssistant = cleanHistory.filter((m) => m.role === 'assistant').slice(-1)[0]?.content || ''
+    const answeringProposal = isAffirmativeApprovalIntent(input.userText) &&
+      /\b(?:order|buy|purchase|place the order|book|reserve|set it up|charge)\b/i.test(lastAssistant)
     const simpleAsk =
       input.userText.length <= 120 &&
       !maybeToolIntent(input.userText) &&
+      !answeringProposal &&
       !wantsOperatorWrite(input.userText) &&
       !/\b(draft|reply|forward|send)\b/i.test(input.userText) &&
       !briefIntent &&
@@ -1652,7 +1656,7 @@ export async function runHireTurn(input: {
       let purchaseRequestId: string | null = null
       const outcome = await runToolConversation({
         messages: baseMessages,
-        chat: (messages, timeoutMs) => gmiChat({ temperature: Math.min(agent.temperature, 0.3), maxTokens: Math.max(maxTokens, 1200), messages, timeoutMs }),
+        chat: (messages, timeoutMs) => gmiChat({ temperature: Math.min(agent.temperature, 0.3), messages, timeoutMs }),
         lookup: (tool, query) => fetchLiveTools(input.senderId, agent.id, query, tool),
         propose: (draft) =>
           saveFriendDraft(input.senderId, agent.id, draft).then((r: any) => {

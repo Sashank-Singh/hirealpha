@@ -132,14 +132,15 @@ function FactStrip({ facts }: { facts: BriefFact[] }) {
   if (!facts.length) return null
   return (
     <div className="brief-facts">
-      {facts.map((f) => {
+      {facts.map((f, i) => {
         const inner = (
-          <>
-            <span className={`brief-fact-text brief-fact--${f.state}`}>{f.text}</span>
-          </>
+          <span className={`brief-fact-text brief-fact--${f.state}`}>
+            {i > 0 && <span className="brief-fact-dot" aria-hidden="true">·</span>}
+            {f.text}
+          </span>
         )
         return f.openKind ? (
-          <Link key={f.key} className="brief-fact" to={`?open=${f.openKind}`}>
+          <Link key={f.key} className="brief-fact brief-fact--link" to={`?open=${f.openKind}`}>
             {inner}
           </Link>
         ) : (
@@ -699,7 +700,7 @@ export function BriefApp({
   }, [onRefresh, refreshing])
 
   const creds = { email: auth.email, token: auth.token }
-  const isEvening = !!evening || data?.brief === 'evening'
+  const isEvening = Boolean(evening)
 
   useEffect(() => {
     const loadCreds = { email: auth.email, token: auth.token, persona: auth.persona }
@@ -832,12 +833,19 @@ export function BriefApp({
   // action ("Get prepped for Maria.") and the card keeps the beat.
   const leadTitle =
     doCard?.kind === 'prep' && doCard.prepName
-      ? `Get prepped for ${firstName(doCard.prepName)}.`
-      : beats.length > 1
-        ? `${nextBeat ? nextBeat.name : beats[0]?.name} at ${nextBeat ? nextBeat.time : beats[0]?.time} (+${beats.length - 1} more events)`
-        : beats.length === 1
-          ? `${beats[0]?.name} at ${beats[0]?.time}`
+      ? `Prep for ${firstName(doCard.prepName)}`
+      : beats.length > 0
+        ? `${nextBeat ? nextBeat.name : beats[0]?.name} at ${nextBeat ? nextBeat.time : beats[0]?.time}`
+        : isEvening
+          ? 'Today in review'
           : story?.lead || 'Your day'
+
+  const leadSub =
+    beats.length > 1
+      ? `${beats.length - 1} more ${beats.length - 1 === 1 ? 'commitment' : 'commitments'} on your schedule today`
+      : isEvening && evening?.dayScore
+        ? `Day closed · ${evening.dayScore.verdict}`
+        : undefined
 
   const actionFact: BriefFact | null =
     needsYou.length > 0
@@ -936,6 +944,7 @@ export function BriefApp({
         </div>
         {dateLabel ? <p className="brief-date">{dateLabel}</p> : null}
         <h2 className="brief-title">{leadTitle}</h2>
+        {leadSub ? <p className="brief-sub">{leadSub}</p> : null}
       </header>
 
       {refreshedAt ? <p className="brief-refreshed">Updated just now</p> : null}
@@ -959,10 +968,10 @@ export function BriefApp({
       )}
 
       {isEvening && evening?.dayScore && (
-        <p className="brief-score">
+        <div className="brief-score">
           <span className="brief-score-points">Day closed at {evening.dayScore.points}</span>
           <span className="brief-score-verdict">{evening.dayScore.verdict}</span>
-        </p>
+        </div>
       )}
 
       {isEvening && (evening?.dayFacts?.length || evening?.habitsToday?.length) && (
@@ -999,8 +1008,8 @@ export function BriefApp({
         {!isEvening && (
           <section className="brief-block brief-calendar-block">
             <div className="brief-block-head">
-              <h3 className="brief-label">The day · Schedule</h3>
-              <span className="brief-count-pill">{beats.length} event{beats.length === 1 ? '' : 's'}</span>
+              <h3 className="brief-label">Schedule</h3>
+              <span className="brief-count-pill">{beats.length}</span>
             </div>
             {beats.length > 0 ? (
               <ol className="brief-day">
@@ -1030,11 +1039,11 @@ export function BriefApp({
           </section>
         )}
 
-        {(needsYou.length > 0 || (isEvening && eveMail.length > 0)) && (
+        {((!isEvening && needsYou.length > 0) || (isEvening && eveMail.length > 0)) && (
           <section className="brief-block brief-actions-block">
             <div className="brief-block-head">
-              <h3 className="brief-label">Action Required · Needs Reply</h3>
-              <span className="brief-count-pill">{needsYou.length} to reply</span>
+              <h3 className="brief-label">Needs Reply</h3>
+              <span className="brief-count-pill">{isEvening ? eveMail.length : needsYou.length}</span>
             </div>
             <ul className="brief-asks">
               {isEvening
@@ -1076,13 +1085,13 @@ export function BriefApp({
       {!isEvening && loops.length > 0 && (
         <section className="brief-block">
           <div className="brief-block-head">
-            <h3 className="brief-label">Today's Focus & Promises</h3>
+            <h3 className="brief-label">Focus & Commitments</h3>
             <span className="brief-count-pill">{loops.length}</span>
           </div>
           <ul className="brief-loops">
             {loops.map((l, i) => (
               <li key={i} className="brief-loop-item">
-                <span className="brief-loop-dot" />
+                <span className="brief-loop-bullet" aria-hidden="true">—</span>
                 <span className="brief-loop-text">{l}</span>
               </li>
             ))}
@@ -1183,25 +1192,25 @@ export function BriefApp({
       {mailPiles.length > 0 && (
         <section className="brief-block">
           <div className="brief-block-head">
-            <h3 className="brief-label">Inbox Sub-trays</h3>
+            <h3 className="brief-label">Categorized Mail</h3>
             {tally ? <span className="brief-count-pill">{tally}</span> : null}
           </div>
           <div className="brief-piles">
             {mailPiles.map((g) => {
               const open = openPiles.has(g.kind)
-              const kindTag =
+              const kindLabel =
                 g.kind === 'money' || g.kind === 'receipt'
-                  ? 'RECEIPT'
+                  ? 'Receipts'
                   : g.kind === 'thanks'
-                    ? 'THANKS'
+                    ? 'Thanks'
                     : g.kind === 'promo' || g.kind === 'marketing'
-                      ? 'PROMO'
-                      : 'UPDATE'
+                      ? 'Promotions'
+                      : 'Updates'
               return (
                 <div key={g.kind} className="brief-pile">
                   <button className="brief-pile-head" type="button" onClick={() => togglePile(g.kind)}>
                     <span className="brief-pile-title-wrap">
-                      <span className="brief-pile-tag">{kindTag}</span>
+                      <span className="brief-pile-tag">{kindLabel}</span>
                       <span>{mailGroupHeading(g.kind, g.count, g.label)}</span>
                     </span>
                     <span className="brief-pile-caret">{open ? '▾' : '▸'}</span>

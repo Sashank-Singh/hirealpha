@@ -7,24 +7,20 @@ import {
   apiAddPipeline,
   apiDeleteGratitude,
   apiDeleteSleep,
-  apiDeleteSpend,
   apiDeleteWorkout,
   apiListGratitude,
   apiListLearning,
   apiListNetwork,
   apiListPipeline,
   apiListSleep,
-  apiListSpending,
   apiListWorkDrafts,
   apiListWorkouts,
   apiLogSleep,
   apiPutMiniPrefs,
-  apiLogSpend,
   apiLogWorkout,
   apiMovePipeline,
   apiPatchLearning,
   apiSaveWeeklyReview,
-  apiSetSpendBudget,
   apiTouchNetwork,
   apiSaveNetwork,
   apiWeeklyReview,
@@ -35,7 +31,6 @@ import {
   type NetworkToday,
   type PipelineItem,
   type SleepNight,
-  type SpendLog,
   type WeeklyReview,
   type WeeklySnapshot,
   type WorkDraft,
@@ -71,9 +66,6 @@ import { exerciseDemoUrl } from './exerciseDemos'
 import { isPersonMeetSuggestion, isTravelOrStayTitle, stayWhereFrom, CADENCE_OPTIONS } from './peopleMeets'
 import { pickLastNight } from './home'
 import { PeopleGraph } from './PeopleGraph'
-import { useRefreshOnFocus } from './useRefreshOnFocus'
-import { SpendDonut, SpendSwatch } from './SpendCharts'
-import { SPEND_SLOTS, SPEND_SLOT_LABELS } from './spendChart'
 
 const useAuth = useStableAuth
 
@@ -166,15 +158,6 @@ function isoToLocalDate(iso: string) {
 function shiftLocalDate(dateStr: string, days: number) {
   const [y, m, d] = dateStr.split('-').map(Number)
   return localDateStr(new Date(y || 1970, (m || 1) - 1, (d || 1) + days))
-}
-
-function daysLeftInWeek(weekStart: string) {
-  if (!weekStart) return 0
-  const [y, m, d] = weekStart.split('-').map(Number)
-  const end = new Date(y || 1970, (m || 1) - 1, (d || 1) + 6)
-  const today = new Date()
-  today.setHours(0, 0, 0, 0)
-  return Math.max(0, Math.round((end.getTime() - today.getTime()) / 86400000))
 }
 
 function openHttp(url: string) {
@@ -3135,134 +3118,4 @@ export function GratitudeJournalApp({ auth }: { auth: FeatureAuth }) {
 
 /* --------------------------- Spending Snapshot -------------------------- */
 
-export function SpendingSnapshotApp({ auth }: { auth: FeatureAuth }) {
-  const a = useAuth(auth)
-  const [logs, setLogs] = useState<SpendLog[]>([])
-  const [byCategory, setByCategory] = useState<Array<{ category: string; total: number }>>([])
-  const [weekTotal, setWeekTotal] = useState(0)
-  const [budget, setBudget] = useState(400)
-  const [weekStart, setWeekStart] = useState('')
-  const [budgetEdit, setBudgetEdit] = useState('')
-  const [showBudget, setShowBudget] = useState(false)
-  const [amount, setAmount] = useState('')
-  const [category, setCategory] = useState('food')
-  const [busy, setBusy] = useState(false)
-  const [msg, setMsg] = useState('')
-  const [showLog, setShowLog] = useState(false)
-
-  const load = useCallback(() => {
-    apiListSpending(a).then((d) => {
-      setLogs(d.logs)
-      setByCategory(d.byCategory)
-      setWeekTotal(d.weekTotal)
-      setBudget(d.weeklyBudget)
-      setWeekStart(d.weekStart)
-      if (d.logs[0]?.category) setCategory(d.logs[0].category)
-    }).catch(() => setMsg('Could not load spending.'))
-  }, [a])
-  useEffect(() => { load() }, [load])
-  useRefreshOnFocus(load)
-
-  async function add(e: FormEvent) {
-    e.preventDefault()
-    const n = Number(amount)
-    if (!n || n <= 0 || busy) return
-    setBusy(true)
-    try {
-      await apiLogSpend({ ...a, amount: n, category })
-      setAmount('')
-      setShowLog(false)
-      load()
-    } catch {
-      setMsg('Could not log that.')
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  const left = budget - weekTotal
-  const over = left < 0
-  const remainDays = Math.max(1, daysLeftInWeek(weekStart) + 1)
-  const perDay = !over ? Math.round(Math.max(0, left) / remainDays) : 0
-  const last = logs[0]
-  const topCat = [...byCategory].sort((a, b) => b.total - a.total)[0]
-  // The charts read {category, amount}; the API returns {category, total}.
-  const chartRows = byCategory.map((c) => ({ category: c.category, amount: c.total }))
-
-  return (
-    <div className="ma">
-      <div className={`spend-hero${over ? ' spend-hero--over' : ''}`}>
-        <div className="ma-hero">
-          <span className="ma-hero-kicker">{over ? 'Over budget' : 'This week'}</span>
-          <div className="spend-total">
-            {over ? `$${Math.round(-left)} over` : `$${Math.round(Math.max(0, left))} left`}
-            <span> / ${Math.round(budget)}</span>
-          </div>
-          <p className="ma-insight">
-            {over
-              ? `${topCat ? topCat.category : 'Spending'} is the leak.`
-              : logs.length
-                ? `$${perDay} a day left${topCat ? `. Most on ${topCat.category}` : ''}`
-                : 'Log the next spend. The week total fills in.'}
-          </p>
-        </div>
-        <button className="ma-chip" type="button" onClick={() => { setBudgetEdit(String(budget)); setShowBudget((v) => !v) }}>Budget</button>
-      </div>
-      {showBudget && (
-        <form className="ma-form" onSubmit={(e) => {
-          e.preventDefault()
-          const next = Number(budgetEdit)
-          if (next > 0) void apiSetSpendBudget({ ...a, weeklyBudget: next }).then(() => { setShowBudget(false); load() })
-        }}>
-          <input className="ma-input ma-input--sm" value={budgetEdit} onChange={(e) => setBudgetEdit(e.target.value)} inputMode="decimal" aria-label="Weekly budget" />
-          <button className="ma-btn" type="submit">Save budget</button>
-        </form>
-      )}
-      <SpendDonut rows={chartRows} />
-      <div className="ma-pills">
-        {SPEND_SLOTS.map((c) => {
-          const row = byCategory.find((x) => x.category === c)
-          return (
-            <button
-              key={c}
-              type="button"
-              className={`ma-chip${category === c ? ' ma-chip--on' : ''}`}
-              onClick={() => { setCategory(c); setShowLog(true) }}
-            >
-              <SpendSwatch category={c} />
-              {SPEND_SLOT_LABELS[c]}{row ? ` $${Math.round(row.total)}` : ''}
-            </button>
-          )
-        })}
-      </div>
-
-      {(showLog || logs.length === 0) ? (
-        <form className="ma-form" onSubmit={add}>
-          <input className="ma-input ma-input--sm" value={amount} onChange={(e) => setAmount(e.target.value)} inputMode="decimal" placeholder="$" aria-label="Amount" />
-          <button className="ma-btn" type="submit" disabled={busy || !amount}>Log {category}</button>
-        </form>
-      ) : (
-        <button className="ma-btn ma-btn--block" type="button" onClick={() => setShowLog(true)}>
-          {last ? `Log ${last.category}` : 'Log spend'}
-        </button>
-      )}
-
-      {msg && <p className="mini__hint">{msg}</p>}
-      {logs.length ? (
-        <ul className="ma-list">
-          {logs.slice(0, 40).map((l) => (
-            <li key={l.id} className="ma-row">
-              <div className="ma-row-main">
-                <span className="ma-title">${Number(l.amount).toFixed(2)}  {l.category}</span>
-                <span className="ma-sub">{l.description || fmtDay(l.spentAt)}</span>
-              </div>
-              <button className="ma-x" type="button" onClick={() => void apiDeleteSpend({ ...a, id: l.id }).then(load)} title="Remove">×</button>
-            </li>
-          ))}
-        </ul>
-      ) : (
-        <p className="mini__empty">Log the next spend. The week total fills in.</p>
-      )}
-    </div>
-  )
-}
+export { SpendingSnapshotApp } from './SpendingSnapshotApp'

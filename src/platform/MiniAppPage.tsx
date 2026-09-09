@@ -30,7 +30,7 @@ const LearningQueueApp = lazy(() => import('./LifeMiniApps').then(m => ({ defaul
 const NetworkingCrmApp = lazy(() => import('./LifeMiniApps').then(m => ({ default: m.NetworkingCrmApp })))
 const PipelineBoardApp = lazy(() => import('./LifeMiniApps').then(m => ({ default: m.PipelineBoardApp })))
 const SleepTrackerApp = lazy(() => import('./LifeMiniApps').then(m => ({ default: m.SleepTrackerApp })))
-const SpendingSnapshotApp = lazy(() => import('./LifeMiniApps').then(m => ({ default: m.SpendingSnapshotApp })))
+const SpendingSnapshotApp = lazy(() => import('./SpendingSnapshotApp').then(m => ({ default: m.SpendingSnapshotApp })))
 const WeeklyReviewApp = lazy(() => import('./LifeMiniApps').then(m => ({ default: m.WeeklyReviewApp })))
 const WorkoutLogApp = lazy(() => import('./LifeMiniApps').then(m => ({ default: m.WorkoutLogApp })))
 const MiniAppSettings = lazy(() => import('./MiniAppSettings').then(m => ({ default: m.MiniAppSettings })))
@@ -173,8 +173,9 @@ export const FEATURE_KINDS = new Set([
   'standup_paste',
   'hire_decision',
   'approve_investor_note',
+  'approve_purchase',
   'builds',
-  ])
+])
 
 
 const FRIEND_KIND_TITLES: Record<string, { title: string; blurb: string }> = {
@@ -185,6 +186,7 @@ const FRIEND_KIND_TITLES: Record<string, { title: string; blurb: string }> = {
   pick_night: { title: 'Evening brief', blurb: 'What happened and what is left.' },
   learning_queue: { title: 'Learning', blurb: 'What to read or watch next.' },
   drop_zone: { title: 'Save for later', blurb: 'Dump anything and Alpha sorts it later.' },
+  approve_purchase: { title: 'Order Review', blurb: 'Review your item, shipping address, and approve the order.' },
 }
 
 

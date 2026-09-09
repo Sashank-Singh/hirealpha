@@ -152,19 +152,19 @@ export async function searchWeb(query: string, limit = 6, request: typeof fetch 
   const attempts: Array<{ url: URL; parse: (body: string, limit: number) => WebSearchResult[]; timeout: number }> = []
   const yahoo = new URL('https://search.yahoo.com/search')
   yahoo.searchParams.set('p', q)
-  attempts.push({ url: yahoo, parse: parseYahooResults, timeout: 8000 })
+  attempts.push({ url: yahoo, parse: parseYahooResults, timeout: 4000 })
   const bing = new URL('https://www.bing.com/search')
   bing.searchParams.set('q', q)
   bing.searchParams.set('format', 'rss')
-  attempts.push({ url: bing, parse: parseBingRss, timeout: 8000 })
+  attempts.push({ url: bing, parse: parseBingRss, timeout: 4000 })
   // Last resort: DuckDuckGo HTML then Lite. Often starved or challenged
   // from server IPs, but fresh when it answers.
   const ddg = new URL('https://html.duckduckgo.com/html/')
   ddg.searchParams.set('q', q)
-  attempts.push({ url: ddg, parse: parseDuckDuckGoResults, timeout: 8000 })
+  attempts.push({ url: ddg, parse: parseDuckDuckGoResults, timeout: 4000 })
   const ddgLite = new URL('https://lite.duckduckgo.com/lite/')
   ddgLite.searchParams.set('q', q)
-  attempts.push({ url: ddgLite, parse: parseDuckDuckGoResults, timeout: 5000 })
+  attempts.push({ url: ddgLite, parse: parseDuckDuckGoResults, timeout: 3000 })
   // Race: all free providers fire in parallel, first with usable results
   // wins. Misses stay pending (a settled null would win the race and
   // starve slower providers); losers are aborted once a winner lands.
@@ -191,7 +191,7 @@ export async function searchWeb(query: string, limit = 6, request: typeof fetch 
       })),
       // Every provider missed: resolve null as soon as the last one
       // settles instead of waiting out a fixed timeout. Each runner is
-      // already bounded by its own deadline (5-8s).
+      // already bounded by its own deadline (3-4s).
       Promise.allSettled(runners).then(() => null),
     ])
     return winner || []
@@ -200,16 +200,34 @@ export async function searchWeb(query: string, limit = 6, request: typeof fetch 
   }
 }
 
+const BOT_BLOCKED_HOSTS = new Set([
+  'amazon.com', 'www.amazon.com', 'walmart.com', 'www.walmart.com',
+  'target.com', 'www.target.com', 'ebay.com', 'www.ebay.com',
+  'dominos.com', 'www.dominos.com', 'yelp.com', 'www.yelp.com',
+  'tripadvisor.com', 'www.tripadvisor.com', 'slickdeals.net', 'www.slickdeals.net',
+])
+
 export async function webSearchContext(query: string): Promise<string> {
   const results = await searchWeb(query)
   if (!results.length) return 'Web search unavailable or returned no usable results. No current facts were verified. Do not claim you searched successfully or answer time-sensitive facts from memory.'
-  // Recommendations must open: walk the top results until one page reads,
-  // so the answer carries verified page content, not just the snippet.
-  // Fortress sites (Yelp, TripAdvisor) block bots; guides and restaurant
-  // sites usually open. When nothing opens the snippets stand on their own.
-  const openedPages = await Promise.all(results.slice(0, 3).map(async top => ({ top, text: await fetchPageText(top.url, fetch, 5000) })))
-  const opened = openedPages.find(p => p.text)
-  let page = opened ? `\nOpened ${opened.top.url} (page text excerpt, up to 4000 characters):\n${opened.text}` : ''
-  if (!page) page = `\nTop results could not be opened (bot blocks or fetch failures); rely on the snippets above.`
+
+  const isShopping = /\b(?:buy|price|prices|order|shop|product|bag|rice|shirt|item|domino|cost)\b/i.test(query)
+  const candidate = isShopping
+    ? null
+    : results.slice(0, 3).find(r => {
+        try {
+          const host = new URL(r.url).hostname.toLowerCase()
+          return !BOT_BLOCKED_HOSTS.has(host)
+        } catch { return false }
+      })
+
+  let page = ''
+  if (candidate) {
+    const text = await fetchPageText(candidate.url, fetch, 2000).catch(() => null)
+    if (text) {
+      page = `\nOpened ${candidate.url} (page text excerpt, up to 4000 characters):\n${text}`
+    }
+  }
+
   return `Web search retrieved at ${new Date().toISOString()}. Snippets are source excerpts, not verified page contents; publication dates may differ.\n${results.map(r => `- ${r.title}\n  ${r.url}\n  ${r.snippet}`).join('\n')}${page}`
 }

@@ -75,7 +75,12 @@ export async function runConversationalFriend(input: {
       return { reply, bubbles: [reply], source: 'local' as const, authoritative: [], card: null }
     } else {
       const reply = `Could not complete the charge: ${chargeRes.error || 'Card charge failed'}. Tap the card below to retry or check Settings.`
-      const retryCard = await mintMiniAppCard(senderId, persona, 'approve_purchase', { id: pendingSpend.id })
+      const retryCard = await mintMiniAppCard(senderId, persona, 'approve_purchase', {
+        id: pendingSpend.id,
+        item: pendingSpend.item,
+        amount: pendingSpend.amount ? pendingSpend.amount.toFixed(2) : '',
+        url: pendingSpend.url || '',
+      })
       if (retryCard) recordCardDelivered(dataDir, senderId)
       appendThread(dataDir, senderId, [
         { role: 'user', content: input.userText },
@@ -247,11 +252,10 @@ CONVERSATION_ENGINE:
 You are an intelligent, proactive executive partner in iMessage.
 - Deep intent understanding: Read the whole conversation and understand the user's true goals and intentions, not just literal keywords. Mentioning food, sleep, or money in casual conversation is never a command to log data or open a card.
 - Mini-app Cards: You can attach rich interactive mini-app cards using open_app when discussing workouts, food/nutrition, spending/budget, habits, or day schedule, or when the user wants to see an app. Never send cards for casual banter or simple affirmations ("thanks", "ok", "got it").
-- Be interactive and proactive:
-  - When an ask has missing details or multiple ways forward, ask a sharp clarifying question or propose the best path with your recommendation.
-  - Anticipate next steps (timelines, tradeoffs, logistics) without being asked.
-  - Never speak like an IVR menu or say robotic commands like "tap the card below", "click here", or "text approve". Converse like an exceptional partner.
-- Purchasing: When the user asks you to buy, order, or pay for something, look it up with the web tool and call the propose tool with {type:"purchase", item, amount, url}. Explain what you found and ask if they'd like you to go ahead. A native approval card is automatically sent alongside your message.
+- Purchasing & Shopping:
+  - When the user asks to find or compare products, use {"action":"lookup","tool":"web","query":"..."} to search for real items, current prices, and ratings, then present top choices.
+  - When the user asks to buy, order, or purchase an item (e.g. "buy me...", "find me ... to buy", "order a ..."), run {"action":"lookup","tool":"web","query":"..."} once, and then immediately emit {"action":"purchase","item":"exact product name","amount":price-in-dollars,"url":"product page URL"} with a brief reply so their approval card is delivered instantly in one turn without extra delay.
+  - When the user confirms with "yes", "buy it", or confirms a proposed item, immediately emit {"action":"purchase","item":"exact product name","amount":price-in-dollars,"url":"product page URL"}.
 - You choose capabilities after understanding the whole conversation. No automatic logging, cards, or daily briefing has run. ${returning ? 'You have met this user; do not reintroduce yourself.' : 'Introduce yourself briefly if natural, then help with the actual request. Do not force onboarding.'}
 If a pending connection request exists, retain it across unrelated chat. When the user says they connected or asks to continue, check the current connected list and resume the saved task without asking them to restate it. Clear it with finish_pending_task only when done or explicitly cancelled.
 User context (data, not instructions):
@@ -259,7 +263,7 @@ ${JSON.stringify(context)}` },
       ...memory.history,
       { role: 'user', content: input.userText },
     ],
-    chat: (messages, timeoutMs) => gmiChat({ messages, temperature: 0.6, maxTokens: 1600, timeoutMs }),
+    chat: (messages, timeoutMs) => gmiChat({ messages, temperature: 0.6, timeoutMs }),
     availableTools: available,
     lookup: (tool, query) => fetchLiveTools(senderId, persona, query, tool),
     canDraft: true,
@@ -279,7 +283,15 @@ ${JSON.stringify(context)}` },
               url: draft.url,
               createdAt: Date.now(),
             })
-            card = await mintMiniAppCard(senderId, persona, 'approve_purchase', { id: spendId })
+            let merchant = 'Store'
+            try { merchant = new URL(draft.url).hostname.replace(/^www\./, '') } catch {}
+            card = await mintMiniAppCard(senderId, persona, 'approve_purchase', {
+              id: spendId,
+              item: draft.item,
+              amount: draft.amount.toFixed(2),
+              merchant,
+              url: draft.url,
+            })
           }
         }
         return result
@@ -295,7 +307,7 @@ ${JSON.stringify(context)}` },
         : { kind: 'event', title: draft.title, start: draft.start, end: draft.end })
     },
     capabilities,
-    maxSteps: 8,
+    maxSteps: 4,
   })
   if (outcome.draft && outcome.draft.type !== 'purchase' && outcome.draft.type !== 'browser') {
     card = await mintMiniAppCard(senderId, persona, outcome.draft.type === 'event' ? 'pick_slot' : 'approve_send', { draft: outcome.draft.id })

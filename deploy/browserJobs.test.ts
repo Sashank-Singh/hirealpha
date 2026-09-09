@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'bun:test'
-import { claimBrowserJobs, enqueueBrowserJob, finishBrowserJob, getBrowserJob } from './browserJobs'
+import {
+  claimBrowserJobs,
+  enqueueBrowserJob,
+  finishBrowserJob,
+  generateSessionViewToken,
+  getBrowserJob,
+  verifySessionViewToken,
+} from './browserJobs'
 import {
   buildVisionParts,
   isTerminal,
@@ -89,6 +96,21 @@ describe('browser job queue', () => {
     ])
     const job = await getBrowserJob(sql, 'j1', USER)
     expect(job?.status).toBe('done')
+  })
+
+  it('generateSessionViewToken creates valid cryptographic token for session view', () => {
+    const token = generateSessionViewToken('job-123', USER)
+    expect(token).toBeTruthy()
+    expect(verifySessionViewToken('job-123', USER, token)).toBe(true)
+
+    // Fails with wrong job ID
+    expect(verifySessionViewToken('other-job', USER, token)).toBe(false)
+    // Fails with wrong user ID
+    expect(verifySessionViewToken('job-123', 'other-user', token)).toBe(false)
+    // Fails with tampered token
+    expect(verifySessionViewToken('job-123', USER, `${token}bad`)).toBe(false)
+    // Fails with empty token
+    expect(verifySessionViewToken('job-123', USER, '')).toBe(false)
   })
 })
 

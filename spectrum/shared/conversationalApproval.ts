@@ -102,6 +102,11 @@ export function isAffirmativeApprovalIntent(text: string): boolean {
     if (neg.test(text)) return false
   }
 
+  // If the user is asking to find, search, or look up something new, it's not an approval of the old item
+  if (/\b(?:can you (?:find|search|look)|find (?:me|a|some)|search for|look up|show me)\b/i.test(text)) {
+    return false
+  }
+
   // 4. Substring phrase match when not negated
   for (const phrase of AFFIRMATIVE_PHRASES) {
     if (norm.includes(phrase)) return true

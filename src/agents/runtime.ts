@@ -42,7 +42,7 @@ Sashank`
     if (/advice|should i|what do i/.test(lower)) {
       return 'Honest take. Peace, growth, or not regretting it?'
     }
-    return "I'm here to help. Tell me what you need."
+    return "I hit a quick snag thinking through that. Can you say that once more?"
   }
 
   if (agent.id === 'coworker') {

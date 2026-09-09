@@ -36,7 +36,7 @@ export async function gmiChat(options: GmiChatOptions): Promise<string> {
     options.model ||
     process.env.GMI_MODEL ||
     process.env.HIREALPHA_MODEL ||
-    'deepseek-ai/DeepSeek-V4-Flash-0731'
+    'Qwen/Qwen3.8-Flash'
 
   const url = `${baseUrl}/chat/completions`
   const signal = AbortSignal.timeout(options.timeoutMs ?? 30_000)
@@ -51,8 +51,10 @@ export async function gmiChat(options: GmiChatOptions): Promise<string> {
     const body: Record<string, unknown> = {
       model,
       temperature: options.temperature ?? 0.7,
-      max_tokens: options.maxTokens ?? 280,
       messages: options.messages,
+    }
+    if (options.maxTokens) {
+      body.max_tokens = options.maxTokens
     }
     if (reasoningEffort && reasoningEffort !== 'omit') {
       body.reasoning_effort = reasoningEffort

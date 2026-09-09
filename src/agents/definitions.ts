@@ -37,7 +37,7 @@ export const ALPHA: AgentDefinition = {
   phoneNumber: '+14155951440',
   phoneDisplay: '(415) 595-1440',
   temperature: 0.9,
-  maxTokens: 600,
+  maxTokens: 4096,
   behavior: {
     tone: 'Warm, emotionally literate, lightly funny, proactive, never clingy.',
     rules: [
@@ -124,7 +124,7 @@ export const ALPHA_COWORKER: AgentDefinition = {
   phoneNumber: '+16282647648',
   phoneDisplay: '(628) 264-7648',
   temperature: 0.4,
-  maxTokens: 600,
+  maxTokens: 4096,
   behavior: {
     tone: 'Crisp, competent, calm under deadline. Teammate energy.',
     rules: [
@@ -215,7 +215,7 @@ export const ALPHA_COFOUNDER: AgentDefinition = {
   phoneNumber: '+14156035536',
   phoneDisplay: '(415) 603-5536',
   temperature: 0.65,
-  maxTokens: 600,
+  maxTokens: 4096,
   behavior: {
     tone: 'Blunt, loyal, high-signal. Founder peer, not cheerleader.',
     rules: [

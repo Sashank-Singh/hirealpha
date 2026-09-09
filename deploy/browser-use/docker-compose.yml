@@ -42,8 +42,9 @@ services:
 
     environment:
       # ── LLM providers ──────────────────────────────────────────────────────
-      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
-      - OPENAI_ENDPOINT=${OPENAI_ENDPOINT:-https://api.openai.com/v1}
+      - GMI_API_KEY=${GMI_API_KEY:-}
+      - OPENAI_API_KEY=${GMI_API_KEY:-${OPENAI_API_KEY:-}}
+      - OPENAI_ENDPOINT=${GMI_ENDPOINT:-${OPENAI_ENDPOINT:-https://api.gmi-serving.com/v1}}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
       - ANTHROPIC_ENDPOINT=${ANTHROPIC_ENDPOINT:-https://api.anthropic.com}
       - GOOGLE_API_KEY=${GOOGLE_API_KEY:-}

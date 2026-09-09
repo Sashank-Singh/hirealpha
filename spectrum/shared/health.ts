@@ -86,9 +86,14 @@ export function healthHandler(
 }
 
 export function startHealthServer(label: string, opts?: Parameters<typeof healthHandler>[1]): void {
-  const port = Number(process.env.HEALTH_PORT ?? 3000)
-  Bun.serve({ port, fetch: healthHandler(label, opts) })
-  console.log(`[${label}] health on :${port} (/healthz)`)
+  const defaultPort = label === 'coworker' ? 3002 : label === 'cofounder' ? 3003 : 3001
+  const port = Number(process.env.HEALTH_PORT ?? defaultPort)
+  try {
+    Bun.serve({ port, fetch: healthHandler(label, opts) })
+    console.log(`[${label}] health on :${port} (/healthz)`)
+  } catch (err: any) {
+    console.warn(`[${label}] health server could not listen on :${port} (${err.message}) - continuing bot lifecycle`)
+  }
 }
 
 function apiBase() {

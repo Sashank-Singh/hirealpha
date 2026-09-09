@@ -4318,180 +4318,252 @@ html[data-mini-theme='light'] .hA-screen .spend-donut-key-val { color: #1a1917; 
    ========================================================================== */
 
 /* Brief title / date strips */
-html[data-mini-theme='light'] .brief-kicker { color: #0f7a68; }
-html[data-mini-theme='light'] .brief-title { color: #1a1917; }
-html[data-mini-theme='light'] .brief-date { color: var(--muted-fg); }
-html[data-mini-theme='light'] .brief-sub { color: var(--muted-fg); }
-html[data-mini-theme='light'] .brief-refreshed { color: var(--muted-fg); }
+html[data-mini-theme='light'] .brief-kicker { color: var(--muted-fg, #6b7280); }
+html[data-mini-theme='light'] .brief-title { color: #111827; }
+html[data-mini-theme='light'] .brief-date { color: var(--muted-fg, #6b7280); }
+html[data-mini-theme='light'] .brief-sub { color: var(--muted-fg, #6b7280); }
+html[data-mini-theme='light'] .brief-refreshed { color: var(--muted-fg, #6b7280); }
 
 /* Refresh button */
 html[data-mini-theme='light'] .brief-refresh {
-  background: rgba(26, 25, 23, 0.06);
-  border-color: rgba(26, 25, 23, 0.12);
-  color: var(--muted-fg);
+  background: rgba(0, 0, 0, 0.04);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  color: #111827;
 }
-html[data-mini-theme='light'] .brief-refresh:hover { background: rgba(26, 25, 23, 0.1); color: #1a1917; }
+html[data-mini-theme='light'] .brief-refresh:hover { background: rgba(0, 0, 0, 0.08); color: #111827; }
 
-/* Glass block containers */
+/* Pro minimalist block containers */
 html[data-mini-theme='light'] .brief-block {
   background: #ffffff;
-  border-color: rgba(26, 25, 23, 0.1);
-  box-shadow: 0 2px 8px rgb(26 25 23 / 0.05);
+  border-color: rgba(0, 0, 0, 0.07);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
 }
+html[data-mini-theme='light'] .brief-block:hover {
+  border-color: rgba(0, 0, 0, 0.12);
+}
 
-/* Fact pills */
+/* Fact strips */
+html[data-mini-theme='light'] .brief-facts {
+  border-bottom-color: rgba(0, 0, 0, 0.06);
+}
 html[data-mini-theme='light'] .brief-fact {
-  color: #1a1917;
-  background: #ffffff;
-  border-color: rgba(26, 25, 23, 0.14);
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
+  color: #4b5563;
+  background: transparent;
+  border: none;
 }
-html[data-mini-theme='light'] .brief-fact:hover {
-  border-color: #0f7a68;
-  background: rgba(15, 122, 104, 0.06);
+html[data-mini-theme='light'] .brief-fact-dot {
+  background: rgba(0, 0, 0, 0.15);
+}
+html[data-mini-theme='light'] .brief-fact--link:hover .brief-fact-text {
+  color: #111827;
 }
 
-/* Section label */
-html[data-mini-theme='light'] .brief-label { color: var(--muted-fg); }
-
-/* Count pill */
+/* Section label & count pills */
+html[data-mini-theme='light'] .brief-label { color: #111827; }
 html[data-mini-theme='light'] .brief-count-pill {
-  color: #0f7a68;
-  background: rgba(15, 122, 104, 0.1);
-  border-color: rgba(15, 122, 104, 0.25);
+  color: #4b5563;
+  background: rgba(0, 0, 0, 0.04);
+  border-color: rgba(0, 0, 0, 0.08);
 }
 
 /* Day timeline rows */
 html[data-mini-theme='light'] .brief-day li {
-  border-bottom-color: rgba(26, 25, 23, 0.08);
+  border-bottom-color: rgba(0, 0, 0, 0.05);
 }
-html[data-mini-theme='light'] .brief-day-time { color: #0f7a68; }
-html[data-mini-theme='light'] .brief-day-name { color: #1a1917; }
-html[data-mini-theme='light'] .brief-day-kind { color: var(--muted-fg); }
+html[data-mini-theme='light'] .brief-day-time { color: #6b7280; }
+html[data-mini-theme='light'] .brief-day-name { color: #111827; }
+html[data-mini-theme='light'] .brief-day-kind { color: #6b7280; }
 html[data-mini-theme='light'] .brief-day--next {
-  background: rgba(15, 122, 104, 0.06);
-  border-color: rgba(15, 122, 104, 0.22) !important;
+  background: rgba(0, 0, 0, 0.03);
+  border-left: none !important;
 }
-html[data-mini-theme='light'] .brief-empty-note { color: var(--muted-fg); }
+html[data-mini-theme='light'] .brief-empty-note { color: #6b7280; }
 
-/* Needs-you rows */
+/* Needs reply / tasks rows */
 html[data-mini-theme='light'] .brief-ny-row {
   background: #ffffff;
-  border-color: rgba(26, 25, 23, 0.1);
+  border-color: rgba(0, 0, 0, 0.06);
 }
 html[data-mini-theme='light'] .brief-ny-row:hover {
-  border-color: rgba(15, 122, 104, 0.3);
-  background: rgba(15, 122, 104, 0.04);
+  border-color: rgba(0, 0, 0, 0.14);
+  background: #ffffff;
 }
-html[data-mini-theme='light'] .brief-ask-from { color: #0f7a68; }
-html[data-mini-theme='light'] .brief-ask-label { color: #1a1917; }
-html[data-mini-theme='light'] .brief-ask-snip { color: var(--muted-fg); }
+html[data-mini-theme='light'] .brief-ask-from { color: #6b7280; }
+html[data-mini-theme='light'] .brief-ask-label { color: #111827; }
+html[data-mini-theme='light'] .brief-ask-snip { color: #6b7280; }
 html[data-mini-theme='light'] .brief-ny-chip {
-  color: #0f7a68;
-  background: rgba(15, 122, 104, 0.1);
-  border-color: rgba(15, 122, 104, 0.2);
+  color: #6b7280;
+  background: none;
+  border: none;
 }
 html[data-mini-theme='light'] .brief-ask {
   background: #ffffff;
-  border-color: rgba(26, 25, 23, 0.1);
+  border-color: rgba(0, 0, 0, 0.06);
 }
 
 /* Triage buttons */
 html[data-mini-theme='light'] .brief-tap {
-  border-color: rgba(26, 25, 23, 0.16);
-  background: rgba(26, 25, 23, 0.04);
-  color: #1a1917;
+  border-color: rgba(0, 0, 0, 0.12);
+  background: rgba(0, 0, 0, 0.03);
+  color: #111827;
 }
 html[data-mini-theme='light'] .brief-tap:hover {
-  background: rgba(26, 25, 23, 0.08);
-  border-color: rgba(26, 25, 23, 0.22);
+  background: rgba(0, 0, 0, 0.07);
+  border-color: rgba(0, 0, 0, 0.2);
 }
-html[data-mini-theme='light'] .brief-tap--skip { color: var(--muted-fg); }
+html[data-mini-theme='light'] .brief-tap--skip { color: #6b7280; }
 html[data-mini-theme='light'] .brief-tap--done {
-  background: #0f7a68;
-  border-color: #0f7a68;
+  background: #111827;
+  border-color: #111827;
   color: #ffffff;
 }
+html[data-mini-theme='light'] .brief-tap--done:hover {
+  background: #000000;
+  border-color: #000000;
+}
 
-/* Promise loop list */
+/* Loop item */
 html[data-mini-theme='light'] .brief-loop-item {
-  border-bottom-color: rgba(26, 25, 23, 0.08);
-  color: #1a1917;
+  border-bottom-color: rgba(0, 0, 0, 0.05);
+  color: #111827;
 }
 html[data-mini-theme='light'] .brief-loop-dot {
-  background: #0f7a68;
-  box-shadow: 0 0 6px rgba(15, 122, 104, 0.4);
+  color: #9ca3af;
 }
 
 /* Mail piles (collapsible inbox trays) */
 html[data-mini-theme='light'] .brief-pile {
   background: #ffffff;
-  border-color: rgba(26, 25, 23, 0.1);
+  border-color: rgba(0, 0, 0, 0.06);
 }
-html[data-mini-theme='light'] .brief-pile:hover { border-color: rgba(26, 25, 23, 0.18); }
-html[data-mini-theme='light'] .brief-pile-head { color: #1a1917; }
+html[data-mini-theme='light'] .brief-pile:hover { border-color: rgba(0, 0, 0, 0.12); }
+html[data-mini-theme='light'] .brief-pile-head { color: #111827; }
 html[data-mini-theme='light'] .brief-pile-tag {
-  color: var(--muted-fg);
-  background: rgba(26, 25, 23, 0.05);
-  border-color: rgba(26, 25, 23, 0.14);
+  color: #4b5563;
+  background: rgba(0, 0, 0, 0.04);
+  border-color: rgba(0, 0, 0, 0.08);
 }
-html[data-mini-theme='light'] .brief-pile-caret { color: var(--muted-fg); }
+html[data-mini-theme='light'] .brief-pile-caret { color: #6b7280; }
 html[data-mini-theme='light'] .brief-pile-items {
-  border-top-color: rgba(26, 25, 23, 0.08);
+  border-top-color: rgba(0, 0, 0, 0.05);
 }
 html[data-mini-theme='light'] .brief-pile-items .brief-pile-row + .brief-pile-row {
-  border-top-color: rgba(26, 25, 23, 0.08);
+  border-top-color: rgba(0, 0, 0, 0.05);
 }
 html[data-mini-theme='light'] .brief-pile-row {
-  border-color: rgba(26, 25, 23, 0.08);
+  border-color: rgba(0, 0, 0, 0.05);
+}
+
+/* Evening scorecard & habits */
+html[data-mini-theme='light'] .brief-score {
+  background: #ffffff;
+  border-color: rgba(0, 0, 0, 0.06);
+}
+html[data-mini-theme='light'] .brief-score-points {
+  color: #111827;
+}
+html[data-mini-theme='light'] .brief-score-verdict {
+  color: #6b7280;
+}
+html[data-mini-theme='light'] .brief-closed-row {
+  border-bottom-color: rgba(0, 0, 0, 0.05);
+}
+html[data-mini-theme='light'] .brief-closed-label {
+  color: #111827;
+}
+html[data-mini-theme='light'] .brief-closed-mark {
+  color: #6b7280;
+}
+html[data-mini-theme='light'] .brief-closed--done .brief-closed-mark {
+  color: #059669;
+}
+html[data-mini-theme='light'] .brief-closed-detail {
+  color: #6b7280;
+}
+html[data-mini-theme='light'] .brief-habit {
+  background: rgba(0, 0, 0, 0.03);
+  border-color: rgba(0, 0, 0, 0.08);
+  color: #4b5563;
+}
+html[data-mini-theme='light'] .brief-habit--done {
+  background: #111827;
+  border-color: #111827;
+  color: #ffffff;
 }
 
 /* Due-a-ping list */
 html[data-mini-theme='light'] .brief-due li {
-  border-bottom-color: rgba(26, 25, 23, 0.08);
+  border-bottom-color: rgba(0, 0, 0, 0.05);
 }
-html[data-mini-theme='light'] .brief-due-link { color: #1a1917; }
-html[data-mini-theme='light'] .brief-due-link span:last-child { color: var(--muted-fg); }
+html[data-mini-theme='light'] .brief-due-link { color: #111827; }
+html[data-mini-theme='light'] .brief-due-link span:last-child { color: #6b7280; }
 html[data-mini-theme='light'] .brief-sms {
-  color: #0f7a68;
-  background: rgba(15, 122, 104, 0.08);
-  border-color: rgba(15, 122, 104, 0.22);
+  color: #111827;
+  background: rgba(0, 0, 0, 0.04);
+  border-color: rgba(0, 0, 0, 0.1);
 }
 
 /* Attention email card */
 html[data-mini-theme='light'] .brief-att {
-  border-color: rgba(15, 122, 104, 0.3);
-  color: #1a1917;
+  border-color: rgba(0, 0, 0, 0.1);
+  color: #111827;
 }
-html[data-mini-theme='light'] .brief-att-kicker { color: var(--muted-fg); }
-html[data-mini-theme='light'] .brief-att-label { color: #1a1917; }
+html[data-mini-theme='light'] .brief-att-kicker { color: #6b7280; }
+html[data-mini-theme='light'] .brief-att-label { color: #111827; }
 html[data-mini-theme='light'] .brief-att-why {
-  color: #0f7a68;
-  background: rgba(15, 122, 104, 0.1);
+  color: #4b5563;
+  background: rgba(0, 0, 0, 0.04);
 }
-html[data-mini-theme='light'] .brief-att-snip { color: var(--muted-fg); }
+html[data-mini-theme='light'] .brief-att-snip { color: #6b7280; }
 
 /* Next-meetings list */
 html[data-mini-theme='light'] .brief-next-row {
-  border-color: rgba(26, 25, 23, 0.12);
+  border-color: rgba(0, 0, 0, 0.06);
   background: #ffffff;
 }
 html[data-mini-theme='light'] .brief-next-row--soon {
-  border-color: rgba(15, 122, 104, 0.35);
-  background: rgba(15, 122, 104, 0.06);
+  border-color: rgba(0, 0, 0, 0.14);
+  background: rgba(0, 0, 0, 0.02);
 }
-html[data-mini-theme='light'] .brief-next-time { color: #1a1917; }
+html[data-mini-theme='light'] .brief-next-time { color: #111827; }
 
 /* Brief loading card */
 html[data-mini-theme='light'] .brief-loading {
   background: #ffffff;
-  border-color: rgba(15, 122, 104, 0.2);
+  border-color: rgba(0, 0, 0, 0.08);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
 }
-html[data-mini-theme='light'] .brief-loading::after {
-  border-color: rgba(15, 122, 104, 0.15);
+html[data-mini-theme='light'] .brief-loading__pulse {
+  background: #111827;
+}
+html[data-mini-theme='light'] .brief-loading__title {
+  color: #111827;
+}
+html[data-mini-theme='light'] .brief-loading__track {
+  background: rgba(0, 0, 0, 0.06);
+}
+html[data-mini-theme='light'] .brief-activity-mark {
+  border-color: rgba(0, 0, 0, 0.15);
+  color: #111827;
+}
+html[data-mini-theme='light'] .brief-activity-dot {
+  background: #111827;
+}
+html[data-mini-theme='light'] .brief-activity-step.is-current {
+  color: #111827;
+}
+html[data-mini-theme='light'] .brief-activity-step.is-current .brief-activity-mark {
+  border-color: rgba(0, 0, 0, 0.35);
+  background: rgba(0, 0, 0, 0.05);
+}
+html[data-mini-theme='light'] .brief-activity-step.is-done {
+  color: #6b7280;
+}
+html[data-mini-theme='light'] .brief-activity-step.is-done .brief-activity-mark {
+  border-color: rgba(0, 0, 0, 0.18);
+  color: #111827;
 }
 
 /* Brief prep sheet */
@@ -4502,15 +4574,15 @@ html[data-mini-theme='light'] .brief-prep-card {
 
 /* Brief carry / ny cards */
 html[data-mini-theme='light'] .brief-carry-row {
-  border-color: rgba(26, 25, 23, 0.1);
+  border-color: rgba(0, 0, 0, 0.06);
   background: #ffffff;
 }
-html[data-mini-theme='light'] .brief-carry-title { color: #1a1917; }
-html[data-mini-theme='light'] .brief-carry-due { color: var(--muted-fg); }
+html[data-mini-theme='light'] .brief-carry-title { color: #111827; }
+html[data-mini-theme='light'] .brief-carry-due { color: #6b7280; }
 
 /* Mail tally */
-html[data-mini-theme='light'] .brief-mail-tally { color: var(--muted-fg); }
-html[data-mini-theme='light'] .brief-mail-kind { color: var(--muted-fg); }
+html[data-mini-theme='light'] .brief-mail-tally { color: #6b7280; }
+html[data-mini-theme='light'] .brief-mail-kind { color: #6b7280; }
 
 /* ==========================================================================
    Light mode — hB (Editorial Brutalist) home skin
@@ -5797,33 +5869,28 @@ html[data-mini-theme='light'] .reply-compose-msg--warn { color: #92400e; }
   display: flex;
   flex-direction: column;
   gap: 0;
-  border-left: 2px solid color-mix(in srgb, var(--mini-accent, #2a6f7a) 35%, var(--border));
-  margin-left: 6px;
+  border-left: none;
 }
 .brief-day li {
-  display: grid;
-  grid-template-columns: 72px 1fr;
-  column-gap: 12px;
-  row-gap: 2px;
-  padding: 0 0 16px 14px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
   position: relative;
 }
-.brief-day li:last-child { padding-bottom: 0; }
+.brief-day li:last-child { padding-bottom: 0; border-bottom: none; }
 .brief-day li::before {
-  content: '';
-  position: absolute;
-  left: -5px;
-  top: 6px;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--mini-accent, #2a6f7a);
+  content: none;
+  display: none;
 }
 .brief-day-time {
-  font-size: 12px;
-  font-weight: 700;
+  font-size: 12.5px;
+  font-weight: 600;
   color: var(--muted-fg);
-  padding-top: 1px;
+  font-variant-numeric: tabular-nums;
+  min-width: 72px;
+  flex-shrink: 0;
 }
 .brief-day-name { font-size: 16px; font-weight: 700; }
 .brief-day-kind {
@@ -6257,102 +6324,108 @@ a.brief-fact { cursor: pointer; }
 .brief-loading {
   position: relative;
   overflow: hidden;
-  padding: 18px;
-  border: 1px solid color-mix(in srgb, var(--mini-accent, #2a6f7a) 28%, var(--border));
-  border-radius: 18px;
-  background:
-    radial-gradient(circle at 94% 8%, color-mix(in srgb, var(--mini-accent, #2a6f7a) 16%, transparent), transparent 34%),
-    color-mix(in srgb, var(--card, var(--bg)) 96%, var(--mini-accent, #2a6f7a));
+  padding: 24px 20px;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.02);
   display: flex;
   flex-direction: column;
-  gap: 14px;
-}
-.brief-loading::after {
-  content: '';
-  position: absolute;
-  width: 96px;
-  height: 96px;
-  right: -54px;
-  bottom: -62px;
-  border: 1px solid color-mix(in srgb, var(--mini-accent, #2a6f7a) 25%, transparent);
-  border-radius: 50%;
+  gap: 16px;
 }
 .brief-loading__top {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
 }
-.brief-loading__kicker,
-.brief-loading__count {
-  font-size: 10px;
-  font-weight: 800;
-  letter-spacing: 0.09em;
+.brief-loading__kicker {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
+  color: var(--muted-fg, #8e8e93);
 }
-.brief-loading__kicker { color: var(--mini-accent, #2a6f7a); }
-.brief-loading__count { color: var(--muted-fg); }
+.brief-loading__pulse {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--fg, #f4f4f6);
+  opacity: 0.6;
+  animation: brief-pulse-glow 1.6s ease-in-out infinite;
+}
+@keyframes brief-pulse-glow {
+  0%, 100% { opacity: 0.2; transform: scale(0.9); }
+  50% { opacity: 0.85; transform: scale(1.15); }
+}
 .brief-loading__title {
-  margin: -4px 0 0;
-  max-width: 260px;
-  font-size: 21px;
-  line-height: 1.1;
-  letter-spacing: -0.035em;
+  margin: 0;
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--fg, #f4f4f6);
+  line-height: 1.3;
 }
-.brief-loading__ellipsis { display: inline-block; animation: brief-loading-breathe 1.2s ease-in-out infinite; }
 .brief-loading__track {
-  height: 3px;
+  height: 2px;
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 999px;
   overflow: hidden;
-  border-radius: 99px;
-  background: color-mix(in srgb, var(--mini-accent, #2a6f7a) 12%, var(--border));
 }
-.brief-loading__track span {
+.brief-loading__bar {
   display: block;
   height: 100%;
-  border-radius: inherit;
-  background: var(--mini-accent, #2a6f7a);
-  transition: width 0.45s ease;
+  background: var(--fg, #f4f4f6);
+  border-radius: 999px;
+  transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1);
 }
-.brief-loading__aside {
-  margin: -2px 0 0;
-  color: var(--muted-fg);
-  font-size: 12px;
-  line-height: 1.4;
-}
-/* Live "assistant at work" list shown while a brief/prep is gathering data. The
- * active step marches down the list, ticks a check, then loops — pending rows
- * are muted, the active one wears the accent, finished ones go subtle. */
 .brief-activity {
-  margin: 0;
-  padding: 2px 0;
+  margin: 4px 0 0;
+  padding: 0;
   list-style: none;
   display: flex;
   flex-direction: column;
-  gap: 7px;
+  gap: 10px;
 }
 .brief-activity-step {
   display: flex;
   align-items: center;
-  gap: 9px;
-  min-height: 18px;
-  font-size: 14px;
-  line-height: 1.3;
-  color: var(--muted-fg);
+  gap: 12px;
+  font-size: 13.5px;
+  color: var(--muted-fg, #8e8e93);
   transition: color 0.25s ease, opacity 0.25s ease;
 }
 .brief-activity-mark {
   flex: none;
   display: grid;
   place-items: center;
-  width: 16px;
-  height: 16px;
+  width: 18px;
+  height: 18px;
   border-radius: 50%;
-  border: 1.5px solid var(--border);
-  color: transparent;
-  font-size: 10px;
-  font-weight: 800;
-  line-height: 1;
-  transition: background 0.25s ease, border-color 0.25s ease, color 0.25s ease;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: #fff;
+  transition: all 0.25s ease;
+}
+.brief-activity-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #fff;
+  animation: brief-activity-pulse 0.9s ease-in-out infinite;
+}
+.brief-activity-step.is-current {
+  color: #fff;
+  font-weight: 500;
+}
+.brief-activity-step.is-current .brief-activity-mark {
+  border-color: rgba(255, 255, 255, 0.35);
+  background: rgba(255, 255, 255, 0.08);
+}
+.brief-activity-step.is-done {
+  color: var(--muted-fg, #8e8e93);
+  opacity: 0.85;
+}
+.brief-activity-step.is-done .brief-activity-mark {
+  border-color: rgba(255, 255, 255, 0.2);
+  color: #fff;
 }
 .brief-activity-dot {
   width: 6px;
@@ -6865,13 +6938,15 @@ a.brief-fact { cursor: pointer; }
 @media (max-width: 430px) {
   .mini { padding-left: 12px; padding-right: 12px; }
   .mini.hA-screen .mini__head { padding-inline: 12px; gap: 8px; }
+  .mini .mini__head-actions .mini__back { padding: 6px 8px; font-size: 11px; }
   .mini.hA-screen .mini__card { max-width: none; }
   /* Vitals stay 2×2 at every width — dashboard contract. Cells shrink:
    * tighter padding, smaller type, wrapped labels. */
   .mini .hA-vitals { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
-  .mini .hA-vital { padding: 10px 10px 9px; min-height: 88px; border-radius: 15px; }
-  .mini .hA-vital-label { font-size: 8.5px; letter-spacing: 0.1em; gap: 4px; }
-  .mini .hA-vital-val { font-size: 17px; }
+  .mini .hA-vital { padding: 12px 12px 11px; min-height: 96px; border-radius: 17px; }
+  .mini .hA-vital-label { font-size: 10px; letter-spacing: 0.12em; gap: 5px; }
+  .mini .hA-vital-val { font-size: 20px; }
+  .mini .hA-vital-foot { font-size: 11px; }
   /* Nowrap is a desktop luxury; below 430px text wraps so nothing runs
    * past the right edge (Settings chip, Open workout, spend legend). */
   .mini.hA-screen * { white-space: normal; }
@@ -6899,12 +6974,18 @@ a.brief-fact { cursor: pointer; }
 /* Narrow: stack the spend donut above its legend so labels aren't crushed. */
 @media (max-width: 430px) {
   /* One line even on small screens: shrink the ring, compact the legend. */
-  .mini .hA-screen .spend-donut { flex-direction: row !important; align-items: center !important; gap: 10px !important; }
-  .mini .hA-screen .spend-donut-ring { width: 76px; height: 76px; flex-shrink: 0; }
-  .mini .hA-screen .spend-donut-mid b { font-size: 15px; }
-  .mini .hA-screen .spend-donut-mid span { font-size: 8px; letter-spacing: 0.06em; }
+  .mini .hA-screen .spend-donut { flex-direction: row !important; align-items: center !important; gap: 14px !important; padding: 16px 14px; }
+  .mini .hA-screen .spend-donut-ring { width: 96px; height: 96px; flex-shrink: 0; }
+  .mini .hA-screen .spend-donut-mid b { font-size: 18px; }
+  .mini .hA-screen .spend-donut-mid span { font-size: 8.5px; letter-spacing: 0.06em; }
   .mini .hA-screen .spend-donut-key { width: auto; flex: 1 1 0%; min-width: 0; }
-  .mini .hA-screen .spend-donut-key li { gap: 5px; font-size: 10.5px; padding: 2px 0; }
+  .mini .hA-screen .spend-donut-key li { gap: 6px; font-size: 11.5px; padding: 3px 0; }
   .mini .hA-screen .spend-donut-key .spend-donut-key-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .mini .spend-donut .spend-legend { width: 100%; }
+}
+
+@media (max-width: 330px) {
+  /* Chips alone can't fit next to the avatar — the back arrow already
+   * covers the Home destination, so it yields first. */
+  .mini .mini__head-actions .mini__back:first-child { display: none; }
 }

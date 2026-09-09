@@ -10267,12 +10267,74 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     '/api/waitlist', '/api/auth/google', '/api/auth/ticket', '/api/auth/register', '/api/auth/login',
     '/api/oauth/google/callback', '/api/billing/webhook', '/api/billing/checkout',
     '/api/assigned-phone', '/api/contact/alpha.vcf', '/api/connectors/status', '/api/status',
-    '/api/invites/redeem', '/api/wishlist',
+    '/api/invites/redeem', '/api/wishlist', '/api/payments/spend/approve',
   ])
   if (path === '/api/auth/logout' && req.method === 'POST') {
     const response = json({ ok: true })
     response.headers.set('Set-Cookie', 'hirealpha_session=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0')
     return response
+  }
+  // Live Computer Sessions: secured view for the user who initiated the session
+  if (path.startsWith('/api/computer/session/')) {
+    const sub = path.slice('/api/computer/session/'.length)
+    const isCancel = sub.endsWith('/cancel')
+    const jobId = sub.replace(/\/cancel$/, '').split('/')[0]
+    if (!jobId) return json({ error: 'Session ID required' }, 400)
+    if (!sql) return json({ error: 'Database unavailable' }, 503)
+
+    const { getBrowserJob, verifySessionViewToken } = await import('./browserJobs')
+    const job = await getBrowserJob(sql, jobId)
+    if (!job) return json({ error: 'Session not found' }, 404)
+
+    // Security check: either signed token query param/header, or logged in owner
+    const token = url.searchParams.get('token') || url.searchParams.get('t') || req.headers.get('x-session-token')
+    let isAuthorized = false
+
+    if (token && verifySessionViewToken(jobId, job.user_id, token)) {
+      isAuthorized = true
+    } else {
+      const cookie = (req.headers.get('cookie') || '').split(';').map((v) => v.trim()).find((v) => v.startsWith('hirealpha_session='))?.slice('hirealpha_session='.length)
+      const bearer = req.headers.get('authorization')?.replace(/^Bearer\s+/i, '')
+      const explicitSession = url.searchParams.get('s') || bearer || cookie
+      if (explicitSession) {
+        const ses = verifySessionToken(explicitSession)
+        if (ses) {
+          const user = await getUserByEmail(sql, ses.email)
+          if (user && user.id === job.user_id) {
+            isAuthorized = true
+          }
+        }
+      }
+    }
+
+    if (!isAuthorized) {
+      return json({ error: 'Unauthorized: Only the user who initiated this session can view it', code: 'forbidden' }, 403)
+    }
+
+    if (isCancel && req.method === 'POST') {
+      await sql`UPDATE hire_browser_jobs SET status = 'failed', error = 'Cancelled by user', finished_at = now() WHERE id = ${jobId} AND status IN ('pending', 'running')`
+      return json({ ok: true, cancelled: true })
+    }
+
+    const streamBase = process.env.BROWSER_USE_STREAM_URL || (process.env.BROWSER_USE_DOMAIN ? `https://${process.env.BROWSER_USE_DOMAIN}/vnc/` : 'https://browser.hirealpha.chat/vnc/')
+    const vncPassword = process.env.CHROME_VNC_PASSWORD || ''
+    const streamUrl = `${streamBase}?autoconnect=true&resize=scale&reconnect=true${vncPassword ? `&password=${encodeURIComponent(vncPassword)}` : ''}`
+
+    return json({
+      ok: true,
+      session: {
+        id: job.id,
+        status: job.status,
+        kind: job.kind,
+        url: job.url,
+        goal: job.goal,
+        attempts: job.attempts,
+        result: job.result,
+        error: job.error,
+        streamUrl,
+        steps: job.steps || [],
+      },
+    })
   }
   if (!path.startsWith('/api/') || publicPaths.has(path) || req.method === 'OPTIONS') {
     return handleAuthorizedHireApi(req, sql)
@@ -11726,7 +11788,7 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
       if (goal.length < 8) return json({ ok: false, error: 'Browser task needs a real goal.' }, 400)
       const phoneE164 = live.phone || ''
       const { requestBrowserApproval } = await import('./browserVault')
-      const { enqueueBrowserJob } = await import('./browserJobs')
+      const { enqueueBrowserJob, generateSessionViewToken } = await import('./browserJobs')
       const approval = await requestBrowserApproval(sql, {
         userId: live.userId!, persona: body.persona, portal,
         purpose: goal.slice(0, 200),
@@ -11737,7 +11799,17 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
         kind: 'task', url: portal, goal: goal.slice(0, 400),
         approvalId: approval.requestId,
       })
-      return json({ ok: true, id: jobId, kind: 'browser', requestId: approval.requestId, origin: approval.portal })
+      const viewToken = generateSessionViewToken(jobId, live.userId!)
+      const sessionUrl = `https://hirealpha.chat/computer/${jobId}?token=${viewToken}`
+      return json({
+        ok: true,
+        id: jobId,
+        kind: 'browser',
+        requestId: approval.requestId,
+        origin: approval.portal,
+        token: viewToken,
+        sessionUrl,
+      })
     }
     if (body.kind === 'purchase') {
       const item = String(body.title || body.subject || 'Item').slice(0, 140)
@@ -16291,21 +16363,23 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
     if (error) return error
     const weekStart = userMonday(user!)
     const weekWindow = weekWindowUtc(weekStart, user!.timezone || 'America/Los_Angeles')
-    const logs = await sql`
-      SELECT id, amount, category, description, spent_at AS "spentAt"
-      FROM hire_spending WHERE user_id = ${user!.id}
-      ORDER BY spent_at DESC LIMIT 40
-    `
-    const week = await sql`
-      SELECT category, coalesce(sum(amount), 0)::real AS total
-      FROM hire_spending
-      WHERE user_id = ${user!.id} AND spent_at >= ${weekWindow.start.toISOString()} AND spent_at < ${weekWindow.end.toISOString()}
-      GROUP BY category
-    `
-    const budgetRow = await sql`SELECT weekly_budget AS "weeklyBudget" FROM hire_spending_budget WHERE user_id = ${user!.id}`
+    const [logs, week, budgetRow] = await Promise.all([
+      sql`
+        SELECT id, amount, category, description, spent_at AS "spentAt"
+        FROM hire_spending WHERE user_id = ${user!.id}
+        ORDER BY spent_at DESC LIMIT 40
+      `,
+      sql`
+        SELECT category, coalesce(sum(amount), 0)::real AS total
+        FROM hire_spending
+        WHERE user_id = ${user!.id} AND spent_at >= ${weekWindow.start.toISOString()} AND spent_at < ${weekWindow.end.toISOString()}
+        GROUP BY category
+      `,
+      sql`SELECT weekly_budget AS "weeklyBudget" FROM hire_spending_budget WHERE user_id = ${user!.id}`,
+    ])
     const weeklyBudget = Number((budgetRow[0] as { weeklyBudget?: number })?.weeklyBudget || 400)
     const weekTotal = (week as Array<{ total: number }>).reduce((s, r) => s + Number(r.total), 0)
-    return json({ logs, byCategory: week, weekTotal, weeklyBudget, weekStart })
+    return jsonRevalidated(req, 15, { logs, byCategory: week, weekTotal, weeklyBudget, weekStart })
   }
 
   if (path === '/api/spending' && req.method === 'POST') {

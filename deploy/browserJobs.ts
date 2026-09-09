@@ -8,7 +8,7 @@
  * the agent driver) and posts the outcome back to an internal endpoint,
  * which re-arms the thread-result loop. Web container: zero Chromium.
  */
-import { randomUUID } from 'node:crypto'
+import { randomUUID, createHmac } from 'node:crypto'
 import type { SQL } from 'bun'
 import type { PortalStep, BrowserTaskKind } from './browserVault'
 
@@ -140,8 +140,35 @@ export async function finishBrowserJob(
 
 export async function getBrowserJob(sql: SQL, id: string, userId?: string): Promise<BrowserJobRow | null> {
   const rows = (await sql`
-    SELECT id, user_id AS "userId", persona, phone_e164 AS phone, kind, url, steps, goal, status, attempts, result, error
+    SELECT id, user_id, persona, phone_e164, kind, url, steps, goal, status, attempts, result, error, approval_id
     FROM hire_browser_jobs WHERE id = ${id} ${userId ? sql`AND user_id = ${userId}` : sql``} LIMIT 1
   `) as unknown as BrowserJobRow[]
   return rows[0] ?? null
 }
+
+const SESSION_VIEW_SECRET = process.env.SESSION_SECRET || process.env.HIREALPHA_VAULT_KEY || 'alpha-computer-view-secret'
+
+/**
+ * Creates a cryptographically signed view token for a browser job session.
+ * Used for 1-tap links in iMessage so the initiating user can view their computer
+ * session immediately without a separate login barrier.
+ */
+export function generateSessionViewToken(jobId: string, userId: string, ttlSeconds = 86400 * 7): string {
+  const expires = Math.floor(Date.now() / 1000) + ttlSeconds
+  const sig = createHmac('sha256', SESSION_VIEW_SECRET).update(`${jobId}:${userId}:${expires}`).digest('hex')
+  return `${expires}.${sig}`
+}
+
+/**
+ * Validates a signed view token against a job ID and its owner user ID.
+ */
+export function verifySessionViewToken(jobId: string, userId: string, token: string): boolean {
+  if (!token) return false
+  const [expStr, sig] = token.split('.')
+  if (!expStr || !sig) return false
+  const expires = Number(expStr)
+  if (!Number.isFinite(expires) || Math.floor(Date.now() / 1000) > expires) return false
+  const expected = createHmac('sha256', SESSION_VIEW_SECRET).update(`${jobId}:${userId}:${expires}`).digest('hex')
+  return sig === expected
+}
+

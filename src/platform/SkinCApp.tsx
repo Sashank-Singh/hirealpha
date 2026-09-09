@@ -157,6 +157,36 @@ export function SkinCApp({ auth }: { auth: FeatureAuth }) {
   }, [load])
   useRefreshOnFocus(load)
 
+  useEffect(() => {
+    const handleSpendSync = (e: Event) => {
+      const custom = e as CustomEvent<{
+        weekTotal: number
+        weeklyBudget: number
+        byCategory: Array<{ category: string; total: number }>
+      }>
+      if (custom.detail) {
+        setSnap((prev) => {
+          if (!prev) return prev
+          return {
+            ...prev,
+            window: {
+              ...prev.window,
+              spend: custom.detail.weekTotal ?? prev.window?.spend,
+              weeklyBudget: custom.detail.weeklyBudget ?? prev.window?.weeklyBudget,
+            },
+            spendByCategory:
+              custom.detail.byCategory?.map((c) => ({
+                category: c.category,
+                amount: c.total,
+              })) ?? prev.spendByCategory,
+          }
+        })
+      }
+    }
+    window.addEventListener('spend:sync', handleSpendSync)
+    return () => window.removeEventListener('spend:sync', handleSpendSync)
+  }, [])
+
   /* The page painted before the calendar and inbox came back — the server says
    * so rather than making everyone wait on a hop into Google. Come back for them
    * quietly, a couple of times at most, and leave the screen as it is if they

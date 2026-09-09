@@ -23,11 +23,11 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-(cd "$ROOT/spectrum/alpha" && bun start) >"$ROOT/spectrum/logs/alpha.log" 2>&1 &
+(cd "$ROOT/spectrum/alpha" && bun --watch src/index.ts) >"$ROOT/spectrum/logs/alpha.log" 2>&1 &
 pids+=($!)
-(cd "$ROOT/spectrum/alpha-coworker" && bun start) >"$ROOT/spectrum/logs/alpha-coworker.log" 2>&1 &
+(cd "$ROOT/spectrum/alpha-coworker" && bun --watch src/index.ts) >"$ROOT/spectrum/logs/alpha-coworker.log" 2>&1 &
 pids+=($!)
-(cd "$ROOT/spectrum/alpha-cofounder" && bun start) >"$ROOT/spectrum/logs/alpha-cofounder.log" 2>&1 &
+(cd "$ROOT/spectrum/alpha-cofounder" && bun --watch src/index.ts) >"$ROOT/spectrum/logs/alpha-cofounder.log" 2>&1 &
 pids+=($!)
 
 echo "Started Friend / Coworker / Cofounder (pids: ${pids[*]})"

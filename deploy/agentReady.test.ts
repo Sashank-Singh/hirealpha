@@ -16,6 +16,8 @@ describe('agent readiness routing', () => {
     expect(isKnownClientRoute('/app')).toBe(true)
     expect(isKnownClientRoute('/app/mini/friend/home')).toBe(true)
     expect(isKnownClientRoute('/app/login')).toBe(true)
+    expect(isKnownClientRoute('/computer')).toBe(true)
+    expect(isKnownClientRoute('/computer/abc-123')).toBe(true)
     // Unknown paths must 404, not soft-404 with the shell.
     expect(isKnownClientRoute('/some-path-that-does-not-exist')).toBe(false)
     expect(isKnownClientRoute('/wp-admin')).toBe(false)

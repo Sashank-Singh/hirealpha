@@ -15,7 +15,12 @@ export const SITE_URL = 'https://hirealpha.chat'
  */
 export function isKnownClientRoute(pathname: string): boolean {
   if (pathname === '/') return true
-  return pathname === '/app' || pathname.startsWith('/app/')
+  return (
+    pathname === '/app' ||
+    pathname.startsWith('/app/') ||
+    pathname === '/computer' ||
+    pathname.startsWith('/computer/')
+  )
 }
 
 /** Clean URL → static HTML file (relative to the dist root). */

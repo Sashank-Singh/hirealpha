@@ -67,6 +67,7 @@ const RequireAuth = lazy(() => {
   return import('./platform/PlatformShell').then(m => ({ default: m.RequireAuth }))
 })
 const SettingsSheet = lazy(() => import('./platform/SettingsSheet').then((m) => ({ default: m.SettingsSheet })))
+const ComputerSessionView = lazy(() => import('./platform/ComputerSessionView').then((m) => ({ default: m.ComputerSessionView })))
 
 /* Old deep-link paths that still come in from texts and chat links —
  * they all land on /app which renders SettingsSheet, preserving query params. */
@@ -85,6 +86,8 @@ export default function App() {
             <Route path="/app/login" element={<LoginPage />} />
             <Route path="/privacy" element={<TrustPage kind="privacy" />} />
             <Route path="/terms" element={<TrustPage kind="terms" />} />
+            <Route path="/computer/:sessionId" element={<ComputerSessionView />} />
+            <Route path="/computer" element={<ComputerSessionView />} />
             <Route path="/app/mini/:persona/:kind" element={<MiniAppPage />} />
             <Route path="/app" element={<RequireAuth />}>
               {/* SettingsSheet is the whole authenticated app */}
