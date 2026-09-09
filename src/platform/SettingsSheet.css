@@ -230,17 +230,25 @@
   }
 }
 
-/* ─── Sections: one surface, rules between groups ──────────────── */
+/* ─── Sections: independent cards with a clear reading rhythm ─── */
 .ss {
   margin: 20px 20px 0;
-  background: #1c1c1e;
-  border: 1px solid #3a3a3a;
-  border-radius: 16px;
+  display: grid;
+  gap: 14px;
+  background: transparent;
+}
+
+.ss-sec {
+  min-width: 0;
   overflow: hidden;
+  background: #1c1c1e;
+  border: 1px solid #38383c;
+  border-radius: 16px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.14);
 }
 
 .ss-sec + .ss-sec {
-  border-top: 1px solid #333336;
+  border-top: 1px solid #38383c;
 }
 
 .ss-sec-head {
@@ -248,7 +256,7 @@
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 16px 20px 12px;
+  padding: 18px 20px 14px;
 }
 
 .ss-title {
@@ -324,6 +332,40 @@
   color: #d9ff68;
 }
 
+.ss-provider-action {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  padding: 0 11px;
+  border: 1px solid rgba(217, 255, 104, 0.28);
+  border-radius: 8px;
+  color: #d9ff68;
+  font-size: 12px;
+  font-weight: 650;
+  text-decoration: none;
+  transition: background 180ms ease, border-color 180ms ease, transform 180ms ease;
+}
+
+.ss-provider-action:hover {
+  background: rgba(217, 255, 104, 0.08);
+  border-color: rgba(217, 255, 104, 0.5);
+}
+
+.ss-provider-action:active {
+  transform: translateY(1px);
+}
+
+.ss-provider-action:focus-visible,
+.ss-site-preset:focus-visible {
+  outline: 2px solid #d9ff68;
+  outline-offset: 2px;
+}
+
+.ss-provider-action.is-muted {
+  border-color: #464940;
+  color: #b8bbb0;
+}
+
 .ss-security-note {
   margin: 0 0 12px;
   padding: 10px 12px;
@@ -334,6 +376,83 @@
   line-height: 1.45;
 }
 
+.ss-success-note {
+  margin: 0 20px 14px;
+  padding: 10px 12px;
+  border-left: 2px solid #d9ff68;
+  background: #25271f;
+  color: #dce7c1;
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
+.ss-handoff-intro {
+  display: grid;
+  gap: 5px;
+  padding-top: 10px;
+}
+
+.ss-handoff-intro strong {
+  color: #f4f4f4;
+  font-size: 15px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+
+.ss-handoff-intro p {
+  max-width: 62ch;
+  margin: 0;
+  color: #9d9da5;
+  font-size: 13px;
+  line-height: 1.5;
+  text-wrap: pretty;
+}
+
+.ss-handoff-eyebrow {
+  color: #d9ff68;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.ss-site-presets {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.ss-site-presets > span {
+  margin-right: 2px;
+  color: #8f8f97;
+  font-size: 11px;
+}
+
+.ss-site-preset {
+  min-height: 28px;
+  padding: 0 9px;
+  border: 1px solid #383a34;
+  border-radius: 7px;
+  background: #22231f;
+  color: #c9cbc3;
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 550;
+  cursor: pointer;
+  transition: background 180ms ease, border-color 180ms ease, color 180ms ease, transform 180ms ease;
+}
+
+.ss-site-preset:hover {
+  border-color: #505348;
+  background: #292b25;
+  color: #f4f4f4;
+}
+
+.ss-site-preset:active {
+  transform: translateY(1px);
+}
+
 .ss-edit :disabled {
   cursor: not-allowed;
   opacity: 0.48;
@@ -341,7 +460,8 @@
 
 @media (max-width: 640px) {
   .ss-vault-provider { grid-template-columns: 36px minmax(0, 1fr); }
-  .ss-provider-state { grid-column: 2; justify-self: start; }
+  .ss-provider-state,
+  .ss-provider-action { grid-column: 2; justify-self: start; }
 }
 
 /* The tools list keeps its own scroll height so the long catalog does not push
@@ -525,6 +645,12 @@
   color: #9d9da5;
   line-height: 1.45;
   overflow-wrap: anywhere;
+}
+
+.ss-session-link {
+  align-self: flex-start;
+  color: #d9ff68;
+  text-decoration: none;
 }
 
 .ss-link {

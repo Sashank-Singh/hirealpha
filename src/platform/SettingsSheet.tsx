@@ -19,7 +19,7 @@ import {
   apiSaveLocation,
   apiVaultDelete,
   apiVaultList,
-  apiVaultSave,
+  apiVaultSaveHandoff,
   apiPaymentsConnect,
   apiPaymentMethods,
   apiLinkStatus,
@@ -131,11 +131,10 @@ export function SettingsSheet({ view = 'workspace', embedded = false }: { view?:
   const [vault, setVault] = useState<VaultEntry[] | null>(null)
   const [vaultError, setVaultError] = useState('')
   const [vaultPortal, setVaultPortal] = useState('')
-  const [vaultUser, setVaultUser] = useState('')
-  const [vaultSecret, setVaultSecret] = useState('')
   const [vaultBusy, setVaultBusy] = useState(false)
+  const [handoffNotice, setHandoffNotice] = useState('')
   const [runningId, setRunningId] = useState('')
-  const [runNotes, setRunNotes] = useState<Record<string, { text: string; kind: 'ok' | 'error' | 'info' }>>({})
+  const [runNotes, setRunNotes] = useState<Record<string, { text: string; kind: 'ok' | 'error' | 'info'; url?: string }>>({})
   const [openNoteId, setOpenNoteId] = useState('')
   /** Entry id → requestId when a run answered 202 approval_required. */
   const [pendingApproval, setPendingApproval] = useState<Record<string, string>>({})
@@ -148,7 +147,7 @@ export function SettingsSheet({ view = 'workspace', embedded = false }: { view?:
   const [paymentError, setPaymentError] = useState('')
   const [spendRequests, setSpendRequests] = useState<SpendRequest[]>([])
   const [spendBusyId, setSpendBusyId] = useState('')
-  const hostedVaultEnabled = import.meta.env.VITE_ENABLE_HOSTED_VAULT === 'true'
+  const onePasswordConnectUrl = String(import.meta.env.VITE_ONEPASSWORD_CONNECT_URL || '').trim()
 
   const session = getSession()
   const e164 = toE164(session?.phone || '')
@@ -603,33 +602,25 @@ export function SettingsSheet({ view = 'workspace', embedded = false }: { view?:
     }
   }
 
-  /* ---- Vault: same email auth as Memory; no confirm dialogs, like Memory. ---- */
-  async function saveLogin() {
+  async function saveHandoffSite() {
     const email = session?.email
     if (!email) return
     let portal = vaultPortal.trim()
-    if (portal && !portal.startsWith('http://') && !portal.startsWith('https://')) {
-      portal = `https://${portal}`
-    }
-    const secret = vaultSecret
+    if (portal && !portal.startsWith('http://') && !portal.startsWith('https://')) portal = `https://${portal}`
     if (!portal) {
-      setVaultError('Enter the website URL (e.g. https://www.linkedin.com).')
-      return
-    }
-    if (!secret) {
-      setVaultError('Enter the password or secret.')
+      setVaultError('Enter the website you want Alpha to open.')
       return
     }
     setVaultBusy(true)
     setVaultError('')
+    setHandoffNotice('')
     try {
-      await apiVaultSave({ email, portal, username: vaultUser.trim() || undefined, secret })
+      await apiVaultSaveHandoff({ email, portal })
       setVaultPortal('')
-      setVaultUser('')
-      setVaultSecret('')
+      setHandoffNotice('Website added. When Alpha reaches sign-in, the private computer will pause for you.')
       await loadVault(email)
     } catch (err) {
-      setVaultError(err instanceof Error ? err.message : 'Could not save that login')
+      setVaultError(err instanceof Error ? err.message : 'Could not add that website')
     } finally {
       setVaultBusy(false)
     }
@@ -676,6 +667,12 @@ export function SettingsSheet({ view = 'workspace', embedded = false }: { view?:
           ...prev,
           [entry.id]: { text: res.message || 'Alpha needs your OK before opening a private browser session.', kind: 'info' },
         }))
+      } else if (res.queued) {
+        setRunNotes((prev) => ({
+          ...prev,
+          [entry.id]: { text: res.message || 'Private computer started.', kind: 'info', url: res.sessionUrl },
+        }))
+        if (res.sessionUrl) window.open(res.sessionUrl, '_blank', 'noopener,noreferrer')
       } else if (!res.ok) {
         const text = [res.error, res.detail].filter(Boolean).join(' — ') || 'Run failed.'
         setRunNotes((prev) => ({ ...prev, [entry.id]: { text, kind: 'error' } }))
@@ -715,12 +712,16 @@ export function SettingsSheet({ view = 'workspace', embedded = false }: { view?:
         setRunNotes((prev) => ({
           ...prev,
           [entryId]: {
-            text: decision === 'approve' ? 'Approved. Tap Run again to check this portal.' : 'Denied. Alpha will not open this portal.',
+            text: decision === 'approve' ? 'Approved. Starting the private computer…' : 'Denied. Alpha will not open this portal.',
             kind: decision === 'approve' ? 'info' : 'error',
           },
         }))
       }
       await loadVault(email)
+      if (decision === 'approve' && entryId) {
+        const entry = vault?.find((item) => item.id === entryId)
+        if (entry) await runEntry(entry)
+      }
     } catch (err) {
       setVaultError(err instanceof Error ? err.message : 'Could not record that decision')
     } finally {
@@ -1190,8 +1191,8 @@ export function SettingsSheet({ view = 'workspace', embedded = false }: { view?:
           <section id="vault-section" className="ss-sec">
             <header className="ss-sec-head">
               <div>
-                <h2 className="ss-title">Saved Logins & Credential Vault</h2>
-                <p className="ss-sub">Connected credentials and exact-site access grants. Passwords stay masked, and private browser runs require your approval.</p>
+                <h2 className="ss-title">Credential access</h2>
+                <p className="ss-sub">Choose how Alpha signs in. Every website is approved separately, and you can revoke access here.</p>
               </div>
             </header>
 
@@ -1200,19 +1201,21 @@ export function SettingsSheet({ view = 'workspace', embedded = false }: { view?:
                 <span className="ss-provider-mark" aria-hidden="true">1P</span>
                 <div className="ss-body">
                   <span className="ss-name">1Password</span>
-                  <span className="ss-subline">Per-task approval and exact-site autofill. HireAlpha does not receive or store the password.</span>
+                  <span className="ss-subline">Use credentials from your own vault with per-task approval. HireAlpha never receives the password.</span>
                 </div>
-                <span className="ss-provider-state">Early access</span>
+                {onePasswordConnectUrl ? (
+                  <a className="ss-provider-action" href={onePasswordConnectUrl}>Connect</a>
+                ) : (
+                  <a className="ss-provider-action is-muted" href="https://www.1password.dev/agentic-autofill" target="_blank" rel="noreferrer">Partner preview</a>
+                )}
               </div>
               <div className="ss-vault-provider">
-                <span className="ss-provider-mark ss-provider-mark--alpha" aria-hidden="true">HA</span>
+                <span className="ss-provider-mark ss-provider-mark--alpha" aria-hidden="true">PC</span>
                 <div className="ss-body">
-                  <span className="ss-name">HireAlpha Vault</span>
-                  <span className="ss-subline">For people without 1Password. New saves stay off until the isolated credential broker is enabled.</span>
+                  <span className="ss-name">Private computer</span>
+                  <span className="ss-subline">Works without 1Password. You type sign-in details directly into the isolated browser; HireAlpha does not save them.</span>
                 </div>
-                <span className={`ss-provider-state${hostedVaultEnabled ? ' is-ready' : ''}`}>
-                  {hostedVaultEnabled ? 'Available' : 'Paused'}
-                </span>
+                <span className="ss-provider-state is-ready">Available</span>
               </div>
             </div>
 
@@ -1232,28 +1235,40 @@ export function SettingsSheet({ view = 'workspace', embedded = false }: { view?:
                 </button>
               </div>
             )}
+            {handoffNotice && <p className="ss-success-note" role="status">{handoffNotice}</p>}
             {!vaultError && vault === null && <p className="ss-empty">Checking logins…</p>}
             {vault !== null && (
               <div className="ss-list">
                 <div className="ss-row">
                   <div className="ss-edit">
-                    {!hostedVaultEnabled && (
-                      <p className="ss-security-note">
-                        Adding passwords is temporarily disabled. Existing entries remain masked below and can be revoked.
-                      </p>
-                    )}
+                    <div className="ss-handoff-intro">
+                      <span className="ss-handoff-eyebrow">Use without 1Password</span>
+                      <strong>Add a website—not a password</strong>
+                      <p>Alpha opens this site in a private computer. At sign-in, the task pauses so only you can enter protected information.</p>
+                    </div>
                     <div className="ss-input-row">
                       <input
                         className="bento-input"
                         type="text"
-                        placeholder="Website / Service URL (e.g. https://www.linkedin.com)"
+                        inputMode="url"
+                        autoCapitalize="none"
+                        autoCorrect="off"
+                        aria-label="Website URL"
+                        placeholder="Website URL, for example linkedin.com"
                         value={vaultPortal}
-                        disabled={!hostedVaultEnabled}
                         onChange={(e) => setVaultPortal(e.target.value)}
                       />
+                      <button
+                        type="button"
+                        className="ss-btn"
+                        disabled={vaultBusy || !vaultPortal.trim()}
+                        onClick={() => void saveHandoffSite()}
+                      >
+                        {vaultBusy ? 'Adding…' : 'Add website'}
+                      </button>
                     </div>
-                    <div style={{ display: 'flex', gap: '6px', margin: '4px 0 10px', flexWrap: 'wrap', alignItems: 'center' }}>
-                      <span style={{ fontSize: '11px', color: '#94a3b8', marginRight: '2px' }}>Quick Fill:</span>
+                    <div className="ss-site-presets" aria-label="Popular websites">
+                      <span>Popular</span>
                       {[
                         { label: 'LinkedIn', url: 'https://www.linkedin.com' },
                         { label: 'Amazon', url: 'https://www.amazon.com' },
@@ -1263,60 +1278,18 @@ export function SettingsSheet({ view = 'workspace', embedded = false }: { view?:
                         <button
                           key={preset.label}
                           type="button"
-                          className="ss-btn-text"
-                          disabled={!hostedVaultEnabled}
+                          className="ss-site-preset"
                           onClick={() => setVaultPortal(preset.url)}
-                          style={{
-                            fontSize: '11px',
-                            background: 'rgba(255, 255, 255, 0.05)',
-                            padding: '3px 8px',
-                            borderRadius: '5px',
-                            border: '1px solid rgba(255, 255, 255, 0.08)',
-                            color: '#cbd5e1',
-                            cursor: 'pointer',
-                          }}
                         >
                           {preset.label}
                         </button>
                       ))}
                     </div>
-                    <div className="ss-input-row">
-                      <input
-                        className="bento-input"
-                        type="text"
-                        placeholder="Username (optional)"
-                        value={vaultUser}
-                        disabled={!hostedVaultEnabled}
-                        onChange={(e) => setVaultUser(e.target.value)}
-                      />
-                    </div>
-                    <div className="ss-input-row">
-                      <input
-                        className="bento-input"
-                        type="password"
-                        placeholder="Password"
-                        value={vaultSecret}
-                        disabled={!hostedVaultEnabled}
-                        onChange={(e) => setVaultSecret(e.target.value)}
-                      />
-                      <button
-                        type="button"
-                        className="ss-btn"
-                        disabled={!hostedVaultEnabled || vaultBusy || !vaultPortal.trim() || !vaultSecret}
-                        onClick={() => void saveLogin()}
-                      >
-                        {vaultBusy ? 'Saving…' : 'Save'}
-                      </button>
-                    </div>
                   </div>
                 </div>
 
                 {vault.length === 0 && (
-                  <p className="ss-empty">
-                    {hostedVaultEnabled
-                      ? 'Nothing saved yet. Add a portal login above and Alpha can check it in a private browser session.'
-                      : 'No credentials connected. 1Password access opens through per-task approval; hosted vault setup is paused.'}
-                  </p>
+                  <p className="ss-empty">No websites added yet. Add one above; you will approve each private browser run before it starts.</p>
                 )}
 
                 {vault.map((entry) => {
@@ -1331,6 +1304,7 @@ export function SettingsSheet({ view = 'workspace', embedded = false }: { view?:
                               entry.persona,
                               `added ${dateLabel(entry.created_at)}`,
                               entry.backed === 'onepassword' ? 'stored in 1Password' : '',
+                              entry.backed === 'handoff' ? 'sign in privately each time' : '',
                             ].filter(Boolean).join(' • ')}
                           </span>
                         </div>
@@ -1341,7 +1315,7 @@ export function SettingsSheet({ view = 'workspace', embedded = false }: { view?:
                             disabled={runningId === entry.id}
                             onClick={() => void runEntry(entry)}
                           >
-                            {runningId === entry.id ? 'Checking…' : 'Run'}
+                            {runningId === entry.id ? 'Starting…' : entry.backed === 'handoff' ? 'Open computer' : 'Run'}
                           </button>
                           <button
                             type="button"
@@ -1368,6 +1342,9 @@ export function SettingsSheet({ view = 'workspace', embedded = false }: { view?:
                                   : 'Approval needed'}
                           </button>
                           {openNoteId === entry.id && <span className="ss-note">{note.text}</span>}
+                          {openNoteId === entry.id && note.url && (
+                            <a className="ss-btn-text ss-session-link" href={note.url} target="_blank" rel="noreferrer">Open private computer</a>
+                          )}
                           {openNoteId === entry.id && pendingApproval[entry.id] && (
                             <div className="ss-actions">
                               <button

@@ -15,6 +15,7 @@ import {
   requestBrowserApproval,
   runBrowserTask,
   sanitizeSteps,
+  saveBrowserHandoffEntry,
   saveVaultEntry,
   withUserBrowserLock,
   type PortalTask,
@@ -533,6 +534,21 @@ describe('vault API routes', () => {
     expect(JSON.stringify(queries)).not.toContain('hunter2!')
   })
 
+  it('POST /api/vault/handoff stores only a site grant and works without a vault key', async () => {
+    const { sql, queries } = fakeSql()
+    const req = new Request('https://hirealpha.chat/api/vault/handoff', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: 'Bearer sess' },
+      body: JSON.stringify({ portal: 'https://portal.nseindia.com', secret: 'must-not-be-read' }),
+    })
+    const noKey = { ...authedDeps(), key: undefined }
+    const res = await handleVaultApi(req, sql, noKey)
+    expect(res?.status).toBe(200)
+    const insert = queries.find((q) => /INSERT INTO hire_vault_entries/i.test(q.text))!
+    expect(JSON.stringify(insert.values)).toContain('handoff:v1')
+    expect(JSON.stringify(queries)).not.toContain('must-not-be-read')
+  })
+
   it('POST /api/vault rejects junk input with 400', async () => {
     const { sql } = fakeSql()
     const req = new Request('https://hirealpha.chat/api/vault', {
@@ -633,10 +649,10 @@ describe('sanitizeSteps', () => {
 
 const RUN_URL = 'https://hirealpha.chat/api/browser/run'
 
-function sqlForRun(opts: { approval?: 'none' | 'pending' | 'approved'; secret?: string; withPhone?: boolean } = {}) {
+function sqlForRun(opts: { approval?: 'none' | 'pending' | 'approved'; secret?: string; withPhone?: boolean; handoff?: boolean } = {}) {
   return fakeSql((text, values) => {
     if (/FROM hire_vault_entries WHERE id/i.test(text)) {
-      return values?.[0] === 'e1' ? [{ id: 'e1', persona: 'friend', origin: NSE }] : []
+      return values?.[0] === 'e1' ? [{ id: 'e1', persona: 'friend', origin: NSE, secret_ref: opts.handoff ? 'handoff:v1' : null }] : []
     }
     if (/UPDATE hire_browser_approvals/i.test(text)) return [{ id: 'r1' }]
     // The run route's live-approval lookup (status unconsumed, inside TTL).
@@ -699,6 +715,27 @@ describe('POST /api/browser/run (ask-first run route)', () => {
     expect(JSON.stringify(loopInsert!.values)).not.toContain('hunter2!')
   })
 
+  it('queues a credential-free handoff with a private computer URL and sign-in goal', async () => {
+    const previous = process.env.HIREALPHA_BROWSER_WORKER
+    process.env.HIREALPHA_BROWSER_WORKER = '1'
+    try {
+      const { sql, queries } = sqlForRun({ approval: 'approved', handoff: true })
+      const res = await handleVaultApi(runReq(), sql, { ...authedDeps(), key: undefined })
+      expect(res?.status).toBe(202)
+      const body = (await res!.json()) as { ok: boolean; queued: boolean; sessionUrl: string; message: string }
+      expect(body.ok).toBe(true)
+      expect(body.queued).toBe(true)
+      expect(body.sessionUrl).toContain('/computer/')
+      expect(body.message).toContain('will not receive or store your password')
+      const insert = queries.find((q) => /INSERT INTO hire_browser_jobs/i.test(q.text))!
+      expect(JSON.stringify(insert.values)).toContain('Hand off every password')
+      expect(JSON.stringify(queries)).not.toContain('hunter2')
+    } finally {
+      if (previous === undefined) delete process.env.HIREALPHA_BROWSER_WORKER
+      else process.env.HIREALPHA_BROWSER_WORKER = previous
+    }
+  })
+
   it('404s for another user’s entry and for a missing entryId', async () => {
     const res = await handleVaultApi(runReq('nope'), sqlForRun({ approval: 'approved', secret: 's' }).sql, authedDeps())
     expect(res?.status).toBe(404)
@@ -730,6 +767,31 @@ describe('pushBrowserResultLoop', () => {
 })
 
 describe('vault save with username + op backing marker', () => {
+  it('creates a handoff entry without storing a credential and never resolves one', async () => {
+    const saved = fakeSql()
+    expect((await saveBrowserHandoffEntry(saved.sql, {
+      userId: USER,
+      persona: 'friend',
+      portal: 'https://portal.nseindia.com/login',
+    })).ok).toBe(true)
+    expect(JSON.stringify(saved.queries)).toContain('handoff:v1')
+
+    const { sql } = fakeSql((text) => /FROM hire_vault_entries/i.test(text)
+      ? [{ id: 'e3', secret_encrypted: '', username: null, secret_ref: 'handoff:v1' }]
+      : [])
+    expect(await getVaultCredentialsForTask(sql, USER, NSE, KEY_A)).toBeNull()
+  })
+
+  it('lists handoff entries without a configured encryption key', async () => {
+    const { sql } = fakeSql(() => [{
+      id: 'e3', persona: 'friend', portal: NSE, origin: NSE, secret_encrypted: '', username: null,
+      secret_ref: 'handoff:v1', created_at: new Date(), last_used_at: null,
+    }])
+    const list = await listVaultEntries(sql, USER, null)
+    expect(list[0]!.backed).toBe('handoff')
+    expect(list[0]!.masked).toBe('')
+  })
+
   it('stores username alongside the encrypted secret; plaintext never in SQL', async () => {
     const { sql, queries } = fakeSql()
     const res = await saveVaultEntry(sql, {
@@ -793,7 +855,7 @@ describe('vault save with username + op backing marker', () => {
     process.env.OP_VAULT_ID = 'vault-1'
     try {
       const realFetch = globalThis.fetch
-      globalThis.fetch = (async (url: string | URL) =>
+      globalThis.fetch = (async (_url: string | URL) =>
         new Response(
           JSON.stringify({ id: 'item-9', fields: [{ label: 'username', value: 'me@x.com' }, { label: 'password', value: 'hunter2!' }] }),
           { status: 200 },

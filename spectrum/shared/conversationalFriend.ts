@@ -39,6 +39,9 @@ export function needsConversationPlanner(userText: string, memory: ThreadMemory)
   if (/^\//.test(text) || /https?:\/\//i.test(text)) return true
   if ((isAffirmativeApprovalIntent(text) || isNegativeCancellationIntent(text)) &&
       /\b(?:connect|remember|remind|log|save|send|draft|buy|purchase|order|book|browser|app|card)\b/i.test(lastAssistant)) return true
+  // Clear log statements always take the planner: the deterministic auto-log
+  // layer lives there and must see them ('grateful for the call today').
+  if (looksLikeGratitudeLog(text) || looksLikeMoodReply(text) || looksLikeSleepLog(text)) return true
   return /\b(?:remember|remind|track|log|save|connect|gmail|email|inbox|calendar|schedule|meeting|drive|show|open|pull up|dashboard|apps?|nutrition|meal|ate|eaten|sleep|slept|workout|exercise|habit|budget|spend|spent|spending|decision|open loops?|brief|buy|purchase|order|book|reserve|browser|website|log ?in|sign ?in|search|find|near me|restaurant|news|latest|price|weather|score|build|update (?:the|my|that) (?:app|game|site)|send|draft|forward)\b/i.test(text)
 }
 
@@ -297,7 +300,6 @@ export async function runConversationalFriend(input: {
   // 'log' capability misses these (grateful-for phrasing read as chit-chat),
   // so run the cheap gates here and hand the model the result as fact.
   const autoNotes: string[] = []
-  console.log(`[conv] autoNotes gate: gratitude=${looksLikeGratitudeLog(input.userText)} text=${input.userText.slice(0,40)}`)
   if (looksLikeGratitudeLog(input.userText)) {
     const g = await autoLogGratitude(senderId, persona, input.userText)
     autoNotes.push(
@@ -321,6 +323,7 @@ export async function runConversationalFriend(input: {
     )
   }
   const outcome = await runToolConversation({
+    skipFreshLookup: autoNotes.length > 0,
     delivery: input.delivery ? {
       onReaction: input.delivery.onReaction,
       onProgress: input.delivery.onProgress ? async text => { await input.delivery!.onProgress!(text); delivered.push(text) } : undefined,

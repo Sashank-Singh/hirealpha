@@ -18,7 +18,7 @@ import { randomUUID } from 'node:crypto'
 import type { SQL } from 'bun'
 import { decryptSecret, encryptSecret, maskSecret, vaultKey, type VaultKey } from './vaultCrypto'
 import { isOpRef, onePasswordConfigured, opGetItemFields, opSaveItem } from './onePassword'
-import { enqueueBrowserJob } from './browserJobs'
+import { enqueueBrowserJob, generateSessionViewToken } from './browserJobs'
 
 /* ------------------------------- types ---------------------------------- */
 
@@ -55,6 +55,7 @@ export type VaultDeps = {
 
 export const APPROVAL_TTL_MS = 10 * 60 * 1000
 export const MAX_SECRET_LENGTH = 2000
+export const HANDOFF_REF = 'handoff:v1'
 
 /* ------------------------------- schema --------------------------------- */
 
@@ -146,6 +147,26 @@ export async function saveVaultEntry(
   return { ok: true, backed: 'local' }
 }
 
+/**
+ * Remember only an exact website grant. No username or password is accepted or
+ * stored: the browser worker pauses at sign-in and the owner types protected
+ * fields directly into the live, isolated browser session.
+ */
+export async function saveBrowserHandoffEntry(
+  sql: SQL,
+  input: { userId: string; persona: string; portal: string },
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const origin = portalOrigin(input.portal)
+  if (!origin) return { ok: false, error: 'Website must be an https URL.' }
+  await sql`
+    INSERT INTO hire_vault_entries (id, user_id, persona, portal, origin, secret_encrypted, username, secret_ref)
+    VALUES (${randomUUID()}, ${input.userId}, ${input.persona}, ${origin}, ${origin}, '', NULL, ${HANDOFF_REF})
+    ON CONFLICT (user_id, persona, portal) DO UPDATE SET
+      secret_encrypted = '', username = NULL, secret_ref = ${HANDOFF_REF}, updated_at = now()
+  `
+  return { ok: true }
+}
+
 export type VaultEntryView = {
   id: string
   persona: string
@@ -153,13 +174,13 @@ export type VaultEntryView = {
   origin: string
   username_masked: string
   masked: string
-  backed: 'local' | 'onepassword'
+  backed: 'local' | 'onepassword' | 'handoff'
   created_at: Date
   last_used_at: Date | null
 }
 
 /** List a user's entries. Masked in the query layer — plaintext never leaves decrypt. */
-export async function listVaultEntries(sql: SQL, userId: string, key: VaultKey): Promise<VaultEntryView[]> {
+export async function listVaultEntries(sql: SQL, userId: string, key: VaultKey | null): Promise<VaultEntryView[]> {
   const rows = (await sql`
     SELECT id, persona, portal, origin, secret_encrypted, username, secret_ref, created_at, last_used_at
     FROM hire_vault_entries WHERE user_id = ${userId} ORDER BY created_at DESC
@@ -175,15 +196,17 @@ export async function listVaultEntries(sql: SQL, userId: string, key: VaultKey):
     last_used_at: Date | null
   }>
   return rows.map((r) => {
-    const backed: 'local' | 'onepassword' = isOpRef(r.secret_ref) ? 'onepassword' : 'local'
-    const plain = backed === 'onepassword' ? '' : decryptSecret(r.secret_encrypted, key) ?? ''
+    const backed: VaultEntryView['backed'] = r.secret_ref === HANDOFF_REF
+      ? 'handoff'
+      : isOpRef(r.secret_ref) ? 'onepassword' : 'local'
+    const plain = backed !== 'local' || !key ? '' : decryptSecret(r.secret_encrypted, key) ?? ''
     return {
       id: r.id,
       persona: r.persona,
       portal: r.portal,
       origin: r.origin,
       username_masked: r.username ? maskSecret(r.username) : '',
-      masked: maskSecret(plain),
+      masked: backed === 'handoff' ? '' : maskSecret(plain),
       backed,
       created_at: r.created_at,
       last_used_at: r.last_used_at,
@@ -475,13 +498,23 @@ export async function handleVaultApi(req: Request, sql: SQL, deps: VaultDeps): P
   if (!user) return json({ error: 'Sign in first.' }, 401)
 
   const key = deps.key ?? vaultKey()
-  if (!key) return json({ error: 'Vault is not configured on this server.' }, 503)
 
   if (path === '/api/vault' && req.method === 'GET') {
     return json({ entries: await listVaultEntries(sql, user.id, key) })
   }
 
+  if (path === '/api/vault/handoff' && req.method === 'POST') {
+    const body = (await req.json().catch(() => ({}))) as { portal?: string; persona?: string }
+    const res = await saveBrowserHandoffEntry(sql, {
+      userId: user.id,
+      persona: body.persona || user.persona,
+      portal: body.portal || '',
+    })
+    return res.ok ? json({ ok: true, backed: 'handoff' }) : json({ error: res.error }, 400)
+  }
+
   if (path === '/api/vault' && req.method === 'POST') {
+    if (!key) return json({ error: 'Hosted credential storage is not configured on this server.' }, 503)
     const body = (await req.json().catch(() => ({}))) as { portal?: string; secret?: string; username?: string; persona?: string }
     const res = await saveVaultEntry(sql, {
       userId: user.id,
@@ -532,8 +565,8 @@ export async function handleVaultApi(req: Request, sql: SQL, deps: VaultDeps): P
     const steps = sanitizeSteps(body.steps)
     const goal = typeof body.goal === 'string' ? body.goal.trim().slice(0, 500) || undefined : undefined
     const entries = (await sql`
-      SELECT id, persona, origin FROM hire_vault_entries WHERE id = ${entryId} AND user_id = ${user.id} LIMIT 1
-    `) as Array<{ id: string; persona: string; origin: string }>
+      SELECT id, persona, origin, secret_ref FROM hire_vault_entries WHERE id = ${entryId} AND user_id = ${user.id} LIMIT 1
+    `) as Array<{ id: string; persona: string; origin: string; secret_ref: string | null }>
     const entry = entries[0]
     if (!entry) return json({ ok: false, error: 'No saved login with that id.' }, 404)
 
@@ -573,11 +606,33 @@ export async function handleVaultApi(req: Request, sql: SQL, deps: VaultDeps): P
         kind,
         url: entry.origin,
         steps,
-        goal: goal ?? null,
+        goal: goal ?? (entry.secret_ref === HANDOFF_REF
+          ? 'Sign in to this website and wait until the account home page is ready. Hand off every password, verification, CAPTCHA, or confirmation step to the user.'
+          : null),
         approvalId: live.id,
       })
-      return json({ ok: false, queued: true, jobId, error: 'queued', message: 'Running on the browser worker — the result lands in your thread.' }, 202)
+      const viewToken = generateSessionViewToken(jobId, user.id)
+      const appUrl = (process.env.HIREALPHA_APP_URL || new URL(req.url).origin).replace(/\/$/, '')
+      return json({
+        ok: true,
+        queued: true,
+        jobId,
+        sessionUrl: `${appUrl}/computer/${jobId}?token=${encodeURIComponent(viewToken)}`,
+        message: entry.secret_ref === HANDOFF_REF
+          ? 'Private computer started. Open it to sign in directly; HireAlpha will not receive or store your password.'
+          : 'Running on the browser worker — the result lands in your thread.',
+      }, 202)
     }
+
+    if (entry.secret_ref === HANDOFF_REF) {
+      return json({
+        ok: false,
+        error: 'browser_worker_required',
+        detail: 'Secure browser handoff requires the isolated browser worker.',
+      }, 503)
+    }
+
+    if (!key) return json({ ok: false, error: 'vault_missing', detail: 'No vault key.' }, 503)
 
     const result = await runBrowserTask(deps, sql, {
       userId: user.id,
@@ -691,6 +746,8 @@ export async function getVaultCredentialsForTask(
   const row = rows[0]
   if (!row) return null
   await sql`UPDATE hire_vault_entries SET last_used_at = now() WHERE id = ${row.id}`
+
+  if (row.secret_ref === HANDOFF_REF) return null
 
   if (isOpRef(row.secret_ref)) {
     const fields = await opGetItemFields(row.secret_ref)

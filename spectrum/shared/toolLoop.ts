@@ -58,6 +58,8 @@ export async function runToolConversation(input: {
   existingDraft?: SavedDraft
   maxSteps?: number
   maxDurationMs?: number
+  /** Deterministic auto-log already resolved this turn (gratitude/mood/sleep). Suppresses the forced fresh-lookup nudge. */
+  skipFreshLookup?: boolean
   capabilities?: ConversationCapability[]
 }): Promise<{ reply: string; draft?: SavedDraft }> {
   const messages = [...input.messages]
@@ -108,7 +110,7 @@ Reactions are optional and usually absent. You may add "reaction":"<emoji>" to a
   for (let step = 0; step <= maxSteps; step++) {
     const remaining = deadline - Date.now()
     if (remaining <= 0) return { reply: fallback(), draft: savedDraft }
-    if (step === maxSteps) messages.push({ role: 'system', content: 'No more actions are available this turn. Summarize verified results and any unfinished part. Return plain text only.' })
+    if (step === maxSteps) messages.push({ role: 'user', content: 'System note: no more actions are available this turn. Summarize verified results and any unfinished part. Return plain text only.' })
     let raw: string
     try {
       raw = await input.chat(messages, Math.min(30_000, remaining))
@@ -154,9 +156,9 @@ Reactions are optional and usually absent. You may add "reaction":"<emoji>" to a
         nudged = true
         messages.push({ role: 'assistant', content: raw })
         messages.push({
-          role: 'system',
+          role: 'user',
           content:
-            'Your previous reply claimed you queued a run, but you sent NO action object — nothing is queued. Reply with ONLY this, filled in from their message, and nothing else:\n{"action":"browser","portal":"<the https site they named>","goal":"<one sentence, what to accomplish there>"}',
+            'System note: your previous reply claimed you queued a run, but you sent NO action object — nothing is queued. Reply with ONLY this, filled in from their message, and nothing else:\n{"action":"browser","portal":"<the https site they named>","goal":"<one sentence, what to accomplish there>"}',
         })
         continue
       }
@@ -171,11 +173,11 @@ Reactions are optional and usually absent. You may add "reaction":"<emoji>" to a
         })
         continue
       }
-      if (needsFresh && input.availableTools.includes('web') && !attemptedWeb) {
+      if (needsFresh && !input.skipFreshLookup && input.availableTools.includes('web') && !attemptedWeb) {
         if (webNudged || step === maxSteps) return { reply: 'I could not verify current information because the web lookup did not run. Please try again.', draft: savedDraft }
         webNudged = true
         messages.push({ role: 'assistant', content: raw })
-        messages.push({ role: 'system', content: 'You have NOT run any lookup. Do not answer from memory and do not claim you searched. Run {"action":"lookup","tool":"web","query":"..."} now, then answer from the results.' })
+        messages.push({ role: 'user', content: 'System note: you have NOT run any lookup. Do not answer from memory and do not claim you searched. Run {"action":"lookup","tool":"web","query":"..."} now, then answer from the results.' })
         continue
       }
       if (publicMatches.size && !savedDraft && ![...publicMatches.keys()].some(url => raw.includes(url))) {

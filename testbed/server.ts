@@ -98,6 +98,14 @@ globalThis.fetch = (async (input: Parameters<typeof fetch>[0], init?: RequestIni
         console.log(`[testbed] completion THROW: ${err instanceof Error ? err.message : String(err)} (${Date.now() - t0}ms)`)
         throw err
       }
+      if (!res.ok) {
+        let lastRole = '?'
+        try {
+          const sent = JSON.parse(String(init?.body || '{}'))
+          lastRole = sent.messages?.[sent.messages.length - 1]?.role || '?'
+        } catch { /* ignore */ }
+        console.log(`[testbed] 400-body: ${(await res.clone().text().catch(() => '')).slice(0, 200)} lastRole=${lastRole}`)
+      }
       console.log(`[testbed] completion ${res.status} ${Date.now() - t0}ms`)
       try {
         const clone = res.clone()

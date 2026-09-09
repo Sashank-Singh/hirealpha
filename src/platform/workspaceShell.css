@@ -98,7 +98,6 @@
 .workspace-nav-item.is-active {
   background: #282a23;
   color: var(--ws-text);
-  box-shadow: inset 2px 0 var(--ws-accent);
 }
 
 .workspace-nav-item svg,

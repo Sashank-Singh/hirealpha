@@ -1200,7 +1200,7 @@ export type VaultEntry = {
   masked: string
   username_masked?: string
   /** Where the secret lives: 'local' (encrypted at rest) or 'onepassword'. */
-  backed?: 'local' | 'onepassword'
+  backed?: 'local' | 'onepassword' | 'handoff'
   created_at: string
   last_used_at: string | null
 }
@@ -1211,6 +1211,12 @@ export const apiVaultSave = (a: {
 }) =>
   featurePost<{ ok: boolean }>('/api/vault', {
     ...authParams(a), persona: a.persona, portal: a.portal, username: a.username, secret: a.secret,
+  })
+export const apiVaultSaveHandoff = (a: {
+  email?: string; token?: string; persona?: string; portal: string
+}) =>
+  featurePost<{ ok: boolean; backed: 'handoff' }>('/api/vault/handoff', {
+    ...authParams(a), persona: a.persona, portal: a.portal,
   })
 export const apiVaultDelete = (a: { email?: string; token?: string; id: string }) => {
   const qs = authQuery(a)
@@ -1248,6 +1254,9 @@ export type BrowserRunResult = {
   requestId?: string
   origin?: string
   message?: string
+  queued?: boolean
+  jobId?: string
+  sessionUrl?: string
   /** Present when ok is false (409/404 surface here as thrown errors). */
   error?: string
   detail?: string

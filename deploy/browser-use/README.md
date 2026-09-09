@@ -11,7 +11,7 @@ or browser-use Web UI session.
    `deploy/browser-use/docker-compose.yml`.
 2. Route `browser.hirealpha.chat` to the compose service's port `6080`.
 3. Set the environment variables below, then deploy.
-4. On the web/API resource set:
+4. On the web/API resource set `HIREALPHA_BROWSER_WORKER=1` and
    `BROWSER_USE_STREAM_URL=https://browser.hirealpha.chat/vnc.html`.
 
 Required variables:
@@ -23,12 +23,17 @@ Required variables:
 | `SESSION_SECRET` | Must match the web/API resource so iMessage view links verify |
 | `CHROME_VNC_PASSWORD` | Password passed to the private noVNC client |
 
-Credential variables are optional but recommended:
+Credential-free browser handoff needs none of the `OP_*` variables. The user
+types protected fields into the live browser and the worker resumes afterward.
+
+The variables below support the legacy operator-managed credential store. They
+are **not** 1Password Agentic Autofill and must not be presented as a connection
+to a user's personal 1Password account:
 
 | Variable | Purpose |
 |---|---|
-| `OP_SERVICE_ACCOUNT_TOKEN` | Resolve saved credentials from 1Password at task time |
-| `OP_VAULT_ID` | 1Password vault containing the login items |
+| `OP_SERVICE_ACCOUNT_TOKEN` | Legacy server-readable 1Password storage; leave unset for handoff-only mode |
+| `OP_VAULT_ID` | Legacy operator vault; leave unset for handoff-only mode |
 | `HIREALPHA_VAULT_KEY` | Encrypts saved logins and each user's isolated Link authorization; required for agent purchases |
 | `USER_SPEND_MAX_CENTS` | Per-purchase approval cap (defaults to 20000 / $200) |
 
@@ -52,6 +57,16 @@ Credential variables are optional but recommended:
 
 The database activity feed contains only coarse action names and URLs. Field
 values, page text, passwords, and verification codes are not stored there.
+
+## Personal 1Password connection
+
+The Vault UI enables its **Connect** action only when the web build receives
+`VITE_ONEPASSWORD_CONNECT_URL`. Set it to the partner connection URL issued by
+1Password after HireAlpha's Agentic Autofill integration is approved. Until
+then, the UI links to the public partner preview and makes no claim that a
+personal 1Password vault is connected. Do not substitute a service-account
+sign-in URL: that grants the server access to an operator vault and changes the
+security model.
 
 ## Scaling
 
