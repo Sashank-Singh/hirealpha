@@ -1,0 +1,377 @@
+/* ==========================================================================
+   Approve Purchase — Native Apple / Stripe Checkout Sheet
+   ========================================================================== */
+
+.ap-container {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 4px 0 24px;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", system-ui, sans-serif;
+  color: #f5f5f7;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Header / Merchant Info */
+.ap-header {
+  text-align: center;
+  padding: 8px 0 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.ap-merchant-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #a1a1aa;
+  margin-bottom: 6px;
+}
+
+.ap-merchant-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #30d158;
+}
+
+.ap-hero-price {
+  font-size: 40px;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  color: #ffffff;
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+}
+
+.ap-hero-sub {
+  font-size: 13px;
+  color: #71717a;
+  margin-top: 4px;
+}
+
+/* Grouped Inset Section (iOS Style) */
+.ap-group {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 16px;
+  overflow: hidden;
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+}
+
+.ap-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  font-size: 14px;
+}
+
+.ap-row:last-child {
+  border-bottom: none;
+}
+
+.ap-row-interactive {
+  cursor: pointer;
+  transition: background 0.15s ease;
+  user-select: none;
+}
+
+.ap-row-interactive:hover,
+.ap-row-interactive:active {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.ap-row-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #71717a;
+  margin-bottom: 2px;
+}
+
+.ap-row-title {
+  font-size: 15px;
+  font-weight: 500;
+  color: #f4f4f5;
+  line-height: 1.3;
+}
+
+.ap-row-sub {
+  font-size: 13px;
+  color: #a1a1aa;
+  margin-top: 2px;
+  line-height: 1.35;
+}
+
+.ap-row-chevron {
+  color: #71717a;
+  flex-shrink: 0;
+  margin-left: 10px;
+  transition: transform 0.15s ease;
+}
+
+/* Item Display */
+.ap-item-media {
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: #a1a1aa;
+}
+
+.ap-item-content {
+  flex: 1;
+  min-width: 0;
+  padding: 0 12px;
+}
+
+.ap-item-name {
+  font-size: 14px;
+  font-weight: 500;
+  color: #f4f4f5;
+  line-height: 1.3;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.ap-item-meta {
+  font-size: 12px;
+  color: #71717a;
+  margin-top: 2px;
+}
+
+.ap-item-price {
+  font-size: 15px;
+  font-weight: 600;
+  color: #ffffff;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Cost Breakdown */
+.ap-breakdown {
+  padding: 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 13px;
+  color: #a1a1aa;
+}
+
+.ap-breakdown-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.ap-breakdown-row span:last-child {
+  font-variant-numeric: tabular-nums;
+  color: #d4d4d8;
+}
+
+.ap-breakdown-row.ap-total {
+  padding-top: 10px;
+  margin-top: 2px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  font-size: 15px;
+  font-weight: 600;
+  color: #ffffff;
+}
+
+.ap-breakdown-row.ap-total span:last-child {
+  font-size: 16px;
+  font-weight: 700;
+  color: #ffffff;
+}
+
+/* Payment Pill */
+.ap-payment-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.08);
+  font-size: 12px;
+  font-weight: 600;
+  color: #ffffff;
+  letter-spacing: 0.02em;
+}
+
+/* Edit Address Drawer */
+.ap-edit-drawer {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  background: rgba(0, 0, 0, 0.2);
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.ap-input-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #71717a;
+  margin-bottom: 4px;
+  display: block;
+}
+
+.ap-input {
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: #ffffff;
+  font-size: 14px;
+  box-sizing: border-box;
+  font-family: inherit;
+  transition: border-color 0.15s ease;
+}
+
+.ap-input:focus {
+  outline: none;
+  border-color: #58a6ff;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.ap-edit-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.ap-btn-save {
+  flex: 1;
+  padding: 10px;
+  border-radius: 10px;
+  background: #f4f4f5;
+  color: #09090b;
+  font-size: 13px;
+  font-weight: 600;
+  border: none;
+  cursor: pointer;
+  transition: opacity 0.15s ease;
+}
+
+.ap-btn-save:hover {
+  opacity: 0.92;
+}
+
+.ap-btn-cancel {
+  padding: 10px 16px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.08);
+  color: #a1a1aa;
+  font-size: 13px;
+  font-weight: 500;
+  border: none;
+  cursor: pointer;
+}
+
+/* Pay Button (Apple Pay / Stripe Inspired) */
+.ap-pay-button {
+  width: 100%;
+  padding: 16px;
+  border-radius: 14px;
+  background: #ffffff;
+  color: #000000;
+  font-size: 16px;
+  font-weight: 600;
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3);
+  transition: transform 0.08s ease, opacity 0.15s ease;
+  user-select: none;
+  letter-spacing: -0.01em;
+}
+
+.ap-pay-button:hover {
+  opacity: 0.95;
+}
+
+.ap-pay-button:active {
+  transform: scale(0.985);
+}
+
+.ap-pay-button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.ap-security-note {
+  text-align: center;
+  font-size: 12px;
+  color: #71717a;
+  margin-top: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+}
+
+/* Confirmation Card */
+.ap-confirmed-card {
+  padding: 32px 20px;
+  text-align: center;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(48, 209, 88, 0.3);
+  border-radius: 18px;
+}
+
+.ap-confirmed-icon {
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  background: rgba(48, 209, 88, 0.15);
+  color: #30d158;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto 16px;
+  border: 1px solid rgba(48, 209, 88, 0.3);
+}
+
+.ap-confirmed-title {
+  font-size: 20px;
+  font-weight: 700;
+  color: #ffffff;
+  margin-bottom: 6px;
+}
+
+.ap-confirmed-desc {
+  font-size: 14px;
+  color: #a1a1aa;
+  line-height: 1.45;
+  margin: 0 0 14px;
+}
+
+.ap-confirmed-dest {
+  display: inline-block;
+  padding: 8px 14px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.06);
+  color: #f4f4f5;
+  font-size: 13px;
+  font-weight: 500;
+  margin-bottom: 12px;
+}
