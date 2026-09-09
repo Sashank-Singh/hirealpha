@@ -131,7 +131,7 @@ export function agentEnvCaller(): VisionCall | null {
   const apiKey = process.env.GMI_API_KEY?.trim()
   if (!apiKey) return null
   const baseUrl = (process.env.GMI_BASE_URL || 'https://api.gmi-serving.com/v1').replace(/\/$/, '')
-  const model = process.env.AGENT_VISION_MODEL || process.env.NUTRITION_VISION_MODEL || 'deepseek-v4-flash-exp'
+  const model = process.env.AGENT_VISION_MODEL || process.env.NUTRITION_VISION_MODEL || 'moonshotai/Kimi-K2.5'
   return makeVisionCaller({ apiKey, baseUrl, model })
 }
 
@@ -153,7 +153,7 @@ export function buildVisionParts(ctx: AgentStepContext): unknown[] {
         (ctx.recentActions.length ? `RECENT ACTIONS (avoid repeating what did not work): ${ctx.recentActions.slice(-5).join(' | ')}\n` : '') +
         `PAGE TEXT (truncated):\n${ctx.pageText.slice(0, 3500)}`,
     },
-    { type: 'image_url', image_url: { url: `data:image/png;base64,${ctx.screenshotBase64}` } },
+    { type: 'image_url', image_url: { url: `data:image/jpeg;base64,${ctx.screenshotBase64}` } },
   ]
 }
 

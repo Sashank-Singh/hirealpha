@@ -98,7 +98,7 @@ async function agentLoop(
     const pageText = (await page.evaluate(() => (document.body?.innerText || '').slice(0, 3500)).catch(() => '')) || ''
     let screenshot: string
     try {
-      screenshot = await page.screenshot({ type: 'jpeg', quality: 55, timeout: 8000 }).then((b) => b.toString('base64'))
+      screenshot = await page.screenshot({ type: 'jpeg', quality: 40, timeout: 8000 }).then((b) => b.toString('base64'))
     } catch {
       screenshot = ''
     }
