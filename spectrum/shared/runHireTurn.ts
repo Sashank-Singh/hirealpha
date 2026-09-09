@@ -802,13 +802,21 @@ export async function runHireTurn(input: {
     }
   }
 
+  // Build asks are a stand-alone capability: someone who just saved Alpha's
+  // number and never finished the hire flow can still ask for a build, and the
+  // workshop deploys it to their account. Gating the artifact kind on
+  // live.hired is how build asks fell through to chat and came back as raw
+  // code dumps ("my app builder isn't connected").
+  const detected = detectMiniAppRequest(input.userText, agent.id, recentUserTexts)
   const miniApp = live.hired
     ? briefIntent
       ? { kind: 'digest' as const }
       : eveningBriefIntent
         ? { kind: 'pick_night' as const }
-        : detectMiniAppRequest(input.userText, agent.id, recentUserTexts)
-    : null
+        : detected
+    : detected?.kind === 'artifact'
+      ? detected
+      : null
 
   let digestText: string | null = null
   if (live.found && live.hired && briefIntent) {
