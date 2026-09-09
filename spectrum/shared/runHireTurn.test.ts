@@ -40,7 +40,7 @@ describe('explicit navigation wins over conversation history', () => {
         modelInputs.push(String(init?.body || ''))
         if (answers.length) {
           const prompt = String(init?.body || '')
-          const content = (prompt.includes('CAPABILITY MANIFESTO') || prompt.includes('CONVERSATION_ENGINE')) ? answers.shift()! : '{"tool":"none","action":"none"}'
+          const content = (prompt.includes('CAPABILITY MANIFESTO') || prompt.includes('CONVERSATION_ENGINE') || prompt.includes('FAST_CHAT')) ? answers.shift()! : '{"tool":"none","action":"none"}'
           return Response.json({ choices: [{ message: { content } }] })
         }
         return Response.json({ choices: [{ message: { content: "Hey, I'm Alpha, your personal sidekick. Your calendar isn't connected." } }] })
@@ -162,6 +162,18 @@ describe('explicit navigation wins over conversation history', () => {
     const result = await runHireTurn({ agentId: 'friend', dataDir, senderId: 'test-user', userText: 'Hey, can you explain compound interest?' })
     expect(result.contactCardFirst).toBeUndefined()
     expect(requests.some((url) => url.includes('/chat/completions'))).toBe(true)
+  })
+
+  it('uses one compact, token-capped model call for ordinary hired-user chat', async () => {
+    hired = true
+    answers = ['Doing well. What is up with you?']
+    const result = await runHireTurn({ agentId: 'friend', dataDir, senderId: 'test-user', userText: 'How is your day going?' })
+    expect(result.reply).toBe('Doing well. What is up with you?')
+    expect(modelInputs).toHaveLength(1)
+    const request = JSON.parse(modelInputs[0]!) as { max_tokens?: number; messages: Array<{ content: string }> }
+    expect(request.max_tokens).toBeLessThanOrEqual(240)
+    expect(request.messages.every((message) => !message.content.includes('CONVERSATION_ENGINE'))).toBe(true)
+    expect(request.messages.every((message) => !message.content.includes('Additional callable capabilities'))).toBe(true)
   })
 
   it('reports a profile outage without claiming the user needs to reconnect', async () => {

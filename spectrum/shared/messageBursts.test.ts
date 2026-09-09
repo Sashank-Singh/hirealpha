@@ -33,19 +33,20 @@ it('combines four restaurant and ride fragments into one ordered turn', async ()
   const f = fixture()
   for (const text of ['Hey I want to', 'go to a Chinese restaurant', 'at 8 pm nearby', 'and tell me how much is the Uber']) {
     f.queue.enqueue('alice', text)
-    await f.advance(700)
+    await f.advance(300)
   }
   expect(f.batches).toEqual([])
-  await f.advance(1100)
+  await f.advance(650)
   expect(f.batches).toEqual([['Hey I want to', 'go to a Chinese restaurant', 'at 8 pm nearby', 'and tell me how much is the Uber']])
 })
 
 it('starts a single message after the quiet window and caps a continuous burst', async () => {
   const f = fixture()
   f.queue.enqueue('alice', 'one message')
-  await f.advance(1800)
+  await f.advance(650)
   expect(f.batches).toEqual([['one message']])
-  for (let i = 0; i < 6; i++) { f.queue.enqueue('alice', String(i)); await f.advance(1000) }
+  for (let i = 0; i < 6; i++) { f.queue.enqueue('alice', String(i)); await f.advance(400) }
+  await f.advance(100)
   expect(f.batches[1]).toEqual(['0', '1', '2', '3', '4', '5'])
 })
 
@@ -54,11 +55,11 @@ it('serializes one sender while letting another sender proceed', async () => {
   const blocked = new Promise<void>(resolve => { release = resolve })
   const f = fixture(async items => { if (items[0] === 'first') await blocked })
   f.queue.enqueue('alice', 'first')
-  await f.advance(1800)
+  await f.advance(650)
   f.queue.enqueue('alice', 'follow-up')
   f.queue.enqueue('alice', 'more details')
   f.queue.enqueue('bob', 'hello')
-  await f.advance(2000)
+  await f.advance(700)
   expect(f.batches).toEqual([['first'], ['hello']])
   release(); await f.settle()
   expect(f.batches).toEqual([['first'], ['hello'], ['follow-up', 'more details']])
@@ -69,7 +70,7 @@ it('preserves media boundaries and recovers after a failed turn without retrying
   f.queue.enqueue('alice', 'text')
   f.queue.enqueue('alice', 'photo', false)
   f.queue.enqueue('alice', 'caption follow-up')
-  await f.advance(1800)
+  await f.advance(650)
   expect(f.batches).toEqual([['text'], ['photo'], ['caption follow-up']])
   expect(f.errors).toHaveLength(1)
 })

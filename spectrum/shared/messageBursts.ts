@@ -10,8 +10,8 @@ export function createMessageBursts<T>(options: {
   schedule?: (fn: () => void, ms: number) => unknown
   cancel?: (timer: unknown) => void
 }) {
-  const quietMs = options.quietMs ?? 1800
-  const maxWaitMs = options.maxWaitMs ?? 6000
+  const quietMs = options.quietMs ?? 650
+  const maxWaitMs = options.maxWaitMs ?? 2500
   const now = options.now ?? Date.now
   const schedule = options.schedule ?? ((fn, ms) => setTimeout(fn, ms))
   const cancel = options.cancel ?? ((timer) => clearTimeout(timer as ReturnType<typeof setTimeout>))
