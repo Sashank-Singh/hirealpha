@@ -73,6 +73,50 @@ function cleanEmailBody(text: string): string {
     .replace(/^\s+|\s+$/g, '')
 }
 
+/** Plain-text emails read as a wall of markdown. Escape, then lift the common
+ * shapes — bold, italics, links, bullets, quotes, headings — into real HTML so
+ * the reader renders them like a person wrote them. Everything else stays text. */
+function renderRichText(raw: string): string {
+  const esc = (v: string) =>
+    v.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  const inline = (v: string) =>
+    esc(v)
+      .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>')
+      .replace(/(^|[\s(])((?:https?:\/\/)[^\s<)"']+)/g, '$1<a href="$2" target="_blank" rel="noopener noreferrer">$2</a>')
+      .replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>')
+      .replace(/(^|[\s*_])_([^_\n]+)_(?=[\s.,!?]|$)/g, '$1<em>$2</em>')
+      .replace(/`([^`\n]+)`/g, '<code>$1</code>')
+  const out: string[] = []
+  let inList = false
+  let inQuote = false
+  const closeList = () => { if (inList) { out.push('</ul>'); inList = false } }
+  const closeQuote = () => { if (inQuote) { out.push('</blockquote>'); inQuote = false } }
+  for (const line of cleanEmailBody(raw).split('\n')) {
+    const t = line.trim()
+    if (!t) { closeList(); closeQuote(); continue }
+    const h = /^(#{1,4})\s+(.*)$/.exec(t)
+    if (h) { closeList(); closeQuote(); out.push(`<strong class="rt-h">${inline(h[2])}</strong>`); continue }
+    const li = /^(?:[-*•]|\d+[.)])\s+(.*)$/.exec(t)
+    if (li) {
+      closeQuote()
+      if (!inList) { out.push('<ul class="rt-list">'); inList = true }
+      out.push(`<li>${inline(li[1])}</li>`)
+      continue
+    }
+    const q = /^>\s?(.*)$/.exec(t)
+    if (q) {
+      closeList()
+      if (!inQuote) { out.push('<blockquote class="rt-quote">'); inQuote = true }
+      out.push(`<div>${inline(q[1])}</div>`)
+      continue
+    }
+    closeList(); closeQuote()
+    out.push(`<p class="rt-p">${inline(t)}</p>`)
+  }
+  closeList(); closeQuote()
+  return out.join('')
+}
+
 /** Quick ways to have Alpha rework the reply; each maps to a natural instruction. */
 const ASK_CHIPS = [
   { label: 'Shorter', instruction: 'Make it shorter' },
@@ -399,7 +443,10 @@ export function EmailReader({ messageId, label, summary, auth, persona, onClose,
                 dangerouslySetInnerHTML={{ __html: sanitizedHtml }}
               />
             ) : bodyText ? (
-              <pre className="email-reader-text">{cleanEmailBody(bodyText)}</pre>
+              <div
+                className="email-reader-html email-reader-text-html"
+                dangerouslySetInnerHTML={{ __html: renderRichText(bodyText) }}
+              />
             ) : msg.snippet ? (
               <p className="email-reader-text">{cleanEmailBody(msg.snippet)}</p>
             ) : (
