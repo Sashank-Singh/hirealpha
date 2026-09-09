@@ -149,9 +149,26 @@ Copy `.env.example`. Never commit secrets. The high-level split:
 | `DATABASE_URL` | API | Postgres |
 | `HIREALPHA_INTERNAL_KEY` | API + bots | Shared secret for the internal API |
 | `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRICE_*` | API | Billing (auto-gated when set; `BILLING_ENFORCE=1` to hard-enforce) |
+| `HIREALPHA_VAULT_KEY` | API + browser worker | Encrypts each user's isolated Link authorization; required for agent purchases |
+| `USER_SPEND_MAX_CENTS` | API | Per-purchase Link approval cap (defaults to 20000 / $200) |
 | `PROJECT_ID`, `PROJECT_SECRET`, `GMI_API_KEY`, `GMI_MODEL` | Bots | Spectrum project + LLM |
 | `HIREALPHA_API_URL` | Bots | Where the API lives |
 | `RESEND_API_KEY`, `RESEND_AUDIENCE_ID` | API | Waitlist → email audience |
+
+### Link agent purchases
+
+The dashboard's **Settings → Payment Method & Link Wallet** flow creates a
+separate encrypted Link authorization for each HireAlpha user. iMessage and
+dashboard purchase proposals share that same user-scoped wallet, but each
+purchase creates a new Link spend request for an exact merchant and total.
+Only after Link approval does the browser worker retrieve a one-time card into
+memory; the card is never stored or included in model prompts.
+
+Production needs the same `HIREALPHA_VAULT_KEY` on the API and browser-worker
+services. The images install Link CLI in an isolated `/opt/hirealpha-link`
+runtime. For a public launch or higher Link limits, complete Stripe's native
+consumer-integration onboarding (the Link CLI documentation directs builders
+to `danhill@stripe.com`).
 
 
 ---

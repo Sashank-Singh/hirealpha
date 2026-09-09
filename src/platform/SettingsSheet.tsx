@@ -22,13 +22,15 @@ import {
   apiVaultSave,
   apiPaymentsConnect,
   apiPaymentMethods,
-  apiPaymentMethodDelete,
+  apiLinkStatus,
+  apiLinkDisconnect,
   apiSpendRequests,
   apiSpendRequestDecide,
   type BillingSubscription,
   type BrowserApproval,
   type HireMemory,
   type PaymentMethodView,
+  type LinkWalletStatus,
   type SavedLocation,
   type SpendRequest,
   type VaultEntry,
@@ -86,7 +88,9 @@ type Loop = { id: string; kind: string; title: string; status: string; next_run:
  * friend persona), LocationPage's saved places, and ControlsPage's kill switch
  * + loops panel, keeping the same endpoints and flows.
  */
-export function SettingsSheet() {
+export type SettingsView = 'workspace' | 'vault' | 'payments'
+
+export function SettingsSheet({ view = 'workspace', embedded = false }: { view?: SettingsView; embedded?: boolean }) {
   const navigate = useNavigate()
   const [params, setParams] = useSearchParams()
   const [, bump] = useState(0)
@@ -139,10 +143,12 @@ export function SettingsSheet() {
   const [approvalBusy, setApprovalBusy] = useState('')
 
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethodView[] | null>(null)
+  const [linkWallet, setLinkWallet] = useState<LinkWalletStatus>({ connected: false, pending: false })
   const [paymentBusy, setPaymentBusy] = useState(false)
   const [paymentError, setPaymentError] = useState('')
   const [spendRequests, setSpendRequests] = useState<SpendRequest[]>([])
   const [spendBusyId, setSpendBusyId] = useState('')
+  const hostedVaultEnabled = import.meta.env.VITE_ENABLE_HOSTED_VAULT === 'true'
 
   const session = getSession()
   const e164 = toE164(session?.phone || '')
@@ -153,6 +159,7 @@ export function SettingsSheet() {
     try {
       const d = await apiPaymentMethods({ email: session.email })
       setPaymentMethods(d.methods || [])
+      setLinkWallet(d.link || { connected: (d.methods || []).length > 0, pending: false })
     } catch {
       setPaymentMethods([])
     }
@@ -170,7 +177,21 @@ export function SettingsSheet() {
     try {
       const res = await apiPaymentsConnect({ email: session?.email })
       if (res.url) {
-        window.location.href = res.url
+        setLinkWallet(res)
+        const popup = window.open(res.url, '_blank', 'noopener,noreferrer')
+        if (!popup) window.location.href = res.url
+        for (let attempt = 0; attempt < 60; attempt++) {
+          await new Promise((resolve) => window.setTimeout(resolve, 2000))
+          const status = await apiLinkStatus({ email: session?.email })
+          setLinkWallet(status)
+          if (status.connected) { await loadPayments(); break }
+          if (!status.pending) break
+        }
+        setPaymentBusy(false)
+      } else if (res.connected) {
+        setLinkWallet(res)
+        await loadPayments()
+        setPaymentBusy(false)
       } else {
         setPaymentError(res.error || 'Could not start payment setup.')
         setPaymentBusy(false)
@@ -181,13 +202,14 @@ export function SettingsSheet() {
     }
   }
 
-  async function removeMethod(id: string) {
+  async function disconnectWallet() {
     if (!session?.email) return
     try {
-      await apiPaymentMethodDelete({ email: session.email, id })
-      void loadPayments()
+      await apiLinkDisconnect({ email: session.email })
+      setLinkWallet({ connected: false, pending: false })
+      setPaymentMethods([])
     } catch {
-      setPaymentError('Could not remove card.')
+      setPaymentError('Could not disconnect Link.')
     }
   }
 
@@ -241,9 +263,12 @@ export function SettingsSheet() {
   useEffect(() => {
     if (params.get('payments') === 'connected') {
       if (session?.email) void loadPayments()
-      setParams({}, { replace: true })
+      const next = new URLSearchParams(params)
+      next.delete('payments')
+      next.set('tab', 'payments')
+      setParams(next, { replace: true })
     }
-  }, [params, session?.email])
+  }, [params, session?.email, setParams]) // eslint-disable-line react-hooks/exhaustive-deps
 
   /* After a connector OAuth round-trip lands back with ?connected=, rehydrate
    * and clear the param — same as HireConfigPage. */
@@ -252,7 +277,9 @@ export function SettingsSheet() {
     void hydrateFromServer()
       .then(refresh)
       .catch(() => undefined)
-    setParams({}, { replace: true })
+    const next = new URLSearchParams(params)
+    next.delete('connected')
+    setParams(next, { replace: true })
   }, [params, setParams])
 
   /* Deep link ?connect=connectorId: scroll to the connector and ring it —
@@ -379,11 +406,15 @@ export function SettingsSheet() {
   const targetConnector = params.get('connect')
 
 
-  /* Calendar is the flagship second row: catalog has Gmail first, so reorder
-   * so Google Calendar sits right behind the lead app in the list. */
+  /* Group by category so each label appears exactly once: the catalog's
+   * insertion order interleaves categories (Productivity → Development →
+   * Productivity), which painted duplicate section headers. Calendar is not
+   * special-cased to the front anymore — the group labels do that job. */
+  const CATEGORY_ORDER = ['Communication', 'Productivity', 'Video & Meetings', 'Development', 'CRM & Sales', 'Finance', 'Media & Lifestyle']
   const orderedConnectors = [...connectors].sort((a, b) => {
-    if (a.id === 'calendar') return 1
-    if (b.id === 'calendar') return -1
+    const ca = CATEGORY_ORDER.indexOf(a.category)
+    const cb = CATEGORY_ORDER.indexOf(b.category)
+    if (ca !== cb) return (ca < 0 ? 99 : ca) - (cb < 0 ? 99 : cb)
     return 0
   })
 
@@ -700,9 +731,9 @@ export function SettingsSheet() {
   const friendSub = billing?.subscriptions.find((s) => s.persona === 'friend')
 
   return (
-    <div className="ss-page">
+    <div className={`ss-page ss-page--${view}${embedded ? ' ss-page--embedded' : ''}`}>
       <div className="ss-shell">
-        <header className="ss-top">
+        <header className="ss-top ss-workspace-only">
           <a className="ss-nav-back" href="/" aria-label="Home">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <polyline points="15 18 9 12 15 6" />
@@ -710,7 +741,7 @@ export function SettingsSheet() {
           </a>
         </header>
 
-        <section className="ss-contact">
+        <section className="ss-contact ss-workspace-only">
           <img src="/HireAlpha_logo.png" alt="" className="ss-contact-logo" />
           <div className="ss-contact-body">
             <h1 className="ss-contact-name">Alpha</h1>
@@ -754,7 +785,7 @@ export function SettingsSheet() {
         </section>
 
         {/* Plan — its own card, set apart from the list sections */}
-        <section className="ss-plan">
+        <section className="ss-plan ss-workspace-only">
           <div className="ss-plan-row">
             <div className="ss-body">
               {friendSub && subscriptionActiveLabel(friendSub.status) ? (
@@ -1077,16 +1108,16 @@ export function SettingsSheet() {
               <div>
                 <h2 className="ss-title">Payment Method &amp; Link Wallet</h2>
                 <p className="ss-sub">
-                  Saved card or Link wallet for autonomous purchases. Charges require your explicit approval in chat and are capped at $200.
+                  Your own Link wallet. Every purchase requires a separate approval for the exact merchant and total; HireAlpha receives a one-time credential only after you approve.
                 </p>
               </div>
               <button
                 type="button"
                 className="ss-btn"
                 disabled={paymentBusy}
-                onClick={() => void connectWallet()}
+                onClick={() => void (linkWallet.connected ? disconnectWallet() : connectWallet())}
               >
-                {paymentBusy ? 'Connecting…' : (paymentMethods?.length ? 'Update Card / Wallet' : 'Connect Card / Wallet')}
+                {paymentBusy ? 'Waiting for Link…' : (linkWallet.connected ? 'Disconnect Link' : 'Connect Link Wallet')}
               </button>
             </header>
 
@@ -1094,7 +1125,9 @@ export function SettingsSheet() {
             {paymentMethods === null && <p className="ss-empty">Checking payment methods…</p>}
             {paymentMethods !== null && paymentMethods.length === 0 && (
               <p className="ss-empty">
-                No payment method connected yet. Tap <strong>Connect Card / Wallet</strong> to connect your card or Link wallet for in-chat purchases.
+                {linkWallet.pending
+                  ? <>Finish connecting in Link{linkWallet.phrase ? <> using code <strong>{linkWallet.phrase}</strong></> : null}.</>
+                  : <>No Link wallet connected yet. Connect your own wallet to approve purchases from the dashboard or iMessage.</>}
               </p>
             )}
 
@@ -1106,18 +1139,9 @@ export function SettingsSheet() {
                       <div className="ss-body">
                         <span className="ss-name" style={{ textTransform: 'capitalize' }}>
                           {pm.brand} •••• {pm.last4}
-                          {pm.link_wallet && <span style={{ marginLeft: 8, fontSize: 12, color: '#58a6ff' }}>(Link Wallet)</span>}
+                          {pm.link_wallet && <span style={{ marginLeft: 8, fontSize: 12, color: '#58a6ff' }}>(Link)</span>}
                         </span>
                         <span className="ss-subline">Expires {pm.exp}</span>
-                      </div>
-                      <div className="ss-actions">
-                        <button
-                          type="button"
-                          className="ss-btn-text ss-btn-danger"
-                          onClick={() => void removeMethod(pm.id)}
-                        >
-                          Remove
-                        </button>
                       </div>
                     </div>
                   </div>
@@ -1141,9 +1165,9 @@ export function SettingsSheet() {
                             type="button"
                             className="ss-btn-text"
                             disabled={spendBusyId === sr.id}
-                            onClick={() => void decideSpend(sr.id, 'approve')}
+                            onClick={() => sr.approval_url && window.open(sr.approval_url, '_blank', 'noopener,noreferrer')}
                           >
-                            Approve
+                            Review in Link
                           </button>
                           <button
                             type="button"
@@ -1167,51 +1191,28 @@ export function SettingsSheet() {
             <header className="ss-sec-head">
               <div>
                 <h2 className="ss-title">Saved Logins & Credential Vault</h2>
-                <p className="ss-sub">Credentials Alpha can use to navigate portals in private browser sessions. Plaintext only exists in memory during active runs.</p>
+                <p className="ss-sub">Connected credentials and exact-site access grants. Passwords stay masked, and private browser runs require your approval.</p>
               </div>
             </header>
 
-            {/* 1Password vs Local Vault Architecture Card */}
-            <div style={{
-              background: 'rgba(2, 132, 199, 0.08)',
-              border: '1px solid rgba(2, 132, 199, 0.22)',
-              borderRadius: '10px',
-              padding: '12px 16px',
-              margin: '0 0 16px',
-              display: 'flex',
-              alignItems: 'flex-start',
-              gap: '12px',
-            }}>
-              <div style={{
-                width: '32px',
-                height: '32px',
-                background: 'linear-gradient(135deg, #0284c7, #2563eb)',
-                borderRadius: '8px',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                color: '#fff',
-                fontSize: '16px',
-                flexShrink: 0,
-                boxShadow: '0 2px 8px rgba(2, 132, 199, 0.35)',
-              }}>
-                🔑
+            <div className="ss-vault-providers" aria-label="Credential providers">
+              <div className="ss-vault-provider">
+                <span className="ss-provider-mark" aria-hidden="true">1P</span>
+                <div className="ss-body">
+                  <span className="ss-name">1Password</span>
+                  <span className="ss-subline">Per-task approval and exact-site autofill. HireAlpha does not receive or store the password.</span>
+                </div>
+                <span className="ss-provider-state">Early access</span>
               </div>
-              <div style={{ flex: 1 }}>
-                <div style={{ fontSize: '13px', fontWeight: 600, color: '#f1f5f9', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <span>How 1Password & Vault Security Work</span>
-                  <span style={{ fontSize: '11px', background: 'rgba(59, 130, 246, 0.15)', color: '#93c5fd', padding: '1px 6px', borderRadius: '4px', border: '1px solid rgba(59, 130, 246, 0.3)' }}>
-                    Zero-Persistence
-                  </span>
+              <div className="ss-vault-provider">
+                <span className="ss-provider-mark ss-provider-mark--alpha" aria-hidden="true">HA</span>
+                <div className="ss-body">
+                  <span className="ss-name">HireAlpha Vault</span>
+                  <span className="ss-subline">For people without 1Password. New saves stay off until the isolated credential broker is enabled.</span>
                 </div>
-                <div style={{ fontSize: '12px', color: '#94a3b8', margin: '4px 0 0', lineHeight: 1.5 }}>
-                  <p style={{ margin: '0 0 4px' }}>
-                    <strong>1. Official 1Password Integration:</strong> When connected via <code>OP_SERVICE_ACCOUNT_TOKEN</code>, credentials are queried directly from your real 1Password vault at task time via <code>@1password/sdk</code>. Raw passwords never touch our database.
-                  </p>
-                  <p style={{ margin: 0 }}>
-                    <strong>2. Encrypted Local Vault (Fallback):</strong> If 1Password is not configured yet, entries saved below are encrypted at rest with AES-256-GCM. Plaintext is decrypted only in volatile memory during the active browser session.
-                  </p>
-                </div>
+                <span className={`ss-provider-state${hostedVaultEnabled ? ' is-ready' : ''}`}>
+                  {hostedVaultEnabled ? 'Available' : 'Paused'}
+                </span>
               </div>
             </div>
 
@@ -1236,12 +1237,18 @@ export function SettingsSheet() {
               <div className="ss-list">
                 <div className="ss-row">
                   <div className="ss-edit">
+                    {!hostedVaultEnabled && (
+                      <p className="ss-security-note">
+                        Adding passwords is temporarily disabled. Existing entries remain masked below and can be revoked.
+                      </p>
+                    )}
                     <div className="ss-input-row">
                       <input
                         className="bento-input"
                         type="text"
                         placeholder="Website / Service URL (e.g. https://www.linkedin.com)"
                         value={vaultPortal}
+                        disabled={!hostedVaultEnabled}
                         onChange={(e) => setVaultPortal(e.target.value)}
                       />
                     </div>
@@ -1257,6 +1264,7 @@ export function SettingsSheet() {
                           key={preset.label}
                           type="button"
                           className="ss-btn-text"
+                          disabled={!hostedVaultEnabled}
                           onClick={() => setVaultPortal(preset.url)}
                           style={{
                             fontSize: '11px',
@@ -1278,6 +1286,7 @@ export function SettingsSheet() {
                         type="text"
                         placeholder="Username (optional)"
                         value={vaultUser}
+                        disabled={!hostedVaultEnabled}
                         onChange={(e) => setVaultUser(e.target.value)}
                       />
                     </div>
@@ -1287,12 +1296,13 @@ export function SettingsSheet() {
                         type="password"
                         placeholder="Password"
                         value={vaultSecret}
+                        disabled={!hostedVaultEnabled}
                         onChange={(e) => setVaultSecret(e.target.value)}
                       />
                       <button
                         type="button"
                         className="ss-btn"
-                        disabled={vaultBusy || !vaultPortal.trim() || !vaultSecret}
+                        disabled={!hostedVaultEnabled || vaultBusy || !vaultPortal.trim() || !vaultSecret}
                         onClick={() => void saveLogin()}
                       >
                         {vaultBusy ? 'Saving…' : 'Save'}
@@ -1303,7 +1313,9 @@ export function SettingsSheet() {
 
                 {vault.length === 0 && (
                   <p className="ss-empty">
-                    Nothing saved yet. Add a portal login above and Alpha can check it for you in a private browser session.
+                    {hostedVaultEnabled
+                      ? 'Nothing saved yet. Add a portal login above and Alpha can check it in a private browser session.'
+                      : 'No credentials connected. 1Password access opens through per-task approval; hosted vault setup is paused.'}
                   </p>
                 )}
 

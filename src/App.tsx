@@ -63,14 +63,14 @@ const MiniAppPage = lazy(() => import('./platform/MiniAppPage').then((m) => ({ d
 const LoginPage = lazy(() => import('./platform/LoginPage').then((m) => ({ default: m.LoginPage })))
 const RequireAuth = lazy(() => {
   // Start the app download while its independent session check is loading.
-  void import('./platform/SettingsSheet').catch(() => undefined)
+  void import('./platform/WorkspaceShell').catch(() => undefined)
   return import('./platform/PlatformShell').then(m => ({ default: m.RequireAuth }))
 })
-const SettingsSheet = lazy(() => import('./platform/SettingsSheet').then((m) => ({ default: m.SettingsSheet })))
+const WorkspaceShell = lazy(() => import('./platform/WorkspaceShell').then((m) => ({ default: m.WorkspaceShell })))
 const ComputerSessionView = lazy(() => import('./platform/ComputerSessionView').then((m) => ({ default: m.ComputerSessionView })))
 
 /* Old deep-link paths that still come in from texts and chat links —
- * they all land on /app which renders SettingsSheet, preserving query params. */
+ * they all land on the workspace shell, preserving query params. */
 function AppRedirect() {
   const { search } = useLocation()
   return <Navigate to={`/app${search}`} replace />
@@ -90,8 +90,7 @@ export default function App() {
             <Route path="/computer" element={<ComputerSessionView />} />
             <Route path="/app/mini/:persona/:kind" element={<MiniAppPage />} />
             <Route path="/app" element={<RequireAuth />}>
-              {/* SettingsSheet is the whole authenticated app */}
-              <Route index element={<SettingsSheet />} />
+              <Route index element={<WorkspaceShell />} />
               {/* Redirect every old sub-route back to /app */}
               <Route path="*" element={<AppRedirect />} />
             </Route>

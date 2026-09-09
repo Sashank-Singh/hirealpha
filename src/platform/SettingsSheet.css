@@ -17,6 +17,40 @@
   overflow-x: hidden;
 }
 
+.ss-page--embedded {
+  min-height: 0;
+  background: transparent;
+  background-image: none;
+}
+
+.ss-page--embedded .ss-shell {
+  max-width: 860px;
+  padding-top: 1.25rem;
+}
+
+.ss-page--embedded .ss-top {
+  display: none;
+}
+
+.ss-page--workspace #payments-section,
+.ss-page--workspace #vault-section,
+.ss-page--vault .ss-workspace-only,
+.ss-page--payments .ss-workspace-only,
+.ss-page--vault .ss-sec:not(#vault-section),
+.ss-page--payments .ss-sec:not(#payments-section) {
+  display: none;
+}
+
+.ss-page--vault .ss,
+.ss-page--payments .ss {
+  margin-top: 0;
+}
+
+.ss-page--vault #vault-section,
+.ss-page--payments #payments-section {
+  border-top: 0;
+}
+
 .ss-shell {
   max-width: 680px;
   margin: 0 auto;
@@ -236,6 +270,78 @@
 .ss-list {
   display: flex;
   flex-direction: column;
+}
+
+.ss-vault-providers {
+  display: grid;
+  gap: 1px;
+  margin: 0 20px 16px;
+  overflow: hidden;
+  border: 1px solid #35372f;
+  border-radius: 12px;
+  background: #35372f;
+}
+
+.ss-vault-provider {
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  min-height: 70px;
+  padding: 12px 14px;
+  background: #20211d;
+}
+
+.ss-provider-mark {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 9px;
+  background: #1769aa;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: -0.04em;
+}
+
+.ss-provider-mark--alpha {
+  background: #34372d;
+  color: #d9ff68;
+}
+
+.ss-provider-state {
+  padding: 4px 7px;
+  border: 1px solid #464940;
+  border-radius: 6px;
+  color: #a5a89d;
+  font-size: 10.5px;
+  font-weight: 650;
+}
+
+.ss-provider-state.is-ready {
+  border-color: rgba(217, 255, 104, 0.28);
+  color: #d9ff68;
+}
+
+.ss-security-note {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border-left: 2px solid #d9ff68;
+  background: #25271f;
+  color: #b9bcb0;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.ss-edit :disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+}
+
+@media (max-width: 640px) {
+  .ss-vault-provider { grid-template-columns: 36px minmax(0, 1fr); }
+  .ss-provider-state { grid-column: 2; justify-self: start; }
 }
 
 /* The tools list keeps its own scroll height so the long catalog does not push
@@ -809,4 +915,3 @@ html[data-mini-theme='light'] .ha-empty-sub { color: #6d675e; }
 html[data-mini-theme='light'] .ha-header__signin { background: #1a1917; color: #f5f4f0; }
 html[data-mini-theme='light'] .ha-btn--primary { background: #1a1917; color: #f5f4f0; }
 html[data-mini-theme='light'] .ha-btn--primary:hover { background: #2a2a27; }
-

@@ -117,6 +117,23 @@ describe('/api/computer/session/:id endpoint', () => {
     expect(res?.status).toBe(404)
   })
 
+  it('stops exposing the shared live display after a session finishes', async () => {
+    const token = generateSessionViewToken(JOB_ID, USER_ID)
+    const { sql } = fakeSql([{
+      id: JOB_ID,
+      user_id: USER_ID,
+      persona: 'friend',
+      kind: 'task',
+      url: 'https://example.com',
+      status: 'done',
+      attempts: 1,
+      result: 'Finished',
+    }])
+    const res = await handleHireApi(new Request(`https://hirealpha.chat/api/computer/session/${JOB_ID}?token=${token}`), sql)
+    const data = await res?.json()
+    expect(data.session.streamUrl).toBeNull()
+  })
+
   it('lets the signed session link approve the one-time browser request', async () => {
     const token = generateSessionViewToken(JOB_ID, USER_ID)
     const { sql, queries } = fakeSql([{ id: JOB_ID, user_id: USER_ID, kind: 'task', url: 'https://example.com', status: 'pending', approval_id: 'approval-1' }])
@@ -133,5 +150,25 @@ describe('/api/computer/session/:id endpoint', () => {
     const res = await handleHireApi(req, sql)
     expect(res?.status).toBe(200)
     expect(queries.some((query) => query.text.includes("status = 'running'"))).toBe(true)
+  })
+
+  it('requires Link confirmation to resume a payment handoff', async () => {
+    const token = generateSessionViewToken(JOB_ID, USER_ID)
+    const { sql } = fakeSql([{
+      id: JOB_ID,
+      user_id: USER_ID,
+      kind: 'task',
+      url: 'https://amazon.com/checkout',
+      status: 'waiting',
+      approval_id: 'approval-1',
+      spend_request_id: 'spend-1',
+      handoff_kind: 'payment',
+    }])
+    const get = await handleHireApi(new Request(`https://hirealpha.chat/api/computer/session/${JOB_ID}?token=${token}`), sql)
+    const data = await get?.json()
+    expect(data.session.paymentUrl).toContain('/api/payments/spend/approve?id=spend-1')
+
+    const resume = await handleHireApi(new Request(`https://hirealpha.chat/api/computer/session/${JOB_ID}/resume?token=${token}`, { method: 'POST' }), sql)
+    expect(resume?.status).toBe(409)
   })
 })

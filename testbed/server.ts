@@ -205,6 +205,14 @@ globalThis.fetch = (async (input: Parameters<typeof fetch>[0], init?: RequestIni
     appendEvent({ kind: 'nutrition-log', detail: body })
     return Response.json({ ok: true, logged: true, estimated: true, guess: String(body.description || 'meal').slice(0, 60), ...n })
   }
+  if (url.includes('/api/internal/gratitude')) {
+    appendEvent({ kind: 'gratitude-log', detail: body })
+    return Response.json({ ok: true, logged: true, text: String(body.text || '').replace(/^grateful for\\s*/i, '') })
+  }
+  if (url.includes('/api/internal/moods')) {
+    appendEvent({ kind: 'mood-log', detail: body })
+    return Response.json({ ok: true, logged: true, emoji: '🙂', energy: 4 })
+  }
   if (url.includes('/api/internal/sleep')) {
     appendEvent({ kind: 'sleep-log', detail: body })
     return Response.json({ ok: true, logged: true, bedtime: '23:00', wake: '06:30' })

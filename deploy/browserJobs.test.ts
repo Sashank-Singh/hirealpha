@@ -11,6 +11,7 @@ import {
   buildVisionParts,
   isTerminal,
   makeVisionCaller,
+  pageShowsExactTotal,
   parseAgentAction,
 } from './agentDriver'
 
@@ -115,6 +116,13 @@ describe('browser job queue', () => {
 })
 
 describe('agent action parser (the only path from JSON to the browser)', () => {
+  it('verifies the exact amount beside a real total label', () => {
+    expect(pageShowsExactTotal('Subtotal $15.00 Shipping $3.99 Order total $18.99', 1899)).toBe(true)
+    expect(pageShowsExactTotal('Order total\nUSD 1,899.00', 189900)).toBe(true)
+    expect(pageShowsExactTotal('Item price $18.99\nTotal $20.42', 1899)).toBe(false)
+    expect(pageShowsExactTotal('Total $18.99', 1900)).toBe(false)
+  })
+
   it('parses every documented action', () => {
     expect(parseAgentAction('{"action":"click","selector":"#submit"}')).toEqual({ type: 'click', selector: '#submit' })
     expect(parseAgentAction('{"action":"click_at","x":640,"y":320}')).toEqual({ type: 'click_at', x: 640, y: 320 })
@@ -124,7 +132,11 @@ describe('agent action parser (the only path from JSON to the browser)', () => {
     expect(parseAgentAction('{"action":"navigate","url":"https://x.com/a"}')).toEqual({ type: 'navigate', url: 'https://x.com/a' })
     expect(parseAgentAction('{"action":"scroll","direction":"up"}')).toEqual({ type: 'scroll', direction: 'up' })
     expect(parseAgentAction('{"action":"wait","ms":99}')).toEqual({ type: 'wait', ms: 200 })
+    expect(parseAgentAction('{"action":"fill_payment"}')).toEqual({ type: 'fill_payment' })
     expect(parseAgentAction('{"action":"handoff","kind":"verification","message":"Enter the code from your phone"}')).toEqual({ type: 'handoff', kind: 'verification', message: 'Enter the code from your phone' })
+    expect(parseAgentAction('{"action":"handoff","kind":"payment","message":"Approve total","amount_cents":1899,"merchant":"amazon.com","item":"5lb Jasmine Rice"}')).toEqual({
+      type: 'handoff', kind: 'payment', message: 'Approve total', amountCents: 1899, merchant: 'amazon.com', item: '5lb Jasmine Rice',
+    })
     expect(parseAgentAction('{"action":"done","answer":"Balance is $4.20"}')).toEqual({ type: 'done', answer: 'Balance is $4.20' })
     expect(parseAgentAction('{"action":"giveup","reason":"login wall"}')).toEqual({ type: 'giveup', reason: 'login wall' })
   })
@@ -144,6 +156,8 @@ describe('agent action parser (the only path from JSON to the browser)', () => {
     expect(parseAgentAction('{"action":"navigate","url":"javascript:alert(1)"}')).toBeNull()
     expect(parseAgentAction('{"action":"done"}')).toBeNull()
     expect(parseAgentAction('{"action":"handoff","kind":"secret","message":"do it"}')).toBeNull()
+    expect(parseAgentAction('{"action":"handoff","kind":"payment","message":"pay"}')).toBeNull()
+    expect(parseAgentAction('{"action":"handoff","kind":"payment","message":"pay","amount_cents":1899.5,"merchant":"x.com","item":"one item"}')).toBeNull()
     expect(parseAgentAction(`{"action":"click","selector":"${'x'.repeat(5000)}"}`)).toBeNull()
   })
 
@@ -169,6 +183,21 @@ describe('vision caller + parts', () => {
     expect(parts[0]!.text).toContain('avoid repeating')
     expect(parts[0]!.text).toContain('PAYMENT STATUS: not authorized')
     expect(parts[1]!.image_url!.url).toContain('data:image/jpeg;base64,QUJD')
+  })
+
+  it('pins an approved Link credential to the exact authorized total', () => {
+    const parts = buildVisionParts({
+      pageText: 'Order total $18.99',
+      url: 'https://shop.example/checkout',
+      screenshotBase64: 'QUJD',
+      goal: 'Buy one bag of rice',
+      stepNumber: 8,
+      recentActions: ['human completed payment handoff'],
+      paymentAuthorized: true,
+      paymentAmountCents: 1899,
+    }) as Array<{ type: string; text?: string }>
+    expect(parts[0]!.text).toContain('exactly $18.99')
+    expect(parts[0]!.text).toContain('approved one-time credential')
   })
 
   it('makeVisionCaller posts to chat/completions and returns the message content', async () => {

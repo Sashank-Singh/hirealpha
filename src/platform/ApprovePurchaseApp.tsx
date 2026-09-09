@@ -1,7 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
 import type { FeatureAuth } from './FeatureMiniApps'
-import { apiLocations, apiMe, apiSaveLocation } from './api'
-import { getSession } from './roster'
 import './approvePurchase.css'
 
 interface SpendDetails {
@@ -19,11 +17,12 @@ interface SpendDetails {
   shipping?: string
   already_approved?: boolean
   finalization_status?: string
+  approval_url?: string
   error?: string
 }
 
 export function ApprovePurchaseApp({
-  auth,
+  auth: _auth,
   spendId,
 }: {
   auth: FeatureAuth
@@ -34,21 +33,6 @@ export function ApprovePurchaseApp({
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [approved, setApproved] = useState(false)
-
-  // Recipient & Shipping Address state
-  const [recipientName, setRecipientName] = useState(() => {
-    return localStorage.getItem('hirealpha_shipping_name') || 'Sashank Singh'
-  })
-  const [shippingAddress, setShippingAddress] = useState(() => {
-    return localStorage.getItem('hirealpha_shipping_address') || 'San Francisco, CA'
-  })
-  const [contactPhone, setContactPhone] = useState(() => {
-    return localStorage.getItem('hirealpha_shipping_phone') || '+1 (216) 303-2166'
-  })
-  const [editingAddress, setEditingAddress] = useState(false)
-  const [streetInput, setStreetInput] = useState('')
-  const [aptInput, setAptInput] = useState('')
-  const [cityStateZipInput, setCityStateZipInput] = useState('')
 
   const searchParams = new URLSearchParams(window.location.search)
   const id =
@@ -75,52 +59,19 @@ export function ApprovePurchaseApp({
   const paramTax = searchParams.get('tax') || ''
   const paramShipping = searchParams.get('shipping') || ''
 
-  // Load user profile & saved settings address
-  useEffect(() => {
-    const email = auth.email || getSession()?.email
-    if (!email) return
-
-    apiMe(email)
-      .then((me) => {
-        if (me.user?.name) {
-          setRecipientName(me.user.name)
-          localStorage.setItem('hirealpha_shipping_name', me.user.name)
-        }
-        if (me.user?.phone) {
-          setContactPhone(me.user.phone)
-          localStorage.setItem('hirealpha_shipping_phone', me.user.phone)
-        }
-      })
-      .catch(() => {})
-
-    apiLocations(email)
-      .then((locData) => {
-        const homeLoc = locData.locations?.find((l) => l.kind === 'home') || locData.locations?.[0]
-        if (homeLoc?.label) {
-          setShippingAddress(homeLoc.label)
-          localStorage.setItem('hirealpha_shipping_address', homeLoc.label)
-        }
-      })
-      .catch(() => {})
-  }, [auth.email])
-
   const load = useCallback(() => {
     const fallbackDetails: SpendDetails = {
       ok: true,
-      id: id || 'req_purchase',
-      merchant: paramMerchant || 'Amazon',
-      purpose: paramItem || 'Mahatma Basmati Rice, Fragrant Indian Rice, 5-Pound Bag',
-      amount: paramAmount ? (paramAmount.startsWith('$') ? paramAmount : `$${Number(paramAmount).toFixed(2)}`) : '$9.68',
-      url: paramUrl || 'https://www.amazon.com/clp/B07WGFKMPG',
+      id,
+      merchant: paramMerchant || undefined,
+      purpose: paramItem || undefined,
+      amount: paramAmount ? (paramAmount.startsWith('$') ? paramAmount : `$${Number(paramAmount).toFixed(2)}`) : undefined,
+      url: paramUrl || undefined,
       status: 'pending',
     }
 
     if (!id) {
-      if (paramItem) {
-        setDetails(fallbackDetails)
-      } else {
-        setError('No purchase request specified.')
-      }
+      setError('No verified purchase request was provided. No payment credential was created.')
       setLoading(false)
       return
     }
@@ -156,67 +107,15 @@ export function ApprovePurchaseApp({
     load()
   }, [load])
 
-  function handleOpenEditAddress() {
-    const parts = shippingAddress.split(',').map((p) => p.trim())
-    if (parts.length >= 2) {
-      setStreetInput(parts[0] || '')
-      setCityStateZipInput(parts.slice(1).join(', '))
-    } else {
-      setStreetInput(shippingAddress)
-      setCityStateZipInput('')
-    }
-    setEditingAddress(true)
-  }
-
-  async function handleSaveAddress() {
-    const street = streetInput.trim()
-    const apt = aptInput.trim()
-    const cityStateZip = cityStateZipInput.trim()
-    const full = [street, apt, cityStateZip].filter(Boolean).join(', ')
-
-    if (!full) return
-    setShippingAddress(full)
-    localStorage.setItem('hirealpha_shipping_address', full)
-    setEditingAddress(false)
-
-    const email = auth.email || getSession()?.email
-    if (email) {
-      try {
-        await apiSaveLocation({
-          email,
-          kind: 'home',
-          latitude: 37.7749,
-          longitude: -122.4194,
-          label: full,
-          source: 'checkout_review',
-        })
-      } catch {
-        // saved locally
-      }
-    }
-  }
-
-  async function handleApprove() {
+  function handleApprove() {
     if (busy || approved) return
-    setBusy(true)
     setError(null)
-
-    try {
-      if (!id || id.startsWith('req_local_')) {
-        throw new Error('This order has not been staged with Stripe yet. No money was charged.')
-      }
-      const res = await fetch(`/api/payments/spend/approve?id=${encodeURIComponent(id)}&confirm=1&format=json`)
-      const data = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string; charged?: boolean; finalization_status?: string }
-      if (!res.ok || !data.ok) {
-        throw new Error(data.error || 'Stripe could not process this charge. Please ensure your payment method is connected.')
-      }
-      setDetails((current) => current ? { ...current, finalization_status: data.finalization_status || 'awaiting_webhook' } : current)
-      setApproved(true)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not approve payment. Please check your connected card.')
-    } finally {
-      setBusy(false)
+    if (!id || id.startsWith('req_local_') || !details?.approval_url) {
+      setError('This order has not been staged with Link. No payment credential was created.')
+      return
     }
+    setBusy(true)
+    window.location.href = details.approval_url
   }
 
   if (loading) {
@@ -236,15 +135,25 @@ export function ApprovePurchaseApp({
     )
   }
 
-  const merchant = details?.merchant || paramMerchant || 'Amazon'
-  const purpose = details?.purpose || paramItem || '5lb Mahatma Basmati Rice'
-  const amount = details?.amount || (paramAmount ? (paramAmount.startsWith('$') ? paramAmount : `$${Number(paramAmount).toFixed(2)}`) : '$9.68')
+  const merchant = details?.merchant || paramMerchant
+  const purpose = details?.purpose || paramItem
+  const amount = details?.amount || (paramAmount ? (paramAmount.startsWith('$') ? paramAmount : `$${Number(paramAmount).toFixed(2)}`) : '')
   const productUrl = details?.url || paramUrl
   const imageUrl = details?.image || paramImage
-  const subtotal = details?.subtotal || paramSubtotal || amount
-  const shippingDisplay = details?.shipping || paramShipping || 'Calculated at checkout'
-  const taxDisplay = details?.tax || paramTax || 'Calculated at checkout'
+  const subtotal = details?.subtotal || paramSubtotal
+  const shippingDisplay = details?.shipping || paramShipping
+  const taxDisplay = details?.tax || paramTax
+  const hasBreakdown = Boolean(subtotal || shippingDisplay || taxDisplay)
   const orderConfirmed = details?.finalization_status === 'completed'
+
+  if (!merchant || !purpose || !amount) {
+    return (
+      <div className="ap-container" style={{ textAlign: 'center', padding: '40px 0' }}>
+        <h2 style={{ fontSize: '18px', fontWeight: 600, color: '#ff453a' }}>Could not verify checkout</h2>
+        <p style={{ color: '#71717a', fontSize: '13px' }}>Merchant, item, and exact total are required before Link approval.</p>
+      </div>
+    )
+  }
 
   return (
     <div className="ap-container">
@@ -255,7 +164,7 @@ export function ApprovePurchaseApp({
           <span>{merchant}</span>
         </div>
         <h1 className="ap-hero-price">{amount}</h1>
-        <div className="ap-hero-sub">Apple Pay &bull; Link by Stripe</div>
+        <div className="ap-hero-sub">One-time approval &bull; Link by Stripe</div>
       </div>
 
       {/* Grouped Inset: Items in Order */}
@@ -299,105 +208,17 @@ export function ApprovePurchaseApp({
           <div className="ap-item-price">{amount}</div>
         </div>
 
-        <div className="ap-breakdown">
-          <div className="ap-breakdown-row">
-            <span>Subtotal</span>
-            <span>{subtotal}</span>
-          </div>
-          <div className="ap-breakdown-row">
-            <span>Shipping</span>
-            <span style={{ color: shippingDisplay.toLowerCase() === 'free' ? '#30d158' : undefined, fontWeight: 500 }}>
-              {shippingDisplay}
-            </span>
-          </div>
-          <div className="ap-breakdown-row">
-            <span>Estimated Tax</span>
-            <span>{taxDisplay}</span>
-          </div>
-          <div className="ap-breakdown-row ap-total">
-            <span>Total</span>
-            <span>{amount}</span>
-          </div>
-        </div>
-      </div>
-
-      {/* Grouped Inset: Shipping & Address */}
-      <div className="ap-group">
-        <div
-          className={`ap-row${!approved ? ' ap-row-interactive' : ''}`}
-          onClick={!approved ? (editingAddress ? () => setEditingAddress(false) : handleOpenEditAddress) : undefined}
-          role={!approved ? 'button' : undefined}
-          tabIndex={!approved ? 0 : undefined}
-        >
-          <div>
-            <div className="ap-row-label">Shipping</div>
-            <div className="ap-row-title">{recipientName}</div>
-            <div className="ap-row-sub">{shippingAddress}</div>
-            <div className="ap-row-sub" style={{ fontSize: '12px', color: '#71717a' }}>
-              Standard Delivery (2–3 business days) &bull; {contactPhone}
-            </div>
-          </div>
-          {!approved && (
-            <div className="ap-row-chevron" style={{ transform: editingAddress ? 'rotate(90deg)' : 'none' }}>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                <polyline points="9 18 15 12 9 6" />
-              </svg>
-            </div>
-          )}
-        </div>
-
-        {editingAddress && (
-          <div className="ap-edit-drawer">
-            <div>
-              <label className="ap-input-label">Full Name</label>
-              <input
-                className="ap-input"
-                type="text"
-                value={recipientName}
-                onChange={(e) => setRecipientName(e.target.value)}
-                placeholder="Recipient Name"
-              />
-            </div>
-            <div>
-              <label className="ap-input-label">Street Address</label>
-              <input
-                className="ap-input"
-                type="text"
-                value={streetInput}
-                onChange={(e) => setStreetInput(e.target.value)}
-                placeholder="Street address or P.O. Box"
-              />
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '8px' }}>
-              <div>
-                <label className="ap-input-label">Apt, suite</label>
-                <input
-                  className="ap-input"
-                  type="text"
-                  value={aptInput}
-                  onChange={(e) => setAptInput(e.target.value)}
-                  placeholder="Optional"
-                />
+        {hasBreakdown && (
+          <div className="ap-breakdown">
+            {subtotal && <div className="ap-breakdown-row"><span>Subtotal</span><span>{subtotal}</span></div>}
+            {shippingDisplay && (
+              <div className="ap-breakdown-row">
+                <span>Shipping</span>
+                <span style={{ color: shippingDisplay.toLowerCase() === 'free' ? '#30d158' : undefined, fontWeight: 500 }}>{shippingDisplay}</span>
               </div>
-              <div>
-                <label className="ap-input-label">City, State, Zip</label>
-                <input
-                  className="ap-input"
-                  type="text"
-                  value={cityStateZipInput}
-                  onChange={(e) => setCityStateZipInput(e.target.value)}
-                  placeholder="City, State Zip"
-                />
-              </div>
-            </div>
-            <div className="ap-edit-actions">
-              <button type="button" className="ap-btn-save" onClick={handleSaveAddress}>
-                Save Address
-              </button>
-              <button type="button" className="ap-btn-cancel" onClick={() => setEditingAddress(false)}>
-                Cancel
-              </button>
-            </div>
+            )}
+            {taxDisplay && <div className="ap-breakdown-row"><span>Tax</span><span>{taxDisplay}</span></div>}
+            <div className="ap-breakdown-row ap-total"><span>Exact total</span><span>{amount}</span></div>
           </div>
         )}
       </div>
@@ -419,7 +240,7 @@ export function ApprovePurchaseApp({
                 <span className="ap-payment-brand">LINK</span>
               </div>
               <div className="ap-row-sub" style={{ fontSize: '12px' }}>
-                Encrypted &bull; Charged upon approval
+                One-time credential &bull; issued only after approval
               </div>
             </div>
           </div>
@@ -443,13 +264,12 @@ export function ApprovePurchaseApp({
               <polyline points="20 6 9 17 4 12" />
             </svg>
           </div>
-          <div className="ap-confirmed-title">{orderConfirmed ? 'Order Confirmed' : 'Payment Received'}</div>
+          <div className="ap-confirmed-title">{orderConfirmed ? 'Order Confirmed' : 'Payment Approved'}</div>
           <p className="ap-confirmed-desc">
             {orderConfirmed
-              ? `The merchant confirmed your order for ${purpose}, scheduled to deliver to:`
-              : `Alpha is finalizing the merchant checkout for ${purpose}. Shipping destination:`}
+              ? `The merchant confirmed your order for ${purpose}.`
+              : `Alpha is continuing the live merchant checkout for ${purpose}.`}
           </p>
-          <div className="ap-confirmed-dest">{shippingAddress}</div>
           <p style={{ fontSize: '12px', color: '#71717a', margin: 0 }}>
             {orderConfirmed
               ? 'Alpha sent the merchant confirmation to your iMessage thread.'
@@ -461,7 +281,7 @@ export function ApprovePurchaseApp({
           <button
             type="button"
             className="ap-pay-button"
-            disabled={busy || editingAddress}
+            disabled={busy}
             onClick={() => void handleApprove()}
           >
             {busy ? (
@@ -471,7 +291,7 @@ export function ApprovePurchaseApp({
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
                   <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 14h2v2h-2v-2zm0-10h2v8h-2V6z" />
                 </svg>
-                <span>Pay {amount} with Link</span>
+                <span>Review {amount} in Link</span>
               </>
             )}
           </button>
@@ -480,7 +300,7 @@ export function ApprovePurchaseApp({
               <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
               <path d="M7 11V7a5 5 0 0 1 10 0v4" />
             </svg>
-            <span>Guaranteed zero-charge until approved</span>
+            <span>Merchant and total are locked to this one approval</span>
           </div>
         </div>
       )}

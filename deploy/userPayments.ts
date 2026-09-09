@@ -2,20 +2,31 @@
  * Per-user payment connection — the "user connects their OWN wallet" pillar.
  *
  * Trust model (stated as code):
- *  - The operator's account never funds anything. Each user gets their own
- *    Stripe Customer (namespace `stripe_payment_customer` on hire_users,
- *    separate from the subscription customer), connects their own card via
- *    Checkout setup mode — Link users get Link autofill there automatically.
- *  - A charge is ask-first, twice over: the user must have an approved
- *    spend request for THIS amount to THIS merchant, consumed atomically by
- *    the PaymentIntent call, and the amount is capped (USER_SPEND_MAX_CENTS).
- *  - Plaintext card data never touches this server — Stripe holds it; we
- *    store nothing but customer ids and brand/last4 views.
+ *  - The operator's account never funds anything. Each user authorizes their
+ *    own Link wallet, whose auth document is isolated and encrypted per user.
+ *  - Every new purchase is ask-first for THIS amount and THIS merchant and is
+ *    capped (USER_SPEND_MAX_CENTS). Link issues a one-time credential only
+ *    after that exact request is approved.
+ *  - Full card data is never persisted or sent to the model. The browser
+ *    worker retrieves it into memory and fills checkout fields directly.
+ *
+ * Legacy Stripe Customer helpers remain below only to finalize already-issued
+ * PaymentIntents during migration; new product purchases use Link spend
+ * requests and do not charge the platform's Stripe account.
  */
 import { randomUUID } from 'node:crypto'
 import type { SQL } from 'bun'
 import { enqueueBrowserJob } from './browserJobs'
 import { authorizePaidPurchaseBrowserRun, pushBrowserResultLoop } from './browserVault'
+import {
+  createLinkSpendRequest,
+  disconnectLink,
+  ensureLinkWalletSchema,
+  getLinkStatus,
+  listLinkPaymentMethods,
+  retrieveLinkSpend,
+  startLinkConnection,
+} from './linkWallet'
 
 /* ------------------------------- schema --------------------------------- */
 
@@ -41,6 +52,7 @@ export async function ensureUserPaymentsSchema(sql: SQL): Promise<void> {
   await sql`ALTER TABLE hire_spend_approvals ADD COLUMN IF NOT EXISTS finalization_status TEXT NOT NULL DEFAULT 'pending'`
   await sql`ALTER TABLE hire_spend_approvals ADD COLUMN IF NOT EXISTS finalization_job_id UUID`
   await sql`ALTER TABLE hire_spend_approvals ADD COLUMN IF NOT EXISTS order_confirmation TEXT`
+  await ensureLinkWalletSchema(sql)
 }
 
 /* ------------------------------ stripe io -------------------------------- */
@@ -150,8 +162,8 @@ export async function createSpendRequest(
   userId: string,
   input: { amountCents: number; merchant: string; purpose: string },
 ): Promise<{ requestId: string } | { error: string }> {
-  const amount = Math.floor(input.amountCents)
-  if (!Number.isFinite(amount) || amount < 50) return { error: 'Minimum charge is $0.50.' }
+  const amount = Number(input.amountCents)
+  if (!Number.isInteger(amount) || amount < 50) return { error: 'Amount must be an exact number of cents and at least $0.50.' }
   if (amount > spendCapCents()) return { error: `Above the per-purchase cap ($${(spendCapCents() / 100).toFixed(0)}). Ask in chat to raise it.` }
   const merchant = input.merchant.trim().slice(0, 120)
   const purpose = input.purpose.trim().slice(0, 300)
@@ -162,6 +174,38 @@ export async function createSpendRequest(
     VALUES (${id}, ${userId}, ${amount}, ${merchant}, ${purpose}, 'pending')
   `
   return { requestId: id }
+}
+
+/** Create the user-visible Link approval only after the exact merchant total
+ * is known. Link issues the one-time checkout credential after approval. */
+export async function createLinkBackedSpendRequest(
+  sql: SQL,
+  userId: string,
+  input: { amountCents: number; merchant: string; merchantUrl: string; purpose: string },
+): Promise<{ requestId: string; approvalUrl: string } | { error: string }> {
+  let merchantUrl: URL
+  try { merchantUrl = new URL(input.merchantUrl) } catch { return { error: 'Purchase needs a valid merchant URL.' } }
+  if (merchantUrl.protocol !== 'https:' || merchantUrl.username || merchantUrl.password) return { error: 'Purchase merchant URL must be secure.' }
+  const merchant = merchantUrl.hostname.toLowerCase().replace(/^www\./, '')
+  const local = await createSpendRequest(sql, userId, { ...input, merchant })
+  if (!('requestId' in local)) return local
+  try {
+    const spend = await createLinkSpendRequest(sql, userId, { ...input, merchant, merchantUrl: merchantUrl.href, requestId: local.requestId })
+    if (!spend.id || !spend.approvalUrl) throw new Error('Link did not return an approval link.')
+    const approvalUrl = new URL(spend.approvalUrl)
+    if (approvalUrl.protocol !== 'https:' || approvalUrl.username || approvalUrl.password) throw new Error('Link returned an invalid approval link.')
+    await sql`
+      UPDATE hire_spend_approvals
+      SET link_spend_request_id = ${spend.id}, link_approval_url = ${approvalUrl.href},
+        merchant_url = ${merchantUrl.href}, finalization_status = 'awaiting_link', last_error = NULL
+      WHERE id = ${local.requestId} AND user_id = ${userId}
+    `
+    return { requestId: local.requestId, approvalUrl: approvalUrl.href }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Could not create Link approval.'
+    await sql`UPDATE hire_spend_approvals SET status = 'failed', last_error = ${message.slice(0, 300)} WHERE id = ${local.requestId} AND user_id = ${userId}`
+    return { error: message }
+  }
 }
 
 export type SpendDecision = 'ok' | 'missing' | 'denied' | 'expired' | 'used'
@@ -249,6 +293,7 @@ export type PurchasePaymentIntent = {
 export type PurchaseFinalizationResult =
   | { status: 'ignored'; reason: string }
   | { status: 'already_queued'; jobId: string }
+  | { status: 'resumed'; jobId: string }
   | { status: 'queued'; jobId: string }
   | { status: 'needs_attention'; reason: string }
 
@@ -295,7 +340,30 @@ export async function queuePaidPurchaseFinalization(
   if (String(intent.currency || '').toLowerCase() !== 'usd' || Number(intent.amount_received) !== approval.amount_cents) {
     return { status: 'ignored', reason: 'paid currency or amount does not match the spend approval' }
   }
-  if (approval.finalization_job_id) return { status: 'already_queued', jobId: approval.finalization_job_id }
+  if (approval.finalization_job_id) {
+    const staged = (await sql`
+      SELECT id, status, handoff_kind, spend_request_id
+      FROM hire_browser_jobs
+      WHERE id = ${approval.finalization_job_id} AND user_id = ${approval.user_id}
+      LIMIT 1
+    `) as Array<{ id: string; status: string; handoff_kind: string | null; spend_request_id: string | null }>
+    const live = staged[0]
+    if (live?.status === 'waiting' && live.handoff_kind === 'payment' && live.spend_request_id === requestId) {
+      await sql`
+        UPDATE hire_spend_approvals
+        SET payment_intent_id = ${intentId}, paid_at = COALESCE(paid_at, now()),
+          finalization_status = 'running', last_error = NULL
+        WHERE id = ${requestId} AND user_id = ${approval.user_id}
+      `
+      await sql`
+        UPDATE hire_browser_jobs
+        SET status = 'running', handoff_resumed_at = now(), claimed_at = now()
+        WHERE id = ${live.id} AND user_id = ${approval.user_id} AND status = 'waiting' AND handoff_kind = 'payment'
+      `
+      return { status: 'resumed', jobId: live.id }
+    }
+    return { status: 'already_queued', jobId: approval.finalization_job_id }
+  }
 
   const drafts = (await sql`
     SELECT persona, to_addr, subject, body
@@ -369,6 +437,74 @@ export async function queuePaidPurchaseFinalization(
   return { status: 'queued', jobId }
 }
 
+/** Poll pending Link approvals and queue the merchant checkout only after Link
+ * says this exact spend request was approved. Safe to run in every worker. */
+export async function promoteApprovedLinkPurchases(sql: SQL, limit = 3): Promise<number> {
+  const rows = (await sql`
+    SELECT a.id, a.user_id, a.amount_cents, a.merchant, a.merchant_url, a.purpose,
+      a.link_spend_request_id, a.finalization_job_id, u.phone_e164
+    FROM hire_spend_approvals a
+    JOIN hire_users u ON u.id = a.user_id
+    WHERE a.link_spend_request_id IS NOT NULL AND a.status = 'pending'
+      AND a.finalization_status = 'awaiting_link'
+    ORDER BY a.created_at ASC LIMIT ${limit}
+  `) as Array<{
+    id: string; user_id: string; amount_cents: number; merchant: string; merchant_url: string;
+    purpose: string; link_spend_request_id: string; finalization_job_id: string | null; phone_e164: string | null
+  }>
+  let promoted = 0
+  for (const row of rows) {
+    let remote
+    try { remote = await retrieveLinkSpend(sql, row.user_id, row.link_spend_request_id) }
+    catch { continue }
+    if (['denied', 'expired', 'failed', 'canceled'].includes(remote.status)) {
+      await sql`UPDATE hire_spend_approvals SET status = ${remote.status}, decided_at = now(), finalization_status = 'cancelled' WHERE id = ${row.id} AND status = 'pending'`
+      continue
+    }
+    if (!['approved', 'succeeded'].includes(remote.status)) continue
+
+    // A discovery browser may be paused on the checkout page. It was launched
+    // before the Link credential existed, so close that credential-less run;
+    // the deterministic finalization job below starts with the approved card
+    // injected in memory. Never mutate a live model session to add secrets.
+    if (row.finalization_job_id && row.finalization_job_id !== row.id) {
+      await sql`
+        UPDATE hire_browser_jobs SET status = 'failed', error = 'Superseded by Link-approved checkout', finished_at = now()
+        WHERE id = ${row.finalization_job_id} AND user_id = ${row.user_id} AND status = 'waiting' AND handoff_kind = 'payment'
+      `
+    }
+
+    const drafts = (await sql`
+      SELECT persona FROM hire_drafts WHERE user_id = ${row.user_id} AND kind = 'purchase'
+        AND body LIKE ${`%${row.id}%`} ORDER BY created_at DESC LIMIT 1
+    `) as Array<{ persona: string }>
+    const persona = drafts[0]?.persona || 'friend'
+    const browserApproval = await authorizePaidPurchaseBrowserRun(sql, {
+      requestId: row.id, userId: row.user_id, persona, portal: row.merchant_url,
+      purpose: `Complete Link-approved purchase: ${row.purpose}`.slice(0, 200),
+    })
+    if ('error' in browserApproval) continue
+    const amount = `$${(row.amount_cents / 100).toFixed(2)}`
+    const goal = [
+      `Complete the Link-approved checkout for "${row.purpose}".`,
+      `Verify the final total is exactly ${amount}; do not change the cart or accept substitutions.`,
+      'When the payment form is visible, use fill_payment. Never ask for or type card numbers yourself.',
+      'Click the final Place Order control exactly once. Use done only after a merchant confirmation number is visible.',
+    ].join(' ')
+    const jobId = await enqueueBrowserJob(sql, {
+      userId: row.user_id, persona, phone: row.phone_e164, kind: 'task', url: row.merchant_url,
+      goal, approvalId: browserApproval.requestId, spendRequestId: row.id, idempotencyId: row.id,
+    })
+    await sql`
+      UPDATE hire_spend_approvals SET status = 'approved', decided_at = now(), consumed_at = now(),
+        finalization_status = 'queued', finalization_job_id = ${jobId}, last_error = NULL
+      WHERE id = ${row.id} AND user_id = ${row.user_id} AND status = 'pending'
+    `
+    promoted++
+  }
+  return promoted
+}
+
 /** Customer id + default (newest) payment method in one call. */
 export async function listPaymentMethodsForUser(
   sql: SQL,
@@ -390,13 +526,14 @@ function json(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), { status, headers: { 'content-type': 'application/json' } })
 }
 
-export type UserPaymentsDeps = {
-  resolveUser: (sql: SQL, req: Request) => Promise<{ id: string } | null>
+function escapeHtml(value: string): string {
+  return value.replace(/[&<>"']/g, (char) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+  })[char]!)
 }
 
-async function userEmail(sql: SQL, userId: string): Promise<string> {
-  const rows = (await sql`SELECT email FROM hire_users WHERE id = ${userId} LIMIT 1`) as Array<{ email: string | null }>
-  return rows[0]?.email || ''
+export type UserPaymentsDeps = {
+  resolveUser: (sql: SQL, req: Request) => Promise<{ id: string } | null>
 }
 
 /** Returns null for paths it does not own. All routes require a signed-in user. */
@@ -411,9 +548,10 @@ export async function handleUserPaymentsApi(req: Request, sql: SQL, deps: UserPa
     const isJson = url.searchParams.get('format') === 'json' || req.headers.get('accept')?.includes('application/json')
     if (!id) return isJson ? json({ error: 'Missing request id' }, 400) : new Response('Missing request id', { status: 400 })
     const rows = (await sql`
-      SELECT id, user_id, amount_cents, merchant, purpose, status, payment_intent_id, finalization_status
+      SELECT id, user_id, amount_cents, merchant, purpose, status, payment_intent_id,
+        finalization_status, link_spend_request_id, link_approval_url
       FROM hire_spend_approvals WHERE id = ${id} LIMIT 1
-    `) as Array<{ id: string; user_id: string; amount_cents: number; merchant: string; purpose: string; status: string; payment_intent_id: string | null; finalization_status: string }>
+    `) as Array<{ id: string; user_id: string; amount_cents: number; merchant: string; purpose: string; status: string; payment_intent_id: string | null; finalization_status: string; link_spend_request_id: string | null; link_approval_url: string | null }>
     const item = rows[0]
     if (!item) {
       if (isJson) return json({ error: 'Request not found' }, 404)
@@ -423,7 +561,34 @@ export async function handleUserPaymentsApi(req: Request, sql: SQL, deps: UserPa
       })
     }
     const amountStr = `$${(item.amount_cents / 100).toFixed(2)}`
-    if (item.status === 'consumed' || item.payment_intent_id) {
+    if (item.link_spend_request_id && item.link_approval_url && isJson) {
+      return json({
+        ok: true, id: item.id, merchant: item.merchant, purpose: item.purpose,
+        amount_cents: item.amount_cents, amount: amountStr, status: item.status,
+        approval_url: item.status === 'pending' ? item.link_approval_url : undefined,
+        finalization_status: item.finalization_status,
+        already_approved: ['approved', 'consumed'].includes(item.status) || item.finalization_status === 'completed',
+      })
+    }
+    if (item.link_spend_request_id && item.link_approval_url && item.status === 'pending') {
+      const safeMerchant = escapeHtml(item.merchant)
+      const safePurpose = escapeHtml(item.purpose)
+      const safeApprovalUrl = escapeHtml(item.link_approval_url)
+      return new Response(`<html><body style="font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#0d1117;color:#fff;padding:40px 16px;text-align:center;">
+        <div style="max-width:400px;margin:0 auto;background:#161b22;padding:32px;border-radius:16px;border:1px solid #30363d;">
+          <div style="display:inline-block;padding:6px 14px;background:#635bff;color:#fff;border-radius:20px;font-size:12px;font-weight:600;margin-bottom:16px;">LINK APPROVAL</div>
+          <h2 style="margin:0 0 8px;color:#f0f6fc;">Approve Purchase</h2>
+          <p style="color:#8b949e;">Approve a one-time payment credential for this exact purchase. HireAlpha cannot reuse it for another order.</p>
+          <div style="background:#21262d;padding:20px;border-radius:12px;margin:20px 0;text-align:left;">
+            <div style="font-size:12px;color:#8b949e;">Merchant</div><div style="font-weight:600;margin-bottom:12px;">${safeMerchant}</div>
+            <div style="font-size:12px;color:#8b949e;">Item</div><div style="font-weight:600;margin-bottom:12px;">${safePurpose}</div>
+            <div style="font-size:12px;color:#8b949e;">Maximum total</div><div style="font-weight:700;font-size:24px;color:#58a6ff;">${amountStr}</div>
+          </div>
+          <a href="${safeApprovalUrl}" rel="noreferrer" style="display:block;background:#635bff;color:#fff;text-decoration:none;padding:16px;border-radius:12px;font-weight:600;">Continue to Link</a>
+          <p style="font-size:12px;color:#8b949e;">Link shows the merchant, item, and exact total before you approve.</p>
+        </div></body></html>`, { headers: { 'Content-Type': 'text/html; charset=utf-8' } })
+    }
+    if (item.status === 'approved' || item.status === 'consumed' || item.payment_intent_id) {
       if (isJson) {
         return json({ ok: true, already_approved: true, status: 'consumed', finalization_status: item.finalization_status, merchant: item.merchant, purpose: item.purpose, amount: amountStr })
       }
@@ -520,55 +685,62 @@ export async function handleUserPaymentsApi(req: Request, sql: SQL, deps: UserPa
 
   const user = await deps.resolveUser(sql, req)
   if (!user) return json({ error: 'Sign in first.' }, 401)
-  if (!stripeKey()) return json({ error: 'Stripe is not configured on this server.' }, 503)
 
-  const email = await userEmail(sql, user.id)
-
-  // Start the connect flow: Checkout setup mode on the user's own customer.
+  // Link device authorization belongs to this signed-in HireAlpha user only.
   if (path === '/api/payments/connect' && req.method === 'POST') {
-    const session = await createConnectSession(sql, req, user.id, email)
-    return session.url ? json({ url: session.url }) : json({ error: session.error }, 400)
+    try {
+      const status = await startLinkConnection(sql, user.id)
+      return json({ ...status, url: status.verificationUrl })
+    } catch (error) {
+      return json({ error: error instanceof Error ? error.message : 'Could not start Link connection.' }, 400)
+    }
   }
 
-  // Saved methods (masked views only — brand/last4).
+  if (path === '/api/payments/link/status' && req.method === 'GET') {
+    try { return json(await getLinkStatus(sql, user.id)) }
+    catch (error) { return json({ connected: false, pending: false, error: error instanceof Error ? error.message : 'Link status failed.' }, 400) }
+  }
+
+  if (path === '/api/payments/link' && req.method === 'DELETE') {
+    await disconnectLink(sql, user.id)
+    return json({ ok: true })
+  }
+
+  // Link returns only masked method views here. Card credentials never use this route.
   if (path === '/api/payments/methods' && req.method === 'GET') {
-    const rows = (await sql`
-      SELECT stripe_payment_customer FROM hire_users WHERE id = ${user.id} LIMIT 1
-    `) as Array<{ stripe_payment_customer: string | null }>
-    const customerId = rows[0]?.stripe_payment_customer
-    if (!customerId) return json({ methods: [] })
-    return json({ methods: await listPaymentMethods(customerId) })
+    try {
+      const status = await getLinkStatus(sql, user.id)
+      if (!status.connected) return json({ methods: [], link: status })
+      return json({ methods: await listLinkPaymentMethods(sql, user.id), link: status })
+    } catch { return json({ methods: [], link: { connected: false, pending: false } }) }
   }
 
   // Remove a saved method.
   if (path === '/api/payments/methods' && req.method === 'DELETE') {
-    const id = url.searchParams.get('id') || ''
-    if (!id.startsWith('pm_')) return json({ error: 'That is not a payment method id.' }, 400)
-    const rows = (await sql`
-      SELECT stripe_payment_customer FROM hire_users WHERE id = ${user.id} LIMIT 1
-    `) as Array<{ stripe_payment_customer: string | null }>
-    const customerId = rows[0]?.stripe_payment_customer
-    if (!customerId) return json({ error: 'No wallet connected.' }, 404)
-    // Ownership fence: the method must belong to THIS user's customer.
-    const own = await listPaymentMethods(customerId)
-    if (!own.some((m) => m.id === id)) return json({ error: 'Not found.' }, 404)
-    const detached = await stripeCall('POST', `/payment_methods/${encodeURIComponent(id)}/detach`)
-    return detached.ok ? json({ ok: true }) : json({ error: detached.data?.error?.message || 'Detach failed.' }, 400)
+    return json({ error: 'Manage individual cards in Link, or disconnect the wallet from HireAlpha.' }, 409)
   }
 
   // Spend requests: create → pending; user approves/denies; charge consumes.
   if (path === '/api/payments/spend' && req.method === 'POST') {
-    const body = (await req.json().catch(() => ({}))) as { action?: string; requestId?: string; amountCents?: number; merchant?: string; purpose?: string }
+    const body = (await req.json().catch(() => ({}))) as { action?: string; requestId?: string; amountCents?: number; merchant?: string; merchantUrl?: string; purpose?: string }
     const action = body.action || 'create'
     if (action === 'create') {
-      const res = await createSpendRequest(sql, user.id, {
+      const res = await createLinkBackedSpendRequest(sql, user.id, {
         amountCents: Number(body.amountCents),
         merchant: String(body.merchant || ''),
+        merchantUrl: String(body.merchantUrl || ''),
         purpose: String(body.purpose || ''),
       })
       return res.requestId ? json(res) : json({ error: res.error }, 400)
     }
     if (action === 'approve' || action === 'deny') {
+      if (action === 'approve') {
+        const linkRows = (await sql`
+          SELECT link_spend_request_id FROM hire_spend_approvals
+          WHERE id = ${String(body.requestId || '')} AND user_id = ${user.id} LIMIT 1
+        `) as Array<{ link_spend_request_id: string | null }>
+        if (linkRows[0]?.link_spend_request_id) return json({ error: 'Approve this purchase in Link.' }, 409)
+      }
       const ok = await decideSpendApproval(sql, user.id, String(body.requestId || ''), action)
       return ok ? json({ ok: true }) : json({ error: 'No pending request with that id.' }, 404)
     }
@@ -582,14 +754,15 @@ export async function handleUserPaymentsApi(req: Request, sql: SQL, deps: UserPa
   // Pending spend requests for the approvals UI.
   if (path === '/api/payments/spend' && req.method === 'GET') {
     const rows = (await sql`
-      SELECT id, amount_cents, merchant, purpose, status, created_at, last_error
+      SELECT id, amount_cents, merchant, purpose, status, created_at, last_error, link_approval_url
       FROM hire_spend_approvals WHERE user_id = ${user.id} ORDER BY created_at DESC LIMIT 20
-    `) as Array<{ id: string; amount_cents: number; merchant: string; purpose: string; status: string; created_at: Date; last_error: string | null }>
+    `) as Array<{ id: string; amount_cents: number; merchant: string; purpose: string; status: string; created_at: Date; last_error: string | null; link_approval_url: string | null }>
     return json({
       requests: rows.map((r) => ({
         ...r,
         amount: `$${(r.amount_cents / 100).toFixed(2)}`,
         pending: r.status === 'pending',
+        approval_url: r.link_approval_url,
       })),
       cap_cents: spendCapCents(),
     })

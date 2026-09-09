@@ -22,11 +22,12 @@ interface SessionData {
   attempts: number
   result: string | null
   error: string | null
-  streamUrl: string
+  streamUrl: string | null
   steps: SessionStep[]
   handoffKind?: HandoffKind
   handoffMessage?: string | null
   handoffAt?: string | null
+  paymentUrl?: string | null
 }
 
 const ICONS = {
@@ -188,9 +189,9 @@ export function ComputerSessionView() {
   const copy = statusCopy(session.status)
   const currentHost = hostname(session.currentUrl || session.url)
   const recentSteps = (session.steps || []).slice(-5).reverse()
-  const canControl = session.status === 'running' || session.status === 'waiting'
+  const canControl = session.status === 'running' || (session.status === 'waiting' && session.handoffKind !== 'payment')
   const checkpointTitle = session.handoffKind === 'payment'
-    ? 'Review payment on the merchant site'
+    ? 'Approve the verified total'
     : session.handoffKind === 'verification'
       ? 'Enter the code from your phone'
       : session.handoffKind === 'captcha'
@@ -236,9 +237,9 @@ export function ComputerSessionView() {
               />
             ) : (
               <div className="cs-stream-unavailable">
-                <span className="cs-stream-loader" />
-                <strong>Starting the secure browser</strong>
-                <span>The live screen will appear here.</span>
+                {(session.status === 'running' || session.status === 'waiting') && <span className="cs-stream-loader" />}
+                <strong>{session.status === 'done' || session.status === 'failed' ? 'Browser session closed' : 'Starting the secure browser'}</strong>
+                <span>{session.status === 'done' || session.status === 'failed' ? 'The private live view ended with this task.' : 'The live screen will appear here.'}</span>
               </div>
             )}
             {!takingControl && session.streamUrl && <div className="cs-watch-shield" aria-hidden="true" />}
@@ -293,7 +294,9 @@ export function ComputerSessionView() {
                 <h2>{checkpointTitle}</h2>
                 <p>{session.handoffMessage || 'Take control and finish the protected step directly in the website. HireAlpha does not receive or store what you type.'}</p>
                 <div className="cs-checkpoint-actions">
-                  {!takingControl ? (
+                  {session.handoffKind === 'payment' && session.paymentUrl ? (
+                    <a className="cs-button cs-button-primary" href={session.paymentUrl} target="_blank" rel="noreferrer">Approve with Link</a>
+                  ) : !takingControl ? (
                     <button className="cs-button cs-button-primary" onClick={takeControl}>Take control</button>
                   ) : (
                     <button className="cs-button cs-button-primary" disabled={acting} onClick={() => void postAction('resume')}>Done — let Alpha continue</button>

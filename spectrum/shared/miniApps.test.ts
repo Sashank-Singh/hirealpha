@@ -778,9 +778,9 @@ describe('Mini-app Text Triggers', () => {
       expect(result?.kind).toBe('spending_snapshot')
     })
 
-    it('no longer routes gratitude to a journal card (gratitude left the capability set)', () => {
+    it('routes gratitude to the journal card (auto-log needs the kind)', () => {
       const result = detectMiniAppRequest('grateful for my team', 'friend')
-      expect(result?.kind).not.toBe('gratitude_journal')
+      expect(result?.kind).toBe('gratitude_journal')
     })
 
     it('detects learning_queue intent with URL', () => {

@@ -5,7 +5,7 @@
  */
 import type { Browser, BrowserType } from 'playwright'
 import { runPortalLogin, runSteps, extractPageText } from './browserRunner'
-import { agentEnvCaller, buildVisionParts, executeAgentAction, isTerminal, parseAgentAction, DEFAULT_AGENT_LIMITS } from './agentDriver'
+import { agentEnvCaller, buildVisionParts, executeAgentAction, isTerminal, pageShowsExactTotal, parseAgentAction, DEFAULT_AGENT_LIMITS, type PaymentCardSecrets } from './agentDriver'
 import type { PortalTask, PortalStep } from './browserVault'
 
 export type SessionTask = {
@@ -16,12 +16,17 @@ export type SessionTask = {
   steps?: PortalStep[]
   goal?: string
   paymentAuthorized?: boolean
+  paymentAmountCents?: number
+  paymentCard?: PaymentCardSecrets
   onProgress?: (event: { action: string; url: string }) => Promise<void>
   onHandoff?: (handoff: {
     kind: 'password' | 'verification' | 'payment' | 'captcha' | 'confirmation'
     message: string
     url: string
-  }) => Promise<'resumed' | 'cancelled' | 'timeout'>
+    amountCents?: number
+    merchant?: string
+    item?: string
+  }) => Promise<'resumed' | 'cancelled' | 'timeout' | { status: 'resumed'; paymentCard: PaymentCardSecrets }>
 }
 
 let remoteBrowser: Promise<Browser> | null = null
@@ -97,11 +102,33 @@ function sameSite(from: string, to: string): boolean {
   }
 }
 
-type IndexedTarget = { index: number; tag: string; label: string; x: number; y: number; width: number; height: number }
+type IndexedTarget = { index: number; tag: string; label: string; sensitive: boolean; x: number; y: number; width: number; height: number }
+
+/** Payment values are filled outside the model. Mask them before every vision
+ * capture, including cross-origin payment frames, so screenshots cannot turn
+ * a one-time credential into model input. */
+async function maskPaymentFields(page: import('playwright').Page): Promise<void> {
+  const selector = [
+    'input[autocomplete^="cc-"]', 'input[name*="cardnumber" i]', 'input[name*="card-number" i]',
+    'input[name*="cardNumber" i]', 'input[name*="cvc" i]', 'input[name*="cvv" i]',
+    'input[name*="securityCode" i]', 'input[name*="expiry" i]', 'input[name*="expiration" i]',
+    'input[data-elements-stable-field-name^="card"]',
+  ].join(',')
+  for (const frame of page.frames()) {
+    await frame.locator(selector).evaluateAll((nodes) => {
+      for (const node of nodes as HTMLInputElement[]) {
+        node.style.setProperty('-webkit-text-security', 'disc', 'important')
+        node.style.setProperty('color', 'transparent', 'important')
+        node.style.setProperty('text-shadow', '0 0 0 #666', 'important')
+      }
+    }).catch(() => undefined)
+  }
+}
 
 /** Build browser-use-style numbered targets from the live page. The overlay is
  * present only for the screenshot and is removed before any action executes. */
 async function captureAgentPage(page: import('playwright').Page): Promise<{ pageText: string; screenshot: string }> {
+  await maskPaymentFields(page)
   const targets = await page.locator('a, button, input, select, textarea, [role="button"], [role="link"], [contenteditable="true"], [tabindex]')
     .evaluateAll((nodes) => nodes.flatMap((node, position) => {
       const element = node as HTMLElement
@@ -114,10 +141,19 @@ async function captureAgentPage(page: import('playwright').Page): Promise<{ page
         || element.innerText
         || element.getAttribute('title')
         || ''
+      const fieldSignals = [
+        element.getAttribute('type'), element.getAttribute('autocomplete'), element.getAttribute('name'),
+        element.getAttribute('id'), element.getAttribute('aria-label'), element.getAttribute('placeholder'),
+      ].filter(Boolean).join(' ').toLowerCase()
+      const sensitive = element instanceof HTMLInputElement && (
+        element.type === 'password'
+        || /(?:one-time-code|\botp\b|verification.?code|security.?code|passcode|cc-|card.?number|card.?expiry|cardholder|billing.?(?:postal|zip)|\bexp(?:iry|iration)?[-_ ]?date\b|\bcvc\b|\bcvv\b)/i.test(fieldSignals)
+      )
       return [{
         index: position + 1,
         tag: element.tagName.toLowerCase(),
-        label: label.trim().replace(/\s+/g, ' ').slice(0, 100),
+        label: sensitive ? 'Protected field' : label.trim().replace(/\s+/g, ' ').slice(0, 100),
+        sensitive,
         x: Math.max(0, Math.round(rect.x)),
         y: Math.max(0, Math.round(rect.y)),
         width: Math.round(rect.width),
@@ -137,7 +173,7 @@ async function captureAgentPage(page: import('playwright').Page): Promise<{ page
     root.style.cssText = 'position:fixed;inset:0;z-index:2147483647;pointer-events:none;overflow:hidden'
     for (const item of items) {
       const box = document.createElement('div')
-      box.style.cssText = `position:absolute;left:${item.x}px;top:${item.y}px;width:${item.width}px;height:${item.height}px;border:2px solid #e9bd24;box-sizing:border-box`
+      box.style.cssText = `position:absolute;left:${item.x}px;top:${item.y}px;width:${item.width}px;height:${item.height}px;border:2px solid #e9bd24;box-sizing:border-box;${item.sensitive ? 'background:#191914;' : ''}`
       const badge = document.createElement('span')
       badge.textContent = `[${item.index}]`
       badge.style.cssText = 'position:absolute;left:-2px;top:-16px;padding:1px 3px;background:#e9bd24;color:#171710;font:700 11px monospace;line-height:14px'
@@ -147,11 +183,36 @@ async function captureAgentPage(page: import('playwright').Page): Promise<{ page
     document.documentElement.appendChild(root)
   }, targets).catch(() => undefined)
 
+  // Secure payment widgets commonly live in cross-origin iframes. Redact
+  // protected inputs inside every frame as well as the top document before
+  // the pixels leave the browser process.
+  await Promise.all(page.frames().map((frame) => frame.evaluate(() => {
+    document.getElementById('__hirealpha_sensitive_redactions__')?.remove()
+    const root = document.createElement('div')
+    root.id = '__hirealpha_sensitive_redactions__'
+    root.style.cssText = 'position:fixed;inset:0;z-index:2147483647;pointer-events:none;overflow:hidden'
+    for (const input of document.querySelectorAll('input')) {
+      const element = input as HTMLInputElement
+      const signals = [element.type, element.autocomplete, element.name, element.id, element.getAttribute('aria-label'), element.placeholder]
+        .filter(Boolean).join(' ').toLowerCase()
+      if (element.type !== 'password' && !/(?:one-time-code|\botp\b|verification.?code|security.?code|passcode|cc-|card.?number|card.?expiry|cardholder|billing.?(?:postal|zip)|\bexp(?:iry|iration)?[-_ ]?date\b|\bcvc\b|\bcvv\b)/i.test(signals)) continue
+      const rect = element.getBoundingClientRect()
+      if (rect.width < 2 || rect.height < 2) continue
+      const cover = document.createElement('div')
+      cover.style.cssText = `position:absolute;left:${rect.x}px;top:${rect.y}px;width:${rect.width}px;height:${rect.height}px;background:#191914;border:2px solid #e9bd24;box-sizing:border-box`
+      root.appendChild(cover)
+    }
+    document.documentElement.appendChild(root)
+  }).catch(() => undefined)))
+
   let screenshot = ''
   try {
     screenshot = await page.screenshot({ type: 'jpeg', quality: 45, timeout: 8_000 }).then((buffer) => buffer.toString('base64'))
   } finally {
     await page.evaluate(() => document.getElementById('__hirealpha_targets__')?.remove()).catch(() => undefined)
+    await Promise.all(page.frames().map((frame) => frame.evaluate(() => {
+      document.getElementById('__hirealpha_sensitive_redactions__')?.remove()
+    }).catch(() => undefined)))
   }
   return { pageText: `${bodyText}\n\nINTERACTIVE TARGETS:\n${targetText}`.slice(0, 9_000), screenshot }
 }
@@ -186,7 +247,16 @@ async function agentLoop(
     }
     let raw = ''
     try {
-      raw = await call(buildVisionParts({ pageText, url: page.url(), screenshotBase64: screenshot, goal, stepNumber: step, recentActions, paymentAuthorized: task.paymentAuthorized }))
+      raw = await call(buildVisionParts({
+        pageText,
+        url: page.url(),
+        screenshotBase64: screenshot,
+        goal,
+        stepNumber: step,
+        recentActions,
+        paymentAuthorized: task.paymentAuthorized,
+        paymentAmountCents: task.paymentAmountCents,
+      }))
     } catch (err) {
       return { ok: false, error: `Vision model failed: ${err instanceof Error ? err.message : String(err)}` }
     }
@@ -200,12 +270,29 @@ async function agentLoop(
       continue
     }
     if (action.type === 'handoff') {
+      if (action.kind === 'payment' && !pageShowsExactTotal(pageText, action.amountCents || 0)) {
+        recentActions.push('blocked payment handoff because the exact total was not visible beside a total label')
+        continue
+      }
       if (!task.onHandoff) return { ok: false, error: `This step needs you: ${action.message}` }
       const handoffStarted = Date.now()
-      const handoff = await task.onHandoff({ kind: action.kind, message: action.message, url: page.url() })
+      const handoff = await task.onHandoff({
+        kind: action.kind,
+        message: action.message,
+        url: page.url(),
+        amountCents: action.amountCents,
+        merchant: action.merchant,
+        item: action.item,
+      })
       deadline += Date.now() - handoffStarted
       if (handoff === 'cancelled') return { ok: false, error: 'The user stopped the browser task.' }
       if (handoff === 'timeout') return { ok: false, error: 'The browser handoff expired before the user returned.' }
+      if (action.kind === 'payment') {
+        if (typeof handoff === 'object') task.paymentCard = handoff.paymentCard
+        if (!task.paymentCard) return { ok: false, error: 'Payment was approved, but a one-time checkout credential was not available.' }
+        task.paymentAuthorized = true
+        task.paymentAmountCents = action.amountCents
+      }
       recentActions.push(`human completed ${action.kind} handoff`)
       await task.onProgress?.({ action: `handoff_${action.kind}`, url: page.url() })
       continue
@@ -214,7 +301,8 @@ async function agentLoop(
       if (action.type === 'done') return { ok: true, content: action.answer }
       return { ok: false, error: `Agent gave up: ${action.reason}` }
     }
-    const ok = await executeAgentAction(page, action)
+    const ok = await executeAgentAction(page, action, task.paymentCard)
+    if (action.type === 'fill_payment' && ok) task.paymentCard = undefined
     await task.onProgress?.({ action: action.type, url: page.url() })
     recentActions.push(`${action.type}${'selector' in action ? ` ${action.selector.slice(0, 60)}` : ''}${ok ? '' : ' (failed)'}`)
   }

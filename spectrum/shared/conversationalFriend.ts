@@ -1,5 +1,5 @@
 import type { DeliveryHooks } from './progressiveDelivery'
-import { sanitizeOutbound } from './runHireTurn'
+import { looksLikeGratitudeLog, looksLikeMoodReply, looksLikeSleepLog, sanitizeOutbound } from './runHireTurn'
 import { getAgent, type AgentId } from '../../src/agents'
 import { runAgentLocally } from '../../src/agents/runtime'
 import { formatNowForAgent, pickUserTimezone } from '../../deploy/timezones'
@@ -292,6 +292,34 @@ export async function runConversationalFriend(input: {
     },
   ]
   const delivered: string[] = []
+  // Deterministic log layer: the classic path auto-logged clear gratitude /
+  // mood / sleep statements before the model ever saw them. The model-judged
+  // 'log' capability misses these (grateful-for phrasing read as chit-chat),
+  // so run the cheap gates here and hand the model the result as fact.
+  const autoNotes: string[] = []
+  console.log(`[conv] autoNotes gate: gratitude=${looksLikeGratitudeLog(input.userText)} text=${input.userText.slice(0,40)}`)
+  if (looksLikeGratitudeLog(input.userText)) {
+    const g = await autoLogGratitude(senderId, persona, input.userText)
+    autoNotes.push(
+      g?.logged
+        ? `Gratitude was automatically logged: "${g.text}". Confirm briefly; do not log again.`
+        : 'The user expressed gratitude but it could not be parsed as a log entry. Respond warmly; do not claim it was logged.',
+    )
+  } else if (looksLikeMoodReply(input.userText)) {
+    const m = await autoLogMood(senderId, persona, input.userText)
+    autoNotes.push(
+      m?.logged
+        ? `Mood was automatically logged as ${m.emoji} (energy ${m.energy}/5). Confirm briefly; do not ask again.`
+        : 'The user expressed a mood but it could not be parsed as a log entry. Respond warmly; do not claim it was logged.',
+    )
+  } else if (looksLikeSleepLog(input.userText)) {
+    const sl = await autoLogSleep(senderId, persona, input.userText)
+    autoNotes.push(
+      sl?.logged
+        ? 'Sleep was automatically logged from their message. Confirm briefly; do not ask again.'
+        : 'The message looked like a sleep log but could not be parsed. In one line ask for bedtime and wake time.',
+    )
+  }
   const outcome = await runToolConversation({
     delivery: input.delivery ? {
       onReaction: input.delivery.onReaction,
@@ -299,7 +327,7 @@ export async function runConversationalFriend(input: {
     } : undefined,
     messages: [
       { role: 'system', content: `${agent.systemPrompt}
-CONVERSATION_ENGINE:
+${autoNotes.length ? autoNotes.join('; ') + '. ' : ''}CONVERSATION_ENGINE:
 You are an intelligent, proactive executive partner in iMessage.
 - Deep intent understanding: Read the whole conversation and understand the user's true goals and intentions, not just literal keywords. Mentioning food, sleep, or money in casual conversation is never a command to log data or open a card.
 - Mini-app Cards: You can attach rich interactive mini-app cards using open_app when discussing workouts, food/nutrition, spending/budget, habits, or day schedule, or when the user wants to see an app. Never send cards for casual banter or simple affirmations ("thanks", "ok", "got it").

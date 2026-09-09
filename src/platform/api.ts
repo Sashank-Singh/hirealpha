@@ -1280,13 +1280,29 @@ export type SpendRequest = {
   pending: boolean
   created_at: string
   last_error: string | null
+  approval_url?: string | null
+}
+
+export type LinkWalletStatus = {
+  connected: boolean
+  pending: boolean
+  verificationUrl?: string
+  phrase?: string
+  scope?: string
+  error?: string
 }
 
 export const apiPaymentsConnect = (a: { email?: string; token?: string }) =>
-  featurePost<{ url?: string; error?: string }>('/api/payments/connect', authParams(a))
+  featurePost<LinkWalletStatus & { url?: string }>('/api/payments/connect', authParams(a))
 
 export const apiPaymentMethods = (a: { email?: string; token?: string }) =>
-  featureGet<{ methods: PaymentMethodView[] }>('/api/payments/methods', authQuery(a))
+  featureGet<{ methods: PaymentMethodView[]; link?: LinkWalletStatus }>('/api/payments/methods', authQuery(a))
+
+export const apiLinkStatus = (a: { email?: string; token?: string }) =>
+  featureGet<LinkWalletStatus>('/api/payments/link/status', authQuery(a))
+
+export const apiLinkDisconnect = (a: { email?: string; token?: string }) =>
+  featureDelete<{ ok: boolean }>('/api/payments/link', authParams(a))
 
 export const apiPaymentMethodDelete = (a: { email?: string; token?: string; id: string }) => {
   const qs = authQuery(a)

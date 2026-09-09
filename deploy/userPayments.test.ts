@@ -65,6 +65,7 @@ describe('spend requests + caps', () => {
   it('rejects junk merchant/purpose and non-numeric amounts', async () => {
     const { sql } = fakeSql()
     expect((await createSpendRequest(sql, USER, { amountCents: Number.NaN, merchant: 'x', purpose: 'y' })).error).toBeTruthy()
+    expect((await createSpendRequest(sql, USER, { amountCents: 999.5, merchant: 'x', purpose: 'y' })).error).toContain('exact number of cents')
     expect((await createSpendRequest(sql, USER, { amountCents: 1000, merchant: '  ', purpose: 'y' })).error).toBeTruthy()
     expect((await createSpendRequest(sql, USER, { amountCents: 1000, merchant: 'x', purpose: ' ' })).error).toBeTruthy()
   })
@@ -195,6 +196,32 @@ describe('paid purchase finalization', () => {
     expect(queries.some((q) => /INSERT INTO hire_browser_jobs/i.test(q.text))).toBe(false)
   })
 
+  it('resumes the same staged browser after Stripe confirms payment', async () => {
+    const { sql, queries } = fakeSql((text) => {
+      if (/FROM hire_spend_approvals a/i.test(text)) return [{
+        id: requestId,
+        user_id: USER,
+        amount_cents: 1899,
+        merchant: 'amazon.com',
+        purpose: '5lb Jasmine Rice',
+        payment_intent_id: null,
+        finalization_job_id: 'staged-job',
+        phone_e164: '+14155550100',
+      }]
+      if (/FROM hire_browser_jobs/i.test(text)) return [{
+        id: 'staged-job',
+        status: 'waiting',
+        handoff_kind: 'payment',
+        spend_request_id: requestId,
+      }]
+      return []
+    })
+    expect(await queuePaidPurchaseFinalization(sql, intent)).toEqual({ status: 'resumed', jobId: 'staged-job' })
+    expect(queries.some((q) => /finalization_status = 'running'/i.test(q.text))).toBe(true)
+    expect(queries.some((q) => /UPDATE hire_browser_jobs[\s\S]*status = 'running'/i.test(q.text))).toBe(true)
+    expect(queries.some((q) => /INSERT INTO hire_browser_jobs/i.test(q.text))).toBe(false)
+  })
+
   it('rejects mismatched amount and owner metadata before any merchant action', async () => {
     const { sql, queries } = fakeSql((text) => /FROM hire_spend_approvals a/i.test(text) ? [{
       id: requestId,
@@ -229,11 +256,11 @@ function req(path: string, body?: unknown, method?: string): Request {
 }
 
 describe('user payments API routes', () => {
-  it('401s without a session; 503s without Stripe config', async () => {
+  it('401s without a session; masked Link status does not require a platform Stripe key', async () => {
     expect((await handleUserPaymentsApi(req('/api/payments/methods'), fakeSql().sql, noAuthDeps))?.status).toBe(401)
     const key = process.env.STRIPE_SECRET_KEY
     delete process.env.STRIPE_SECRET_KEY
-    expect((await handleUserPaymentsApi(req('/api/payments/methods'), fakeSql().sql, authedDeps))?.status).toBe(503)
+    expect((await handleUserPaymentsApi(req('/api/payments/methods'), fakeSql().sql, authedDeps))?.status).toBe(200)
     if (key) process.env.STRIPE_SECRET_KEY = key
   })
 

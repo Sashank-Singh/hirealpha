@@ -562,8 +562,10 @@ function DayClosed({
           const inner = (
             <>
               <span className="brief-closed-mark">{FACT_STATE_MARK[f.state]}</span>
-              <span className="brief-closed-label">{f.label}</span>
-              {f.detail ? <span className="brief-closed-detail">{f.detail}</span> : null}
+              <div className="brief-closed-body">
+                <span className="brief-closed-label">{f.label}</span>
+                {f.detail ? <span className="brief-closed-detail">{f.detail}</span> : null}
+              </div>
               {link ? <span className="brief-closed-go">Fix →</span> : null}
             </>
           )
@@ -785,7 +787,7 @@ export function BriefApp({
   )
 
   const [nights, setNights] = useState<SleepNight[]>([])
-  const [people, setPeople] = useState<NetworkPerson[]>([])
+  const [, setPeople] = useState<NetworkPerson[]>([])
   const [todayMeets, setTodayMeets] = useState<NetworkToday[]>([])
   const [needsYou, setNeedsYou] = useState<NeedsYouItem[]>([])
   const [reminders, setReminders] = useState<Array<{ id?: string; time?: string; text?: string }>>([])

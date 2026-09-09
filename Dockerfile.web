@@ -13,8 +13,10 @@ FROM oven/bun:1-slim
 WORKDIR /app
 # Coolify healthchecks use curl/wget
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends curl \
+  && apt-get install -y --no-install-recommends curl nodejs npm \
   && rm -rf /var/lib/apt/lists/*
+COPY deploy/link-cli-package.json /opt/hirealpha-link/package.json
+RUN npm install --prefix /opt/hirealpha-link --omit=dev --ignore-scripts
 
 COPY deploy/web-server.ts ./web-server.ts
 COPY deploy/appPreload.ts ./appPreload.ts
@@ -36,6 +38,7 @@ COPY deploy/browserRunner.ts ./browserRunner.ts
 COPY deploy/vaultCrypto.ts ./vaultCrypto.ts
 COPY deploy/onePassword.ts ./onePassword.ts
 COPY deploy/userPayments.ts ./userPayments.ts
+COPY deploy/linkWallet.ts ./linkWallet.ts
 COPY deploy/browserJobs.ts ./browserJobs.ts
 COPY deploy/browserSession.ts ./browserSession.ts
 COPY deploy/browserWorker.ts ./browserWorker.ts

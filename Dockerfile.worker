@@ -4,8 +4,10 @@ FROM oven/bun:1-slim
 WORKDIR /app
 # Coolify healthchecks use curl/wget; playwright needs the rest via --with-deps
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends curl xvfb x11vnc novnc websockify openbox \
+  && apt-get install -y --no-install-recommends curl nodejs npm xvfb x11vnc novnc websockify openbox \
   && rm -rf /var/lib/apt/lists/*
+COPY deploy/link-cli-package.json /opt/hirealpha-link/package.json
+RUN npm install --prefix /opt/hirealpha-link --omit=dev --ignore-scripts
 
 COPY package.json package-lock.json ./
 RUN bun install --production
@@ -17,6 +19,8 @@ COPY deploy/browserVault.ts ./browserVault.ts
 COPY deploy/browserJobs.ts ./browserJobs.ts
 COPY deploy/agentDriver.ts ./agentDriver.ts
 COPY deploy/vaultCrypto.ts ./vaultCrypto.ts
+COPY deploy/linkWallet.ts ./linkWallet.ts
+COPY deploy/userPayments.ts ./userPayments.ts
 COPY deploy/onePassword.ts ./onePassword.ts
 COPY deploy/browserWorkerEntry.sh ./browserWorkerEntry.sh
 RUN chmod +x ./browserWorkerEntry.sh

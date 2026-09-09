@@ -29,7 +29,8 @@ Credential variables are optional but recommended:
 |---|---|
 | `OP_SERVICE_ACCOUNT_TOKEN` | Resolve saved credentials from 1Password at task time |
 | `OP_VAULT_ID` | 1Password vault containing the login items |
-| `HIREALPHA_VAULT_KEY` | AES fallback for locally encrypted credentials |
+| `HIREALPHA_VAULT_KEY` | Encrypts saved logins and each user's isolated Link authorization; required for agent purchases |
+| `USER_SPEND_MAX_CENTS` | Per-purchase approval cap (defaults to 20000 / $200) |
 
 ## How a task runs
 
@@ -38,11 +39,16 @@ Credential variables are optional but recommended:
 3. The worker opens a headful Chromium window on the streamed X display.
 4. The vision loop sees screenshots plus numbered interactive targets. It may
    use stable selectors or coordinate-based mouse/keyboard actions.
-5. At a password, one-time code, CAPTCHA, identity check, or final payment,
-   the worker pauses without closing Chromium and texts the private link again.
-6. The user takes control, completes the protected step directly on the site,
-   and selects **Done — let Alpha continue**.
-7. Alpha resumes from the same page and reports the verified result in iMessage.
+5. At a password, one-time code, CAPTCHA, or identity check, the worker pauses
+   without closing Chromium. The user takes control, completes the protected
+   step on the site, and selects **Done — let Alpha continue**.
+6. At payment, Alpha waits until the merchant shows the final total, creates a
+   Link spend request for that exact merchant/item/amount, and texts its private
+   approval link. Manual resume is disabled for this checkpoint.
+7. After Link confirms approval, the same worker retrieves one one-time card
+   into memory, fills the live checkout without exposing it to the model or UI,
+   and resumes the same page. Alpha reports success only after the merchant
+   returns an order confirmation, then sends the result in iMessage.
 
 The database activity feed contains only coarse action names and URLs. Field
 values, page text, passwords, and verification codes are not stored there.

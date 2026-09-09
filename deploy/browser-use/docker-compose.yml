@@ -24,6 +24,8 @@ services:
       - GMI_BASE_URL=${GMI_BASE_URL:-https://api.gmi-serving.com/v1}
       - AGENT_VISION_MODEL=${AGENT_VISION_MODEL:-moonshotai/Kimi-K2.5}
       - HIREALPHA_VAULT_KEY=${HIREALPHA_VAULT_KEY:-}
+      - USER_SPEND_MAX_CENTS=${USER_SPEND_MAX_CENTS:-20000}
+      - LINK_CLI_BIN=/opt/hirealpha-link/node_modules/.bin/link-cli
       - OP_SERVICE_ACCOUNT_TOKEN=${OP_SERVICE_ACCOUNT_TOKEN:-}
       - OP_VAULT_ID=${OP_VAULT_ID:-}
       - SESSION_SECRET=${SESSION_SECRET}
