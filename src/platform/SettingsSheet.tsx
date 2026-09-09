@@ -576,10 +576,13 @@ export function SettingsSheet() {
   async function saveLogin() {
     const email = session?.email
     if (!email) return
-    const portal = vaultPortal.trim()
+    let portal = vaultPortal.trim()
+    if (portal && !portal.startsWith('http://') && !portal.startsWith('https://')) {
+      portal = `https://${portal}`
+    }
     const secret = vaultSecret
     if (!portal) {
-      setVaultError('Enter the portal URL (https://…).')
+      setVaultError('Enter the website URL (e.g. https://www.linkedin.com).')
       return
     }
     if (!secret) {
@@ -1192,11 +1195,38 @@ export function SettingsSheet() {
                     <div className="ss-input-row">
                       <input
                         className="bento-input"
-                        type="url"
-                        placeholder="Portal URL — https://…"
+                        type="text"
+                        placeholder="Website / Service URL (e.g. https://www.linkedin.com)"
                         value={vaultPortal}
                         onChange={(e) => setVaultPortal(e.target.value)}
                       />
+                    </div>
+                    <div style={{ display: 'flex', gap: '6px', margin: '4px 0 10px', flexWrap: 'wrap', alignItems: 'center' }}>
+                      <span style={{ fontSize: '11px', color: '#94a3b8', marginRight: '2px' }}>Quick Fill:</span>
+                      {[
+                        { label: 'LinkedIn', url: 'https://www.linkedin.com' },
+                        { label: 'Amazon', url: 'https://www.amazon.com' },
+                        { label: 'GitHub', url: 'https://github.com' },
+                        { label: 'Substack', url: 'https://substack.com' },
+                      ].map((preset) => (
+                        <button
+                          key={preset.label}
+                          type="button"
+                          className="ss-btn-text"
+                          onClick={() => setVaultPortal(preset.url)}
+                          style={{
+                            fontSize: '11px',
+                            background: 'rgba(255, 255, 255, 0.05)',
+                            padding: '3px 8px',
+                            borderRadius: '5px',
+                            border: '1px solid rgba(255, 255, 255, 0.08)',
+                            color: '#cbd5e1',
+                            cursor: 'pointer',
+                          }}
+                        >
+                          {preset.label}
+                        </button>
+                      ))}
                     </div>
                     <div className="ss-input-row">
                       <input
