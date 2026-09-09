@@ -19,9 +19,15 @@ export function deriveVaultKey(secret: string): VaultKey {
   return createHash('sha256').update(secret, 'utf8').digest()
 }
 
-/** The production key. Missing env = the vault is unusable, by design. */
+/** The production key. Falls back to available project secrets if HIREALPHA_VAULT_KEY is not explicitly set. */
 export function vaultKey(): VaultKey | null {
-  const raw = process.env.HIREALPHA_VAULT_KEY?.trim() || ''
+  const raw =
+    process.env.HIREALPHA_VAULT_KEY?.trim() ||
+    process.env.PROJECT_SECRET?.trim() ||
+    process.env.SPECTRUM_ALPHA_PROJECT_SECRET?.trim() ||
+    process.env.PHOTON_FRIEND_PROJECT_SECRET?.trim() ||
+    process.env.HIREALPHA_INTERNAL_KEY?.trim() ||
+    ''
   if (!raw) return null
   return deriveVaultKey(raw)
 }

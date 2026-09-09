@@ -311,7 +311,7 @@ export function SettingsSheet() {
       setVault(v.entries || [])
       setApprovals((b.approvals || []).filter((ap) => ap.status === 'pending'))
     } catch (err) {
-      setVault(null)
+      setVault([])
       setVaultError(err instanceof Error ? err.message : 'Could not load saved logins')
     }
   }
@@ -1168,8 +1168,23 @@ export function SettingsSheet() {
               </div>
             </header>
 
-            {vaultError && <p className="set-err">{vaultError}</p>}
-            {vault === null && <p className="ss-empty">Checking logins…</p>}
+            {vaultError && (
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', background: 'rgba(239, 68, 68, 0.08)', border: '1px solid rgba(239, 68, 68, 0.25)', borderRadius: '8px', padding: '8px 12px', margin: '0 0 12px' }}>
+                <p className="set-err" style={{ margin: 0, padding: 0 }}>{vaultError}</p>
+                <button
+                  type="button"
+                  className="ss-btn-text"
+                  onClick={() => {
+                    const email = getSession()?.email
+                    if (email) void loadVault(email)
+                  }}
+                  style={{ fontSize: '12px', color: '#60a5fa', cursor: 'pointer', background: 'none', border: 'none' }}
+                >
+                  Retry
+                </button>
+              </div>
+            )}
+            {!vaultError && vault === null && <p className="ss-empty">Checking logins…</p>}
             {vault !== null && (
               <div className="ss-list">
                 <div className="ss-row">
