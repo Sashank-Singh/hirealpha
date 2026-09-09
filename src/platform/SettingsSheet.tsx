@@ -1166,10 +1166,54 @@ export function SettingsSheet() {
           <section id="vault-section" className="ss-sec">
             <header className="ss-sec-head">
               <div>
-                <h2 className="ss-title">Saved Logins</h2>
-                <p className="ss-sub">Logins Alpha can use in a private browser session. Encrypted at rest; never leaves the server except into that session.</p>
+                <h2 className="ss-title">Saved Logins & Credential Vault</h2>
+                <p className="ss-sub">Credentials Alpha can use to navigate portals in private browser sessions. Plaintext only exists in memory during active runs.</p>
               </div>
             </header>
+
+            {/* 1Password vs Local Vault Architecture Card */}
+            <div style={{
+              background: 'rgba(2, 132, 199, 0.08)',
+              border: '1px solid rgba(2, 132, 199, 0.22)',
+              borderRadius: '10px',
+              padding: '12px 16px',
+              margin: '0 0 16px',
+              display: 'flex',
+              alignItems: 'flex-start',
+              gap: '12px',
+            }}>
+              <div style={{
+                width: '32px',
+                height: '32px',
+                background: 'linear-gradient(135deg, #0284c7, #2563eb)',
+                borderRadius: '8px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: '#fff',
+                fontSize: '16px',
+                flexShrink: 0,
+                boxShadow: '0 2px 8px rgba(2, 132, 199, 0.35)',
+              }}>
+                🔑
+              </div>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: '13px', fontWeight: 600, color: '#f1f5f9', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span>How 1Password & Vault Security Work</span>
+                  <span style={{ fontSize: '11px', background: 'rgba(59, 130, 246, 0.15)', color: '#93c5fd', padding: '1px 6px', borderRadius: '4px', border: '1px solid rgba(59, 130, 246, 0.3)' }}>
+                    Zero-Persistence
+                  </span>
+                </div>
+                <div style={{ fontSize: '12px', color: '#94a3b8', margin: '4px 0 0', lineHeight: 1.5 }}>
+                  <p style={{ margin: '0 0 4px' }}>
+                    <strong>1. Official 1Password Integration:</strong> When connected via <code>OP_SERVICE_ACCOUNT_TOKEN</code>, credentials are queried directly from your real 1Password vault at task time via <code>@1password/sdk</code>. Raw passwords never touch our database.
+                  </p>
+                  <p style={{ margin: 0 }}>
+                    <strong>2. Encrypted Local Vault (Fallback):</strong> If 1Password is not configured yet, entries saved below are encrypted at rest with AES-256-GCM. Plaintext is decrypted only in volatile memory during the active browser session.
+                  </p>
+                </div>
+              </div>
+            </div>
 
             {vaultError && (
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', background: 'rgba(239, 68, 68, 0.08)', border: '1px solid rgba(239, 68, 68, 0.25)', borderRadius: '8px', padding: '8px 12px', margin: '0 0 12px' }}>
