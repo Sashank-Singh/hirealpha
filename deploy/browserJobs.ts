@@ -116,6 +116,9 @@ export async function enqueueBrowserJob(
 /** Claim only fresh approvals scoped to this user and origin. Interrupted jobs
  * fail with an unknown outcome instead of automatically repeating side effects. */
 export async function claimBrowserJobs(sql: SQL, limit: number): Promise<BrowserJobRow[]> {
+  // Kill switch: HIREALPHA_DISABLE_BROWSER_JOBS=1 stops all new claims without
+  // a redeploy. In-flight jobs finish; nothing new starts until cleared.
+  if (process.env.HIREALPHA_DISABLE_BROWSER_JOBS === '1') return []
   await sql`
     UPDATE hire_browser_jobs SET status = 'failed', error = 'Worker interrupted; outcome unknown. Review before retrying.', finished_at = now()
     WHERE status = 'running' AND claimed_at < now() - interval '5 minutes'

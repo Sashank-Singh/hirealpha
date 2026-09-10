@@ -53,6 +53,17 @@ describe('browser job queue', () => {
     expect(JSON.stringify(insert.values)).toContain('click')
   })
 
+  it('kill switch env stops all new claims without touching the database', async () => {
+    process.env.HIREALPHA_DISABLE_BROWSER_JOBS = '1'
+    try {
+      const { sql, queries } = fakeSql()
+      expect(await claimBrowserJobs(sql, 5)).toEqual([])
+      expect(queries).toHaveLength(0)
+    } finally {
+      delete process.env.HIREALPHA_DISABLE_BROWSER_JOBS
+    }
+  })
+
   it('claim fails stale running rows and requires a fresh, scoped, unused approval', async () => {
     const { sql, queries } = fakeSql((text) =>
       /RETURNING id, user_id/i.test(text)

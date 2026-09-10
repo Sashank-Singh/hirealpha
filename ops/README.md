@@ -37,6 +37,8 @@ decision made by the right person."
 | `gdpr-ccpa-checklist.md` | ROPA draft, lawful bases, DPIA determination, international transfers, CCPA notice and do-not-sell |
 | `retention-schedule.md` | Per-data-store retention, deletion mechanism, and evidence |
 | `pen-test.md` | Penetration test scope, methodology, and remediation SLAs |
+| `backup-dr.md` | Backup plan (none exist yet — status stated honestly), restore test protocol, RPO/RTO, DR runbook |
+| `staging-plan.md` | Staging topology, deploy sequence, canary/load gates before any prod deploy |
 
 ## How evidence is collected
 
