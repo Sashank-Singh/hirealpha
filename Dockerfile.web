@@ -43,7 +43,10 @@ COPY deploy/browserJobs.ts ./browserJobs.ts
 COPY deploy/browserNetworkPolicy.ts ./browserNetworkPolicy.ts
 COPY deploy/browserSession.ts ./browserSession.ts
 COPY deploy/browserWorker.ts ./browserWorker.ts
+COPY deploy/e2bExecutor.ts ./e2bExecutor.ts
 COPY deploy/agentDriver.ts ./agentDriver.ts
+COPY deploy/demoData.ts ./demoData.ts
+COPY deploy/demoFixtures.ts ./demoFixtures.ts
 COPY deploy/migrate.ts ./migrate.ts
 COPY deploy/migrations ./migrations
 COPY services/trust /services/trust

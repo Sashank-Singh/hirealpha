@@ -115,6 +115,16 @@
       "role": "assistant",
       "content": "Here are the top matches I found:\n\n• Best Quality Basmati Rice Brand in India | Daawat Rice\n\nhttps://www.daawat.com/\n\n• Premium Basmati Rice Products | DAAWAT\n\nhttps://daawatbrand.com/\n\n• Daawat Story | Indian Basmati Rice Brand, Daawat Foods Ltd\n\nhttps://www.daawat.com/about-us",
       "ts": 1789029339669
+    },
+    {
+      "role": "user",
+      "content": "Can you buy it for me",
+      "ts": 1789061095454
+    },
+    {
+      "role": "assistant",
+      "content": "I could not finish this request with the results available. Please try again or narrow the request.",
+      "ts": 1789061095454
     }
   ]
 }
