@@ -95,6 +95,26 @@
       "role": "assistant",
       "content": "Fair point. If you want newer buddy cop chaos, try:\n\nThe Lost City, Channing Tatum and Sandra Bullock, funny and easy.\n\nThe Hit Man, Glen Powell, more comedy than action but very sharp.\n\nFree Guy, goofy action comedy with heart.\n\nThe Nice Guys, if you haven't seen it, that's the closest to 21 Jump Street energy.",
       "ts": 1789019094150
+    },
+    {
+      "role": "user",
+      "content": "Can you find me basmati rice",
+      "ts": 1789029231091
+    },
+    {
+      "role": "assistant",
+      "content": "Found a solid match for the 10 lb basmati you wanted:\n\nDaawat Traditional Basmati White Rice, 10 lb bag, $19.97 at Walmart (12.5¢/oz)\n\nhttps://www.walmart.com/c/ep/basmati-rice\n\nOther places to compare:\n\nTarget basmati rice aisle: https://www.target.com/c/basmati-rice-grains-dried-beans-pantry-grocery/all-deals/-/N-48m9bZakkos\n\nAmazon 10 lb search: https://www.amazon.com/basmati-rice-10-lb/s?k=basmati+rice+10+lb\n\nWant me to go with the Daawat 10 lb, or do you prefer a different brand/size? If it's the Daawat, say the word and I'll stage the checkout for you.",
+      "ts": 1789029231091
+    },
+    {
+      "role": "user",
+      "content": "Buy Dawaat",
+      "ts": 1789029339669
+    },
+    {
+      "role": "assistant",
+      "content": "Here are the top matches I found:\n\n• Best Quality Basmati Rice Brand in India | Daawat Rice\n\nhttps://www.daawat.com/\n\n• Premium Basmati Rice Products | DAAWAT\n\nhttps://daawatbrand.com/\n\n• Daawat Story | Indian Basmati Rice Brand, Daawat Foods Ltd\n\nhttps://www.daawat.com/about-us",
+      "ts": 1789029339669
     }
   ]
 }
