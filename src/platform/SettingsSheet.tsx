@@ -19,6 +19,7 @@ import {
   apiSaveLocation,
   apiVaultDelete,
   apiVaultList,
+  apiVaultSave,
   apiVaultSaveHandoff,
   apiPaymentsConnect,
   apiPaymentMethods,
@@ -131,6 +132,8 @@ export function SettingsSheet({ view = 'workspace', embedded = false }: { view?:
   const [vault, setVault] = useState<VaultEntry[] | null>(null)
   const [vaultError, setVaultError] = useState('')
   const [vaultPortal, setVaultPortal] = useState('')
+  const [vaultUsername, setVaultUsername] = useState('')
+  const [vaultPassword, setVaultPassword] = useState('')
   const [vaultBusy, setVaultBusy] = useState(false)
   const [handoffNotice, setHandoffNotice] = useState('')
   const [runningId, setRunningId] = useState('')
@@ -621,6 +624,32 @@ export function SettingsSheet({ view = 'workspace', embedded = false }: { view?:
       await loadVault(email)
     } catch (err) {
       setVaultError(err instanceof Error ? err.message : 'Could not add that website')
+    } finally {
+      setVaultBusy(false)
+    }
+  }
+
+  async function saveHostedCredential() {
+    const email = session?.email
+    if (!email) return
+    let portal = vaultPortal.trim()
+    if (portal && !portal.startsWith('http://') && !portal.startsWith('https://')) portal = `https://${portal}`
+    if (!portal || vaultPassword.length < 4) {
+      setVaultError('Enter an HTTPS website and a password of at least four characters.')
+      return
+    }
+    setVaultBusy(true)
+    setVaultError('')
+    setHandoffNotice('')
+    try {
+      await apiVaultSave({ email, portal, username: vaultUsername, secret: vaultPassword })
+      setVaultPortal('')
+      setVaultUsername('')
+      setVaultPassword('')
+      setHandoffNotice('Credential encrypted for this website with your per-user Vault key.')
+      await loadVault(email)
+    } catch (err) {
+      setVaultError(err instanceof Error ? err.message : 'Could not save that credential')
     } finally {
       setVaultBusy(false)
     }
@@ -1210,12 +1239,12 @@ export function SettingsSheet({ view = 'workspace', embedded = false }: { view?:
                 )}
               </div>
               <div className="ss-vault-provider">
-                <span className="ss-provider-mark ss-provider-mark--alpha" aria-hidden="true">PC</span>
+                <span className="ss-provider-mark ss-provider-mark--alpha" aria-hidden="true">HA</span>
                 <div className="ss-body">
-                  <span className="ss-name">Private computer</span>
-                  <span className="ss-subline">Works without 1Password. You type sign-in details directly into the isolated browser; HireAlpha does not save them.</span>
+                  <span className="ss-name">HireAlpha Vault</span>
+                  <span className="ss-subline">Works without 1Password. Credentials are encrypted with a per-user key and restricted to the exact website you approve.</span>
                 </div>
-                <span className="ss-provider-state is-ready">Available</span>
+                <span className="ss-provider-state is-ready">OpenBao</span>
               </div>
             </div>
 
@@ -1243,8 +1272,8 @@ export function SettingsSheet({ view = 'workspace', embedded = false }: { view?:
                   <div className="ss-edit">
                     <div className="ss-handoff-intro">
                       <span className="ss-handoff-eyebrow">Use without 1Password</span>
-                      <strong>Add a website—not a password</strong>
-                      <p>Alpha opens this site in a private computer. At sign-in, the task pauses so only you can enter protected information.</p>
+                      <strong>Save a login or use a no-save private sign-in</strong>
+                      <p>Saved credentials are exact-site scoped. No-save mode pauses the private computer so only you enter protected information.</p>
                     </div>
                     <div className="ss-input-row">
                       <input
@@ -1258,13 +1287,35 @@ export function SettingsSheet({ view = 'workspace', embedded = false }: { view?:
                         value={vaultPortal}
                         onChange={(e) => setVaultPortal(e.target.value)}
                       />
-                      <button
-                        type="button"
-                        className="ss-btn"
-                        disabled={vaultBusy || !vaultPortal.trim()}
-                        onClick={() => void saveHandoffSite()}
-                      >
-                        {vaultBusy ? 'Adding…' : 'Add website'}
+                    </div>
+                    <div className="ss-input-row">
+                      <input
+                        className="bento-input"
+                        type="text"
+                        autoCapitalize="none"
+                        autoCorrect="off"
+                        autoComplete="username"
+                        aria-label="Username or email"
+                        placeholder="Username or email"
+                        value={vaultUsername}
+                        onChange={(event) => setVaultUsername(event.target.value)}
+                      />
+                      <input
+                        className="bento-input"
+                        type="password"
+                        autoComplete="new-password"
+                        aria-label="Password"
+                        placeholder="Password"
+                        value={vaultPassword}
+                        onChange={(event) => setVaultPassword(event.target.value)}
+                      />
+                    </div>
+                    <div className="ss-actions">
+                      <button type="button" className="ss-btn" disabled={vaultBusy || !vaultPortal.trim() || vaultPassword.length < 4} onClick={() => void saveHostedCredential()}>
+                        {vaultBusy ? 'Saving…' : 'Save encrypted login'}
+                      </button>
+                      <button type="button" className="ss-btn-text" disabled={vaultBusy || !vaultPortal.trim()} onClick={() => void saveHandoffSite()}>
+                        Use no-save sign-in
                       </button>
                     </div>
                     <div className="ss-site-presets" aria-label="Popular websites">
@@ -1289,7 +1340,7 @@ export function SettingsSheet({ view = 'workspace', embedded = false }: { view?:
                 </div>
 
                 {vault.length === 0 && (
-                  <p className="ss-empty">No websites added yet. Add one above; you will approve each private browser run before it starts.</p>
+                  <p className="ss-empty">No websites added yet. Save a login or choose no-save sign-in; every private run still requires approval.</p>
                 )}
 
                 {vault.map((entry) => {
@@ -1303,6 +1354,7 @@ export function SettingsSheet({ view = 'workspace', embedded = false }: { view?:
                             {[
                               entry.persona,
                               `added ${dateLabel(entry.created_at)}`,
+                              entry.backed === 'hirealpha' ? 'encrypted with your HireAlpha Vault key' : '',
                               entry.backed === 'onepassword' ? 'stored in 1Password' : '',
                               entry.backed === 'handoff' ? 'sign in privately each time' : '',
                             ].filter(Boolean).join(' • ')}

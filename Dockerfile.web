@@ -46,6 +46,7 @@ COPY deploy/browserWorker.ts ./browserWorker.ts
 COPY deploy/agentDriver.ts ./agentDriver.ts
 COPY deploy/migrate.ts ./migrate.ts
 COPY deploy/migrations ./migrations
+COPY services/trust /services/trust
 COPY spectrum ../spectrum
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist

@@ -21,6 +21,7 @@ import {
   type PortalTask,
 } from './browserVault'
 import { gateWorkshopCode } from './workshop'
+import type { UserKeyBroker } from '../services/trust/userKeyBroker'
 
 /* ============================================================================
  * Browser runner + credential vault — brutal tests.
@@ -39,8 +40,11 @@ type Captured = { text: string; values: unknown[] }
 function fakeSql(rowsFor: (text: string, values?: unknown[]) => unknown[] = () => []) {
   const queries: Captured[] = []
   const sql = ((strings: TemplateStringsArray, ...values: unknown[]) => {
-    queries.push({ text: strings.join('?'), values })
-    return Promise.resolve(rowsFor(strings.join('?'), values))
+    const text = strings.join('?')
+    queries.push({ text, values })
+    if (text.includes('FROM user_wrapped_keys')) return Promise.resolve([{ wrapped_dek: 'vault:v1:test' }])
+    if (text.includes('INSERT INTO vault_items_v2')) return Promise.resolve([{ id: values[0] }])
+    return Promise.resolve(rowsFor(text, values))
   }) as never
   return { sql, queries }
 }
@@ -497,10 +501,15 @@ describe('ticker chart codegen (workshop-safe)', () => {
 /* ------------------------------ API routes ------------------------------ */
 
 const AUTH_REQ = () => new Request('https://hirealpha.chat/api/vault', { headers: { authorization: 'Bearer sess' } })
+const TEST_BROKER: UserKeyBroker = {
+  generate: async () => { throw new Error('not expected') },
+  unwrap: async () => Buffer.alloc(32, 7),
+}
 const authedDeps = (userId = USER) => ({
   resolveUser: async () => ({ id: userId, persona: 'coworker' }),
   internalOk: () => true,
   key: KEY_A,
+  keyBroker: TEST_BROKER,
   launch: async () => ({ ok: true as const, content: '' }),
   resolveHost: async () => ['93.184.216.34'],
 })
@@ -513,9 +522,9 @@ describe('vault API routes', () => {
   })
 
   it('GET /api/vault returns masked entries', async () => {
-    const { sql } = fakeSql(() => [
+    const { sql } = fakeSql((text) => text.includes('FROM hire_vault_entries') ? [
       { id: 'e1', persona: 'coworker', portal: 'portal.nseindia.com', origin: 'https://portal.nseindia.com', secret_encrypted: encryptSecret('hunter2!', KEY_A), created_at: new Date(), last_used_at: null },
-    ])
+    ] : [])
     const res = await handleVaultApi(AUTH_REQ(), sql, authedDeps())
     expect(res?.status).toBe(200)
     const body = (await res!.json()) as { entries: Array<{ masked: string }> }

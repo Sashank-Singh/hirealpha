@@ -54,6 +54,7 @@ import {
 } from './userPayments'
 import { getLinkStatus } from './linkWallet'
 import { ensureBrowserJobsSchema } from './browserJobs'
+import { openBaoBrokerFromEnv } from '../services/trust/userKeyBroker'
 import { parseChatExport, scanSubscriptions } from '../spectrum/shared/smartFeatures'
 import {
   isValidTimeZone,
@@ -10650,6 +10651,7 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
     },
     internalOk,
     launch: runPortalTask,
+    keyBroker: openBaoBrokerFromEnv(),
   })
   if (vaultRes) return vaultRes
 

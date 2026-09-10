@@ -71,6 +71,19 @@ export class OpenBaoTransitClient implements UserKeyBroker {
   }
 }
 
+export function openBaoBrokerFromEnv(env: NodeJS.ProcessEnv = process.env): OpenBaoTransitClient | null {
+  const address = env.OPENBAO_ADDR?.trim()
+  const token = env.OPENBAO_TOKEN?.trim()
+  if (!address || !token) return null
+  return new OpenBaoTransitClient(
+    address,
+    token,
+    env.OPENBAO_TRANSIT_MOUNT?.trim() || 'transit',
+    env.OPENBAO_TRANSIT_KEY?.trim() || 'hirealpha-user-deks',
+    env.OPENBAO_NAMESPACE?.trim() || undefined,
+  )
+}
+
 export type EncryptionContext = { userId: string; recordId: string; scope: string; version?: number }
 
 function aad(context: EncryptionContext): Buffer {

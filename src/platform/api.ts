@@ -1199,8 +1199,8 @@ export type VaultEntry = {
   origin: string
   masked: string
   username_masked?: string
-  /** Where the secret lives: 'local' (encrypted at rest) or 'onepassword'. */
-  backed?: 'local' | 'onepassword' | 'handoff'
+  /** Where the secret lives; HireAlpha uses an OpenBao-wrapped per-user key. */
+  backed?: 'hirealpha' | 'local' | 'onepassword' | 'handoff'
   created_at: string
   last_used_at: string | null
 }

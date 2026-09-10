@@ -20,6 +20,8 @@ import { decryptSecret, encryptSecret, maskSecret, vaultKey, type VaultKey } fro
 import { isOpRef, onePasswordConfigured, opGetItemFields, opSaveItem } from './onePassword'
 import { enqueueBrowserJob, generateSessionViewToken } from './browserJobs'
 import type { HostResolver } from './browserNetworkPolicy'
+import { listVaultItems, revokeVaultItem, saveVaultItem } from '../services/trust/vaultV2'
+import type { UserKeyBroker } from '../services/trust/userKeyBroker'
 
 /* ------------------------------- types ---------------------------------- */
 
@@ -52,6 +54,7 @@ export type VaultDeps = {
   internalOk: (req: Request) => boolean
   launch: (task: PortalTask) => Promise<PortalRun>
   key?: VaultKey
+  keyBroker?: UserKeyBroker | null
   resolveHost?: HostResolver
 }
 
@@ -502,7 +505,22 @@ export async function handleVaultApi(req: Request, sql: SQL, deps: VaultDeps): P
   const key = deps.key ?? vaultKey()
 
   if (path === '/api/vault' && req.method === 'GET') {
-    return json({ entries: await listVaultEntries(sql, user.id, key) })
+    const legacy = await listVaultEntries(sql, user.id, key)
+    const hosted = deps.keyBroker ? await listVaultItems(sql, user.id) : []
+    return json({ entries: [
+      ...hosted.map((item) => ({
+        id: item.id,
+        persona: user.persona,
+        portal: item.exact_origin,
+        origin: item.exact_origin,
+        username_masked: item.username_hint ?? '',
+        masked: '••••••••',
+        backed: 'hirealpha' as const,
+        created_at: item.created_at,
+        last_used_at: null,
+      })),
+      ...legacy,
+    ] })
   }
 
   if (path === '/api/vault/handoff' && req.method === 'POST') {
@@ -516,21 +534,25 @@ export async function handleVaultApi(req: Request, sql: SQL, deps: VaultDeps): P
   }
 
   if (path === '/api/vault' && req.method === 'POST') {
-    if (!key) return json({ error: 'Hosted credential storage is not configured on this server.' }, 503)
-    const body = (await req.json().catch(() => ({}))) as { portal?: string; secret?: string; username?: string; persona?: string }
-    const res = await saveVaultEntry(sql, {
-      userId: user.id,
-      persona: body.persona || user.persona,
-      portal: body.portal || '',
-      username: body.username || '',
-      secret: body.secret || '',
-      key,
-    })
-    return res.ok ? json({ ok: true, backed: res.backed ?? 'local' }) : json({ error: res.error }, 400)
+    if (!deps.keyBroker) return json({ error: 'HireAlpha Vault is not configured on this server.' }, 503)
+    const body = (await req.json().catch(() => ({}))) as { portal?: string; secret?: string; username?: string; label?: string }
+    try {
+      const id = await saveVaultItem(sql, deps.keyBroker, {
+        userId: user.id,
+        origin: body.portal || '',
+        label: body.label || 'Login',
+        username: body.username || '',
+        password: body.secret || '',
+      })
+      return json({ ok: true, id, backed: 'hirealpha' })
+    } catch (err) {
+      return json({ error: err instanceof Error ? err.message : 'Could not save that credential.' }, 400)
+    }
   }
 
   if (path === '/api/vault' && req.method === 'DELETE') {
     const id = url.searchParams.get('id') || ''
+    if (deps.keyBroker && await revokeVaultItem(sql, { userId: user.id, itemId: id })) return json({ ok: true })
     const deleted = await deleteVaultEntry(sql, user.id, id)
     return deleted ? json({ ok: true }) : json({ error: 'Not found.' }, 404)
   }
