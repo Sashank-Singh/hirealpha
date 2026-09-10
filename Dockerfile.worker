@@ -19,6 +19,7 @@ COPY deploy/browserVault.ts ./browserVault.ts
 COPY deploy/browserJobs.ts ./browserJobs.ts
 COPY deploy/browserNetworkPolicy.ts ./browserNetworkPolicy.ts
 COPY deploy/agentDriver.ts ./agentDriver.ts
+COPY deploy/e2bExecutor.ts ./e2bExecutor.ts
 COPY deploy/vaultCrypto.ts ./vaultCrypto.ts
 COPY deploy/linkWallet.ts ./linkWallet.ts
 COPY deploy/userPayments.ts ./userPayments.ts

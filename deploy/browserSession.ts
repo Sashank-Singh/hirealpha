@@ -16,6 +16,9 @@ export type SessionTask = {
   kind: 'newsletter' | 'ticker' | 'task'
   steps?: PortalStep[]
   goal?: string
+  /** CDP endpoint of this task's fresh sandbox. Each task connects to its own
+   * browser and closes the connection afterwards — never shared across tasks. */
+  cdpUrl?: string
   paymentAuthorized?: boolean
   paymentAmountCents?: number
   paymentCard?: PaymentCardSecrets
@@ -32,8 +35,13 @@ export type SessionTask = {
 
 let remoteBrowser: Promise<Browser> | null = null
 
-async function launchChromium(): Promise<{ browser: Browser; owned: boolean }> {
+async function launchChromium(task: Pick<SessionTask, 'cdpUrl'>): Promise<{ browser: Browser; owned: boolean }> {
   const mod = (await eval('import("playwright")')) as { chromium: BrowserType }
+  // A task-bound sandbox CDP endpoint always connects fresh and is closed
+  // with the task — two tasks never share a browser, profile, or connection.
+  if (task.cdpUrl) {
+    return { browser: await mod.chromium.connectOverCDP(task.cdpUrl), owned: true }
+  }
   const cdpUrl = process.env.BROWSER_CDP_URL?.trim()
   if (cdpUrl) {
     remoteBrowser ??= mod.chromium.connectOverCDP(cdpUrl).catch((error) => {
@@ -52,7 +60,7 @@ export async function runBrowserSession(task: SessionTask): Promise<{ ok: true; 
   let browser: Browser | null = null
   let ownedBrowser = false
   try {
-    const launched = await launchChromium()
+    const launched = await launchChromium(task)
     browser = launched.browser
     ownedBrowser = launched.owned
     const context = await browser.newContext({

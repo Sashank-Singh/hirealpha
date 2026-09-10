@@ -2,17 +2,21 @@ import { createHash, randomUUID } from 'node:crypto'
 import type { SQL } from 'bun'
 import { Sandbox, SandboxNotFoundError } from 'e2b'
 
-export type TaskEnvironmentProvider = {
-  create(input: { taskId: string; timeoutMs: number }): Promise<{ id: string }>
-  destroy(id: string): Promise<void>
-  isDestroyed(id: string): Promise<boolean>
-}
+/** CDP port the browser template exposes inside the sandbox. The worker
+ * connects over the sandbox's public host routing; nothing else listens. */
+export const SANDBOX_CDP_PORT = 9222
 
-const DENIED_EGRESS = [
+export const DENIED_EGRESS = [
   '0.0.0.0/8', '10.0.0.0/8', '100.64.0.0/10', '127.0.0.0/8', '169.254.0.0/16',
   '172.16.0.0/12', '192.0.0.0/24', '192.168.0.0/16', '198.18.0.0/15', '224.0.0.0/4',
   '::/128', '::1/128', 'fc00::/7', 'fe80::/10', 'ff00::/8',
 ]
+
+export type TaskEnvironmentProvider = {
+  create(input: { taskId: string; timeoutMs: number }): Promise<{ id: string; cdpUrl?: string }>
+  destroy(id: string): Promise<void>
+  isDestroyed(id: string): Promise<boolean>
+}
 
 export class E2BTaskEnvironmentProvider implements TaskEnvironmentProvider {
   constructor(
@@ -22,12 +26,15 @@ export class E2BTaskEnvironmentProvider implements TaskEnvironmentProvider {
     if (!apiKey.trim()) throw new Error('E2B_API_KEY is required.')
   }
 
-  async create(input: { taskId: string; timeoutMs: number }): Promise<{ id: string }> {
+  async create(input: { taskId: string; timeoutMs: number }): Promise<{ id: string; cdpUrl: string }> {
     const timeoutMs = Math.max(60_000, Math.min(30 * 60_000, Math.floor(input.timeoutMs)))
     const sandbox = await Sandbox.create(this.template, {
       apiKey: this.apiKey,
       timeoutMs,
-      secure: true,
+      // CDP must be reachable by the worker without a traffic-access token
+      // (connectOverCDP cannot send headers). The sandbox holds no plaintext
+      // credentials, is destroyed after the task, and denies private egress.
+      secure: false,
       lifecycle: { onTimeout: 'kill', autoResume: false },
       network: { denyOut: DENIED_EGRESS },
       metadata: {
@@ -35,7 +42,9 @@ export class E2BTaskEnvironmentProvider implements TaskEnvironmentProvider {
         isolation: 'fresh-per-task',
       },
     })
-    return { id: sandbox.sandboxId }
+    const cdpUrl = `https://${sandbox.getHost(SANDBOX_CDP_PORT)}`
+    await waitForCdp(cdpUrl)
+    return { id: sandbox.sandboxId, cdpUrl }
   }
 
   async destroy(id: string): Promise<void> {
@@ -53,11 +62,30 @@ export class E2BTaskEnvironmentProvider implements TaskEnvironmentProvider {
   }
 }
 
+/** Poll the template's Chromium CDP endpoint until it answers. Fails the
+ * create step (and therefore the whole sandbox) if the browser never comes
+ * up, so the worker never connects to a half-started environment. */
+async function waitForCdp(cdpUrl: string, timeoutMs = 45_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs
+  let lastError = 'CDP endpoint never became ready.'
+  while (Date.now() < deadline) {
+    try {
+      const response = await fetch(`${cdpUrl}/json/version`, { signal: AbortSignal.timeout(2_000) })
+      if (response.ok) return
+      lastError = `CDP endpoint returned ${response.status}.`
+    } catch (error) {
+      lastError = error instanceof Error ? error.message : String(error)
+    }
+    await Bun.sleep(500)
+  }
+  throw new Error(lastError)
+}
+
 export async function provisionTaskEnvironment(
   sql: SQL,
   provider: TaskEnvironmentProvider,
   input: { userId: string; taskId: string; timeoutMs?: number },
-): Promise<{ id: string; providerEnvironmentId: string }> {
+): Promise<{ id: string; providerEnvironmentId: string; cdpUrl?: string }> {
   const id = randomUUID()
   const created = await provider.create({ taskId: input.taskId, timeoutMs: input.timeoutMs ?? 15 * 60_000 })
   try {
@@ -73,7 +101,7 @@ export async function provisionTaskEnvironment(
     await provider.destroy(created.id).catch(() => undefined)
     throw error
   }
-  return { id, providerEnvironmentId: created.id }
+  return { id, providerEnvironmentId: created.id, cdpUrl: created.cdpUrl }
 }
 
 export async function destroyTaskEnvironment(

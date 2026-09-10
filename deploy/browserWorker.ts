@@ -12,7 +12,9 @@
 import { SQL } from 'bun'
 import { consumeBrowserApproval, ensureBrowserVaultSchema, getVaultCredentialsForTask, pushBrowserResultLoop } from './browserVault'
 import { vaultKey } from './vaultCrypto'
-import { runBrowserSession } from './browserSession'
+import { runBrowserSession, type SessionTask } from './browserSession'
+import { UNCONFIGURED_ERROR, resolveBrowserExecutorMode, withTaskSandbox } from './e2bExecutor'
+import { E2BTaskEnvironmentProvider } from '../services/trust/taskEnvironments'
 import { reportLinkOutcome, retrieveLinkCard, retrieveLinkSpend, type LinkCardCredential } from './linkWallet'
 import { createLinkBackedSpendRequest, ensureUserPaymentsSchema, promoteApprovedLinkPurchases } from './userPayments'
 import {
@@ -258,6 +260,23 @@ export async function runJob(sql: SQL, job: JobRow, launch = runBrowserSession):
   })()
   if (!origin || !job.url.startsWith('https:')) return { ok: false, error: 'Job URL must be https.' }
 
+  // Task launch strategy. Production runs every task in a fresh E2B sandbox;
+  // the worker's own Chromium is an explicitly gated development fallback, and
+  // nothing runs at all when neither is configured. An injected launch (tests)
+  // bypasses the executor.
+  const executorMode = resolveBrowserExecutorMode()
+  if (executorMode === 'unconfigured' && launch === runBrowserSession) {
+    return { ok: false, error: UNCONFIGURED_ERROR }
+  }
+  const launchTask = (task: SessionTask) => {
+    if (executorMode === 'e2b') {
+      const provider = new E2BTaskEnvironmentProvider(process.env.E2B_API_KEY || '')
+      return withTaskSandbox(sql, provider, { userId: job.user_id, taskId: job.id }, (cdpUrl) =>
+        runBrowserSession({ ...task, cdpUrl }))
+    }
+    return launch(task)
+  }
+
   let creds: { username: string; password: string } | null = null
   if (job.credential_capability_id || job.vault_item_id || job.credential_capability_digest || job.credential_task_id) {
     if (!job.credential_capability_id || !job.vault_item_id || !job.credential_capability_digest || !job.credential_task_id) {
@@ -301,7 +320,7 @@ export async function runJob(sql: SQL, job: JobRow, launch = runBrowserSession):
   }
 
   const kind = job.kind as 'newsletter' | 'ticker' | 'task'
-  const run = await launch({
+  const run = await launchTask({
     url: job.url,
     username: creds?.username || '',
     password: creds?.password || '',

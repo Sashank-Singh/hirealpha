@@ -1,0 +1,2 @@
+template_id = "hirealpha-browser"
+dockerfile = "Dockerfile"
