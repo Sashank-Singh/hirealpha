@@ -1,4 +1,4 @@
-CREATE TABLE task_environments (
+CREATE TABLE IF NOT EXISTS task_environments (
   id UUID PRIMARY KEY,
   user_id TEXT NOT NULL REFERENCES hire_users(id) ON DELETE CASCADE,
   task_id TEXT NOT NULL UNIQUE,
@@ -12,4 +12,4 @@ CREATE TABLE task_environments (
   destruction_verified_at TIMESTAMPTZ
 );
 
-CREATE INDEX task_environments_user_created_idx ON task_environments (user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS task_environments_user_created_idx ON task_environments (user_id, created_at DESC);

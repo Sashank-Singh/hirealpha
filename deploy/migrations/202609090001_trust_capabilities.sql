@@ -1,4 +1,6 @@
-CREATE TABLE capability_grants (
+-- Idempotent so a partially-applied or manually-created schema still boots.
+-- Migrations are immutable once recorded in hire_schema_migrations.
+CREATE TABLE IF NOT EXISTS capability_grants (
   id UUID PRIMARY KEY,
   user_id TEXT NOT NULL REFERENCES hire_users(id) ON DELETE CASCADE,
   task_id TEXT NOT NULL,
@@ -35,12 +37,12 @@ CREATE TABLE capability_grants (
   )
 );
 
-CREATE INDEX capability_grants_user_status_idx ON capability_grants (user_id, status, expires_at);
-CREATE INDEX capability_grants_task_idx ON capability_grants (task_id, created_at DESC);
-CREATE UNIQUE INDEX capability_grants_provider_reference_idx
+CREATE INDEX IF NOT EXISTS capability_grants_user_status_idx ON capability_grants (user_id, status, expires_at);
+CREATE INDEX IF NOT EXISTS capability_grants_task_idx ON capability_grants (task_id, created_at DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS capability_grants_provider_reference_idx
   ON capability_grants (provider_reference) WHERE provider_reference IS NOT NULL;
 
-CREATE TABLE audit_events (
+CREATE TABLE IF NOT EXISTS audit_events (
   sequence BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   id UUID NOT NULL UNIQUE,
   user_id TEXT NOT NULL REFERENCES hire_users(id) ON DELETE CASCADE,
@@ -55,15 +57,16 @@ CREATE TABLE audit_events (
   occurred_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE INDEX audit_events_user_time_idx ON audit_events (user_id, occurred_at DESC);
-CREATE INDEX audit_events_task_idx ON audit_events (task_id, sequence) WHERE task_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS audit_events_user_time_idx ON audit_events (user_id, occurred_at DESC);
+CREATE INDEX IF NOT EXISTS audit_events_task_idx ON audit_events (task_id, sequence) WHERE task_id IS NOT NULL;
 
-CREATE FUNCTION prevent_audit_event_mutation() RETURNS trigger AS $$
+CREATE OR REPLACE FUNCTION prevent_audit_event_mutation() RETURNS trigger AS $$
 BEGIN
   RAISE EXCEPTION 'audit_events is append-only';
 END;
 $$ LANGUAGE plpgsql;
 
+DROP TRIGGER IF EXISTS audit_events_no_update ON audit_events;
 CREATE TRIGGER audit_events_no_update
   BEFORE UPDATE OR DELETE ON audit_events
   FOR EACH ROW EXECUTE FUNCTION prevent_audit_event_mutation();

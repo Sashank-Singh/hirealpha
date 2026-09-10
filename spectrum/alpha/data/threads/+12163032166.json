@@ -125,6 +125,16 @@
       "role": "assistant",
       "content": "I could not finish this request with the results available. Please try again or narrow the request.",
       "ts": 1789061095454
+    },
+    {
+      "role": "user",
+      "content": "Hey what’s up",
+      "ts": 1789063580748
+    },
+    {
+      "role": "assistant",
+      "content": "I hit a quick snag thinking through that. Can you say that once more?",
+      "ts": 1789063580748
     }
   ]
 }

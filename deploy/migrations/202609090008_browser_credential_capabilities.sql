@@ -3,6 +3,7 @@ ALTER TABLE hire_browser_jobs ADD COLUMN IF NOT EXISTS credential_capability_id 
 ALTER TABLE hire_browser_jobs ADD COLUMN IF NOT EXISTS credential_capability_digest TEXT;
 ALTER TABLE hire_browser_jobs ADD COLUMN IF NOT EXISTS credential_task_id TEXT;
 
+ALTER TABLE hire_browser_jobs DROP CONSTRAINT IF EXISTS browser_job_credential_capability_complete;
 ALTER TABLE hire_browser_jobs ADD CONSTRAINT browser_job_credential_capability_complete CHECK (
   (credential_capability_id IS NULL AND credential_capability_digest IS NULL AND credential_task_id IS NULL AND vault_item_id IS NULL)
   OR

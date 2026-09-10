@@ -68,4 +68,6 @@ EXPOSE 80
 HEALTHCHECK --interval=10s --timeout=3s --start-period=8s --retries=3 \
   CMD curl -fsS http://127.0.0.1/healthz || exit 1
 
-CMD ["sh", "-c", "bun run migrate.ts && exec bun run web-server.ts"]
+# Migrations run inside web-server.ts after ensureHireSchema (they FK
+# hire_users, so they cannot run before the base schema exists).
+CMD ["bun", "run", "web-server.ts"]

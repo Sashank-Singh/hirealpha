@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'bun:test'
+import { readdir } from 'node:fs/promises'
+import { join } from 'node:path'
 import { buildMigrationBatch, migrationChecksum } from './migrate'
 
 describe('versioned migration runner', () => {
@@ -13,6 +15,24 @@ describe('versioned migration runner', () => {
     expect(batch).toContain(body)
     expect(batch).toContain('INSERT INTO hire_schema_migrations')
     expect(batch.endsWith('COMMIT;')).toBe(true)
+  })
+
+  it('accepts both separators the repo and tests use', () => {
+    for (const name of ['202609090001-example.sql', '202609090001_example.sql', '202609090001_trust_capabilities.sql']) {
+      expect(() => buildMigrationBatch(name, 'a'.repeat(64), 'SELECT 1;')).not.toThrow()
+    }
+  })
+
+  /** The prod incident this guards: the runner's filename pattern used a hyphen
+   * while every shipped migration used an underscore, so all files were skipped
+   * and the boot log still said "schema current" against a missing schema. */
+  it('matches every migration file actually in deploy/migrations', async () => {
+    const dir = join(import.meta.dir, 'migrations')
+    const files = (await readdir(dir)).filter((name) => name.endsWith('.sql'))
+    expect(files.length).toBeGreaterThan(0)
+    for (const name of files) {
+      expect(() => buildMigrationBatch(name, 'a'.repeat(64), 'SELECT 1;')).not.toThrow()
+    }
   })
 
   it('rejects malformed filenames, checksums, and nested transactions', () => {

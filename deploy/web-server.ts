@@ -215,6 +215,15 @@ async function ensureSchema() {
   `
   await sql`ALTER TABLE waitlist_emails ADD COLUMN IF NOT EXISTS persona TEXT`
   await ensureHireSchema(sql)
+  // Versioned migrations run AFTER the base schema: every trust migration
+  // foreign-keys hire_users, which ensureHireSchema creates. Running them in a
+  // separate pre-boot step (the old CMD order) failed on a blank database and
+  // silently skipped everything once, so the caller stays here.
+  {
+    const { runMigrations } = await import('./migrate')
+    const applied = await runMigrations(sql)
+    console.log(applied.length ? `[migrate] applied ${applied.join(', ')}` : '[migrate] schema current')
+  }
   console.log('[waitlist] table ready')
 }
 

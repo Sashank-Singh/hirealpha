@@ -1,4 +1,4 @@
-CREATE TABLE user_wrapped_keys (
+CREATE TABLE IF NOT EXISTS user_wrapped_keys (
   user_id TEXT PRIMARY KEY REFERENCES hire_users(id) ON DELETE CASCADE,
   wrapped_dek TEXT,
   key_version INTEGER NOT NULL CHECK (key_version > 0),
@@ -11,7 +11,7 @@ CREATE TABLE user_wrapped_keys (
   )
 );
 
-CREATE TABLE vault_items_v2 (
+CREATE TABLE IF NOT EXISTS vault_items_v2 (
   id UUID PRIMARY KEY,
   user_id TEXT NOT NULL REFERENCES hire_users(id) ON DELETE CASCADE,
   exact_origin TEXT NOT NULL CHECK (exact_origin ~ '^https://[^/]+$'),
@@ -25,4 +25,4 @@ CREATE TABLE vault_items_v2 (
   UNIQUE (user_id, exact_origin, label)
 );
 
-CREATE INDEX vault_items_v2_user_origin_idx ON vault_items_v2 (user_id, exact_origin) WHERE revoked_at IS NULL;
+CREATE INDEX IF NOT EXISTS vault_items_v2_user_origin_idx ON vault_items_v2 (user_id, exact_origin) WHERE revoked_at IS NULL;

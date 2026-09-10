@@ -1,4 +1,4 @@
-CREATE TABLE consent_records (
+CREATE TABLE IF NOT EXISTS consent_records (
   id UUID PRIMARY KEY,
   user_id TEXT NOT NULL REFERENCES hire_users(id) ON DELETE CASCADE,
   resource_type TEXT NOT NULL CHECK (resource_type IN ('memory', 'credential', 'payment', 'computer')),
@@ -10,10 +10,10 @@ CREATE TABLE consent_records (
   revoked_at TIMESTAMPTZ
 );
 
-CREATE INDEX consent_records_active_idx ON consent_records (user_id, resource_type, category, purpose)
+CREATE INDEX IF NOT EXISTS consent_records_active_idx ON consent_records (user_id, resource_type, category, purpose)
   WHERE status = 'granted';
 
-CREATE TABLE memory_records (
+CREATE TABLE IF NOT EXISTS memory_records (
   id UUID PRIMARY KEY,
   user_id TEXT NOT NULL REFERENCES hire_users(id) ON DELETE CASCADE,
   category TEXT NOT NULL CHECK (category IN ('identity', 'preference', 'relationship', 'work', 'health', 'financial', 'other')),
@@ -32,4 +32,4 @@ CREATE TABLE memory_records (
   )
 );
 
-CREATE INDEX memory_records_active_idx ON memory_records (user_id, category, expires_at) WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS memory_records_active_idx ON memory_records (user_id, category, expires_at) WHERE deleted_at IS NULL;

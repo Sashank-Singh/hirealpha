@@ -3,7 +3,10 @@ import { readdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import { SQL } from 'bun'
 
-const MIGRATION_NAME = /^\d{12,}-[a-z0-9][a-z0-9_-]*\.sql$/
+// Both separators are accepted: the repo names files with underscores. A
+// mismatch here silently skips every migration and still reports
+// "schema current" — deploy/migrate.test.ts guards the real directory.
+const MIGRATION_NAME = /^\d{12,}[-_][a-z0-9][a-z0-9_-]*\.sql$/
 
 export function migrationChecksum(body: string): string {
   return createHash('sha256').update(body, 'utf8').digest('hex')
@@ -29,8 +32,25 @@ export function buildMigrationBatch(name: string, checksum: string, body: string
 
 type UnsafeSql = SQL & { unsafe: (query: string) => Promise<unknown> }
 
+/** A migration and its ledger row share one transaction, which requires a
+ * dedicated connection. Reserving one works at any pool size — passing the
+ * pooled handle directly fails with "Only use sql.begin, sql.reserved or
+ * max: 1" whenever the caller's pool is larger than one (the web app's is 12). */
+async function applyMigrationBatch(sql: SQL, batch: string): Promise<void> {
+  const reserved = (sql as SQL & { reserve: () => Promise<SQL & { release: () => void }> }).reserve
+  if (typeof reserved !== 'function') {
+    await (sql as UnsafeSql).unsafe(batch)
+    return
+  }
+  const handle = await reserved.call(sql)
+  try {
+    await (handle as UnsafeSql).unsafe(batch)
+  } finally {
+    handle.release()
+  }
+}
+
 export async function runMigrations(sql: SQL, migrationsDir = join(import.meta.dir, 'migrations')): Promise<string[]> {
-  const unsafe = sql as UnsafeSql
   await sql`
     CREATE TABLE IF NOT EXISTS hire_schema_migrations (
       name TEXT PRIMARY KEY,
@@ -41,7 +61,14 @@ export async function runMigrations(sql: SQL, migrationsDir = join(import.meta.d
   await sql`SELECT pg_advisory_lock(hashtextextended('hirealpha-schema-migrations', 0))`
   const applied: string[] = []
   try {
-    const entries = (await readdir(migrationsDir)).filter((name) => MIGRATION_NAME.test(name)).sort()
+    const all = await readdir(migrationsDir)
+    const entries = all.filter((name) => MIGRATION_NAME.test(name)).sort()
+    // Unmatched .sql files mean a naming or packaging mistake. Fail loudly
+    // rather than reporting "schema current" while the schema is missing.
+    const unmatched = all.filter((name) => name.endsWith('.sql') && !MIGRATION_NAME.test(name))
+    if (unmatched.length) {
+      throw new Error(`Migration files did not match the naming pattern: ${unmatched.join(', ')}`)
+    }
     for (const name of entries) {
       const body = await Bun.file(join(migrationsDir, name)).text()
       const checksum = migrationChecksum(body)
@@ -52,7 +79,7 @@ export async function runMigrations(sql: SQL, migrationsDir = join(import.meta.d
         if (existing[0].checksum !== checksum) throw new Error(`Applied migration was modified: ${name}`)
         continue
       }
-      await unsafe.unsafe(buildMigrationBatch(name, checksum, body))
+      await applyMigrationBatch(sql, buildMigrationBatch(name, checksum, body))
       applied.push(name)
     }
   } finally {
