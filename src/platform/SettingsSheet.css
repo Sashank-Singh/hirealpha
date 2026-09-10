@@ -36,8 +36,8 @@
 .ss-page--workspace #vault-section,
 .ss-page--vault .ss-workspace-only,
 .ss-page--payments .ss-workspace-only,
-.ss-page--vault .ss-sec:not(#vault-section),
-.ss-page--payments .ss-sec:not(#payments-section) {
+.ss-page--vault .ss-sec:not(#vault-section):not(#trust-section),
+.ss-page--payments .ss-sec:not(#payments-section):not(#trust-section) {
   display: none;
 }
 

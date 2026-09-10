@@ -21,6 +21,8 @@ import {
   apiVaultList,
   apiVaultSave,
   apiVaultSaveHandoff,
+  apiTrustCapabilityDecide,
+  apiTrustOverview,
   apiPaymentsConnect,
   apiPaymentMethods,
   apiLinkStatus,
@@ -35,6 +37,7 @@ import {
   type SavedLocation,
   type SpendRequest,
   type VaultEntry,
+  type TrustOverview,
 } from './api'
 import { connectedIds, getSession, hydrateFromServer, setConnection, signOut } from './roster'
 import './SettingsSheet.css'
@@ -143,6 +146,9 @@ export function SettingsSheet({ view = 'workspace', embedded = false }: { view?:
   const [pendingApproval, setPendingApproval] = useState<Record<string, string>>({})
   const [approvals, setApprovals] = useState<BrowserApproval[]>([])
   const [approvalBusy, setApprovalBusy] = useState('')
+  const [trust, setTrust] = useState<TrustOverview | null>(null)
+  const [trustError, setTrustError] = useState('')
+  const [trustBusyId, setTrustBusyId] = useState('')
 
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethodView[] | null>(null)
   const [linkWallet, setLinkWallet] = useState<LinkWalletStatus>({ connected: false, pending: false })
@@ -244,6 +250,20 @@ export function SettingsSheet({ view = 'workspace', embedded = false }: { view?:
       // A failed probe is unknown, not "unconfigured" — never tell the user the
       // server is broken because their network hiccuped.
       .catch(() => setReady(null))
+  }, [])
+
+  async function loadTrust(email: string) {
+    setTrustError('')
+    try {
+      setTrust(await apiTrustOverview({ email }))
+    } catch (error) {
+      setTrust({ capabilities: [], audit: [] })
+      setTrustError(error instanceof Error ? error.message : 'Could not load trust history')
+    }
+  }
+  useEffect(() => {
+    const email = getSession()?.email
+    if (email) void loadTrust(email)
   }, [])
 
   useEffect(() => {
@@ -677,6 +697,21 @@ export function SettingsSheet({ view = 'workspace', embedded = false }: { view?:
       if (openNoteId === id) setOpenNoteId('')
     } catch (err) {
       setVaultError(err instanceof Error ? err.message : 'Could not delete that login')
+    }
+  }
+
+  async function decideTrustCapability(id: string, digest: string, decision: 'approved' | 'denied') {
+    const email = session?.email
+    if (!email) return
+    setTrustBusyId(id)
+    setTrustError('')
+    try {
+      await apiTrustCapabilityDecide({ email, id, digest, decision })
+      await loadTrust(email)
+    } catch (error) {
+      setTrustError(error instanceof Error ? error.message : 'Could not record that decision')
+    } finally {
+      setTrustBusyId('')
     }
   }
 
@@ -1452,6 +1487,63 @@ export function SettingsSheet({ view = 'workspace', embedded = false }: { view?:
                           Deny
                         </button>
                       </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+
+          <section id="trust-section" className="ss-sec">
+            <header className="ss-sec-head">
+              <div>
+                <h2 className="ss-title">Approvals &amp; audit</h2>
+                <p className="ss-sub">One history for Vault, private computers, memory, and agent actions. Link payment approval stays in Link.</p>
+              </div>
+            </header>
+            {trustError && <p className="set-err">{trustError}</p>}
+            {trust === null && <p className="ss-empty">Loading trust history…</p>}
+            {trust && trust.capabilities.filter((capability) => capability.status === 'pending').length > 0 && (
+              <div className="ss-list">
+                {trust.capabilities.filter((capability) => capability.status === 'pending').map((capability) => (
+                  <div className="ss-row" key={capability.id}>
+                    <div className="ss-cell">
+                      <div className="ss-body">
+                        <span className="ss-name">{capability.purpose}</span>
+                        <span className="ss-subline">
+                          {[
+                            capability.resource_type,
+                            capability.action,
+                            capability.exact_origin,
+                            capability.amount_cents && capability.currency
+                              ? `${capability.currency} ${(capability.amount_cents / 100).toFixed(2)}`
+                              : '',
+                            `expires ${dateLabel(capability.expires_at)}`,
+                          ].filter(Boolean).join(' • ')}
+                        </span>
+                      </div>
+                      <div className="ss-actions">
+                        <button type="button" className="ss-btn-text" disabled={trustBusyId === capability.id} onClick={() => void decideTrustCapability(capability.id, capability.digest, 'approved')}>Approve once</button>
+                        <button type="button" className="ss-btn-text ss-btn-danger" disabled={trustBusyId === capability.id} onClick={() => void decideTrustCapability(capability.id, capability.digest, 'denied')}>Deny</button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+            {trust && trust.capabilities.filter((capability) => capability.status === 'pending').length === 0 && (
+              <p className="ss-empty">No requests need your approval.</p>
+            )}
+            {trust && trust.audit.length > 0 && (
+              <div className="ss-list" aria-label="Recent audit events">
+                {trust.audit.slice(0, 20).map((event) => (
+                  <div className="ss-row" key={event.id}>
+                    <div className="ss-cell">
+                      <div className="ss-body">
+                        <span className="ss-name">{event.event_type.replaceAll('.', ' ')}</span>
+                        <span className="ss-subline">{[event.resource_type, event.outcome, dateLabel(event.occurred_at)].filter(Boolean).join(' • ')}</span>
+                      </div>
+                      <span className="ss-provider-state">#{event.sequence}</span>
                     </div>
                   </div>
                 ))}

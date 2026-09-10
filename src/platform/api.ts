@@ -1224,6 +1224,40 @@ export const apiVaultDelete = (a: { email?: string; token?: string; id: string }
   return featureDelete<{ ok: boolean }>(`/api/vault?${qs}`, authParams(a))
 }
 
+export type TrustCapability = {
+  id: string
+  task_id: string
+  resource_type: 'credential' | 'payment' | 'memory' | 'computer'
+  action: string
+  exact_origin: string | null
+  amount_cents: number | null
+  currency: string | null
+  merchant: string | null
+  requesting_agent: string
+  purpose: string
+  digest: string
+  status: string
+  expires_at: string
+  created_at: string
+}
+export type TrustAuditEvent = {
+  sequence: number
+  id: string
+  event_type: string
+  resource_type: string | null
+  outcome: string
+  safe_metadata: Record<string, unknown>
+  occurred_at: string
+}
+export type TrustOverview = { capabilities: TrustCapability[]; audit: TrustAuditEvent[] }
+export const apiTrustOverview = (a: { email?: string; token?: string }) =>
+  featureGet<TrustOverview>('/api/trust/overview', authQuery(a))
+export const apiTrustCapabilityDecide = (a: {
+  email?: string; token?: string; id: string; digest: string; decision: 'approved' | 'denied'
+}) => featurePost<{ ok: boolean }>(`/api/trust/capabilities/${encodeURIComponent(a.id)}/decision`, {
+  ...authParams(a), digest: a.digest, decision: a.decision,
+})
+
 export type BrowserApproval = {
   id: string
   portal: string
