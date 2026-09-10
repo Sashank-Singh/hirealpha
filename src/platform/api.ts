@@ -1257,6 +1257,8 @@ export const apiTrustCapabilityDecide = (a: {
 }) => featurePost<{ ok: boolean }>(`/api/trust/capabilities/${encodeURIComponent(a.id)}/decision`, {
   ...authParams(a), digest: a.digest, decision: a.decision,
 })
+export const apiTrustCapabilityRevoke = (a: { email?: string; token?: string; id: string }) =>
+  featureDelete<{ ok: boolean }>(`/api/trust/capabilities/${encodeURIComponent(a.id)}`, authParams(a))
 
 export type BrowserApproval = {
   id: string

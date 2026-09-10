@@ -22,6 +22,7 @@ import {
   apiVaultSave,
   apiVaultSaveHandoff,
   apiTrustCapabilityDecide,
+  apiTrustCapabilityRevoke,
   apiTrustOverview,
   apiPaymentsConnect,
   apiPaymentMethods,
@@ -92,7 +93,7 @@ type Loop = { id: string; kind: string; title: string; status: string; next_run:
  * friend persona), LocationPage's saved places, and ControlsPage's kill switch
  * + loops panel, keeping the same endpoints and flows.
  */
-export type SettingsView = 'workspace' | 'vault' | 'payments'
+export type SettingsView = 'workspace' | 'vault' | 'payments' | 'memory' | 'trust'
 
 export function SettingsSheet({ view = 'workspace', embedded = false }: { view?: SettingsView; embedded?: boolean }) {
   const navigate = useNavigate()
@@ -265,6 +266,20 @@ export function SettingsSheet({ view = 'workspace', embedded = false }: { view?:
     const email = getSession()?.email
     if (email) void loadTrust(email)
   }, [])
+
+  async function revokeTrustCapability(id: string) {
+    setTrustBusyId(id)
+    setTrustError('')
+    try {
+      await apiTrustCapabilityRevoke({ email: getSession()?.email, id })
+      const email = getSession()?.email
+      if (email) await loadTrust(email)
+    } catch (error) {
+      setTrustError(error instanceof Error ? error.message : 'Could not revoke access')
+    } finally {
+      setTrustBusyId('')
+    }
+  }
 
   useEffect(() => {
     if (!session?.email) return
@@ -1543,6 +1558,32 @@ export function SettingsSheet({ view = 'workspace', embedded = false }: { view?:
             {trust && trust.capabilities.filter((capability) => capability.status === 'pending' && capability.resource_type !== 'payment').length === 0 && (
               <p className="ss-empty">No requests need your approval.</p>
             )}
+            {trust && trust.capabilities.filter((capability) => ['approved', 'consuming'].includes(capability.status)).length > 0 && (
+              <div style={{ marginTop: 24 }}>
+                <h3 className="ss-title" style={{ fontSize: 15, marginBottom: 8 }}>Active access</h3>
+                <div className="ss-list">
+                  {trust.capabilities.filter((capability) => ['approved', 'consuming'].includes(capability.status)).map((capability) => (
+                    <div className="ss-row" key={capability.id}>
+                      <div className="ss-cell">
+                        <div className="ss-body">
+                          <span className="ss-name">{capability.purpose}</span>
+                          <span className="ss-subline">
+                            {[
+                              capability.resource_type,
+                              capability.exact_origin,
+                              `expires ${dateLabel(capability.expires_at)}`,
+                            ].filter(Boolean).join(' • ')}
+                          </span>
+                        </div>
+                        <div className="ss-actions">
+                          <button type="button" className="ss-btn-text ss-btn-danger" disabled={trustBusyId === capability.id} onClick={() => void revokeTrustCapability(capability.id)}>Revoke</button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
             {trust && trust.audit.length > 0 && (
               <div className="ss-list" aria-label="Recent audit events">
                 {trust.audit.slice(0, 20).map((event) => (
@@ -1561,7 +1602,7 @@ export function SettingsSheet({ view = 'workspace', embedded = false }: { view?:
           </section>
 
           {/* Memory */}
-          <section className="ss-sec">
+          <section id="memory-section" className="ss-sec">
             <header className="ss-sec-head">
               <div>
                 <h2 className="ss-title">Memory</h2>

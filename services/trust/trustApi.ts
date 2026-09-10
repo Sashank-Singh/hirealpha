@@ -1,6 +1,6 @@
 import type { SQL } from 'bun'
 import { appendAuditEvent, listAuditEvents } from './auditLedger'
-import { decideCapabilityGrant } from './capabilityGrants'
+import { decideCapabilityGrant, requestCapabilityRevocation } from './capabilityGrants'
 import {
   deleteUserMemories,
   exportUserMemories,
@@ -158,6 +158,24 @@ export async function handleTrustApi(request: Request, sql: SQL, deps: TrustApiD
       outcome: 'revoked', safeMetadata: {},
     })
     return json({ ok: true })
+  }
+
+  const revokeMatch = url.pathname.match(/^\/api\/trust\/capabilities\/([^/]+)$/)
+  if (revokeMatch && request.method === 'DELETE') {
+    const rows = (await sql`
+      SELECT task_id FROM capability_grants WHERE id = ${revokeMatch[1]!} AND user_id = ${user.id} LIMIT 1
+    `) as Array<{ task_id: string }>
+    if (!rows[0]) return json({ error: 'Capability not found.' }, 404)
+    const result = await requestCapabilityRevocation(sql, {
+      id: revokeMatch[1]!, userId: user.id, taskId: rows[0].task_id,
+    })
+    if (result === 'unavailable') return json({ error: 'Capability is not revocable.' }, 409)
+    await appendAuditEvent(sql, {
+      userId: user.id, taskId: rows[0].task_id, capabilityGrantId: revokeMatch[1]!,
+      eventType: 'capability.revoked', resourceType: null, outcome: result,
+      safeMetadata: {},
+    })
+    return json({ ok: true, result })
   }
 
   if (url.pathname === '/api/trust/account' && request.method === 'DELETE') {

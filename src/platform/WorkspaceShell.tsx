@@ -1,4 +1,4 @@
-import { useMemo, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, type ReactNode } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { getSession, signOut } from './roster'
 import { SettingsSheet, type SettingsView } from './SettingsSheet'
@@ -29,17 +29,37 @@ const views: Array<{
     description: 'Link wallet and purchase approvals',
     icon: <path d="M3 7a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Zm0 3h18M7 15h4" />,
   },
+  {
+    id: 'memory',
+    label: 'Memory',
+    description: 'What Alpha remembers, with delete',
+    icon: <path d="M12 3a6 6 0 0 1 6 6c0 2.2-1.2 3.6-2.4 4.8-.7.7-1.1 1.2-1.3 2.2H9.7c-.2-1-.6-1.5-1.3-2.2C7.2 12.6 6 11.2 6 9a6 6 0 0 1 6-6Zm-2.3 15h4.6v1.2a1.3 1.3 0 0 1-1.3 1.3h-2a1.3 1.3 0 0 1-1.3-1.3V18Z" />,
+  },
+  {
+    id: 'trust',
+    label: 'Trust & Audit',
+    description: 'Approvals, access history, revoke',
+    icon: <path d="M12 2 4.5 5v6c0 5 3.2 9.1 7.5 11 4.3-1.9 7.5-6 7.5-11V5L12 2Zm-1.2 13.6-3-3 1.4-1.4 1.6 1.6 3.9-3.9 1.4 1.4-5.3 5.3Z" />,
+  },
 ]
 
 export function WorkspaceShell() {
   const [params, setParams] = useSearchParams()
   const session = getSession()
   const activeView = useMemo<SettingsView>(() => workspaceViewFromParams(params), [params])
-  const active = views.find((view) => view.id === activeView)!
+  // A stale or foreign ?tab= value must never blank the whole shell — fall back
+  // to the workspace view instead of crashing on a missing lookup.
+  const active = views.find((view) => view.id === activeView) ?? views[0]!
 
   function selectView(view: SettingsView) {
     setParams(paramsForWorkspaceView(params, view), { replace: true })
   }
+
+  const headingRef = useRef<HTMLHeadingElement>(null)
+  useEffect(() => {
+    // Move keyboard focus with the view so screen readers announce the change.
+    headingRef.current?.focus()
+  }, [activeView])
 
   function logout() {
     signOut()
@@ -90,7 +110,7 @@ export function WorkspaceShell() {
         <header className="workspace-header">
           <div>
             <p>HireAlpha / {active.label}</p>
-            <h1>{active.label}</h1>
+            <h1 ref={headingRef} tabIndex={-1}>{active.label}</h1>
           </div>
           <a href="sms:+14155951440&body=Hey%2C%20Alpha!">Message Alpha</a>
         </header>

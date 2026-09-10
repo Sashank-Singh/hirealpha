@@ -5,7 +5,7 @@ export function workspaceViewFromParams(params: URLSearchParams): SettingsView {
   const tab = params.get('tab')
   if (params.get('vault') === '1') return 'vault'
   if (params.get('connect') === 'payments' || params.get('payments') === 'connected') return 'payments'
-  return tab === 'vault' || tab === 'payments' ? tab : 'workspace'
+  return tab === 'vault' || tab === 'payments' || tab === 'memory' || tab === 'trust' ? tab : 'workspace'
 }
 
 /**
