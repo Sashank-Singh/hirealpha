@@ -43,6 +43,8 @@ COPY deploy/browserJobs.ts ./browserJobs.ts
 COPY deploy/browserSession.ts ./browserSession.ts
 COPY deploy/browserWorker.ts ./browserWorker.ts
 COPY deploy/agentDriver.ts ./agentDriver.ts
+COPY deploy/migrate.ts ./migrate.ts
+COPY deploy/migrations ./migrations
 COPY spectrum ../spectrum
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
@@ -57,4 +59,4 @@ EXPOSE 80
 HEALTHCHECK --interval=10s --timeout=3s --start-period=8s --retries=3 \
   CMD curl -fsS http://127.0.0.1/healthz || exit 1
 
-CMD ["bun", "run", "web-server.ts"]
+CMD ["sh", "-c", "bun run migrate.ts && exec bun run web-server.ts"]
