@@ -24,6 +24,7 @@ COPY deploy/linkWallet.ts ./linkWallet.ts
 COPY deploy/userPayments.ts ./userPayments.ts
 COPY deploy/onePassword.ts ./onePassword.ts
 COPY deploy/browserWorkerEntry.sh ./browserWorkerEntry.sh
+COPY services/trust /services/trust
 RUN chmod +x ./browserWorkerEntry.sh
 
 # Headless Chromium (playwright-matched build + system libraries).

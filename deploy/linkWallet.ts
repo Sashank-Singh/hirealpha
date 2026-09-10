@@ -11,7 +11,12 @@ import { existsSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { tmpdir } from 'node:os'
 import type { SQL } from 'bun'
-import { decryptSecret, encryptSecret, vaultKey } from './vaultCrypto'
+import {
+  decryptUserPayload,
+  encryptUserPayload,
+  loadOrCreateUserKey,
+  openBaoBrokerFromEnv,
+} from '../services/trust/userKeyBroker'
 
 export type LinkWalletStatus = {
   connected: boolean
@@ -114,21 +119,24 @@ async function walletRow(sql: SQL, userId: string): Promise<WalletRow | null> {
 }
 
 async function withUserAuthUnlocked<T>(sql: SQL, userId: string, create: boolean, fn: (path: string) => Promise<T>): Promise<T> {
-  const key = vaultKey()
-  if (!key) throw new Error('Wallet encryption is not configured on this server.')
-  const row = await walletRow(sql, userId)
-  if (!row && !create) throw new Error('Link wallet is not connected.')
-  const existing = row ? decryptSecret(row.auth_encrypted, key) : null
-  if (row && existing === null) throw new Error('This Link connection cannot be decrypted. Reconnect it in Settings.')
-
-  const dir = await mkdtemp(resolve(tmpdir(), 'hirealpha-link-'))
-  const path = resolve(dir, 'auth.json')
+  const broker = openBaoBrokerFromEnv()
+  if (!broker) throw new Error('Per-user wallet encryption is not configured on this server.')
+  const key = await loadOrCreateUserKey(sql, broker, userId)
+  let dir: string | null = null
   try {
+    const row = await walletRow(sql, userId)
+    if (!row && !create) throw new Error('Link wallet is not connected.')
+    const context = { userId, recordId: 'link-wallet-auth', scope: 'payments:link-auth' }
+    const existing = row ? decryptUserPayload(row.auth_encrypted, key, context) : null
+    if (row && existing === null) throw new Error('This Link connection cannot be decrypted. Reconnect it in Settings.')
+
+    dir = await mkdtemp(resolve(tmpdir(), 'hirealpha-link-'))
+    const path = resolve(dir, 'auth.json')
     await writeFile(path, existing || JSON.stringify({ auth: null, pendingDeviceAuth: null }), { mode: 0o600 })
     await chmod(path, 0o600)
     const result = await fn(path)
     const updated = await readFile(path, 'utf8')
-    const encrypted = encryptSecret(updated, key)
+    const encrypted = encryptUserPayload(updated, key, context)
     const connected = Boolean(lastEmission(result)?.authenticated) || row?.status === 'connected'
     if (row) {
       // Optimistic fence: a concurrent disconnect/delete must win and must not
@@ -147,7 +155,8 @@ async function withUserAuthUnlocked<T>(sql: SQL, userId: string, create: boolean
     }
     return result
   } finally {
-    await rm(dir, { recursive: true, force: true })
+    if (dir) await rm(dir, { recursive: true, force: true })
+    key.fill(0)
   }
 }
 
