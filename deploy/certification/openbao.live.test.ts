@@ -2,7 +2,7 @@
  * token loss behavior, and a structural check that client errors never echo
  * plaintext. Requires CERT_ALLOW_LIVE=1 + OPENBAO_ADDR/OPENBAO_TOKEN. */
 import { describe, expect, it } from 'bun:test'
-import { OpenBaoTransitClient, decryptUserPayload, encryptUserPayload } from '../services/trust/userKeyBroker'
+import { OpenBaoTransitClient, decryptUserPayload, encryptUserPayload } from '../../services/trust/userKeyBroker'
 
 const env = process.env
 const live = env.CERT_ALLOW_LIVE === '1' && Boolean(env.OPENBAO_ADDR?.trim() && env.OPENBAO_TOKEN?.trim())

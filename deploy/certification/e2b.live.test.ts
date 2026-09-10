@@ -2,8 +2,8 @@
  * cross-task reuse, and no secrets in the sandbox environment. Requires
  * CERT_ALLOW_LIVE=1 + E2B_API_KEY + E2B_BROWSER_TEMPLATE. */
 import { describe, expect, it } from 'bun:test'
-import { E2BTaskEnvironmentProvider, SANDBOX_CDP_PORT } from '../services/trust/taskEnvironments'
-import { DENIED_EGRESS } from '../services/trust/taskEnvironments'
+import { E2BTaskEnvironmentProvider, SANDBOX_CDP_PORT } from '../../services/trust/taskEnvironments'
+import { DENIED_EGRESS } from '../../services/trust/taskEnvironments'
 
 const env = process.env
 const live = env.CERT_ALLOW_LIVE === '1' && Boolean(env.E2B_API_KEY?.trim() && env.E2B_BROWSER_TEMPLATE?.trim())

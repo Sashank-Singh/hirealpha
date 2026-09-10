@@ -12,6 +12,9 @@ import { defineConfig } from '@playwright/test'
  */
 export default defineConfig({
   testDir: './e2e',
+  // .pw.ts so `bun test` never collects these (Playwright's describe throws
+  // under bun:test); only the Playwright runner matches them.
+  testMatch: '**/*.pw.ts',
   timeout: 60_000,
   retries: 1,
   reporter: [['list']],
