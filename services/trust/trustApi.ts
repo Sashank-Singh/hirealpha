@@ -8,6 +8,7 @@ import {
   revokeMemoryConsent,
 } from './memoryLifecycle'
 import type { UserKeyBroker } from './userKeyBroker'
+import { listVaultItems, revokeVaultItem, saveVaultItem } from './vaultV2'
 
 type TrustApiDeps = {
   resolveUser: (sql: SQL, request: Request) => Promise<{ id: string } | null>
@@ -114,6 +115,46 @@ export async function handleTrustApi(request: Request, sql: SQL, deps: TrustApiD
     } catch (error) {
       return json({ error: error instanceof Error ? error.message : 'Could not delete memory.' }, 400)
     }
+  }
+
+  if (url.pathname === '/api/trust/vault' && request.method === 'GET') {
+    // Masked metadata only: no ciphertext leaves the server, and usernames
+    // are pre-masked hints (pe•••@example.com) from the vault layer.
+    return json({ items: await listVaultItems(sql, user.id) })
+  }
+
+  if (url.pathname === '/api/trust/vault' && request.method === 'POST') {
+    if (!deps.keyBroker) return json({ error: 'Vault encryption is not configured.' }, 503)
+    const body = (await request.json().catch(() => ({}))) as {
+      origin?: string; label?: string; username?: string; password?: string
+    }
+    try {
+      const itemId = await saveVaultItem(sql, deps.keyBroker, {
+        userId: user.id,
+        origin: body.origin ?? '',
+        label: body.label ?? '',
+        username: body.username,
+        password: body.password ?? '',
+      })
+      await appendAuditEvent(sql, {
+        userId: user.id, eventType: 'vault.saved', resourceType: 'credential',
+        outcome: 'saved', safeMetadata: { origin: body.origin ?? '' },
+      })
+      return json({ ok: true, id: itemId })
+    } catch (error) {
+      return json({ error: error instanceof Error ? error.message : 'Could not save the credential.' }, 400)
+    }
+  }
+
+  if (url.pathname === '/api/trust/vault' && request.method === 'DELETE') {
+    const id = url.searchParams.get('id') ?? ''
+    const revoked = await revokeVaultItem(sql, { userId: user.id, itemId: id })
+    if (!revoked) return json({ error: 'Vault item not found.' }, 404)
+    await appendAuditEvent(sql, {
+      userId: user.id, eventType: 'vault.revoked', resourceType: 'credential',
+      outcome: 'revoked', safeMetadata: {},
+    })
+    return json({ ok: true })
   }
 
   return json({ error: 'Not found.' }, 404)
