@@ -3,11 +3,14 @@ import {
   WORKOUT_CATEGORIES,
   WORKOUT_PROGRAMS,
   WORKOUT_WEEKDAYS,
+  defaultWorkoutDay,
   defaultWorkoutWeekday,
+  formatTimerDisplay,
   isWorkoutCategory,
   isWorkoutMoveCount,
   jsDayToWeekday,
   movePrescription,
+  programFor,
   restLabel,
   workoutSession,
 } from '../../src/platform/workoutProgram'
@@ -187,6 +190,41 @@ describe('workout programs', () => {
         }
       }
     }
+  })
+
+  it('formats restLabel cleanly for minutes and seconds', () => {
+    expect(restLabel(60)).toBe('1 minute rest')
+    expect(restLabel(120)).toBe('2 minutes rest')
+    expect(restLabel(180)).toBe('3 minutes rest')
+    expect(restLabel(45)).toBe('45 seconds rest')
+    expect(restLabel(90)).toBe('90 seconds rest')
+  })
+
+  it('safely formats timer display without NaN', () => {
+    expect(formatTimerDisplay(0)).toBe('00:00')
+    expect(formatTimerDisplay(-5)).toBe('00:00')
+    expect(formatTimerDisplay(NaN)).toBe('00:00')
+    expect(formatTimerDisplay(Infinity)).toBe('00:00')
+    expect(formatTimerDisplay(65)).toBe('01:05')
+    expect(formatTimerDisplay(120)).toBe('02:00')
+  })
+
+  it('defaultWorkoutDay handles missing or empty days safely', () => {
+    const sunday = new Date('2026-08-16T12:00:00') // day 0
+    expect(defaultWorkoutDay(null, sunday)).toBe(1)
+    expect(defaultWorkoutDay(undefined, sunday)).toBe(1)
+    expect(defaultWorkoutDay([], sunday)).toBe(1)
+    expect(defaultWorkoutDay([2, 4], new Date('2026-08-18T12:00:00'))).toBe(2)
+  })
+
+  it('programFor normalizes invalid day inputs safely without throwing', () => {
+    const fallback = programFor('gym', 1)
+    // @ts-expect-error invalid day
+    expect(programFor('gym', 7).name).toBe(fallback.name)
+    // @ts-expect-error invalid day
+    expect(programFor('gym', -1).name).toBe(fallback.name)
+    // @ts-expect-error invalid day
+    expect(programFor('gym', undefined).name).toBe(fallback.name)
   })
 })
 

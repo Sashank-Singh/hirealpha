@@ -848,14 +848,14 @@ export function jsDayToWeekday(jsDay: number): WorkoutWeekday | null {
 export function defaultWorkoutWeekday(now = new Date()): WorkoutWeekday {
   return jsDayToWeekday(now.getDay()) ?? 1
 }
-
 /** Default view: today when it is a workout day, otherwise the next enabled one. */
-export function defaultWorkoutDay(days: WorkoutDay[], now = new Date()): WorkoutDay {
-  const today = now.getDay() as WorkoutDay
-  if (days.includes(today)) return today
+export function defaultWorkoutDay(days?: WorkoutDay[] | null, now = new Date()): WorkoutDay {
+  const safeDays = Array.isArray(days) && days.length ? days : DEFAULT_WORKOUT_DAYS
+  const today = (now.getDay() % 7) as WorkoutDay
+  if (safeDays.includes(today)) return today
   for (let i = 1; i <= 7; i++) {
     const d = ((today + i) % 7) as WorkoutDay
-    if (days.includes(d)) return d
+    if (safeDays.includes(d)) return d
   }
   return 1
 }
@@ -893,11 +893,12 @@ export function programFor(
   day: WorkoutDay,
   category?: WorkoutCategory,
 ): WorkoutSession {
-  const source: WorkoutWeekday = day === 6 ? 4 : day === 0 ? 5 : day
+  const validDay: WorkoutDay = isWorkoutDayLike(day) ? day : 1
+  const source: WorkoutWeekday = validDay === 6 ? 4 : validDay === 0 ? 5 : (validDay as WorkoutWeekday)
   const placeKey: WorkoutPlace = place === 'home' ? 'home' : 'gym'
   const catKey: WorkoutCategory = category && isWorkoutCategory(category) ? category : 'strength'
   const full = WORKOUT_PROGRAM_MATRIX[placeKey][catKey][source]
-  return { ...full, weekday: day, dayLabel: WORKOUT_DAY_LABELS_ALL[day] }
+  return { ...full, weekday: validDay, dayLabel: WORKOUT_DAY_LABELS_ALL[validDay] }
 }
 
 export function workoutSession(
@@ -948,7 +949,7 @@ export function writeWorkoutMoveCount(count: WorkoutMoveCount) {
 }
 
 export function restLabel(restSec: number): string {
-  if (restSec >= 120 && restSec % 60 === 0) {
+  if (restSec >= 60 && restSec % 60 === 0) {
     const m = restSec / 60
     return `${m} minute${m === 1 ? '' : 's'} rest`
   }
@@ -966,10 +967,9 @@ export function movePrescription(move: WorkoutMove, weight = 0): string {
 }
 
 export function formatTimerDisplay(totalSeconds: number): string {
-  const s = Math.max(0, Math.floor(totalSeconds))
+  if (!Number.isFinite(totalSeconds) || totalSeconds <= 0) return '00:00'
+  const s = Math.floor(totalSeconds)
   const mins = Math.floor(s / 60)
   const secs = s % 60
   return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`
 }
-
-

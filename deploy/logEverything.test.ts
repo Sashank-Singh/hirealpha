@@ -173,7 +173,9 @@ describe('log everything from chat — end to end routing', () => {
 
   it('"grateful for the call today" → gratitude row', async () => {
     const text = 'grateful for the call today'
-    expect(detectMiniAppRequest(text, 'friend')).toEqual({ kind: 'gratitude_journal' })
+    // Gratitude intentionally has no card; the deterministic auto-log layer in
+    // the conversational path logs it (kind removed from the capability set).
+    expect(detectMiniAppRequest(text, 'friend')).toBeNull()
     expect(looksLikeGratitudeLog(text)).toBe(true)
 
     process.env.HIREALPHA_INTERNAL_KEY = 'test-key'

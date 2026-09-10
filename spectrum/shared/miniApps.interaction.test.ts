@@ -94,15 +94,12 @@ describe('Mini-app Interaction Tests: Full Flow', () => {
       expect(typeof autoLogNutrition).toBe('function')
     })
 
-    it('gratitude_journal: detect + mint + auto-log', async () => {
+    it('gratitude: no card, deterministic auto-log stays', async () => {
       const text = 'grateful for my team today'
 
-      const detected = detectMiniAppRequest(text, persona)
-      expect(detected?.kind).toBe('gratitude_journal')
-
-      const card = await mintMiniAppCard('5551234567', persona, 'gratitude_journal')
-      expect(card.url).toContain('/app/mini/friend/gratitude_journal')
-
+      // Gratitude deliberately has no card / no detection kind (removed from
+      // the capability set); the deterministic gate logs it instead.
+      expect(detectMiniAppRequest(text, persona)).toBeNull()
       expect(typeof autoLogGratitude).toBe('function')
     })
 
