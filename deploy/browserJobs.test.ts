@@ -45,6 +45,7 @@ describe('browser job queue', () => {
       url: 'https://portal.nseindia.com',
       steps: [{ action: 'click', selector: 'button' }],
       goal: null,
+      resolveHost: async () => ['93.184.216.34'],
     })
     expect(id).toBeTruthy()
     const insert = queries.find((q) => /INSERT INTO hire_browser_jobs/i.test(q.text))!
@@ -112,6 +113,12 @@ describe('browser job queue', () => {
     expect(verifySessionViewToken('job-123', USER, `${token}bad`)).toBe(false)
     // Fails with empty token
     expect(verifySessionViewToken('job-123', USER, '')).toBe(false)
+  })
+
+  it('caps session links at ten minutes', () => {
+    const token = generateSessionViewToken('job-123', USER, 86_400)
+    const expires = Number(token.split('.')[0])
+    expect(expires - Math.floor(Date.now() / 1000)).toBeLessThanOrEqual(600)
   })
 })
 

@@ -502,6 +502,7 @@ const authedDeps = (userId = USER) => ({
   internalOk: () => true,
   key: KEY_A,
   launch: async () => ({ ok: true as const, content: '' }),
+  resolveHost: async () => ['93.184.216.34'],
 })
 
 describe('vault API routes', () => {

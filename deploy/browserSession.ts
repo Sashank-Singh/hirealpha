@@ -7,6 +7,7 @@ import type { Browser, BrowserType } from 'playwright'
 import { runPortalLogin, runSteps, extractPageText } from './browserRunner'
 import { agentEnvCaller, buildVisionParts, executeAgentAction, isTerminal, pageShowsExactTotal, parseAgentAction, DEFAULT_AGENT_LIMITS, type PaymentCardSecrets } from './agentDriver'
 import type { PortalTask, PortalStep } from './browserVault'
+import { installBrowserNetworkPolicy } from './browserNetworkPolicy'
 
 export type SessionTask = {
   url: string
@@ -61,6 +62,7 @@ export async function runBrowserSession(task: SessionTask): Promise<{ ok: true; 
     })
     try {
       const page = await context.newPage()
+      await installBrowserNetworkPolicy(page)
       if (task.goal) {
         return await agentLoop(page, task)
       }

@@ -19,6 +19,7 @@ import type { SQL } from 'bun'
 import { decryptSecret, encryptSecret, maskSecret, vaultKey, type VaultKey } from './vaultCrypto'
 import { isOpRef, onePasswordConfigured, opGetItemFields, opSaveItem } from './onePassword'
 import { enqueueBrowserJob, generateSessionViewToken } from './browserJobs'
+import type { HostResolver } from './browserNetworkPolicy'
 
 /* ------------------------------- types ---------------------------------- */
 
@@ -51,6 +52,7 @@ export type VaultDeps = {
   internalOk: (req: Request) => boolean
   launch: (task: PortalTask) => Promise<PortalRun>
   key?: VaultKey
+  resolveHost?: HostResolver
 }
 
 export const APPROVAL_TTL_MS = 10 * 60 * 1000
@@ -610,6 +612,7 @@ export async function handleVaultApi(req: Request, sql: SQL, deps: VaultDeps): P
           ? 'Sign in to this website and wait until the account home page is ready. Hand off every password, verification, CAPTCHA, or confirmation step to the user.'
           : null),
         approvalId: live.id,
+        resolveHost: deps.resolveHost,
       })
       const viewToken = generateSessionViewToken(jobId, user.id)
       const appUrl = (process.env.HIREALPHA_APP_URL || new URL(req.url).origin).replace(/\/$/, '')

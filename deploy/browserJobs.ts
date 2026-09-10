@@ -8,9 +8,10 @@
  * the agent driver) and posts the outcome back to an internal endpoint,
  * which re-arms the thread-result loop. Web container: zero Chromium.
  */
-import { randomUUID, createHmac } from 'node:crypto'
+import { randomBytes, randomUUID, createHmac, timingSafeEqual } from 'node:crypto'
 import type { SQL } from 'bun'
 import type { PortalStep, BrowserTaskKind } from './browserVault'
+import { assertPublicHttpsUrl, type HostResolver } from './browserNetworkPolicy'
 
 export type BrowserJobRow = {
   id: string
@@ -81,10 +82,10 @@ export async function enqueueBrowserJob(
     approvalId?: string | null
     spendRequestId?: string | null
     idempotencyId?: string
+    resolveHost?: HostResolver
   },
 ): Promise<string> {
-  const target = new URL(input.url)
-  if (target.protocol !== 'https:' || target.username || target.password) throw new Error('Browser target must be a public HTTPS URL without embedded credentials.')
+  const target = await assertPublicHttpsUrl(input.url, input.resolveHost)
   const id = input.idempotencyId || randomUUID()
   await sql`
     INSERT INTO hire_browser_jobs (id, user_id, persona, phone_e164, kind, url, steps, goal, status, approval_id, spend_request_id)
@@ -213,15 +214,21 @@ export async function waitForBrowserHandoff(sql: SQL, id: string, timeoutMs = 10
   return 'timeout'
 }
 
-const SESSION_VIEW_SECRET = process.env.SESSION_SECRET || process.env.HIREALPHA_VAULT_KEY || 'alpha-computer-view-secret'
+const SESSION_VIEW_SECRET = (() => {
+  const secret = process.env.HIREALPHA_SESSION_VIEW_SECRET?.trim()
+  if (secret && secret.length >= 32) return secret
+  if (process.env.NODE_ENV === 'production') throw new Error('HIREALPHA_SESSION_VIEW_SECRET must be at least 32 characters in production.')
+  return randomBytes(32).toString('base64url')
+})()
 
 /**
  * Creates a cryptographically signed view token for a browser job session.
  * Used for 1-tap links in iMessage so the initiating user can view their computer
  * session immediately without a separate login barrier.
  */
-export function generateSessionViewToken(jobId: string, userId: string, ttlSeconds = 86400 * 7): string {
-  const expires = Math.floor(Date.now() / 1000) + ttlSeconds
+export function generateSessionViewToken(jobId: string, userId: string, ttlSeconds = 600): string {
+  const boundedTtl = Math.max(30, Math.min(600, Math.floor(ttlSeconds)))
+  const expires = Math.floor(Date.now() / 1000) + boundedTtl
   const sig = createHmac('sha256', SESSION_VIEW_SECRET).update(`${jobId}:${userId}:${expires}`).digest('hex')
   return `${expires}.${sig}`
 }
@@ -236,5 +243,7 @@ export function verifySessionViewToken(jobId: string, userId: string, token: str
   const expires = Number(expStr)
   if (!Number.isFinite(expires) || Math.floor(Date.now() / 1000) > expires) return false
   const expected = createHmac('sha256', SESSION_VIEW_SECRET).update(`${jobId}:${userId}:${expires}`).digest('hex')
-  return sig === expected
+  const actualBytes = Buffer.from(sig)
+  const expectedBytes = Buffer.from(expected)
+  return actualBytes.length === expectedBytes.length && timingSafeEqual(actualBytes, expectedBytes)
 }

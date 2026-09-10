@@ -17,6 +17,7 @@ COPY deploy/browserSession.ts ./browserSession.ts
 COPY deploy/browserRunner.ts ./browserRunner.ts
 COPY deploy/browserVault.ts ./browserVault.ts
 COPY deploy/browserJobs.ts ./browserJobs.ts
+COPY deploy/browserNetworkPolicy.ts ./browserNetworkPolicy.ts
 COPY deploy/agentDriver.ts ./agentDriver.ts
 COPY deploy/vaultCrypto.ts ./vaultCrypto.ts
 COPY deploy/linkWallet.ts ./linkWallet.ts
@@ -27,12 +28,16 @@ RUN chmod +x ./browserWorkerEntry.sh
 
 # Headless Chromium (playwright-matched build + system libraries).
 RUN bunx playwright install --with-deps chromium
+RUN groupadd --system hirealpha && useradd --system --gid hirealpha --home-dir /tmp/hirealpha hirealpha \
+  && mkdir -p /tmp/hirealpha && chown -R hirealpha:hirealpha /tmp/hirealpha
 
 ENV WORKER_HEALTH_PORT=3000
 ENV DISPLAY=:99
 ENV BROWSER_HEADFUL=1
+ENV NODE_ENV=production
 EXPOSE 3000 6080
 HEALTHCHECK --interval=15s --timeout=5s --start-period=30s --retries=3 \
   CMD curl -fsS http://127.0.0.1:3000/healthz || exit 1
 # Only health is served over HTTP; jobs come from the approved Postgres queue.
+USER hirealpha
 CMD ["./browserWorkerEntry.sh"]

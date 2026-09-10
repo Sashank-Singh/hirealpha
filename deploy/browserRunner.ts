@@ -10,7 +10,8 @@
  * password comes pre-decrypted from the vault and is gone when this returns.
  */
 import type { Browser, BrowserType, Page } from 'playwright'
-import type { PortalTask, PortalRun, PortalStep } from './browserVault'
+import type { PortalTask, PortalRun } from './browserVault'
+import { installBrowserNetworkPolicy } from './browserNetworkPolicy'
 
 const TIMEOUT_MS = 25_000
 
@@ -85,6 +86,7 @@ export async function runPortalTask(task: PortalTask): Promise<PortalRun> {
     try {
       const page = await context.newPage()
       try {
+        await installBrowserNetworkPolicy(page)
         if (task.kind === 'task' && task.steps?.length) {
           await runSteps(page, task)
         } else {
