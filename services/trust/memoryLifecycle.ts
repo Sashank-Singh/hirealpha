@@ -1,0 +1,122 @@
+import { randomUUID } from 'node:crypto'
+import type { SQL } from 'bun'
+import { decryptUserPayload, encryptUserPayload, loadOrCreateUserKey, type UserKeyBroker } from './userKeyBroker'
+
+export const MEMORY_CATEGORIES = ['identity', 'preference', 'relationship', 'work', 'health', 'financial', 'other'] as const
+export type MemoryCategory = (typeof MEMORY_CATEGORIES)[number]
+
+const MAX_RETENTION_DAYS: Record<MemoryCategory, number> = {
+  identity: 365, preference: 365, relationship: 365, work: 180,
+  health: 30, financial: 30, other: 90,
+}
+
+function categoryOf(value: string): MemoryCategory {
+  if (!(MEMORY_CATEGORIES as readonly string[]).includes(value)) throw new Error('Memory category is invalid.')
+  return value as MemoryCategory
+}
+
+function cleanPurpose(value: string): string {
+  const purpose = value.trim()
+  if (purpose.length < 3 || purpose.length > 300) throw new Error('Memory purpose is invalid.')
+  return purpose
+}
+
+export async function grantMemoryConsent(
+  sql: SQL,
+  input: { userId: string; category: string; purpose: string; expiresAt?: Date | null },
+): Promise<string> {
+  const id = randomUUID()
+  const category = categoryOf(input.category)
+  const purpose = cleanPurpose(input.purpose)
+  await sql`
+    INSERT INTO consent_records (id, user_id, resource_type, category, purpose, status, expires_at)
+    VALUES (${id}, ${input.userId}, 'memory', ${category}, ${purpose}, 'granted', ${input.expiresAt ?? null})
+  `
+  return id
+}
+
+export async function revokeMemoryConsent(sql: SQL, input: { userId: string; consentId: string }): Promise<boolean> {
+  const rows = (await sql`
+    UPDATE consent_records SET status = 'revoked', revoked_at = now()
+    WHERE id = ${input.consentId} AND user_id = ${input.userId} AND resource_type = 'memory' AND status = 'granted'
+    RETURNING id
+  `) as Array<{ id: string }>
+  return rows.length === 1
+}
+
+export async function storeConsentedMemory(
+  sql: SQL,
+  broker: UserKeyBroker,
+  input: { userId: string; category: string; purpose: string; content: string; retentionDays: number; source?: string },
+): Promise<string> {
+  const category = categoryOf(input.category)
+  const purpose = cleanPurpose(input.purpose)
+  const content = input.content.trim()
+  if (!content || content.length > 20_000) throw new Error('Memory content is invalid.')
+  const retentionDays = Math.floor(input.retentionDays)
+  if (retentionDays < 1 || retentionDays > MAX_RETENTION_DAYS[category]) throw new Error(`Retention exceeds the ${category} category limit.`)
+  const consent = (await sql`
+    SELECT id FROM consent_records
+    WHERE user_id = ${input.userId} AND resource_type = 'memory' AND category = ${category}
+      AND purpose = ${purpose} AND status = 'granted' AND (expires_at IS NULL OR expires_at > now())
+    ORDER BY granted_at DESC LIMIT 1
+  `) as Array<{ id: string }>
+  if (!consent[0]) throw new Error('Active consent is required for this memory category and purpose.')
+
+  const id = randomUUID()
+  const key = await loadOrCreateUserKey(sql, broker, input.userId)
+  try {
+    const ciphertext = encryptUserPayload(content, key, { userId: input.userId, recordId: id, scope: `memory:${category}` })
+    await sql`
+      INSERT INTO memory_records (id, user_id, category, purpose, ciphertext, source, consent_id, retention_days, expires_at)
+      VALUES (${id}, ${input.userId}, ${category}, ${purpose}, ${ciphertext}, ${input.source?.slice(0, 200) ?? null},
+        ${consent[0].id}, ${retentionDays}, now() + (${retentionDays} * interval '1 day'))
+    `
+    return id
+  } finally {
+    key.fill(0)
+  }
+}
+
+export async function exportUserMemories(sql: SQL, broker: UserKeyBroker, userId: string): Promise<Array<Record<string, unknown>>> {
+  const rows = (await sql`
+    SELECT id, category, purpose, ciphertext, source, created_at, expires_at
+    FROM memory_records WHERE user_id = ${userId} AND deleted_at IS NULL AND expires_at > now()
+    ORDER BY created_at ASC
+  `) as Array<{ id: string; category: string; purpose: string; ciphertext: string; source: string | null; created_at: Date; expires_at: Date }>
+  if (!rows.length) return []
+  const key = await loadOrCreateUserKey(sql, broker, userId)
+  try {
+    return rows.flatMap((row) => {
+      const content = decryptUserPayload(row.ciphertext, key, { userId, recordId: row.id, scope: `memory:${row.category}` })
+      return content === null ? [] : [{ id: row.id, category: row.category, purpose: row.purpose, content, source: row.source, created_at: row.created_at, expires_at: row.expires_at }]
+    })
+  } finally {
+    key.fill(0)
+  }
+}
+
+export async function deleteUserMemories(
+  sql: SQL,
+  input: { userId: string; category?: string; reason: 'user_request' | 'retention_expired' | 'account_deletion' },
+): Promise<number> {
+  const category = input.category ? categoryOf(input.category) : null
+  const rows = (await sql`
+    UPDATE memory_records SET ciphertext = NULL, deleted_at = now(), deletion_reason = ${input.reason}
+    WHERE user_id = ${input.userId} AND deleted_at IS NULL ${category ? sql`AND category = ${category}` : sql``}
+    RETURNING id
+  `) as Array<{ id: string }>
+  return rows.length
+}
+
+export async function sweepExpiredMemories(sql: SQL, limit = 1000): Promise<number> {
+  const rows = (await sql`
+    WITH expired AS (
+      SELECT id FROM memory_records WHERE deleted_at IS NULL AND expires_at <= now()
+      ORDER BY expires_at LIMIT ${Math.max(1, Math.min(5000, Math.floor(limit)))} FOR UPDATE SKIP LOCKED
+    )
+    UPDATE memory_records m SET ciphertext = NULL, deleted_at = now(), deletion_reason = 'retention_expired'
+    FROM expired WHERE m.id = expired.id RETURNING m.id
+  `) as Array<{ id: string }>
+  return rows.length
+}
