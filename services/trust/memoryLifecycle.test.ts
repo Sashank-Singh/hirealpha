@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import { deleteUserMemories, storeConsentedMemory, type MemoryCategory } from './memoryLifecycle'
+import { deleteUserMemories, grantMemoryConsent, purgeAccountTrustData, storeConsentedMemory, type MemoryCategory } from './memoryLifecycle'
 import type { UserKeyBroker } from './userKeyBroker'
 
 function fakeSql(consent = true) {
@@ -54,5 +54,47 @@ describe('categorized memory lifecycle', () => {
     expect(update.text).toContain('ciphertext = NULL')
     expect(update.text).toContain('deleted_at = now()')
     expect(update.values).toContain('user-1')
+  })
+
+  it('records consent version and source with every grant', async () => {
+    const { sql, queries } = fakeSql()
+    await grantMemoryConsent(sql, {
+      userId: 'user-1', category: 'preference', purpose: 'Personalize suggestions',
+      consentVersion: 3, source: 'trust-center',
+    })
+    const insert = queries.find((query) => query.text.includes('INSERT INTO consent_records'))!
+    expect(insert.text).toContain('consent_version')
+    expect(insert.values).toContain(3)
+    expect(insert.values).toContain('trust-center')
+  })
+
+  it('purges every trust-adjacent store for account deletion', async () => {
+    const queries: string[] = []
+    const sql = ((strings: TemplateStringsArray) => {
+      const text = strings.join('?')
+      queries.push(text)
+      if (text.includes('DELETE FROM memory_records')) return Promise.resolve([{ id: 'm-1' }])
+      if (text.includes('DELETE FROM hire_memories')) return Promise.resolve([{ persona: 'friend' }])
+      if (text.includes('DELETE FROM consent_records')) return Promise.resolve([{ id: 'c-1' }])
+      if (text.includes('DELETE FROM vault_items_v2')) return Promise.resolve([{ id: 'v-1' }])
+      if (text.includes('UPDATE capability_grants')) return Promise.resolve([{ id: 'g-1' }])
+      if (text.includes('UPDATE user_wrapped_keys')) return Promise.resolve([{ user_id: 'user-1' }])
+      return Promise.resolve([])
+    }) as never
+    const deleted = await purgeAccountTrustData(sql, 'user-1')
+    expect(deleted).toEqual({
+      memory_records: 1, hire_memories: 1, consent_records: 1,
+      vault_items_v2: 1, capability_grants_revoked: 1, user_keys_destroyed: 1,
+    })
+    const joined = queries.join('\n')
+    for (const table of ['memory_records', 'hire_memories', 'consent_records', 'vault_items_v2', 'capability_grants', 'user_wrapped_keys']) {
+      expect(joined).toContain(table)
+    }
+    // Every purge statement is scoped to the one account.
+    for (const statement of queries) {
+      if (statement.includes('DELETE FROM') || statement.includes('UPDATE capability_grants') || statement.includes('UPDATE user_wrapped_keys')) {
+        expect(statement).toContain('user_id = ?')
+      }
+    }
   })
 })

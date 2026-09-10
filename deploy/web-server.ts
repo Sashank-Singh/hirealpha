@@ -650,6 +650,12 @@ if (sql) {
   setInterval(() => expireCapabilityGrants(sql!).catch((e) => console.error('[trust] grant expiry sweep failed', e)), 5 * 60 * 1000)
   expireCapabilityGrants(sql).catch((e) => console.error('[trust] initial grant expiry sweep failed', e))
 
+  // Memory retention: consented memories past their per-category retention
+  // window are crypto-shredded (ciphertext nulled, deletion evidence kept).
+  const { sweepExpiredMemories } = await import('../services/trust/memoryLifecycle')
+  setInterval(() => sweepExpiredMemories(sql!).catch((e) => console.error('[trust] memory retention sweep failed', e)), 60 * 60 * 1000)
+  sweepExpiredMemories(sql).catch((e) => console.error('[trust] initial memory retention sweep failed', e))
+
   // Demo workspace: opt-in via DEMO_MODE=1. Seeds one fixed fake account and
   // prints its direct URLs (no public button anywhere). Never runs when the
   // flag is unset, so production keeps zero demo rows.

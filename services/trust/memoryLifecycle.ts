@@ -23,14 +23,17 @@ function cleanPurpose(value: string): string {
 
 export async function grantMemoryConsent(
   sql: SQL,
-  input: { userId: string; category: string; purpose: string; expiresAt?: Date | null },
+  input: { userId: string; category: string; purpose: string; expiresAt?: Date | null; consentVersion?: number; source?: string },
 ): Promise<string> {
   const id = randomUUID()
   const category = categoryOf(input.category)
   const purpose = cleanPurpose(input.purpose)
+  const consentVersion = Math.floor(input.consentVersion ?? 1)
+  if (consentVersion < 1 || consentVersion > 1_000_000) throw new Error('Consent version is invalid.')
   await sql`
-    INSERT INTO consent_records (id, user_id, resource_type, category, purpose, status, expires_at)
-    VALUES (${id}, ${input.userId}, 'memory', ${category}, ${purpose}, 'granted', ${input.expiresAt ?? null})
+    INSERT INTO consent_records (id, user_id, resource_type, category, purpose, status, expires_at, consent_version, source)
+    VALUES (${id}, ${input.userId}, 'memory', ${category}, ${purpose}, 'granted', ${input.expiresAt ?? null},
+      ${consentVersion}, ${input.source?.slice(0, 200) ?? null})
   `
   return id
 }
@@ -119,4 +122,41 @@ export async function sweepExpiredMemories(sql: SQL, limit = 1000): Promise<numb
     FROM expired WHERE m.id = expired.id RETURNING m.id
   `) as Array<{ id: string }>
   return rows.length
+}
+
+/** Account-deletion propagation inside the trust layer: memory ciphertext and
+ * metadata, consent records, the per-user data key, and every outstanding
+ * capability are destroyed. The hire_memories bot store and the Link wallet
+ * row are included so no personal data survives in any trust-adjacent table.
+ * Deletion evidence stays in audit_events, which has no FK on this path. */
+export async function purgeAccountTrustData(sql: SQL, userId: string): Promise<Record<string, number>> {
+  const memories = (await sql`
+    DELETE FROM memory_records WHERE user_id = ${userId} RETURNING id
+  `) as Array<{ id: string }>
+  const botMemories = (await sql`
+    DELETE FROM hire_memories WHERE user_id = ${userId} RETURNING persona
+  `) as Array<{ persona: string }>
+  const consents = (await sql`
+    DELETE FROM consent_records WHERE user_id = ${userId} RETURNING id
+  `) as Array<{ id: string }>
+  const vaultItems = (await sql`
+    DELETE FROM vault_items_v2 WHERE user_id = ${userId} RETURNING id
+  `) as Array<{ id: string }>
+  const grants = (await sql`
+    UPDATE capability_grants SET status = 'revoked', revoked_at = now(), finalized_at = now()
+    WHERE user_id = ${userId} AND status NOT IN ('revoked', 'expired', 'denied', 'consumed')
+    RETURNING id
+  `) as Array<{ id: string }>
+  const keys = (await sql`
+    UPDATE user_wrapped_keys SET wrapped_dek = NULL, destroyed_at = now()
+    WHERE user_id = ${userId} AND destroyed_at IS NULL RETURNING user_id
+  `) as Array<{ user_id: string }>
+  return {
+    memory_records: memories.length,
+    hire_memories: botMemories.length,
+    consent_records: consents.length,
+    vault_items_v2: vaultItems.length,
+    capability_grants_revoked: grants.length,
+    user_keys_destroyed: keys.length,
+  }
 }

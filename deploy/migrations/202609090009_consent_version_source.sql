@@ -1,0 +1,2 @@
+ALTER TABLE consent_records ADD COLUMN IF NOT EXISTS consent_version INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE consent_records ADD COLUMN IF NOT EXISTS source TEXT;

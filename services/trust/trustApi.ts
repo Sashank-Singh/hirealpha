@@ -9,6 +9,7 @@ import {
 } from './memoryLifecycle'
 import type { UserKeyBroker } from './userKeyBroker'
 import { listVaultItems, revokeVaultItem, saveVaultItem } from './vaultV2'
+import { purgeAccountTrustData } from './memoryLifecycle'
 
 type TrustApiDeps = {
   resolveUser: (sql: SQL, request: Request) => Promise<{ id: string } | null>
@@ -67,11 +68,13 @@ export async function handleTrustApi(request: Request, sql: SQL, deps: TrustApiD
   }
 
   if (url.pathname === '/api/trust/memory/consent' && request.method === 'POST') {
-    const body = (await request.json().catch(() => ({}))) as { category?: string; purpose?: string; expiresAt?: string }
+    const body = (await request.json().catch(() => ({}))) as { category?: string; purpose?: string; expiresAt?: string; consentVersion?: number; source?: string }
     try {
       const id = await grantMemoryConsent(sql, {
         userId: user.id, category: body.category ?? '', purpose: body.purpose ?? '',
         expiresAt: body.expiresAt ? new Date(body.expiresAt) : null,
+        consentVersion: Number(body.consentVersion) || 1,
+        source: body.source,
       })
       await appendAuditEvent(sql, {
         userId: user.id, eventType: 'memory.consent_granted', resourceType: 'memory', outcome: 'granted',
@@ -155,6 +158,17 @@ export async function handleTrustApi(request: Request, sql: SQL, deps: TrustApiD
       outcome: 'revoked', safeMetadata: {},
     })
     return json({ ok: true })
+  }
+
+  if (url.pathname === '/api/trust/account' && request.method === 'DELETE') {
+    // Irreversible trust-data purge for account deletion: memory + bot memory,
+    // consents, vault items, outstanding capabilities, and the user data key.
+    const deleted = await purgeAccountTrustData(sql, user.id)
+    await appendAuditEvent(sql, {
+      userId: user.id, eventType: 'account.trust_data_purged', resourceType: null,
+      outcome: 'completed', safeMetadata: {},
+    })
+    return json({ ok: true, deleted })
   }
 
   return json({ error: 'Not found.' }, 404)
