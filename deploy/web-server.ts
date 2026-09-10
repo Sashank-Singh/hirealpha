@@ -644,6 +644,12 @@ if (sql) {
   setInterval(() => armCalendarDefense(sql!).catch((e) => console.error('[loops] calendar defense arm failed', e)), 24 * 60 * 60 * 1000)
   armCalendarDefense(sql).catch((e) => console.error('[loops] initial calendar defense arm failed', e))
 
+  // Capability-grant expiry: pending/approved grants past expires_at flip to
+  // 'expired' so a stale approval can never be consumed later. Every 5 min.
+  const { expireCapabilityGrants } = await import('../services/trust/capabilityGrants')
+  setInterval(() => expireCapabilityGrants(sql!).catch((e) => console.error('[trust] grant expiry sweep failed', e)), 5 * 60 * 1000)
+  expireCapabilityGrants(sql).catch((e) => console.error('[trust] initial grant expiry sweep failed', e))
+
   // Demo workspace: opt-in via DEMO_MODE=1. Seeds one fixed fake account and
   // prints its direct URLs (no public button anywhere). Never runs when the
   // flag is unset, so production keeps zero demo rows.

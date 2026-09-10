@@ -5,6 +5,7 @@ import {
   canonicalizeCapabilityRequest,
   capabilityRequestDigest,
   createCapabilityGrant,
+  expireCapabilityGrants,
   finalizeCapabilityConsumption,
   isTerminalCapabilityStatus,
   normalizeExactOrigin,
@@ -156,5 +157,23 @@ describe('capability lifecycle', () => {
     })).toBe('needs_reconciliation')
     expect(queries[0]!.values).toContain('needs_reconciliation')
     expect(queries[0]!.text).toContain("status = 'consuming'")
+  })
+
+  it('expires stale grants in bounded SKIP LOCKED batches', async () => {
+    const rows = [{ id: 'grant-1' }, { id: 'grant-2' }]
+    const { sql, queries } = fakeSql(() => rows)
+    expect(await expireCapabilityGrants(sql)).toBe(2)
+    const query = queries[0]!
+    expect(query.text).toContain("status IN ('proposed', 'pending', 'approved')")
+    expect(query.text).toContain('expires_at <= now()')
+    expect(query.text).toContain('SKIP LOCKED')
+    expect(query.text).toContain('LIMIT ?')
+    expect(query.values).toContain(500)
+  })
+
+  it('caps the expiry sweep to a sane batch size', async () => {
+    const { sql, queries } = fakeSql(() => [])
+    await expireCapabilityGrants(sql, 100_000)
+    expect(queries[0]!.values).toContain(5000)
   })
 })
