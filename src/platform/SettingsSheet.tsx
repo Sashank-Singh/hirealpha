@@ -1503,9 +1503,9 @@ export function SettingsSheet({ view = 'workspace', embedded = false }: { view?:
             </header>
             {trustError && <p className="set-err">{trustError}</p>}
             {trust === null && <p className="ss-empty">Loading trust history…</p>}
-            {trust && trust.capabilities.filter((capability) => capability.status === 'pending').length > 0 && (
+            {trust && trust.capabilities.filter((capability) => capability.status === 'pending' && capability.resource_type !== 'payment').length > 0 && (
               <div className="ss-list">
-                {trust.capabilities.filter((capability) => capability.status === 'pending').map((capability) => (
+                {trust.capabilities.filter((capability) => capability.status === 'pending' && capability.resource_type !== 'payment').map((capability) => (
                   <div className="ss-row" key={capability.id}>
                     <div className="ss-cell">
                       <div className="ss-body">
@@ -1531,7 +1531,7 @@ export function SettingsSheet({ view = 'workspace', embedded = false }: { view?:
                 ))}
               </div>
             )}
-            {trust && trust.capabilities.filter((capability) => capability.status === 'pending').length === 0 && (
+            {trust && trust.capabilities.filter((capability) => capability.status === 'pending' && capability.resource_type !== 'payment').length === 0 && (
               <p className="ss-empty">No requests need your approval.</p>
             )}
             {trust && trust.audit.length > 0 && (

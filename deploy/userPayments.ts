@@ -27,6 +27,11 @@ import {
   retrieveLinkSpend,
   startLinkConnection,
 } from './linkWallet'
+import {
+  createCapabilityGrant,
+  decideCapabilityGrant,
+  requestCapabilityRevocation,
+} from '../services/trust/capabilityGrants'
 
 /* ------------------------------- schema --------------------------------- */
 
@@ -189,6 +194,22 @@ export async function createLinkBackedSpendRequest(
   const merchant = merchantUrl.hostname.toLowerCase().replace(/^www\./, '')
   const local = await createSpendRequest(sql, userId, { ...input, merchant })
   if (!('requestId' in local)) return local
+  const capability = await createCapabilityGrant(sql, {
+    userId,
+    taskId: local.requestId,
+    resourceType: 'payment',
+    resourceId: local.requestId,
+    action: 'issue_one_time_payment_credential',
+    exactOrigin: merchantUrl.origin,
+    amountCents: input.amountCents,
+    currency: 'USD',
+    merchant,
+    recipient: merchant,
+    cart: [{ description: input.purpose, quantity: 1, unitAmountCents: input.amountCents }],
+    requestingAgent: 'alpha',
+    purpose: input.purpose,
+    expiresAt: new Date(Date.now() + 10 * 60 * 1000),
+  })
   try {
     const spend = await createLinkSpendRequest(sql, userId, { ...input, merchant, merchantUrl: merchantUrl.href, requestId: local.requestId })
     if (!spend.id || !spend.approvalUrl) throw new Error('Link did not return an approval link.')
@@ -197,12 +218,15 @@ export async function createLinkBackedSpendRequest(
     await sql`
       UPDATE hire_spend_approvals
       SET link_spend_request_id = ${spend.id}, link_approval_url = ${approvalUrl.href},
-        merchant_url = ${merchantUrl.href}, finalization_status = 'awaiting_link', last_error = NULL
+        merchant_url = ${merchantUrl.href}, capability_grant_id = ${capability.id},
+        finalization_status = 'awaiting_link', last_error = NULL
       WHERE id = ${local.requestId} AND user_id = ${userId}
     `
+    await sql`UPDATE capability_grants SET provider_reference = ${spend.id} WHERE id = ${capability.id}`
     return { requestId: local.requestId, approvalUrl: approvalUrl.href }
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Could not create Link approval.'
+    await requestCapabilityRevocation(sql, { id: capability.id, userId, taskId: local.requestId })
     await sql`UPDATE hire_spend_approvals SET status = 'failed', last_error = ${message.slice(0, 300)} WHERE id = ${local.requestId} AND user_id = ${userId}`
     return { error: message }
   }
@@ -442,7 +466,7 @@ export async function queuePaidPurchaseFinalization(
 export async function promoteApprovedLinkPurchases(sql: SQL, limit = 3): Promise<number> {
   const rows = (await sql`
     SELECT a.id, a.user_id, a.amount_cents, a.merchant, a.merchant_url, a.purpose,
-      a.link_spend_request_id, a.finalization_job_id, u.phone_e164
+      a.link_spend_request_id, a.finalization_job_id, a.capability_grant_id, u.phone_e164
     FROM hire_spend_approvals a
     JOIN hire_users u ON u.id = a.user_id
     WHERE a.link_spend_request_id IS NOT NULL AND a.status = 'pending'
@@ -450,7 +474,8 @@ export async function promoteApprovedLinkPurchases(sql: SQL, limit = 3): Promise
     ORDER BY a.created_at ASC LIMIT ${limit}
   `) as Array<{
     id: string; user_id: string; amount_cents: number; merchant: string; merchant_url: string;
-    purpose: string; link_spend_request_id: string; finalization_job_id: string | null; phone_e164: string | null
+    purpose: string; link_spend_request_id: string; finalization_job_id: string | null;
+    capability_grant_id: string | null; phone_e164: string | null
   }>
   let promoted = 0
   for (const row of rows) {
@@ -458,10 +483,24 @@ export async function promoteApprovedLinkPurchases(sql: SQL, limit = 3): Promise
     try { remote = await retrieveLinkSpend(sql, row.user_id, row.link_spend_request_id) }
     catch { continue }
     if (['denied', 'expired', 'failed', 'canceled'].includes(remote.status)) {
+      if (row.capability_grant_id) {
+        const grants = (await sql`SELECT task_id, encode(request_digest, 'hex') AS digest FROM capability_grants WHERE id = ${row.capability_grant_id} LIMIT 1`) as Array<{ task_id: string; digest: string }>
+        if (grants[0]) await decideCapabilityGrant(sql, {
+          id: row.capability_grant_id, userId: row.user_id, taskId: grants[0].task_id,
+          digest: grants[0].digest, decision: 'denied',
+        })
+      }
       await sql`UPDATE hire_spend_approvals SET status = ${remote.status}, decided_at = now(), finalization_status = 'cancelled' WHERE id = ${row.id} AND status = 'pending'`
       continue
     }
     if (!['approved', 'succeeded'].includes(remote.status)) continue
+    if (row.capability_grant_id) {
+      const grants = (await sql`SELECT task_id, encode(request_digest, 'hex') AS digest FROM capability_grants WHERE id = ${row.capability_grant_id} LIMIT 1`) as Array<{ task_id: string; digest: string }>
+      if (!grants[0] || !await decideCapabilityGrant(sql, {
+        id: row.capability_grant_id, userId: row.user_id, taskId: grants[0].task_id,
+        digest: grants[0].digest, decision: 'approved',
+      })) continue
+    }
 
     // A discovery browser may be paused on the checkout page. It was launched
     // before the Link credential existed, so close that credential-less run;
