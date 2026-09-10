@@ -55,6 +55,7 @@ import {
 import { getLinkStatus } from './linkWallet'
 import { ensureBrowserJobsSchema } from './browserJobs'
 import { openBaoBrokerFromEnv } from '../services/trust/userKeyBroker'
+import { handleTrustApi } from '../services/trust/trustApi'
 import { parseChatExport, scanSubscriptions } from '../spectrum/shared/smartFeatures'
 import {
   isValidTimeZone,
@@ -10633,6 +10634,20 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
       )
     }
   }
+
+  const trustRes = await handleTrustApi(req, sql, {
+    resolveUser: async (db, r) => {
+      const q = new URL(r.url).searchParams
+      const { user } = await resolveAuthedUser(db, {
+        token: q.get('t') || undefined,
+        session: q.get('s') || undefined,
+        email: q.get('email') || undefined,
+      })
+      return user ? { id: user.id } : null
+    },
+    keyBroker: openBaoBrokerFromEnv(),
+  })
+  if (trustRes) return trustRes
 
   // Credential vault, browser approval gates, and the internal browser task
   // endpoint. Returns null for paths it does not own so the chain below keeps
