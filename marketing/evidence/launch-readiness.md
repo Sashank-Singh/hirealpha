@@ -22,10 +22,10 @@ N/A = not applicable to this product.
 | 8 | Unified approvals + audit from production UI | PARTIAL | Trust & Audit + Memory views, revoke route, nav views shipped (53d27c8); needs deploy to verify against prod |
 | 9 | Sidebar/navigation tests pass consistently | PASS (offline) / BLOCKED (staging) | Stale-tab crash fixed + fallback; Playwright specs in `e2e/` skip without staging env by design |
 | 10 | Security/load/provider tests pass with evidence | BLOCKED | `bun run scripts/certify.ts` — 1 PASS, 6 BLOCKED as of 2026-09-10: `marketing/evidence/certification/2026-09-10/summary.md` |
-| 11 | Operational control documents have owners | PARTIAL | `ops/` package authored 2026-09-10; owners are roles (several vacant); no operating evidence yet |
-| 12 | Staging deployment + canary pass | BLOCKED | No staging environment exists yet; requires user-approved deploy |
+| 11 | Operational control documents have owners | PARTIAL | `ops/` package complete (11 docs incl. staging plan); owners are roles (several vacant); 6 real discrepancies recorded in ops/README.md; no operating evidence yet |
+| 12 | Staging deployment + canary pass | BLOCKED | Plan ready: `ops/staging-plan.md`; requires user-approved Coolify staging deploy |
 | 13 | Production rollback + monitoring ready | PARTIAL | Coolify redeploy = rollback path; /readyz exists; no dashboards/alerts — PLANNED |
-| 14 | No critical/high security findings remain | PARTIAL | Known-open: local browser fallback exists behind explicit gate until E2B lands; audit_events user-deletion cascade reviewed (tombstone via purge path, full account deletion still needs FK decision); pen test never scheduled |
+| 14 | No critical/high security findings remain | PARTIAL | Known-open: local browser fallback exists behind explicit gate until E2B lands; no hire_users deletion path (ops discrepancy #2 — DSAR promise conflict); plaintext hire_* log tables; verifyAuditChain never called; pen test unscheduled |
 | 15 | Launch report lists items needing legal/auditor sign-off | PARTIAL | `ops/` docs carry ⚠ COUNSEL / ⚠ AUDITOR tags; DPA status unknown for most vendors |
 
 ## Explicit non-goals (not ready, not claimed)
