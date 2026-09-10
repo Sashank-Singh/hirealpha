@@ -78,6 +78,7 @@ export type CapabilityGrantRow = {
   status: CapabilityStatus
   expires_at: Date
   revocation_requested_at: Date | null
+  provider_reference: string | null
 }
 
 const TERMINAL_STATUSES = new Set<CapabilityStatus>(['consumed', 'denied', 'revoked', 'expired'])
@@ -264,7 +265,7 @@ export async function beginCapabilityConsumption(
       AND status = 'approved' AND expires_at > now() AND revocation_requested_at IS NULL
     RETURNING id, user_id, task_id, resource_type, resource_id, action, exact_origin,
       amount_cents, currency, merchant, recipient, cart, requesting_agent, purpose,
-      request_digest, status, expires_at, revocation_requested_at
+      request_digest, status, expires_at, revocation_requested_at, provider_reference
   `) as CapabilityGrantRow[]
   return rows[0] ?? null
 }

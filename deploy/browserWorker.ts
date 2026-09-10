@@ -25,6 +25,11 @@ import {
   waitForBrowserHandoff,
   type BrowserJobRow,
 } from './browserJobs'
+import {
+  beginCapabilityConsumption,
+  decideCapabilityGrant,
+  finalizeCapabilityConsumption,
+} from '../services/trust/capabilityGrants'
 
 const DATABASE_URL = process.env.DATABASE_URL || ''
 // One noVNC display must never multiplex multiple customer browsers. Scale
@@ -43,6 +48,54 @@ function hostOf(url: string): string {
 type JobRow = BrowserJobRow
 
 type JobOutcome = { ok: true; result: string } | { ok: false; error: string }
+
+async function retrieveCapabilityBoundLinkCard(
+  sql: SQL,
+  input: { userId: string; requestId: string; linkSpendId: string },
+): Promise<{ card: LinkCardCredential; amountCents: number }> {
+  const rows = (await sql`
+    SELECT a.amount_cents, a.merchant_url, a.capability_grant_id,
+      g.task_id, encode(g.request_digest, 'hex') AS digest
+    FROM hire_spend_approvals a
+    JOIN capability_grants g ON g.id = a.capability_grant_id
+    WHERE a.id = ${input.requestId} AND a.user_id = ${input.userId}
+      AND a.link_spend_request_id = ${input.linkSpendId} LIMIT 1
+  `) as Array<{ amount_cents: number; merchant_url: string; capability_grant_id: string; task_id: string; digest: string }>
+  const row = rows[0]
+  if (!row) throw new Error('Payment capability could not be found.')
+  await decideCapabilityGrant(sql, {
+    id: row.capability_grant_id, userId: input.userId, taskId: row.task_id,
+    digest: row.digest, decision: 'approved',
+  })
+  const grant = await beginCapabilityConsumption(sql, {
+    id: row.capability_grant_id, userId: input.userId, taskId: row.task_id, digest: row.digest,
+  })
+  let merchantOrigin: string
+  try { merchantOrigin = new URL(row.merchant_url).origin } catch { merchantOrigin = '' }
+  if (!grant || grant.resource_type !== 'payment' || grant.resource_id !== input.requestId
+    || grant.action !== 'issue_one_time_payment_credential' || grant.exact_origin !== merchantOrigin
+    || grant.amount_cents !== row.amount_cents || grant.provider_reference !== input.linkSpendId) {
+    if (grant) await finalizeCapabilityConsumption(sql, {
+      id: row.capability_grant_id, userId: input.userId, taskId: row.task_id,
+      outcome: 'cancelled_before_side_effect',
+    })
+    throw new Error('Payment capability scope did not match the approved Link request.')
+  }
+  try {
+    const card = await retrieveLinkCard(sql, input.userId, input.linkSpendId)
+    await finalizeCapabilityConsumption(sql, {
+      id: row.capability_grant_id, userId: input.userId, taskId: row.task_id,
+      outcome: 'completed', providerReference: input.linkSpendId,
+    })
+    return { card, amountCents: row.amount_cents }
+  } catch (error) {
+    await finalizeCapabilityConsumption(sql, {
+      id: row.capability_grant_id, userId: input.userId, taskId: row.task_id,
+      outcome: 'unknown', providerReference: input.linkSpendId,
+    })
+    throw error
+  }
+}
 
 /** Purchase jobs only count as successful when the merchant response carries
  * an explicit order/confirmation reference. This prevents a model's generic
@@ -167,7 +220,9 @@ async function waitForLinkCredential(
 
     let paymentCard: LinkCardCredential
     try {
-      paymentCard = await retrieveLinkCard(sql, job.user_id, payment.linkSpendId)
+      paymentCard = (await retrieveCapabilityBoundLinkCard(sql, {
+        userId: job.user_id, requestId: payment.requestId, linkSpendId: payment.linkSpendId,
+      })).card
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Approved Link credential was unavailable.'
       await sql`
@@ -209,14 +264,19 @@ export async function runJob(sql: SQL, job: JobRow, launch = runBrowserSession):
   let paymentAmountCents: number | undefined
   if (job.spend_request_id) {
     const rows = (await sql`
-      SELECT link_spend_request_id, amount_cents FROM hire_spend_approvals
+      SELECT link_spend_request_id FROM hire_spend_approvals
       WHERE id = ${job.spend_request_id} AND user_id = ${job.user_id} LIMIT 1
-    `) as Array<{ link_spend_request_id: string | null; amount_cents: number }>
+    `) as Array<{ link_spend_request_id: string | null }>
     const linkSpendId = rows[0]?.link_spend_request_id
     if (linkSpendId) {
-      try { paymentCard = await retrieveLinkCard(sql, job.user_id, linkSpendId) }
+      try {
+        const retrieved = await retrieveCapabilityBoundLinkCard(sql, {
+          userId: job.user_id, requestId: job.spend_request_id, linkSpendId,
+        })
+        paymentCard = retrieved.card
+        paymentAmountCents = retrieved.amountCents
+      }
       catch (error) { return { ok: false, error: error instanceof Error ? error.message : 'Approved Link credential was unavailable.' } }
-      paymentAmountCents = rows[0]?.amount_cents
     }
   }
 
