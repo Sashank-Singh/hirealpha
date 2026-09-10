@@ -22,6 +22,7 @@ import { enqueueBrowserJob, generateSessionViewToken } from './browserJobs'
 import type { HostResolver } from './browserNetworkPolicy'
 import { listVaultItems, revokeVaultItem, saveVaultItem } from '../services/trust/vaultV2'
 import type { UserKeyBroker } from '../services/trust/userKeyBroker'
+import { createCapabilityGrant } from '../services/trust/capabilityGrants'
 
 /* ------------------------------- types ---------------------------------- */
 
@@ -592,6 +593,76 @@ export async function handleVaultApi(req: Request, sql: SQL, deps: VaultDeps): P
       SELECT id, persona, origin, secret_ref FROM hire_vault_entries WHERE id = ${entryId} AND user_id = ${user.id} LIMIT 1
     `) as Array<{ id: string; persona: string; origin: string; secret_ref: string | null }>
     const entry = entries[0]
+    if (!entry && deps.keyBroker) {
+      const hostedRows = (await sql`
+        SELECT id, exact_origin, label FROM vault_items_v2
+        WHERE id = ${entryId} AND user_id = ${user.id} AND revoked_at IS NULL AND ciphertext IS NOT NULL LIMIT 1
+      `) as Array<{ id: string; exact_origin: string; label: string }>
+      const hosted = hostedRows[0]
+      if (hosted) {
+        if (process.env.HIREALPHA_BROWSER_WORKER !== '1') {
+          return json({ ok: false, error: 'browser_worker_required', detail: 'Vault autofill requires the isolated browser worker.' }, 503)
+        }
+        const grants = (await sql`
+          SELECT id, task_id, encode(request_digest, 'hex') AS digest, status
+          FROM capability_grants
+          WHERE user_id = ${user.id} AND resource_type = 'credential' AND resource_id = ${hosted.id}
+            AND action = 'autofill' AND exact_origin = ${hosted.exact_origin}
+            AND status IN ('pending', 'approved') AND expires_at > now()
+          ORDER BY created_at DESC LIMIT 1
+        `) as Array<{ id: string; task_id: string; digest: string; status: string }>
+        let grant = grants[0]
+        if (!grant) {
+          const created = await createCapabilityGrant(sql, {
+            userId: user.id,
+            taskId: randomUUID(),
+            resourceType: 'credential',
+            resourceId: hosted.id,
+            action: 'autofill',
+            exactOrigin: hosted.exact_origin,
+            requestingAgent: 'alpha',
+            purpose: `Use ${hosted.label} to sign in to ${hostOfOrigin(hosted.exact_origin)}`,
+            expiresAt: new Date(Date.now() + APPROVAL_TTL_MS),
+          })
+          grant = { id: created.id, task_id: created.request.task_id, digest: created.digest, status: 'pending' }
+        }
+        if (grant.status !== 'approved') {
+          return json({
+            ok: false,
+            approvalRequired: true,
+            unifiedApproval: true,
+            requestId: grant.id,
+            origin: hosted.exact_origin,
+            error: 'approval_required',
+            message: 'Approve this exact-site autofill once in Approvals & audit, then tap Run again.',
+          }, 202)
+        }
+        const phone = (await sql`SELECT phone_e164 FROM hire_users WHERE id = ${user.id} LIMIT 1`) as unknown as Array<{ phone_e164: string | null }>
+        const jobId = await enqueueBrowserJob(sql, {
+          userId: user.id,
+          persona: user.persona,
+          phone: phone[0]?.phone_e164 ?? null,
+          kind,
+          url: hosted.exact_origin,
+          steps,
+          goal,
+          vaultItemId: hosted.id,
+          credentialCapabilityId: grant.id,
+          credentialCapabilityDigest: grant.digest,
+          credentialTaskId: grant.task_id,
+          resolveHost: deps.resolveHost,
+        })
+        const viewToken = generateSessionViewToken(jobId, user.id)
+        const appUrl = (process.env.HIREALPHA_APP_URL || new URL(req.url).origin).replace(/\/$/, '')
+        return json({
+          ok: true,
+          queued: true,
+          jobId,
+          sessionUrl: `${appUrl}/computer/${jobId}?token=${encodeURIComponent(viewToken)}`,
+          message: 'Running in a fresh isolated computer with one-time exact-site autofill.',
+        }, 202)
+      }
+    }
     if (!entry) return json({ ok: false, error: 'No saved login with that id.' }, 404)
 
     const pending = (await sql`

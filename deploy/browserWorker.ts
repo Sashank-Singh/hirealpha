@@ -30,6 +30,8 @@ import {
   decideCapabilityGrant,
   finalizeCapabilityConsumption,
 } from '../services/trust/capabilityGrants'
+import { consumeVaultCredential } from '../services/trust/vaultV2'
+import { openBaoBrokerFromEnv } from '../services/trust/userKeyBroker'
 
 const DATABASE_URL = process.env.DATABASE_URL || ''
 // One noVNC display must never multiplex multiple customer browsers. Scale
@@ -256,10 +258,28 @@ export async function runJob(sql: SQL, job: JobRow, launch = runBrowserSession):
   })()
   if (!origin || !job.url.startsWith('https:')) return { ok: false, error: 'Job URL must be https.' }
 
-  if (!job.approval_id) return { ok: false, error: 'A one-time approval is required.' }
-  const gate = await consumeBrowserApproval(sql, job.user_id, job.approval_id, origin)
-  if (gate !== 'ok') return { ok: false, error: `Approval could not be consumed: ${gate}` }
-  const creds = key ? await getVaultCredentialsForTask(sql, job.user_id, origin, key) : null
+  let creds: { username: string; password: string } | null = null
+  if (job.credential_capability_id || job.vault_item_id || job.credential_capability_digest || job.credential_task_id) {
+    if (!job.credential_capability_id || !job.vault_item_id || !job.credential_capability_digest || !job.credential_task_id) {
+      return { ok: false, error: 'Credential capability metadata is incomplete.' }
+    }
+    const broker = openBaoBrokerFromEnv()
+    if (!broker) return { ok: false, error: 'OpenBao per-user keys are not configured.' }
+    creds = await consumeVaultCredential(sql, broker, {
+      userId: job.user_id,
+      taskId: job.credential_task_id,
+      itemId: job.vault_item_id,
+      capabilityId: job.credential_capability_id,
+      digest: job.credential_capability_digest,
+      origin,
+    })
+    if (!creds) return { ok: false, error: 'Vault capability could not be consumed.' }
+  } else {
+    if (!job.approval_id) return { ok: false, error: 'A one-time approval is required.' }
+    const gate = await consumeBrowserApproval(sql, job.user_id, job.approval_id, origin)
+    if (gate !== 'ok') return { ok: false, error: `Approval could not be consumed: ${gate}` }
+    creds = key ? await getVaultCredentialsForTask(sql, job.user_id, origin, key) : null
+  }
   let paymentCard: LinkCardCredential | undefined
   let paymentAmountCents: number | undefined
   if (job.spend_request_id) {

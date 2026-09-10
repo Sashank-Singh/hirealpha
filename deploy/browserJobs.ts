@@ -27,6 +27,10 @@ export type BrowserJobRow = {
   result: string | null
   error: string | null
   approval_id: string | null
+  vault_item_id: string | null
+  credential_capability_id: string | null
+  credential_capability_digest: string | null
+  credential_task_id: string | null
   spend_request_id: string | null
   current_url: string | null
   activity: Array<{ action: string; at: string }>
@@ -57,6 +61,10 @@ export async function ensureBrowserJobsSchema(sql: SQL): Promise<void> {
     )
   `
   await sql`ALTER TABLE hire_browser_jobs ADD COLUMN IF NOT EXISTS approval_id UUID`
+  await sql`ALTER TABLE hire_browser_jobs ADD COLUMN IF NOT EXISTS vault_item_id UUID`
+  await sql`ALTER TABLE hire_browser_jobs ADD COLUMN IF NOT EXISTS credential_capability_id UUID`
+  await sql`ALTER TABLE hire_browser_jobs ADD COLUMN IF NOT EXISTS credential_capability_digest TEXT`
+  await sql`ALTER TABLE hire_browser_jobs ADD COLUMN IF NOT EXISTS credential_task_id TEXT`
   await sql`ALTER TABLE hire_browser_jobs ADD COLUMN IF NOT EXISTS spend_request_id UUID`
   await sql`ALTER TABLE hire_browser_jobs ADD COLUMN IF NOT EXISTS current_url TEXT`
   await sql`ALTER TABLE hire_browser_jobs ADD COLUMN IF NOT EXISTS activity JSONB NOT NULL DEFAULT '[]'::jsonb`
@@ -80,6 +88,10 @@ export async function enqueueBrowserJob(
     steps?: PortalStep[] | null
     goal?: string | null
     approvalId?: string | null
+    vaultItemId?: string | null
+    credentialCapabilityId?: string | null
+    credentialCapabilityDigest?: string | null
+    credentialTaskId?: string | null
     spendRequestId?: string | null
     idempotencyId?: string
     resolveHost?: HostResolver
@@ -88,9 +100,14 @@ export async function enqueueBrowserJob(
   const target = await assertPublicHttpsUrl(input.url, input.resolveHost)
   const id = input.idempotencyId || randomUUID()
   await sql`
-    INSERT INTO hire_browser_jobs (id, user_id, persona, phone_e164, kind, url, steps, goal, status, approval_id, spend_request_id)
+    INSERT INTO hire_browser_jobs (
+      id, user_id, persona, phone_e164, kind, url, steps, goal, status, approval_id,
+      vault_item_id, credential_capability_id, credential_capability_digest, credential_task_id, spend_request_id
+    )
     VALUES (${id}, ${input.userId}, ${input.persona}, ${input.phone}, ${input.kind}, ${target.href},
-      ${input.steps ? JSON.stringify(input.steps) : null}::jsonb, ${input.goal ?? null}, 'pending', ${input.approvalId ?? null}, ${input.spendRequestId ?? null})
+      ${input.steps ? JSON.stringify(input.steps) : null}::jsonb, ${input.goal ?? null}, 'pending', ${input.approvalId ?? null},
+      ${input.vaultItemId ?? null}, ${input.credentialCapabilityId ?? null}, ${input.credentialCapabilityDigest ?? null},
+      ${input.credentialTaskId ?? null}, ${input.spendRequestId ?? null})
     ON CONFLICT (id) DO NOTHING
   `
   return id
@@ -109,20 +126,38 @@ export async function claimBrowserJobs(sql: SQL, limit: number): Promise<Browser
     FROM hire_browser_approvals a
     WHERE j.approval_id = a.id AND a.status = 'denied' AND j.status = 'pending'
   `
+  await sql`
+    UPDATE hire_browser_jobs j SET status = 'failed', error = 'Capability denied or expired', finished_at = now()
+    FROM capability_grants g
+    WHERE j.credential_capability_id = g.id AND g.status IN ('denied', 'revoked', 'expired') AND j.status = 'pending'
+  `
   const rows = (await sql`
     UPDATE hire_browser_jobs SET status = 'running', attempts = attempts + 1, claimed_at = now()
     WHERE id IN (
       SELECT j.id FROM hire_browser_jobs j
-      JOIN hire_browser_approvals a ON a.id = j.approval_id AND a.user_id = j.user_id AND a.persona = j.persona
+      LEFT JOIN hire_browser_approvals a ON a.id = j.approval_id AND a.user_id = j.user_id AND a.persona = j.persona
+      LEFT JOIN capability_grants g ON g.id = j.credential_capability_id AND g.user_id = j.user_id
       WHERE j.status = 'pending' AND j.attempts < 3
-        AND a.status = 'approved' AND a.consumed_at IS NULL
-        AND a.created_at > now() - interval '10 minutes'
-        AND a.origin = substring(j.url from '^https://[^/]+')
+        AND (
+          (j.credential_capability_id IS NOT NULL
+            AND g.status = 'approved' AND g.expires_at > now()
+            AND g.task_id = j.credential_task_id
+            AND encode(g.request_digest, 'hex') = j.credential_capability_digest
+            AND g.resource_id = j.vault_item_id::text
+            AND g.action = 'autofill'
+            AND g.exact_origin = substring(j.url from '^https://[^/]+'))
+          OR
+          (j.credential_capability_id IS NULL
+            AND a.status = 'approved' AND a.consumed_at IS NULL
+            AND a.created_at > now() - interval '10 minutes'
+            AND a.origin = substring(j.url from '^https://[^/]+'))
+        )
       ORDER BY j.created_at ASC
       LIMIT ${limit}
       FOR UPDATE OF j SKIP LOCKED
     )
-    RETURNING id, user_id, persona, phone_e164, kind, url, steps, goal, status, attempts, result, error, approval_id, spend_request_id,
+    RETURNING id, user_id, persona, phone_e164, kind, url, steps, goal, status, attempts, result, error, approval_id,
+      vault_item_id, credential_capability_id, credential_capability_digest, credential_task_id, spend_request_id,
       current_url, activity, handoff_kind, handoff_message, handoff_at, handoff_resumed_at
   `) as unknown as BrowserJobRow[]
   return rows
@@ -160,7 +195,8 @@ export async function finishBrowserJob(
 
 export async function getBrowserJob(sql: SQL, id: string, userId?: string): Promise<BrowserJobRow | null> {
   const rows = (await sql`
-    SELECT id, user_id, persona, phone_e164, kind, url, steps, goal, status, attempts, result, error, approval_id, spend_request_id,
+    SELECT id, user_id, persona, phone_e164, kind, url, steps, goal, status, attempts, result, error, approval_id,
+      vault_item_id, credential_capability_id, credential_capability_digest, credential_task_id, spend_request_id,
       current_url, activity, handoff_kind, handoff_message, handoff_at, handoff_resumed_at
     FROM hire_browser_jobs WHERE id = ${id} ${userId ? sql`AND user_id = ${userId}` : sql``} LIMIT 1
   `) as unknown as BrowserJobRow[]

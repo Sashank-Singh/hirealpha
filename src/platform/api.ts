@@ -1285,6 +1285,7 @@ export type BrowserRunResult = {
   /** 202 approval gate: the server parked a pending approval for this run.
    * Show Approve/Deny for `requestId`; the user re-taps Run once approved. */
   approvalRequired?: boolean
+  unifiedApproval?: boolean
   requestId?: string
   origin?: string
   message?: string

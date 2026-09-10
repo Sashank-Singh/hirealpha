@@ -726,7 +726,16 @@ export function SettingsSheet({ view = 'workspace', embedded = false }: { view?:
         /* 202: the server parked a pending approval. Surface Approve/Deny for
          * that requestId — never auto-approve — and ask for a re-tap after. */
         const requestId = res.requestId
-        setPendingApproval((prev) => ({ ...prev, [entry.id]: requestId }))
+        if (res.unifiedApproval) {
+          setPendingApproval((prev) => {
+            const next = { ...prev }
+            delete next[entry.id]
+            return next
+          })
+          await loadTrust(email)
+        } else {
+          setPendingApproval((prev) => ({ ...prev, [entry.id]: requestId }))
+        }
         setRunNotes((prev) => ({
           ...prev,
           [entry.id]: { text: res.message || 'Alpha needs your OK before opening a private browser session.', kind: 'info' },
