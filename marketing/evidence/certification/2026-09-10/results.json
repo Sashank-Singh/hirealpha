@@ -1,0 +1,101 @@
+{
+  "generatedAt": "2026-09-10T11:56:16.272Z",
+  "failures": 0,
+  "blocked": 6,
+  "results": [
+    {
+      "suite": "unit-regression",
+      "status": "PASS",
+      "at": "2026-09-10T11:56:16.122Z",
+      "exitCode": 0,
+      "tail": "bun test v1.3.14 (0d9b296a)\n\ndeploy/browserJobs.test.ts:\n(pass) browser job queue > enqueue inserts a pending row with steps serialized [0.75ms]\n(pass) browser job queue > claim fails stale running rows and requires a fresh, scoped, unused approval [0.19ms]\n(pass) browser job queue > finish: done closes the row; failure without retry marks failed [0.20ms]\n(pass) browser job queue > finish with retry goes back to pending under the attempts cap, failed at it [0.09ms]\n(pass) browser job queue > getBrowserJob scopes to the user when userId given [0.10ms]\n(pass) browser job queue > generateSessionViewToken creates valid cryptographic token for session view [0.28ms]\n(pass) browser job queue > caps session links at ten minutes [0.03ms]\n(pass) agent action parser (the only path from JSON to the browser) > verifies the exact amount beside a real total label [1.53ms]\n(pass) agent action parser (the only path from JSON to the browser) > parses every documented action [0.32ms]\n(pass) agent action parser (the only path from JSON to the browser) > tolerates markdown fences and prose around the JSON [0.02ms]\n(pass) agent action parser (the only path from JSON to the browser) > rejects junk, non-https navigate, missing selectors, giant payloads [0.12ms]\n(pass) agent action parser (the only path from JSON to the browser) > terminal detection: done and giveup only [0.12ms]\n(pass) vision caller + parts > builds text + image parts with goal, url, and recent actions [0.07ms]\n(pass) vision caller + parts > pins an approved Link credential to the exact authorized total [0.04ms]\n(pass) vision caller + parts > makeVisionCaller posts to chat/completions and returns the message content [0.46ms]\n(pass) vision caller + parts > makeVisionCaller surfaces non-200s as errors (loop reports honestly) [0.15ms]\n\ndeploy/browserWorker.test.ts:\n(pass) requires explicit merchant confirmation evidence for purchase completion [1.62ms]\n(pass) opens a public website without invoking the login form [1.35ms]\n(pass) runs a public goal once after consuming its approval [0.75ms]\n(pass) does not launch a browser without a valid approval [0.08ms]\n\nservices/trust/trustApi.test.ts:\n(pass) unified trust API > does not own unrelated API routes [0.65ms]\n(pass) unified trust API > requires authentication for every trust surface [0.09ms]\n(pass) unified trust API > returns capabilities and audit evidence in one overview [0.22ms]\n(pass) unified trust API > rejects approval without the immutable request digest [0.17ms]\n\nservices/trust/taskEnvironments.test.ts:\n(pass) fresh per-task environments > creates a new provider environment and records the isolation policy [0.65ms]\n(pass) fresh per-task environments > destroys the sandbox if recording it fails [0.11ms]\n(pass) fresh per-task environments > verifies destruction before marking the task environment destroyed [0.16ms]\n\nservices/trust/vaultV2.test.ts:\n(pass) Vault v2 > stores only exact-origin-bound ciphertext and a masked username hint [0.65ms]\n(pass) Vault v2 > rejects non-HTTPS credential origins [0.05ms]\n(pass) Vault v2 > lists metadata without loading ciphertext [0.07ms]\n(pass) Vault v2 > crypto-shreds a revoked item while retaining its lifecycle row [0.07ms]\n(pass) Vault v2 > closes a claimed capability when its immutable vault scope does not match [0.34ms]\n(pass) Vault v2 capability security matrix > delivers the credential exactly once and finalizes the grant as consumed [0.34ms]\n(pass) Vault v2 capability security matrix > never writes the plaintext credential into any database statement [0.09ms]\n(pass) Vault v2 capability security matrix > rejects a different exact origin, including a deceptive subdomain [0.14ms]\n(pass) Vault v2 capability security matrix > rejects the wrong item, user, task, and digest bindings [0.16ms]\n(pass) Vault v2 capability security matrix > denies consumption when the vault item was revoked or deleted mid-queue [0.06ms]\n(pass) Vault v2 capability security matrix > denies consumption when the credential cannot be decrypted with the user key [0.07ms]\n\nservices/trust/userKeyBroker.test.ts:\n(pass) per-user envelope encryption > roundtrips with authenticated user, record, scope, and version context [0.53ms]\n(pass) per-user envelope encryption > cannot move ciphertext between users, records, scopes, versions, or keys [0.09ms]\n(pass) per-user envelope encryption > stores only the wrapped key and clears generated plaintext memory [0.11ms]\n\nservices/trust/capabilityGrants.test.ts:\n(pass) capability request canonicalization > normalizes a URL to an exact HTTPS origin [0.02ms]\n(pass) capability request canonicalization > rejects insecure origins and embedded credentials [0.05ms]\n(pass) capability request canonicalization > produces the same digest after harmless URL normalization [0.18ms]\n(pass) capability request canonicalization > does not depend on object insertion order for canonical input [0.06ms]\n(pass) capability request canonicalization > changes the digest for every security-relevant mutation [0.10ms]\n(pass) capability request canonicalization > binds payment approval to recipient and exact cart total [0.12ms]\n(pass) capability request canonicalization > rejects payment fields on non-payment grants [0.02ms]\n(pass) capability lifecycle > allows only explicit safe transitions [0.04ms]\n(pass) capability lifecycle > stores only the digest and canonical scope, never a secret [0.81ms]\n(pass) capability lifecycle > atomically consumes only an approved, unexpired, unrevoked exact digest [0.18ms]\n(pass) capability lifecycle > rejects malformed digests before querying the database [0.16ms]\n(pass) capability lifecycle > requests cancellation instead of lying about an in-flight revocation [0.16ms]\n(pass) capability lifecycle > moves an unknown side-effect outcome to reconciliation, never retry [0.07ms]\n(pass) capability lifecycle > expires stale grants in bounded SKIP LOCKED batches [0.12ms]\n(pass) capability lifecycle > caps the expiry sweep to a sane batch size [0.05ms]\n\nservices/trust/memoryLifecycle.test.ts:\n(pass) categorized memory lifecycle > refuses memory without exact category and purpose consent [0.29ms]\n(pass) categorized memory lifecycle > encrypts consented memory and never sends plaintext to SQL [0.16ms]\n(pass) categorized memory lifecycle > enforces stricter retention for health and financial data [0.10ms]\n(pass) categorized memory lifecycle > deletes content while retaining a minimal lifecycle receipt [0.14ms]\n(pass) categorized memory lifecycle > records consent version and source with every grant [0.14ms]\n(pass) categorized memory lifecycle > purges every trust-adjacent store for account deletion [0.22ms]\n\nservices/trust/auditLedger.test.ts:\n(pass) append-only audit ledger > rejects secret-shaped metadata even when the caller claims it is safe [0.23ms]\n(pass) append-only audit ledger > allow-lists metadata and drops unknown fields [0.03ms]\n(pass) append-only audit ledger > serializes each user chain before reading and inserting its prior hash [0.45ms]\n\n 65 pass\n 0 fail\n 218 expect() calls\nRan 65 tests across 9 files. [143.00ms]\n"
+    },
+    {
+      "suite": "postgres-migrations-and-isolation",
+      "status": "BLOCKED",
+      "at": "2026-09-10T11:56:16.271Z",
+      "missingConfiguration": [
+        "CERT_ALLOW_LIVE",
+        "CERT_DATABASE_URL"
+      ],
+      "howToUnblock": "See deploy/env-contract.md"
+    },
+    {
+      "suite": "openbao-isolation-and-rotation",
+      "status": "BLOCKED",
+      "at": "2026-09-10T11:56:16.271Z",
+      "missingConfiguration": [
+        "OPENBAO_ADDR",
+        "OPENBAO_TOKEN"
+      ],
+      "howToUnblock": "See deploy/env-contract.md"
+    },
+    {
+      "suite": "e2b-fresh-sandbox-and-destruction",
+      "status": "BLOCKED",
+      "at": "2026-09-10T11:56:16.271Z",
+      "missingConfiguration": [
+        "E2B_API_KEY",
+        "E2B_BROWSER_TEMPLATE"
+      ],
+      "howToUnblock": "See deploy/env-contract.md"
+    },
+    {
+      "suite": "stripe-link-test-mode-lifecycle",
+      "status": "BLOCKED",
+      "at": "2026-09-10T11:56:16.271Z",
+      "missingConfiguration": [
+        "STRIPE_SECRET_KEY (restricted)",
+        "STRIPE_WEBHOOK_SECRET",
+        "a Link-connected test user"
+      ],
+      "howToUnblock": "See deploy/env-contract.md",
+      "requiredSteps": [
+        "Connect a Link wallet for the staging test user (Settings → Payments).",
+        "Ask Alpha to stage a purchase; confirm merchant + exact total appear on the approval page before any approval.",
+        "Approve in Link; verify exactly one browser job is queued and one capability grant is approved.",
+        "Complete the checkout on the staging merchant; verify one order confirmation, capability consumed, spend row consumed.",
+        "Second run against the same grant must fail (one-time credential).",
+        "Deny, expire, and cancel paths: each must close the capability grant and produce no charge.",
+        "Replay the payment_intent.succeeded webhook; finalization must stay idempotent (already_queued, no second job).",
+        "No real charge — use Stripe test mode throughout."
+      ]
+    },
+    {
+      "suite": "vault-end-to-end-autofill",
+      "status": "BLOCKED",
+      "at": "2026-09-10T11:56:16.271Z",
+      "missingConfiguration": [
+        "OPENBAO_ADDR",
+        "OPENBAO_TOKEN",
+        "staging site with a login form",
+        "E2B_API_KEY + E2B_BROWSER_TEMPLATE"
+      ],
+      "howToUnblock": "See deploy/env-contract.md",
+      "requiredSteps": [
+        "Save a credential for the staging site (Trust → Vault).",
+        "Ask Alpha to sign in to the staging site; approve the exact-site request in Trust & Audit.",
+        "Verify the login succeeds, the grant shows consumed, and a second task for the same site is refused.",
+        "Revoke the item; a queued task must fail closed.",
+        "Grep worker + sandbox logs for the plaintext password: zero hits required."
+      ]
+    },
+    {
+      "suite": "load-and-queue-latency",
+      "status": "BLOCKED",
+      "at": "2026-09-10T11:56:16.271Z",
+      "missingConfiguration": [
+        "staging deployment",
+        "CERT_ALLOW_LIVE",
+        "CERT_DATABASE_URL"
+      ],
+      "howToUnblock": "See deploy/env-contract.md",
+      "requiredSteps": [
+        "Enqueue 20 browser jobs for 5 synthetic users at 1 job/s.",
+        "Record queue wait, E2B startup, and end-to-end latency percentiles (p50/p95).",
+        "Verify no two jobs shared a sandbox id and all sandboxes were destroyed.",
+        "Record cost per task from the E2B dashboard."
+      ]
+    }
+  ]
+}
