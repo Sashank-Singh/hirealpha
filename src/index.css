@@ -1515,6 +1515,17 @@ button, input { font: inherit; }
   .faq__head h2 { max-width: none; }
   .faq__head p { max-width: none; }
   .nav__links a:not(.btn) { display: none; }
+  /* Two buttons + brand must fit one row on a 375px phone: tighten every
+     dimension so nothing wraps and the pill never overflows the screen. */
+  .nav__pill {
+    gap: 6px;
+    padding: 6px 6px 6px 12px;
+    max-width: calc(100vw - 24px);
+    box-shadow: 3px 3px 0 var(--ink);
+  }
+  .nav__brand { font-size: 14px; gap: 6px; }
+  .nav__links { gap: 4px; }
+  .nav__links a.btn { white-space: nowrap; padding: 8px 12px; font-size: 12.5px; }
   .phone-stage { min-height: 680px; }
 }
 
