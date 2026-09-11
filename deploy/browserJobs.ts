@@ -139,7 +139,7 @@ export async function claimBrowserJobs(sql: SQL, limit: number): Promise<Browser
     WHERE id IN (
       SELECT j.id FROM hire_browser_jobs j
       LEFT JOIN hire_browser_approvals a ON a.id = j.approval_id AND a.user_id = j.user_id AND a.persona = j.persona
-      LEFT JOIN capability_grants g ON g.id = j.credential_capability_id AND g.user_id = j.user_id
+      LEFT JOIN capability_grants g ON g.id = j.credential_capability_id AND g.user_id = j.user_id::text
       WHERE j.status = 'pending' AND j.attempts < 3
         AND (
           (j.credential_capability_id IS NOT NULL
