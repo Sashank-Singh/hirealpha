@@ -11474,6 +11474,39 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
     return json({ ok: true })
   }
 
+  // Create a goal-conditioned recurring browser loop: Alpha re-runs the same
+  // visit on a schedule until the goal's condition is met, then reports with the
+  // approval card instead of acting on its own.
+  if (path === '/api/internal/loops/watch' && req.method === 'POST') {
+    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
+    const body = (await req.json().catch(() => ({}))) as {
+      phone?: string; persona?: string; url?: string; goal?: string
+      title?: string; intervalHours?: number; budgetDollars?: number
+    }
+    const portal = String(body.url || '').trim()
+    const goal = String(body.goal || '').trim()
+    if (!/^https:\/\//i.test(portal)) return json({ error: 'watch needs an https site URL' }, 400)
+    if (goal.length < 8) return json({ error: 'watch needs a real goal' }, 400)
+    if (!body.phone || !isPersona(body.persona || '')) return json({ error: 'phone and persona required' }, 400)
+    const user = await getUserByPhone(sql, body.phone)
+    if (!user) return json({ error: 'User not found' }, 404)
+    const hours = Math.max(1, Math.min(168, Math.floor(Number(body.intervalHours) || 6)))
+    const id = crypto.randomUUID()
+    const payload = JSON.stringify({
+      url: portal,
+      goal: goal.slice(0, 400),
+      intervalHours: hours,
+      budgetDollars: Number(body.budgetDollars) || null,
+    })
+    await sql`
+      INSERT INTO hire_task_loops (id, user_id, persona, phone_e164, kind, title, payload, status, next_run)
+      VALUES (${id}, ${user.id}, ${body.persona!}, ${body.phone!}, 'browser_watch',
+        ${String(body.title || `Watch: ${goal.slice(0, 60)}`).slice(0, 200)},
+        ${payload}::jsonb, 'pending', now())
+    `
+    return json({ ok: true, id, intervalHours: hours })
+  }
+
   if (path === '/api/internal/loops/claim' && req.method === 'GET') {
     if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
     const persona = url.searchParams.get('persona') || ''
@@ -12099,6 +12132,7 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
       phone?: string
       persona?: string
       kind?: string
+      autoApprove?: boolean
       to?: string
       subject?: string
       body?: string
@@ -12136,6 +12170,14 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
         kind: 'task', url: portal, goal: goal.slice(0, 400),
         approvalId: approval.requestId,
       })
+      // Watch loops run unattended: the user approved the SCHEDULE at creation,
+      // so each tick pre-approves its own check. Payment stays gated separately
+      // by Link, and the loop is capped (payload.runs), so this cannot become
+      // unattended spending.
+      if (body.autoApprove === true) {
+        const { decideBrowserApproval } = await import('./browserVault')
+        await decideBrowserApproval(sql, live.userId!, approval.requestId, 'approve')
+      }
       const viewToken = generateSessionViewToken(jobId, live.userId!)
       const sessionUrl = `https://hirealpha.chat/computer/${jobId}?token=${viewToken}`
       return json({

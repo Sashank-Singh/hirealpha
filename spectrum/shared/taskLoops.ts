@@ -21,8 +21,12 @@ export interface LoopHandlerResult {
   outcome: LoopOutcome
   next_run?: string
   note?: string
+  /** Replacement payload stored with the loop on re-arm (e.g. decrementing a
+   * remaining-runs counter so a watch cannot run forever). */
+  nextPayload?: Record<string, unknown>
+  /** Screenshot to deliver with the text, as a data URL. Browser runs only. */
+  image?: { dataUrl: string; caption?: string }
 }
-
 export type LoopHandler = (task: LoopTask) => LoopHandlerResult | Promise<LoopHandlerResult>
 
 /** A screenshot the loop wants delivered with its text, as a data URL
@@ -37,7 +41,7 @@ export interface LoopSendContext {
   /** Injectable for tests. Default posts kill-switch/check. */
   checkKillSwitch?: (phone: string) => Promise<boolean>
   /** Injectable for tests. Default posts loops/result. */
-  postResult?: (id: string, result: { outcome: LoopOutcome; note?: string; next_run?: string }) => Promise<void>
+  postResult?: (id: string, result: { outcome: LoopOutcome; note?: string; next_run?: string; payload?: Record<string, unknown> }) => Promise<void>
 }
 
 function apiBase() {
@@ -86,7 +90,7 @@ export async function killSwitchBlocksSend(phone: string): Promise<boolean> {
 
 async function postLoopResult(
   id: string,
-  result: { outcome: LoopOutcome; note?: string; next_run?: string },
+  result: { outcome: LoopOutcome; note?: string; next_run?: string; payload?: Record<string, unknown> },
 ): Promise<void> {
   const base = apiBase()
   if (!base) return
@@ -148,7 +152,10 @@ export async function runLoopTask(task: LoopTask, handler: LoopHandler, ctx: Loo
       }
       await ctx.send(task.phone, result.text, result.image)
     }
-    await post(task.id, { outcome: result.outcome, note: result.note, next_run: result.next_run })
+    await post(task.id, {
+      outcome: result.outcome, note: result.note, next_run: result.next_run,
+      ...(result.nextPayload ? { payload: result.nextPayload } : {}),
+    })
   } catch (err) {
     console.warn(`[taskLoops] ${task.kind} task ${task.id} failed`, err)
     await post(task.id, { outcome: 'failed', note: err instanceof Error ? err.message : String(err) })
@@ -695,6 +702,67 @@ export const LOOP_HANDLERS: Record<string, LoopHandler> = {
   day1_checkin: day1CheckinHandler,
   inbox_ping: inboxPingHandler,
   browser_result: browserResultHandler,
+  /** Goal-conditioned watch: re-run the same visit on a schedule. The agent
+   * itself judges the goal ("price under $400") because the condition is
+   * language, not a number we can parse here. When it stages a checkout the
+   * user gets the approval card; until then the loop re-arms. */
+  browser_watch: async (task) => {
+    const payload = (task.payload || {}) as {
+      url?: unknown; goal?: unknown; intervalHours?: unknown; runs?: unknown
+    }
+    const intervalHours = Number(payload.intervalHours) || 6
+    const runsLeft = Number(payload.runs)
+    if (Number.isFinite(runsLeft) && runsLeft <= 0) {
+      return { text: 'Watch ended: check limit reached.', outcome: 'done', note: 'browser_watch exhausted' }
+    }
+    // Re-arm uses 'snoozed' + next_run: 'done' would retire the loop, so a
+    // recurring watch must come back as a snooze to be claimed again.
+    // Each tick enqueues one read-only check. The agent judges the goal in the
+    // page ("price under $400") because conditions are language. When it is
+    // time to buy, the agent stages checkout and the user approves with Link —
+    // the watch itself never spends.
+    const base = apiBase()
+    const key = process.env.HIREALPHA_INTERNAL_KEY || ''
+    let note = 'browser_watch enqueued'
+    let text = `Scheduled check ran for ${String(payload.url || '').replace(/^https?:\/\/(www\.)?/, '')}.`
+    if (base && key) {
+      try {
+        const res = await fetch(`${base}/api/internal/propose`, {
+          method: 'POST',
+          headers: authHeaders(),
+          body: JSON.stringify({
+            phone: task.phone,
+            persona: task.persona,
+            kind: 'browser',
+            url: payload.url,
+            body: `${String(payload.goal || '')} This is an automated watch check with mock/test data only: never enter real personal details, never complete a payment.`,
+            autoApprove: true,
+          }),
+          signal: AbortSignal.timeout(20_000),
+        })
+        const data = (await res.json().catch(() => ({}))) as { ok?: boolean; sessionUrl?: string; error?: string }
+        if (res.ok && data.ok) {
+          text = data.sessionUrl ? `Watch check launched: ${data.sessionUrl}` : text
+          note = 'browser_watch run queued'
+        } else {
+          note = `browser_watch propose failed: ${data.error || res.status}`
+          text = 'The scheduled check could not start this time. It will retry on the next interval.'
+        }
+      } catch (err) {
+        note = `browser_watch enqueue error: ${err instanceof Error ? err.message : String(err)}`
+        text = 'The scheduled check could not start this time. It will retry on the next interval.'
+      }
+    }
+    const hadCap = Number.isFinite(runsLeft)
+    const nextRuns = hadCap ? Math.max(0, Number(runsLeft) - 1) : undefined
+    return {
+      text,
+      outcome: 'snoozed',
+      note,
+      next_run: new Date(Date.now() + intervalHours * 3600_000).toISOString(),
+      nextPayload: { ...payload, ...(nextRuns !== undefined ? { runs: nextRuns } : {}) },
+    }
+  },
 }
 
 /**
