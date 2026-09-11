@@ -32,22 +32,36 @@
   display: none;
 }
 
+/* Each sidebar view shows only its own section. Every view needs a rule: a view
+ * with none renders all sections at once and is indistinguishable from
+ * Workspace, which is what happened when Memory and Trust & Audit were added
+ * without them. Workspace owns the contact card, the plan, and the tools. */
 .ss-page--workspace #payments-section,
 .ss-page--workspace #vault-section,
+.ss-page--workspace #trust-section,
+.ss-page--workspace #memory-section,
 .ss-page--vault .ss-workspace-only,
 .ss-page--payments .ss-workspace-only,
+.ss-page--memory .ss-workspace-only,
+.ss-page--trust .ss-workspace-only,
 .ss-page--vault .ss-sec:not(#vault-section):not(#trust-section),
-.ss-page--payments .ss-sec:not(#payments-section):not(#trust-section) {
+.ss-page--payments .ss-sec:not(#payments-section):not(#trust-section),
+.ss-page--memory .ss-sec:not(#memory-section),
+.ss-page--trust .ss-sec:not(#trust-section) {
   display: none;
 }
 
 .ss-page--vault .ss,
-.ss-page--payments .ss {
+.ss-page--payments .ss,
+.ss-page--memory .ss,
+.ss-page--trust .ss {
   margin-top: 0;
 }
 
 .ss-page--vault #vault-section,
-.ss-page--payments #payments-section {
+.ss-page--payments #payments-section,
+.ss-page--memory #memory-section,
+.ss-page--trust #trust-section {
   border-top: 0;
 }
 
