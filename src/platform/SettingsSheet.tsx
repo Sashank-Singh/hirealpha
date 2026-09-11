@@ -914,6 +914,7 @@ export function SettingsSheet({ view = 'workspace', embedded = false }: { view?:
         {/* ── Sections: one hairline-divided surface, native-settings style ── */}
         <div className="ss">
           {/* Connected Tools */}
+          {view === 'workspace' && (
           <section className="ss-sec">
             <header className="ss-sec-head">
               <div>
@@ -996,6 +997,7 @@ export function SettingsSheet({ view = 'workspace', embedded = false }: { view?:
               })}
             </div>
           </section>
+          )}
 
           {/* Bank Account (Plaid): only surfaces once a real connection exists.
            * Not provisioned end to end yet, so no affordance and no copy. */}
@@ -1058,6 +1060,7 @@ export function SettingsSheet({ view = 'workspace', embedded = false }: { view?:
           )}
 
           {/* Places */}
+          {view === 'workspace' && (
           <section className="ss-sec">
             <header className="ss-sec-head">
               <div>
@@ -1143,8 +1146,10 @@ export function SettingsSheet({ view = 'workspace', embedded = false }: { view?:
               ))}
             </div>
           </section>
+          )}
 
           {/* Scheduled Routines */}
+          {view === 'workspace' && (
           <section className="ss-sec">
             <header className="ss-sec-head">
               <div>
@@ -1190,8 +1195,10 @@ export function SettingsSheet({ view = 'workspace', embedded = false }: { view?:
               </div>
             )}
           </section>
+          )}
 
           {/* Payment Method / Link Wallet */}
+          {view === 'payments' && (
           <section id="payments-section" className="ss-sec">
             <header className="ss-sec-head">
               <div>
@@ -1274,8 +1281,10 @@ export function SettingsSheet({ view = 'workspace', embedded = false }: { view?:
               </div>
             )}
           </section>
+          )}
 
           {/* Vault */}
+          {view === 'vault' && (
           <section id="vault-section" className="ss-sec">
             <header className="ss-sec-head">
               <div>
@@ -1517,7 +1526,9 @@ export function SettingsSheet({ view = 'workspace', embedded = false }: { view?:
               </div>
             )}
           </section>
+          )}
 
+          {view === 'trust' && (
           <section id="trust-section" className="ss-sec">
             <header className="ss-sec-head">
               <div>
@@ -1600,8 +1611,10 @@ export function SettingsSheet({ view = 'workspace', embedded = false }: { view?:
               </div>
             )}
           </section>
+          )}
 
           {/* Memory */}
+          {view === 'memory' && (
           <section id="memory-section" className="ss-sec">
             <header className="ss-sec-head">
               <div>
@@ -1641,6 +1654,7 @@ export function SettingsSheet({ view = 'workspace', embedded = false }: { view?:
               </div>
             )}
           </section>
+          )}
 
           {/* Account */}
           <section className="ss-sec">

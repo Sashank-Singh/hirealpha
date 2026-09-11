@@ -2,7 +2,14 @@
   "permissions": {
     "allow": [
       "Shell(bun:*)",
-      "Shell(npx tsc -b 2 >& 1)"
+      "Shell(npx tsc -b 2 >& 1)",
+      "Shell(command:*)",
+      "Shell(ollama:*)",
+      "Shell(echo:*)",
+      "Shell(sed:*)",
+      "Shell(grep:*)",
+      "Shell(pg_isready:*)",
+      "Shell(psql -d postgres -tAc \"select version();\" 2>&1 | head -2; echo \"=== pgvector available locally? ===\"; psql -d postgres -tAc \"select name from pg_available_extensions where name='vector';\" 2>&1; echo \"=== extension dir ===\"; ls \"$(pg_config --sharedir 2>/dev/null)/extension/\" 2>/dev/null | grep -i vec | head; echo \"=== brew ===\"; brew list 2>/dev/null | grep -i -E \"pgvector|postgresql\" | head)"
     ],
     "deny": [],
     "defaultMode": "default"
