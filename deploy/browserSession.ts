@@ -26,6 +26,10 @@ export type SessionTask = {
   paymentAmountCents?: number
   paymentCard?: PaymentCardSecrets
   onProgress?: (event: { action: string; url: string }) => Promise<void>
+  /** Fired on a handoff and at the end of a run with the page as the user would
+   * see it. The worker forwards these so the person can see what was found
+   * instead of trusting a text summary. Data URL, JPEG. */
+  onScreenshot?: (event: { dataUrl: string; caption?: string }) => Promise<void>
   onHandoff?: (handoff: {
     kind: 'password' | 'verification' | 'payment' | 'captcha' | 'confirmation'
     message: string
@@ -314,6 +318,12 @@ async function agentLoop(
         continue
       }
       if (!task.onHandoff) return { ok: false, error: `This step needs you: ${action.message}` }
+      // Show the page before asking for a decision: approving blind is the
+      // worst version of this product.
+      if (task.onScreenshot && screenshot) {
+        await task.onScreenshot({ dataUrl: `data:image/jpeg;base64,${screenshot}`, caption: action.message.slice(0, 200) })
+          .catch(() => undefined)
+      }
       const handoffStarted = Date.now()
       const handoff = await task.onHandoff({
         kind: action.kind,

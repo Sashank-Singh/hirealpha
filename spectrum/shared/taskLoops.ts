@@ -25,9 +25,15 @@ export interface LoopHandlerResult {
 
 export type LoopHandler = (task: LoopTask) => LoopHandlerResult | Promise<LoopHandlerResult>
 
+/** A screenshot the loop wants delivered with its text, as a data URL
+ * (`data:image/jpeg;base64,...`). Only browser runs produce these: the worker
+ * captures the page it is looking at, and "here is what I'm seeing" is the
+ * difference between a user trusting the run and guessing at it. */
+export type LoopImage = { dataUrl: string; caption?: string }
+
 export interface LoopSendContext {
   persona: string
-  send: (phone: string, text: string) => Promise<void>
+  send: (phone: string, text: string, image?: LoopImage) => Promise<void>
   /** Injectable for tests. Default posts kill-switch/check. */
   checkKillSwitch?: (phone: string) => Promise<boolean>
   /** Injectable for tests. Default posts loops/result. */
@@ -140,7 +146,7 @@ export async function runLoopTask(task: LoopTask, handler: LoopHandler, ctx: Loo
         })
         return
       }
-      await ctx.send(task.phone, result.text)
+      await ctx.send(task.phone, result.text, result.image)
     }
     await post(task.id, { outcome: result.outcome, note: result.note, next_run: result.next_run })
   } catch (err) {
@@ -659,8 +665,17 @@ export function buildBrowserResultText(p: { text?: unknown }): string {
 }
 
 const browserResultHandler: LoopHandler = (task) => {
-  const text = buildBrowserResultText((task.payload || {}) as { text?: unknown })
-  return { text, outcome: 'done', note: 'browser_result' }
+  const payload = (task.payload || {}) as { text?: unknown; imageDataUrl?: unknown; imageCaption?: unknown }
+  const text = buildBrowserResultText(payload)
+  const dataUrl = typeof payload.imageDataUrl === 'string' ? payload.imageDataUrl : ''
+  return {
+    text,
+    outcome: 'done',
+    note: 'browser_result',
+    // Only well-formed image data URLs are forwarded; anything else would make
+    // the bot try to attach garbage.
+    ...(dataUrl.startsWith('data:image/') ? { image: { dataUrl, caption: typeof payload.imageCaption === 'string' ? payload.imageCaption : undefined } } : {}),
+  }
 }
 
 /* ---- Registry ---- */

@@ -1,4 +1,4 @@
-import { Spectrum, app as appCard, contact, fromVCard } from 'spectrum-ts'
+import { Spectrum, app as appCard, attachment, contact, fromVCard } from 'spectrum-ts'
 import { imessage } from '@spectrum-ts/imessage'
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
@@ -166,7 +166,7 @@ console.log(`[${agent.id}] listening as ${agent.imsgName} (${agent.phoneNumber})
 
 startTaskLoopPoller({
   persona: agent.id,
-  send: async (phone, text) => {
+  send: async (phone, text, image) => {
     const user = await im.user(phone)
     const space = await im.space.create(user)
     await space.responding(async () => {
@@ -174,6 +174,25 @@ startTaskLoopPoller({
       const visible = text.replace(/^\[savecontact\]\s*/i, '')
       const cleaned = sanitizeOutbound(visible)
       if (cleaned) await space.send(cleaned)
+      // A screenshot is the proof a browser run happened and a way for the user
+      // to check the choice before money moves. Best-effort: a failed image
+      // must never cost the text that explains it.
+      if (image?.dataUrl) {
+        try {
+          const match = /^data:(image\/[a-z0-9.+-]+);base64,(.+)$/i.exec(image.dataUrl)
+          if (match) {
+            const bytes = Buffer.from(match[2]!, 'base64')
+            // iMessage rejects very large attachments; 4MB is comfortably under
+            // the limit and a page JPEG at quality 45 is far smaller.
+            if (bytes.byteLength > 0 && bytes.byteLength <= 4_000_000) {
+              await space.send(attachment(bytes, { mimeType: match[1]!, name: 'session.jpg' }))
+              if (image.caption) await space.send(sanitizeOutbound(image.caption).slice(0, 300))
+            }
+          }
+        } catch (err) {
+          console.warn(`[${agentId}] screenshot send failed`, err)
+        }
+      }
       // One-off "save Alpha's number" nudge: share the native card AND send a
       // real .vcf file so iOS offers "Add Contact" regardless of the line
       // identity sync state (native card alone showed nothing).

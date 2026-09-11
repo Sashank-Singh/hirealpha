@@ -304,6 +304,10 @@ Reactions are optional and usually absent. You may add "reaction":"<emoji>" to a
         const old = terms(previousQuery)
         if (old.size === 0 || newTerms.size === 0) return false
         const shared = [...newTerms].filter((word) => old.has(word)).length
+        // Two shared meaningful words, not one. A single overlap is usually a
+        // shared ordinary word ("query", "rice") between genuinely different
+        // searches, and blocking those lost real results.
+        if (shared < 2) return false
         return shared / Math.min(old.size, newTerms.size) >= 0.6
       })
       if (!input.availableTools.includes(lookup.tool)) {

@@ -181,6 +181,22 @@ describe('multi-step agent execution', () => {
     expect(result.reply).toContain('could not confirm')
   })
 
+  it('blocks a rephrasing of the same search but allows distinct ones', async () => {
+    // Shared ordinary words must not count as a repeat: "query 1" and "query 2"
+    // are different searches, and blocking them lost real results. A genuine
+    // rephrasing — most meaningful words in common — is still blocked.
+    let distinct = 0
+    const first = scenario([], { maxSteps: 3, chat: async () => `TOOL web query ${++distinct}` })
+    await first.run()
+    expect(first.lookups.length).toBeGreaterThanOrEqual(2)
+
+    const repeated = ['TOOL web query jasmine rice 5lb amazon', 'TOOL web query amazon jasmine rice 5lb price']
+    let i = 0
+    const second = scenario([], { maxSteps: 3, chat: async () => repeated[Math.min(i++, repeated.length - 1)]! })
+    await second.run()
+    expect(second.lookups).toHaveLength(1)
+  })
+
   it('stops an endless sequence within its action budget without leaking directives', async () => {
     let calls = 0
     const s = scenario([], { maxSteps: 2, chat: async () => `TOOL web query ${++calls}` })

@@ -756,7 +756,7 @@ export async function handleVaultApi(req: Request, sql: SQL, deps: VaultDeps): P
  */
 export async function pushBrowserResultLoop(
   sql: SQL,
-  input: { userId: string; persona: string; origin: string; insights: string },
+  input: { userId: string; persona: string; origin: string; insights: string; screenshotDataUrl?: string; screenshotCaption?: string },
 ): Promise<boolean> {
   const users = (await sql`
     SELECT phone_e164 FROM hire_users WHERE id = ${input.userId} LIMIT 1
@@ -768,7 +768,15 @@ export async function pushBrowserResultLoop(
   await sql`
     INSERT INTO hire_task_loops (id, user_id, persona, phone_e164, kind, title, payload, status, next_run)
     VALUES (${randomUUID()}, ${input.userId}, ${input.persona}, ${phone}, 'browser_result',
-      ${`Browser check: ${host}`}, ${JSON.stringify({ text, portal: host })}::jsonb, 'pending', now())
+      ${`Browser check: ${host}`}, ${JSON.stringify({
+        text,
+        portal: host,
+        // A screenshot is what makes a browser run verifiable rather than a
+        // claim. Only forwarded when it is a real image data URL.
+        ...(input.screenshotDataUrl?.startsWith('data:image/')
+          ? { imageDataUrl: input.screenshotDataUrl, imageCaption: input.screenshotCaption }
+          : {}),
+      })}::jsonb, 'pending', now())
     ON CONFLICT (user_id, persona, kind) DO UPDATE SET
       payload = EXCLUDED.payload,
       status = 'pending',
