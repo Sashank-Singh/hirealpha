@@ -73,6 +73,7 @@ export async function runToolConversation(input: {
   const receipts: string[] = []
   const publicMatches = new Map<string, string>()
   let nudged = false
+  let browserNudgeCount = 0
   let webNudged = false
   let sourcesNudged = false
   let purchaseNudged = false
@@ -82,7 +83,9 @@ export async function runToolConversation(input: {
     const draftReceipt = savedDraft
       ? savedDraft.type === 'purchase'
         ? 'Your payment link is ready for review. Nothing has been purchased yet.'
-        : `Your ${savedDraft.type === 'event' ? 'event' : 'email'} draft is saved. Review it and tap ${savedDraft.type === 'event' ? 'Book' : 'Send'} on the card. Nothing has been ${savedDraft.type === 'event' ? 'booked' : 'sent'} yet.`
+        : savedDraft.type === 'browser'
+          ? 'The browser run is staged and waiting for your approval. Nothing has been submitted on the site yet.'
+          : `Your ${savedDraft.type === 'event' ? 'event' : 'email'} draft is saved. Review it and tap ${savedDraft.type === 'event' ? 'Book' : 'Send'} on the card. Nothing has been ${savedDraft.type === 'event' ? 'booked' : 'sent'} yet.`
       : draftAttempted ? 'I could not confirm that your draft was saved. Please check your drafts before trying again.' : ''
     const searchReceipt = publicMatches.size
       ? `Here are the top matches I found:\n${[...publicMatches.entries()]
@@ -152,13 +155,19 @@ Reactions are optional and usually absent. You may add "reaction":"<emoji>" to a
       // Booking/doing asks: a plain-text "queued it" with no browser action is a lie.
       const needsBrowser =
         /\b(book|reserve|reservation|order from|fill (?:out )?(?:the )?form|sign me up|check (?:my )?(?:account|portal))\b/i.test(userAsk)
-      if (needsBrowser && !nudged) {
-        nudged = true
+      // A booking ask that already produced search results gets a second nudge
+      // carrying the concrete site: without a portal URL the model answers with
+      // directory links and never sends the browser action the user asked for.
+      const browserNudgesAllowed = publicMatches.size > 0 ? 2 : 1
+      if (needsBrowser && browserNudgeCount < browserNudgesAllowed) {
+        browserNudgeCount++
+        const portal = [...publicMatches.keys()][0]
         messages.push({ role: 'assistant', content: raw })
         messages.push({
           role: 'user',
-          content:
-            'System note: your previous reply claimed you queued a run, but you sent NO action object — nothing is queued. Reply with ONLY this, filled in from their message, and nothing else:\n{"action":"browser","portal":"<the https site they named>","goal":"<one sentence, what to accomplish there>"}',
+          content: portal
+            ? `System note: you still have NOT sent the browser action, so nothing is queued. Reply with ONLY this object, using the site from your search results, and nothing else:\n{"action":"browser","portal":"${portal}","goal":"<one sentence naming the exact booking or action to perform there; preserve the user's date, time, and party size>"}`
+            : 'System note: your previous reply claimed you queued a run, but you sent NO action object — nothing is queued. Reply with ONLY this, filled in from their message, and nothing else:\n{"action":"browser","portal":"<the https site they named>","goal":"<one sentence, what to accomplish there>"}',
         })
         continue
       }

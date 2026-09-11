@@ -76,16 +76,34 @@ export async function gmiChat(options: GmiChatOptions): Promise<string> {
 
   // Some endpoints accept 'low' | 'medium' | 'high', some accept 'none', and
   // standard OpenAI-compatible endpoints reject reasoning_effort completely.
+  //
+  // Rate limiting and transient failures are retried with backoff inside the
+  // caller's deadline. The provider signals rate limits BOTH ways — as 429 and
+  // as 400 with {"error":"Rate limit exceeded"} — so the status alone is not a
+  // reliable test; the body is inspected when the status is not a success.
+  const attemptBudgetMs = options.timeoutMs ?? 30_000
+  const startedAt = Date.now()
+  const retryable = async (response: Response): Promise<boolean> => {
+    if (response.ok) return false
+    if (response.status === 429 || response.status >= 500) return true
+    if (response.status !== 400) return false
+    const body = await response.clone().text().catch(() => '')
+    return /rate.?limit|too many requests|overloaded|try again/i.test(body)
+  }
   let res = await fetch(url, { method: 'POST', headers, body: payload('omit'), signal })
-  if (!res.ok) {
-    const errText = await res.text().catch(() => '')
-    if (res.status === 400 && /reasoning_effort/i.test(errText)) {
+  for (const backoffMs of [1_000, 2_000, 4_000, 8_000]) {
+    if (!(await retryable(res))) break
+    const elapsed = Date.now() - startedAt
+    if (elapsed + backoffMs >= attemptBudgetMs) break
+    await sleep(backoffMs)
+    res = await fetch(url, { method: 'POST', headers, body: payload('omit'), signal })
+  }
+  if (!res.ok && res.status === 400) {
+    const errText = await res.clone().text().catch(() => '')
+    if (/reasoning_effort/i.test(errText)) {
       // If endpoint strictly requires reasoning_effort (e.g. low/medium/high)
       const fallbackEffort = /'low'/i.test(errText) || /must be one of/i.test(errText) ? 'low' : 'none'
       res = await fetch(url, { method: 'POST', headers, body: payload(fallbackEffort), signal })
-    } else if (res.status === 429 || res.status >= 500) {
-      await sleep(800)
-      res = await fetch(url, { method: 'POST', headers, body: payload('omit'), signal })
     }
   }
 
