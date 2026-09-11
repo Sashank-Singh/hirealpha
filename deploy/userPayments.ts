@@ -468,7 +468,7 @@ export async function promoteApprovedLinkPurchases(sql: SQL, limit = 3): Promise
     SELECT a.id, a.user_id, a.amount_cents, a.merchant, a.merchant_url, a.purpose,
       a.link_spend_request_id, a.finalization_job_id, a.capability_grant_id, u.phone_e164
     FROM hire_spend_approvals a
-    JOIN hire_users u ON u.id = a.user_id
+    JOIN hire_users u ON u.id = a.user_id::text
     WHERE a.link_spend_request_id IS NOT NULL AND a.status = 'pending'
       AND a.finalization_status = 'awaiting_link'
     ORDER BY a.created_at ASC LIMIT ${limit}

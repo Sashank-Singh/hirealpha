@@ -263,10 +263,12 @@ const SESSION_VIEW_SECRET = (() => {
 /**
  * Creates a cryptographically signed view token for a browser job session.
  * Used for 1-tap links in iMessage so the initiating user can view their computer
- * session immediately without a separate login barrier.
+ * session without a separate login barrier. The TTL is long (default 7 days)
+ * because the link is sent over iMessage and may be opened much later; the token
+ * is HMAC-bound to a single jobId+userId pair.
  */
-export function generateSessionViewToken(jobId: string, userId: string, ttlSeconds = 600): string {
-  const boundedTtl = Math.max(30, Math.min(600, Math.floor(ttlSeconds)))
+export function generateSessionViewToken(jobId: string, userId: string, ttlSeconds = 604_800): string {
+  const boundedTtl = Math.max(30, Math.min(604_800, Math.floor(ttlSeconds)))
   const expires = Math.floor(Date.now() / 1000) + boundedTtl
   const sig = createHmac('sha256', SESSION_VIEW_SECRET).update(`${jobId}:${userId}:${expires}`).digest('hex')
   return `${expires}.${sig}`

@@ -418,7 +418,7 @@ export async function proposeBrowserTask(
       {
         method: 'POST',
         headers: authHeaders(),
-        body: JSON.stringify({ phone, persona, kind: 'browser', url: task.portal, body: task.goal }),
+        body: JSON.stringify({ phone, persona, kind: 'browser', url: task.portal, body: task.goal, autoApprove: true }),
       },
       15000,
     )

@@ -12173,9 +12173,11 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
     const tz = live.timezone || 'America/Los_Angeles'
     // Purchase draft: mint a real Stripe Checkout link the user taps to pay.
     // Ask-first by construction — nothing charges until THEY tap. Capped.
-    // Browser task: ask-first approval + enqueue on the worker (goal mode).
-    // Nothing runs until the user taps Approve; the result lands in-thread via
-    // the browser_result loop kind the bots already deliver.
+    // Browser task: auto-launch. The origin-scoped single-use approval is
+    // minted and approved immediately so the worker claims the job at once;
+    // payment stays gated by Link and passwords by the vault handoff. The
+    // result lands in-thread via the browser_result loop kind the bots
+    // already deliver.
     if (body.kind === 'browser') {
       const portal = String(body.url || '').trim()
       const goal = String(body.body || '').trim()
@@ -12194,11 +12196,11 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
         kind: 'task', url: portal, goal: goal.slice(0, 400),
         approvalId: approval.requestId,
       })
-      // Watch loops run unattended: the user approved the SCHEDULE at creation,
-      // so each tick pre-approves its own check. Payment stays gated separately
-      // by Link, and the loop is capped (payload.runs), so this cannot become
-      // unattended spending.
-      if (body.autoApprove === true) {
+      // Browser sessions auto-launch per-task; autoApprove:false opts out.
+      // Payment stays gated separately by Link, and watch loops stay capped
+      // (payload.runs), so this cannot become unattended spending.
+      const autoApprove = body.autoApprove !== false
+      if (autoApprove) {
         const { decideBrowserApproval } = await import('./browserVault')
         await decideBrowserApproval(sql, live.userId!, approval.requestId, 'approve')
       }

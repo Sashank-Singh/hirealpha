@@ -126,10 +126,10 @@ describe('browser job queue', () => {
     expect(verifySessionViewToken('job-123', USER, '')).toBe(false)
   })
 
-  it('caps session links at ten minutes', () => {
+  it('caps session links at seven days', () => {
     const token = generateSessionViewToken('job-123', USER, 86_400)
     const expires = Number(token.split('.')[0])
-    expect(expires - Math.floor(Date.now() / 1000)).toBeLessThanOrEqual(600)
+    expect(expires - Math.floor(Date.now() / 1000)).toBeLessThanOrEqual(604_800)
   })
 })
 

@@ -71,7 +71,7 @@ function safeStepLabel(step: SessionStep): string {
 }
 
 function statusCopy(status: SessionStatus): { label: string; detail: string } {
-  if (status === 'pending') return { label: 'Ready to start', detail: 'Alpha is waiting for your permission to open this site.' }
+  if (status === 'pending') return { label: 'Starting…', detail: 'Alpha is launching the secure browser. It will pause on its own before anything needs a password or payment.' }
   if (status === 'running') return { label: 'Alpha is working', detail: 'You can watch. Take control only when you need to step in.' }
   if (status === 'waiting') return { label: 'Needs you', detail: 'The task is paused. Your browser session stays open.' }
   if (status === 'done') return { label: 'Task complete', detail: 'Alpha finished and closed the task safely.' }
@@ -276,8 +276,8 @@ export function ComputerSessionView() {
             <section className="cs-checkpoint cs-checkpoint-start">
               <span className="cs-checkpoint-index">01</span>
               <div>
-                <h2>Allow this browser session?</h2>
-                <p>Alpha will work only on <strong>{hostname(session.url)}</strong> for this task. Permission expires and cannot be reused.</p>
+                <h2>Starting this browser session</h2>
+                <p>Alpha will work only on <strong>{hostname(session.url)}</strong> for this task. It pauses on its own before anything needs a password or payment.</p>
                 <div className="cs-checkpoint-actions">
                   <button className="cs-button cs-button-primary" disabled={acting} onClick={() => void postAction('approve')}>Start task</button>
                   <button className="cs-text-button" disabled={acting} onClick={() => void postAction('cancel')}>Cancel</button>
@@ -337,7 +337,7 @@ export function ComputerSessionView() {
               )) : (
                 <li>
                   <span className={session.status === 'running' ? 'is-current' : ''} />
-                  <div><strong>{session.status === 'pending' ? 'Waiting for permission' : 'Secure browser connected'}</strong></div>
+                  <div><strong>{session.status === 'pending' ? 'Starting the secure browser' : 'Secure browser connected'}</strong></div>
                 </li>
               )}
             </ol>

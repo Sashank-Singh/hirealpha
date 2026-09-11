@@ -90,7 +90,7 @@ export async function runToolConversation(input: {
       ? savedDraft.type === 'purchase'
         ? 'Your payment link is ready for review. Nothing has been purchased yet.'
         : savedDraft.type === 'browser'
-          ? 'The browser run is staged and waiting for your approval. Nothing has been submitted on the site yet.'
+          ? 'The browser run is starting now on the named site for this one task. It pauses on its own before payment or any password.'
           : `Your ${savedDraft.type === 'event' ? 'event' : 'email'} draft is saved. Review it and tap ${savedDraft.type === 'event' ? 'Book' : 'Send'} on the card. Nothing has been ${savedDraft.type === 'event' ? 'booked' : 'sent'} yet.`
       : draftAttempted ? 'I could not confirm that your draft was saved. Please check your drafts before trying again.' : ''
     const searchReceipt = publicMatches.size
@@ -122,7 +122,7 @@ Guessing is worse than saying you don't know. Never invent prices, ratings, hour
 
 To act, reply with exactly one JSON object and nothing else:
 - Lookup: {"action":"lookup","tool":"web","query":"..."}
-- Book / order / fill a form / check an account on a named site: {"action":"browser","portal":"https://site.com","goal":"one sentence"} — ask-first, the user approves before anything runs. Saying you queued it without sending this object is a lie.
+- Book / order / fill a form / check an account on a named site: {"action":"browser","portal":"https://site.com","goal":"one sentence"} — the run starts immediately on that site and pauses before payment or any password. Saying you queued it without sending this object is a lie.
 - Purchase found via web lookup: {"action":"purchase","item":"name","amount":price,"url":"product URL"} — both must come from a tool result. A payment link follows for the user to approve.
 - Draft (saved for review, never sent by you): {"action":"reply","id":"...","body":"..."} · {"action":"mail","to":"...","subject":"...","body":"..."} · {"action":"event","title":"...","start":"<ISO>","end":"<ISO>"}
 - If the user confirms a purchase you proposed last turn, send the purchase object now with those details.
@@ -378,7 +378,7 @@ Reactions are optional and usually absent. You may add "reaction":"<emoji>" to a
           if (proposed.ok && proposed.id) {
             savedDraft = { id: proposed.id, type: draft.type }
             result = { status: 'draft_saved', ...savedDraft, message: draft.type === 'browser'
-            ? 'The browser run is queued for the user\'s OK from a card. The result will arrive in this thread when it finishes. Do not claim anything was booked or completed.'
+            ? 'The browser run is launching now on the named site for this one task and pauses before payment or any password. The result will arrive in this thread when it finishes. Do not claim anything was booked or completed.'
             : draft.type === 'purchase' ? 'A payment link is queued for the user to tap and pay. NOTHING has been purchased yet; do not claim it was. Tell them to tap Pay on the card if they want it.' : `A review card will be delivered. Tell the user to review it and tap ${draft.type === 'event' ? 'Book' : 'Send'}. Nothing has been sent or booked.` }
           } else result = { status: 'failed', message: 'Draft save was not confirmed. Do not claim success or retry this write.' }
         } catch {

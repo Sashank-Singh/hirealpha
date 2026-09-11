@@ -1673,13 +1673,17 @@ export async function runHireTurn(input: {
     if (live.hired && agent.id === 'friend' && !simpleAsk) {
       let purchaseSetupUrl: string | null = null
       let purchaseRequestId: string | null = null
+      let browserSessionUrl: string | null = null
       const outcome = await runToolConversation({
         messages: baseMessages,
         chat: (messages, timeoutMs) => gmiChat({ temperature: Math.min(agent.temperature, 0.3), messages, timeoutMs }),
         lookup: (tool, query) => fetchLiveTools(input.senderId, agent.id, query, tool),
-        propose: (draft) =>
-          saveFriendDraft(input.senderId, agent.id, draft).then((r: any) => {
-            if (draft.type === 'purchase' && r.ok) {
+          propose: (draft) =>
+            saveFriendDraft(input.senderId, agent.id, draft).then((r: any) => {
+              if (draft.type === 'browser' && r?.ok && r.sessionUrl) {
+                browserSessionUrl = r.sessionUrl as string
+              }
+              if (draft.type === 'purchase' && r.ok) {
               if (r.needsSetup && r.setupUrl) {
                 purchaseSetupUrl = r.setupUrl
               } else if (r.requestId || r.id) {
@@ -1702,10 +1706,12 @@ export async function runHireTurn(input: {
       reply = outcome.reply
       if (outcome.draft) {
         if (outcome.draft.type === 'browser') {
-          // Ask-first: nothing runs until they approve. Point at the approvals
-          // list in Settings; the result lands back in this thread via the
+          // Auto-launch: the run starts now, scoped to the named site for this
+          // one task; the result lands back in this thread via the
           // browser_result loop when the worker finishes.
-          reply = `${reply}\nApprove it here: https://hirealpha.chat/app/hires/friend?vault=1 (the run needs your OK before it starts; I'll report back when it's done)`.trim()
+          reply = browserSessionUrl
+            ? `${reply}\nWatch it live: ${browserSessionUrl} (the run started just now; it pauses on its own before payment or any password, and I'll report back when it's done)`.trim()
+            : `${reply}\n(I'll start that run and report back here when it's done)`.trim()
         } else if (outcome.draft.type === 'purchase') {
           if (purchaseSetupUrl) {
             reply = `${reply}\nRegister your card or Link wallet here to authorize purchases (one-time setup): ${purchaseSetupUrl}\nOnce registered, reply or text me to complete the order!`.trim()
