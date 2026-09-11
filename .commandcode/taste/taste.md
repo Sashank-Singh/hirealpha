@@ -1,4 +1,5 @@
 - Pastes raw error strings from the UI as bug reports and expects them diagnosed and fixed at the source, not just acknowledged. Confidence: 0.9
+- Reports failures in minimal, non-specific terms ("what is the error and what should i do ?") and expects the agent to reproduce and diagnose them itself from the repo (run the suites, capture the real error, prove the root cause) instead of asking clarifying questions, then answer with both the cause and a concrete recommended fix. Confidence: 0.7
 - When a plan is rejected because the user made uncommitted changes, re-verify every load-bearing claim against the new HEAD (git status / git diff / git log) before rewriting the plan. Confidence: 0.95
 - Uses mid-turn one-line redirects like "lets go" / "continue" / "OK" to authorize proceeding without further questions — resume directly without recap. Confidence: 0.85
 - Picks scope via AskUserQuestion options rather than free-form answers; honors the chosen scope precisely without adding unrequested work. Confidence: 0.7
