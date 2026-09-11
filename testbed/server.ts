@@ -269,12 +269,22 @@ function broadcast(msg: unknown) {
 // Prod processes inbound serially per thread; a second text waits its turn
 // instead of vanishing. FIFO here too — dropping differed from iMessage.
 let queue: Promise<void> = Promise.resolve()
-function enqueue(job: () => Promise<void>) {
-  queue = queue.then(job).catch(() => undefined)
+function enqueue(job: () => Promise<void>): Promise<void> {
+  // Return the chained promise: without it the caller resolves as soon as the
+  // job is queued, so an await (and any timing built on it) measures insertion
+  // instead of the reply.
+  const run = queue.then(job).catch(() => undefined)
+  queue = run
+  return run
 }
 async function handleInbound(text: string, photo?: { bytes: Uint8Array; mime: string }) {
+  // Each inbound message is timestamped when it ARRIVES, not when the queue
+  // reaches it, so the reported time is what the user actually waited — queue
+  // time included.
+  const arrived = Date.now()
   return enqueue(async () => {
     await runTurn(text, photo)
+    console.log(`[testbed] TURN ${Date.now() - arrived}ms (queued ${Date.now() - arrived > 0 ? '' : ''}):: ${text.slice(0, 60)}`)
   })
 }
 async function runTurn(text: string, photo?: { bytes: Uint8Array; mime: string }) {

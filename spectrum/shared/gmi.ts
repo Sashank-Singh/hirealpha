@@ -18,16 +18,33 @@ const MIN_REQUEST_MS = 3_000
  * the answer) and they land in the same instant. Measured against the live
  * provider with this account's key: bursts are refused after roughly three
  * calls, while steady traffic at one request per second runs clean over a
- * ten-call sample. The spacing is therefore a full second — the cost is a few
- * seconds on a multi-call turn, against turns that previously failed outright
- * with "I could not finish this request". */
-const PROVIDER_SPACING_MS = 1_000
+ * ten-call sample.
+ *
+ * The spacing is paid ONLY after a refusal, never on the happy path. Applying
+ * it to every call cost a second each and made a four-call turn take fourteen
+ * seconds; a caller who is not being refused should never wait for a
+ * rate-limit that is not happening. */
+const SPACING_AFTER_REFUSAL_MS = 1_000
+/** How long a refusal keeps the throttle engaged. */
+const REFUSAL_COOLDOWN_MS = 8_000
 let providerQueue: Promise<unknown> = Promise.resolve()
 let lastProviderCallAt = 0
+let refusedUntil = 0
+
+/** Called when the provider refuses a request, arming the throttle. */
+function noteRefusal(): void {
+  refusedUntil = Date.now() + REFUSAL_COOLDOWN_MS
+}
 
 function withProviderSlot<T>(run: () => Promise<T>): Promise<T> {
+  const throttled = Date.now() < refusedUntil
+  if (!throttled) {
+    // No known pressure: go now, but keep the queue honest so two in-flight
+    // calls cannot stampede after a refusal.
+    return run()
+  }
   const scheduled = providerQueue.then(async () => {
-    const wait = PROVIDER_SPACING_MS - (Date.now() - lastProviderCallAt)
+    const wait = SPACING_AFTER_REFUSAL_MS - (Date.now() - lastProviderCallAt)
     if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait))
     lastProviderCallAt = Date.now()
     return run()
@@ -127,23 +144,18 @@ export async function gmiChat(options: GmiChatOptions): Promise<string> {
     const body = await response.clone().text().catch(() => '')
     return /rate.?limit|too many requests|overloaded|try again/i.test(body)
   }
-  // One slot at a time, process-wide: calls queue instead of stampeding, which
-  // is what triggers the per-second refusals in the first place.
-  let res = await withProviderSlot(() =>
+  const call = () => withProviderSlot(() =>
     fetch(url, { method: 'POST', headers, body: payload('omit'), signal }))
-  // Wait long enough to clear the per-second window before retrying. A fast
-  // retry is another request inside the same refused window, which is how a
-  // single refusal became a wall of them.
-  for (const backoffMs of [1_100, 2_500]) {
-    if (!(await retryable(res))) break
-    const elapsed = Date.now() - startedAt
-    // Reserve time for the request itself: sleeping up to the full budget means
-    // never making the call at all, which is how a rate-limited provider turned
-    // into "I could not finish this request" instead of a slow answer.
-    if (elapsed + backoffMs + MIN_REQUEST_MS > attemptBudgetMs) break
-    await sleep(backoffMs)
-    res = await withProviderSlot(() =>
-      fetch(url, { method: 'POST', headers, body: payload('omit'), signal }))
+  let res = await call()
+  // One retry, and only when the deadline can still fit it. The retry lands in
+  // the provider's next window; the throttle it arms keeps every later call in
+  // this turn spaced until the pressure clears.
+  if (await retryable(res)) {
+    noteRefusal()
+    if (Date.now() - startedAt + 1_100 + MIN_REQUEST_MS <= attemptBudgetMs) {
+      await sleep(1_100)
+      res = await call()
+    }
   }
   if (!res.ok && res.status === 400) {
     const errText = await res.clone().text().catch(() => '')

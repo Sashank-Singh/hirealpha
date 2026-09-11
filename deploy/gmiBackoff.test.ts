@@ -2,7 +2,7 @@ import { describe, expect, it } from 'bun:test'
 
 // Verify gmiChat retries 429 with backoff instead of surfacing a canned failure.
 describe('gmi 429 backoff', () => {
-  it('retries rate limits with short waits and succeeds', async () => {
+  it('retries a rate limit once, after a wait long enough to clear the window', async () => {
     const { gmiChat } = await import('/Users/sashanksingh/Projects/HireAlpha/spectrum/shared/gmi')
     const realFetch = globalThis.fetch
     const times: number[] = []
@@ -10,22 +10,17 @@ describe('gmi 429 backoff', () => {
     globalThis.fetch = (async () => {
       calls++
       times.push(Date.now())
-      if (calls < 3) return new Response(JSON.stringify({ error: 'Rate limit exceeded' }), { status: 429 })
+      if (calls < 2) return new Response(JSON.stringify({ error: 'Rate limit exceeded' }), { status: 429 })
       return new Response(JSON.stringify({ choices: [{ message: { content: 'ok' } }] }), { status: 200 })
     }) as unknown as typeof fetch
     try {
       const reply = await gmiChat({ messages: [{ role: 'user', content: 'hi' }], timeoutMs: 20_000, apiKey: 'k' })
       expect(reply).toBe('ok')
-      expect(calls).toBe(3)
-      // Waits are short on purpose: the provider refuses per-second bursts,
-      // and a long ladder turned one refusal into four extra requests. Each
-      // gap still carries the retry wait plus the process-wide call spacing.
-      const gap1 = times[1]! - times[0]!
-      const gap2 = times[2]! - times[1]!
-      expect(gap1).toBeGreaterThanOrEqual(350)
-      expect(gap2).toBeGreaterThanOrEqual(1000)
-      // The ladder is deliberately short so retries cannot amplify a burst.
-      expect(calls).toBeLessThanOrEqual(3)
+      expect(calls).toBe(2)
+      // Exactly one retry: a longer ladder is itself a burst and made the
+      // refusals worse (measured). The wait clears the provider's per-second
+      // window so the retry lands in a fresh one.
+      expect(times[1]! - times[0]!).toBeGreaterThanOrEqual(1_000)
     } finally {
       globalThis.fetch = realFetch
     }

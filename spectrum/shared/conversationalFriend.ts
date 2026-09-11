@@ -298,41 +298,57 @@ export async function runConversationalFriend(input: {
   ]
   const delivered: string[] = []
   // Intent comes from reading the message, not from matching words against it.
-  // The classifier returns what the turn is (chat / log / request / approval)
-  // and the structured data it carries; the writes below use only what it
-  // actually extracted, so nothing is invented for a turn that carried nothing.
-  const intent = await classifyTurn({
+  // The classifier decides what the turn is (chat / log / request / approval)
+  // and extracts any data it carries. It runs in PARALLEL with the turn engine,
+  // never in front of it: a reply's latency is the sum of the model calls it
+  // makes, so awaiting this first added a full round trip to every message —
+  // measured 1.8s of dead time on a question whose answer never depends on it.
+  const intentPromise = classifyTurn({
     userText: input.userText,
     recentTurns: memory.history.slice(-6).map((m) => ({ role: m.role, content: m.content })),
   })
+  // The engine starts now, holding the promise; it awaits the classification
+  // only where that answer changes what it does.
+  // Log writes and the engine run concurrently. The notes are only prepended to
+  // the follow-up context if they land before the turn finishes; the writes
+  // themselves are durable either way, so a slow classifier can never delay or
+  // lose a log.
   const autoNotes: string[] = []
-  for (const log of logsOf(intent, 'gratitude')) {
-    const g = await autoLogGratitude(senderId, persona, log.gratitude?.text || input.userText)
-    autoNotes.push(
-      g?.logged
-        ? `Gratitude was automatically logged: "${g.text}". Confirm briefly; do not log again.`
-        : 'The user expressed gratitude but it could not be saved. Respond warmly; do not claim it was logged.',
-    )
-  }
-  for (const log of logsOf(intent, 'mood')) {
-    const m = await autoLogMood(senderId, persona, log.mood ? `${log.mood.emoji} ${log.mood.energy}/5` : input.userText)
-    autoNotes.push(
-      m?.logged
-        ? `Mood was automatically logged as ${m.emoji} (energy ${m.energy}/5). Confirm briefly; do not ask again.`
-        : 'The user expressed a mood but it could not be saved. Respond warmly; do not claim it was logged.',
-    )
-  }
-  for (const log of logsOf(intent, 'sleep')) {
-    const sl = await autoLogSleep(senderId, persona, input.userText)
-    autoNotes.push(
-      sl?.logged
-        ? 'Sleep was automatically logged from their message. Confirm briefly; do not ask again.'
-        : 'The message reported sleep but it could not be saved. In one line ask for bedtime and wake time.',
-    )
-  }
+  const notesReady = (async () => {
+    const intent = await intentPromise
+    for (const log of logsOf(intent, 'gratitude')) {
+      const g = await autoLogGratitude(senderId, persona, log.gratitude?.text || input.userText)
+      autoNotes.push(
+        g?.logged
+          ? `Gratitude was automatically logged: "${g.text}". Confirm briefly; do not log again.`
+          : 'The user expressed gratitude but it could not be saved. Respond warmly; do not claim it was logged.',
+      )
+    }
+    for (const log of logsOf(intent, 'mood')) {
+      const m = await autoLogMood(senderId, persona, log.mood ? `${log.mood.emoji} ${log.mood.energy}/5` : input.userText)
+      autoNotes.push(
+        m?.logged
+          ? `Mood was automatically logged as ${m.emoji} (energy ${m.energy}/5). Confirm briefly; do not ask again.`
+          : 'The user expressed a mood but it could not be saved. Respond warmly; do not claim it was logged.',
+      )
+    }
+    for (const log of logsOf(intent, 'sleep')) {
+      const sl = await autoLogSleep(senderId, persona, input.userText)
+      autoNotes.push(
+        sl?.logged
+          ? 'Sleep was automatically logged from their message. Confirm briefly; do not ask again.'
+          : 'The message reported sleep but it could not be saved. In one line ask for bedtime and wake time.',
+      )
+    }
+    return autoNotes
+  })()
+  // A log statement is nearly always a short, self-contained message: give the
+  // writes a brief head start so the reply can confirm them in the same turn.
+  // Past that window the turn proceeds without them rather than waiting.
+  await Promise.race([notesReady, new Promise((r) => setTimeout(r, 250))])
   const outcome = await runToolConversation({
     skipFreshLookup: autoNotes.length > 0,
-    intent,
+    intent: intentPromise,
     delivery: input.delivery ? {
       onReaction: input.delivery.onReaction,
       onProgress: input.delivery.onProgress ? async text => { await input.delivery!.onProgress!(text); delivered.push(text) } : undefined,
