@@ -51,6 +51,28 @@ async function applyMigrationBatch(sql: SQL, batch: string): Promise<void> {
 }
 
 export async function runMigrations(sql: SQL, migrationsDir = join(import.meta.dir, 'migrations')): Promise<string[]> {
+
+    // Migrations 0007/0008 ALTER tables the app creates at boot
+    // (hire_spend_approvals, hire_browser_jobs). A blank database — staging
+    // init, DR restore, certification — has no boot yet, so create the minimum
+    // tables here before the chain runs. Shapes mirror the ensure* functions;
+    // if they drift, the migration itself fails loudly instead of half-applying.
+    await sql`CREATE TABLE IF NOT EXISTS hire_spend_approvals (
+      id UUID PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      amount_cents INTEGER NOT NULL,
+      merchant TEXT NOT NULL,
+      purpose TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending'
+    )`
+    await sql`CREATE TABLE IF NOT EXISTS hire_browser_jobs (
+      id UUID PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      persona TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      url TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending'
+    )`
   await sql`
     CREATE TABLE IF NOT EXISTS hire_schema_migrations (
       name TEXT PRIMARY KEY,

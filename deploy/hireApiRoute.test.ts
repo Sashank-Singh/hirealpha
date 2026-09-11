@@ -124,3 +124,108 @@ describe('/api/network/:id touch', () => {
     expect(touch!.values).toContain('row-42')
   })
 })
+
+/* ---- Briefs already exist when the tap lands ----
+ * The brief is built when Alpha's text is sent (briefLoader persists it to
+ * hire_brief_cache); an open must serve that row at once and rebuild behind
+ * the response, never rebuild in the foreground while the user watches. */
+
+const todayIn = (tz: string) => new Date().toLocaleDateString('en-CA', { timeZone: tz })
+
+function rowsForBriefCache(user: typeof USER, row: { payload: unknown } | null) {
+  return (text: string) => {
+    if (/FROM hire_users/i.test(text)) return [user]
+    if (/FROM hire_brief_cache/i.test(text)) {
+      return row
+        ? [{ day: todayIn(user.timezone || 'America/Los_Angeles'), payload: JSON.stringify(row.payload), builtAt: new Date() }]
+        : []
+    }
+    return []
+  }
+}
+
+describe('/api/mini pick_night with a same-day brief row', () => {
+  it('serves the persisted row instantly and marks it revalidating', async () => {
+    const user = { ...USER, id: 'u-evening-row' }
+    const { sql } = fakeSql(
+      rowsForBriefCache(user, {
+        kind: 'pick_night',
+        title: 'Evening brief',
+        date: todayIn(user.timezone || 'America/Los_Angeles'),
+        sections: [{ heading: 'The day', items: ['2 meetings', '3 mails left'] }],
+      }),
+    )
+    const res = await handleHireApi(
+      new Request('https://hirealpha.chat/api/mini?persona=friend&kind=pick_night&email=a%40b.co'),
+      sql as never,
+    )
+    expect(res?.status).toBe(200)
+    const data = (await res?.json()) as { sections?: unknown[]; revalidating?: boolean; pending?: boolean; error?: string }
+    // The row, not a spinner: sections painted on the first response.
+    expect(data.sections).toHaveLength(1)
+    expect(data.revalidating).toBe(true)
+    expect(data.error).toBeUndefined()
+  })
+
+  it('answers pending for a user with no row rather than erroring', async () => {
+    const user = { ...USER, id: 'u-evening-cold' }
+    const { sql } = fakeSql(rowsForBriefCache(user, null))
+    const res = await handleHireApi(
+      new Request('https://hirealpha.chat/api/mini?persona=friend&kind=pick_night&email=a%40b.co'),
+      sql as never,
+    )
+    expect(res?.status).toBe(200)
+    const data = (await res?.json()) as { pending?: boolean; error?: string }
+    expect(data.pending).toBe(true)
+  })
+})
+
+describe('/api/digest with a same-day brief row', () => {
+  it('serves the persisted row instantly and marks it revalidating', async () => {
+    const user = { ...USER, id: 'u-morning-row' }
+    const { sql } = fakeSql(
+      rowsForBriefCache(user, {
+        kind: 'digest',
+        date: todayIn(user.timezone || 'America/Los_Angeles'),
+        calendar: ['9am · Standup'],
+        emails: ['Stripe: your payout'],
+      }),
+    )
+    const res = await handleHireApi(
+      new Request('https://hirealpha.chat/api/digest?persona=friend&email=a%40b.co'),
+      sql as never,
+    )
+    expect(res?.status).toBe(200)
+    const data = (await res?.json()) as { calendar?: string[]; revalidating?: boolean; pending?: boolean; error?: string }
+    expect(data.calendar).toEqual(['9am · Standup'])
+    expect(data.revalidating).toBe(true)
+  })
+})
+
+describe('/api/internal/digest', () => {
+  it('serves the built brief with the card kind and URL the text will carry', async () => {
+    process.env.HIREALPHA_INTERNAL_KEY = 'test-key'
+    const user = { ...USER, id: 'u-send-warm' }
+    const { sql } = fakeSql(
+      rowsForBriefCache(user, {
+        kind: 'digest',
+        date: todayIn(user.timezone || 'America/Los_Angeles'),
+        preview: '2 meetings, 3 mails need you',
+        text: 'Morning: 2 meetings, 3 mails need you.',
+      }),
+    )
+    const res = await handleHireApi(
+      new Request(
+        'https://hirealpha.chat/api/internal/digest?phone=%2B15551234567&persona=friend',
+        { headers: { Authorization: 'Bearer test-key' } },
+      ),
+      sql as never,
+    )
+    expect(res?.status).toBe(200)
+    const data = (await res?.json()) as { briefKind?: string; cardUrl?: string; text?: string }
+    expect(['digest', 'pick_night']).toContain(data.briefKind)
+    expect(data.cardUrl?.endsWith(`/${data.briefKind}`)).toBe(true)
+    // The bot phrases its text from this payload; an empty text means no brief goes out.
+    expect(data.text).toContain('Morning')
+  })
+})

@@ -4,16 +4,6 @@
   "history": [
     {
       "role": "user",
-      "content": "I did saved already",
-      "ts": 1788675414405
-    },
-    {
-      "role": "assistant",
-      "content": "Hey, I'm Alpha. Good to have you texting in. And nice, saving already, that's a habit most people skip. What else is on your mind today?",
-      "ts": 1788675414405
-    },
-    {
-      "role": "user",
       "content": "Connect to my calendar",
       "ts": 1788675434074
     },
@@ -81,6 +71,36 @@
       "role": "assistant",
       "content": "I could not finish this request with the results available. Please try again or narrow the request.",
       "ts": 1788928398971
+    },
+    {
+      "role": "user",
+      "content": "I’m not feeling well",
+      "ts": 1789144192411
+    },
+    {
+      "role": "assistant",
+      "content": "I hit a quick snag thinking through that. Can you say that once more?",
+      "ts": 1789144192411
+    },
+    {
+      "role": "user",
+      "content": "Omg please stop reminding me",
+      "ts": 1789147770531
+    },
+    {
+      "role": "assistant",
+      "content": "I hit a quick snag thinking through that. Can you say that once more?",
+      "ts": 1789147770531
+    },
+    {
+      "role": "user",
+      "content": "I will come to u when it’s needed",
+      "ts": 1789147779648
+    },
+    {
+      "role": "assistant",
+      "content": "I hit a quick snag thinking through that. Can you say that once more?",
+      "ts": 1789147779648
     }
   ]
 }

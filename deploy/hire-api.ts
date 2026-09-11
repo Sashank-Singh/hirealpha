@@ -5815,6 +5815,26 @@ export async function prewarmJudgeCaches(sql: SQL) {
           title: m.who || m.title,
         }))
         await loadJudgeVerdicts(sql, userId, rich, judgeMeets, tz)
+        /* Home rides the same sweep. The sweep just filled todayMeetsCache and
+         * the judge row, so warming the world slice costs one extra Gmail list
+         * read and leaves /api/home a cache hit for the next quarter hour —
+         * an open after a deploy or a quiet stretch paints instantly instead
+         * of rebuilding the world in front of the user. */
+        void homeWorldCache
+          .read(
+            `${userId}|${tz || 'America/Los_Angeles'}`,
+            () =>
+              loadHomeWorld(
+                sql,
+                {
+                  id: userId,
+                  timezone: tz || 'America/Los_Angeles',
+                  name: urows[0]?.name ?? undefined,
+                } as AuthedUser,
+                tz || 'America/Los_Angeles',
+              ),
+          )
+          .catch(() => undefined)
       } catch {
         // One user's prewarm must not stop the others.
       }
@@ -5897,7 +5917,11 @@ function prewarmHomeWorld(sql: SQL, user: { id: string; name?: string | null; ti
  * than one long stare at a spinner ever did. 900ms is the crossover: a load that
  * finishes under it is served on the spot, and anything slower is better handed
  * to the client's retry ladder than held open. */
-const digestCache = createStaleCache<Awaited<ReturnType<typeof digestPayload>>>({
+/* Both brief caches hold the loader's full result, payload plus the throttling
+ * flags, never a bare payload. Every writer goes through briefLoader, so a
+ * reader that spread a bare payload next to a wrapped one would serve
+ * `{ cardUrl }` — an empty brief — depending on which writer landed first. */
+const digestCache = createStaleCache<BriefLoadResult<Awaited<ReturnType<typeof digestPayload>>>>({
   ttlMs: 90_000,
   maxWaitMs: 4000,
   failureCooldownMs: 10_000,
@@ -5912,7 +5936,7 @@ const digestCache = createStaleCache<Awaited<ReturnType<typeof digestPayload>>>(
  * Its own cache rather than a shared one: the two briefs have different payload
  * shapes, and keying them together would let a morning read serve an evening
  * open. Same 90-second window, since both are answering "what has landed". */
-const eveningCache = createStaleCache<Awaited<ReturnType<typeof miniPayload>>>({
+const eveningCache = createStaleCache<BriefLoadResult<Awaited<ReturnType<typeof miniPayload>>>>({
   ttlMs: 90_000,
   maxWaitMs: 4000,
   failureCooldownMs: 10_000,
@@ -8493,7 +8517,7 @@ async function judgmentStatePayload(
         `${user.id}|${persona}`,
         () => briefLoader(sql, user.id, persona, 'digest', () => digestPayload(sql, user, persona), localDateStrInTz(new Date(), user.timezone || 'America/Los_Angeles')),
         BRIEF_WARM_WAIT_MS,
-      )).value
+      )).value?.payload
       calendar = (payload?.calendar || []).slice(0, 4)
       mail = (payload?.emails || []).slice(0, 3)
     } else {
@@ -10513,7 +10537,7 @@ export async function miniCardOgDescription(
         `${user.id}|${persona}`,
         () => briefLoader(sql, user.id, persona, 'digest', () => digestPayload(sql, user, persona), localDateStrInTz(new Date(), user.timezone || 'America/Los_Angeles')),
         BRIEF_WARM_WAIT_MS,
-      )).value
+      )).value?.payload
       if (!payload) return null
       return String(payload.preview || '').trim() || null
     }
@@ -10522,7 +10546,7 @@ export async function miniCardOgDescription(
         `${user.id}|${persona}`,
         () => briefLoader(sql, user.id, persona, 'pick_night', () => miniPayload(sql, user, persona, 'pick_night'), localDateStrInTz(new Date(), user.timezone || 'America/Los_Angeles')),
         BRIEF_WARM_WAIT_MS,
-      )).value
+      )).value?.payload
       if (!payload) return null
       const sections = (payload as { sections?: Array<{ heading: string; items?: string[] }> }).sections || []
       const lines = sections
@@ -12518,7 +12542,11 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
           day,
           { force },
         ),
-        force ? 6000 : 4000,
+        /* A same-day row means the brief was already built — at send time, or on
+         * any earlier open today. Waiting 4s for a rebuild before serving it is
+         * four seconds of spinner for data the user already owns; hand the row
+         * back at once and let the rebuild land behind it instead. */
+        sameDayCached ? 0 : force ? 6000 : 4000,
       )
       if (!brief.value && brief.pending) {
         if (sameDayCached) {
@@ -13176,6 +13204,12 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
       const day = localDateStrInTz(new Date(), user!.timezone || 'America/Los_Angeles')
       const force = url.searchParams.has('_t')
       if (force) eveningCache.drop(`${user!.id}|${persona}`)
+      /* Same-day persisted row = the brief already exists (built when the text
+       * was sent, or on an earlier open). Serve it the instant the tap lands and
+       * rebuild behind the response — the morning brief has worked this way, the
+       * evening one rebuilt in the foreground and made the user watch. */
+      const dbRow = force ? null : await readBriefDb(sql, user!.id, persona, 'pick_night')
+      const sameDayCached = dbRow && briefRowSameDay(dbRow.day, day) ? dbRow : null
       const brief = await eveningCache.read(
         `${user!.id}|${persona}`,
         () =>
@@ -13188,16 +13222,22 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
             day,
             { force },
           ),
-        force ? 0 : undefined,
+        force ? 0 : sameDayCached ? 0 : undefined,
       )
       if (!brief.value && brief.pending) {
         // Still loading behind this response. Never cached, or the retry reads it.
+        if (sameDayCached) {
+          return jsonRevalidated(req, 0, { ...sameDayCached.payload, revalidating: true })
+        }
         return json({ pending: true, note: 'Closing out your day.' }, 200)
       }
       /* Nothing cached and nothing running: the build failed, or is inside the
        * failure cooldown. Only `pending` earns a retry — the ladder is shorter
        * than the cooldown, so promising one here would just stall and then lie. */
       if (!brief.value) {
+        if (sameDayCached) {
+          return jsonRevalidated(req, 0, { ...sameDayCached.payload })
+        }
         return json({ error: 'Your evening brief did not build. Open again in a minute.' }, 200)
       }
       const load = brief.value
@@ -15293,19 +15333,49 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
     if (!phone || !isPersona(persona)) return json({ error: 'phone and persona required' }, 400)
     const user = await getUserByPhone(sql, phone)
     if (!user) return json({ error: 'User not found' }, 404)
-    const payload = (await digestCache.read(
-      `${user.id}|${persona}`,
-      () => digestPayload(sql, user, persona),
-      BRIEF_WARM_WAIT_MS,
-    )).value
-    if (!payload) return json({ error: 'Could not build the brief' }, 502)
-    // The card the bot texts must match the hour: the 21:00 evening wrap opens
-    // the evening brief screen, not the morning one.
+    /* The card this text carries must already have its brief on the server when
+     * the tap lands. Building through briefLoader (not a bare payload) is what
+     * makes that true: it persists the row to hire_brief_cache, so the open
+     * serves instantly even after this process has restarted and its in-memory
+     * cache is gone. The kind warmed is the kind the card opens — the evening
+     * wrap used to pre-build only the morning shape and leave the evening brief
+     * to build cold in front of the user. The text still comes from the digest
+     * payload for both (the evening payload carries no text line), so the
+     * evening warm runs beside it rather than instead of it. */
+    const tzWarm = user.timezone || 'America/Los_Angeles'
     const hour = Number(
-      new Date().toLocaleString('en-US', { hour: 'numeric', hour12: false, timeZone: user.timezone || 'America/Los_Angeles' }),
+      new Date().toLocaleString('en-US', { hour: 'numeric', hour12: false, timeZone: tzWarm }),
     )
     const briefKind = hour >= 16 ? 'pick_night' : 'digest'
-    prewarmHomeWorld(sql, user, user.timezone || 'America/Los_Angeles')
+    const day = localDateStrInTz(new Date(), tzWarm)
+    const eveningWarm =
+      briefKind === 'pick_night'
+        ? eveningCache
+            .read(
+              `${user.id}|${persona}`,
+              () =>
+                briefLoader(
+                  sql,
+                  user.id,
+                  persona,
+                  'pick_night',
+                  () => miniPayload(sql, user, persona, 'pick_night'),
+                  day,
+                ),
+              BRIEF_WARM_WAIT_MS,
+            )
+            .catch(() => null)
+        : null
+    const payload = (await digestCache.read(
+      `${user.id}|${persona}`,
+      () => briefLoader(sql, user.id, persona, 'digest', () => digestPayload(sql, user, persona), day),
+      BRIEF_WARM_WAIT_MS,
+    )).value?.payload
+    if (!payload) return json({ error: 'Could not build the brief' }, 502)
+    await eveningWarm
+    // The card the bot texts must match the hour: the 21:00 evening wrap opens
+    // the evening brief screen, not the morning one.
+    prewarmHomeWorld(sql, user, tzWarm)
     return json({
       ...payload,
       briefKind,

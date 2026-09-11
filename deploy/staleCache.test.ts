@@ -267,6 +267,27 @@ describe('createStaleCache', () => {
     expect(await read).toEqual({ value: null, fresh: false, pending: true })
   })
 
+  it('a zero wait hands back pending at once and still lands the load', async () => {
+    /* The same-day-row serve: the caller has something to paint already and
+     * passes 0 so the rebuild runs entirely behind the response. */
+    const clock = fakeClock()
+    const { load, calls } = deferredLoader<string>()
+    const cache = createStaleCache<string>({ ttlMs: 1000, maxWaitMs: 5000, now: clock.now, sleep: clock.sleep })
+
+    const first = cache.read('u1', () => load('u1'), 0)
+    await settle()
+    clock.advance(0)
+    expect(await first).toEqual({ value: null, fresh: false, pending: true })
+
+    calls[0]!.resolve('built behind it')
+    await settle()
+    expect(await cache.read('u1', () => load('u1'), 0)).toEqual({
+      value: 'built behind it',
+      fresh: true,
+      pending: false,
+    })
+  })
+
   it('shares one load between readers that disagree about the wait', async () => {
     const clock = fakeClock()
     const { load, calls } = deferredLoader<string>()
