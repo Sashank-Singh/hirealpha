@@ -12,7 +12,7 @@
  *   bun test spectrum/shared/turnIntent.test.ts
  */
 import { describe, expect, it } from 'bun:test'
-import { classifyTurn, logsOf, normalizeTurnIntent } from './turnIntent'
+import { classifyTurnStrict, ClassifierUnavailableError, logsOf, normalizeTurnIntent } from './turnIntent'
 
 describe('intent normalization', () => {
   it('drops a log entry that carries no payload for its domain', () => {
@@ -61,8 +61,35 @@ describe('intent normalization', () => {
 
 const live = Boolean(process.env.GMI_API_KEY)
 
+/** Classify for a test, retrying only when the PROVIDER was unavailable.
+ *
+ * The distinction is the point: a 429 tells us nothing about the classifier, so
+ * the run retries it, while a wrong answer or an unparseable reply fails on the
+ * spot. Without this a rate limit and a genuine misreading of the message look
+ * identical in the results, which is exactly how three real-looking failures
+ * were misattributed to the prompt. */
+async function classifyForTest(text: string, attempts = 4) {
+  let lastError: unknown
+  for (let i = 1; i <= attempts; i++) {
+    try {
+      return await classifyTurnStrict({ userText: text })
+    } catch (error) {
+      lastError = error
+      if (!(error instanceof ClassifierUnavailableError)) throw error
+      if (i < attempts) await new Promise((r) => setTimeout(r, 1_500 * i))
+    }
+  }
+  throw lastError
+}
+
 /** Messages that must be treated as conversation — nothing written. These are
- * the exact phrasings that regex got wrong. */
+ * the exact phrasings that regex got wrong.
+ *
+ * "Brief me on the second email" is deliberately NOT here. Reading a specific
+ * message needs the inbox, so the classifier calls it a request, and that is
+ * right: a request writes nothing, which is the property this list is about.
+ * Asserting 'chat' for it would have been asserting my own first guess rather
+ * than what the turn should do. */
 const MUST_BE_CHAT = [
   'good morning',
   'good night',
@@ -71,7 +98,6 @@ const MUST_BE_CHAT = [
   "I didn't spend $80",
   'I wish I could sleep for ten hours',
   "I'm tired of this app",
-  'Brief me on the second email',
   'I skipped lunch',
   'I should work out today',
   'my sister slept badly',
@@ -94,14 +120,14 @@ const MUST_LOG: Array<[string, string]> = [
 describe.skipIf(!live)('intent classification (live model)', () => {
   it('treats greetings, negations, and hypotheticals as conversation', async () => {
     for (const text of MUST_BE_CHAT) {
-      const intent = await classifyTurn({ userText: text })
+      const intent = await classifyForTest(text)
       expect({ text, kind: intent.kind }).toEqual({ text, kind: 'chat' })
     }
   }, 240_000)
 
   it('records completed facts', async () => {
     for (const [text, domain] of MUST_LOG) {
-      const intent = await classifyTurn({ userText: text })
+      const intent = await classifyForTest(text)
       expect({ text, kind: intent.kind }).toEqual({ text, kind: 'log' })
       expect({ text, domains: intent.kind === 'log' ? intent.logs.map((log) => log.domain) : [] })
         .toEqual({ text, domains: expect.arrayContaining([domain]) })
@@ -109,7 +135,7 @@ describe.skipIf(!live)('intent classification (live model)', () => {
   }, 240_000)
 
   it('reads a booking as a browser request, not a recommendation', async () => {
-    const intent = await classifyTurn({ userText: 'book me a table for 2 on opentable this friday at 8' })
+    const intent = await classifyForTest('book me a table for 2 on opentable this friday at 8')
     expect(intent.kind).toBe('request')
     if (intent.kind !== 'request') return
     expect(intent.request.needsBrowser).toBe(true)
@@ -117,13 +143,13 @@ describe.skipIf(!live)('intent classification (live model)', () => {
   }, 60_000)
 
   it('reads a current-facts question as a lookup request', async () => {
-    const intent = await classifyTurn({ userText: 'what is the latest news on apple' })
+    const intent = await classifyForTest('what is the latest news on apple')
     expect(intent.kind).toBe('request')
     if (intent.kind !== 'request') return
     expect(intent.request.needsLookup).toBe(true)
   }, 60_000)
 
   it('does not treat an answerable question as a request', async () => {
-    expect((await classifyTurn({ userText: 'how are you doing today?' })).kind).toBe('chat')
+    expect((await classifyForTest('how are you doing today?')).kind).toBe('chat')
   }, 60_000)
 })

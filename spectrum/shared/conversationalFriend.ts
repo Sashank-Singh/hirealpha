@@ -1,6 +1,6 @@
 import type { DeliveryHooks } from './progressiveDelivery'
 import { sanitizeOutbound } from './runHireTurn'
-import { classifyTurn, logsOf } from './turnIntent'
+import { classifyTurnStrict, ClassifierUnavailableError, logsOf } from './turnIntent'
 import { getAgent, type AgentId } from '../../src/agents'
 import { runAgentLocally } from '../../src/agents/runtime'
 import { formatNowForAgent, pickUserTimezone } from '../../deploy/timezones'
@@ -303,9 +303,22 @@ export async function runConversationalFriend(input: {
   // never in front of it: a reply's latency is the sum of the model calls it
   // makes, so awaiting this first added a full round trip to every message —
   // measured 1.8s of dead time on a question whose answer never depends on it.
-  const intentPromise = classifyTurn({
+  // Strict, so an outage is VISIBLE instead of silently becoming "chat".
+  // The lenient wrapper turns any failure into {kind:'chat'}, which meant a
+  // rate-limited classifier and a model that genuinely read the message wrong
+  // were indistinguishable — the exact problem that made three test failures
+  // impossible to diagnose. This records which one happened and still never
+  // blocks the reply.
+  const intentPromise = classifyTurnStrict({
     userText: input.userText,
     recentTurns: memory.history.slice(-6).map((m) => ({ role: m.role, content: m.content })),
+  }).catch((error) => {
+    if (error instanceof ClassifierUnavailableError) {
+      console.warn('[intent] classifier unavailable this turn; continuing without it', error.message.slice(0, 200))
+    } else {
+      console.warn('[intent] classification failed', error instanceof Error ? error.message.slice(0, 200) : error)
+    }
+    return { kind: 'chat' } as const
   })
   // The engine starts now, holding the promise; it awaits the classification
   // only where that answer changes what it does.

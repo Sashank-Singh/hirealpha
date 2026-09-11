@@ -240,14 +240,45 @@ Reply with JSON only. No prose, no code fences.`
  * Classify one turn. Tuned for latency (short reply, low token cap) and it
  * fails to 'chat' — the safe default is to write nothing and answer normally.
  */
+/**
+ * Classify one turn. On any failure — provider error, unparseable reply — this
+ * resolves to 'chat', the safe default: write nothing, answer normally.
+ *
+ * That collapse is correct for production and useless for verification, which
+ * is why `classifyTurnStrict` exists: it throws on provider failure instead of
+ * masking it, so a test can tell 'the model said chat' from 'the model was
+ * never asked'. A missed classification that looked like a provider hiccup —
+ * and vice versa — is otherwise undiagnosable.
+ */
 export async function classifyTurn(input: ClassifyInput): Promise<TurnIntent> {
+  try {
+    return await classifyTurnStrict(input)
+  } catch {
+    // A classifier outage must never write something wrong or block the reply.
+    return { kind: 'chat' }
+  }
+}
+
+export class ClassifierUnavailableError extends Error {
+  constructor(cause: unknown) {
+    super(`Intent classification could not reach the model: ${cause instanceof Error ? cause.message : String(cause)}`)
+    this.name = 'ClassifierUnavailableError'
+  }
+}
+
+export async function classifyTurnStrict(input: ClassifyInput): Promise<TurnIntent> {
   const text = input.userText.trim()
   if (!text) return { kind: 'chat' }
   const context = (input.recentTurns ?? []).slice(-6)
     .map((turn) => `${turn.role === 'user' ? 'Them' : 'Assistant'}: ${turn.content.slice(0, 300)}`)
     .join('\n')
+  // A transport failure IS "could not reach the model", so it is wrapped here.
+  // Leaving it raw made the two failure modes indistinguishable to callers: a
+  // rate-limited classifier looked exactly like a message the model had read
+  // wrong, and there was no way to tell a retry from a real miss.
+  let raw: string
   try {
-    const raw = await gmiChat({
+    raw = await gmiChat({
       temperature: 0,
       maxTokens: 200,
       timeoutMs: 12_000,
@@ -260,14 +291,13 @@ export async function classifyTurn(input: ClassifyInput): Promise<TurnIntent> {
         { role: 'user', content: text },
       ],
     })
-    const start = raw.indexOf('{')
-    const end = raw.lastIndexOf('}')
-    if (start === -1 || end <= start) return { kind: 'chat' }
-    return normalizeTurnIntent(JSON.parse(raw.slice(start, end + 1)))
-  } catch {
-    // A classifier outage must never write something wrong or block the reply.
-    return { kind: 'chat' }
+  } catch (error) {
+    throw new ClassifierUnavailableError(error)
   }
+  const start = raw.indexOf('{')
+  const end = raw.lastIndexOf('}')
+  if (start === -1 || end <= start) throw new ClassifierUnavailableError(`unparseable reply: ${raw.slice(0, 120)}`)
+  return normalizeTurnIntent(JSON.parse(raw.slice(start, end + 1)))
 }
 
 /** All log payloads of a given domain, for callers that handle one at a time. */
