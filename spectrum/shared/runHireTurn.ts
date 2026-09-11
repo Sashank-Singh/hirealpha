@@ -435,11 +435,18 @@ function looksLikeLifeTap(text: string) {
   return /^(eat|skip|later|ok|okay|done|send|in|out|log|yes|yeah)\b/.test(t)
 }
 
+/** Mood answers only. "good morning" / "good night" / "ok thanks" are greetings
+ * and acknowledgements, not mood reports — matching them silently logged a mood
+ * with an invented energy score. A trailing greeting word disqualifies the
+ * match, and the whole message must be the mood (nothing but filler after). */
+const MOOD_GREETING = /\b(?:morning|night|evening|afternoon|day|to see you|to meet you|thanks|thank you|luck|job)\b/i
+
 export function looksLikeMoodReply(text: string) {
   const t = text.trim()
   if (!t || t.length > 40) return false
   if (/^[😄🙂😐😔😤]+$/u.test(t)) return true
-  return /^(i'?m|i am)?\s*(good|fine|okay|ok|great|meh|tired|exhausted|sad|down|rough|bad|angry|stressed|frustrated|great!?)\b/i.test(t)
+  if (MOOD_GREETING.test(t)) return false
+  return /^(?:(?:i'?m|i am)\s+)?(good|fine|okay|ok|great|meh|tired|exhausted|sad|down|rough|bad|angry|stressed|frustrated)(?:\s+(?:out|today|thanks|right now|a bit|bit|tbh))?\s*[.!]*$/i.test(t)
 }
 
 export function looksLikeHabitDone(text: string) {

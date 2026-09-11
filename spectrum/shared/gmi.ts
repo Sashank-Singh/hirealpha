@@ -3,6 +3,11 @@ export interface GmiChatMessage {
   content: string
 }
 
+/** Hidden reasoning tokens the model may spend before it writes the visible
+ * answer. Sized from a measured gemini-3.7-flash fast reply (156 reasoning
+ * tokens) plus headroom for longer chains. */
+export const REASONING_TOKEN_HEADROOM = 400
+
 export interface GmiChatOptions {
   messages: GmiChatMessage[]
   temperature?: number
@@ -54,7 +59,12 @@ export async function gmiChat(options: GmiChatOptions): Promise<string> {
       messages: options.messages,
     }
     if (options.maxTokens) {
-      body.max_tokens = options.maxTokens
+      // Reasoning models (gemini-3.7-flash and thinking modes generally) spend
+      // a large share of max_tokens on hidden reasoning — measured ~150-170 of
+      // a 220 budget — which truncated visible replies mid-sentence
+      // ("Morning! Though it"). maxTokens is the ceiling on what the user
+      // reads, so the reasoning share is granted on top of it.
+      body.max_tokens = options.maxTokens + REASONING_TOKEN_HEADROOM
     }
     if (reasoningEffort && reasoningEffort !== 'omit') {
       body.reasoning_effort = reasoningEffort

@@ -171,7 +171,10 @@ describe('explicit navigation wins over conversation history', () => {
     expect(result.reply).toBe('Doing well. What is up with you?')
     expect(modelInputs).toHaveLength(1)
     const request = JSON.parse(modelInputs[0]!) as { max_tokens?: number; messages: Array<{ content: string }> }
-    expect(request.max_tokens).toBeLessThanOrEqual(240)
+    // 220 is the ceiling on the reply the user reads; reasoning models are
+    // granted their hidden share on top of it (REASONING_TOKEN_HEADROOM).
+    const { REASONING_TOKEN_HEADROOM } = await import('./gmi')
+    expect(request.max_tokens).toBeLessThanOrEqual(220 + REASONING_TOKEN_HEADROOM)
     expect(request.messages.every((message) => !message.content.includes('CONVERSATION_ENGINE'))).toBe(true)
     expect(request.messages.every((message) => !message.content.includes('Additional callable capabilities'))).toBe(true)
   })
