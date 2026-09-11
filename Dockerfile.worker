@@ -5,6 +5,7 @@ WORKDIR /app
 # Coolify healthchecks use curl/wget; playwright needs the rest via --with-deps
 RUN apt-get update \
   && apt-get install -y --no-install-recommends curl nodejs npm xvfb x11vnc novnc websockify openbox \
+    build-essential python3 \
   && rm -rf /var/lib/apt/lists/*
 COPY deploy/link-cli-package.json /opt/hirealpha-link/package.json
 RUN npm install --prefix /opt/hirealpha-link --omit=dev --ignore-scripts
