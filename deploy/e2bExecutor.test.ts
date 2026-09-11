@@ -57,12 +57,16 @@ describe('browser executor mode resolution', () => {
   it('requires both an API key and a template for E2B', () => {
     expect(resolveBrowserExecutorMode({ E2B_API_KEY: 'k', E2B_BROWSER_TEMPLATE: 'hirealpha-browser' })).toBe('e2b')
     // A bare key must not silently switch a free deployment onto a paid path.
-    expect(resolveBrowserExecutorMode({ E2B_API_KEY: 'k' })).toBe('local')
-    expect(resolveBrowserExecutorMode({ E2B_BROWSER_TEMPLATE: 'hirealpha-browser' })).toBe('local')
+    // A bare key or bare template must not silently enable either path.
+    expect(resolveBrowserExecutorMode({ E2B_API_KEY: 'k' })).toBe('disabled')
+    expect(resolveBrowserExecutorMode({ E2B_BROWSER_TEMPLATE: 'hirealpha-browser' })).toBe('disabled')
   })
 
-  it('defaults to free local execution with no configuration at all', () => {
-    expect(resolveBrowserExecutorMode({})).toBe('local')
+  it('fails closed with no configuration at all', () => {
+    // An unconfigured host used to default to local Chromium, which OOM-killed
+    // Postgres three times on the shared VPS. Nothing runs unless a mode is
+    // chosen deliberately.
+    expect(resolveBrowserExecutorMode({})).toBe('disabled')
   })
 
   it('lets an operator force a mode, including leaving a paid key unused', () => {
@@ -70,8 +74,8 @@ describe('browser executor mode resolution', () => {
     expect(resolveBrowserExecutorMode({ ...paidEnv, HIREALPHA_BROWSER_MODE: 'local' })).toBe('local')
     expect(resolveBrowserExecutorMode({ HIREALPHA_BROWSER_MODE: 'disabled' })).toBe('disabled')
     expect(resolveBrowserExecutorMode({ HIREALPHA_BROWSER_MODE: 'E2B' })).toBe('e2b')
-    // Nonsense falls through to auto-detection rather than disabling work.
-    expect(resolveBrowserExecutorMode({ HIREALPHA_BROWSER_MODE: 'yes' })).toBe('local')
+    // Nonsense falls through to auto-detection: unconfigured = disabled.
+    expect(resolveBrowserExecutorMode({ HIREALPHA_BROWSER_MODE: 'yes' })).toBe('disabled')
   })
 })
 
@@ -138,9 +142,10 @@ describe('sandbox egress policy', () => {
   })
 })
 
-describe('kill switch', () => {
-  it('names the switch an operator must clear', () => {
-    expect(DISABLED_ERROR).toContain('HIREALPHA_BROWSER_MODE=disabled')
+describe('fail-closed executor', () => {
+  it('tells the operator both ways back to a working browser', () => {
+    expect(DISABLED_ERROR).toContain('E2B_API_KEY')
+    expect(DISABLED_ERROR).toContain('HIREALPHA_BROWSER_MODE=local')
   })
 })
 

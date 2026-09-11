@@ -35,14 +35,14 @@ export function resolveBrowserExecutorMode(env: Record<string, string | undefine
   const forced = env.HIREALPHA_BROWSER_MODE?.trim().toLowerCase()
   if (forced === 'e2b' || forced === 'local' || forced === 'disabled') return forced
   if (env.E2B_API_KEY?.trim() && env.E2B_BROWSER_TEMPLATE?.trim()) return 'e2b'
-  // Local is the default: it needs no account and no per-task spend, and each
-  // task still gets its own browser process and profile. Set
-  // HIREALPHA_BROWSER_MODE=disabled to stop browser work entirely.
-  return 'local'
+  // Fail closed. Local Chromium on a shared host OOM-killed Postgres three
+  // times (1.27 GB peak per task measured); it is an explicitly flagged
+  // development/incident mode now, never a silent default.
+  return 'disabled'
 }
 
 export const DISABLED_ERROR =
-  'Browser tasks are disabled on this worker (HIREALPHA_BROWSER_MODE=disabled).'
+  'Browser tasks are disabled: no execution backend is configured. Set E2B_API_KEY + E2B_BROWSER_TEMPLATE for sandboxed execution, or HIREALPHA_BROWSER_MODE=local to explicitly accept reduced isolation on this host.'
 
 
 /** Run one browser task inside a dedicated sandbox. Provisions before `run`,

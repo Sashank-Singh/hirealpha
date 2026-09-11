@@ -45,44 +45,33 @@ async function applyMigrationBatch(sql: SQL, batch: string): Promise<void> {
   const handle = await reserved.call(sql)
   try {
     await (handle as UnsafeSql).unsafe(batch)
+  } catch (error) {
+    if (process.env.MIGRATE_DEBUG === '1') console.error('[migrate] batch failed:', error instanceof Error ? error.message.slice(0, 300) : error)
+    throw error
   } finally {
     handle.release()
   }
 }
 
 export async function runMigrations(sql: SQL, migrationsDir = join(import.meta.dir, 'migrations')): Promise<string[]> {
-
-    // Migrations 0007/0008 ALTER tables the app creates at boot
-    // (hire_spend_approvals, hire_browser_jobs). A blank database — staging
-    // init, DR restore, certification — has no boot yet, so create the minimum
-    // tables here before the chain runs. Shapes mirror the ensure* functions;
-    // if they drift, the migration itself fails loudly instead of half-applying.
-    await sql`CREATE TABLE IF NOT EXISTS hire_spend_approvals (
-      id UUID PRIMARY KEY,
-      user_id TEXT NOT NULL,
-      amount_cents INTEGER NOT NULL,
-      merchant TEXT NOT NULL,
-      purpose TEXT NOT NULL,
-      status TEXT NOT NULL DEFAULT 'pending'
-    )`
-    await sql`CREATE TABLE IF NOT EXISTS hire_browser_jobs (
-      id UUID PRIMARY KEY,
-      user_id TEXT NOT NULL,
-      persona TEXT NOT NULL,
-      kind TEXT NOT NULL,
-      url TEXT NOT NULL,
-      status TEXT NOT NULL DEFAULT 'pending'
-    )`
-  await sql`
-    CREATE TABLE IF NOT EXISTS hire_schema_migrations (
-      name TEXT PRIMARY KEY,
-      checksum TEXT NOT NULL CHECK (checksum ~ '^[a-f0-9]{64}$'),
-      applied_at TIMESTAMPTZ NOT NULL DEFAULT now()
-    )
-  `
+  // Every statement below — including the ledger and base-table creation — runs
+  // under the advisory lock: two runners racing otherwise collide on
+  // CREATE TABLE in the Postgres catalogs (pg_type duplicate key) before the
+  // lock that should have serialized them is even taken.
   await sql`SELECT pg_advisory_lock(hashtextextended('hirealpha-schema-migrations', 0))`
   const applied: string[] = []
   try {
+    await sql`
+      CREATE TABLE IF NOT EXISTS hire_schema_migrations (
+        name TEXT PRIMARY KEY,
+        checksum TEXT NOT NULL CHECK (checksum ~ '^[a-f0-9]{64}$'),
+        applied_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      )
+    `
+    // The base migration below creates hire_spend_approvals and
+    // hire_browser_jobs, which 0007/0008 ALTER: historically these existed only
+    // after a web boot, so a blank database failed mid-chain. They live in a
+    // migration now (2026090900065), so no runtime bootstrap is needed here.
     const all = await readdir(migrationsDir)
     const entries = all.filter((name) => MIGRATION_NAME.test(name)).sort()
     // Unmatched .sql files mean a naming or packaging mistake. Fail loudly
