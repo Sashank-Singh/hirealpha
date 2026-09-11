@@ -128,19 +128,24 @@ describe('/api/network/:id touch', () => {
 /* ---- Briefs already exist when the tap lands ----
  * The brief is built when Alpha's text is sent (briefLoader persists it to
  * hire_brief_cache); an open must serve that row at once and rebuild behind
- * the response, never rebuild in the foreground while the user watches. */
+ * the response, never rebuild in the foreground while the user watches.
+ *
+ * The build side is hung forever in these tests (every non-brief query never
+ * resolves): the assertion is that the handler does NOT wait on it. */
 
 const todayIn = (tz: string) => new Date().toLocaleDateString('en-CA', { timeZone: tz })
 
-function rowsForBriefCache(user: typeof USER, row: { payload: unknown } | null) {
+function rowsForBriefCache(user: typeof USER, payload: Record<string, unknown> | null, ageMs = 10 * 60_000) {
   return (text: string) => {
     if (/FROM hire_users/i.test(text)) return [user]
     if (/FROM hire_brief_cache/i.test(text)) {
-      return row
-        ? [{ day: todayIn(user.timezone || 'America/Los_Angeles'), payload: JSON.stringify(row.payload), builtAt: new Date() }]
+      return payload
+        ? [{ day: todayIn(user.timezone || 'America/Los_Angeles'), payload: JSON.stringify(payload), builtAt: new Date(Date.now() - ageMs) }]
         : []
     }
-    return []
+    // The build never finishes, so whatever the handler answers, it answers
+    // without the rebuild — which is the whole point under test.
+    return new Promise(() => {}) as never
   }
 }
 
@@ -161,9 +166,11 @@ describe('/api/mini pick_night with a same-day brief row', () => {
     )
     expect(res?.status).toBe(200)
     const data = (await res?.json()) as { sections?: unknown[]; revalidating?: boolean; pending?: boolean; error?: string }
-    // The row, not a spinner: sections painted on the first response.
+    // The row, not a spinner: sections painted on the first response, flagged
+    // so the client keeps polling for the rebuild landing behind it.
     expect(data.sections).toHaveLength(1)
     expect(data.revalidating).toBe(true)
+    expect(data.pending).toBeUndefined()
     expect(data.error).toBeUndefined()
   })
 
@@ -199,6 +206,7 @@ describe('/api/digest with a same-day brief row', () => {
     const data = (await res?.json()) as { calendar?: string[]; revalidating?: boolean; pending?: boolean; error?: string }
     expect(data.calendar).toEqual(['9am · Standup'])
     expect(data.revalidating).toBe(true)
+    expect(data.pending).toBeUndefined()
   })
 })
 
@@ -208,11 +216,12 @@ describe('/api/internal/digest', () => {
     const user = { ...USER, id: 'u-send-warm' }
     const { sql } = fakeSql(
       rowsForBriefCache(user, {
+
         kind: 'digest',
         date: todayIn(user.timezone || 'America/Los_Angeles'),
         preview: '2 meetings, 3 mails need you',
         text: 'Morning: 2 meetings, 3 mails need you.',
-      }),
+      }, 5_000),
     )
     const res = await handleHireApi(
       new Request(
