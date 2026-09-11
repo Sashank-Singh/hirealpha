@@ -1,20 +1,25 @@
 /**
- * Fresh-sandbox execution for browser tasks.
+ * Browser task execution.
  *
- * Every hire_browser_jobs task that runs in production mode gets a brand-new
- * E2B sandbox: fresh Chromium, fresh filesystem, no shared state with any
- * other task. The sandbox receives only task-bound metadata — never
- * plaintext passwords, permanent provider tokens, OpenBao tokens, or
- * database credentials. The worker drives Chromium over CDP, so vault
- * credentials stay in worker memory and are typed into the page without ever
- * being written to the sandbox's env, disk, or logs.
+ * Every hire_browser_jobs task runs in its own browser: a fresh Chromium
+ * process with its own user-data dir and profile, closed in a finally. The
+ * browser never receives vault credentials, permanent provider tokens, OpenBao
+ * tokens, or database credentials — the worker drives it over CDP and types
+ * credentials into the page, so they stay in worker memory.
  *
- * Modes (resolveBrowserExecutorMode):
- *  - 'e2b'          E2B_API_KEY + E2B_BROWSER_TEMPLATE set → fresh sandbox per task.
- *  - 'local'        HIREALPHA_ALLOW_LOCAL_BROWSER=1 → the worker's own Chromium
- *                   (the noVNC session-view stack). Development/fallback gate;
- *                   must be set explicitly, never a silent default.
- *  - 'unconfigured' No sandbox and no gate → jobs fail closed.
+ * Two execution backends, one contract:
+ *
+ *  - 'local' (default, free)  A fresh Chromium process in the worker container.
+ *      Isolation is process-level: separate browser, separate profile, nothing
+ *      shared between tasks, destroyed after each one. The container is the
+ *      outer boundary. No third-party account, no per-task cost.
+ *  - 'e2b'   (paid, opt-in)   A fresh E2B sandbox per task — machine-level
+ *      isolation on top of process isolation, at a per-task price. Selected by
+ *      setting E2B_API_KEY + E2B_BROWSER_TEMPLATE.
+ *  - 'disabled'  Operator kill switch; jobs fail closed with a clear message.
+ *
+ * HIREALPHA_BROWSER_MODE forces a mode ('local' | 'e2b' | 'disabled') and wins
+ * over auto-detection, so a paid key can sit in the environment unused.
  */
 import type { SQL } from 'bun'
 import { appendAuditEvent } from '../services/trust/auditLedger'
@@ -24,16 +29,21 @@ import {
   type TaskEnvironmentProvider,
 } from '../services/trust/taskEnvironments'
 
-export type BrowserExecutorMode = 'e2b' | 'local' | 'unconfigured'
+export type BrowserExecutorMode = 'e2b' | 'local' | 'disabled'
 
 export function resolveBrowserExecutorMode(env: Record<string, string | undefined> = process.env): BrowserExecutorMode {
+  const forced = env.HIREALPHA_BROWSER_MODE?.trim().toLowerCase()
+  if (forced === 'e2b' || forced === 'local' || forced === 'disabled') return forced
   if (env.E2B_API_KEY?.trim() && env.E2B_BROWSER_TEMPLATE?.trim()) return 'e2b'
-  if (env.HIREALPHA_ALLOW_LOCAL_BROWSER === '1') return 'local'
-  return 'unconfigured'
+  // Local is the default: it needs no account and no per-task spend, and each
+  // task still gets its own browser process and profile. Set
+  // HIREALPHA_BROWSER_MODE=disabled to stop browser work entirely.
+  return 'local'
 }
 
-export const UNCONFIGURED_ERROR =
-  'Browser sandbox is not configured. Set E2B_API_KEY and E2B_BROWSER_TEMPLATE, or explicitly opt into local execution with HIREALPHA_ALLOW_LOCAL_BROWSER=1.'
+export const DISABLED_ERROR =
+  'Browser tasks are disabled on this worker (HIREALPHA_BROWSER_MODE=disabled).'
+
 
 /** Run one browser task inside a dedicated sandbox. Provisions before `run`,
  * destroys in a finally (success, error, cancellation and timeout all pass

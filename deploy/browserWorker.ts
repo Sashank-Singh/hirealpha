@@ -13,7 +13,7 @@ import { SQL } from 'bun'
 import { consumeBrowserApproval, ensureBrowserVaultSchema, getVaultCredentialsForTask, pushBrowserResultLoop } from './browserVault'
 import { vaultKey } from './vaultCrypto'
 import { runBrowserSession, type SessionTask } from './browserSession'
-import { UNCONFIGURED_ERROR, resolveBrowserExecutorMode, withTaskSandbox } from './e2bExecutor'
+import { DISABLED_ERROR, resolveBrowserExecutorMode, withTaskSandbox } from './e2bExecutor'
 import { E2BTaskEnvironmentProvider } from '../services/trust/taskEnvironments'
 import { reportLinkOutcome, retrieveLinkCard, retrieveLinkSpend, type LinkCardCredential } from './linkWallet'
 import { createLinkBackedSpendRequest, ensureUserPaymentsSchema, promoteApprovedLinkPurchases } from './userPayments'
@@ -260,13 +260,13 @@ export async function runJob(sql: SQL, job: JobRow, launch = runBrowserSession):
   })()
   if (!origin || !job.url.startsWith('https:')) return { ok: false, error: 'Job URL must be https.' }
 
-  // Task launch strategy. Production runs every task in a fresh E2B sandbox;
-  // the worker's own Chromium is an explicitly gated development fallback, and
-  // nothing runs at all when neither is configured. An injected launch (tests)
-  // bypasses the executor.
+  // Task launch strategy. Local mode (default) gives each task its own Chromium
+  // process and profile in this container — no account, no per-task cost. E2B
+  // adds machine-level isolation when a key is configured. An injected launch
+  // (tests) bypasses the executor.
   const executorMode = resolveBrowserExecutorMode()
-  if (executorMode === 'unconfigured' && launch === runBrowserSession) {
-    return { ok: false, error: UNCONFIGURED_ERROR }
+  if (executorMode === 'disabled' && launch === runBrowserSession) {
+    return { ok: false, error: DISABLED_ERROR }
   }
   const launchTask = (task: SessionTask) => {
     if (executorMode === 'e2b') {

@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'bun:test'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import {
-  UNCONFIGURED_ERROR,
+  DISABLED_ERROR,
   resolveBrowserExecutorMode,
   withTaskSandbox,
 } from './e2bExecutor'
@@ -54,14 +56,22 @@ function destroyRow() {
 describe('browser executor mode resolution', () => {
   it('requires both an API key and a template for E2B', () => {
     expect(resolveBrowserExecutorMode({ E2B_API_KEY: 'k', E2B_BROWSER_TEMPLATE: 'hirealpha-browser' })).toBe('e2b')
-    expect(resolveBrowserExecutorMode({ E2B_API_KEY: 'k' })).toBe('unconfigured')
-    expect(resolveBrowserExecutorMode({ E2B_BROWSER_TEMPLATE: 'hirealpha-browser' })).toBe('unconfigured')
+    // A bare key must not silently switch a free deployment onto a paid path.
+    expect(resolveBrowserExecutorMode({ E2B_API_KEY: 'k' })).toBe('local')
+    expect(resolveBrowserExecutorMode({ E2B_BROWSER_TEMPLATE: 'hirealpha-browser' })).toBe('local')
   })
 
-  it('only allows local execution through the explicit gate', () => {
-    expect(resolveBrowserExecutorMode({ HIREALPHA_ALLOW_LOCAL_BROWSER: '1' })).toBe('local')
-    expect(resolveBrowserExecutorMode({ HIREALPHA_ALLOW_LOCAL_BROWSER: 'true' })).toBe('unconfigured')
-    expect(resolveBrowserExecutorMode({})).toBe('unconfigured')
+  it('defaults to free local execution with no configuration at all', () => {
+    expect(resolveBrowserExecutorMode({})).toBe('local')
+  })
+
+  it('lets an operator force a mode, including leaving a paid key unused', () => {
+    const paidEnv = { E2B_API_KEY: 'k', E2B_BROWSER_TEMPLATE: 't' }
+    expect(resolveBrowserExecutorMode({ ...paidEnv, HIREALPHA_BROWSER_MODE: 'local' })).toBe('local')
+    expect(resolveBrowserExecutorMode({ HIREALPHA_BROWSER_MODE: 'disabled' })).toBe('disabled')
+    expect(resolveBrowserExecutorMode({ HIREALPHA_BROWSER_MODE: 'E2B' })).toBe('e2b')
+    // Nonsense falls through to auto-detection rather than disabling work.
+    expect(resolveBrowserExecutorMode({ HIREALPHA_BROWSER_MODE: 'yes' })).toBe('local')
   })
 })
 
@@ -128,9 +138,26 @@ describe('sandbox egress policy', () => {
   })
 })
 
-describe('fail-closed executor', () => {
-  it('explains what is missing instead of silently running locally', () => {
-    expect(UNCONFIGURED_ERROR).toContain('E2B_API_KEY')
-    expect(UNCONFIGURED_ERROR).toContain('HIREALPHA_ALLOW_LOCAL_BROWSER=1')
+describe('kill switch', () => {
+  it('names the switch an operator must clear', () => {
+    expect(DISABLED_ERROR).toContain('HIREALPHA_BROWSER_MODE=disabled')
+  })
+})
+
+describe('local browser isolation', () => {
+  it('gives every task its own profile directory and removes it afterwards', () => {
+    // The isolation claim in local mode is a browser process plus its own
+    // profile per task. This asserts the code that makes it true: a fresh
+    // mkdtemp profile handed to launchPersistentContext, and an rm of that
+    // directory in the finally block. launchPersistentContext is required —
+    // passing --user-data-dir as an argument is rejected by Playwright.
+    const source = readFileSync(join(import.meta.dir, 'browserSession.ts'), 'utf8')
+    expect(source).toContain("mkdtemp(join(tmpdir(), 'hirealpha-chrome-'))")
+    expect(source).toContain('launchPersistentContext(profileDir')
+    // The profile path must reach Playwright as an argument to
+    // launchPersistentContext, never as a chrome flag (Playwright rejects that).
+    expect(source).not.toMatch(/args:\s*\[[^\]]*user-data-dir/s)
+    expect(source).toContain('rm(profileDir, { recursive: true, force: true })')
+    expect(source).toContain('profileDir = launched.profileDir')
   })
 })

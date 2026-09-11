@@ -3,7 +3,10 @@
  * classic login+scrape. Fresh context per call, closed in finally — the same
  * zero-persistence contract as browserRunner.
  */
-import type { Browser, BrowserType } from 'playwright'
+import type { Browser, BrowserContext, BrowserType } from 'playwright'
+import { mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { runPortalLogin, runSteps, extractPageText } from './browserRunner'
 import { agentEnvCaller, buildVisionParts, executeAgentAction, isTerminal, pageShowsExactTotal, parseAgentAction, DEFAULT_AGENT_LIMITS, type PaymentCardSecrets } from './agentDriver'
 import type { PortalTask, PortalStep } from './browserVault'
@@ -35,12 +38,22 @@ export type SessionTask = {
 
 let remoteBrowser: Promise<Browser> | null = null
 
-async function launchChromium(task: Pick<SessionTask, 'cdpUrl'>): Promise<{ browser: Browser; owned: boolean }> {
+type Launched = {
+  browser: Browser
+  /** The context to use. A persistent launch already has one; a CDP connect does not. */
+  context: BrowserContext
+  owned: boolean
+  /** Set only for a locally-launched persistent profile; deleted with the task. */
+  profileDir?: string
+}
+
+async function launchChromium(task: Pick<SessionTask, 'cdpUrl'>): Promise<Launched> {
   const mod = (await eval('import("playwright")')) as { chromium: BrowserType }
   // A task-bound sandbox CDP endpoint always connects fresh and is closed
   // with the task — two tasks never share a browser, profile, or connection.
   if (task.cdpUrl) {
-    return { browser: await mod.chromium.connectOverCDP(task.cdpUrl), owned: true }
+    const browser = await mod.chromium.connectOverCDP(task.cdpUrl)
+    return { browser, context: await newContext(browser), owned: true }
   }
   const cdpUrl = process.env.BROWSER_CDP_URL?.trim()
   if (cdpUrl) {
@@ -48,26 +61,39 @@ async function launchChromium(task: Pick<SessionTask, 'cdpUrl'>): Promise<{ brow
       remoteBrowser = null
       throw error
     })
-    return { browser: await remoteBrowser, owned: false }
+    const browser = await remoteBrowser
+    return { browser, context: await newContext(browser), owned: false }
   }
-  return { browser: await mod.chromium.launch({
+  // Local mode: its own user-data directory per task. Playwright only honors
+  // that through launchPersistentContext (passing --user-data-dir as an
+  // argument is rejected), which also returns the context to drive.
+  const profileDir = await mkdtemp(join(tmpdir(), 'hirealpha-chrome-'))
+  const context = await mod.chromium.launchPersistentContext(profileDir, {
     headless: process.env.BROWSER_HEADFUL !== '1',
     args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
-  }), owned: true }
+    viewport: { width: 1280, height: 800 },
+    userAgent: USER_AGENT,
+  })
+  return { browser: context.browser() as Browser, context, owned: true, profileDir }
+}
+
+const USER_AGENT =
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
+
+async function newContext(browser: Browser): Promise<BrowserContext> {
+  return browser.newContext({ userAgent: USER_AGENT, viewport: { width: 1280, height: 800 } })
 }
 
 export async function runBrowserSession(task: SessionTask): Promise<{ ok: true; content: string } | { ok: false; error: string }> {
   let browser: Browser | null = null
   let ownedBrowser = false
+  let profileDir: string | undefined
   try {
     const launched = await launchChromium(task)
     browser = launched.browser
     ownedBrowser = launched.owned
-    const context = await browser.newContext({
-      userAgent:
-        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-      viewport: { width: 1280, height: 800 },
-    })
+    profileDir = launched.profileDir
+    const context = launched.context
     try {
       const page = await context.newPage()
       await installBrowserNetworkPolicy(page)
@@ -89,6 +115,9 @@ export async function runBrowserSession(task: SessionTask): Promise<{ ok: true; 
     return { ok: false, error: err instanceof Error ? err.message : String(err) }
   } finally {
     if (ownedBrowser) await browser?.close().catch(() => {})
+    // Nothing survives a task: the profile holds cookies, storage, and cache
+    // from whatever site was just visited, so it is deleted with the browser.
+    if (profileDir) await rm(profileDir, { recursive: true, force: true }).catch(() => {})
   }
 }
 
