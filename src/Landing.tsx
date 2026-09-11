@@ -1223,9 +1223,12 @@ export default function Landing() {
               <a href="#pricing">Pricing</a>
               <a href="#apps">Apps</a>
               <a href="#faq">FAQ</a>
-              {/* <a href="/app" className="btn btn--ghost btn--sm">
-                App
-              </a> */}
+              {/* Existing users need a way back in. The pricing CTAs only start
+                  a new checkout, so without this the landing page had no route
+                  to the dashboard for anyone already signed up. */}
+              <a href="/app/login" className="btn btn--ghost btn--sm">
+                Sign in
+              </a>
               <a href="#pricing" className="btn btn--primary btn--sm">
                 Get started
               </a>
