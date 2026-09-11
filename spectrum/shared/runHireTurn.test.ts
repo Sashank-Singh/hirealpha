@@ -77,7 +77,10 @@ describe('explicit navigation wins over conversation history', () => {
       const result = await runHireTurn({ agentId: 'friend', dataDir, senderId: 'test-user', userText })
       expect(result.reply).toBe('Tell me what happened.')
       expect(result.card).toBeNull()
-      expect(modelInputs[0]).toContain('CONVERSATION_ENGINE')
+      // Turn intent is classified first (see turnIntent.ts), so the engine's own
+      // prompt is no longer necessarily the first model call. What matters is
+      // that the conversation engine saw it and no write was triggered.
+      expect(modelInputs.some((input) => input.includes('CONVERSATION_ENGINE'))).toBe(true)
       expect(requests.some(url => /auto-log|mini\/run|brief|reminder/.test(url))).toBe(false)
     })
   }
@@ -92,8 +95,11 @@ describe('explicit navigation wins over conversation history', () => {
     const result = await runHireTurn({ agentId: 'friend', dataDir, senderId: 'test-user', userText: 'Yes, please' })
     expect(result.reply).toBe('Remembered.')
     expect(loadMemory(dataDir, 'test-user').facts.find(f => f.key === 'diet')?.value).toBe('Vegetarian restaurants')
-    expect(modelInputs[0]).toContain('I prefer vegetarian restaurants.')
-    expect(modelInputs[1]).toContain('Remembered: Vegetarian restaurants.')
+    // The engine's call carries the thread and the tool result; the classifier
+    // runs before it, so locate the engine turn rather than assuming index 0.
+    const engineTurns = modelInputs.filter((input) => input.includes('CONVERSATION_ENGINE'))
+    expect(engineTurns[0]).toContain('I prefer vegetarian restaurants.')
+    expect(modelInputs.some((input) => input.includes('Remembered: Vegetarian restaurants.'))).toBe(true)
   })
 
   it('resumes the saved task after connecting without requiring it again', async () => {

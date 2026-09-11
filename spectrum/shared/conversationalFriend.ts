@@ -1,5 +1,6 @@
 import type { DeliveryHooks } from './progressiveDelivery'
-import { looksLikeGratitudeLog, looksLikeMoodReply, looksLikeSleepLog, sanitizeOutbound } from './runHireTurn'
+import { sanitizeOutbound } from './runHireTurn'
+import { classifyTurn, logsOf } from './turnIntent'
 import { getAgent, type AgentId } from '../../src/agents'
 import { runAgentLocally } from '../../src/agents/runtime'
 import { formatNowForAgent, pickUserTimezone } from '../../deploy/timezones'
@@ -39,9 +40,10 @@ export function needsConversationPlanner(userText: string, memory: ThreadMemory)
   if (/^\//.test(text) || /https?:\/\//i.test(text)) return true
   if ((isAffirmativeApprovalIntent(text) || isNegativeCancellationIntent(text)) &&
       /\b(?:connect|remember|remind|log|save|send|draft|buy|purchase|order|book|browser|app|card)\b/i.test(lastAssistant)) return true
-  // Clear log statements always take the planner: the deterministic auto-log
-  // layer lives there and must see them ('grateful for the call today').
-  if (looksLikeGratitudeLog(text) || looksLikeMoodReply(text) || looksLikeSleepLog(text)) return true
+  // Everything else is decided by reading the turn (see classifyTurn). This
+  // function only answers "should the tool engine have a look at all?", so it
+  // errs toward yes and lets real intent classification do the work — a regex
+  // here once routed "book me a table" down the recommendation path.
   return /\b(?:remember|remind|track|log|save|connect|gmail|email|inbox|calendar|schedule|meeting|drive|show|open|pull up|dashboard|apps?|nutrition|meal|ate|eaten|sleep|slept|workout|exercise|habit|budget|spend|spent|spending|decision|open loops?|brief|buy|purchase|order|book|reserve|browser|website|log ?in|sign ?in|search|find|near me|restaurant|news|latest|price|weather|score|build|update (?:the|my|that) (?:app|game|site)|send|draft|forward)\b/i.test(text)
 }
 
@@ -295,35 +297,42 @@ export async function runConversationalFriend(input: {
     },
   ]
   const delivered: string[] = []
-  // Deterministic log layer: the classic path auto-logged clear gratitude /
-  // mood / sleep statements before the model ever saw them. The model-judged
-  // 'log' capability misses these (grateful-for phrasing read as chit-chat),
-  // so run the cheap gates here and hand the model the result as fact.
+  // Intent comes from reading the message, not from matching words against it.
+  // The classifier returns what the turn is (chat / log / request / approval)
+  // and the structured data it carries; the writes below use only what it
+  // actually extracted, so nothing is invented for a turn that carried nothing.
+  const intent = await classifyTurn({
+    userText: input.userText,
+    recentTurns: memory.history.slice(-6).map((m) => ({ role: m.role, content: m.content })),
+  })
   const autoNotes: string[] = []
-  if (looksLikeGratitudeLog(input.userText)) {
-    const g = await autoLogGratitude(senderId, persona, input.userText)
+  for (const log of logsOf(intent, 'gratitude')) {
+    const g = await autoLogGratitude(senderId, persona, log.gratitude?.text || input.userText)
     autoNotes.push(
       g?.logged
         ? `Gratitude was automatically logged: "${g.text}". Confirm briefly; do not log again.`
-        : 'The user expressed gratitude but it could not be parsed as a log entry. Respond warmly; do not claim it was logged.',
+        : 'The user expressed gratitude but it could not be saved. Respond warmly; do not claim it was logged.',
     )
-  } else if (looksLikeMoodReply(input.userText)) {
-    const m = await autoLogMood(senderId, persona, input.userText)
+  }
+  for (const log of logsOf(intent, 'mood')) {
+    const m = await autoLogMood(senderId, persona, log.mood ? `${log.mood.emoji} ${log.mood.energy}/5` : input.userText)
     autoNotes.push(
       m?.logged
         ? `Mood was automatically logged as ${m.emoji} (energy ${m.energy}/5). Confirm briefly; do not ask again.`
-        : 'The user expressed a mood but it could not be parsed as a log entry. Respond warmly; do not claim it was logged.',
+        : 'The user expressed a mood but it could not be saved. Respond warmly; do not claim it was logged.',
     )
-  } else if (looksLikeSleepLog(input.userText)) {
+  }
+  for (const log of logsOf(intent, 'sleep')) {
     const sl = await autoLogSleep(senderId, persona, input.userText)
     autoNotes.push(
       sl?.logged
         ? 'Sleep was automatically logged from their message. Confirm briefly; do not ask again.'
-        : 'The message looked like a sleep log but could not be parsed. In one line ask for bedtime and wake time.',
+        : 'The message reported sleep but it could not be saved. In one line ask for bedtime and wake time.',
     )
   }
   const outcome = await runToolConversation({
     skipFreshLookup: autoNotes.length > 0,
+    intent,
     delivery: input.delivery ? {
       onReaction: input.delivery.onReaction,
       onProgress: input.delivery.onProgress ? async text => { await input.delivery!.onProgress!(text); delivered.push(text) } : undefined,

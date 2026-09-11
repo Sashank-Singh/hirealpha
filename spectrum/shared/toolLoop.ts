@@ -1,4 +1,5 @@
 import { createProgressiveDelivery, type DeliveryHooks } from './progressiveDelivery'
+import type { TurnIntent } from './turnIntent'
 export const LIVE_TOOLS = ['maps', 'web', 'gmail', 'calendar', 'drive'] as const
 /** Work connectors the work hires can select as a single targeted read. The
  * server's /api/internal/live/tools whitelist and runToolsForMessage accept
@@ -60,6 +61,9 @@ export async function runToolConversation(input: {
   maxDurationMs?: number
   /** Deterministic auto-log already resolved this turn (gratitude/mood/sleep). Suppresses the forced fresh-lookup nudge. */
   skipFreshLookup?: boolean
+  /** This turn's classified intent, when the caller already read it. Lets the
+   * guards below act on what the user meant instead of re-matching words. */
+  intent?: TurnIntent
   capabilities?: ConversationCapability[]
 }): Promise<{ reply: string; draft?: SavedDraft }> {
   const messages = [...input.messages]
@@ -143,30 +147,39 @@ Reactions are optional and usually absent. You may add "reaction":"<emoji>" to a
     const draft = json ? parseExtractedWrite(JSON.stringify(json)) : parseDraftCall(raw)
     const directive = (!!json && json.action !== 'answer') || /^\s*(?:TOOL\b|DRAFT_|```|\{\s*"action")/i.test(raw)
     if (!lookup && !draft && !directive) {
-      // Lazy-answer guard: for time-sensitive asks, a plain-text answer with
-      // zero lookups is an invention risk (the model will claim it "searched").
+      // Lazy-answer guard. The classified intent decides what this turn needs;
+      // the word patterns below are only the fallback when the caller had no
+      // intent (older call sites and tests), because matching words is what
+      // sent "book me a table" down the recommendation path.
       const userAsk = [...input.messages].reverse().find((m) => m.role === 'user')?.content || ''
+      const request = input.intent?.kind === 'request' ? input.intent.request : null
       const continuation = /^(?:yes|yeah|yep|sure|please|go ahead|do it|continue|yes please)[.!\s]*$/i.test(userAsk.trim())
       const freshnessContext = continuation ? input.messages.filter(m => m.role !== 'system').slice(-3).map(m => m.content).join('\n') : userAsk
       const asksForPlaces = /\b(find|recommend|suggest|looking for|nice|good|best)\b/i.test(freshnessContext) && /\b(restaurants?|cafes?|coffee shops?|hotels?|places? to eat)\b/i.test(freshnessContext)
       const asksToBuy = /\b(buy|buy me|purchase|order me|order|get me|pay for)\b/i.test(freshnessContext)
-      const needsFresh = asksForPlaces || asksToBuy || /\b(news|latest|price|prices|how much (?:is|does|do)|score|who won|release date|next .{0,40}event|this week|today|yesterday|tonight|right now)\b/i.test(freshnessContext)
+      const needsFresh = request?.needsLookup === true || (request === null && (asksForPlaces || asksToBuy || /\b(news|latest|price|prices|how much (?:is|does|do)|score|who won|release date|next .{0,40}event|this week|today|yesterday|tonight|right now)\b/i.test(freshnessContext)))
       const attemptedWeb = [...seen].some(key => key.startsWith('web:'))
       // Booking/doing asks: a plain-text "queued it" with no browser action is a lie.
-      const needsBrowser =
-        /\b(book|reserve|reservation|order from|fill (?:out )?(?:the )?form|sign me up|check (?:my )?(?:account|portal))\b/i.test(userAsk)
+      const needsBrowser = request
+        ? request.needsBrowser
+        : /\b(book|reserve|reservation|order from|fill (?:out )?(?:the )?form|sign me up|check (?:my )?(?:account|portal))\b/i.test(userAsk)
       // A booking ask that already produced search results gets a second nudge
       // carrying the concrete site: without a portal URL the model answers with
       // directory links and never sends the browser action the user asked for.
       const browserNudgesAllowed = publicMatches.size > 0 ? 2 : 1
       if (needsBrowser && browserNudgeCount < browserNudgesAllowed) {
         browserNudgeCount++
-        const portal = [...publicMatches.keys()][0]
+        // Prefer the site the classifier read from the user's own words, then
+        // anything the search turned up.
+        const portal = request?.site || [...publicMatches.keys()][0]
+        const goal = request?.summary
+          ? `<one sentence carrying out: ${request.summary}>`
+          : '<one sentence naming the exact booking or action to perform there; preserve the date, time, and party size>'
         messages.push({ role: 'assistant', content: raw })
         messages.push({
           role: 'user',
           content: portal
-            ? `System note: you still have NOT sent the browser action, so nothing is queued. Reply with ONLY this object, using the site from your search results, and nothing else:\n{"action":"browser","portal":"${portal}","goal":"<one sentence naming the exact booking or action to perform there; preserve the user's date, time, and party size>"}`
+            ? `System note: you still have NOT sent the browser action, so nothing is queued. Reply with ONLY this object and nothing else:\n{"action":"browser","portal":"${portal}","goal":"${goal}"}`
             : 'System note: your previous reply claimed you queued a run, but you sent NO action object — nothing is queued. Reply with ONLY this, filled in from their message, and nothing else:\n{"action":"browser","portal":"<the https site they named>","goal":"<one sentence, what to accomplish there>"}',
         })
         continue
