@@ -56,6 +56,15 @@ import { getLinkStatus } from './linkWallet'
 import { ensureBrowserJobsSchema } from './browserJobs'
 import { openBaoBrokerFromEnv } from '../services/trust/userKeyBroker'
 import { handleTrustApi } from '../services/trust/trustApi'
+import {
+  CONSENT_PURPOSE,
+  categoryForKey,
+  ensureMemoryConsent,
+  listConsentedMemories,
+  maxRetentionDays,
+  storeConsentedMemory,
+} from '../services/trust/memoryLifecycle'
+import { memoryIndexFromEnv } from '../services/trust/memoryIndex'
 import { parseChatExport, scanSubscriptions } from '../spectrum/shared/smartFeatures'
 import {
   isValidTimeZone,
@@ -419,6 +428,12 @@ export async function ensurePhoneUser(
     INSERT INTO hire_roster (user_id, persona) VALUES (${userId}, ${persona})
     ON CONFLICT (user_id, persona) DO NOTHING
   `
+  // Hired means the person agreed to be remembered. Grant the persona's memory
+  // categories here so the consent gate has something to pass on the first
+  // fact; without it every memory write is refused and the hire is amnesiac.
+  await ensureMemoryConsent(sql, { userId, persona, source: 'hire_activation' }).catch((err) => {
+    console.warn('[memory] consent grant at activation failed', err)
+  })
   // The number is armed: give this hire its default recurring jobs. The
   // wakeup lands at 8am in the user's zone when one was captured at signup,
   // else 8am Pacific until the zone is learned later.
@@ -3816,6 +3831,17 @@ async function transcribeAudio(mimeType: string, audioBytes: Uint8Array): Promis
 
 export type MemoryRow = { key: string; value: string; durable: boolean; updatedAt?: string }
 
+/**
+ * One retrieval index for the process. `memoryIndexFromEnv()` reads config and
+ * constructs, and the mem0 backend caches its own connection lazily — calling
+ * it per write would open a new pool and re-initialise the embedder each time.
+ */
+let memoryIndexSingleton: ReturnType<typeof memoryIndexFromEnv> | null = null
+function getMemoryIndex(): ReturnType<typeof memoryIndexFromEnv> {
+  if (!memoryIndexSingleton) memoryIndexSingleton = memoryIndexFromEnv()
+  return memoryIndexSingleton
+}
+
 const DURABLE_KEYS = new Set([
   'preferred_name',
   'people',
@@ -3844,14 +3870,35 @@ export function isDurableKey(key: string) {
 }
 
 async function loadMemories(sql: SQL, userId: string, persona: Persona, limit = 12): Promise<MemoryRow[]> {
-  const rows = await sql`
+  // The encrypted, consent-gated memory_records table is authoritative. The
+  // plaintext hire_memories store is read only as a fallback for accounts the
+  // backfill has not reached yet, so deploying this cannot make a user's
+  // existing memory disappear.
+  const broker = openBaoBrokerFromEnv()
+  if (broker) {
+    try {
+      const stored = await listConsentedMemories(sql, broker, { userId, persona })
+      const rows = stored
+        .filter((memory) => memory.key)
+        .map((memory) => ({
+          key: memory.key as string,
+          value: memory.value,
+          durable: memory.durable,
+          updatedAt: memory.updatedAt.toISOString(),
+        }))
+      if (rows.length) return rankMemories(rows, limit)
+    } catch (err) {
+      console.warn('[memory] authoritative read failed; falling back to the legacy store', err)
+    }
+  }
+  const legacy = await sql`
     SELECT key, value, durable, updated_at AS "updatedAt"
     FROM hire_memories
     WHERE user_id = ${userId} AND persona = ${persona}
     ORDER BY durable DESC, updated_at DESC
     LIMIT ${limit}
   `
-  return (rows as { key: string; value: string; durable: boolean; updatedAt: Date }[]).map((r) => ({
+  return (legacy as { key: string; value: string; durable: boolean; updatedAt: Date }[]).map((r) => ({
     key: r.key,
     value: r.value,
     durable: !!r.durable,
@@ -3859,27 +3906,150 @@ async function loadMemories(sql: SQL, userId: string, persona: Persona, limit = 
   }))
 }
 
+/**
+ * The candidate set of facts for one turn.
+ *
+ * Three sources, unioned and capped:
+ *  - every identity/durable fact, because a turn is broken without them and
+ *    they must never lose a ranking contest to a recent triviality;
+ *  - the semantically nearest facts to what the user just said, which is the
+ *    whole point of the index — "what do I drink" has to reach a fact stored
+ *    as "drink_order" even though no word overlaps;
+ *  - the most recent facts, so a fresh fact is never invisible just because
+ *    the embedder has not been asked about it yet.
+ *
+ * Callers may treat failures as "no recall": a missing index degrades this to
+ * recency, which is exactly the previous behaviour.
+ */
+async function recallMemories(
+  sql: SQL,
+  userId: string,
+  persona: Persona,
+  query: string | undefined,
+  limit: number,
+): Promise<MemoryRow[]> {
+  const all = await loadMemories(sql, userId, persona, 200)
+  if (!all.length) return []
+  const pinned = all.filter((row) => isDurableKey(row.key))
+  const rest = all.filter((row) => !isDurableKey(row.key))
+
+  let recalled: MemoryRow[] = []
+  if (query && query.trim()) {
+    try {
+      const hits = await getMemoryIndex().search({
+        userId, persona, query: query.slice(0, 500), k: 20,
+      })
+      const byKey = new Map(all.map((row) => [row.key, row]))
+      const ranked = hits
+        .flatMap((hit) => {
+          const row = hit.key ? byKey.get(hit.key) : undefined
+          return row ? [row] : []
+        })
+      // De-duplicate while preserving the relevance order the index returned.
+      const seen = new Set<string>()
+      recalled = ranked.filter((row) => (seen.has(row.key) ? false : (seen.add(row.key), true)))
+    } catch (err) {
+      console.warn('[memory] recall failed; serving recency instead', err)
+    }
+  }
+
+  const merged: MemoryRow[] = []
+  const taken = new Set<string>()
+  for (const row of [...pinned, ...recalled, ...rest]) {
+    if (taken.has(row.key)) continue
+    taken.add(row.key)
+    merged.push(row)
+    if (merged.length >= limit) break
+  }
+  return merged
+}
+/**
+ * Order facts for the prompt: durable and identity first, then newest.
+ *
+ * This replaces `ORDER BY durable DESC, updated_at DESC` because the
+ * authoritative store returns facts by insertion, and identity facts must not
+ * be pushed out of a `LIMIT` by a recent trivial one.
+ */
+function rankMemories(rows: MemoryRow[], limit: number): MemoryRow[] {
+  return [...rows]
+    .sort((a, b) => {
+      const rank = (row: MemoryRow) => (isDurableKey(row.key) ? 0 : 1)
+      if (rank(a) !== rank(b)) return rank(a) - rank(b)
+      const left = a.updatedAt ? Date.parse(a.updatedAt) : 0
+      const right = b.updatedAt ? Date.parse(b.updatedAt) : 0
+      if (left !== right) return right - left
+      return a.key.localeCompare(b.key)
+    })
+    .slice(0, limit)
+}
+
+/**
+ * Write facts to the authoritative store and project them into the retrieval
+ * index. Consent is granted on demand here as well as at hire activation, so
+ * an account that predates that flow still starts remembering rather than
+ * silently failing every write.
+ */
 async function upsertMemories(
   sql: SQL,
   userId: string,
   persona: Persona,
   facts: Array<{ key: string; value: string; durable?: boolean }>,
 ) {
-  for (const f of facts) {
-    const key = String(f.key || '')
+  const broker = openBaoBrokerFromEnv()
+  const index = getMemoryIndex()
+  const cleaned = facts.flatMap((fact) => {
+    const key = String(fact.key || '')
       .trim()
       .toLowerCase()
       .replace(/\s+/g, '_')
       .slice(0, 80)
-    const value = String(f.value || '').trim().slice(0, 500)
-    if (!key || !value) continue
-    const durable = f.durable ?? isDurableKey(key)
-    await sql`
-      INSERT INTO hire_memories (user_id, persona, key, value, durable, updated_at)
-      VALUES (${userId}, ${persona}, ${key}, ${value}, ${durable}, now())
-      ON CONFLICT (user_id, persona, key)
-      DO UPDATE SET value = excluded.value, durable = hire_memories.durable OR excluded.durable, updated_at = now()
-    `
+    const value = String(fact.value || '').trim().slice(0, 500)
+    if (!key || !value) return []
+    return [{ key, value, durable: fact.durable ?? isDurableKey(key) }]
+  })
+  if (!cleaned.length) return
+
+  if (!broker) {
+    // No key broker configured: fall back to the legacy plaintext store rather
+    // than dropping the fact. This is the un-migrated deployment path.
+    for (const fact of cleaned) {
+      await sql`
+        INSERT INTO hire_memories (user_id, persona, key, value, durable, updated_at)
+        VALUES (${userId}, ${persona}, ${fact.key}, ${fact.value}, ${fact.durable}, now())
+        ON CONFLICT (user_id, persona, key)
+        DO UPDATE SET value = excluded.value, durable = hire_memories.durable OR excluded.durable, updated_at = now()
+      `
+    }
+    return
+  }
+
+  try {
+    await ensureMemoryConsent(sql, { userId, persona, source: 'memory_write' })
+  } catch (err) {
+    console.warn('[memory] could not ensure consent; memory write skipped', err)
+    return
+  }
+
+  for (const fact of cleaned) {
+    const category = categoryForKey(fact.key)
+    try {
+      await storeConsentedMemory(sql, broker, {
+        userId,
+        persona,
+        key: fact.key,
+        durable: fact.durable,
+        category,
+        purpose: CONSENT_PURPOSE,
+        // Stored as `key: value` so the index can match a row back to its fact
+        // key without a metadata round-trip, which mem0 does not provide.
+        content: `${fact.key}: ${fact.value}`,
+        retentionDays: maxRetentionDays(category),
+        source: 'chat',
+        index,
+      })
+    } catch (err) {
+      console.warn(`[memory] store failed for key ${fact.key}`, err)
+    }
   }
 }
 
@@ -9002,7 +9172,7 @@ async function miniPayload(
   return { kind, title: kind, date: dateLabel, sections: [], text: '' }
 }
 
-async function livePayload(sql: SQL, phone: string, persona: Persona) {
+async function livePayload(sql: SQL, phone: string, persona: Persona, query?: string) {
   const user = await getUserByPhone(sql, phone)
   if (!user) {
     return {
@@ -9023,7 +9193,7 @@ async function livePayload(sql: SQL, phone: string, persona: Persona) {
   const connected = hired
     ? (await connectedForUser(sql, user.id)).filter((id) => !PERSONA_DENIED[persona].has(id))
     : []
-  const memories = hired ? await loadMemories(sql, user.id, persona, 12) : []
+  const memories = hired ? await recallMemories(sql, user.id, persona, query, 40) : []
   const active = hired ? await pickActiveLocation(sql, user.id) : null
   let pro = false
   if (hired) {
@@ -10569,6 +10739,9 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
     `
     for (const p of ['friend', 'coworker', 'cofounder'] as const) {
       await sql`INSERT INTO hire_roster (user_id, persona, hired_at) VALUES (${user.id}, ${p}, now()) ON CONFLICT (user_id, persona) DO NOTHING`
+      await ensureMemoryConsent(sql, { userId: user.id, persona: p, source: 'admin_grant' }).catch((err) => {
+        console.warn('[memory] consent grant on admin grant failed', err)
+      })
     }
     return json({ ok: true, email, userId: user.id })
   }
@@ -10646,6 +10819,7 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
       return user ? { id: user.id } : null
     },
     keyBroker: openBaoBrokerFromEnv(),
+    memoryIndex: getMemoryIndex(),
   })
   if (trustRes) return trustRes
 
@@ -10920,6 +11094,9 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
           console.error('[hire] intro enqueue after roster change failed', err)
         }
       }
+      await ensureMemoryConsent(sql, { userId: user.id, persona, source: 'roster_change' }).catch((err) => {
+        console.warn('[memory] consent grant on roster change failed', err)
+      })
     }
     return json({ roster: ids })
   }
@@ -11274,7 +11451,10 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
     const phone = url.searchParams.get('phone') || ''
     const persona = url.searchParams.get('persona') || ''
     if (!isPersona(persona)) return json({ error: 'persona required' }, 400)
-    return json(await livePayload(sql, phone, persona))
+    // `q` is the user's message, used only to rank recall. Absent, the payload
+    // degrades to identity facts plus recency.
+    const query = url.searchParams.get('q') || undefined
+    return json(await livePayload(sql, phone, persona, query))
   }
 
   if (path === '/api/internal/intros/claim' && req.method === 'GET') {

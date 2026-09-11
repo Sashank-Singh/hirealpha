@@ -8,7 +8,7 @@ export type LiveProfile = {
   hired: boolean
   context: Record<string, string>
   connected: string[]
-  memories: Array<{ key: string; value: string; durable?: boolean }>
+  memories: Array<{ key: string; value: string; durable?: boolean; updatedAt?: string }>
   email: string | null
   name?: string | null
   timezone?: string | null
@@ -100,7 +100,7 @@ export async function fetchContacts(phone: string): Promise<Array<{ name: string
   }
 }
 
-export async function fetchLiveProfile(phone: string, persona: AgentId): Promise<LiveProfile> {
+export async function fetchLiveProfile(phone: string, persona: AgentId, query?: string): Promise<LiveProfile> {
   const base = apiBase()
   const key = process.env.HIREALPHA_INTERNAL_KEY || ''
   if (!base || !key) {
@@ -114,7 +114,9 @@ export async function fetchLiveProfile(phone: string, persona: AgentId): Promise
     }
   }
   const attempt = async (): Promise<LiveProfile> => {
-    const url = `${base}/api/internal/live?phone=${encodeURIComponent(phone)}&persona=${encodeURIComponent(persona)}`
+    // `q` only ranks which facts come back; it never changes their content.
+    const recall = query?.trim() ? `&q=${encodeURIComponent(query.slice(0, 500))}` : ''
+    const url = `${base}/api/internal/live?phone=${encodeURIComponent(phone)}&persona=${encodeURIComponent(persona)}${recall}`
     const res = await timedFetch(url, { headers: authHeaders() }, 8000)
     if (!res.ok) return EMPTY
     const data = (await res.json()) as LiveProfile
@@ -917,16 +919,6 @@ export function formatHireContext(fields: Record<string, string>): string {
     .map(([k, v]) => `- ${k}: ${typeof v === 'string' ? v.trim() : JSON.stringify(v)}`)
   if (!lines.length) return ''
   return `Dashboard context for this person (treat as ground truth):\n${lines.join('\n')}`
-}
-
-export function formatHireMemories(
-  memories: Array<{ key: string; value: string; durable?: boolean }>,
-): string {
-  if (!memories.length) return ''
-  const lines = memories
-    .slice(0, 12)
-    .map((m) => `- ${m.key}: ${m.value}`)
-  return `What this hire remembers (durable facts, never guess past these):\n${lines.join('\n')}`
 }
 
 export async function autoLogDecision(

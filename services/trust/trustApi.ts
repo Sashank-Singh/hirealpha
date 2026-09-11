@@ -8,12 +8,16 @@ import {
   revokeMemoryConsent,
 } from './memoryLifecycle'
 import type { UserKeyBroker } from './userKeyBroker'
+import type { MemoryIndex } from './memoryIndex'
 import { listVaultItems, revokeVaultItem, saveVaultItem } from './vaultV2'
 import { purgeAccountTrustData } from './memoryLifecycle'
 
 type TrustApiDeps = {
   resolveUser: (sql: SQL, request: Request) => Promise<{ id: string } | null>
   keyBroker?: UserKeyBroker | null
+  /** The derived retrieval index. Optional: without it deletions still shred
+   * the authoritative rows, and the index is rebuilt by the backfill. */
+  memoryIndex?: MemoryIndex | null
 }
 
 function json(data: unknown, status = 200): Response {
@@ -109,6 +113,7 @@ export async function handleTrustApi(request: Request, sql: SQL, deps: TrustApiD
     try {
       const deleted = await deleteUserMemories(sql, {
         userId: user.id, category: body.category, reason: 'user_request',
+        index: deps.memoryIndex ?? null,
       })
       await appendAuditEvent(sql, {
         userId: user.id, eventType: 'memory.deleted', resourceType: 'memory', outcome: 'completed',
@@ -181,7 +186,7 @@ export async function handleTrustApi(request: Request, sql: SQL, deps: TrustApiD
   if (url.pathname === '/api/trust/account' && request.method === 'DELETE') {
     // Irreversible trust-data purge for account deletion: memory + bot memory,
     // consents, vault items, outstanding capabilities, and the user data key.
-    const deleted = await purgeAccountTrustData(sql, user.id)
+    const deleted = await purgeAccountTrustData(sql, user.id, deps.memoryIndex ?? null)
     await appendAuditEvent(sql, {
       userId: user.id, eventType: 'account.trust_data_purged', resourceType: null,
       outcome: 'completed', safeMetadata: {},

@@ -8,6 +8,36 @@ export interface GmiChatMessage {
  * tokens) plus headroom for longer chains. */
 export const REASONING_TOKEN_HEADROOM = 400
 
+/** Time a retry must leave for the request itself. A backoff that consumes the
+ * whole budget turns a transient 429 into a failed turn. */
+const MIN_REQUEST_MS = 3_000
+
+/** Minimum spacing between provider requests, process-wide.
+ *
+ * One conversational turn fans out several model calls (intent, tool picks,
+ * the answer) and they land in the same instant. Measured against the live
+ * provider with this account's key: bursts are refused after roughly three
+ * calls, while steady traffic at one request per second runs clean over a
+ * ten-call sample. The spacing is therefore a full second — the cost is a few
+ * seconds on a multi-call turn, against turns that previously failed outright
+ * with "I could not finish this request". */
+const PROVIDER_SPACING_MS = 1_000
+let providerQueue: Promise<unknown> = Promise.resolve()
+let lastProviderCallAt = 0
+
+function withProviderSlot<T>(run: () => Promise<T>): Promise<T> {
+  const scheduled = providerQueue.then(async () => {
+    const wait = PROVIDER_SPACING_MS - (Date.now() - lastProviderCallAt)
+    if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait))
+    lastProviderCallAt = Date.now()
+    return run()
+  })
+  // Keep the chain alive even when a call rejects, so one failure cannot wedge
+  // every later request.
+  providerQueue = scheduled.catch(() => undefined)
+  return scheduled
+}
+
 export interface GmiChatOptions {
   messages: GmiChatMessage[]
   temperature?: number
@@ -77,10 +107,17 @@ export async function gmiChat(options: GmiChatOptions): Promise<string> {
   // Some endpoints accept 'low' | 'medium' | 'high', some accept 'none', and
   // standard OpenAI-compatible endpoints reject reasoning_effort completely.
   //
-  // Rate limiting and transient failures are retried with backoff inside the
-  // caller's deadline. The provider signals rate limits BOTH ways — as 429 and
-  // as 400 with {"error":"Rate limit exceeded"} — so the status alone is not a
+  // Rate limiting and transient failures are retried inside the caller's
+  // deadline. The provider signals rate limits BOTH ways — as 429 and as 400
+  // with {"error":"Rate limit exceeded"} — so the status alone is not a
   // reliable test; the body is inspected when the status is not a success.
+  //
+  // The limit is per-second-burst, not a slow drip: a single turn's calls
+  // (classifier, tool picks, the answer) arrive together and the tail of them
+  // gets refused. Retrying immediately with a short wait is what clears it —
+  // but every retry is itself a request, so the ladder is deliberately short.
+  // A four-attempt ladder turned one refusal into four more requests and made
+  // the burst worse (measured: 21 refusals across two turns).
   const attemptBudgetMs = options.timeoutMs ?? 30_000
   const startedAt = Date.now()
   const retryable = async (response: Response): Promise<boolean> => {
@@ -90,13 +127,23 @@ export async function gmiChat(options: GmiChatOptions): Promise<string> {
     const body = await response.clone().text().catch(() => '')
     return /rate.?limit|too many requests|overloaded|try again/i.test(body)
   }
-  let res = await fetch(url, { method: 'POST', headers, body: payload('omit'), signal })
-  for (const backoffMs of [1_000, 2_000, 4_000, 8_000]) {
+  // One slot at a time, process-wide: calls queue instead of stampeding, which
+  // is what triggers the per-second refusals in the first place.
+  let res = await withProviderSlot(() =>
+    fetch(url, { method: 'POST', headers, body: payload('omit'), signal }))
+  // Wait long enough to clear the per-second window before retrying. A fast
+  // retry is another request inside the same refused window, which is how a
+  // single refusal became a wall of them.
+  for (const backoffMs of [1_100, 2_500]) {
     if (!(await retryable(res))) break
     const elapsed = Date.now() - startedAt
-    if (elapsed + backoffMs >= attemptBudgetMs) break
+    // Reserve time for the request itself: sleeping up to the full budget means
+    // never making the call at all, which is how a rate-limited provider turned
+    // into "I could not finish this request" instead of a slow answer.
+    if (elapsed + backoffMs + MIN_REQUEST_MS > attemptBudgetMs) break
     await sleep(backoffMs)
-    res = await fetch(url, { method: 'POST', headers, body: payload('omit'), signal })
+    res = await withProviderSlot(() =>
+      fetch(url, { method: 'POST', headers, body: payload('omit'), signal }))
   }
   if (!res.ok && res.status === 400) {
     const errText = await res.clone().text().catch(() => '')

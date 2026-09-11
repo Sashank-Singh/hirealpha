@@ -2,7 +2,7 @@ import { describe, expect, it } from 'bun:test'
 
 // Verify gmiChat retries 429 with backoff instead of surfacing a canned failure.
 describe('gmi 429 backoff', () => {
-  it('retries rate limits with growing delays and succeeds', async () => {
+  it('retries rate limits with short waits and succeeds', async () => {
     const { gmiChat } = await import('/Users/sashanksingh/Projects/HireAlpha/spectrum/shared/gmi')
     const realFetch = globalThis.fetch
     const times: number[] = []
@@ -17,10 +17,15 @@ describe('gmi 429 backoff', () => {
       const reply = await gmiChat({ messages: [{ role: 'user', content: 'hi' }], timeoutMs: 20_000, apiKey: 'k' })
       expect(reply).toBe('ok')
       expect(calls).toBe(3)
+      // Waits are short on purpose: the provider refuses per-second bursts,
+      // and a long ladder turned one refusal into four extra requests. Each
+      // gap still carries the retry wait plus the process-wide call spacing.
       const gap1 = times[1]! - times[0]!
       const gap2 = times[2]! - times[1]!
-      expect(gap1).toBeGreaterThanOrEqual(900)
-      expect(gap2).toBeGreaterThanOrEqual(1800)
+      expect(gap1).toBeGreaterThanOrEqual(350)
+      expect(gap2).toBeGreaterThanOrEqual(1000)
+      // The ladder is deliberately short so retries cannot amplify a burst.
+      expect(calls).toBeLessThanOrEqual(3)
     } finally {
       globalThis.fetch = realFetch
     }

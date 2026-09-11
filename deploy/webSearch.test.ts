@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import { fetchPageText, parseBingRss, parseDuckDuckGoResults, parseYahooResults, searchWeb, webSearchContext } from './webSearch'
+import { fetchPageText, parseBingRss, parseBraveResults, parseDuckDuckGoResults, parseYahooResults, searchWeb, webSearchContext } from './webSearch'
 
 describe('web search evidence', () => {
   it('does not let fast off-topic results cancel a relevant provider', async () => {
@@ -39,19 +39,21 @@ describe('web search evidence', () => {
     const html = `<a class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fduckduckgo.com%2Fy.js%3Fad_domain%3Dshop.com">Ad</a><a class="result__a" href="javascript:alert(1)">Bad</a><a class="result__a" href="https://example.com">Good</a><a class="result__a" href="https://example.com">Duplicate</a>`
     expect(parseDuckDuckGoResults(html).map(r => r.title)).toEqual(['Good'])
   })
-  it('first usable provider wins the race; losers are ignored', async () => {
+  it('falls through a failing provider to the next one', async () => {
     const urls: string[] = []
     const results = await searchWeb('rice', 5, (async input => {
       urls.push(String(input))
       const url = String(input)
+      // Brave is asked first; when it answers with nothing usable, the next
+      // provider in priority order is tried.
+      if (url.startsWith('https://search.brave.com')) return new Response('<html><body>no results here</body></html>')
       if (url.startsWith('https://search.yahoo.com')) return new Response('<html><body>no results here</body></html>')
       if (url.startsWith('https://www.bing.com')) {
-        await new Promise(r => setTimeout(r, 20))
         return new Response(`<?xml version="1.0"?><rss><channel><item><title>5 lb rice</title><link>https://example.com/rice</link><description>Product details</description></item></channel></rss>`)
       }
-      throw new Error('too slow')
+      throw new Error('unused')
     }) as typeof fetch)
-    expect(urls[0]).toStartWith('https://search.yahoo.com/search')
+    expect(urls[0]).toStartWith('https://search.brave.com/search')
     expect(urls.some(u => u.startsWith('https://www.bing.com/search'))).toBe(true)
     expect(results).toEqual([{ title: '5 lb rice', url: 'https://example.com/rice', snippet: 'Product details' }])
   })
@@ -82,5 +84,60 @@ describe('page opening', () => {
     expect(await fetchPageText('https://example.com/f.pdf', (async () => new Response('%PDF', { headers: { 'content-type': 'application/pdf' } })) as typeof fetch)).toBeNull()
     expect(await fetchPageText('https://example.com/', (async () => new Response('<html><body><p>hi</p></body></html>', { headers: { 'content-type': 'text/html' } })) as typeof fetch)).toBeNull()
     expect(await fetchPageText('not a url')).toBeNull()
+  })
+})
+
+describe('provider parsing and priority', () => {
+  it('parses Brave results and drops its own pages', () => {
+    const html = `
+      <div class="snippet svelte-x" data-pos="1" data-type="web"><div class="result-content">
+        <a href="https://www.walmart.com/ip/Great-Value-Jasmine-Rice-5-lb/36874821" target="_self"><div class="site-name-wrapper"><span>Walmart</span></div></a>
+        <div class="title svelte-y">Great Value Jasmine Rice, 5 lb</div>
+        <div class="snippet-description svelte-z">Long grain jasmine rice.</div>
+      </div></div>
+      <div class="snippet svelte-x" data-pos="2" data-type="web"><div class="result-content">
+        <a href="https://search.brave.com/settings" target="_self"><div class="title">Settings</div></a>
+      </div></div>`
+    const results = parseBraveResults(html)
+    expect(results).toHaveLength(1)
+    expect(results[0]!.url).toContain('walmart.com')
+    expect(results[0]!.title).toBe('Great Value Jasmine Rice, 5 lb')
+  })
+
+  it('keeps a result matching any meaningful query term', () => {
+    // The bug this locks: requiring a majority of query words emptied shopping
+    // results ("jasmine rice 5lb" pages that said "rice" but not "jasmine"),
+    // and the turn then reported it could not finish.
+    return searchWeb('jasmine rice 5lb', 6, (async (input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.includes('brave.com')) {
+        return new Response(`
+          <div class="snippet" data-pos="1" data-type="web"><a href="https://www.walmart.com/ip/Jasmine-Rice-5lb/260711604"><div class="title">Supreme Rice, Jasmine Rice 5lb Bag</div></a></div>`,
+          { headers: { 'content-type': 'text/html' } })
+      }
+      return new Response('', { status: 500 })
+    }) as typeof fetch).then(results => {
+      expect(results.length).toBeGreaterThan(0)
+      expect(results[0]!.url).toContain('walmart.com')
+    })
+  })
+
+  it('prefers the earlier provider instead of whoever answers first', async () => {
+    // Bing used to win with the jasmine FLOWER because it answered faster than
+    // Brave returned product pages.
+    const results = await searchWeb('jasmine rice 5lb', 6, (async (input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.includes('brave.com')) {
+        await new Promise(r => setTimeout(r, 120))
+        return new Response(`
+          <div class="snippet" data-pos="1" data-type="web"><a href="https://www.amazon.com/Mahatma/dp/B00TEST"><div class="title">Mahatma Jasmine Rice 5lb Bag</div></a></div>`,
+          { headers: { 'content-type': 'text/html' } })
+      }
+      // Fast, irrelevant: the jasmine plant.
+      return new Response(`<?xml version="1.0"?><rss><channel>
+        <item><title>Jasmine - Wikipedia</title><link>https://en.wikipedia.org/wiki/Jasmine</link><description>Jasmine rice is a flower genus.</description></item>
+      </channel></rss>`, { headers: { 'content-type': 'application/rss+xml' } })
+    }) as typeof fetch)
+    expect(results[0]!.url).toContain('amazon.com')
   })
 })

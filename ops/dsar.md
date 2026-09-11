@@ -87,10 +87,17 @@ non-deleted, unexpired rows are included (`exportUserMemories` filters
 own per-user key via the OpenBao broker, so the export proves the encryption
 layer works.
 
-Honest scope note: today's automated export covers **consented memories
-only**. It does not yet include the product log tables (`hire_nutrition_logs`,
+This now covers conversational memory in full, not just an unused store:
+`memory_records` is the system of record that chat writes to
+(`deploy/hire-api.ts` → `storeConsentedMemory`), so a user's facts — name,
+timezone, constraints, preferences, per persona — are all in this export. The
+derived retrieval index is deliberately **not** exported: it is a projection of
+these rows, and including it would double-count every fact.
+
+Honest scope note: the automated export covers **consented memories only**. It
+does not yet include the product log tables (`hire_nutrition_logs`,
 `hire_workouts`, `hire_sleep`, `hire_spending`, `hire_pipeline`,
-`hire_drafts`, `hire_memories`, etc.) or vault metadata. An email DSAR for
+`hire_drafts`, etc.) or vault metadata. An email DSAR for
 "all my data" therefore requires a founder-run query of those tables for the
 verified user. ⚠ COUNSEL + engineering action item: either extend the export
 endpoint or write and rehearse the manual export query set; the privacy page's
@@ -102,24 +109,31 @@ The in-product account purge is real and worth walking through, because every
 step is verifiable in `purgeAccountTrustData`
 (`services/trust/memoryLifecycle.ts`):
 
-1. **`memory_records`** — hard `DELETE` of every row for the user. (Softer
+1. **The retrieval index (`hirealpha_memories`, pgvector)** — dropped first via
+   `index.dropByUser(userId)`. This is the plaintext copy, so it is cleared
+   before anything else rather than after. `purgeAccountTrustData` returns the
+   count as `memory_index_rows`.
+2. **`memory_records`** — hard `DELETE` of every row for the user. (Softer
    paths — `ciphertext = NULL, deleted_at = now(), deletion_reason =
    'account_deletion'` — exist for scoped deletion and the retention sweep,
    but account deletion removes the rows outright.)
-2. **`hire_memories`** — the bot memory store (persona/key/value rows) is
-   deleted per user.
-3. **`consent_records`** — deleted, removing the consent trail's personal
+3. **`hire_memories`** — the retired plaintext bot memory store
+   (persona/key/value rows) is deleted per user. It is no longer written to and
+   is only a read fallback for accounts the backfill has not reached, but it is
+   still purged so no pre-migration row survives.
+4. **`consent_records`** — deleted, removing the consent trail's personal
    linkage.
-4. **`vault_items_v2`** — saved credentials deleted.
-5. **`capability_grants`** — any non-terminal grants flipped to `revoked`
+5. **`vault_items_v2`** — saved credentials deleted.
+6. **`capability_grants`** — any non-terminal grants flipped to `revoked`
    with `revoked_at`/`finalized_at` timestamps.
-6. **`user_wrapped_keys`** — the per-user data key is destroyed:
+7. **`user_wrapped_keys`** — the per-user data key is destroyed:
    `wrapped_dek = NULL, destroyed_at = now()`, which the
    `wrapped_key_lifecycle` CHECK constraint (migration
    `202609090003_user_keys_and_vault_v2.sql`) makes irreversible — a
    destroyed key cannot hold a wrapped DEK. Any residual ciphertext
    anywhere is then cryptographically unrecoverable (crypto-shredding).
-7. **Evidence:** the response body returns the per-table counts, and the
+8. **Evidence:** the response body returns the per-table counts (including
+   `memory_index_rows`), and the
    endpoint appends an `account.trust_data_purged` audit event
    (`services/trust/trustApi.ts`). Note what survives by design: the audit
    event itself, under an opaque subject identifier — migration

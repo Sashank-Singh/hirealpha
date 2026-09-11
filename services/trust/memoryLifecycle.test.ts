@@ -1,6 +1,16 @@
 import { describe, expect, it } from 'bun:test'
-import { deleteUserMemories, grantMemoryConsent, purgeAccountTrustData, storeConsentedMemory, type MemoryCategory } from './memoryLifecycle'
+import {
+  categoryForKey,
+  deleteUserMemories,
+  ensureMemoryConsent,
+  grantMemoryConsent,
+  listConsentedMemories,
+  purgeAccountTrustData,
+  storeConsentedMemory,
+  type MemoryCategory,
+} from './memoryLifecycle'
 import type { UserKeyBroker } from './userKeyBroker'
+import type { MemoryIndex, MemoryIndexRecord } from './memoryIndex'
 
 function fakeSql(consent = true) {
   const queries: Array<{ text: string; values: unknown[] }> = []
@@ -18,6 +28,20 @@ function fakeSql(consent = true) {
 const broker: UserKeyBroker = {
   generate: async () => { throw new Error('not expected') },
   unwrap: async () => Buffer.alloc(32, 5),
+}
+
+/** Records what the index was asked to do, without needing pgvector. */
+function fakeIndex() {
+  const indexed: MemoryIndexRecord[] = []
+  const removed: Array<{ userId: string; persona: string; keys: string[] }> = []
+  const dropped: string[] = []
+  const index: MemoryIndex = {
+    index: async (record) => { indexed.push(record); return true },
+    search: async () => [],
+    removeKeys: async (input) => { removed.push(input); return input.keys.length },
+    dropByUser: async (userId) => { dropped.push(userId); return 3 },
+  }
+  return { index, indexed, removed, dropped }
 }
 
 describe('categorized memory lifecycle', () => {
@@ -85,6 +109,7 @@ describe('categorized memory lifecycle', () => {
     expect(deleted).toEqual({
       memory_records: 1, hire_memories: 1, consent_records: 1,
       vault_items_v2: 1, capability_grants_revoked: 1, user_keys_destroyed: 1,
+      memory_index_rows: 0,
     })
     const joined = queries.join('\n')
     for (const table of ['memory_records', 'hire_memories', 'consent_records', 'vault_items_v2', 'capability_grants', 'user_wrapped_keys']) {
@@ -96,5 +121,96 @@ describe('categorized memory lifecycle', () => {
         expect(statement).toContain('user_id = ?')
       }
     }
+  })
+
+  it('drops the account from the retrieval index, which holds plaintext', async () => {
+    const { index, dropped } = fakeIndex()
+    const sql = (() => Promise.resolve([])) as never
+    const deleted = await purgeAccountTrustData(sql, 'user-1', index)
+    expect(dropped).toEqual(['user-1'])
+    expect(deleted.memory_index_rows).toBe(3)
+  })
+
+  it('projects a stored fact into the index with its retention date', async () => {
+    const { sql } = fakeSql(true)
+    const { index, indexed } = fakeIndex()
+    await storeConsentedMemory(sql, broker, {
+      userId: 'user-1', category: 'preference', purpose: 'personalize this hire',
+      content: 'hard_nos: no pork', retentionDays: 365, persona: 'friend', key: 'hard_nos', index,
+    })
+    expect(indexed).toHaveLength(1)
+    expect(indexed[0]!.key).toBe('hard_nos')
+    expect(indexed[0]!.persona).toBe('friend')
+    // The index must be retention-bound so it cannot outlive memory_records.
+    expect(indexed[0]!.expiresAt).toBeInstanceOf(Date)
+  })
+
+  it('removes index rows by key when memories are shredded', async () => {
+    const { index, removed } = fakeIndex()
+    const sql = ((strings: TemplateStringsArray) => {
+      const text = strings.join('?')
+      if (text.includes('SELECT user_id, persona, memory_key')) {
+        return Promise.resolve([
+          { user_id: 'user-1', persona: 'friend', memory_key: 'hard_nos' },
+          { user_id: 'user-1', persona: 'friend', memory_key: 'city' },
+        ])
+      }
+      if (text.includes('UPDATE memory_records')) return Promise.resolve([{ id: 'm-1' }, { id: 'm-2' }])
+      return Promise.resolve([])
+    }) as never
+    expect(await deleteUserMemories(sql, { userId: 'user-1', reason: 'user_request', index })).toBe(2)
+    expect(removed).toEqual([{ userId: 'user-1', persona: 'friend', keys: ['hard_nos', 'city'] }])
+  })
+
+  it('files constraints under a 365-day bucket, not the 30-day health cap', () => {
+    // The bug this guards: `hard_nos` filed as health would expire after 30
+    // days and the hire would start offering the thing the user refused.
+    expect(categoryForKey('hard_nos')).toBe('relationship')
+    expect(categoryForKey('diet')).toBe('preference')
+    expect(categoryForKey('preferred_name')).toBe('identity')
+    expect(categoryForKey('protein')).toBe('health')
+    expect(categoryForKey('runway_months')).toBe('financial')
+    expect(categoryForKey('some_unknown_fact')).toBe('preference')
+  })
+
+  it('reuses an existing consent grant instead of duplicating it', async () => {
+    const inserted: unknown[][] = []
+    const sql = ((strings: TemplateStringsArray, ...values: unknown[]) => {
+      const text = strings.join('?')
+      if (text.includes('FROM consent_records')) {
+        return Promise.resolve([{ category: 'identity' }, { category: 'preference' }])
+      }
+      if (text.includes('INSERT INTO consent_records')) {
+        inserted.push(values)
+        return Promise.resolve([])
+      }
+      return Promise.resolve([])
+    }) as never
+    const granted = await ensureMemoryConsent(sql, { userId: 'user-1', persona: 'friend' })
+    expect(granted).toEqual(['identity', 'preference', 'relationship', 'health'])
+    // Only the two not already granted are inserted.
+    expect(inserted).toHaveLength(2)
+  })
+
+  it('returns decrypted facts and strips the key prefix from the value', async () => {
+    const { encryptUserPayload } = await import('./userKeyBroker')
+    const sealed = encryptUserPayload('diet: vegetarian', Buffer.alloc(32, 5), {
+      userId: 'user-1', recordId: 'm-1', scope: 'memory:preference',
+    })
+    const sql = ((strings: TemplateStringsArray) => {
+      const text = strings.join('?')
+      if (text.includes('SELECT id, category, persona, memory_key, durable, ciphertext')) {
+        return Promise.resolve([
+          { id: 'm-1', category: 'preference', persona: 'friend', memory_key: 'diet', durable: true, ciphertext: sealed, created_at: new Date(0) },
+        ])
+      }
+      if (text.includes('FROM user_wrapped_keys')) return Promise.resolve([{ wrapped_dek: 'vault:v1:key' }])
+      return Promise.resolve([])
+    }) as never
+    const memories = await listConsentedMemories(sql, broker, { userId: 'user-1', persona: 'friend' })
+    expect(memories).toHaveLength(1)
+    // The prompt renders `key: value` itself, so the stored prefix is stripped.
+    expect(memories[0]!.key).toBe('diet')
+    expect(memories[0]!.value).toBe('vegetarian')
   })
 })

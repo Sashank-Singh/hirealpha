@@ -19,9 +19,10 @@ A note on mechanism vocabulary, because the distinctions matter for GDPR:
 
 | Data store | Contents | Retention | Deletion mechanism | Evidence |
 |---|---|---|---|---|
-| `memory_records` (encrypted, per-user AES-256-GCM) | Consented memories in categories identity, preference, relationship, work, health, financial, other | Per-category caps in `MAX_RETENTION_DAYS` (`services/trust/memoryLifecycle.ts`): identity / preference / relationship **365 days**, work **180 days**, health / financial **30 days**, other **90 days**; per-record `retention_days` is user-chosen but validated against the cap, and `expires_at` is set at insert | Hourly sweep `sweepExpiredMemories` (setInterval 60 min in `deploy/web-server.ts`) crypto-shreds expired rows (`ciphertext = NULL`, `deletion_reason = 'retention_expired'`); user-scoped deletion via `DELETE /api/trust/memory` with reason `user_request`; account purge `purgeAccountTrustData` hard-deletes all rows | Sweep logs `[trust] memory retention sweep failed` on error; `memory_records.expires_at` column is queryable; CHECK constraints in migration `202609090004_memory_lifecycle.sql` |
+| `memory_records` (encrypted, per-user AES-256-GCM) | The system of record for conversational memory: consented facts and free-form memories, partitioned by persona (`persona`, `memory_key`, `durable`), categories identity, preference, relationship, work, health, financial, other | Per-category caps in `MAX_RETENTION_DAYS` (`services/trust/memoryLifecycle.ts`): identity / preference / relationship **365 days**, work **180 days**, health / financial **30 days**, other **90 days**; per-record `retention_days` is validated against the cap, and `expires_at` is set at insert | Hourly sweep `sweepExpiredMemories` (setInterval 60 min in `deploy/web-server.ts`) crypto-shreds expired rows (`ciphertext = NULL`, `deletion_reason = 'retention_expired'`) **and drops the matching retrieval-index rows**; user-scoped deletion via `DELETE /api/trust/memory` with reason `user_request`; account purge `purgeAccountTrustData` hard-deletes all rows and calls `dropByUser` on the index | Sweep logs `[trust] memory retention sweep failed` on error; `memory_records.expires_at` column is queryable; CHECK constraints in migration `202609090004_memory_lifecycle.sql`; persona/key columns in `202609110001_memory_records_persona_key.sql` |
+| `hirealpha_memories` (pgvector, PLAINTEXT — derived) | The retrieval index: an embedding per fact plus its text (`key: value`), plus `user_id`/`agent_id` for scoping. A **projection of `memory_records`, never authoritative** — rebuildable at any time by `scripts/backfill-memory.ts` | Mirrors the source row: each indexed fact carries mem0's `expirationDate` set from `memory_records.expires_at`, so the index cannot outlive retention even if a sweep is missed | Three deletion paths, all best-effort and all following the authoritative row: the hourly sweep, `DELETE /api/trust/memory`, and `purgeAccountTrustData` (`dropByUser`). **This table holds memory text in plaintext by necessity — an embedding needs the text, and mem0 persists the payload it embeds.** That is why deletion propagation is treated as load-bearing rather than tidy-up | Live tests in `services/trust/memoryIndex.live.test.ts` assert replace-not-append, deletion by key, persona scoping, user drop, and fail-open behaviour. ⚠ COUNSEL: the index is a plaintext copy of facts that `memory_records` holds encrypted — confirm this is acceptable or scope it to a shorter retention than its source |
 | `consent_records` | Memory/credential/payment/computer consents with `consent_version`, `source`, `status`, optional `expires_at` | Active until revoked or expired; retained as the consent trail while the account exists | `revokeMemoryConsent` sets `status='revoked', revoked_at=now()`; hard delete in `purgeAccountTrustData` at account deletion | `consent_records.status`/`revoked_at`; code `services/trust/memoryLifecycle.ts` |
-| `hire_memories` (plaintext) | Bot memory key/value store per persona (`deploy/hire-api.ts` schema) | Life of account — no automatic expiry exists | Hard delete in `purgeAccountTrustData`; cascade via `hire_users` deletion if the manual account row removal is performed | Response counts from the purge endpoint; **no scheduled sweeper exists for this table** — that is an honest gap vs. the memory_records story |
+| `hire_memories` (plaintext) — **RETIRED as a write target** | Bot memory key/value store per persona. No longer written or read for accounts present in `memory_records`; kept only as a read fallback for accounts the backfill has not reached | Life of account | Hard delete in `purgeAccountTrustData`; the backfill migrates rows into `memory_records` and is idempotent. **Drop this table in a separate, deliberate change once the new path has run clean in production** — until then it is the rollback path | Reads fall back to it in `deploy/hire-api.ts` (`loadMemories`); `scripts/backfill-memory.live.test.ts` proves the migration is idempotent |
 | `hire_nutrition_logs`, `hire_nutrition_goals`, `hire_workouts`, `hire_sleep`, `hire_moods` (health-style logs, plaintext) | Nutrition, workouts, sleep, moods | Life of account; privacy page promises removal within 30 days of account deletion | FK `ON DELETE CASCADE` to `hire_users` — deleted only when the user row is deleted, which today is a **manual founder step** (no `DELETE FROM hire_users` exists in the repo; README discrepancy 2) | Table definitions in `deploy/hire-api.ts`; cascade constraints visible in schema |
 | `hire_spending`, `hire_spending_budget`, `hire_pipeline`, `hire_drafts`, `hire_gratitude`, `hire_learning`, `hire_network`, `hire_user_locations`, `hire_loops`, and other `hire_*` tables | Spending, pipeline, drafts, contacts, locations, loops (plaintext) | Same as above — life of account | Same as above | Same as above |
 | `vault_items_v2` (encrypted) | Saved site credentials (ciphertext, masked username hints) | Life of account or until revoked | `revokeVaultItem` (`services/trust/vaultV2.ts`, sets `revoked_at`); hard delete in `purgeAccountTrustData` | `vault_items_v2.revoked_at`; partial index `WHERE revoked_at IS NULL` (migration `202609090003_user_keys_and_vault_v2.sql`) |
@@ -38,16 +39,26 @@ A note on mechanism vocabulary, because the distinctions matter for GDPR:
 
 ## Known inconsistencies this schedule surfaces
 
-1. **`memory_records` has a real retention engine; `hire_memories` and the
-   `hire_*` logs do not.** The consented-memory store is the showcase
-   (caps, sweeper, crypto-shredding, deletion reasons); the product log
-   tables rely entirely on account-deletion cascade via a manual step. If a
-   regulator or user asks "when is my sleep log deleted?", the current
-   truthful answer is "when the account row is deleted, which happens on
-   request" — not "automatically at N days."
-2. **The audit retention migration's name oversells its content** — this is
+1. **`memory_records` has a real retention engine; the `hire_*` logs do not.**
+   The consented-memory store is the showcase (caps, sweeper, crypto-shredding,
+   deletion reasons); the product log tables rely entirely on account-deletion
+   cascade via a manual step. If a regulator or user asks "when is my sleep log
+   deleted?", the current truthful answer is "when the account row is deleted,
+   which happens on request" — not "automatically at N days." The one former
+   exception, `hire_memories`, is now retired as a write target: it was the
+   plaintext bot memory store with no expiry at all, and conversational memory
+   now lives in `memory_records` under real caps.
+2. **The retrieval index holds plaintext and is therefore the weakest link in
+   the memory story.** It is derived, retention-bound and deletion-propagated,
+   but an embedding cannot be computed from ciphertext, so a copy of the fact
+   text sits in `hirealpha_memories`. This is strictly narrower than the status
+   quo it replaces (the same text previously sat in `hire_memories` with no
+   consent, no expiry and no sweeper), but it is a real trade and is called out
+   here rather than buried. ⚠ COUNSEL to confirm, or to set the index's
+   retention shorter than its source.
+3. **The audit retention migration's name oversells its content** — this is
    README discrepancy 1, repeated here because the retention schedule is
    where an auditor will look first.
-3. **The backup row cannot be completed** until the hosting reality is
+4. **The backup row cannot be completed** until the hosting reality is
    verified. Everything else in this table is code-verifiable; that row is
    operations-verifiable only.

@@ -15,6 +15,7 @@
     "test:load": "bun run testbed/load/run.ts",
     "test:app-load": "npm run build && bun testbed/performance/app-load.ts",
     "db:migrate": "bun deploy/migrate.ts",
+    "db:backfill-memory": "bun scripts/backfill-memory.ts",
     "test:screens": "bun testbed/performance/screen-time.ts"
   },
   "dependencies": {
@@ -27,6 +28,8 @@
     "duck-duck-scrape": "^2.2.7",
     "e2b": "^2.49.0",
     "framer-motion": "^13.0.0",
+    "mem0ai": "^3.1.8",
+    "ollama": "^0.5.14",
     "playwright": "^1.62.1",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",

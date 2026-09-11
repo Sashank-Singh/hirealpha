@@ -11,7 +11,8 @@ import { skillsPromptBlock, SKILLS } from './skills'
 import { gmiChat } from './gmi'
 import { appendThread, loadMemory, setPendingSpend, upsertFacts, pruneExpiredFacts, setSummary, trimHistory, MAX_RAW, type ThreadMemory } from './memory'
 import { extractFacts, summarizeOld } from './memoryMaintain'
-import { autoIterateWorkshop, autoLogGratitude, autoLogHabit, autoLogMood, autoLogNutrition, autoLogSleep, autoLogSpend, autoLogWorkout, autoLogNetwork, autoLogDecision, autoLogLoops, autoLogPipeline, autoLogStandup, autoRunWorkshop, autoWorkshopKeep, autoWorkshopToss, autoSaveLearning, autoSetBudget, autoSetPrefs, executeSpendApproval, fetchLiveProfile, fetchLiveTools, fetchMiniRun, fetchPrepBundle, fetchWeekBundle, formatHireContext, formatHireMemories, persistLiveFacts, proposeLiveDraft,
+import { liveFactsToInput, localFactsToInput, mergeMemoryFacts, selectMemoryFacts } from './memoryBlock'
+import { autoIterateWorkshop, autoLogGratitude, autoLogHabit, autoLogMood, autoLogNutrition, autoLogSleep, autoLogSpend, autoLogWorkout, autoLogNetwork, autoLogDecision, autoLogLoops, autoLogPipeline, autoLogStandup, autoRunWorkshop, autoWorkshopKeep, autoWorkshopToss, autoSaveLearning, autoSetBudget, autoSetPrefs, executeSpendApproval, fetchLiveProfile, fetchLiveTools, fetchMiniRun, fetchPrepBundle, fetchWeekBundle, formatHireContext, persistLiveFacts, proposeLiveDraft,
   proposePurchase, proposeBrowserTask, touchInbound, importChatExport, addMeeting, fetchRenewalRadar, setTravel } from './liveContext'
 import { captureFromChat } from './cofounderPro'
 import { coworkerCaptureFromChat } from './coworkerPro'
@@ -499,18 +500,23 @@ async function pickLiveTool(
   }
 }
 
-function buildMemoryBlock(
+/**
+ * The facts block plus the rolling summary.
+ *
+ * Facts are selected by `selectMemoryFacts`: identity facts pinned, everything
+ * else newest-first, bounded by a token budget. Callers must not slice the
+ * result — the previous implementation took the first twelve entries of an
+ * insertion-ordered Map, which kept the oldest facts and dropped every new one.
+ */
+export function buildMemoryBlock(
   mem: ThreadMemory,
-  liveFacts: Array<{ key: string; value: string }>,
+  liveFacts: Array<{ key: string; value: string; durable?: boolean; updatedAt?: string }>,
 ): string {
-  const byKey = new Map<string, string>()
-  for (const f of mem.facts) byKey.set(f.key, f.value)
-  for (const f of liveFacts) byKey.set(f.key, f.value)
-  const merged = [...byKey.entries()].slice(0, 12)
-  const facts = merged.length ? merged.map(([k, v]) => `${k}: ${v}`).join('\n') : ''
+  const selected = selectMemoryFacts(mergeMemoryFacts(localFactsToInput(mem.facts), liveFactsToInput(liveFacts)))
+  const facts = selected.length ? selected.map((f) => `${f.key}: ${f.value}`).join('\n') : ''
   const summary = mem.summary.trim()
   const parts: string[] = []
-  if (facts) parts.push(`## Known facts about this person\n${facts}`)
+  if (facts) parts.push(`## Known facts about this person (never guess past these)\n${facts}`)
   if (summary) parts.push(`## Memory of past conversations\n${summary}`)
   return parts.join('\n\n')
 }
@@ -718,7 +724,7 @@ export async function runHireTurn(input: {
       ? fetchJudgmentState(input.senderId, agent.id, 'turn').catch(() => null)
       : null
   const [live, contacts, spending] = await Promise.all([
-    fetchLiveProfile(input.senderId, agent.id),
+    fetchLiveProfile(input.senderId, agent.id, input.userText),
     input.senderId ? fetchContacts(input.senderId) : Promise.resolve([]),
     input.senderId && (agent.id !== 'friend' || input.userText.trim().startsWith('/')) ? fetchSpending(input.senderId) : Promise.resolve({ logs: [], weekly: 0, budget: 0 }),
   ])
@@ -991,8 +997,6 @@ export async function runHireTurn(input: {
         'They have no saved location. If their message names a city, neighborhood, ZIP, or landmark, search near that — do NOT ask them to repeat it. Only if there is truly no location anywhere in the ask, ask once for a city or ZIP and mention they can save Home at hirealpha.chat/app for next time. Never say you cannot get their location.',
       )
     }
-    const remembered = formatHireMemories(live.memories)
-    if (remembered) extras.push(remembered)
     if (agent.id === 'friend') {
       friendLife = friendJudgmentP ? await friendJudgmentP : null
       if (friendLife) extras.push(formatLifeStateBlock(friendLife))

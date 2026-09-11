@@ -1,0 +1,13 @@
+-- The retrieval index for conversational memory (mem0 + pgvector).
+--
+-- This extension is a PREREQUISITE for the API to serve recall, but it is not
+-- authoritative data: memory_records remains the encrypted system of record.
+-- The index only stores a plaintext projection that is rebuilt from
+-- memory_records, and every deletion path drops the corresponding index rows.
+--
+-- REQUIRES a Postgres image that ships pgvector. The stock `postgres:16`
+-- image does NOT include it — the Coolify database resource must run
+-- `pgvector/pgvector:pg16` (a drop-in replacement; the data volume carries
+-- over). If the extension is absent this migration fails loudly rather than
+-- silently degrading, because a missing index turns recall into recency.
+CREATE EXTENSION IF NOT EXISTS vector;
