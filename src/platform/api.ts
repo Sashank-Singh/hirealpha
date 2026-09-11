@@ -736,17 +736,21 @@ export type HomeSnapshot = {
  * the API has been out for a release.
  */
 export const apiHome = async (a: { email?: string; token?: string }) => {
+  // The endpoint revalidates at 60s; without a bust query the browser serves
+  // its cached 200 to an immediate reopen, so food logged off-home shows its
+  // old protein until the window expires. Each open should ask the server.
+  const qs = authQuery(a)
+  qs.set('_', String(Date.now()))
   try {
-    // The endpoint revalidates at 60s; without a bust query the browser serves
-    // its cached 200 to an immediate reopen, so food logged off-home shows its
-    // old protein until the window expires. Each open should ask the server.
-    const qs = authQuery(a)
-    qs.set('_', String(Date.now()))
     return await featureGet<HomeSnapshot>('/api/home', qs)
-  } catch {
-    const qs = authQuery(a)
-    qs.set('_', String(Date.now()))
-    return await featureGet<HomeSnapshot>('/api/mirror', qs)
+  } catch (error) {
+    // /api/mirror covers deployments where the primary is unavailable. Only a
+    // fast-failing primary should reach here; the mirror is deliberately not
+    // raced so ordinary opens make exactly one request.
+    if (error instanceof Error && /Sign in required|401/.test(error.message)) throw error
+    const mirror = authQuery(a)
+    mirror.set('_', String(Date.now()))
+    return await featureGet<HomeSnapshot>('/api/mirror', mirror)
   }
 }
 

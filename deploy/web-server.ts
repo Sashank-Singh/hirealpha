@@ -43,7 +43,19 @@ const DATABASE_URL = process.env.DATABASE_URL || ''
  * All day/week windows are computed as UTC instants; this is the belt behind
  * the suspenders. */
 const sql = DATABASE_URL
-  ? new SQL(DATABASE_URL, { max: 12, idleTimeout: 30, connectionTimeout: 10, connection: { options: '-c timezone=UTC' } })
+  ? new SQL(DATABASE_URL, {
+      // A single Home open fans out 24 independent queries in one Promise.all,
+      // so a 12-connection pool had one request queueing behind itself; under
+      // concurrent users that queue is what a slow open is made of. Postgres
+      // allows 100 by default and the only other pooled client is the browser
+      // worker (4), so 24 keeps one Home request fully parallel with headroom.
+      max: 24,
+      idleTimeout: 30,
+      // Fail fast instead of parking a request for ten seconds when the pool is
+      // genuinely exhausted: the client's own retry beats a stalled response.
+      connectionTimeout: 5,
+      connection: { options: '-c timezone=UTC' },
+    })
   : null
 
 /* ---- Compression ----

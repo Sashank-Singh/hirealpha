@@ -967,6 +967,16 @@
   background-size: 220% 100%, 100% 100%;
   animation: hA-sweep 1.5s linear infinite;
 }
+/* Cold-open placeholders inside a lead card that has already painted. */
+.hA-action-skeleton-line {
+  height: 18px;
+  margin: 10px 0 0;
+  border-radius: 9px;
+  background: rgb(255 255 255 / 0.08);
+}
+.hA-action-skeleton-line--short {
+  width: 58%;
+}
 @keyframes hA-sweep {
   0% { background-position: 130% 0, 0 0; }
   100% { background-position: -30% 0, 0 0; }

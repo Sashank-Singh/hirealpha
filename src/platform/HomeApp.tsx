@@ -206,10 +206,21 @@ export function HomeApp({ auth }: { auth: FeatureAuth }) {
   }, [snap?.worldPending, worldTries, auth.email, auth.token, who])
 
   if (loading && !snap) {
+    /* A cold open (fresh device, or a day with no cached snapshot) used to show
+     * a bare shimmer with no date, so the screen looked broken for the length of
+     * one API round trip. Paint the real header straight away and swirl only the
+     * part that is still unknown — the screen reads as "here, filling in". */
     return (
       <div className="hA-screen hA-screen--loading">
-        <div className="hA-day-kicker hA-shimmer">Loading today</div>
-        <div className="hA-action hA-action--skeleton" />
+        <header className="hA-day">
+          <span className="hA-day-kicker">Today</span>
+          <h2 className="hA-day-title">Today</h2>
+        </header>
+        <section className="hA-action">
+          <span className="hA-action-kicker">Today</span>
+          <div className="hA-action-skeleton-line hA-shimmer" />
+          <div className="hA-action-skeleton-line hA-action-skeleton-line--short hA-shimmer" />
+        </section>
       </div>
     )
   }
