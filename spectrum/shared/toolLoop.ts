@@ -625,7 +625,10 @@ Reactions are optional and usually absent. You may add "reaction":"<emoji>" to a
               data = await fetchLookup('web', lookup.query)
             }
           }
-          if (sourceTool === 'web' || sourceTool === 'maps') {
+          // A map result carries its own place links and is answered by the
+          // map block. Collecting those links here too is what padded a place
+          // answer with a bullet list of travel sites nobody searched for.
+          if (sourceTool === 'web') {
             for (const block of data) {
               for (const match of block.matchAll(/^- ([^\n]+)\n\s+(https?:\/\/[^\s]+)(?:\n[ \t]+([^\n]+))?/gm)) {
                 try {

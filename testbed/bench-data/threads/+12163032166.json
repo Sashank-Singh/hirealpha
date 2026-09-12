@@ -5,26 +5,6 @@
     {
       "role": "user",
       "content": "Reorder two bags of the same coffee beans from Amazon using the home address.",
-      "ts": 1789238975756
-    },
-    {
-      "role": "assistant",
-      "content": "I hit a quick snag thinking through that. Can you say that once more?",
-      "ts": 1789238975756
-    },
-    {
-      "role": "user",
-      "content": "Find dinner for four tomorrow at 7:30 PM, walkable from the Loop in Chicago, vegetarian-friendly, not a chain, under $40 per person. Three options with why each fits.",
-      "ts": 1789238991435
-    },
-    {
-      "role": "assistant",
-      "content": "I’m checking the sources for this.\n\nI'm sorry, I have to be straight with you: the live search tools keep failing me on this. Every web lookup returns Lee's Summit, Missouri listings or generic Chicago tourism pages, and the maps queries aren't returning usable restaurant data. The system even flagged duplicate queries with no results. I don't have current menus, prices, hours, or availability, so I can't hand you three \"verified\" picks.\n\nWhat I can offer are three independent, veg friendly Chicago spots that are commonly cited for this exact request. Please treat these as leads to confirm, not confirmed reservations:\n\nThe Berghoff (17 W Adams St), historic, family owned, inside the Loop. Vegetarian entrees in the $15, 25 range and a classic Chicago feel. Call ahead to check hours and whether they take a party of four at 7:30.\n\nThe Dearborn (116 N Dearborn St), independent Loop tavern with a dedicated vegetarian section, mains roughly $20, 35, and a strong vibe for a group dinner. Confirm the menu and table availability.\n\nThe Chicago Diner (233 W Erie St, River North), fully vegetarian comfort food, entrees around $13, 20, about a 15 minute walk from the Loop. It has a second location in Lakeview, but it's independently owned, not a national chain.\n\nBlocker: none of these are verified against tomorrow's hours, prices, or reservations. If you can tell me your exact starting point in the Loop, I can retry the search anchored to that location, but the current search tooling is returning junk results.\n\nhttps://en.m.wikipedia.org/wiki/Chicago\n\nhttps://www.chicago.gov/city/en.html",
-      "ts": 1789238991435
-    },
-    {
-      "role": "user",
-      "content": "Reorder two bags of the same coffee beans from Amazon using the home address.",
       "ts": 1789239494497
     },
     {
@@ -101,6 +81,26 @@
       "role": "assistant",
       "content": "I could not load your connected account data right now. Please try again in a moment. You do not need to reconnect anything based on this error.",
       "ts": 1789240775409
+    },
+    {
+      "role": "user",
+      "content": "Find hotels near the Burj Khalifa",
+      "ts": 1789251647671
+    },
+    {
+      "role": "assistant",
+      "content": "I’m checking nearby options.\n\nThe search didn't return any actual hotels near the Burj Khalifa, just generic booking site homepages (Hotels.com, Expedia, Booking.com), which doesn't tell us what's actually close, priced, or available.\n\nWant me to run a more targeted search? I can query specific properties or try maps again to pull real names and distances from the tower. Which approach would help you most, luxury with a view, mid range, or budget?\n\nhttps://www.hotels.com/\n\nhttps://www.expedia.com/Hotels",
+      "ts": 1789251647671
+    },
+    {
+      "role": "user",
+      "content": "Find hotels near the Burj Khalifa",
+      "ts": 1789251705365
+    },
+    {
+      "role": "assistant",
+      "content": "The earlier search only returned booking homepages, so I can't give you live rates or availability right now. That said, here are well known hotels within easy walking distance of the Burj Khalifa, pulled from general knowledge:\n\n1. The Address Downtown, attached to Dubai Mall, front and center views of the tower and fountain. High end, perfect for a splurge.\n\n2. Armani Hotel Dubai, inside the Burj Khalifa itself. The ultimate \"stay in the tower\" experience; luxury pricing.\n\n3. The Palace Downtown, across from the Dubai Fountain, elegant rooms with direct views of the tower. Also high end.\n\n4. Taj Dubai, about a 10 minute walk, five star but often more accessible on price than the first three.\n\n5. Rove Downtown, budget friendly, modern, about 15 minutes on foot. Clean and reliable without the luxury price tag.\n\n6. Sofitel Dubai Downtown, a few blocks away, upscale French style, and some rooms face the tower.\n\nIf you tell me your dates and rough budget, I can try a targeted search for actual availability and prices. Otherwise, these are solid starting points to compare.",
+      "ts": 1789251705365
     }
   ]
 }
