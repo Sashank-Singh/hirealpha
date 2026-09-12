@@ -92,12 +92,18 @@ export async function gmiChat(options: GmiChatOptions): Promise<string> {
 
   const url = `${baseUrl}/chat/completions`
   const signal = AbortSignal.timeout(options.timeoutMs ?? 30_000)
+  // A long-lived process reuses keep-alive sockets; when the provider closes an
+  // idle one, the next request can hang on the dead socket until the abort
+  // fires ("The operation timed out."). A fresh connection per call removes
+  // that stall class at the cost of one handshake.
   const headers = {
     'Content-Type': 'application/json',
     Authorization: `Bearer ${apiKey}`,
     // Cloudflare on gmi-serving blocks bare script UAs with 1010
     'User-Agent': 'HireAlpha/0.1 (spectrum-bot)',
     Accept: 'application/json',
+    // Never reuse a possibly-dead keep-alive socket (see the timeout note).
+    Connection: 'close',
   }
   const payload = (reasoningEffort?: string) => {
     const body: Record<string, unknown> = {

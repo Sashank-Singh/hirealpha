@@ -5248,16 +5248,21 @@ export async function runToolsForMessage(
     if (input.want === 'calendar') {
       // Explicit instants avoid a second model call and ambiguous server-local
       // date parsing. An invalid range must not silently become "next week".
-      const range = /^start=(\S+)\s+end=(\S+)$/.exec(query)
+      // Tolerant extraction: the model reliably includes start=/end= but
+      // wraps them with prose, quotes or commas; an anchored pattern bounced
+      // those lookups and the whole reply died on "kept bouncing back".
+      const clean = (v: string | undefined) => (v || '').replace(/^[\s"'\[,]+|[\s"'\],.]+$/g, '')
+      const startRaw = clean(/start(?:\s*_?datetime)?[="'\s:]+(\S+)/i.exec(query)?.[1])
+      const endRaw = clean(/end(?:\s*_?datetime)?[="'\s:]+(\S+)/i.exec(query)?.[1])
       const iso = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:\d{2})$/
-      if (!range || !iso.test(range[1]) || !iso.test(range[2])) return ['Calendar lookup needs start=<ISO datetime with offset> end=<ISO datetime with offset>, using the user timezone. No calendar lookup ran.']
-      const timeMin = new Date(range[1])
-      const timeMax = new Date(range[2])
+      if (!iso.test(startRaw) || !iso.test(endRaw)) return ['Calendar lookup needs start=<ISO datetime with offset> end=<ISO datetime with offset>, using the user timezone. No calendar lookup ran.']
+      const timeMin = new Date(startRaw)
+      const timeMax = new Date(endRaw)
       const span = timeMax.getTime() - timeMin.getTime()
       if (!Number.isFinite(span) || span <= 0 || span > 31 * 86400000) return ['Calendar range must be valid, increasing, and no longer than 31 days. No calendar lookup ran.']
       const calendar = await loadCalendar(sql, input.userId, { timeMin, timeMax, maxResults: 100 }, input.timezone || 'UTC')
       const block = calendar.replace('No events on the calendar in the next 7 days.', 'No events found in the requested window.')
-      return [`Calendar window ${range[1]} to ${range[2]}:\n${block}\nThis is an event listing; do not assume complete availability if results are capped.`]
+      return [`Calendar window ${startRaw} to ${endRaw}:\n${block}\nThis is an event listing; do not assume complete availability if results are capped.`]
     }
   }
 

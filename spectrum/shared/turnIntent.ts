@@ -276,12 +276,14 @@ export async function classifyTurnStrict(input: ClassifyInput): Promise<TurnInte
   // Leaving it raw made the two failure modes indistinguishable to callers: a
   // rate-limited classifier looked exactly like a message the model had read
   // wrong, and there was no way to tell a retry from a real miss.
-  let raw: string
-  try {
-    raw = await gmiChat({
+  // 25s with one retry: the classifier shares the provider with the turn
+  // itself and a reasoning model's first token can consume most of a 12s
+  // budget; a timed-out classifier used to strip intent from the whole turn.
+  const attempt = () =>
+    gmiChat({
       temperature: 0,
       maxTokens: 200,
-      timeoutMs: 12_000,
+      timeoutMs: 25_000,
       messages: [
         { role: 'system', content: SYSTEM },
         ...(context ? [{ role: 'user' as const, content: `Recent turns:\n${context}` }] : []),
@@ -291,6 +293,15 @@ export async function classifyTurnStrict(input: ClassifyInput): Promise<TurnInte
         { role: 'user', content: text },
       ],
     })
+  let raw: string
+  try {
+    try {
+      raw = await attempt()
+    } catch (first) {
+      if (!/timed out|timeout|aborted/i.test(String((first as Error)?.message || first))) throw first
+      await new Promise((r) => setTimeout(r, 500))
+      raw = await attempt()
+    }
   } catch (error) {
     throw new ClassifierUnavailableError(error)
   }

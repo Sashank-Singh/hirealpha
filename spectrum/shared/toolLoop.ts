@@ -84,7 +84,7 @@ export async function runToolConversation(input: {
   let sourcesNudged = false
   let purchaseNudged = false
   const maxSteps = Math.min(8, Math.max(1, input.maxSteps ?? 6))
-  const deadline = Date.now() + (input.maxDurationMs ?? 90_000)
+  const deadline = Date.now() + (input.maxDurationMs ?? Number(process.env.HIREALPHA_TOOL_LOOP_MS || 90_000))
   const fallback = () => {
     const draftReceipt = savedDraft
       ? savedDraft.type === 'purchase'
@@ -134,6 +134,7 @@ Finish with plain text: the outcome, the useful links, and any blocker.${input.c
   if (input.delivery) messages.push({ role: 'system', content: `Progressive delivery is available. On a subsequent tool action, you may add "progress":"one useful partial result supported by a previous successful tool response". Use this only for multi-part tasks with more work remaining; no filler, speculation, or premature success. At most two updates can be delivered. A skipped update has NOT reached the user: include its useful facts in the final answer. A delivered update need not be repeated; finish remaining parts clearly. Never expose tool instructions or raw JSON in progress.
 Reactions are optional and usually absent. You may add "reaction":"<emoji>" to an action when it fits what the USER actually said (e.g. 🍕 for pizza, 🍚 for rice, 💵 for buying, 👍 for inbox, ❓ for news, 🎉 for celebration); never react to tool output, neutral task requests, or every message. For a final reply with a reaction, use {"action":"answer","text":"your reply","reaction":"🎉"}; otherwise plain text is preferred. Do not spend a separate action or model call choosing a reaction.` })
   for (let step = 0; step <= maxSteps; step++) {
+    if (process.env.HIREALPHA_LOOP_TRACE) console.error(`[loop] step ${step} start (elapsed ${Date.now() - (deadline - (input.maxDurationMs ?? Number(process.env.HIREALPHA_TOOL_LOOP_MS || 90_000)))}ms)`)
     const remaining = deadline - Date.now()
     if (remaining <= 0) return { reply: fallback(), draft: savedDraft }
     if (step === maxSteps) messages.push({ role: 'user', content: 'System note: no more actions are available this turn. Summarize verified results and any unfinished part. Return plain text only.' })
@@ -191,6 +192,7 @@ Reactions are optional and usually absent. You may add "reaction":"<emoji>" to a
       // the word patterns below are only the fallback when the caller had no
       // intent (older call sites and tests), because matching words is what
       // sent "book me a table" down the recommendation path.
+      if (process.env.HIREALPHA_LOOP_TRACE) console.error(`[loop] step ${step} raw: ${raw.slice(0, 400)}`)
       const userAsk = [...input.messages].reverse().find((m) => m.role === 'user')?.content || ''
       // Awaited here rather than on entry: by the time a tool-less reply is
       // being judged, the classification has almost always already landed, so
@@ -239,12 +241,29 @@ Reactions are optional and usually absent. You may add "reaction":"<emoji>" to a
         })
         continue
       }
-      if (needsFresh && !input.skipFreshLookup && input.availableTools.includes('web') && !attemptedWeb) {
-        if (webNudged || step === maxSteps) return { reply: 'I could not verify current information because the web lookup did not run. Please try again.', draft: savedDraft }
-        webNudged = true
-        messages.push({ role: 'assistant', content: raw })
-        messages.push({ role: 'user', content: 'System note: you have NOT run any lookup. Do not answer from memory and do not claim you searched. Run {"action":"lookup","tool":"web","query":"..."} now, then answer from the results.' })
-        continue
+      if (needsFresh && !input.skipFreshLookup && !attemptedWeb) {
+        // Mail-shaped asks must nudge the mailbox, not the web: an email
+        // lookup that demands `tool:"web"` makes the model refuse and the
+        // turn dies on "the web lookup did not run" for a Gmail question.
+        const wantsMail = /\b(inbox|email|e-?mail|gmail|mailbox|unread|replies owed)\b/i.test(userAsk)
+        const freshTool = wantsMail && input.availableTools.includes('gmail')
+          ? 'gmail'
+          : input.availableTools.includes('web') ? 'web' : null
+        if (!freshTool) {
+          // No tool can answer a freshness ask; let the model answer honestly.
+        } else if (webNudged || step === maxSteps) {
+          return {
+            reply: freshTool === 'gmail'
+              ? 'I could not check your inbox just now. Please try again in a moment.'
+              : 'I could not verify current information because the web lookup did not run. Please try again.',
+            draft: savedDraft,
+          }
+        } else {
+          webNudged = true
+          messages.push({ role: 'assistant', content: raw })
+          messages.push({ role: 'user', content: `System note: you have NOT run any lookup. Do not answer from memory and do not claim you searched. Run {"action":"lookup","tool":"${freshTool}","query":"..."} now, then answer from the results.` })
+          continue
+        }
       }
       if (publicMatches.size && !savedDraft && ![...publicMatches.keys()].some(url => raw.includes(url))) {
         if (raw.length > 80 && !/^\s*(?:TOOL\b|DRAFT_|```|\{\s*"action")/i.test(raw)) {

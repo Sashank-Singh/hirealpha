@@ -49,7 +49,13 @@ async function timedFetch(url: string, init: RequestInit, ms: number) {
   const ctrl = new AbortController()
   const t = setTimeout(() => ctrl.abort(), ms)
   try {
-    return await fetch(url, { ...init, signal: ctrl.signal })
+    return await fetch(url, {
+      ...init,
+      // Fresh connection: a reused keep-alive socket the server closed reads
+      // as a stall until the abort, and the whole turn degrades.
+      headers: { ...(init.headers as Record<string, string> | undefined), Connection: 'close' },
+      signal: ctrl.signal,
+    })
   } finally {
     clearTimeout(t)
   }
@@ -117,7 +123,9 @@ export async function fetchLiveProfile(phone: string, persona: AgentId, query?: 
     // `q` only ranks which facts come back; it never changes their content.
     const recall = query?.trim() ? `&q=${encodeURIComponent(query.slice(0, 500))}` : ''
     const url = `${base}/api/internal/live?phone=${encodeURIComponent(phone)}&persona=${encodeURIComponent(persona)}${recall}`
-    const res = await timedFetch(url, { headers: authHeaders() }, 8000)
+    // 20s, not 8s: the payload's memory read can take a few seconds on a
+    // shared box, and a local bot talking to a remote API adds RTT on top.
+    const res = await timedFetch(url, { headers: authHeaders() }, 20000)
     if (!res.ok) return EMPTY
     const data = (await res.json()) as LiveProfile
     if (typeof data.found !== 'boolean' || typeof data.hired !== 'boolean') return EMPTY

@@ -448,7 +448,10 @@ ${JSON.stringify(context)}` },
         : { kind: 'event', title: draft.title, start: draft.start, end: draft.end })
     },
     capabilities,
-    maxSteps: 4,
+    // 6, not 4: the friend path runs larger prompts and a reasoning model, so
+    // four round trips can hit the deadline before a write ever drafts.
+    maxSteps: 6,
+    maxDurationMs: Number(process.env.HIREALPHA_TOOL_LOOP_MS || 150_000),
   })
   if (outcome.draft && outcome.draft.type !== 'purchase' && outcome.draft.type !== 'browser') {
     card = await mintMiniAppCard(senderId, persona, outcome.draft.type === 'event' ? 'pick_slot' : 'approve_send', { draft: outcome.draft.id })
