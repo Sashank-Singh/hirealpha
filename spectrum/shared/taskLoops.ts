@@ -80,6 +80,31 @@ export async function isKillSwitchArmed(phone: string): Promise<boolean> {
 
 const loggedArmed = new Set<string>()
 
+/**
+ * Coerce a claimed loop's payload into the object every handler expects.
+ *
+ * Postgres `jsonb` comes back from the API as a JSON *string* (Bun SQL does
+ * not parse jsonb), so `task.payload?.text` on a browser_result was silently
+ * undefined: the user got the generic "Browser task finished." fallback and
+ * the screenshot was dropped. Parse it once on the way in; anything
+ * unparseable becomes {} rather than crashing the send.
+ */
+export function parseLoopPayload(raw: unknown): Record<string, unknown> {
+  let value: unknown = raw
+  // Two peels: one for the JSON-string jsonb representation, a second for a
+  // double-encoded jsonb string scalar an older driver version could store.
+  for (let depth = 0; depth < 2; depth++) {
+    if (value && typeof value === 'object' && !Array.isArray(value)) return value as Record<string, unknown>
+    if (typeof value !== 'string' || !value.trim()) return {}
+    try {
+      value = JSON.parse(value)
+    } catch {
+      return {}
+    }
+  }
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
+}
+
 /** Skip sends quietly after the first warning per phone. */
 export async function killSwitchBlocksSend(phone: string): Promise<boolean> {
   const armed = await isKillSwitchArmed(phone)
@@ -129,6 +154,9 @@ export async function runLoopTask(task: LoopTask, handler: LoopHandler, ctx: Loo
   const check = ctx.checkKillSwitch || killSwitchBlocksSend
   const post = ctx.postResult || postLoopResult
   try {
+    // Claimed payloads arrive as JSON strings (see parseLoopPayload); every
+    // kind reads fields off the object, so normalize before gating/handling.
+    task.payload = parseLoopPayload(task.payload)
     // Gated actions ask first and never execute inside a loop.
     const action = typeof task.payload?.action === 'string' ? task.payload.action : ''
     if (needsApproval(action)) {
@@ -667,15 +695,19 @@ const inboxPingHandler: LoopHandler = (task) => {
 
 /* ---- Browser run result ----
  * The server queues one of these after a portal run completes (settings-UI
- * "Run" on a saved login). Payload carries the finished text — the bot only
- * delivers it, so all personas share the plain handler. */
+ * "Run" on a saved login, or the browser worker's report()). Payload carries
+ * { text, portal, jobId?, imageDataUrl?, imageCaption? } — the bot only
+ * delivers it, so all personas share the plain handler. The payload may
+ * arrive stringified (see parseLoopPayload), so parse before reading text:
+ * without that every browser result sent the generic fallback and lost its
+ * screenshot. */
 
 export function buildBrowserResultText(p: { text?: unknown }): string {
   return String(p.text || '').trim() || 'Browser task finished.'
 }
 
 const browserResultHandler: LoopHandler = (task) => {
-  const payload = (task.payload || {}) as { text?: unknown; imageDataUrl?: unknown; imageCaption?: unknown }
+  const payload = parseLoopPayload(task.payload)
   const text = buildBrowserResultText(payload)
   const dataUrl = typeof payload.imageDataUrl === 'string' ? payload.imageDataUrl : ''
   return {

@@ -753,39 +753,90 @@ export async function handleVaultApi(req: Request, sql: SQL, deps: VaultDeps): P
  * row per (user, persona), re-armed on every run — the bot's poller claims it
  * and sends the text. No phone on file → nothing to queue, the UI already
  * showed the result.
+ *
+ * The Postgres box flaps into recovery windows under load, and an insert lost
+ * in one used to vanish silently: the job row was already 'done', so nothing
+ * ever asked for the loop row again. The insert is idempotent (ON CONFLICT
+ * re-arms the same row), so retrying with backoff is always safe; the worker
+ * additionally re-pushes completed jobs whose row never landed.
+ *
+ * Throws only after every attempt failed; the worker catches that and leaves
+ * the completed job to the recovery sweep.
  */
 export async function pushBrowserResultLoop(
   sql: SQL,
-  input: { userId: string; persona: string; origin: string; insights: string; screenshotDataUrl?: string; screenshotCaption?: string },
+  input: {
+    userId: string
+    persona: string
+    origin: string
+    insights: string
+    screenshotDataUrl?: string
+    screenshotCaption?: string
+    /** The hire_browser_jobs row this result came from. Written into the
+     * payload so a delivered row can be traced back to its run. */
+    jobId?: string
+  },
+  opts?: { retryDelaysMs?: number[] },
 ): Promise<boolean> {
-  const users = (await sql`
-    SELECT phone_e164 FROM hire_users WHERE id = ${input.userId} LIMIT 1
-  `) as Array<{ phone_e164: string | null }>
-  const phone = users[0]?.phone_e164
-  if (!phone) return false
   const host = hostOfOrigin(input.origin)
   const text = `Checked ${host} in a private browser session: ${input.insights.slice(0, 300)}`
-  await sql`
-    INSERT INTO hire_task_loops (id, user_id, persona, phone_e164, kind, title, payload, status, next_run)
-    VALUES (${randomUUID()}, ${input.userId}, ${input.persona}, ${phone}, 'browser_result',
-      ${`Browser check: ${host}`}, ${JSON.stringify({
-        text,
-        portal: host,
-        // A screenshot is what makes a browser run verifiable rather than a
-        // claim. Only forwarded when it is a real image data URL.
-        ...(input.screenshotDataUrl?.startsWith('data:image/')
-          ? { imageDataUrl: input.screenshotDataUrl, imageCaption: input.screenshotCaption }
-          : {}),
-      })}::jsonb, 'pending', now())
-    ON CONFLICT (user_id, persona, kind) DO UPDATE SET
-      payload = EXCLUDED.payload,
-      status = 'pending',
-      attempts = 0,
-      last_result = NULL,
-      next_run = now(),
-      updated_at = now()
-  `
-  return true
+  // Note the `::text::jsonb` cast below: a parameter cast straight to
+  // `::jsonb` makes Bun type it jsonb and JSON-encode the string a second
+  // time, storing a jsonb *string scalar* (payload->>'jobId' then reads
+  // null). Forcing text first has Postgres parse the JSON into a real object.
+  const payload = JSON.stringify({
+    text,
+    portal: host,
+    ...(input.jobId ? { jobId: input.jobId } : {}),
+    // A screenshot is what makes a browser run verifiable rather than a
+    // claim. Only forwarded when it is a real image data URL.
+    ...(input.screenshotDataUrl?.startsWith('data:image/')
+      ? { imageDataUrl: input.screenshotDataUrl, imageCaption: input.screenshotCaption }
+      : {}),
+  })
+  // Recovery windows last seconds at a time; four tries over ~15s cover them
+  // without parking a web request (or the worker tick) for minutes.
+  const delays = opts?.retryDelaysMs?.length ? opts.retryDelaysMs : [0, 1_500, 4_000, 10_000]
+  let lastErr: unknown
+  for (let attempt = 0; attempt < delays.length; attempt++) {
+    const wait = delays[attempt]!
+    if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait))
+    try {
+      const users = (await sql`
+        SELECT phone_e164 FROM hire_users WHERE id = ${input.userId} LIMIT 1
+      `) as Array<{ phone_e164: string | null }>
+      const phone = users[0]?.phone_e164
+      // No phone on file is a definitive answer, not a transient failure:
+      // there is no thread to deliver to, so do not burn retries on it.
+      if (!phone) return false
+      await sql`
+        INSERT INTO hire_task_loops (id, user_id, persona, phone_e164, kind, title, payload, status, next_run)
+        VALUES (${randomUUID()}, ${input.userId}, ${input.persona}, ${phone}, 'browser_result',
+          ${`Browser check: ${host}`}, ${payload}::text::jsonb, 'pending', now())
+        ON CONFLICT (user_id, persona, kind) DO UPDATE SET
+          payload = EXCLUDED.payload,
+          status = 'pending',
+          attempts = 0,
+          last_result = NULL,
+          next_run = now(),
+          updated_at = now()
+      `
+      return true
+    } catch (err) {
+      lastErr = err
+      if (attempt < delays.length - 1) {
+        console.warn(
+          `[browserVault] browser_result loop insert failed for ${input.userId}:${input.persona} (attempt ${attempt + 1}/${delays.length}, retrying)`,
+          err instanceof Error ? err.message : err,
+        )
+      }
+    }
+  }
+  console.error(
+    `[browserVault] browser_result loop insert EXHAUSTED for ${input.userId}:${input.persona}`,
+    lastErr instanceof Error ? lastErr.message : lastErr,
+  )
+  throw lastErr instanceof Error ? lastErr : new Error('browser_result loop insert failed')
 }
 
 function hostOfOrigin(origin: string): string {

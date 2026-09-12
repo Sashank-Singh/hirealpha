@@ -388,6 +388,81 @@ export async function runJob(sql: SQL, job: JobRow, launch = runBrowserSession):
 }
 
 async function report(sql: SQL, job: JobRow, outcome: JobOutcome): Promise<void> {
+  // A result whose loop insert died in a DB recovery window is still sitting
+  // in its job row with no browser_result loop row behind it. The insert is
+  // idempotent, so flushing here (before this run's own push) means the next
+  // completed job always heals whatever a previous report() could not queue.
+  // Only the newest completed job per (user, persona) matters: the thread has
+  // exactly one browser_result row per pair, so a newer result supersedes an
+  // older one, and a row updated after the job finished means its delivery
+  // already landed (or a newer result did).
+  async function flushUndeliveredResults(): Promise<void> {
+    const pending = (await sql`
+      SELECT latest.id, latest."userId", latest.persona, latest.url, latest.result,
+        latest.error, latest.status, latest."spendRequestId"
+      FROM (
+        SELECT DISTINCT ON (j.user_id, j.persona)
+          j.id, j.user_id AS "userId", j.persona, j.url, j.result, j.error, j.status,
+          j.spend_request_id AS "spendRequestId", j.finished_at
+        FROM hire_browser_jobs j
+        JOIN hire_users u ON u.id = j.user_id::text
+        WHERE j.status IN ('done', 'failed')
+          AND u.phone_e164 IS NOT NULL
+          AND j.finished_at IS NOT NULL
+          AND j.finished_at > now() - interval '48 hours'
+        ORDER BY j.user_id, j.persona, j.finished_at DESC
+      ) latest
+      WHERE NOT EXISTS (
+        SELECT 1 FROM hire_task_loops l
+        WHERE l.kind = 'browser_result' AND l.user_id = latest."userId"::text
+          AND l.updated_at > latest.finished_at
+      )
+      ORDER BY latest.finished_at ASC
+      LIMIT 3
+    `) as Array<{
+      id: string
+      userId: string
+      persona: string
+      url: string
+      result: string | null
+      error: string | null
+      status: string
+      spendRequestId: string | null
+    }>
+    for (const row of pending) {
+      let paymentWasApproved = false
+      if (row.spendRequestId) {
+        const spend = (await sql`
+          SELECT status, consumed_at FROM hire_spend_approvals
+          WHERE id = ${row.spendRequestId} LIMIT 1
+        `) as Array<{ status: string; consumed_at: Date | null }>
+        paymentWasApproved = Boolean(spend[0]?.consumed_at) || ['approved', 'consumed'].includes(spend[0]?.status || '')
+      }
+      const failed = row.status !== 'done'
+      const insights = !failed
+        ? row.spendRequestId
+          ? `Order submitted after payment. Merchant confirmation: ${row.result ?? ''}`
+          : (row.result || 'The task completed.')
+        : row.spendRequestId
+          ? paymentWasApproved
+            ? `Payment was approved, but the merchant order was not confirmed: ${(row.error || 'unknown error').slice(0, 200)}. No retry was attempted because the submission outcome may be uncertain.`
+            : `The checkout stopped before payment was approved: ${(row.error || 'unknown error').slice(0, 200)}.`
+          : `Couldn't check ${hostOf(row.url)}: ${(row.error || 'unknown error').slice(0, 200)}`
+      try {
+        await pushBrowserResultLoop(sql, {
+          userId: row.userId,
+          persona: row.persona,
+          origin: row.url,
+          insights,
+          jobId: row.id,
+        }, { retryDelaysMs: [0, 1_000, 4_000] })
+        console.log(`[browser-worker] recovered undelivered result for job ${row.id}`)
+      } catch (err) {
+        console.warn(`[browser-worker] undelivered result still blocked for job ${row.id}`, err)
+      }
+    }
+  }
+  await flushUndeliveredResults().catch((err) => console.warn('[browser-worker] undelivered result sweep failed', err))
   if (outcome.ok) {
     await sql`UPDATE hire_browser_jobs SET status = 'done', result = ${outcome.result}, finished_at = now() WHERE id = ${job.id}`
     if (job.spend_request_id) {
@@ -416,10 +491,17 @@ async function report(sql: SQL, job: JobRow, outcome: JobOutcome): Promise<void>
       : outcome.result
     const shot = lastScreenshots.get(job.id)
     lastScreenshots.delete(job.id)
-    await pushBrowserResultLoop(sql, {
-      userId: job.user_id, persona: job.persona, origin: job.url, insights,
-      screenshotDataUrl: shot?.dataUrl, screenshotCaption: shot?.caption,
-    })
+    try {
+      await pushBrowserResultLoop(sql, {
+        userId: job.user_id, persona: job.persona, origin: job.url, insights,
+        screenshotDataUrl: shot?.dataUrl, screenshotCaption: shot?.caption,
+        jobId: job.id,
+      }, { retryDelaysMs: [0, 2_000, 8_000, 20_000] })
+    } catch (err) {
+      // The result is safe in the job row; the next report() pass picks it up
+      // through the undelivered sweep instead of losing it to a DB flap.
+      console.error(`[browser-worker] result delivery failed for job ${job.id}; recovery sweep will retry`, err)
+    }
     return
   }
   // Do not replay a task that may already have submitted a form or order.
@@ -447,16 +529,21 @@ async function report(sql: SQL, job: JobRow, outcome: JobOutcome): Promise<void>
       }).catch(() => undefined)
     }
   }
-  await pushBrowserResultLoop(sql, {
-    userId: job.user_id,
-    persona: job.persona,
-    origin: job.url,
-    insights: job.spend_request_id
-      ? paymentWasApproved
-        ? `Payment was approved, but the merchant order was not confirmed: ${outcome.error.slice(0, 200)}. No retry was attempted because the submission outcome may be uncertain.`
-        : `The checkout stopped before payment was approved: ${outcome.error.slice(0, 200)}.`
-      : `Couldn't check ${hostOf(job.url)}: ${outcome.error.slice(0, 200)}`,
-  })
+  try {
+    await pushBrowserResultLoop(sql, {
+      userId: job.user_id,
+      persona: job.persona,
+      origin: job.url,
+      insights: job.spend_request_id
+        ? paymentWasApproved
+          ? `Payment was approved, but the merchant order was not confirmed: ${outcome.error.slice(0, 200)}. No retry was attempted because the submission outcome may be uncertain.`
+          : `The checkout stopped before payment was approved: ${outcome.error.slice(0, 200)}.`
+        : `Couldn't check ${hostOf(job.url)}: ${outcome.error.slice(0, 200)}`,
+      jobId: job.id,
+    }, { retryDelaysMs: [0, 2_000, 8_000, 20_000] })
+  } catch (err) {
+    console.error(`[browser-worker] failure notice delivery failed for job ${job.id}; recovery sweep will retry`, err)
+  }
 }
 
 async function main() {
