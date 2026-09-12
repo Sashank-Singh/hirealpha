@@ -63,22 +63,25 @@ export function LoginPage() {
       // Same phone re-assert as the register path: the DB row must carry the
       // number even if a guest checkout raced ahead of this step.
       void apiSavePhone(nextEmail, nextPhone, nextName).catch(() => undefined)
-      await hydrateFromServer().catch(() => undefined)
+      // Hydrate and the paid-check run together: the sign-in button must not
+      // wait for two full round trips before anything moves.
+      const st = await Promise.all([
+        hydrateFromServer().catch(() => undefined),
+        planParam
+          ? Promise.resolve(undefined)
+          : fetch(`/api/billing/status?email=${encodeURIComponent(nextEmail)}`)
+              .then((res) => res.json().catch(() => ({})))
+              .catch(() => ({})),
+      ]).then(([, s]) => s as { hires?: Record<string, boolean> } | undefined)
       if (planParam) {
         void continueToCheckout(nextEmail)
         return
       }
       // Phone just landed on the account: if they already pay, home; else the
       // default single trial checkout.
-      try {
-        const res = await fetch(`/api/billing/status?email=${encodeURIComponent(nextEmail)}`)
-        const st = (await res.json().catch(() => ({}))) as { hires?: Record<string, boolean> }
-        if (st.hires?.friend) {
-          navigate('/app')
-          return
-        }
-      } catch {
-        /* fall through to checkout */
+      if (st?.hires?.friend) {
+        navigate('/app')
+        return
       }
       void continueToCheckout(nextEmail)
     } catch (err) {
@@ -137,9 +140,9 @@ export function LoginPage() {
           // row and queues intros for every hire on the roster.
           void apiSavePhone(data.email, data.phone || nextPhone, data.name || nextName)
             .catch(() => undefined)
-          await hydrateFromServer().catch(() => undefined)
-          // A fresh account always goes to Stripe (defaults to the single-hire
-          // trial when no plan was picked on the pricing card).
+          // A fresh signup expects Stripe: go now, hydrate the roster in the
+          // background instead of making checkout wait on it.
+          void hydrateFromServer().catch(() => undefined)
           void continueToCheckout(data.email)
         })
         .catch((err) => {
@@ -155,22 +158,21 @@ export function LoginPage() {
           // Same re-assert as register: the phone must reach the DB no matter
           // which path created the account (guest checkout, webhook).
           void apiSavePhone(data.email, data.phone, data.name || nextName).catch(() => undefined)
-          await hydrateFromServer().catch(() => undefined)
           // A returning sign-in only starts checkout when there is no active
           // subscription yet — never re-charge someone who already pays.
-          void (async () => {
-            try {
-              const res = await fetch(`/api/billing/status?email=${encodeURIComponent(data.email)}`)
-              const st = (await res.json().catch(() => ({}))) as { hires?: Record<string, boolean> }
-              if (st.hires?.friend) {
-                navigate('/app')
-                return
-              }
-              void continueToCheckout(data.email)
-            } catch {
-              void continueToCheckout(data.email)
-            }
-          })()
+          // Hydrate and the paid-check run concurrently (not back-to-back) so
+          // the wait before navigating is one round trip, not two.
+          const st = await Promise.all([
+            hydrateFromServer().catch(() => undefined),
+            fetch(`/api/billing/status?email=${encodeURIComponent(data.email)}`)
+              .then((res) => res.json().catch(() => ({})))
+              .catch(() => ({})),
+          ]).then(([, s]) => s as { hires?: Record<string, boolean> })
+          if (st.hires?.friend) {
+            navigate('/app')
+            return
+          }
+          void continueToCheckout(data.email)
           return
         }
         // Signed in, but the account has no number yet. Reuse the finish flow
