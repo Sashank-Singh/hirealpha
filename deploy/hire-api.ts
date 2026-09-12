@@ -11478,7 +11478,33 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
     // `q` is the user's message, used only to rank recall. Absent, the payload
     // degrades to identity facts plus recency.
     const query = url.searchParams.get('q') || undefined
-    return json(await livePayload(sql, phone, persona, query))
+    // Hard budget. The payload now includes Vault-decrypted memory and live
+    // connector state, either of which can stall for minutes; a hung read used
+    // to hang the whole bot turn (its 12s abort turned every reply into "data
+    // unavailable"). On timeout serve the identity-only shape so the turn
+    // still works without memory or connector detail.
+    const live = await Promise.race([
+      livePayload(sql, phone, persona, query).catch(() => null),
+      new Promise<null>((resolve) => setTimeout(() => resolve(null), 8_000)),
+    ])
+    if (live) return json(live)
+    const user = await getUserByPhone(sql, phone).catch(() => null)
+    const roster = user ? await loadRoster(sql, user.id).catch(() => [] as Persona[]) : []
+    return json({
+      found: !!user,
+      hired: !!user && roster.includes(persona),
+      context: {},
+      connected: [],
+      memories: [],
+      email: user?.email ?? null,
+      name: user?.name ?? null,
+      timezone: user?.timezone ?? null,
+      userId: user?.id ?? null,
+      lastInboundAt: null,
+      pro: false,
+      location: null,
+      degraded: true,
+    })
   }
 
   if (path === '/api/internal/intros/claim' && req.method === 'GET') {
