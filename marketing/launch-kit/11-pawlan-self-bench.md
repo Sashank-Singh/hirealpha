@@ -482,6 +482,32 @@ individual turns, recorded per dimension.
   staging, connector truth) or has a deterministic engine-side path when the
   model refuses (booking asks).
 
+### Third pass (2026-09-12 early AM) — reliability hardening, no new deploys
+
+- GMI model failover: on timeout/5xx/empty completion the call retries once on
+  `GMI_MODEL_FALLBACK` (default Qwen when primary is DeepSeek and vice versa)
+  — same key, different capacity pool. Observed firing in the live log.
+- Maps: diet/quality qualifiers ("vegetarian restaurants near the Loop") no
+  longer block the kind word — verified returning real Loop restaurants with
+  addresses. Dining asks now nudge `tool:maps`; "dinner/lunch/brunch" count as
+  place asks. (OpenInstinct study note: they have NO maps tool at all — this
+  path is differentiated.)
+- Booking asks: a reply that CLAIMS a run was launched while no action object
+  was sent now triggers the deterministic engine-side draft from the named
+  site; single nudge round (the second round only produced more prose).
+- Worker: heartbeat touches claimed_at every minute; stale-claim sweep widened
+  5 → 10 minutes (booking-site runs were being reaped mid-flight).
+- Web pool: `statement_timeout=15000` — one hung query can no longer hold a
+  connection until every write path 504s (measured: /propose and /loops/claim
+  hanging until a restart).
+- Verified: browser run completes (`done`, "Example Domain") on every build
+  since the endpoint-form fix; the result-delivery loop insert is the one
+  remaining link that has not completed inside a stable DB window.
+- Root-cause note: Postgres on the box flaps between recovery windows under
+  deploy/build load; every "mystery hang" this session traced to those
+  windows. The box (8 GB, shared with builds) is the binding constraint —
+  dedicated/upgraded DB is the highest-leverage infra fix after tonight.
+
 ### Fixes shipped during the second runtime (all on main, all deployed)
 
 1. Browser execution: E2B template `hirealpha-browser` (SDK v2) + CDP proxy
