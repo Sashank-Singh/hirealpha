@@ -66,7 +66,34 @@ export interface GmiChatOptions {
   timeoutMs?: number
 }
 
+/**
+ * Provider failover across models on the SAME key. GMI serves many models
+ * from different capacity pools: when the configured model stalls (timeout,
+ * aborted fetch) or its pool refuses (5xx after the in-call retry) or returns
+ * an empty/echoed completion, a single retry on GMI_MODEL_FALLBACK often
+ * succeeds where the first model kept failing all night. Same endpoint, same
+ * key — no new provider needed.
+ */
 export async function gmiChat(options: GmiChatOptions): Promise<string> {
+  try {
+    return await gmiChatOnce(options)
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    const worthFailover =
+      /timed out|aborted|GMI error 5\d\d|Empty GMI reply|echoed instructions/i.test(msg)
+    const primary = options.model || process.env.GMI_MODEL || process.env.HIREALPHA_MODEL || 'Qwen/Qwen3.8-Flash'
+    const fallback = process.env.GMI_MODEL_FALLBACK ||
+      (primary !== 'Qwen/Qwen3.8-Flash' ? 'Qwen/Qwen3.8-Flash' : 'deepseek-ai/DeepSeek-V4-Flash-0731')
+    const originalBudget = options.timeoutMs ?? 30_000
+    // Only real turn-sized budgets fail over: a tiny probe deadline (tests,
+    // health checks) must stay a fast rejection, never a second attempt.
+    if (!worthFailover || fallback === primary || originalBudget < 8_000) throw err
+    console.warn(`[gmi] ${primary} failed (${msg.slice(0, 80)}); failing over to ${fallback}`)
+    return await gmiChatOnce({ ...options, model: fallback, timeoutMs: originalBudget })
+  }
+}
+
+async function gmiChatOnce(options: GmiChatOptions): Promise<string> {
   const apiKey =
     options.apiKey ||
     process.env.GMI_API_KEY ||
