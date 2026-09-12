@@ -7,6 +7,8 @@ import {
   formatMapResults,
   geocodeMapArea,
   mapAreaFromQuery,
+  PLACE_ASK_RE,
+  geocodeRowUsableForTest,
 } from './hire-api'
 
 /* Maps has two paths: Overpass for category asks ("good coffee") around known
@@ -294,6 +296,23 @@ describe('destination area without a preposition', () => {
     // "book" as the kind and fell through to the named path.
     expect(classifyMapQuery('book a hotel in Chicago Loop')).toMatchObject({ mode: 'nearby' })
     expect(mapAreaFromQuery('book a hotel in Chicago Loop')).toBe('Chicago Loop')
+  })
+
+  it('geocodes a landmark, not just a city', () => {
+    // Nominatim labels the Empire State Building `office`. A whitelist of place
+    // types rejected it, so the whole ask reported no hotels at all.
+    expect(geocodeRowUsableForTest({ lat: '40.748', lon: '-73.985', addresstype: 'office' })).toBe(true)
+    expect(geocodeRowUsableForTest({ lat: '35.40', lon: '-79.09', addresstype: 'road' })).toBe(false)
+    expect(geocodeRowUsableForTest({ lat: '41.88', lon: '-87.62', addresstype: 'suburb' })).toBe(true)
+  })
+
+  it('recognises "hotels near X" as a place ask', () => {
+    // The pattern missed the "near" form, so verified map data was ignored and
+    // the reply fell back to whatever a web search returned.
+    expect(PLACE_ASK_RE.test('Find hotels near the Empire State Building')).toBe(true)
+    expect(PLACE_ASK_RE.test('any good cafe in Lisbon')).toBe(true)
+    expect(PLACE_ASK_RE.test('remember for good: no pork')).toBe(false)
+    expect(PLACE_ASK_RE.test('what time is my flight')).toBe(false)
   })
 
   it('reads diet words into their OSM tags', () => {

@@ -5056,6 +5056,16 @@ const MAP_QUALIFIER_WORDS = new Set([
   'nice', 'quiet', 'fancy', 'romantic', 'top', 'family', 'great', 'solid', 'late', 'open',
 ])
 
+/**
+ * A turn that wants a place found ("hotels near the Empire State Building",
+ * "dinner near the Loop"). "near" belongs in the link word: without it the
+ * phrase matched nothing, so a verified map result was ignored and the reply
+ * fell back to whatever a web search returned — booking-site homepages.
+ * Exported so the engine and the maps tool agree on what a place ask is.
+ */
+export const PLACE_ASK_RE =
+  /\b(?:find|recommend|suggest|looking for|where(?:'s| is| can| should)|place|places|any)\b[^.!?\n]{0,60}\b(?:restaurants?|cafes?|coffee shops?|hotels?|hostels?|places? to eat|dinner|lunch|brunch|breakfast|bar|drinks|eat(?:ing)? out)\b|\b(?:restaurants?|cafes?|coffee shops?|hotels?|hostels?|bars?|dinner|lunch|brunch|breakfast)\b[^.!?\n]{0,40}\bnear\b|\b(?:\w+\s+){0,3}(?:restaurants?|hotels?|hostels?|cafes?|bars?)\b[^.!?\n]{0,30}\b(?:in|at|near|around|walkable from|walkable to)\b|\b(?:restaurants?|hotels?|hostels?|cafes?|bars?)\s+[A-Z][a-z]/i
+
 export function classifyMapQuery(query: string): { mode: 'nearby'; kinds: string[] } | { mode: 'named' } {
   const normalized = query
     .toLowerCase()
@@ -5242,14 +5252,23 @@ export function formatMapResults(
   return `Map results for "${label}":\n${lines.join('\n')}`
 }
 
-/** A place Result has to be a place, not a street: "Chicago Loop" resolves
- * first to a residential road in North Carolina, and searching a 1.6 km
- * radius there returns hardware stores for a dinner ask. */
-const GEOCODE_PLACE_TYPES = new Set([
-  'city', 'town', 'village', 'hamlet', 'suburb', 'neighbourhood', 'borough',
-  'quarter', 'city_block', 'administrative', 'municipality', 'county', 'state',
-  'postcode', 'postal_code',
+/** Geocoding a phrase must land on a destination, not on a street: "Chicago
+ * Loop" resolves first to a residential road in North Carolina, and a 1.6 km
+ * search there returns hardware stores for a dinner ask. Landmarks are
+ * destinations too, and they are labelled inconsistently — the Empire State
+ * Building is addresstype `office` — so this rejects the street classes rather
+ * than listing the acceptable ones. A whitelist silently turned a landmark ask
+ * into "no map results at all". */
+const GEOCODE_STREET_TYPES = new Set([
+  'road', 'residential', 'unclassified', 'service', 'track', 'path', 'footway',
+  'cycleway', 'steps', 'pedestrian', 'living_street', 'motorway', 'trunk',
+  'primary', 'secondary', 'tertiary', 'house', 'building_entrance', 'bus_stop',
 ])
+
+/** Exported for the regression test that pins landmark vs street. */
+export function geocodeRowUsableForTest(row: { lat?: string; lon?: string; type?: string; addresstype?: string } | undefined): boolean {
+  return geocodeRowUsable(row)
+}
 
 function geocodeRowUsable(row: { lat?: string; lon?: string; type?: string; addresstype?: string } | undefined): boolean {
   const lat = Number(row?.lat)
@@ -5258,7 +5277,7 @@ function geocodeRowUsable(row: { lat?: string; lon?: string; type?: string; addr
   const kind = String(row?.addresstype || row?.type || '').toLowerCase()
   // An empty kind is accepted: the test fixtures answer without one, and a
   // provider that omits the field should not turn every geocode into a miss.
-  return !kind || GEOCODE_PLACE_TYPES.has(kind)
+  return !kind || !GEOCODE_STREET_TYPES.has(kind)
 }
 
 async function nominatimArea(term: string, countryHint: string): Promise<{ lat: number; lon: number } | null> {
@@ -5293,11 +5312,61 @@ export async function geocodeMapArea(area: string, countryHint: string) {
   const words = area.replace(/\s+/g, ' ').trim().split(' ').filter(Boolean)
   if (!words.length) return null
   for (let start = 0; start < words.length; start++) {
+    // A leading filler survives the word-dropping loop otherwise: "hotels the
+    // Empire State Building" gave "the Empire State Building", which does not
+    // geocode, and a landmark ask then reported no results at all.
+    while (start < words.length - 1 && MAP_FILLER_WORDS.has((words[start] || '').toLowerCase())) start++
     const term = words.slice(start).join(' ')
     const hit = await nominatimArea(term, countryHint)
     if (hit) return hit
     // Nominatim allows ~1 request/second; keep the retry honest.
     if (start + 1 < words.length) await new Promise((r) => setTimeout(r, 1100))
+  }
+  return null
+}
+
+const OVERPASS_MIRRORS = [
+  'https://overpass-api.de/api/interpreter',
+  'https://overpass.kumi.systems/api/interpreter',
+  'https://overpass.private.coffee/api/interpreter',
+]
+
+/** One Overpass query, retried across mirrors. Returns null only when every
+ * attempt failed to produce JSON — the caller must not read null as "no places
+ * exist", and callers that report emptiness should say the lookup failed
+ * instead. */
+async function fetchOverpass(query: string): Promise<{
+  elements?: Array<{
+    tags?: Record<string, string>
+    lat?: number
+    lon?: number
+    center?: { lat: number; lon: number }
+  }>
+} | null> {
+  for (const [attempt, endpoint] of OVERPASS_MIRRORS.entries()) {
+    if (attempt) await new Promise((resolve) => setTimeout(resolve, 700 * attempt))
+    try {
+      const res = await fetchPublic(
+        new URL(endpoint),
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            Accept: 'application/json',
+            'User-Agent': 'HireAlpha/1.0 (https://hirealpha.chat)',
+          },
+          body: `data=${encodeURIComponent(query)}`,
+        },
+        12000,
+      )
+      if (!res.ok) continue
+      const text = await res.text()
+      // A mirror that is busy answers 200 with an HTML error document.
+      if (!text.trimStart().startsWith('{')) continue
+      return JSON.parse(text) as { elements?: Array<Record<string, never>> }
+    } catch {
+      /* try the next mirror */
+    }
   }
   return null
 }
@@ -5324,28 +5393,14 @@ async function fetchNearbyPlaces(
     if (lat === null || lon === null) return null
     const ql = buildOverpassQuery(kinds, lat, lon, 1600, dietsFromQuery(query))
     if (!ql) return null
-    const res = await fetchPublic(
-      new URL('https://overpass-api.de/api/interpreter'),
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-          Accept: 'application/json',
-          'User-Agent': 'HireAlpha/1.0 (https://hirealpha.chat)',
-        },
-        body: `data=${encodeURIComponent(ql)}`,
-      },
-      12000,
-    )
-    if (!res.ok) return null
-    const data = (await res.json()) as {
-      elements?: Array<{
-        tags?: Record<string, string>
-        lat?: number
-        lon?: number
-        center?: { lat: number; lon: number }
-      }>
-    }
+    // Overpass answers a busy moment with HTTP 200 and an HTML error page
+    // ("server is probably too busy"). A single un-retried call turned that
+    // into "No map results found", i.e. a temporary server hiccup was reported
+    // to the user as a fact about the world — the search looked broken while
+    // the very next request returned real hotels. Retry, then try a mirror,
+    // and only trust a response that is actually JSON.
+    const data = await fetchOverpass(ql)
+    if (!data) return null
     const rows = (data.elements || [])
       .map((el) => {
         const tags = el.tags || {}

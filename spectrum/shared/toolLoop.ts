@@ -125,8 +125,10 @@ export function pickBrowserPortal(input: {
 
 /** A turn that wants a place picked (restaurant, cafe, hotel...). Decides only
  * that the maps tool has to run before a place answer is allowed out. */
-const PLACE_ASK_RE =
-  /\b(?:find|recommend|suggest|looking for|where(?:'s| is| can| should)|place)\b[^.!?\n]{0,60}\b(?:restaurants?|cafes?|coffee shops?|hotels?|places? to eat|dinner|lunch|brunch|breakfast|bar|drinks|eat(?:ing)? out)\b/i
+// One definition, shared with the maps tool: a pattern that missed "hotels
+// near X" made a verified map result invisible to the answer builder.
+import { PLACE_ASK_RE as PLACE_ASK_PATTERN } from '../../deploy/hire-api'
+const PLACE_ASK_RE = PLACE_ASK_PATTERN
 
 /** One decision loop owns lookups and drafts. Each result is visible to the
  * next decision, so a lookup can lead to another lookup and then a draft.

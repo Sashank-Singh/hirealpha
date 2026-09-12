@@ -1,18 +1,16 @@
 {
   "dim": "",
   "phone": "+12163032166",
-  "userText": "Find hotels near the Burj Khalifa",
+  "userText": "check the rates for hotels near the Empire State Building",
   "bubbles": [
-    "The web search didn't return anything useful, it came back with unrelated results instead of hotel info, so I can't confirm rates or availability from it.\n\nWhat I do have is the map result from before, which lists actual hotels near the Burj Khalifa with walk times (Armani Hotel, ~8 min; Radisson Blu Waterfront, ~9 min; LEVA Hotel, ~13 min; Villa Rotana, ~14 min; Rove City Walk, ~20 min).\n\nWant me to try a more specific search, e.g., rates for specific dates, or a particular budget? Or I can look up one of these properties directly."
+    "I hit a quick snag thinking through that. Can you say that once more?"
   ],
-  "reply": "The web search didn't return anything useful, it came back with unrelated results instead of hotel info, so I can't confirm rates or availability from it.\n\nWhat I do have is the map result from before, which lists actual hotels near the Burj Khalifa with walk times (Armani Hotel, ~8 min; Radisson Blu Waterfront, ~9 min; LEVA Hotel, ~13 min; Villa Rotana, ~14 min; Rove City Walk, ~20 min).\n\nWant me to try a more specific search, e.g., rates for specific dates, or a particular budget? Or I can look up one of these properties directly.",
-  "source": "gmi",
+  "reply": "I hit a quick snag thinking through that. Can you say that once more?",
+  "source": "local",
   "authoritative": [],
   "card": null,
   "contactCardFirst": false,
-  "progress": [
-    "I’m checking nearby options."
-  ],
+  "progress": [],
   "reactions": [],
-  "totalMs": 21940
+  "totalMs": 1549
 }
