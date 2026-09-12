@@ -1,5 +1,13 @@
 import {afterAll, afterEach, beforeEach, describe, expect, it} from 'bun:test'
-import { buildOverpassQuery, classifyMapQuery, fetchMapSearch, formatMapResults } from './hire-api'
+import {
+  buildOverpassQuery,
+  classifyMapQuery,
+  dietsFromQuery,
+  fetchMapSearch,
+  formatMapResults,
+  geocodeMapArea,
+  mapAreaFromQuery,
+} from './hire-api'
 
 /* Maps has two paths: Overpass for category asks ("good coffee") around known
  * or geocoded coords, Nominatim for named places. These tests pin the
@@ -212,6 +220,70 @@ describe('fetchMapSearch nearby path', () => {
     const out = await fetchMapSearch('good coffee')
     expect(calls.every((c) => !c.includes('overpass-api.de'))).toBe(true)
     expect(out).toContain('Coffee Shop, Portland')
+  })
+})
+
+describe('destination area without a preposition', () => {
+  it('reads a named city and neighborhood from the tail of the ask', () => {
+    expect(mapAreaFromQuery('vegetarian restaurant Chicago Loop')).toBe('chicago loop')
+    expect(mapAreaFromQuery('dinner Chicago Loop vegetarian')).toBe('chicago loop')
+    expect(mapAreaFromQuery('vegetarian restaurant near the Loop Chicago')).toBe('Loop Chicago')
+    expect(mapAreaFromQuery('vegetarian restaurants in the Loop Chicago walkable')).toBe('Loop Chicago')
+  })
+
+  it('keeps the nearest-me path free of an area', () => {
+    expect(mapAreaFromQuery('restaurants near me')).toBe('')
+    expect(mapAreaFromQuery('good coffee')).toBe('')
+  })
+
+  it('drops leading words until a neighborhood resolves to a real place', async () => {
+    const calls: string[] = []
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const url = String(input instanceof URL ? input : (input as Request).url ?? input)
+      calls.push(url)
+      // "Chicago Loop" is a residential road in North Carolina in OSM; only the
+      // looser "Chicago" term is a place. The road must not be accepted.
+      if (url.includes('q=Chicago+Loop') || url.includes('q=Chicago%20Loop')) {
+        return new Response(JSON.stringify([{ lat: '35.40', lon: '-79.09', type: 'residential', addresstype: 'road' }]), { status: 200 })
+      }
+      return new Response(JSON.stringify([{ lat: '41.88', lon: '-87.62', type: 'city', addresstype: 'city' }]), { status: 200 })
+    }) as typeof fetch
+    const hit = await geocodeMapArea('Chicago Loop', 'us')
+    expect(hit).toEqual({ lat: 41.88, lon: -87.62 })
+    expect(calls.length).toBe(2)
+  })
+
+  it('surfaces diet-tagged places ahead of untagged ones, with walk times', async () => {
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const url = String(input instanceof URL ? input : (input as Request).url ?? input)
+      if (url.includes('nominatim')) {
+        return new Response(JSON.stringify([{ lat: '41.881', lon: '-87.629', type: 'suburb', addresstype: 'suburb' }]), { status: 200 })
+      }
+      return new Response(
+        JSON.stringify({
+          elements: [
+            { tags: { name: 'Plain Diner', amenity: 'restaurant' }, lat: 41.88, lon: -87.63 },
+            { tags: { name: 'Green Table', amenity: 'restaurant', 'diet:vegetarian': 'yes' }, lat: 41.88, lon: -87.63 },
+            { tags: { name: 'Corner Coffee', amenity: 'cafe', cuisine: 'coffee_shop' }, lat: 41.88, lon: -87.63 },
+          ],
+        }),
+        { status: 200 },
+      )
+    }) as typeof fetch
+    const out = await fetchMapSearch('vegetarian restaurant Chicago Loop', 'us', null)
+    expect(out).toContain('Green Table')
+    expect(out).toContain('[vegetarian, confirmed]')
+    expect(out).toContain('min walk')
+    // The vegetarian tag is what the ask was about, so it sorts first.
+    expect(out.indexOf('Green Table')).toBeLessThan(out.indexOf('Plain Diner'))
+    // A coffee shop is not dinner.
+    expect(out).not.toContain('Corner Coffee')
+  })
+
+  it('reads diet words into their OSM tags', () => {
+    expect(dietsFromQuery('vegan dinner in Chicago')).toEqual(['diet:vegan=yes'])
+    expect(dietsFromQuery('halal cart near the Loop')).toEqual(['diet:halal=yes'])
+    expect(dietsFromQuery('dinner for four')).toEqual([])
   })
 })
 

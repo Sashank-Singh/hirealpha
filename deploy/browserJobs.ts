@@ -33,6 +33,9 @@ export type BrowserJobRow = {
   credential_task_id: string | null
   spend_request_id: string | null
   current_url: string | null
+  /** Provider-hosted live view of this exact browser (Kernel). When present the
+   * session page embeds it instead of the container's noVNC fallback. */
+  live_view_url: string | null
   activity: Array<{ action: string; at: string }>
   handoff_kind: 'password' | 'verification' | 'payment' | 'captcha' | 'confirmation' | null
   handoff_message: string | null
@@ -67,6 +70,7 @@ export async function ensureBrowserJobsSchema(sql: SQL): Promise<void> {
   await sql`ALTER TABLE hire_browser_jobs ADD COLUMN IF NOT EXISTS credential_task_id TEXT`
   await sql`ALTER TABLE hire_browser_jobs ADD COLUMN IF NOT EXISTS spend_request_id UUID`
   await sql`ALTER TABLE hire_browser_jobs ADD COLUMN IF NOT EXISTS current_url TEXT`
+  await sql`ALTER TABLE hire_browser_jobs ADD COLUMN IF NOT EXISTS live_view_url TEXT`
   await sql`ALTER TABLE hire_browser_jobs ADD COLUMN IF NOT EXISTS activity JSONB NOT NULL DEFAULT '[]'::jsonb`
   await sql`ALTER TABLE hire_browser_jobs ADD COLUMN IF NOT EXISTS handoff_kind TEXT`
   await sql`ALTER TABLE hire_browser_jobs ADD COLUMN IF NOT EXISTS handoff_message TEXT`
@@ -164,7 +168,7 @@ export async function claimBrowserJobs(sql: SQL, limit: number): Promise<Browser
     )
     RETURNING id, user_id, persona, phone_e164, kind, url, steps, goal, status, attempts, result, error, approval_id,
       vault_item_id, credential_capability_id, credential_capability_digest, credential_task_id, spend_request_id,
-      current_url, activity, handoff_kind, handoff_message, handoff_at, handoff_resumed_at
+      current_url, live_view_url, activity, handoff_kind, handoff_message, handoff_at, handoff_resumed_at
   `) as unknown as BrowserJobRow[]
   return rows
 }
@@ -203,7 +207,7 @@ export async function getBrowserJob(sql: SQL, id: string, userId?: string): Prom
   const rows = (await sql`
     SELECT id, user_id, persona, phone_e164, kind, url, steps, goal, status, attempts, result, error, approval_id,
       vault_item_id, credential_capability_id, credential_capability_digest, credential_task_id, spend_request_id,
-      current_url, activity, handoff_kind, handoff_message, handoff_at, handoff_resumed_at
+      current_url, live_view_url, activity, handoff_kind, handoff_message, handoff_at, handoff_resumed_at
     FROM hire_browser_jobs WHERE id = ${id} ${userId ? sql`AND user_id = ${userId}` : sql``} LIMIT 1
   `) as unknown as BrowserJobRow[]
   return rows[0] ?? null
@@ -213,6 +217,12 @@ export type BrowserHandoffKind = NonNullable<BrowserJobRow['handoff_kind']>
 
 /** Only coarse actions enter the activity stream. Never persist field values or
  * page text: passwords and verification codes belong only in the live browser. */
+/** Record the provider-hosted live view for this job. Written once when the
+ * browser starts, so the session page can embed it while the run is in flight. */
+export async function setBrowserLiveView(sql: SQL, id: string, liveViewUrl: string): Promise<void> {
+  await sql`UPDATE hire_browser_jobs SET live_view_url = ${liveViewUrl.slice(0, 2000)} WHERE id = ${id}`
+}
+
 export async function appendBrowserActivity(sql: SQL, id: string, action: string, currentUrl: string): Promise<void> {
   const event = JSON.stringify([{ action: action.slice(0, 40), at: new Date().toISOString() }])
   await sql`
@@ -222,13 +232,29 @@ export async function appendBrowserActivity(sql: SQL, id: string, action: string
   `
 }
 
+/** Retry wrapper for writes that gate a user-visible pause. The Postgres box
+ * flaps into short recovery windows; losing the handoff write used to turn a
+ * "user must act" moment into a failed job with a vague database error. */
+async function retryTransient<T>(fn: () => Promise<T>, delaysMs = [500, 1_500, 4_000]): Promise<T> {
+  let lastError: unknown
+  for (let attempt = 0; attempt <= delaysMs.length; attempt++) {
+    if (attempt > 0) await Bun.sleep(delaysMs[attempt - 1]!)
+    try {
+      return await fn()
+    } catch (error) {
+      lastError = error
+    }
+  }
+  throw lastError
+}
+
 export async function beginBrowserHandoff(sql: SQL, id: string, kind: BrowserHandoffKind, message: string): Promise<void> {
-  await sql`
+  await retryTransient(() => sql`
     UPDATE hire_browser_jobs
     SET status = 'waiting', handoff_kind = ${kind}, handoff_message = ${message.slice(0, 400)},
       handoff_at = now(), handoff_resumed_at = NULL
     WHERE id = ${id} AND status = 'running'
-  `
+  `)
 }
 
 export async function resumeBrowserHandoff(sql: SQL, id: string): Promise<boolean> {
@@ -241,13 +267,22 @@ export async function resumeBrowserHandoff(sql: SQL, id: string): Promise<boolea
   return rows.length > 0
 }
 
-/** Keep the streamed browser open while its owner handles a protected step. */
+/** Keep the streamed browser open while its owner handles a protected step.
+ * The poll survives Postgres recovery windows (the run that hit a Yelp
+ * CAPTCHA was killed by one): a read error is not a resume decision, so it
+ * retries until the wait itself expires. */
 export async function waitForBrowserHandoff(sql: SQL, id: string, timeoutMs = 10 * 60_000): Promise<'resumed' | 'cancelled' | 'timeout'> {
   const started = Date.now()
   while (Date.now() - started < timeoutMs) {
-    const rows = (await sql`
-      SELECT status, handoff_resumed_at FROM hire_browser_jobs WHERE id = ${id} LIMIT 1
-    `) as Array<{ status: string; handoff_resumed_at: Date | null }>
+    let rows: Array<{ status: string; handoff_resumed_at: Date | null }>
+    try {
+      rows = (await sql`
+        SELECT status, handoff_resumed_at FROM hire_browser_jobs WHERE id = ${id} LIMIT 1
+      `) as Array<{ status: string; handoff_resumed_at: Date | null }>
+    } catch {
+      await Bun.sleep(1_000)
+      continue
+    }
     const row = rows[0]
     if (!row || row.status === 'failed') return 'cancelled'
     if (row.status === 'running' && row.handoff_resumed_at) return 'resumed'

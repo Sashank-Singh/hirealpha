@@ -16,6 +16,8 @@ export type LiveProfile = {
   location?: { kind: string; label: string; label_text: string } | null
   /** Paying subscriber (active or trialing) for this persona. */
   pro?: boolean
+  /** The server hit its read budget and served the identity-only shape. */
+  degraded?: boolean
 }
 
 const EMPTY: LiveProfile = {
@@ -145,7 +147,17 @@ export async function fetchLiveProfile(phone: string, persona: AgentId, query?: 
     // deploy. Retry once so one blip can't turn into a "sign in" reply.
     if (first.found) return first
     await new Promise((r) => setTimeout(r, 300))
-    return await attempt()
+    const second = await attempt()
+    if (second.found) return second
+    // degraded=true means the server's DB/read budget blipped, not that the
+    // sender is unknown. Without a patient third read a hired user fell
+    // through to the plain-chat path and lost every tool and memory.
+    if (first.degraded || second.degraded) {
+      await new Promise((r) => setTimeout(r, 1500))
+      const third = await attempt()
+      if (third.found) return third
+    }
+    return second
   } catch (err) {
     // AbortError = the 8s timer fired (api mid-restart, pool churning). One
     // patient retry before giving up: EMPTY flips live.found off, which skips

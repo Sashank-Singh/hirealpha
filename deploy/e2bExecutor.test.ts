@@ -62,6 +62,18 @@ describe('browser executor mode resolution', () => {
     expect(resolveBrowserExecutorMode({ E2B_BROWSER_TEMPLATE: 'hirealpha-browser' })).toBe('disabled')
   })
 
+  it('prefers the managed cloud browser once its key is present', () => {
+    // The key is the whole point of the provider; an older e2b pin left in the
+    // environment must not keep routing real-site tasks at the backend that
+    // answers bot challenges with an interstitial.
+    expect(resolveBrowserExecutorMode({ KERNEL_API_KEY: 'k', HIREALPHA_BROWSER_MODE: 'e2b' })).toBe('kernel')
+    expect(resolveBrowserExecutorMode({ KERNEL_API_KEY: 'k' })).toBe('kernel')
+    // An explicit local/disabled decision still wins: those are operator
+    // safety switches, not performance preferences.
+    expect(resolveBrowserExecutorMode({ KERNEL_API_KEY: 'k', HIREALPHA_BROWSER_MODE: 'local' })).toBe('local')
+    expect(resolveBrowserExecutorMode({ KERNEL_API_KEY: 'k', HIREALPHA_BROWSER_MODE: 'disabled' })).toBe('disabled')
+  })
+
   it('fails closed with no configuration at all', () => {
     // An unconfigured host used to default to local Chromium, which OOM-killed
     // Postgres three times on the shared VPS. Nothing runs unless a mode is

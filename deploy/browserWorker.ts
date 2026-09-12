@@ -15,6 +15,8 @@ import { vaultKey } from './vaultCrypto'
 import { runBrowserSession, type SessionTask } from './browserSession'
 import { DISABLED_ERROR, resolveBrowserExecutorMode, withTaskSandbox } from './e2bExecutor'
 import { E2BTaskEnvironmentProvider } from '../services/trust/taskEnvironments'
+import { KernelBrowser } from './kernelPage'
+import { runKernelTask } from './kernelSession'
 import { reportLinkOutcome, retrieveLinkCard, retrieveLinkSpend, type LinkCardCredential } from './linkWallet'
 import { createLinkBackedSpendRequest, ensureUserPaymentsSchema, promoteApprovedLinkPurchases } from './userPayments'
 import {
@@ -40,6 +42,11 @@ const DATABASE_URL = process.env.DATABASE_URL || ''
 // with isolated worker replicas instead of increasing in-container concurrency.
 const CONCURRENCY = 1
 const POLL_MS = 3000
+/** Sandbox lifetime must outlive the agent wall (8 min) plus a full handoff
+ * wait (10 min) plus CDP startup, or the browser is killed while the user is
+ * mid-CAPTCHA. E2B allows up to 30 minutes; the sandbox is still destroyed in
+ * withTaskSandbox's finally, so an idle sandbox never lingers. */
+const TASK_SANDBOX_TIMEOUT_MS = 20 * 60_000
 
 function hostOf(url: string): string {
   try {
@@ -272,9 +279,40 @@ export async function runJob(sql: SQL, job: JobRow, launch = runBrowserSession):
     return { ok: false, error: DISABLED_ERROR }
   }
   const launchTask = (task: SessionTask) => {
+    if (executorMode === 'kernel') {
+      const apiKey = process.env.KERNEL_API_KEY?.trim() || ''
+      if (!apiKey) return Promise.resolve({ ok: false as const, error: 'KERNEL_API_KEY is not configured.' })
+      return (async () => {
+        const browser = await KernelBrowser.launch({
+          apiKey,
+          timeoutSeconds: Number(process.env.KERNEL_SESSION_SECONDS || 3600),
+          profile: process.env.KERNEL_PROFILE_NAME?.trim() || undefined,
+        })
+        // The live view is the page a person opens to take over a login,
+        // CAPTCHA or payment step — record it before the first model turn.
+        if (browser.liveViewUrl) await setBrowserLiveView(sql, job.id, browser.liveViewUrl).catch(() => undefined)
+        try {
+          return await runKernelTask(
+            {
+              url: task.url,
+              goal: task.goal,
+              paymentAuthorized: task.paymentAuthorized,
+              paymentAmountCents: task.paymentAmountCents,
+              paymentCard: task.paymentCard,
+              onProgress: task.onProgress,
+              onScreenshot: task.onScreenshot,
+              onHandoff: task.onHandoff,
+            },
+            browser,
+          )
+        } finally {
+          await browser.close().catch(() => undefined)
+        }
+      })()
+    }
     if (executorMode === 'e2b') {
       const provider = new E2BTaskEnvironmentProvider(process.env.E2B_API_KEY || '')
-      return withTaskSandbox(sql, provider, { userId: job.user_id, taskId: job.id }, (cdpUrl) =>
+      return withTaskSandbox(sql, provider, { userId: job.user_id, taskId: job.id, timeoutMs: TASK_SANDBOX_TIMEOUT_MS }, (cdpUrl) =>
         runBrowserSession({ ...task, cdpUrl }))
     }
     return launch(task)
@@ -347,7 +385,12 @@ export async function runJob(sql: SQL, job: JobRow, launch = runBrowserSession):
     paymentAuthorized: Boolean(paymentCard),
     paymentAmountCents,
     paymentCard,
-    onProgress: ({ action, url }) => appendBrowserActivity(sql, job.id, action, url),
+    // Activity rows are diagnostics: one must never kill a running browser
+    // during a Postgres recovery window (a real job died exactly that way
+    // mid-CAPTCHA handoff).
+    onProgress: async ({ action, url }) => {
+      await appendBrowserActivity(sql, job.id, action, url).catch(() => undefined)
+    },
     onScreenshot: async (shot) => { lastScreenshots.set(job.id, shot) },
     onHandoff: async ({ kind: handoffKind, message, url, amountCents, merchant, item }) => {
       if (handoffKind === 'payment' && paymentCard) return { status: 'resumed' as const, paymentCard }
@@ -362,6 +405,10 @@ export async function runJob(sql: SQL, job: JobRow, launch = runBrowserSession):
       const appBase = (process.env.HIREALPHA_APP_URL || 'https://hirealpha.chat').replace(/\/$/, '')
       const viewToken = generateSessionViewToken(job.id, job.user_id)
       const sessionUrl = `${appBase}/computer/${job.id}?token=${encodeURIComponent(viewToken)}`
+      // The challenge screenshot the session just took travels with the
+      // handoff message: the user sees the wall in the thread, not a claim
+      // that one exists.
+      const handoffShot = lastScreenshots.get(job.id)
       await pushBrowserResultLoop(sql, {
         userId: job.user_id,
         persona: job.persona,
@@ -369,6 +416,8 @@ export async function runJob(sql: SQL, job: JobRow, launch = runBrowserSession):
         insights: payment
           ? `Checkout is staged at a verified total of $${((amountCents || 0) / 100).toFixed(2)}. Approve the one-time payment in Link: ${payment.paymentUrl} — watch the live checkout here: ${sessionUrl}`
           : `Alpha paused and needs you to ${message.replace(/[.!]+$/, '').toLowerCase()}. Open the live computer: ${sessionUrl}`,
+        screenshotDataUrl: handoffShot?.dataUrl,
+        screenshotCaption: handoffShot?.caption || handoffMessage,
       })
       return payment
         ? waitForLinkCredential(sql, job, payment)

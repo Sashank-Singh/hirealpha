@@ -29,11 +29,22 @@ import {
   type TaskEnvironmentProvider,
 } from '../services/trust/taskEnvironments'
 
-export type BrowserExecutorMode = 'e2b' | 'local' | 'disabled'
+export type BrowserExecutorMode = 'e2b' | 'kernel' | 'local' | 'disabled'
 
 export function resolveBrowserExecutorMode(env: Record<string, string | undefined> = process.env): BrowserExecutorMode {
   const forced = env.HIREALPHA_BROWSER_MODE?.trim().toLowerCase()
-  if (forced === 'e2b' || forced === 'local' || forced === 'disabled') return forced
+  // Safety switches win over any key: "local" and "disabled" are deliberate
+  // operator decisions about isolation, never performance preferences.
+  if (forced === 'local' || forced === 'disabled') return forced
+  // A configured Kernel key outranks an older e2b pin: the key is the whole
+  // point of the provider, and a stale mode string must not keep sending
+  // real-site tasks at the backend that answers bot challenges with a wall.
+  if (env.KERNEL_API_KEY?.trim()) return 'kernel'
+  if (forced === 'e2b' || forced === 'kernel') return forced
+  // Kernel first when it is configured: it is the only backend with managed
+  // stealth, so a site that answers our own Chromium with a bot wall still
+  // returns real content. E2B stays the fallback it was.
+  if (env.KERNEL_API_KEY?.trim()) return 'kernel'
   if (env.E2B_API_KEY?.trim() && env.E2B_BROWSER_TEMPLATE?.trim()) return 'e2b'
   // Fail closed. Local Chromium on a shared host OOM-killed Postgres three
   // times (1.27 GB peak per task measured); it is an explicitly flagged
@@ -42,7 +53,7 @@ export function resolveBrowserExecutorMode(env: Record<string, string | undefine
 }
 
 export const DISABLED_ERROR =
-  'Browser tasks are disabled: no execution backend is configured. Set E2B_API_KEY + E2B_BROWSER_TEMPLATE for sandboxed execution, or HIREALPHA_BROWSER_MODE=local to explicitly accept reduced isolation on this host.'
+  'Browser tasks are disabled: no execution backend is configured. Set KERNEL_API_KEY for the managed cloud browser, or E2B_API_KEY + E2B_BROWSER_TEMPLATE for sandboxed execution, or HIREALPHA_BROWSER_MODE=local to explicitly accept reduced isolation on this host.'
 
 
 /** Run one browser task inside a dedicated sandbox. Provisions before `run`,

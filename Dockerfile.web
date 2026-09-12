@@ -44,6 +44,9 @@ COPY deploy/browserNetworkPolicy.ts ./browserNetworkPolicy.ts
 COPY deploy/browserSession.ts ./browserSession.ts
 COPY deploy/browserWorker.ts ./browserWorker.ts
 COPY deploy/e2bExecutor.ts ./e2bExecutor.ts
+COPY deploy/kernelPage.ts ./kernelPage.ts
+COPY deploy/kernelSession.ts ./kernelSession.ts
+COPY deploy/challengeDetection.ts ./challengeDetection.ts
 COPY deploy/agentDriver.ts ./agentDriver.ts
 COPY deploy/demoData.ts ./demoData.ts
 COPY deploy/demoFixtures.ts ./demoFixtures.ts

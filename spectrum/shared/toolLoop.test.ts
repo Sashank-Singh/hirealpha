@@ -25,6 +25,12 @@ import {
   stripToolDirectives,
   wantsOperatorWrite,
   runToolConversation,
+  isMerchantPortal,
+  merchantSiteFromAsk,
+  pickBrowserPortal,
+  mapPlacesFromBlock,
+  formatMapPicks,
+  mapQueryForAsk,
 } from './toolLoop'
 
 describe('multi-step agent execution', () => {
@@ -435,6 +441,111 @@ describe('purchase draft', () => {
     expect(problem).toContain('cap')
     expect(validatePurchase({ type: 'purchase', item: 'rice', amount: 25, url: 'https://a.com' })).toBeNull()
   })
+  it('rejects a directory or search page as the product url', () => {
+    expect(validatePurchase({ type: 'purchase', item: 'coffee', amount: 15, url: 'https://en.wikipedia.org/wiki/Coffee' })).toContain('product page')
+    expect(validatePurchase({ type: 'purchase', item: 'coffee', amount: 15, url: 'https://www.yelp.com/search?cflt=coffee' })).toContain('product page')
+    expect(validatePurchase({ type: 'purchase', item: 'coffee', amount: 15, url: 'https://www.amazon.com/dp/B0XYZ' })).toBeNull()
+  })
+})
+
+describe('browser run targeting', () => {
+  it('accepts real merchant pages and rejects directories and search pages', () => {
+    expect(isMerchantPortal('https://www.amazon.com/dp/B0XYZ')).toBe(true)
+    expect(isMerchantPortal('https://www.amazon.com')).toBe(true)
+    expect(isMerchantPortal('https://www.amazon.com/s?k=coffee')).toBe(false)
+    expect(isMerchantPortal('https://www.yelp.com/search?cflt=coffee')).toBe(false)
+    expect(isMerchantPortal('https://en.m.wikipedia.org/wiki/Coffee')).toBe(false)
+    expect(isMerchantPortal('http://www.amazon.com')).toBe(false)
+  })
+
+  it('resolves the merchant the user named in their own words', () => {
+    expect(merchantSiteFromAsk('Reorder two bags of the same coffee beans from Amazon using the home address.')).toBe('https://www.amazon.com')
+    expect(merchantSiteFromAsk('book a table on OpenTable')).toBe('https://www.opentable.com')
+    expect(merchantSiteFromAsk('find dinner near the Loop')).toBeNull()
+  })
+
+  it('prefers the named merchant and never picks a directory from results', () => {
+    expect(pickBrowserPortal({ ask: 'Reorder coffee from Amazon', resultUrls: ['https://www.peets.com/coffee'] })).toBe('https://www.amazon.com')
+    expect(pickBrowserPortal({ ask: 'buy me a coffee maker', resultUrls: ['https://www.yelp.com/search?cflt=coffee', 'https://en.wikipedia.org/wiki/Coffee'] })).toBeNull()
+    expect(pickBrowserPortal({ ask: 'buy me a coffee maker', resultUrls: ['https://www.yelp.com/search?cflt=coffee', 'https://www.amazon.com/dp/B0XYZ'] })).toBe('https://www.amazon.com/dp/B0XYZ')
+  })
+
+  it('stages a run on the named merchant when the model only writes prose', async () => {
+    const drafts: unknown[] = []
+    const result = await runToolConversation({
+      messages: [{ role: 'user', content: 'Reorder two bags of the same coffee beans from Amazon using the home address.' }],
+      availableTools: ['web', 'maps'],
+      canDraft: true,
+      chat: async () => 'I do not have your past Amazon orders here, so I cannot pull the exact coffee from history. Send me the product link and I will set it up.',
+      lookup: async () => [],
+      propose: async (draft) => { drafts.push(draft); return { ok: true, id: 'job1' } },
+    })
+    expect(drafts).toHaveLength(1)
+    expect(drafts[0]).toMatchObject({ type: 'browser', portal: 'https://www.amazon.com' })
+    expect((drafts[0] as { goal?: string }).goal).toContain('home address')
+    expect(result.reply).toContain('pause before payment')
+    expect(result.reply).toContain('amazon.com')
+  })
+
+  it('stages the named merchant even when the provider returns nothing', async () => {
+    const drafts: unknown[] = []
+    const result = await runToolConversation({
+      messages: [{ role: 'user', content: 'Reorder two bags of the same coffee beans from Amazon using the home address.' }],
+      availableTools: ['web', 'maps'],
+      canDraft: true,
+      chat: async () => { throw new Error('provider down') },
+      lookup: async () => [],
+      propose: async (draft) => { drafts.push(draft); return { ok: true, id: 'job1' } },
+    })
+    expect(drafts).toHaveLength(1)
+    expect(drafts[0]).toMatchObject({ type: 'browser', portal: 'https://www.amazon.com' })
+    expect(result.reply).toContain('pause before payment')
+  })
+
+  it('never stages a run from directory-only search results', async () => {
+    const drafts: unknown[] = []
+    const answers = [
+      '{"action":"lookup","tool":"web","query":"best coffee maker"}',
+      'I could not find a real product page with a price, so I have not started anything. Give me a specific model and I will try again.',
+    ]
+    await runToolConversation({
+      messages: [{ role: 'user', content: 'Buy me a coffee maker.' }],
+      availableTools: ['web', 'maps'],
+      canDraft: true,
+      chat: async () => answers.shift() ?? 'I could not find a real product page to check out from, so nothing was started.',
+      lookup: async () => ['Web search retrieved at 2026-01-01.\n- THE BEST 10 COFFEE MAKERS - Yelp\n  https://www.yelp.com/search?cflt=coffee\n  Directory listing'],
+      propose: async (draft) => { drafts.push(draft); return { ok: true, id: 'job1' } },
+    })
+    expect(drafts).toHaveLength(0)
+  })
+
+  it('does not launch a run for a pure find-options ask', async () => {
+    const drafts: unknown[] = []
+    const result = await runToolConversation({
+      messages: [{ role: 'user', content: 'Find me three good coffee bean options.' }],
+      availableTools: ['web', 'maps'],
+      canDraft: true,
+      intent: { kind: 'request', request: { summary: 'Find coffee bean options', needsBrowser: true, needsLookup: false } },
+      chat: async () => 'Here are three options worth comparing before you pick one.',
+      lookup: async () => [],
+      propose: async (draft) => { drafts.push(draft); return { ok: true, id: 'job1' } },
+    })
+    expect(drafts).toHaveLength(0)
+    expect(result.reply).toContain('options')
+  })
+
+  it('refuses a model browser action aimed at a directory for a buying ask', async () => {
+    const drafts: unknown[] = []
+    await runToolConversation({
+      messages: [{ role: 'user', content: 'Buy me a coffee maker.' }],
+      availableTools: ['web', 'maps'],
+      canDraft: true,
+      chat: async () => '{"action":"browser","portal":"https://www.yelp.com/search?cflt=coffee","goal":"Add a coffee maker to the cart and go to checkout"}',
+      lookup: async () => [],
+      propose: async (draft) => { drafts.push(draft); return { ok: true, id: 'job1' } },
+    })
+    expect(drafts).toHaveLength(0)
+  })
 })
 
 describe('browser task draft', () => {
@@ -448,5 +559,127 @@ describe('browser task draft', () => {
   it('rejects non-https portals and empty goals', () => {
     expect(parseExtractedWrite(JSON.stringify({ action: 'browser', portal: 'opentable.com', goal: 'book a table' }))).toBeNull()
     expect(parseExtractedWrite(JSON.stringify({ action: 'browser', portal: 'https://x.com', goal: 'hi' }))).toBeNull()
+  })
+})
+
+describe('map-grounded place picks', () => {
+  const MAP_BLOCK = [
+    'Map results for "vegetarian restaurant near Chicago":',
+    '- The Berghoff Restaurant (german) [vegetarian, confirmed] · ~4 min walk',
+    '  https://www.openstreetmap.org/?mlat=41.8793&mlon=-87.6285#map=16/41.8793/-87.6285',
+    '  17 West Adams Street',
+    '- Eleven City Diner (diner) · ~12 min walk',
+    '  https://www.openstreetmap.org/?mlat=41.8687&mlon=-87.6261#map=16/41.8687/-87.6261',
+    '  1112 South Wabash Avenue',
+    '- The Dearborn (american) [vegetarian, confirmed] · ~5 min walk',
+    '  https://www.openstreetmap.org/?mlat=41.8845&mlon=-87.6299#map=16/41.8845/-87.6299',
+    '  145 North Dearborn Street',
+  ].join('\n')
+  const ASK =
+    'Find dinner for four tomorrow at 7:30 PM, walkable from the Loop in Chicago, vegetarian-friendly, not a chain, under $40 per person. Three options with why each fits.'
+
+  it('parses places with cuisine, diet note, walk time, address, and link', () => {
+    const places = mapPlacesFromBlock(MAP_BLOCK)
+    expect(places).toHaveLength(3)
+    expect(places[0]).toEqual({
+      name: 'The Berghoff Restaurant',
+      cuisine: 'german',
+      note: 'vegetarian, confirmed',
+      walk: '~4 min walk',
+      link: 'https://www.openstreetmap.org/?mlat=41.8793&mlon=-87.6285#map=16/41.8793/-87.6285',
+      address: '17 West Adams Street',
+    })
+  })
+
+  it('formats picks with the reasons the map verifies and names what it cannot', () => {
+    const out = formatMapPicks(MAP_BLOCK, ASK)
+    expect(out).toContain('The Berghoff Restaurant')
+    expect(out).toContain('17 West Adams Street')
+    expect(out).toContain('~4 min walk')
+    expect(out).toContain('vegetarian tagged on OSM')
+    expect(out).toContain('under $40 per person')
+    expect(out).toContain('no-chain constraint is unverified')
+  })
+
+  it('routes the engine maps query away from the constraint tail', () => {
+    expect(mapQueryForAsk(ASK)).toBe('vegetarian restaurant near Chicago')
+    expect(mapQueryForAsk('vegetarian restaurant Chicago Loop')).toBe('vegetarian restaurant near Chicago Loop')
+    expect(mapQueryForAsk('good coffee near me')).toBe('coffee near me')
+  })
+
+  it('runs maps itself for a place ask and replaces an ungrounded memory answer', async () => {
+    const lookups: string[] = []
+    const result = await runToolConversation({
+      messages: [{ role: 'user', content: ASK }],
+      availableTools: ['maps', 'web'],
+      canDraft: false,
+      chat: async () => 'The Berghoff is great, mains $15-$25. The Dearborn around $20. The Chicago Diner $13-$20.',
+      lookup: async (tool, query) => {
+        lookups.push(`${tool}:${query}`)
+        return tool === 'maps' ? [MAP_BLOCK] : ['Web search unavailable or returned no usable results.']
+      },
+      propose: async () => ({ ok: false }),
+    })
+    expect(lookups).toEqual(['maps:vegetarian restaurant near Chicago'])
+    expect(result.reply).toContain('The Berghoff Restaurant')
+    expect(result.reply).toContain('17 West Adams Street')
+    expect(result.reply).not.toContain('$15')
+    expect(result.reply).not.toContain('could not verify current information')
+  })
+
+  it('fetches maps alongside a web-first lookup so junk search results cannot win', async () => {
+    const lookups: string[] = []
+    const replies = [
+      '{"action":"lookup","tool":"web","query":"best vegetarian restaurants Chicago Loop"}',
+      'I could not verify anything live; here are leads: The Berghoff ($15-25), The Dearborn ($20-35), The Chicago Diner.',
+    ]
+    const result = await runToolConversation({
+      messages: [{ role: 'user', content: ASK }],
+      availableTools: ['maps', 'web'],
+      canDraft: false,
+      chat: async () => replies.shift() || 'no answer',
+      lookup: async (tool, query) => {
+        lookups.push(`${tool}:${query}`)
+        return tool === 'maps'
+          ? [MAP_BLOCK]
+          : ['Web search unavailable or returned no usable results. No current facts were verified.']
+      },
+      propose: async () => ({ ok: false }),
+    })
+    expect(lookups).toContain('maps:vegetarian restaurant near Chicago')
+    expect(result.reply).toContain('The Berghoff Restaurant')
+    expect(result.reply).not.toContain('leads')
+  })
+
+  it('keeps the map picks when the answer model fails after the lookup', async () => {
+    let calls = 0
+    const result = await runToolConversation({
+      messages: [{ role: 'user', content: ASK }],
+      availableTools: ['maps'],
+      canDraft: false,
+      chat: async () => {
+        if (calls++ === 0) return 'Here are three leads from memory.'
+        throw new Error('model timeout')
+      },
+      lookup: async () => [MAP_BLOCK],
+      propose: async () => ({ ok: false }),
+    })
+    expect(result.reply).toContain('The Berghoff Restaurant')
+    expect(result.reply).toContain('~4 min walk')
+    expect(result.reply).not.toContain('leads from memory')
+  })
+
+  it('keeps a model answer that names the verified places', async () => {
+    const grounded =
+      'Three from live maps: The Berghoff Restaurant (17 West Adams St, ~4 min), Eleven City Diner, and The Dearborn. Map data carries no menus, so the under $40 per person and 7:30 availability still need a call.'
+    const result = await runToolConversation({
+      messages: [{ role: 'user', content: ASK }],
+      availableTools: ['maps'],
+      canDraft: false,
+      chat: async () => grounded,
+      lookup: async () => [MAP_BLOCK],
+      propose: async () => ({ ok: false }),
+    })
+    expect(result.reply).toBe(grounded)
   })
 })

@@ -8,6 +8,7 @@
         "@1password/sdk": "^0.5.0",
         "@ai-sdk/openai": "^4.0.51",
         "@composio/core": "^0.18.0",
+        "@onkernel/sdk": "^0.101.0",
         "@stripe/link-cli": "0.18.0",
         "ai": "^7.0.84",
         "crawlee": "^3.18.1",
@@ -153,6 +154,8 @@
     "@noble/curves": ["@noble/curves@1.9.1", "", { "dependencies": { "@noble/hashes": "1.8.0" } }, "sha512-k11yZxZg+t+gWvBbIswW0yoJlu8cHOC7dhunwOzoWH/mXGBiYyR4YY6hAEK/3EUs4UpB8la1RfdRpeGsFHkWsA=="],
 
     "@noble/hashes": ["@noble/hashes@1.8.0", "", {}, "sha512-jCs9ldd7NwzpgXDIf6P3+NrHh9/sD6CQdxHyjQI+h/6rDNo88ypBxxz45UDuZHz9r3tNz7N/VInSVoVdtXEI4A=="],
+
+    "@onkernel/sdk": ["@onkernel/sdk@0.101.0", "", {}, "sha512-XxUbhbLziPOVvfIbsSRAFDmtnBHwSAXJ6/ENUJ5UvfFtnc1p5WjmYpiftJIM/B5Z0AXjTm2TYkgN+pVs+1jR8w=="],
 
     "@oxc-project/types": ["@oxc-project/types@0.143.0", "", {}, "sha512-u6JZdLBTLotrNC9Vd6vPssINdzcCzleKAH6EJKImQb7GtYvX5keN2dxkoK44stCc4tffE6QQRtZTXVSzsLUlWA=="],
 

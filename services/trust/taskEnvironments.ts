@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto'
 import type { SQL } from 'bun'
 import { Sandbox, SandboxNotFoundError } from 'e2b'
+import Kernel, { NotFoundError } from '@onkernel/sdk'
 
 /** CDP port the browser template exposes inside the sandbox. The worker
  * connects over the sandbox's public host routing to the template's CDP
@@ -18,12 +19,16 @@ export const DENIED_EGRESS = [
 // list above is the verified-accepted set.
 
 export type TaskEnvironmentProvider = {
-  create(input: { taskId: string; timeoutMs: number }): Promise<{ id: string; cdpUrl?: string }>
+  /** Provider key recorded on task_environments and in the audit ledger. */
+  name: 'e2b' | 'kernel'
+  create(input: { taskId: string; timeoutMs: number; userId?: string }): Promise<{ id: string; cdpUrl?: string; liveViewUrl?: string }>
   destroy(id: string): Promise<void>
   isDestroyed(id: string): Promise<boolean>
 }
 
 export class E2BTaskEnvironmentProvider implements TaskEnvironmentProvider {
+  readonly name = 'e2b' as const
+
   constructor(
     private readonly apiKey: string,
     private readonly template = process.env.E2B_BROWSER_TEMPLATE?.trim() || 'base',

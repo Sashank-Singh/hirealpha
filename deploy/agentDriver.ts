@@ -35,12 +35,25 @@ export type AgentAction =
 
 export type AgentLimits = { maxSteps: number; wallMs: number }
 
-/** Real booking sites: one vision step costs ~8-20s (capture + model) and a
- * search-to-results-to-extract flow needs 10-25 steps, so 90s/25 was cutting
- * runs off mid-flow. 30 steps x ~12s fits the 6-minute wall; the sandbox lives
- * 15 min and the job claim heartbeats every minute, so this is safe end to
- * end. */
-export const DEFAULT_AGENT_LIMITS: AgentLimits = { maxSteps: 30, wallMs: 360_000 }
+/** Real booking sites: one vision step costs ~8-20s (capture + model), a
+ * search-to-results-to-extract flow needs 10-25 steps, and slow commerce pages
+ * routinely take 20-30s to settle (measured live runs: 76-293s just for the
+ * happy path, before retries). 90s/25 cut runs off mid-flow; 360s/30 still
+ * left almost no headroom over a 293s measured run, so the wall is 8 minutes
+ * with 36 steps. The worker heartbeats the claim every minute and the sandbox
+ * is provisioned to outlive wall + handoff (see browserWorker's
+ * TASK_SANDBOX_TIMEOUT_MS). Per-step time is bounded independently: captures
+ * are raced against deadlines and a vision call cannot exceed
+ * VISION_CALL_BUDGET_MS, so one slow page or model retry never eats the run. */
+export const DEFAULT_AGENT_LIMITS: AgentLimits = { maxSteps: 36, wallMs: 480_000 }
+
+/** Wall for a single agent step's model interaction (all rounds, all models).
+ * Without this a hot model tier x backoff rounds could burn 6 minutes of an
+ * 8-minute run on one step. */
+export const VISION_CALL_BUDGET_MS = 50_000
+
+/** Per HTTP attempt inside a vision call. */
+export const VISION_ATTEMPT_TIMEOUT_MS = 20_000
 
 /** Payment consent is accepted only when the same exact amount appears next
  * to a total label in the live page text—not merely in the model response. */
@@ -73,6 +86,8 @@ const AGENT_SYSTEM =
   'Rules: prefer stable selectors (id, name, aria-label, role); when a target lists selector=, use that exact selector. ' +
   'To enter text into a field: click the field first (or use a selector), then send type_text on the NEXT step. Clicking a field does not type into it. ' +
   'Never repeat an action that just failed or a click_at on the same coordinates twice in a row; if the page did not change, pick a different target, scroll, or wait. ' +
+  'Real pages can take 20-30 seconds to load or settle. If content is still loading, use wait (up to 10000ms) or scroll; do not repeatedly click a disabled control. ' +
+  'A CAPTCHA, "verify you are human", device-verification, or sign-in wall is NEVER task completion. If you see one, use handoff (captcha/verification/password); never answer done from such a page. ' +
   'When a numbered target has no stable selector, use click_at with the center of its box, then type_text. ' +
   'Coordinates are CSS pixels in the 1280x800 screenshot. Never invent URLs outside the current site. ' +
   'Use handoff whenever the site needs a password that was not already filled, a one-time code, CAPTCHA, identity check, or human confirmation. ' +
@@ -180,10 +195,23 @@ type VisionCall = (parts: unknown[]) => Promise<string>
  * with backoff AND rotate to a fallback model when the primary stays hot —
  * the call shape is identical across models. Non-429 4xx/5xx are payload or
  * provider errors and are surfaced immediately. */
-export function makeVisionCaller(cfg: { apiKey: string; baseUrl: string; model: string; fallbackModels?: string[]; systemPrompt?: string; maxTokens?: number }): VisionCall {
+export function makeVisionCaller(cfg: {
+  apiKey: string
+  baseUrl: string
+  model: string
+  fallbackModels?: string[]
+  systemPrompt?: string
+  maxTokens?: number
+  /** Per HTTP attempt; defaults to VISION_ATTEMPT_TIMEOUT_MS. */
+  timeoutMs?: number
+  /** Whole call, including backoff sleeps and model rotation; defaults to VISION_CALL_BUDGET_MS. */
+  totalBudgetMs?: number
+}): VisionCall {
   const systemPrompt = cfg.systemPrompt || AGENT_SYSTEM
   // The action reply is tiny; an audit transcription of several items is not.
   const maxTokens = cfg.maxTokens ?? 300
+  const attemptTimeoutMs = cfg.timeoutMs ?? VISION_ATTEMPT_TIMEOUT_MS
+  const budgetMs = cfg.totalBudgetMs ?? VISION_CALL_BUDGET_MS
   const BACKOFF_MS = [3_000, 8_000, 20_000]
   // Measured on this gateway: the same model throttles after ~2 rapid calls,
   // but alternating models passes 12/12 at 2s spacing. So rotate on every
@@ -192,10 +220,21 @@ export function makeVisionCaller(cfg: { apiKey: string; baseUrl: string; model: 
   const models = [...new Set([cfg.model, ...(cfg.fallbackModels ?? [])])]
   let cursor = 0
   return async (parts: unknown[]) => {
+    const started = Date.now()
+    const remaining = () => budgetMs - (Date.now() - started)
     let lastError = 'unknown error'
+    let budgetExhausted = false
     for (let round = 0; round <= BACKOFF_MS.length; round++) {
-      if (round > 0) await new Promise((resolve) => setTimeout(resolve, BACKOFF_MS[round - 1]))
+      if (round > 0) {
+        const left = remaining()
+        if (left <= 0) { budgetExhausted = true; break }
+        // Never sleep past the step budget: a backoff that outlives the wall
+        // would kill the run without ever reporting why.
+        await new Promise((resolve) => setTimeout(resolve, Math.min(BACKOFF_MS[round - 1]!, left)))
+      }
       for (let i = 0; i < models.length; i++) {
+        const left = remaining()
+        if (left <= 250) { budgetExhausted = true; break }
         const model = models[(cursor + i) % models.length]
         const payload = JSON.stringify({
           model,
@@ -216,7 +255,7 @@ export function makeVisionCaller(cfg: { apiKey: string; baseUrl: string; model: 
               'User-Agent': 'HireAlpha/0.1 (browser-agent)',
             },
             body: payload,
-            signal: AbortSignal.timeout(30_000),
+            signal: AbortSignal.timeout(Math.max(250, Math.min(attemptTimeoutMs, left))),
           })
         } catch (err) {
           lastError = err instanceof Error ? err.message : String(err)
@@ -233,9 +272,10 @@ export function makeVisionCaller(cfg: { apiKey: string; baseUrl: string; model: 
         lastError = `${res.status}${detail ? `: ${detail.slice(0, 300)}` : ''}`
         if (res.status !== 429) throw new Error(`vision model ${lastError}`)
       }
+      if (budgetExhausted) break
       cursor = (cursor + 1) % models.length
     }
-    throw new Error(`vision model ${lastError}`)
+    throw new Error(`vision model ${lastError}${budgetExhausted ? ` (step budget ${Math.round(budgetMs / 1000)}s exhausted)` : ''}`)
   }
 }
 
@@ -338,40 +378,51 @@ async function fillApprovedPayment(page: import('playwright').Page, card: Paymen
   return number && expiry && cvc
 }
 
-export async function executeAgentAction(page: import('playwright').Page, action: AgentAction, paymentCard?: PaymentCardSecrets): Promise<boolean> {
+/** Why an action failed, never just "false": the loop feeds this back to the
+ * model and the activity stream, and a run that dies reports it verbatim. */
+export type ActionOutcome = { ok: boolean; error?: string }
+
+export async function executeAgentAction(page: import('playwright').Page, action: AgentAction, paymentCard?: PaymentCardSecrets): Promise<ActionOutcome> {
   try {
     switch (action.type) {
       case 'click':
-        await page.locator(action.selector).first().click({ timeout: 6000 })
-        return true
+        await page.locator(action.selector).first().click({ timeout: 8000 })
+        return { ok: true }
       case 'click_at':
         await page.mouse.click(action.x, action.y)
-        return true
+        return { ok: true }
       case 'fill':
-        await page.locator(action.selector).first().fill(action.value, { timeout: 6000 })
-        return true
+        await page.locator(action.selector).first().fill(action.value, { timeout: 8000 })
+        return { ok: true }
       case 'type_text':
         await page.keyboard.type(action.value, { delay: 18 })
-        return true
+        return { ok: true }
       case 'press':
         await page.keyboard.press(action.key)
-        return true
+        return { ok: true }
       case 'navigate':
-        await page.goto(action.url, { waitUntil: 'domcontentloaded', timeout: 45_000 }).catch(() => undefined)
-        return true
+        try {
+          await page.goto(action.url, { waitUntil: 'domcontentloaded', timeout: 45_000 })
+          return { ok: true }
+        } catch (err) {
+          return { ok: false, error: `navigation failed: ${err instanceof Error ? err.message : String(err)}` }
+        }
       case 'scroll':
         await page.mouse.wheel(0, action.direction === 'down' ? 900 : -900)
-        return true
+        return { ok: true }
       case 'wait':
         await page.waitForTimeout(action.ms)
-        return true
+        return { ok: true }
       case 'fill_payment':
-        return paymentCard ? fillApprovedPayment(page, paymentCard) : false
+        if (!paymentCard) return { ok: false, error: 'no approved one-time payment credential is available' }
+        return (await fillApprovedPayment(page, paymentCard))
+          ? { ok: true }
+          : { ok: false, error: 'the card form fields were not found on the page' }
       default:
-        return true // done/giveup are terminal, handled by the loop
+        return { ok: true } // done/giveup are terminal, handled by the loop
     }
-  } catch {
-    return false
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) }
   }
 }
 

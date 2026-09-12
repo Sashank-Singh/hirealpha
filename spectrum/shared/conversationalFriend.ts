@@ -44,7 +44,7 @@ export function needsConversationPlanner(userText: string, memory: ThreadMemory)
   // function only answers "should the tool engine have a look at all?", so it
   // errs toward yes and lets real intent classification do the work — a regex
   // here once routed "book me a table" down the recommendation path.
-  return /\b(?:remember|remind|track|log|save|connect|gmail|email|inbox|calendar|schedule|meeting|drive|show|open|pull up|dashboard|apps?|nutrition|meal|ate|eaten|sleep|slept|workout|exercise|habit|budget|spend|spent|spending|decision|open loops?|brief|buy|purchase|order|book|reserve|browser|website|log ?in|sign ?in|search|find|near me|restaurant|news|latest|price|weather|score|build|update (?:the|my|that) (?:app|game|site)|send|draft|forward)\b/i.test(text)
+  return /\b(?:remember|remind|track|log|save|connect|gmail|email|inbox|calendar|schedule|meeting|drive|show|open|pull up|dashboard|apps?|nutrition|meal|ate|eaten|sleep|slept|workout|exercise|habit|budget|spend|spent|spending|decision|open loops?|brief|buy|purchase|re-?order|order|book|reserve|browser|website|log ?in|sign ?in|search|find|near me|restaurant|news|latest|price|weather|score|build|update (?:the|my|that) (?:app|game|site)|send|draft|forward)\b/i.test(text)
 }
 
 /** Conversational agent turn engine: the model sees the conversation before choosing any
@@ -495,7 +495,7 @@ ${JSON.stringify(context)}` },
   }
   if (browserQueued) {
     if (!reply.includes('computer') && !reply.includes('Cloud Computer')) {
-      reply += `\n\nLaunching Cloud Computer to stage your order: ${browserSessionUrl} — navigating to the merchant, selecting your options, and proceeding through checkout with your San Francisco address. I'll bring the verified approval card right here as soon as checkout is ready.`
+      reply += `\n\nLaunching Cloud Computer to stage your order: ${browserSessionUrl} — navigating to the merchant, selecting your options, and proceeding through checkout with your saved shipping address. I'll bring the verified approval card right here as soon as checkout is ready.`
     }
   }
   if (returning) reply = reply.replace(/^(?:(?:hey|hi|hello)[,!]?\s*)?(?:i'm|i am|this is)\s+Alpha(?:\s*,\s*your\s+[^.!?]+)?[.!?]\s*/i, '').trim()

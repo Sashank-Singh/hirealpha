@@ -5059,12 +5059,28 @@ const MAP_KIND_TAGS: Record<string, string[]> = {
   park: ['leisure=park'],
 }
 
+// Words that describe the ask rather than name the place. They trail the
+// place as often as they lead it, so both ends are stripped before geocoding.
+const MAP_DESCRIPTOR_WORDS = new Set([
+  'walkable', 'walking', 'nearby', 'close', 'near', 'cheap', 'affordable', 'nice', 'good',
+  'best', 'great', 'local', 'vegetarian', 'vegan', 'veggie', 'romantic', 'quiet', 'casual',
+  'chain', 'options', 'option', 'spots', 'spot', 'places', 'place', 'list',
+])
+
 const MAP_FILLER_WORDS = new Set([
   'find', 'show', 'recommend', 'where', 'should', 'could', 'can', 'would', 'get', 'grab',
   'want', 'need', 'some', 'any', 'good', 'best', 'great', 'cheap', 'quiet', 'nice', 'cozy',
   'cute', 'cool', 'fun', 'top', 'open', 'late', 'tonight', 'today', 'now', 'nearby', 'near',
   'around', 'in', 'at', 'by', 'me', 'us', 'we', 'i', 'my', 'our', 'a', 'an', 'the', 'for',
   'to', 'of', 'and', 'please', 'place', 'places', 'spot', 'spots', 'maps', 'map',
+])
+
+// Diet/quality qualifiers before the kind word ("vegetarian restaurants in
+// the Chicago Loop") are skipped so the kind still routes to a nearby
+// search; without this the whole phrase fell through to a geocode miss.
+const MAP_QUALIFIER_WORDS = new Set([
+  'vegetarian', 'vegan', 'halal', 'kosher', 'gluten', 'healthy', 'cheap', 'good', 'best',
+  'nice', 'quiet', 'fancy', 'romantic', 'top', 'family', 'great', 'solid', 'late', 'open',
 ])
 
 export function classifyMapQuery(query: string): { mode: 'nearby'; kinds: string[] } | { mode: 'named' } {
@@ -5079,15 +5095,8 @@ export function classifyMapQuery(query: string): { mode: 'nearby'; kinds: string
   const lookup = (token: string) =>
     MAP_WORD_KINDS[token] || (token.endsWith('s') ? MAP_WORD_KINDS[token.slice(0, -1)] : undefined)
   const tokens = normalized.split(' ').filter((t) => t && !MAP_FILLER_WORDS.has(t))
-  // Diet/quality qualifiers before the kind word ("vegetarian restaurants in
-  // the Chicago Loop") are skipped so the kind still routes to a nearby
-  // search; without this the whole phrase fell through to a geocode miss.
-  const QUALIFIERS = new Set([
-    'vegetarian', 'vegan', 'halal', 'kosher', 'gluten', 'healthy', 'cheap', 'good', 'best',
-    'nice', 'quiet', 'fancy', 'romantic', 'top', 'family', 'great', 'solid', 'late', 'open',
-  ])
   let head = 0
-  while (head < tokens.length - 1 && QUALIFIERS.has(tokens[head] ?? '')) head++
+  while (head < tokens.length - 1 && MAP_QUALIFIER_WORDS.has(tokens[head] ?? '')) head++
   // Leading word decides: "golden gate park" is a place, "park near me" is not.
   if (!tokens.length || !lookup(tokens[head] ?? '')) return { mode: 'named' }
   const kinds: string[] = []
@@ -5099,7 +5108,96 @@ export function classifyMapQuery(query: string): { mode: 'nearby'; kinds: string
   return { mode: 'nearby', kinds }
 }
 
-export function buildOverpassQuery(kinds: string[], lat: number, lon: number, radiusM = 1600): string {
+/**
+ * The area a nearby search should actually run around.
+ *
+ * "near/in <place>" is the explicit form, but people also name the
+ * destination without a preposition ("vegetarian restaurant Chicago Loop",
+ * "hotels downtown Chicago"). Those turns used to fall back to the user's
+ * saved location and search the wrong city — a Chicago ask answered with
+ * San Francisco blocks. The trailing city-like token is the fallback.
+ */
+export function mapAreaFromQuery(query: string): string {
+  const explicit = (query.match(/\b(?:in|near|around|at|by)\s+([a-z0-9\s]+)$/i)?.[1] || query.match(/\b\d{5}(?:-\d{4})?\b/)?.[0] || '')
+    .replace(/\b(?:me|us|tonight)\b/gi, '')
+    .split(/\s+/)
+    .filter(
+      (word) =>
+        word &&
+        !MAP_FILLER_WORDS.has(word.toLowerCase()) &&
+        !MAP_QUALIFIER_WORDS.has(word.toLowerCase()) &&
+        !MAP_DESCRIPTOR_WORDS.has(word.toLowerCase()),
+    )
+    .join(' ')
+    .trim()
+  if (explicit && !/^(?:me|us|here)$/i.test(explicit)) return explicit
+  // No preposition: treat the words after the last kind word as the place.
+  // "vegetarian restaurant chicago loop" -> "chicago loop"; the geocoder tries
+  // the full phrase first and then progressively drops leading words, so a
+  // neighborhood the geocoder does not know still lands on its city.
+  const words = query
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .split(' ')
+  const kindIdx = words.findLastIndex(
+    (word) =>
+      Boolean(MAP_WORD_KINDS[word]) ||
+      Boolean(MAP_WORD_KINDS[word.endsWith('s') ? word.slice(0, -1) : word]),
+  )
+  if (kindIdx === -1) return ''
+  // Descriptor words trail the place as often as they precede it ("walkable
+  // from Loop Chicago"), and leaving them in made the whole phrase fail to
+  // geocode — a Chicago ask then answered from the user's home city.
+  const tail = words
+    .slice(kindIdx + 1)
+    .filter(
+      (word) =>
+        word &&
+        !MAP_FILLER_WORDS.has(word) &&
+        !MAP_QUALIFIER_WORDS.has(word) &&
+        !MAP_DESCRIPTOR_WORDS.has(word),
+    )
+    .join(' ')
+    .trim()
+  return /[a-z]/.test(tail) ? tail : ''
+}
+
+/** Diet words in the ask, mapped to the OpenStreetMap tag that records them. */
+const MAP_DIET_TAGS: Record<string, string> = {
+  vegetarian: 'diet:vegetarian=yes',
+  vegan: 'diet:vegan=yes',
+  halal: 'diet:halal=yes',
+  kosher: 'diet:kosher=yes',
+  'gluten-free': 'diet:gluten_free=yes',
+  'gluten free': 'diet:gluten_free=yes',
+  'glutenfree': 'diet:gluten_free=yes',
+}
+
+export function dietsFromQuery(query: string): string[] {
+  const lower = query.toLowerCase()
+  const hits: string[] = []
+  for (const [word, tag] of Object.entries(MAP_DIET_TAGS)) {
+    if (new RegExp(`\\b${word.replace(/[-\s]/g, '[-\\s]?')}\\b`, 'i').test(lower) && !hits.includes(tag)) {
+      hits.push(tag)
+    }
+  }
+  return hits
+}
+
+/**
+ * Places matching a diet tag are rare in OSM (most restaurants never set
+ * one), so the plain kind query stays and the diet query is unioned with it:
+ * a missed subset must never turn "dinner nearby" into "no results".
+ */
+export function buildOverpassQuery(
+  kinds: string[],
+  lat: number,
+  lon: number,
+  radiusM = 1600,
+  dietTags: string[] = [],
+): string {
   const tags: string[] = []
   for (const kind of kinds) {
     // Accept both category words ("coffee") and kind names ("cafe").
@@ -5116,12 +5214,30 @@ export function buildOverpassQuery(kinds: string[], lat: number, lon: number, ra
     const [key, value] = tag.split('=')
     return `  node["${key}"="${value}"]${at};\n  way["${key}"="${value}"]${at};`
   })
+  if (tags.includes('amenity=restaurant') || tags.includes('amenity=cafe') || tags.includes('amenity=fast_food')) {
+    for (const diet of dietTags) {
+      const [key, value] = diet.split('=')
+      bodies.push(`  node["${key}"="${value}"]["amenity"~"^(restaurant|cafe|fast_food)$"]${at};`)
+      bodies.push(`  way["${key}"="${value}"]["amenity"~"^(restaurant|cafe|fast_food)$"]${at};`)
+    }
+  }
   return `[out:json][timeout:10];\n(\n${bodies.join('\n')}\n);\nout center 30;`
 }
 
+/** Meters between two points; only used for a rough walk-time line. */
+export function metersBetween(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const toRad = (deg: number) => (deg * Math.PI) / 180
+  const dLat = toRad(lat2 - lat1)
+  const dLon = toRad(lon2 - lon1)
+  const a =
+    Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2
+  return 2 * 6_371_000 * Math.asin(Math.sqrt(a))
+}
+
 export function formatMapResults(
-  rows: Array<{ name: string; addr?: string; cuisine?: string; lat?: number; lon?: number }>,
+  rows: Array<{ name: string; addr?: string; cuisine?: string; lat?: number; lon?: number; note?: string }>,
   label: string,
+  center?: { lat: number; lon: number } | null,
 ): string {
   const seen = new Set<string>()
   const lines: string[] = []
@@ -5137,34 +5253,80 @@ export function formatMapResults(
       typeof row.lat === 'number' && typeof row.lon === 'number'
         ? `https://www.openstreetmap.org/?mlat=${row.lat}&mlon=${row.lon}#map=16/${row.lat}/${row.lon}`
         : ''
-    lines.push(`- ${name}${cuisine ? ` (${cuisine})` : ''}${link ? `\n  ${link}` : ''}${row.addr ? `\n  ${row.addr}` : ''}`)
+    // A walk time is the difference between a plausible pick and a list the
+    // user has to re-check; only computed when the search was centered.
+    const walk =
+      center && typeof row.lat === 'number' && typeof row.lon === 'number'
+        ? ` · ~${Math.max(1, Math.round(metersBetween(center.lat, center.lon, row.lat, row.lon) / 80))} min walk`
+        : ''
+    const note = String(row.note || '')
+    lines.push(
+      `- ${name}${cuisine ? ` (${cuisine})` : ''}${note ? ` [${note}]` : ''}${walk}${link ? `\n  ${link}` : ''}${row.addr ? `\n  ${row.addr}` : ''}`,
+    )
     if (lines.length >= 6) break
   }
   if (!lines.length) return `No map results found for "${label}".`
   return `Map results for "${label}":\n${lines.join('\n')}`
 }
 
-async function geocodeMapArea(area: string, countryHint: string) {
+/** A place Result has to be a place, not a street: "Chicago Loop" resolves
+ * first to a residential road in North Carolina, and searching a 1.6 km
+ * radius there returns hardware stores for a dinner ask. */
+const GEOCODE_PLACE_TYPES = new Set([
+  'city', 'town', 'village', 'hamlet', 'suburb', 'neighbourhood', 'borough',
+  'quarter', 'city_block', 'administrative', 'municipality', 'county', 'state',
+  'postcode', 'postal_code',
+])
+
+function geocodeRowUsable(row: { lat?: string; lon?: string; type?: string; addresstype?: string } | undefined): boolean {
+  const lat = Number(row?.lat)
+  const lon = Number(row?.lon)
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return false
+  const kind = String(row?.addresstype || row?.type || '').toLowerCase()
+  // An empty kind is accepted: the test fixtures answer without one, and a
+  // provider that omits the field should not turn every geocode into a miss.
+  return !kind || GEOCODE_PLACE_TYPES.has(kind)
+}
+
+async function nominatimArea(term: string, countryHint: string): Promise<{ lat: number; lon: number } | null> {
   try {
     const url = new URL('https://nominatim.openstreetmap.org/search')
-    const zip = /^\d{5}(?:-\d{4})?$/.test(area) && (!countryHint || countryHint === 'us')
-    url.searchParams.set(zip ? 'postalcode' : 'q', area)
+    const zip = /^\d{5}(?:-\d{4})?$/.test(term) && (!countryHint || countryHint === 'us')
+    url.searchParams.set(zip ? 'postalcode' : 'q', term)
     if (zip) url.searchParams.set('countrycodes', 'us')
     url.searchParams.set('format', 'jsonv2')
-    url.searchParams.set('limit', '1')
-    if (countryHint && !FOREIGN_PLACE.test(area)) url.searchParams.set('countrycodes', countryHint)
+    url.searchParams.set('limit', '5')
+    if (countryHint && !FOREIGN_PLACE.test(term)) url.searchParams.set('countrycodes', countryHint)
     const res = await fetchPublic(url, {
       headers: { Accept: 'application/json', 'User-Agent': 'HireAlpha/1.0 (https://hirealpha.chat)' },
     })
     if (!res.ok) return null
-    const rows = (await res.json()) as Array<{ lat?: string; lon?: string }>
-    const lat = Number(rows[0]?.lat)
-    const lon = Number(rows[0]?.lon)
-    if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null
-    return { lat, lon }
+    const rows = (await res.json()) as Array<{ lat?: string; lon?: string; type?: string; addresstype?: string }>
+    const hit = rows.find((row) => geocodeRowUsable(row))
+    if (!hit) return null
+    return { lat: Number(hit.lat), lon: Number(hit.lon) }
   } catch {
     return null
   }
+}
+
+/**
+ * Geocode an area phrase, dropping leading words until something geocodes to
+ * an actual place. "Chicago Loop" misses as a whole but "Chicago" does not, so
+ * a named neighborhood the geocoder has never heard of still resolves to its
+ * city instead of silently searching the user's home city.
+ */
+export async function geocodeMapArea(area: string, countryHint: string) {
+  const words = area.replace(/\s+/g, ' ').trim().split(' ').filter(Boolean)
+  if (!words.length) return null
+  for (let start = 0; start < words.length; start++) {
+    const term = words.slice(start).join(' ')
+    const hit = await nominatimArea(term, countryHint)
+    if (hit) return hit
+    // Nominatim allows ~1 request/second; keep the retry honest.
+    if (start + 1 < words.length) await new Promise((r) => setTimeout(r, 1100))
+  }
+  return null
 }
 
 // Overpass for category asks; a null return falls back to the Nominatim path.
@@ -5175,10 +5337,7 @@ async function fetchNearbyPlaces(
   location: LocationRow | null,
 ): Promise<string | null> {
   try {
-    const area = (query.match(/\b(?:in|near|around|at|by)\s+([a-z0-9\s]+)$/i)?.[1] || query.match(/\b\d{5}(?:-\d{4})?\b/)?.[0] || '')
-      .replace(/\b(?:me|us|tonight)\b/gi, '')
-      .replace(/\s+/g, ' ')
-      .trim()
+    const area = mapAreaFromQuery(query)
     let lat: number | null = null
     let lon: number | null = null
     if (area) {
@@ -5190,7 +5349,7 @@ async function fetchNearbyPlaces(
       lon = location.longitude
     }
     if (lat === null || lon === null) return null
-    const ql = buildOverpassQuery(kinds, lat, lon)
+    const ql = buildOverpassQuery(kinds, lat, lon, 1600, dietsFromQuery(query))
     if (!ql) return null
     const res = await fetchPublic(
       new URL('https://overpass-api.de/api/interpreter'),
@@ -5221,17 +5380,34 @@ async function fetchNearbyPlaces(
         const elLon = el.lon ?? el.center?.lon
         const street = tags['addr:street'] || ''
         const housenumber = tags['addr:housenumber'] || ''
+        const diet = Object.entries(tags)
+          .filter(([key, value]) => key.startsWith('diet:') && value === 'yes')
+          .map(([key]) => `${key.slice('diet:'.length).replace(/_/g, ' ')}, confirmed`)
         return {
           name: String(tags.name || '').trim(),
           addr: [housenumber, street].filter(Boolean).join(' ') || tags['addr:city'] || '',
           cuisine: tags.cuisine || '',
+          note: diet.join('; '),
           lat: typeof elLat === 'number' ? elLat : undefined,
           lon: typeof elLon === 'number' ? elLon : undefined,
         }
       })
       .filter((row) => row.name)
-    if (!rows.length) return null
-    return formatMapResults(rows, query.trim().slice(0, 60))
+    // A full meal is not a coffee shop: a dinner ask that answers with a
+    // Starbucks reads as a non-answer even though the diet tag checks out.
+    const wantsMeal = /\b(dinner|lunch|brunch|breakfast|supper|restaurant|eat)\b/i.test(query)
+    const light = /coffee shop|coffee|snack|ice cream|ice_cream|dessert|bakery|cafe\b/i
+    const seats = rows.filter((row) => !(wantsMeal && light.test(`${row.name} ${row.cuisine}`)))
+    const usable = seats.length ? seats : rows
+    if (!usable.length) return null
+    // A place carrying the diet the user asked for belongs ahead of one that
+    // merely happens to be close: the list is capped, and the vegetarian
+    // option must survive the cut.
+    const wanted = dietsFromQuery(query)
+    const dietRanked = wanted.length
+      ? [...usable].sort((a, b) => Number(Boolean(b.note)) - Number(Boolean(a.note)))
+      : usable
+    return formatMapResults(dietRanked, query.trim().slice(0, 60), { lat, lon })
   } catch {
     return null
   }
@@ -10897,11 +11073,16 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
 
     if (action) return json({ error: 'Unknown computer session action.' }, 404)
 
+    // The provider's own live view (Kernel) is the exact browser running the
+    // task and needs no local streaming stack; the noVNC container remains the
+    // fallback for jobs executed without a provider-hosted view.
+    const providerLiveView = job.live_view_url?.trim() || ''
     const configuredStream = process.env.BROWSER_USE_STREAM_URL || (process.env.BROWSER_USE_DOMAIN ? `https://${process.env.BROWSER_USE_DOMAIN}/vnc.html` : 'https://browser.hirealpha.chat/vnc.html')
     const streamBase = configuredStream.replace('{sessionId}', encodeURIComponent(jobId))
     const vncPassword = process.env.CHROME_VNC_PASSWORD || ''
     const joiner = streamBase.includes('?') ? '&' : '?'
-    const streamUrl = `${streamBase}${joiner}autoconnect=true&resize=scale&reconnect=true${vncPassword ? `&password=${encodeURIComponent(vncPassword)}` : ''}`
+    const streamUrl = providerLiveView
+      || `${streamBase}${joiner}autoconnect=true&resize=scale&reconnect=true${vncPassword ? `&password=${encodeURIComponent(vncPassword)}` : ''}`
 
     return json({
       ok: true,

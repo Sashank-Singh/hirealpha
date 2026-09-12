@@ -76,4 +76,5 @@ testbed/fixtures.json
 
 testbed/load-results/
 spectrum/alpha/data/threads/+12163032166.json
-spectrum/alpha/data/evals/2026-09-10.jsonlspectrum/alpha/bench-runtime.env
+spectrum/alpha/data/evals/2026-09-10.jsonl
+spectrum/alpha/bench-runtime.env

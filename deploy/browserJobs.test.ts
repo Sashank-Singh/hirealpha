@@ -9,6 +9,8 @@ import {
 } from './browserJobs'
 import {
   buildVisionParts,
+  DEFAULT_AGENT_LIMITS,
+  executeAgentAction,
   isTerminal,
   makeVisionCaller,
   pageShowsExactTotal,
@@ -239,5 +241,48 @@ describe('vision caller + parts', () => {
     } finally {
       globalThis.fetch = realFetch
     }
+  })
+})
+
+describe('real-site pacing and explicit action failures', () => {
+  it('budgets the measured real-run time with headroom', () => {
+    // Live booking runs measured 76-293s on the happy path, before a slow
+    // page, a retry, or a handoff. The wall must clear that comfortably.
+    expect(DEFAULT_AGENT_LIMITS.wallMs).toBeGreaterThanOrEqual(450_000)
+    expect(DEFAULT_AGENT_LIMITS.maxSteps).toBeGreaterThanOrEqual(30)
+    expect(DEFAULT_AGENT_LIMITS.maxSteps).toBeLessThanOrEqual(60)
+  })
+
+  it('caps one vision step so a hot model tier cannot eat the whole run', async () => {
+    const realFetch = globalThis.fetch
+    const hangUntilAbort = (_url: unknown, init?: { signal?: AbortSignal }) =>
+      new Promise((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => reject(new Error('aborted by budget')))
+      })
+    globalThis.fetch = hangUntilAbort as unknown as typeof fetch
+    try {
+      const call = makeVisionCaller({
+        apiKey: 'k',
+        baseUrl: 'https://api.gmi-serving.com/v1',
+        model: 'm1',
+        fallbackModels: ['m2'],
+        timeoutMs: 40,
+        totalBudgetMs: 250,
+      })
+      const started = Date.now()
+      await expect(call([])).rejects.toThrow(/budget|aborted/)
+      expect(Date.now() - started).toBeLessThan(2_000)
+    } finally {
+      globalThis.fetch = realFetch
+    }
+  })
+
+  it('reports why a navigation failed instead of pretending it worked', async () => {
+    const page = {
+      goto: async () => { throw new Error('net::ERR_TIMED_OUT at https://slow.example/') },
+    } as unknown as import('playwright').Page
+    const outcome = await executeAgentAction(page, { type: 'navigate', url: 'https://slow.example/' })
+    expect(outcome.ok).toBe(false)
+    expect(outcome.error).toContain('ERR_TIMED_OUT')
   })
 })

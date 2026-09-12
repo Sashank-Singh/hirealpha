@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { appendThread, loadMemory } from './memory'
 import { runHireTurn } from './runHireTurn'
+import { needsConversationPlanner } from './conversationalFriend'
 
 describe('explicit navigation wins over conversation history', () => {
   let dataDir: string
@@ -225,5 +226,13 @@ describe('explicit navigation wins over conversation history', () => {
     const followup = await runHireTurn({ agentId: 'friend', dataDir, senderId: 'test-chain', userText: 'Draft another reply asking for my seat confirmation.' })
     expect(drafts).toHaveLength(2)
     expect(followup.card?.url).toContain('draft-flight-2')
+  })
+})
+
+describe('tool-engine gate', () => {
+  it('routes a reorder through the tool engine instead of fast chat', () => {
+    const memory = { history: [], facts: [], summary: '', pendingConnection: null, pendingSpend: null } as unknown as Parameters<typeof needsConversationPlanner>[1]
+    expect(needsConversationPlanner('Reorder two bags of the same coffee beans from Amazon using the home address.', memory)).toBe(true)
+    expect(needsConversationPlanner('that sounds good, thanks!', memory)).toBe(false)
   })
 })

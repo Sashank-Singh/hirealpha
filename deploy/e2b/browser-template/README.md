@@ -19,6 +19,12 @@ E2B_API_KEY=<key>
 E2B_BROWSER_TEMPLATE=hirealpha-browser   # or the id the build printed
 ```
 
+The image's `CMD` is the CDP proxy (`node /opt/browser/cdp-proxy.mjs`), which
+supervises Chromium on 127.0.0.1:9222 and rewrites the DevTools Host header on
+9223 — the port the worker's `SANDBOX_CDP_PORT` expects. Do not override the
+start command with a bare Chromium: remote CDP then fails with an opaque
+timeout.
+
 Template is versioned by e2b's immutable build IDs; rebuild and redeploy only
 intentionally — record the build id in the launch-readiness checklist.
 
@@ -55,7 +61,9 @@ authenticated CDP relay exists.
 ## Known gaps (tracked in launch checklist)
 
 - Live noVNC session view shows the worker's local browser; with E2B mode the
-  session URL serves progress/activity only (no live pixels).
+  session URL serves progress/activity only (no live pixels). Handoffs still
+  deliver the page screenshot next to the activity stream, and the challenge
+  detection in `deploy/challengeDetection.ts` pauses the run there.
 - Cross-task isolation proofs beyond destruction verification (cookie/file/
   process bleed tests) run in `deploy/e2bExecutor.test.ts` against the provider
   contract; live-VM evidence is Phase 6 certification.

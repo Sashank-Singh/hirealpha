@@ -8,22 +8,23 @@ FROM e2bdev/base:latest
 
 RUN apt-get update \
   && apt-get install -y --no-install-recommends \
-    chromium ca-certificates fonts-liberation fonts-noto-color-emoji \
+    chromium nodejs ca-certificates fonts-liberation fonts-noto-color-emoji \
     libnss3 libatk-bridge2.0-0 libdrm2 libxkbcommon0 libxcomposite1 \
     libxdamage1 libxrandr2 libgbm1 libasound2 \
   && rm -rf /var/lib/apt/lists/*
 
-# Chromium with CDP reachable from the worker over the sandbox's public host
-# routing. The profile lives in /tmp so no cookie, cache, or storage survives
-# the sandbox even if destruction were somehow skipped.
-ENV CHROME_PROFILE=/tmp/chrome-profile
-CMD ["chromium", \
-  "--headless=new", \
-  "--no-sandbox", \
-  "--disable-setuid-sandbox", \
-  "--disable-dev-shm-usage", \
-  "--remote-debugging-address=0.0.0.0", \
-  "--remote-debugging-port=9222", \
-  "--user-data-dir=/tmp/chrome-profile", \
-  "--window-size=1280,800", \
-  "about:blank"]
+# Chromium needs a DevTools endpoint whose Host header a remote client can
+# satisfy; the proxy on 9223 rewrites Host to 127.0.0.1 and supervises
+# Chromium as its child (E2B reaps background jobs when the start command's
+# foreground process is not the browser). SANDBOX_CDP_PORT in the worker
+# defaults to 9223, so this must be the image's start command.
+COPY cdp-proxy.mjs /opt/browser/cdp-proxy.mjs
+CMD ["node", "/opt/browser/cdp-proxy.mjs"]
+
+# Locale/timezone that match the sandbox's egress region. A page seeing UTC
+# and a bare en-US locale from a US IP is a fingerprint mismatch; the worker
+# also sets these per context (BROWSER_LOCALE / BROWSER_TIMEZONE).
+ENV TZ=America/New_York \
+    LANG=en_US.UTF-8 \
+    LANGUAGE=en_US \
+    CHROME_PROFILE=/tmp/chrome-profile

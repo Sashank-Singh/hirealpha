@@ -11,6 +11,7 @@ import { runPortalLogin, runSteps, extractPageText } from './browserRunner'
 import { agentEnvCaller, buildVisionParts, buildVerificationParts, executeAgentAction, isTerminal, pageShowsExactTotal, parseAgentAction, parseVerification, DEFAULT_AGENT_LIMITS, type PaymentCardSecrets } from './agentDriver'
 import type { PortalTask, PortalStep } from './browserVault'
 import { installBrowserNetworkPolicy } from './browserNetworkPolicy'
+import { challengeFailureMessage, challengeHandoffMessage, detectChallenge, type ChallengeSignal } from './challengeDetection'
 
 export type SessionTask = {
   url: string
@@ -59,7 +60,7 @@ type Launched = {
  * ConnectionTransport so sandbox CDP works regardless of the container's
  * Bun version. Plain ws:// URLs keep the stock path.
  */
-function bunWsTransport(url: string): { send: (m: unknown) => void; close: () => void; onmessage?: (m: string) => void; onclose?: (r: string) => void } {
+export function bunWsTransport(url: string): { send: (m: unknown) => void; close: () => void; onmessage?: (m: string) => void; onclose?: (r: string) => void } {
   const sock = new WebSocket(url)
   const queue: string[] = []
   let open = false
@@ -143,15 +144,27 @@ async function launchChromium(task: Pick<SessionTask, 'cdpUrl'>): Promise<Launch
   const profileDir = await mkdtemp(join(tmpdir(), 'hirealpha-chrome-'))
   const context = await mod.chromium.launchPersistentContext(profileDir, {
     headless: process.env.BROWSER_HEADFUL !== '1',
-    args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
-    viewport: { width: 1280, height: 800 },
+    args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-blink-features=AutomationControlled'],
+    viewport: BROWSER_VIEWPORT,
     userAgent: USER_AGENT,
+    locale: BROWSER_LOCALE,
+    timezoneId: BROWSER_TIMEZONE,
+    colorScheme: 'light',
+    extraHTTPHeaders: { 'Accept-Language': `${BROWSER_LOCALE},en;q=0.9` },
   })
+  await hardenContext(context)
   return { browser: context.browser() as Browser, context, owned: true, profileDir }
 }
 
 const USER_AGENT =
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
+
+/** Fingerprint defaults: a desktop viewport and a US locale/timezone that
+ * matches the sandbox's egress region. A page that sees HeadlessChrome, UTC,
+ * and a 1x1 viewport is a bot before any behaviour is observed. */
+const BROWSER_VIEWPORT = { width: 1280, height: 800 }
+const BROWSER_LOCALE = process.env.BROWSER_LOCALE?.trim() || 'en-US'
+const BROWSER_TIMEZONE = process.env.BROWSER_TIMEZONE?.trim() || 'America/New_York'
 
 /** The UA must not contradict the engine: a Chrome/124 UA on a Chromium 152
  * build is itself a bot signal on sites like booking.com. Derive the major
@@ -162,8 +175,156 @@ function userAgentFor(browser: Browser): string {
   return `Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${major}.0.0.0 Safari/537.36`
 }
 
+/** Remove the automation markers a page can read before its own scripts run.
+ * `--disable-blink-features=AutomationControlled` covers headless Chromium;
+ * this covers contexts created over CDP against the E2B template as well. */
+async function hardenContext(context: BrowserContext): Promise<void> {
+  await context.addInitScript(() => {
+    try {
+      Object.defineProperty(navigator, 'webdriver', { get: () => false })
+    } catch { /* non-configurable on exotic engines */ }
+  }).catch(() => undefined)
+}
+
 async function newContext(browser: Browser): Promise<BrowserContext> {
-  return browser.newContext({ userAgent: userAgentFor(browser), viewport: { width: 1280, height: 800 } })
+  const context = await browser.newContext({
+    userAgent: userAgentFor(browser),
+    viewport: BROWSER_VIEWPORT,
+    locale: BROWSER_LOCALE,
+    timezoneId: BROWSER_TIMEZONE,
+    colorScheme: 'light',
+    extraHTTPHeaders: { 'Accept-Language': `${BROWSER_LOCALE},en;q=0.9` },
+  })
+  await hardenContext(context)
+  return context
+}
+
+/** Race a Playwright call that has no built-in timeout (evaluate, frame
+ * scans) against a fallback value, so a busy page cannot hang a step. */
+function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> {
+  return new Promise<T>((resolve) => {
+    const timer = setTimeout(() => resolve(fallback), ms)
+    void promise.then(
+      (value) => { clearTimeout(timer); resolve(value) },
+      () => { clearTimeout(timer); resolve(fallback) },
+    )
+  })
+}
+
+/** URLs of frames that are actually visible. The invisible reCAPTCHA badge
+ * loads a controller frame on healthy pages; counting it would pause every
+ * run. Hidden challenge frames are not challenges. */
+async function visibleFrameUrls(page: import('playwright').Page): Promise<string[]> {
+  const visible = await withTimeout(page.evaluate(() => {
+    return Array.from(document.querySelectorAll('iframe')).flatMap((frame) => {
+      const rect = frame.getBoundingClientRect()
+      const style = getComputedStyle(frame)
+      if (rect.width < 3 || rect.height < 3 || style.visibility === 'hidden' || style.display === 'none') return []
+      return frame.src ? [frame.src] : []
+    })
+  }).catch(() => [] as string[]), 3_000, [] as string[])
+  if (visible.length) return visible
+  return page.frames().map((frame) => frame.url()).filter((url) => /^https?:/i.test(url))
+}
+
+/* --------------------------- challenge handling --------------------------- */
+
+/** Managed challenges (Cloudflare interstitials, Turnstile, reCAPTCHA
+ * invisible v3) often clear themselves in a few seconds. Give them that
+ * window before pausing the user; anything still present after it is a real
+ * wall. */
+const CHALLENGE_SELF_CLEAR_MS = 10_000
+const CHALLENGE_POLL_MS = 2_500
+/** More than this many human handoffs for the same wall means the page is not
+ * progressing; fail explicitly instead of pausing forever. */
+const CHALLENGE_MAX_HANDOFFS = 2
+
+/** One bounded scan of the live page for anti-bot/login-wall evidence. */
+export async function detectPageChallenge(page: import('playwright').Page): Promise<ChallengeSignal | null> {
+  const snapshot = await withTimeout(page.evaluate(() => ({
+    title: document.title || '',
+    text: (document.body?.innerText || '').slice(0, 6_000),
+    hasPasswordField: Boolean(document.querySelector('input[type="password"]')),
+  })).catch(() => ({ title: '', text: '', hasPasswordField: false })), 5_000, { title: '', text: '', hasPasswordField: false })
+  const frameUrls = await visibleFrameUrls(page)
+  return detectChallenge({
+    url: page.url(),
+    title: snapshot.title,
+    text: snapshot.text,
+    frameUrls,
+    hasPasswordField: snapshot.hasPasswordField,
+  })
+}
+
+/** Detect, then let self-clearing managed challenges clear themselves. */
+async function detectChallengeWithGrace(page: import('playwright').Page): Promise<ChallengeSignal | null> {
+  const first = await detectPageChallenge(page)
+  if (!first || first.kind === 'blocked' || first.kind === 'login') return first
+  const deadline = Date.now() + CHALLENGE_SELF_CLEAR_MS
+  while (Date.now() < deadline) {
+    await page.waitForTimeout(CHALLENGE_POLL_MS).catch(() => undefined)
+    const again = await detectPageChallenge(page)
+    if (!again) return null
+    if (again.kind === 'blocked') return again
+  }
+  return first
+}
+
+type ChallengeHandoffOutcome = 'resumed' | 'cancelled' | 'timeout' | 'unavailable'
+
+/** Pause for the human with the challenge visible. The worker holds the
+ * browser open and waits for the user's Resume (waitForBrowserHandoff); this
+ * only resolves when they acted, cancelled, or the wait expired. */
+async function runChallengeHandoff(
+  page: import('playwright').Page,
+  task: SessionTask,
+  challenge: ChallengeSignal,
+  screenshotBase64?: string,
+): Promise<ChallengeHandoffOutcome> {
+  if (!task.onHandoff) return 'unavailable'
+  const message = challengeHandoffMessage(challenge, page.url())
+  let screenshot = screenshotBase64
+  if (!screenshot && task.onScreenshot) {
+    screenshot = await withTimeout(
+      page.screenshot({ type: 'jpeg', quality: 45, timeout: 12_000, animations: 'disabled', caret: 'hide' })
+        .then((buffer) => (buffer.length ? buffer.toString('base64') : ''))
+        .catch(() => ''),
+      14_000,
+      '',
+    )
+  }
+  if (task.onScreenshot && screenshot) {
+    await task.onScreenshot({ dataUrl: `data:image/jpeg;base64,${screenshot}`, caption: message.slice(0, 200) })
+      .catch(() => undefined)
+  }
+  const kind = challenge.kind === 'login' ? 'password' : challenge.kind === 'verification' ? 'verification' : 'captcha'
+  const handoff = await task.onHandoff({ kind, message, url: page.url() })
+  if (handoff === 'cancelled' || handoff === 'timeout') return handoff
+  return 'resumed'
+}
+
+/** Scripted/login runs: a wall after the steps is a handoff or an explicit
+ * failure — never partial page text delivered as a successful result. */
+async function settleScriptedChallenge(
+  page: import('playwright').Page,
+  task: SessionTask,
+): Promise<{ ok: false; error: string } | null> {
+  const challenge = await detectChallengeWithGrace(page)
+  if (!challenge) return null
+  if (challenge.kind === 'blocked') return { ok: false, error: challengeFailureMessage(challenge, page.url()) }
+  const outcome = await runChallengeHandoff(page, task, challenge)
+  if (outcome === 'cancelled') return { ok: false, error: 'The user stopped the browser task.' }
+  if (outcome === 'timeout') return { ok: false, error: 'The browser handoff expired before the user returned.' }
+  if (outcome === 'unavailable') {
+    return { ok: false, error: `${challengeFailureMessage(challenge, page.url())} No interactive handoff is available for this job.` }
+  }
+  await page.waitForLoadState('domcontentloaded', { timeout: 20_000 }).catch(() => undefined)
+  await page.waitForTimeout(2_000).catch(() => undefined)
+  const again = await detectPageChallenge(page)
+  if (again) {
+    return { ok: false, error: `${challengeFailureMessage(again, page.url())} It was still present after the handoff.` }
+  }
+  return null
 }
 
 export async function runBrowserSession(task: SessionTask): Promise<{ ok: true; content: string } | { ok: false; error: string }> {
@@ -187,6 +348,8 @@ export async function runBrowserSession(task: SessionTask): Promise<{ ok: true; 
       } else {
         await openTaskPage(page, task)
       }
+      const challengeFailure = await settleScriptedChallenge(page, task)
+      if (challengeFailure) return challengeFailure
       const content = await extractPageText(page)
       if (!content) return { ok: false, error: 'The page came back empty.' }
       return { ok: true, content }
@@ -249,10 +412,12 @@ async function maskPaymentFields(page: import('playwright').Page): Promise<void>
 }
 
 /** Build browser-use-style numbered targets from the live page. The overlay is
- * present only for the screenshot and is removed before any action executes. */
-async function captureAgentPage(page: import('playwright').Page): Promise<{ pageText: string; screenshot: string }> {
-  await maskPaymentFields(page)
-  const targets = await page.locator('a, button, input, select, textarea, [role="button"], [role="link"], [contenteditable="true"], [tabindex]')
+ * present only for the screenshot and is removed before any action executes.
+ * Every page call is bounded: on a slow commerce page one hung evaluate would
+ * otherwise stall the step (and the wall clock) with no error. */
+async function captureAgentPage(page: import('playwright').Page): Promise<{ pageText: string; screenshot: string; title: string; frameUrls: string[]; hasPasswordField: boolean }> {
+  await withTimeout(maskPaymentFields(page), 4_000, undefined)
+  const targets = await withTimeout(page.locator('a, button, input, select, textarea, [role="button"], [role="link"], [contenteditable="true"], [tabindex]')
     .evaluateAll((nodes) => nodes.flatMap((node, position) => {
       const element = node as HTMLElement
       const rect = element.getBoundingClientRect()
@@ -297,14 +462,18 @@ async function captureAgentPage(page: import('playwright').Page): Promise<{ page
         width: Math.round(rect.width),
         height: Math.round(rect.height),
       }]
-    }).slice(0, 80)) as IndexedTarget[]
+    }).slice(0, 80)), 6_000, [] as IndexedTarget[])
 
-  const bodyText = (await page.evaluate(() => (document.body?.innerText || '').slice(0, 3500)).catch(() => '')) || ''
+  const body = await withTimeout(page.evaluate(() => ({
+    text: (document.body?.innerText || '').slice(0, 3500),
+    hasPasswordField: Boolean(document.querySelector('input[type="password"]')),
+  })).catch(() => ({ text: '', hasPasswordField: false })), 5_000, { text: '', hasPasswordField: false })
+  const bodyText = body.text || ''
   const targetText = targets.map((target) =>
     `[${target.index}] ${target.tag}${target.label ? ` "${target.label}"` : ''} box=(${target.x},${target.y},${target.width},${target.height})${target.selector ? ` selector=${target.selector}` : ''}`,
   ).join('\n')
 
-  await page.evaluate((items) => {
+  await withTimeout(page.evaluate((items) => {
     document.getElementById('__hirealpha_targets__')?.remove()
     const root = document.createElement('div')
     root.id = '__hirealpha_targets__'
@@ -319,12 +488,12 @@ async function captureAgentPage(page: import('playwright').Page): Promise<{ page
       root.appendChild(box)
     }
     document.documentElement.appendChild(root)
-  }, targets).catch(() => undefined)
+  }, targets).catch(() => undefined), 3_000, undefined)
 
   // Secure payment widgets commonly live in cross-origin iframes. Redact
   // protected inputs inside every frame as well as the top document before
   // the pixels leave the browser process.
-  await Promise.all(page.frames().map((frame) => frame.evaluate(() => {
+  await withTimeout(Promise.all(page.frames().map((frame) => frame.evaluate(() => {
     document.getElementById('__hirealpha_sensitive_redactions__')?.remove()
     const root = document.createElement('div')
     root.id = '__hirealpha_sensitive_redactions__'
@@ -341,24 +510,27 @@ async function captureAgentPage(page: import('playwright').Page): Promise<{ page
       root.appendChild(cover)
     }
     document.documentElement.appendChild(root)
-  }).catch(() => undefined)))
+  }).catch(() => undefined))), 4_000, undefined)
 
   // One transient CDP hiccup must not turn into an empty image (providers 400
   // on `data:image/jpeg;base64,`) or a text-only step on a visual page.
   let screenshot = ''
-  try {
+  await withTimeout((async () => {
     for (let attempt = 0; attempt < 2 && !screenshot; attempt++) {
       screenshot = await page.screenshot({ type: 'jpeg', quality: 45, timeout: 15_000, animations: 'disabled', caret: 'hide' })
         .then((buffer) => (buffer.length ? buffer.toString('base64') : ''))
         .catch(() => '')
     }
-  } finally {
-    await page.evaluate(() => document.getElementById('__hirealpha_targets__')?.remove()).catch(() => undefined)
-    await Promise.all(page.frames().map((frame) => frame.evaluate(() => {
-      document.getElementById('__hirealpha_sensitive_redactions__')?.remove()
-    }).catch(() => undefined)))
-  }
-  return { pageText: `${bodyText}\n\nINTERACTIVE TARGETS:\n${targetText}`.slice(0, 9_000), screenshot }
+  })(), 32_000, undefined)
+  await withTimeout(page.evaluate(() => document.getElementById('__hirealpha_targets__')?.remove()).catch(() => undefined), 3_000, undefined)
+  await withTimeout(Promise.all(page.frames().map((frame) => frame.evaluate(() => {
+    document.getElementById('__hirealpha_sensitive_redactions__')?.remove()
+  }).catch(() => undefined))), 4_000, undefined)
+  const [title, frameUrls] = await Promise.all([
+    withTimeout(page.title().catch(() => ''), 3_000, ''),
+    visibleFrameUrls(page),
+  ])
+  return { pageText: `${bodyText}\n\nINTERACTIVE TARGETS:\n${targetText}`.slice(0, 9_000), screenshot, title, frameUrls, hasPasswordField: body.hasPasswordField }
 }
 
 async function agentLoop(
@@ -373,15 +545,27 @@ async function agentLoop(
   // agent: the model never sees the password, only the post-login screen.
   await openTaskPage(page, task)
   let activePage = page
+  if (activePage.url() === 'about:blank') {
+    // runPortalLogin tolerates a missing domcontentloaded, which can leave a
+    // blank page; the agent must not start there and burn the run.
+    await activePage.goto(task.url, { waitUntil: 'commit', timeout: 30_000 }).catch(() => undefined)
+  }
+  if (activePage.url() === 'about:blank') {
+    return { ok: false, error: `The page never loaded: ${task.url}` }
+  }
   await task.onProgress?.({ action: 'goto', url: activePage.url() })
   const goal = task.goal!.slice(0, 500)
   const recentActions: string[] = []
   let answerChecked = false
+  let challengeHandoffs = 0
   let deadline = Date.now() + DEFAULT_AGENT_LIMITS.wallMs
 
   for (let step = 1; step <= DEFAULT_AGENT_LIMITS.maxSteps; step++) {
     if (Date.now() > deadline) {
       return { ok: false, error: 'Agent ran out of time before finishing the goal.' }
+    }
+    if (activePage.isClosed()) {
+      return { ok: false, error: 'The browser page was closed before the goal was reached (the sandbox may have timed out).' }
     }
     let pageText = ''
     let screenshot = ''
@@ -390,8 +574,42 @@ async function agentLoop(
       pageText = captured.pageText
       screenshot = captured.screenshot
     } catch {
-      pageText = (await activePage.evaluate(() => (document.body?.innerText || '').slice(0, 3500)).catch(() => '')) || ''
+      pageText = (await withTimeout(activePage.evaluate(() => (document.body?.innerText || '').slice(0, 3500)).catch(() => ''), 5_000, '')) || ''
     }
+
+    // Deterministic wall check BEFORE the model sees the page: a challenge or
+    // login page is never "done", and managed challenges get a short window
+    // to clear themselves before the user is asked to step in.
+    const challenge = await detectChallengeWithGrace(activePage)
+    if (challenge) {
+      if (challenge.kind === 'blocked') {
+        await task.onProgress?.({ action: 'blocked', url: activePage.url() })
+        return { ok: false, error: challengeFailureMessage(challenge, activePage.url()) }
+      }
+      if (challengeHandoffs >= CHALLENGE_MAX_HANDOFFS) {
+        return {
+          ok: false,
+          error: `${challengeFailureMessage(challenge, activePage.url())} It was still present after ${CHALLENGE_MAX_HANDOFFS} handoffs.`,
+        }
+      }
+      await task.onProgress?.({ action: `detected_${challenge.kind}`, url: activePage.url() })
+      const handoffStarted = Date.now()
+      const outcome = await runChallengeHandoff(activePage, task, challenge, screenshot)
+      deadline += Date.now() - handoffStarted
+      if (outcome === 'cancelled') return { ok: false, error: 'The user stopped the browser task.' }
+      if (outcome === 'timeout') return { ok: false, error: 'The browser handoff expired before the user returned.' }
+      if (outcome === 'unavailable') {
+        return {
+          ok: false,
+          error: `${challengeFailureMessage(challenge, activePage.url())} No interactive handoff is available for this job.`,
+        }
+      }
+      challengeHandoffs++
+      recentActions.push(`human completed ${challenge.kind} handoff (${challenge.signal})`)
+      await task.onProgress?.({ action: `handoff_${challenge.kind}`, url: activePage.url() })
+      continue
+    }
+
     if (screenshot && process.env.BROWSER_AGENT_TRACE === '1') {
       await task.onScreenshot?.({ dataUrl: `data:image/jpeg;base64,${screenshot}`, caption: `step ${step}` }).catch(() => undefined)
     }
@@ -479,7 +697,8 @@ async function agentLoop(
       return { ok: false, error: `Agent gave up: ${action.reason}` }
     }
     const pagesBefore = new Set(activePage.context().pages())
-    const ok = await executeAgentAction(activePage, action, task.paymentCard)
+    const outcome = await executeAgentAction(activePage, action, task.paymentCard)
+    const ok = outcome.ok
     if (action.type === 'fill_payment' && ok) task.paymentCard = undefined
     // A click on a real site often opens a same-site tab (hotel details,
     // sign-in). Keep driving the tab the action produced; otherwise the agent
@@ -492,8 +711,10 @@ async function agentLoop(
       await activePage.bringToFront().catch(() => undefined)
       recentActions.push('switched to the new tab that just opened')
     }
-    await task.onProgress?.({ action: action.type, url: activePage.url() })
-    recentActions.push(`${action.type}${'selector' in action ? ` ${action.selector.slice(0, 60)}` : ''}${ok ? '' : ' (failed)'}`)
+    // Failures keep their reason: the activity stream shows the failed step
+    // and the model is told exactly what did not work instead of "(failed)".
+    await task.onProgress?.({ action: ok ? action.type : `${action.type}_failed`, url: activePage.url() })
+    recentActions.push(`${action.type}${'selector' in action ? ` ${action.selector.slice(0, 60)}` : ''}${ok ? '' : ` (failed: ${(outcome.error || 'no effect').slice(0, 100)})`}`)
   }
   return { ok: false, error: 'Agent hit the step cap before finishing the goal.' }
 }

@@ -1,0 +1,14 @@
+{
+  "dim": "4",
+  "phone": "+12163032166",
+  "userText": "Reorder two bags of the same coffee beans from Amazon using the home address.",
+  "bubbles": [
+    "I can't pull up your Amazon history or saved address, so I still need two specifics: the exact coffee (name, brand, roast, size, or a direct link) and the shipping address you want it sent to. Once you send those, I'll find the listing, confirm the price for two bags, and set up the order for your approval."
+  ],
+  "reply": "I can't pull up your Amazon history or saved address, so I still need two specifics: the exact coffee (name, brand, roast, size, or a direct link) and the shipping address you want it sent to. Once you send those, I'll find the listing, confirm the price for two bags, and set up the order for your approval.",
+  "source": "gmi",
+  "card": null,
+  "progress": [],
+  "reactions": [],
+  "totalMs": 30445
+}
