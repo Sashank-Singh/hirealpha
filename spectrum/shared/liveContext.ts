@@ -123,9 +123,10 @@ export async function fetchLiveProfile(phone: string, persona: AgentId, query?: 
     // `q` only ranks which facts come back; it never changes their content.
     const recall = query?.trim() ? `&q=${encodeURIComponent(query.slice(0, 500))}` : ''
     const url = `${base}/api/internal/live?phone=${encodeURIComponent(phone)}&persona=${encodeURIComponent(persona)}${recall}`
-    // 20s, not 8s: the payload's memory read can take a few seconds on a
-    // shared box, and a local bot talking to a remote API adds RTT on top.
-    const res = await timedFetch(url, { headers: authHeaders() }, 20000)
+    // The endpoint carries its own 8s budget and an identity-only fallback, so
+    // 12s is already a backstop; 20s let one stalled profile read eat the whole
+    // turn before the tool call even started.
+    const res = await timedFetch(url, { headers: authHeaders() }, 12000)
     if (!res.ok) return EMPTY
     const data = (await res.json()) as LiveProfile
     if (typeof data.found !== 'boolean' || typeof data.hired !== 'boolean') return EMPTY
@@ -182,7 +183,10 @@ export async function fetchLiveTools(
     }
     return []
   }
-  const attempt = async (): Promise<string[]> => {
+  // 18s + 0.3s + 14s keeps the worst case under ~35s: the server caps a gmail
+  // read at 12s on top of connector resolution, so the retry only ever waits
+  // on a genuinely stalled server, and a warm account pin makes it fast.
+  const attempt = async (ms: number): Promise<string[]> => {
     const res = await timedFetch(
       `${base}/api/internal/live/tools`,
       {
@@ -190,20 +194,20 @@ export async function fetchLiveTools(
         headers: authHeaders(),
         body: JSON.stringify({ phone, persona, message, ...(want ? { want } : {}) }),
       },
-      20000,
+      ms,
     )
     if (!res.ok) return []
     const data = (await res.json()) as { results?: string[] }
     return data.results || []
   }
   try {
-    const first = await attempt()
+    const first = await attempt(18000)
     // A connected user can briefly read as empty results while the backing
     // tool (Gmail/Calendar) is mid-refresh. Retry once so a single empty
     // response can't turn into a "can't see your inbox" reply.
     if (first.length) return first
     await new Promise((r) => setTimeout(r, 300))
-    return await attempt()
+    return await attempt(14000)
   } catch (err) {
     console.warn('[live] tools failed', err)
     return []

@@ -3447,6 +3447,17 @@ function nextReminderAt(utcIso: string, recurrence: string, timezone: string): s
     Number(get('minute')),
     Number(get('second')),
   )
+  // Weekday recurrence: step a day at a time until the wall date is Mon-Fri
+  // (getUTCDay on the reconstructed wall clock gives the local weekday).
+  if (recurrence === 'weekdays') {
+    let next = wall + 86_400_000
+    while (next > wall) {
+      const dow = new Date(next).getUTCDay()
+      if (dow >= 1 && dow <= 5) break
+      next += 86_400_000
+    }
+    return new Date(next - tzOffsetMs(next, tz)).toISOString()
+  }
   const nextWall = wall + (recurrence === 'weekly' ? 7 : 1) * 86_400_000
   return new Date(nextWall - tzOffsetMs(nextWall, tz)).toISOString()
 }
@@ -4129,6 +4140,36 @@ async function composioResolveAccountId(
   }
 }
 
+/** The resolved account for a toolkit, memoized. Unpinned execution let the
+ * backend choose between an old EXPIRED connection and the ACTIVE one: measured
+ * on the founder's account, an uncached execute sometimes took 30s+ (or ran on
+ * the dead account and threw), which is exactly a turn timeout from the bot's
+ * side. The pin costs one list call per TTL and makes the account choice
+ * deterministic; re-auth and disconnect clear it early. */
+const composioPins = new Map<string, { id: string; at: number }>()
+const COMPOSIO_PIN_TTL_MS = 10 * 60_000
+
+async function composioPinnedAccountId(userId: string, toolkit: string): Promise<string | null> {
+  if (!toolkit) return null
+  const key = `${userId}:${toolkit.toLowerCase()}`
+  const hit = composioPins.get(key)
+  if (hit && Date.now() - hit.at < COMPOSIO_PIN_TTL_MS) return hit.id
+  const id = await composioResolveAccountId(userId, toolkit)
+  // A null resolution (list timeout) is not cached: the next call retries.
+  if (id) {
+    if (composioPins.size > 500) {
+      const cutoff = Date.now() - COMPOSIO_PIN_TTL_MS
+      for (const [k, v] of composioPins) if (v.at < cutoff) composioPins.delete(k)
+    }
+    composioPins.set(key, { id, at: Date.now() })
+  }
+  return id
+}
+
+function composioInvalidatePin(userId: string, toolkit: string) {
+  composioPins.delete(`${userId}:${toolkit.toLowerCase()}`)
+}
+
 async function composioConnected(userId: string): Promise<string[]> {
   // The demo workspace "has" every toolkit the fixtures can answer for, so
   // Settings and /api/me render it like a fully connected account.
@@ -4185,6 +4226,7 @@ async function composioDisconnect(userId: string, toolkit: string): Promise<bool
     const match = items.find((i) => !i.isDisabled && (i.toolkit?.slug || '').toLowerCase() === target && !!i.id)
     if (!match?.id) return false
     await composio.connectedAccounts.delete(match.id)
+    composioInvalidatePin(userId, target)
     return true
   } catch (err) {
     console.warn('[composio] disconnect failed', target, err)
@@ -4260,6 +4302,8 @@ async function composioAuthorize(sql: SQL, userId: string, toolkit: string, call
     callbackUrl,
     allowMultiple: true,
   })
+  // The next read must resolve again rather than execute on the old account.
+  composioInvalidatePin(userId, toolkit)
   return request.redirectUrl || null
 }
 
@@ -4306,16 +4350,19 @@ async function fetchGmail(access: string, query: string, maxResults = 8) {
   const listUrl = new URL('https://gmail.googleapis.com/gmail/v1/users/me/messages')
   listUrl.searchParams.set('maxResults', String(cap))
   listUrl.searchParams.set('q', query)
-  const list = await fetch(listUrl, { headers: { Authorization: `Bearer ${access}` } })
+  const list = await fetchPublic(listUrl, { headers: { Authorization: `Bearer ${access}` } }, 4000)
   if (!list.ok) return `Gmail error ${list.status}`
   const data = (await list.json()) as { messages?: Array<{ id: string }> }
   const ids = (data.messages || []).slice(0, cap)
   const lines = (
     await Promise.all(
       ids.map(async (m) => {
-        const got = await fetch(
-          `https://gmail.googleapis.com/gmail/v1/users/me/messages/${m.id}?format=metadata&metadataHeaders=Subject&metadataHeaders=From&metadataHeaders=Date`,
+        const got = await fetchPublic(
+          new URL(
+            `https://gmail.googleapis.com/gmail/v1/users/me/messages/${m.id}?format=metadata&metadataHeaders=Subject&metadataHeaders=From&metadataHeaders=Date`,
+          ),
           { headers: { Authorization: `Bearer ${access}` } },
+          3000,
         )
         if (!got.ok) return null
         const msg = (await got.json()) as {
@@ -4450,6 +4497,7 @@ async function fetchCalendarViaComposio(
       calendarId: 'primary',
       calendar_id: 'primary',
     },
+    10_000, // both slugs share this deadline, under the bot's attempt timeout
   )
   if (!raw) return 'Calendar lookup failed. Do not invent events. Tell them to reconnect Calendar in Settings.'
   if (isCalendarToolResult(raw)) return raw
@@ -4473,10 +4521,16 @@ async function loadCalendar(
   opts?: { timeMin?: Date; timeMax?: Date; maxResults?: number },
   timezone = 'America/Los_Angeles',
 ): Promise<string> {
-  const access = await googleAccessToken(sql, userId, 'calendar')
-  if (access) {
-    const got = await fetchCalendarItems(access, opts)
-    if (got.ok) return formatUpcomingEvents(got.items, timezone)
+  // Bounded Google stage: a stalled token refresh or calendar fetch falls
+  // through to the connector rather than holding the turn open.
+  try {
+    const access = await withTimeout(googleAccessToken(sql, userId, 'calendar'), 3000, null)
+    if (access) {
+      const got = await withTimeout(fetchCalendarItems(access, opts), 9000, null)
+      if (got?.ok) return formatUpcomingEvents(got.items, timezone)
+    }
+  } catch {
+    // fall through to the connector
   }
   return fetchCalendarViaComposio(userId, opts, timezone)
 }
@@ -4502,33 +4556,83 @@ function toolkitForToolSlug(tool: string): string {
   return name.toLowerCase()
 }
 
-async function composioExecuteData(userId: string, tool: string, args: Record<string, unknown>): Promise<unknown> {
-  // Demo workspace answers before any real client exists, so a demo run never
-  // needs Composio credentials and never touches a real connector account.
-  const demo = demoComposioData(userId, tool, args)
-  if (demo !== null) return demo
+/** Run one Composio tool with the account pinned to the newest ACTIVE
+ * connection and a hard deadline. The pin is the fix for the intermittent
+ * mail read: with an old EXPIRED account still on the user, unpinned execution
+ * sometimes spent 30s+ resolving (measured) and the bot's 20s attempt aborted.
+ * A stale/missing pin falls back to the SDK's own choice; the multi-account
+ * error still triggers one re-resolve retry. Throws on failure so each caller
+ * can decide how a failed read renders (empty vs a prose failure). */
+async function composioExecuteWithPin(
+  userId: string,
+  tool: string,
+  args: Record<string, unknown>,
+  timeoutMs = 8000,
+): Promise<{ successful?: boolean; error?: unknown; data?: unknown }> {
   const composio = composioClient()
-  if (!composio) return null
-  const run = (connectedAccountId?: string) =>
+  if (!composio) throw new Error('composio not configured')
+  const toolkit = toolkitForToolSlug(tool)
+  const run = (connectedAccountId?: string | null) =>
     composio.tools.execute(tool, {
       userId,
       arguments: args,
       dangerouslySkipVersionCheck: true,
       ...(connectedAccountId ? { connectedAccountId } : {}),
     })
-  try {
-    let res: Awaited<ReturnType<typeof run>>
+  const endAt = Date.now() + timeoutMs
+  const race = <T,>(p: Promise<T>): Promise<T> => {
+    const left = Math.max(250, endAt - Date.now())
+    return Promise.race([
+      p,
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error(`Composio ${tool} timed out after ${timeoutMs}ms`)), left),
+      ),
+    ])
+  }
+  let pinned: string | null = null
+  if (toolkit) {
+    // Resolution gets its own short slice of the budget: a slow list call must
+    // degrade to the unpinned execute, not eat the whole read.
     try {
-      res = await run()
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err)
-      // Two ACTIVE accounts on one toolkit make plain execute throw; pin the
-      // newest account and retry once rather than dropping the read.
-      if (!/multiple connected accounts/i.test(msg)) throw err
-      const accountId = await composioResolveAccountId(userId, toolkitForToolSlug(tool))
-      if (!accountId) throw err
-      res = await run(accountId)
+      pinned = await Promise.race([
+        composioPinnedAccountId(userId, toolkit),
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), 2500)),
+      ])
+    } catch {
+      pinned = null
     }
+  }
+  try {
+    return await race(run(pinned))
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    const code = (err as { code?: string } | null)?.code || ''
+    // Two ACTIVE accounts on one toolkit make plain execute throw; drop the
+    // memo, resolve again, retry once rather than dropping the read.
+    if (toolkit && (code === 'MULTIPLE_CONNECTED_ACCOUNTS' || /multiple connected accounts/i.test(msg))) {
+      composioInvalidatePin(userId, toolkit)
+      const accountId = await race(composioResolveAccountId(userId, toolkit))
+      if (accountId) return await race(run(accountId))
+    }
+    // Any other failure may mean the pin went stale (re-auth during the TTL);
+    // clear it so the next call resolves fresh, then surface the failure.
+    if (toolkit) composioInvalidatePin(userId, toolkit)
+    throw err
+  }
+}
+
+async function composioExecuteData(
+  userId: string,
+  tool: string,
+  args: Record<string, unknown>,
+  timeoutMs = 8000,
+): Promise<unknown> {
+  // Demo workspace answers before any real client exists, so a demo run never
+  // needs Composio credentials and never touches a real connector account.
+  const demo = demoComposioData(userId, tool, args)
+  if (demo !== null) return demo
+  try {
+    const res = await composioExecuteWithPin(userId, tool, args, timeoutMs)
     if (!res?.successful || res.error) {
       console.warn(`[composio] ${tool} failed`, res?.error || 'unknown error')
       return null
@@ -4540,7 +4644,12 @@ async function composioExecuteData(userId: string, tool: string, args: Record<st
   }
 }
 
-async function composioExecute(userId: string, tool: string, args: Record<string, unknown>) {
+async function composioExecute(
+  userId: string,
+  tool: string,
+  args: Record<string, unknown>,
+  timeoutMs = 8000,
+) {
   // Demo read: run the mock payload through the exact formatting switch the
   // real path uses, so the model sees byte-identical shapes either way. An
   // unmocked slug (writes, anything not in the fixtures) falls through to the
@@ -4554,28 +4663,8 @@ async function composioExecute(userId: string, tool: string, args: Record<string
     const formatted = formatComposioData(demo)
     return formatted || JSON.stringify(demo ?? {}).slice(0, 4000)
   }
-  const composio = composioClient()
-  if (!composio) return null
-  const run = (connectedAccountId?: string) =>
-    composio.tools.execute(tool, {
-      userId,
-      arguments: args,
-      dangerouslySkipVersionCheck: true,
-      ...(connectedAccountId ? { connectedAccountId } : {}),
-    })
   try {
-    let res: Awaited<ReturnType<typeof run>>
-    try {
-      res = await run()
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err)
-      // Same pin-and-retry as composioExecuteData: an extra connected account
-      // must not turn every tool call into a failure.
-      if (!/multiple connected accounts/i.test(msg)) throw err
-      const accountId = await composioResolveAccountId(userId, toolkitForToolSlug(tool))
-      if (!accountId) throw err
-      res = await run(accountId)
-    }
+    const res = await composioExecuteWithPin(userId, tool, args, timeoutMs)
     if (!res?.successful || res.error) {
       return `Tool ${tool} failed: ${res.error || 'unknown error'}`
     }
@@ -4676,16 +4765,19 @@ async function fetchGmailRich(
   const listUrl = new URL('https://gmail.googleapis.com/gmail/v1/users/me/messages')
   listUrl.searchParams.set('maxResults', String(cap))
   listUrl.searchParams.set('q', query)
-  const list = await fetch(listUrl, { headers: { Authorization: `Bearer ${access}` } })
+  const list = await fetchPublic(listUrl, { headers: { Authorization: `Bearer ${access}` } }, 4000)
   if (!list.ok) return null
   const data = (await list.json()) as { messages?: Array<{ id: string }> }
   const ids = (data.messages || []).slice(0, cap)
   const results = (
     await Promise.all(
       ids.map(async (m) => {
-        const got = await fetch(
-          `https://gmail.googleapis.com/gmail/v1/users/me/messages/${m.id}?format=metadata&metadataHeaders=Subject&metadataHeaders=From&metadataHeaders=Date`,
+        const got = await fetchPublic(
+          new URL(
+            `https://gmail.googleapis.com/gmail/v1/users/me/messages/${m.id}?format=metadata&metadataHeaders=Subject&metadataHeaders=From&metadataHeaders=Date`,
+          ),
           { headers: { Authorization: `Bearer ${access}` } },
+          3000,
         )
         if (!got.ok) return null
         const msg = (await got.json()) as {
@@ -4701,13 +4793,29 @@ async function fetchGmailRich(
   return results
 }
 
-/** The Gmail read slugs from the plugin spec, first one that answers wins. */
-async function composioMailData(userId: string, args: Record<string, unknown>): Promise<unknown> {
-  for (const slug of COMPOSIO_READ.gmail!.slugs) {
-    const data = await composioExecuteData(userId, slug, args)
-    if (data != null) return data
-  }
-  return null
+/** The Gmail read slugs from the plugin spec; the first slug with a payload
+ * wins. They are raced rather than awaited in order, so a second read slug (if
+ * one is ever added) cannot add its latency on top of the first. */
+async function composioMailData(
+  userId: string,
+  args: Record<string, unknown>,
+  timeoutMs = 8000,
+): Promise<unknown> {
+  const slugs = COMPOSIO_READ.gmail!.slugs
+  if (slugs.length <= 1) return slugs[0] ? composioExecuteData(userId, slugs[0], args, timeoutMs) : null
+  return await new Promise((resolve) => {
+    let left = slugs.length
+    for (const slug of slugs) {
+      composioExecuteData(userId, slug, args, timeoutMs)
+        .then((data) => {
+          if (data != null) resolve(data)
+          else if (--left === 0) resolve(null)
+        })
+        .catch(() => {
+          if (--left === 0) resolve(null)
+        })
+    }
+  })
 }
 
 /** Gmail through Composio, for accounts that connected it that way. */
@@ -4715,8 +4823,9 @@ async function composioGmailRich(
   userId: string,
   query: string,
   maxResults = 8,
+  timeoutMs = 8000,
 ): Promise<ComposioMailItem[]> {
-  const data = await composioMailData(userId, { max_results: maxResults, query, verbose: false })
+  const data = await composioMailData(userId, { max_results: maxResults, query, verbose: false }, timeoutMs)
   if (data == null) return []
   // A row with no message id cannot be opened later, so it is not offered.
   return parseComposioMailItems(data)
@@ -4775,31 +4884,45 @@ async function loadGmailRich(
   query: string,
   maxResults = 8,
 ): Promise<Array<{ id: string; from: string; date: string; subject: string; snippet: string }>> {
+  // Staged budgets: a stalled token refresh or list call must fall through to
+  // the connector, not surface as an empty read. The caller caps the whole
+  // block at 12s.
   try {
-    const access = await googleAccessToken(sql, userId, 'gmail')
+    const access = await withTimeout(googleAccessToken(sql, userId, 'gmail'), 3000, null)
     if (access) {
-      const rich = await fetchGmailRich(access, query, maxResults)
+      const rich = await withTimeout(fetchGmailRich(access, query, maxResults), 5000, null)
       if (rich) return rich
     }
-    return await composioGmailRich(userId, query, maxResults)
+  } catch {
+    // fall through to the connector
+  }
+  try {
+    // 8s inside the caller's 12s cap: Composio itself spikes to 6-8s under
+    // load (measured), and a cut at 6s threw away reads that were about to land.
+    return await composioGmailRich(userId, query, maxResults, 8000)
   } catch {
     return []
   }
 }
 
 async function loadGmail(sql: SQL, userId: string, query: string, maxResults = 8): Promise<string> {
-  const access = await googleAccessToken(sql, userId, 'gmail')
-  if (access) {
-    const out = await fetchGmail(access, query, maxResults)
-    if (!/^Gmail error \d/.test(out)) return out
-    console.warn('[gmail] google failed', out)
+  try {
+    const access = await withTimeout(googleAccessToken(sql, userId, 'gmail'), 3000, null)
+    if (access) {
+      const out = await withTimeout(fetchGmail(access, query, maxResults), 5000, '')
+      if (out && !/^Gmail error \d/.test(out)) return out
+      if (out) console.warn('[gmail] google failed', out)
+    }
+  } catch {
+    // fall through to the connector
   }
   const spec = COMPOSIO_READ.gmail!
-  const out = await composioFirst(userId, spec.slugs, {
-    max_results: maxResults,
-    query,
-    verbose: false,
-  })
+  const out = await composioFirst(
+    userId,
+    spec.slugs,
+    { max_results: maxResults, query, verbose: false },
+    8000,
+  )
   if (!out || composioLooksFailed(out)) return spec.empty
   return out
 }
@@ -5166,10 +5289,16 @@ async function composioFirst(
   userId: string,
   slugs: string[],
   args: Record<string, unknown>,
+  timeoutMs = 15_000,
 ): Promise<string | null> {
   let last: string | null = null
+  const endAt = Date.now() + timeoutMs
   for (const slug of slugs) {
-    const out = await composioExecute(userId, slug, args)
+    const left = endAt - Date.now()
+    if (left <= 0) break
+    // One deadline across all slugs: a slow first slug must leave room for the
+    // fallback slug, and the whole chain must stay under the bot's attempt.
+    const out = await composioExecute(userId, slug, args, Math.max(1000, left))
     if (!out) continue
     last = out
     if (!/failed/i.test(out)) return out
@@ -5180,6 +5309,53 @@ async function composioFirst(
 function notConnectedNote(tool: string, persona: Persona = 'friend') {
   const directUrl = `https://hirealpha.chat/app/hires/${persona}?connect=${encodeURIComponent(tool)}`
   return `${tool} is not connected yet. Tell them: "You can connect ${tool} directly here: ${directUrl}" so they can tap and connect it instantly with one tap without searching the site. Never claim you already did the action.`
+}
+
+/** A timezone's GMT offset at one instant, as ±HH:MM. Used to echo an exact
+ * accepted calendar range and to fill in an offset the model omitted. */
+function timezoneOffsetFor(date: Date, timezone: string): string {
+  try {
+    const parts = new Intl.DateTimeFormat('en-CA', {
+      timeZone: isValidTimeZone(timezone) ? timezone : 'UTC',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false,
+    }).formatToParts(date)
+    const get = (t: string) => parts.find((p) => p.type === t)?.value || '00'
+    const localMs = Date.UTC(
+      Number(get('year')),
+      Number(get('month')) - 1,
+      Number(get('day')),
+      Number(get('hour')) % 24,
+      Number(get('minute')),
+      Number(get('second')),
+    )
+    const diffMin = Math.round((localMs - date.getTime()) / 60000)
+    const sign = diffMin < 0 ? '-' : '+'
+    const abs = Math.abs(diffMin)
+    return `${sign}${String(Math.floor(abs / 60)).padStart(2, '0')}:${String(abs % 60).padStart(2, '0')}`
+  } catch {
+    return '+00:00'
+  }
+}
+
+/** The exact shape the calendar branch accepts, written with real numbers so
+ * the model copies it instead of guessing. */
+function calendarHintExample(timezone: string): string {
+  const tz = isValidTimeZone(timezone) ? timezone : 'UTC'
+  const now = new Date()
+  const ymd = new Intl.DateTimeFormat('en-CA', {
+    timeZone: tz,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(now)
+  const offset = timezoneOffsetFor(now, tz)
+  return `Example that is accepted: start=${ymd}T00:00:00${offset} end=${ymd}T23:59:00${offset}`
 }
 
 export async function runToolsForMessage(
@@ -5238,38 +5414,71 @@ export async function runToolsForMessage(
       return results
     }
     if (input.want === 'gmail') {
+      // One 12s deadline over the whole read. The mail path can chain a token
+      // refresh, a Gmail list and a Composio fallback; without the cap a slow
+      // connector produced a stalled turn (the bot aborts at 20s), and the
+      // hard cap now answers with the graceful empty instead.
       const byId = /^id=([A-Za-z0-9_-]+)$/.exec(query)
       if (byId) {
         const messageId = byId[1]!
-        let text = await loadGmailMessageBody(sql, input.userId, messageId, 12000)
-        if (!text) {
-          const mail = await composioMailBody(input.userId, messageId)
-          if (mail?.id === messageId) text = mail.bodyText || stripHtml(mail.bodyHtml) || mail.snippet || ''
-        }
+        const text = await withTimeout(
+          (async () => {
+            const direct = await withTimeout(loadGmailMessageBody(sql, input.userId, messageId, 12000), 6000, '')
+            if (direct) return direct
+            const mail = await withTimeout(composioMailBody(input.userId, messageId), 5000, null)
+            return mail?.id === messageId ? mail.bodyText || stripHtml(mail.bodyHtml) || mail.snippet || '' : ''
+          })(),
+          12000,
+          '',
+        )
         return [text ? `Email body id=${messageId} (up to 12000 characters; attachments not included):\n${text.slice(0, 12000)}` : `Could not retrieve the body for id=${messageId}. Do not infer its contents from the subject.`]
       }
-      const mail = await loadGmailRich(sql, input.userId, query, 8)
+      const mail = await withTimeout(loadGmailRich(sql, input.userId, query, 8), 12000, [])
       return [mail.length
-        ? `Email results for ${JSON.stringify(query)}:\n${mail.map((m) => `- id=${m.id} | ${m.from} | ${m.date} | ${m.subject} | ${m.snippet}`).join('\n')}`
+        ? `Email results for ${JSON.stringify(query)}:\n${mail.map((m) => `- id=${m.id} | ${m.from.slice(0, 100)} | ${m.date.slice(0, 50)} | ${m.subject.slice(0, 140)} | ${m.snippet.slice(0, 200)}`).join('\n')}`
         : 'Email lookup returned no usable records. Try a different query if needed. This does not establish that the inbox is empty.']
     }
     if (input.want === 'drive') return [await loadDrive(sql, input.userId, query)]
     if (input.want === 'calendar') {
       // Explicit instants avoid a second model call and ambiguous server-local
       // date parsing. An invalid range must not silently become "next week".
-      // Tolerant extraction: the model reliably includes start=/end= but
-      // wraps them with prose, quotes or commas; an anchored pattern bounced
-      // those lookups and the whole reply died on "kept bouncing back".
-      const clean = (v: string | undefined) => (v || '').replace(/^[\s"'\[,]+|[\s"'\],.]+$/g, '')
-      const startRaw = clean(/start(?:\s*_?datetime)?[="'\s:]+(\S+)/i.exec(query)?.[1])
-      const endRaw = clean(/end(?:\s*_?datetime)?[="'\s:]+(\S+)/i.exec(query)?.[1])
+      // Extraction is deliberately forgiving: the model reliably includes
+      // start=/end= (or startTime/start_time/from/to) but wraps them with
+      // prose, quotes, brackets or a space instead of the T separator; an
+      // anchored pattern bounced those lookups and the whole reply died.
+      const tz = input.timezone || 'UTC'
+      const clean = (v: string | undefined) => (v || '').replace(/^[\s"'\[(]+|[\s"'\]),.;]+$/g, '')
+      const grab = (keys: string[]) => {
+        for (const key of keys) {
+          // Whitespace inside the value is real ("2026-09-11 09:30:00-07:00"),
+          // so prefer a whole datetime before falling back to one token.
+          const m = new RegExp(
+            `\\b${key}(?:\\s*_?(?:datetime|date|time))?[="'\\s:]+(\\d{4}-\\d{2}-\\d{2}[ T]\\d{2}:\\d{2}(?::\\d{2}(?:\\.\\d+)?)?(?:Z|[+-]\\d{2}:\\d{2})?|\\S+)`,
+            'i',
+          ).exec(query)
+          if (m?.[1]) return clean(m[1])
+        }
+        return ''
+      }
+      const withOffset = (raw: string) => {
+        let v = raw.trim()
+        // "2026-09-11 00:00:00-07:00": a space where ISO wants a T. An offset
+        // is still required — without one the range is ambiguous, and the
+        // hint below teaches the exact accepted shape instead of guessing.
+        if (/^\d{4}-\d{2}-\d{2}[ t]\d{2}:\d{2}/i.test(v)) v = v.replace(/^(\d{4}-\d{2}-\d{2})[ t]/i, '$1T')
+        return v
+      }
+      const startRaw = withOffset(grab(['start', 'from']))
+      const endRaw = withOffset(grab(['end', 'to']))
       const iso = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:\d{2})$/
-      if (!iso.test(startRaw) || !iso.test(endRaw)) return ['Calendar lookup needs start=<ISO datetime with offset> end=<ISO datetime with offset>, using the user timezone. No calendar lookup ran.']
+      if (!iso.test(startRaw) || !iso.test(endRaw)) {
+        return [`Calendar lookup needs start=<ISO datetime with offset> end=<ISO datetime with offset>, using the user timezone. ${calendarHintExample(tz)}. No calendar lookup ran.`]
+      }
       const timeMin = new Date(startRaw)
       const timeMax = new Date(endRaw)
       const span = timeMax.getTime() - timeMin.getTime()
       if (!Number.isFinite(span) || span <= 0 || span > 31 * 86400000) return ['Calendar range must be valid, increasing, and no longer than 31 days. No calendar lookup ran.']
-      const calendar = await loadCalendar(sql, input.userId, { timeMin, timeMax, maxResults: 100 }, input.timezone || 'UTC')
+      const calendar = await loadCalendar(sql, input.userId, { timeMin, timeMax, maxResults: 100 }, tz)
       const block = calendar.replace('No events on the calendar in the next 7 days.', 'No events found in the requested window.')
       return [`Calendar window ${startRaw} to ${endRaw}:\n${block}\nThis is an event listing; do not assume complete availability if results are capped.`]
     }
@@ -15749,7 +15958,7 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
     if (Number.isNaN(at.getTime())) return json({ error: 'scheduledAt required' }, 400)
     const user = await getUserByPhone(sql, body.phone)
     if (!user) return json({ error: 'User not found' }, 404)
-    const recurrence = body.recurrence === 'daily' || body.recurrence === 'weekly' ? body.recurrence : 'once'
+    const recurrence = body.recurrence === 'daily' || body.recurrence === 'weekly' || body.recurrence === 'weekdays' ? body.recurrence : 'once'
     const id = crypto.randomUUID()
     await sql`
       INSERT INTO hire_reminders (id, user_id, persona, text, scheduled_at, recurrence, timezone, status)
