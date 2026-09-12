@@ -119,9 +119,12 @@ export async function claimBrowserJobs(sql: SQL, limit: number): Promise<Browser
   // Kill switch: HIREALPHA_DISABLE_BROWSER_JOBS=1 stops all new claims without
   // a redeploy. In-flight jobs finish; nothing new starts until cleared.
   if (process.env.HIREALPHA_DISABLE_BROWSER_JOBS === '1') return []
+  // 10 minutes: a run touches claimed_at every minute while working (see the
+  // worker's heartbeat); only a genuinely dead worker has a stale claim. At
+  // five minutes this sweep was killing healthy booking-site runs mid-flight.
   await sql`
     UPDATE hire_browser_jobs SET status = 'failed', error = 'Worker interrupted; outcome unknown. Review before retrying.', finished_at = now()
-    WHERE status = 'running' AND claimed_at < now() - interval '5 minutes'
+    WHERE status = 'running' AND claimed_at < now() - interval '10 minutes'
   `
   // Ask-first sweep: a denied approval kills its queued job; an unapproved one waits.
   await sql`

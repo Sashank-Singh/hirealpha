@@ -329,7 +329,15 @@ export async function runJob(sql: SQL, job: JobRow, launch = runBrowserSession):
   // (a separate function) can read it — as a local it was out of scope and
   // every successful report crashed with ReferenceError.
   lastScreenshots.set(job.id, undefined)
-  const run = await launchTask({
+  // Heartbeat: the claim sweeper fails any 'running' row whose claimed_at is
+  // older than ten minutes; real booking sites exceed that. Touching the row
+  // every minute keeps a healthy long run from being reaped as a dead worker.
+  const heartbeat = setInterval(() => {
+    void sql`UPDATE hire_browser_jobs SET claimed_at = now() WHERE id = ${job.id} AND status = 'running'`.catch(() => undefined)
+  }, 60_000)
+  let run: Awaited<ReturnType<typeof launchTask>>
+  try {
+    run = await launchTask({
     url: job.url,
     username: creds?.username || '',
     password: creds?.password || '',
@@ -367,6 +375,11 @@ export async function runJob(sql: SQL, job: JobRow, launch = runBrowserSession):
         : waitForBrowserHandoff(sql, job.id)
     },
   })
+  } catch (err) {
+    clearInterval(heartbeat)
+    throw err
+  }
+  clearInterval(heartbeat)
   if (!run.ok) return { ok: false, error: run.error }
   if (job.spend_request_id && !hasMerchantOrderConfirmation(run.content)) {
     return { ok: false, error: 'Merchant did not return an order confirmation number.' }
