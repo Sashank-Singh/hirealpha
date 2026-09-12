@@ -22,6 +22,14 @@ const chromium = spawn(
     '--no-sandbox',
     '--disable-setuid-sandbox',
     '--disable-dev-shm-usage',
+    // Booking-style sites fingerprint the default headless build; this removes
+    // the AutomationControlled signal alongside Playwright's own init scripts.
+    '--disable-blink-features=AutomationControlled',
+    '--no-first-run',
+    '--no-default-browser-check',
+    '--hide-scrollbars',
+    '--mute-audio',
+    '--lang=en-US',
     '--remote-debugging-address=127.0.0.1',
     `--remote-debugging-port=${UPSTREAM_PORT}`,
     '--remote-allow-origins=*',

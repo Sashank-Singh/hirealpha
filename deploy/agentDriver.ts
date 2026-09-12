@@ -35,7 +35,12 @@ export type AgentAction =
 
 export type AgentLimits = { maxSteps: number; wallMs: number }
 
-export const DEFAULT_AGENT_LIMITS: AgentLimits = { maxSteps: 25, wallMs: 90_000 }
+/** Real booking sites: one vision step costs ~8-20s (capture + model) and a
+ * search-to-results-to-extract flow needs 10-25 steps, so 90s/25 was cutting
+ * runs off mid-flow. 30 steps x ~12s fits the 6-minute wall; the sandbox lives
+ * 15 min and the job claim heartbeats every minute, so this is safe end to
+ * end. */
+export const DEFAULT_AGENT_LIMITS: AgentLimits = { maxSteps: 30, wallMs: 360_000 }
 
 /** Payment consent is accepted only when the same exact amount appears next
  * to a total label in the live page text—not merely in the model response. */
@@ -65,7 +70,10 @@ const AGENT_SYSTEM =
   '{"action":"handoff","kind":"payment","message":"Approve the verified checkout total","amount_cents":18990,"merchant":"store.example","item":"exact item and quantity"}\n' +
   '{"action":"done","answer":"<the final answer to the goal, extracted from the page>"}\n' +
   '{"action":"giveup","reason":"<why the goal cannot be reached>"}\n' +
-  'Rules: prefer stable selectors (id, name, aria-label, role). When a numbered target has no stable selector, use click_at with the center of its box, then type_text. ' +
+  'Rules: prefer stable selectors (id, name, aria-label, role); when a target lists selector=, use that exact selector. ' +
+  'To enter text into a field: click the field first (or use a selector), then send type_text on the NEXT step. Clicking a field does not type into it. ' +
+  'Never repeat an action that just failed or a click_at on the same coordinates twice in a row; if the page did not change, pick a different target, scroll, or wait. ' +
+  'When a numbered target has no stable selector, use click_at with the center of its box, then type_text. ' +
   'Coordinates are CSS pixels in the 1280x800 screenshot. Never invent URLs outside the current site. ' +
   'Use handoff whenever the site needs a password that was not already filled, a one-time code, CAPTCHA, identity check, or human confirmation. ' +
   'When PAYMENT STATUS says an approved Link credential is available, use fill_payment when the card form is visible; never request, infer, or type card values. ' +
@@ -73,6 +81,9 @@ const AGENT_SYSTEM =
   'A payment handoff must include the exact visible total in integer cents, the current merchant hostname, and the exact item/quantity. Never estimate tax, shipping, or total. ' +
   'When payment is verified, submit at most once and only when the displayed total exactly matches the goal. ' +
   'After a handoff appears in RECENT ACTIONS, assume the user completed it and inspect the new page before requesting another handoff. ' +
+  'In the "done" answer, report only values you can read exactly on the page: never reuse one item\'s price for another, never estimate, and write "not shown" for any requested field that is not visible. ' +
+  'Every "done" answer is checked against the page; unsupported claims are rejected and you will be asked to look again. ' +
+  'Before answering a list goal, scroll until each requested item and its price/status are fully visible, not cut off. ' +
   'When the goal is answered by something on the page, use "done". If after several tries nothing progresses, "giveup".'
 
 /** Parse one model reply. Unknown shapes are skipped by the caller — never executed. */
@@ -161,39 +172,92 @@ export function parseAgentAction(raw: string): AgentAction | null {
 
 type VisionCall = (parts: unknown[]) => Promise<string>
 
-/** One vision call: screenshot + page text + goal → next action JSON. */
-export function makeVisionCaller(cfg: { apiKey: string; baseUrl: string; model: string }): VisionCall {
+/** One vision call: screenshot + page text + goal → next action JSON.
+ *
+ * 429s are part of normal operation on the shared flash tier (measured: 2 of
+ * every 3 requests can be throttled in a burst, while an 8s-spaced stream
+ * passes 6/6). A mid-run rate limit must not kill the whole session, so retry
+ * with backoff AND rotate to a fallback model when the primary stays hot —
+ * the call shape is identical across models. Non-429 4xx/5xx are payload or
+ * provider errors and are surfaced immediately. */
+export function makeVisionCaller(cfg: { apiKey: string; baseUrl: string; model: string; fallbackModels?: string[]; systemPrompt?: string; maxTokens?: number }): VisionCall {
+  const systemPrompt = cfg.systemPrompt || AGENT_SYSTEM
+  // The action reply is tiny; an audit transcription of several items is not.
+  const maxTokens = cfg.maxTokens ?? 300
+  const BACKOFF_MS = [3_000, 8_000, 20_000]
+  // Measured on this gateway: the same model throttles after ~2 rapid calls,
+  // but alternating models passes 12/12 at 2s spacing. So rotate on every
+  // call (a model sees a call roughly every N steps) and skip straight to the
+  // next model on a 429 instead of sleeping through the hot window.
+  const models = [...new Set([cfg.model, ...(cfg.fallbackModels ?? [])])]
+  let cursor = 0
   return async (parts: unknown[]) => {
-    const res = await fetch(`${cfg.baseUrl}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        authorization: `Bearer ${cfg.apiKey}`,
-        'User-Agent': 'HireAlpha/0.1 (browser-agent)',
-      },
-      body: JSON.stringify({
-        model: cfg.model,
-        temperature: 0.1,
-        max_tokens: 300,
-        messages: [
-          { role: 'system', content: AGENT_SYSTEM },
-          { role: 'user', content: parts },
-        ],
-      }),
-      signal: AbortSignal.timeout(30_000),
-    })
-    if (!res.ok) throw new Error(`vision model ${res.status}`)
-    const data = (await res.json()) as { choices?: Array<{ message?: { content?: string } }> }
-    return data.choices?.[0]?.message?.content ?? ''
+    let lastError = 'unknown error'
+    for (let round = 0; round <= BACKOFF_MS.length; round++) {
+      if (round > 0) await new Promise((resolve) => setTimeout(resolve, BACKOFF_MS[round - 1]))
+      for (let i = 0; i < models.length; i++) {
+        const model = models[(cursor + i) % models.length]
+        const payload = JSON.stringify({
+          model,
+          temperature: 0.1,
+          max_tokens: maxTokens,
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: parts },
+          ],
+        })
+        let res: Response
+        try {
+          res = await fetch(`${cfg.baseUrl}/chat/completions`, {
+            method: 'POST',
+            headers: {
+              'content-type': 'application/json',
+              authorization: `Bearer ${cfg.apiKey}`,
+              'User-Agent': 'HireAlpha/0.1 (browser-agent)',
+            },
+            body: payload,
+            signal: AbortSignal.timeout(30_000),
+          })
+        } catch (err) {
+          lastError = err instanceof Error ? err.message : String(err)
+          continue
+        }
+        if (res.ok) {
+          cursor = (cursor + i + 1) % models.length
+          const data = (await res.json()) as { choices?: Array<{ message?: { content?: string } }> }
+          return data.choices?.[0]?.message?.content ?? ''
+        }
+        // The provider's error body names the offending field; without it a
+        // misconfigured model or oversized image is an opaque "vision model 400".
+        const detail = await res.text().catch(() => '')
+        lastError = `${res.status}${detail ? `: ${detail.slice(0, 300)}` : ''}`
+        if (res.status !== 429) throw new Error(`vision model ${lastError}`)
+      }
+      cursor = (cursor + 1) % models.length
+    }
+    throw new Error(`vision model ${lastError}`)
   }
 }
 
-export function agentEnvCaller(): VisionCall | null {
+/** The audit caller must NOT inherit the action system prompt: under it the
+ * model answers with an `{"action":...}` object and the audit JSON never
+ * appears, which silently passed every verification. */
+const AUDIT_SYSTEM =
+  'You are a meticulous page auditor. Follow the user\'s requested JSON schema exactly. ' +
+  'Quote text exactly as it appears; never fill in a value you cannot see — use null instead.'
+
+export function agentEnvCaller(kind: 'action' | 'audit' = 'action'): VisionCall | null {
   const apiKey = process.env.GMI_API_KEY?.trim()
   if (!apiKey) return null
   const baseUrl = (process.env.GMI_BASE_URL || 'https://api.gmi-serving.com/v1').replace(/\/$/, '')
   const model = process.env.AGENT_VISION_MODEL || process.env.NUTRITION_VISION_MODEL || 'moonshotai/Kimi-K2.5'
-  return makeVisionCaller({ apiKey, baseUrl, model })
+  const fallbackModels = (process.env.AGENT_FALLBACK_VISION_MODEL || 'google/gemini-3.8-flash,google/gemini-3.5-flash-lite')
+    .split(',').map((m) => m.trim()).filter(Boolean)
+  return makeVisionCaller({
+    apiKey, baseUrl, model, fallbackModels,
+    systemPrompt: kind === 'audit' ? AUDIT_SYSTEM : AGENT_SYSTEM,
+    maxTokens: kind === 'audit' ? 800 : 300,
+  })
 }
 
 export type AgentStepContext = {
@@ -208,7 +272,7 @@ export type AgentStepContext = {
 }
 
 export function buildVisionParts(ctx: AgentStepContext): unknown[] {
-  return [
+  const parts: unknown[] = [
     {
       type: 'text',
       text:
@@ -217,8 +281,13 @@ export function buildVisionParts(ctx: AgentStepContext): unknown[] {
         (ctx.recentActions.length ? `RECENT ACTIONS (avoid repeating what did not work): ${ctx.recentActions.slice(-5).join(' | ')}\n` : '') +
         `PAGE TEXT (truncated):\n${ctx.pageText.slice(0, 3500)}`,
     },
-    { type: 'image_url', image_url: { url: `data:image/jpeg;base64,${ctx.screenshotBase64}` } },
   ]
+  // A failed screenshot must not become an empty data: URL — providers reject
+  // that with a 400 and the whole run dies. Text-only still lets the agent act.
+  if (ctx.screenshotBase64) {
+    parts.push({ type: 'image_url', image_url: { url: `data:image/jpeg;base64,${ctx.screenshotBase64}` } })
+  }
+  return parts
 }
 
 /** Execute one parsed action on the page. Returns false when the action failed. */
@@ -288,7 +357,7 @@ export async function executeAgentAction(page: import('playwright').Page, action
         await page.keyboard.press(action.key)
         return true
       case 'navigate':
-        await page.goto(action.url, { waitUntil: 'domcontentloaded', timeout: 20_000 }).catch(() => undefined)
+        await page.goto(action.url, { waitUntil: 'domcontentloaded', timeout: 45_000 }).catch(() => undefined)
         return true
       case 'scroll':
         await page.mouse.wheel(0, action.direction === 'down' ? 900 : -900)
@@ -308,4 +377,78 @@ export async function executeAgentAction(page: import('playwright').Page, action
 
 export function isTerminal(action: AgentAction): boolean {
   return action.type === 'done' || action.type === 'giveup'
+}
+
+/** A "done" answer is checked once against the same page evidence the model
+ * had (text + screenshot). Asking "is this answer supported?" lets a lenient
+ * verifier approve a price copied from a neighbouring item, so the verifier
+ * instead TRANSCRIBES name → visible price/status per item and the code
+ * matches those transcriptions against the claimed values. A run that reports
+ * a value it never saw is worse than one that says "not shown": unsupported
+ * claims send the loop back to look again; a second identical failure is
+ * accepted rather than losing the whole result to a finicky verifier. */
+export function buildVerificationParts(ctx: { goal: string; answer: string; pageText?: string; screenshotBase64?: string }): unknown[] {
+  const parts: unknown[] = [{
+    type: 'text',
+    text:
+      `GOAL: ${ctx.goal}\nPROPOSED ANSWER (claims to audit):\n${ctx.answer}\n\n` +
+      `PAGE TEXT (truncated):\n${(ctx.pageText || '').slice(0, 3500)}\n\n` +
+      'For EACH item mentioned in the proposed answer, locate that same item on the page and copy the EXACT price text and cancellation/prepayment text shown for that item, exactly as printed. ' +
+      'Use null for a field that is not visible for that item. Never carry a value over from a different item. ' +
+      'Reply with ONLY JSON: {"items":[{"name":"<item name>","price_text":"<exact visible price text or null>","cancellation_text":"<exact visible cancellation text or null>"}]}',
+  }]
+  if (ctx.screenshotBase64) {
+    parts.push({ type: 'image_url', image_url: { url: `data:image/jpeg;base64,${ctx.screenshotBase64}` } })
+  }
+  return parts
+}
+
+type VerifiedItem = { name?: unknown; price_text?: unknown; cancellation_text?: unknown }
+
+/** Compare the claimed answer against the verifier's per-item transcription.
+ * Only confidently mappable claims (a line with a name and a $amount, or a
+ * free-cancellation claim) can fail the check; prose without amounts passes. */
+export function parseVerification(raw: string, answer: string): { supported: boolean; unsupported: string[] } {
+  const jsonText = raw.replace(/```(?:json)?/g, '').trim()
+  const start = jsonText.indexOf('{')
+  const end = jsonText.lastIndexOf('}')
+  if (start === -1 || end <= start) return { supported: true, unsupported: [] }
+  let items: VerifiedItem[]
+  try {
+    const obj = JSON.parse(jsonText.slice(start, end + 1)) as { items?: unknown }
+    if (!Array.isArray(obj.items)) return { supported: true, unsupported: [] }
+    items = obj.items as VerifiedItem[]
+  } catch {
+    return { supported: true, unsupported: [] }
+  }
+  const unsupported: string[] = []
+  for (const rawLine of answer.split(/\n+/)) {
+    const line = rawLine.trim()
+    if (!line) continue
+    const amounts = [...line.matchAll(/\$\s?([\d,]+(?:\.\d{1,2})?)/g)].map((match) => match[1].replace(/,/g, ''))
+    const claimsCancellation = /free\s+cancellation|no\s+prepayment/i.test(line)
+    if (!amounts.length && !claimsCancellation) continue
+    const claimedName = line.replace(/^\s*(?:[-*•]|\d+[.)])\s*/, '').split(/[:\-–—]/)[0].trim().toLowerCase()
+    if (claimedName.length < 3) continue
+    const item = items.find((candidate) => {
+      const name = typeof candidate.name === 'string' ? candidate.name.trim().toLowerCase() : ''
+      return name.length >= 3 && (name.includes(claimedName) || claimedName.includes(name))
+    })
+    if (!item) {
+      unsupported.push(`${line.slice(0, 90)} (no matching visible item)`)
+      continue
+    }
+    const priceText = typeof item.price_text === 'string' ? item.price_text.replace(/,/g, '') : ''
+    const cancellationText = typeof item.cancellation_text === 'string' ? item.cancellation_text.toLowerCase() : ''
+    for (const amount of amounts) {
+      if (!priceText || !priceText.includes(amount)) {
+        unsupported.push(`${amount} claimed for "${String(item.name).slice(0, 60)}" but visible price is ${item.price_text ? `"${item.price_text}"` : 'not shown'}`)
+        break
+      }
+    }
+    if (claimsCancellation && !/free\s+cancellation|no\s+prepayment/.test(cancellationText)) {
+      unsupported.push(`free cancellation claimed for "${String(item.name).slice(0, 60)}" but not visible for that item`)
+    }
+  }
+  return { supported: unsupported.length === 0, unsupported: unsupported.slice(0, 5) }
 }

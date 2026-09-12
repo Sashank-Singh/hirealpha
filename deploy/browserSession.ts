@@ -8,7 +8,7 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { runPortalLogin, runSteps, extractPageText } from './browserRunner'
-import { agentEnvCaller, buildVisionParts, executeAgentAction, isTerminal, pageShowsExactTotal, parseAgentAction, DEFAULT_AGENT_LIMITS, type PaymentCardSecrets } from './agentDriver'
+import { agentEnvCaller, buildVisionParts, buildVerificationParts, executeAgentAction, isTerminal, pageShowsExactTotal, parseAgentAction, parseVerification, DEFAULT_AGENT_LIMITS, type PaymentCardSecrets } from './agentDriver'
 import type { PortalTask, PortalStep } from './browserVault'
 import { installBrowserNetworkPolicy } from './browserNetworkPolicy'
 
@@ -153,8 +153,17 @@ async function launchChromium(task: Pick<SessionTask, 'cdpUrl'>): Promise<Launch
 const USER_AGENT =
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
 
+/** The UA must not contradict the engine: a Chrome/124 UA on a Chromium 152
+ * build is itself a bot signal on sites like booking.com. Derive the major
+ * version from the connected browser when one is available. */
+function userAgentFor(browser: Browser): string {
+  const major = browser.version().split('.')[0]
+  if (!major || !/^\d+$/.test(major)) return USER_AGENT
+  return `Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${major}.0.0.0 Safari/537.36`
+}
+
 async function newContext(browser: Browser): Promise<BrowserContext> {
-  return browser.newContext({ userAgent: USER_AGENT, viewport: { width: 1280, height: 800 } })
+  return browser.newContext({ userAgent: userAgentFor(browser), viewport: { width: 1280, height: 800 } })
 }
 
 export async function runBrowserSession(task: SessionTask): Promise<{ ok: true; content: string } | { ok: false; error: string }> {
@@ -197,7 +206,9 @@ export async function runBrowserSession(task: SessionTask): Promise<{ ok: true; 
 /** Public sites do not require a saved login. Credentials are used only when supplied. */
 export async function openTaskPage(page: import('playwright').Page, task: SessionTask): Promise<void> {
   if (task.username || task.password) await runPortalLogin(page, task)
-  else await page.goto(task.url, { waitUntil: 'domcontentloaded', timeout: 25000 })
+  // Heavy booking sites routinely take >25s to first paint; 45s with
+  // domcontentloaded still returns before third-party assets finish.
+  else await page.goto(task.url, { waitUntil: 'domcontentloaded', timeout: 45_000 })
 }
 
 /* ------------------------------ agent loop ------------------------------- */
@@ -214,7 +225,7 @@ function sameSite(from: string, to: string): boolean {
   }
 }
 
-type IndexedTarget = { index: number; tag: string; label: string; sensitive: boolean; x: number; y: number; width: number; height: number }
+type IndexedTarget = { index: number; tag: string; label: string; selector: string; sensitive: boolean; x: number; y: number; width: number; height: number }
 
 /** Payment values are filled outside the model. Mask them before every vision
  * capture, including cross-origin payment frames, so screenshots cannot turn
@@ -261,10 +272,25 @@ async function captureAgentPage(page: import('playwright').Page): Promise<{ page
         element.type === 'password'
         || /(?:one-time-code|\botp\b|verification.?code|security.?code|passcode|cc-|card.?number|card.?expiry|cardholder|billing.?(?:postal|zip)|\bexp(?:iry|iration)?[-_ ]?date\b|\bcvc\b|\bcvv\b)/i.test(fieldSignals)
       )
+      // Hand the model a ready-to-use stable selector when one exists: click
+      // coordinates silently miss when a consent overlay covers the target,
+      // while Playwright selectors wait for actionability and retry.
+      const attr = (name: string): string => (element.getAttribute(name) || '').trim()
+      const cssEscape = (value: string): string => value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
+      const candidate = (() => {
+        const id = attr('id')
+        if (id && /^[\w-]+$/.test(id)) return `#${id}`
+        if (attr('name')) return `${element.tagName.toLowerCase()}[name="${cssEscape(attr('name'))}"]`
+        if (attr('aria-label')) return `[aria-label="${cssEscape(attr('aria-label'))}"]`
+        if (attr('data-testid')) return `[data-testid="${cssEscape(attr('data-testid'))}"]`
+        if (attr('data-test')) return `[data-test="${cssEscape(attr('data-test'))}"]`
+        return ''
+      })()
       return [{
         index: position + 1,
         tag: element.tagName.toLowerCase(),
         label: sensitive ? 'Protected field' : label.trim().replace(/\s+/g, ' ').slice(0, 100),
+        selector: candidate.length <= 200 ? candidate : '',
         sensitive,
         x: Math.max(0, Math.round(rect.x)),
         y: Math.max(0, Math.round(rect.y)),
@@ -275,7 +301,7 @@ async function captureAgentPage(page: import('playwright').Page): Promise<{ page
 
   const bodyText = (await page.evaluate(() => (document.body?.innerText || '').slice(0, 3500)).catch(() => '')) || ''
   const targetText = targets.map((target) =>
-    `[${target.index}] ${target.tag}${target.label ? ` "${target.label}"` : ''} box=(${target.x},${target.y},${target.width},${target.height})`,
+    `[${target.index}] ${target.tag}${target.label ? ` "${target.label}"` : ''} box=(${target.x},${target.y},${target.width},${target.height})${target.selector ? ` selector=${target.selector}` : ''}`,
   ).join('\n')
 
   await page.evaluate((items) => {
@@ -317,9 +343,15 @@ async function captureAgentPage(page: import('playwright').Page): Promise<{ page
     document.documentElement.appendChild(root)
   }).catch(() => undefined)))
 
+  // One transient CDP hiccup must not turn into an empty image (providers 400
+  // on `data:image/jpeg;base64,`) or a text-only step on a visual page.
   let screenshot = ''
   try {
-    screenshot = await page.screenshot({ type: 'jpeg', quality: 45, timeout: 8_000 }).then((buffer) => buffer.toString('base64'))
+    for (let attempt = 0; attempt < 2 && !screenshot; attempt++) {
+      screenshot = await page.screenshot({ type: 'jpeg', quality: 45, timeout: 15_000, animations: 'disabled', caret: 'hide' })
+        .then((buffer) => (buffer.length ? buffer.toString('base64') : ''))
+        .catch(() => '')
+    }
   } finally {
     await page.evaluate(() => document.getElementById('__hirealpha_targets__')?.remove()).catch(() => undefined)
     await Promise.all(page.frames().map((frame) => frame.evaluate(() => {
@@ -335,13 +367,16 @@ async function agentLoop(
 ): Promise<{ ok: true; content: string } | { ok: false; error: string }> {
   const call = agentEnvCaller()
   if (!call) return { ok: false, error: 'Agent mode not configured (GMI_API_KEY missing).' }
+  const auditCall = agentEnvCaller('audit') || call
 
   // Log in first with the real credentials, then hand the session to the
   // agent: the model never sees the password, only the post-login screen.
   await openTaskPage(page, task)
-  await task.onProgress?.({ action: 'goto', url: page.url() })
+  let activePage = page
+  await task.onProgress?.({ action: 'goto', url: activePage.url() })
   const goal = task.goal!.slice(0, 500)
   const recentActions: string[] = []
+  let answerChecked = false
   let deadline = Date.now() + DEFAULT_AGENT_LIMITS.wallMs
 
   for (let step = 1; step <= DEFAULT_AGENT_LIMITS.maxSteps; step++) {
@@ -351,17 +386,20 @@ async function agentLoop(
     let pageText = ''
     let screenshot = ''
     try {
-      const captured = await captureAgentPage(page)
+      const captured = await captureAgentPage(activePage)
       pageText = captured.pageText
       screenshot = captured.screenshot
     } catch {
-      pageText = (await page.evaluate(() => (document.body?.innerText || '').slice(0, 3500)).catch(() => '')) || ''
+      pageText = (await activePage.evaluate(() => (document.body?.innerText || '').slice(0, 3500)).catch(() => '')) || ''
+    }
+    if (screenshot && process.env.BROWSER_AGENT_TRACE === '1') {
+      await task.onScreenshot?.({ dataUrl: `data:image/jpeg;base64,${screenshot}`, caption: `step ${step}` }).catch(() => undefined)
     }
     let raw = ''
     try {
       raw = await call(buildVisionParts({
         pageText,
-        url: page.url(),
+        url: activePage.url(),
         screenshotBase64: screenshot,
         goal,
         stepNumber: step,
@@ -397,7 +435,7 @@ async function agentLoop(
       const handoff = await task.onHandoff({
         kind: action.kind,
         message: action.message,
-        url: page.url(),
+        url: activePage.url(),
         amountCents: action.amountCents,
         merchant: action.merchant,
         item: action.item,
@@ -416,12 +454,45 @@ async function agentLoop(
       continue
     }
     if (isTerminal(action)) {
-      if (action.type === 'done') return { ok: true, content: action.answer }
+      if (action.type === 'done') {
+        if (!answerChecked) {
+          answerChecked = true
+          try {
+            const verdictRaw = await auditCall(buildVerificationParts({
+              goal, answer: action.answer, pageText, screenshotBase64: screenshot,
+            }))
+            if (process.env.BROWSER_AGENT_TRACE === '1') {
+              console.log(`[agent] verification raw: ${verdictRaw.slice(0, 1500)}`)
+            }
+            const verdict = parseVerification(verdictRaw, action.answer)
+            if (!verdict.supported) {
+              recentActions.push(`answer check failed (${verdict.unsupported.join('; ').slice(0, 200)}); scroll until each value is visible or write "not shown"`)
+              await task.onProgress?.({ action: 'answer_check_failed', url: activePage.url() })
+              continue
+            }
+          } catch {
+            // Verification is best-effort: a failed check must not discard a result.
+          }
+        }
+        return { ok: true, content: action.answer }
+      }
       return { ok: false, error: `Agent gave up: ${action.reason}` }
     }
-    const ok = await executeAgentAction(page, action, task.paymentCard)
+    const pagesBefore = new Set(activePage.context().pages())
+    const ok = await executeAgentAction(activePage, action, task.paymentCard)
     if (action.type === 'fill_payment' && ok) task.paymentCard = undefined
-    await task.onProgress?.({ action: action.type, url: page.url() })
+    // A click on a real site often opens a same-site tab (hotel details,
+    // sign-in). Keep driving the tab the action produced; otherwise the agent
+    // stares at the page the user already left and repeats dead clicks.
+    const opened = activePage.context().pages()
+      .filter((candidate) => !candidate.isClosed() && !pagesBefore.has(candidate))
+      .filter((candidate) => sameSite(task.url, candidate.url()))
+    if (opened.length) {
+      activePage = opened[opened.length - 1]
+      await activePage.bringToFront().catch(() => undefined)
+      recentActions.push('switched to the new tab that just opened')
+    }
+    await task.onProgress?.({ action: action.type, url: activePage.url() })
     recentActions.push(`${action.type}${'selector' in action ? ` ${action.selector.slice(0, 60)}` : ''}${ok ? '' : ' (failed)'}`)
   }
   return { ok: false, error: 'Agent hit the step cap before finishing the goal.' }
