@@ -237,12 +237,19 @@ Reactions are optional and usually absent. You may add "reaction":"<emoji>" to a
         // important to lose to a refused action object. When a portal is
         // known, issue the browser draft deterministically — the run starts,
         // stays origin-scoped, and pauses before payment or any password.
-        if (browserNudgeCount >= browserNudgesAllowed && portal) {
+        // A reply that CLAIMS a run was launched while no action was sent is a
+        // lie the user would act on ("that run is queued") — treat the claim
+        // as the trigger and issue the run from whatever site it names.
+        const claimedRun = /(?:launch|queue|start|stage|kick(?:ed)? off|running|queued|staged)\w*\b[^.]{0,80}\b(?:browser|run|session|opentable|booking|reservation|order)/i.test(raw)
+        const rawUrl = /https:\/\/[^\s"')]+/i.exec(raw)?.[0]
+        const portalFromRaw = rawUrl && /^https:\/\/\S+\.(?:com|org|net|io)\b/i.test(rawUrl) ? rawUrl : undefined
+        const effectivePortal = portal || portalFromRaw
+        if ((browserNudgeCount >= browserNudgesAllowed || claimedRun) && effectivePortal) {
           const goalText = request?.summary || stripToolDirectives(raw).slice(0, 240) || userAsk.slice(0, 240)
           try {
-            const queued = await input.propose({ type: 'browser', portal, goal: goalText })
+            const queued = await input.propose({ type: 'browser', portal: effectivePortal, goal: goalText })
             if (queued && (queued as { ok?: boolean }).ok !== false) {
-              savedDraft = { type: 'browser', portal, goal: goalText }
+              savedDraft = { type: 'browser', portal: effectivePortal, goal: goalText }
               receipts.push('The browser run is starting now on the named site for this one task. It pauses on its own before payment or any password; the result lands here when it finishes.')
               return { reply: fallback(), draft: savedDraft }
             }
