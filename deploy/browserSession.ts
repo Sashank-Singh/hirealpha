@@ -104,7 +104,7 @@ function connectCdp(
       void (mod.chromium.connectOverCDP as unknown as (
         transport: unknown,
         options?: { timeout?: number },
-      ) => Promise<Browser>)(bunWsTransport(wsUrl))
+      ) => Promise<Browser>)(bunWsTransport(wsUrl), { timeout: 60_000 })
         .then((b) => {
           clearTimeout(timer)
           resolve(b)

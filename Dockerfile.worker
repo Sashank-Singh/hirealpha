@@ -30,6 +30,9 @@ COPY services/trust /services/trust
 RUN chmod +x ./browserWorkerEntry.sh
 
 # Headless Chromium (playwright-matched build + system libraries).
+# PLAYWRIGHT_BROWSERS_PATH pins the cache outside $HOME: the runtime user's
+# HOME differs from root's, and playwright resolves per-HOME at runtime.
+ENV PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright
 RUN bunx playwright install --with-deps chromium
 RUN groupadd --system hirealpha && useradd --system --gid hirealpha --home-dir /tmp/hirealpha hirealpha \
   && mkdir -p /tmp/hirealpha && chown -R hirealpha:hirealpha /tmp/hirealpha
