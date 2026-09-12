@@ -26,6 +26,7 @@ import {
   ensureBrowserJobsSchema,
   finishBrowserJob,
   generateSessionViewToken,
+  setBrowserLiveView,
   waitForBrowserHandoff,
   type BrowserJobRow,
 } from './browserJobs'

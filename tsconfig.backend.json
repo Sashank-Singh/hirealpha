@@ -1,0 +1,31 @@
+{
+  "compilerOptions": {
+    "target": "es2023",
+    "lib": [
+      "ES2023"
+    ],
+    "module": "preserve",
+    "moduleResolution": "bundler",
+    "types": [
+      "node",
+      "bun"
+    ],
+    "allowImportingTsExtensions": true,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": false,
+    "noFallthroughCasesInSwitch": true
+  },
+  "include": [
+    "deploy/**/*.ts",
+    "services/**/*.ts",
+    "spectrum/shared/**/*.ts",
+    "src/agents/**/*.ts"
+  ],
+  "exclude": [
+    "**/*.test.ts",
+    "**/node_modules/**"
+  ]
+}
