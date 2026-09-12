@@ -1,18 +1,32 @@
-# HireAlpha browser-worker: the browser agent and its live screen share one
-# container, so noVNC always shows the exact Chromium instance doing the work.
+# HireAlpha browser-worker.
+#
+# Layer order is the deploy speed. Everything expensive and rarely changed —
+# the OS packages, the link CLI, the production dependency tree — sits above
+# the source copies, so a code change rebuilds only the copies and the final
+# user setup (seconds). Appending the source copies after the install is what
+# made every worker deploy a full reinstall.
 FROM oven/bun:1-slim
 WORKDIR /app
-# Coolify healthchecks use curl/wget; playwright needs the rest via --with-deps
+
+# Coolify healthchecks use curl/wget; xvfb/x11vnc/novnc serve the local-browser
+# session view. Chromium itself is NOT installed: browser tasks run on the
+# managed cloud provider (Kernel), and pulling a Chromium build plus its system
+# libraries into this image cost minutes of every deploy for a browser that
+# nothing here launches. Local mode (HIREALPHA_ALLOW_LOCAL_BROWSER=1) is an
+# incident switch that expects playwright's browsers to be present already; the
+# entry script says so rather than failing silently.
 RUN apt-get update \
   && apt-get install -y --no-install-recommends curl nodejs npm xvfb x11vnc novnc websockify openbox \
     build-essential python3 \
   && rm -rf /var/lib/apt/lists/*
+
 COPY deploy/link-cli-package.json /opt/hirealpha-link/package.json
 RUN npm install --prefix /opt/hirealpha-link --omit=dev --ignore-scripts
 
 COPY package.json package-lock.json ./
 RUN bun install --production
 
+# ---- source (the only layers a normal change invalidates) ----
 COPY deploy/browserWorker.ts ./browserWorker.ts
 COPY deploy/browserSession.ts ./browserSession.ts
 COPY deploy/browserRunner.ts ./browserRunner.ts
@@ -30,14 +44,8 @@ COPY deploy/userPayments.ts ./userPayments.ts
 COPY deploy/onePassword.ts ./onePassword.ts
 COPY deploy/browserWorkerEntry.sh ./browserWorkerEntry.sh
 COPY services/trust /services/trust
-RUN chmod +x ./browserWorkerEntry.sh
-
-# Headless Chromium (playwright-matched build + system libraries).
-# PLAYWRIGHT_BROWSERS_PATH pins the cache outside $HOME: the runtime user's
-# HOME differs from root's, and playwright resolves per-HOME at runtime.
-ENV PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright
-RUN bunx playwright install --with-deps chromium
-RUN groupadd --system hirealpha && useradd --system --gid hirealpha --home-dir /tmp/hirealpha hirealpha \
+RUN chmod +x ./browserWorkerEntry.sh \
+  && groupadd --system hirealpha && useradd --system --gid hirealpha --home-dir /tmp/hirealpha hirealpha \
   && mkdir -p /tmp/hirealpha && chown -R hirealpha:hirealpha /tmp/hirealpha
 
 ENV WORKER_HEALTH_PORT=3000

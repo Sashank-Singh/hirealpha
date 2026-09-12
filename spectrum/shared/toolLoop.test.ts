@@ -31,6 +31,8 @@ import {
   mapPlacesFromBlock,
   formatMapPicks,
   mapQueryForAsk,
+  ACTION_ASK_RE,
+  merchantSiteFromAsk,
 } from './toolLoop'
 
 describe('browser run routing', () => {
@@ -46,6 +48,18 @@ describe('browser run routing', () => {
   it('prefers the merchant the user named over anything a search returned', () => {
     expect(pickBrowserPortal({ ask: 'reorder two bags of coffee from amazon', resultUrls: ['https://www.yelp.com/x'] })).toBe('https://www.amazon.com')
     expect(pickBrowserPortal({ ask: 'book a table on opentable', resultUrls: [] })).toBe('https://www.opentable.com')
+  })
+
+  it('treats a rates ask as a booking ask, and a browse ask as maps-only', () => {
+    // Map data has no prices, so a rates ask has to reach the real site or the
+    // answer is an honest 'I could not verify prices' at best.
+    expect(ACTION_ASK_RE.test('check the rates for hotels near the Burj Khalifa')).toBe(true)
+    expect(ACTION_ASK_RE.test("what's the price for a hotel in the Loop")).toBe(true)
+    expect(ACTION_ASK_RE.test('how much is a hotel near the Loop')).toBe(true)
+    // Finding is not booking: the finder-only path stays on maps.
+    expect(ACTION_ASK_RE.test('Find hotels near the Burj Khalifa')).toBe(false)
+    expect(ACTION_ASK_RE.test('show me hotels near the Burj Khalifa')).toBe(false)
+    expect(merchantSiteFromAsk('check rates on booking.com')).toBe('https://www.booking.com')
   })
 
   it('takes a real merchant page when the user named none', () => {

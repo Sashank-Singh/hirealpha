@@ -50,7 +50,7 @@ export type ConversationCapability = {
  * result directory and burned a session on the wrong site. Bare "buy" and
  * "get me" are excluded so "what should I buy" and "get me the score" stay
  * lookups. */
-const ACTION_ASK_RE = /\b(?:re-?order|order(?:ing| me)?|purchase|pay for|buy (?:me|the|this|that|it|them|two|a|an|another|more|some)\b|book(?:ing)?|reserv(?:e|ing|ation)|fill (?:out )?(?:the )?form|sign me up|check ?out|check (?:my )?(?:account|portal)|log ?in)\b/i
+export const ACTION_ASK_RE = /\b(?:re-?order|order(?:ing| me)?|purchase|pay for|buy (?:me|the|this|that|it|them|two|a|an|another|more|some)\b|book(?:ing)?|reserv(?:e|ing|ation)|fill (?:out )?(?:the )?form|sign me up|check ?out|check (?:my )?(?:account|portal)|log ?in|(?:check|see|show|get|find|pull)(?:\s+me)?\s+(?:the\s+)?(?:actual\s+)?(?:rates?|prices?|availability)|what(?:'s| is| are)\s+(?:the\s+)?(?:rates?|prices?|it\s+cost)|how much (?:is|are|does|do)|nightly rate)\b/i
 /** Buying asks, including "reorder", stage an order rather than a browse. */
 const ASK_BUY_RE = /\b(?:re-?order|buy|buy me|purchase|order(?: me)?|get me|pay for)\b/i
 /** Merchant-hosted product pages, the strongest run target for a purchase. */
@@ -94,6 +94,8 @@ const SITE_ALIASES: Array<[RegExp, string]> = [
   [/\binstacart\b/i, 'https://www.instacart.com'],
   [/\bopentable\b/i, 'https://www.opentable.com'],
   [/\bresy\b/i, 'https://resy.com'],
+  [/\bbooking\.com\b/i, 'https://www.booking.com'],
+  [/\bhotels\.com\b/i, 'https://www.hotels.com'],
 ]
 export function merchantSiteFromAsk(text: string): string | null {
   for (const [pattern, url] of SITE_ALIASES) if (pattern.test(text)) return url
