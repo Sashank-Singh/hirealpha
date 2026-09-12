@@ -10700,7 +10700,15 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
         error: job.error,
         streamUrl: ['running', 'waiting'].includes(job.status) ? streamUrl : null,
         currentUrl: job.current_url || job.url,
-        steps: job.activity?.length ? job.activity : (job.steps || []),
+        // Activity rows carry {action, at}. The fallback (job.steps) holds
+        // PortalStep objects keyed by `kind`, which crashed the session view
+        // that reads step.action — normalize to one shape here.
+        steps: job.activity?.length
+          ? job.activity
+          : (Array.isArray(job.steps) ? job.steps : []).map((step) => {
+              const s2 = (step || {}) as { action?: string; kind?: string }
+              return { action: String(s2.action || s2.kind || 'step') }
+            }),
         handoffKind: job.handoff_kind,
         handoffMessage: job.handoff_message,
         handoffAt: job.handoff_at,
