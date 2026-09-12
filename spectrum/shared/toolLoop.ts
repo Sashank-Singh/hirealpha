@@ -206,7 +206,9 @@ Reactions are optional and usually absent. You may add "reaction":"<emoji>" to a
       const request = resolvedIntent?.kind === 'request' ? resolvedIntent.request : null
       const continuation = /^(?:yes|yeah|yep|sure|please|go ahead|do it|continue|yes please)[.!\s]*$/i.test(userAsk.trim())
       const freshnessContext = continuation ? input.messages.filter(m => m.role !== 'system').slice(-3).map(m => m.content).join('\n') : userAsk
-      const asksForPlaces = /\b(find|recommend|suggest|looking for|nice|good|best)\b/i.test(freshnessContext) && /\b(restaurants?|cafes?|coffee shops?|hotels?|places? to eat)\b/i.test(freshnessContext)
+      const asksForPlaces =
+        /\b(find|recommend|suggest|looking for|nice|good|best|where|place)\b/i.test(freshnessContext) &&
+        /\b(restaurants?|cafes?|coffee shops?|hotels?|places? to eat|dinner|lunch|brunch|breakfast|food|eat(?:ing)? out|bar|drinks)\b/i.test(freshnessContext)
       const asksToBuy = /\b(buy|buy me|purchase|order me|order|get me|pay for)\b/i.test(freshnessContext)
       const needsFresh = request?.needsLookup === true || (request === null && (asksForPlaces || asksToBuy || /\b(news|latest|price|prices|how much (?:is|does|do)|score|who won|release date|next .{0,40}event|this week|today|yesterday|tonight|right now)\b/i.test(freshnessContext)))
       const attemptedWeb = [...seen].some(key => key.startsWith('web:'))

@@ -4956,8 +4956,17 @@ export function classifyMapQuery(query: string): { mode: 'nearby'; kinds: string
   const lookup = (token: string) =>
     MAP_WORD_KINDS[token] || (token.endsWith('s') ? MAP_WORD_KINDS[token.slice(0, -1)] : undefined)
   const tokens = normalized.split(' ').filter((t) => t && !MAP_FILLER_WORDS.has(t))
+  // Diet/quality qualifiers before the kind word ("vegetarian restaurants in
+  // the Chicago Loop") are skipped so the kind still routes to a nearby
+  // search; without this the whole phrase fell through to a geocode miss.
+  const QUALIFIERS = new Set([
+    'vegetarian', 'vegan', 'halal', 'kosher', 'gluten', 'healthy', 'cheap', 'good', 'best',
+    'nice', 'quiet', 'fancy', 'romantic', 'top', 'family', 'great', 'solid', 'late', 'open',
+  ])
+  let head = 0
+  while (head < tokens.length - 1 && QUALIFIERS.has(tokens[head] ?? '')) head++
   // Leading word decides: "golden gate park" is a place, "park near me" is not.
-  if (!tokens.length || !lookup(tokens[0])) return { mode: 'named' }
+  if (!tokens.length || !lookup(tokens[head] ?? '')) return { mode: 'named' }
   const kinds: string[] = []
   for (const token of tokens) {
     for (const kind of lookup(token) || []) {
