@@ -53,6 +53,9 @@ function authHeaders() {
     Authorization: `Bearer ${process.env.HIREALPHA_INTERNAL_KEY || ''}`,
     Accept: 'application/json',
     'Content-Type': 'application/json',
+    // Fresh connection per call: a reused keep-alive socket the server closed
+    // shows up as a DOMException timeout and the whole poll cycle is skipped.
+    Connection: 'close',
   }
 }
 
