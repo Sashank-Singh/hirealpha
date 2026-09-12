@@ -228,6 +228,23 @@ Reactions are optional and usually absent. You may add "reaction":"<emoji>" to a
           ? `<one sentence carrying out: ${request.summary}>`
           : '<one sentence naming the exact booking or action to perform there; preserve the date, time, and party size>'
         messages.push({ role: 'assistant', content: raw })
+        // The model has now had its nudge chances; booking asks are too
+        // important to lose to a refused action object. When a portal is
+        // known, issue the browser draft deterministically — the run starts,
+        // stays origin-scoped, and pauses before payment or any password.
+        if (browserNudgeCount >= browserNudgesAllowed && portal) {
+          const goalText = request?.summary || stripToolDirectives(raw).slice(0, 240) || userAsk.slice(0, 240)
+          try {
+            const queued = await input.propose({ type: 'browser', portal, goal: goalText })
+            if (queued && (queued as { ok?: boolean }).ok !== false) {
+              savedDraft = { type: 'browser', portal, goal: goalText }
+              receipts.push('The browser run is starting now on the named site for this one task. It pauses on its own before payment or any password; the result lands here when it finishes.')
+              return { reply: fallback(), draft: savedDraft }
+            }
+          } catch {
+            /* fall through to the nudge text below */
+          }
+        }
         messages.push({
           role: 'user',
           content: portal
