@@ -59,6 +59,9 @@ COPY --from=build /app/dist ./dist
 
 # Headless Chromium for the browser runner (vault tasks): downloads the
 # playwright-matched browser build plus the system libraries it needs.
+# PLAYWRIGHT_BROWSERS_PATH pins the cache outside $HOME (the runtime user's
+# HOME differs from root's, and playwright resolves per-HOME at runtime).
+ENV PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright
 RUN bunx playwright install --with-deps chromium
 
 ENV PORT=80
