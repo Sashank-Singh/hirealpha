@@ -16,7 +16,12 @@
     "test:app-load": "npm run build && bun testbed/performance/app-load.ts",
     "db:migrate": "bun deploy/migrate.ts",
     "db:backfill-memory": "bun scripts/backfill-memory.ts",
-    "test:screens": "bun testbed/performance/screen-time.ts"
+    "test:screens": "bun testbed/performance/screen-time.ts",
+    "testbed:turn": "bun run scripts/bench-turn.ts",
+    "bench:dim": "bun run scripts/bench-dim.ts",
+    "probe:kernel": "bun run scripts/kernel-booking-probe.ts",
+    "probe:kernel:cloud": "bun run scripts/kernel-via-e2b.ts",
+    "typecheck:backend": "tsc -p tsconfig.backend.json"
   },
   "dependencies": {
     "@1password/sdk": "^0.5.0",
