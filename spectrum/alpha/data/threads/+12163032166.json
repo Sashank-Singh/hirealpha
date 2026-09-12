@@ -190,6 +190,16 @@
       "role": "assistant",
       "content": "$50/night right next to the Sphere is basically impossible, that corner is all Venetian/Wynn money. Cheapest walkable options (Linq, Harrah's) start around $120+. At $50 you're looking at a short drive/Uber away, and you'll want to avoid resort fees.\n\nBest budget bets:\n\n1. Circus Circus, ~2.5 mi, usually $50, 70, free parking. Loud and dated, but the price is right. [Photo search](https://www.google.com/search?q=Circus+Circus+Las+Vegas+hotel+photos&tbm=isch)\n\n2. Motel 6 Tropicana, ~2 mi, often under $60, no resort fee, bare bones but clean. Best for staying on budget. [Photo search](https://www.google.com/search?q=Motel+6+Tropicana+Las+Vegas+hotel+photos&tbm=isch)\n\n3. Banana Bungalow Hostel, ~4 mi, dorm beds ~$30, private rooms ~$75. Good if you only need a bed. [Photo search](https://www.google.com/search?q=Banana+Bungalow+Las+Vegas+hostel+photos&tbm=isch)\n\nI can't attach actual photos in this chat, but those links will show you plenty. Want me to check real rates? And which nights are you looking at?",
       "ts": 1789247213078
+    },
+    {
+      "role": "user",
+      "content": "Find hotels near the Burj Khalifa",
+      "ts": 1789251384843
+    },
+    {
+      "role": "assistant",
+      "content": "The only confirmed result from the map search is Taj Dubai, it sits right on Burj Khalifa Street in Business Bay, so it's a short walk to the tower. Solid 5 star, Indian hospitality group, good pool and views.\n\nI don't have real rates for it from the search, and coming from that $50/night Vegas budget, heads up that this neighborhood is the opposite end of the price universe. If you tell me your dates, I can look up actual nightly rates so we're not guessing. Want me to pull more options in the area too?\n\nhttps://www.hotels.com/\n\nhttps://www.expedia.com/Hotels",
+      "ts": 1789251384843
     }
   ]
 }

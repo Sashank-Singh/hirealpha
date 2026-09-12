@@ -4995,6 +4995,12 @@ const MAP_WORD_KINDS: Record<string, string[]> = {
   diner: ['restaurant'],
   gym: ['gym'],
   gyms: ['gym'],
+  hotel: ['hotel'],
+  hotels: ['hotel'],
+  hostel: ['hostel'],
+  hostels: ['hostel'],
+  lodging: ['hotel', 'guest_house'],
+  stay: ['hotel', 'guest_house', 'hostel'],
   fitness: ['gym'],
   grocery: ['grocery'],
   groceries: ['grocery'],
@@ -5018,6 +5024,9 @@ const MAP_KIND_TAGS: Record<string, string[]> = {
   grocery: ['shop=supermarket', 'shop=convenience'],
   pharmacy: ['amenity=pharmacy'],
   park: ['leisure=park'],
+  hotel: ['tourism=hotel'],
+  hostel: ['tourism=hostel'],
+  guest_house: ['tourism=guest_house'],
 }
 
 // Words that describe the ask rather than name the place. They trail the
@@ -5030,6 +5039,9 @@ const MAP_DESCRIPTOR_WORDS = new Set([
 
 const MAP_FILLER_WORDS = new Set([
   'find', 'show', 'recommend', 'where', 'should', 'could', 'can', 'would', 'get', 'grab',
+  // Booking verbs are the ask, not the kind: the leading "book" in "book a hotel
+  // in Chicago Loop" used to decide the whole query was a named place.
+  'book', 'booking', 'reserve', 'reservation', 'order', 'search', 'need', 'want',
   'want', 'need', 'some', 'any', 'good', 'best', 'great', 'cheap', 'quiet', 'nice', 'cozy',
   'cute', 'cool', 'fun', 'top', 'open', 'late', 'tonight', 'today', 'now', 'nearby', 'near',
   'around', 'in', 'at', 'by', 'me', 'us', 'we', 'i', 'my', 'our', 'a', 'an', 'the', 'for',

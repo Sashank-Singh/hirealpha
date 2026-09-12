@@ -280,6 +280,22 @@ describe('destination area without a preposition', () => {
     expect(out).not.toContain('Corner Coffee')
   })
 
+  it('treats a hotel as a nearby kind so a landmark anchors the search', () => {
+    // "Find hotels near the Burj Khalifa" was classified as a named-place
+    // lookup before hotels were a kind: it answered from one Nominatim hit and
+    // the reply padded the gap with unrelated hotels.com links.
+    expect(classifyMapQuery('Find hotels near the Burj Khalifa')).toMatchObject({ mode: 'nearby' })
+    expect(mapAreaFromQuery('Find hotels near the Burj Khalifa')).toBe('Burj Khalifa')
+    expect(classifyMapQuery('find me a hostel in Lisbon').mode).toBe('nearby')
+  })
+
+  it('does not let a booking verb decide the kind', () => {
+    // The leading word used to choose: "book a hotel in Chicago Loop" read
+    // "book" as the kind and fell through to the named path.
+    expect(classifyMapQuery('book a hotel in Chicago Loop')).toMatchObject({ mode: 'nearby' })
+    expect(mapAreaFromQuery('book a hotel in Chicago Loop')).toBe('Chicago Loop')
+  })
+
   it('reads diet words into their OSM tags', () => {
     expect(dietsFromQuery('vegan dinner in Chicago')).toEqual(['diet:vegan=yes'])
     expect(dietsFromQuery('halal cart near the Loop')).toEqual(['diet:halal=yes'])
