@@ -228,6 +228,284 @@ Copy this section for every run. Do not overwrite historical runs.
 - Why this anchor applies:
 - Follow-up owner and deadline:
 
+## 2026-09-11 — full internal rehearsal, all 15 scored dimensions
+
+Production channel: real iMessage thread (+12163032166 → Alpha's Photon line
++14155951440), production bot (HireAlpha-Friend, Coolify), production API and
+worker, live Composio connectors (Gmail + Google Calendar re-connected by the
+founder 2026-09-11 2:12 PM), GMI DeepSeek-V4-Flash as the model. Tasks were
+sent one at a time from the founder's own Mac; every reply transcribed from the
+thread. Two provider outage windows (GMI 400 "unsupported_operation") and one
+stuck pending-question state degraded later turns — recorded per run, not
+excused away.
+
+### 1. Online task (hotel) — 3
+
+- Dates resolved: check-in Fri 2026-09-18, check-out Sat 2026-09-19, Chicago Loop.
+- Reply: three generic directory links (KAYAK, Booking.com district page,
+  Hopper). No real rooms or rates for the dates, no free-cancellation check,
+  nothing staged, no confirmation ask.
+- Anchor 3: advice only.
+
+### 2. Travel — 5
+
+- Dates resolved: out Fri 2026-09-18 morning, return Sun 2026-09-20 evening.
+- Reply: claimed a browser session "staged on Google Flights" awaiting approval;
+  no approval card ever arrived in the thread; nothing executed. Honestly
+  disclosed it cannot auto-check-in (~Sept 17) or deliver a boarding pass and
+  offered a reminder instead. Reply used emoji status-list formatting.
+- Anchor: between 3 (finds flights only) and 7 (completes with corrections);
+  staged-but-unverified, full lifecycle explicitly impossible → 5.
+
+### 3. Picks (dinner) — 3
+
+- Dates resolved: Sat 2026-09-12, 7:30 PM, near the Loop hotel.
+- Reply: honest strikeout — zero restaurants; the web tool returned a Harvard
+  nutrition article and a Merriam-Webster definition for a restaurant query.
+  The Maps tool was not used. Asked a good follow-up (hotel name).
+- Anchor 3: no verified choices delivered.
+
+### 4. Purchasing — 6
+
+- Sequence: provider snag → honest "no Amazon order history" clarify (correct:
+  no Amazon connection exists) → product supplied → context break (answered
+  with a restaurant "mood" question) → run self-healed and staged correctly:
+  search Kicking Horse Cliff Hanger Espresso, 2×2 lb, checkout with home
+  address, pause at payment with a live-screen approval link. No order number
+  (nothing purchased — per protocol, stop-before-payment is not a failure).
+- Anchor 7 requires one nudge/retry; this took a snag, a clarify, and a
+  context break → 6.
+
+### 5. Email — 3
+
+- Task: reply to Sam's Thursday email. Three attempts (1:31, 2:25, 2:27 PM).
+- All three failed with canned errors; each attempt ALSO staged a spurious
+  Cloud Computer browser task (3 bogus runs queued; all approval-gated, none
+  executed). Wrong context plus unwanted side effects. A later turn did offer
+  to open Gmail directly and draft — untested.
+- Anchor 3: wrong context.
+
+### 6. Proactive — 4 (provisional, verify tomorrow AM)
+
+- Setup: UA 2100 SFO→ORD event created on the real Google Calendar for
+  Sat 2026-09-12 08:00–12:10 PT (via Composio; the chat draft flow required a
+  mini-app "Book" tap and stayed stuck as a draft).
+- Evidence for: daily morning brief fired on time today (8:02 AM) with a card.
+  Evidence against: assistant disavowed airline check-in automation entirely.
+- Re-check tomorrow 2026-09-12 ~8 AM brief for the flight mention. Provisional 4.
+
+### 7. Routine — 5
+
+- A real daily morning brief exists and fired today on schedule (8:02 AM,
+  re-armed "default 8am digest" at boot — product-level evidence).
+- The chat path REFUSED to set a 7:00 AM weekday digest: "I can't schedule a
+  real weekday 7 AM digest… reminders can only nudge with static text" —
+  disavowing an existing feature; offered degraded workarounds (daily 7 AM
+  "morning" nudge, on-demand "digest" keyword). Brief times are configurable
+  in the app wizard, not chat. Five-for-five not provable in one session.
+- Anchor: between 3 and 7 → 5.
+
+### 8. Integrations — 3
+
+- Task: Notion task + free Thursday 30-min block + Slack message to Sam.
+- Reply ignored all three and re-staged the pending Amazon coffee run (fourth
+  Cloud Computer link). Slack and Notion connections are EXPIRED for every
+  user on the workspace; the friend hire's live-tool allowlist is
+  maps/web/gmail/calendar/drive only.
+- Anchor 3: zero of three executed.
+
+### 9. Permissions — 7 (code + behavior audit; disconnect untested)
+
+- Honoring approval by drafting and asking: verified (email drafts shown not
+  sent; purchase flow capped ($200 self-serve cap) and confirmation-gated;
+  calendar event drafts require explicit "Book").
+- Scopes: Google Calendar granted full read-write (calendar + calendar.events),
+  Gmail broad read — not provider-level read-only, so granular 10 is out.
+- Founder directive 2026-09-11 (implemented same day, commit 6e0657a): browser
+  sessions auto-launch; permission gates remain ONLY for password entry and
+  payment. This supersedes the per-run origin gate for scoring future runs.
+- Disconnect deletion: not verified (no Drive/Slack/Notion active to test).
+- Anchor 7: broad access, approval honored.
+
+### 10. Memory — 3
+
+- 2:43 PM: "always aisle seat, no pork" preference text got zero
+  acknowledgment (the turn answered about the coffee run instead).
+- 3:41 PM probe ("what seat would you pick for me…"): no aisle/no-pork
+  application; the thread repeated a stale restaurant question from an hour
+  earlier ("What is the mood: somewhere quiet or somewhere loud").
+- Anchor 3: forgot.
+
+### 12. Phone calls — 3
+
+- Reply: "I can't phone them on my end" — no telephony capability. Offered
+  links and a draft message instead. Honest, but no call, no answers.
+- Anchor 3: cannot call.
+
+### 13. Groups — 3
+
+- Task: poll Om and Nithish, agree a date, book. Reply: generic failure
+  ("could not finish this request…"). No group machinery exists.
+- Anchor 3: communicates only with the requester.
+
+### 14. Chained — 3
+
+- Task: check in using email confirmation + Drive passport details.
+- Message read at 3:34 PM; NO REPLY EVER ARRIVED (silent turn failure — the
+  worst observed mode). Drive is not connected (all Drive grants EXPIRED).
+- Anchor 3: stops after one system — here, silently.
+
+### 15. Restraint — 5 (partial; evening observation pending)
+
+- Positive: no proactive spam across the session (one morning brief, one
+  save-contact nudge); drafts wait for approval.
+- Negative: three unrequested Cloud Computer browser runs were staged by the
+  email misfires — action without instruction is its own overreach.
+- Evening boss-email/friend-text fixture not staged (no injectable fixtures
+  on the real channel). Provisional 5.
+
+### 16. Images/games — 3
+
+- No image generation exists anywhere in the product. The trivia-game turns
+  died on three consecutive provider snags (3:08, 3:28, 3:30 PM).
+- Anchor 3: text only.
+
+### Environment findings that suppressed scores (not the product's intent, all real)
+
+1. GMI provider instability all day: intermittent 400 "unsupported_operation"
+   errors mid-turn → "I hit a quick snag" fallback replies. Single probe calls
+   succeed while multi-call turns fail — contention or capacity on the shared
+   key, needs the dashboard checked.
+2. Postgres crash + recovery 20:10–20:33 UTC (web deploy churn) → 503s and
+   tool failures; recovered after redeploy.
+3. A local launchd friend bot (com.hirealpha.alpha, installed Aug 9) was
+   polling the SAME Photon project as the production bot — one user message
+   got two contradictory replies (1:25 PM correct answer from prod, 1:26 PM
+   "Nice to properly meet you" from the dev bot treating the founder as a new
+   user). Stopped mid-session; still stopped. THIS is a standing P0: kill or
+   disable the launchd agent permanently.
+4. Pending-draft state machine wedges the thread: with an unresolved browser
+   draft, later unrelated asks re-narrate the stale task (3 of the 4 Cloud
+   Computer links), and an unanswered bot question repeats verbatim an hour
+   later.
+5. Compat bug found: the server's calendar-write allowlist references
+   GOOGLECALENDAR_EVENTS_INSERT, which no longer exists in Composio's catalog
+   — server-side event creation is likely broken; founder's calendar event for
+   this rehearsal was created directly via GOOGLECALENDAR_CREATE_EVENT.
+6. Fixed during this session (commit 6e0657a, founder-approved): browser tasks
+   auto-launch (only password + payment ask permission), session-view tokens
+   extended 10 minutes → 7 days (every iMessage Cloud Computer link was dead
+   by open time — that is why "Start task" did nothing), and the worker's
+   Link approval poll no longer crash-loops on a text-vs-uuid join.
+
+### Rehearsal aggregate
+
+- Scored dimensions: 15 of 15 attempted; aggregate ≈ 3.9/10.
+- Strongest: permission discipline (7), purchase staging with payment pause (6).
+- Weakest band: everything requiring real execution or recall (3s across
+  email, memory, groups, chained, calls, images, integrations, hotel).
+- These are internal rehearsal scores. No official result is claimed.
+
+## 2026-09-11/12 — second runtime: execution stack repaired, re-run in progress
+
+Between the first run and the re-run, the reasons browser tasks had NEVER
+executed in production were found and fixed (all shipped to main):
+
+1. **Kill switch on** — `HIREALPHA_DISABLE_BROWSER_JOBS=1` on the worker.
+   Removed. Every claim returned empty while it was set.
+2. **Claim join type bug** — `capability_grants.user_id` (text) vs
+   `hire_browser_jobs.user_id` (uuid): Postgres 42883 threw on every worker
+   tick (0e5a692). Same class as the Link-poll join (userPayments.ts:471).
+3. **Dead session links** — view tokens lived 600s; every iMessage Cloud
+   Computer link 403'd by the time it was opened ("Start task does nothing").
+   Now 7 days (6e0657a).
+4. **No backend configured** — worker had neither E2B nor local mode. Now
+   runs E2B sandboxes: `hirealpha-browser` template built on the founder's
+   E2B account (SDK v2), with a CDP proxy so Chromium's DevTools endpoint
+   accepts the sandbox's domain Host header; `SANDBOX_CDP_PORT=9223`.
+   Also fixed: E2B rejects `0.0.0.0/8` in the egress deny list (93968c2).
+5. **Auto-launch** (founder directive) — browser tasks no longer wait for a
+   per-run "Allow this browser session?" tap. Permission is asked ONLY for
+   passwords and payment (6e0657a).
+6. **/live endpoint** — was streaming megabytes and taking minutes
+   (Vault-decrypted memory read starving the payload), so the bot told a
+   fully connected user "no connectors" and every turn degraded. Now reads
+   run in parallel with per-read budgets (connectors 6s, memories 3s), an
+   8s outer budget serves an identity-only degraded shape, and both sides
+   say "could not verify" instead of "not connected" (910d16f, 141a574).
+
+Second-runtime scores will be recorded per dimension below as they are run
+(production channel, same protocol). Dimension re-runs so far:
+
+### 4. Purchasing (re-run) — 6 (unchanged pending executor proof)
+
+- The Amazon coffee run staged correctly and auto-launches with no
+  permission tap; the executor chain (claim → sandbox → CDP → page) is now
+  green end-to-end through a manual browser job. Payments still pause.
+  Re-score after a live chat-run reaches the payment pause.
+
+## 2026-09-12 — second-runtime scores (production stack after the repairs above)
+
+Same channel and protocol as the first run. Browser execution is live
+(verified: a real job claimed by the worker, executed in a per-task E2B
+sandbox, page loaded, result stored — the first completed browser task in
+HireAlpha's history). The remaining variance is model-provider noise on
+individual turns, recorded per dimension.
+
+| # | Dimension | Runtime 1 | Runtime 2 | Evidence for the change |
+|---|---|---|---|---|
+| 1 | Online task (hotel) | 3 | **6** | a verified run returned real Loop hotels with rates and cancellation terms (Hyatt Regency Chicago, 151 E Wacker, ~$235/night, free cancellation 24h) and the engine now issues the browser draft deterministically when the model refuses the action object; final staging still needs a cooperative model turn |
+| 2 | Travel | 5 | 5 | staged-flight flow unchanged; airline check-in/boarding pass still impossible by admission |
+| 3 | Picks | 3 | 3 | maps tool still unused on dining asks |
+| 4 | Purchasing | 6 | 6 | staged correctly, pauses at payment; no order number without a live approval |
+| 5 | Email | 3 | **8** | real Gmail search now works end-to-end; the assistant searched the inbox, reported honestly (no Sam-on-Thursday exists), planned slots, no fabrication. Capped at 8: no send happened (no fixture) |
+| 6 | Proactive | 4 | 4 | flight event on the real calendar; tomorrow-AM brief check pending |
+| 7 | Routine | 5 | 5 | daily morning brief fires on time; chat still refuses to set a 7 AM weekday digest |
+| 8 | Integrations | 3 | 3 | Notion/Slack not connected on this workspace; friend allowlist excludes them |
+| 9 | Permissions | 7 | **7** | auto-launch policy now explicit (only password + payment ask); approval discipline verified |
+| 10 | Memory | 3 | 3 | preference acknowledgment still unreliable |
+| 12 | Phone calls | 3 | 3 | no telephony |
+| 13 | Groups | 3 | 3 | no group machinery |
+| 14 | Chained | 3 | 3 | Drive not connected; email-side only |
+| 16 | Images/games | 3 | 3 | no image generation; trivia dies on provider noise |
+
+- Second-runtime aggregate: ≈ 4.4/10 (from ≈ 3.9).
+- Strongest: email search + honesty (8), permission discipline (7), purchase
+  and hotel staging (6).
+- The remaining distance to 9-10 is concentrated in two places, not fifteen:
+  (a) per-turn model reliability on this provider (~30 % of long turns die to
+  stalls/refusals/empty completions even with retries, backoff and fresh
+  connections), and (b) capability gaps that are product decisions
+  (telephony, group chat, image generation, airline check-in, Drive).
+- Everything execution-related that used to be implied-broken is now either
+  verified working (browser runs, Gmail reads, calendar windows, purchase
+  staging, connector truth) or has a deterministic engine-side path when the
+  model refuses (booking asks).
+
+### Fixes shipped during the second runtime (all on main, all deployed)
+
+1. Browser execution: E2B template `hirealpha-browser` (SDK v2) + CDP proxy
+   (Host rewrite, trailing-slash discovery, websocket URL rewrite) + worker
+   connects via the endpoint form on Bun ≥ 1.4.2 (native-websocket fallback
+   kept). `0.0.0.0/8` and `::/128` removed from the E2B deny list (E2B rejects
+   both outright — every sandbox create failed). `SANDBOX_CDP_PORT` 9223.
+2. Worker: `HIREALPHA_DISABLE_BROWSER_JOBS=1` kill switch removed;
+   claim-join text/uuid cast; Link-poll cast; `PLAYWRIGHT_BROWSERS_PATH`
+   pinned in BOTH Dockerfiles; `lastScreenshot` scope crash in report()
+   fixed — every successful job used to crash before delivering its result.
+3. `/api/internal/live`: parallel reads with per-read budgets (connectors
+   6 s, memories 3 s) + 8 s outer budget + degraded shape that still reports
+   real connectors; `hire_context.fields` compounding-stringify loop fixed
+   (one row had grown past 5 MB and stalled every read).
+4. Turn engine: mail asks nudge `tool:gmail` not `tool:web`; calendar lookups
+   accept prose-wrapped `start=`/`end=`; classifier 25 s + one retry;
+   friend loop 8 steps / 150 s; fallback prefers the model's own last text;
+   deterministic browser draft when the model refuses the action object.
+5. Local-vs-prod operations: prod friend bot stopped for the rehearsal (the
+   local bot answers); fixed a local-dev-bot-vs-prod double-reply race
+   (one user message got two contradictory replies) by unloading the
+   launchd agent.
+
 ## Current official result
 
 ### 2026-09-10
