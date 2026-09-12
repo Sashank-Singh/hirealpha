@@ -210,6 +210,7 @@ Reactions are optional and usually absent. You may add "reaction":"<emoji>" to a
       const asksToBuy = /\b(buy|buy me|purchase|order me|order|get me|pay for)\b/i.test(freshnessContext)
       const needsFresh = request?.needsLookup === true || (request === null && (asksForPlaces || asksToBuy || /\b(news|latest|price|prices|how much (?:is|does|do)|score|who won|release date|next .{0,40}event|this week|today|yesterday|tonight|right now)\b/i.test(freshnessContext)))
       const attemptedWeb = [...seen].some(key => key.startsWith('web:'))
+      const attemptedMaps = [...seen].some(key => key.startsWith('maps:'))
       // Booking/doing asks: a plain-text "queued it" with no browser action is a lie.
       const needsBrowser = request
         ? request.needsBrowser
@@ -218,7 +219,9 @@ Reactions are optional and usually absent. You may add "reaction":"<emoji>" to a
       // carrying the concrete site: without a portal URL the model answers with
       // directory links and never sends the browser action the user asked for.
       if (process.env.HIREALPHA_LOOP_TRACE) console.error(`[loop] step ${step} needsFresh=${needsFresh} attemptedWeb=${attemptedWeb} needsBrowser=${needsBrowser} nudgeCount=${browserNudgeCount}`)
-      const browserNudgesAllowed = publicMatches.size > 0 ? 2 : 1
+      // One nudge, then the engine issues the run itself (below): a second
+      // nudge round mostly produced more prose and burned the step budget.
+      const browserNudgesAllowed = 1
       if (needsBrowser && browserNudgeCount < browserNudgesAllowed) {
         browserNudgeCount++
         // Prefer the site the classifier read from the user's own words, then
@@ -287,6 +290,26 @@ Reactions are optional and usually absent. You may add "reaction":"<emoji>" to a
           messages.push({ role: 'user', content: `System note: you have NOT run any lookup. Do not answer from memory and do not claim you searched. Run {"action":"lookup","tool":"${freshTool}","query":"..."} now, then answer from the results.` })
           continue
         }
+      }
+      // Dining/place asks belong on the maps tool, which returns real nearby
+      // businesses. Left alone the model answers from a web search full of
+      // listicles ("best restaurants in...") — the exact failure the picks
+      // dimension scores as 'generic list'.
+      if (
+        asksForPlaces &&
+        input.availableTools.includes('maps') &&
+        !attemptedMaps &&
+        !webNudged &&
+        !input.skipFreshLookup
+      ) {
+        webNudged = true
+        messages.push({ role: 'assistant', content: raw })
+        messages.push({
+          role: 'user',
+          content:
+            'System note: place questions need the maps tool, not a web search. Run {"action":"lookup","tool":"maps","query":"<the cuisine or kind of place and the area it should be near, one line>"} now, then answer from the results with real names.',
+        })
+        continue
       }
       if (publicMatches.size && !savedDraft && ![...publicMatches.keys()].some(url => raw.includes(url))) {
         if (raw.length > 80 && !/^\s*(?:TOOL\b|DRAFT_|```|\{\s*"action")/i.test(raw)) {
