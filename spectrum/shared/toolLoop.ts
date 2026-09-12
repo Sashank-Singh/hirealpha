@@ -79,6 +79,8 @@ export async function runToolConversation(input: {
   const receipts: string[] = []
   const publicMatches = new Map<string, string>()
   let nudged = false
+  /** The last substantive model text, preferred over generic fallbacks. */
+  let lastRaw = ''
   let browserNudgeCount = 0
   let webNudged = false
   let sourcesNudged = false
@@ -103,9 +105,11 @@ export async function runToolConversation(input: {
           .join('\n\n')}`
       : ''
     const completed = [...receipts, draftReceipt, searchReceipt].filter(Boolean)
-    return completed.length
-      ? completed.join('\n\n')
-      : 'I could not finish this request with the results available. Please try again or narrow the request.'
+    if (completed.length) return completed.join('\n\n')
+    // The model's own last text beats a canned failure: it usually names the
+    // honest blocker and the next step. Guards keep tool syntax out.
+    if (lastRaw && lastRaw.length > 60 && !/^\s*(?:TOOL\b|DRAFT_|```|\{\s*"action)/i.test(lastRaw)) return lastRaw
+    return 'I could not finish this request with the results available. Please try again or narrow the request.'
   }
   // Kept deliberately tight: this block is resent on every call in the loop,
   // so its length is multiplied by the number of round trips and lands straight
@@ -187,6 +191,7 @@ Reactions are optional and usually absent. You may add "reaction":"<emoji>" to a
       messages.push({ role: 'user', content: 'System note: your previous reply was empty. Answer the user in plain text now, using the results already gathered.' })
       continue
     }
+    if (raw && raw.trim()) lastRaw = stripToolDirectives(raw)
     if (!lookup && !draft && !directive) {
       // Lazy-answer guard. The classified intent decides what this turn needs;
       // the word patterns below are only the fallback when the caller had no
@@ -212,6 +217,7 @@ Reactions are optional and usually absent. You may add "reaction":"<emoji>" to a
       // A booking ask that already produced search results gets a second nudge
       // carrying the concrete site: without a portal URL the model answers with
       // directory links and never sends the browser action the user asked for.
+      if (process.env.HIREALPHA_LOOP_TRACE) console.error(`[loop] step ${step} needsFresh=${needsFresh} attemptedWeb=${attemptedWeb} needsBrowser=${needsBrowser} nudgeCount=${browserNudgeCount}`)
       const browserNudgesAllowed = publicMatches.size > 0 ? 2 : 1
       if (needsBrowser && browserNudgeCount < browserNudgesAllowed) {
         browserNudgeCount++

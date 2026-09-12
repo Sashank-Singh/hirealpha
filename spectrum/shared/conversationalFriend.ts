@@ -448,9 +448,10 @@ ${JSON.stringify(context)}` },
         : { kind: 'event', title: draft.title, start: draft.start, end: draft.end })
     },
     capabilities,
-    // 6, not 4: the friend path runs larger prompts and a reasoning model, so
-    // four round trips can hit the deadline before a write ever drafts.
-    maxSteps: 6,
+    // 8: the friend path runs larger prompts and a reasoning model, and the
+    // booking/browser nudge can land on the last available step — at 4 (or 6)
+    // the model got nudged and then had no round trip left to act on it.
+    maxSteps: 8,
     maxDurationMs: Number(process.env.HIREALPHA_TOOL_LOOP_MS || 150_000),
   })
   if (outcome.draft && outcome.draft.type !== 'purchase' && outcome.draft.type !== 'browser') {
