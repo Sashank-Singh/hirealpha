@@ -3,8 +3,10 @@ import type { SQL } from 'bun'
 import { Sandbox, SandboxNotFoundError } from 'e2b'
 
 /** CDP port the browser template exposes inside the sandbox. The worker
- * connects over the sandbox's public host routing; nothing else listens. */
-export const SANDBOX_CDP_PORT = 9222
+ * connects over the sandbox's public host routing to the template's CDP
+ * proxy (the proxy rewrites Host so Chromium's DevTools endpoint accepts a
+ * domain host); nothing else listens. Overridable for template upgrades. */
+export const SANDBOX_CDP_PORT = Number(process.env.SANDBOX_CDP_PORT || 9223)
 
 export const DENIED_EGRESS = [
   '0.0.0.0/8', '10.0.0.0/8', '100.64.0.0/10', '127.0.0.0/8', '169.254.0.0/16',
