@@ -5380,7 +5380,14 @@ export async function runToolsForMessage(
       results.push(`${id} is off limits for this hire. Do not offer it.`)
       return
     }
-    results.push(notConnectedNote(id, input.persona))
+    // An empty connector list is not proof the account is unconnected — the
+    // Composio list read can time out during a latency spike, and telling a
+    // connected user to go connect is worse than admitting the check failed.
+    results.push(
+      input.connected.length
+        ? notConnectedNote(id, input.persona)
+        : `${id} could not be checked right now (the connector list did not answer). Do not claim it is connected or disconnected; offer to retry.`,
+    )
   }
   const askedAllowed = (id: string, hit: boolean) => {
     if (!hit) return
