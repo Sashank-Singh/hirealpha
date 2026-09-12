@@ -54,7 +54,12 @@ const sql = DATABASE_URL
       // Fail fast instead of parking a request for ten seconds when the pool is
       // genuinely exhausted: the client's own retry beats a stalled response.
       connectionTimeout: 5,
-      connection: { options: '-c timezone=UTC' },
+      // A statement that runs forever holds one of the 24 connections forever;
+      // a stall then snowballs into every write path timing out at the proxy
+      // (measured: /propose and /loops/claim 504ing until a restart). Fifteen
+      // seconds is far beyond every healthy query here — nothing legitimate is
+      // killed, but a hung one frees its connection instead of the whole app.
+      connection: { options: '-c timezone=UTC -c statement_timeout=15000' },
     })
   : null
 
