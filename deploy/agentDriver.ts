@@ -426,7 +426,7 @@ export async function executeAgentAction(page: import('playwright').Page, action
   }
 }
 
-export function isTerminal(action: AgentAction): boolean {
+export function isTerminal(action: AgentAction): action is Extract<AgentAction, { type: 'done' | 'giveup' }> {
   return action.type === 'done' || action.type === 'giveup'
 }
 

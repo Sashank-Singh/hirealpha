@@ -21,6 +21,7 @@ import {
   handleSnapLog,
   handleSweep,
   handleToolbox,
+  handleTravelMode,
   looksLikeBillguard,
   looksLikeBrainDump,
   looksLikeChatImport,

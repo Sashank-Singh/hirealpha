@@ -136,7 +136,7 @@ export async function runKernelTask(
     for (let step = 0; step < limits.maxSteps; step++) {
       if (Date.now() > deadline) return { ok: false, error: 'The task ran out of time before it finished.' }
 
-      const { pageText, screenshot, title, targets, hasPasswordField } = await captureWithRetry(browser)
+      const { pageText, screenshot, title, targets } = await captureWithRetry(browser)
       const parts = [
         { type: 'text', text: renderPrompt(task, pageText, targets, title, browser.url(), recent, step) },
         { type: 'image_url', image_url: { url: `data:image/jpeg;base64,${screenshot}` } },
@@ -178,7 +178,7 @@ export async function runKernelTask(
       if (action.type === 'handoff') {
         const kind = action.kind || 'confirmation'
         if (kind === 'payment' && !task.paymentAuthorized) {
-          const cents = Number(action.amount_cents || 0)
+          const cents = Number(action.amountCents || 0)
           if (cents > 0) {
             const outcome = await requireHandoff(task, {
               kind: 'payment',

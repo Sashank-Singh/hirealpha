@@ -34,14 +34,11 @@ import { SKILLS } from '../src/agents/skills'
 import {
   DEMO_COMPOSIO_TOOLKITS,
   DEMO_CONNECTED,
-  DEMO_EMAIL,
   DEMO_PHONE,
   demoComposioData,
   demoLinearIssuesForUser,
   demoModeEnabled,
-  isDemoPhone,
   isDemoUserId,
-  seedDemoWorkspace,
 } from './demoData'
 import { ensureBrowserVaultSchema, handleVaultApi } from './browserVault'
 import { runPortalTask } from './browserRunner'
@@ -51,6 +48,8 @@ import {
   noteSetupCompleted,
   createLinkBackedSpendRequest,
   queuePaidPurchaseFinalization,
+  decideSpendApproval,
+  chargeApprovedSpend,
 } from './userPayments'
 import { getLinkStatus } from './linkWallet'
 import { ensureBrowserJobsSchema } from './browserJobs'
@@ -1650,41 +1649,6 @@ export async function referralFreeMonths(sql: SQL, phone: string): Promise<numbe
 
 function stripeSecret() {
   return process.env.STRIPE_SECRET_KEY?.trim() || ''
-}
-
-/** One-tap payment link for a user-approved purchase. Mock mode mirrors the
- * services harness so local testbed flows work without a live key. */
-async function createPurchasePaymentLink(item: string, amountDollars: number, email?: string): Promise<string | null> {
-  const secret = stripeSecret()
-  if (!secret) return null
-  const unit = Math.round(amountDollars * 100)
-  try {
-    const res = await fetch('https://api.stripe.com/v1/checkout/sessions', {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${secret}`, 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({
-        mode: 'payment',
-        'line_items[0][price_data][currency]': 'usd',
-        'line_items[0][price_data][unit_amount]': String(unit),
-        'line_items[0][price_data][product_data][name]': item.slice(0, 120),
-        'line_items[0][quantity]': '1',
-        success_url: `${appBaseFromEnv()}/app?paid=1`,
-        cancel_url: `${appBaseFromEnv()}/app?paid=0`,
-        ...(email ? { customer_email: email } : {}),
-        'metadata[product]': item.slice(0, 100),
-      }),
-      signal: AbortSignal.timeout(10_000),
-    })
-    if (!res.ok) {
-      console.error('[purchase] stripe session failed', res.status, (await res.text().catch(() => '')).slice(0, 200))
-      return null
-    }
-    const data = (await res.json()) as { url?: string }
-    return data.url || null
-  } catch (err) {
-    console.error('[purchase] stripe session error', err)
-    return null
-  }
 }
 
 function appBaseFromEnv() {
@@ -3330,9 +3294,6 @@ function clampNum(v: unknown, fallback = 0): number {
   const n = Number(v)
   return Number.isFinite(n) && n >= 0 ? Math.round(n) : Math.max(0, Math.round(fallback))
 }
-
-/** Words that mean the food actually contains protein; used to refuse a 0-protein estimate. */
-const PROTEIN_FOOD_RE = /\b(chicken|beef|steak|turkey|fish|salmon|tuna|shrimp|egg|eggs|tofu|beans|lentil|yogurt|paneer|meat|pork|lamb|protein|whey)\b/i
 
 /** Words that mean the item carries calories (not plain water/coffee/tea/diet soda). */
 const CALORIE_FOOD_RE = /\b(food|meal|diet|snack|lunch|dinner|breakfast|soda|juice|shake|milk|burger|pizza|pasta|rice|bread|salad|soup|smoothie|steak|fries|chip|cheese|sandwich|taco|burrito|wrap|plate|bowl|dish|chicken|beef|pork|lamb|meat|protein|tofu|beans|lentil|paneer|yogurt|egg|salmon|tuna|shrimp|turkey|fish|noodle|curry|stew|oats|cereal|fruit|vegetable|veggie)\b/i
@@ -7166,7 +7127,7 @@ async function digestPayload(
 
   // The half-dozen small reads used to run one after another; none depends on
   // the next, so they all leave together.
-  const [reminderRows, loopRows, lastNightRow, duePeopleRows, factExtras] = await Promise.all([
+  const [reminderRows, loopRows, lastNightRow, factExtras] = await Promise.all([
     sql`
       SELECT id, text, scheduled_at AS "scheduledAt" FROM hire_reminders
       WHERE user_id = ${user.id} AND persona = ${persona} AND status = 'pending'
@@ -7181,11 +7142,6 @@ async function digestPayload(
       SELECT sleep_date AS "sleepDate", bedtime, wake, quality FROM hire_sleep
       WHERE user_id = ${user.id} AND (sleep_date = ${lastNightKey} OR sleep_date = ${todayLocal})
       ORDER BY sleep_date DESC LIMIT 1
-    `,
-    sql`
-      SELECT name, phone, last_touch AS "lastTouch", cadence_days AS "cadenceDays"
-      FROM hire_network WHERE user_id = ${user.id}
-      ORDER BY coalesce(last_touch, '1970-01-01'::timestamptz) ASC LIMIT 8
     `,
     (async () => {
       try {
@@ -7246,17 +7202,6 @@ async function digestPayload(
   const lastNightHours = lastNightLogged
     ? sleepHoursBetween(lastNight!.bedtime!, lastNight!.wake!)
     : 0
-
-  const peopleDue = (duePeopleRows as Array<{
-    name: string; phone: string; lastTouch: Date | null; cadenceDays: number
-  }>)
-    .map((p) => {
-      const days = p.lastTouch ? Math.floor((Date.now() - new Date(p.lastTouch).getTime()) / 86400000) : 999
-      return { name: p.name, days, phone: p.phone || undefined, due: days >= (p.cadenceDays || 14) }
-    })
-    .filter((p) => p.due)
-    .slice(0, 3)
-    .map(({ name, days, phone }) => ({ name, days, phone }))
 
   // Fact strip: closed facts from the user's own logs, one source of truth per
   // fact. A gap never appears here and in the DO card at the same time.
@@ -11810,7 +11755,6 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
     const email = String(url.searchParams.get('email') || '')
       .trim()
       .toLowerCase()
-    const persona = url.searchParams.get('persona') || ''
     if (!email.includes('@')) return json({ error: 'sign in required' }, 401)
     const user = await getUserByEmail(sql, email)
     if (!user) return json({ error: 'sign in required' }, 401)
@@ -12787,15 +12731,15 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
     if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
     const body = (await req.json().catch(() => ({}))) as { phone?: string; requestId?: string; decision?: string }
     if (!body.phone || !body.requestId) return json({ error: 'phone and requestId required' }, 400)
-    const live = await getLiveProfile(sql, body.phone, 'friend')
+    const live = await livePayload(sql, body.phone, 'friend')
     if (!live.found || !live.userId) return json({ error: 'User not found' }, 404)
     const decision = body.decision === 'deny' ? 'deny' : 'approve'
-    const approval = await decideSpendApproval(sql, live.userId, body.requestId, decision)
-    if (!approval.ok) return json(approval, 400)
+    const approved = await decideSpendApproval(sql, live.userId, body.requestId, decision)
+    if (!approved) return json({ ok: false, error: 'No pending request with that id.' }, 400)
     if (decision === 'approve') {
       const chargeRes = await chargeApprovedSpend(sql, live.userId, body.requestId)
       if (!chargeRes.ok) return json({ ok: false, error: chargeRes.error || 'Charge failed' }, 402)
-      return json({ ok: true, charged: true, paymentIntentId: chargeRes.paymentIntentId, amount: chargeRes.amount, merchant: chargeRes.merchant })
+      return json({ ok: true, charged: true, paymentIntentId: chargeRes.paymentIntentId })
     }
     return json({ ok: true, decision: 'denied' })
   }
