@@ -1575,6 +1575,13 @@ export async function runHireTurn(input: {
     extras.push(
       `These tools are connected for this person: ${live.connected.join(', ')}. If they just asked about one of them, say it is connected and that the lookup came back empty, or offer to try again. Never say the tool is not connected.`,
     )
+  } else if (live.hired && (live as { degraded?: boolean }).degraded) {
+    // A degraded payload means the connector read did not answer in time —
+    // that is not the same as "nothing is connected", and saying so is how a
+    // fully connected user gets told to go reconnect.
+    extras.push(
+      'This turn could not verify which tools are connected. Do not claim any tool is or is not connected; if they ask, say the check did not answer and you will try again.',
+    )
   }
   if (miniApp) {
     extras.push(

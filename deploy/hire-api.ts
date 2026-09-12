@@ -9213,12 +9213,19 @@ async function livePayload(sql: SQL, phone: string, persona: Persona, query?: st
   }
   const roster = await loadRoster(sql, user.id)
   const hired = roster.includes(persona)
-  const context = hired ? await loadContext(sql, user.id, persona) : {}
-  const connected = hired
-    ? (await connectedForUser(sql, user.id)).filter((id) => !PERSONA_DENIED[persona].has(id))
-    : []
-  const memories = hired ? await recallMemories(sql, user.id, persona, query, 40) : []
-  const active = hired ? await pickActiveLocation(sql, user.id) : null
+  // Independent reads run together, and the two that can stall (Composio
+  // connector resolution; Vault-decrypted memory recall) carry their own
+  // budgets: a slow memory read must never starve the connector list, and a
+  // stall must never make a connected user look disconnected to the bot.
+  const budget = <T,>(p: Promise<T>, ms: number, fallback: T): Promise<T> =>
+    Promise.race([p.catch(() => fallback), new Promise<T>((resolve) => setTimeout(() => resolve(fallback), ms))])
+  const [context, connectedRaw, memories, active] = await Promise.all([
+    hired ? loadContext(sql, user.id, persona) : Promise.resolve({} as Record<string, string>),
+    hired ? budget(connectedForUser(sql, user.id), 6_000, [] as string[]) : Promise.resolve([] as string[]),
+    hired ? budget(recallMemories(sql, user.id, persona, query, 40), 3_000, [] as MemoryRow[]) : Promise.resolve([] as MemoryRow[]),
+    hired ? pickActiveLocation(sql, user.id).catch(() => null) : Promise.resolve(null),
+  ])
+  const connected = connectedRaw.filter((id) => !PERSONA_DENIED[persona].has(id))
   let pro = false
   if (hired) {
     // The demo never gets a fake subscription row — nothing pretend may look
@@ -11490,11 +11497,19 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
     if (live) return json(live)
     const user = await getUserByPhone(sql, phone).catch(() => null)
     const roster = user ? await loadRoster(sql, user.id).catch(() => [] as Persona[]) : []
+    // Connector truth still matters in the degraded shape: saying "nothing
+    // is connected" about a connected user is worse than a slow answer.
+    const fallbackConnected = user
+      ? await Promise.race([
+          connectedForUser(sql, user.id).catch(() => []),
+          new Promise<string[]>((resolve) => setTimeout(() => resolve([]), 2_500)),
+        ])
+      : []
     return json({
       found: !!user,
       hired: !!user && roster.includes(persona),
       context: {},
-      connected: [],
+      connected: fallbackConnected.filter((id) => !PERSONA_DENIED[persona].has(id)),
       memories: [],
       email: user?.email ?? null,
       name: user?.name ?? null,
