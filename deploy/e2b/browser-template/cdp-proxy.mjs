@@ -36,18 +36,49 @@ chromium.on('exit', (code) => {
   process.exit(code ?? 1)
 })
 
+// Chromium advertises its websocket endpoint as ws://127.0.0.1:9222/... which
+// is meaningless to a remote client (Playwright would dial its own localhost).
+// Rewrite it to the public host this request arrived on, so connectOverCDP
+// follows a reachable wss:// URL. The public hostname embeds the port
+// (e.g. 9223-<id>.e2b.app), so the edge routes it back here.
+//
+// Playwright fetches `<endpoint>/json/version/` WITH a trailing slash (it
+// appends "json/version/" to the endpoint path), so match every /json* path
+// instead of an exact set. Missing this made Playwright read the raw
+// ws://127.0.0.1:9222 URL and dial its own localhost.
+function isDiscoveryPath(url) {
+  return /^\/json(\/|$)/.test((url || '').split('?')[0])
+}
+
 const server = http.createServer((req, res) => {
+  const publicHost = (req.headers.host || '').split(':')[0]
   const upstream = http.request(
     {
       host: '127.0.0.1',
       port: UPSTREAM_PORT,
       path: req.url,
       method: req.method,
-      headers: { ...req.headers, host: '127.0.0.1' },
+      // Chromium rejects DevTools requests whose Host is not localhost/an IP;
+      // keep the port so any relative ws:// URL it builds still carries 9222.
+      headers: { ...req.headers, host: `127.0.0.1:${UPSTREAM_PORT}` },
     },
     (up) => {
-      res.writeHead(up.statusCode || 502, up.headers)
-      up.pipe(res)
+      const rewrite = isDiscoveryPath(req.url) && publicHost
+      if (!rewrite) {
+        res.writeHead(up.statusCode || 502, up.headers)
+        up.pipe(res)
+        return
+      }
+      const chunks = []
+      up.on('data', (c) => chunks.push(c))
+      up.on('end', () => {
+        const body = Buffer.concat(chunks).toString('utf8').replace(/ws:\/\/127\.0\.0\.1(?::\d+)?/g, `wss://${publicHost}`)
+        const headers = { ...up.headers }
+        delete headers['content-length']
+        headers['content-length'] = Buffer.byteLength(body)
+        res.writeHead(up.statusCode || 502, headers)
+        res.end(body)
+      })
     },
   )
   upstream.on('error', () => {
@@ -59,7 +90,7 @@ const server = http.createServer((req, res) => {
 
 server.on('upgrade', (req, socket, head) => {
   const upstream = net.connect(UPSTREAM_PORT, '127.0.0.1', () => {
-    const headers = { ...req.headers, host: '127.0.0.1' }
+    const headers = { ...req.headers, host: `127.0.0.1:${UPSTREAM_PORT}` }
     const raw = Object.entries(headers)
       .map(([k, v]) => `${k}: ${Array.isArray(v) ? v.join(', ') : v}`)
       .join('\r\n')
@@ -68,8 +99,21 @@ server.on('upgrade', (req, socket, head) => {
     socket.pipe(upstream)
     upstream.pipe(socket)
   })
+  // Surface Chromium's answer to the handshake. A 101 means the proxy is not
+  // the problem; anything else (e.g. 403 from --remote-allow-origins) would
+  // otherwise be an opaque "WebSocket error" on the client.
+  let logged = false
+  upstream.on('data', (chunk) => {
+    if (logged || !chunk.length) return
+    logged = true
+    const end = chunk.indexOf(0x0a)
+    const line = chunk.toString('utf8', 0, end === -1 ? chunk.length : end).trim()
+    console.log(`[cdp-proxy] upgrade ${req.url} -> upstream ${line}`)
+  })
   upstream.on('error', () => socket.destroy())
+  upstream.on('close', () => socket.destroy())
   socket.on('error', () => upstream.destroy())
+  socket.on('close', () => upstream.destroy())
 })
 
 server.listen(LISTEN_PORT, '0.0.0.0')

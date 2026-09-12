@@ -51,17 +51,84 @@ type Launched = {
   profileDir?: string
 }
 
+/**
+ * Bun's node:http client emits 'response' (not 'upgrade') for a 101 on
+ * versions before 1.4.2, and Playwright's ws transport then aborts the
+ * handshake — remote CDP over wss fails with a bare timeout. Wrap Bun's
+ * native WebSocket (which handles 101 correctly everywhere) in Playwright's
+ * ConnectionTransport so sandbox CDP works regardless of the container's
+ * Bun version. Plain ws:// URLs keep the stock path.
+ */
+function bunWsTransport(url: string): { send: (m: unknown) => void; close: () => void; onmessage?: (m: string) => void; onclose?: (r: string) => void } {
+  const sock = new WebSocket(url)
+  const queue: string[] = []
+  let open = false
+  const transport: { send: (m: unknown) => void; close: () => void; onmessage?: (m: string) => void; onclose?: (r: string) => void } = {
+    send(m: unknown) {
+      const data = typeof m === 'string' ? m : JSON.stringify(m)
+      if (open) sock.send(data)
+      else queue.push(data)
+    },
+    close() {
+      try {
+        sock.close()
+      } catch {
+        /* already closed */
+      }
+    },
+  }
+  sock.addEventListener('open', () => {
+    open = true
+    for (const d of queue.splice(0)) sock.send(d)
+  })
+  sock.addEventListener('message', (e: MessageEvent) => {
+    try {
+      transport.onmessage?.(String(e.data))
+    } catch {
+      /* transport consumer gone */
+    }
+  })
+  sock.addEventListener('close', () => transport.onclose?.('closed'))
+  sock.addEventListener('error', () => transport.onclose?.('error'))
+  return transport
+}
+
+function connectCdp(
+  mod: { chromium: BrowserType },
+  url: string,
+): Promise<Browser> {
+  if (/^wss:\/\//i.test(url)) {
+    const wsUrl = url
+    return new Promise<Browser>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('CDP connect timed out')), 45_000)
+      void (mod.chromium.connectOverCDP as unknown as (
+        transport: unknown,
+        options?: { timeout?: number },
+      ) => Promise<Browser>)(bunWsTransport(wsUrl))
+        .then((b) => {
+          clearTimeout(timer)
+          resolve(b)
+        })
+        .catch((err) => {
+          clearTimeout(timer)
+          reject(err)
+        })
+    })
+  }
+  return mod.chromium.connectOverCDP(url)
+}
+
 async function launchChromium(task: Pick<SessionTask, 'cdpUrl'>): Promise<Launched> {
   const mod = (await eval('import("playwright")')) as { chromium: BrowserType }
   // A task-bound sandbox CDP endpoint always connects fresh and is closed
   // with the task — two tasks never share a browser, profile, or connection.
   if (task.cdpUrl) {
-    const browser = await mod.chromium.connectOverCDP(task.cdpUrl)
+    const browser = await connectCdp(mod, task.cdpUrl)
     return { browser, context: await newContext(browser), owned: true }
   }
   const cdpUrl = process.env.BROWSER_CDP_URL?.trim()
   if (cdpUrl) {
-    remoteBrowser ??= mod.chromium.connectOverCDP(cdpUrl).catch((error) => {
+    remoteBrowser ??= connectCdp(mod, cdpUrl).catch((error) => {
       remoteBrowser = null
       throw error
     })

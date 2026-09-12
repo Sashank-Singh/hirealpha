@@ -47,8 +47,12 @@ export class E2BTaskEnvironmentProvider implements TaskEnvironmentProvider {
         isolation: 'fresh-per-task',
       },
     })
-    const cdpUrl = `https://${sandbox.getHost(SANDBOX_CDP_PORT)}`
-    await waitForCdp(cdpUrl)
+    const endpoint = `https://${sandbox.getHost(SANDBOX_CDP_PORT)}`
+    // Resolve the websocket URL ourselves instead of handing Playwright an
+    // https endpoint: its discovery+ws layer needs Bun >= 1.4.2 for the 101
+    // upgrade event, while the browserSession transport dials a wss:// URL
+    // through Bun's native WebSocket on any version.
+    const cdpUrl = await waitForCdp(endpoint)
     return { id: sandbox.sandboxId, cdpUrl }
   }
 
@@ -67,17 +71,24 @@ export class E2BTaskEnvironmentProvider implements TaskEnvironmentProvider {
   }
 }
 
-/** Poll the template's Chromium CDP endpoint until it answers. Fails the
- * create step (and therefore the whole sandbox) if the browser never comes
- * up, so the worker never connects to a half-started environment. */
-async function waitForCdp(cdpUrl: string, timeoutMs = 45_000): Promise<void> {
+/** Poll the template's Chromium CDP endpoint until it answers, then return
+ * the websocket debugger URL it advertises (the template proxy rewrites it to
+ * the sandbox's public host). Fails the create step (and therefore the whole
+ * sandbox) if the browser never comes up, so the worker never connects to a
+ * half-started environment. */
+async function waitForCdp(endpoint: string, timeoutMs = 45_000): Promise<string> {
   const deadline = Date.now() + timeoutMs
   let lastError = 'CDP endpoint never became ready.'
   while (Date.now() < deadline) {
     try {
-      const response = await fetch(`${cdpUrl}/json/version`, { signal: AbortSignal.timeout(2_000) })
-      if (response.ok) return
-      lastError = `CDP endpoint returned ${response.status}.`
+      const response = await fetch(`${endpoint}/json/version`, { signal: AbortSignal.timeout(3_000) })
+      if (response.ok) {
+        const body = (await response.json()) as { webSocketDebuggerUrl?: string }
+        if (body.webSocketDebuggerUrl) return body.webSocketDebuggerUrl
+        lastError = 'CDP endpoint did not advertise a websocket URL.'
+      } else {
+        lastError = `CDP endpoint returned ${response.status}.`
+      }
     } catch (error) {
       lastError = error instanceof Error ? error.message : String(error)
     }
