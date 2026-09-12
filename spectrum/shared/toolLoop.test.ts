@@ -33,6 +33,26 @@ import {
   mapQueryForAsk,
 } from './toolLoop'
 
+describe('browser run routing', () => {
+  it('never sends a run at a directory or search surface', () => {
+    // The engine used to issue a real browser run at whatever URL a search
+    // returned — a live run was staged against a Yelp directory page, which
+    // can never finish a booking.
+    expect(pickBrowserPortal({ ask: 'book a hotel in Chicago', resultUrls: ['https://www.yelp.com/search?cflt=hotels', 'https://www.tripadvisor.com/Hotels-g35805'] })).toBeNull()
+    expect(isMerchantPortal('https://www.yelp.com/search?x=1')).toBe(false)
+    expect(isMerchantPortal('https://en.wikipedia.org/wiki/Hotel')).toBe(false)
+  })
+
+  it('prefers the merchant the user named over anything a search returned', () => {
+    expect(pickBrowserPortal({ ask: 'reorder two bags of coffee from amazon', resultUrls: ['https://www.yelp.com/x'] })).toBe('https://www.amazon.com')
+    expect(pickBrowserPortal({ ask: 'book a table on opentable', resultUrls: [] })).toBe('https://www.opentable.com')
+  })
+
+  it('takes a real merchant page when the user named none', () => {
+    expect(pickBrowserPortal({ ask: 'reorder the coffee beans', resultUrls: ['https://www.amazon.com/dp/B08XY'] })).toBe('https://www.amazon.com/dp/B08XY')
+  })
+})
+
 describe('multi-step agent execution', () => {
   function scenario(answers: string[], overrides: Partial<Parameters<typeof runToolConversation>[0]> = {}) {
     const lookups: string[] = []
