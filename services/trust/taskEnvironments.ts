@@ -9,10 +9,12 @@ import { Sandbox, SandboxNotFoundError } from 'e2b'
 export const SANDBOX_CDP_PORT = Number(process.env.SANDBOX_CDP_PORT || 9223)
 
 export const DENIED_EGRESS = [
-  '0.0.0.0/8', '10.0.0.0/8', '100.64.0.0/10', '127.0.0.0/8', '169.254.0.0/16',
+  '10.0.0.0/8', '100.64.0.0/10', '127.0.0.0/8', '169.254.0.0/16',
   '172.16.0.0/12', '192.0.0.0/24', '192.168.0.0/16', '198.18.0.0/15', '224.0.0.0/4',
   '::/128', '::1/128', 'fc00::/7', 'fe80::/10', 'ff00::/8',
 ]
+// 0.0.0.0/8 ("this network") was in the list; E2B rejects it outright
+// ("400: invalid denied CIDR 0.0.0.0/8"), which failed every sandbox create.
 
 export type TaskEnvironmentProvider = {
   create(input: { taskId: string; timeoutMs: number }): Promise<{ id: string; cdpUrl?: string }>
