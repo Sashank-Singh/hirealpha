@@ -6,7 +6,9 @@ type SessionStatus = 'pending' | 'running' | 'waiting' | 'done' | 'failed'
 type HandoffKind = 'password' | 'verification' | 'payment' | 'captcha' | 'confirmation' | null
 
 interface SessionStep {
-  action: string
+  /** Older job rows and partial writes can omit it; every render path
+   *  must tolerate that instead of crashing the whole view. */
+  action?: string
   selector?: string
   value?: string
   ms?: number
@@ -56,8 +58,9 @@ function hostname(value?: string | null): string {
 }
 
 function safeStepLabel(step: SessionStep): string {
-  if (step.action.startsWith('needs_') || step.action.startsWith('handoff_')) return 'Paused for your input'
-  switch (step.action) {
+  const action = String(step?.action || '')
+  if (action.startsWith('needs_') || action.startsWith('handoff_')) return 'Paused for your input'
+  switch (action) {
     case 'goto': return 'Opened the website'
     case 'fill':
     case 'type_text': return step.value?.includes('{{') ? 'Filled a protected field' : 'Filled a form field'
@@ -188,7 +191,10 @@ export function ComputerSessionView() {
 
   const copy = statusCopy(session.status)
   const currentHost = hostname(session.currentUrl || session.url)
-  const recentSteps = (session.steps || []).slice(-5).reverse()
+  const recentSteps = (session.steps || [])
+    .filter((step): step is SessionStep => !!step && typeof step === 'object')
+    .slice(-5)
+    .reverse()
   const canControl = session.status === 'running' || (session.status === 'waiting' && session.handoffKind !== 'payment')
   const checkpointTitle = session.handoffKind === 'payment'
     ? 'Approve the verified total'
