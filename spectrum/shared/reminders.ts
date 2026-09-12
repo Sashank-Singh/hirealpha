@@ -23,7 +23,7 @@ export function isBriefTick(text: string): boolean {
 }
 
 export type ReminderIntent =
-  | { action: 'set'; text: string; localTime: string; recurrence: 'once' | 'daily' | 'weekly' }
+  | { action: 'set'; text: string; localTime: string; recurrence: 'once' | 'daily' | 'weekly' | 'weekdays' }
   | { action: 'list' }
   | { action: 'cancel' }
   | { action: 'none' }
@@ -49,8 +49,8 @@ function isLocalTime(s: string): boolean {
   return /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?$/.test(s)
 }
 
-function parseRecurrence(v: unknown): 'once' | 'daily' | 'weekly' {
-  return v === 'daily' || v === 'weekly' ? v : 'once'
+function parseRecurrence(v: unknown): 'once' | 'daily' | 'weekly' | 'weekdays' {
+  return v === 'daily' || v === 'weekly' || v === 'weekdays' ? v : 'once'
 }
 
 /**
@@ -148,11 +148,11 @@ export async function parseReminderIntent(
               '.',
             'Reply with ONLY a single JSON object, no prose, no markdown fences. Shape:',
             '{"action":"set"|"list"|"cancel"|"none","text":"reminder text",',
-            '"localTime":"YYYY-MM-DDTHH:MM:SS" or "","recurrence":"once"|"daily"|"weekly"}',
+            '"localTime":"YYYY-MM-DDTHH:MM:SS" or "","recurrence":"once"|"daily"|"weekly"|"weekdays"}',
             'Rules:',
             '- "remind me to X" / "set a reminder for X" / "remind me in 2 mins" -> action set. text is X (or the whole request if no X given).',
             '- Resolve relative time ("tomorrow 9am", "in 2 hours", "every weekday 8am") to an absolute localTime for the NEXT occurrence.',
-            '- If it repeats every day -> recurrence daily. Every week / specific weekday -> weekly. Otherwise once.',
+            '- If it repeats every day -> recurrence daily. Monday-Friday / weekdays only -> weekdays. Every week / a specific weekday -> weekly. Otherwise once.',
             '- "what reminders" / "my reminders" -> action list.',
             '- "cancel/remove the reminder" -> action cancel.',
             '- Anything else -> action none.',
@@ -265,10 +265,15 @@ export function localTimeToUtc(localTime: string, timezone: string): string {
 }
 
 /** Compute the next recurrence time in the user's zone. */
-export function nextRecurrence(prevUtc: string, recurrence: 'daily' | 'weekly', timezone: string): string {
+export function nextRecurrence(prevUtc: string, recurrence: 'daily' | 'weekly' | 'weekdays', timezone: string): string {
   const local = formatLocalAt(prevUtc, timezone)
   const wall = parseWallClock(local)
-  wall.setUTCDate(wall.getUTCDate() + (recurrence === 'daily' ? 1 : 7))
+  if (recurrence === 'weekdays') {
+    wall.setUTCDate(wall.getUTCDate() + 1)
+    while (wall.getUTCDay() === 0 || wall.getUTCDay() === 6) wall.setUTCDate(wall.getUTCDate() + 1)
+  } else {
+    wall.setUTCDate(wall.getUTCDate() + (recurrence === 'daily' ? 1 : 7))
+  }
   const p = (n: number) => String(n).padStart(2, '0')
   const nextLocal = `${wall.getUTCFullYear()}-${p(wall.getUTCMonth() + 1)}-${p(wall.getUTCDate())}T${p(wall.getUTCHours())}:${p(wall.getUTCMinutes())}:${p(wall.getUTCSeconds())}`
   return localTimeToUtc(nextLocal, timezone)
@@ -432,7 +437,7 @@ export function startReminderScheduler(opts: {
         if (await killSwitchBlocksSend(r.phone)) continue
         const tz = r.timezone || 'America/Los_Angeles'
         const nextAt =
-          r.recurrence === 'daily' || r.recurrence === 'weekly'
+          r.recurrence === 'daily' || r.recurrence === 'weekly' || r.recurrence === 'weekdays'
             ? nextRecurrence(r.scheduledAt, r.recurrence, tz)
             : undefined
         // Atomically claim before sending so overlapping poll cycles (or
