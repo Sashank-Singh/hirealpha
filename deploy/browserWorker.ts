@@ -249,6 +249,9 @@ async function waitForLinkCredential(
   return 'timeout'
 }
 
+/** Latest screenshot per in-flight job, read by report(). */
+const lastScreenshots = new Map<string, { dataUrl: string; caption?: string } | undefined>()
+
 export async function runJob(sql: SQL, job: JobRow, launch = runBrowserSession): Promise<JobOutcome> {
   const key = vaultKey()
   const origin = (() => {
@@ -322,8 +325,10 @@ export async function runJob(sql: SQL, job: JobRow, launch = runBrowserSession):
   const kind = job.kind as 'newsletter' | 'ticker' | 'task'
   // The latest page image the session produced. A run that ends without one
   // still reports its text; a run that has one sends it, because "here is what
-  // I saw" is what makes the result checkable.
-  let lastScreenshot: { dataUrl: string; caption?: string } | undefined
+  // I saw" is what makes the result checkable. Kept module-scoped so report()
+  // (a separate function) can read it — as a local it was out of scope and
+  // every successful report crashed with ReferenceError.
+  lastScreenshots.set(job.id, undefined)
   const run = await launchTask({
     url: job.url,
     username: creds?.username || '',
@@ -335,7 +340,7 @@ export async function runJob(sql: SQL, job: JobRow, launch = runBrowserSession):
     paymentAmountCents,
     paymentCard,
     onProgress: ({ action, url }) => appendBrowserActivity(sql, job.id, action, url),
-    onScreenshot: async (shot) => { lastScreenshot = shot },
+    onScreenshot: async (shot) => { lastScreenshots.set(job.id, shot) },
     onHandoff: async ({ kind: handoffKind, message, url, amountCents, merchant, item }) => {
       if (handoffKind === 'payment' && paymentCard) return { status: 'resumed' as const, paymentCard }
       const payment = handoffKind === 'payment'
@@ -396,9 +401,11 @@ async function report(sql: SQL, job: JobRow, outcome: JobOutcome): Promise<void>
     const insights = job.spend_request_id
       ? `Order submitted after payment. Merchant confirmation: ${outcome.result}`
       : outcome.result
+    const shot = lastScreenshots.get(job.id)
+    lastScreenshots.delete(job.id)
     await pushBrowserResultLoop(sql, {
       userId: job.user_id, persona: job.persona, origin: job.url, insights,
-      screenshotDataUrl: lastScreenshot?.dataUrl, screenshotCaption: lastScreenshot?.caption,
+      screenshotDataUrl: shot?.dataUrl, screenshotCaption: shot?.caption,
     })
     return
   }
