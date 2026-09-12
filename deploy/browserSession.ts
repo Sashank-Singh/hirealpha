@@ -97,6 +97,8 @@ function connectCdp(
   mod: { chromium: BrowserType },
   url: string,
 ): Promise<Browser> {
+  // Bun >= 1.4.2 handles the 101 upgrade for the endpoint form; older
+  // runtimes need the Bun-native-websocket transport for wss:// URLs.
   if (/^wss:\/\//i.test(url)) {
     const wsUrl = url
     return new Promise<Browser>((resolve, reject) => {

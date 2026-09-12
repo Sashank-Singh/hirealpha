@@ -47,12 +47,8 @@ export class E2BTaskEnvironmentProvider implements TaskEnvironmentProvider {
         isolation: 'fresh-per-task',
       },
     })
-    const endpoint = `https://${sandbox.getHost(SANDBOX_CDP_PORT)}`
-    // Resolve the websocket URL ourselves instead of handing Playwright an
-    // https endpoint: its discovery+ws layer needs Bun >= 1.4.2 for the 101
-    // upgrade event, while the browserSession transport dials a wss:// URL
-    // through Bun's native WebSocket on any version.
-    const cdpUrl = await waitForCdp(endpoint)
+    const cdpUrl = `https://${sandbox.getHost(SANDBOX_CDP_PORT)}`
+    await waitForCdp(cdpUrl)
     return { id: sandbox.sandboxId, cdpUrl }
   }
 
@@ -76,16 +72,14 @@ export class E2BTaskEnvironmentProvider implements TaskEnvironmentProvider {
  * the sandbox's public host). Fails the create step (and therefore the whole
  * sandbox) if the browser never comes up, so the worker never connects to a
  * half-started environment. */
-async function waitForCdp(endpoint: string, timeoutMs = 45_000): Promise<string> {
+async function waitForCdp(endpoint: string, timeoutMs = 45_000): Promise<void> {
   const deadline = Date.now() + timeoutMs
   let lastError = 'CDP endpoint never became ready.'
   while (Date.now() < deadline) {
     try {
       const response = await fetch(`${endpoint}/json/version`, { signal: AbortSignal.timeout(3_000) })
       if (response.ok) {
-        const body = (await response.json()) as { webSocketDebuggerUrl?: string }
-        if (body.webSocketDebuggerUrl) return body.webSocketDebuggerUrl
-        lastError = 'CDP endpoint did not advertise a websocket URL.'
+        return
       } else {
         lastError = `CDP endpoint returned ${response.status}.`
       }
