@@ -65,6 +65,7 @@ import {
   type DraftCall,
   type PersonHit,
 } from './toolLoop'
+import { runLanggraphWorkflow } from './langgraphWorkflow'
 
 export { isBannedTagline } from './outboundFilter'
 
@@ -708,6 +709,21 @@ export async function runHireTurn(input: {
       { role: 'assistant', content: `[Alpha ${navigation.kind} card]` },
     ])
     return { reply: '', bubbles: [], source: 'local', authoritative: [], card }
+  }
+
+  // LangGraph early shield: intercepts adversarial jailbreaks, crisis distress,
+  // plaintext password sharing, and high-risk financial wire movement instantly.
+  const earlyShield = runLanggraphWorkflow({
+    userText: input.userText,
+    senderId: input.senderId,
+    agentId: agent.id,
+  })
+  if (earlyShield.overrideReply) {
+    appendThread(input.dataDir, input.senderId, [
+      { role: 'user', content: input.userText },
+      { role: 'assistant', content: earlyShield.overrideReply },
+    ])
+    return { reply: earlyShield.overrideReply, bubbles: [earlyShield.overrideReply], source: 'local', authoritative: [], card: null }
   }
 
   const pendingSpend = mem.pendingSpend
@@ -1688,6 +1704,19 @@ export async function runHireTurn(input: {
       void postOnboardingFact(input.senderId, agent.id, 'generation', 'gen_z')
       if (ageCheck.age) void postOnboardingFact(input.senderId, agent.id, 'age', String(ageCheck.age))
     }
+  }
+
+  // LangGraph workflow state: incorporates Mem0 conflict resolution, impossible
+  // constraint mitigation, de-escalation, and ambiguity checks.
+  const fullGraphState = runLanggraphWorkflow({
+    userText: input.userText,
+    senderId: input.senderId,
+    agentId: agent.id,
+    context: live.context,
+    memories: live.memories || [],
+  })
+  if (fullGraphState.suggestedPromptAdditions.length) {
+    extras.push(...fullGraphState.suggestedPromptAdditions)
   }
 
   const memoryBlock = buildMemoryBlock(mem, live.memories || [])
