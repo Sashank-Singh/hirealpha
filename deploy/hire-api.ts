@@ -11023,6 +11023,55 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     response.headers.set('Set-Cookie', 'hirealpha_session=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0')
     return response
   }
+  // Live Computer Proxy: proxies provider live view (Kernel port 8443) over standard 443 HTTPS
+  // so mobile browsers and corporate firewalls can open the live view.
+  if (path.startsWith('/api/computer/live-proxy/')) {
+    const jobId = path.slice('/api/computer/live-proxy/'.length).split('/')[0]
+    if (!jobId) return json({ error: 'Job ID required' }, 400)
+    if (!sql) return json({ error: 'Database unavailable' }, 503)
+
+    const { getBrowserJob, verifySessionViewToken } = await import('./browserJobs')
+    const job = await getBrowserJob(sql, jobId)
+    if (!job || !job.live_view_url) return new Response('Live view unavailable or session ended.', { status: 404 })
+
+    const token = url.searchParams.get('token') || url.searchParams.get('t') || req.headers.get('x-session-token')
+    let isAuthorized = false
+    if (token && verifySessionViewToken(jobId, job.user_id, token)) {
+      isAuthorized = true
+    } else {
+      const cookie = (req.headers.get('cookie') || '').split(';').map((v) => v.trim()).find((v) => v.startsWith('hirealpha_session='))?.slice('hirealpha_session='.length)
+      const bearer = req.headers.get('authorization')?.replace(/^Bearer\s+/i, '')
+      const explicitSession = url.searchParams.get('s') || bearer || cookie
+      if (explicitSession) {
+        const ses = verifySessionToken(explicitSession)
+        if (ses) {
+          const user = await getUserByEmail(sql, ses.email)
+          if (user && user.id === job.user_id) isAuthorized = true
+        }
+      }
+    }
+    if (!isAuthorized) return new Response('Unauthorized.', { status: 403 })
+
+    try {
+      const upstream = await fetch(job.live_view_url, {
+        headers: {
+          'User-Agent': req.headers.get('user-agent') || 'HireAlpha/1.0',
+          Accept: req.headers.get('accept') || '*/*',
+        },
+      })
+      const headers = new Headers(upstream.headers)
+      headers.delete('content-security-policy')
+      headers.set('access-control-allow-origin', '*')
+      return new Response(upstream.body, {
+        status: upstream.status,
+        statusText: upstream.statusText,
+        headers,
+      })
+    } catch (err) {
+      return new Response(`Unable to reach provider live stream: ${err instanceof Error ? err.message : String(err)}`, { status: 502 })
+    }
+  }
+
   // Live Computer Sessions: secured view for the user who initiated the session
   if (path.startsWith('/api/computer/session/')) {
     const sub = path.slice('/api/computer/session/'.length)
@@ -11093,8 +11142,19 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     const streamBase = configuredStream.replace('{sessionId}', encodeURIComponent(jobId))
     const vncPassword = process.env.CHROME_VNC_PASSWORD || ''
     const joiner = streamBase.includes('?') ? '&' : '?'
-    const streamUrl = providerLiveView
-      || `${streamBase}${joiner}autoconnect=true&resize=scale&reconnect=true${vncPassword ? `&password=${encodeURIComponent(vncPassword)}` : ''}`
+    // If provider live view is on port 8443, proxy through hirealpha.chat so mobile
+    // and firewalled clients can open the view over standard port 443 HTTPS.
+    let streamUrl: string | null = null
+    if (providerLiveView) {
+      if (providerLiveView.includes(':8443')) {
+        const tokenParam = token ? `?token=${encodeURIComponent(token)}` : ''
+        streamUrl = `${appBase(req)}/api/computer/live-proxy/${encodeURIComponent(jobId)}${tokenParam}`
+      } else {
+        streamUrl = providerLiveView
+      }
+    } else {
+      streamUrl = `${streamBase}${joiner}autoconnect=true&resize=scale&reconnect=true${vncPassword ? `&password=${encodeURIComponent(vncPassword)}` : ''}`
+    }
 
     return json({
       ok: true,
@@ -17604,15 +17664,6 @@ function parseSpendText(text: string): { amount: number; category: string; descr
   else if (/\b(fun|movie|game|bar|drinks|concert|party|club)/.test(lower)) category = 'fun'
   const description = text.replace(/^(log|track|logged)\s+(my\s+)?(spend|spending|expense)?\s*/i, '').trim().slice(0, 160)
   return { amount, category, description }
-}
-
-function sleepHoursBetween(bedtime: string, wake: string): number {
-  const [bh, bm] = bedtime.split(':').map(Number)
-  const [wh, wm] = wake.split(':').map(Number)
-  if ([bh, bm, wh, wm].some((n) => Number.isNaN(n))) return 0
-  let mins = (wh * 60 + wm) - (bh * 60 + bm)
-  if (mins <= 0) mins += 24 * 60
-  return mins / 60
 }
 
 /** Upgrade promo subscriptions ($5/mo) to regular price ($19/mo) after 60 days.

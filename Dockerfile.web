@@ -18,6 +18,11 @@ RUN apt-get update \
 COPY deploy/link-cli-package.json /opt/hirealpha-link/package.json
 RUN npm install --prefix /opt/hirealpha-link --omit=dev --ignore-scripts
 
+# Headless Chromium for the browser runner (vault tasks): cached permanently
+# above the source copies so code changes rebuild in seconds instead of minutes.
+ENV PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright
+RUN bunx playwright install --with-deps chromium
+
 COPY deploy/web-server.ts ./web-server.ts
 COPY deploy/appPreload.ts ./appPreload.ts
 COPY deploy/agentReady.ts ./agentReady.ts
@@ -59,13 +64,6 @@ COPY spectrum ../spectrum
 COPY src/agents /src/agents
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
-
-# Headless Chromium for the browser runner (vault tasks): downloads the
-# playwright-matched browser build plus the system libraries it needs.
-# PLAYWRIGHT_BROWSERS_PATH pins the cache outside $HOME (the runtime user's
-# HOME differs from root's, and playwright resolves per-HOME at runtime).
-ENV PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright
-RUN bunx playwright install --with-deps chromium
 
 ENV PORT=80
 ENV STATIC_ROOT=/app/dist

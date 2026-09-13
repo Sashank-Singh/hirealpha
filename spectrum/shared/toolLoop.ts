@@ -163,7 +163,6 @@ export async function runToolConversation(input: {
   const attemptedCapabilities = new Set<string>()
   const receipts: string[] = []
   const publicMatches = new Map<string, string>()
-  let nudged = false
   /** The last substantive model text, preferred over generic fallbacks. */
   let lastRaw = ''
   let browserNudgeCount = 0
@@ -197,26 +196,30 @@ export async function runToolConversation(input: {
     } finally { clearTimeout(timer) }
   }
   const fallback = () => {
+    // A staged purchase receipt is explicit: we found the real item, checked
+    // the saved address, and paused for payment.
+    if (stagedPurchase) {
+      const merchant = stagedPurchaseHost ? `on ${stagedPurchaseHost}` : 'with the merchant'
+      return `I found the item ${merchant} and confirmed your saved home address. Staged the order and pause before payment — review the card to confirm and place it.`
+    }
+    // A draft receipt is explicit: review the card, tap to send/book.
     const draftReceipt = savedDraft
       ? savedDraft.type === 'purchase'
-        ? 'Your payment link is ready for review. Nothing has been purchased yet.'
+        ? `Order staged. Review the details on the card and tap to place it.`
         : savedDraft.type === 'browser'
-          ? stagedPurchase
-            ? `I don't have your order history here to copy it exactly, so the browser run is starting on ${stagedPurchaseHost || 'the merchant site'} to find the same or closest item, stage it with your saved address, and pause before payment — nothing charges until you approve.`
-            : 'The browser run is starting now on the named site for this one task. It pauses on its own before payment or any password.'
+          ? `The browser run is starting now on the named site for this one task. It pauses on its own before payment or any password; the result lands here when it finishes.`
           : `Your ${savedDraft.type === 'event' ? 'event' : 'email'} draft is saved. Review it and tap ${savedDraft.type === 'event' ? 'Book' : 'Send'} on the card. Nothing has been ${savedDraft.type === 'event' ? 'booked' : 'sent'} yet.`
-      : draftAttempted ? 'I could not confirm that your draft was saved. Please check your drafts before trying again.' : ''
+      : draftAttempted
+        ? 'I could not confirm that your draft was saved. Please check your drafts before trying again.'
+        : ''
+    // A search-only fallback is honest: tell the user what was found, with real links.
     const searchReceipt = publicMatches.size
-      ? `Here are the top matches I found:\n${[...publicMatches.entries()]
-          .slice(0, 3)
-          .map(([url, text]) => {
-            const firstLine = text.split('\n')[0]?.trim() || 'Product'
-            return `• ${firstLine}\n${url}`
-          })
+      ? `Here are the top matches I found:\n\n${[...publicMatches.entries()]
+          .map(([url, title]) => `• ${title}\n  ${url}`)
           .join('\n\n')}`
       : ''
-    // Verified map data outranks a list of search links: the links are how a
-    // place turn ends up as a "here are some URLs" reply that never names a
+    // A place ask (restaurant, cafe, hotel...) answers with the picks from the map
+    // block rather than the raw search hits: search hits are booking homepages or
     // place, while the map block names real ones with addresses and walk times.
     const mapReceipt = mapBlock && PLACE_ASK_RE.test(lastUserAsk) ? formatMapPicks(mapBlock, lastUserAsk) : ''
     const completed = [...receipts, draftReceipt, mapReceipt || searchReceipt].filter(Boolean)
@@ -235,7 +238,7 @@ export async function runToolConversation(input: {
     try {
       const queued = await input.propose({ type: 'browser', portal: opts.portal, goal: goalText })
       if (queued && (queued as { ok?: boolean }).ok !== false) {
-        savedDraft = { type: 'browser', portal: opts.portal, goal: goalText }
+        savedDraft = { id: (queued as { id?: string }).id || 'browser-draft', type: 'browser' }
         stagedPurchase = opts.buy
         try { stagedPurchaseHost = new URL(opts.portal).hostname.replace(/^www\./, '') } catch { stagedPurchaseHost = '' }
         return { reply: fallback(), draft: savedDraft }

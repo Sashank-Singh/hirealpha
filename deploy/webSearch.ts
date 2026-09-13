@@ -177,10 +177,71 @@ export async function fetchPageText(rawUrl: string, request: typeof fetch = fetc
     return text.slice(0, 4000)
   } catch { return null }
 }
+export const DEFAULT_LANGSEARCH_API_KEY = 'sk-c4293449c699474183f3e25b896224ae'
+
+export function parseLangSearchResults(data: unknown, limit = 6): WebSearchResult[] {
+  const root = data as { data?: { webPages?: { value?: Array<{ name?: string; url?: string; snippet?: string; summary?: string }> } } }
+  const items = root?.data?.webPages?.value || []
+  const results: WebSearchResult[] = []
+  const seen = new Set<string>()
+  for (const item of items) {
+    const url = validUrl(item.url || '')
+    if (!url || seen.has(url.href)) continue
+    const title = plain(item.name || '')
+    if (!title) continue
+    const snippet = plain(item.summary || item.snippet || '')
+    seen.add(url.href)
+    results.push({ title, url: url.href, snippet })
+    if (results.length >= Math.max(1, Math.min(limit, 10))) break
+  }
+  return results
+}
+
+export async function searchLangSearch(
+  query: string,
+  limit = 6,
+  apiKey = process.env.LANGSEARCH_API_KEY || DEFAULT_LANGSEARCH_API_KEY,
+  request: typeof fetch = fetch,
+  timeoutMs = 6000,
+): Promise<WebSearchResult[] | null> {
+  const key = apiKey.trim()
+  if (!key) return null
+  try {
+    const response = await request('https://api.langsearch.com/v1/web-search', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${key}`,
+      },
+      body: JSON.stringify({
+        query,
+        freshness: 'noLimit',
+        summary: true,
+        count: Math.max(1, Math.min(limit, 10)),
+      }),
+      signal: AbortSignal.timeout(timeoutMs),
+    })
+    if (!response.ok) return null
+    const json = (await response.json()) as unknown
+    const parsed = parseLangSearchResults(json, limit)
+    const results = relevantResults(query, parsed)
+    return results.length ? results : null
+  } catch {
+    return null
+  }
+}
+
 export async function searchWeb(query: string, limit = 6, request: typeof fetch = fetch): Promise<WebSearchResult[]> {
   const q = query.trim().slice(0, 500)
   if (!q) return []
-  // Cascade, in measured order of who still answers from a server IP:
+
+  // 1. LangSearch API runs first: structured, AI-ready web results with rich summaries.
+  const langHits = await searchLangSearch(q, limit, process.env.LANGSEARCH_API_KEY || DEFAULT_LANGSEARCH_API_KEY, request).catch(() => null)
+  if (langHits && langHits.length) {
+    return langHits
+  }
+
+  // 2. Cascade, in measured order of who still answers from a server IP:
   // Brave (real results), then Yahoo / Bing RSS / DuckDuckGo as fallbacks.
   // Provider availability shifts over time; the parser tests pin each one so a
   // dead provider is visible instead of silently costing a turn its answer.
@@ -207,7 +268,6 @@ export async function searchWeb(query: string, limit = 6, request: typeof fetch 
   // wins. Misses stay pending (a settled null would win the race and
   // starve slower providers); losers are aborted once a winner lands.
   const controller = new AbortController()
-  const pending = new Promise<never>(() => {})
   const run = async (url: URL, parse: (body: string, limit: number) => WebSearchResult[], timeout: number): Promise<WebSearchResult[] | null> => {
     try {
       const response = await request(url, {

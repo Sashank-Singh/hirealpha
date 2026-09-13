@@ -1678,13 +1678,24 @@ export async function runHireTurn(input: {
       !humanLimit &&
       !wantsFreshInfo(input.userText)
     if (live.hired && agent.id === 'friend' && !simpleAsk) {
+      // Early acknowledgement: Photon rejects SetTyping on this tier, which turned
+      // multi-step turns (maps, web, browser tasks) into 60-90s blind waits.
+      // An immediate progress bubble lets the user know Alpha is actively on it.
+      if (input.delivery?.onProgress) {
+        const isHotelOrDining = /\b(?:hotel|hotels|restaurant|restaurants|dinner|lunch|breakfast|cafe|food|eat)\b/i.test(input.userText)
+        const ackText = isHotelOrDining
+          ? 'On it — checking real listings now.'
+          : 'Looking into this now.'
+        void input.delivery.onProgress(ackText).catch(() => undefined)
+      }
       let purchaseSetupUrl: string | null = null
       let purchaseRequestId: string | null = null
       let browserSessionUrl: string | null = null
       const outcome = await runToolConversation({
         messages: baseMessages,
+        delivery: input.delivery,
         chat: (messages, timeoutMs) => gmiChat({ temperature: Math.min(agent.temperature, 0.3), messages, timeoutMs }),
-        lookup: (tool, query) => fetchLiveTools(input.senderId, agent.id, query, tool),
+        lookup: (tool, query) => fetchLiveTools(input.senderId, agent.id, query, tool as any),
           propose: (draft) =>
             saveFriendDraft(input.senderId, agent.id, draft).then((r: any) => {
               if (draft.type === 'browser' && r?.ok && r.sessionUrl) {
@@ -1706,7 +1717,7 @@ export async function runHireTurn(input: {
             }
             return r
           }),
-        availableTools: LIVE_TOOLS.filter((tool) => tool === 'maps' || tool === 'web' || live.connected.includes(tool)),
+        availableTools: LIVE_TOOLS.filter((tool) => tool === 'maps' || tool === 'web' || (live.connected as string[]).includes(tool)),
         canDraft: !hardStop && humanLimit !== 'grief' && humanLimit !== 'negotiation' && !confirmKind,
         existingDraft: confirmQuery?.draft ? { id: confirmQuery.draft, type: 'mail' } : undefined,
       })

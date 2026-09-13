@@ -277,7 +277,7 @@ export async function chargeApprovedSpend(
   requestId: string,
 ): Promise<{ ok: true; paymentIntentId: string } | { ok: false; error: string; decision?: SpendDecision }> {
   const methods = await listPaymentMethodsForUser(sql, userId)
-  if (!methods.length) return { ok: false, error: 'No card connected yet.' }
+  if (!methods) return { ok: false, error: 'No card connected yet.' }
   const gate = await consumeSpendApproval(sql, userId, requestId)
   if (gate.decision !== 'ok' || !gate.approval) return { ok: false, error: `Approval is ${gate.decision}.`, decision: gate.decision }
 
@@ -770,7 +770,7 @@ export async function handleUserPaymentsApi(req: Request, sql: SQL, deps: UserPa
         merchantUrl: String(body.merchantUrl || ''),
         purpose: String(body.purpose || ''),
       })
-      return res.requestId ? json(res) : json({ error: res.error }, 400)
+      return 'requestId' in res ? json(res) : json({ error: res.error }, 400)
     }
     if (action === 'approve' || action === 'deny') {
       if (action === 'approve') {

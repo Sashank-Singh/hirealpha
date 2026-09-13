@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import { fetchPageText, parseBingRss, parseBraveResults, parseDuckDuckGoResults, parseYahooResults, searchWeb, webSearchContext } from './webSearch'
+import { fetchPageText, parseBingRss, parseBraveResults, parseDuckDuckGoResults, parseLangSearchResults, parseYahooResults, searchLangSearch, searchWeb, webSearchContext } from './webSearch'
 
 describe('web search evidence', () => {
   it('does not let fast off-topic results cancel a relevant provider', async () => {
@@ -44,8 +44,9 @@ describe('web search evidence', () => {
     const results = await searchWeb('rice', 5, (async input => {
       urls.push(String(input))
       const url = String(input)
-      // Brave is asked first; when it answers with nothing usable, the next
-      // provider in priority order is tried.
+      // LangSearch is asked first; when it fails or has no results, Brave, Yahoo,
+      // Bing and DuckDuckGo fallbacks are tried in order.
+      if (url.startsWith('https://api.langsearch.com')) return new Response(JSON.stringify({ code: 500 }), { status: 500 })
       if (url.startsWith('https://search.brave.com')) return new Response('<html><body>no results here</body></html>')
       if (url.startsWith('https://search.yahoo.com')) return new Response('<html><body>no results here</body></html>')
       if (url.startsWith('https://www.bing.com')) {
@@ -53,7 +54,8 @@ describe('web search evidence', () => {
       }
       throw new Error('unused')
     }) as typeof fetch)
-    expect(urls[0]).toStartWith('https://search.brave.com/search')
+    expect(urls[0]).toStartWith('https://api.langsearch.com/v1/web-search')
+    expect(urls.some(u => u.startsWith('https://search.brave.com'))).toBe(true)
     expect(urls.some(u => u.startsWith('https://www.bing.com/search'))).toBe(true)
     expect(results).toEqual([{ title: '5 lb rice', url: 'https://example.com/rice', snippet: 'Product details' }])
   })
@@ -139,5 +141,53 @@ describe('provider parsing and priority', () => {
       </channel></rss>`, { headers: { 'content-type': 'application/rss+xml' } })
     }) as typeof fetch)
     expect(results[0]!.url).toContain('amazon.com')
+  })
+
+  it('parses LangSearch responses and extracts title, url and summary', () => {
+    const raw = {
+      code: 200,
+      data: {
+        webPages: {
+          value: [
+            {
+              name: 'Hotel Julian Chicago',
+              url: 'https://hoteljulianchicago.com/',
+              snippet: 'Boutique hotel in the Chicago Loop.',
+              summary: 'Modern boutique hotel situated in the heart of Chicago Loop with free cancellation.',
+            },
+          ],
+        },
+      },
+    }
+    const results = parseLangSearchResults(raw)
+    expect(results).toHaveLength(1)
+    expect(results[0]!.title).toBe('Hotel Julian Chicago')
+    expect(results[0]!.url).toBe('https://hoteljulianchicago.com/')
+    expect(results[0]!.snippet).toBe('Modern boutique hotel situated in the heart of Chicago Loop with free cancellation.')
+  })
+
+  it('runs LangSearch as primary provider in searchWeb', async () => {
+    const fakeLangResponse = {
+      code: 200,
+      data: {
+        webPages: {
+          value: [
+            {
+              name: 'Intelligentsia Coffee Espresso',
+              url: 'https://amazon.com/dp/B001',
+              summary: 'Intelligentsia Black Cat espresso whole bean coffee.',
+            },
+          ],
+        },
+      },
+    }
+    const results = await searchWeb('Intelligentsia coffee beans', 5, (async (input: RequestInfo | URL) => {
+      if (String(input).includes('langsearch.com')) {
+        return new Response(JSON.stringify(fakeLangResponse), { headers: { 'content-type': 'application/json' } })
+      }
+      return new Response('offline', { status: 500 })
+    }) as typeof fetch)
+    expect(results).toHaveLength(1)
+    expect(results[0]!.url).toBe('https://amazon.com/dp/B001')
   })
 })
