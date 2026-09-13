@@ -92,6 +92,7 @@ export function ComputerSessionView() {
   const [takingControl, setTakingControl] = useState(false)
   const [acting, setActing] = useState(false)
   const [streamError, setStreamError] = useState(false)
+  const [copied, setCopied] = useState(false)
   const [streamMode, setStreamMode] = useState<'stream' | 'snapshot'>('stream')
   const lastStatus = useRef<SessionStatus | null>(null)
   const computerRef = useRef<HTMLElement>(null)
