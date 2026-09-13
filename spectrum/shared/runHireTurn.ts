@@ -1716,7 +1716,9 @@ export async function runHireTurn(input: {
         let reaction = '👀'
         if (/\b(?:flight|flights|airline|airlines|airport|fly|round\s*trip)\b/i.test(input.userText)) reaction = '✈️'
         else if (/\b(?:dinner|lunch|breakfast|restaurant|restaurants|food|eat|table|reservation)\b/i.test(input.userText)) reaction = '🍽️'
-        else if (/\b(?:yes|confirm|book it|place order|approve|go ahead|proceed|sounds good)\b/i.test(input.userText)) reaction = '👍'
+        else if (/\b(?:remind|reminder|timer|alarm|in \d+\s*(?:min|minute|sec|second|hour)|schedule)\b/i.test(input.userText)) reaction = '⏲️'
+        else if (/\b(?:domain|domains|whois|lookup|dns|ssl|code|repo|github|ip|stacksync|investigate|check availability)\b/i.test(input.userText)) reaction = '🔍'
+        else if (/\b(?:yes|confirm|book it|place order|approve|go ahead|proceed|sounds good|take the|go with)\b/i.test(input.userText)) reaction = '👍'
         void input.delivery.onReaction(reaction).catch(() => undefined)
       }
       // Early acknowledgement: Photon rejects SetTyping on this tier, which turned
@@ -1726,13 +1728,19 @@ export async function runHireTurn(input: {
         const isBooking = /\b(?:hotel|hotels|book|booking|stay|flight|flights|ticket)\b/i.test(input.userText)
         const isDining = /\b(?:restaurant|restaurants|dinner|lunch|breakfast|cafe|food|eat|table)\b/i.test(input.userText)
         const isShopping = /\b(?:buy|order|reorder|purchase|amazon|cart)\b/i.test(input.userText)
+        const isTimer = /\b(?:remind|reminder|timer|alarm)\b/i.test(input.userText)
+        const isLookup = /\b(?:domain|whois|dns|ssl|check availability)\b/i.test(input.userText)
         const ackText = isBooking
           ? "On it. I'll find the best match and run the pick by you before anything's charged."
           : isDining
             ? "On it — checking tables and verified spots now."
             : isShopping
               ? "On it — checking options and availability now."
-              : 'Looking into this now.'
+              : isTimer
+                ? "Got it — timer set."
+                : isLookup
+                  ? "Looking that up now."
+                  : 'Looking into this now.'
         void input.delivery.onProgress(ackText).catch(() => undefined)
       }
       let purchaseSetupUrl: string | null = null
@@ -1789,6 +1797,8 @@ export async function runHireTurn(input: {
           confirmKind = outcome.draft.type === 'event' ? 'pick_slot' : 'approve_send'
           confirmQuery = { draft: outcome.draft.id }
         }
+      } else if (input.delivery?.onReaction && outcome.reply) {
+        void input.delivery.onReaction('✅').catch(() => undefined)
       }
 
     } else {

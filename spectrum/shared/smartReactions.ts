@@ -79,7 +79,10 @@ export function selectSmartReaction(userText: string): string | null {
     return '✉️'
   }
 
-  // 3. News & Inquiries
+  // 3. News, Research & Lookups
+  if (/\b(domain|domains|whois|lookup|dns|ssl|code|repo|github|ip|stacksync|investigate|check availability)\b/i.test(text)) {
+    return '🔍'
+  }
   if (/\b(what'?s the news|any news|latest news|breaking news|news today|what happened (?:today|this morning|with))\b/i.test(text)) {
     return '❓'
   }
@@ -107,7 +110,10 @@ export function selectSmartReaction(userText: string): string | null {
   }
 
   // 6. Reminders & Alarms
-  if (/\b(remind me|set a reminder|timer|alarm)\b/i.test(text)) {
+  if (/\b(timer|in \d+\s*(?:min|minute|sec|second|hour))\b/i.test(text)) {
+    return '⏲️'
+  }
+  if (/\b(remind me|set a reminder|alarm)\b/i.test(text)) {
     return '⏰'
   }
 

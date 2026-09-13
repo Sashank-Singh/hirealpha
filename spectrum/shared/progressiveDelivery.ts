@@ -1,4 +1,4 @@
-export const REACTIONS = ['❤️', '😂', '🎉', '👀', '👍'] as const
+export const REACTIONS = ['❤️', '😂', '🎉', '👀', '👍', '✈️', '🍽️', '⏲️', '🔍', '✅'] as const
 export type Reaction = string
 export type DeliveryHooks = {
   onProgress?: (text: string) => Promise<void>
