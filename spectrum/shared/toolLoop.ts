@@ -127,8 +127,8 @@ export function pickBrowserPortal(input: {
  * that the maps tool has to run before a place answer is allowed out. */
 // One definition, shared with the maps tool: a pattern that missed "hotels
 // near X" made a verified map result invisible to the answer builder.
-import { PLACE_ASK_RE as PLACE_ASK_PATTERN } from '../../deploy/hire-api'
-const PLACE_ASK_RE = PLACE_ASK_PATTERN
+export const PLACE_ASK_RE =
+  /\b(?:find|recommend|suggest|looking for|where(?:'s| is| can| should)|place|places|any)\b[^.!?\n]{0,60}\b(?:restaurants?|cafes?|coffee shops?|hotels?|hostels?|places? to eat|dinner|lunch|brunch|breakfast|bar|drinks|eat(?:ing)? out)\b|\b(?:restaurants?|cafes?|coffee shops?|hotels?|hostels?|bars?|dinner|lunch|brunch|breakfast)\b[^.!?\n]{0,40}\bnear\b|\b(?:\w+\s+){0,3}(?:restaurants?|hotels?|hostels?|cafes?|bars?)\b[^.!?\n]{0,30}\b(?:in|at|near|around|walkable from|walkable to)\b|\b(?:restaurants?|hotels?|hostels?|cafes?|bars?)\s+[A-Z][a-z]/i
 
 /** One decision loop owns lookups and drafts. Each result is visible to the
  * next decision, so a lookup can lead to another lookup and then a draft.

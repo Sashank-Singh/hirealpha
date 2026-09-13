@@ -13,6 +13,7 @@ WORKDIR /app
 COPY src/agents ./src/agents
 COPY spectrum/shared ./spectrum/shared
 COPY deploy/timezones.ts ./deploy/timezones.ts
+COPY deploy/webSearch.ts ./deploy/webSearch.ts
 COPY spectrum/docker-entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 

@@ -65,6 +65,7 @@ import {
 } from '../services/trust/memoryLifecycle'
 import { memoryIndexFromEnv } from '../services/trust/memoryIndex'
 import { parseChatExport, scanSubscriptions } from '../spectrum/shared/smartFeatures'
+import { PLACE_ASK_RE } from '../spectrum/shared/toolLoop'
 import {
   isValidTimeZone,
   parseSpokenWhen,
@@ -5063,8 +5064,7 @@ const MAP_QUALIFIER_WORDS = new Set([
  * fell back to whatever a web search returned — booking-site homepages.
  * Exported so the engine and the maps tool agree on what a place ask is.
  */
-export const PLACE_ASK_RE =
-  /\b(?:find|recommend|suggest|looking for|where(?:'s| is| can| should)|place|places|any)\b[^.!?\n]{0,60}\b(?:restaurants?|cafes?|coffee shops?|hotels?|hostels?|places? to eat|dinner|lunch|brunch|breakfast|bar|drinks|eat(?:ing)? out)\b|\b(?:restaurants?|cafes?|coffee shops?|hotels?|hostels?|bars?|dinner|lunch|brunch|breakfast)\b[^.!?\n]{0,40}\bnear\b|\b(?:\w+\s+){0,3}(?:restaurants?|hotels?|hostels?|cafes?|bars?)\b[^.!?\n]{0,30}\b(?:in|at|near|around|walkable from|walkable to)\b|\b(?:restaurants?|hotels?|hostels?|cafes?|bars?)\s+[A-Z][a-z]/i
+export { PLACE_ASK_RE }
 
 export function classifyMapQuery(query: string): { mode: 'nearby'; kinds: string[] } | { mode: 'named' } {
   const normalized = query
