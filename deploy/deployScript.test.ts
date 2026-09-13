@@ -23,6 +23,7 @@ describe('legacy deployment refuses false success', () => {
     }
   })
   afterEach(() => rmSync(dir, { recursive: true, force: true }))
+  const TIMEOUT = 12_000 // shell process + 5 health-loop iterations takes ~1-1.5s; 12s covers contended CI
   async function run(extra: Record<string, string> = {}) {
     const proc = Bun.spawn(['/bin/bash', join(dir, 'scripts/deploy-prod.sh')], {
       env: { PATH: `${join(dir, 'bin')}:/usr/bin:/bin`, ...extra }, stdout: 'pipe', stderr: 'pipe',
@@ -34,25 +35,25 @@ describe('legacy deployment refuses false success', () => {
     const result = await run({ TEST_DIRTY: ' M source.ts' })
     expect(result.code).not.toBe(0)
     expect(result.output).toContain('Commit or isolate')
-  })
+  }, TIMEOUT)
   it('fails when the service restart fails', async () => {
     const result = await run({ TEST_FAIL_RESTART: '1' })
     expect(result.code).not.toBe(0)
     expect(result.output).not.toContain('Deployed revision')
-  })
+  }, TIMEOUT)
   it('fails when health never recovers', async () => {
     const result = await run({ TEST_HEALTH: '503' })
     expect(result.code).not.toBe(0)
     expect(result.output).toContain('health check did not recover')
-  })
+  }, TIMEOUT)
   it('fails when the old bundle is still served', async () => {
     const result = await run({ TEST_PAGE: '/assets/index-old.js' })
     expect(result.code).not.toBe(0)
     expect(result.output).toContain('different client bundle')
-  })
+  }, TIMEOUT)
   it('succeeds only after restart, health and bundle checks pass', async () => {
     const result = await run()
     expect(result.code).toBe(0)
     expect(result.output).toContain('Deployed revision revision')
-  })
+  }, TIMEOUT)
 })
