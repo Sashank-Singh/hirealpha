@@ -169,7 +169,9 @@ describe('paid purchase finalization', () => {
       return []
     })
 
-    expect(await queuePaidPurchaseFinalization(sql, intent)).toEqual({ status: 'queued', jobId: requestId })
+    // Pass a mock resolver: the test runs without network; any public IP satisfies assertPublicHttpsUrl.
+    const mockResolveHost = async (_host: string) => ['52.94.236.248']
+    expect(await queuePaidPurchaseFinalization(sql, intent, { resolveHost: mockResolveHost })).toEqual({ status: 'queued', jobId: requestId })
     const browserApproval = queries.find((q) => /INSERT INTO hire_browser_approvals/i.test(q.text))!
     expect(browserApproval.text).toContain("'approved'")
     expect(browserApproval.text).toContain('ON CONFLICT (id) DO NOTHING')

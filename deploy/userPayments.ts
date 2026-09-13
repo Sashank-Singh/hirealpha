@@ -18,6 +18,7 @@ import { randomUUID } from 'node:crypto'
 import type { SQL } from 'bun'
 import { enqueueBrowserJob } from './browserJobs'
 import { authorizePaidPurchaseBrowserRun, pushBrowserResultLoop } from './browserVault'
+import type { HostResolver } from './browserNetworkPolicy'
 import {
   createLinkSpendRequest,
   disconnectLink,
@@ -328,6 +329,7 @@ export type PurchaseFinalizationResult =
 export async function queuePaidPurchaseFinalization(
   sql: SQL,
   intent: PurchasePaymentIntent,
+  opts?: { resolveHost?: HostResolver },
 ): Promise<PurchaseFinalizationResult> {
   const intentId = typeof intent.id === 'string' ? intent.id : ''
   const metadata = intent.metadata && typeof intent.metadata === 'object'
@@ -451,6 +453,7 @@ export async function queuePaidPurchaseFinalization(
     approvalId: browserApproval.requestId,
     spendRequestId: requestId,
     idempotencyId: requestId,
+    resolveHost: opts?.resolveHost,
   })
   await sql`
     UPDATE hire_spend_approvals
