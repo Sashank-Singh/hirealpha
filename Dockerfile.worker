@@ -44,6 +44,7 @@ COPY deploy/userPayments.ts ./userPayments.ts
 COPY deploy/onePassword.ts ./onePassword.ts
 COPY deploy/browserWorkerEntry.sh ./browserWorkerEntry.sh
 COPY services/trust /services/trust
+RUN ln -s /app /deploy
 RUN chmod +x ./browserWorkerEntry.sh \
   && groupadd --system hirealpha && useradd --system --gid hirealpha --home-dir /tmp/hirealpha hirealpha \
   && mkdir -p /tmp/hirealpha && chown -R hirealpha:hirealpha /tmp/hirealpha

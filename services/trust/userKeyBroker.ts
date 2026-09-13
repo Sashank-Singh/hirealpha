@@ -1,6 +1,5 @@
-import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto'
+import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto'
 import type { SQL } from 'bun'
-import { vaultKey, type VaultKey } from '../../deploy/vaultCrypto'
 
 export type WrappedDataKey = { plaintext: Buffer; wrapped: string }
 
@@ -120,10 +119,25 @@ export function openBaoBrokerFromEnv(env: NodeJS.ProcessEnv = process.env): Open
   )
 }
 
+export function localMasterKey(env: NodeJS.ProcessEnv = process.env): Buffer | null {
+  const raw =
+    env.HIREALPHA_VAULT_KEY?.trim() ||
+    env.PROJECT_SECRET?.trim() ||
+    env.SPECTRUM_ALPHA_PROJECT_SECRET?.trim() ||
+    env.PHOTON_FRIEND_PROJECT_SECRET?.trim() ||
+    env.PHOTON_PROJECT_SECRET?.trim() ||
+    env.HIREALPHA_INTERNAL_KEY?.trim() ||
+    env.HIREALPHA_SESSION_VIEW_SECRET?.trim() ||
+    env.DATABASE_URL?.trim() ||
+    ''
+  if (!raw) return null
+  return createHash('sha256').update(raw, 'utf8').digest()
+}
+
 export function userKeyBrokerFromEnv(env: NodeJS.ProcessEnv = process.env): UserKeyBroker | null {
   const openBao = openBaoBrokerFromEnv(env)
   if (openBao) return openBao
-  const master = vaultKey()
+  const master = localMasterKey(env)
   if (master) return new LocalUserKeyBroker(master)
   return null
 }
