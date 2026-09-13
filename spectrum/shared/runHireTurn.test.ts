@@ -233,6 +233,8 @@ describe('tool-engine gate', () => {
   it('routes a reorder through the tool engine instead of fast chat', () => {
     const memory = { history: [], facts: [], summary: '', pendingConnection: null, pendingSpend: null } as unknown as Parameters<typeof needsConversationPlanner>[1]
     expect(needsConversationPlanner('Reorder two bags of the same coffee beans from Amazon using the home address.', memory)).toBe(true)
+    expect(needsConversationPlanner('Can you tell me how much I paid in fall 2024 in campusnet', memory)).toBe(true)
+    expect(needsConversationPlanner('check my tuition balance on csuohio', memory)).toBe(true)
     expect(needsConversationPlanner('that sounds good, thanks!', memory)).toBe(false)
   })
 })

@@ -900,7 +900,7 @@ describe('vault save with username + op backing marker', () => {
     }
   })
 
-  it('auto-triggers text message "O connected this." and resumes waiting browser job when credential is saved', async () => {
+  it('auto-triggers text message "{Tool} is connected." and resumes waiting browser job when credential is saved', async () => {
     let resumedJobId = ''
     let activityAppended = ''
     let loopText = ''
@@ -913,7 +913,7 @@ describe('vault save with username + op backing marker', () => {
         return [{ id: 'job-wait-1' }]
       }
       if (/UPDATE hire_browser_jobs/i.test(text) && /activity/i.test(text)) {
-        activityAppended = 'O connected this.'
+        activityAppended = values?.[0] || 'connected'
         return [{ id: 'job-wait-1', activity: [] }]
       }
       if (/SELECT phone_e164 FROM hire_users/i.test(text)) {
@@ -940,8 +940,8 @@ describe('vault save with username + op backing marker', () => {
 
     expect(res.status).toBe(200)
     expect(resumedJobId).toBe('job-wait-1')
-    expect(activityAppended).toBe('O connected this.')
-    expect(loopText).toContain('O connected this.')
+    expect(activityAppended).toContain('is connected.')
+    expect(loopText).toContain('is connected.')
   })
 })
 

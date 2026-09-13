@@ -674,7 +674,7 @@ async function agentLoop(
         task.paymentAmountCents = action.amountCents
       }
       if (action.kind === 'password') {
-        recentActions.push('O connected this.')
+        recentActions.push('Credential connected in vault.')
       } else if (typeof handoff === 'object' && 'answer' in handoff && handoff.answer) {
         recentActions.push(`user answered: "${handoff.answer.slice(0, 200)}" — type this into the field the question was about`)
       } else {

@@ -62,7 +62,7 @@ export function needsConversationPlanner(userText: string, memory: ThreadMemory)
   // function only answers "should the tool engine have a look at all?", so it
   // errs toward yes and lets real intent classification do the work — a regex
   // here once routed "book me a table" down the recommendation path.
-  return /\b(?:remember|remind|track|log|save|connect|gmail|email|inbox|calendar|schedule|meeting|drive|show|open|pull up|dashboard|apps?|nutrition|meal|ate|eaten|sleep|slept|workout|exercise|habit|budget|spend|spent|spending|decision|open loops?|brief|buy|purchase|re-?order|order|book|reserve|browser|website|log ?in|sign ?in|search|find|near me|restaurant|news|latest|price|weather|score|build|update (?:the|my|that) (?:app|game|site)|send|draft|forward)\b/i.test(text)
+  return /\b(?:remember|remind|track|log|save|connect|gmail|email|inbox|calendar|schedule|meeting|drive|show|open|pull up|dashboard|apps?|nutrition|meal|ate|eaten|sleep|slept|workout|exercise|habit|budget|spend|spent|spending|decision|open loops?|brief|buy|purchase|re-?order|order|book|reserve|browser|website|log ?in|sign ?in|search|find|near me|restaurant|news|latest|price|weather|score|build|update (?:the|my|that) (?:app|game|site)|send|draft|forward|check|tell me|how much|paid|pay|payment|tuition|fee|fees|charges?|bill|billed|balance|grades?|class(?:es)?|campusnet|csuohio|portal|account|vault)\b/i.test(text)
 }
 
 /** Conversational agent turn engine: the model sees the conversation before choosing any
@@ -378,6 +378,7 @@ export async function runConversationalFriend(input: {
   // writes a brief head start so the reply can confirm them in the same turn.
   // Past that window the turn proceeds without them rather than waiting.
   await Promise.race([notesReady, new Promise((r) => setTimeout(r, 250))])
+  let forcedReply: string | null = null
   const outcome = await runToolConversation({
     skipFreshLookup: autoNotes.length > 0,
     intent: intentPromise,
@@ -429,10 +430,10 @@ You are an intelligent, proactive executive partner in iMessage.
     1. Check domain availability across requested TLDs (.dev, .io, .ai, .com).
     2. For registered domains, inspect whether DNS resolves, parked status, WHOIS privacy, and SSL status.
     3. Provide actionable startup/market context (e.g. note if an active YC/funded company operates under the .com or related brand).
-  - Account Logins & Authenticated Portals (Delta, LinkedIn, carriers, etc.):
-    1. When asked to check an account (SkyMiles, LinkedIn connections, orders, etc.):
-       Say naturally: "I'm not signed into your [Service], so I can't see [details] yet. Send me the email or username on the account, and drop the password here: https://hirealpha.chat/app/hires/friend?vault=1".
-    2. Never say "I can't access your account" or dump raw Cloud Computer URLs.
+  - Account Logins & Authenticated Portals (CampusNet, Delta, LinkedIn, student portals, Amazon, etc.):
+    1. When asked to check an account or look up data behind a portal (CampusNet, tuition, fees, balance, SkyMiles, LinkedIn connections, orders, grades):
+       Emit {"action":"browser","portal":"https://...","goal":"check ..."}. The engine automatically executes the task using saved credentials from Alpha Vault or triggers the secure Alpha Vault card if not yet connected.
+    2. Never say "I can't see inside your account", "that's locked behind your login", or refuse an account lookup when a portal can be checked.
   - Memory Directives (Benchmark Dim 10):
     1. When the user gives a permanent rule (e.g. "Remember for good: I always want an aisle seat; no pork"):
        Acknowledge immediately ("Saved for good — aisle seats on all flights and strictly no pork anywhere we eat or order.") and persist it to memory facts.
@@ -487,7 +488,7 @@ ${JSON.stringify(context)}` },
         if (queued.ok) {
           if (queued.needsVault) {
             const portalName = prettyPortalName(draft.portal)
-            outcome.reply = `Locked. Everything's ready to go the second you're signed into ${portalName} — save your login details securely or choose private handoff in your vault:`
+            forcedReply = `Locked. Everything's ready to go the second you're signed into ${portalName} — save your login details securely or choose private handoff in your vault:`
             card = await mintMiniAppCard(senderId, persona, 'vault', { portal: draft.portal })
             return { ok: true, id: 'vault-locked', needsVault: true }
           }
@@ -509,6 +510,9 @@ ${JSON.stringify(context)}` },
     maxSteps: 8,
     maxDurationMs: Number(process.env.HIREALPHA_TOOL_LOOP_MS || 150_000),
   })
+  if (forcedReply) {
+    outcome.reply = forcedReply
+  }
   if (outcome.draft && outcome.draft.type !== 'purchase' && outcome.draft.type !== 'browser') {
     card = await mintMiniAppCard(senderId, persona, outcome.draft.type === 'event' ? 'pick_slot' : 'approve_send', { draft: outcome.draft.id })
   }

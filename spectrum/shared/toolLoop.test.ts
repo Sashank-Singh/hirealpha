@@ -520,6 +520,23 @@ describe('browser run targeting', () => {
     expect(result.reply).toContain('amazon.com')
   })
 
+  it('stages a run on CampusNet when asked how much was paid and model writes refusal', async () => {
+    const drafts: unknown[] = []
+    const result = await runToolConversation({
+      messages: [{ role: 'user', content: 'Can you tell me how much I paid in fall 2024 in campusnet' }],
+      availableTools: ['web', 'maps'],
+      canDraft: true,
+      chat: async () => "I can't see inside your CampusNet account, that's locked behind your login. But I can walk you through it...",
+      lookup: async () => [],
+      propose: async (draft) => { drafts.push(draft); return { ok: true, id: 'job-campusnet-1' } },
+    })
+    expect(drafts).toHaveLength(1)
+    expect(drafts[0]).toMatchObject({ type: 'browser', portal: 'https://campusnet.csuohio.edu' })
+    expect(result.reply).not.toContain('locked behind your login')
+    expect(result.reply).not.toContain("can't see inside")
+    expect(result.reply).toContain('browser run is starting now')
+  })
+
   it('stages the named merchant even when the provider returns nothing', async () => {
     const drafts: unknown[] = []
     const result = await runToolConversation({

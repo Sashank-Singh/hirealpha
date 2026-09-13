@@ -216,7 +216,7 @@ export async function runKernelTask(
           if (outcome === 'cancelled') return { ok: false, error: 'The user cancelled this task.' }
         }
         if (kind === 'password') {
-          recent.push('O connected this.')
+          recent.push('Credential connected in vault.')
         } else if (typeof outcome === 'object' && outcome.answer) {
           recent.push(`user answered: "${outcome.answer.slice(0, 200)}" — type this into the field the question was about`)
         } else {

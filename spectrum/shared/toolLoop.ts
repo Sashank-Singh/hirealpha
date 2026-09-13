@@ -50,7 +50,8 @@ export type ConversationCapability = {
  * result directory and burned a session on the wrong site. Bare "buy" and
  * "get me" are excluded so "what should I buy" and "get me the score" stay
  * lookups. */
-export const ACTION_ASK_RE = /\b(?:re-?order|order(?:ing| me)?|purchase|pay for|buy (?:me|the|this|that|it|them|two|a|an|another|more|some)\b|book(?:ing)?|reserv(?:e|ing|ation)|fill (?:out )?(?:the )?form|sign me up|check ?out|check (?:my )?(?:account|portal)|log ?in|(?:check|see|show|get|find|pull)(?:\s+me)?\s+(?:the\s+)?(?:actual\s+)?(?:rates?|prices?|availability)|what(?:'s| is| are)\s+(?:the\s+)?(?:rates?|prices?|it\s+cost)|how much (?:is|are|does|do)|nightly rate)\b/i
+export const ACTION_ASK_RE =
+  /\b(?:re-?order|order(?:ing| me)?|purchase|pay for|buy (?:me|the|this|that|it|them|two|a|an|another|more|some)\b|book(?:ing)?|reserv(?:e|ing|ation)|fill (?:out )?(?:the )?form|sign me up|check ?out|check (?:my |in )?(?:account|portal|campusnet|csuohio|balance|tuition|statement|grades?|financial aid|charges?|bill)|log ?in|sign ?in|(?:check|see|show|get|find|pull|tell me)(?:\s+me)?\s+(?:the\s+)?(?:actual\s+)?(?:rates?|prices?|availability|how much)|what(?:'s| is| are)\s+(?:the\s+)?(?:rates?|prices?|it\s+cost)|how much (?:is|are|does|do|did|was|were|I|we|have I|paid|to pay|owe|due)|how much (?:did I|I) (?:pay|paid|spend|spent)|paid in|nightly rate)\b/i
 /** Buying asks, including "reorder", stage an order rather than a browse. */
 const ASK_BUY_RE = /\b(?:re-?order|buy|buy me|purchase|order(?: me)?|get me|pay for)\b/i
 /** Merchant-hosted product pages, the strongest run target for a purchase. */
@@ -96,6 +97,13 @@ const SITE_ALIASES: Array<[RegExp, string]> = [
   [/\bresy\b/i, 'https://resy.com'],
   [/\bbooking\.com\b/i, 'https://www.booking.com'],
   [/\bhotels\.com\b/i, 'https://www.hotels.com'],
+  [/\b(?:campusnet|csuohio(?:\.edu)?)\b/i, 'https://campusnet.csuohio.edu'],
+  [/\b(?:blackboard)\b/i, 'https://blackboard.csuohio.edu'],
+  [/\b(?:canvas)\b/i, 'https://canvas.instructure.com'],
+  [/\b(?:delta(?:\s+air(?:lines)?)?)\b/i, 'https://www.delta.com'],
+  [/\b(?:united(?:\s+air(?:lines)?)?)\b/i, 'https://www.united.com'],
+  [/\b(?:american(?:\s+air(?:lines)?)?)\b/i, 'https://www.aa.com'],
+  [/\b(?:southwest(?:\s+air(?:lines)?)?)\b/i, 'https://www.southwest.com'],
 ]
 export function merchantSiteFromAsk(text: string): string | null {
   for (const [pattern, url] of SITE_ALIASES) if (pattern.test(text)) return url
@@ -216,7 +224,10 @@ export async function runToolConversation(input: {
     // The model's own last text beats a canned failure: it usually names the
     // honest blocker and the next step. Guards keep tool syntax out.
     if (lastRaw && lastRaw.length > 60 && !/^\s*(?:TOOL\b|DRAFT_|```|\{\s*"action")/i.test(lastRaw)) {
-      return draftReceipt ? `${lastRaw}\n\n${draftReceipt}` : lastRaw
+      const isRefusal = /\b(?:cannot|can't|unable to|don't have|do not have|locked behind|cannot see inside|can't see inside)\b/i.test(lastRaw)
+      if (!isRefusal || !savedDraft) {
+        return draftReceipt ? `${lastRaw}\n\n${draftReceipt}` : lastRaw
+      }
     }
     // A search-only fallback is honest: tell the user what was found, with real links.
     const searchReceipt = publicMatches.size
@@ -246,7 +257,7 @@ export async function runToolConversation(input: {
         stagedPurchase = opts.buy
         try { stagedPurchaseHost = new URL(opts.portal).hostname.replace(/^www\./, '') } catch { stagedPurchaseHost = '' }
         const cleanedRaw = stripToolDirectives(opts.raw).trim()
-        if (cleanedRaw && cleanedRaw.length > 50 && !cleanedRaw.toLowerCase().startsWith('the browser run is starting') && !/\b(?:cannot|can't|unable to|don't have|do not have)\b/i.test(cleanedRaw)) {
+        if (cleanedRaw && cleanedRaw.length > 50 && !cleanedRaw.toLowerCase().startsWith('the browser run is starting') && !/\b(?:cannot|can't|unable to|don't have|do not have|locked behind|cannot see inside|can't see inside)\b/i.test(cleanedRaw)) {
           return { reply: cleanedRaw, draft: savedDraft }
         }
         return { reply: fallback(), draft: savedDraft }
@@ -269,7 +280,7 @@ Guessing is worse than saying you don't know. Never invent prices, ratings, hour
 
 To act, reply with exactly one JSON object and nothing else:
 - Lookup: {"action":"lookup","tool":"web","query":"..."}
-- Book / order / fill a form / check an account on a named site: {"action":"browser","portal":"https://site.com","goal":"one sentence"} — the run starts immediately on that site and pauses before payment or any password. Saying you queued it without sending this object is a lie.
+- Book / order / fill a form / check an account or data on a named site: {"action":"browser","portal":"https://site.com","goal":"one sentence"} — the run starts immediately on that site using saved vault credentials or pausing before sensitive steps. Refusing an account lookup or saying you queued it without sending this object is forbidden.
 - Purchase found via web lookup: {"action":"purchase","item":"name","amount":price,"url":"product URL"} — both must come from a tool result. A payment link follows for the user to approve.
 - Draft (saved for review, never sent by you): {"action":"reply","id":"...","body":"..."} · {"action":"mail","to":"...","subject":"...","body":"..."} · {"action":"event","title":"...","start":"<ISO>","end":"<ISO>"}
 - If the user confirms a purchase you proposed last turn, send the purchase object now with those details.

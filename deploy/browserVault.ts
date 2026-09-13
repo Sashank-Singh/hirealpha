@@ -611,8 +611,11 @@ export async function handleVaultApi(req: Request, sql: SQL, deps: VaultDeps): P
       }
     }
 
-    // When connected, auto-trigger a text message "O connected this." and resume waiting browser cloud VM
+    // When connected, auto-trigger a text message "${toolName} is connected." and resume waiting browser cloud VM
     try {
+      const toolName = formatPortalName(body.portal)
+      const connectedMsg = `${toolName} is connected.`
+
       const waitingJobs = (await sql`
         SELECT id, url, persona FROM hire_browser_jobs
         WHERE user_id = ${user.id} AND status = 'waiting'
@@ -621,14 +624,14 @@ export async function handleVaultApi(req: Request, sql: SQL, deps: VaultDeps): P
 
       for (const wJob of waitingJobs) {
         await resumeBrowserHandoff(sql, wJob.id).catch(() => false)
-        await appendBrowserActivity(sql, wJob.id, 'user_connected_credential', 'O connected this.').catch(() => undefined)
+        await appendBrowserActivity(sql, wJob.id, 'user_connected_credential', connectedMsg).catch(() => undefined)
       }
 
       await pushBrowserResultLoop(sql, {
         userId: user.id,
         persona: user.persona || 'friend',
         origin: body.portal || 'https://hirealpha.chat',
-        insights: 'O connected this.',
+        insights: connectedMsg,
       }).catch(() => false)
     } catch {
       /* non-fatal */
@@ -867,6 +870,8 @@ export async function pushBrowserResultLoop(
 ): Promise<boolean> {
   const host = hostOfOrigin(input.origin)
   const isDirect =
+    input.insights.endsWith('is connected.') ||
+    input.insights.includes('is connected.') ||
     input.insights === 'O connected this.' ||
     input.insights.startsWith('O connected this.') ||
     input.insights.startsWith('Alpha paused') ||
@@ -986,11 +991,22 @@ export async function getVaultCredentialsForTask(
   origin: string,
   key: VaultKey,
 ): Promise<VaultCredentials | null> {
-  const rows = (await sql`
+  let rows = (await sql`
     SELECT id, secret_encrypted, username, secret_ref FROM hire_vault_entries
     WHERE user_id = ${userId} AND origin = ${origin}
     ORDER BY updated_at DESC LIMIT 1
   `) as Array<{ id: string; secret_encrypted: string; username: string | null; secret_ref: string | null }>
+  if (!rows[0]) {
+    let host = ''
+    try { host = new URL(origin.startsWith('http') ? origin : `https://${origin}`).hostname.replace(/^www\./, '').toLowerCase() } catch {}
+    if (host) {
+      rows = (await sql`
+        SELECT id, secret_encrypted, username, secret_ref FROM hire_vault_entries
+        WHERE user_id = ${userId} AND (origin ILIKE ${`%${host}%`} OR portal ILIKE ${`%${host}%`})
+        ORDER BY updated_at DESC LIMIT 1
+      `) as Array<{ id: string; secret_encrypted: string; username: string | null; secret_ref: string | null }>
+    }
+  }
   const row = rows[0]
   if (!row) return null
   await sql`UPDATE hire_vault_entries SET last_used_at = now() WHERE id = ${row.id}`
@@ -1050,5 +1066,27 @@ function portalOrigin(portal: string): string | null {
     return url.origin
   } catch {
     return null
+  }
+}
+
+export function formatPortalName(portal?: string): string {
+  if (!portal) return 'Account'
+  try {
+    const raw = portal.startsWith('http') ? portal : `https://${portal}`
+    const host = new URL(raw).hostname.replace(/^www\./, '').toLowerCase()
+    if (/campusnet|csuohio/i.test(host)) return 'CampusNet'
+    if (/amazon\./i.test(host)) return 'Amazon'
+    if (/netflix\./i.test(host)) return 'Netflix'
+    if (/linkedin\./i.test(host)) return 'LinkedIn'
+    if (/github\./i.test(host)) return 'GitHub'
+    if (/canvas/i.test(host)) return 'Canvas'
+    if (/blackboard/i.test(host)) return 'Blackboard'
+    if (/delta\./i.test(host)) return 'Delta'
+    if (/united\./i.test(host)) return 'United'
+    const parts = host.split('.')
+    const name = parts[0] === 'login' || parts[0] === 'signin' || parts[0] === 'auth' ? (parts[1] || parts[0]) : parts[0]
+    return name.charAt(0).toUpperCase() + name.slice(1)
+  } catch {
+    return portal.charAt(0).toUpperCase() + portal.slice(1)
   }
 }
