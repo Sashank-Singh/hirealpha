@@ -6953,10 +6953,13 @@ export function weatherCodeToHuman(code: number): { condition: string; icon: str
 export type BriefWeather = {
   temp: number
   unit: string
+  tempC?: number
   condition: string
   icon: string
   high?: number
   low?: number
+  highC?: number
+  lowC?: number
   summary: string
   city?: string
 }
@@ -6995,17 +6998,23 @@ export async function fetchWeatherForUser(
     const code = current.weather_code ?? 0
     const { condition, icon } = weatherCodeToHuman(code)
     const temp = Math.round(current.temperature_2m)
+    const tempC = Math.round(((temp - 32) * 5) / 9)
     const high = data.daily?.temperature_2m_max?.[0] !== undefined ? Math.round(data.daily.temperature_2m_max[0]) : undefined
     const low = data.daily?.temperature_2m_min?.[0] !== undefined ? Math.round(data.daily.temperature_2m_min[0]) : undefined
-    const range = high !== undefined && low !== undefined ? ` (high ${high}°F / low ${low}°F)` : ''
-    const summary = `${icon} ${temp}°F · ${condition}${city ? ` in ${city}` : ''}${range}`
+    const highC = high !== undefined ? Math.round(((high - 32) * 5) / 9) : undefined
+    const lowC = low !== undefined ? Math.round(((low - 32) * 5) / 9) : undefined
+    const range = high !== undefined && low !== undefined ? ` (high ${high}°F / ${highC}°C, low ${low}°F / ${lowC}°C)` : ''
+    const summary = `${icon} ${temp}°F / ${tempC}°C · ${condition}${city ? ` in ${city}` : ''}${range}`
     return {
       temp,
       unit: 'F',
+      tempC,
       condition,
       icon,
       high,
       low,
+      highC,
+      lowC,
       summary,
       city,
     }

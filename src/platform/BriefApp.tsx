@@ -39,10 +39,13 @@ import { BriefLoading } from './BriefLoading'
 
 export type BriefWeather = {
   temp: number
-  unit: 'F' | 'C'
+  unit: string
+  tempC?: number
   condition: string
   high?: number
   low?: number
+  highC?: number
+  lowC?: number
   icon?: string
 }
 
@@ -1100,16 +1103,25 @@ export function BriefApp({
         {dateLabel ? (
           <div className="brief-header-row">
             <p className="brief-date">{dateLabel}</p>
-            {data?.weather && (
-              <span
-                className="brief-weather-pill"
-                title={`${data.weather.condition}${data.weather.high != null && data.weather.low != null ? `, High: ${data.weather.high}° Low: ${data.weather.low}°` : ''}`}
-              >
-                <span className="brief-weather-icon">{data.weather.icon || '🌤️'}</span>
-                <span className="brief-weather-temp">{data.weather.temp}°{data.weather.unit}</span>
-                <span className="brief-weather-cond">{data.weather.condition}</span>
-              </span>
-            )}
+            {data?.weather && (() => {
+              const w = data.weather
+              const c = w.tempC ?? Math.round(((w.temp - 32) * 5) / 9)
+              const highC = w.highC ?? (w.high != null ? Math.round(((w.high - 32) * 5) / 9) : null)
+              const lowC = w.lowC ?? (w.low != null ? Math.round(((w.low - 32) * 5) / 9) : null)
+              const range = w.high != null && w.low != null
+                ? `, High: ${w.high}°F / ${highC}°C, Low: ${w.low}°F / ${lowC}°C`
+                : ''
+              return (
+                <span
+                  className="brief-weather-pill"
+                  title={`${w.condition}${range}`}
+                >
+                  <span className="brief-weather-icon">{w.icon || '🌤️'}</span>
+                  <span className="brief-weather-temp">{w.temp}°F / {c}°C</span>
+                  <span className="brief-weather-cond">{w.condition}</span>
+                </span>
+              )
+            })()}
           </div>
         ) : null}
         <h2 className="brief-title">{leadTitle}</h2>
