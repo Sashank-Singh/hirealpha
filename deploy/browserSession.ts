@@ -667,7 +667,11 @@ async function agentLoop(
         task.paymentAuthorized = true
         task.paymentAmountCents = action.amountCents
       }
-      recentActions.push(`human completed ${action.kind} handoff`)
+      if (action.kind === 'password') {
+        recentActions.push('O connected this.')
+      } else {
+        recentActions.push(`human completed ${action.kind} handoff`)
+      }
       await task.onProgress?.({ action: `handoff_${action.kind}`, url: page.url() })
       continue
     }

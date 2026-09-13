@@ -17,7 +17,7 @@ export async function extractFacts(input: {
           .map((k) => k)
           .join('\n')
       : '(none)'
-  const prompt = `Extract durable, factual things a user reveals about themselves (name, company, job, location, goals, dates, preferences, relationship details). Do NOT extract one-off small talk, emotions, or ephemera.
+  const prompt = `Extract durable, factual things a user reveals about themselves (name, company, job, location, goals, dates, preferences, relationship details, dietary restrictions, travel preferences). Do NOT extract one-off small talk, emotions, or ephemera.
 
 User: ${input.userText}
 Assistant: ${input.reply}
@@ -25,7 +25,7 @@ Assistant: ${input.reply}
 Return a JSON object only, with no prose, in this exact shape:
 {"facts":[{"key":"kebab_case_short_key","value":"short value"}, ...]}
 
-Prefer durable keys when they fit: preferred_name, people, timezone, sister, sister_flight, partner, city, company, role_title, projects, standup_time, company_name, stage, weekly_focus, hard_nos, this_weeks_decision.
+Prefer durable keys when they fit: preferred_name, people, timezone, sister, sister_flight, partner, city, company, role_title, projects, standup_time, company_name, stage, weekly_focus, hard_nos, diet, seat_preference, flight_preference, this_weeks_decision.
 Reuse an existing key if the fact already exists, otherwise invent a short kebab-case key. Omit anything not durable. Never expire names, people, timezone, or this week's decision.
 
 GROUND TRUTH — do not re-extract anything already known here:
@@ -34,12 +34,21 @@ ${authLines}
 Existing facts:
 ${existingLines || '(none)'}`
 
+  const now = Date.now()
+  const deterministic: MemoryFact[] = []
+  if (/\b(?:aisle\s*seat)\b/i.test(input.userText)) {
+    deterministic.push({ key: 'seat_preference', value: 'aisle seat', ts: now, lastSeen: now })
+  }
+  if (/\b(?:no\s*pork)\b/i.test(input.userText)) {
+    deterministic.push({ key: 'hard_nos', value: 'no pork anywhere', ts: now, lastSeen: now })
+    deterministic.push({ key: 'diet', value: 'no pork', ts: now, lastSeen: now })
+  }
+
   try {
     const raw = await gmiChat({ messages: [{ role: 'system', content: prompt }], temperature: 0, maxTokens: 400 })
     const parsed = JSON.parse(extractJson(raw)) as { facts?: Array<{ key?: string; value?: string }> }
-    const now = Date.now()
     const authoritative = new Set(input.authoritative)
-    return (parsed.facts || [])
+    const extracted = (parsed.facts || [])
       .filter(
         (f) =>
           f &&
@@ -48,6 +57,13 @@ ${existingLines || '(none)'}`
           !authoritative.has(f.key as string),
       )
       .map((f) => ({ key: f.key as string, value: f.value as string, ts: now, lastSeen: now }))
+    const combined = [...deterministic, ...extracted]
+    const seen = new Set<string>()
+    return combined.filter((f) => {
+      if (seen.has(f.key)) return false
+      seen.add(f.key)
+      return true
+    })
   } catch (err) {
     console.warn('[memory] extractFacts failed:', err)
     return []

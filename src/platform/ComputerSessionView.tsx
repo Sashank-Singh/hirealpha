@@ -25,6 +25,7 @@ interface SessionData {
   result: string | null
   error: string | null
   streamUrl: string | null
+  screenshotDataUrl?: string | null
   steps: SessionStep[]
   handoffKind?: HandoffKind
   handoffMessage?: string | null
@@ -90,7 +91,8 @@ export function ComputerSessionView() {
   const [error, setError] = useState('')
   const [takingControl, setTakingControl] = useState(false)
   const [acting, setActing] = useState(false)
-  const [copied, setCopied] = useState(false)
+  const [streamError, setStreamError] = useState(false)
+  const [streamMode, setStreamMode] = useState<'stream' | 'snapshot'>('stream')
   const lastStatus = useRef<SessionStatus | null>(null)
   const computerRef = useRef<HTMLElement>(null)
 
@@ -229,10 +231,32 @@ export function ComputerSessionView() {
             <span className="cs-browser-security">{ICONS.lock}</span>
             <span className="cs-browser-host">{currentHost}</span>
             <span className="cs-browser-private">Private session</span>
+            {session.screenshotDataUrl && (
+              <button
+                type="button"
+                className="cs-mode-toggle"
+                onClick={() => {
+                  setStreamError(false)
+                  setStreamMode((m) => (m === 'stream' ? 'snapshot' : 'stream'))
+                }}
+                style={{
+                  marginLeft: 'auto',
+                  background: 'rgba(255,255,255,0.08)',
+                  border: '1px solid rgba(255,255,255,0.18)',
+                  color: '#eee',
+                  borderRadius: 4,
+                  padding: '3px 8px',
+                  fontSize: 11,
+                  cursor: 'pointer',
+                }}
+              >
+                {streamMode === 'stream' && !streamError ? 'Switch to Port 443 Safe View' : 'Try Live Stream'}
+              </button>
+            )}
           </div>
 
           <div className={`cs-stream ${takingControl ? 'cs-stream-control' : ''}`}>
-            {session.streamUrl ? (
+            {session.streamUrl && !streamError && streamMode === 'stream' ? (
               <iframe
                 className="cs-stream-frame"
                 src={session.streamUrl}
@@ -240,7 +264,16 @@ export function ComputerSessionView() {
                 allow="clipboard-read; clipboard-write"
                 referrerPolicy="no-referrer"
                 tabIndex={takingControl ? 0 : -1}
+                onError={() => setStreamError(true)}
               />
+            ) : session.screenshotDataUrl ? (
+              <div className="cs-snapshot-display" style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#0a0a0a', overflow: 'hidden' }}>
+                <img
+                  src={session.screenshotDataUrl}
+                  alt={`Live screen on ${currentHost}`}
+                  style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }}
+                />
+              </div>
             ) : (
               <div className="cs-stream-unavailable">
                 {(session.status === 'running' || session.status === 'waiting') && <span className="cs-stream-loader" />}

@@ -5442,6 +5442,17 @@ async function fetchNearbyPlaces(
 }
 
 export async function fetchMapSearch(query: string, countryHint = '', location: LocationRow | null = null) {
+  const wantsHotel = /\b(?:hotels?|hostels?|motels?|lodging|stay|room rates?|resorts?|accommodations?)\b/i.test(query)
+  if (wantsHotel) {
+    try {
+      const webOut = await webSearchContext(query)
+      if (webOut && !/unavailable|no usable results/i.test(webOut)) {
+        return webOut
+      }
+    } catch {
+      /* fall back to nearby / osm */
+    }
+  }
   const classified = classifyMapQuery(query)
   if (classified.mode === 'nearby') {
     const nearby = await fetchNearbyPlaces(query, classified.kinds, countryHint, location)
@@ -5474,9 +5485,17 @@ export async function fetchMapSearch(query: string, countryHint = '', location: 
     const res = await fetchPublic(url, {
       headers: { Accept: 'application/json', 'User-Agent': 'HireAlpha/1.0 (https://hirealpha.chat)' },
     })
-    if (!res.ok) return `Maps search unavailable (${res.status}).`
+    if (!res.ok) {
+      const webOut = await webSearchContext(query).catch(() => '')
+      if (webOut && !/unavailable|no usable results/i.test(webOut)) return webOut
+      return `Maps search unavailable (${res.status}).`
+    }
     const rows = (await res.json()) as Array<{ display_name?: string; lat?: string; lon?: string; type?: string }>
-    if (!rows.length) return `No map results found for "${cleaned}".`
+    if (!rows.length) {
+      const webOut = await webSearchContext(query).catch(() => '')
+      if (webOut && !/unavailable|no usable results/i.test(webOut)) return webOut
+      return `No map results found for "${cleaned}".`
+    }
     return `Map results for "${cleaned}":\n${rows
       .map((row) => {
         const label = String(row.display_name || '').split(',').slice(0, 3).join(',')
@@ -5485,6 +5504,8 @@ export async function fetchMapSearch(query: string, countryHint = '', location: 
       })
       .join('\n')}`
   } catch {
+    const webOut = await webSearchContext(query).catch(() => '')
+    if (webOut && !/unavailable|no usable results/i.test(webOut)) return webOut
     return 'Maps search unavailable right now.'
   }
 }
@@ -11053,7 +11074,19 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     if (!isAuthorized) return new Response('Unauthorized.', { status: 403 })
 
     try {
-      const upstream = await fetch(job.live_view_url, {
+      const rest = path.slice('/api/computer/live-proxy/'.length)
+      const parts = rest.split('/').filter(Boolean)
+      const subPath = parts.slice(1).join('/')
+
+      let targetUrl = job.live_view_url
+      if (subPath) {
+        const baseOrigin = new URL(job.live_view_url).origin
+        targetUrl = subPath.startsWith('browser/') || subPath.startsWith('static/') || subPath.startsWith('assets/')
+          ? `${baseOrigin}/${subPath}`
+          : `${job.live_view_url.replace(/\/$/, '')}/${subPath}`
+      }
+
+      const upstream = await fetch(targetUrl, {
         headers: {
           'User-Agent': req.headers.get('user-agent') || 'HireAlpha/1.0',
           Accept: req.headers.get('accept') || '*/*',
@@ -11062,6 +11095,18 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
       const headers = new Headers(upstream.headers)
       headers.delete('content-security-policy')
       headers.set('access-control-allow-origin', '*')
+
+      const contentType = upstream.headers.get('content-type') || ''
+      if (contentType.includes('text/html')) {
+        let html = await upstream.text()
+        const proxyBase = `/api/computer/live-proxy/${encodeURIComponent(jobId)}/`
+        if (html.includes('<head>')) {
+          html = html.replace('<head>', `<head><base href="${proxyBase}">`)
+        } else if (html.includes('<head ')) {
+          html = html.replace(/<head\b[^>]*>/, `$&<base href="${proxyBase}">`)
+        }
+        return new Response(html, { status: upstream.status, headers })
+      }
       return new Response(upstream.body, {
         status: upstream.status,
         statusText: upstream.statusText,
@@ -11168,6 +11213,9 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
         result: job.result,
         error: job.error,
         streamUrl: ['running', 'waiting'].includes(job.status) ? streamUrl : null,
+        screenshotDataUrl: job.last_screenshot
+          ? (job.last_screenshot.startsWith('data:') ? job.last_screenshot : `data:image/jpeg;base64,${job.last_screenshot}`)
+          : null,
         currentUrl: job.current_url || job.url,
         // Activity rows carry {action, at}. The fallback (job.steps) holds
         // PortalStep objects keyed by `kind`, which crashed the session view

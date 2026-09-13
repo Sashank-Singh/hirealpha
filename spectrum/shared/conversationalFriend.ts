@@ -69,6 +69,7 @@ export async function runConversationalFriend(input: {
   let setupPaymentUrl: string | undefined
   let spendApprovalReady = false
   let browserQueued = false
+  let browserIsPurchase = false
   const pending = memory.pendingConnection
   const pendingSpend = memory.pendingSpend
 
@@ -345,7 +346,7 @@ export async function runConversationalFriend(input: {
           : 'The user expressed a mood but it could not be saved. Respond warmly; do not claim it was logged.',
       )
     }
-    for (const log of logsOf(intent, 'sleep')) {
+    for (const _log of logsOf(intent, 'sleep')) {
       const sl = await autoLogSleep(senderId, persona, input.userText)
       autoNotes.push(
         sl?.logged
@@ -386,8 +387,8 @@ You are an intelligent, proactive executive partner in iMessage.
 - Authenticated Portals & 1Password Vault:
   - When the user asks you to log into an account, portal, or service (e.g. LinkedIn, carrier portal, store account):
     1. Launch the browser instance: emit {"action":"browser","portal":"<login URL, e.g. https://www.linkedin.com/login>","goal":"<what to do once logged in>"}.
-    2. Inform the user that the browser session is running. If credentials are required, guide them to approve their login via 1Password in Vault:
-       "I've launched the browser to log in to LinkedIn: http://localhost:5173/computer (or https://hirealpha.chat/computer). To securely supply your credentials, authorize it via 1Password in Vault: http://localhost:5173/app/hires/friend?vault=1"
+    2. Inform the user that the browser session is running. If their password, login email, or username is not in Vault yet, ask them to connect it to Vault via the website link:
+       "I've launched the browser to log in: http://localhost:5173/computer (or https://hirealpha.chat/computer). If your password, login email, or username is not in Vault yet, connect it securely here: http://localhost:5173/app/hires/friend?vault=1 (or https://hirealpha.chat/app/hires/friend?vault=1). Once connected, Alpha will automatically receive your credentials and continue."
     3. Never say "I can't log in from here" — you have full Cloud Computer browser automation with Vault credential integration.
 - You choose capabilities after understanding the whole conversation. No automatic logging, cards, or daily briefing has run. ${returning ? 'You have met this user; do not reintroduce yourself.' : 'Introduce yourself briefly if natural, then help with the actual request. Do not force onboarding.'}
 If a pending connection request exists, retain it across unrelated chat. When the user says they connected or asks to continue, check the current connected list and resume the saved task without asking them to restate it. Clear it with finish_pending_task only when done or explicitly cancelled.
@@ -398,7 +399,7 @@ ${JSON.stringify(context)}` },
     ],
     chat: (messages, timeoutMs) => gmiChat({ messages, temperature: 0.6, timeoutMs }),
     availableTools: available,
-    lookup: (tool, query) => fetchLiveTools(senderId, persona, query, tool),
+    lookup: (tool, query) => fetchLiveTools(senderId, persona, query, tool as any),
     canDraft: true,
     propose: async (draft) => {
       if (draft.type === 'purchase') {
@@ -439,6 +440,7 @@ ${JSON.stringify(context)}` },
         if (queued.ok) {
           browserQueued = true
           browserSessionUrl = queued.sessionUrl || `https://hirealpha.chat/computer/${queued.id || ''}`
+          browserIsPurchase = /\b(?:buy|order|purchase|reorder|checkout|cart)\b/i.test(input.userText) || /\b(?:buy|order|purchase|reorder|checkout|cart)\b/i.test(draft.goal || '')
         }
         return queued
       }
@@ -493,9 +495,13 @@ ${JSON.stringify(context)}` },
       reply += '\n\nI have this ready for you. Let me know if you want me to place the order, or you can approve on the card right here!'
     }
   }
-  if (browserQueued) {
+  if (browserQueued && browserSessionUrl && !reply.includes(browserSessionUrl)) {
     if (!reply.includes('computer') && !reply.includes('Cloud Computer')) {
-      reply += `\n\nLaunching Cloud Computer to stage your order: ${browserSessionUrl} — navigating to the merchant, selecting your options, and proceeding through checkout with your saved shipping address. I'll bring the verified approval card right here as soon as checkout is ready.`
+      if (browserIsPurchase) {
+        reply += `\n\nLaunching Cloud Computer to stage your order: ${browserSessionUrl} — navigating to the merchant, selecting your options, and proceeding through checkout with your saved shipping address. I'll bring the verified approval card right here as soon as checkout is ready.`
+      } else {
+        reply += `\n\nLaunching Cloud Computer for this task: ${browserSessionUrl} — the session is active now, pauses automatically before any sensitive steps, and I'll report back here with the verified results.`
+      }
     }
   }
   if (returning) reply = reply.replace(/^(?:(?:hey|hi|hello)[,!]?\s*)?(?:i'm|i am|this is)\s+Alpha(?:\s*,\s*your\s+[^.!?]+)?[.!?]\s*/i, '').trim()

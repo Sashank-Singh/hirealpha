@@ -27,6 +27,7 @@ import {
   finishBrowserJob,
   generateSessionViewToken,
   setBrowserLiveView,
+  setBrowserScreenshot,
   waitForBrowserHandoff,
   type BrowserJobRow,
 } from './browserJobs'
@@ -307,7 +308,15 @@ export async function runJob(sql: SQL, job: JobRow, launch = runBrowserSession):
             browser,
           )
         } finally {
-          await browser.close().catch(() => undefined)
+          // Keep the container accessible via liveViewUrl for a grace period (default 120s)
+          // so that the user can inspect the session without encountering
+          // "proxy.*.onkernel.com took too long to respond".
+          const graceMs = Number(process.env.KERNEL_CLOSE_GRACE_MS || 120_000)
+          if (graceMs > 0 && browser.liveViewUrl) {
+            setTimeout(() => browser.close().catch(() => undefined), graceMs).unref?.()
+          } else {
+            await browser.close().catch(() => undefined)
+          }
         }
       })()
     }
@@ -392,7 +401,12 @@ export async function runJob(sql: SQL, job: JobRow, launch = runBrowserSession):
     onProgress: async ({ action, url }) => {
       await appendBrowserActivity(sql, job.id, action, url).catch(() => undefined)
     },
-    onScreenshot: async (shot) => { lastScreenshots.set(job.id, shot) },
+    onScreenshot: async (shot) => {
+      lastScreenshots.set(job.id, shot)
+      if (shot?.dataUrl) {
+        await setBrowserScreenshot(sql, job.id, shot.dataUrl).catch(() => undefined)
+      }
+    },
     onHandoff: async ({ kind: handoffKind, message, url, amountCents, merchant, item }) => {
       if (handoffKind === 'payment' && paymentCard) return { status: 'resumed' as const, paymentCard }
       const payment = handoffKind === 'payment'
@@ -406,6 +420,7 @@ export async function runJob(sql: SQL, job: JobRow, launch = runBrowserSession):
       const appBase = (process.env.HIREALPHA_APP_URL || 'https://hirealpha.chat').replace(/\/$/, '')
       const viewToken = generateSessionViewToken(job.id, job.user_id)
       const sessionUrl = `${appBase}/computer/${job.id}?token=${encodeURIComponent(viewToken)}`
+      const vaultUrl = `${appBase}/app/hires/${job.persona || 'friend'}?vault=1`
       // The challenge screenshot the session just took travels with the
       // handoff message: the user sees the wall in the thread, not a claim
       // that one exists.
@@ -416,13 +431,26 @@ export async function runJob(sql: SQL, job: JobRow, launch = runBrowserSession):
         origin: url,
         insights: payment
           ? `Checkout is staged at a verified total of $${((amountCents || 0) / 100).toFixed(2)}. Approve the one-time payment in Link: ${payment.paymentUrl} — watch the live checkout here: ${sessionUrl}`
-          : `Alpha paused and needs you to ${message.replace(/[.!]+$/, '').toLowerCase()}. Open the live computer: ${sessionUrl}`,
+          : handoffKind === 'password'
+            ? `Your login password or username is not in Vault yet. Connect it securely here: ${vaultUrl} — or take over the live computer: ${sessionUrl}`
+            : `Alpha paused and needs you to ${message.replace(/[.!]+$/, '').toLowerCase()}. Open the live computer: ${sessionUrl}`,
         screenshotDataUrl: handoffShot?.dataUrl,
         screenshotCaption: handoffShot?.caption || handoffMessage,
       })
-      return payment
+      const handoffOutcome = await (payment
         ? waitForLinkCredential(sql, job, payment)
-        : waitForBrowserHandoff(sql, job.id)
+        : waitForBrowserHandoff(sql, job.id))
+
+      if (handoffOutcome === 'resumed' && key && (handoffKind === 'password' || !creds)) {
+        const freshCreds = await getVaultCredentialsForTask(sql, job.user_id, origin, key).catch(() => null)
+        if (freshCreds) {
+          creds = freshCreds
+          task.username = freshCreds.username
+          task.password = freshCreds.password
+        }
+      }
+
+      return handoffOutcome
     },
   })
   } catch (err) {

@@ -103,16 +103,37 @@ const AGENT_SYSTEM =
 
 /** Parse one model reply. Unknown shapes are skipped by the caller — never executed. */
 export function parseAgentAction(raw: string): AgentAction | null {
+  if (!raw) return null
   const jsonText = raw.replace(/```(?:json)?/g, '').trim()
+  let obj: Record<string, unknown> | null = null
+
+  // 1. Try parsing full or sliced string first
   const start = jsonText.indexOf('{')
   const end = jsonText.lastIndexOf('}')
-  if (start === -1 || end <= start) return null
-  let obj: Record<string, unknown>
-  try {
-    obj = JSON.parse(jsonText.slice(start, end + 1)) as Record<string, unknown>
-  } catch {
-    return null
+  if (start !== -1 && end > start) {
+    try {
+      obj = JSON.parse(jsonText.slice(start, end + 1)) as Record<string, unknown>
+    } catch {}
   }
+
+  // 2. If full slice failed (e.g. reasoning had curly braces), look for isolated action JSON object
+  if (!obj || typeof obj !== 'object' || !obj.action) {
+    const matches = jsonText.match(/\{[^{}]*?"action"\s*:\s*[^{}]*?\}/g)
+      || jsonText.match(/\{[\s\S]*?"action"\s*:\s*[\s\S]*?\}/g)
+    if (matches) {
+      for (let i = matches.length - 1; i >= 0; i--) {
+        try {
+          const cand = JSON.parse(matches[i])
+          if (cand && typeof cand === 'object' && 'action' in cand) {
+            obj = cand as Record<string, unknown>
+            break
+          }
+        } catch {}
+      }
+    }
+  }
+
+  if (!obj || typeof obj !== 'object') return null
   const str = (v: unknown, max: number): string => (typeof v === 'string' ? v.slice(0, max) : '')
   switch (obj.action) {
     case 'click': {
@@ -209,7 +230,8 @@ export function makeVisionCaller(cfg: {
 }): VisionCall {
   const systemPrompt = cfg.systemPrompt || AGENT_SYSTEM
   // The action reply is tiny; an audit transcription of several items is not.
-  const maxTokens = cfg.maxTokens ?? 300
+  // Reasoning models (e.g. DeepSeek) emit reasoning tokens first, so provide enough headroom.
+  const maxTokens = cfg.maxTokens ?? 1200
   const attemptTimeoutMs = cfg.timeoutMs ?? VISION_ATTEMPT_TIMEOUT_MS
   const budgetMs = cfg.totalBudgetMs ?? VISION_CALL_BUDGET_MS
   const BACKOFF_MS = [3_000, 8_000, 20_000]
@@ -263,12 +285,44 @@ export function makeVisionCaller(cfg: {
         }
         if (res.ok) {
           cursor = (cursor + i + 1) % models.length
-          const data = (await res.json()) as { choices?: Array<{ message?: { content?: string } }> }
-          return data.choices?.[0]?.message?.content ?? ''
+          const data = (await res.json()) as { choices?: Array<{ message?: { content?: string; reasoning_content?: string } }> }
+          const msg = data.choices?.[0]?.message
+          return msg?.content?.trim() || msg?.reasoning_content?.trim() || ''
         }
         // The provider's error body names the offending field; without it a
         // misconfigured model or oversized image is an opaque "vision model 400".
         const detail = await res.text().catch(() => '')
+        // If the vision endpoint rejects an image payload (e.g. 400 Failed to decode image data),
+        // gracefully fall back to text-only with the DOM targets rather than crashing the browser run!
+        if (res.status === 400 && Array.isArray(parts) && parts.some((p: any) => p && typeof p === 'object' && p.type === 'image_url')) {
+          const textOnlyParts = parts.filter((p: any) => p?.type !== 'image_url')
+          try {
+            const fallbackRes = await fetch(`${cfg.baseUrl}/chat/completions`, {
+              method: 'POST',
+              headers: {
+                'content-type': 'application/json',
+                authorization: `Bearer ${cfg.apiKey}`,
+                'User-Agent': 'HireAlpha/0.1 (browser-agent)',
+              },
+              body: JSON.stringify({
+                model,
+                temperature: 0.1,
+                max_tokens: maxTokens,
+                messages: [
+                  { role: 'system', content: systemPrompt },
+                  { role: 'user', content: textOnlyParts },
+                ],
+              }),
+              signal: AbortSignal.timeout(Math.max(250, Math.min(attemptTimeoutMs, remaining()))),
+            })
+            if (fallbackRes.ok) {
+              cursor = (cursor + i + 1) % models.length
+              const data = (await fallbackRes.json()) as { choices?: Array<{ message?: { content?: string; reasoning_content?: string } }> }
+              const msg = data.choices?.[0]?.message
+              return msg?.content?.trim() || msg?.reasoning_content?.trim() || ''
+            }
+          } catch {}
+        }
         lastError = `${res.status}${detail ? `: ${detail.slice(0, 300)}` : ''}`
         if (res.status !== 429) throw new Error(`vision model ${lastError}`)
       }
@@ -287,16 +341,16 @@ const AUDIT_SYSTEM =
   'Quote text exactly as it appears; never fill in a value you cannot see — use null instead.'
 
 export function agentEnvCaller(kind: 'action' | 'audit' = 'action'): VisionCall | null {
-  const apiKey = process.env.GMI_API_KEY?.trim()
+  const apiKey = process.env.GMI_API_KEY?.trim() || process.env.OPENAI_API_KEY?.trim()
   if (!apiKey) return null
   const baseUrl = (process.env.GMI_BASE_URL || 'https://api.gmi-serving.com/v1').replace(/\/$/, '')
-  const model = process.env.AGENT_VISION_MODEL || process.env.NUTRITION_VISION_MODEL || 'moonshotai/Kimi-K2.5'
-  const fallbackModels = (process.env.AGENT_FALLBACK_VISION_MODEL || 'google/gemini-3.8-flash,google/gemini-3.5-flash-lite')
+  const model = process.env.AGENT_VISION_MODEL || process.env.NUTRITION_VISION_MODEL || 'deepseek-ai/DeepSeek-V4-Flash-0731'
+  const fallbackModels = (process.env.AGENT_FALLBACK_VISION_MODEL || 'deepseek-ai/DeepSeek-V4-Flash-0731,google/gemini-3.7-flash,google/gemini-3.8-flash,Qwen/Qwen3.8-Flash')
     .split(',').map((m) => m.trim()).filter(Boolean)
   return makeVisionCaller({
     apiKey, baseUrl, model, fallbackModels,
     systemPrompt: kind === 'audit' ? AUDIT_SYSTEM : AGENT_SYSTEM,
-    maxTokens: kind === 'audit' ? 800 : 300,
+    maxTokens: 1200,
   })
 }
 

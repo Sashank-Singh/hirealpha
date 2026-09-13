@@ -144,9 +144,21 @@ export async function runKernelTask(
       // Keep the provider session alive across the model turn: a slow step must
       // not let the idle reaper take the browser out from under the loop.
       await browser.keepalive()
-      const raw = await call(parts)
+      await task.onScreenshot?.({ dataUrl: `data:image/jpeg;base64,${screenshot}`, caption: `Step ${step + 1}: ${title}` }).catch(() => undefined)
+      let raw = ''
+      try {
+        raw = await call(parts)
+      } catch (callErr) {
+        console.warn(`[kernel] step ${step} vision call failed, falling back to text:`, callErr)
+        try {
+          raw = await call([parts[0]])
+        } catch (textErr) {
+          recent.push(`model error: ${textErr instanceof Error ? textErr.message : String(textErr)}`)
+          continue
+        }
+      }
       const action = raw ? parseAgentAction(raw) : null
-      if (process.env.KERNEL_TRACE === '1') console.error(`[kernel] step ${step} reply: ${String(raw).slice(0, 300)}`)
+      if (process.env.KERNEL_TRACE === '1' || process.env.DEBUG) console.error(`[kernel] step ${step} reply: ${String(raw).slice(0, 300)}`)
       if (!action) {
         recent.push('model replied with no usable action')
         continue
@@ -166,7 +178,7 @@ export async function runKernelTask(
         if (action.type === 'giveup') return { ok: false, error: action.reason || 'The goal could not be reached.' }
         const answer = String(action.answer || '').trim()
         if (!answer) return { ok: false, error: 'The agent produced an empty answer.' }
-        const verdict = await auditCall(buildVerificationParts({ goal: task.goal || '', answer, pageText, screenshotBase64: screenshot }))
+        const verdict = await auditCall(buildVerificationParts({ goal: task.goal || '', answer, pageText, screenshotBase64: screenshot })).catch(() => '')
         const checked = parseVerification(verdict || '', answer)
         if (!checked.supported) {
           recent.push(`answer was not supported by the page (${checked.unsupported}) — look again`)
@@ -194,7 +206,11 @@ export async function runKernelTask(
           const outcome = await requireHandoff(task, { kind, message: action.message || 'Your input is needed.', url: browser.url() })
           if (outcome === 'cancelled') return { ok: false, error: 'The user cancelled this task.' }
         }
-        recent.push(`handoff:${kind} completed by the user`)
+        if (kind === 'password') {
+          recent.push('O connected this.')
+        } else {
+          recent.push(`handoff:${kind} completed by the user`)
+        }
         continue
       }
 
@@ -236,6 +252,7 @@ async function capture(browser: KernelBrowser): Promise<{
     targets: Target[]
     hasPasswordField: boolean
     title: string
+    screenshot: string
   }>(`
     const data = await page.evaluate(() => {
       // Redact protected fields before the pixels leave the browser: a payment
@@ -269,16 +286,16 @@ async function capture(browser: KernelBrowser): Promise<{
         title: document.title,
       };
     });
-    await page.screenshot({ type: 'jpeg', quality: 50 });
+    const shot = await page.screenshot({ type: 'jpeg', quality: 50 });
     await page.evaluate(() => document.getElementById('__hirealpha_targets__')?.remove());
-    return data;
+    return { ...data, screenshot: shot.toString('base64') };
   `, 90_000)
   return {
     pageText: data.text || '',
     targets: data.targets || [],
     hasPasswordField: Boolean(data.hasPasswordField),
     title: data.title || '',
-    screenshot: await browser.screenshot(50),
+    screenshot: data.screenshot || '',
   }
 }
 

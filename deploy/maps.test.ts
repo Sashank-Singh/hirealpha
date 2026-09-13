@@ -338,4 +338,33 @@ describe('fetchMapSearch named path', () => {
     expect(out).toContain('Golden Gate Park, SF')
     expect(out).toContain('(park)')
   })
+
+  it('routes hotel searches to LangSearch webSearchContext for rich details', async () => {
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const url = String(input instanceof URL ? input : (input as Request).url ?? input)
+      if (url.includes('api.langsearch.com')) {
+        return new Response(
+          JSON.stringify({
+            data: {
+              webPages: {
+                value: [
+                  {
+                    name: 'The Palmer House Hilton - Loop Chicago',
+                    url: 'https://www.hilton.com/palmer-house',
+                    summary: 'Historic hotel in Chicago Loop with rooms from $195/night and free cancellation up to 24 hours prior.',
+                  },
+                ],
+              },
+            },
+          }),
+          { status: 200 },
+        )
+      }
+      return new Response(JSON.stringify([]), { status: 404 })
+    }) as typeof fetch
+    const out = await fetchMapSearch('hotels in Chicago Loop under $250')
+    expect(out).toContain('The Palmer House Hilton')
+    expect(out).toContain('$195/night')
+  })
 })
+

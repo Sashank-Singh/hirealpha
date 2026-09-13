@@ -6,15 +6,14 @@ function relevantResults(query: string, rows: WebSearchResult[]): WebSearchResul
   const ignored = new Set('a an the in at on for of to and or near me can you find search best nice good official website websites menu address latest please buy'.split(' '))
   const terms = [...new Set(query.toLowerCase().match(/[a-z0-9]+/g) || [])].filter(t => t.length > 2 && !ignored.has(t))
   const dining = /\b(?:restaurants?|dining|dinner|cafes?|ristorante|pizzeria)\b/i.test(query)
-  // One matching term is enough. Requiring a majority of the query's words
-  // silently emptied shopping results: "jasmine rice 5lb" returned real product
-  // pages that said "rice" but not "jasmine" in the title, so nothing survived
-  // and the turn ended with "I could not finish this request". A single hit
-  // still keeps unrelated pages out, because the provider already ranked by the
-  // full query.
+  const hotel = /\b(?:hotels?|hostels?|motels?|lodging|stay|room rates?)\b/i.test(query)
+  const flights = /\b(?:flights?|airline|tickets?|airfare|fares?)\b/i.test(query)
   return rows.filter(row => {
     const content = `${row.title} ${row.snippet} ${row.url}`.toLowerCase()
-    if (dining && !/\b(?:restaurants?|dining|dinner|cafes?|ristorante|bistro|pizzeria|steakhouse|seafood|italian|sushi)\b/i.test(content)) return false
+    if (dining && !/\b(?:restaurants?|dining|dinner|cafes?|ristorante|bistro|pizzeria|steakhouse|seafood|italian|sushi|food|eatery|grill|kitchen|bakery|tacos?|taqueria)\b/i.test(content)) return false
+    if (hotel && !/\b(?:hotels?|hostels?|motels?|lodging|accommodations?|suites?|resorts?|rooms?|inns?|stay|guest house|bed and breakfast|vacation rental)\b/i.test(content)) return false
+    if (flights && !/\b(?:flights?|airline|airlines|airways|tickets?|fares?|airfare|nonstop|roundtrip|one-way|airport)\b/i.test(content)) return false
+    if (hotel && /\b(?:national basketball association|nba|football club|baseball|sports team|roster|season)\b/i.test(content)) return false
     return !terms.length || terms.some(t => content.includes(t.replace(/s$/, '')))
   })
 }

@@ -36,6 +36,7 @@ export type BrowserJobRow = {
   /** Provider-hosted live view of this exact browser (Kernel). When present the
    * session page embeds it instead of the container's noVNC fallback. */
   live_view_url: string | null
+  last_screenshot?: string | null
   activity: Array<{ action: string; at: string }>
   handoff_kind: 'password' | 'verification' | 'payment' | 'captcha' | 'confirmation' | null
   handoff_message: string | null
@@ -71,6 +72,7 @@ export async function ensureBrowserJobsSchema(sql: SQL): Promise<void> {
   await sql`ALTER TABLE hire_browser_jobs ADD COLUMN IF NOT EXISTS spend_request_id UUID`
   await sql`ALTER TABLE hire_browser_jobs ADD COLUMN IF NOT EXISTS current_url TEXT`
   await sql`ALTER TABLE hire_browser_jobs ADD COLUMN IF NOT EXISTS live_view_url TEXT`
+  await sql`ALTER TABLE hire_browser_jobs ADD COLUMN IF NOT EXISTS last_screenshot TEXT`
   await sql`ALTER TABLE hire_browser_jobs ADD COLUMN IF NOT EXISTS activity JSONB NOT NULL DEFAULT '[]'::jsonb`
   await sql`ALTER TABLE hire_browser_jobs ADD COLUMN IF NOT EXISTS handoff_kind TEXT`
   await sql`ALTER TABLE hire_browser_jobs ADD COLUMN IF NOT EXISTS handoff_message TEXT`
@@ -168,7 +170,7 @@ export async function claimBrowserJobs(sql: SQL, limit: number): Promise<Browser
     )
     RETURNING id, user_id, persona, phone_e164, kind, url, steps, goal, status, attempts, result, error, approval_id,
       vault_item_id, credential_capability_id, credential_capability_digest, credential_task_id, spend_request_id,
-      current_url, live_view_url, activity, handoff_kind, handoff_message, handoff_at, handoff_resumed_at
+      current_url, live_view_url, last_screenshot, activity, handoff_kind, handoff_message, handoff_at, handoff_resumed_at
   `) as unknown as BrowserJobRow[]
   return rows
 }
@@ -207,7 +209,7 @@ export async function getBrowserJob(sql: SQL, id: string, userId?: string): Prom
   const rows = (await sql`
     SELECT id, user_id, persona, phone_e164, kind, url, steps, goal, status, attempts, result, error, approval_id,
       vault_item_id, credential_capability_id, credential_capability_digest, credential_task_id, spend_request_id,
-      current_url, live_view_url, activity, handoff_kind, handoff_message, handoff_at, handoff_resumed_at
+      current_url, live_view_url, last_screenshot, activity, handoff_kind, handoff_message, handoff_at, handoff_resumed_at
     FROM hire_browser_jobs WHERE id = ${id} ${userId ? sql`AND user_id = ${userId}` : sql``} LIMIT 1
   `) as unknown as BrowserJobRow[]
   return rows[0] ?? null
@@ -221,6 +223,10 @@ export type BrowserHandoffKind = NonNullable<BrowserJobRow['handoff_kind']>
  * browser starts, so the session page can embed it while the run is in flight. */
 export async function setBrowserLiveView(sql: SQL, id: string, liveViewUrl: string): Promise<void> {
   await sql`UPDATE hire_browser_jobs SET live_view_url = ${liveViewUrl.slice(0, 2000)} WHERE id = ${id}`
+}
+
+export async function setBrowserScreenshot(sql: SQL, id: string, screenshotDataUrl: string): Promise<void> {
+  await sql`UPDATE hire_browser_jobs SET last_screenshot = ${screenshotDataUrl} WHERE id = ${id}`
 }
 
 export async function appendBrowserActivity(sql: SQL, id: string, action: string, currentUrl: string): Promise<void> {

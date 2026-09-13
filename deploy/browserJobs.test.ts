@@ -161,9 +161,11 @@ describe('agent action parser (the only path from JSON to the browser)', () => {
     expect(parseAgentAction('{"action":"giveup","reason":"login wall"}')).toEqual({ type: 'giveup', reason: 'login wall' })
   })
 
-  it('tolerates markdown fences and prose around the JSON', () => {
+  it('tolerates markdown fences, prose, and bracketed reasoning around the JSON', () => {
     const raw = '```json\n{"action":"done","answer":"$4.20"}\n```'
     expect(parseAgentAction(raw)).toEqual({ type: 'done', answer: '$4.20' })
+    const reasoningWithBrackets = '<think>I see { item: 123 } on page. Next action should be click.</think>\n{"action":"click","selector":"#submit"}'
+    expect(parseAgentAction(reasoningWithBrackets)).toEqual({ type: 'click', selector: '#submit' })
   })
 
   it('rejects junk, non-https navigate, missing selectors, giant payloads', () => {
@@ -227,6 +229,44 @@ describe('vision caller + parts', () => {
     try {
       const call = makeVisionCaller({ apiKey: 'k', baseUrl: 'https://api.gmi-serving.com/v1', model: 'test-model' })
       expect(await call(buildVisionParts({ pageText: '', url: 'https://x.com', screenshotBase64: 'z', goal: 'g', stepNumber: 1, recentActions: [] }))).toBe('{"action":"done","answer":"hi"}')
+    } finally {
+      globalThis.fetch = realFetch
+    }
+  })
+
+  it('makeVisionCaller returns reasoning_content if content is omitted', async () => {
+    const realFetch = globalThis.fetch
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ choices: [{ message: { reasoning_content: '{"action":"click","selector":"#ok"}' } }] }), { status: 200 })) as typeof fetch
+    try {
+      const call = makeVisionCaller({ apiKey: 'k', baseUrl: 'https://api.gmi-serving.com/v1', model: 'test-model' })
+      expect(await call([])).toBe('{"action":"click","selector":"#ok"}')
+    } finally {
+      globalThis.fetch = realFetch
+    }
+  })
+
+  it('makeVisionCaller gracefully falls back to text-only if image decoding fails with 400', async () => {
+    const realFetch = globalThis.fetch
+    let attempts = 0
+    globalThis.fetch = (async (_url: unknown, init?: { body?: string }) => {
+      attempts++
+      const body = JSON.parse(init?.body || '{}')
+      const hasImage = body.messages?.[1]?.content?.some((p: any) => p?.type === 'image_url')
+      if (hasImage) {
+        return new Response('Failed to decode image data', { status: 400 })
+      }
+      return new Response(JSON.stringify({ choices: [{ message: { content: '{"action":"press","key":"Enter"}' } }] }), { status: 200 })
+    }) as typeof fetch
+    try {
+      const call = makeVisionCaller({ apiKey: 'k', baseUrl: 'https://api.gmi-serving.com/v1', model: 'test-model' })
+      const parts = [
+        { type: 'text', text: 'prompt' },
+        { type: 'image_url', image_url: { url: 'data:image/jpeg;base64,123' } },
+      ]
+      const res = await call(parts)
+      expect(res).toBe('{"action":"press","key":"Enter"}')
+      expect(attempts).toBe(2)
     } finally {
       globalThis.fetch = realFetch
     }

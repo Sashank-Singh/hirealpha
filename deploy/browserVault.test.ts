@@ -884,4 +884,49 @@ describe('vault save with username + op backing marker', () => {
       delete process.env.OP_VAULT_ID
     }
   })
+
+  it('auto-triggers text message "O connected this." and resumes waiting browser job when credential is saved', async () => {
+    let resumedJobId = ''
+    let activityAppended = ''
+    let loopText = ''
+    const { sql, queries } = fakeSql((text, values) => {
+      if (/FROM hire_browser_jobs/i.test(text) && /status = 'waiting'/i.test(text)) {
+        return [{ id: 'job-wait-1', url: 'https://portal.nseindia.com', persona: 'friend' }]
+      }
+      if (/UPDATE hire_browser_jobs/i.test(text) && /SET status = 'running'/i.test(text)) {
+        resumedJobId = 'job-wait-1'
+        return [{ id: 'job-wait-1' }]
+      }
+      if (/UPDATE hire_browser_jobs/i.test(text) && /activity/i.test(text)) {
+        activityAppended = 'O connected this.'
+        return [{ id: 'job-wait-1', activity: [] }]
+      }
+      if (/SELECT phone_e164 FROM hire_users/i.test(text)) {
+        return [{ phone_e164: '+14155550100' }]
+      }
+      if (/INSERT INTO hire_task_loops/i.test(text)) {
+        loopText = JSON.stringify(values)
+        return []
+      }
+      return []
+    })
+
+    const req = new Request('http://localhost/api/vault', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        portal: 'https://portal.nseindia.com',
+        username: 'trader@alpha.com',
+        secret: 'TopSecret123!',
+      }),
+    })
+
+    const res = await handleVaultApi(req, sql, authedDeps())
+
+    expect(res.status).toBe(200)
+    expect(resumedJobId).toBe('job-wait-1')
+    expect(activityAppended).toBe('O connected this.')
+    expect(loopText).toContain('O connected this.')
+  })
 })
+

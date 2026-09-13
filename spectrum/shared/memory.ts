@@ -10,7 +10,7 @@ export const MAX_FACTS = 60
 export const FACT_TTL_DAYS = 30
 
 const DURABLE_KEY =
-  /^(preferred_name|people|timezone|check_ins|company|role_title|projects|standup_time|company_name|stage|weekly_focus|hard_nos|name|sister|partner|city|this_weeks_decision)|^(people|name|sister|partner|family|company|weekly|timezone)/i
+  /^(preferred_name|people|timezone|check_ins|company|role_title|projects|standup_time|company_name|stage|weekly_focus|hard_nos|diet|seat_preference|flight_preference|name|sister|partner|city|this_weeks_decision)|^(people|name|sister|partner|family|company|weekly|timezone|diet|seat)/i
 
 export function isDurableFactKey(key: string) {
   return DURABLE_KEY.test(key)

@@ -109,14 +109,17 @@ for (const n of nums) {
     console.log(`SKIP dimension ${n} (${task.name}) — observation only, no message to send`)
     continue
   }
+  const dimDataDir = join(DATA, `dim-${n}`)
+  mkdirSync(dimDataDir, { recursive: true })
   const record = await benchTurn({
     dim: String(n),
     phone: PHONE,
     userText: task.text,
-    dataDir: DATA,
+    dataDir: dimDataDir,
     trace,
     runHireTurn: runHireTurn as never,
   })
+  writeFileSync(join(DATA, `last-turn-dim${n}.json`), JSON.stringify(record, null, 2))
   out.push(record)
 }
 

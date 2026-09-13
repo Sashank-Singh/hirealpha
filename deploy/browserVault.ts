@@ -18,7 +18,7 @@ import { randomUUID } from 'node:crypto'
 import type { SQL } from 'bun'
 import { decryptSecret, encryptSecret, maskSecret, vaultKey, type VaultKey } from './vaultCrypto'
 import { isOpRef, onePasswordConfigured, opGetItemFields, opSaveItem } from './onePassword'
-import { enqueueBrowserJob, generateSessionViewToken } from './browserJobs'
+import { enqueueBrowserJob, generateSessionViewToken, resumeBrowserHandoff, appendBrowserActivity } from './browserJobs'
 import type { HostResolver } from './browserNetworkPolicy'
 import { listVaultItems, revokeVaultItem, saveVaultItem } from '../services/trust/vaultV2'
 import type { UserKeyBroker } from '../services/trust/userKeyBroker'
@@ -545,6 +545,30 @@ export async function handleVaultApi(req: Request, sql: SQL, deps: VaultDeps): P
         username: body.username || '',
         password: body.secret || '',
       })
+
+      // When connected, auto-trigger a text message "O connected this." and resume waiting browser cloud VM
+      try {
+        const waitingJobs = (await sql`
+          SELECT id, url, persona FROM hire_browser_jobs
+          WHERE user_id = ${user.id} AND status = 'waiting'
+          ORDER BY created_at DESC LIMIT 5
+        `) as Array<{ id: string; url: string; persona: string }>
+
+        for (const wJob of waitingJobs) {
+          await resumeBrowserHandoff(sql, wJob.id).catch(() => false)
+          await appendBrowserActivity(sql, wJob.id, 'user_connected_credential', 'O connected this.').catch(() => undefined)
+        }
+
+        await pushBrowserResultLoop(sql, {
+          userId: user.id,
+          persona: user.persona || 'friend',
+          origin: body.portal || 'https://hirealpha.chat',
+          insights: 'O connected this.',
+        }).catch(() => false)
+      } catch {
+        /* non-fatal */
+      }
+
       return json({ ok: true, id, backed: 'hirealpha' })
     } catch (err) {
       return json({ error: err instanceof Error ? err.message : 'Could not save that credential.' }, 400)
@@ -779,7 +803,13 @@ export async function pushBrowserResultLoop(
   opts?: { retryDelaysMs?: number[] },
 ): Promise<boolean> {
   const host = hostOfOrigin(input.origin)
-  const text = `Checked ${host} in a private browser session: ${input.insights.slice(0, 300)}`
+  const isDirect =
+    input.insights === 'O connected this.' ||
+    input.insights.startsWith('O connected this.') ||
+    input.insights.startsWith('Alpha paused') ||
+    input.insights.startsWith('Checkout is staged') ||
+    input.insights.startsWith('Your login')
+  const text = isDirect ? input.insights : `Checked ${host} in a private browser session: ${input.insights.slice(0, 300)}`
   // Note the `::text::jsonb` cast below: a parameter cast straight to
   // `::jsonb` makes Bun type it jsonb and JSON-encode the string a second
   // time, storing a jsonb *string scalar* (payload->>'jobId' then reads

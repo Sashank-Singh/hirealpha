@@ -357,6 +357,7 @@ function wantsLiveData(text: string) {
 const BRIEF_TOOL_QUERY = 'calendar today tomorrow inbox important email debrief'
 
 function maybeToolIntent(text: string) {
+  if (/^\s*(?:remember|keep in mind|note that|never forget)\b/i.test(text)) return false
   return /\b(near(?: by)?|around|where\b|recommend|suggest|show me|find|search|look(?:ing|ing for| up| it up)|dinner|lunch|breakfast|eat|food|restaurant|cafe|bar|coffee|spot|place|tonight|weekend|date night|hangout|movie|weather|news|latest|price|how much|delivery|takeout|reservation|book|maps?|directions|inbox|unread|mail|e-?mail|texts?|messages?|whatsapp|telegram|slack|notion|linear|github|calendar|schedule|agenda)\b/i.test(
     text,
   )
@@ -1663,10 +1664,10 @@ export async function runHireTurn(input: {
     // latency and a second failure surface to the most common messages ("ok
     // cool", "remember: gym is Barezz") and buys nothing there.
     const lastAssistant = cleanHistory.filter((m) => m.role === 'assistant').slice(-1)[0]?.content || ''
-    const answeringProposal = isAffirmativeApprovalIntent(input.userText) &&
-      /\b(?:order|buy|purchase|place the order|book|reserve|set it up|charge)\b/i.test(lastAssistant)
+    const answeringProposal = Boolean(lastAssistant && /propos|draft|confirm|approve/i.test(lastAssistant))
+    const isMemoryDirective = /^\s*(?:remember(?:\s+for\s+good|\s+this)?|note\s+that|keep\s+in\s+mind|never\s+forget|always\s+remember)\b/i.test(input.userText)
     const simpleAsk =
-      input.userText.length <= 120 &&
+      (isMemoryDirective || input.userText.length <= 120) &&
       !maybeToolIntent(input.userText) &&
       !answeringProposal &&
       !wantsOperatorWrite(input.userText) &&

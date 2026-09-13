@@ -182,6 +182,7 @@ export async function runToolConversation(input: {
   let sawPriceData = false
   const lastUserAsk = [...input.messages].reverse().find((m) => m.role === 'user')?.content || ''
   const buyAsk = ASK_BUY_RE.test(lastUserAsk)
+  const wantsWebForRichPlace = /\b(?:hotels?|hostels?|motels?|lodging|room rates?|staying|nightly rates?|flights?|airline|tickets?|fare|fares)\b/i.test(lastUserAsk)
   const maxSteps = Math.min(8, Math.max(1, input.maxSteps ?? 6))
   const deadline = Date.now() + (input.maxDurationMs ?? Number(process.env.HIREALPHA_TOOL_LOOP_MS || 90_000))
   /** One lookup with its own deadline; maps gets less because the answer's
@@ -212,21 +213,24 @@ export async function runToolConversation(input: {
       : draftAttempted
         ? 'I could not confirm that your draft was saved. Please check your drafts before trying again.'
         : ''
+    // The model's own last text beats a canned failure: it usually names the
+    // honest blocker and the next step. Guards keep tool syntax out.
+    if (lastRaw && lastRaw.length > 60 && !/^\s*(?:TOOL\b|DRAFT_|```|\{\s*"action")/i.test(lastRaw)) {
+      return draftReceipt ? `${lastRaw}\n\n${draftReceipt}` : lastRaw
+    }
     // A search-only fallback is honest: tell the user what was found, with real links.
     const searchReceipt = publicMatches.size
       ? `Here are the top matches I found:\n\n${[...publicMatches.entries()]
+          .slice(0, 3)
           .map(([url, title]) => `• ${title}\n  ${url}`)
           .join('\n\n')}`
       : ''
     // A place ask (restaurant, cafe, hotel...) answers with the picks from the map
     // block rather than the raw search hits: search hits are booking homepages or
     // place, while the map block names real ones with addresses and walk times.
-    const mapReceipt = mapBlock && PLACE_ASK_RE.test(lastUserAsk) ? formatMapPicks(mapBlock, lastUserAsk) : ''
+    const mapReceipt = mapBlock && PLACE_ASK_RE.test(lastUserAsk) && !wantsWebForRichPlace ? formatMapPicks(mapBlock, lastUserAsk) : ''
     const completed = [...receipts, draftReceipt, mapReceipt || searchReceipt].filter(Boolean)
     if (completed.length) return completed.join('\n\n')
-    // The model's own last text beats a canned failure: it usually names the
-    // honest blocker and the next step. Guards keep tool syntax out.
-    if (lastRaw && lastRaw.length > 60 && !/^\s*(?:TOOL\b|DRAFT_|```|\{\s*"action)/i.test(lastRaw)) return lastRaw
     return 'I could not finish this request with the results available. Please try again or narrow the request.'
   }
   /** Stage the one browser run the engine owns when the model will not emit an
@@ -241,6 +245,10 @@ export async function runToolConversation(input: {
         savedDraft = { id: (queued as { id?: string }).id || 'browser-draft', type: 'browser' }
         stagedPurchase = opts.buy
         try { stagedPurchaseHost = new URL(opts.portal).hostname.replace(/^www\./, '') } catch { stagedPurchaseHost = '' }
+        const cleanedRaw = stripToolDirectives(opts.raw).trim()
+        if (!opts.buy && cleanedRaw && cleanedRaw.length > 50 && !cleanedRaw.toLowerCase().startsWith('the browser run is starting') && !/\b(?:cannot|can't|unable to|don't have|do not have)\b/i.test(cleanedRaw)) {
+          return { reply: cleanedRaw, draft: savedDraft }
+        }
         return { reply: fallback(), draft: savedDraft }
       }
     } catch { /* fall through to the nudge text below */ }
@@ -343,8 +351,7 @@ Reactions are optional and usually absent. You may add "reaction":"<emoji>" to a
       // Once a maps result is on hand it is the authority for a place answer.
       // Left alone the model answers from its own memory, never names the
       // verified places, and quotes prices the tools never returned; replace
-      // that text with the map-grounded picks instead of delivering it.
-      if (mapBlock && PLACE_ASK_RE.test(lastUserAsk)) {
+      if (mapBlock && PLACE_ASK_RE.test(lastUserAsk) && !wantsWebForRichPlace) {
         const places = mapPlacesFromBlock(mapBlock)
         const grounded = places.filter((place) => raw.toLowerCase().includes(place.name.toLowerCase())).length
         const wanted = /\b(?:options?|choices?|three|two|3|2)\b/i.test(lastUserAsk) ? 3 : 1
@@ -369,19 +376,21 @@ Reactions are optional and usually absent. You may add "reaction":"<emoji>" to a
       // One proximity pattern, not two global scans: "Remember for good: ...
       // anywhere we eat" matched good + eat from different clauses and turned
       // a memory ask into a doomed place lookup.
+      const isMemoryAsk = /\b(?:remember|save(?: this)? to memory|keep in mind|never forget|don't forget)\b/i.test(userAsk)
       const asksForPlaces =
+        !isMemoryAsk &&
         /\b(?:find|recommend|suggest|looking for|where(?:'s| is| can| should)|place)\b[^.!?\n]{0,60}\b(?:restaurants?|cafes?|coffee shops?|hotels?|places? to eat|dinner|lunch|brunch|breakfast|bar|drinks|eat(?:ing)? out)\b/i.test(freshnessContext)
-      const asksToBuy = buyAsk || /\b(?:buy|purchase|order(?: me)?|pay for)\b/i.test(freshnessContext)
-      const needsFresh = request?.needsLookup === true || (request === null && (asksForPlaces || asksToBuy || /\b(news|latest|price|prices|how much (?:is|does|do)|score|who won|release date|next .{0,40}event|this week|today|yesterday|tonight|right now)\b/i.test(freshnessContext)))
+      const asksToBuy = !isMemoryAsk && (buyAsk || /\b(?:buy|purchase|order(?: me)?|pay for)\b/i.test(freshnessContext))
+      const needsFresh = !isMemoryAsk && (request?.needsLookup === true || (request === null && (asksForPlaces || asksToBuy || /\b(news|latest|price|prices|how much (?:is|does|do)|score|who won|release date|next .{0,40}event|this week|today|yesterday|tonight|right now)\b/i.test(freshnessContext))))
       const attemptedWeb = [...seen].some(key => key.startsWith('web:'))
       const attemptedMaps = [...seen].some(key => key.startsWith('maps:'))
       // Booking/doing asks: a plain-text "queued it" with no browser action is a
       // lie. A "find me options" ask is a lookup — classifier overreach there
       // must never launch a run.
       const findOnlyAsk = /\b(?:find|recommend|suggest|show|compare|options?|choices?|which)\b/i.test(userAsk) && !ACTION_ASK_RE.test(userAsk)
-      const needsBrowser = request
+      const needsBrowser = !isMemoryAsk && (request
         ? (request.needsBrowser || ACTION_ASK_RE.test(userAsk)) && !findOnlyAsk
-        : ACTION_ASK_RE.test(userAsk)
+        : ACTION_ASK_RE.test(userAsk) && !findOnlyAsk)
       // A booking ask that already produced search results gets a second nudge
       // carrying the concrete site: without a portal URL the model answers with
       // directory links and never sends the browser action the user asked for.
@@ -432,6 +441,7 @@ Reactions are optional and usually absent. You may add "reaction":"<emoji>" to a
       // the verified block in front of the model before it writes the answer.
       if (
         asksForPlaces &&
+        !wantsWebForRichPlace &&
         input.availableTools.includes('maps') &&
         !attemptedMaps &&
         !input.skipFreshLookup
@@ -467,10 +477,9 @@ Reactions are optional and usually absent. You may add "reaction":"<emoji>" to a
         // lookup that demands `tool:"web"` makes the model refuse and the
         // turn dies on "the web lookup did not run" for a Gmail question.
         const wantsMail = /\b(inbox|email|e-?mail|gmail|mailbox|unread|replies owed)\b/i.test(userAsk)
-        // Place/dining asks belong on maps FIRST: a web nudge here is what
-        // produced Wikipedia and listicles for "find dinner near the Loop".
-        // Once maps has run, a place ask falls back to the web like any other.
-        const wantsPlace = asksForPlaces && input.availableTools.includes('maps') && !attemptedMaps
+        // Place/dining asks belong on maps FIRST unless they want hotels or prices/rates:
+        // hotel and pricing asks use LangSearch web search to get real rates and booking details.
+        const wantsPlace = asksForPlaces && !wantsWebForRichPlace && input.availableTools.includes('maps') && !attemptedMaps
         const freshTool = wantsMail && input.availableTools.includes('gmail')
           ? 'gmail'
           : wantsPlace
@@ -503,6 +512,7 @@ Reactions are optional and usually absent. You may add "reaction":"<emoji>" to a
       // dimension scores as 'generic list'.
       if (
         asksForPlaces &&
+        !wantsWebForRichPlace &&
         input.availableTools.includes('maps') &&
         !attemptedMaps &&
         !webNudged &&
@@ -600,6 +610,7 @@ Reactions are optional and usually absent. You may add "reaction":"<emoji>" to a
           if (
             lookup.tool !== 'maps' &&
             !mapBlock &&
+            !wantsWebForRichPlace &&
             PLACE_ASK_RE.test(lastUserAsk) &&
             input.availableTools.includes('maps') &&
             ![...seen].some((seenKey) => seenKey.startsWith('maps:')) &&
@@ -1166,12 +1177,15 @@ export function mapQueryForAsk(ask: string): string {
   const text = String(ask || '').replace(/\s+/g, ' ').trim()
   if (!text) return ''
   const diet = /\b(vegetarian|vegan|halal|kosher)\b/i.exec(text)?.[1]?.toLowerCase() || ''
-  const meal = /\b(?:dinner|lunch|brunch|breakfast|supper|restaurant|eat)\b/i.test(text)
-  const kind = /\b(?:coffee|cafes?)\b/i.test(text) && !meal
-    ? 'coffee'
-    : /\b(?:drinks?|bars?|cocktails?|pubs?)\b/i.test(text) && !meal
-      ? 'bar'
-      : 'restaurant'
+  const hotel = /\b(?:hotels?|hostels?|lodging|stay)\b/i.test(text)
+  const meal = /\b(?:dinner|lunch|brunch|breakfast|supper|restaurants?|eat)\b/i.test(text)
+  const kind = hotel
+    ? 'hotel'
+    : /\b(?:coffee|cafes?)\b/i.test(text) && !meal
+      ? 'coffee'
+      : /\b(?:drinks?|bars?|cocktails?|pubs?)\b/i.test(text) && !meal
+        ? 'bar'
+        : 'restaurant'
   // The last prepositional phrase is the destination; a time ("at 7:30 PM") is
   // not a place, so a phrase that starts with a digit never matches.
   const phrases = [...text.matchAll(/\b(?:in|near|around|at|by)\s+(?!\d)([^,.;!?]+)/gi)]
@@ -1181,7 +1195,7 @@ export function mapQueryForAsk(ask: string): string {
     // the kind word are the place, the same rule the maps tool applies.
     const words = text.replace(/[^A-Za-z0-9\s]/g, ' ').split(/\s+/)
     const kindAt = words.findLastIndex((word) =>
-      /^(?:restaurants?|dinner|lunch|brunch|breakfast|supper|food|eat|cafes?|coffee|bars?|drinks?)$/i.test(word))
+      /^(?:restaurants?|dinner|lunch|brunch|breakfast|supper|food|eat|cafes?|coffee|bars?|drinks?|hotels?|hostels?|lodging|stay)$/i.test(word))
     area = words
       .slice(kindAt + 1)
       .filter(
