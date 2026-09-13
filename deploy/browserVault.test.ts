@@ -544,6 +544,21 @@ describe('vault API routes', () => {
     expect(JSON.stringify(queries)).not.toContain('hunter2!')
   })
 
+  it('POST /api/vault stores encrypted entry even when keyBroker is null (local vault key fallback)', async () => {
+    const { sql, queries } = fakeSql()
+    const req = new Request('https://hirealpha.chat/api/vault', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: 'Bearer sess' },
+      body: JSON.stringify({ portal: 'https://campusnet.csuohio.edu', username: 'student', secret: 'hunter2!', persona: 'friend' }),
+    })
+    const noBroker = { ...authedDeps(), keyBroker: null }
+    const res = await handleVaultApi(req, sql, noBroker)
+    expect(res?.status).toBe(200)
+    const insert = queries.find((q) => /INSERT INTO hire_vault_entries/i.test(q.text))!
+    expect(insert).toBeDefined()
+    expect(JSON.stringify(queries)).not.toContain('hunter2!')
+  })
+
   it('POST /api/vault/handoff stores only a site grant and works without a vault key', async () => {
     const { sql, queries } = fakeSql()
     const req = new Request('https://hirealpha.chat/api/vault/handoff', {

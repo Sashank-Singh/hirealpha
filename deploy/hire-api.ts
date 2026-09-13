@@ -53,7 +53,7 @@ import {
 } from './userPayments'
 import { getLinkStatus } from './linkWallet'
 import { ensureBrowserJobsSchema } from './browserJobs'
-import { openBaoBrokerFromEnv } from '../services/trust/userKeyBroker'
+import { openBaoBrokerFromEnv, userKeyBrokerFromEnv } from '../services/trust/userKeyBroker'
 import { handleTrustApi } from '../services/trust/trustApi'
 import {
   CONSENT_PURPOSE,
@@ -11840,7 +11840,7 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
       })
       return user ? { id: user.id } : null
     },
-    keyBroker: openBaoBrokerFromEnv(),
+    keyBroker: openBaoBrokerFromEnv() || userKeyBrokerFromEnv(),
     memoryIndex: getMemoryIndex(),
   })
   if (trustRes) return trustRes
@@ -11877,7 +11877,7 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
     },
     internalOk,
     launch: runPortalTask,
-    keyBroker: openBaoBrokerFromEnv(),
+    keyBroker: openBaoBrokerFromEnv() || userKeyBrokerFromEnv(),
   })
   if (vaultRes) return vaultRes
 

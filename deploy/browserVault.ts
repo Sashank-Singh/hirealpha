@@ -21,7 +21,7 @@ import { isOpRef, onePasswordConfigured, opGetItemFields, opSaveItem } from './o
 import { enqueueBrowserJob, generateSessionViewToken, resumeBrowserHandoff, appendBrowserActivity } from './browserJobs'
 import type { HostResolver } from './browserNetworkPolicy'
 import { listVaultItems, revokeVaultItem, saveVaultItem } from '../services/trust/vaultV2'
-import type { UserKeyBroker } from '../services/trust/userKeyBroker'
+import { userKeyBrokerFromEnv, type UserKeyBroker } from '../services/trust/userKeyBroker'
 import { createCapabilityGrant } from '../services/trust/capabilityGrants'
 
 /* ------------------------------- types ---------------------------------- */
@@ -99,6 +99,32 @@ export async function ensureBrowserVaultSchema(sql: SQL): Promise<void> {
   // secret_ref is set the AES column holds only an empty-marker ciphertext.
   await sql`ALTER TABLE hire_vault_entries ADD COLUMN IF NOT EXISTS username TEXT`
   await sql`ALTER TABLE hire_vault_entries ADD COLUMN IF NOT EXISTS secret_ref TEXT`
+
+  await sql`
+    CREATE TABLE IF NOT EXISTS user_wrapped_keys (
+      user_id TEXT PRIMARY KEY,
+      wrapped_dek TEXT,
+      key_version INTEGER NOT NULL DEFAULT 1,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      rotated_at TIMESTAMPTZ,
+      destroyed_at TIMESTAMPTZ
+    )
+  `.catch(() => undefined)
+  await sql`
+    CREATE TABLE IF NOT EXISTS vault_items_v2 (
+      id UUID PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      exact_origin TEXT NOT NULL,
+      label TEXT NOT NULL,
+      username_hint TEXT,
+      ciphertext TEXT NOT NULL,
+      encryption_version INTEGER NOT NULL DEFAULT 1,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      revoked_at TIMESTAMPTZ,
+      UNIQUE (user_id, exact_origin, label)
+    )
+  `.catch(() => undefined)
 }
 
 /* ----------------------------- vault store ------------------------------ */
@@ -506,10 +532,15 @@ export async function handleVaultApi(req: Request, sql: SQL, deps: VaultDeps): P
   const key = deps.key ?? vaultKey()
 
   if (path === '/api/vault' && req.method === 'GET') {
+    const broker = deps.keyBroker ?? userKeyBrokerFromEnv()
     const legacy = await listVaultEntries(sql, user.id, key)
-    const hosted = deps.keyBroker ? await listVaultItems(sql, user.id) : []
-    return json({ entries: [
-      ...hosted.map((item) => ({
+    const hosted = broker ? await listVaultItems(sql, user.id).catch(() => []) : []
+    const seenOrigins = new Set<string>()
+    const entries: any[] = []
+
+    for (const item of hosted) {
+      seenOrigins.add(item.exact_origin)
+      entries.push({
         id: item.id,
         persona: user.persona,
         portal: item.exact_origin,
@@ -519,9 +550,17 @@ export async function handleVaultApi(req: Request, sql: SQL, deps: VaultDeps): P
         backed: 'hirealpha' as const,
         created_at: item.created_at,
         last_used_at: null,
-      })),
-      ...legacy,
-    ] })
+      })
+    }
+
+    for (const item of legacy) {
+      if (!seenOrigins.has(item.origin)) {
+        seenOrigins.add(item.origin)
+        entries.push(item)
+      }
+    }
+
+    return json({ entries })
   }
 
   if (path === '/api/vault/handoff' && req.method === 'POST') {
@@ -535,49 +574,73 @@ export async function handleVaultApi(req: Request, sql: SQL, deps: VaultDeps): P
   }
 
   if (path === '/api/vault' && req.method === 'POST') {
-    if (!deps.keyBroker) return json({ error: 'HireAlpha Vault is not configured on this server.' }, 503)
-    const body = (await req.json().catch(() => ({}))) as { portal?: string; secret?: string; username?: string; label?: string }
-    try {
-      const id = await saveVaultItem(sql, deps.keyBroker, {
-        userId: user.id,
-        origin: body.portal || '',
-        label: body.label || 'Login',
-        username: body.username || '',
-        password: body.secret || '',
-      })
+    const body = (await req.json().catch(() => ({}))) as { portal?: string; secret?: string; username?: string; label?: string; persona?: string }
+    const broker = deps.keyBroker ?? userKeyBrokerFromEnv()
+    if (!broker && !key) return json({ error: 'HireAlpha Vault is not configured on this server.' }, 503)
 
-      // When connected, auto-trigger a text message "O connected this." and resume waiting browser cloud VM
+    let id: string | null = null
+    let backed: 'hirealpha' | 'local' | 'onepassword' = 'hirealpha'
+
+    if (broker) {
       try {
-        const waitingJobs = (await sql`
-          SELECT id, url, persona FROM hire_browser_jobs
-          WHERE user_id = ${user.id} AND status = 'waiting'
-          ORDER BY created_at DESC LIMIT 5
-        `) as Array<{ id: string; url: string; persona: string }>
-
-        for (const wJob of waitingJobs) {
-          await resumeBrowserHandoff(sql, wJob.id).catch(() => false)
-          await appendBrowserActivity(sql, wJob.id, 'user_connected_credential', 'O connected this.').catch(() => undefined)
-        }
-
-        await pushBrowserResultLoop(sql, {
+        id = await saveVaultItem(sql, broker, {
           userId: user.id,
-          persona: user.persona || 'friend',
-          origin: body.portal || 'https://hirealpha.chat',
-          insights: 'O connected this.',
-        }).catch(() => false)
-      } catch {
-        /* non-fatal */
+          origin: body.portal || '',
+          label: body.label || 'Login',
+          username: body.username || '',
+          password: body.secret || '',
+        })
+      } catch (err) {
+        if (!key) return json({ error: err instanceof Error ? err.message : 'Could not save that credential.' }, 400)
+      }
+    }
+
+    if (key) {
+      const entryRes = await saveVaultEntry(sql, {
+        userId: user.id,
+        persona: body.persona || user.persona,
+        portal: body.portal || '',
+        username: body.username,
+        secret: body.secret || '',
+        key,
+      })
+      if (!entryRes.ok && !id) return json({ error: entryRes.error }, 400)
+      if (!id) {
+        id = user.id
+        backed = entryRes.backed ?? 'local'
+      }
+    }
+
+    // When connected, auto-trigger a text message "O connected this." and resume waiting browser cloud VM
+    try {
+      const waitingJobs = (await sql`
+        SELECT id, url, persona FROM hire_browser_jobs
+        WHERE user_id = ${user.id} AND status = 'waiting'
+        ORDER BY created_at DESC LIMIT 5
+      `) as Array<{ id: string; url: string; persona: string }>
+
+      for (const wJob of waitingJobs) {
+        await resumeBrowserHandoff(sql, wJob.id).catch(() => false)
+        await appendBrowserActivity(sql, wJob.id, 'user_connected_credential', 'O connected this.').catch(() => undefined)
       }
 
-      return json({ ok: true, id, backed: 'hirealpha' })
-    } catch (err) {
-      return json({ error: err instanceof Error ? err.message : 'Could not save that credential.' }, 400)
+      await pushBrowserResultLoop(sql, {
+        userId: user.id,
+        persona: user.persona || 'friend',
+        origin: body.portal || 'https://hirealpha.chat',
+        insights: 'O connected this.',
+      }).catch(() => false)
+    } catch {
+      /* non-fatal */
     }
+
+    return json({ ok: true, id, backed })
   }
 
   if (path === '/api/vault' && req.method === 'DELETE') {
     const id = url.searchParams.get('id') || ''
-    if (deps.keyBroker && await revokeVaultItem(sql, { userId: user.id, itemId: id })) return json({ ok: true })
+    const broker = deps.keyBroker ?? userKeyBrokerFromEnv()
+    if (broker && await revokeVaultItem(sql, { userId: user.id, itemId: id }).catch(() => false)) return json({ ok: true })
     const deleted = await deleteVaultEntry(sql, user.id, id)
     return deleted ? json({ ok: true }) : json({ error: 'Not found.' }, 404)
   }
@@ -978,8 +1041,12 @@ export function sanitizeSteps(raw: unknown): PortalStep[] | undefined {
 
 function portalOrigin(portal: string): string | null {
   try {
-    const url = new URL(portal)
-    if (url.protocol !== 'https:') return null
+    const raw = portal.trim()
+    const candidate = raw.startsWith('http://') || raw.startsWith('https://')
+      ? raw
+      : (raw.includes('.') && !raw.includes(' ') && !raw.includes(':') ? `https://${raw}` : raw)
+    const url = new URL(candidate)
+    if (url.protocol !== 'https:' || !url.hostname.includes('.')) return null
     return url.origin
   } catch {
     return null

@@ -26,7 +26,10 @@ export function vaultKey(): VaultKey | null {
     process.env.PROJECT_SECRET?.trim() ||
     process.env.SPECTRUM_ALPHA_PROJECT_SECRET?.trim() ||
     process.env.PHOTON_FRIEND_PROJECT_SECRET?.trim() ||
+    process.env.PHOTON_PROJECT_SECRET?.trim() ||
     process.env.HIREALPHA_INTERNAL_KEY?.trim() ||
+    process.env.HIREALPHA_SESSION_VIEW_SECRET?.trim() ||
+    process.env.DATABASE_URL?.trim() ||
     ''
   if (!raw) return null
   return deriveVaultKey(raw)

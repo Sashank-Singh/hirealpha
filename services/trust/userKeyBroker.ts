@@ -1,5 +1,6 @@
 import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto'
 import type { SQL } from 'bun'
+import { vaultKey, type VaultKey } from '../../deploy/vaultCrypto'
 
 export type WrappedDataKey = { plaintext: Buffer; wrapped: string }
 
@@ -71,6 +72,41 @@ export class OpenBaoTransitClient implements UserKeyBroker {
   }
 }
 
+export class LocalUserKeyBroker implements UserKeyBroker {
+  constructor(private readonly masterKey: VaultKey) {
+    if (masterKey.length !== 32) throw new Error('Master key must be 32 bytes.')
+  }
+
+  async generate(userId: string): Promise<WrappedDataKey> {
+    const plaintext = randomBytes(32)
+    const iv = randomBytes(12)
+    const cipher = createCipheriv('aes-256-gcm', this.masterKey, iv)
+    cipher.setAAD(Buffer.from(`hirealpha:user:${userId}`))
+    const ciphertext = Buffer.concat([cipher.update(plaintext), cipher.final()])
+    const tag = cipher.getAuthTag()
+    const wrapped = `local:v1.${iv.toString('base64url')}.${tag.toString('base64url')}.${ciphertext.toString('base64url')}`
+    return { plaintext, wrapped }
+  }
+
+  async unwrap(userId: string, wrapped: string): Promise<Buffer> {
+    if (wrapped.startsWith('local:v1.')) {
+      const parts = wrapped.split('.')
+      if (parts.length !== 4) throw new Error('Invalid wrapped key payload.')
+      const iv = Buffer.from(parts[1]!, 'base64url')
+      const tag = Buffer.from(parts[2]!, 'base64url')
+      const ct = Buffer.from(parts[3]!, 'base64url')
+      if (iv.length !== 12 || tag.length !== 16) throw new Error('Invalid tag/iv length.')
+      const decipher = createDecipheriv('aes-256-gcm', this.masterKey, iv)
+      decipher.setAAD(Buffer.from(`hirealpha:user:${userId}`))
+      decipher.setAuthTag(tag)
+      const plaintext = Buffer.concat([decipher.update(ct), decipher.final()])
+      if (plaintext.length !== 32) throw new Error('Unwrapped key must be 32 bytes.')
+      return plaintext
+    }
+    throw new Error('Unsupported key broker envelope.')
+  }
+}
+
 export function openBaoBrokerFromEnv(env: NodeJS.ProcessEnv = process.env): OpenBaoTransitClient | null {
   const address = env.OPENBAO_ADDR?.trim()
   const token = env.OPENBAO_TOKEN?.trim()
@@ -82,6 +118,14 @@ export function openBaoBrokerFromEnv(env: NodeJS.ProcessEnv = process.env): Open
     env.OPENBAO_TRANSIT_KEY?.trim() || 'hirealpha-user-deks',
     env.OPENBAO_NAMESPACE?.trim() || undefined,
   )
+}
+
+export function userKeyBrokerFromEnv(env: NodeJS.ProcessEnv = process.env): UserKeyBroker | null {
+  const openBao = openBaoBrokerFromEnv(env)
+  if (openBao) return openBao
+  const master = vaultKey()
+  if (master) return new LocalUserKeyBroker(master)
+  return null
 }
 
 export type EncryptionContext = { userId: string; recordId: string; scope: string; version?: number }

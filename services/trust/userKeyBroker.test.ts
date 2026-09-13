@@ -39,4 +39,19 @@ describe('per-user envelope encryption', () => {
     expect(plaintext).toEqual(Buffer.alloc(32, 0))
     expect(JSON.stringify(queries)).not.toContain(Buffer.alloc(32, 9).toString('hex'))
   })
+
+  it('LocalUserKeyBroker generates and unwraps user DEKs securely using master key', async () => {
+    const { LocalUserKeyBroker } = await import('./userKeyBroker')
+    const master = Buffer.alloc(32, 42)
+    const broker = new LocalUserKeyBroker(master)
+    const generated = await broker.generate('user-42')
+    expect(generated.wrapped.startsWith('local:v1.')).toBe(true)
+    expect(generated.plaintext.length).toBe(32)
+
+    const unwrapped = await broker.unwrap('user-42', generated.wrapped)
+    expect(unwrapped).toEqual(generated.plaintext)
+
+    // Cannot unwrap with wrong user ID (AAD bound)
+    await expect(broker.unwrap('evil-user', generated.wrapped)).rejects.toThrow()
+  })
 })
