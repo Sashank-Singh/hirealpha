@@ -127,7 +127,7 @@ export async function runConversationalFriend(input: {
       summary: memory.summary,
       inboundResult: input.inboundNote,
     }
-    const timeoutMs = Math.min(10_000, Math.max(2_500, Number(process.env.HIREALPHA_FAST_REPLY_TIMEOUT_MS) || 6_000))
+    const timeoutMs = Math.min(15_000, Math.max(2_500, Number(process.env.HIREALPHA_FAST_REPLY_TIMEOUT_MS) || 10_000))
     let source: 'gmi' | 'local' = 'gmi'
     let reply: string
     try {

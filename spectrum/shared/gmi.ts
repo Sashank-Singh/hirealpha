@@ -87,7 +87,7 @@ export async function gmiChat(options: GmiChatOptions): Promise<string> {
     const originalBudget = options.timeoutMs ?? 30_000
     // Only real turn-sized budgets fail over: a tiny probe deadline (tests,
     // health checks) must stay a fast rejection, never a second attempt.
-    if (!worthFailover || fallback === primary || originalBudget < 8_000) throw err
+    if (!worthFailover || fallback === primary || originalBudget < 6_000) throw err
     console.warn(`[gmi] ${primary} failed (${msg.slice(0, 80)}); failing over to ${fallback}`)
     return await gmiChatOnce({ ...options, model: fallback, timeoutMs: originalBudget })
   }
