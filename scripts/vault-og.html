@@ -1,0 +1,122 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    width: 1200px;
+    height: 630px;
+    background: #0c0e11;
+    overflow: hidden;
+    -webkit-font-smoothing: antialiased;
+  }
+  .card {
+    width: 1200px;
+    height: 630px;
+    background:
+      radial-gradient(620px 620px at 12% -8%, rgba(96,165,250,.18), transparent 62%),
+      radial-gradient(560px 560px at 96% 108%, rgba(110,231,183,.14), transparent 60%),
+      #0c0e11;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    padding: 0 96px;
+    overflow: hidden;
+    position: relative;
+  }
+  .header-row {
+    display: flex;
+    align-items: center;
+    gap: 22px;
+    margin-bottom: 20px;
+  }
+  .lock-badge {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 82px;
+    height: 82px;
+    border-radius: 22px;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    box-shadow: 0 4px 16px rgba(0,0,0,0.3);
+  }
+  .lock-svg {
+    width: 44px;
+    height: 44px;
+    color: #f5f6f7;
+  }
+  .title {
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Helvetica Neue", Helvetica, Arial, sans-serif;
+    font-weight: 800;
+    font-size: 92px;
+    line-height: 1.04;
+    color: #f5f6f7;
+    letter-spacing: -0.025em;
+  }
+  .desc {
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Helvetica, Arial, sans-serif;
+    font-weight: 400;
+    font-size: 32px;
+    color: #98a0ab;
+    line-height: 1.35;
+    margin-bottom: 42px;
+    max-width: 960px;
+  }
+  .foot {
+    display: flex;
+    align-items: center;
+  }
+  .brand-group {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .alpha-logo {
+    width: 28px;
+    height: 28px;
+    border-radius: 7px;
+    opacity: 0.9;
+  }
+  .brand-name {
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Helvetica Neue", Helvetica, Arial, sans-serif;
+    font-weight: 600;
+    font-size: 24px;
+    color: #c8cdd4;
+    letter-spacing: -0.01em;
+  }
+  .chip {
+    margin-left: auto;
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Helvetica, Arial, sans-serif;
+    font-size: 22px;
+    color: #8b93a0;
+    border: 1px solid #262b32;
+    border-radius: 999px;
+    padding: 10px 24px;
+    background: rgba(255,255,255,.03);
+  }
+</style>
+</head>
+<body>
+  <div class="card" id="card">
+    <div class="header-row">
+      <div class="lock-badge">
+        <svg class="lock-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3" y="11" width="18" height="11" rx="3" ry="3"></rect>
+          <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+        </svg>
+      </div>
+      <div class="title" id="t">Alpha Vault</div>
+    </div>
+    <div class="desc" id="d">Encrypted credential vault. Plaintext passwords never touch chat.</div>
+    <div class="foot">
+      <div class="brand-group">
+        <img class="alpha-logo" src="../public/HireAlpha_logo.png" alt="HireAlpha" />
+        <span class="brand-name">HireAlpha</span>
+      </div>
+      <div class="chip">Opens in iMessage</div>
+    </div>
+  </div>
+</body>
+</html>
