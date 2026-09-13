@@ -47,6 +47,7 @@ export type MiniAppKind =
   | 'home'
   | 'next_move'
   | 'artifact'
+  | 'vault'
 
 export interface MiniAppCard {
   url: string
@@ -151,6 +152,8 @@ export const PATTERNS: Partial<Record<MiniAppKind, RegExp>> = {
   // home: explicit name + the old "mirror" name + reopen + life overview phrases
   home:
     /\bhome screen\b|\bmirror\b|\blife dashboard\b|\bhow(?:'s| is) my life (?:going|looking)\b|\breflect on my (?:week|life)\b|\bshow me (?:the )?(?:week|life)\b|\blife overview\b|\bhow am i doing overall\b|\b(?:open|show|pull up|bring back) (?:my )?(?:home screen|mirror|life dashboard)\b/i,
+  vault:
+    /^(?:vault|my vault)$|\b(?:open|show|pull up|bring back) (?:my |the )?vault\b|\b(?:my|saved) (?:passwords?|credentials?|logins?)\b/i,
 }
 
 export interface MiniAppRequest {
@@ -189,6 +192,7 @@ export const MINIMAL_CARD_KINDS = new Set<MiniAppKind>([
   'weekly_review',
   'spending_snapshot',
   'apps',
+  'vault',
 ])
 
 export function isMinimalCardKind(kind: MiniAppKind): boolean {
@@ -234,9 +238,11 @@ const KIND_LABELS: Record<MiniAppKind, string> = {
   home: 'Home',
   next_move: 'Next',
   artifact: 'Built for you',
+  vault: 'Alpha Vault',
 }
 
 export function miniAppFallbackText(kind: MiniAppKind): string {
+  if (kind === 'vault') return 'Add details to Alpha vault: '
   return `Here is your ${KIND_LABELS[kind] || 'mini app'} card.`
 }
 
@@ -272,6 +278,7 @@ const SUMMON_NAMES: Partial<Record<MiniAppKind, RegExp>> = {
   pick_slot: /\bpick (?:a )?slot\b|\bfind a time\b/i,
   linear_triage: /\blinear\b|\btriage\b/i,
   meeting_mode: /\bmeeting mode\b/i,
+  vault: /\b(?:vault|credentials?|passwords?|saved logins?)\b/i,
 }
 
 const SUMMON_VERB =
@@ -303,7 +310,7 @@ function detectSummonedKind(text: string, allowed: MiniAppKind[]): MiniAppKind |
 /** Kinds this hire may surface, product-order from skills.ts plus digest. */
 function allowedKinds(persona: AgentId): MiniAppKind[] {
   const named = SKILLS[persona]?.miniApps ?? []
-  return ['digest', 'apps', ...named.filter((k): k is MiniAppKind => k in PATTERNS)]
+  return ['digest', 'apps', 'vault', ...named.filter((k): k is MiniAppKind => k in PATTERNS)]
 }
 
 /** Cheap regex gate so we only attach a card when the message asks for one. */
@@ -312,12 +319,15 @@ export function detectMiniAppRequest(
   persona: AgentId,
   recentUserTexts: string[] = [],
 ): MiniAppRequest | null {
-  // Instant fast-path for apps / menu / home requests (sub-second navigation without LLMs)
+  // Instant fast-path for apps / menu / home / vault requests (sub-second navigation without LLMs)
   if (/^\s*(?:\/?(?:apps?|menu)|(?:show|open|pull up|give me|list)(?: me)?(?: the| my)? (?:apps?|menu)|what apps (?:do you have|are there)|my apps)\s*[.!?]?\s*$/i.test(userText)) {
     return { kind: 'apps' }
   }
   if (/^\s*(?:\/?home|(?:show|open|pull up)(?: me)?(?: the| my)? (?:home|home screen|mirror|dashboard))\s*[.!?]?\s*$/i.test(userText)) {
     return { kind: 'home' }
+  }
+  if (/^\s*(?:\/?vault|(?:show|open|pull up)(?: me)?(?: the| my)? vault)\s*[.!?]?\s*$/i.test(userText)) {
+    return { kind: 'vault' }
   }
 
   const allowed = allowedKinds(persona)

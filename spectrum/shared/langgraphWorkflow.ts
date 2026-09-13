@@ -86,8 +86,29 @@ export function nodeAnalyzeAndShield(state: AssistantState): AssistantState {
       ...state,
       riskLevel: 'critical',
       securityShieldTriggered: true,
+      vaultLink: 'https://hirealpha.chat/settings/vault',
       overrideReply:
         "Never send plaintext passwords over text or chat! 🔒 Your credentials stay protected inside your private encrypted vault. You can link services securely at https://hirealpha.chat/settings/vault whenever you need to grant access.",
+    }
+  }
+
+  // 3b. Protected Portal Access Gate (e.g. "Can you open campusnet csuohio")
+  if (/\b(?:(?:can you )?(?:open|sign into|log into|access|check)\s+(?:my\s+)?(?:campusnet(?:\s+csuohio)?|csuohio(?:\s+campusnet)?|blackboard|canvas|student portal)|open campusnet)\b/i.test(text)) {
+    const portal = /campusnet|csuohio/i.test(text)
+      ? 'https://campusnet.csuohio.edu'
+      : /canvas/i.test(text)
+      ? 'https://canvas.instructure.com'
+      : /blackboard/i.test(text)
+      ? 'https://blackboard.com'
+      : 'https://campusnet.csuohio.edu'
+    const prettyName = /campusnet|csuohio/i.test(text) ? 'CampusNet (csuohio.edu)' : 'your portal'
+    return {
+      ...state,
+      riskLevel: 'sensitive',
+      requiresHumanApproval: true,
+      vaultLink: portal,
+      overrideReply:
+        `Locked. Everything's ready to go the second you're signed into ${prettyName} — save your login details securely or choose private handoff in your vault:`,
     }
   }
 

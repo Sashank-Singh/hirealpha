@@ -170,4 +170,23 @@ describe('End-to-End Worst-Case Turn Execution', () => {
       rmSync(dataDir, { recursive: true, force: true })
     }
   })
+
+  it('delivers vault card for protected portal requests like campusnet csuohio without launching unauthenticated session', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'hirealpha-worst-test-'))
+    try {
+      const result = await runHireTurn({
+        agentId: 'friend',
+        dataDir,
+        senderId: 'test-campusnet',
+        userText: 'Can you open campusnet csuohio',
+      })
+      expect(result.reply).toContain("Locked. Everything's ready to go the second you're signed into CampusNet (csuohio.edu)")
+      expect(result.reply).toContain("vault")
+      expect(result.card).not.toBeNull()
+      expect(result.card?.url).toContain('/app/mini/friend/vault')
+      expect(result.card?.url).toContain('portal=')
+    } finally {
+      rmSync(dataDir, { recursive: true, force: true })
+    }
+  })
 })

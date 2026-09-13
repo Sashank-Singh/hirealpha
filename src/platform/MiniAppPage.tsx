@@ -49,6 +49,7 @@ const InvestorNoteApp = lazy(() => import('./WorkMiniApps').then(m => ({ default
 const ApprovePurchaseApp = lazy(() => import('./ApprovePurchaseApp').then(m => ({ default: m.ApprovePurchaseApp })))
 const StandupPasteApp = lazy(() => import('./WorkMiniApps').then(m => ({ default: m.StandupPasteApp })))
 const EmailReader = lazy(() => import('./EmailReader').then(m => ({ default: m.EmailReader })))
+const VaultApp = lazy(() => import('./VaultApp').then(m => ({ default: m.VaultApp })))
 
 interface DigestData {
   date?: string
@@ -184,6 +185,7 @@ export const FEATURE_KINDS = new Set([
   'approve_investor_note',
   'approve_purchase',
   'builds',
+  'vault',
 ])
 
 
@@ -885,6 +887,12 @@ export function MiniAppPage() {
               <ApprovePurchaseApp
                 auth={{ persona: (persona as AgentId) || 'friend', email: email || undefined, token: token || undefined }}
                 spendId={searchParams.get('id') || searchParams.get('spend') || undefined}
+              />
+            )}
+            {kind === 'vault' && (
+              <VaultApp
+                auth={{ persona: (persona as AgentId) || 'friend', email: email || undefined, token: token || undefined }}
+                portal={searchParams.get('portal') || undefined}
               />
             )}
           </div>

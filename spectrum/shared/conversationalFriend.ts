@@ -30,6 +30,24 @@ const text = (args: Record<string, unknown>, key: string, limit = 2000) => {
 }
 const failed = (message: string): CapabilityResult => ({ status: 'failed', message })
 
+function prettyPortalName(urlStr: string): string {
+  try {
+    const raw = urlStr.startsWith('http') ? urlStr : `https://${urlStr}`
+    const u = new URL(raw)
+    const host = u.hostname.replace(/^www\./, '')
+    if (/campusnet\.csuohio\.edu|csuohio\.edu/i.test(host)) return 'CampusNet (csuohio.edu)'
+    if (/amazon\.com/i.test(host)) return 'Amazon'
+    if (/netflix\.com/i.test(host)) return 'Netflix'
+    if (/linkedin\.com/i.test(host)) return 'LinkedIn'
+    if (/github\.com/i.test(host)) return 'GitHub'
+    if (/canvas/i.test(host)) return 'Canvas'
+    if (/blackboard/i.test(host)) return 'Blackboard'
+    return host
+  } catch {
+    return urlStr
+  }
+}
+
 /** Keep ordinary conversation off the heavyweight capability planner. This is
  * deliberately only a routing gate: matching text still goes to the model to
  * decide what, if anything, should run. The gate itself never executes work. */
@@ -467,6 +485,12 @@ ${JSON.stringify(context)}` },
       if (draft.type === 'browser') {
         const queued = await proposeBrowserTask(senderId, persona, { portal: draft.portal, goal: draft.goal })
         if (queued.ok) {
+          if (queued.needsVault) {
+            const portalName = prettyPortalName(draft.portal)
+            outcome.reply = `Locked. Everything's ready to go the second you're signed into ${portalName} — save your login details securely or choose private handoff in your vault:`
+            card = await mintMiniAppCard(senderId, persona, 'vault', { portal: draft.portal })
+            return { ok: true, id: 'vault-locked', needsVault: true }
+          }
           browserQueued = true
           browserSessionUrl = queued.sessionUrl || `https://hirealpha.chat/computer/${queued.id || ''}`
           browserIsPurchase = /\b(?:buy|order|purchase|reorder|checkout|cart)\b/i.test(input.userText) || /\b(?:buy|order|purchase|reorder|checkout|cart)\b/i.test(draft.goal || '')

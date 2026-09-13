@@ -109,4 +109,5 @@ export const KIND_TITLES: Record<string, { title: string; blurb: string }> = {
   pipeline_board: { title: 'Pipeline', blurb: 'Jobs, fundraising, leads. Sorted by stage.' },
   spending_snapshot: { title: 'Spending', blurb: 'Log spend against a weekly budget.' },
   home: { title: 'Home', blurb: 'Today, next eight hours, and receipts.' },
+  vault: { title: 'Alpha Vault', blurb: 'Encrypted credential vault. Secure and restricted to the sites you approve.' },
 }

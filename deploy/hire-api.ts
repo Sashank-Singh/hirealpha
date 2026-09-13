@@ -11421,6 +11421,9 @@ export async function miniCardOgDescription(
       if (!lines.length) return 'No important mail'
       return lines.join('\n').slice(0, 320)
     }
+    if (kind === 'vault') {
+      return 'Encrypted credential access. Credentials are encrypted with your per-user key in OpenBao and restricted to the exact website you approve.'
+    }
   } catch (err) {
     console.warn('[mini] og preview failed', err)
   }
@@ -11711,7 +11714,9 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
   const hasBody = req.method !== 'GET' && req.method !== 'HEAD'
   const forwarded = new Request(url, { method: req.method, headers, ...(hasBody ? { body: JSON.stringify({ ...body, email }) } : {}) })
   return requestIdentity.run({ email }, async () => {
-    if (path === '/api/auth/session') return json({ email })
+    if (path === '/api/auth/session') {
+      return json({ email, ...(miniUser?.phone ? { phone: miniUser.phone } : {}) })
+    }
     return handleAuthorizedHireApi(forwarded, sql)
   })
 }
@@ -11846,13 +11851,28 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
   const vaultRes = await handleVaultApi(req, sql, {
     resolveUser: async (db, r) => {
       const q = new URL(r.url).searchParams
+      let bodyToken: string | undefined
+      let bodySession: string | undefined
+      let bodyEmail: string | undefined
+      let bodyPersona: string | undefined
+      if (r.method !== 'GET' && r.method !== 'HEAD') {
+        try {
+          const cloned = await r.clone().json()
+          if (cloned && typeof cloned === 'object') {
+            bodyToken = typeof cloned.token === 'string' ? cloned.token : undefined
+            bodySession = typeof cloned.session === 'string' ? cloned.session : undefined
+            bodyEmail = typeof cloned.email === 'string' ? cloned.email : undefined
+            bodyPersona = typeof cloned.persona === 'string' ? cloned.persona : undefined
+          }
+        } catch {}
+      }
       const { user } = await resolveAuthedUser(db, {
-        token: q.get('t') || undefined,
-        session: q.get('s') || undefined,
-        email: q.get('email') || undefined,
+        token: q.get('t') || bodyToken || undefined,
+        session: q.get('s') || bodySession || undefined,
+        email: q.get('email') || bodyEmail || undefined,
       })
       if (!user) return null
-      const persona = q.get('persona') || 'friend'
+      const persona = q.get('persona') || bodyPersona || 'friend'
       return { id: user.id, persona: (PERSONAS as readonly string[]).includes(persona) ? persona : 'friend' }
     },
     internalOk,
@@ -13209,6 +13229,42 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
       const goal = String(body.body || '').trim()
       if (!/^https:\/\//i.test(portal)) return json({ ok: false, error: 'Browser task needs an https site URL.' }, 400)
       if (goal.length < 8) return json({ ok: false, error: 'Browser task needs a real goal.' }, 400)
+
+      let hostname = ''
+      try {
+        hostname = new URL(portal).hostname.replace(/^www\./, '').toLowerCase()
+      } catch {}
+
+      const isProtectedPortal =
+        /\b(?:login|signin|sign-in|portal|account|orders?|checkout|cart|buy|purchase|student|grades?|tuition|banking|bank|pay|subscription)\b/i.test(goal) ||
+        /\b(?:campusnet|csuohio|blackboard|canvas|amazon|netflix|chase|wellsfargo|bankofamerica|fidelity|vanguard|linkedin|github)\b/i.test(portal) ||
+        /\.edu\b/i.test(portal) ||
+        /\/login|\/signin|\/auth|\/account|\/portal/i.test(portal)
+
+      if (isProtectedPortal && hostname) {
+        const existingEntries = await sql`
+          SELECT id, portal, origin FROM hire_vault_entries
+          WHERE user_id = ${live.userId!}
+        `.then((r) => r as Array<{ id: string; portal: string; origin: string }>).catch(() => [])
+
+        const hasVault = existingEntries.some((e) => {
+          const p = (e.portal || e.origin || '').toLowerCase()
+          return p.includes(hostname)
+        })
+
+        const hasVaultItem = hasVault || (await sql`
+          SELECT exact_origin FROM vault_items WHERE user_id = ${live.userId!}
+        `.then((r) => (r as any[]).some((row) => (row.exact_origin || '').toLowerCase().includes(hostname))).catch(() => false))
+
+        if (!hasVault && !hasVaultItem) {
+          return json({
+            ok: true,
+            needsVault: true,
+            portal,
+            hostname,
+          })
+        }
+      }
       const phoneE164 = live.phone || ''
       const { requestBrowserApproval } = await import('./browserVault')
       const { enqueueBrowserJob, generateSessionViewToken } = await import('./browserJobs')

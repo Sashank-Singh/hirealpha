@@ -719,11 +719,17 @@ export async function runHireTurn(input: {
     agentId: agent.id,
   })
   if (earlyShield.overrideReply) {
+    let card: MiniAppCard | null = null
+    if (earlyShield.vaultLink) {
+      try {
+        card = await mintMiniAppCard(input.senderId, agent.id, 'vault', { portal: earlyShield.vaultLink })
+      } catch {}
+    }
     appendThread(input.dataDir, input.senderId, [
       { role: 'user', content: input.userText },
       { role: 'assistant', content: earlyShield.overrideReply },
     ])
-    return { reply: earlyShield.overrideReply, bubbles: [earlyShield.overrideReply], source: 'local', authoritative: [], card: null }
+    return { reply: earlyShield.overrideReply, bubbles: [earlyShield.overrideReply], source: 'local', authoritative: [], card }
   }
 
   const pendingSpend = mem.pendingSpend
@@ -1821,6 +1827,24 @@ export async function runHireTurn(input: {
                   : 'Looking into this now.'
         void input.delivery.onProgress(ackText).catch(() => undefined)
       }
+      function prettyPortalName(urlStr: string): string {
+        try {
+          const raw = urlStr.startsWith('http') ? urlStr : `https://${urlStr}`
+          const u = new URL(raw)
+          const host = u.hostname.replace(/^www\./, '')
+          if (/campusnet\.csuohio\.edu|csuohio\.edu/i.test(host)) return 'CampusNet (csuohio.edu)'
+          if (/amazon\.com/i.test(host)) return 'Amazon'
+          if (/netflix\.com/i.test(host)) return 'Netflix'
+          if (/linkedin\.com/i.test(host)) return 'LinkedIn'
+          if (/github\.com/i.test(host)) return 'GitHub'
+          if (/canvas/i.test(host)) return 'Canvas'
+          if (/blackboard/i.test(host)) return 'Blackboard'
+          return host
+        } catch {
+          return urlStr
+        }
+      }
+
       let purchaseSetupUrl: string | null = null
       let purchaseRequestId: string | null = null
       let browserSessionUrl: string | null = null
@@ -1831,8 +1855,14 @@ export async function runHireTurn(input: {
         lookup: (tool, query) => fetchLiveTools(input.senderId, agent.id, query, tool as any),
           propose: (draft) =>
             saveFriendDraft(input.senderId, agent.id, draft).then((r: any) => {
-              if (draft.type === 'browser' && r?.ok && r.sessionUrl) {
-                browserSessionUrl = r.sessionUrl as string
+              if (draft.type === 'browser' && r?.ok) {
+                if (r.needsVault) {
+                  confirmKind = 'vault'
+                  confirmQuery = { portal: draft.portal }
+                  reply = `Locked. Everything's ready to go the second you're signed into ${prettyPortalName(draft.portal)} — save your login details securely or choose private handoff in your vault:`
+                } else if (r.sessionUrl) {
+                  browserSessionUrl = r.sessionUrl as string
+                }
               }
               if (draft.type === 'purchase' && r.ok) {
               if (r.needsSetup && r.setupUrl) {
@@ -1857,12 +1887,16 @@ export async function runHireTurn(input: {
       reply = outcome.reply
       if (outcome.draft) {
         if (outcome.draft.type === 'browser') {
-          // Auto-launch: the run starts now, scoped to the named site for this
-          // one task; the result lands back in this thread via the
-          // browser_result loop when the worker finishes.
-          reply = browserSessionUrl
-            ? `${reply}\nWatch it live: ${browserSessionUrl} (the run started just now; it pauses on its own before payment or any password, and I'll report back when it's done)`.trim()
-            : `${reply}\n(I'll start that run and report back here when it's done)`.trim()
+          if (confirmKind === 'vault') {
+            // Vault card requested: reply already explains the lock
+          } else {
+            // Auto-launch: the run starts now, scoped to the named site for this
+            // one task; the result lands back in this thread via the
+            // browser_result loop when the worker finishes.
+            reply = browserSessionUrl
+              ? `${reply}\nWatch it live: ${browserSessionUrl} (the run started just now; it pauses on its own before payment or any password, and I'll report back when it's done)`.trim()
+              : `${reply}\n(I'll start that run and report back here when it's done)`.trim()
+          }
         } else if (outcome.draft.type === 'purchase') {
           if (purchaseSetupUrl) {
             reply = `${reply}\nRegister your card or Link wallet here to authorize purchases (one-time setup): ${purchaseSetupUrl}\nOnce registered, reply or text me to complete the order!`.trim()
