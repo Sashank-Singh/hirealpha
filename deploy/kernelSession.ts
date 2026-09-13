@@ -45,6 +45,8 @@ import { KernelBrowser } from './kernelPage'
 
 export type KernelTask = {
   url: string
+  username?: string
+  password?: string
   goal?: string
   onProgress?: (event: { action: string; url: string }) => Promise<void>
   onScreenshot?: (event: { dataUrl: string; caption?: string }) => Promise<void>
@@ -65,6 +67,87 @@ export type KernelTask = {
   paymentAuthorized?: boolean
   paymentAmountCents?: number
   paymentCard?: PaymentCardSecrets
+}
+
+export async function attemptKernelLogin(
+  browser: KernelBrowser,
+  username?: string,
+  password?: string,
+): Promise<{ ok: boolean; filled: boolean }> {
+  if (!password) return { ok: false, filled: false }
+  try {
+    const result = await browser.run<{ ok: boolean; filled: boolean }>(
+      `const usernameVal = ${JSON.stringify(username || '')};
+       const passwordVal = ${JSON.stringify(password || '')};
+       const pwLoc = page.locator('input[type="password"]').first();
+       const pwCount = await pwLoc.count().catch(() => 0);
+       if (!pwCount) return { ok: true, filled: false };
+
+       const userSelectors = [
+         'input[name*="user" i]',
+         'input[name*="email" i]',
+         'input[name*="login" i]',
+         'input[name*="id" i]',
+         'input[id*="user" i]',
+         'input[id*="login" i]',
+         'input[id*="id" i]',
+         'input[placeholder*="user" i]',
+         'input[placeholder*="id" i]',
+         'input[placeholder*="csu" i]',
+         'input[placeholder*="login" i]',
+         'input[placeholder*="email" i]',
+         'input[aria-label*="user" i]',
+         'input[aria-label*="id" i]',
+         'input[aria-label*="login" i]',
+         'input[type="email"]',
+         'input[type="text"]'
+       ];
+       if (usernameVal) {
+         for (const sel of userSelectors) {
+           const loc = page.locator(sel).first();
+           if (await loc.count().catch(() => 0)) {
+             try {
+               await loc.fill(usernameVal, { timeout: 4000 });
+               break;
+             } catch {}
+           }
+         }
+       }
+       await pwLoc.fill(passwordVal, { timeout: 6000 });
+
+       const submitSelectors = [
+         'button[type="submit"]',
+         'input[type="submit"]',
+         'button:has-text("Login")',
+         'button:has-text("Log In")',
+         'button:has-text("Sign In")',
+         'input[value*="Login" i]',
+         'input[value*="Sign In" i]'
+       ];
+       let clicked = false;
+       for (const sel of submitSelectors) {
+         const btn = page.locator(sel).first();
+         if (await btn.count().catch(() => 0)) {
+           try {
+             await btn.click({ timeout: 4000 });
+             clicked = true;
+             break;
+           } catch {}
+         }
+       }
+       if (!clicked) {
+         try { await pwLoc.press('Enter', { timeout: 4000 }); } catch {}
+       }
+       return { ok: true, filled: true };`,
+      45_000,
+    )
+    if (result.filled) {
+      await browser.settle(15_000).catch(() => undefined)
+    }
+    return result
+  } catch (err) {
+    return { ok: false, filled: false }
+  }
 }
 
 /** Elements the driver offers the model, captured in one round trip. */
@@ -139,10 +222,28 @@ export async function runKernelTask(
     const failed = new Map<string, number>()
     let lastAction = ''
 
+    if (task.password) {
+      const loginAttempt = await attemptKernelLogin(browser, task.username, task.password)
+      if (loginAttempt.filled) {
+        recent.push('Automated login submitted with saved credentials from Vault.')
+        await task.onProgress?.({ action: 'login', url: browser.url() }).catch(() => undefined)
+      }
+    }
+
     for (let step = 0; step < limits.maxSteps; step++) {
       if (Date.now() > deadline) return { ok: false, error: 'The task ran out of time before it finished.' }
 
-      const { pageText, screenshot, title, targets } = await captureWithRetry(browser)
+      const { pageText, screenshot, title, targets, hasPasswordField } = await captureWithRetry(browser)
+
+      if (hasPasswordField && task.password && !recent.some((r) => r.includes('Automated login submitted'))) {
+        const loginAttempt = await attemptKernelLogin(browser, task.username, task.password)
+        if (loginAttempt.filled) {
+          recent.push('Automated login submitted with saved credentials from Vault.')
+          await task.onProgress?.({ action: 'login', url: browser.url() }).catch(() => undefined)
+          continue
+        }
+      }
+
       const parts = [
         { type: 'text', text: renderPrompt(task, pageText, targets, title, browser.url(), recent, step) },
         { type: 'image_url', image_url: { url: `data:image/jpeg;base64,${screenshot}` } },
@@ -328,11 +429,15 @@ function renderPrompt(
   const payment = task.paymentAuthorized
     ? `PAYMENT STATUS: an approved one-time card is available${task.paymentAmountCents ? ` for ${(task.paymentAmountCents / 100).toFixed(2)}` : ''}.`
     : 'PAYMENT STATUS: no card is authorized. Use payment handoff before any charge.'
+  const authStatus = task.password
+    ? 'VAULT STATUS: login credentials are saved in Vault.'
+    : 'VAULT STATUS: no credentials in Vault.'
   return [
     `GOAL: ${task.goal || 'complete the task on this page'}`,
     `URL: ${url}`,
     `TITLE: ${title}`,
     `STEP: ${step + 1}`,
+    authStatus,
     payment,
     recent.length ? `RECENT ACTIONS:\n${recent.slice(-6).join('\n')}` : '',
     `VISIBLE TEXT:\n${pageText}`,

@@ -302,6 +302,8 @@ export async function runJob(sql: SQL, job: JobRow, launch = runBrowserSession):
           return await runKernelTask(
             {
               url: task.url,
+              username: task.username,
+              password: task.password,
               goal: task.goal,
               paymentAuthorized: task.paymentAuthorized,
               paymentAmountCents: task.paymentAmountCents,
@@ -457,7 +459,9 @@ export async function runJob(sql: SQL, job: JobRow, launch = runBrowserSession):
         insights: payment
           ? `Checkout is staged at a verified total of $${((amountCents || 0) / 100).toFixed(2)}. Approve the one-time payment in Link: ${payment.paymentUrl} — watch the live checkout here: ${sessionUrl}`
           : handoffKind === 'password'
-            ? `Your login password or username is not in Vault yet. Connect it securely here: ${vaultUrl} — or take over the live computer: ${sessionUrl}`
+            ? (creds?.password
+                ? `Alpha paused at the sign-in screen on ${origin ? new URL(origin).hostname.replace(/^www\./, '') : 'the portal'}. If two-factor or security verification is needed, take over here: ${sessionUrl}`
+                : `Your login password or username is not in Vault yet. Connect it securely here: ${vaultUrl} — or take over the live computer: ${sessionUrl}`)
             : `Alpha paused and needs you to ${message.replace(/[.!]+$/, '').toLowerCase()}. Open the live computer: ${sessionUrl}`,
         screenshotDataUrl: handoffShot?.dataUrl,
         screenshotCaption: handoffShot?.caption || handoffMessage,

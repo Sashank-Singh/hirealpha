@@ -98,6 +98,7 @@ export function ComputerSessionView() {
   const [streamMode, setStreamMode] = useState<'stream' | 'snapshot'>('stream')
   const lastStatus = useRef<SessionStatus | null>(null)
   const computerRef = useRef<HTMLElement>(null)
+  const iframeRef = useRef<HTMLIFrameElement>(null)
 
   const query = useMemo(() => token ? `?token=${encodeURIComponent(token)}` : '', [token])
 
@@ -174,7 +175,20 @@ export function ComputerSessionView() {
 
   const takeControl = () => {
     setTakingControl(true)
-    window.requestAnimationFrame(() => computerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
+    window.requestAnimationFrame(() => {
+      computerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      iframeRef.current?.focus()
+    })
+  }
+
+  const toggleControl = () => {
+    setTakingControl((prev) => {
+      const next = !prev
+      if (next) {
+        window.requestAnimationFrame(() => iframeRef.current?.focus())
+      }
+      return next
+    })
   }
 
   if (!sessionId) {
@@ -286,10 +300,11 @@ export function ComputerSessionView() {
           <div className={`cs-stream ${takingControl ? 'cs-stream-control' : ''}`}>
             {session.streamUrl && !streamError && streamMode === 'stream' ? (
               <iframe
+                ref={iframeRef}
                 className="cs-stream-frame"
                 src={session.streamUrl}
                 title={`Live browser on ${currentHost}`}
-                allow="clipboard-read; clipboard-write"
+                allow="clipboard-read; clipboard-write; fullscreen"
                 referrerPolicy="no-referrer"
                 tabIndex={takingControl ? 0 : -1}
                 onError={() => setStreamError(true)}
@@ -315,7 +330,7 @@ export function ComputerSessionView() {
                 <span className="cs-control-note">{takingControl ? 'You have the mouse and keyboard' : 'Alpha has control'}</span>
                 <button
                   className={`cs-button ${takingControl ? 'cs-button-secondary' : 'cs-button-primary'}`}
-                  onClick={() => setTakingControl((value) => !value)}
+                  onClick={toggleControl}
                 >
                   {ICONS.cursor}
                   {takingControl ? 'Return control' : 'Take control'}

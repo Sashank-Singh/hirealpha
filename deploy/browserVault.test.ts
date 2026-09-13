@@ -900,6 +900,20 @@ describe('vault save with username + op backing marker', () => {
     }
   })
 
+  it('resolves credentials through rootDomain matching (e.g. csuohio.edu for campusnet.csuohio.edu)', async () => {
+    const { sql } = fakeSql((text, values) => {
+      if (/FROM hire_vault_entries/i.test(text)) {
+        // Return match when query contains rootDomain
+        if (values?.some((v) => typeof v === 'string' && v.includes('csuohio.edu'))) {
+          return [{ id: 'e-csu', secret_encrypted: encryptSecret('studentPass123', KEY_A), username: 'studentId123', secret_ref: null }]
+        }
+      }
+      return []
+    })
+    const creds = await getVaultCredentialsForTask(sql, USER, 'https://campusnet.csuohio.edu', KEY_A)
+    expect(creds).toEqual({ username: 'studentId123', password: 'studentPass123' })
+  })
+
   it('auto-triggers text message "{Tool} is connected." and resumes waiting browser job when credential is saved', async () => {
     let resumedJobId = ''
     let activityAppended = ''

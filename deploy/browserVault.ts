@@ -1000,9 +1000,14 @@ export async function getVaultCredentialsForTask(
     let host = ''
     try { host = new URL(origin.startsWith('http') ? origin : `https://${origin}`).hostname.replace(/^www\./, '').toLowerCase() } catch {}
     if (host) {
+      const parts = host.split('.')
+      const rootDomain = parts.length >= 2 ? parts.slice(-2).join('.') : host
       rows = (await sql`
         SELECT id, secret_encrypted, username, secret_ref FROM hire_vault_entries
-        WHERE user_id = ${userId} AND (origin ILIKE ${`%${host}%`} OR portal ILIKE ${`%${host}%`})
+        WHERE user_id = ${userId} AND (
+          origin ILIKE ${`%${host}%`} OR portal ILIKE ${`%${host}%`}
+          OR origin ILIKE ${`%${rootDomain}%`} OR portal ILIKE ${`%${rootDomain}%`}
+        )
         ORDER BY updated_at DESC LIMIT 1
       `) as Array<{ id: string; secret_encrypted: string; username: string | null; secret_ref: string | null }>
     }

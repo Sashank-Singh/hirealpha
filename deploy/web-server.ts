@@ -735,18 +735,18 @@ process.on('uncaughtException', (err) => {
  * signed view token: query param on the first load (then stored in a
  * path-scoped cookie, because the page's own ws:// URLs carry no token) or a
  * logged-in session owned by the job's user. */
-type LiveProxyData = { target: string; peer: WebSocket | null }
+type LiveProxyData = { target: string; peer: WebSocket | null; queue?: Array<string | Buffer> }
 
-async function handleLiveProxyUpgrade(req: Request, server: Bun.Server<LiveProxyData>): Promise<boolean | undefined> {
+async function handleLiveProxyUpgrade(req: Request, server: Bun.Server<LiveProxyData>): Promise<boolean> {
   const url = new URL(req.url)
-  if (!url.pathname.startsWith('/api/computer/live-proxy/')) return undefined
+  if (!url.pathname.startsWith('/api/computer/live-proxy/')) return false
   const jobId = url.pathname.slice('/api/computer/live-proxy/'.length).split('/')[0]
-  if (!jobId || !sql) return undefined
+  if (!jobId || !sql) return false
   try {
     const { getBrowserJob, verifySessionViewToken } = await import('./browserJobs')
     const job = await getBrowserJob(sql, jobId)
     const liveView = job?.live_view_url?.trim() || ''
-    if (!job || !liveView) return undefined
+    if (!job || !liveView) return false
     const token = url.searchParams.get('token') || url.searchParams.get('t')
       || (req.headers.get('cookie') || '').split(';').map((v) => v.trim())
         .find((v) => v.startsWith(`ha_live_${jobId}=`))?.slice(`ha_live_${jobId}=`.length)
@@ -763,7 +763,7 @@ async function handleLiveProxyUpgrade(req: Request, server: Bun.Server<LiveProxy
         }
       }
     }
-    if (!authorized) return undefined
+    if (!authorized) return false
     const upstream = new URL(liveView)
     const proto = upstream.protocol === 'https:' ? 'wss:' : 'ws:'
     const rest = url.pathname.slice(('/api/computer/live-proxy/' + jobId).length) || '/'
@@ -771,10 +771,10 @@ async function handleLiveProxyUpgrade(req: Request, server: Bun.Server<LiveProxy
       ? `?${new URLSearchParams([...url.searchParams].filter(([k]) => k !== 'token' && k !== 't')).toString()}`
       : url.search
     const target = `${proto}//${upstream.host}${rest}${search === '?' ? '' : search}`
-    return server.upgrade(req, { data: { target, peer: null } })
+    return server.upgrade(req, { data: { target, peer: null, queue: [] } })
   } catch (err) {
     console.warn('[web] live-proxy upgrade failed', err)
-    return undefined
+    return false
   }
 }
 
@@ -782,38 +782,51 @@ Bun.serve<LiveProxyData>({
   port: PORT,
   hostname: '0.0.0.0',
   idleTimeout: 120,
-  // `handle` (websocket upgrade hook) exists since Bun 1.2.36 but is missing
-  // from @types/bun 1.4, so it rides in through a spread.
-  ...({
-    handle: handleLiveProxyUpgrade,
-    websocket: {
-      open(ws: ServerWebSocket<LiveProxyData>) {
-        const { target } = ws.data
-        let peer: WebSocket
-        try {
-          peer = new WebSocket(target)
-        } catch {
-          ws.close(1011, 'bad upstream')
-          return
+  websocket: {
+    open(ws: ServerWebSocket<LiveProxyData>) {
+      const { target } = ws.data
+      let peer: WebSocket
+      try {
+        peer = new WebSocket(target)
+      } catch {
+        ws.close(1011, 'bad upstream')
+        return
+      }
+      peer.binaryType = 'arraybuffer'
+      ws.data.peer = peer
+      const pending: Array<string | Buffer> = []
+      ws.data.queue = pending
+      peer.onopen = () => {
+        if (ws.data.queue) {
+          for (const item of ws.data.queue) {
+            try { peer.send(item as string | ArrayBuffer) } catch {}
+          }
+          ws.data.queue = []
         }
-        peer.binaryType = 'arraybuffer'
-        ws.data.peer = peer
-        peer.onmessage = (event) => {
-          if (ws.readyState === 1) ws.send((event as MessageEvent).data as ArrayBuffer | string)
-        }
-        peer.onclose = () => { try { ws.close() } catch { /* already closed */ } }
-        peer.onerror = () => { try { ws.close(1011, 'upstream error') } catch { /* already closed */ } }
-      },
-      message(ws: ServerWebSocket<LiveProxyData>, msg: string | Buffer) {
-        const peer = ws.data.peer
-        if (peer && peer.readyState === WebSocket.OPEN) peer.send(msg as string | ArrayBuffer)
-      },
-      close(ws: ServerWebSocket<LiveProxyData>) {
-        try { ws.data.peer?.close() } catch { /* ignore */ }
-      },
+      }
+      peer.onmessage = (event) => {
+        if (ws.readyState === 1) ws.send((event as MessageEvent).data as ArrayBuffer | string)
+      }
+      peer.onclose = () => { try { ws.close() } catch { /* already closed */ } }
+      peer.onerror = () => { try { ws.close(1011, 'upstream error') } catch { /* already closed */ } }
     },
-  } as object),
-  async fetch(req) {
+    message(ws: ServerWebSocket<LiveProxyData>, msg: string | Buffer) {
+      const peer = ws.data.peer
+      if (peer && peer.readyState === WebSocket.OPEN) {
+        peer.send(msg as string | ArrayBuffer)
+      } else if (ws.data.queue) {
+        ws.data.queue.push(msg)
+      }
+    },
+    close(ws: ServerWebSocket<LiveProxyData>) {
+      try { ws.data.peer?.close() } catch { /* ignore */ }
+    },
+  },
+  async fetch(req, server) {
+    if (req.headers.get('upgrade')?.toLowerCase() === 'websocket') {
+      const upgraded = await handleLiveProxyUpgrade(req, server)
+      if (upgraded) return undefined
+    }
     const url = new URL(req.url)
     if (url.pathname === '/healthz') {
       return new Response('ok', { headers: { 'Content-Type': 'text/plain' } })

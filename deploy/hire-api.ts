@@ -11515,11 +11515,14 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
         try {
           const upstreamHost = new URL(job.live_view_url).host
           const host = req.headers.get('host') || url.host
-          const proxyOrigin = `https://${host}/api/computer/live-proxy/${encodeURIComponent(jobId)}`
-          html = html.split(`wss://${upstreamHost}`).join(proxyOrigin)
-          html = html.split(`ws://${upstreamHost}`).join(proxyOrigin)
-          html = html.split(`https://${upstreamHost}`).join(proxyOrigin)
-          html = html.split(`http://${upstreamHost}`).join(proxyOrigin)
+          const proto = req.headers.get('x-forwarded-proto') || url.protocol.replace(':', '')
+          const isSecure = proto === 'https'
+          const proxyWsOrigin = `${isSecure ? 'wss' : 'ws'}://${host}/api/computer/live-proxy/${encodeURIComponent(jobId)}`
+          const proxyHttpOrigin = `${isSecure ? 'https' : 'http'}://${host}/api/computer/live-proxy/${encodeURIComponent(jobId)}`
+          html = html.split(`wss://${upstreamHost}`).join(proxyWsOrigin)
+          html = html.split(`ws://${upstreamHost}`).join(proxyWsOrigin)
+          html = html.split(`https://${upstreamHost}`).join(proxyHttpOrigin)
+          html = html.split(`http://${upstreamHost}`).join(proxyHttpOrigin)
         } catch { /* unparseable upstream URL: serve as-is */ }
         const headersOut = new Headers(headers)
         if (token) {
