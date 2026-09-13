@@ -8018,6 +8018,24 @@ function slugNudge(raw: string) {
   return raw.toLowerCase().replace(/[^a-z0-9]+/g, '').slice(0, 48) || 'x'
 }
 
+export function isGenZUser(context: Record<string, string> = {}): boolean {
+  const gen = String(context.generation || '').toLowerCase()
+  if (gen === 'gen_z' || gen === 'genz') return true
+  if (gen === 'boomer' || gen === 'gen_x' || gen === 'professional') return false
+  if (context.tone === 'gen_z') return true
+  if (context.tone === 'professional') return false
+
+  const age = Number(context.age || context.user_age)
+  if (age && age > 0) return age <= 28
+
+  const byear = Number(context.birth_year || context.birthYear || context.born_in)
+  if (byear && byear > 1900) return byear >= 1997
+
+  const vibe = `${context.vibe || ''} ${context.style || ''} ${context.notes || ''}`.toLowerCase()
+  if (vibe.includes('gen z') || vibe.includes('genz') || vibe.includes('slang')) return true
+  return false
+}
+
 type EventNudge = {
   phone: string
   topic: string
@@ -8446,9 +8464,12 @@ async function collectEventNudgesForUser(
         for (const ev of events) {
           const key = `debrief:${ev.start.toISOString().slice(0, 16)}:${slugNudge(ev.title)}`
           if (sentKeys.has(key)) continue
+          const isGenZ = isGenZUser(context)
           const who = meetingWho(ev.title)
           const target = who ? `with ${who}` : `on ${ev.title}`
-          const text = `Just wrapped ${target}. Want to capture any next steps or follow-ups while it's fresh?`
+          const text = isGenZ
+            ? (who ? `Wrapped with ${who}, we survived. Any next steps before the brain wipes?` : `Wrapped ${ev.title}. Want to jot down takeaways before they vanish?`)
+            : `Just wrapped ${target}. Want to capture any next steps or follow-ups while it's fresh?`
           candidates.push({
             order: 1,
             topic: 'meeting_debrief',
@@ -8543,6 +8564,7 @@ async function collectEventNudgesForUser(
     persona === 'friend' ||
     (!roster.includes('friend') && (roster[0] === persona || persona === 'coworker'))
   if (isLifestyleOwner && !isBusyNow) {
+    const isGenZ = isGenZUser(context)
     const timeParts = new Intl.DateTimeFormat('en-US', {
       timeZone: tz,
       hour: 'numeric',
@@ -8563,12 +8585,15 @@ async function collectEventNudgesForUser(
           WHERE user_id = ${user.id} AND eaten_at >= ${todayWin.start.toISOString()} AND eaten_at < ${todayWin.end.toISOString()}
         `
         if (Number(logged[0]?.n || 0) === 0) {
+          const text = isGenZ
+            ? "gm bestie did we eat breakfast yet or are we running on iced matcha and vibes? drop the food log"
+            : "Good morning! Had breakfast yet or want to log what you're having?"
           candidates.push({
             order: 1,
             topic: 'meal_checkin',
             key,
             urgent: false,
-            text: stripNudgeDashes("Good morning! Had breakfast yet or want to log what you're having?"),
+            text: stripNudgeDashes(text),
             cardKind: 'nutrition',
           })
         }
@@ -8584,12 +8609,15 @@ async function collectEventNudgesForUser(
           WHERE user_id = ${user.id} AND eaten_at >= ${new Date(todayWin.start.getTime() + 11 * 3600_000).toISOString()} AND eaten_at < ${todayWin.end.toISOString()}
         `
         if (Number(logged[0]?.n || 0) === 0) {
+          const text = isGenZ
+            ? "lunchtime bestie. what are we consuming today or is it doordash again? tap to log"
+            : "Time for lunch! What are you having today?"
           candidates.push({
             order: 1,
             topic: 'meal_checkin',
             key,
             urgent: false,
-            text: stripNudgeDashes("Time for lunch! What are you having today?"),
+            text: stripNudgeDashes(text),
             cardKind: 'nutrition',
           })
         }
@@ -8605,12 +8633,15 @@ async function collectEventNudgesForUser(
           WHERE user_id = ${user.id} AND logged_at >= ${todayWin.start.toISOString()} AND logged_at < ${todayWin.end.toISOString()}
         `
         if (Number(logged[0]?.n || 0) === 0) {
+          const text = isGenZ
+            ? "gym time or are we skipping leg day? let's get those gains fr fr"
+            : "Ready for your workout today? How are you feeling for a session?"
           candidates.push({
             order: 1,
             topic: 'workout_checkin',
             key,
             urgent: false,
-            text: stripNudgeDashes("Ready for your workout today? How are you feeling for a session?"),
+            text: stripNudgeDashes(text),
             cardKind: 'workout_log',
           })
         }
@@ -8626,12 +8657,15 @@ async function collectEventNudgesForUser(
           WHERE user_id = ${user.id} AND eaten_at >= ${new Date(todayWin.start.getTime() + 17 * 3600_000).toISOString()} AND eaten_at < ${todayWin.end.toISOString()}
         `
         if (Number(logged[0]?.n || 0) === 0) {
+          const text = isGenZ
+            ? "dinner check! what's the chef cooking tonight or what did you grub on?"
+            : "Good evening! What's on the menu for dinner tonight?"
           candidates.push({
             order: 1,
             topic: 'meal_checkin',
             key,
             urgent: false,
-            text: stripNudgeDashes("Good evening! What's on the menu for dinner tonight?"),
+            text: stripNudgeDashes(text),
             cardKind: 'nutrition',
           })
         }
@@ -13415,6 +13449,15 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
     await upsertMemories(sql, user.id, body.persona, facts)
     const tzFact = facts.find((f) => f.key.toLowerCase() === 'timezone')
     if (tzFact) await rememberUserTimezone(sql, user.id, tzFact.value, body.persona)
+    const genFact = facts.find((f) => ['generation', 'age', 'birth_year', 'tone'].includes(f.key.toLowerCase()))
+    if (genFact) {
+      await sql`
+        INSERT INTO hire_context (user_id, persona, fields, updated_at)
+        VALUES (${user.id}, ${body.persona}, ${JSON.stringify({ [genFact.key.toLowerCase()]: genFact.value })}::jsonb, now())
+        ON CONFLICT (user_id, persona)
+        DO UPDATE SET fields = hire_context.fields || ${JSON.stringify({ [genFact.key.toLowerCase()]: genFact.value })}::jsonb, updated_at = now()
+      `
+    }
     return json({ ok: true, memories: await loadMemories(sql, user.id, body.persona, 12) })
   }
 

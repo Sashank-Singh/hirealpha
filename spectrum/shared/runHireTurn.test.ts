@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { appendThread, loadMemory } from './memory'
-import { runHireTurn } from './runHireTurn'
+import { detectAgeOrGenZ, runHireTurn } from './runHireTurn'
 import { needsConversationPlanner } from './conversationalFriend'
 
 describe('explicit navigation wins over conversation history', () => {
@@ -236,3 +236,29 @@ describe('tool-engine gate', () => {
     expect(needsConversationPlanner('that sounds good, thanks!', memory)).toBe(false)
   })
 })
+
+describe('age and Gen Z detection', () => {
+  it('detects Gen Z from user explicit request or slang', () => {
+    expect(detectAgeOrGenZ('talk to me in gen z please').isGenZ).toBe(true)
+    expect(detectAgeOrGenZ('bro that is no cap fr fr').isGenZ).toBe(true)
+    expect(detectAgeOrGenZ('roast me').isGenZ).toBe(true)
+  })
+
+  it('detects Gen Z vs older from stated age', () => {
+    expect(detectAgeOrGenZ("I'm 22 years old")).toEqual({ isGenZ: true, reason: 'stated age 22', age: 22 })
+    expect(detectAgeOrGenZ("I am 45 years old")).toEqual({ isGenZ: false, reason: 'stated age 45', age: 45 })
+  })
+
+  it('detects Gen Z vs older from birth year', () => {
+    expect(detectAgeOrGenZ('born in 2002')).toEqual({ isGenZ: true, reason: 'stated year 2002' })
+    expect(detectAgeOrGenZ('born in 1985')).toEqual({ isGenZ: false, reason: 'stated year 1985' })
+  })
+
+  it('detects Gen Z from context or memory', () => {
+    expect(detectAgeOrGenZ('hello', { generation: 'gen_z' }).isGenZ).toBe(true)
+    expect(detectAgeOrGenZ('hello', { age: '24' }).isGenZ).toBe(true)
+    expect(detectAgeOrGenZ('hello', { age: '38' }).isGenZ).toBe(false)
+    expect(detectAgeOrGenZ('hello', {}, [{ key: 'birth_year', value: '2001' }]).isGenZ).toBe(true)
+  })
+})
+

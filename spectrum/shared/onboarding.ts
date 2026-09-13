@@ -127,7 +127,7 @@ function memoryKeyForStage(stage: OnboardingStage): string {
   return PRIORITY_KEY
 }
 
-async function postOnboardingFact(
+export async function postOnboardingFact(
   phone: string,
   persona: AgentId,
   key: string,

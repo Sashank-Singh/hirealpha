@@ -17,7 +17,7 @@ import { autoIterateWorkshop, autoLogGratitude, autoLogHabit, autoLogMood, autoL
   fetchAwaitingBrowserAnswer, submitBrowserAnswer } from './liveContext'
 import { captureFromChat } from './cofounderPro'
 import { coworkerCaptureFromChat } from './coworkerPro'
-import { onboardingStage, runOnboardingTurn, suggestConnector } from './onboarding'
+import { onboardingStage, runOnboardingTurn, suggestConnector, postOnboardingFact } from './onboarding'
 import {
   looksLikeReminder,
   parseReminderIntent,
@@ -630,6 +630,45 @@ function formatLocalAtSafe(utc: string, timezone: string): string {
   } catch {
     return new Date(utc).toLocaleString()
   }
+}
+
+export function detectAgeOrGenZ(
+  userText: string,
+  context: Record<string, string> = {},
+  memories: Array<{ key?: string; value?: string }> = [],
+): { isGenZ: boolean; reason?: string; age?: number } {
+  const ctxVal = `${context.generation || ''} ${context.tone || ''} ${context.style || ''} ${context.vibe || ''}`.toLowerCase()
+  if (ctxVal.includes('gen_z') || ctxVal.includes('genz')) return { isGenZ: true, reason: 'profile' }
+  if (ctxVal.includes('boomer') || ctxVal.includes('gen_x') || ctxVal.includes('professional')) return { isGenZ: false, reason: 'profile' }
+
+  const ageVal = Number(context.age || memories.find((m) => m.key === 'age')?.value)
+  if (ageVal && ageVal > 0) return { isGenZ: ageVal <= 28, reason: `age ${ageVal}`, age: ageVal }
+
+  const byear = Number(context.birth_year || context.birthYear || memories.find((m) => m.key === 'birth_year' || m.key === 'birthYear')?.value)
+  if (byear && byear > 1900) return { isGenZ: byear >= 1997, reason: `birth year ${byear}` }
+
+  if (/\b(?:gen\s*z|talk (?:to me )?in gen\s*z|use gen\s*z|be gen\s*z|roast me|funny gen\s*z)\b/i.test(userText)) {
+    return { isGenZ: true, reason: 'explicit_request' }
+  }
+
+  const ageMatch = userText.match(/\b(?:i am|i'm|im|turning)\s+(\d{1,2})\b(?:\s*years\s+old)?/i)
+  if (ageMatch) {
+    const parsedAge = parseInt(ageMatch[1], 10)
+    if (parsedAge >= 10 && parsedAge <= 99) {
+      return { isGenZ: parsedAge <= 28, reason: `stated age ${parsedAge}`, age: parsedAge }
+    }
+  }
+  const byearMatch = userText.match(/\b(?:born in|birth year(?: is)?)\s*(19\d{2}|20\d{2})\b/i)
+  if (byearMatch) {
+    const parsedYear = parseInt(byearMatch[1], 10)
+    return { isGenZ: parsedYear >= 1997, reason: `stated year ${parsedYear}` }
+  }
+
+  if (/\b(?:no cap|fr fr|slay|rizz|skibidi|gyatt|delulu|main character|it's giving|its giving|deadass|lowkey fire)\b/i.test(userText)) {
+    return { isGenZ: true, reason: 'slang_detected' }
+  }
+
+  return { isGenZ: false }
 }
 
 export async function runHireTurn(input: {
@@ -1639,6 +1678,16 @@ export async function runHireTurn(input: {
     extras.push(
       `Their Google mail and calendar are not connected and this ask wants them. Append this line to your reply: "${connectorAsk.text}" Do not claim you pulled anything.`,
     )
+  }
+  const ageCheck = detectAgeOrGenZ(input.userText, live.context, live.memories || [])
+  if (ageCheck.isGenZ) {
+    extras.push(
+      `USER DEMOGRAPHIC & TONE: The user is Gen Z (${ageCheck.reason || 'detected'}). Be genuinely funny, witty, and speak fluent Gen Z language naturally (e.g. playful banter with 'no cap', 'bestie', 'we're so back', 'valid', 'fr fr', 'main character', 'it's giving', 'lowkey/highkey', 'unhinged'). Hype them up or playfully roast them where appropriate, while getting the actual task done effortlessly. Never sound like a corporate robot.`,
+    )
+    if (ageCheck.reason && (ageCheck.reason.startsWith('stated') || ageCheck.reason === 'explicit_request')) {
+      void postOnboardingFact(input.senderId, agent.id, 'generation', 'gen_z')
+      if (ageCheck.age) void postOnboardingFact(input.senderId, agent.id, 'age', String(ageCheck.age))
+    }
   }
 
   const memoryBlock = buildMemoryBlock(mem, live.memories || [])
