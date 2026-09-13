@@ -312,8 +312,16 @@ export function detectMiniAppRequest(
   persona: AgentId,
   recentUserTexts: string[] = [],
 ): MiniAppRequest | null {
+  // Instant fast-path for apps / menu / home requests (sub-second navigation without LLMs)
+  if (/^\s*(?:\/?(?:apps?|menu)|(?:show|open|pull up|give me|list)(?: me)?(?: the| my)? (?:apps?|menu)|what apps (?:do you have|are there)|my apps)\s*[.!?]?\s*$/i.test(userText)) {
+    return { kind: 'apps' }
+  }
+  if (/^\s*(?:\/?home|(?:show|open|pull up)(?: me)?(?: the| my)? (?:home|home screen|mirror|dashboard))\s*[.!?]?\s*$/i.test(userText)) {
+    return { kind: 'home' }
+  }
+
   const allowed = allowedKinds(persona)
-  const haystack = [userText, ...recentUserTexts].join('\n')
+  const haystack = [userText, ...recentUserTexts.slice(0, 3)].join('\n')
 
   // A URL paired with any save/queue/bookmark intent always routes to learning_queue,
   // regardless of where drop_zone falls in the persona ordering. The URL may live
@@ -419,6 +427,9 @@ export function miniAppCard(
   return { url: miniAppUrl(persona, kind, query), live: false }
 }
 
+const MINI_APP_TOKEN_CACHE = new Map<string, { url: string; expiresAt: number }>()
+const TOKEN_CACHE_TTL_MS = 15 * 60 * 1000 // 15 minutes
+
 /**
  * Mint a short-lived, signed URL for a mini-app card so it works inside the
  * Messages webview without a browser session. Falls back to the unsigned URL
@@ -431,12 +442,25 @@ export async function mintMiniAppUrl(
   query?: Record<string, string>,
 ): Promise<string> {
   kind = canonicalMiniAppKind(persona, kind)
+  const cacheKey = `${phone}:${persona}:${kind}`
+  const cached = MINI_APP_TOKEN_CACHE.get(cacheKey)
+  if (cached && Date.now() < cached.expiresAt) {
+    if (query) {
+      try {
+        const minted = new URL(cached.url)
+        for (const [k, v] of Object.entries(query)) minted.searchParams.set(k, v)
+        return minted.toString()
+      } catch {}
+    }
+    return cached.url
+  }
+
   const base = apiBase()
   if (base) {
     try {
       const qs = new URLSearchParams({ phone, persona, kind })
       const ctrl = new AbortController()
-      const t = setTimeout(() => ctrl.abort(), 4000)
+      const t = setTimeout(() => ctrl.abort(), 1200)
       const res = await fetch(`${base}/api/internal/mini/token?${qs}`, {
         headers: authHeaders(),
         signal: ctrl.signal,
@@ -445,6 +469,7 @@ export async function mintMiniAppUrl(
       if (res.ok) {
         const data = (await res.json()) as { url?: string }
         if (data.url) {
+          MINI_APP_TOKEN_CACHE.set(cacheKey, { url: data.url, expiresAt: Date.now() + TOKEN_CACHE_TTL_MS })
           if (query) {
             const minted = new URL(data.url)
             for (const [k, v] of Object.entries(query)) minted.searchParams.set(k, v)

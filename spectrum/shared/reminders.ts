@@ -413,7 +413,13 @@ export function startReminderScheduler(opts: {
       for (const n of nudges) {
         if (await killSwitchBlocksSend(n.phone)) continue
         try {
-          await opts.send(n.phone, n.text)
+          let card: MiniAppCard | undefined
+          if (n.cardKind) {
+            try {
+              card = (await mintMiniAppCard(n.phone, opts.persona as AgentId, n.cardKind as any)) || undefined
+            } catch {}
+          }
+          await opts.send(n.phone, n.text, card)
           await recordProactiveSent(n.phone, opts.persona as AgentId, n.topic)
           // Pushed trigger events get a hard finalizer: the inbox row was
           // claimed (marked sent) at fetch time, so ack closes the loop on a

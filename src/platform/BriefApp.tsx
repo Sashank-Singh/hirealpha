@@ -37,6 +37,15 @@ import {
 import { localYmd, pickLastNight } from './home'
 import { BriefLoading } from './BriefLoading'
 
+export type BriefWeather = {
+  temp: number
+  unit: 'F' | 'C'
+  condition: string
+  high?: number
+  low?: number
+  icon?: string
+}
+
 export type BriefPayload = {
   date?: string
   brief?: 'morning' | 'evening'
@@ -57,6 +66,7 @@ export type BriefPayload = {
   meetings?: Array<{ time: string; title: string; startsInMin?: number }>
   /** The one email that needs a human now, or null. Optional until the server ships it. */
   attention?: { id: string; label: string; snippet?: string; why: string } | null
+  weather?: BriefWeather
   error?: string
   revalidating?: boolean
   /* Free-tier rationing served a stale-but-same-day payload on purpose. The
@@ -1087,7 +1097,21 @@ export function BriefApp({
             </button>
           ) : null}
         </div>
-        {dateLabel ? <p className="brief-date">{dateLabel}</p> : null}
+        {dateLabel ? (
+          <div className="brief-header-row">
+            <p className="brief-date">{dateLabel}</p>
+            {data?.weather && (
+              <span
+                className="brief-weather-pill"
+                title={`${data.weather.condition}${data.weather.high != null && data.weather.low != null ? `, High: ${data.weather.high}° Low: ${data.weather.low}°` : ''}`}
+              >
+                <span className="brief-weather-icon">{data.weather.icon || '🌤️'}</span>
+                <span className="brief-weather-temp">{data.weather.temp}°{data.weather.unit}</span>
+                <span className="brief-weather-cond">{data.weather.condition}</span>
+              </span>
+            )}
+          </div>
+        ) : null}
         <h2 className="brief-title">{leadTitle}</h2>
         {leadSub ? <p className="brief-sub">{leadSub}</p> : null}
       </header>

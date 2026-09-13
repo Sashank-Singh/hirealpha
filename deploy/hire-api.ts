@@ -6920,6 +6920,100 @@ async function saveMailPromiseLoops(
   }
 }
 
+const TZ_DEFAULT_COORDS: Record<string, { lat: number; lon: number; city: string }> = {
+  'America/Los_Angeles': { lat: 37.7749, lon: -122.4194, city: 'San Francisco' },
+  'America/New_York': { lat: 40.7128, lon: -74.0060, city: 'New York' },
+  'America/Chicago': { lat: 41.8781, lon: -87.6298, city: 'Chicago' },
+  'America/Denver': { lat: 39.7392, lon: -104.9903, city: 'Denver' },
+  'America/Phoenix': { lat: 33.4484, lon: -112.0740, city: 'Phoenix' },
+  'America/Anchorage': { lat: 61.2181, lon: -149.9003, city: 'Anchorage' },
+  'Pacific/Honolulu': { lat: 21.3069, lon: -157.8583, city: 'Honolulu' },
+  'Europe/London': { lat: 51.5074, lon: -0.1278, city: 'London' },
+  'Europe/Paris': { lat: 48.8566, lon: 2.3522, city: 'Paris' },
+  'Asia/Tokyo': { lat: 35.6762, lon: 139.6503, city: 'Tokyo' },
+  'Asia/Singapore': { lat: 1.3521, lon: 103.8198, city: 'Singapore' },
+  'Asia/Kolkata': { lat: 19.0760, lon: 72.8777, city: 'Mumbai' },
+  'Australia/Sydney': { lat: -33.8688, lon: 151.2093, city: 'Sydney' },
+}
+
+export function weatherCodeToHuman(code: number): { condition: string; icon: string } {
+  if (code === 0) return { condition: 'Sunny', icon: '☀️' }
+  if (code === 1 || code === 2) return { condition: 'Partly cloudy', icon: '⛅' }
+  if (code === 3) return { condition: 'Overcast', icon: '☁️' }
+  if (code === 45 || code === 48) return { condition: 'Foggy', icon: '🌫️' }
+  if (code >= 51 && code <= 55) return { condition: 'Drizzle', icon: '🌦️' }
+  if (code >= 61 && code <= 65) return { condition: 'Rain', icon: '🌧️' }
+  if (code >= 71 && code <= 77) return { condition: 'Snow', icon: '❄️' }
+  if (code >= 80 && code <= 82) return { condition: 'Showers', icon: '🌧️' }
+  if (code >= 85 && code <= 86) return { condition: 'Snow showers', icon: '🌨️' }
+  if (code >= 95 && code <= 99) return { condition: 'Thunderstorms', icon: '⛈️' }
+  return { condition: 'Clear', icon: '☀️' }
+}
+
+export type BriefWeather = {
+  temp: number
+  unit: string
+  condition: string
+  icon: string
+  high?: number
+  low?: number
+  summary: string
+  city?: string
+}
+
+export async function fetchWeatherForUser(
+  sql: SQL,
+  user: { id: string; timezone: string | null },
+): Promise<BriefWeather | null> {
+  const activeLoc = await pickActiveLocation(sql, user.id).catch(() => null)
+  let lat = 37.7749
+  let lon = -122.4194
+  let city: string | undefined
+
+  if (activeLoc && coordsUsable(activeLoc.latitude, activeLoc.longitude)) {
+    lat = activeLoc.latitude
+    lon = activeLoc.longitude
+    city = activeLoc.label || locationLabel(activeLoc)
+  } else {
+    const tz = user.timezone || 'America/Los_Angeles'
+    const fallback = TZ_DEFAULT_COORDS[tz] || TZ_DEFAULT_COORDS['America/Los_Angeles']!
+    lat = fallback.lat
+    lon = fallback.lon
+    city = fallback.city
+  }
+
+  try {
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,weather_code&daily=temperature_2m_max,temperature_2m_min,weather_code&temperature_unit=fahrenheit&timezone=auto`
+    const res = await withTimeout(fetch(url), 2500, null)
+    if (!res || !res.ok) return null
+    const data = (await res.json()) as {
+      current?: { temperature_2m?: number; weather_code?: number }
+      daily?: { temperature_2m_max?: number[]; temperature_2m_min?: number[] }
+    }
+    const current = data?.current
+    if (!current || current.temperature_2m === undefined) return null
+    const code = current.weather_code ?? 0
+    const { condition, icon } = weatherCodeToHuman(code)
+    const temp = Math.round(current.temperature_2m)
+    const high = data.daily?.temperature_2m_max?.[0] !== undefined ? Math.round(data.daily.temperature_2m_max[0]) : undefined
+    const low = data.daily?.temperature_2m_min?.[0] !== undefined ? Math.round(data.daily.temperature_2m_min[0]) : undefined
+    const range = high !== undefined && low !== undefined ? ` (high ${high}°F / low ${low}°F)` : ''
+    const summary = `${icon} ${temp}°F · ${condition}${city ? ` in ${city}` : ''}${range}`
+    return {
+      temp,
+      unit: 'F',
+      condition,
+      icon,
+      high,
+      low,
+      summary,
+      city,
+    }
+  } catch {
+    return null
+  }
+}
+
 async function digestPayload(
   sql: SQL,
   user: { id: string; timezone: string | null; name?: string | null },
@@ -6932,11 +7026,8 @@ async function digestPayload(
   const dayAfterStart = startOfLocalDay(tz, 2)
   const tomorrowYmd = tomorrowStart.toLocaleDateString('en-CA', { timeZone: tz })
 
-  // Calendar and mail used to load one after another; both are slow and neither
-  // needs the other. They race now, and inside the mail track the small reads
-  // (vocab, triaged ids, sender signals) go out alongside the inbox pull rather
-  // than queueing behind it.
-  const [calToday, tomorrowCalItems, mail] = await Promise.all([
+  // Calendar, mail, and weather race concurrently; all fast and non-blocking.
+  const [calToday, tomorrowCalItems, mail, weather] = await Promise.all([
     /* Shared with home and the People list. The brief is reached from home's
      * dock, so by the time it is opened this is usually a warm hit and today's
      * calendar costs nothing instead of another second on Google. The long wait
@@ -7458,7 +7549,8 @@ async function digestPayload(
     .filter(Boolean)
     .join('\n\n')
 
-  const preview = formatBriefPreview({ calendar: todayCal, emails: finalEmails, tomorrow: tomorrowCal, lead })
+  const rawPreview = formatBriefPreview({ calendar: todayCal, emails: finalEmails, tomorrow: tomorrowCal, lead })
+  const preview = weather?.summary ? `${weather.summary}\n${rawPreview}`.trim() : rawPreview
 
   return {
     date: dateLabel,
@@ -7479,6 +7571,7 @@ async function digestPayload(
     text,
     preview,
     brief,
+    weather: weather || undefined,
     // Ground truth for the bot's outbound text: the brief already knows whether
     // last night was logged, so the morning message can ask for sleep instead
     // of ever claiming hours that are not there.
@@ -7502,6 +7595,7 @@ async function digestPayload(
       due: [],
       later: tomorrowCal.slice(0, 2),
       calendarConnected: calToday.calendarConnected,
+      weather: weather || undefined,
     },
   }
 }
@@ -7921,6 +8015,7 @@ type EventNudge = {
   key: string
   text: string
   urgent: boolean
+  cardKind?: string
 }
 
 function outboundNudgeBlock(
@@ -7928,6 +8023,7 @@ function outboundNudgeBlock(
   lastInboundAt: Date | string | null,
   timezone: string,
   urgent: boolean,
+  topic?: string,
 ): string | null {
   const { today } = localClock(timezone)
   const pausedUntil = String(context.paused_until || '')
@@ -7942,11 +8038,15 @@ function outboundNudgeBlock(
   const unanswered = Math.max(0, Number(context.unanswered_proactive) || 0)
   if (unanswered >= 2) return 'awaiting reply'
   if (!urgent) {
+    const isRoutineCheckin = topic === 'meal_checkin' || topic === 'workout_checkin'
     const lastAgo = minutesAgo(context.last_proactive_at)
-    if (lastAgo != null && lastAgo < 60) return 'sent recently'
-    const unansweredToday =
-      String(context.last_proactive_day || '') === today ? Math.max(0, Number(context.unanswered_day_count) || 0) : 0
-    if (unansweredToday >= 1) return 'already pinged today'
+    const minSpacing = isRoutineCheckin ? 120 : 60
+    if (lastAgo != null && lastAgo < minSpacing) return 'sent recently'
+    if (!isRoutineCheckin) {
+      const unansweredToday =
+        String(context.last_proactive_day || '') === today ? Math.max(0, Number(context.unanswered_day_count) || 0) : 0
+      if (unansweredToday >= 1) return 'already pinged today'
+    }
   }
   return null
 }
@@ -8033,9 +8133,107 @@ export function linearAssignedText(i: { identifier: string; title: string }): st
   return `Linear: ${id}${title}`.slice(0, 240)
 }
 
+async function scanImportantEmail(
+  sql: SQL,
+  userId: string,
+): Promise<Array<{ id: string; from: string; subject: string }>> {
+  try {
+    const access = await googleAccessToken(sql, userId, 'gmail')
+    if (!access) return []
+    const listUrl = new URL('https://gmail.googleapis.com/gmail/v1/users/me/messages')
+    listUrl.searchParams.set('maxResults', '3')
+    listUrl.searchParams.set('q', 'is:unread (is:important OR priority:high)')
+    const list = await fetchPublic(listUrl, { headers: { Authorization: `Bearer ${access}` } }, 3500)
+    if (!list.ok) return []
+    const data = (await list.json()) as { messages?: Array<{ id: string }> }
+    const ids = (data.messages || []).slice(0, 3)
+    const out: Array<{ id: string; from: string; subject: string }> = []
+    await Promise.all(
+      ids.map(async (m) => {
+        try {
+          const got = await fetchPublic(
+            new URL(
+              `https://gmail.googleapis.com/gmail/v1/users/me/messages/${m.id}?format=metadata&metadataHeaders=Subject&metadataHeaders=From`,
+            ),
+            { headers: { Authorization: `Bearer ${access}` } },
+            3000,
+          )
+          if (!got.ok) return
+          const msg = (await got.json()) as {
+            snippet?: string
+            payload?: { headers?: Array<{ name: string; value: string }> }
+          }
+          const headers = msg.payload?.headers || []
+          const h = (n: string) => headers.find((x) => x.name.toLowerCase() === n.toLowerCase())?.value || ''
+          const from = emailFromFromHeader(h('From')) || h('From') || 'Someone'
+          const subject = h('Subject') || '(no subject)'
+          out.push({ id: m.id, from, subject })
+        } catch {}
+      }),
+    )
+    return out
+  } catch {
+    return []
+  }
+}
+
+async function scanNewCalendarEvents(
+  sql: SQL,
+  userId: string,
+  tz: string,
+): Promise<Array<{ id: string; title: string; formattedStart: string }>> {
+  try {
+    const access = await googleAccessToken(sql, userId, 'calendar')
+    if (!access) return []
+    const now = new Date()
+    const future = new Date(now.getTime() + 7 * 86_400_000)
+    const url = new URL('https://www.googleapis.com/calendar/v3/calendars/primary/events')
+    url.searchParams.set('timeMin', now.toISOString())
+    url.searchParams.set('timeMax', future.toISOString())
+    url.searchParams.set('singleEvents', 'true')
+    url.searchParams.set('orderBy', 'updated')
+    url.searchParams.set('maxResults', '5')
+    const res = await fetchPublic(url, { headers: { Authorization: `Bearer ${access}` } }, 3500)
+    if (!res.ok) return []
+    const data = (await res.json()) as {
+      items?: Array<{
+        id?: string
+        summary?: string
+        created?: string
+        updated?: string
+        start?: { dateTime?: string; date?: string }
+      }>
+    }
+    const out: Array<{ id: string; title: string; formattedStart: string }> = []
+    for (const it of data.items || []) {
+      if (!it.id || !it.summary) continue
+      const created = it.created ? new Date(it.created).getTime() : 0
+      if (Date.now() - created > 60 * 60_000) continue
+      const startIso = it.start?.dateTime || it.start?.date
+      let formattedStart = 'soon'
+      if (startIso) {
+        try {
+          formattedStart = new Intl.DateTimeFormat('en-US', {
+            timeZone: tz,
+            weekday: 'short',
+            month: 'short',
+            day: 'numeric',
+            hour: 'numeric',
+            minute: '2-digit',
+          }).format(new Date(startIso))
+        } catch {}
+      }
+      out.push({ id: it.id, title: it.summary.trim(), formattedStart })
+    }
+    return out
+  } catch {
+    return []
+  }
+}
+
 async function collectTriggerNudges(
   sql: SQL,
-  user: { id: string; phone: string | null; name?: string | null },
+  user: { id: string; phone: string | null; timezone?: string | null; name?: string | null },
   persona: Persona,
   sentKeys: Set<string>,
   candidates: Array<Omit<EventNudge, 'phone'> & { order: number }>,
@@ -8053,10 +8251,11 @@ async function collectTriggerNudges(
     const connected = await composioConnected(user.id)
     const wantsSlack = connected.includes('slack')
     const wantsLinear = connected.includes('linear')
-    if (!wantsSlack && !wantsLinear) return
-    const [mentions, issues] = await Promise.all([
+    const [mentions, issues, urgentEmails, newCals] = await Promise.all([
       wantsSlack ? scanSlackMentions(user.id, user.name || '') : Promise.resolve([]),
       wantsLinear ? scanLinearAssigned(user.id) : Promise.resolve([]),
+      scanImportantEmail(sql, user.id),
+      scanNewCalendarEvents(sql, user.id, user.timezone || 'America/Los_Angeles'),
     ])
     for (const m of mentions) {
       const key = `slackmention:${m.channel}:${m.ts}`
@@ -8078,6 +8277,28 @@ async function collectTriggerNudges(
         key,
         urgent: false,
         text: stripNudgeDashes(linearAssignedText(i)),
+      })
+    }
+    for (const em of urgentEmails) {
+      const key = `mail_urgent:${em.id}`
+      if (sentKeys.has(key)) continue
+      candidates.push({
+        order: 0,
+        topic: 'email_urgent',
+        key,
+        urgent: true,
+        text: stripNudgeDashes(`Important email from ${em.from}: ${em.subject}`),
+      })
+    }
+    for (const ev of newCals) {
+      const key = `cal_new:${ev.id}`
+      if (sentKeys.has(key)) continue
+      candidates.push({
+        order: 0,
+        topic: 'calendar_new',
+        key,
+        urgent: true,
+        text: stripNudgeDashes(`New calendar event: ${ev.title} on ${ev.formattedStart}`),
       })
     }
   } catch (err) {
@@ -8275,18 +8496,152 @@ async function collectEventNudgesForUser(
     }
   }
 
+  // Lifestyle check-ins (meals & workout): only when not in a meeting
+  let isBusyNow = false
+  try {
+    const access = await googleAccessToken(sql, user.id, 'calendar')
+    if (access) {
+      const nowMinus1 = new Date(now - 60_000)
+      const nowPlus1 = new Date(now + 60_000)
+      const cur = await fetchCalendarItems(access, { timeMin: nowMinus1, timeMax: nowPlus1, maxResults: 4 })
+      if (cur.ok) {
+        for (const it of cur.items) {
+          if (!it.allDay && it.start.getTime() <= now && (it.end ? it.end.getTime() >= now : it.start.getTime() + 30 * 60_000 >= now)) {
+            isBusyNow = true
+            break
+          }
+        }
+      }
+    }
+  } catch {}
+  if (!isBusyNow) {
+    try {
+      const busyMeeting = await sql`
+        SELECT id FROM hire_meetings
+        WHERE user_id = ${user.id}
+          AND starts_at <= now()
+          AND ends_at >= now()
+          AND phase <> 'done'
+        LIMIT 1
+      `
+      if (busyMeeting.length > 0) {
+        isBusyNow = true
+      }
+    } catch {}
+  }
+
+  const isLifestyleOwner =
+    persona === 'friend' ||
+    (!roster.includes('friend') && (roster[0] === persona || persona === 'coworker'))
+  if (isLifestyleOwner && !isBusyNow) {
+    const timeParts = new Intl.DateTimeFormat('en-US', {
+      timeZone: tz,
+      hour: 'numeric',
+      minute: 'numeric',
+      hour12: false,
+    }).formatToParts(new Date())
+    const localHour = Number(timeParts.find((p) => p.type === 'hour')?.value ?? 0)
+    const localMinute = Number(timeParts.find((p) => p.type === 'minute')?.value ?? 0)
+    const minsOfDay = localHour * 60 + localMinute
+    const todayWin = todayWindowUtc(tz)
+
+    // Breakfast: 8:00 AM - 10:00 AM
+    if (minsOfDay >= 480 && minsOfDay <= 600) {
+      const key = `meal:breakfast:${today}`
+      if (!sentKeys.has(key)) {
+        const logged = await sql`
+          SELECT count(*)::int AS n FROM hire_nutrition_logs
+          WHERE user_id = ${user.id} AND eaten_at >= ${todayWin.start.toISOString()} AND eaten_at < ${todayWin.end.toISOString()}
+        `
+        if (Number(logged[0]?.n || 0) === 0) {
+          candidates.push({
+            order: 1,
+            topic: 'meal_checkin',
+            key,
+            urgent: false,
+            text: stripNudgeDashes("Good morning! Had breakfast yet or want to log what you're having?"),
+            cardKind: 'nutrition',
+          })
+        }
+      }
+    }
+
+    // Lunch: 11:45 AM - 2:00 PM
+    if (minsOfDay >= 705 && minsOfDay <= 840) {
+      const key = `meal:lunch:${today}`
+      if (!sentKeys.has(key)) {
+        const logged = await sql`
+          SELECT count(*)::int AS n FROM hire_nutrition_logs
+          WHERE user_id = ${user.id} AND eaten_at >= ${new Date(todayWin.start.getTime() + 11 * 3600_000).toISOString()} AND eaten_at < ${todayWin.end.toISOString()}
+        `
+        if (Number(logged[0]?.n || 0) === 0) {
+          candidates.push({
+            order: 1,
+            topic: 'meal_checkin',
+            key,
+            urgent: false,
+            text: stripNudgeDashes("Time for lunch! What are you having today?"),
+            cardKind: 'nutrition',
+          })
+        }
+      }
+    }
+
+    // Workout: 4:30 PM - 7:00 PM
+    if (minsOfDay >= 990 && minsOfDay <= 1140) {
+      const key = `workout:${today}`
+      if (!sentKeys.has(key)) {
+        const logged = await sql`
+          SELECT count(*)::int AS n FROM hire_workouts
+          WHERE user_id = ${user.id} AND logged_at >= ${todayWin.start.toISOString()} AND logged_at < ${todayWin.end.toISOString()}
+        `
+        if (Number(logged[0]?.n || 0) === 0) {
+          candidates.push({
+            order: 1,
+            topic: 'workout_checkin',
+            key,
+            urgent: false,
+            text: stripNudgeDashes("Ready for your workout today? How are you feeling for a session?"),
+            cardKind: 'workout_log',
+          })
+        }
+      }
+    }
+
+    // Dinner: 6:00 PM - 8:30 PM
+    if (minsOfDay >= 1080 && minsOfDay <= 1230) {
+      const key = `meal:dinner:${today}`
+      if (!sentKeys.has(key)) {
+        const logged = await sql`
+          SELECT count(*)::int AS n FROM hire_nutrition_logs
+          WHERE user_id = ${user.id} AND eaten_at >= ${new Date(todayWin.start.getTime() + 17 * 3600_000).toISOString()} AND eaten_at < ${todayWin.end.toISOString()}
+        `
+        if (Number(logged[0]?.n || 0) === 0) {
+          candidates.push({
+            order: 1,
+            topic: 'meal_checkin',
+            key,
+            urgent: false,
+            text: stripNudgeDashes("Good evening! What's on the menu for dinner tonight?"),
+            cardKind: 'nutrition',
+          })
+        }
+      }
+    }
+  }
+
   await collectTriggerNudges(sql, user, persona, sentKeys, candidates)
 
   candidates.sort((a, b) => a.order - b.order)
   for (const c of candidates) {
-    const blocked = outboundNudgeBlock(context, lastInboundAt, tz, c.urgent)
+    const blocked = outboundNudgeBlock(context, lastInboundAt, tz, c.urgent, c.topic)
     if (blocked) {
       console.log(`[nudge:${persona}] skip ${user.phone} ${c.topic}: ${blocked}`)
       continue
     }
     const claimed = await claimNudge(sql, user.id, persona, c.key)
     if (!claimed) continue
-    return { phone: user.phone, topic: c.topic, key: c.key, text: c.text, urgent: c.urgent }
+    return { phone: user.phone, topic: c.topic, key: c.key, text: c.text, urgent: c.urgent, cardKind: (c as any).cardKind }
   }
   return null
 }

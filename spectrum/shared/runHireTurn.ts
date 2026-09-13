@@ -660,13 +660,13 @@ export async function runHireTurn(input: {
   // Navigation is independent of account/profile availability and prior topics.
   // Do this before any profile, judgment, onboarding, or model work. The card's
   // destination still enforces authentication; a token failure falls back to login.
-  const explicitNavigation = /^\s*(?:\/?(?:apps?|menu|home)|(?:show|open|pull up)(?: me)?(?: the| my)? (?:apps?|menu|home))\s*[.!?]?\s*$/i.test(input.userText)
+  const explicitNavigation = /^\s*(?:\/?(?:apps?|menu|home)|(?:show|open|pull up|give me|list)(?: me)?(?: the| my)? (?:apps?|menu|home)|what apps (?:do you have|are there)|my apps)\s*[.!?]?\s*$/i.test(input.userText)
   const navigation = explicitNavigation ? detectMiniAppRequest(input.userText, agent.id) : null
-  if (navigation?.kind === 'apps' || navigation?.kind === 'menu') {
+  if (navigation?.kind === 'apps' || navigation?.kind === 'menu' || navigation?.kind === 'home') {
     const card = await mintMiniAppCard(input.senderId, agent.id, navigation.kind, navigation.query)
     appendThread(input.dataDir, input.senderId, [
       { role: 'user', content: input.userText },
-      { role: 'assistant', content: '[Alpha Apps card]' },
+      { role: 'assistant', content: `[Alpha ${navigation.kind} card]` },
     ])
     return { reply: '', bubbles: [], source: 'local', authoritative: [], card }
   }

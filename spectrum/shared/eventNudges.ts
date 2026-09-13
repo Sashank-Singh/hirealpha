@@ -6,6 +6,7 @@ export type EventNudge = {
   key: string
   text: string
   urgent: boolean
+  cardKind?: string
 }
 
 function apiBase() {
