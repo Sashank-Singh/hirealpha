@@ -21,6 +21,39 @@
   box-shadow: 0 12px 36px rgba(0, 0, 0, 0.4);
 }
 
+.vault-app__topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 18px;
+}
+
+.vault-app__back-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #93c5fd;
+  text-decoration: none;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 6px 12px;
+  background: rgba(59, 130, 246, 0.1);
+  border: 1px solid rgba(59, 130, 246, 0.2);
+  border-radius: 999px;
+  transition: all 0.15s ease;
+}
+
+.vault-app__back-link:hover {
+  background: rgba(59, 130, 246, 0.2);
+  color: #ffffff;
+}
+
+.vault-app__dismiss-hint {
+  font-size: 11px;
+  color: #6b7280;
+  font-weight: 500;
+}
+
 .vault-app__head {
   margin-bottom: 24px;
 }

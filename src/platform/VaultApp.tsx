@@ -125,6 +125,25 @@ export function VaultApp({
   return (
     <div className="vault-app">
       <div className="vault-app__card">
+        <div className="vault-app__topbar">
+          <a
+            href="sms:+14155951440"
+            className="vault-app__back-link"
+            onClick={(e) => {
+              if (window.history.length > 1) {
+                e.preventDefault()
+                window.history.back()
+              }
+            }}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M15 18l-6-6 6-6" />
+            </svg>
+            <span>Back to Messages</span>
+          </a>
+          <span className="vault-app__dismiss-hint">Swipe down or tap to return</span>
+        </div>
+
         <header className="vault-app__head">
           <div className="vault-app__badge">
             <span className="vault-app__lock-icon" aria-hidden="true">🔒</span>
@@ -147,7 +166,7 @@ export function VaultApp({
         {success && (
           <div className="vault-app__alert vault-app__alert--success" role="status">
             <p>{success}</p>
-            <a href="sms://open" className="vault-app__sms-btn">
+            <a href="sms:+14155951440" className="vault-app__sms-btn">
               Return to iMessage 💬
             </a>
           </div>

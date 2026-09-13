@@ -14,6 +14,18 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { hasError: boole
 
   componentDidCatch(error: Error, info: React.ErrorInfo) {
     console.error('[App ErrorBoundary]', error, info)
+    const isChunkError = /importing a module script failed|failed to fetch dynamically imported module|error loading dynamically imported module|chunkloaderror/i.test(
+      error?.message || '',
+    )
+    if (isChunkError) {
+      const key = 'ha_chunk_reload_ts'
+      const last = sessionStorage.getItem(key)
+      const now = Date.now()
+      if (!last || now - Number(last) > 10000) {
+        sessionStorage.setItem(key, String(now))
+        window.location.reload()
+      }
+    }
   }
 
   render() {
@@ -35,22 +47,41 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { hasError: boole
           <p style={{ color: '#8b8d9e', fontSize: '13px', maxWidth: '460px', marginBottom: '20px' }}>
             {this.state.error?.message || 'An unexpected error occurred.'}
           </p>
-          <button
-            type="button"
-            style={{
-              background: '#2a2a2a',
-              color: '#ffffff',
-              border: '1px solid #444',
-              borderRadius: '8px',
-              padding: '8px 18px',
-              fontSize: '13px',
-              fontWeight: 600,
-              cursor: 'pointer',
-            }}
-            onClick={() => window.location.reload()}
-          >
-            Reload
-          </button>
+          <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', justifyContent: 'center' }}>
+            <button
+              type="button"
+              style={{
+                background: '#2a2a2a',
+                color: '#ffffff',
+                border: '1px solid #444',
+                borderRadius: '8px',
+                padding: '8px 18px',
+                fontSize: '13px',
+                fontWeight: 600,
+                cursor: 'pointer',
+              }}
+              onClick={() => window.location.reload()}
+            >
+              Reload
+            </button>
+            <a
+              href="sms:+14155951440"
+              style={{
+                background: '#2563eb',
+                color: '#ffffff',
+                border: 'none',
+                borderRadius: '8px',
+                padding: '8px 18px',
+                fontSize: '13px',
+                fontWeight: 600,
+                textDecoration: 'none',
+                display: 'inline-flex',
+                alignItems: 'center',
+              }}
+            >
+              Return to iMessage
+            </a>
+          </div>
         </div>
       )
     }
