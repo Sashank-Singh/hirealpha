@@ -246,7 +246,7 @@ export async function runToolConversation(input: {
         stagedPurchase = opts.buy
         try { stagedPurchaseHost = new URL(opts.portal).hostname.replace(/^www\./, '') } catch { stagedPurchaseHost = '' }
         const cleanedRaw = stripToolDirectives(opts.raw).trim()
-        if (!opts.buy && cleanedRaw && cleanedRaw.length > 50 && !cleanedRaw.toLowerCase().startsWith('the browser run is starting') && !/\b(?:cannot|can't|unable to|don't have|do not have)\b/i.test(cleanedRaw)) {
+        if (cleanedRaw && cleanedRaw.length > 50 && !cleanedRaw.toLowerCase().startsWith('the browser run is starting') && !/\b(?:cannot|can't|unable to|don't have|do not have)\b/i.test(cleanedRaw)) {
           return { reply: cleanedRaw, draft: savedDraft }
         }
         return { reply: fallback(), draft: savedDraft }
@@ -411,7 +411,9 @@ Reactions are optional and usually absent. You may add "reaction":"<emoji>" to a
         // important to lose to a refused action object. When a portal is
         // known, issue the browser draft deterministically — the run starts,
         // stays origin-scoped, and pauses before payment or any password.
-        if (portal) {
+        // Only auto-stage if we already attempted fresh lookups or don't need fresh info,
+        // so real rates, rooms, and constraints can be checked first.
+        if (portal && (attemptedWeb || attemptedMaps || !needsFresh || merchantSiteFromAsk(userAsk))) {
           const staged = await stageBrowserRun({ portal, raw, summary: request?.summary, ask: userAsk, buy: buyAsk })
           if (staged) return staged
         }

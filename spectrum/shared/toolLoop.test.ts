@@ -32,7 +32,6 @@ import {
   formatMapPicks,
   mapQueryForAsk,
   ACTION_ASK_RE,
-  merchantSiteFromAsk,
 } from './toolLoop'
 
 describe('browser run routing', () => {

@@ -1332,7 +1332,14 @@ export function SettingsSheet({ view = 'workspace', embedded = false }: { view?:
                 </button>
               </div>
             )}
-            {handoffNotice && <p className="ss-success-note" role="status">{handoffNotice}</p>}
+            {handoffNotice && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', padding: '12px', background: 'rgba(34, 197, 94, 0.08)', border: '1px solid rgba(34, 197, 94, 0.25)', borderRadius: '8px', margin: '0 0 12px' }}>
+                <p className="ss-success-note" role="status" style={{ margin: 0 }}>{handoffNotice}</p>
+                <a href="sms://open" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '6px', padding: '8px 14px', background: '#2563eb', color: '#fff', borderRadius: '6px', textDecoration: 'none', fontWeight: 600, fontSize: '13px', width: 'fit-content' }}>
+                  Return to iMessage 💬
+                </a>
+              </div>
+            )}
             {!vaultError && vault === null && <p className="ss-empty">Checking logins…</p>}
             {vault !== null && (
               <div className="ss-list">

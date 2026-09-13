@@ -1711,14 +1711,28 @@ export async function runHireTurn(input: {
       !humanLimit &&
       !wantsFreshInfo(input.userText)
     if (live.hired && agent.id === 'friend' && !simpleAsk) {
+      // Early contextual tapback reaction (<1s feedback in iMessage like Instinct):
+      if (input.delivery?.onReaction) {
+        let reaction = '👀'
+        if (/\b(?:flight|flights|airline|airlines|airport|fly|round\s*trip)\b/i.test(input.userText)) reaction = '✈️'
+        else if (/\b(?:dinner|lunch|breakfast|restaurant|restaurants|food|eat|table|reservation)\b/i.test(input.userText)) reaction = '🍽️'
+        else if (/\b(?:yes|confirm|book it|place order|approve|go ahead|proceed|sounds good)\b/i.test(input.userText)) reaction = '👍'
+        void input.delivery.onReaction(reaction).catch(() => undefined)
+      }
       // Early acknowledgement: Photon rejects SetTyping on this tier, which turned
-      // multi-step turns (maps, web, browser tasks) into 60-90s blind waits.
+      // multi-step turns (maps, web, browser tasks) into blind waits.
       // An immediate progress bubble lets the user know Alpha is actively on it.
       if (input.delivery?.onProgress) {
-        const isHotelOrDining = /\b(?:hotel|hotels|restaurant|restaurants|dinner|lunch|breakfast|cafe|food|eat)\b/i.test(input.userText)
-        const ackText = isHotelOrDining
-          ? 'On it — checking real listings now.'
-          : 'Looking into this now.'
+        const isBooking = /\b(?:hotel|hotels|book|booking|stay|flight|flights|ticket)\b/i.test(input.userText)
+        const isDining = /\b(?:restaurant|restaurants|dinner|lunch|breakfast|cafe|food|eat|table)\b/i.test(input.userText)
+        const isShopping = /\b(?:buy|order|reorder|purchase|amazon|cart)\b/i.test(input.userText)
+        const ackText = isBooking
+          ? "On it. I'll find the best match and run the pick by you before anything's charged."
+          : isDining
+            ? "On it — checking tables and verified spots now."
+            : isShopping
+              ? "On it — checking options and availability now."
+              : 'Looking into this now.'
         void input.delivery.onProgress(ackText).catch(() => undefined)
       }
       let purchaseSetupUrl: string | null = null
