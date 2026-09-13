@@ -161,3 +161,11 @@
 @media (prefers-reduced-motion: reduce) {
   .cs-shell *, .cs-shell *::before, .cs-shell *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
 }
+
+/* Question handoff: answer form (Route A chat-answer channel on the page). */
+.cs-answer-form { flex-direction: column; align-items: stretch; gap: .6rem; }
+.cs-answer-input { width: 100%; padding: .7rem .85rem; border-radius: .6rem; border: 1px solid #d9d9d1; background: #fff; color: #17171a; font: inherit; }
+.cs-answer-input:focus { outline: 2px solid var(--cs-accent); outline-offset: 1px; }
+.cs-answer-form .cs-button-primary { align-self: flex-start; }
+.cs-checkpoint-note { margin: .2rem 0 0; color: var(--cs-muted); font-size: .8rem; line-height: 1.5; }
+.cs-direct-view { color: #85867f; font-size: .65rem; text-decoration: underline; }

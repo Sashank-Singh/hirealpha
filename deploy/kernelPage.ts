@@ -66,8 +66,28 @@ export class KernelBrowser {
       throw new Error(`Kernel browser launch failed (${res.status}): ${(await res.text().catch(() => '')).slice(0, 200)}`)
     }
     const body = (await res.json()) as { session_id: string; browser_live_view_url?: string }
+    let liveViewUrl = body.browser_live_view_url || ''
+    // Some Kernel tiers omit the view URL on the create response; the session
+    // detail carries it. Without this the session page has nothing to embed
+    // and the human-facing takeover path silently dies at a blank iframe.
+    if (!liveViewUrl) {
+      try {
+        const detail = await fetch(`${options.baseUrl || 'https://api.onkernel.com'}/browsers/${body.session_id}`, {
+          headers: { Authorization: `Bearer ${options.apiKey}` },
+          signal: AbortSignal.timeout(15_000),
+        })
+        if (detail.ok) {
+          const info = (await detail.json()) as Record<string, unknown>
+          const found = [info.browser_live_view_url, info.live_view_url, (info.browser as Record<string, unknown> | undefined)?.live_view_url]
+            .find((v): v is string => typeof v === 'string' && v.startsWith('http'))
+          liveViewUrl = found || ''
+        }
+      } catch {
+        /* best-effort: a missing view URL degrades to screenshot mode, as before */
+      }
+    }
     return new KernelBrowser(
-      { sessionId: body.session_id, liveViewUrl: body.browser_live_view_url || '', pageUrl: '' },
+      { sessionId: body.session_id, liveViewUrl, pageUrl: '' },
       options,
     )
   }

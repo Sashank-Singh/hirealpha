@@ -2028,7 +2028,7 @@ function mintSessionToken(email: string): string | null {
 }
 
 /** Verify + decode a web-session token. Returns null when missing/invalid/expired. */
-function verifySessionToken(token: string): SessionToken | null {
+export function verifySessionToken(token: string): SessionToken | null {
   const secret = sessionTokenSecret()
   if (!secret) return null
   const dot = token.lastIndexOf('.')
@@ -3174,7 +3174,7 @@ function coordsUsable(lat: unknown, lng: unknown): lat is number {
 
 type AuthedUser = { id: string; email: string; name: string | null; timezone: string | null; phone: string | null; assignedPhone?: string | null }
 
-async function getUserByEmail(sql: SQL, email: string) {
+export async function getUserByEmail(sql: SQL, email: string) {
   const rows = await sql`
     SELECT id, email, name, timezone, phone_e164 AS phone, assigned_phone AS "assignedPhone" FROM hire_users WHERE email = ${email} LIMIT 1
   `
@@ -11080,10 +11080,12 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
 
       let targetUrl = job.live_view_url
       if (subPath) {
+        // Sub-paths are origin-root relative: the HTML rewrite (below) and the
+        // websocket upgrade (web-server) both map proxy sub-paths onto the
+        // provider origin root, so the GET side must agree or assets and ws
+        // handshakes 404 against a path-prefixed live view URL.
         const baseOrigin = new URL(job.live_view_url).origin
-        targetUrl = subPath.startsWith('browser/') || subPath.startsWith('static/') || subPath.startsWith('assets/')
-          ? `${baseOrigin}/${subPath}`
-          : `${job.live_view_url.replace(/\/$/, '')}/${subPath}`
+        targetUrl = `${baseOrigin}/${subPath}`
       }
 
       const upstream = await fetch(targetUrl, {
@@ -11105,7 +11107,24 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
         } else if (html.includes('<head ')) {
           html = html.replace(/<head\b[^>]*>/, `$&<base href="${proxyBase}">`)
         }
-        return new Response(html, { status: upstream.status, headers })
+        // Route B: the page's absolute references to the provider origin (ws
+        // and http) must land on our proxy — <base> only rewrites resource
+        // URLs, not the ws:// strings its JS builds. Rewriting the origin here
+        // is what makes the embedded live view interactive through 443.
+        try {
+          const upstreamHost = new URL(job.live_view_url).host
+          const host = req.headers.get('host') || url.host
+          const proxyOrigin = `https://${host}/api/computer/live-proxy/${encodeURIComponent(jobId)}`
+          html = html.split(`wss://${upstreamHost}`).join(proxyOrigin)
+          html = html.split(`ws://${upstreamHost}`).join(proxyOrigin)
+          html = html.split(`https://${upstreamHost}`).join(proxyOrigin)
+          html = html.split(`http://${upstreamHost}`).join(proxyOrigin)
+        } catch { /* unparseable upstream URL: serve as-is */ }
+        const headersOut = new Headers(headers)
+        if (token) {
+          headersOut.append('set-cookie', `ha_live_${jobId}=${encodeURIComponent(token)}; Path=${proxyBase}; HttpOnly; SameSite=Lax; Secure; Max-Age=86400`)
+        }
+        return new Response(html, { status: upstream.status, headers: headersOut })
       }
       return new Response(upstream.body, {
         status: upstream.status,
@@ -11175,6 +11194,15 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
       const { resumeBrowserHandoff } = await import('./browserJobs')
       const resumed = await resumeBrowserHandoff(sql, jobId)
       return resumed ? json({ ok: true, resumed: true }) : json({ error: 'This task is not waiting for input.' }, 409)
+    }
+
+    if (action === 'answer' && req.method === 'POST') {
+      const body = (await req.json().catch(() => ({}))) as { text?: string }
+      const text = String(body.text || '').trim()
+      if (!text) return json({ error: 'Type an answer first.' }, 400)
+      const { answerBrowserHandoff } = await import('./browserJobs')
+      const resumed = await answerBrowserHandoff(sql, jobId, text)
+      return resumed ? json({ ok: true, resumed: true }) : json({ error: 'This task is not waiting for an answer.' }, 409)
     }
 
     if (action) return json({ error: 'Unknown computer session action.' }, 404)
@@ -12917,6 +12945,43 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
       return json({ ok: true, charged: true, paymentIntentId: chargeRes.paymentIntentId })
     }
     return json({ ok: true, decision: 'denied' })
+  }
+
+  // Route A: chat answers for paused browser runs. The bot asks whether a
+  // `question` handoff is waiting for this phone before running a normal turn;
+  // if one is, the user's text is delivered to the run instead of the model.
+  if (path === '/api/internal/browser/awaiting' && req.method === 'GET') {
+    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
+    const phone = url.searchParams.get('phone') || ''
+    if (!phone) return json({ error: 'phone required' }, 400)
+    const live = await livePayload(sql, phone, 'friend')
+    if (!live.found || !live.userId) return json({ waiting: false })
+    const { findAwaitingQuestionJob } = await import('./browserJobs')
+    const job = await findAwaitingQuestionJob(sql, live.userId)
+    return json({ waiting: Boolean(job), question: job?.handoff_message ?? null, jobId: job?.id ?? null })
+  }
+
+  if (path === '/api/internal/browser/answer' && req.method === 'POST') {
+    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
+    const body = (await req.json().catch(() => ({}))) as { phone?: string; text?: string; cancel?: boolean }
+    if (!body.phone) return json({ error: 'phone required' }, 400)
+    const live = await livePayload(sql, body.phone, 'friend')
+    if (!live.found || !live.userId) return json({ ok: true, answered: false })
+    const { findAwaitingQuestionJob, answerBrowserHandoff } = await import('./browserJobs')
+    const job = await findAwaitingQuestionJob(sql, live.userId)
+    if (!job) return json({ ok: true, answered: false })
+    if (body.cancel) {
+      const rows = (await sql`
+        UPDATE hire_browser_jobs
+        SET status = 'failed', error = 'The user cancelled this task.', finished_at = now()
+        WHERE id = ${job.id} AND status = 'waiting' AND handoff_kind = 'question'
+        RETURNING id
+      `) as Array<{ id: string }>
+      return json({ ok: true, answered: rows.length > 0, cancelled: true, jobId: job.id })
+    }
+    if (!body.text) return json({ error: 'text required' }, 400)
+    const resumed = await answerBrowserHandoff(sql, job.id, body.text)
+    return json({ ok: true, answered: resumed, jobId: job.id })
   }
 
   if (path === '/api/internal/prep' && req.method === 'POST') {

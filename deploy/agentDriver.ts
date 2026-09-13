@@ -24,7 +24,7 @@ export type AgentAction =
   | { type: 'fill_payment' }
   | {
       type: 'handoff'
-      kind: 'password' | 'verification' | 'payment' | 'captcha' | 'confirmation'
+      kind: 'password' | 'verification' | 'payment' | 'captcha' | 'confirmation' | 'question'
       message: string
       amountCents?: number
       merchant?: string
@@ -80,6 +80,7 @@ const AGENT_SYSTEM =
   '{"action":"wait","ms":1500}\n' +
   '{"action":"fill_payment"}\n' +
   '{"action":"handoff","kind":"password|verification|captcha|confirmation","message":"<what the user must do>"}\n' +
+  '{"action":"handoff","kind":"question","message":"<one short question the user can answer in a text message>"}\n' +
   '{"action":"handoff","kind":"payment","message":"Approve the verified checkout total","amount_cents":18990,"merchant":"store.example","item":"exact item and quantity"}\n' +
   '{"action":"done","answer":"<the final answer to the goal, extracted from the page>"}\n' +
   '{"action":"giveup","reason":"<why the goal cannot be reached>"}\n' +
@@ -91,6 +92,7 @@ const AGENT_SYSTEM =
   'When a numbered target has no stable selector, use click_at with the center of its box, then type_text. ' +
   'Coordinates are CSS pixels in the 1280x800 screenshot. Never invent URLs outside the current site. ' +
   'Use handoff whenever the site needs a password that was not already filled, a one-time code, CAPTCHA, identity check, or human confirmation. ' +
+  'When the page needs a fact you do not have (address, zip code, phone, email, date, size, party size, preference), use handoff with kind "question" and ask for exactly that one thing in one short sentence. The user answers in chat and their answer comes back to you as a RECENT ACTIONS line; never guess or reuse a value from a different task. ' +
   'When PAYMENT STATUS says an approved Link credential is available, use fill_payment when the card form is visible; never request, infer, or type card values. ' +
   'Use payment handoff BEFORE clicking any final button that places an order, starts a paid subscription, or creates a charge, unless PAYMENT STATUS explicitly says authorization is verified. ' +
   'A payment handoff must include the exact visible total in integer cents, the current merchant hostname, and the exact item/quantity. Never estimate tax, shipping, or total. ' +
@@ -180,7 +182,7 @@ export function parseAgentAction(raw: string): AgentAction | null {
     case 'fill_payment':
       return { type: 'fill_payment' }
     case 'handoff': {
-      const kinds = new Set(['password', 'verification', 'payment', 'captcha', 'confirmation'])
+      const kinds = new Set(['password', 'verification', 'payment', 'captcha', 'confirmation', 'question'])
       const kind = str(obj.kind, 20)
       const message = str(obj.message, 400)
       if (!kinds.has(kind) || !message) return null
@@ -191,7 +193,7 @@ export function parseAgentAction(raw: string): AgentAction | null {
         if (!Number.isInteger(amountCents) || amountCents < 50 || !merchant || !item) return null
         return { type: 'handoff', kind, message, amountCents, merchant, item }
       }
-      return { type: 'handoff', kind: kind as 'password' | 'verification' | 'captcha' | 'confirmation', message }
+      return { type: 'handoff', kind: kind as 'password' | 'verification' | 'captcha' | 'confirmation' | 'question', message }
     }
     case 'done': {
       const answer = str(obj.answer, 2000)

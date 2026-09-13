@@ -4,6 +4,7 @@ import { appScreenChunk } from './appPreload'
  * Stores emails in HireAlpha Postgres (Coolify).
  */
 import { SQL } from 'bun'
+import type { ServerWebSocket } from 'bun'
 import { brotliCompressSync, constants as zlibConstants } from 'node:zlib'
 import { join } from 'node:path'
 import {
@@ -11,11 +12,13 @@ import {
   claimInvite,
   ensureHireSchema,
   ensurePhoneUser,
+  getUserByEmail,
   handleHireApi,
   hireIsLive,
   isPersona,
   miniCardOgDescription,
   normalizePhone,
+  verifySessionToken,
 } from './hire-api'
 import {
   isKnownClientRoute,
@@ -723,10 +726,92 @@ process.on('uncaughtException', (err) => {
   console.error('[web] uncaught exception', err)
 })
 
-Bun.serve({
+/* Route B: websocket relay for provider-hosted live views. Kernel serves its
+ * interactive view on a non-443 port that firewalled clients cannot reach, and
+ * the plain-HTTP live-proxy cannot carry a websocket. This handler upgrades the
+ * proxied ws path (the GET handler rewrites the page's absolute origin
+ * references onto it) and pipes frames to the provider. Auth is the same
+ * signed view token: query param on the first load (then stored in a
+ * path-scoped cookie, because the page's own ws:// URLs carry no token) or a
+ * logged-in session owned by the job's user. */
+type LiveProxyData = { target: string; peer: WebSocket | null }
+
+async function handleLiveProxyUpgrade(req: Request, server: Bun.Server<LiveProxyData>): Promise<boolean | undefined> {
+  const url = new URL(req.url)
+  if (!url.pathname.startsWith('/api/computer/live-proxy/')) return undefined
+  const jobId = url.pathname.slice('/api/computer/live-proxy/'.length).split('/')[0]
+  if (!jobId || !sql) return undefined
+  try {
+    const { getBrowserJob, verifySessionViewToken } = await import('./browserJobs')
+    const job = await getBrowserJob(sql, jobId)
+    const liveView = job?.live_view_url?.trim() || ''
+    if (!job || !liveView) return undefined
+    const token = url.searchParams.get('token') || url.searchParams.get('t')
+      || (req.headers.get('cookie') || '').split(';').map((v) => v.trim())
+        .find((v) => v.startsWith(`ha_live_${jobId}=`))?.slice(`ha_live_${jobId}=`.length)
+    let authorized = false
+    if (token && verifySessionViewToken(jobId, job.user_id, token)) authorized = true
+    if (!authorized) {
+      const cookie = (req.headers.get('cookie') || '').split(';').map((v) => v.trim())
+        .find((v) => v.startsWith('hirealpha_session='))?.slice('hirealpha_session='.length)
+      if (cookie) {
+        const ses = verifySessionToken(cookie)
+        if (ses) {
+          const user = await getUserByEmail(sql, ses.email)
+          if (user && user.id === job.user_id) authorized = true
+        }
+      }
+    }
+    if (!authorized) return undefined
+    const upstream = new URL(liveView)
+    const proto = upstream.protocol === 'https:' ? 'wss:' : 'ws:'
+    const rest = url.pathname.slice(('/api/computer/live-proxy/' + jobId).length) || '/'
+    const search = url.searchParams.get('token') || url.searchParams.get('t')
+      ? `?${new URLSearchParams([...url.searchParams].filter(([k]) => k !== 'token' && k !== 't')).toString()}`
+      : url.search
+    const target = `${proto}//${upstream.host}${rest}${search === '?' ? '' : search}`
+    return server.upgrade(req, { data: { target, peer: null } })
+  } catch (err) {
+    console.warn('[web] live-proxy upgrade failed', err)
+    return undefined
+  }
+}
+
+Bun.serve<LiveProxyData>({
   port: PORT,
   hostname: '0.0.0.0',
-  idleTimeout: 60,
+  idleTimeout: 120,
+  // `handle` (websocket upgrade hook) exists since Bun 1.2.36 but is missing
+  // from @types/bun 1.4, so it rides in through a spread.
+  ...({
+    handle: handleLiveProxyUpgrade,
+    websocket: {
+      open(ws: ServerWebSocket<LiveProxyData>) {
+        const { target } = ws.data
+        let peer: WebSocket
+        try {
+          peer = new WebSocket(target)
+        } catch {
+          ws.close(1011, 'bad upstream')
+          return
+        }
+        peer.binaryType = 'arraybuffer'
+        ws.data.peer = peer
+        peer.onmessage = (event) => {
+          if (ws.readyState === 1) ws.send((event as MessageEvent).data as ArrayBuffer | string)
+        }
+        peer.onclose = () => { try { ws.close() } catch { /* already closed */ } }
+        peer.onerror = () => { try { ws.close(1011, 'upstream error') } catch { /* already closed */ } }
+      },
+      message(ws: ServerWebSocket<LiveProxyData>, msg: string | Buffer) {
+        const peer = ws.data.peer
+        if (peer && peer.readyState === WebSocket.OPEN) peer.send(msg as string | ArrayBuffer)
+      },
+      close(ws: ServerWebSocket<LiveProxyData>) {
+        try { ws.data.peer?.close() } catch { /* ignore */ }
+      },
+    },
+  } as object),
   async fetch(req) {
     const url = new URL(req.url)
     if (url.pathname === '/healthz') {

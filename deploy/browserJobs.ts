@@ -38,10 +38,14 @@ export type BrowserJobRow = {
   live_view_url: string | null
   last_screenshot?: string | null
   activity: Array<{ action: string; at: string }>
-  handoff_kind: 'password' | 'verification' | 'payment' | 'captcha' | 'confirmation' | null
+  handoff_kind: 'password' | 'verification' | 'payment' | 'captcha' | 'confirmation' | 'question' | null
   handoff_message: string | null
   handoff_at: Date | null
   handoff_resumed_at: Date | null
+  /** Free-text answer the user sent in chat while a `question` handoff was
+   * waiting. Written by the answer endpoints, read by the worker's wait loop,
+   * and injected into the agent as the user's reply. */
+  handoff_answer: string | null
 }
 
 export async function ensureBrowserJobsSchema(sql: SQL): Promise<void> {
@@ -78,6 +82,7 @@ export async function ensureBrowserJobsSchema(sql: SQL): Promise<void> {
   await sql`ALTER TABLE hire_browser_jobs ADD COLUMN IF NOT EXISTS handoff_message TEXT`
   await sql`ALTER TABLE hire_browser_jobs ADD COLUMN IF NOT EXISTS handoff_at TIMESTAMPTZ`
   await sql`ALTER TABLE hire_browser_jobs ADD COLUMN IF NOT EXISTS handoff_resumed_at TIMESTAMPTZ`
+  await sql`ALTER TABLE hire_browser_jobs ADD COLUMN IF NOT EXISTS handoff_answer TEXT`
   await sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_hire_browser_jobs_approval ON hire_browser_jobs (approval_id) WHERE approval_id IS NOT NULL`
   await sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_hire_browser_jobs_spend_request ON hire_browser_jobs (spend_request_id) WHERE spend_request_id IS NOT NULL`
   await sql`CREATE INDEX IF NOT EXISTS idx_hire_browser_jobs_status ON hire_browser_jobs (status, created_at)`
@@ -170,7 +175,7 @@ export async function claimBrowserJobs(sql: SQL, limit: number): Promise<Browser
     )
     RETURNING id, user_id, persona, phone_e164, kind, url, steps, goal, status, attempts, result, error, approval_id,
       vault_item_id, credential_capability_id, credential_capability_digest, credential_task_id, spend_request_id,
-      current_url, live_view_url, last_screenshot, activity, handoff_kind, handoff_message, handoff_at, handoff_resumed_at
+      current_url, live_view_url, last_screenshot, activity, handoff_kind, handoff_message, handoff_at, handoff_resumed_at, handoff_answer
   `) as unknown as BrowserJobRow[]
   return rows
 }
@@ -209,7 +214,7 @@ export async function getBrowserJob(sql: SQL, id: string, userId?: string): Prom
   const rows = (await sql`
     SELECT id, user_id, persona, phone_e164, kind, url, steps, goal, status, attempts, result, error, approval_id,
       vault_item_id, credential_capability_id, credential_capability_digest, credential_task_id, spend_request_id,
-      current_url, live_view_url, last_screenshot, activity, handoff_kind, handoff_message, handoff_at, handoff_resumed_at
+      current_url, live_view_url, last_screenshot, activity, handoff_kind, handoff_message, handoff_at, handoff_resumed_at, handoff_answer
     FROM hire_browser_jobs WHERE id = ${id} ${userId ? sql`AND user_id = ${userId}` : sql``} LIMIT 1
   `) as unknown as BrowserJobRow[]
   return rows[0] ?? null
@@ -258,7 +263,7 @@ export async function beginBrowserHandoff(sql: SQL, id: string, kind: BrowserHan
   await retryTransient(() => sql`
     UPDATE hire_browser_jobs
     SET status = 'waiting', handoff_kind = ${kind}, handoff_message = ${message.slice(0, 400)},
-      handoff_at = now(), handoff_resumed_at = NULL
+      handoff_at = now(), handoff_resumed_at = NULL, handoff_answer = NULL
     WHERE id = ${id} AND status = 'running'
   `)
 }
@@ -295,6 +300,67 @@ export async function waitForBrowserHandoff(sql: SQL, id: string, timeoutMs = 10
     await Bun.sleep(1_000)
   }
   return 'timeout'
+}
+
+/**
+ * Same wait as `waitForBrowserHandoff`, but also surfaces the free-text answer
+ * the user sent in chat (Route A: the agent asked a question, the person
+ * answered with a message instead of a browser). Returns the answer alongside
+ * the outcome so the worker can inject it into the agent's context.
+ */
+export async function waitForBrowserHandoffAnswer(
+  sql: SQL,
+  id: string,
+  timeoutMs = 10 * 60_000,
+): Promise<{ outcome: 'resumed' | 'cancelled' | 'timeout'; answer: string | null }> {
+  const started = Date.now()
+  while (Date.now() - started < timeoutMs) {
+    let rows: Array<{ status: string; handoff_resumed_at: Date | null; handoff_answer: string | null }>
+    try {
+      rows = (await sql`
+        SELECT status, handoff_resumed_at, handoff_answer FROM hire_browser_jobs WHERE id = ${id} LIMIT 1
+      `) as Array<{ status: string; handoff_resumed_at: Date | null; handoff_answer: string | null }>
+    } catch {
+      await Bun.sleep(1_000)
+      continue
+    }
+    const row = rows[0]
+    if (!row || row.status === 'failed') return { outcome: 'cancelled', answer: null }
+    if (row.status === 'running' && row.handoff_resumed_at) return { outcome: 'resumed', answer: row.handoff_answer }
+    await Bun.sleep(1_000)
+  }
+  return { outcome: 'timeout', answer: null }
+}
+
+/**
+ * Deliver the user's answer to a waiting `question` handoff and resume the run.
+ * Only a question handoff accepts a chat answer; every other kind resumes via
+ * its own control (Link approval, live-view done button).
+ */
+export async function answerBrowserHandoff(sql: SQL, id: string, answer: string): Promise<boolean> {
+  const rows = (await sql`
+    UPDATE hire_browser_jobs
+    SET status = 'running', handoff_answer = ${answer.slice(0, 500)}, handoff_resumed_at = now(), claimed_at = now()
+    WHERE id = ${id} AND status = 'waiting' AND handoff_kind = 'question'
+    RETURNING id
+  `) as Array<{ id: string }>
+  return rows.length > 0
+}
+
+/** The question handoff (if any) this user is being asked to answer right now.
+ * 15 minutes is the wall the wait loop itself uses plus slack; older rows are
+ * dead runs and must not hijack the next conversation turn. */
+export async function findAwaitingQuestionJob(
+  sql: SQL,
+  userId: string,
+): Promise<{ id: string; handoff_message: string | null } | null> {
+  const rows = (await sql`
+    SELECT id, handoff_message FROM hire_browser_jobs
+    WHERE user_id = ${userId} AND status = 'waiting' AND handoff_kind = 'question'
+      AND handoff_at > now() - interval '15 minutes'
+    ORDER BY handoff_at DESC LIMIT 1
+  `) as Array<{ id: string; handoff_message: string | null }>
+  return rows[0] ?? null
 }
 
 const SESSION_VIEW_SECRET = (() => {

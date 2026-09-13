@@ -3,7 +3,7 @@ import { Link, useParams, useSearchParams } from 'react-router-dom'
 import './computerSession.css'
 
 type SessionStatus = 'pending' | 'running' | 'waiting' | 'done' | 'failed'
-type HandoffKind = 'password' | 'verification' | 'payment' | 'captcha' | 'confirmation' | null
+type HandoffKind = 'password' | 'verification' | 'payment' | 'captcha' | 'confirmation' | 'question' | null
 
 interface SessionStep {
   /** Older job rows and partial writes can omit it; every render path
@@ -93,6 +93,8 @@ export function ComputerSessionView() {
   const [acting, setActing] = useState(false)
   const [streamError, setStreamError] = useState(false)
   const [copied, setCopied] = useState(false)
+  const [answerText, setAnswerText] = useState('')
+  const [answerSent, setAnswerSent] = useState(false)
   const [streamMode, setStreamMode] = useState<'stream' | 'snapshot'>('stream')
   const lastStatus = useRef<SessionStatus | null>(null)
   const computerRef = useRef<HTMLElement>(null)
@@ -147,6 +149,29 @@ export function ComputerSessionView() {
     window.setTimeout(() => setCopied(false), 1600)
   }
 
+  const submitAnswer = async () => {
+    const text = answerText.trim()
+    if (!text || acting) return
+    setActing(true)
+    setError('')
+    try {
+      const response = await fetch(`/api/computer/session/${encodeURIComponent(sessionId || '')}/answer${query}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text }),
+      })
+      const data = await response.json().catch(() => ({})) as { error?: string }
+      if (!response.ok) throw new Error(data.error || 'That answer could not be delivered.')
+      setAnswerSent(true)
+      setAnswerText('')
+      await loadSession(true)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'That answer could not be delivered.')
+    } finally {
+      setActing(false)
+    }
+  }
+
   const takeControl = () => {
     setTakingControl(true)
     window.requestAnimationFrame(() => computerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
@@ -198,14 +223,16 @@ export function ComputerSessionView() {
     .filter((step): step is SessionStep => !!step && typeof step === 'object')
     .slice(-5)
     .reverse()
-  const canControl = session.status === 'running' || (session.status === 'waiting' && session.handoffKind !== 'payment')
+  const canControl = (session.status === 'running' || (session.status === 'waiting' && session.handoffKind !== 'payment' && session.handoffKind !== 'question'))
   const checkpointTitle = session.handoffKind === 'payment'
     ? 'Approve the verified total'
     : session.handoffKind === 'verification'
       ? 'Enter the code from your phone'
       : session.handoffKind === 'captcha'
         ? 'Complete the security check'
-        : 'Take over for a moment'
+        : session.handoffKind === 'question'
+          ? 'Alpha has a question'
+          : 'Take over for a moment'
 
   return (
     <div className="cs-shell">
@@ -300,6 +327,9 @@ export function ComputerSessionView() {
           <footer className="cs-stream-footer">
             <span><i className="cs-safety-light" /> Encrypted live view</span>
             <span>Protected by this private link</span>
+            {session.streamUrl && (
+              <a className="cs-direct-view" href={session.streamUrl} target="_blank" rel="noreferrer">Open direct view</a>
+            )}
           </footer>
         </section>
 
@@ -333,15 +363,35 @@ export function ComputerSessionView() {
                 <p className="cs-checkpoint-kicker">Alpha paused here</p>
                 <h2>{checkpointTitle}</h2>
                 <p>{session.handoffMessage || 'Take control and finish the protected step directly in the website. HireAlpha does not receive or store what you type.'}</p>
-                <div className="cs-checkpoint-actions">
-                  {session.handoffKind === 'payment' && session.paymentUrl ? (
-                    <a className="cs-button cs-button-primary" href={session.paymentUrl} target="_blank" rel="noreferrer">Approve with Link</a>
-                  ) : !takingControl ? (
-                    <button className="cs-button cs-button-primary" onClick={takeControl}>Take control</button>
+                {session.handoffKind === 'question' ? (
+                  answerSent ? (
+                    <p className="cs-checkpoint-note">Answer sent — Alpha is typing it into the form now.</p>
                   ) : (
-                    <button className="cs-button cs-button-primary" disabled={acting} onClick={() => void postAction('resume')}>Done — let Alpha continue</button>
-                  )}
-                </div>
+                    <div className="cs-checkpoint-actions cs-answer-form">
+                      <input
+                        className="cs-answer-input"
+                        aria-label="Your answer"
+                        placeholder="Type your answer…"
+                        value={answerText}
+                        disabled={acting}
+                        onChange={(e) => setAnswerText(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === 'Enter') void submitAnswer() }}
+                      />
+                      <button className="cs-button cs-button-primary" disabled={acting || !answerText.trim()} onClick={() => void submitAnswer()}>Send answer</button>
+                      <p className="cs-checkpoint-note">Or just reply in iMessage — either way it goes straight into the form.</p>
+                    </div>
+                  )
+                ) : (
+                  <div className="cs-checkpoint-actions">
+                    {session.handoffKind === 'payment' && session.paymentUrl ? (
+                      <a className="cs-button cs-button-primary" href={session.paymentUrl} target="_blank" rel="noreferrer">Approve with Link</a>
+                    ) : !takingControl ? (
+                      <button className="cs-button cs-button-primary" onClick={takeControl}>Take control</button>
+                    ) : (
+                      <button className="cs-button cs-button-primary" disabled={acting} onClick={() => void postAction('resume')}>Done — let Alpha continue</button>
+                    )}
+                  </div>
+                )}
               </div>
             </section>
           )}

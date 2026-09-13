@@ -409,12 +409,50 @@ export async function proposePurchase(
   }
 }
 
+/** Route A: is a browser run paused waiting for this user's chat answer?
+ * Returns null (not an error) when nothing is waiting or the API is down —
+ * callers then run a normal turn. */
+export async function fetchAwaitingBrowserAnswer(phone: string): Promise<{ waiting: boolean; question: string | null; jobId: string | null } | null> {
+  const base = apiBase()
+  const key = process.env.HIREALPHA_INTERNAL_KEY || ''
+  if (!base || !key || !phone) return null
+  try {
+    const res = await timedFetch(
+      `${base}/api/internal/browser/awaiting?phone=${encodeURIComponent(phone)}`,
+      { headers: authHeaders() },
+      2500,
+    )
+    if (!res.ok) return null
+    return (await res.json()) as { waiting: boolean; question: string | null; jobId: string | null }
+  } catch {
+    return null
+  }
+}
+
+/** Deliver the user's chat text as the answer to the waiting question handoff.
+ * `cancel: true` fails the paused run instead (the user said "cancel"). */
+export async function submitBrowserAnswer(phone: string, text: string, cancel = false): Promise<boolean> {
+  const base = apiBase()
+  const key = process.env.HIREALPHA_INTERNAL_KEY || ''
+  if (!base || !key || !phone || (!cancel && !text)) return false
+  try {
+    const res = await timedFetch(
+      `${base}/api/internal/browser/answer`,
+      { method: 'POST', headers: authHeaders(), body: JSON.stringify({ phone, text, cancel }) },
+      6000,
+    )
+    const data = (await res.json().catch(() => ({}))) as { ok?: boolean; answered?: boolean }
+    return res.ok && !!data.ok && !!data.answered
+  } catch {
+    return false
+  }
+}
+
 export async function executeSpendApproval(
   phone: string,
   requestId: string,
   decision: 'approve' | 'deny' = 'approve',
-): Promise<{ ok: boolean; charged?: boolean; error?: string; amount?: string; merchant?: string; paymentIntentId?: string }> {
-  const base = apiBase()
+): Promise<{ ok: boolean; charged?: boolean; error?: string; amount?: string; merchant?: string; paymentIntentId?: string }> {  const base = apiBase()
   const key = process.env.HIREALPHA_INTERNAL_KEY || ''
   if (!base || !key) {
     return { ok: true, charged: true, merchant: 'Merchant' }

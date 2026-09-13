@@ -49,13 +49,19 @@ export type KernelTask = {
   onProgress?: (event: { action: string; url: string }) => Promise<void>
   onScreenshot?: (event: { dataUrl: string; caption?: string }) => Promise<void>
   onHandoff?: (handoff: {
-    kind: 'password' | 'verification' | 'payment' | 'captcha' | 'confirmation'
+    kind: 'password' | 'verification' | 'payment' | 'captcha' | 'confirmation' | 'question'
     message: string
     url: string
     amountCents?: number
     merchant?: string
     item?: string
-  }) => Promise<'resumed' | 'cancelled' | 'timeout' | { status: 'resumed'; paymentCard: PaymentCardSecrets }>
+  }) => Promise<
+    | 'resumed'
+    | 'cancelled'
+    | 'timeout'
+    | { status: 'resumed'; paymentCard: PaymentCardSecrets }
+    | { status: 'resumed'; answer: string | null }
+  >
   paymentAuthorized?: boolean
   paymentAmountCents?: number
   paymentCard?: PaymentCardSecrets
@@ -189,10 +195,11 @@ export async function runKernelTask(
 
       if (action.type === 'handoff') {
         const kind = action.kind || 'confirmation'
+        let outcome: Awaited<ReturnType<typeof requireHandoff>>
         if (kind === 'payment' && !task.paymentAuthorized) {
           const cents = Number(action.amountCents || 0)
           if (cents > 0) {
-            const outcome = await requireHandoff(task, {
+            outcome = await requireHandoff(task, {
               kind: 'payment',
               message: action.message || 'Approve the checkout to continue.',
               url: browser.url(),
@@ -201,13 +208,17 @@ export async function runKernelTask(
               item: action.item,
             })
             if (outcome === 'cancelled') return { ok: false, error: 'The user cancelled the purchase.' }
+          } else {
+            continue
           }
         } else {
-          const outcome = await requireHandoff(task, { kind, message: action.message || 'Your input is needed.', url: browser.url() })
+          outcome = await requireHandoff(task, { kind, message: action.message || 'Your input is needed.', url: browser.url() })
           if (outcome === 'cancelled') return { ok: false, error: 'The user cancelled this task.' }
         }
         if (kind === 'password') {
           recent.push('O connected this.')
+        } else if (typeof outcome === 'object' && outcome.answer) {
+          recent.push(`user answered: "${outcome.answer.slice(0, 200)}" — type this into the field the question was about`)
         } else {
           recent.push(`handoff:${kind} completed by the user`)
         }
@@ -230,12 +241,15 @@ export async function runKernelTask(
 async function requireHandoff(
   task: KernelTask,
   handoff: Parameters<NonNullable<KernelTask['onHandoff']>>[0],
-): Promise<'resumed' | 'cancelled' | 'timeout'> {
+): Promise<'resumed' | 'cancelled' | 'timeout' | { answer: string | null }> {
   if (!task.onHandoff) return 'cancelled'
   const result = await task.onHandoff(handoff)
   if (typeof result === 'string') return result
-  if (result?.paymentCard) task.paymentCard = result.paymentCard
-  return 'resumed'
+  if ('paymentCard' in result) {
+    if (result.paymentCard) task.paymentCard = result.paymentCard
+    return 'resumed'
+  }
+  return { answer: result.answer ?? null }
 }
 
 async function capture(browser: KernelBrowser): Promise<{

@@ -32,13 +32,19 @@ export type SessionTask = {
    * instead of trusting a text summary. Data URL, JPEG. */
   onScreenshot?: (event: { dataUrl: string; caption?: string }) => Promise<void>
   onHandoff?: (handoff: {
-    kind: 'password' | 'verification' | 'payment' | 'captcha' | 'confirmation'
+    kind: 'password' | 'verification' | 'payment' | 'captcha' | 'confirmation' | 'question'
     message: string
     url: string
     amountCents?: number
     merchant?: string
     item?: string
-  }) => Promise<'resumed' | 'cancelled' | 'timeout' | { status: 'resumed'; paymentCard: PaymentCardSecrets }>
+  }) => Promise<
+    | 'resumed'
+    | 'cancelled'
+    | 'timeout'
+    | { status: 'resumed'; paymentCard: PaymentCardSecrets }
+    | { status: 'resumed'; answer: string | null }
+  >
 }
 
 let remoteBrowser: Promise<Browser> | null = null
@@ -662,13 +668,15 @@ async function agentLoop(
       if (handoff === 'cancelled') return { ok: false, error: 'The user stopped the browser task.' }
       if (handoff === 'timeout') return { ok: false, error: 'The browser handoff expired before the user returned.' }
       if (action.kind === 'payment') {
-        if (typeof handoff === 'object') task.paymentCard = handoff.paymentCard
+        if (typeof handoff === 'object' && 'paymentCard' in handoff) task.paymentCard = handoff.paymentCard
         if (!task.paymentCard) return { ok: false, error: 'Payment was approved, but a one-time checkout credential was not available.' }
         task.paymentAuthorized = true
         task.paymentAmountCents = action.amountCents
       }
       if (action.kind === 'password') {
         recentActions.push('O connected this.')
+      } else if (typeof handoff === 'object' && 'answer' in handoff && handoff.answer) {
+        recentActions.push(`user answered: "${handoff.answer.slice(0, 200)}" — type this into the field the question was about`)
       } else {
         recentActions.push(`human completed ${action.kind} handoff`)
       }

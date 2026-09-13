@@ -13,7 +13,8 @@ import { appendThread, loadMemory, setPendingSpend, upsertFacts, pruneExpiredFac
 import { extractFacts, summarizeOld } from './memoryMaintain'
 import { liveFactsToInput, localFactsToInput, mergeMemoryFacts, selectMemoryFacts } from './memoryBlock'
 import { autoIterateWorkshop, autoLogGratitude, autoLogHabit, autoLogMood, autoLogNutrition, autoLogSleep, autoLogSpend, autoLogWorkout, autoLogNetwork, autoLogDecision, autoLogLoops, autoLogPipeline, autoLogStandup, autoRunWorkshop, autoWorkshopKeep, autoWorkshopToss, autoSaveLearning, autoSetBudget, autoSetPrefs, executeSpendApproval, fetchLiveProfile, fetchLiveTools, fetchMiniRun, fetchPrepBundle, fetchWeekBundle, formatHireContext, persistLiveFacts, proposeLiveDraft,
-  proposePurchase, proposeBrowserTask, touchInbound, importChatExport, addMeeting, fetchRenewalRadar, setTravel } from './liveContext'
+  proposePurchase, proposeBrowserTask, touchInbound, importChatExport, addMeeting, fetchRenewalRadar, setTravel,
+  fetchAwaitingBrowserAnswer, submitBrowserAnswer } from './liveContext'
 import { captureFromChat } from './cofounderPro'
 import { coworkerCaptureFromChat } from './coworkerPro'
 import { onboardingStage, runOnboardingTurn, suggestConnector } from './onboarding'
@@ -671,6 +672,37 @@ export async function runHireTurn(input: {
   }
 
   const pendingSpend = mem.pendingSpend
+
+  // Route A: a paused browser run is waiting for this user's chat answer (the
+  // agent asked a question it could not answer itself). The next text IS the
+  // answer — deliver it to the run and skip the model turn. One fast internal
+  // call; any failure falls through to a normal turn.
+  const awaiting = await fetchAwaitingBrowserAnswer(input.senderId)
+  if (awaiting?.waiting) {
+    const cancel = /^\s*(?:cancel(?:\s+it)?|stop|never\s*mind|skip|no\s+thanks?|forget\s+it)\s*[.!]?\s*$/i.test(input.userText)
+    if (cancel) {
+      const cancelled = await submitBrowserAnswer(input.senderId, '', true)
+      const reply = cancelled
+        ? 'Cancelled the paused task. The browser is closed — nothing was submitted.'
+        : 'I could not cancel that task. If it is still waiting, use the session link to cancel it there.'
+      appendThread(input.dataDir, input.senderId, [
+        { role: 'user', content: input.userText },
+        { role: 'assistant', content: reply },
+      ])
+      return { reply, bubbles: [reply], source: 'local' as const, authoritative: [], card: null }
+    }
+    const delivered = await submitBrowserAnswer(input.senderId, input.userText)
+    if (delivered) {
+      const reply = `Got it — typing "${input.userText.trim().slice(0, 80)}" into the form now. I'll text you when the task finishes.`
+      appendThread(input.dataDir, input.senderId, [
+        { role: 'user', content: input.userText },
+        { role: 'assistant', content: reply },
+      ])
+      return { reply, bubbles: [reply], source: 'local' as const, authoritative: [], card: null }
+    }
+    // Delivery failed: fall through so the user's message is never swallowed.
+  }
+
   if (pendingSpend && isNegativeCancellationIntent(input.userText)) {
     setPendingSpend(input.dataDir, input.senderId)
     const reply = `Cancelled the order for ${pendingSpend.item}. Let me know if you want to look for something else!`

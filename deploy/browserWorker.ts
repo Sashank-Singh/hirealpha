@@ -29,6 +29,7 @@ import {
   setBrowserLiveView,
   setBrowserScreenshot,
   waitForBrowserHandoff,
+  waitForBrowserHandoffAnswer,
   type BrowserJobRow,
 } from './browserJobs'
 import {
@@ -281,6 +282,10 @@ export async function runJob(sql: SQL, job: JobRow, launch = runBrowserSession):
     return { ok: false, error: DISABLED_ERROR }
   }
   const launchTask = (task: SessionTask) => {
+    // An injected launch (tests) bypasses the executor: a local .env that
+    // happens to set KERNEL_API_KEY must not make a unit test open a real
+    // cloud browser.
+    if (launch !== runBrowserSession) return launch(task)
     if (executorMode === 'kernel') {
       const apiKey = process.env.KERNEL_API_KEY?.trim() || ''
       if (!apiKey) return Promise.resolve({ ok: false as const, error: 'KERNEL_API_KEY is not configured.' })
@@ -409,6 +414,26 @@ export async function runJob(sql: SQL, job: JobRow, launch = runBrowserSession):
     },
     onHandoff: async ({ kind: handoffKind, message, url, amountCents, merchant, item }) => {
       if (handoffKind === 'payment' && paymentCard) return { status: 'resumed' as const, paymentCard }
+      // Route A: the agent asked a question. The answer channel is the chat
+      // thread itself — no link, no live view, no takeover. The user's next
+      // text (routed by the bot, or the answer box on the session page) lands
+      // in handoff_answer and resumes the run; the loop injects it as
+      // `user answered: "..."` so the agent types it into the field.
+      if (handoffKind === 'question') {
+        await appendBrowserActivity(sql, job.id, `needs_${handoffKind}`, url)
+        await beginBrowserHandoff(sql, job.id, 'question', message)
+        await pushBrowserResultLoop(sql, {
+          userId: job.user_id,
+          persona: job.persona,
+          origin: url,
+          insights: `Alpha paused: ${message.replace(/[.!?]+$/, '')}? Reply here with your answer and I'll type it in.`,
+          screenshotDataUrl: lastScreenshots.get(job.id)?.dataUrl,
+          screenshotCaption: message.slice(0, 200),
+        })
+        const wait = await waitForBrowserHandoffAnswer(sql, job.id)
+        if (wait.outcome === 'resumed' && wait.answer) return { status: 'resumed' as const, answer: wait.answer }
+        return wait.outcome
+      }
       const payment = handoffKind === 'payment'
         ? await stageLinkPaymentHandoff(sql, job, { url, amountCents, merchant, item })
         : null

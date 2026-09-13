@@ -1,11 +1,15 @@
 import { describe, expect, it } from 'bun:test'
 import {
+  answerBrowserHandoff,
+  beginBrowserHandoff,
   claimBrowserJobs,
   enqueueBrowserJob,
+  findAwaitingQuestionJob,
   finishBrowserJob,
   generateSessionViewToken,
   getBrowserJob,
   verifySessionViewToken,
+  waitForBrowserHandoffAnswer,
 } from './browserJobs'
 import {
   buildVisionParts,
@@ -324,5 +328,62 @@ describe('real-site pacing and explicit action failures', () => {
     const outcome = await executeAgentAction(page, { type: 'navigate', url: 'https://slow.example/' })
     expect(outcome.ok).toBe(false)
     expect(outcome.error).toContain('ERR_TIMED_OUT')
+  })
+})
+
+/* ============================================================================
+ * Route A: chat answers for paused browser runs. The agent may ask a
+ * `question`; the user's reply (iMessage or the session page) lands in
+ * handoff_answer, resumes the run, and is surfaced to the agent loop.
+ * ========================================================================== */
+
+describe('chat-answer handoff (Route A)', () => {
+  it('parses a question handoff action', () => {
+    expect(parseAgentAction('{"action":"handoff","kind":"question","message":"What is the billing zip code"}'))
+      .toEqual({ type: 'handoff', kind: 'question', message: 'What is the billing zip code' })
+  })
+
+  it('rejects a question handoff with no message', () => {
+    expect(parseAgentAction('{"action":"handoff","kind":"question","message":""}')).toBeNull()
+  })
+
+  it('answerBrowserHandoff resumes only a waiting question row', async () => {
+    const { sql, queries } = fakeSql((text) => (text.includes('RETURNING id') ? [{ id: 'job-1' }] : []))
+    expect(await answerBrowserHandoff(sql, 'job-1', '94105')).toBe(true)
+    const query = queries[0]!.text
+    expect(query).toContain("status = 'waiting'")
+    expect(query).toContain("handoff_kind = 'question'")
+    expect(query).toContain("SET status = 'running'")
+    expect(query).toContain('handoff_answer')
+  })
+
+  it('a non-question handoff is never resumed by a chat answer', async () => {
+    const { sql } = fakeSql()
+    expect(await answerBrowserHandoff(sql, 'job-1', '94105')).toBe(false)
+  })
+
+  it('beginBrowserHandoff clears a stale answer when arming a new wait', async () => {
+    const { sql, queries } = fakeSql()
+    await beginBrowserHandoff(sql, 'job-1', 'question', 'What is the billing zip code')
+    expect(queries[0]!.text).toContain('handoff_answer = NULL')
+  })
+
+  it('waitForBrowserHandoffAnswer surfaces the answer on resume', async () => {
+    const { sql } = fakeSql((text) => (
+      text.includes('SELECT status, handoff_resumed_at, handoff_answer')
+        ? [{ status: 'running', handoff_resumed_at: new Date(), handoff_answer: '94105' }]
+        : []
+    ))
+    expect(await waitForBrowserHandoffAnswer(sql, 'job-1')).toEqual({ outcome: 'resumed', answer: '94105' })
+  })
+
+  it('findAwaitingQuestionJob scopes to waiting question rows', async () => {
+    const { sql, queries } = fakeSql((text) => (
+      text.includes('FROM hire_browser_jobs') ? [{ id: 'job-9', handoff_message: 'What is the billing zip code' }] : []
+    ))
+    const job = await findAwaitingQuestionJob(sql, 'user-1')
+    expect(job?.id).toBe('job-9')
+    expect(queries[0]!.text).toContain("handoff_kind = 'question'")
+    expect(queries[0]!.text).toContain("status = 'waiting'")
   })
 })
