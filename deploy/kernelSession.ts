@@ -383,6 +383,16 @@ export async function runKernelTask(
             await saveSiteProcedure(task.sql, browser.url(), distilled)
           } catch {}
         }
+        // The receipt must match the claim: with DOM-first observation the
+        // last on-demand capture can predate the final actions (seen live —
+        // the delivered screenshot showed an untopped form while the result
+        // text correctly reported the submitted one). Grab the page as it
+        // stands now so the image proves what the answer asserts.
+        try {
+          const finalShot = await browser.screenshot(60)
+          const finalTitle = await browser.title().catch(() => '')
+          await task.onScreenshot?.({ dataUrl: `data:image/jpeg;base64,${finalShot}`, caption: finalTitle ? `Final: ${finalTitle}` : 'Final page' })
+        } catch { /* receipt falls back to the last step image */ }
         return { ok: true, content: answer }
       }
 

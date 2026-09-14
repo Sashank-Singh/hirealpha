@@ -227,7 +227,10 @@ startTaskLoopPoller({
             // the limit and a page JPEG at quality 45 is far smaller.
             if (bytes.byteLength > 0 && bytes.byteLength <= 4_000_000) {
               await space.send(attachment(bytes, { mimeType: match[1]!, name: 'session.jpg' }))
-              if (image.caption) await space.send(sanitizeOutbound(image.caption).slice(0, 300))
+              // The caption is a label for a picture sent without prose; when
+              // the bubble already carries the result text, a trailing
+              // "Step 9" line is noise (seen live glued to the receipt).
+              if (image.caption && !String(text || '').trim()) await space.send(sanitizeOutbound(image.caption).slice(0, 300))
             }
           }
         } catch (err) {
