@@ -168,10 +168,10 @@ export function isRecipientSendBlocked(err: unknown): boolean {
   const msg = err instanceof Error ? err.message : String(err || '')
   const blob = `${code} ${msg}`.toLowerCase()
   return (
-    /recipientcoolingdown|recipientlocked|recipientlimitexceeded|sendreceiveratioexceeded/.test(
+    /recipientcoolingdown|recipientlocked|recipientlimitexceeded|sendreceiveratioexceeded|repliesarelimited|newcontacthassent/.test(
       blob.replace(/[^a-z]/g, ''),
     ) ||
-    /cooling.?down|recipient.?locked|send.?receive.?ratio|recipient.?limit|target.?not.?allowed/.test(blob)
+    /cooling.?down|recipient.?locked|send.?receive.?ratio|recipient.?limit|target.?not.?allowed|replies.?are.?limited|new.?contact.?has.?sent/.test(blob)
   )
 }
 

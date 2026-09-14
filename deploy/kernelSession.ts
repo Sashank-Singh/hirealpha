@@ -45,6 +45,7 @@ import {
   type PaymentCardSecrets,
 } from './agentDriver'
 import { KernelBrowser } from './kernelPage'
+import { claimPendingText } from './browserJobs'
 import {
   extractRootDomain,
   formatProcedureForPrompt,
@@ -59,6 +60,7 @@ export type KernelTask = {
   username?: string
   password?: string
   goal?: string
+  jobId?: string
   sql?: SQL | null
   onProgress?: (event: { action: string; url: string }) => Promise<void>
   onScreenshot?: (event: { dataUrl: string; caption?: string }) => Promise<void>
@@ -306,8 +308,21 @@ export async function runKernelTask(
       // Keep the provider session alive across the model turn: a slow step must
       // not let the idle reaper take the browser out from under the loop.
       await browser.keepalive()
+      // Takeover text relay: the user cannot raise a phone keyboard inside a
+      // streamed browser, so text typed on the session page arrives here and
+      // goes into whatever the page has focused before the next decision.
+      if (task.sql && task.jobId) {
+        const relay = await claimPendingText(task.sql, task.jobId).catch(() => null)
+        if (relay) {
+          await browser.run(
+            `await page.keyboard.type(${JSON.stringify(relay)}, { delay: 18 }); return { ok: true };`,
+            30_000,
+          ).catch(() => undefined)
+          recent.push(`user typed via takeover into the focused field: "${relay.slice(0, 120)}"`)
+        }
+      }
       if (screenshot && (task.onScreenshot || needScreenshot)) {
-        await task.onScreenshot?.({ dataUrl: `data:image/jpeg;base64,${screenshot}`, caption: `Step ${step + 1}: ${title}` }).catch(() => undefined)
+        await task.onScreenshot?.({ dataUrl: `data:image/jpeg;base64,${screenshot}`, caption: title?.trim() ? `Step ${step + 1}: ${title}` : `Step ${step + 1}` }).catch(() => undefined)
       }
       let raw = ''
       try {
@@ -641,6 +656,18 @@ async function requireHandoff(
   const checkAutoResume = async (): Promise<{ resumed: boolean; reason?: string } | null> => {
     try {
       await browser.keepalive()
+      // Text relay during takeover too: while the human drives the waiting
+      // session, anything they type on the session page goes to the focused
+      // field here — the streamed browser cannot raise a phone keyboard.
+      if (task.sql && task.jobId) {
+        const relay = await claimPendingText(task.sql, task.jobId).catch(() => null)
+        if (relay) {
+          await browser.run(
+            `await page.keyboard.type(${JSON.stringify(relay)}, { delay: 18 }); return { ok: true };`,
+            30_000,
+          ).catch(() => undefined)
+        }
+      }
       const inspection = await inspectTakeoverState(browser, initialUrl, initialHasPassword)
       if (inspection.triggers && inspection.triggers.length) {
         allTriggers.push(...inspection.triggers)

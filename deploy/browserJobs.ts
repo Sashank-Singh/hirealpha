@@ -83,6 +83,10 @@ export async function ensureBrowserJobsSchema(sql: SQL): Promise<void> {
   await sql`ALTER TABLE hire_browser_jobs ADD COLUMN IF NOT EXISTS handoff_at TIMESTAMPTZ`
   await sql`ALTER TABLE hire_browser_jobs ADD COLUMN IF NOT EXISTS handoff_resumed_at TIMESTAMPTZ`
   await sql`ALTER TABLE hire_browser_jobs ADD COLUMN IF NOT EXISTS handoff_answer TEXT`
+  // Takeover text relay: the live view is a video stream, so tapping a remote
+  // field never raises the phone keyboard. Text the user types on the session
+  // page lands here and the running loop types it into the focused field.
+  await sql`ALTER TABLE hire_browser_jobs ADD COLUMN IF NOT EXISTS pending_text TEXT`
   await sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_hire_browser_jobs_approval ON hire_browser_jobs (approval_id) WHERE approval_id IS NOT NULL`
   await sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_hire_browser_jobs_spend_request ON hire_browser_jobs (spend_request_id) WHERE spend_request_id IS NOT NULL`
   await sql`CREATE INDEX IF NOT EXISTS idx_hire_browser_jobs_status ON hire_browser_jobs (status, created_at)`
@@ -364,6 +368,30 @@ export async function answerBrowserHandoff(sql: SQL, id: string, answer: string)
     RETURNING id
   `) as Array<{ id: string }>
   return rows.length > 0
+}
+
+/** Queue takeover text for a RUNNING job. The loop claims it and types it
+ * into whatever the page has focused — the user's phone keyboard cannot open
+ * inside a video-streamed browser, so this relay is how they "type". */
+export async function queuePendingText(sql: SQL, id: string, text: string): Promise<boolean> {
+  const rows = (await sql`
+    UPDATE hire_browser_jobs
+    SET pending_text = ${text.slice(0, 500)}
+    WHERE id = ${id} AND status IN ('running', 'waiting') AND pending_text IS NULL
+    RETURNING id
+  `) as Array<{ id: string }>
+  return rows.length > 0
+}
+
+/** Atomically take the queued takeover text (one claimer, cleared on read). */
+export async function claimPendingText(sql: SQL, id: string): Promise<string | null> {
+  const rows = (await sql`
+    UPDATE hire_browser_jobs
+    SET pending_text = NULL
+    WHERE id = ${id} AND pending_text IS NOT NULL
+    RETURNING pending_text
+  `) as Array<{ pending_text: string | null }>
+  return rows[0]?.pending_text || null
 }
 
 /** The question handoff (if any) this user is being asked to answer right now.

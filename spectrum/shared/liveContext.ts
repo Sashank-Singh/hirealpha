@@ -92,7 +92,7 @@ export async function fetchSpending(phone: string): Promise<{
 }
 
 /** Contacts on file, for the Tier 4 delegate. Empty on any failure. */
-export async function fetchContacts(phone: string): Promise<Array<{ name: string; phone?: string; email?: string }>> {
+export async function fetchContacts(phone: string): Promise<Array<{ name: string; phone?: string; email?: string; lastTouch?: string }>> {
   const base = apiBase()
   const key = process.env.HIREALPHA_INTERNAL_KEY || ''
   if (!base || !key) return []
@@ -103,8 +103,13 @@ export async function fetchContacts(phone: string): Promise<Array<{ name: string
       8000,
     )
     if (!res.ok) return []
-    const data = (await res.json()) as { contacts?: Array<{ name: string; phone?: string; email?: string }> }
-    return data.contacts || []
+    const data = (await res.json()) as { contacts?: Array<{ name: string; phone?: string; email?: string; last_touch?: string | null }> }
+    return (data.contacts || []).map((c) => ({
+      name: c.name,
+      phone: c.phone,
+      email: c.email,
+      lastTouch: c.last_touch ? String(c.last_touch).slice(0, 10) : undefined,
+    }))
   } catch {
     return []
   }
@@ -1664,5 +1669,60 @@ export async function autoWorkshopToss(
     return (await res.json()) as { ok?: boolean; logged?: boolean; error?: string }
   } catch {
     return { ok: false, logged: false, error: 'failed' }
+  }
+}
+
+/** Shared to-do list: add | list | complete. Null = the service was
+ * unreachable; the caller must say so rather than claim the list changed. */
+export async function manageTodos(
+  phone: string,
+  action: 'add' | 'list' | 'complete',
+  text?: string,
+  id?: string,
+): Promise<{ ok: boolean; todo?: { id: string; text: string }; completed?: { id: string; text: string }; open?: Array<{ id: string; text: string }>; error?: string } | null> {
+  const base = apiBase()
+  if (!base) return null
+  try {
+    const res = await fetch(`${base}/api/internal/todos`, {
+      signal: AbortSignal.timeout(10000),
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify({ phone, action, text, id }),
+    })
+    if (!res.ok) return null
+    return (await res.json()) as {
+      ok: boolean
+      todo?: { id: string; text: string }
+      completed?: { id: string; text: string }
+      open?: Array<{ id: string; text: string }>
+      error?: string
+    }
+  } catch {
+    return null
+  }
+}
+
+/** Schedule a text the assistant sends on the user's behalf at a future time
+ * (a midnight birthday message). The bot's poller delivers it. */
+export async function scheduleTextLater(
+  phone: string,
+  to: string,
+  text: string,
+  at: string,
+  persona = 'friend',
+): Promise<{ ok: boolean; id?: string; error?: string }> {
+  const base = apiBase()
+  if (!base) return { ok: false, error: 'no api base' }
+  try {
+    const res = await fetch(`${base}/api/internal/scheduled_texts`, {
+      signal: AbortSignal.timeout(10000),
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify({ phone, to, text, at, persona }),
+    })
+    const data = (await res.json().catch(() => ({}))) as { ok?: boolean; id?: string; error?: string }
+    return res.ok && data.ok ? { ok: true, id: data.id } : { ok: false, error: data.error || `status ${res.status}` }
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : 'failed' }
   }
 }

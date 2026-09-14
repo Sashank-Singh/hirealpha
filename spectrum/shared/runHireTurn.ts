@@ -6,6 +6,7 @@ import {
 } from '../../src/agents'
 import { runAgentLocally } from '../../src/agents/runtime'
 import { runConversationalFriend } from './conversationalFriend'
+import { classifyTurnStrict } from './turnIntent'
 import { isAffirmativeApprovalIntent, isNegativeCancellationIntent } from './conversationalApproval'
 import { skillsPromptBlock, SKILLS } from './skills'
 import { gmiChat } from './gmi'
@@ -346,8 +347,18 @@ export function sanitizeOutbound(text: string): string {
     .replace(/(^|\s)(#{1,3})\s+/g, '$1')
     .replace(/`([^`]*)`/g, '$1')
   const cleaned = stripDashes(dropBannedTaglines(stripped))
-  if (!cleaned || isBannedTagline(cleaned)) return ''
-  return cleaned
+  // Source-dump guard: the model sometimes pastes its search URLs after the
+  // answer (seen live: a hotel reply ending in a holidify listicle and a
+  // random .com.co page). Two or more trailing bare-URL lines are noise —
+  // drop them. hirealpha.chat links (session, vault, portal) are action
+  // links and never stripped, and a single introduced link stays.
+  const noDump = cleaned.replace(/(?:\s+https?:\/\/(?!hirealpha\.chat)\S+){2,}\s*$/i, '').trimEnd()
+  // Tool-marker leak: the engine's own markers ("[web_search]") occasionally
+  // ride into the model's text and reach the bubble. Strip trailing bracketed
+  // snake_case tokens — no real reply ends in one.
+  const noMarker = noDump.replace(/(?:\s*\[[a-z][a-z0-9_]*\]\s*)+$/i, '').trimEnd()
+  if (!noMarker || isBannedTagline(noMarker)) return ''
+  return noMarker
 }
 
 function wantsLiveData(text: string) {
@@ -818,14 +829,36 @@ export async function runHireTurn(input: {
       ])
       return { reply, bubbles: [reply], source: 'local' as const, authoritative: [], card: null }
     }
-    const delivered = await submitBrowserAnswer(input.senderId, input.userText)
-    if (delivered) {
-      const reply = `Got it — typing "${input.userText.trim().slice(0, 80)}" into the form now. I'll text you when the task finishes.`
-      appendThread(input.dataDir, input.senderId, [
-        { role: 'user', content: input.userText },
-        { role: 'assistant', content: reply },
-      ])
-      return { reply, bubbles: [reply], source: 'local' as const, authoritative: [], card: null }
+    // A paused run must not swallow a NEW request: seen live, a vault-paused
+    // purchase run absorbed the next two messages (a CampusNet lookup and a
+    // flight search) as "answers" and both asks were lost. The classifier
+    // decides: a request is a new turn; anything short (chat/approval/log)
+    // is plausibly the answer the run is waiting for. On classifier failure
+    // keep the old behavior — losing the answer mid-run is worse than the
+    // rare swallowed request.
+    let isAnswer = true
+    try {
+      const verdict = await classifyTurnStrict({
+        userText: input.userText,
+        recentTurns: [],
+        pendingQuestion: awaiting.question || undefined,
+      })
+      isAnswer = verdict.kind !== 'request'
+    } catch {
+      isAnswer = true
+    }
+    if (!isAnswer) {
+      console.warn('[routeA] paused run holds; incoming text classified as a new request')
+    } else {
+      const delivered = await submitBrowserAnswer(input.senderId, input.userText)
+      if (delivered) {
+        const reply = 'Sent. The browser picks up right where it paused — I\'ll text you when the task finishes.'
+        appendThread(input.dataDir, input.senderId, [
+          { role: 'user', content: input.userText },
+          { role: 'assistant', content: reply },
+        ])
+        return { reply, bubbles: [reply], source: 'local' as const, authoritative: [], card: null }
+      }
     }
     // Delivery failed: fall through so the user's message is never swallowed.
   }

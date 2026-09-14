@@ -292,8 +292,17 @@ function composioKey() {
   return process.env.COMPOSIO_API_KEY?.trim() || ''
 }
 
-function internalOk(req: Request) {
-  const key = process.env.HIREALPHA_INTERNAL_KEY || ''
+/** Open to-do rows for the todos endpoint; newest first, capped. */
+async function openTodos(sql: SQL, userId: string): Promise<Array<{ id: string; text: string }>> {
+  const rows = await sql`
+    SELECT id::text AS id, text FROM hire_todos
+    WHERE user_id = ${userId} AND done = false
+    ORDER BY created_at DESC LIMIT 20
+  `
+  return rows as Array<{ id: string; text: string }>
+}
+
+function internalOk(req: Request) {  const key = process.env.HIREALPHA_INTERNAL_KEY || ''
   if (!key) return false
   const auth = req.headers.get('authorization') || ''
   return auth === `Bearer ${key}`
@@ -5655,6 +5664,11 @@ export async function runToolsForMessage(
     if (!query) return ['A lookup query is required.']
     if (input.want === 'web') return [await fetchWebSearch(query)]
     if (input.want === 'maps') return [await fetchMapSearch(query, timezoneCountry(input.timezone), input.location)]
+    if (input.want === 'weather') {
+      // Strip the ask words, keep the place: "weather in SF this weekend?" -> "SF".
+      const place = query.replace(/\b(weather|forecast|temperature|degrees|like|going|today|tonight|tomorrow|this weekend|weekend|this|in|for|at|near me|right now|outside|expect|should i pack|will it)\b/gi, ' ').replace(/[?!]/g, ' ').replace(/\s+/g, ' ').trim()
+      return [await fetchWeatherLookup(place, input.timezone || 'America/Los_Angeles', timezoneCountry(input.timezone || 'America/Los_Angeles'))]
+    }
     // A model-selected work tool is one targeted connector read, never a fan
     // out — same invariant as the google-native wants below.
     const workRead = WORK_READ_TOOLS[input.want]
@@ -6970,6 +6984,53 @@ async function saveMailPromiseLoops(
       INSERT INTO hire_loops (id, user_id, persona, title, context)
       VALUES (${crypto.randomUUID()}, ${userId}, ${persona}, ${title}, ${p.context.slice(0, 500)})
     `
+  }
+}
+
+/** Live weather for the chat lookup: a place in words, current plus a 4-day
+ * forecast from open-meteo (free, no key). The brief has the user's own
+ * coordinates; this answers "SF this weekend" and "good day to wash the car"
+ * with real numbers instead of climate averages. */
+async function fetchWeatherLookup(place: string, tz: string, countryHint: string): Promise<string> {
+  const fallback = TZ_DEFAULT_COORDS[tz] || TZ_DEFAULT_COORDS['America/Los_Angeles']!
+  let lat = fallback.lat
+  let lon = fallback.lon
+  let city = fallback.city
+  const clean = place.replace(/\s+/g, ' ').trim().slice(0, 80)
+  if (clean) {
+    const area = await nominatimArea(clean, countryHint).catch(() => null)
+    if (area) {
+      lat = area.lat
+      lon = area.lon
+      city = clean
+    }
+  }
+  try {
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,weather_code&daily=temperature_2m_max,temperature_2m_min,weather_code&temperature_unit=fahrenheit&timezone=auto&forecast_days=4`
+    const res = await withTimeout(fetch(url), 6000, null)
+    if (!res || !res.ok) return 'Weather could not be loaded right now. Do not guess numbers.'
+    const data = (await res.json()) as {
+      current?: { temperature_2m?: number; weather_code?: number }
+      daily?: { time?: string[]; temperature_2m_max?: number[]; temperature_2m_min?: number[]; weather_code?: number[] }
+    }
+    const lines: string[] = []
+    const cur = data.current
+    if (cur?.temperature_2m !== undefined) {
+      const w = weatherCodeToHuman(cur.weather_code ?? 0)
+      lines.push(`Now in ${city}: ${w.icon} ${Math.round(cur.temperature_2m)}°F, ${w.condition.toLowerCase()}`)
+    }
+    const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+    for (let i = 0; i < Math.min(4, data.daily?.time?.length || 0); i++) {
+      const hi = data.daily!.temperature_2m_max?.[i]
+      const lo = data.daily!.temperature_2m_min?.[i]
+      if (hi === undefined) continue
+      const d = new Date(`${data.daily!.time![i]}T12:00:00`)
+      const w = weatherCodeToHuman(data.daily!.weather_code?.[i] ?? 0)
+      lines.push(`${dayNames[d.getDay()]}: ${w.icon} high ${Math.round(hi)}°F / low ${Math.round(lo ?? 0)}°F, ${w.condition.toLowerCase()}`)
+    }
+    return lines.length ? `Live weather (open-meteo):\n${lines.join('\n')}` : 'Weather service returned no data. Do not guess.'
+  } catch {
+    return 'Weather could not be loaded right now. Do not guess numbers.'
   }
 }
 
@@ -11540,6 +11601,11 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
   // so mobile browsers and corporate firewalls can open the live view.
   if (path.startsWith('/api/computer/live-proxy/')) {
     const jobId = path.slice('/api/computer/live-proxy/'.length).split('/')[0]
+    // getBrowserJob feeds the uuid to Postgres; a malformed id throws 22P02
+    // and the route answers 500 for what is simply "no such session".
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(jobId)) {
+      return new Response('Live view unavailable or session ended.', { status: 404 })
+    }
     if (!jobId) return json({ error: 'Job ID required' }, 400)
     if (!sql) return json({ error: 'Database unavailable' }, 503)
 
@@ -11645,6 +11711,9 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     const jobId = parts[0]
     const action = parts[1] || ''
     if (!jobId) return json({ error: 'Session ID required' }, 400)
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(jobId)) {
+      return json({ error: 'Session not found' }, 404)
+    }
     if (!sql) return json({ error: 'Database unavailable' }, 503)
 
     const { getBrowserJob, verifySessionViewToken } = await import('./browserJobs')
@@ -11702,9 +11771,16 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
       const body = (await req.json().catch(() => ({}))) as { text?: string }
       const text = String(body.text || '').trim()
       if (!text) return json({ error: 'Type an answer first.' }, 400)
-      const { answerBrowserHandoff } = await import('./browserJobs')
+      const { answerBrowserHandoff, queuePendingText } = await import('./browserJobs')
       const resumed = await answerBrowserHandoff(sql, jobId, text)
-      return resumed ? json({ ok: true, resumed: true }) : json({ error: 'This task is not waiting for an answer.' }, 409)
+      if (resumed) return json({ ok: true, resumed: true })
+      // Not a question handoff — the run is live or a takeover is in progress.
+      // Relay the text to the loop, which types it into the focused field;
+      // the streamed browser cannot raise the phone keyboard itself.
+      const queued = await queuePendingText(sql, jobId, text)
+      return queued
+        ? json({ ok: true, queued: true })
+        : json({ error: 'This task is not waiting for an answer.' }, 409)
     }
 
     if (action) return json({ error: 'Unknown computer session action.' }, 404)
@@ -11715,11 +11791,16 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     // WebSockets connect directly without intermediate hops. We also provide
     // proxyStreamUrl as an HTTPS 443 fallback for restricted corporate networks.
     const providerLiveView = job.live_view_url?.trim() || ''
-    const configuredStream = process.env.BROWSER_USE_STREAM_URL || (process.env.BROWSER_USE_DOMAIN ? `https://${process.env.BROWSER_USE_DOMAIN}/vnc.html` : 'https://browser.hirealpha.chat/vnc.html')
+    // The noVNC stream only exists when an operator actually deployed the VNC
+    // stack and points BROWSER_USE_STREAM_URL/DOMAIN at it. The old hardcoded
+    // browser.hirealpha.chat default advertised a dead URL as a live session;
+    // with no provider view and no configured stack the session correctly
+    // reports no stream and falls back to screenshots.
+    const configuredStream = process.env.BROWSER_USE_STREAM_URL || (process.env.BROWSER_USE_DOMAIN ? `https://${process.env.BROWSER_USE_DOMAIN}/vnc.html` : '')
     const streamBase = configuredStream.replace('{sessionId}', encodeURIComponent(jobId))
     const vncPassword = process.env.CHROME_VNC_PASSWORD || ''
     const joiner = streamBase.includes('?') ? '&' : '?'
-    const fallbackStream = `${streamBase}${joiner}autoconnect=true&resize=scale&reconnect=true${vncPassword ? `&password=${encodeURIComponent(vncPassword)}` : ''}`
+    const fallbackStream = streamBase ? `${streamBase}${joiner}autoconnect=true&resize=scale&reconnect=true${vncPassword ? `&password=${encodeURIComponent(vncPassword)}` : ''}` : ''
 
     const tokenParam = token ? `?token=${encodeURIComponent(token)}` : ''
     const proxyStreamUrl = providerLiveView
@@ -13316,8 +13397,12 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
         hostname = new URL(portal).hostname.replace(/^www\./, '').toLowerCase()
       } catch {}
 
+      // Protected = needs a LOGIN, judged by the portal, not by goal
+      // vocabulary: "pizza order form" on a test site is not a vault case
+      // (it blocked a real demo on the word "order"). Buying is gated
+      // separately by Link; only credential walls need the vault.
       const isProtectedPortal =
-        /\b(?:login|signin|sign-in|portal|account|orders?|checkout|cart|buy|purchase|student|grades?|tuition|banking|bank|pay|subscription)\b/i.test(goal) ||
+        /\b(?:log ?in|sign ?in|signin|password|credentials|portal|student|grades?|tuition|banking|bank account|subscription)\b/i.test(goal) ||
         /\b(?:campusnet|csuohio|blackboard|canvas|amazon|netflix|chase|wellsfargo|bankofamerica|fidelity|vanguard|linkedin|github)\b/i.test(portal) ||
         /\.edu\b/i.test(portal) ||
         /\/login|\/signin|\/auth|\/account|\/portal/i.test(portal)
@@ -15373,6 +15458,93 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
     return json({ ok: true, logged: true, id, ...parsed })
   }
 
+  // Shared to-do list (bench50 gap: "add a grocery run to my to-do list" got
+  // "I don't have a to-do list I can edit"). add | list | complete by id or
+  // fuzzy text; the bot renders the result.
+  if (path === '/api/internal/todos' && req.method === 'POST') {
+    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
+    const body = (await req.json().catch(() => ({}))) as { phone?: string; action?: string; text?: string; id?: string }
+    const action = body.action === 'list' || body.action === 'complete' ? body.action : 'add'
+    if (!body.phone) return json({ error: 'phone required' }, 400)
+    const user = await getUserByPhone(sql, body.phone)
+    if (!user) return json({ error: 'User not found' }, 404)
+    if (action === 'add') {
+      const text = String(body.text || '').trim().slice(0, 300)
+      if (!text) return json({ error: 'text required' }, 400)
+      const row = (await sql`
+        INSERT INTO hire_todos (user_id, text) VALUES (${user.id}, ${text})
+        RETURNING id::text AS id, text, done
+      `)[0]
+      return json({ ok: true, todo: row, open: await openTodos(sql, user.id) })
+    }
+    if (action === 'complete') {
+      const wanted = String(body.text || '').trim().toLowerCase()
+      const id = /^[0-9a-f-]{36}$/i.test(String(body.id || '')) ? body.id : null
+      if (!id && !wanted) return json({ error: 'id or text required' }, 400)
+      const rows = await sql`
+        SELECT id::text AS id, text FROM hire_todos
+        WHERE user_id = ${user.id} AND done = false
+          AND ((${id}::uuid IS NOT NULL AND id = ${id}::uuid)
+               OR (${id}::uuid IS NULL AND lower(text) LIKE ${'%' + wanted + '%'}))
+        ORDER BY created_at DESC LIMIT 1
+      `
+      if (!rows[0]) return json({ ok: false, error: wanted || 'no match' })
+      await sql`UPDATE hire_todos SET done = true, completed_at = now() WHERE id = ${rows[0].id}::uuid`
+      return json({ ok: true, completed: rows[0], open: await openTodos(sql, user.id) })
+    }
+    return json({ ok: true, open: await openTodos(sql, user.id) })
+  }
+
+  // Scheduled send-on-behalf (bench50 gap: "wish mom happy birthday at
+  // midnight" could only be drafted). The bot's poller claims due rows,
+  // registers the target with Photon if needed, sends, and acks.
+  if (path === '/api/internal/scheduled_texts' && req.method === 'POST') {
+    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
+    const body = (await req.json().catch(() => ({}))) as { phone?: string; to?: string; text?: string; at?: string; persona?: string }
+    const at = new Date(String(body.at || ''))
+    if (!body.phone || !/^\+?\d{7,15}$/.test(String(body.to || '')) || !String(body.text || '').trim()
+      || !Number.isFinite(at.getTime()) || at.getTime() <= Date.now()) {
+      return json({ error: 'phone, to, text and a future ISO at are required' }, 400)
+    }
+    const user = await getUserByPhone(sql, body.phone)
+    if (!user) return json({ error: 'User not found' }, 404)
+    const row = (await sql`
+      INSERT INTO hire_scheduled_texts (user_id, persona, to_phone, body, send_at)
+      VALUES (${user.id}, ${body.persona === 'coworker' || body.persona === 'cofounder' ? body.persona : 'friend'},
+              ${String(body.to)}, ${String(body.text).trim().slice(0, 1500)}, ${at.toISOString()})
+      RETURNING id::text AS id, send_at
+    `)[0]
+    return json({ ok: true, id: row.id, sendAt: row.send_at })
+  }
+
+  if (path === '/api/internal/scheduled_texts/claim' && req.method === 'GET') {
+    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
+    const persona = url.searchParams.get('persona') || 'friend'
+    const rows = await sql`
+      UPDATE hire_scheduled_texts SET status = 'sending'
+      WHERE id IN (
+        SELECT id FROM hire_scheduled_texts
+        WHERE status = 'pending' AND send_at <= now() AND persona = ${persona}
+        ORDER BY send_at LIMIT 3
+        FOR UPDATE SKIP LOCKED
+      )
+      RETURNING id::text AS id, to_phone AS "toPhone", body
+    `
+    return json({ due: rows })
+  }
+
+  if (path === '/api/internal/scheduled_texts/ack' && req.method === 'POST') {
+    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
+    const body = (await req.json().catch(() => ({}))) as { id?: string; ok?: boolean; error?: string }
+    if (!/^[0-9a-f-]{36}$/i.test(String(body.id || ''))) return json({ error: 'id required' }, 400)
+    await sql`
+      UPDATE hire_scheduled_texts
+      SET status = ${body.ok ? 'sent' : 'failed'}, sent_at = now(), error = ${body.ok ? null : String(body.error || 'send failed').slice(0, 300)}
+      WHERE id = ${body.id}::uuid
+    `
+    return json({ ok: true })
+  }
+
   if (path === '/api/internal/sleep' && req.method === 'POST') {
     if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
     const body = (await req.json().catch(() => ({}))) as { phone?: string; persona?: string; text?: string }
@@ -16676,7 +16848,7 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
     const user = await getUserByPhone(sql, phone)
     if (!user) return json({ contacts: [] })
     const rows = await sql`
-      SELECT name, phone, email FROM hire_network
+      SELECT name, phone, email, last_touch FROM hire_network
       WHERE user_id = ${user.id}
       ORDER BY coalesce(last_touch, '1970-01-01'::timestamptz) DESC LIMIT 50
     `
@@ -18269,6 +18441,14 @@ function parseWorkoutText(text: string): { exercise: string; sets: number; reps:
       reps: Math.max(1, Math.min(100, Math.round(reps))),
       weight: Math.max(0, weight || 0),
     }
+  }
+  // Free-form entries are real workouts too: "45 min lifting, chest and
+  // triceps" carries no sets/reps, and dropping it made the bot announce a
+  // logger failure on the user's most common phrasing. Store the words;
+  // sets/reps stay 0 and the card shows the note.
+  const free = t.replace(/^(?:log|track|logged)\s+(?:my\s+)?/i, '').trim()
+  if (free.length >= 4 && /\b(?:min|mins|minutes|hr|hrs|hour|lifting|lift|gym|run|ran|cycle|swim|yoga|cardio|chest|back|legs|shoulders|arms|triceps|biceps|glutes|core|deadlift|squat|bench|pullup|pull-up|rowing|elliptical)\b/i.test(free)) {
+    return { exercise: free.slice(0, 80), sets: 0, reps: 0, weight: 0 }
   }
   return null
 }

@@ -1,6 +1,6 @@
 import { createProgressiveDelivery, type DeliveryHooks } from './progressiveDelivery'
 import type { TurnIntent } from './turnIntent'
-export const LIVE_TOOLS = ['maps', 'web', 'gmail', 'calendar', 'drive'] as const
+export const LIVE_TOOLS = ['maps', 'web', 'gmail', 'calendar', 'drive', 'weather'] as const
 /** Work connectors the work hires can select as a single targeted read. The
  * server's /api/internal/live/tools whitelist and runToolsForMessage accept
  * exactly these; each maps to one COMPOSIO_READ spec, never a fan out. */
@@ -194,8 +194,11 @@ export async function runToolConversation(input: {
   const maxSteps = Math.min(8, Math.max(1, input.maxSteps ?? 6))
   const deadline = Date.now() + (input.maxDurationMs ?? Number(process.env.HIREALPHA_TOOL_LOOP_MS || 90_000))
   /** One lookup with its own deadline; maps gets less because the answer's
-   * facts depend on it and the turn still has to write them. */
-  const fetchLookupNow = async (tool: LiveTool, query: string) => {
+   * facts depend on it and the turn still has to write them. A first failure
+   * gets exactly one retry while the wall allows it — "the web lookup did not
+   * run" reached users on a single transient abort (bench50 #18), and one
+   * clean retry almost always lands. */
+  const fetchLookupOnce = async (tool: LiveTool, query: string) => {
     let timer: ReturnType<typeof setTimeout> | undefined
     try {
       return await Promise.race([
@@ -203,6 +206,19 @@ export async function runToolConversation(input: {
         new Promise<string[]>((_, reject) => { timer = setTimeout(() => reject(new Error('Lookup deadline')), Math.max(1, Math.min(tool === 'maps' ? 12_000 : 15_000, deadline - Date.now()))) }),
       ])
     } finally { clearTimeout(timer) }
+  }
+  const fetchLookupNow = async (tool: LiveTool, query: string) => {
+    try {
+      return await fetchLookupOnce(tool, query)
+    } catch (first) {
+      // maps already auto-falls back to web inside the same step; retrying it
+      // first would only add latency. The retry is for the tools whose single
+      // transient abort used to end the turn with "the web lookup did not run".
+      if (tool === 'maps') throw first
+      if (Date.now() > deadline - 20_000) throw first
+      await new Promise((r) => setTimeout(r, 800))
+      return fetchLookupOnce(tool, query)
+    }
   }
   const fallback = () => {
     // A staged purchase receipt is explicit: we found the real item, checked
@@ -271,7 +287,7 @@ export async function runToolConversation(input: {
   // imperative, without restating examples the tools already imply.
   messages.push({ role: 'system', content: `Answer the user's request using the thread and the tool results. Read every part of the request first. Resolve "that one" from the thread. Never ask for what you already have.
 
-Tools available: ${input.availableTools.join(', ') || 'none'}. web and maps need no connection; the rest need theirs.
+Tools available: ${input.availableTools.join(', ') || 'none'}. web, maps and weather need no connection; the rest need theirs. weather answers conditions and forecasts with live numbers — never answer a weather ask from climate averages.
 - web/maps: ALWAYS web-lookup anything time-sensitive (news, prices, scores, releases, availability, "how much", "who won"). maps answers where; it says nothing about quality, price, or hours.
 - Restaurant or place picks: the maps results are the source of truth for what exists and where. Name the places the user asked for (three when they want options), each with its address and any walk time or diet tag the result carries. State menus, prices, or hours only when a result carries them; a listing without them is not evidence.
 - gmail uses real operators (from:, subject:, older_than:); drive takes a filename and returns filenames only, not contents; calendar needs "start=<ISO> end=<ISO>" with real dates and the user's offset, max 31 days; slack/linear/github/notion/stripe/hubspot return the fields named in their tool description — state only what you were given, never compute or invent.

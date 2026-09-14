@@ -13,6 +13,7 @@ import { createMessageBursts } from '../../shared/messageBursts'
 import { startReminderScheduler } from '../../shared/reminders'
 import { startTaskLoopPoller } from '../../shared/taskLoops'
 import { INTRO_TEXTS, startIntroPoller } from '../../shared/introQueue'
+import { startScheduledTextPoller } from '../../shared/scheduledTexts'
 import { startHealthServer, startHeartbeat } from '../../shared/health'
 import { backfillScores, hashPhone, logTurn, readTurns } from '../../shared/evals'
 import { buildAlphaVcard } from '../../shared/alphaContact'
@@ -184,6 +185,17 @@ startIntroPoller({
       }
     })
   },
+})
+
+// Scheduled send-on-behalf ("wish mom happy birthday at midnight"): the bot
+// side of hire_scheduled_texts. Plain text, no onboarding chrome.
+startScheduledTextPoller(agent.id, async (phone, text) => {
+  const user = await im.user(phone)
+  const space = await im.space.create(user)
+  await space.responding(async () => {
+    const cleaned = sanitizeOutbound(text)
+    if (cleaned) await space.send(cleaned)
+  })
 })
 
 startHealthServer(agent.id, {

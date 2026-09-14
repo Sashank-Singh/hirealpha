@@ -1,4 +1,5 @@
 import type { AgentId } from '../../src/agents/types'
+import { isRecipientSendBlocked } from './judgment'
 import { buildApprovalText, needsApproval } from './proactiveFlavors'
 
 /** Server owned task loops: the bot claims, acts, and reports the outcome.
@@ -189,6 +190,18 @@ export async function runLoopTask(task: LoopTask, handler: LoopHandler, ctx: Loo
     })
   } catch (err) {
     console.warn(`[taskLoops] ${task.kind} task ${task.id} failed`, err)
+    // A recipient the carrier line is refusing (new-contact cap, blocked
+    // target) is not a transient failure: re-arming in seconds turns one dead
+    // contact into a log flood and wasted sends. Snooze half a day; a reply
+    // from them re-opens the door naturally.
+    if (isRecipientSendBlocked(err)) {
+      await post(task.id, {
+        outcome: 'snoozed',
+        note: 'recipient send blocked — waiting for their reply',
+        next_run: new Date(Date.now() + 12 * 60 * 60 * 1000).toISOString(),
+      }).catch(() => undefined)
+      return
+    }
     await post(task.id, { outcome: 'failed', note: err instanceof Error ? err.message : String(err) })
       .catch(() => undefined)
   }

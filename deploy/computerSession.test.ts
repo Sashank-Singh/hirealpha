@@ -104,7 +104,12 @@ describe('/api/computer/session/:id endpoint', () => {
     expect(data.session.id).toBe(JOB_ID)
     expect(data.session.status).toBe('running')
     expect(data.session.goal).toBe('Check flight UA123')
-    expect(data.session.streamUrl).toContain('browser.hirealpha.chat/vnc.html')
+    // No provider live view and no configured VNC stack must NOT fabricate a
+    // stream URL (the old hardcoded browser.hirealpha.chat default pointed at
+    // a deployment that never existed). Honest null → screenshot mode.
+    expect(data.session.streamUrl).toBeFalsy()
+    expect(data.session.directStreamUrl).toBeFalsy()
+    expect(data.session.proxyStreamUrl).toBeFalsy()
   })
 
   it('returns 404 when the session does not exist', async () => {

@@ -301,11 +301,12 @@ export async function runJob(sql: SQL, job: JobRow, launch = runBrowserSession):
         try {
           return await runKernelTask(
             {
-              url: task.url,
-              username: task.username,
-              password: task.password,
-              goal: task.goal,
-              paymentAuthorized: task.paymentAuthorized,
+          url: task.url,
+          username: task.username,
+          password: task.password,
+          goal: task.goal,
+          jobId: job.id,
+          paymentAuthorized: task.paymentAuthorized,
               paymentAmountCents: task.paymentAmountCents,
               paymentCard: task.paymentCard,
               sql,

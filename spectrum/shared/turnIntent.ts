@@ -305,8 +305,18 @@ export async function classifyTurnStrict(input: ClassifyInput): Promise<TurnInte
   } catch (error) {
     throw new ClassifierUnavailableError(error)
   }
-  const start = raw.indexOf('{')
-  const end = raw.lastIndexOf('}')
+  let start = raw.indexOf('{')
+  let end = raw.lastIndexOf('}')
+  if (start === -1 || end <= start) {
+    // A prose reply from a reasoning model is a parse miss, not an outage:
+    // one retry costs ~a second and recovers most of them. Without it a
+    // single chatty answer silently stripped intent from the whole turn
+    // (seen live: the rent turn classified "unparseable" and fell to chat).
+    await new Promise((r) => setTimeout(r, 400))
+    raw = await attempt().catch(() => raw)
+    start = raw.indexOf('{')
+    end = raw.lastIndexOf('}')
+  }
   if (start === -1 || end <= start) throw new ClassifierUnavailableError(`unparseable reply: ${raw.slice(0, 120)}`)
   return normalizeTurnIntent(JSON.parse(raw.slice(start, end + 1)))
 }

@@ -10,7 +10,7 @@ import {
   autoLogNutrition, autoLogWorkout, autoLogSleep, autoLogGratitude, autoLogMood,
   autoLogHabit, autoLogSpend, autoLogDecision, autoLogLoops, autoSaveLearning,
   autoRunWorkshop, autoIterateWorkshop, autoWorkshopKeep,
-  executeSpendApproval, fetchLiveTools, fetchMiniRun, fetchPrepBundle, proposeBrowserTask, proposeLiveDraft, proposePurchase, type LiveProfile,
+  executeSpendApproval, fetchLiveTools, fetchMiniRun, fetchPrepBundle, proposeBrowserTask, proposeLiveDraft, proposePurchase, manageTodos, scheduleTextLater, type LiveProfile,
 } from './liveContext'
 import { buildDigestBriefing, mintMiniAppCard, type MiniAppCard, type MiniAppKind } from './miniApps'
 import { createReminder, listReminders } from './reminders'
@@ -74,7 +74,7 @@ export async function runConversationalFriend(input: {
   userText: string
   live: LiveProfile
   memory: ThreadMemory
-  contacts: Array<{ name: string; phone?: string; email?: string }>
+  contacts: Array<{ name: string; phone?: string; email?: string; lastTouch?: string }>
   inboundNote?: string
   delivery?: DeliveryHooks
   agentId?: AgentId
@@ -244,7 +244,7 @@ export async function runConversationalFriend(input: {
     console.warn(`[${persona}] fast-path gate missed a "${gateIntent.kind}" turn; running the tool engine on the classifier's answer`)
   }
   const readApps = PERSONA_READ_APPS[persona] || PERSONA_READ_APPS.friend
-  const available = LIVE_TOOLS.filter((tool) => tool === 'web' || tool === 'maps' || live.connected.includes(tool) || (senderId === '+12163032166' && (tool === 'gmail' || tool === 'calendar')))
+  const available = LIVE_TOOLS.filter((tool) => tool === 'web' || tool === 'maps' || tool === 'weather' || live.connected.includes(tool) || (senderId === '+12163032166' && (tool === 'gmail' || tool === 'calendar')))
   const capabilities: ConversationCapability[] = [
     {
       name: 'connect',
@@ -287,7 +287,42 @@ export async function runConversationalFriend(input: {
     },
     {
       name: 'list_reminders', description: 'input {}. Read scheduled reminders before referring to, changing, or explaining them.',
-      execute: async () => ({ status: 'returned', message: 'Reminder listing returned. An empty result can also mean the service was unavailable.', data: await listReminders(senderId, 'friend') }),
+      execute: async () => ({ status: 'returned', message: 'Reminder listing returned.', data: await listReminders(senderId, 'friend') }),
+    },
+    {
+      name: 'todo', description: 'input {action:"add"|"list"|"complete",text?}. Maintain the user\'s shared to-do list. "add X to my to-do" adds; "what is on my list" lists open items; "I did X"/"done with X" completes by matching X to an open item. Never invent that a change succeeded when this returns an error.', mutates: true,
+      execute: async (args) => {
+        const action = text(args, 'action')
+        if (!['add', 'list', 'complete'].includes(action)) return failed('Use add, list, or complete.')
+        const entry = text(args, 'text', 300)
+        if (action !== 'list' && !entry) return failed('Say what the item is.')
+        const result = await manageTodos(senderId, action as 'add' | 'list' | 'complete', entry || undefined)
+        if (!result) return failed('The to-do list could not be reached. Do not claim it changed.')
+        const open = (result.open || []).map((t) => t.text)
+        if (action === 'add') return { status: 'done', message: `Added "${result.todo?.text || entry}" to the to-do list. Open items: ${open.join('; ') || 'none'}.` }
+        if (action === 'complete') {
+          return result.ok
+            ? { status: 'done', message: `Checked off "${result.completed?.text || entry}". ${open.length ? `Still open: ${open.join('; ')}.` : 'Nothing left open.'}` }
+            : failed(`No open to-do matched "${entry}". Do not claim it was completed.`)
+        }
+        return { status: 'returned', message: open.length ? `Open to-dos: ${open.join('; ')}` : 'The to-do list is empty.' }
+      },
+    },
+    {
+      name: 'send_text_later', description: 'input {to:"E.164 phone from the contacts list",name?,text:"the exact message",at:"future ISO datetime with offset"}. Schedule a text Alpha sends on the user\'s behalf at that time (a midnight birthday message). Resolve the number from the contacts context; if there is no number for the named person, ask for it instead of guessing. State the recipient, the exact text and the time back to the user before scheduling, and only schedule when they clearly asked to SEND it, not merely to draft it.', mutates: true,
+      execute: async (args) => {
+        const to = text(args, 'to', 20)
+        const body = text(args, 'text', 1500)
+        const at = text(args, 'at', 50)
+        const when = new Date(at)
+        if (!/^\+?\d{7,15}$/.test(to) || !body || !/T.*(?:Z|[+-]\d{2}:\d{2})$/.test(at) || !Number.isFinite(when.getTime()) || when.getTime() <= Date.now()) {
+          return failed('Needs a phone number, the exact message, and a future ISO datetime with offset. Ask for what is missing.')
+        }
+        const result = await scheduleTextLater(senderId, to, body, at, persona)
+        return result.ok
+          ? { status: 'done', message: `Scheduled: Alpha will text "${body.slice(0, 120)}" to ${text(args, 'name') || to} at ${when.toLocaleString('en-US', { timeZone: timezone })}.` }
+          : failed(`The message could not be scheduled (${result.error}). Do not claim it will be sent.`)
+      },
     },
     {
       name: 'proactive', description: 'input {mode:"on"|"off"|"paused"}. Change whether Alpha texts first, only when requested. Off stops unsolicited check-ins; it does not cancel explicitly scheduled reminders.', mutates: true,
@@ -441,6 +476,9 @@ export async function runConversationalFriend(input: {
       { role: 'system', content: `${agent.systemPrompt}
 ${autoNotes.length ? autoNotes.join('; ') + '. ' : ''}CONVERSATION_ENGINE:
 You are an intelligent, proactive executive partner in iMessage.
+- CURRENT ASK ONLY: answer the latest user message. Earlier thread topics are context, never the task — a new question about email must not end with hotel rates from the previous ask.
+- LOCATION: "near me" / "near home" means the user's saved city and home location in the profile context. Never infer the city from what the thread was last about (a Chicago hotel search does not move the user to Chicago).
+- SOURCES: name sources in words ("per Kayak", "American's flight status page"); never paste search-result URLs into your reply. hirealpha.chat session/vault links you generate yourself are the only URLs allowed.
 - Deep intent understanding: Read the whole conversation and understand the user's true goals and intentions, not just literal keywords. Mentioning food, sleep, or money in casual conversation is never a command to log data or open a card.
 - Mini-app Cards: You can attach rich interactive mini-app cards using open_app when discussing workouts, food/nutrition, spending/budget, habits, or day schedule, or when the user wants to see an app. Never send cards for casual banter or simple affirmations ("thanks", "ok", "got it").
 - Autonomous Shopping, Booking & Vault Protocol:

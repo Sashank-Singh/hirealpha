@@ -218,6 +218,16 @@ const TASKS: EvalTask[] = [
     goal: 'Report the title and authors of the first listing under the most recent date block on this page.',
     assert: (answer) => (answer.trim().length > 40 ? null : 'answer too short to contain a title + authors'),
   },
+  {
+    // The end-to-end proof: a real form, filled and SUBMITTED, on a server
+    // designed for it (httpbin echoes the POST back as JSON). Free, no
+    // account, no money — the completion is verifiable from the echo.
+    id: 'form-fill-httpbin',
+    category: 'portal',
+    url: 'https://httpbin.org/forms/post',
+    goal: 'Fill the pizza order form: customer name "John Smith", telephone "555-0100", email "john.smith@example.com", size Large, one topping of your choice, delivery time "11:00". Then press the submit button and report the exact values the page echoes back for custname, custtel, custemail, size and delivery.',
+    assert: requires(/John Smith/, /555-?0100/, /[Ll]arge/),
+  },
 ]
 
 // ---- runner ------------------------------------------------------------------

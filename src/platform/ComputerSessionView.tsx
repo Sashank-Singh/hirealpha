@@ -167,6 +167,9 @@ export function ComputerSessionView() {
       if (!response.ok) throw new Error(data.error || 'That answer could not be delivered.')
       setAnswerSent(true)
       setAnswerText('')
+      // The relay is reusable — a takeover often needs several fields. Show
+      // "sent" briefly, then hand the input back.
+      setTimeout(() => setAnswerSent(false), 5000)
       await loadSession(true)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'That answer could not be delivered.')
@@ -337,6 +340,24 @@ export function ComputerSessionView() {
                   {ICONS.cursor}
                   {takingControl ? 'Return control' : 'Take control'}
                 </button>
+                {/* Same keyboard relay as the checkpoint card: while the human
+                    drives a RUNNING session, typed text is queued and entered
+                    into the focused field by the loop. */}
+                {takingControl && session.status === 'running' && (
+                  <div className="cs-answer-form">
+                    <input
+                      className="cs-answer-input"
+                      aria-label="Text to type into the page"
+                      placeholder="Tap the field in the window, then type here…"
+                      value={answerText}
+                      disabled={acting}
+                      onChange={(e) => setAnswerText(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === 'Enter') void submitAnswer() }}
+                    />
+                    <button className="cs-text-button" disabled={acting || !answerText.trim()} onClick={() => void submitAnswer()}>Send text</button>
+                    {answerSent && <p className="cs-checkpoint-note">Sent — Alpha is typing it in.</p>}
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -406,6 +427,24 @@ export function ComputerSessionView() {
                       <button className="cs-button cs-button-primary" onClick={takeControl}>Take control</button>
                     ) : (
                       <button className="cs-button cs-button-primary" disabled={acting} onClick={() => void postAction('resume')}>Done — let Alpha continue</button>
+                    )}
+                    {/* Keyboard relay: the live window is a video stream, so a
+                        tap on a remote field cannot raise the phone keyboard.
+                        Text typed here is sent to the run and entered into
+                        the focused field. */}
+                    {session.handoffKind !== 'payment' && (
+                      <div className="cs-answer-form">
+                        <input
+                          className="cs-answer-input"
+                          aria-label="Text to type into the page"
+                          placeholder="Tap the field in the window, then type here — Alpha enters it (your keyboard opens here)…"
+                          value={answerText}
+                          disabled={acting}
+                          onChange={(e) => setAnswerText(e.target.value)}
+                          onKeyDown={(e) => { if (e.key === 'Enter') void submitAnswer() }}
+                        />
+                        <button className="cs-text-button" disabled={acting || !answerText.trim()} onClick={() => void submitAnswer()}>Send text</button>
+                      </div>
                     )}
                   </div>
                 )}

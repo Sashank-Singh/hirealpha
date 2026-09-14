@@ -101,7 +101,7 @@ export function startIntroPoller(options: {
  * resolves existing project users but never CREATES them, so a fresh signup
  * bounced "Target not allowed for this project" forever. Pro projects allow
  * shared users; an already-registered number 409s, which is fine. */
-async function ensurePhotonUser(phone: string, persona: AgentId): Promise<void> {
+export async function ensurePhotonUser(phone: string, persona: AgentId): Promise<void> {
   const projectId = process.env.PROJECT_ID || ''
   const projectSecret = process.env.PROJECT_SECRET || ''
   if (!projectId || !projectSecret) return
