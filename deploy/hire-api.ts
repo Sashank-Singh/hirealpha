@@ -4845,6 +4845,20 @@ async function composioMailHeaders(userId: string, msgId: string): Promise<Compo
   return parseComposioMailBody(listed, msgId) || direct
 }
 
+function normalizeGmailQuery(raw: string): string {
+  const trimmed = (raw || '').trim()
+  if (!trimmed) return 'newer_than:7d'
+  if (/\b(?:from:|to:|subject:|is:|label:|has:|newer_than:|older_than:|after:|before:)/i.test(trimmed)) {
+    return trimmed
+  }
+  if (/^(?:what|any|check|read|get|pull|show|tell me about|do I have any|are there any)?\s*(?:new|unread|recent|latest|important|my)?\s*(?:e-?mails?|messages?|inbox|mail)(?:\s*(?:do I have|received|today|recently|for me))?[.?!]*$/i.test(trimmed)) {
+    if (/\bunread\b/i.test(trimmed)) return 'is:unread newer_than:14d'
+    if (/\bimportant\b/i.test(trimmed)) return 'is:important newer_than:14d'
+    return 'newer_than:7d'
+  }
+  return trimmed
+}
+
 /**
  * Like loadGmail but returns structured items with Gmail message IDs. Google
  * first, then Composio for accounts connected that way — without the fallback
@@ -5685,7 +5699,11 @@ export async function runToolsForMessage(
         )
         return [text ? `Email body id=${messageId} (up to 12000 characters; attachments not included):\n${text.slice(0, 12000)}` : `Could not retrieve the body for id=${messageId}. Do not infer its contents from the subject.`]
       }
-      const mail = await withTimeout(loadGmailRich(sql, input.userId, query, 8), 12000, [])
+      const mailQuery = normalizeGmailQuery(query)
+      let mail = await withTimeout(loadGmailRich(sql, input.userId, mailQuery, 8), 12000, [])
+      if (!mail.length && mailQuery !== 'newer_than:7d') {
+        mail = await withTimeout(loadGmailRich(sql, input.userId, 'newer_than:7d', 8), 8000, [])
+      }
       return [mail.length
         ? `Email results for ${JSON.stringify(query)}:\n${mail.map((m) => `- id=${m.id} | ${m.from.slice(0, 100)} | ${m.date.slice(0, 50)} | ${m.subject.slice(0, 140)} | ${m.snippet.slice(0, 200)}`).join('\n')}`
         : 'Email lookup returned no usable records. Try a different query if needed. This does not establish that the inbox is empty.']

@@ -398,8 +398,10 @@ Reactions are optional and usually absent. You may add "reaction":"<emoji>" to a
       // Booking/doing asks: a plain-text "queued it" with no browser action is a
       // lie. A "find me options" ask is a lookup — classifier overreach there
       // must never launch a run.
+      const wantsMail = /\b(inbox|email|e-?mail|gmail|mailbox|unread|replies owed)\b/i.test(userAsk)
+      const attemptedMail = [...seen].some(key => key.startsWith('gmail:'))
       const findOnlyAsk = /\b(?:find|recommend|suggest|show|compare|options?|choices?|which)\b/i.test(userAsk) && !ACTION_ASK_RE.test(userAsk)
-      const needsBrowser = !isMemoryAsk && (request
+      const needsBrowser = !isMemoryAsk && !wantsMail && !attemptedMail && (request
         ? (request.needsBrowser || ACTION_ASK_RE.test(userAsk)) && !findOnlyAsk
         : ACTION_ASK_RE.test(userAsk) && !findOnlyAsk)
       // A booking ask that already produced search results gets a second nudge
