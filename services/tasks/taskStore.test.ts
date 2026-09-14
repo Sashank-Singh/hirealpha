@@ -203,7 +203,7 @@ describe('canonical task store', () => {
     const { db, task } = await newTask()
     await appendEvent(db.sql, { userId: 'user-1', taskId: task.id, type: 'state_changed', payload: { to: 'RESEARCHING' }, actor: 'alpha' })
     await appendEvent(db.sql, { userId: 'user-1', taskId: task.id, type: 'state_changed', payload: { to: 'WAITING_FOR_SELECTION' }, actor: 'alpha' })
-    await appendEvent(db.sql, { userId: 'user-1', taskId: task.id, type: 'options_published', payload: { options: [{ id: 'opt-1', title: 'Handlebar' }] }, actor: 'alpha' })
+    await appendEvent(db.sql, { userId: 'user-1', taskId: task.id, type: 'options_published', payload: { options: [{ id: 'opt-1', title: 'Handlebar', reason: 'top rated vegetarian', source_url: 'https://yelp.com/h', freshness: '2026-09-14T18:00:00Z' }] }, actor: 'alpha' })
     await appendEvent(db.sql, { userId: 'user-1', taskId: task.id, type: 'option_selected', payload: { option_id: 'opt-1' }, actor: 'alpha' })
     // WAITING_FOR_SELECTION -> EXECUTING is forbidden outright.
     await expect(
@@ -225,7 +225,7 @@ describe('canonical task store', () => {
     await appendEvent(db.sql, { userId, taskId: task.id, type: 'constraints_resolved', payload: { constraints: { date: 'fri' } }, actor: 'alpha' })
     await appendEvent(db.sql, { userId, taskId: task.id, type: 'state_changed', payload: { to: 'RESEARCHING' }, actor: 'alpha' })
     await appendEvent(db.sql, { userId, taskId: task.id, type: 'state_changed', payload: { to: 'WAITING_FOR_SELECTION' }, actor: 'alpha' })
-    await appendEvent(db.sql, { userId, taskId: task.id, type: 'options_published', payload: { options: [{ id: 'o', title: 'T', price_cents: 4200, currency: 'usd' }] }, actor: 'alpha' })
+    await appendEvent(db.sql, { userId, taskId: task.id, type: 'options_published', payload: { options: [{ id: 'o', title: 'T', price_cents: 4200, currency: 'usd', reason: 'cheap', source_url: 'https://x.test/o', freshness: '2026-09-14T18:00:00Z' }] }, actor: 'alpha' })
     await appendEvent(db.sql, { userId, taskId: task.id, type: 'monitor_updated', payload: { state: 'SCHEDULED', policy: { watch: 'availability' }, next_check_at: '2026-09-15T09:00:00Z' }, actor: 'alpha' })
     const stored = await loadProjection(db.sql, { userId, taskId: task.id })
     const rebuilt = await rebuildProjection(db.sql, { userId, taskId: task.id })

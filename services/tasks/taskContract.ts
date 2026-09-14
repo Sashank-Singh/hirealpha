@@ -159,9 +159,15 @@ export type TaskOption = {
   title: string
   price_cents?: number | null
   currency?: string | null
+  taxes_included?: boolean | null
   image_ref?: string | null
   reason?: string | null
+  tradeoffs?: string | null
+  cancellation?: string | null
   source_url?: string | null
+  source_label?: string | null
+  sponsored?: boolean
+  dedup_key?: string | null
   freshness?: string | null
   available?: boolean
   rejected?: boolean
@@ -253,6 +259,48 @@ function requireString(value: unknown, field: string): string {
   return value
 }
 
+/**
+ * A published option IS a decision card, so the provenance bar is enforced at
+ * write time (workstream 2: 99% of cards carry valid source + freshness, or
+ * they never become cards). Optional fields are the card's tradeoff copy.
+ */
+function normalizeOptionCard(raw: unknown): TaskOption {
+  const o = (raw ?? {}) as Partial<TaskOption> & Record<string, unknown>
+  const id = requireString(o.id, 'options[].id')
+  const title = requireString(o.title, 'options[].title')
+  const sourceUrl = requireString(o.source_url, `options[${id}].source_url`)
+  if (!sourceUrl.startsWith('https://')) throw new Error(`options[${id}].source_url must be https.`)
+  const reason = requireString(o.reason, `options[${id}].reason`)
+  const freshness = requireString(o.freshness, `options[${id}].freshness`)
+  if (!Number.isFinite(Date.parse(freshness))) throw new Error(`options[${id}].freshness is not a valid timestamp.`)
+  const option: TaskOption = {
+    id: id.slice(0, 200),
+    title: title.slice(0, 300),
+    reason: reason.slice(0, 400),
+    source_url: sourceUrl.slice(0, 2000),
+    freshness,
+    available: o.available !== false,
+  }
+  if (o.price_cents !== undefined && o.price_cents !== null) {
+    const cents = Number(o.price_cents)
+    if (!Number.isInteger(cents) || cents < 0) throw new Error(`options[${id}].price_cents must be a non-negative integer.`)
+    option.price_cents = cents
+  }
+  if (typeof o.currency === 'string' && o.currency.trim()) {
+    const currency = o.currency.trim().toUpperCase()
+    if (currency.length !== 3) throw new Error(`options[${id}].currency must be a three-letter code.`)
+    option.currency = currency
+  }
+  if (typeof o.image_ref === 'string' && o.image_ref.trim()) option.image_ref = o.image_ref.slice(0, 2000)
+  if (typeof o.tradeoffs === 'string' && o.tradeoffs.trim()) option.tradeoffs = o.tradeoffs.slice(0, 400)
+  if (typeof o.cancellation === 'string' && o.cancellation.trim()) option.cancellation = o.cancellation.slice(0, 400)
+  if (typeof o.source_label === 'string' && o.source_label.trim()) option.source_label = o.source_label.slice(0, 200)
+  if (typeof o.dedup_key === 'string' && o.dedup_key.trim()) option.dedup_key = o.dedup_key.slice(0, 200)
+  if (o.taxes_included === true || o.taxes_included === false) option.taxes_included = o.taxes_included
+  if (o.sponsored === true) option.sponsored = true
+  return option
+}
+
 /** Validate + normalize one event payload at write time. Throws on anything malformed. */
 export function parseEventInput(input: { type: string; payload: unknown }): TaskEventInput {
   if (!TASK_EVENT_TYPES.includes(input.type as TaskEventType)) {
@@ -267,15 +315,10 @@ export function parseEventInput(input: { type: string; payload: unknown }): Task
       if (typeof p.constraints !== 'object' || p.constraints === null) throw new Error('constraints must be an object.')
       return { type, payload: { constraints: p.constraints as Record<string, unknown> } }
     case 'options_published': {
-      if (!Array.isArray(p.options)) throw new Error('options must be an array.')
-      const options = p.options.map((raw) => {
-        const o = (raw ?? {}) as Partial<TaskOption>
-        return {
-          ...o,
-          id: requireString(o.id, 'options[].id'),
-          title: requireString(o.title, 'options[].title'),
-        } as TaskOption
-      })
+      if (!Array.isArray(p.options) || p.options.length === 0) throw new Error('options must be a non-empty array.')
+      const options = p.options.map((raw) => normalizeOptionCard(raw))
+      const ids = new Set(options.map((o) => o.id))
+      if (ids.size !== options.length) throw new Error('Option ids must be unique within one publish.')
       return { type, payload: { options } }
     }
     case 'option_selected':
@@ -384,9 +427,12 @@ export function reduce(projection: TaskProjection, event: TaskEventInput): TaskP
     }
     case 'option_selected': {
       const p = event.payload
-      if (!projection.options.some((o) => o.id === p.option_id)) {
+      const chosen = projection.options.find((o) => o.id === p.option_id)
+      if (!chosen) {
         throw new Error(`Cannot select unknown option: ${p.option_id}`)
       }
+      if (chosen.rejected) throw new Error(`Cannot select a rejected option: ${p.option_id}`)
+      if (chosen.available === false) throw new Error(`Cannot select an unavailable option: ${p.option_id}`)
       return { ...projection, selected_option_id: p.option_id }
     }
     case 'option_rejected': {

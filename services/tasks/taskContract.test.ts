@@ -14,6 +14,17 @@ import {
   type TaskState,
 } from './taskContract'
 
+function card(id: string, title: string) {
+  return {
+    id, title,
+    reason: 'closest to your office',
+    source_url: 'https://example.com/listing',
+    freshness: '2026-09-14T18:00:00.000Z',
+    price_cents: 4200,
+    currency: 'USD',
+  }
+}
+
 function at(state: TaskState, extra: Partial<TaskProjection> = {}): TaskProjection {
   return { ...seedProjection('book a table', 'friend', null), state, ...extra }
 }
@@ -36,7 +47,7 @@ describe('task state machine', () => {
       projection = reduce(projection, { type: 'state_changed', payload: { to, ...payload } })
     }
     // Select + grant authority, then execute with the grant id.
-    projection = reduce(projection, { type: 'options_published', payload: { options: [{ id: 'opt-1', title: 'River Hotel' }] } })
+    projection = reduce(projection, { type: 'options_published', payload: { options: [card('opt-1', 'River Hotel')] } })
     projection = reduce(projection, { type: 'option_selected', payload: { option_id: 'opt-1' } })
     projection = reduce(projection, { type: 'authority_requested', payload: { grant_id: 'g-1' } })
     projection = reduce(projection, { type: 'authority_granted', payload: { grant_id: 'g-1' } })
@@ -63,7 +74,7 @@ describe('task state machine', () => {
   })
 
   it('forbids WAITING_FOR_AUTHORITY -> EXECUTING without a valid scoped grant', () => {
-    const projection = at('WAITING_FOR_AUTHORITY', { selected_option_id: 'opt-1', options: [{ id: 'opt-1', title: 'x' }] })
+    const projection = at('WAITING_FOR_AUTHORITY', { selected_option_id: 'opt-1', options: [card('opt-1', 'x')] })
     expect(() => assertTransition('WAITING_FOR_AUTHORITY', 'EXECUTING', projection, { to: 'EXECUTING' })).toThrow('grant id')
     expect(() =>
       assertTransition('WAITING_FOR_AUTHORITY', 'EXECUTING', projection, { to: 'EXECUTING', grant_id: 'g-1' }),
@@ -81,7 +92,7 @@ describe('task state machine', () => {
   })
 
   it('forbids automatic retry out of reconciliation but allows verification and takeover', () => {
-    const projection = at('NEEDS_RECONCILIATION', { selected_option_id: 'opt-1', options: [{ id: 'opt-1', title: 'x' }] })
+    const projection = at('NEEDS_RECONCILIATION', { selected_option_id: 'opt-1', options: [card('opt-1', 'x')] })
     expect(() => assertTransition('NEEDS_RECONCILIATION', 'EXECUTING', projection, { to: 'EXECUTING', authority: 'not_required' })).toThrow('Forbidden')
     assertTransition('NEEDS_RECONCILIATION', 'VERIFYING', projection, { to: 'VERIFYING' })
     assertTransition('NEEDS_RECONCILIATION', 'HUMAN_TAKEOVER', projection, { to: 'HUMAN_TAKEOVER' })
@@ -148,6 +159,33 @@ describe('event contract', () => {
   it('exposes every event type the store accepts', () => {
     expect(TASK_EVENT_TYPES).toContain('state_changed')
     expect(TASK_EVENT_TYPES).toContain('verification_recorded')
+  })
+
+  it('rejects cards without a decision surface at publish time', () => {
+    const full = card('ok', 'Full')
+    expect(() => parseEventInput({ type: 'options_published', payload: { options: [] } })).toThrow('non-empty')
+    expect(() => parseEventInput({ type: 'options_published', payload: { options: [{ id: 'a', title: 'no source' }] } })).toThrow('source_url')
+    expect(() => parseEventInput({ type: 'options_published', payload: { options: [{ ...full, source_url: 'http://insecure.test' }] } })).toThrow('https')
+    expect(() => parseEventInput({ type: 'options_published', payload: { options: [{ ...full, freshness: 'yesterday' }] } })).toThrow('timestamp')
+    expect(() => parseEventInput({ type: 'options_published', payload: { options: [{ ...full, price_cents: -1 }] } })).toThrow('price_cents')
+    expect(() => parseEventInput({ type: 'options_published', payload: { options: [full, { ...full }] } })).toThrow('unique')
+    const parsed = parseEventInput({
+      type: 'options_published',
+      payload: { options: [{ ...full, currency: 'usd', taxes_included: true, cancellation: 'free until 24h', sponsored: true }] },
+    })
+    expect(parsed.type).toBe('options_published')
+    if (parsed.type === 'options_published') {
+      expect(parsed.payload.options[0]?.currency).toBe('USD')
+      expect(parsed.payload.options[0]?.taxes_included).toBe(true)
+      expect(parsed.payload.options[0]?.sponsored).toBe(true)
+    }
+  })
+
+  it('refuses selecting a rejected or sold-out card', () => {
+    let projection = at('WAITING_FOR_SELECTION', { options: [card('a', 'A'), { ...card('b', 'B'), available: false }] })
+    expect(() => reduce(projection, { type: 'option_selected', payload: { option_id: 'b' } })).toThrow('unavailable')
+    projection = reduce(projection, { type: 'option_rejected', payload: { option_id: 'a' } })
+    expect(() => reduce(projection, { type: 'option_selected', payload: { option_id: 'a' } })).toThrow('rejected')
   })
 })
 
