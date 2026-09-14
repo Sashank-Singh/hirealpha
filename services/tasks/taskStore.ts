@@ -328,6 +328,27 @@ export async function loadProjection(sql: SQL, input: { userId: string; taskId: 
   return rows[0] ? projectionFromRow(rows[0]) : null
 }
 
+/**
+ * Operational listing for the internal debug surface. Optional user filter;
+ * task rows carry references only, never secret values.
+ */
+export async function listTasksForAdmin(
+  sql: SQL,
+  input: { userId?: string | null; limit?: number } = {},
+): Promise<TaskRecord[]> {
+  const limit = Math.min(Math.max(input.limit ?? 50, 1), 200)
+  const rows = input.userId
+    ? (await sql`
+        SELECT * FROM hire_tasks WHERE user_id = ${input.userId}
+        ORDER BY updated_at DESC LIMIT ${limit}
+      `) as Row[]
+    : (await sql`
+        SELECT * FROM hire_tasks
+        ORDER BY updated_at DESC LIMIT ${limit}
+      `) as Row[]
+  return rows.map(taskFromRow)
+}
+
 export async function listEvents(
   sql: SQL,
   input: { userId: string; taskId: string; afterSeq?: number; limit?: number },

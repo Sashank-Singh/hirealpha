@@ -12784,6 +12784,29 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
     return json({ ok: true })
   }
 
+  // Canonical task record readers (internal ops/debug only). The mirror writes
+  // behind HIREALPHA_TASK_RECORD; these are how a run is verified from outside
+  // the box, so the task trail is never a black box during Phase 1 dogfooding.
+  if (path === '/api/internal/tasks' && req.method === 'GET') {
+    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
+    const { listTasksForAdmin } = await import('../services/tasks/taskStore')
+    const userId = url.searchParams.get('userId')
+    const limit = Number(url.searchParams.get('limit')) || undefined
+    const tasks = await listTasksForAdmin(sql, { userId: userId || null, limit })
+    return json({ tasks })
+  }
+
+  if (path === '/api/internal/tasks/events' && req.method === 'GET') {
+    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
+    const taskId = url.searchParams.get('taskId') || ''
+    const userId = url.searchParams.get('userId') || ''
+    if (!taskId || !userId) return json({ error: 'taskId and userId required' }, 400)
+    const { listEvents } = await import('../services/tasks/taskStore')
+    const afterSeq = Number(url.searchParams.get('afterSeq')) || 0
+    const events = await listEvents(sql, { userId, taskId, afterSeq, limit: 500 })
+    return json({ events })
+  }
+
   if (path === '/api/internal/handoff' && req.method === 'POST') {
     if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
     const body = (await req.json().catch(() => ({}))) as {

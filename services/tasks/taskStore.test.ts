@@ -6,6 +6,7 @@ import {
   createTask,
   getTask,
   listEvents,
+  listTasksForAdmin,
   loadProjection,
   rebuildProjection,
 } from './taskStore'
@@ -103,6 +104,11 @@ function fakeTaskDb() {
           .filter((e) => e.task_id === taskId && e.user_id === userId && Number(e.task_seq) > Number(afterSeq))
           .sort((a, b) => Number(a.task_seq) - Number(b.task_seq)),
       )
+    }
+    if (text.includes('FROM hire_tasks') && text.includes('ORDER BY updated_at')) {
+      const all = [...tasks.values()]
+      if (text.includes('WHERE user_id')) return Promise.resolve(all.filter((row) => row.user_id === values[0]))
+      return Promise.resolve(all)
     }
     if (text.includes('FROM hire_tasks')) {
       const [taskId, userId] = values
@@ -229,6 +235,18 @@ describe('canonical task store', () => {
     expect(rebuilt?.monitor_state).toBe('SCHEDULED')
     expect(rebuilt?.state).toBe('WAITING_FOR_SELECTION')
     expect(rebuilt?.constraints).toEqual({ date: 'fri' })
+  })
+
+  it('lists tasks for the internal debug surface, scoped by user when given', async () => {
+    const a = fakeTaskDb()
+    const mine = await createTask(a.sql, { userId: 'user-1', request: 'one', persona: 'friend' })
+    await createTask(a.sql, { userId: 'user-2', request: 'two', persona: 'friend' })
+    await createTask(a.sql, { userId: 'user-1', request: 'three', persona: 'friend' })
+    const scoped = await listTasksForAdmin(a.sql, { userId: 'user-1' })
+    expect(scoped.map((task) => task.request).sort()).toEqual(['one', 'three'])
+    expect(mine.state).toBe('DRAFT')
+    const all = await listTasksForAdmin(a.sql)
+    expect(all).toHaveLength(3)
   })
 
   it('streams events after a checkpoint in order', async () => {
