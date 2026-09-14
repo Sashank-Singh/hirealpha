@@ -166,6 +166,25 @@ export async function runConversationalFriend(input: {
     profile: live.context, preferences: live.memories, threadFacts: memory.facts, summary: memory.summary,
     contacts: input.contacts, pendingConnection: pending, inboundResult: input.inboundNote,
   }
+  // Intent comes from reading the message, not from matching words against it.
+  // The classifier decides what the turn is (chat / log / request / approval)
+  // and extracts any data it carries. It starts BEFORE the fast-path gate and
+  // runs in parallel with whatever reply generation happens: a reply's latency
+  // is the sum of the model calls it makes, so awaiting it up front added 1.8s
+  // of dead time to every message. Strict, so an outage is VISIBLE instead of
+  // silently becoming "chat" (936a485) — the lenient wrapper made a
+  // rate-limited classifier indistinguishable from a genuine "chat".
+  const intentPromise = classifyTurnStrict({
+    userText: input.userText,
+    recentTurns: memory.history.slice(-6).map((m) => ({ role: m.role, content: m.content })),
+  }).catch((error) => {
+    if (error instanceof ClassifierUnavailableError) {
+      console.warn('[intent] classifier unavailable this turn; continuing without it', error.message.slice(0, 200))
+    } else {
+      console.warn('[intent] classification failed', error instanceof Error ? error.message.slice(0, 200) : error)
+    }
+    return { kind: 'chat' } as const
+  })
 
   if (!needsConversationPlanner(input.userText, memory)) {
     const fastContext = {
@@ -204,8 +223,25 @@ export async function runConversationalFriend(input: {
     reply = sanitizeOutbound(reply)
     if (returning) reply = reply.replace(/^(?:(?:hey|hi|hello)[,!]?\s*)?(?:i'm|i am|this is)\s+Alpha(?:\s*,\s*your\s+[^.!?]+)?[.!?]\s*/i, '').trim()
     if (!reply) reply = 'I lost that response. Could you try again?'
-    appendThread(dataDir, senderId, [{ role: 'user', content: input.userText }, { role: 'assistant', content: reply }])
-    return { reply, bubbles: [reply], source, authoritative: live.found ? Object.keys(live.context) : [], card: null }
+    // The gate regex is a cheap accelerator, never the verdict. When it misses,
+    // the classifier still holds a veto: "any important emails today?" contains
+    // no singular form the pattern lists ("emails" breaks every \b…\b
+    // alternative), and the fast answer then invents "I can't check your inbox"
+    // while gmail is connected. Hold the finished answer only until the
+    // already-running classification lands (bounded — no provider, no wait);
+    // a real request/log/approval falls through to the tool engine instead.
+    // Cap 8s: the classifier measures 2.5-3.1s on a quiet provider and can
+    // spike past that; 3s was losing the race and silently skipping the veto.
+    // Fast generation runs in parallel, so a healthy classifier adds ~nothing.
+    const gateIntent = await Promise.race([
+      intentPromise,
+      new Promise<null>((resolve) => setTimeout(() => resolve(null), 8000)),
+    ])
+    if (!gateIntent || gateIntent.kind === 'chat') {
+      appendThread(dataDir, senderId, [{ role: 'user', content: input.userText }, { role: 'assistant', content: reply }])
+      return { reply, bubbles: [reply], source, authoritative: live.found ? Object.keys(live.context) : [], card: null }
+    }
+    console.warn(`[${persona}] fast-path gate missed a "${gateIntent.kind}" turn; running the tool engine on the classifier's answer`)
   }
   const readApps = PERSONA_READ_APPS[persona] || PERSONA_READ_APPS.friend
   const available = LIVE_TOOLS.filter((tool) => tool === 'web' || tool === 'maps' || live.connected.includes(tool) || (senderId === '+12163032166' && (tool === 'gmail' || tool === 'calendar')))
@@ -353,31 +389,9 @@ export async function runConversationalFriend(input: {
     },
   ]
   const delivered: string[] = []
-  // Intent comes from reading the message, not from matching words against it.
-  // The classifier decides what the turn is (chat / log / request / approval)
-  // and extracts any data it carries. It runs in PARALLEL with the turn engine,
-  // never in front of it: a reply's latency is the sum of the model calls it
-  // makes, so awaiting this first added a full round trip to every message —
-  // measured 1.8s of dead time on a question whose answer never depends on it.
-  // Strict, so an outage is VISIBLE instead of silently becoming "chat".
-  // The lenient wrapper turns any failure into {kind:'chat'}, which meant a
-  // rate-limited classifier and a model that genuinely read the message wrong
-  // were indistinguishable — the exact problem that made three test failures
-  // impossible to diagnose. This records which one happened and still never
-  // blocks the reply.
-  const intentPromise = classifyTurnStrict({
-    userText: input.userText,
-    recentTurns: memory.history.slice(-6).map((m) => ({ role: m.role, content: m.content })),
-  }).catch((error) => {
-    if (error instanceof ClassifierUnavailableError) {
-      console.warn('[intent] classifier unavailable this turn; continuing without it', error.message.slice(0, 200))
-    } else {
-      console.warn('[intent] classification failed', error instanceof Error ? error.message.slice(0, 200) : error)
-    }
-    return { kind: 'chat' } as const
-  })
-  // The engine starts now, holding the promise; it awaits the classification
-  // only where that answer changes what it does.
+  // intentPromise started above, before the fast-path gate. The engine awaits
+  // the same promise: it is only spent once, and the classification it carries
+  // is shared by the veto and by the log writes below.
   // Log writes and the engine run concurrently. The notes are only prepended to
   // the follow-up context if they land before the turn finishes; the writes
   // themselves are durable either way, so a slow classifier can never delay or

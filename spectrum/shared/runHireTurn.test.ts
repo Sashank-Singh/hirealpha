@@ -16,6 +16,7 @@ describe('explicit navigation wins over conversation history', () => {
   let hired: boolean
   let modelInputs: string[]
   let answers: string[]
+  let intentAnswers: string[]
   let toolRequests: Array<{ want: string; message: string }>
   let drafts: unknown[]
   let connected: string[] | undefined
@@ -31,6 +32,7 @@ describe('explicit navigation wins over conversation history', () => {
     hired = false
     modelInputs = []
     answers = []
+    intentAnswers = []
     toolRequests = []
     drafts = []
     connected = undefined
@@ -39,8 +41,14 @@ describe('explicit navigation wins over conversation history', () => {
       requests.push(url)
       if (url.includes('/chat/completions')) {
         modelInputs.push(String(init?.body || ''))
+        const prompt = String(init?.body || '')
+        // The turn-intent classifier has its own scripted queue; by default it
+        // sees an ordinary message and says chat.
+        if (prompt.includes('You read one iMessage')) {
+          const verdict = intentAnswers.shift() ?? '{"kind":"chat"}'
+          return Response.json({ choices: [{ message: { content: verdict } }] })
+        }
         if (answers.length) {
-          const prompt = String(init?.body || '')
           const content = (prompt.includes('CAPABILITY MANIFESTO') || prompt.includes('CONVERSATION_ENGINE') || prompt.includes('FAST_CHAT')) ? answers.shift()! : '{"tool":"none","action":"none"}'
           return Response.json({ choices: [{ message: { content } }] })
         }
@@ -176,14 +184,36 @@ describe('explicit navigation wins over conversation history', () => {
     answers = ['Doing well. What is up with you?']
     const result = await runHireTurn({ agentId: 'friend', dataDir, senderId: 'test-user', userText: 'How is your day going?' })
     expect(result.reply).toBe('Doing well. What is up with you?')
-    expect(modelInputs).toHaveLength(1)
-    const request = JSON.parse(modelInputs[0]!) as { max_tokens?: number; messages: Array<{ content: string }> }
+    // Two model calls: the intent classifier first (it gates the fast path —
+    // a regex must never silence the engine, cf. "any important emails
+    // today?"), then exactly one compact call for the reply the user reads.
+    expect(modelInputs).toHaveLength(2)
+    const classifier = JSON.parse(modelInputs[0]!) as { messages: Array<{ content: string }> }
+    expect(classifier.messages[0]?.content).toContain('You read one iMessage')
+    const request = JSON.parse(modelInputs[1]!) as { max_tokens?: number; messages: Array<{ content: string }> }
     // 220 is the ceiling on the reply the user reads; reasoning models are
     // granted their hidden share on top of it (REASONING_TOKEN_HEADROOM).
     const { REASONING_TOKEN_HEADROOM } = await import('./gmi')
     expect(request.max_tokens).toBeLessThanOrEqual(220 + REASONING_TOKEN_HEADROOM)
     expect(request.messages.every((message) => !message.content.includes('CONVERSATION_ENGINE'))).toBe(true)
     expect(request.messages.every((message) => !message.content.includes('Additional callable capabilities'))).toBe(true)
+  })
+
+  it('the classifier vetoes the fast path when a plural word breaks the gate regex', async () => {
+    // Regression: "any important emails today?" matched no \b…\b alternative
+    // ("emails" breaks the "email" boundary), so the fast path answered
+    // "no email access on my end" while gmail was connected. The classifier
+    // reads it as a request; the finished fast answer must be discarded and
+    // the tool engine run instead.
+    hired = true
+    intentAnswers = ['{"kind":"request","request":{"summary":"check for important emails today","needsLookup":true}}']
+    answers = ['no email access on my end']
+    const result = await runHireTurn({ agentId: 'friend', dataDir, senderId: 'test-user', userText: 'any important emails today?' })
+    // Whatever the multi-step engine ends up saying, it is NOT the discarded
+    // fast answer, and both decision-makers ran: classifier and engine.
+    expect(result.reply).not.toContain('no email access')
+    expect(modelInputs.some((body) => body.includes('You read one iMessage'))).toBe(true)
+    expect(modelInputs.some((body) => body.includes('CONVERSATION_ENGINE'))).toBe(true)
   })
 
   it('reports a profile outage without claiming the user needs to reconnect', async () => {
