@@ -130,6 +130,7 @@ export async function createConnectSession(sql: SQL, req: Request, userId: strin
   if (!customer) return { error: 'Could not create your payment account.' }
   const session = await stripeCall('POST', '/checkout/sessions', new URLSearchParams({
     mode: 'setup',
+    currency: 'usd',
     customer,
     success_url: `${appBaseOf(req)}/app?payments=connected`,
     cancel_url: `${appBaseOf(req)}/app?payments=cancelled`,

@@ -12019,7 +12019,7 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
         session: q.get('s') || undefined,
         email: q.get('email') || undefined,
       })
-      return user ? { id: user.id } : null
+      return user ? { id: user.id, email: user.email } : null
     },
     keyBroker: openBaoBrokerFromEnv() || userKeyBrokerFromEnv(),
     memoryIndex: getMemoryIndex(),
