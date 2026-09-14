@@ -47,8 +47,6 @@ import {
   handleUserPaymentsApi,
   noteSetupCompleted,
   createLinkBackedSpendRequest,
-  createSpendRequest,
-  listPaymentMethodsForUser,
   queuePaidPurchaseFinalization,
   decideSpendApproval,
   chargeApprovedSpend,
@@ -12072,7 +12070,7 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
         session: q.get('s') || undefined,
         email: q.get('email') || undefined,
       })
-      return user ? { id: user.id, email: user.email } : null
+      return user ? { id: user.id } : null
     },
   })
   if (paymentsRes) return paymentsRes
@@ -13528,8 +13526,7 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
       // The dashboard and iMessage both resolve to the same per-user Link
       // wallet row. The operator's Link account is never a fallback.
       const link = await getLinkStatus(sql, live.userId!).catch(() => ({ connected: false, pending: false }))
-      const savedCard = link.connected ? null : await listPaymentMethodsForUser(sql, live.userId!)
-      if (!link.connected && !savedCard) {
+      if (!link.connected) {
         const setupUrl = `${appBaseFromEnv()}/app?tab=settings&connect=payments`
         const pid = crypto.randomUUID()
         await sql`
@@ -13540,24 +13537,19 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
         return json({ ok: true, id: pid, kind: 'purchase', needsSetup: true, setupUrl, paymentUrl: setupUrl, amount, item })
       }
 
-      // Link can issue a one-time card, while a directly saved bank card stays
-      // attached to the user's Stripe customer. Both remain ask-first.
+      // Link receives the exact merchant and total and returns its own approval URL.
       const amountCents = Math.round(amount * 100)
       const merchant = productUrl.hostname
-      const spend = link.connected
-        ? await createLinkBackedSpendRequest(sql, live.userId!, {
-            amountCents,
-            merchant,
-            merchantUrl: url,
-            purpose: item,
-          })
-        : await createSpendRequest(sql, live.userId!, { amountCents, merchant, purpose: item })
+      const spend = await createLinkBackedSpendRequest(sql, live.userId!, {
+        amountCents,
+        merchant,
+        merchantUrl: url,
+        purpose: item,
+      })
       if (!spend.requestId) {
         return json({ ok: false, error: spend.error || 'Could not create spend approval' }, 400)
       }
-      const approvalUrl = 'approvalUrl' in spend
-        ? spend.approvalUrl
-        : `${appBaseFromEnv()}/api/payments/spend/approve?id=${encodeURIComponent(spend.requestId)}`
+      const approvalUrl = spend.approvalUrl
       const pid = crypto.randomUUID()
       await sql`
         INSERT INTO hire_drafts (id, user_id, persona, kind, to_addr, subject, body, status)

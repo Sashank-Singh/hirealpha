@@ -23,7 +23,6 @@ import {
   apiVaultSaveHandoff,
   apiTrustCapabilityDecide,
   apiTrustOverview,
-  apiPaymentsCardConnect,
   apiPaymentsConnect,
   apiPaymentMethods,
   apiLinkStatus,
@@ -154,7 +153,6 @@ export function SettingsSheet({ view = 'workspace', embedded = false }: { view?:
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethodView[] | null>(null)
   const [linkWallet, setLinkWallet] = useState<LinkWalletStatus>({ connected: false, pending: false })
   const [paymentBusy, setPaymentBusy] = useState(false)
-  const [cardBusy, setCardBusy] = useState(false)
   const [paymentError, setPaymentError] = useState('')
   const [spendRequests, setSpendRequests] = useState<SpendRequest[]>([])
   const [spendBusyId, setSpendBusyId] = useState('')
@@ -218,19 +216,6 @@ export function SettingsSheet({ view = 'workspace', embedded = false }: { view?:
       setPaymentMethods([])
     } catch {
       setPaymentError('Could not disconnect Link.')
-    }
-  }
-
-  async function connectCard() {
-    setCardBusy(true)
-    setPaymentError('')
-    try {
-      const res = await apiPaymentsCardConnect({ email: session?.email })
-      if (!res.url) throw new Error(res.error || 'Could not start card setup.')
-      window.location.href = res.url
-    } catch (err) {
-      setPaymentError(err instanceof Error ? err.message : 'Could not add card.')
-      setCardBusy(false)
     }
   }
 
@@ -1202,36 +1187,17 @@ export function SettingsSheet({ view = 'workspace', embedded = false }: { view?:
             <header className="ss-sec-head">
               <div>
                 <h2 className="ss-title">Payment vault</h2>
-                <p className="ss-sub">Choose how Alpha pays.</p>
+                <p className="ss-sub">Your card stays in Link. Approve purchases in chat.</p>
               </div>
-            </header>
-
-            <div className="ss-payment-options">
               <button
                 type="button"
-                className="ss-payment-option"
-                disabled={paymentBusy || cardBusy}
+                className="ss-btn"
+                disabled={paymentBusy}
                 onClick={() => void (linkWallet.connected ? disconnectWallet() : connectWallet())}
               >
-                <span className="ss-payment-option-copy">
-                  <strong>Link</strong>
-                  <small>Use your Link wallet</small>
-                </span>
-                <span>{paymentBusy ? 'Opening…' : (linkWallet.connected ? 'Disconnect' : 'Connect')}</span>
+                {paymentBusy ? 'Opening…' : (linkWallet.connected ? 'Disconnect' : 'Connect Link')}
               </button>
-              <button
-                type="button"
-                className="ss-payment-option"
-                disabled={paymentBusy || cardBusy}
-                onClick={() => void connectCard()}
-              >
-                <span className="ss-payment-option-copy">
-                  <strong>Bank card</strong>
-                  <small>Save for future approved purchases</small>
-                </span>
-                <span>{cardBusy ? 'Opening…' : 'Add card'}</span>
-              </button>
-            </div>
+            </header>
 
             {paymentError && <p className="set-err">{paymentError}</p>}
             {paymentMethods === null && <p className="ss-empty">Checking vault…</p>}
@@ -1252,7 +1218,7 @@ export function SettingsSheet({ view = 'workspace', embedded = false }: { view?:
                         <span className="ss-name" style={{ textTransform: 'capitalize' }}>
                           {pm.brand} •••• {pm.last4}
                         </span>
-                        <span className="ss-subline">{pm.link_wallet ? 'Link' : 'Saved card'} · {pm.exp}</span>
+                        <span className="ss-subline">Link · {pm.exp}</span>
                       </div>
                     </div>
                   </div>

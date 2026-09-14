@@ -564,14 +564,6 @@ export async function listPaymentMethodsForUser(
   return { customerId, defaultId: methods[0]!.id }
 }
 
-async function listSavedCardMethods(sql: SQL, userId: string): Promise<MethodView[]> {
-  const rows = (await sql`
-    SELECT stripe_payment_customer FROM hire_users WHERE id = ${userId} LIMIT 1
-  `) as Array<{ stripe_payment_customer: string | null }>
-  const customerId = rows[0]?.stripe_payment_customer
-  return customerId ? listPaymentMethods(customerId) : []
-}
-
 /* ------------------------------ API routes ------------------------------- */
 
 function json(data: unknown, status = 200): Response {
@@ -585,7 +577,7 @@ function escapeHtml(value: string): string {
 }
 
 export type UserPaymentsDeps = {
-  resolveUser: (sql: SQL, req: Request) => Promise<{ id: string; email: string } | null>
+  resolveUser: (sql: SQL, req: Request) => Promise<{ id: string } | null>
 }
 
 /** Returns null for paths it does not own. All routes require a signed-in user. */
@@ -748,11 +740,6 @@ export async function handleUserPaymentsApi(req: Request, sql: SQL, deps: UserPa
     }
   }
 
-  if (path === '/api/payments/card/connect' && req.method === 'POST') {
-    const connected = await createConnectSession(sql, req, user.id, user.email)
-    return 'url' in connected ? json(connected) : json({ error: connected.error }, 503)
-  }
-
   if (path === '/api/payments/link/status' && req.method === 'GET') {
     try { return json(await getLinkStatus(sql, user.id)) }
     catch (error) { return json({ connected: false, pending: false, error: error instanceof Error ? error.message : 'Link status failed.' }, 400) }
@@ -763,15 +750,14 @@ export async function handleUserPaymentsApi(req: Request, sql: SQL, deps: UserPa
     return json({ ok: true })
   }
 
-  // Return masked views from both persistent choices. Card credentials never use this route.
+  // Return masked Link methods. Card credentials never use this route.
   if (path === '/api/payments/methods' && req.method === 'GET') {
-    const savedCards = await listSavedCardMethods(sql, user.id)
     try {
       const status = await getLinkStatus(sql, user.id)
-      const linkMethods = status.connected ? await listLinkPaymentMethods(sql, user.id) : []
-      return json({ methods: [...linkMethods, ...savedCards], link: status })
+      const methods = status.connected ? await listLinkPaymentMethods(sql, user.id) : []
+      return json({ methods, link: status })
     } catch {
-      return json({ methods: savedCards, link: { connected: false, pending: false } })
+      return json({ methods: [], link: { connected: false, pending: false } })
     }
   }
 
@@ -785,38 +771,13 @@ export async function handleUserPaymentsApi(req: Request, sql: SQL, deps: UserPa
     const body = (await req.json().catch(() => ({}))) as { action?: string; requestId?: string; amountCents?: number; merchant?: string; merchantUrl?: string; purpose?: string }
     const action = body.action || 'create'
     if (action === 'create') {
-      const merchantUrl = String(body.merchantUrl || '')
-      let parsedMerchant: URL
-      try { parsedMerchant = new URL(merchantUrl) } catch { return json({ error: 'Purchase needs a valid merchant URL.' }, 400) }
-      if (parsedMerchant.protocol !== 'https:' || parsedMerchant.username || parsedMerchant.password) {
-        return json({ error: 'Purchase merchant URL must be secure.' }, 400)
-      }
-
-      const link = await getLinkStatus(sql, user.id).catch(() => ({ connected: false, pending: false }))
-      if (link.connected) {
-        const res = await createLinkBackedSpendRequest(sql, user.id, {
-          amountCents: Number(body.amountCents),
-          merchant: String(body.merchant || ''),
-          merchantUrl: parsedMerchant.href,
-          purpose: String(body.purpose || ''),
-        })
-        return 'requestId' in res ? json(res) : json({ error: res.error }, 400)
-      }
-
-      const savedCard = await listPaymentMethodsForUser(sql, user.id)
-      if (!savedCard) return json({ error: 'Connect Link or add a bank card first.' }, 400)
-      const hostname = parsedMerchant.hostname.toLowerCase()
-      const merchant = hostname.startsWith('www.') ? hostname.slice(4) : hostname
-      const res = await createSpendRequest(sql, user.id, {
+      const res = await createLinkBackedSpendRequest(sql, user.id, {
         amountCents: Number(body.amountCents),
-        merchant,
+        merchant: String(body.merchant || ''),
+        merchantUrl: String(body.merchantUrl || ''),
         purpose: String(body.purpose || ''),
       })
-      if (!('requestId' in res)) return json({ error: res.error }, 400)
-      return json({
-        ...res,
-        approvalUrl: `${appBaseOf(req)}/api/payments/spend/approve?id=${encodeURIComponent(res.requestId)}`,
-      })
+      return 'requestId' in res ? json(res) : json({ error: res.error }, 400)
     }
     if (action === 'approve' || action === 'deny') {
       if (action === 'approve') {
