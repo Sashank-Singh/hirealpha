@@ -67,7 +67,7 @@ export const FAILURE_REASON_CODES = [
 export type FailureReasonCode = (typeof FAILURE_REASON_CODES)[number]
 
 const FORWARD: Record<TaskState, readonly TaskState[]> = {
-  DRAFT: ['CLARIFYING', 'RESEARCHING', 'CANCELLED'],
+  DRAFT: ['CLARIFYING', 'RESEARCHING', 'PLANNING_ACTION', 'CANCELLED'],
   CLARIFYING: ['RESEARCHING'],
   RESEARCHING: ['WAITING_FOR_SELECTION'],
   WAITING_FOR_SELECTION: ['PLANNING_ACTION', 'RESEARCHING'],
@@ -121,11 +121,10 @@ export function assertTransition(
   if (!legal) {
     throw new TaskTransitionError(`Forbidden transition: ${from} -> ${to}.`)
   }
-  // Entering EXECUTING is the guarded door. First entries must pass the
-  // authority check; resuming a task already past that door (pause, retry,
-  // takeover) does not re-litigate it, but selection is always required.
+  // Entering EXECUTING is the guarded door. A task that offered options must
+  // have one selected; single-action tasks execute on authority alone.
   if (to === 'EXECUTING') {
-    if (!projection.selected_option_id) {
+    if (projection.options.length > 0 && !projection.selected_option_id) {
       throw new TaskTransitionError('Cannot execute without a selected option.')
     }
     if (from === 'WAITING_FOR_AUTHORITY') {

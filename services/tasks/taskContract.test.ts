@@ -52,13 +52,13 @@ describe('task state machine', () => {
     assertTransition('FULFILLED', 'CLOSED', projection, { to: 'CLOSED' })
   })
 
-  it('forbids executing without a selected option', () => {
+  it('forbids executing without a selected option when options were offered', () => {
     expect(() => move('WAITING_FOR_SELECTION', 'EXECUTING')).toThrow('Forbidden')
     expect(() =>
-      assertTransition('PLANNING_ACTION', 'EXECUTING', at('PLANNING_ACTION', { selected_option_id: null }), {
-        to: 'EXECUTING',
-        authority: 'not_required',
-      }),
+      assertTransition('PLANNING_ACTION', 'EXECUTING', at('PLANNING_ACTION', {
+        selected_option_id: null,
+        options: [{ id: 'opt-1', title: 'A' }],
+      }), { to: 'EXECUTING', authority: 'not_required' }),
     ).toThrow('selected option')
   })
 

@@ -12,6 +12,7 @@ import { randomBytes, randomUUID, createHmac, timingSafeEqual } from 'node:crypt
 import type { SQL } from 'bun'
 import type { PortalStep, BrowserTaskKind } from './browserVault'
 import { assertPublicHttpsUrl, type HostResolver } from './browserNetworkPolicy'
+import { mirrorJobClaimed, mirrorJobEnqueued, mirrorJobFinished, mirrorJobHandoff, mirrorJobHandoffResumed } from '../services/tasks/taskLifecycle'
 
 export type BrowserJobRow = {
   id: string
@@ -125,6 +126,13 @@ export async function enqueueBrowserJob(
       ${input.credentialTaskId ?? null}, ${input.spendRequestId ?? null})
     ON CONFLICT (id) DO NOTHING
   `
+  await mirrorJobEnqueued(sql, {
+    jobId: id, userId: input.userId, persona: input.persona, kind: input.kind,
+    url: target.href, goal: input.goal ?? null,
+    approval_id: input.approvalId ?? null,
+    credential_capability_id: input.credentialCapabilityId ?? null,
+    spend_request_id: input.spendRequestId ?? null,
+  })
   return id
 }
 
@@ -181,6 +189,14 @@ export async function claimBrowserJobs(sql: SQL, limit: number): Promise<Browser
       vault_item_id, credential_capability_id, credential_capability_digest, credential_task_id, spend_request_id,
       current_url, live_view_url, last_screenshot, activity, handoff_kind, handoff_message, handoff_at, handoff_resumed_at, handoff_answer
   `) as unknown as BrowserJobRow[]
+  for (const row of rows) {
+    await mirrorJobClaimed(sql, {
+      jobId: row.id, userId: String(row.user_id), persona: row.persona, kind: row.kind,
+      url: row.url, goal: row.goal ?? null,
+      approval_id: row.approval_id, credential_capability_id: row.credential_capability_id,
+      spend_request_id: row.spend_request_id,
+    })
+  }
   return rows
 }
 
@@ -194,6 +210,7 @@ export async function finishBrowserJob(
       UPDATE hire_browser_jobs SET status = 'done', result = ${outcome.result}, finished_at = now()
       WHERE id = ${id}
     `
+    await mirrorJobFinished(sql, id, outcome)
     return
   }
   if (outcome.retry) {
@@ -206,12 +223,14 @@ export async function finishBrowserJob(
       UPDATE hire_browser_jobs SET status = 'failed', error = ${outcome.error}, finished_at = now()
       WHERE id = ${id} AND attempts >= 3
     `
+    await mirrorJobFinished(sql, id, outcome)
     return
   }
   await sql`
     UPDATE hire_browser_jobs SET status = 'failed', error = ${outcome.error}, finished_at = now()
     WHERE id = ${id}
   `
+  await mirrorJobFinished(sql, id, outcome)
 }
 
 export async function getBrowserJob(sql: SQL, id: string, userId?: string): Promise<BrowserJobRow | null> {
@@ -270,6 +289,7 @@ export async function beginBrowserHandoff(sql: SQL, id: string, kind: BrowserHan
       handoff_at = now(), handoff_resumed_at = NULL, handoff_answer = NULL
     WHERE id = ${id} AND status = 'running'
   `)
+  await mirrorJobHandoff(sql, id, kind)
 }
 
 export async function resumeBrowserHandoff(sql: SQL, id: string): Promise<boolean> {
@@ -279,7 +299,9 @@ export async function resumeBrowserHandoff(sql: SQL, id: string): Promise<boolea
     WHERE id = ${id} AND status = 'waiting'
     RETURNING id
   `) as Array<{ id: string }>
-  return rows.length > 0
+  const resumed = rows.length > 0
+  if (resumed) await mirrorJobHandoffResumed(sql, id)
+  return resumed
 }
 
 /** Keep the streamed browser open while its owner handles a protected step.

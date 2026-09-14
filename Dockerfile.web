@@ -59,6 +59,7 @@ COPY deploy/demoFixtures.ts ./demoFixtures.ts
 COPY deploy/migrate.ts ./migrate.ts
 COPY deploy/migrations ./migrations
 COPY services/trust /services/trust
+COPY services/tasks /services/tasks
 COPY spectrum ../spectrum
 # hire-api imports the mini-app skill catalog from the frontend tree; only
 # src/agents is runtime-safe (pure TS data, no vite/browser deps).
