@@ -1335,9 +1335,6 @@ export type LinkWalletStatus = {
 export const apiPaymentsConnect = (a: { email?: string; token?: string }) =>
   featurePost<LinkWalletStatus & { url?: string }>('/api/payments/connect', authParams(a))
 
-export const apiPaymentsCardConnect = (a: { email?: string; token?: string }) =>
-  featurePost<{ url?: string; error?: string }>('/api/payments/card/connect', authParams(a))
-
 export const apiPaymentMethods = (a: { email?: string; token?: string }) =>
   featureGet<{ methods: PaymentMethodView[]; link?: LinkWalletStatus }>('/api/payments/methods', authQuery(a))
 

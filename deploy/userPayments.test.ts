@@ -246,7 +246,7 @@ describe('paid purchase finalization', () => {
 
 /* ------------------------------- API routes ------------------------------ */
 
-const authedDeps: UserPaymentsDeps = { resolveUser: async () => ({ id: USER, email: 'alice@example.com' }) }
+const authedDeps: UserPaymentsDeps = { resolveUser: async () => ({ id: USER }) }
 const noAuthDeps: UserPaymentsDeps = { resolveUser: async () => null }
 
 function req(path: string, body?: unknown, method?: string): Request {
@@ -272,52 +272,6 @@ describe('user payments API routes', () => {
     expect(res?.status).toBe(200)
     const body = (await res!.json()) as { methods: unknown[] }
     expect(body.methods).toEqual([])
-  })
-
-  it('POST /api/payments/card/connect exposes the saved-card setup route', async () => {
-    const key = process.env.STRIPE_SECRET_KEY
-    delete process.env.STRIPE_SECRET_KEY
-    try {
-      const { sql } = fakeSql(() => [{ stripe_payment_customer: null }])
-      const res = await handleUserPaymentsApi(req('/api/payments/card/connect', {}), sql, authedDeps)
-      expect(res?.status).toBe(503)
-      expect(await res!.json()).toEqual({ error: 'Could not create your payment account.' })
-    } finally {
-      if (key) process.env.STRIPE_SECRET_KEY = key
-    }
-  })
-
-  it('POST /api/payments/card/connect sends a currency when creating the Stripe setup session', async () => {
-    const previousKey = process.env.STRIPE_SECRET_KEY
-    const previousFetch = globalThis.fetch
-    const calls: Array<{ url: string; method: string; body: string }> = []
-    process.env.STRIPE_SECRET_KEY = 'sk_test_card_connect'
-    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
-      calls.push({
-        url: String(input),
-        method: init?.method || 'GET',
-        body: init?.body ? String(init.body) : '',
-      })
-      if (String(input).includes('/customers?')) return Response.json({ data: [] })
-      if (String(input).endsWith('/customers')) return Response.json({ id: 'cus_card_connect' })
-      if (String(input).endsWith('/checkout/sessions')) return Response.json({ url: 'https://checkout.stripe.com/c/pay/cs_card_connect' })
-      return Response.json({ error: { message: 'unexpected Stripe call' } }, { status: 400 })
-    }) as typeof fetch
-
-    try {
-      const { sql } = fakeSql(() => [{ stripe_payment_customer: null }])
-      const res = await handleUserPaymentsApi(req('/api/payments/card/connect', {}), sql, authedDeps)
-      expect(res?.status).toBe(200)
-      expect((await res!.json()).url).toBe('https://checkout.stripe.com/c/pay/cs_card_connect')
-      const checkout = calls.find((call) => call.url.endsWith('/checkout/sessions'))
-      expect(checkout?.method).toBe('POST')
-      expect(checkout?.body).toContain('mode=setup')
-      expect(checkout?.body).toContain('currency=usd')
-    } finally {
-      globalThis.fetch = previousFetch
-      if (previousKey === undefined) delete process.env.STRIPE_SECRET_KEY
-      else process.env.STRIPE_SECRET_KEY = previousKey
-    }
   })
 
   it('DELETE /api/payments/methods fences on ownership (pm id must be yours)', async () => {
