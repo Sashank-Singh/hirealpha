@@ -102,6 +102,30 @@ export function nodeAnalyzeAndShield(state: AssistantState): AssistantState {
       ? 'https://blackboard.com'
       : 'https://campusnet.csuohio.edu'
     const prettyName = /campusnet|csuohio/i.test(text) ? 'CampusNet (csuohio.edu)' : 'your portal'
+
+    let hasSavedCredential = false
+    try {
+      const portalHost = new URL(portal).hostname.toLowerCase()
+      const rawOrigins = state.context?.vaultOrigins || ''
+      let originsList: string[] = []
+      if (rawOrigins.startsWith('[')) {
+        originsList = JSON.parse(rawOrigins)
+      } else if (rawOrigins) {
+        originsList = rawOrigins.split(',').map((s) => s.trim().toLowerCase())
+      }
+      hasSavedCredential =
+        Boolean(state.context?.hasVault === 'true') &&
+        originsList.some((o) =>
+          o.includes(portalHost) || portalHost.includes(o) ||
+          (portalHost.includes('csuohio.edu') && (o.includes('csuohio') || o.includes('campusnet')))
+        )
+    } catch {}
+
+    if (hasSavedCredential) {
+      // Credentials already exist in the vault! Do not block with lock message.
+      return state
+    }
+
     return {
       ...state,
       riskLevel: 'sensitive',

@@ -1037,17 +1037,22 @@ export async function getVaultCredentialsForTask(
 
   try {
     const v2Rows = (await sql`
-      SELECT id, exact_origin, ciphertext FROM vault_items_v2
+      SELECT id, exact_origin, label, ciphertext FROM vault_items_v2
       WHERE user_id = ${userId} AND revoked_at IS NULL AND ciphertext IS NOT NULL
       ORDER BY updated_at DESC LIMIT 10
-    `) as Array<{ id: string; exact_origin: string; ciphertext: string }>
+    `) as Array<{ id: string; exact_origin: string; label: string; ciphertext: string }>
 
     const matchingV2 = v2Rows.find((r) => {
       const orig = (r.exact_origin || '').toLowerCase()
+      const lbl = (r.label || '').toLowerCase()
+      let entryHost = ''
+      try { entryHost = new URL(orig.startsWith('http') ? orig : `https://${orig}`).hostname.replace(/^www\./, '').toLowerCase() } catch {}
       return (
         orig === origin.toLowerCase() ||
-        (host && (orig.includes(host) || host.includes(orig))) ||
-        (rootDomain && orig.includes(rootDomain))
+        (host && (orig.includes(host) || host.includes(orig) || (entryHost && (entryHost.includes(host) || host.includes(entryHost))))) ||
+        (rootDomain && (orig.includes(rootDomain) || (entryHost && entryHost.includes(rootDomain)))) ||
+        (lbl && (lbl.includes(host) || host.includes(lbl) || (rootDomain && lbl.includes(rootDomain)))) ||
+        (host.includes('campusnet') && (orig.includes('campusnet') || orig.includes('csuohio') || lbl.includes('campusnet') || lbl.includes('csu')))
       )
     })
 

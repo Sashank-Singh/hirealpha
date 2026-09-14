@@ -26,6 +26,7 @@ export interface MemoryFact {
 
 export interface ThreadMemory {
   pendingConnection?: { connector: string; request: string; createdAt: number }
+  pendingVaultTask?: { portal: string; goal: string; originalText: string; createdAt: number }
   pendingSpend?: { id: string; item: string; amount: number; url?: string; createdAt: number }
   lastCardDeliveredAt?: number
   /** Durable facts about the person, never sliced by recency. */
@@ -67,6 +68,11 @@ function normalize(raw: unknown): ThreadMemory {
       typeof (r.pendingConnection as Record<string, unknown>).request === 'string' &&
       typeof (r.pendingConnection as Record<string, unknown>).createdAt === 'number'
       ? { pendingConnection: r.pendingConnection as ThreadMemory['pendingConnection'] } : {}),
+    ...(r.pendingVaultTask && typeof r.pendingVaultTask === 'object' &&
+      typeof (r.pendingVaultTask as Record<string, unknown>).portal === 'string' &&
+      typeof (r.pendingVaultTask as Record<string, unknown>).goal === 'string' &&
+      typeof (r.pendingVaultTask as Record<string, unknown>).createdAt === 'number'
+      ? { pendingVaultTask: r.pendingVaultTask as ThreadMemory['pendingVaultTask'] } : {}),
     ...(r.pendingSpend && typeof r.pendingSpend === 'object' &&
       typeof (r.pendingSpend as Record<string, unknown>).id === 'string'
       ? { pendingSpend: r.pendingSpend as ThreadMemory['pendingSpend'] } : {}),
@@ -97,6 +103,13 @@ export function setPendingConnection(dataDir: string, senderId: string, pending?
   const mem = { ...loadMemory(dataDir, senderId) }
   if (pending) mem.pendingConnection = pending
   else delete mem.pendingConnection
+  writeMemory(dataDir, senderId, mem)
+}
+
+export function setPendingVaultTask(dataDir: string, senderId: string, pending?: ThreadMemory['pendingVaultTask']) {
+  const mem = { ...loadMemory(dataDir, senderId) }
+  if (pending) mem.pendingVaultTask = pending
+  else delete mem.pendingVaultTask
   writeMemory(dataDir, senderId, mem)
 }
 

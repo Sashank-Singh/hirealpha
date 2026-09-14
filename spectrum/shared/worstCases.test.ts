@@ -189,4 +189,46 @@ describe('End-to-End Worst-Case Turn Execution', () => {
       rmSync(dataDir, { recursive: true, force: true })
     }
   })
+
+  it('automatically resumes and launches browser task when user replies "Saved" after vault lock', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'hirealpha-worst-test-'))
+    try {
+      // Step 1: User asks to check campusnet without credentials saved -> gets locked
+      const step1 = await runHireTurn({
+        agentId: 'friend',
+        dataDir,
+        senderId: 'test-saved-user',
+        userText: 'How much did I pay in fall 2024 check campusnet',
+      })
+      expect(step1.reply).toContain("Locked. Everything's ready to go the second you're signed into CampusNet (csuohio.edu)")
+      expect(step1.card).not.toBeNull()
+
+      // Step 2: User responds "Saved"
+      const step2 = await runHireTurn({
+        agentId: 'friend',
+        dataDir,
+        senderId: 'test-saved-user',
+        userText: 'Saved',
+      })
+      expect(step2.reply).toContain('Starting the CampusNet (csuohio.edu) run')
+      expect(step2.reply).toContain('How much did I pay in fall 2024 check campusnet')
+      expect(step2.reply).not.toMatch(/head to CampusNet when you get a chance|check your fall 2024 account activity/i)
+    } finally {
+      rmSync(dataDir, { recursive: true, force: true })
+    }
+  })
+
+  it('bypasses vault lock when user already has campusnet in vault context', () => {
+    const state = runLanggraphWorkflow({
+      userText: 'How much did I pay in fall 2024 check campusnet',
+      senderId: 'test-user',
+      agentId: 'friend',
+      context: {
+        hasVault: 'true',
+        vaultOrigins: JSON.stringify(['https://campusnet.csuohio.edu', 'campusnet.csuohio.edu', 'csuohio.edu']),
+      },
+    })
+    expect(state.overrideReply).toBeUndefined()
+    expect(state.vaultLink).toBeUndefined()
+  })
 })

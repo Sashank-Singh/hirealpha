@@ -104,8 +104,12 @@ function requiredText(value: string, name: string, maxLength: number): string {
 
 export function normalizeExactOrigin(value: string): string {
   let url: URL
+  const trimmed = (value || '').trim()
+  const candidate = trimmed.startsWith('https://') || trimmed.startsWith('http://')
+    ? trimmed
+    : (trimmed.includes('.') && !trimmed.includes(' ') && !trimmed.includes(':') ? `https://${trimmed}` : trimmed)
   try {
-    url = new URL(value)
+    url = new URL(candidate)
   } catch {
     throw new Error('Origin must be a valid HTTPS URL.')
   }

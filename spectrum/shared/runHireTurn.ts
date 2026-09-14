@@ -9,7 +9,7 @@ import { runConversationalFriend } from './conversationalFriend'
 import { isAffirmativeApprovalIntent, isNegativeCancellationIntent } from './conversationalApproval'
 import { skillsPromptBlock, SKILLS } from './skills'
 import { gmiChat } from './gmi'
-import { appendThread, loadMemory, setPendingSpend, upsertFacts, pruneExpiredFacts, setSummary, trimHistory, MAX_RAW, type ThreadMemory } from './memory'
+import { appendThread, loadMemory, setPendingSpend, setPendingVaultTask, upsertFacts, pruneExpiredFacts, setSummary, trimHistory, MAX_RAW, type ThreadMemory } from './memory'
 import { extractFacts, summarizeOld } from './memoryMaintain'
 import { liveFactsToInput, localFactsToInput, mergeMemoryFacts, selectMemoryFacts } from './memoryBlock'
 import { autoIterateWorkshop, autoLogGratitude, autoLogHabit, autoLogMood, autoLogNutrition, autoLogSleep, autoLogSpend, autoLogWorkout, autoLogNetwork, autoLogDecision, autoLogLoops, autoLogPipeline, autoLogStandup, autoRunWorkshop, autoWorkshopKeep, autoWorkshopToss, autoSaveLearning, autoSetBudget, autoSetPrefs, executeSpendApproval, fetchLiveProfile, fetchLiveTools, fetchMiniRun, fetchPrepBundle, fetchWeekBundle, formatHireContext, persistLiveFacts, proposeLiveDraft,
@@ -680,6 +680,24 @@ export function detectAgeOrGenZ(
   return { isGenZ: false }
 }
 
+export function prettyPortalName(urlStr: string): string {
+  try {
+    const raw = urlStr.startsWith('http') ? urlStr : `https://${urlStr}`
+    const u = new URL(raw)
+    const host = u.hostname.replace(/^www\./, '')
+    if (/campusnet\.csuohio\.edu|csuohio\.edu/i.test(host)) return 'CampusNet (csuohio.edu)'
+    if (/amazon\.com/i.test(host)) return 'Amazon'
+    if (/netflix\.com/i.test(host)) return 'Netflix'
+    if (/linkedin\.com/i.test(host)) return 'LinkedIn'
+    if (/github\.com/i.test(host)) return 'GitHub'
+    if (/canvas/i.test(host)) return 'Canvas'
+    if (/blackboard/i.test(host)) return 'Blackboard'
+    return host
+  } catch {
+    return urlStr
+  }
+}
+
 export async function runHireTurn(input: {
   agentId: AgentId
   dataDir: string
@@ -719,16 +737,56 @@ export async function runHireTurn(input: {
     return { reply: '', bubbles: [], source: 'local', authoritative: [], card }
   }
 
+  const pendingVault = mem.pendingVaultTask || (
+    (() => {
+      const lastAssistant = [...mem.history].reverse().find((m) => m.role === 'assistant')
+      if (lastAssistant && /Locked\..*signed into\s+([^—]+)— save your login details securely.*in your vault/i.test(lastAssistant.content)) {
+        const lastUser = [...mem.history].reverse().find((m) => m.role === 'user')
+        const portalMatch = lastAssistant.content.match(/csuohio\.edu|campusnet/i) ? 'https://campusnet.csuohio.edu' : ''
+        if (portalMatch && lastUser) {
+          return { portal: portalMatch, goal: lastUser.content, originalText: lastUser.content, createdAt: Date.now() }
+        }
+      }
+      return null
+    })()
+  )
+
+  const isSavedIntent = /^\s*(?:i\s+)?(?:did\s+)?(?:already\s+)?(?:saved?|done|ready|connected|all\s+set)(?:\s+(?:it|them|in\s+vault|to\s+vault|credentials?|password))?\s*[.!]?\s*$/i.test(input.userText)
+
+  if (isSavedIntent && pendingVault) {
+    setPendingVaultTask(input.dataDir, input.senderId)
+    const queued = await proposeBrowserTask(input.senderId, agent.id, { portal: pendingVault.portal, goal: pendingVault.goal })
+    const portalName = prettyPortalName(pendingVault.portal)
+    const sessionUrl = queued.sessionUrl || (queued.id ? `https://hirealpha.chat/computer/${queued.id}` : null)
+    const reply = sessionUrl
+      ? `I see your credentials are saved! Starting the ${portalName} run now for "${pendingVault.goal}".\nWatch it live: ${sessionUrl} (I'll report back here as soon as it's done).`
+      : `I see your credentials are saved! Starting the ${portalName} run now for "${pendingVault.goal}". I'll report back here as soon as it's done.`
+    appendThread(input.dataDir, input.senderId, [
+      { role: 'user', content: input.userText },
+      { role: 'assistant', content: reply },
+    ])
+    return { reply, bubbles: [reply], source: 'local' as const, authoritative: [], card: null }
+  }
+
+  const live = await fetchLiveProfile(input.senderId, agent.id, input.userText)
+
   // LangGraph early shield: intercepts adversarial jailbreaks, crisis distress,
   // plaintext password sharing, and high-risk financial wire movement instantly.
   const earlyShield = runLanggraphWorkflow({
     userText: input.userText,
     senderId: input.senderId,
     agentId: agent.id,
+    context: live.context,
   })
   if (earlyShield.overrideReply) {
     let card: MiniAppCard | null = null
     if (earlyShield.vaultLink) {
+      setPendingVaultTask(input.dataDir, input.senderId, {
+        portal: earlyShield.vaultLink,
+        goal: input.userText,
+        originalText: input.userText,
+        createdAt: Date.now(),
+      })
       try {
         card = await mintMiniAppCard(input.senderId, agent.id, 'vault', { portal: earlyShield.vaultLink })
       } catch {}
@@ -825,8 +883,7 @@ export async function runHireTurn(input: {
     agent.id === 'friend' && input.userText.trim().startsWith('/') && (history.length > 0 || mem.summary.trim().length > 0)
       ? fetchJudgmentState(input.senderId, agent.id, 'turn').catch(() => null)
       : null
-  const [live, contacts, spending] = await Promise.all([
-    fetchLiveProfile(input.senderId, agent.id, input.userText),
+  const [contacts, spending] = await Promise.all([
     input.senderId ? fetchContacts(input.senderId) : Promise.resolve([]),
     input.senderId && (agent.id !== 'friend' || input.userText.trim().startsWith('/')) ? fetchSpending(input.senderId) : Promise.resolve({ logs: [], weekly: 0, budget: 0 }),
   ])
@@ -1865,6 +1922,12 @@ export async function runHireTurn(input: {
             saveFriendDraft(input.senderId, agent.id, draft).then((r: any) => {
               if (draft.type === 'browser' && r?.ok) {
                 if (r.needsVault) {
+                  setPendingVaultTask(input.dataDir, input.senderId, {
+                    portal: draft.portal,
+                    goal: draft.goal || input.userText,
+                    originalText: input.userText,
+                    createdAt: Date.now(),
+                  })
                   confirmKind = 'vault'
                   confirmQuery = { portal: draft.portal }
                   reply = `Locked. Everything's ready to go the second you're signed into ${prettyPortalName(draft.portal)} — save your login details securely or choose private handoff in your vault:`

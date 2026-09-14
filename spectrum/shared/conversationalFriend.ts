@@ -5,7 +5,7 @@ import { getAgent, type AgentId } from '../../src/agents'
 import { runAgentLocally } from '../../src/agents/runtime'
 import { formatNowForAgent, pickUserTimezone } from '../../deploy/timezones'
 import { gmiChat } from './gmi'
-import { appendThread, recordCardDelivered, setPendingConnection, setPendingSpend, upsertFacts, type ThreadMemory } from './memory'
+import { appendThread, recordCardDelivered, setPendingConnection, setPendingSpend, setPendingVaultTask, upsertFacts, type ThreadMemory } from './memory'
 import {
   autoLogNutrition, autoLogWorkout, autoLogSleep, autoLogGratitude, autoLogMood,
   autoLogHabit, autoLogSpend, autoLogDecision, autoLogLoops, autoSaveLearning,
@@ -54,7 +54,8 @@ function prettyPortalName(urlStr: string): string {
 export function needsConversationPlanner(userText: string, memory: ThreadMemory): boolean {
   const text = userText.trim()
   const lastAssistant = [...memory.history].reverse().find((message) => message.role === 'assistant')?.content || ''
-  if (memory.pendingConnection) return true
+  if (memory.pendingConnection || memory.pendingVaultTask) return true
+  if (/\b(?:saved?|done|ready|connected|all\s+set)\b/i.test(text) && /Locked\..*vault/i.test(lastAssistant)) return true
   if (/^\//.test(text) || /https?:\/\//i.test(text)) return true
   if ((isAffirmativeApprovalIntent(text) || isNegativeCancellationIntent(text)) &&
       /\b(?:connect|remember|remind|log|save|send|draft|buy|purchase|order|book|browser|app|card)\b/i.test(lastAssistant)) return true
@@ -90,6 +91,37 @@ export async function runConversationalFriend(input: {
   let browserIsPurchase = false
   const pending = memory.pendingConnection
   const pendingSpend = memory.pendingSpend
+
+  const pendingVault = memory.pendingVaultTask || (
+    (() => {
+      const lastAssistant = [...memory.history].reverse().find((m) => m.role === 'assistant')
+      if (lastAssistant && /Locked\..*signed into\s+([^—]+)— save your login details securely.*in your vault/i.test(lastAssistant.content)) {
+        const lastUser = [...memory.history].reverse().find((m) => m.role === 'user')
+        const portalMatch = lastAssistant.content.match(/csuohio\.edu|campusnet/i) ? 'https://campusnet.csuohio.edu' : ''
+        if (portalMatch && lastUser) {
+          return { portal: portalMatch, goal: lastUser.content, originalText: lastUser.content, createdAt: Date.now() }
+        }
+      }
+      return null
+    })()
+  )
+
+  const isSavedIntent = /^\s*(?:i\s+)?(?:did\s+)?(?:already\s+)?(?:saved?|done|ready|connected|all\s+set)(?:\s+(?:it|them|in\s+vault|to\s+vault|credentials?|password))?\s*[.!]?\s*$/i.test(input.userText)
+
+  if (isSavedIntent && pendingVault) {
+    setPendingVaultTask(dataDir, senderId)
+    const queued = await proposeBrowserTask(senderId, persona, { portal: pendingVault.portal, goal: pendingVault.goal })
+    const portalName = prettyPortalName(pendingVault.portal)
+    const sessionUrl = queued.sessionUrl || (queued.id ? `https://hirealpha.chat/computer/${queued.id}` : null)
+    const reply = sessionUrl
+      ? `I see your credentials are saved! Starting the ${portalName} run now for "${pendingVault.goal}".\nWatch it live: ${sessionUrl} (I'll report back here as soon as it's done).`
+      : `I see your credentials are saved! Starting the ${portalName} run now for "${pendingVault.goal}". I'll report back here as soon as it's done.`
+    appendThread(dataDir, senderId, [
+      { role: 'user', content: input.userText },
+      { role: 'assistant', content: reply },
+    ])
+    return { reply, bubbles: [reply], source: 'local' as const, authoritative: [], card: null }
+  }
 
   if (pendingSpend && isNegativeCancellationIntent(input.userText)) {
     setPendingSpend(dataDir, senderId)
@@ -497,6 +529,12 @@ ${JSON.stringify(context)}` },
         const queued = await proposeBrowserTask(senderId, persona, { portal: draft.portal, goal: draft.goal })
         if (queued.ok) {
           if (queued.needsVault) {
+            setPendingVaultTask(dataDir, senderId, {
+              portal: draft.portal,
+              goal: draft.goal || input.userText,
+              originalText: input.userText,
+              createdAt: Date.now(),
+            })
             const portalName = prettyPortalName(draft.portal)
             forcedReply = `Locked. Everything's ready to go the second you're signed into ${portalName} — save your login details securely or choose private handoff in your vault:`
             card = await mintMiniAppCard(senderId, persona, 'vault', { portal: draft.portal })

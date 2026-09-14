@@ -10122,13 +10122,25 @@ async function livePayload(sql: SQL, phone: string, persona: Persona, query?: st
   const composioConnectorFast = hired
     ? budget(composioConnected(user.id), 6_000, [] as string[])
     : Promise.resolve([] as string[])
-  const [context, googleIds, composioIds, memories, active] = await Promise.all([
+  const [context, googleIds, composioIds, memories, active, vaultRows] = await Promise.all([
     hired ? loadContext(sql, user.id, persona) : Promise.resolve({} as Record<string, string>),
     googleConnectorFast,
     composioConnectorFast,
     hired ? budget(recallMemories(sql, user.id, persona, query, 40), 3_000, [] as MemoryRow[]) : Promise.resolve([] as MemoryRow[]),
     hired ? pickActiveLocation(sql, user.id).catch(() => null) : Promise.resolve(null),
+    hired
+      ? (sql`
+          SELECT portal, origin FROM hire_vault_entries WHERE user_id = ${user.id}
+          UNION
+          SELECT exact_origin AS portal, label AS origin FROM vault_items_v2 WHERE user_id = ${user.id} AND revoked_at IS NULL
+        `.catch(() => [])) as Promise<Array<{ portal: string; origin: string }>>
+      : Promise.resolve([] as Array<{ portal: string; origin: string }>),
   ])
+  const vaultOrigins = (vaultRows as Array<{ portal: string; origin: string }>)
+    .flatMap((r) => [r.portal, r.origin])
+    .filter(Boolean)
+    .map((s) => s.toLowerCase().trim())
+
   // Merge: google IDs take precedence (already UI-named); composio slugs are aliased.
   const mergedSet = new Set<string>(googleIds)
   for (const slug of composioIds) {
@@ -10165,8 +10177,13 @@ async function livePayload(sql: SQL, phone: string, persona: Persona, query?: st
   return {
     found: true,
     hired,
-    context,
+    context: {
+      ...context,
+      hasVault: vaultOrigins.length > 0 ? 'true' : 'false',
+      vaultOrigins: JSON.stringify(vaultOrigins),
+    },
     connected,
+    vaultOrigins,
     memories,
     email: user.email,
     name: user.name,
@@ -13303,15 +13320,26 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
           return (
             p.includes(hostname) ||
             p.includes(rootDomain) ||
-            (entryHost && (hostname.includes(entryHost) || entryHost.includes(hostname) || entryHost.includes(rootDomain) || rootDomain.includes(entryHost)))
+            (entryHost && (hostname.includes(entryHost) || entryHost.includes(hostname) || entryHost.includes(rootDomain) || rootDomain.includes(entryHost))) ||
+            (hostname.includes('campusnet') && (p.includes('campusnet') || p.includes('csuohio')))
           )
         })
 
         const hasVaultItem = hasVault || (await sql`
-          SELECT exact_origin FROM vault_items_v2 WHERE user_id = ${live.userId!} AND revoked_at IS NULL
+          SELECT exact_origin, label FROM vault_items_v2 WHERE user_id = ${live.userId!} AND revoked_at IS NULL
         `.then((r) => (r as any[]).some((row) => {
           const orig = (row.exact_origin || '').toLowerCase()
-          return orig.includes(hostname) || orig.includes(rootDomain)
+          const lbl = (row.label || '').toLowerCase()
+          let entryHost = ''
+          try {
+            entryHost = new URL(orig.startsWith('http') ? orig : `https://${orig}`).hostname.replace(/^www\./, '').toLowerCase()
+          } catch {}
+          return (
+            orig.includes(hostname) || orig.includes(rootDomain) ||
+            (entryHost && (hostname.includes(entryHost) || entryHost.includes(hostname) || entryHost.includes(rootDomain) || rootDomain.includes(entryHost))) ||
+            (lbl && (lbl.includes(hostname) || hostname.includes(lbl) || (rootDomain && lbl.includes(rootDomain)) || (hostname.includes('campusnet') && (lbl.includes('campusnet') || lbl.includes('csu'))))) ||
+            (hostname.includes('campusnet') && (orig.includes('campusnet') || orig.includes('csuohio')))
+          )
         })).catch(() => false))
 
         if (!hasVault && !hasVaultItem) {

@@ -8,6 +8,7 @@ export type LiveProfile = {
   hired: boolean
   context: Record<string, string>
   connected: string[]
+  vaultOrigins?: string[]
   memories: Array<{ key: string; value: string; durable?: boolean; updatedAt?: string }>
   email: string | null
   name?: string | null
@@ -26,6 +27,7 @@ const EMPTY: LiveProfile = {
   hired: false,
   context: {},
   connected: [],
+  vaultOrigins: [],
   memories: [],
   email: null,
   name: null,
@@ -137,6 +139,7 @@ export async function fetchLiveProfile(phone: string, persona: AgentId, query?: 
       unavailable: false,
       context: data.context || {},
       connected: data.connected || [],
+      vaultOrigins: data.vaultOrigins || [],
       memories: data.memories || [],
     }
   }
