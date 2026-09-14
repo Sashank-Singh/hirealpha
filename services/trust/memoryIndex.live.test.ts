@@ -17,7 +17,7 @@
  */
 import { describe, expect, it } from 'bun:test'
 import { SQL } from 'bun'
-import { createMemoryIndex, keyOf, type MemoryIndex } from './memoryIndex'
+import { createMemoryIndex, keyOf, memoryIndexFromEnv, type MemoryIndex } from './memoryIndex'
 
 const databaseUrl = process.env.MEM0_TEST_DATABASE_URL?.trim() || ''
 const ollamaUrl = process.env.MEM0_TEST_OLLAMA_URL?.trim() || ''
@@ -35,13 +35,14 @@ async function resetCollection(sql: SQL) {
 }
 
 function newIndex(): MemoryIndex {
-  return createMemoryIndex({
-    connectionString: databaseUrl,
-    ollamaUrl,
-    model,
-    dimensions: dims,
-    collection: COLLECTION,
-    timeoutMs: 30_000,
+  return memoryIndexFromEnv({
+    MEM0_ENABLED: 'true',
+    DATABASE_URL: databaseUrl,
+    OLLAMA_BASE_URL: ollamaUrl,
+    MEM0_EMBED_MODEL: model,
+    MEM0_EMBED_DIMS: String(dims),
+    MEM0_COLLECTION: COLLECTION,
+    MEM0_RECALL_TIMEOUT_MS: '30000',
   })
 }
 
