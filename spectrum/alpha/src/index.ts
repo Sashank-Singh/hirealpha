@@ -15,6 +15,7 @@ import { startTaskLoopPoller } from '../../shared/taskLoops'
 import { INTRO_TEXTS, startIntroPoller } from '../../shared/introQueue'
 import { startHealthServer, startHeartbeat } from '../../shared/health'
 import { backfillScores, hashPhone, logTurn, readTurns } from '../../shared/evals'
+import { buildAlphaVcard } from '../../shared/alphaContact'
 
 const reactOccasionally = createReactionGate()
 const agentId = 'friend' as const
@@ -94,9 +95,8 @@ async function respondWithRetry(
 }
 
 /** Send Alpha's contact as a real .vcf attachment so iOS shows a tappable
- * contact card. Builds the vCard locally (no HTTP round-trip) so it can't
- * fail because the API URL is unreachable from this host; resolves the
- * user's assigned line best-effort, falling back to Alpha's primary line. */
+ * contact card with Alpha's avatar logo. Resolves the user's assigned line
+ * best-effort, falling back to Alpha's primary line, and embeds the official photo. */
 async function sendContactVcf(
   space: { send: (content: unknown) => Promise<unknown> },
   phone: string,
@@ -112,10 +112,31 @@ async function sendContactVcf(
   } catch (err) {
     console.warn(`[${agentId}] assigned-phone lookup failed, using default line`, err)
   }
-  const vcf = ['BEGIN:VCARD', 'VERSION:3.0', 'N:;Alpha;;;', 'FN:Alpha', 'ORG:HireAlpha', `TEL;TYPE=CELL:${tel}`, 'END:VCARD'].join('\r\n')
+
+  // First try fetching the official vCard from hire-api; fallback to local builder
+  let vcf: string | null = null
+  try {
+    const res = await fetch(`${base}/api/contact/alpha.vcf?phone=${encodeURIComponent(tel)}`, {
+      headers: { Authorization: `Bearer ${process.env.HIREALPHA_INTERNAL_KEY || ''}` },
+      signal: AbortSignal.timeout(3000),
+    })
+    if (res.ok) {
+      const text = await res.text()
+      if (text.includes('BEGIN:VCARD') && text.includes('PHOTO')) {
+        vcf = text
+      }
+    }
+  } catch (err) {
+    console.warn(`[${agentId}] /api/contact/alpha.vcf fetch failed, using local builder with photo`, err)
+  }
+
+  if (!vcf) {
+    vcf = buildAlphaVcard(tel)
+  }
+
   try {
     await space.send(contact(await fromVCard(vcf)))
-    console.log(`[${agentId}] sent vcf contact card to ${phone} (${tel})`)
+    console.log(`[${agentId}] sent vcf contact card to ${phone} (${tel}) with logo`)
   } catch (err) {
     console.error(`[${agentId}] vcf contact send failed`, err)
     throw err
@@ -129,6 +150,7 @@ if (introTo) {
     await space.responding(async () => {
       await space.send(INTRO_TEXTS[agent.id])
       await space.shareContactCard().catch(() => undefined)
+      await sendContactVcf(space, introTo).catch((err) => console.error(`[${agent.id}] intro vcf failed`, err))
     })
     console.log(`[${agent.id}] intro sent to ${introTo}`)
   } catch (err) {

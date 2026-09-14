@@ -66,6 +66,7 @@ import {
 import { memoryIndexFromEnv } from '../services/trust/memoryIndex'
 import { parseChatExport, scanSubscriptions } from '../spectrum/shared/smartFeatures'
 import { PLACE_ASK_RE } from '../spectrum/shared/toolLoop'
+import { buildAlphaVcard, getAlphaContactPhotoB64 } from '../spectrum/shared/alphaContact'
 import {
   isValidTimeZone,
   parseSpokenWhen,
@@ -1977,27 +1978,9 @@ export function demoDirectUrls(baseUrl: string): string[] {
   return out
 }
 
-/* Alpha's contact photo for the vCard, loaded once and cached. A missing file
- * just means a text-only card. Vite copies public/ into dist/, so in prod the
- * image lives beside hire-api.ts under dist/; in dev it is at ../public. */
-let alphaContactB64: string | null = null
+/* Alpha's contact photo for the vCard, loaded once and cached. */
 async function alphaContactPhoto(): Promise<string | null> {
-  if (alphaContactB64 !== null) return alphaContactB64
-  const candidates = [
-    join(import.meta.dir, 'dist', 'alpha-contact.png'),
-    join(import.meta.dir, '..', 'public', 'alpha-contact.png'),
-  ]
-  for (const file of candidates) {
-    try {
-      const png = await readFile(file)
-      alphaContactB64 = png.toString('base64')
-      return alphaContactB64
-    } catch {
-      /* try next */
-    }
-  }
-  alphaContactB64 = ''
-  return null
+  return getAlphaContactPhotoB64() || null
 }
 
 /** How long a signed web-session token stays valid. */
@@ -13032,28 +13015,8 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
     // actually text. Falls back to Alpha's primary line.
     const override = normalizePhone(url.searchParams.get('phone') || '')
     const tel = override || '+14155951440'
-    const lines = [
-      'BEGIN:VCARD',
-      'VERSION:3.0',
-      'N:;Alpha;;;',
-      'FN:Alpha',
-      'ORG:HireAlpha',
-      `TEL;TYPE=CELL:${tel}`,
-    ]
-    const b64 = await alphaContactPhoto()
-    if (b64) {
-      // Fold counts the whole line, so the first chunk fits after the 26-char
-      // property prefix and the rest continue at 74 with a leading space.
-      const head = 'PHOTO;ENCODING=b;TYPE=PNG:'
-      const rest = b64.match(/.{1,74}/g) || []
-      lines.push(head + rest[0].slice(0, 75 - head.length))
-      for (let i = 0; i < rest.length; i++) {
-        const part = i === 0 ? rest[0].slice(75 - head.length) : rest[i]
-        if (part) lines.push(' ' + part)
-      }
-    }
-    lines.push('END:VCARD')
-    return new Response(lines.join('\r\n'), {
+    const vcf = buildAlphaVcard(tel)
+    return new Response(vcf, {
       headers: {
         'Content-Type': 'text/vcard; charset=utf-8',
         'Content-Disposition': 'inline; filename="alpha.vcf"',
