@@ -1021,11 +1021,11 @@ export async function getVaultCredentialsForTask(
   if (isOpRef(row.secret_ref)) {
     const fields = await opGetItemFields(row.secret_ref)
     if (!fields?.password) return null
-    return { username: fields.username ?? row.username ?? userId, password: fields.password }
+    return { username: fields.username ?? row.username ?? '', password: fields.password }
   }
   const password = decryptSecret(row.secret_encrypted, key)
   if (!password) return null
-  return { username: row.username || userId, password }
+  return { username: row.username || '', password }
 }
 
 const MAX_STEPS = 12

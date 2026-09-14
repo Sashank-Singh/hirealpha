@@ -83,62 +83,68 @@ export async function attemptKernelLogin(
        const pwCount = await pwLoc.count().catch(() => 0);
        if (!pwCount) return { ok: true, filled: false };
 
-       const userSelectors = [
-         'input[name*="user" i]',
-         'input[name*="email" i]',
-         'input[name*="login" i]',
-         'input[name*="id" i]',
-         'input[id*="user" i]',
-         'input[id*="login" i]',
-         'input[id*="id" i]',
-         'input[placeholder*="user" i]',
-         'input[placeholder*="id" i]',
-         'input[placeholder*="csu" i]',
-         'input[placeholder*="login" i]',
-         'input[placeholder*="email" i]',
-         'input[aria-label*="user" i]',
-         'input[aria-label*="id" i]',
-         'input[aria-label*="login" i]',
-         'input[type="email"]',
-         'input[type="text"]'
-       ];
-       if (usernameVal) {
-         for (const sel of userSelectors) {
-           const loc = page.locator(sel).first();
-           if (await loc.count().catch(() => 0)) {
-             try {
-               await loc.fill(usernameVal, { timeout: 4000 });
-               break;
-             } catch {}
-           }
-         }
-       }
-       await pwLoc.fill(passwordVal, { timeout: 6000 });
+        const userSelectors = [
+          'input[placeholder*="csu" i]',
+          'input[placeholder*="id" i]',
+          'input[placeholder*="user" i]',
+          'input[name*="user" i]',
+          'input[name*="login" i]',
+          'input[name*="id" i]',
+          'input[id*="user" i]',
+          'input[id*="login" i]',
+          'input[id*="id" i]',
+          'input[name*="student" i]',
+          'input[id*="student" i]',
+          'input[aria-label*="csu" i]',
+          'input[aria-label*="user" i]',
+          'input[aria-label*="id" i]',
+          'input[autocomplete*="username" i]',
+          'input[type="email"]',
+          'input[type="text"]',
+          'input[type="number"]',
+          'input[type="tel"]'
+        ];
+        if (usernameVal) {
+          for (const sel of userSelectors) {
+            const loc = page.locator(sel).first();
+            if (await loc.count().catch(() => 0)) {
+              try {
+                await loc.fill(usernameVal, { timeout: 4000 });
+                break;
+              } catch {}
+            }
+          }
+        }
+        await pwLoc.fill(passwordVal, { timeout: 6000 });
+        await page.waitForTimeout(600).catch(() => undefined);
 
-       const submitSelectors = [
-         'button[type="submit"]',
-         'input[type="submit"]',
-         'button:has-text("Login")',
-         'button:has-text("Log In")',
-         'button:has-text("Sign In")',
-         'input[value*="Login" i]',
-         'input[value*="Sign In" i]'
-       ];
-       let clicked = false;
-       for (const sel of submitSelectors) {
-         const btn = page.locator(sel).first();
-         if (await btn.count().catch(() => 0)) {
-           try {
-             await btn.click({ timeout: 4000 });
-             clicked = true;
-             break;
-           } catch {}
-         }
-       }
-       if (!clicked) {
-         try { await pwLoc.press('Enter', { timeout: 4000 }); } catch {}
-       }
-       return { ok: true, filled: true };`,
+        const submitSelectors = [
+          'button[type="submit"]',
+          'input[type="submit"]',
+          'button:has-text("Login")',
+          'button:has-text("Log In")',
+          'button:has-text("Sign In")',
+          'button:has-text("Submit")',
+          'input[value*="Login" i]',
+          'input[value*="Log In" i]',
+          'input[value*="Sign In" i]',
+          'input[value*="Submit" i]'
+        ];
+        let clicked = false;
+        for (const sel of submitSelectors) {
+          const btn = page.locator(sel).first();
+          if (await btn.count().catch(() => 0)) {
+            try {
+              await btn.click({ timeout: 4000 });
+              clicked = true;
+              break;
+            } catch {}
+          }
+        }
+        if (!clicked) {
+          try { await pwLoc.press('Enter', { timeout: 4000 }); } catch {}
+        }
+        return { ok: true, filled: true };`,
       45_000,
     )
     if (result.filled) {

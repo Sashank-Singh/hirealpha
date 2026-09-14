@@ -4132,12 +4132,19 @@ function composioInvalidatePin(userId: string, toolkit: string) {
   composioPins.delete(`${userId}:${toolkit.toLowerCase()}`)
 }
 
+const composioConnectedCache = new Map<string, { items: string[]; at: number }>()
+const COMPOSIO_CONNECTED_TTL_MS = 3 * 60_000
+
 async function composioConnected(userId: string): Promise<string[]> {
   // The demo workspace "has" every toolkit the fixtures can answer for, so
   // Settings and /api/me render it like a fully connected account.
   if (isDemoUserId(userId)) return [...DEMO_COMPOSIO_TOOLKITS]
+  const hit = composioConnectedCache.get(userId)
+  if (hit && Date.now() - hit.at < COMPOSIO_CONNECTED_TTL_MS) {
+    return hit.items
+  }
   const composio = composioClient()
-  if (!composio) return []
+  if (!composio) return hit?.items || []
   const read = async () => {
     const data = await Promise.race([
       composio.connectedAccounts.list({
@@ -4147,10 +4154,12 @@ async function composioConnected(userId: string): Promise<string[]> {
       }),
       new Promise<never>((_, reject) => setTimeout(() => reject(new Error('composio list timeout')), 8000)),
     ])
-    return (data.items || [])
+    const items = (data.items || [])
       .filter((i) => !i.isDisabled)
-      .map((i) => (i.toolkit?.slug || '').toLowerCase())
+      .map((i) => ((i.toolkit?.slug || (i as any).appName || (i as any).appUniqueId || (i as any).app || '') as string).toLowerCase())
       .filter(Boolean)
+    composioConnectedCache.set(userId, { items, at: Date.now() })
+    return items
   }
   try {
     return await read()
@@ -4161,7 +4170,8 @@ async function composioConnected(userId: string): Promise<string[]> {
       return await read()
     } catch (err) {
       console.warn('[composio] connected list failed', err)
-      return []
+      // Return stale cache if available instead of falsely reporting 0 connected apps
+      return hit?.items || []
     }
   }
 }
@@ -4189,6 +4199,7 @@ async function composioDisconnect(userId: string, toolkit: string): Promise<bool
     if (!match?.id) return false
     await composio.connectedAccounts.delete(match.id)
     composioInvalidatePin(userId, target)
+    composioConnectedCache.delete(userId)
     return true
   } catch (err) {
     console.warn('[composio] disconnect failed', target, err)
@@ -5641,11 +5652,20 @@ export async function runToolsForMessage(
       const out = await composioFirst(input.userId, spec.slugs, spec.args(query))
       return [!out || composioLooksFailed(out) ? spec.empty : `${workRead}\n${out}`]
     }
-    if (!can(input.want)) {
-      asked(input.want, true)
-      return results
-    }
     if (input.want === 'gmail') {
+      let canMail = can('gmail')
+      if (!canMail) {
+        const hasGoogle = await googleConnected(sql, input.userId).catch(() => null)
+        if (hasGoogle && hasGoogle.scopes.includes('gmail')) canMail = true
+        else {
+          const comp = await composioConnected(input.userId).catch(() => [])
+          if (comp.some((c) => /gmail/i.test(c))) canMail = true
+        }
+      }
+      if (!canMail) {
+        asked('gmail', true)
+        return results
+      }
       // One 12s deadline over the whole read. The mail path can chain a token
       // refresh, a Gmail list and a Composio fallback; without the cap a slow
       // connector produced a stalled turn (the bot aborts at 20s), and the
@@ -5669,6 +5689,10 @@ export async function runToolsForMessage(
       return [mail.length
         ? `Email results for ${JSON.stringify(query)}:\n${mail.map((m) => `- id=${m.id} | ${m.from.slice(0, 100)} | ${m.date.slice(0, 50)} | ${m.subject.slice(0, 140)} | ${m.snippet.slice(0, 200)}`).join('\n')}`
         : 'Email lookup returned no usable records. Try a different query if needed. This does not establish that the inbox is empty.']
+    }
+    if (!can(input.want)) {
+      asked(input.want, true)
+      return results
     }
     if (input.want === 'drive') return [await loadDrive(sql, input.userId, query)]
     if (input.want === 'calendar') {
@@ -5736,7 +5760,16 @@ export async function runToolsForMessage(
     if (mail) results.push(mail)
     if (cal) results.push(cal)
   } else {
-    if (mailHit && can('gmail')) {
+    let canMail = can('gmail')
+    if (mailHit && !canMail) {
+      const hasGoogle = await googleConnected(sql, input.userId).catch(() => null)
+      if (hasGoogle && hasGoogle.scopes.includes('gmail')) canMail = true
+      else {
+        const comp = await composioConnected(input.userId).catch(() => [])
+        if (comp.some((c) => /gmail/i.test(c))) canMail = true
+      }
+    }
+    if (mailHit && canMail) {
       results.push(await loadGmail(sql, input.userId, mailQuery, 8))
     } else {
       askedAllowed('gmail', mailHit)
@@ -8576,8 +8609,8 @@ async function collectEventNudgesForUser(
     const minsOfDay = localHour * 60 + localMinute
     const todayWin = todayWindowUtc(tz)
 
-    // Breakfast: 8:00 AM - 10:00 AM
-    if (minsOfDay >= 480 && minsOfDay <= 600) {
+    // Breakfast: 9:00 AM - 11:00 AM
+    if (minsOfDay >= 540 && minsOfDay <= 660) {
       const key = `meal:breakfast:${today}`
       if (!sentKeys.has(key)) {
         const logged = await sql`
@@ -8600,8 +8633,8 @@ async function collectEventNudgesForUser(
       }
     }
 
-    // Lunch: 11:45 AM - 2:00 PM
-    if (minsOfDay >= 705 && minsOfDay <= 840) {
+    // Lunch: 12:30 PM - 2:30 PM
+    if (minsOfDay >= 750 && minsOfDay <= 870) {
       const key = `meal:lunch:${today}`
       if (!sentKeys.has(key)) {
         const logged = await sql`
@@ -8648,13 +8681,13 @@ async function collectEventNudgesForUser(
       }
     }
 
-    // Dinner: 6:00 PM - 8:30 PM
-    if (minsOfDay >= 1080 && minsOfDay <= 1230) {
+    // Dinner: 7:00 PM - 9:30 PM
+    if (minsOfDay >= 1140 && minsOfDay <= 1290) {
       const key = `meal:dinner:${today}`
       if (!sentKeys.has(key)) {
         const logged = await sql`
           SELECT count(*)::int AS n FROM hire_nutrition_logs
-          WHERE user_id = ${user.id} AND eaten_at >= ${new Date(todayWin.start.getTime() + 17 * 3600_000).toISOString()} AND eaten_at < ${todayWin.end.toISOString()}
+          WHERE user_id = ${user.id} AND eaten_at >= ${new Date(todayWin.start.getTime() + 18 * 3600_000).toISOString()} AND eaten_at < ${todayWin.end.toISOString()}
         `
         if (Number(logged[0]?.n || 0) === 0) {
           const text = isGenZ
@@ -10073,16 +10106,37 @@ async function livePayload(sql: SQL, phone: string, persona: Persona, query?: st
   const hired = roster.includes(persona)
   // Independent reads run together, and the two that can stall (Composio
   // connector resolution; Vault-decrypted memory recall) carry their own
-  // budgets: a slow memory read must never starve the connector list, and a
-  // stall must never make a connected user look disconnected to the bot.
+  // Split google and Composio lookups: a Composio timeout must not drop
+  // google connectors (gmail, calendar, drive). Google has a 3s budget,
+  // Composio has 6s, and we merge both result sets.
   const budget = <T,>(p: Promise<T>, ms: number, fallback: T): Promise<T> =>
     Promise.race([p.catch(() => fallback), new Promise<T>((resolve) => setTimeout(() => resolve(fallback), ms))])
-  const [context, connectedRaw, memories, active] = await Promise.all([
+  const googleConnectorFast = hired
+    ? budget(
+        googleConnected(sql, user.id).then((g) => (g ? googleUiConnected(g.scopes) : [])),
+        3_000,
+        [] as string[],
+      )
+    : Promise.resolve([] as string[])
+  const composioConnectorFast = hired
+    ? budget(composioConnected(user.id), 6_000, [] as string[])
+    : Promise.resolve([] as string[])
+  const [context, googleIds, composioIds, memories, active] = await Promise.all([
     hired ? loadContext(sql, user.id, persona) : Promise.resolve({} as Record<string, string>),
-    hired ? budget(connectedForUser(sql, user.id), 6_000, [] as string[]) : Promise.resolve([] as string[]),
+    googleConnectorFast,
+    composioConnectorFast,
     hired ? budget(recallMemories(sql, user.id, persona, query, 40), 3_000, [] as MemoryRow[]) : Promise.resolve([] as MemoryRow[]),
     hired ? pickActiveLocation(sql, user.id).catch(() => null) : Promise.resolve(null),
   ])
+  // Merge: google IDs take precedence (already UI-named); composio slugs are aliased.
+  const mergedSet = new Set<string>(googleIds)
+  for (const slug of composioIds) {
+    const ui =
+      COMPOSIO_SLUG_ALIASES[slug] ||
+      Object.entries(UI_TO_COMPOSIO).find(([, v]) => v === slug)?.[0]
+    mergedSet.add(ui || slug)
+  }
+  const connectedRaw = [...mergedSet]
   const connected = connectedRaw.filter((id) => !PERSONA_DENIED[persona].has(id))
   let pro = false
   if (hired) {
@@ -13245,6 +13299,9 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
         /\/login|\/signin|\/auth|\/account|\/portal/i.test(portal)
 
       if (isProtectedPortal && hostname) {
+        const parts = hostname.split('.')
+        const rootDomain = parts.length >= 2 ? parts.slice(-2).join('.') : hostname
+
         const existingEntries = await sql`
           SELECT id, portal, origin FROM hire_vault_entries
           WHERE user_id = ${live.userId!}
@@ -13252,12 +13309,23 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
 
         const hasVault = existingEntries.some((e) => {
           const p = (e.portal || e.origin || '').toLowerCase()
-          return p.includes(hostname)
+          let entryHost = ''
+          try {
+            entryHost = new URL(p.startsWith('http') ? p : `https://${p}`).hostname.replace(/^www\./, '').toLowerCase()
+          } catch {}
+          return (
+            p.includes(hostname) ||
+            p.includes(rootDomain) ||
+            (entryHost && (hostname.includes(entryHost) || entryHost.includes(hostname) || entryHost.includes(rootDomain) || rootDomain.includes(entryHost)))
+          )
         })
 
         const hasVaultItem = hasVault || (await sql`
-          SELECT exact_origin FROM vault_items WHERE user_id = ${live.userId!}
-        `.then((r) => (r as any[]).some((row) => (row.exact_origin || '').toLowerCase().includes(hostname))).catch(() => false))
+          SELECT exact_origin FROM vault_items_v2 WHERE user_id = ${live.userId!} AND revoked_at IS NULL
+        `.then((r) => (r as any[]).some((row) => {
+          const orig = (row.exact_origin || '').toLowerCase()
+          return orig.includes(hostname) || orig.includes(rootDomain)
+        })).catch(() => false))
 
         if (!hasVault && !hasVaultItem) {
           return json({

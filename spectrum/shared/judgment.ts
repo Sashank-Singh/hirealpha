@@ -170,7 +170,8 @@ export function isRecipientSendBlocked(err: unknown): boolean {
   return (
     /recipientcoolingdown|recipientlocked|recipientlimitexceeded|sendreceiveratioexceeded/.test(
       blob.replace(/[^a-z]/g, ''),
-    ) || /cooling.?down|recipient.?locked|send.?receive.?ratio|recipient.?limit/.test(blob)
+    ) ||
+    /cooling.?down|recipient.?locked|send.?receive.?ratio|recipient.?limit|target.?not.?allowed/.test(blob)
   )
 }
 

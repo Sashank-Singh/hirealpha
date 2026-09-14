@@ -395,6 +395,14 @@ export function looksLikeNutritionLog(text: string) {
   return /\b(i ate|i had|log|track|meal|breakfast|lunch|dinner|snack|food)\b/i.test(text)
 }
 
+/** A direct statement of what the user ate. This alone must trigger the
+ * auto-log — never route it through the model and let it "ask permission" to
+ * record a meal the person just reported having eaten. */
+export function statesFood(text: string) {
+  return /^\s*(?:i|we)(?:\s+just)?\s+(?:ate|had)\b/i.test(text)
+    || /\b(?:breakfast|lunch|dinner|brunch|supper|snack)\s+(?:was|is|:)\s*\S/i.test(text)
+}
+
 export function looksLikeWorkoutLog(text: string) {
   return /\d+\s*[x×]\s*\d+|\d+\s*sets?\s*(?:of\s*)?\d+/i.test(text)
 }
@@ -1189,7 +1197,7 @@ export async function runHireTurn(input: {
       )
     }
   }
-  if (miniApp?.kind === 'nutrition' && looksLikeNutritionLog(input.userText)) {
+  if ((miniApp?.kind === 'nutrition' || statesFood(input.userText)) && looksLikeNutritionLog(input.userText)) {
     const nutrition = await autoLogNutrition(input.senderId, agent.id, input.userText)
     if (nutrition?.logged) {
       extras.push(

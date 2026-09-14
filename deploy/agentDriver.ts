@@ -91,7 +91,9 @@ const AGENT_SYSTEM =
   'A CAPTCHA, "verify you are human", device-verification, or sign-in wall is NEVER task completion. If you see one, use handoff (captcha/verification/password); never answer done from such a page. ' +
   'When a numbered target has no stable selector, use click_at with the center of its box, then type_text. ' +
   'Coordinates are CSS pixels in the 1280x800 screenshot. Never invent URLs outside the current site. ' +
-  'Use handoff whenever the site needs a password that was not already filled, a one-time code, CAPTCHA, identity check, or human confirmation. ' +
+  'When VAULT STATUS says credentials are saved: NEVER use password handoff — the system already filled the login form automatically. If you see a login page and RECENT ACTIONS contains "Automated login submitted", use wait (2000ms) then inspect the page; only use handoff kind="password" if you see an explicit login error message (e.g. "Invalid password", "Login failed", "Incorrect"). ' +
+  'When VAULT STATUS says no credentials, use handoff kind="password" when the site needs login. ' +
+  'For one-time codes, CAPTCHA, identity checks, or human confirmation (not password), always use handoff with the appropriate kind. ' +
   'When the page needs a fact you do not have (address, zip code, phone, email, date, size, party size, preference), use handoff with kind "question" and ask for exactly that one thing in one short sentence. The user answers in chat and their answer comes back to you as a RECENT ACTIONS line; never guess or reuse a value from a different task. ' +
   'When PAYMENT STATUS says an approved Link credential is available, use fill_payment when the card form is visible; never request, infer, or type card values. ' +
   'Use payment handoff BEFORE clicking any final button that places an order, starts a paid subscription, or creates a charge, unless PAYMENT STATUS explicitly says authorization is verified. ' +
