@@ -138,17 +138,29 @@ export async function enqueueBrowserJob(
 
 /** Claim only fresh approvals scoped to this user and origin. Interrupted jobs
  * fail with an unknown outcome instead of automatically repeating side effects. */
-export async function claimBrowserJobs(sql: SQL, limit: number): Promise<BrowserJobRow[]> {
-  // Kill switch: HIREALPHA_DISABLE_BROWSER_JOBS=1 stops all new claims without
-  // a redeploy. In-flight jobs finish; nothing new starts until cleared.
+/** Fail heartbeat-dead runs and RETURN them so the caller can tell the user.
+ * Sweeping silently left a founder staring at "standing by" when a redeploy
+ * killed the container mid-run (seen live 19:36): the doctrine says no
+ * silent death, so the sweep must speak. */
+export async function sweepStaleRunningJobs(
+  sql: SQL,
+): Promise<Array<{ id: string; user_id: string; persona: string; url: string }>> {
   if (process.env.HIREALPHA_DISABLE_BROWSER_JOBS === '1') return []
   // 10 minutes: a run touches claimed_at every minute while working (see the
   // worker's heartbeat); only a genuinely dead worker has a stale claim. At
   // five minutes this sweep was killing healthy booking-site runs mid-flight.
-  await sql`
+  return (await sql`
     UPDATE hire_browser_jobs SET status = 'failed', error = 'Worker interrupted; outcome unknown. Review before retrying.', finished_at = now()
     WHERE status = 'running' AND claimed_at < now() - interval '10 minutes'
-  `
+    RETURNING id, user_id, persona, url
+  `) as Array<{ id: string; user_id: string; persona: string; url: string }>
+}
+
+export async function claimBrowserJobs(sql: SQL, limit: number): Promise<BrowserJobRow[]> {
+  // Kill switch: HIREALPHA_DISABLE_BROWSER_JOBS=1 stops all new claims without
+  // a redeploy. In-flight jobs finish; nothing new starts until cleared.
+  if (process.env.HIREALPHA_DISABLE_BROWSER_JOBS === '1') return []
+  await sweepStaleRunningJobs(sql)
   // Ask-first sweep: a denied approval kills its queued job; an unapproved one waits.
   await sql`
     UPDATE hire_browser_jobs j SET status = 'failed', error = 'Approval denied', finished_at = now()
