@@ -1,7 +1,7 @@
 /**
  * Which sections each sidebar view renders.
  *
- * This is the bug that shipped: Memory and Trust & Audit were added to the nav
+ * This is the bug that shipped: scoped settings were added to the nav
  * and the router, but nothing scoped them, so both rendered every section at
  * once and were indistinguishable from Workspace ("the memory button doesn't
  * open anything"). Hiding by CSS was the original approach and is what broke —
@@ -11,14 +11,15 @@
 import { describe, expect, it } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { workspaceViewFromParams } from './workspaceNavigation'
 
 const source = readFileSync(join(import.meta.dir, 'SettingsSheet.tsx'), 'utf8')
+const shell = readFileSync(join(import.meta.dir, 'WorkspaceShell.tsx'), 'utf8')
 
 /** Sections that must render only in the named view. */
 const SCOPED: Array<[section: string, view: string]> = [
   ['payments-section', 'payments'],
   ['vault-section', 'vault'],
-  ['trust-section', 'trust'],
   ['memory-section', 'memory'],
 ]
 
@@ -35,7 +36,7 @@ describe('workspace view section scoping', () => {
   }
 
   it('keeps the account section outside every gate', () => {
-    // Account must render in all five views, so its section is never inside a
+    // Account must render in every view, so its section is never inside a
     // `view === '…'` block. Assert both that it exists and that the nearest
     // preceding gate has already closed.
     const accountAt = source.indexOf('{/* Account */}')
@@ -47,10 +48,16 @@ describe('workspace view section scoping', () => {
   })
 
   it('has a JSX condition for every view the router can produce', () => {
-    const views = ['workspace', 'vault', 'payments', 'memory', 'trust']
+    const views = ['workspace', 'vault', 'payments', 'memory']
     for (const view of views) {
       if (view === 'workspace') continue // workspace is the default and owns the chrome
       expect(source).toContain(`{view === '${view}' && (`)
     }
+  })
+
+  it('does not expose the retired trust and audit view', () => {
+    expect(shell).not.toContain("id: 'trust'")
+    expect(source).not.toContain('trust-section')
+    expect(workspaceViewFromParams(new URLSearchParams('tab=trust'))).toBe('workspace')
   })
 })

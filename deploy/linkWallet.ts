@@ -15,7 +15,7 @@ import {
   decryptUserPayload,
   encryptUserPayload,
   loadOrCreateUserKey,
-  openBaoBrokerFromEnv,
+  userKeyBrokerFromEnv,
 } from '../services/trust/userKeyBroker'
 
 export type LinkWalletStatus = {
@@ -119,7 +119,7 @@ async function walletRow(sql: SQL, userId: string): Promise<WalletRow | null> {
 }
 
 async function withUserAuthUnlocked<T>(sql: SQL, userId: string, create: boolean, fn: (path: string) => Promise<T>): Promise<T> {
-  const broker = openBaoBrokerFromEnv()
+  const broker = userKeyBrokerFromEnv()
   if (!broker) throw new Error('Per-user wallet encryption is not configured on this server.')
   const key = await loadOrCreateUserKey(sql, broker, userId)
   let dir: string | null = null

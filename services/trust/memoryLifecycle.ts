@@ -330,6 +330,28 @@ export async function deleteUserMemories(
   return rows.length
 }
 
+/** Crypto-shred one visible fact and remove its semantic projection. */
+export async function deleteUserMemoryKey(
+  sql: SQL,
+  input: { userId: string; persona: string; key: string; index?: MemoryIndex | null },
+): Promise<number> {
+  const key = input.key.trim()
+  if (!key) throw new Error('Memory key is required.')
+  const doomed = (await sql`
+    SELECT user_id, persona, memory_key FROM memory_records
+    WHERE user_id = ${input.userId} AND deleted_at IS NULL AND memory_key = ${key}
+      AND (persona = ${input.persona} OR persona = '')
+  `) as Array<{ user_id: string; persona: string; memory_key: string | null }>
+  const rows = (await sql`
+    UPDATE memory_records SET ciphertext = NULL, deleted_at = now(), deletion_reason = 'user_request'
+    WHERE user_id = ${input.userId} AND deleted_at IS NULL AND memory_key = ${key}
+      AND (persona = ${input.persona} OR persona = '')
+    RETURNING id
+  `) as Array<{ id: string }>
+  await dropIndexRows(input.index, doomed)
+  return rows.length
+}
+
 /** Remove these records' projections from the index, grouped by user+persona. */
 async function dropIndexRows(
   index: MemoryIndex | null | undefined,

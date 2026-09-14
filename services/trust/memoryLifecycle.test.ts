@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'bun:test'
 import {
   categoryForKey,
+  deleteUserMemoryKey,
   deleteUserMemories,
   ensureMemoryConsent,
   grantMemoryConsent,
@@ -160,6 +161,28 @@ describe('categorized memory lifecycle', () => {
     }) as never
     expect(await deleteUserMemories(sql, { userId: 'user-1', reason: 'user_request', index })).toBe(2)
     expect(removed).toEqual([{ userId: 'user-1', persona: 'friend', keys: ['hard_nos', 'city'] }])
+  })
+
+  it('shreds one visible fact and removes only that semantic key', async () => {
+    const { index, removed } = fakeIndex()
+    const queries: Array<{ text: string; values: unknown[] }> = []
+    const sql = ((strings: TemplateStringsArray, ...values: unknown[]) => {
+      const text = strings.join('?')
+      queries.push({ text, values })
+      if (text.includes('SELECT user_id, persona, memory_key')) {
+        return Promise.resolve([{ user_id: 'user-1', persona: 'friend', memory_key: 'drink_order' }])
+      }
+      if (text.includes('UPDATE memory_records')) return Promise.resolve([{ id: 'm-1' }])
+      return Promise.resolve([])
+    }) as never
+
+    expect(await deleteUserMemoryKey(sql, {
+      userId: 'user-1', persona: 'friend', key: 'drink_order', index,
+    })).toBe(1)
+    const update = queries.find((query) => query.text.includes('UPDATE memory_records'))!
+    expect(update.text).toContain("deletion_reason = 'user_request'")
+    expect(update.values).toEqual(['user-1', 'drink_order', 'friend'])
+    expect(removed).toEqual([{ userId: 'user-1', persona: 'friend', keys: ['drink_order'] }])
   })
 
   it('files constraints under a 365-day bucket, not the 30-day health cap', () => {

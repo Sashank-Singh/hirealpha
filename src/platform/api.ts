@@ -171,11 +171,13 @@ export async function apiSaveContext(email: string, agentId: AgentId, fields: Re
 }
 
 export type HireMemory = { key: string; value: string; durable: boolean }
+export type SemanticMemoryStatus = { provider: 'mem0'; enabled: boolean }
+export type HireMemoryResponse = { memories: HireMemory[]; semanticMemory?: SemanticMemoryStatus }
 
 export async function apiHireMemory(email: string, agentId: AgentId) {
   const res = await fetch(`${API}/api/me/hires/${agentId}/memory?email=${encodeURIComponent(email)}`)
   if (!res.ok) throw new Error('Could not load memory')
-  return parseJson<{ memories: HireMemory[] }>(res)
+  return parseJson<HireMemoryResponse>(res)
 }
 
 export async function apiSaveMemory(email: string, agentId: AgentId, facts: Array<{ key: string; value: string }>) {
@@ -184,7 +186,7 @@ export async function apiSaveMemory(email: string, agentId: AgentId, facts: Arra
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email, facts }),
   })
-  const data = await parseJson<{ memories?: HireMemory[]; error?: string }>(res)
+  const data = await parseJson<{ memories?: HireMemory[]; semanticMemory?: SemanticMemoryStatus; error?: string }>(res)
   if (!res.ok) throw new Error(data.error || 'Could not save memory')
   return data.memories || []
 }
@@ -192,9 +194,9 @@ export async function apiSaveMemory(email: string, agentId: AgentId, facts: Arra
 export async function apiDeleteMemory(email: string, agentId: AgentId, key: string) {
   const qs = new URLSearchParams({ email, key })
   const res = await fetch(`${API}/api/me/hires/${agentId}/memory?${qs}`, { method: 'DELETE' })
-  const data = await parseJson<{ memories?: HireMemory[]; error?: string }>(res)
+  const data = await parseJson<{ memories?: HireMemory[]; semanticMemory?: SemanticMemoryStatus; error?: string }>(res)
   if (!res.ok) throw new Error(data.error || 'Could not delete memory')
-  return data.memories || []
+  return { memories: data.memories || [], semanticMemory: data.semanticMemory }
 }
 
 export async function apiConnectorStatus() {
@@ -1244,16 +1246,7 @@ export type TrustCapability = {
   expires_at: string
   created_at: string
 }
-export type TrustAuditEvent = {
-  sequence: number
-  id: string
-  event_type: string
-  resource_type: string | null
-  outcome: string
-  safe_metadata: Record<string, unknown>
-  occurred_at: string
-}
-export type TrustOverview = { capabilities: TrustCapability[]; audit: TrustAuditEvent[] }
+export type TrustOverview = { capabilities: TrustCapability[] }
 export const apiTrustOverview = (a: { email?: string; token?: string }) =>
   featureGet<TrustOverview>('/api/trust/overview', authQuery(a))
 export const apiTrustCapabilityDecide = (a: {
@@ -1261,9 +1254,6 @@ export const apiTrustCapabilityDecide = (a: {
 }) => featurePost<{ ok: boolean }>(`/api/trust/capabilities/${encodeURIComponent(a.id)}/decision`, {
   ...authParams(a), digest: a.digest, decision: a.decision,
 })
-export const apiTrustCapabilityRevoke = (a: { email?: string; token?: string; id: string }) =>
-  featureDelete<{ ok: boolean }>(`/api/trust/capabilities/${encodeURIComponent(a.id)}`, authParams(a))
-
 export type BrowserApproval = {
   id: string
   portal: string
@@ -1344,6 +1334,9 @@ export type LinkWalletStatus = {
 
 export const apiPaymentsConnect = (a: { email?: string; token?: string }) =>
   featurePost<LinkWalletStatus & { url?: string }>('/api/payments/connect', authParams(a))
+
+export const apiPaymentsCardConnect = (a: { email?: string; token?: string }) =>
+  featurePost<{ url?: string; error?: string }>('/api/payments/card/connect', authParams(a))
 
 export const apiPaymentMethods = (a: { email?: string; token?: string }) =>
   featureGet<{ methods: PaymentMethodView[]; link?: LinkWalletStatus }>('/api/payments/methods', authQuery(a))

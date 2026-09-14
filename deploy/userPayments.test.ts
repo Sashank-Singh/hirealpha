@@ -246,7 +246,7 @@ describe('paid purchase finalization', () => {
 
 /* ------------------------------- API routes ------------------------------ */
 
-const authedDeps: UserPaymentsDeps = { resolveUser: async () => ({ id: USER }) }
+const authedDeps: UserPaymentsDeps = { resolveUser: async () => ({ id: USER, email: 'alice@example.com' }) }
 const noAuthDeps: UserPaymentsDeps = { resolveUser: async () => null }
 
 function req(path: string, body?: unknown, method?: string): Request {
@@ -272,6 +272,19 @@ describe('user payments API routes', () => {
     expect(res?.status).toBe(200)
     const body = (await res!.json()) as { methods: unknown[] }
     expect(body.methods).toEqual([])
+  })
+
+  it('POST /api/payments/card/connect exposes the saved-card setup route', async () => {
+    const key = process.env.STRIPE_SECRET_KEY
+    delete process.env.STRIPE_SECRET_KEY
+    try {
+      const { sql } = fakeSql(() => [{ stripe_payment_customer: null }])
+      const res = await handleUserPaymentsApi(req('/api/payments/card/connect', {}), sql, authedDeps)
+      expect(res?.status).toBe(503)
+      expect(await res!.json()).toEqual({ error: 'Could not create your payment account.' })
+    } finally {
+      if (key) process.env.STRIPE_SECRET_KEY = key
+    }
   })
 
   it('DELETE /api/payments/methods fences on ownership (pm id must be yours)', async () => {
