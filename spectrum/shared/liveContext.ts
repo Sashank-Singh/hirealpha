@@ -1255,6 +1255,17 @@ export async function autoLogStandup(
 
 /* ---- Workshop: Alpha builds software ---- */
 
+/** The workshop generator model. Deliberately NOT the chat model: the chat
+ * default (DeepSeek-V4-Flash-0731) stalls for minutes on a full-program
+ * generation, so every build died at the turn's deadline with "couldn't be
+ * drafted". V4.1-Flash drafts a complete game in ~20-30s. */
+const WORKSHOP_MODEL = process.env.GMI_MODEL_WORKSHOP || 'deepseek-ai/DeepSeek-V4.1-Flash'
+/** Token ceiling for one workshop generation. Measured on V4.1-Flash: 8000
+ * lets the reasoning model ramble past 180s (timeout = total build failure);
+ * 4000 completes in ~30s and still fits a 250-line app. The planner prompt
+ * asks for compact output and the repair pass shortens on truncation. */
+const WORKSHOP_MAX_TOKENS = 4000
+
 const WORKSHOP_PLANNER = [
   'You generate a single-file JavaScript program for a sandbox.',
   'Sandbox rules: Bun runtime, NO network, NO environment variables, no child processes.',
@@ -1477,8 +1488,13 @@ export async function autoIterateWorkshop(input: {
   let raw = ''
   try {
     raw = await gmiChat({
+      model: WORKSHOP_MODEL,
       temperature: 0.2,
-      maxTokens: 8000,
+      maxTokens: WORKSHOP_MAX_TOKENS,
+      // A whole app is thousands of tokens on a reasoning model; the default
+      // 30s deadline killed every workshop build in prod ("couldn't be
+      // drafted") while the model was still mid-generation.
+      timeoutMs: 90_000,
       messages: [
         { role: 'system', content: WORKSHOP_ITERATOR },
         {
@@ -1550,8 +1566,10 @@ export async function autoRunWorkshop(
     try {
       for (let attempt = 0; attempt < 2; attempt++) {
         const raw = await gmiChat({
+          model: WORKSHOP_MODEL,
           temperature: 0.2,
-          maxTokens: 8000,
+          maxTokens: WORKSHOP_MAX_TOKENS,
+          timeoutMs: 90_000,
           messages: [
             { role: 'system', content: WORKSHOP_PLANNER },
             { role: 'user', content: attempt === 0 ? askWithFix : `${askWithFix}\n\nYour previous reply was cut off or not valid JSON. Write the whole program again, shorter if needed. JSON only.` },
