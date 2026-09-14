@@ -19,11 +19,12 @@ describe.skipIf(!live)('migrations against a real database', () => {
   it('applies every shipped migration on a blank schema and is idempotent', async () => {
     const sql = new SQL(url, { max: 1 })
     try {
-      // Base table the trust migrations foreign-key onto.
-      await sql`DROP TABLE IF EXISTS hire_schema_migrations, capability_grants, audit_events, task_environments, user_wrapped_keys, vault_items_v2, consent_records, memory_records, hire_users CASCADE`
-      await sql`CREATE TABLE hire_users (id TEXT PRIMARY KEY, email TEXT NOT NULL UNIQUE)`
-      await sql`CREATE TABLE hire_spend_approvals (id UUID PRIMARY KEY, user_id TEXT NOT NULL, amount_cents INTEGER NOT NULL, merchant TEXT NOT NULL, purpose TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending')`
-      await sql`CREATE TABLE hire_browser_jobs (id UUID PRIMARY KEY, user_id TEXT NOT NULL, persona TEXT NOT NULL, kind TEXT NOT NULL, url TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending')`
+      // True blank schema. The chain owns every table it needs: 0000 creates
+      // hire_users, 00065 creates the full runtime shapes. Pre-creating minimal
+      // stand-ins here once hid the drift between "test shape" and "prod shape"
+      // (no created_at on hire_browser_jobs -> 00065's index failed).
+      await sql`DROP SCHEMA public CASCADE`
+      await sql`CREATE SCHEMA public`
 
       const applied = await runMigrations(sql)
       expect(applied.length).toBeGreaterThan(0)
@@ -31,7 +32,7 @@ describe.skipIf(!live)('migrations against a real database', () => {
 
       const tables = (await sql`SELECT tablename FROM pg_tables WHERE schemaname = 'public'`) as Array<{ tablename: string }>
       const names = tables.map((t) => t.tablename)
-      for (const required of ['capability_grants', 'audit_events', 'task_environments', 'user_wrapped_keys', 'vault_items_v2', 'consent_records', 'memory_records']) {
+      for (const required of ['capability_grants', 'audit_events', 'task_environments', 'user_wrapped_keys', 'vault_items_v2', 'consent_records', 'memory_records', 'hire_tasks', 'hire_task_events']) {
         expect(names).toContain(required)
       }
 
