@@ -1260,6 +1260,11 @@ export async function autoLogStandup(
  * generation, so every build died at the turn's deadline with "couldn't be
  * drafted". V4.1-Flash drafts a complete game in ~20-30s. */
 const WORKSHOP_MODEL = process.env.GMI_MODEL_WORKSHOP || 'deepseek-ai/DeepSeek-V4.1-Flash'
+/** Second opinion when the primary planner answers 200 with prose instead of
+ * the requested JSON. gmiChat only fails over on a THROW, so a model that
+ * "chats" about the app rather than emitting {"code":...} would otherwise burn
+ * every attempt on the same stall and fail the build with no log. */
+const WORKSHOP_MODEL_FALLBACK = 'Qwen/Qwen3.8-Flash'
 /** Token ceiling for one workshop generation. Measured on V4.1-Flash: 8000
  * lets the reasoning model ramble past 180s (timeout = total build failure);
  * 4000 completes in ~30s and still fits a 250-line app. The planner prompt
@@ -1563,10 +1568,14 @@ export async function autoRunWorkshop(
         : `${ask}\n\nYour previous program failed with this error:\n${lastError}\nWrite the whole corrected program again, shorter if needed.`
     let title = ''
     let code = ''
+    let lastRaw = ''
     try {
       for (let attempt = 0; attempt < 2; attempt++) {
         const raw = await gmiChat({
-          model: WORKSHOP_MODEL,
+          // Attempt 0 on the primary planner; attempt 1 on the fallback model,
+          // so a 200-with-prose reply gets a real second opinion instead of the
+          // same model repeating it.
+          model: attempt === 0 ? WORKSHOP_MODEL : WORKSHOP_MODEL_FALLBACK,
           temperature: 0.2,
           maxTokens: WORKSHOP_MAX_TOKENS,
           timeoutMs: 90_000,
@@ -1575,6 +1584,7 @@ export async function autoRunWorkshop(
             { role: 'user', content: attempt === 0 ? askWithFix : `${askWithFix}\n\nYour previous reply was cut off or not valid JSON. Write the whole program again, shorter if needed. JSON only.` },
           ],
         })
+        lastRaw = raw || ''
         const jsonMatch = (raw || '').match(/\{[\s\S]*\}/)
         if (!jsonMatch) continue
         try {
@@ -1595,6 +1605,9 @@ export async function autoRunWorkshop(
       return { ok: false, logged: false, error: 'could not draft the program' }
     }
     if (!code.trim()) {
+      // Never silent: a 200-but-unparseable planner reply looked exactly like
+      // a phantom "the builder didn't accept the request" with no trace.
+      console.warn(`[live] workshop planner returned no usable code; reply was: ${lastRaw.slice(0, 200)}`)
       lastError = 'could not draft the program'
       if (pass === 0) continue
       return { ok: false, logged: false, error: lastError }
