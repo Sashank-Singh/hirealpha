@@ -63,7 +63,7 @@ import {
   maxRetentionDays,
   storeConsentedMemory,
 } from '../services/trust/memoryLifecycle'
-import { memoryIndexFromEnv } from '../services/trust/memoryIndex'
+import { memoryIndexFromEnv, type MemoryIndexHit } from '../services/trust/memoryIndex'
 import { parseChatExport, scanSubscriptions } from '../spectrum/shared/smartFeatures'
 import { PLACE_ASK_RE } from '../spectrum/shared/toolLoop'
 import { buildAlphaVcard, getAlphaContactPhotoB64 } from '../spectrum/shared/alphaContact'
@@ -3842,7 +3842,7 @@ export function isDurableKey(key: string) {
   return /^(people|name|sister|partner|family|company|weekly|timezone)/.test(k)
 }
 
-async function loadMemories(sql: SQL, userId: string, persona: Persona, limit = 12): Promise<MemoryRow[]> {
+async function loadMemories(sql: SQL, userId: string, persona: Persona, limit: number | null = 12): Promise<MemoryRow[]> {
   // The encrypted, consent-gated memory_records table is authoritative. The
   // plaintext hire_memories store is read only as a fallback for accounts the
   // backfill has not reached yet, so deploying this cannot make a user's
@@ -3859,18 +3859,25 @@ async function loadMemories(sql: SQL, userId: string, persona: Persona, limit = 
           durable: memory.durable,
           updatedAt: memory.updatedAt.toISOString(),
         }))
-      if (rows.length) return rankMemories(rows, limit)
+      if (rows.length) return limit === null ? rankMemories(rows, rows.length) : rankMemories(rows, limit)
     } catch (err) {
       console.warn('[memory] authoritative read failed; falling back to the legacy store', err)
     }
   }
-  const legacy = await sql`
-    SELECT key, value, durable, updated_at AS "updatedAt"
-    FROM hire_memories
-    WHERE user_id = ${userId} AND persona = ${persona}
-    ORDER BY durable DESC, updated_at DESC
-    LIMIT ${limit}
-  `
+  const legacy = limit === null
+    ? await sql`
+        SELECT key, value, durable, updated_at AS "updatedAt"
+        FROM hire_memories
+        WHERE user_id = ${userId} AND persona = ${persona}
+        ORDER BY durable DESC, updated_at DESC
+      `
+    : await sql`
+        SELECT key, value, durable, updated_at AS "updatedAt"
+        FROM hire_memories
+        WHERE user_id = ${userId} AND persona = ${persona}
+        ORDER BY durable DESC, updated_at DESC
+        LIMIT ${limit}
+      `
   return (legacy as { key: string; value: string; durable: boolean; updatedAt: Date }[]).map((r) => ({
     key: r.key,
     value: r.value,
@@ -3901,30 +3908,42 @@ async function recallMemories(
   query: string | undefined,
   limit: number,
 ): Promise<MemoryRow[]> {
-  const all = await loadMemories(sql, userId, persona, 200)
+  // Semantic hits may point at facts older than the recency window. Load the
+  // complete authoritative set so every hit can be resolved to trusted text;
+  // the final prompt remains capped by `limit` below.
+  const all = await loadMemories(sql, userId, persona, null)
   if (!all.length) return []
-  const pinned = all.filter((row) => isDurableKey(row.key))
-  const rest = all.filter((row) => !isDurableKey(row.key))
 
-  let recalled: MemoryRow[] = []
+  let hits: MemoryIndexHit[] = []
   if (query && query.trim()) {
     try {
-      const hits = await getMemoryIndex().search({
+      hits = await getMemoryIndex().search({
         userId, persona, query: query.slice(0, 500), k: 20,
       })
-      const byKey = new Map(all.map((row) => [row.key, row]))
-      const ranked = hits
-        .flatMap((hit) => {
-          const row = hit.key ? byKey.get(hit.key) : undefined
-          return row ? [row] : []
-        })
-      // De-duplicate while preserving the relevance order the index returned.
-      const seen = new Set<string>()
-      recalled = ranked.filter((row) => (seen.has(row.key) ? false : (seen.add(row.key), true)))
     } catch (err) {
       console.warn('[memory] recall failed; serving recency instead', err)
     }
   }
+
+  return selectMemoriesForRecall(all, hits, limit)
+}
+
+/** Merge trusted source rows in identity, semantic-relevance, then recency order. */
+export function selectMemoriesForRecall(
+  all: MemoryRow[],
+  hits: Array<Pick<MemoryIndexHit, 'key'>>,
+  limit: number,
+): MemoryRow[] {
+  const pinned = all.filter((row) => isDurableKey(row.key))
+  const rest = all.filter((row) => !isDurableKey(row.key))
+  const byKey = new Map(all.map((row) => [row.key, row]))
+  const seenRecalled = new Set<string>()
+  const recalled = hits.flatMap((hit) => {
+    const row = hit.key ? byKey.get(hit.key) : undefined
+    if (!row || seenRecalled.has(row.key)) return []
+    seenRecalled.add(row.key)
+    return [row]
+  })
 
   const merged: MemoryRow[] = []
   const taken = new Set<string>()

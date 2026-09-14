@@ -157,6 +157,25 @@ describe('memory index fails open', () => {
     expect(await index.removeKeys({ userId: 'u', persona: 'friend', keys: ['k'] })).toBe(0)
     expect(await index.dropByUser('u')).toBe(0)
   }, 60_000)
+
+  it('reports a timed-out write as unsuccessful', async () => {
+    const index = createMemoryIndex({
+      connectionString: 'unused',
+      ollamaUrl: 'unused',
+      model: 'unused',
+      dimensions: 8,
+      timeoutMs: 10,
+      createBackend: async () => ({
+        getAll: async () => ({ results: [] }),
+        add: async () => await new Promise(() => {}),
+        search: async () => ({ results: [] }),
+        delete: async () => ({}),
+        deleteAll: async () => ({}),
+      }),
+    })
+
+    expect(await index.index({ id: 'r', userId: 'u', persona: 'friend', key: 'k', text: 'k: v' })).toBe(false)
+  })
 })
 
 describe('key parsing', () => {

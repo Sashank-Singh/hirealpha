@@ -225,14 +225,16 @@ export function createMemoryIndex(options: MemoryIndexOptions): MemoryIndex {
           // infer:false disables mem0's own upsert, so replace explicitly.
           // Without this, every re-mention appends a duplicate row.
           const rows = await scan(record.userId, record.persona)
-          if (rows) {
-            const stale = rows
-              .filter((item) => typeof item.memory === 'string' && item.memory.startsWith(prefix))
-              .flatMap((item) => (item.id ? [item.id] : []))
-            await deleteIds(stale)
-          }
+          // If we cannot establish the existing state, do not append a row:
+          // infer:false has no deduplication and a blind insert creates duplicates.
+          if (!rows) return false
+          const stale = rows
+            .filter((item) => typeof item.memory === 'string' && item.memory.startsWith(prefix))
+            .flatMap((item) => (item.id ? [item.id] : []))
+          const removed = await deleteIds(stale)
+          if (removed !== stale.length) return false
         }
-        await withTimeout(
+        const added = await withTimeout(
           backend.add([{ role: 'user', content: record.text }], {
             userId: record.userId,
             agentId: record.persona,
@@ -241,6 +243,10 @@ export function createMemoryIndex(options: MemoryIndexOptions): MemoryIndex {
           }),
           timeoutMs,
         )
+        if (added === null) {
+          console.warn('[memoryIndex] index timed out; the memory store remains authoritative')
+          return false
+        }
         return true
       } catch (err) {
         console.warn('[memoryIndex] index failed', err)
