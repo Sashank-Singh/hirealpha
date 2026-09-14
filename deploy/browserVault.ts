@@ -724,7 +724,7 @@ export async function handleVaultApi(req: Request, sql: SQL, deps: VaultDeps): P
             requestId: grant.id,
             origin: hosted.exact_origin,
             error: 'approval_required',
-            message: 'Approve this exact-site autofill once in Approvals & audit, then tap Run again.',
+            message: 'Approve this login in Vault, then tap Open again.',
           }, 202)
         }
         const phone = (await sql`SELECT phone_e164 FROM hire_users WHERE id = ${user.id} LIMIT 1`) as unknown as Array<{ phone_e164: string | null }>

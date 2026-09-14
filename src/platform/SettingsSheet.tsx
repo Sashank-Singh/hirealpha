@@ -22,8 +22,8 @@ import {
   apiVaultSave,
   apiVaultSaveHandoff,
   apiTrustCapabilityDecide,
-  apiTrustCapabilityRevoke,
   apiTrustOverview,
+  apiPaymentsCardConnect,
   apiPaymentsConnect,
   apiPaymentMethods,
   apiLinkStatus,
@@ -36,9 +36,10 @@ import {
   type PaymentMethodView,
   type LinkWalletStatus,
   type SavedLocation,
+  type SemanticMemoryStatus,
   type SpendRequest,
   type VaultEntry,
-  type TrustOverview,
+  type TrustCapability,
 } from './api'
 import { connectedIds, getSession, hydrateFromServer, setConnection, signOut } from './roster'
 import './SettingsSheet.css'
@@ -93,7 +94,7 @@ type Loop = { id: string; kind: string; title: string; status: string; next_run:
  * friend persona), LocationPage's saved places, and ControlsPage's kill switch
  * + loops panel, keeping the same endpoints and flows.
  */
-export type SettingsView = 'workspace' | 'vault' | 'payments' | 'memory' | 'trust'
+export type SettingsView = 'workspace' | 'vault' | 'payments' | 'memory'
 
 export function SettingsSheet({ view = 'workspace', embedded = false }: { view?: SettingsView; embedded?: boolean }) {
   const navigate = useNavigate()
@@ -124,6 +125,7 @@ export function SettingsSheet({ view = 'workspace', embedded = false }: { view?:
 
   /* Memory */
   const [memories, setMemories] = useState<HireMemory[] | null>(null)
+  const [semanticMemory, setSemanticMemory] = useState<SemanticMemoryStatus | null>(null)
   const [memError, setMemError] = useState('')
 
   /* Loops (from LoopsPanel) */
@@ -146,19 +148,16 @@ export function SettingsSheet({ view = 'workspace', embedded = false }: { view?:
   /** Entry id → requestId when a run answered 202 approval_required. */
   const [pendingApproval, setPendingApproval] = useState<Record<string, string>>({})
   const [approvals, setApprovals] = useState<BrowserApproval[]>([])
+  const [credentialApprovals, setCredentialApprovals] = useState<TrustCapability[]>([])
   const [approvalBusy, setApprovalBusy] = useState('')
-  const [trust, setTrust] = useState<TrustOverview | null>(null)
-  const [trustError, setTrustError] = useState('')
-  const [trustBusyId, setTrustBusyId] = useState('')
 
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethodView[] | null>(null)
   const [linkWallet, setLinkWallet] = useState<LinkWalletStatus>({ connected: false, pending: false })
   const [paymentBusy, setPaymentBusy] = useState(false)
+  const [cardBusy, setCardBusy] = useState(false)
   const [paymentError, setPaymentError] = useState('')
   const [spendRequests, setSpendRequests] = useState<SpendRequest[]>([])
   const [spendBusyId, setSpendBusyId] = useState('')
-  const onePasswordConnectUrl = String(import.meta.env.VITE_ONEPASSWORD_CONNECT_URL || '').trim()
-
   const session = getSession()
   const e164 = toE164(session?.phone || '')
   const [alphaPhone, setAlphaPhone] = useState('+14155951440')
@@ -222,6 +221,19 @@ export function SettingsSheet({ view = 'workspace', embedded = false }: { view?:
     }
   }
 
+  async function connectCard() {
+    setCardBusy(true)
+    setPaymentError('')
+    try {
+      const res = await apiPaymentsCardConnect({ email: session?.email })
+      if (!res.url) throw new Error(res.error || 'Could not start card setup.')
+      window.location.href = res.url
+    } catch (err) {
+      setPaymentError(err instanceof Error ? err.message : 'Could not add card.')
+      setCardBusy(false)
+    }
+  }
+
   async function decideSpend(requestId: string, action: 'approve' | 'deny') {
     if (!session?.email) return
     setSpendBusyId(requestId)
@@ -253,34 +265,6 @@ export function SettingsSheet({ view = 'workspace', embedded = false }: { view?:
       .catch(() => setReady(null))
   }, [])
 
-  async function loadTrust(email: string) {
-    setTrustError('')
-    try {
-      setTrust(await apiTrustOverview({ email }))
-    } catch (error) {
-      setTrust({ capabilities: [], audit: [] })
-      setTrustError(error instanceof Error ? error.message : 'Could not load trust history')
-    }
-  }
-  useEffect(() => {
-    const email = getSession()?.email
-    if (email) void loadTrust(email)
-  }, [])
-
-  async function revokeTrustCapability(id: string) {
-    setTrustBusyId(id)
-    setTrustError('')
-    try {
-      await apiTrustCapabilityRevoke({ email: getSession()?.email, id })
-      const email = getSession()?.email
-      if (email) await loadTrust(email)
-    } catch (error) {
-      setTrustError(error instanceof Error ? error.message : 'Could not revoke access')
-    } finally {
-      setTrustBusyId('')
-    }
-  }
-
   useEffect(() => {
     if (!session?.email) return
     void loadPayments()
@@ -293,8 +277,15 @@ export function SettingsSheet({ view = 'workspace', embedded = false }: { view?:
       )
       .catch(() => setBilling({ active: false, subscriptions: [] }))
     void apiHireMemory(session.email, 'friend')
-      .then((d) => setMemories(d.memories))
-      .catch(() => setMemories([]))
+      .then((d) => {
+        setMemories(d.memories)
+        setSemanticMemory(d.semanticMemory ?? { provider: 'mem0', enabled: false })
+      })
+      .catch(() => {
+        setMemories([])
+        setSemanticMemory({ provider: 'mem0', enabled: false })
+        setMemError('Could not load memory.')
+      })
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
@@ -371,9 +362,16 @@ export function SettingsSheet({ view = 'workspace', embedded = false }: { view?:
   async function loadVault(email: string) {
     setVaultError('')
     try {
-      const [v, b] = await Promise.all([apiVaultList({ email }), apiBrowserApprovalsList({ email })])
+      const [v, b, t] = await Promise.all([
+        apiVaultList({ email }),
+        apiBrowserApprovalsList({ email }),
+        apiTrustOverview({ email }).catch(() => ({ capabilities: [] })),
+      ])
       setVault(v.entries || [])
       setApprovals((b.approvals || []).filter((ap) => ap.status === 'pending'))
+      setCredentialApprovals((t.capabilities || []).filter((capability) => (
+        capability.status === 'pending' && capability.resource_type === 'credential'
+      )))
     } catch (err) {
       setVault([])
       setVaultError(err instanceof Error ? err.message : 'Could not load saved logins')
@@ -381,10 +379,10 @@ export function SettingsSheet({ view = 'workspace', embedded = false }: { view?:
   }
   useEffect(() => {
     const email = getSession()?.email
-    if (!email) return
+    if (!email || view !== 'vault') return
     void loadVault(email)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [view])
 
   /* ?vault=1 (from Alpha's browser-task reply): land the user on Saved Logins
    * where pending run approvals are decided. */
@@ -634,7 +632,8 @@ export function SettingsSheet({ view = 'workspace', embedded = false }: { view?:
     setMemError('')
     try {
       const next = await apiDeleteMemory(session.email, 'friend', key)
-      setMemories(next)
+      setMemories(next.memories)
+      if (next.semanticMemory) setSemanticMemory(next.semanticMemory)
     } catch (err) {
       setMemError(err instanceof Error ? err.message : 'Could not clear that memory')
     }
@@ -718,15 +717,15 @@ export function SettingsSheet({ view = 'workspace', embedded = false }: { view?:
   async function decideTrustCapability(id: string, digest: string, decision: 'approved' | 'denied') {
     const email = session?.email
     if (!email) return
-    setTrustBusyId(id)
-    setTrustError('')
+    setApprovalBusy(id)
+    setVaultError('')
     try {
       await apiTrustCapabilityDecide({ email, id, digest, decision })
-      await loadTrust(email)
+      await loadVault(email)
     } catch (error) {
-      setTrustError(error instanceof Error ? error.message : 'Could not record that decision')
+      setVaultError(error instanceof Error ? error.message : 'Could not record that decision')
     } finally {
-      setTrustBusyId('')
+      setApprovalBusy('')
     }
   }
 
@@ -747,7 +746,7 @@ export function SettingsSheet({ view = 'workspace', embedded = false }: { view?:
             delete next[entry.id]
             return next
           })
-          await loadTrust(email)
+          await loadVault(email)
         } else {
           setPendingApproval((prev) => ({ ...prev, [entry.id]: requestId }))
         }
@@ -1197,33 +1196,50 @@ export function SettingsSheet({ view = 'workspace', embedded = false }: { view?:
           </section>
           )}
 
-          {/* Payment Method / Link Wallet */}
+          {/* Payment vault */}
           {view === 'payments' && (
           <section id="payments-section" className="ss-sec">
             <header className="ss-sec-head">
               <div>
-                <h2 className="ss-title">Payment Method &amp; Link Wallet</h2>
-                <p className="ss-sub">
-                  Your own Link wallet. Every purchase requires a separate approval for the exact merchant and total; HireAlpha receives a one-time credential only after you approve.
-                </p>
+                <h2 className="ss-title">Payment vault</h2>
+                <p className="ss-sub">Choose how Alpha pays.</p>
               </div>
-              <button
-                type="button"
-                className="ss-btn"
-                disabled={paymentBusy}
-                onClick={() => void (linkWallet.connected ? disconnectWallet() : connectWallet())}
-              >
-                {paymentBusy ? 'Waiting for Link…' : (linkWallet.connected ? 'Disconnect Link' : 'Connect Link Wallet')}
-              </button>
             </header>
 
+            <div className="ss-payment-options">
+              <button
+                type="button"
+                className="ss-payment-option"
+                disabled={paymentBusy || cardBusy}
+                onClick={() => void (linkWallet.connected ? disconnectWallet() : connectWallet())}
+              >
+                <span className="ss-payment-option-copy">
+                  <strong>Link</strong>
+                  <small>Use your Link wallet</small>
+                </span>
+                <span>{paymentBusy ? 'Opening…' : (linkWallet.connected ? 'Disconnect' : 'Connect')}</span>
+              </button>
+              <button
+                type="button"
+                className="ss-payment-option"
+                disabled={paymentBusy || cardBusy}
+                onClick={() => void connectCard()}
+              >
+                <span className="ss-payment-option-copy">
+                  <strong>Bank card</strong>
+                  <small>Save for future approved purchases</small>
+                </span>
+                <span>{cardBusy ? 'Opening…' : 'Add card'}</span>
+              </button>
+            </div>
+
             {paymentError && <p className="set-err">{paymentError}</p>}
-            {paymentMethods === null && <p className="ss-empty">Checking payment methods…</p>}
+            {paymentMethods === null && <p className="ss-empty">Checking vault…</p>}
             {paymentMethods !== null && paymentMethods.length === 0 && (
               <p className="ss-empty">
                 {linkWallet.pending
-                  ? <>Finish connecting in Link{linkWallet.phrase ? <> using code <strong>{linkWallet.phrase}</strong></> : null}.</>
-                  : <>No Link wallet connected yet. Connect your own wallet to approve purchases from the dashboard or iMessage.</>}
+                  ? <>Finish in Link{linkWallet.phrase ? <> with <strong>{linkWallet.phrase}</strong></> : null}.</>
+                  : <>No card connected.</>}
               </p>
             )}
 
@@ -1235,9 +1251,8 @@ export function SettingsSheet({ view = 'workspace', embedded = false }: { view?:
                       <div className="ss-body">
                         <span className="ss-name" style={{ textTransform: 'capitalize' }}>
                           {pm.brand} •••• {pm.last4}
-                          {pm.link_wallet && <span style={{ marginLeft: 8, fontSize: 12, color: '#58a6ff' }}>(Link)</span>}
                         </span>
-                        <span className="ss-subline">Expires {pm.exp}</span>
+                        <span className="ss-subline">{pm.link_wallet ? 'Link' : 'Saved card'} · {pm.exp}</span>
                       </div>
                     </div>
                   </div>
@@ -1247,7 +1262,7 @@ export function SettingsSheet({ view = 'workspace', embedded = false }: { view?:
 
             {spendRequests.filter((r) => r.pending).length > 0 && (
               <div style={{ marginTop: 24 }}>
-                <h3 className="ss-title" style={{ fontSize: 15, marginBottom: 8 }}>Pending In-Chat Purchase Approvals</h3>
+                <h3 className="ss-title ss-list-heading">Needs approval</h3>
                 <div className="ss-list">
                   {spendRequests.filter((r) => r.pending).map((sr) => (
                     <div key={sr.id} className="ss-row">
@@ -1288,37 +1303,14 @@ export function SettingsSheet({ view = 'workspace', embedded = false }: { view?:
           <section id="vault-section" className="ss-sec">
             <header className="ss-sec-head">
               <div>
-                <h2 className="ss-title">Credential access</h2>
-                <p className="ss-sub">Choose how Alpha signs in. Every website is approved separately, and you can revoke access here.</p>
+                <h2 className="ss-title">Login vault</h2>
+                <p className="ss-sub">Logins Alpha can use.</p>
               </div>
             </header>
 
-            <div className="ss-vault-providers" aria-label="Credential providers">
-              <div className="ss-vault-provider">
-                <span className="ss-provider-mark" aria-hidden="true">1P</span>
-                <div className="ss-body">
-                  <span className="ss-name">1Password</span>
-                  <span className="ss-subline">Use credentials from your own vault with per-task approval. HireAlpha never receives the password.</span>
-                </div>
-                {onePasswordConnectUrl ? (
-                  <a className="ss-provider-action" href={onePasswordConnectUrl}>Connect</a>
-                ) : (
-                  <a className="ss-provider-action is-muted" href="https://www.1password.dev/agentic-autofill" target="_blank" rel="noreferrer">Partner preview</a>
-                )}
-              </div>
-              <div className="ss-vault-provider">
-                <span className="ss-provider-mark ss-provider-mark--alpha" aria-hidden="true">HA</span>
-                <div className="ss-body">
-                  <span className="ss-name">HireAlpha Vault</span>
-                  <span className="ss-subline">Works without 1Password. Credentials are encrypted with a per-user key and restricted to the exact website you approve.</span>
-                </div>
-                <span className="ss-provider-state is-ready">OpenBao</span>
-              </div>
-            </div>
-
             {vaultError && (
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', background: 'rgba(239, 68, 68, 0.08)', border: '1px solid rgba(239, 68, 68, 0.25)', borderRadius: '8px', padding: '8px 12px', margin: '0 0 12px' }}>
-                <p className="set-err" style={{ margin: 0, padding: 0 }}>{vaultError}</p>
+              <div className="ss-vault-notice is-error">
+                <span>{vaultError}</span>
                 <button
                   type="button"
                   className="ss-btn-text"
@@ -1326,30 +1318,22 @@ export function SettingsSheet({ view = 'workspace', embedded = false }: { view?:
                     const email = getSession()?.email
                     if (email) void loadVault(email)
                   }}
-                  style={{ fontSize: '12px', color: '#60a5fa', cursor: 'pointer', background: 'none', border: 'none' }}
                 >
                   Retry
                 </button>
               </div>
             )}
             {handoffNotice && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', padding: '12px', background: 'rgba(34, 197, 94, 0.08)', border: '1px solid rgba(34, 197, 94, 0.25)', borderRadius: '8px', margin: '0 0 12px' }}>
-                <p className="ss-success-note" role="status" style={{ margin: 0 }}>{handoffNotice}</p>
-                <a href="sms://open" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '6px', padding: '8px 14px', background: '#2563eb', color: '#fff', borderRadius: '6px', textDecoration: 'none', fontWeight: 600, fontSize: '13px', width: 'fit-content' }}>
-                  Return to iMessage 💬
-                </a>
+              <div className="ss-vault-notice" role="status">
+                <span>{handoffNotice}</span>
+                <a className="ss-btn-text ss-session-link" href="sms://open">Messages</a>
               </div>
             )}
             {!vaultError && vault === null && <p className="ss-empty">Checking logins…</p>}
             {vault !== null && (
               <div className="ss-list">
                 <div className="ss-row">
-                  <div className="ss-edit">
-                    <div className="ss-handoff-intro">
-                      <span className="ss-handoff-eyebrow">Use without 1Password</span>
-                      <strong>Save a login or use a no-save private sign-in</strong>
-                      <p>Saved credentials are exact-site scoped. No-save mode pauses the private computer so only you enter protected information.</p>
-                    </div>
+                  <div className="ss-edit ss-vault-form">
                     <div className="ss-input-row">
                       <input
                         className="bento-input"
@@ -1358,7 +1342,7 @@ export function SettingsSheet({ view = 'workspace', embedded = false }: { view?:
                         autoCapitalize="none"
                         autoCorrect="off"
                         aria-label="Website URL"
-                        placeholder="Website URL, for example linkedin.com"
+                        placeholder="Website"
                         value={vaultPortal}
                         onChange={(e) => setVaultPortal(e.target.value)}
                       />
@@ -1387,35 +1371,17 @@ export function SettingsSheet({ view = 'workspace', embedded = false }: { view?:
                     </div>
                     <div className="ss-actions">
                       <button type="button" className="ss-btn" disabled={vaultBusy || !vaultPortal.trim() || vaultPassword.length < 4} onClick={() => void saveHostedCredential()}>
-                        {vaultBusy ? 'Saving…' : 'Save encrypted login'}
+                        {vaultBusy ? 'Saving…' : 'Save login'}
                       </button>
                       <button type="button" className="ss-btn-text" disabled={vaultBusy || !vaultPortal.trim()} onClick={() => void saveHandoffSite()}>
-                        Use no-save sign-in
+                        Sign in myself
                       </button>
-                    </div>
-                    <div className="ss-site-presets" aria-label="Popular websites">
-                      <span>Popular</span>
-                      {[
-                        { label: 'LinkedIn', url: 'https://www.linkedin.com' },
-                        { label: 'Amazon', url: 'https://www.amazon.com' },
-                        { label: 'GitHub', url: 'https://github.com' },
-                        { label: 'Substack', url: 'https://substack.com' },
-                      ].map((preset) => (
-                        <button
-                          key={preset.label}
-                          type="button"
-                          className="ss-site-preset"
-                          onClick={() => setVaultPortal(preset.url)}
-                        >
-                          {preset.label}
-                        </button>
-                      ))}
                     </div>
                   </div>
                 </div>
 
                 {vault.length === 0 && (
-                  <p className="ss-empty">No websites added yet. Save a login or choose no-save sign-in; every private run still requires approval.</p>
+                  <p className="ss-empty">No saved logins.</p>
                 )}
 
                 {vault.map((entry) => {
@@ -1426,13 +1392,11 @@ export function SettingsSheet({ view = 'workspace', embedded = false }: { view?:
                         <div className="ss-body">
                           <span className="ss-name">{hostOf(entry.portal)}</span>
                           <span className="ss-subline">
-                            {[
-                              entry.persona,
-                              `added ${dateLabel(entry.created_at)}`,
-                              entry.backed === 'hirealpha' ? 'encrypted with your HireAlpha Vault key' : '',
-                              entry.backed === 'onepassword' ? 'stored in 1Password' : '',
-                              entry.backed === 'handoff' ? 'sign in privately each time' : '',
-                            ].filter(Boolean).join(' • ')}
+                            {entry.backed === 'handoff'
+                              ? 'Private sign-in'
+                              : entry.backed === 'onepassword'
+                                ? '1Password'
+                                : 'Saved login'}
                           </span>
                         </div>
                         <div className="ss-actions">
@@ -1442,7 +1406,7 @@ export function SettingsSheet({ view = 'workspace', embedded = false }: { view?:
                             disabled={runningId === entry.id}
                             onClick={() => void runEntry(entry)}
                           >
-                            {runningId === entry.id ? 'Starting…' : entry.backed === 'handoff' ? 'Open computer' : 'Run'}
+                            {runningId === entry.id ? 'Opening…' : 'Open'}
                           </button>
                           <button
                             type="button"
@@ -1500,8 +1464,23 @@ export function SettingsSheet({ view = 'workspace', embedded = false }: { view?:
               </div>
             )}
 
-            {approvals.length > 0 && (
-              <div className="ss-list">
+            {(credentialApprovals.length > 0 || approvals.length > 0) && (
+              <div className="ss-list ss-vault-approvals">
+                <h3 className="ss-title ss-list-heading">Needs approval</h3>
+                {credentialApprovals.map((capability) => (
+                  <div className="ss-row" key={capability.id}>
+                    <div className="ss-cell">
+                      <div className="ss-body">
+                        <span className="ss-name">{capability.purpose}</span>
+                        {capability.exact_origin && <span className="ss-subline">{capability.exact_origin}</span>}
+                      </div>
+                      <div className="ss-actions">
+                        <button type="button" className="ss-btn-text" disabled={approvalBusy === capability.id} onClick={() => void decideTrustCapability(capability.id, capability.digest, 'approved')}>Approve</button>
+                        <button type="button" className="ss-btn-text ss-btn-danger" disabled={approvalBusy === capability.id} onClick={() => void decideTrustCapability(capability.id, capability.digest, 'denied')}>Deny</button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
                 {approvals.map((ap) => (
                   <div key={ap.id} className="ss-row">
                     <div className="ss-cell">
@@ -1535,106 +1514,29 @@ export function SettingsSheet({ view = 'workspace', embedded = false }: { view?:
           </section>
           )}
 
-          {view === 'trust' && (
-          <section id="trust-section" className="ss-sec">
-            <header className="ss-sec-head">
-              <div>
-                <h2 className="ss-title">Approvals &amp; audit</h2>
-                <p className="ss-sub">One history for Vault, private computers, memory, and agent actions. Link payment approval stays in Link.</p>
-              </div>
-            </header>
-            {trustError && <p className="set-err">{trustError}</p>}
-            {trust === null && <p className="ss-empty">Loading trust history…</p>}
-            {trust && trust.capabilities.filter((capability) => capability.status === 'pending' && capability.resource_type !== 'payment').length > 0 && (
-              <div className="ss-list">
-                {trust.capabilities.filter((capability) => capability.status === 'pending' && capability.resource_type !== 'payment').map((capability) => (
-                  <div className="ss-row" key={capability.id}>
-                    <div className="ss-cell">
-                      <div className="ss-body">
-                        <span className="ss-name">{capability.purpose}</span>
-                        <span className="ss-subline">
-                          {[
-                            capability.resource_type,
-                            capability.action,
-                            capability.exact_origin,
-                            capability.amount_cents && capability.currency
-                              ? `${capability.currency} ${(capability.amount_cents / 100).toFixed(2)}`
-                              : '',
-                            `expires ${dateLabel(capability.expires_at)}`,
-                          ].filter(Boolean).join(' • ')}
-                        </span>
-                      </div>
-                      <div className="ss-actions">
-                        <button type="button" className="ss-btn-text" disabled={trustBusyId === capability.id} onClick={() => void decideTrustCapability(capability.id, capability.digest, 'approved')}>Approve once</button>
-                        <button type="button" className="ss-btn-text ss-btn-danger" disabled={trustBusyId === capability.id} onClick={() => void decideTrustCapability(capability.id, capability.digest, 'denied')}>Deny</button>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-            {trust && trust.capabilities.filter((capability) => capability.status === 'pending' && capability.resource_type !== 'payment').length === 0 && (
-              <p className="ss-empty">No requests need your approval.</p>
-            )}
-            {trust && trust.capabilities.filter((capability) => ['approved', 'consuming'].includes(capability.status)).length > 0 && (
-              <div style={{ marginTop: 24 }}>
-                <h3 className="ss-title" style={{ fontSize: 15, marginBottom: 8 }}>Active access</h3>
-                <div className="ss-list">
-                  {trust.capabilities.filter((capability) => ['approved', 'consuming'].includes(capability.status)).map((capability) => (
-                    <div className="ss-row" key={capability.id}>
-                      <div className="ss-cell">
-                        <div className="ss-body">
-                          <span className="ss-name">{capability.purpose}</span>
-                          <span className="ss-subline">
-                            {[
-                              capability.resource_type,
-                              capability.exact_origin,
-                              `expires ${dateLabel(capability.expires_at)}`,
-                            ].filter(Boolean).join(' • ')}
-                          </span>
-                        </div>
-                        <div className="ss-actions">
-                          <button type="button" className="ss-btn-text ss-btn-danger" disabled={trustBusyId === capability.id} onClick={() => void revokeTrustCapability(capability.id)}>Revoke</button>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-            {trust && trust.audit.length > 0 && (
-              <div className="ss-list" aria-label="Recent audit events">
-                {trust.audit.slice(0, 20).map((event) => (
-                  <div className="ss-row" key={event.id}>
-                    <div className="ss-cell">
-                      <div className="ss-body">
-                        <span className="ss-name">{event.event_type.replaceAll('.', ' ')}</span>
-                        <span className="ss-subline">{[event.resource_type, event.outcome, dateLabel(event.occurred_at)].filter(Boolean).join(' • ')}</span>
-                      </div>
-                      <span className="ss-provider-state">#{event.sequence}</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </section>
-          )}
-
           {/* Memory */}
           {view === 'memory' && (
           <section id="memory-section" className="ss-sec">
             <header className="ss-sec-head">
               <div>
                 <h2 className="ss-title">Memory</h2>
-                <p className="ss-sub">What Alpha remembers about you from your conversations.</p>
+                <p className="ss-sub">
+                  {memories === null
+                    ? 'Loading saved facts…'
+                    : `${memories.length} saved ${memories.length === 1 ? 'fact' : 'facts'} · recalled when relevant`}
+                </p>
               </div>
+              <span className={`ss-memory-engine ${semanticMemory?.enabled ? 'is-ready' : ''}`}>
+                <span className="ss-memory-engine-dot" aria-hidden="true" />
+                {semanticMemory === null ? 'Mem0 checking' : semanticMemory.enabled ? 'Mem0 standard' : 'Mem0 unavailable'}
+              </span>
             </header>
 
             {memError && <p className="set-err">{memError}</p>}
             {memories === null && <p className="ss-empty">Checking memories…</p>}
             {memories !== null && memories.length === 0 && (
               <p className="ss-empty">
-                Nothing saved yet. Alpha remembers the things you tell it in Messages — family, work, routines.
+                No saved facts yet.
               </p>
             )}
             {memories !== null && memories.length > 0 && (
@@ -1643,8 +1545,8 @@ export function SettingsSheet({ view = 'workspace', embedded = false }: { view?:
                   <div key={m.key} className="ss-row">
                     <div className="ss-cell">
                       <div className="ss-body">
-                        <span className="ss-name">{m.value}</span>
-                        <span className="ss-subline">{m.key}</span>
+                        <span className="ss-memory-label">{memoryLabel(m.key)}</span>
+                        <span className="ss-memory-value">{m.value}</span>
                       </div>
                       <div className="ss-actions">
                         <button
@@ -1652,7 +1554,7 @@ export function SettingsSheet({ view = 'workspace', embedded = false }: { view?:
                           className="ss-btn-text ss-btn-danger"
                           onClick={() => void clearMemory(m.key)}
                         >
-                          Clear
+                          Forget
                         </button>
                       </div>
                     </div>
@@ -1703,6 +1605,12 @@ function dateLabel(iso: string): string {
   const d = new Date(iso)
   if (Number.isNaN(d.getTime())) return ''
   return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+}
+
+function memoryLabel(key: string): string {
+  const words = key.replaceAll('_', ' ').trim()
+  if (!words) return 'Saved fact'
+  return `${words.charAt(0).toUpperCase()}${words.slice(1)}`
 }
 
 /** Vault row name: just the portal's hostname (e.g. "adp.com"). */

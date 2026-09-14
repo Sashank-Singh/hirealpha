@@ -47,6 +47,8 @@ import {
   handleUserPaymentsApi,
   noteSetupCompleted,
   createLinkBackedSpendRequest,
+  createSpendRequest,
+  listPaymentMethodsForUser,
   queuePaidPurchaseFinalization,
   decideSpendApproval,
   chargeApprovedSpend,
@@ -58,12 +60,13 @@ import { handleTrustApi } from '../services/trust/trustApi'
 import {
   CONSENT_PURPOSE,
   categoryForKey,
+  deleteUserMemoryKey,
   ensureMemoryConsent,
   listConsentedMemories,
   maxRetentionDays,
   storeConsentedMemory,
 } from '../services/trust/memoryLifecycle'
-import { memoryIndexFromEnv, type MemoryIndexHit } from '../services/trust/memoryIndex'
+import { memoryIndexFromEnv, memoryIndexStatusFromEnv, type MemoryIndexHit } from '../services/trust/memoryIndex'
 import { parseChatExport, scanSubscriptions } from '../spectrum/shared/smartFeatures'
 import { PLACE_ASK_RE } from '../spectrum/shared/toolLoop'
 import { buildAlphaVcard, getAlphaContactPhotoB64 } from '../spectrum/shared/alphaContact'
@@ -3838,8 +3841,7 @@ const DURABLE_KEYS = new Set([
 
 export function isDurableKey(key: string) {
   const k = key.trim().toLowerCase()
-  if (DURABLE_KEYS.has(k)) return true
-  return /^(people|name|sister|partner|family|company|weekly|timezone)/.test(k)
+  return DURABLE_KEYS.has(k)
 }
 
 async function loadMemories(sql: SQL, userId: string, persona: Persona, limit: number | null = 12): Promise<MemoryRow[]> {
@@ -3847,7 +3849,7 @@ async function loadMemories(sql: SQL, userId: string, persona: Persona, limit: n
   // plaintext hire_memories store is read only as a fallback for accounts the
   // backfill has not reached yet, so deploying this cannot make a user's
   // existing memory disappear.
-  const broker = openBaoBrokerFromEnv()
+  const broker = userKeyBrokerFromEnv()
   if (broker) {
     try {
       const stored = await listConsentedMemories(sql, broker, { userId, persona })
@@ -3987,14 +3989,12 @@ async function upsertMemories(
   persona: Persona,
   facts: Array<{ key: string; value: string; durable?: boolean }>,
 ) {
-  const broker = openBaoBrokerFromEnv()
+  const broker = userKeyBrokerFromEnv()
   const index = getMemoryIndex()
   const cleaned = facts.flatMap((fact) => {
-    const key = String(fact.key || '')
-      .trim()
-      .toLowerCase()
-      .replace(/\s+/g, '_')
-      .slice(0, 80)
+    let key = String(fact.key || '').trim().toLowerCase().replaceAll(' ', '_')
+    while (key.includes('__')) key = key.replaceAll('__', '_')
+    key = key.slice(0, 80)
     const value = String(fact.value || '').trim().slice(0, 500)
     if (!key || !value) return []
     return [{ key, value, durable: fact.durable ?? isDurableKey(key) }]
@@ -11991,7 +11991,7 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
         session: q.get('s') || undefined,
         email: q.get('email') || undefined,
       })
-      return user ? { id: user.id } : null
+      return user ? { id: user.id, email: user.email } : null
     },
   })
   if (paymentsRes) return paymentsRes
@@ -12358,7 +12358,7 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
       .toLowerCase()
     const user = await getUserByEmail(sql, email)
     if (!user) return json({ error: 'Sign in first' }, 401)
-    return json({ memories: await loadMemories(sql, user.id, persona, 40) })
+    return json({ memories: await loadMemories(sql, user.id, persona, 40), semanticMemory: memoryIndexStatusFromEnv() })
   }
   if (memoryMatch && req.method === 'PUT') {
     const persona = memoryMatch[1]
@@ -12380,7 +12380,7 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
         durable: f.durable ?? isDurableKey(String(f.key)),
       }))
     await upsertMemories(sql, user.id, persona, facts)
-    return json({ ok: true, memories: await loadMemories(sql, user.id, persona, 40) })
+    return json({ ok: true, memories: await loadMemories(sql, user.id, persona, 40), semanticMemory: memoryIndexStatusFromEnv() })
   }
   if (memoryMatch && req.method === 'DELETE') {
     const persona = memoryMatch[1]
@@ -12392,8 +12392,9 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
     const user = await getUserByEmail(sql, email)
     if (!user) return json({ error: 'Sign in first' }, 401)
     if (!key) return json({ error: 'key required' }, 400)
+    await deleteUserMemoryKey(sql, { userId: user.id, persona, key, index: getMemoryIndex() })
     await sql`DELETE FROM hire_memories WHERE user_id = ${user.id} AND persona = ${persona} AND key = ${key}`
-    return json({ ok: true, memories: await loadMemories(sql, user.id, persona, 40) })
+    return json({ ok: true, memories: await loadMemories(sql, user.id, persona, 40), semanticMemory: memoryIndexStatusFromEnv() })
   }
 
   if (path.startsWith('/api/connect/') && req.method === 'GET') {
@@ -13410,12 +13411,17 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
       const cap = Number(process.env.PURCHASE_MAX_DOLLARS || 200)
       if (!Number.isFinite(amount) || amount < 1) return json({ ok: false, error: 'Purchase needs a real price.' }, 400)
       if (amount > cap) return json({ ok: false, error: `Above the ${cap}-dollar self-serve cap.` }, 400)
-      if (!/^https:\/\//i.test(url)) return json({ ok: false, error: 'Purchase needs a real product URL.' }, 400)
+      let productUrl: URL
+      try { productUrl = new URL(url) } catch { return json({ ok: false, error: 'Purchase needs a real product URL.' }, 400) }
+      if (productUrl.protocol !== 'https:' || productUrl.username || productUrl.password) {
+        return json({ ok: false, error: 'Purchase needs a secure product URL.' }, 400)
+      }
 
       // The dashboard and iMessage both resolve to the same per-user Link
       // wallet row. The operator's Link account is never a fallback.
       const link = await getLinkStatus(sql, live.userId!).catch(() => ({ connected: false, pending: false }))
-      if (!link.connected) {
+      const savedCard = link.connected ? null : await listPaymentMethodsForUser(sql, live.userId!)
+      if (!link.connected && !savedCard) {
         const setupUrl = `${appBaseFromEnv()}/app?tab=settings&connect=payments`
         const pid = crypto.randomUUID()
         await sql`
@@ -13426,20 +13432,24 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
         return json({ ok: true, id: pid, kind: 'purchase', needsSetup: true, setupUrl, paymentUrl: setupUrl, amount, item })
       }
 
-      // Link receives the exact merchant and total and returns its own approval URL.
+      // Link can issue a one-time card, while a directly saved bank card stays
+      // attached to the user's Stripe customer. Both remain ask-first.
       const amountCents = Math.round(amount * 100)
-      let merchant = 'Merchant'
-      try { merchant = new URL(url).hostname } catch {}
-      const spend = await createLinkBackedSpendRequest(sql, live.userId!, {
-        amountCents,
-        merchant,
-        merchantUrl: url,
-        purpose: item,
-      })
+      const merchant = productUrl.hostname
+      const spend = link.connected
+        ? await createLinkBackedSpendRequest(sql, live.userId!, {
+            amountCents,
+            merchant,
+            merchantUrl: url,
+            purpose: item,
+          })
+        : await createSpendRequest(sql, live.userId!, { amountCents, merchant, purpose: item })
       if (!spend.requestId) {
         return json({ ok: false, error: spend.error || 'Could not create spend approval' }, 400)
       }
-      const approvalUrl = spend.approvalUrl
+      const approvalUrl = 'approvalUrl' in spend
+        ? spend.approvalUrl
+        : `${appBaseFromEnv()}/api/payments/spend/approve?id=${encodeURIComponent(spend.requestId)}`
       const pid = crypto.randomUUID()
       await sql`
         INSERT INTO hire_drafts (id, user_id, persona, kind, to_addr, subject, body, status)

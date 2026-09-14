@@ -67,8 +67,49 @@ export interface MemoryIndex {
 
 export const MEMORY_INDEX_DEFAULT_K = 20
 export const MEMORY_INDEX_DEFAULT_TIMEOUT_MS = 1500
+export const MEMORY_INDEX_DEFAULT_OLLAMA_URL = 'http://127.0.0.1:11434'
+export const MEMORY_INDEX_DEFAULT_MODEL = 'qwen3-embedding:0.6b'
+export const MEMORY_INDEX_DEFAULT_DIMENSIONS = 1024
 /** mem0 pages `getAll`; this is the page size used when matching by text. */
 const SCAN_LIMIT = 1000
+
+export type MemoryIndexStatus = { provider: 'mem0'; enabled: boolean }
+
+type ResolvedMemoryIndexConfig = {
+  connectionString: string
+  ollamaUrl: string
+  model: string
+  dimensions: number
+  collection?: string
+  timeoutMs?: number
+}
+
+function resolvedMemoryIndexConfig(env: NodeJS.ProcessEnv): ResolvedMemoryIndexConfig | null {
+  if (env.MEM0_ENABLED?.trim().toLowerCase() === 'false') return null
+  const connectionString = env.DATABASE_URL?.trim()
+  const ollamaUrl = env.OLLAMA_BASE_URL?.trim() || MEMORY_INDEX_DEFAULT_OLLAMA_URL
+  const model = env.MEM0_EMBED_MODEL?.trim() || MEMORY_INDEX_DEFAULT_MODEL
+  const dimensions = env.MEM0_EMBED_DIMS?.trim()
+    ? Number(env.MEM0_EMBED_DIMS)
+    : MEMORY_INDEX_DEFAULT_DIMENSIONS
+  if (!connectionString || !Number.isFinite(dimensions) || dimensions <= 0) return null
+  return {
+    connectionString,
+    ollamaUrl,
+    model,
+    dimensions,
+    collection: env.MEM0_COLLECTION?.trim() || undefined,
+    timeoutMs: Number(env.MEM0_RECALL_TIMEOUT_MS) || undefined,
+  }
+}
+
+/** Safe, non-secret status for the account UI. */
+export function memoryIndexStatusFromEnv(env: NodeJS.ProcessEnv = process.env): MemoryIndexStatus {
+  return {
+    provider: 'mem0',
+    enabled: resolvedMemoryIndexConfig(env) !== null,
+  }
+}
 
 /** The key prefix this layer writes, and the anchor for matching rows back. */
 export function keyPrefix(key: string): string {
@@ -333,30 +374,17 @@ export function createMemoryIndex(options: MemoryIndexOptions): MemoryIndex {
 }
 
 /**
- * Build the index from the environment, or a no-op when it is not configured.
- *
- * Disabled by default is deliberate: recall degrades to the authoritative
- * store, so an unconfigured deployment behaves exactly as it did before this
- * layer existed rather than failing turns.
+ * Build the standard Mem0 index from the environment. A deployment can opt
+ * out with MEM0_ENABLED=false; otherwise only DATABASE_URL is required and
+ * the known-good local Ollama embedding defaults are used.
  */
 export function memoryIndexFromEnv(env: NodeJS.ProcessEnv = process.env): MemoryIndex {
-  if (env.MEM0_ENABLED !== 'true') return new NullMemoryIndex()
-  const connectionString = env.DATABASE_URL?.trim()
-  const ollamaUrl = env.OLLAMA_BASE_URL?.trim()
-  const model = env.MEM0_EMBED_MODEL?.trim()
-  const dimensions = Number(env.MEM0_EMBED_DIMS)
-  if (!connectionString || !ollamaUrl || !model || !Number.isFinite(dimensions) || dimensions <= 0) {
+  const config = resolvedMemoryIndexConfig(env)
+  if (!config) {
     console.warn(
-      '[memoryIndex] MEM0_ENABLED=true but DATABASE_URL, OLLAMA_BASE_URL, MEM0_EMBED_MODEL and MEM0_EMBED_DIMS are required; memory recall is disabled',
+      '[memoryIndex] Mem0 requires DATABASE_URL and valid embedding dimensions; memory recall is unavailable',
     )
     return new NullMemoryIndex()
   }
-  return createMemoryIndex({
-    connectionString,
-    ollamaUrl,
-    model,
-    dimensions,
-    collection: env.MEM0_COLLECTION?.trim() || undefined,
-    timeoutMs: Number(env.MEM0_RECALL_TIMEOUT_MS) || undefined,
-  })
+  return createMemoryIndex(config)
 }
