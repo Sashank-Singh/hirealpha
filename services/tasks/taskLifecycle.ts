@@ -15,8 +15,10 @@
  *   claim    (approval/capability verified) -> authority_granted -> EXECUTING
  *   handoff  password/verification/captcha -> PAUSED_BY_USER | HUMAN_TAKEOVER
  *   resume                                 -> EXECUTING
- *   finish ok   -> VERIFYING -> SYNCHRONIZING -> FULFILLED (evidence = audited
- *                  job row: worker done-audit + result + screenshot ref)
+ *   finish ok   -> VERIFYING, then SYNCHRONIZING -> FULFILLED only with
+ *                  captured page evidence; without it the task parks in
+ *                  VERIFYING under verification_failed (never claim done from
+ *                  model text alone)
  *   finish fail -> FAILED_RETRYABLE | FAILED_FINAL
  */
 import type { SQL } from 'bun'
@@ -145,7 +147,27 @@ export async function mirrorJobFinished(
       await appendEvent(sql, { userId, taskId, type: 'artifact_recorded', payload: { kind: 'result', ref: outcome.result.slice(0, 2000) }, actor: 'alpha', idempotencyKey: `${jobId}:result` })
       await appendEvent(sql, { userId, taskId, type: 'external_op_recorded', payload: { operation: `browser_job:${jobId}`, idempotency_key: `${jobId}:done`, status: 'done', evidence_ref: `hire_browser_jobs:${jobId}` }, actor: 'alpha', idempotencyKey: `${jobId}:op-done` })
       await appendEvent(sql, { userId, taskId, type: 'state_changed', payload: { to: 'VERIFYING' }, actor: 'alpha', idempotencyKey: `${jobId}:verifying` })
-      await appendEvent(sql, { userId, taskId, type: 'verification_recorded', payload: { passed: true, evidence: [`browser_job_audit:${jobId}`] }, actor: 'alpha', idempotencyKey: `${jobId}:verified` })
+      // Never claim completion from model text alone (plan: EXECUTING ->
+      // FULFILLED forbidden without independent verification). The strongest
+      // evidence a finished job row carries is the captured page screenshot;
+      // without one the task parks in VERIFYING with the rescue registry's
+      // own code - "checking before claiming", never a silent pass.
+      const evidence = link.hasScreenshot
+        ? [`hire_browser_jobs:${jobId}`, `screenshot:${jobId}`]
+        : []
+      await appendEvent(sql, {
+        userId, taskId, type: 'verification_recorded',
+        payload: { passed: evidence.length > 0, evidence },
+        actor: 'alpha', idempotencyKey: `${jobId}:verified`,
+      })
+      if (!link.hasScreenshot) {
+        await appendEvent(sql, {
+          userId, taskId, type: 'failure_recorded',
+          payload: { reason_code: 'verification_failed', detail: 'worker reported done with no captured page evidence' },
+          actor: 'alpha', idempotencyKey: `${jobId}:unverified`,
+        })
+        return
+      }
       await appendEvent(sql, { userId, taskId, type: 'state_changed', payload: { to: 'SYNCHRONIZING' }, actor: 'alpha', idempotencyKey: `${jobId}:synchronizing` })
       await appendEvent(sql, { userId, taskId, type: 'state_changed', payload: { to: 'FULFILLED' }, actor: 'alpha', idempotencyKey: `${jobId}:fulfilled` })
       return
@@ -166,14 +188,20 @@ async function isJobRetryQueued(sql: SQL, jobId: string): Promise<boolean> {
   return rows[0]?.status === 'pending'
 }
 
-/** The current task link for a job, if the mirror created one. */
-async function taskLink(sql: SQL, jobId: string): Promise<{ userId: string; taskId: string; seq: number } | null> {
+/** The current task link for a job, plus the evidence the row already holds. */
+async function taskLink(sql: SQL, jobId: string): Promise<{ userId: string; taskId: string; seq: number; hasScreenshot: boolean } | null> {
   if (!taskRecordEnabled()) return null
   const rows = (await sql`
-    SELECT user_id, task_id FROM hire_browser_jobs WHERE id = ${jobId} AND task_id IS NOT NULL LIMIT 1
-  `) as Array<{ user_id: string; task_id: string }>
+    SELECT user_id, task_id, last_screenshot FROM hire_browser_jobs WHERE id = ${jobId} AND task_id IS NOT NULL LIMIT 1
+  `) as Array<{ user_id: string; task_id: string; last_screenshot: string | null }>
   const row = rows[0]
   if (!row?.task_id) return null
   const task = await getTask(sql, { userId: String(row.user_id), taskId: String(row.task_id) })
-  return task ? { userId: task.user_id, taskId: task.id, seq: task.event_seq } : null
+  if (!task) return null
+  return {
+    userId: task.user_id,
+    taskId: task.id,
+    seq: task.event_seq,
+    hasScreenshot: typeof row.last_screenshot === 'string' && row.last_screenshot.length > 0,
+  }
 }

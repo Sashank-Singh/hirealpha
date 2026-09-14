@@ -7,6 +7,12 @@
  * SKIP LOCKED protocol as hire_task_loops. The worker runs the browser (or
  * the agent driver) and posts the outcome back to an internal endpoint,
  * which re-arms the thread-result loop. Web container: zero Chromium.
+ *
+ * Every function below also mirrors into the canonical task record when
+ * HIREALPHA_TASK_RECORD=1 (services/tasks/taskLifecycle): enqueue parks the
+ * task in WAITING_FOR_AUTHORITY, claim EXECUTES it, handoff/resume pause and
+ * return, finish completes only on captured evidence - the mirror records
+ * outcomes, it can never change them.
  */
 import { randomBytes, randomUUID, createHmac, timingSafeEqual } from 'node:crypto'
 import type { SQL } from 'bun'

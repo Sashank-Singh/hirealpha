@@ -70,8 +70,10 @@ function fakeWorld(job: Row) {
       job.task_id = values[0]
       return Promise.resolve([])
     }
-    if (text.includes('SELECT user_id, task_id FROM hire_browser_jobs')) {
-      return Promise.resolve(job.task_id ? [{ user_id: job.user_id, task_id: job.task_id }] : [])
+    if (text.includes('SELECT user_id, task_id') && text.includes('hire_browser_jobs')) {
+      return Promise.resolve(job.task_id
+        ? [{ user_id: job.user_id, task_id: job.task_id, last_screenshot: job.last_screenshot ?? null }]
+        : [])
     }
     if (text.includes('SELECT task_id FROM hire_browser_jobs')) {
       return Promise.resolve([{ task_id: job.task_id ?? null }])
@@ -141,6 +143,7 @@ describe('browser-job task mirror', () => {
     expect(projection?.state).toBe('EXECUTING')
     expect(projection?.monitor_state).toBe('OFF')
     job.status = 'done'
+    job.last_screenshot = 'data:image/png;base64,RECEIPT'
     await mirrorJobFinished(world.sql, 'job-1', { ok: true, result: 'socks ordered' })
     projection = await loadProjection(world.sql, { userId: 'user-1', taskId: taskId! })
     expect(projection?.state).toBe('FULFILLED')
@@ -180,9 +183,24 @@ describe('browser-job task mirror', () => {
     projection = await loadProjection(world.sql, { userId: 'user-1', taskId: taskId! })
     expect(projection?.state).toBe('EXECUTING')
     job.status = 'done'
+    job.last_screenshot = 'data:image/png;base64,RECEIPT'
     await mirrorJobFinished(world.sql, 'job-1', { ok: true, result: 'ok' })
     projection = await loadProjection(world.sql, { userId: 'user-1', taskId: taskId! })
     expect(projection?.state).toBe('FULFILLED')
+  })
+
+  it('parks done-without-evidence in VERIFYING, never claims completion', async () => {
+    process.env.HIREALPHA_TASK_RECORD = '1'
+    const job = baseJob({ status: 'running' })
+    const world = fakeWorld(job)
+    const taskId = await mirrorJobEnqueued(world.sql, meta)
+    await mirrorJobClaimed(world.sql, meta)
+    job.status = 'done'
+    await mirrorJobFinished(world.sql, 'job-1', { ok: true, result: 'trust me' })
+    const projection = await loadProjection(world.sql, { userId: 'user-1', taskId: taskId! })
+    expect(projection?.state).toBe('VERIFYING')
+    expect(projection?.verification?.passed).toBe(false)
+    expect(projection?.failure?.reason_code).toBe('verification_failed')
   })
 
   it('reuses the existing task link when a job is enqueued twice', async () => {
