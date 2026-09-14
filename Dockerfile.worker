@@ -38,6 +38,7 @@ COPY deploy/e2bExecutor.ts ./e2bExecutor.ts
 COPY deploy/kernelPage.ts ./kernelPage.ts
 COPY deploy/kernelSession.ts ./kernelSession.ts
 COPY deploy/siteMemory.ts ./siteMemory.ts
+COPY deploy/userIdentity.ts ./userIdentity.ts
 COPY deploy/challengeDetection.ts ./challengeDetection.ts
 COPY deploy/vaultCrypto.ts ./vaultCrypto.ts
 COPY deploy/linkWallet.ts ./linkWallet.ts

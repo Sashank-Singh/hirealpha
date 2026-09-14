@@ -17,6 +17,7 @@ import { DISABLED_ERROR, resolveBrowserExecutorMode, withTaskSandbox } from './e
 import { E2BTaskEnvironmentProvider } from '../services/trust/taskEnvironments'
 import { KernelBrowser } from './kernelPage'
 import { runKernelTask } from './kernelSession'
+import { formatIdentityForPrompt, loadIdentityProfile } from './userIdentity'
 import { reportLinkOutcome, retrieveLinkCard, retrieveLinkSpend, type LinkCardCredential } from './linkWallet'
 import { createLinkBackedSpendRequest, ensureUserPaymentsSchema, promoteApprovedLinkPurchases } from './userPayments'
 import {
@@ -27,6 +28,7 @@ import {
   finishBrowserJob,
   generateSessionViewToken,
   setBrowserLiveView,
+  sweepStaleRunningJobs,
   setBrowserScreenshot,
   waitForBrowserHandoff,
   waitForBrowserHandoffAnswer,
@@ -306,6 +308,7 @@ export async function runJob(sql: SQL, job: JobRow, launch = runBrowserSession):
           password: task.password,
           goal: task.goal,
           jobId: job.id,
+          identity: task.identity,
           paymentAuthorized: task.paymentAuthorized,
               paymentAmountCents: task.paymentAmountCents,
               paymentCard: task.paymentCard,
@@ -380,6 +383,10 @@ export async function runJob(sql: SQL, job: JobRow, launch = runBrowserSession):
   }
 
   const kind = job.kind as 'newsletter' | 'ticker' | 'task'
+  // Real identity for form filling: the loop fills from these or asks the
+  // user; inventing "John Smith" is banned by the agent rules. A read failure
+  // degrades to an empty profile — which forces asking, never guessing.
+  const identityText = formatIdentityForPrompt(await loadIdentityProfile(sql, job.user_id, job.persona))
   // The latest page image the session produced. A run that ends without one
   // still reports its text; a run that has one sends it, because "here is what
   // I saw" is what makes the result checkable. Kept module-scoped so report()
@@ -404,6 +411,7 @@ export async function runJob(sql: SQL, job: JobRow, launch = runBrowserSession):
     kind,
     steps: (job.steps as never) || undefined,
     goal: job.goal || undefined,
+    identity: identityText || undefined,
     paymentAuthorized: Boolean(paymentCard),
     paymentAmountCents,
     paymentCard,
@@ -684,6 +692,22 @@ async function main() {
     busy++
     try {
       await promoteApprovedLinkPurchases(sql).catch((err) => console.warn('[browser-worker] Link approval poll failed', err instanceof Error ? err.message : err))
+      // No silent death: a run whose worker died mid-flight (redeploy, OOM) is
+      // swept AND announced here — the user gets an honest "interrupted,
+      // nothing confirmed" instead of waiting on a ghost (seen live 19:36,
+      // a deploy killed the founder's form-fill and nobody said anything).
+      const swept = await sweepStaleRunningJobs(sql).catch((err) => {
+        console.warn('[browser-worker] stale sweep failed', err instanceof Error ? err.message : String(err))
+        return []
+      })
+      for (const row of swept) {
+        console.log(`[browser-worker] swept dead run ${row.id} — notifying user`)
+        await pushBrowserResultLoop(sql, {
+          userId: row.user_id, persona: row.persona, origin: row.url,
+          insights: 'The browser run was interrupted before it finished, so I could not verify any outcome and nothing is confirmed done. Ask me to try again and I will start fresh.',
+          jobId: row.id,
+        }, { retryDelaysMs: [0, 2_000, 8_000] }).catch((err) => console.warn('[browser-worker] sweep notify failed', err))
+      }
       const rows = await claimBrowserJobs(sql, 1)
       const job = rows[0]
       if (!job) return

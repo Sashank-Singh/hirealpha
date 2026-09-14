@@ -62,6 +62,9 @@ export type KernelTask = {
   goal?: string
   jobId?: string
   sql?: SQL | null
+  /** USER PROFILE prompt block (real name/email/phone/addresses) — the agent
+   * fills forms from it or asks; placeholders like "John Smith" are banned. */
+  identity?: string
   onProgress?: (event: { action: string; url: string }) => Promise<void>
   onScreenshot?: (event: { dataUrl: string; caption?: string }) => Promise<void>
   onHandoff?: (handoff: {
@@ -832,6 +835,7 @@ function renderPrompt(
     `GOAL: ${task.goal || 'complete the task on this page'}`,
     planBlock,
     stepInstruction,
+    task.identity || '',
     siteMemory || '',
     `URL: ${url}`,
     `TITLE: ${title}`,

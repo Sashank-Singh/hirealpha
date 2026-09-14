@@ -20,6 +20,8 @@ export type SessionTask = {
   kind: 'newsletter' | 'ticker' | 'task'
   steps?: PortalStep[]
   goal?: string
+  /** USER PROFILE prompt block; the agent fills from it or asks, never invents. */
+  identity?: string
   /** CDP endpoint of this task's fresh sandbox. Each task connects to its own
    * browser and closes the connection afterwards — never shared across tasks. */
   cdpUrl?: string
@@ -629,6 +631,7 @@ async function agentLoop(
         goal,
         stepNumber: step,
         recentActions,
+        identityText: task.identity,
         paymentAuthorized: task.paymentAuthorized,
         paymentAmountCents: task.paymentAmountCents,
       }))

@@ -165,7 +165,7 @@ const AGENT_SYSTEM =
   '5. Walls & CAPTCHAs: CAPTCHA, "verify you are human", or sign-in wall is NEVER done. Use handoff (captcha/verification/password).\n' +
   '6. Coordinates: In 1280x800 space. Never invent URLs outside the current site.\n' +
   '7. Vault credentials: When VAULT STATUS says credentials saved, never use password handoff; login is automated.\n' +
-  '8. Missing information: If the page needs user info (zip code, dates, party size), handoff kind="question".\n' +
+  '8. Missing information: If the page needs user info (name, email, phone, address, zip, dates, party size), use the USER PROFILE values first; if the profile does not cover the field, handoff kind="question" and ask. NEVER invent a value and never use a placeholder ("John Smith", "test@example.com") — the person expects their real details or a question.\n' +
   '9. Payment: Hand off before placing order unless verified.\n' +
   '10. Accurate extraction: In "done", report only verified values seen on the page. Never hallucinate or copy prices between items.'
 
@@ -450,6 +450,7 @@ export type AgentStepContext = {
   recentActions: string[]
   plan?: AgentPlan | null
   siteMemory?: string
+  identityText?: string
   paymentAuthorized?: boolean
   paymentAmountCents?: number
 }
@@ -462,6 +463,7 @@ export function buildVisionParts(ctx: AgentStepContext): unknown[] {
       text: [
         `GOAL: ${ctx.goal}`,
         planSection,
+        ctx.identityText || '',
         ctx.siteMemory || '',
         `URL: ${ctx.url}`,
         `STEP: ${ctx.stepNumber}`,
