@@ -40,6 +40,12 @@ describe('siteMemory', () => {
     expect(proc.steps.length).toBeGreaterThanOrEqual(3)
     expect(proc.workingSelectors?.['search_input']).toBe('input[name="ss"]')
     expect(proc.gotchas?.[0]).toContain('button#onetrust-accept-btn-handler')
+    // The httpbin incident: procedures used to store literal values, so a
+    // demo person's details replayed onto the next run. Values must never
+    // appear in a synthesized procedure.
+    const serialized = JSON.stringify(proc)
+    expect(serialized).not.toContain('Chicago')
+    expect(proc.steps.some((s) => s.includes("user's own value"))).toBe(true)
   })
 
   it('saves and loads from in-memory cache without requiring postgres', async () => {

@@ -166,6 +166,7 @@ const AGENT_SYSTEM =
   '6. Coordinates: In 1280x800 space. Never invent URLs outside the current site.\n' +
   '7. Vault credentials: When VAULT STATUS says credentials saved, never use password handoff; login is automated.\n' +
   '8. Missing information: If the page needs user info (name, email, phone, address, zip, dates, party size), use the USER PROFILE values first; if the profile does not cover the field, handoff kind="question" and ask. NEVER invent a value and never use a placeholder ("John Smith", "test@example.com") — the person expects their real details or a question.\n' +
+  '8b. Identity precedence: USER PROFILE is who the user is; SITE MEMORY is only how a site works. A name/email/address appearing in SITE MEMORY belongs to a PAST session and must never be typed as the user\'s own — when the two disagree, the profile wins, and anything the profile lacks gets asked.\n' +
   '9. Payment: Hand off before placing order unless verified.\n' +
   '10. Accurate extraction: In "done", report only verified values seen on the page. Never hallucinate or copy prices between items.'
 

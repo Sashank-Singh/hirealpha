@@ -124,8 +124,11 @@ export function synthesizeProcedureFromTrajectory(
         workingSelectors[key] = act.selector
       }
     } else if (act.type === 'fill' && act.selector) {
-      const summaryVal = typeof act.value === 'string' && act.value.length < 30 ? `"${act.value}"` : 'input value'
-      steps.push(`Fill ${summaryVal} into ${act.selector}`)
+      // NEVER store the value. A procedure is site mechanics, not a person:
+      // a cached "Fill 'rosa@example.com'" replayed onto the next run as a
+      // wrong-identity submission (seen live on httpbin) and is a PII leak
+      // into a shared cache. Field identity only.
+      steps.push(`Fill the user's own value into ${act.selector.slice(0, 60)}`)
       if (/search|query|destination|location|ss|input/i.test(act.selector)) {
         workingSelectors['search_input'] = act.selector
       }
