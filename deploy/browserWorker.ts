@@ -308,6 +308,7 @@ export async function runJob(sql: SQL, job: JobRow, launch = runBrowserSession):
               paymentAuthorized: task.paymentAuthorized,
               paymentAmountCents: task.paymentAmountCents,
               paymentCard: task.paymentCard,
+              sql,
               onProgress: task.onProgress,
               onScreenshot: task.onScreenshot,
               onHandoff: task.onHandoff,
@@ -392,7 +393,10 @@ export async function runJob(sql: SQL, job: JobRow, launch = runBrowserSession):
   }, 60_000)
   let run: Awaited<ReturnType<typeof launchTask>>
   try {
-    run = await launchTask({
+    // Named so the handoff closure can write back fresh credentials: the
+    // session loop re-reads username/password every step, so a password
+    // handoff completed with "Saved" feeds the run without a restart.
+    const sessionTask: SessionTask = {
     url: job.url,
     username: creds?.username || '',
     password: creds?.password || '',
@@ -474,14 +478,15 @@ export async function runJob(sql: SQL, job: JobRow, launch = runBrowserSession):
         const freshCreds = await getVaultCredentialsForTask(sql, job.user_id, origin, key).catch(() => null)
         if (freshCreds) {
           creds = freshCreds
-          task.username = freshCreds.username
-          task.password = freshCreds.password
+          sessionTask.username = freshCreds.username
+          sessionTask.password = freshCreds.password
         }
       }
 
       return handoffOutcome
     },
-  })
+  }
+    run = await launchTask(sessionTask)
   } catch (err) {
     clearInterval(heartbeat)
     throw err

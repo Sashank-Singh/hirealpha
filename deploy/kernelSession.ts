@@ -38,16 +38,28 @@ import {
   parseAgentAction,
   parseVerification,
   pageShowsExactTotal,
+  updateAgentPlan,
+  formatPlanForPrompt,
   type AgentAction,
+  type AgentPlan,
   type PaymentCardSecrets,
 } from './agentDriver'
 import { KernelBrowser } from './kernelPage'
+import {
+  extractRootDomain,
+  formatProcedureForPrompt,
+  loadSiteProcedure,
+  saveSiteProcedure,
+  synthesizeProcedureFromTrajectory,
+} from './siteMemory'
+import type { SQL } from 'bun'
 
 export type KernelTask = {
   url: string
   username?: string
   password?: string
   goal?: string
+  sql?: SQL | null
   onProgress?: (event: { action: string; url: string }) => Promise<void>
   onScreenshot?: (event: { dataUrl: string; caption?: string }) => Promise<void>
   onHandoff?: (handoff: {
@@ -228,6 +240,13 @@ export async function runKernelTask(
     const recent: string[] = []
     const failed = new Map<string, number>()
     let lastAction = ''
+    let plan: AgentPlan | null = null
+    let requestedScreenshot = false
+    let lastActionFailed = false
+    const trajectory: Array<{ type: string; selector?: string; value?: unknown; key?: string; label?: string }> = []
+    let currentRootDomain = extractRootDomain(task.url || browser.url())
+    let siteProcedure = await loadSiteProcedure(task.sql, currentRootDomain).catch(() => null)
+    let siteProcedureText = siteProcedure ? formatProcedureForPrompt(currentRootDomain, siteProcedure) : ''
 
     if (task.password) {
       const loginAttempt = await attemptKernelLogin(browser, task.username, task.password)
@@ -251,21 +270,52 @@ export async function runKernelTask(
         }
       }
 
-      const parts = [
-        { type: 'text', text: renderPrompt(task, pageText, targets, title, browser.url(), recent, step) },
-        { type: 'image_url', image_url: { url: `data:image/jpeg;base64,${screenshot}` } },
-      ]
+      // Check if domain changed across steps to load relevant site memory
+      const newDomain = extractRootDomain(browser.url())
+      if (newDomain && newDomain !== currentRootDomain) {
+        currentRootDomain = newDomain
+        siteProcedure = await loadSiteProcedure(task.sql, currentRootDomain).catch(() => null)
+        siteProcedureText = siteProcedure ? formatProcedureForPrompt(currentRootDomain, siteProcedure) : ''
+      }
+
+      // DOM-first observation: attach screenshot only on demand, fallback, or empty DOM
+      const needScreenshot =
+        requestedScreenshot ||
+        lastActionFailed ||
+        (targets.length === 0 && pageText.length < 150)
+
+      requestedScreenshot = false
+
+      const promptText = renderPrompt(
+        task,
+        pageText,
+        targets,
+        title,
+        browser.url(),
+        recent,
+        step,
+        plan,
+        siteProcedureText,
+      )
+
+      const parts: unknown[] = [{ type: 'text', text: promptText }]
+      if (needScreenshot && screenshot) {
+        parts.push({ type: 'image_url', image_url: { url: `data:image/jpeg;base64,${screenshot}` } })
+      }
+
       // Keep the provider session alive across the model turn: a slow step must
       // not let the idle reaper take the browser out from under the loop.
       await browser.keepalive()
-      await task.onScreenshot?.({ dataUrl: `data:image/jpeg;base64,${screenshot}`, caption: `Step ${step + 1}: ${title}` }).catch(() => undefined)
+      if (screenshot && (task.onScreenshot || needScreenshot)) {
+        await task.onScreenshot?.({ dataUrl: `data:image/jpeg;base64,${screenshot}`, caption: `Step ${step + 1}: ${title}` }).catch(() => undefined)
+      }
       let raw = ''
       try {
         raw = await call(parts)
       } catch (callErr) {
-        console.warn(`[kernel] step ${step} vision call failed, falling back to text:`, callErr)
+        console.warn(`[kernel] step ${step} call failed:`, callErr)
         try {
-          raw = await call([parts[0]])
+          raw = await call([{ type: 'text', text: promptText }])
         } catch (textErr) {
           recent.push(`model error: ${textErr instanceof Error ? textErr.message : String(textErr)}`)
           continue
@@ -275,7 +325,18 @@ export async function runKernelTask(
       if (process.env.KERNEL_TRACE === '1' || process.env.DEBUG) console.error(`[kernel] step ${step} reply: ${String(raw).slice(0, 300)}`)
       if (!action) {
         recent.push('model replied with no usable action')
+        lastActionFailed = true
         continue
+      }
+
+      // Update hierarchical plan if model provided subgoals or active subgoal
+      if (action.plan || action.current_subgoal) {
+        plan = updateAgentPlan(plan, action.plan, action.current_subgoal)
+      }
+
+      // Handle on-demand screenshot request for the next step
+      if (action.observe === 'screenshot') {
+        requestedScreenshot = true
       }
 
       const key = JSON.stringify(action)
@@ -283,6 +344,7 @@ export async function runKernelTask(
         failed.set(key, (failed.get(key) ?? 0) + 1)
         if ((failed.get(key) ?? 0) >= 2) {
           recent.push(`repeated failing action skipped: ${key.slice(0, 80)}`)
+          lastActionFailed = true
           continue
         }
       }
@@ -296,7 +358,15 @@ export async function runKernelTask(
         const checked = parseVerification(verdict || '', answer)
         if (!checked.supported) {
           recent.push(`answer was not supported by the page (${checked.unsupported}) — look again`)
+          lastActionFailed = true
           continue
+        }
+        // Save distilled procedure to site memory on task success
+        if (trajectory.length > 0) {
+          try {
+            const distilled = synthesizeProcedureFromTrajectory(task.goal || '', trajectory)
+            await saveSiteProcedure(task.sql, browser.url(), distilled)
+          } catch {}
         }
         return { ok: true, content: answer }
       }
@@ -351,9 +421,24 @@ export async function runKernelTask(
       }
 
       const outcome = await execute(browser, action, task)
+      lastActionFailed = !outcome.ok
       recent.push(outcome.ok ? `${action.type} ok` : `${action.type} failed: ${outcome.error || 'no effect'}`)
-      if (!outcome.ok) failed.set(key, (failed.get(key) ?? 0) + 1)
-      else failed.delete(key)
+      if (!outcome.ok) {
+        failed.set(key, (failed.get(key) ?? 0) + 1)
+      } else {
+        failed.delete(key)
+        let matchedLabel: string | undefined
+        if ('selector' in action && action.selector) {
+          matchedLabel = targets.find((t) => t.selector === action.selector)?.label
+        }
+        trajectory.push({
+          type: action.type,
+          selector: 'selector' in action ? action.selector : undefined,
+          value: 'value' in action ? action.value : undefined,
+          key: 'key' in action ? action.key : undefined,
+          label: matchedLabel,
+        })
+      }
       await task.onProgress?.({ action: action.type, url: browser.url() }).catch(() => undefined)
     }
 
@@ -689,6 +774,8 @@ function renderPrompt(
   url: string,
   recent: string[],
   step: number,
+  plan?: AgentPlan | null,
+  siteMemory?: string,
 ): string {
   const targetText = targets
     .map((t) => `[${t.index}] ${t.tag}${t.label ? ` "${t.label}"` : ''} box=(${t.x},${t.y},${t.width},${t.height})${t.selector ? ` selector=${t.selector}` : ''}${t.sensitive ? ' PROTECTED' : ''}`)
@@ -699,8 +786,16 @@ function renderPrompt(
   const authStatus = task.password
     ? 'VAULT STATUS: login credentials are saved in Vault.'
     : 'VAULT STATUS: no credentials in Vault.'
+  const planBlock = formatPlanForPrompt(plan || null)
+  const stepInstruction = step === 0 && (!plan || !plan.subgoals.length)
+    ? 'PLANNING REQUIREMENT: Step 1 MUST include "plan": ["subgoal 1", "subgoal 2", ...] (2-5 subgoals) and "current_subgoal": "subgoal 1" in your JSON response.'
+    : ''
+
   return [
     `GOAL: ${task.goal || 'complete the task on this page'}`,
+    planBlock,
+    stepInstruction,
+    siteMemory || '',
     `URL: ${url}`,
     `TITLE: ${title}`,
     `STEP: ${step + 1}`,

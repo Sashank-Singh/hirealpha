@@ -12,7 +12,13 @@
  * (NUTRITION_VISION_MODEL / deepseek-v4-flash-exp). Pennies per task.
  */
 
-export type AgentAction =
+export type AgentMeta = {
+  observe?: 'screenshot' | 'dom'
+  plan?: string[]
+  current_subgoal?: string
+}
+
+export type AgentActionBase =
   | { type: 'click'; selector: string }
   | { type: 'click_at'; x: number; y: number }
   | { type: 'fill'; selector: string; value: string }
@@ -32,6 +38,64 @@ export type AgentAction =
     }
   | { type: 'done'; answer: string }
   | { type: 'giveup'; reason: string }
+
+export type AgentAction = AgentActionBase & AgentMeta
+
+export type AgentPlan = {
+  subgoals: string[]
+  currentSubgoal: string
+  completedSubgoals: string[]
+}
+
+export function updateAgentPlan(
+  existingPlan: AgentPlan | null,
+  actionPlan?: string[],
+  actionCurrentSubgoal?: string,
+): AgentPlan | null {
+  if (!existingPlan && (!actionPlan || !actionPlan.length)) return null
+
+  let subgoals = existingPlan?.subgoals ? [...existingPlan.subgoals] : []
+  const completed = existingPlan?.completedSubgoals ? [...existingPlan.completedSubgoals] : []
+  let current = existingPlan?.currentSubgoal || ''
+
+  if (actionPlan && actionPlan.length > 0) {
+    subgoals = actionPlan.map((s) => String(s).trim()).filter(Boolean)
+  }
+
+  if (actionCurrentSubgoal) {
+    const newSubgoal = actionCurrentSubgoal.trim()
+    if (newSubgoal && newSubgoal !== current && current && !completed.includes(current)) {
+      completed.push(current)
+    }
+    if (newSubgoal) {
+      current = newSubgoal
+    }
+  } else if (!current && subgoals.length > 0) {
+    current = subgoals[0]
+  }
+
+  return {
+    subgoals,
+    currentSubgoal: current,
+    completedSubgoals: completed,
+  }
+}
+
+export function formatPlanForPrompt(plan: AgentPlan | null): string {
+  if (!plan || !plan.subgoals.length) return ''
+  const remaining = plan.subgoals.filter(
+    (s) => s !== plan.currentSubgoal && !plan.completedSubgoals.includes(s),
+  )
+  const lines: string[] = ['CURRENT PLAN & SUBGOALS:']
+  if (plan.completedSubgoals.length) {
+    lines.push(`  Completed: ${plan.completedSubgoals.join(' -> ')}`)
+  }
+  lines.push(`  ACTIVE SUBGOAL: ${plan.currentSubgoal || plan.subgoals[0]}`)
+  if (remaining.length) {
+    lines.push(`  Remaining: ${remaining.join(' -> ')}`)
+  }
+  return lines.join('\n')
+}
 
 export type AgentLimits = { maxSteps: number; wallMs: number }
 
@@ -68,42 +132,42 @@ export function pageShowsExactTotal(pageText: string, amountCents: number): bool
 }
 
 const AGENT_SYSTEM =
-  'You are the action module of a web-browsing agent. You see a screenshot of a web page ' +
-  'plus the user goal. Decide the single next action. Reply with ONLY a JSON object, no markdown fence:\n' +
-  '{"action":"click","selector":"<css selector>"}\n' +
-  '{"action":"click_at","x":640,"y":400}\n' +
-  '{"action":"fill","selector":"<css selector>","value":"<text to type>"}\n' +
-  '{"action":"type_text","value":"<text to type into the focused control>"}\n' +
-  '{"action":"press","key":"Enter"}\n' +
-  '{"action":"navigate","url":"<absolute https url>"}\n' +
-  '{"action":"scroll","direction":"down"}\n' +
-  '{"action":"wait","ms":1500}\n' +
-  '{"action":"fill_payment"}\n' +
-  '{"action":"handoff","kind":"password|verification|captcha|confirmation","message":"<what the user must do>"}\n' +
-  '{"action":"handoff","kind":"question","message":"<one short question the user can answer in a text message>"}\n' +
-  '{"action":"handoff","kind":"payment","message":"Approve the verified checkout total","amount_cents":18990,"merchant":"store.example","item":"exact item and quantity"}\n' +
-  '{"action":"done","answer":"<the final answer to the goal, extracted from the page>"}\n' +
-  '{"action":"giveup","reason":"<why the goal cannot be reached>"}\n' +
-  'Rules: prefer stable selectors (id, name, aria-label, role); when a target lists selector=, use that exact selector. ' +
-  'To enter text into a field: click the field first (or use a selector), then send type_text on the NEXT step. Clicking a field does not type into it. ' +
-  'Never repeat an action that just failed or a click_at on the same coordinates twice in a row; if the page did not change, pick a different target, scroll, or wait. ' +
-  'Real pages can take 20-30 seconds to load or settle. If content is still loading, use wait (up to 10000ms) or scroll; do not repeatedly click a disabled control. ' +
-  'A CAPTCHA, "verify you are human", device-verification, or sign-in wall is NEVER task completion. If you see one, use handoff (captcha/verification/password); never answer done from such a page. ' +
-  'When a numbered target has no stable selector, use click_at with the center of its box, then type_text. ' +
-  'Coordinates are CSS pixels in the 1280x800 screenshot. Never invent URLs outside the current site. ' +
-  'When VAULT STATUS says credentials are saved: NEVER use password handoff — the system already filled the login form automatically. If you see a login page and RECENT ACTIONS contains "Automated login submitted", use wait (2000ms) then inspect the page; only use handoff kind="password" if you see an explicit login error message (e.g. "Invalid password", "Login failed", "Incorrect"). ' +
-  'When VAULT STATUS says no credentials, use handoff kind="password" when the site needs login. ' +
-  'For one-time codes, CAPTCHA, identity checks, or human confirmation (not password), always use handoff with the appropriate kind. ' +
-  'When the page needs a fact you do not have (address, zip code, phone, email, date, size, party size, preference), use handoff with kind "question" and ask for exactly that one thing in one short sentence. The user answers in chat and their answer comes back to you as a RECENT ACTIONS line; never guess or reuse a value from a different task. ' +
-  'When PAYMENT STATUS says an approved Link credential is available, use fill_payment when the card form is visible; never request, infer, or type card values. ' +
-  'Use payment handoff BEFORE clicking any final button that places an order, starts a paid subscription, or creates a charge, unless PAYMENT STATUS explicitly says authorization is verified. ' +
-  'A payment handoff must include the exact visible total in integer cents, the current merchant hostname, and the exact item/quantity. Never estimate tax, shipping, or total. ' +
-  'When payment is verified, submit at most once and only when the displayed total exactly matches the goal. ' +
-  'After a handoff appears in RECENT ACTIONS, assume the user completed it and inspect the new page before requesting another handoff. ' +
-  'In the "done" answer, report only values you can read exactly on the page: never reuse one item\'s price for another, never estimate, and write "not shown" for any requested field that is not visible. ' +
-  'Every "done" answer is checked against the page; unsupported claims are rejected and you will be asked to look again. ' +
-  'Before answering a list goal, scroll until each requested item and its price/status are fully visible, not cut off. ' +
-  'When the goal is answered by something on the page, use "done". If after several tries nothing progresses, "giveup".'
+  'You are the autonomous planning and action engine of a web-browsing agent. ' +
+  'You receive structured page context (URL, active plan, visible text, and numbered interactive targets) ' +
+  'and optionally a screenshot. Decide the single next action towards the user goal.\n\n' +
+  'HIERARCHICAL PLANNING (MANDATORY):\n' +
+  '- On STEP 1: You MUST include "plan": ["subgoal 1", "subgoal 2", ...] (2-5 sequential subgoals) and "current_subgoal": "subgoal 1" in your JSON.\n' +
+  '- On subsequent steps: Track your progress. When a subgoal is reached, advance "current_subgoal".\n' +
+  '- DRIFT DETECTION: If you notice you are off-track (e.g. searching for hotels but landed on restaurant results or promo banners), revise your "plan" and "current_subgoal" immediately to recover.\n\n' +
+  'OBSERVATION:\n' +
+  '- Observation is DOM/AX-tree-first to maximize speed and minimize token cost. You see exact visible text and numbered targets with CSS selectors.\n' +
+  '- If you need visual inspection for non-DOM elements (interactive map, canvas chart, visual captcha, or verifying complex visual layout), include "observe": "screenshot" in your JSON to receive an image on the next step.\n\n' +
+  'RESPONSE FORMAT: Reply with ONLY a single valid JSON object, no markdown fence:\n' +
+  '{"plan":["search hotel","filter free cancellation","extract top 3"],"current_subgoal":"search hotel","action":"click","selector":"<css selector>"}\n' +
+  '{"current_subgoal":"<active subgoal>","action":"click_at","x":640,"y":400}\n' +
+  '{"current_subgoal":"<active subgoal>","action":"fill","selector":"<css selector>","value":"<text to type>"}\n' +
+  '{"current_subgoal":"<active subgoal>","action":"type_text","value":"<text to type into focused control>"}\n' +
+  '{"current_subgoal":"<active subgoal>","action":"press","key":"Enter"}\n' +
+  '{"current_subgoal":"<active subgoal>","action":"navigate","url":"<absolute https url>"}\n' +
+  '{"current_subgoal":"<active subgoal>","action":"scroll","direction":"down"}\n' +
+  '{"current_subgoal":"<active subgoal>","action":"wait","ms":1500}\n' +
+  '{"current_subgoal":"<active subgoal>","action":"fill_payment"}\n' +
+  '{"current_subgoal":"<active subgoal>","action":"handoff","kind":"password|verification|captcha|confirmation","message":"<what the user must do>"}\n' +
+  '{"current_subgoal":"<active subgoal>","action":"handoff","kind":"question","message":"<one short question the user can answer in a text message>"}\n' +
+  '{"current_subgoal":"<active subgoal>","action":"handoff","kind":"payment","message":"Approve the verified checkout total","amount_cents":18990,"merchant":"store.example","item":"exact item and quantity"}\n' +
+  '{"current_subgoal":"<active subgoal>","action":"done","answer":"<the final answer to the goal, extracted from the page>"}\n' +
+  '{"action":"giveup","reason":"<why the goal cannot be reached>"}\n\n' +
+  'RULES:\n' +
+  '1. Selectors: Prefer stable selectors (id, name, aria-label, role); when a target lists selector=, use that exact selector.\n' +
+  '2. Typing: To enter text into a field, click or fill it first. Clicking does not type text; send type_text on the next step.\n' +
+  '3. Repeated actions: Never repeat an action that just failed or click the exact same coordinates twice in a row. If page did not change, scroll, wait, or use a different selector.\n' +
+  '4. Page settling: Real pages can take 10-20 seconds to settle. Use wait (up to 10000ms) or scroll; do not hammer disabled buttons.\n' +
+  '5. Walls & CAPTCHAs: CAPTCHA, "verify you are human", or sign-in wall is NEVER done. Use handoff (captcha/verification/password).\n' +
+  '6. Coordinates: In 1280x800 space. Never invent URLs outside the current site.\n' +
+  '7. Vault credentials: When VAULT STATUS says credentials saved, never use password handoff; login is automated.\n' +
+  '8. Missing information: If the page needs user info (zip code, dates, party size), handoff kind="question".\n' +
+  '9. Payment: Hand off before placing order unless verified.\n' +
+  '10. Accurate extraction: In "done", report only verified values seen on the page. Never hallucinate or copy prices between items.'
 
 /** Parse one model reply. Unknown shapes are skipped by the caller — never executed. */
 export function parseAgentAction(raw: string): AgentAction | null {
@@ -139,50 +203,69 @@ export function parseAgentAction(raw: string): AgentAction | null {
 
   if (!obj || typeof obj !== 'object') return null
   const str = (v: unknown, max: number): string => (typeof v === 'string' ? v.slice(0, max) : '')
+
+  const observe = (obj.observe === 'screenshot' || obj.observe === 'dom') ? (obj.observe as 'screenshot' | 'dom') : undefined
+  const plan = Array.isArray(obj.plan)
+    ? obj.plan.map((s) => str(s, 200)).filter(Boolean)
+    : undefined
+  const current_subgoal = typeof obj.current_subgoal === 'string'
+    ? str(obj.current_subgoal, 200)
+    : (typeof (obj as Record<string, unknown>).subgoal === 'string' ? str((obj as Record<string, unknown>).subgoal, 200) : undefined)
+
+  const meta: AgentMeta = {
+    ...(observe ? { observe } : {}),
+    ...(plan && plan.length ? { plan } : {}),
+    ...(current_subgoal ? { current_subgoal } : {}),
+  }
+
+  const withMeta = (base: AgentActionBase): AgentAction => ({ ...base, ...meta })
+
   switch (obj.action) {
     case 'click': {
       const selector = str(obj.selector, 300)
-      return selector && obj.selector!.length <= 300 ? { type: 'click', selector } : null
+      // Reject an over-long selector rather than acting on a truncated one:
+      // the slice in str() would otherwise click a different (or invalid) node.
+      return selector && typeof obj.selector === 'string' && obj.selector.length <= 300 ? withMeta({ type: 'click', selector }) : null
     }
     case 'click_at': {
       const x = Math.round(Number(obj.x))
       const y = Math.round(Number(obj.y))
       if (!Number.isFinite(x) || !Number.isFinite(y) || x < 0 || x > 1280 || y < 0 || y > 800) return null
-      return { type: 'click_at', x, y }
+      return withMeta({ type: 'click_at', x, y })
     }
     case 'fill': {
       const selector = str(obj.selector, 300)
       const value = str(obj.value, 500)
-      return selector && obj.selector!.length <= 300 ? { type: 'fill', selector, value } : null
+      return selector && typeof obj.selector === 'string' && obj.selector.length <= 300 ? withMeta({ type: 'fill', selector, value }) : null
     }
     case 'type_text': {
       const value = str(obj.value, 500)
-      return value ? { type: 'type_text', value } : null
+      return value ? withMeta({ type: 'type_text', value }) : null
     }
     case 'press': {
       const key = str(obj.key, 20)
-      return key ? { type: 'press', key } : null
+      return key ? withMeta({ type: 'press', key }) : null
     }
     case 'navigate': {
       const url = str(obj.url, 2000)
       try {
         const u = new URL(url)
         if (u.protocol !== 'https:') return null
-        return { type: 'navigate', url: u.toString() }
+        return withMeta({ type: 'navigate', url: u.toString() })
       } catch {
         return null
       }
     }
     case 'scroll': {
       const dir = obj.direction === 'up' ? 'up' : 'down'
-      return { type: 'scroll', direction: dir }
+      return withMeta({ type: 'scroll', direction: dir })
     }
     case 'wait': {
       const ms = Math.min(Math.max(Number(obj.ms) || 1000, 200), 10_000)
-      return { type: 'wait', ms }
+      return withMeta({ type: 'wait', ms })
     }
     case 'fill_payment':
-      return { type: 'fill_payment' }
+      return withMeta({ type: 'fill_payment' })
     case 'handoff': {
       const kinds = new Set(['password', 'verification', 'payment', 'captcha', 'confirmation', 'question'])
       const kind = str(obj.kind, 20)
@@ -193,17 +276,17 @@ export function parseAgentAction(raw: string): AgentAction | null {
         const merchant = str(obj.merchant, 120).toLowerCase()
         const item = str(obj.item, 300)
         if (!Number.isInteger(amountCents) || amountCents < 50 || !merchant || !item) return null
-        return { type: 'handoff', kind, message, amountCents, merchant, item }
+        return withMeta({ type: 'handoff', kind, message, amountCents, merchant, item })
       }
-      return { type: 'handoff', kind: kind as 'password' | 'verification' | 'captcha' | 'confirmation' | 'question', message }
+      return withMeta({ type: 'handoff', kind: kind as 'password' | 'verification' | 'captcha' | 'confirmation' | 'question', message })
     }
     case 'done': {
       const answer = str(obj.answer, 2000)
-      return answer ? { type: 'done', answer } : null
+      return answer ? withMeta({ type: 'done', answer }) : null
     }
     case 'giveup': {
       const reason = str(obj.reason, 300)
-      return { type: 'giveup', reason: reason || 'no reason given' }
+      return withMeta({ type: 'giveup', reason: reason || 'no reason given' })
     }
     default:
       return null
@@ -361,23 +444,31 @@ export function agentEnvCaller(kind: 'action' | 'audit' = 'action'): VisionCall 
 export type AgentStepContext = {
   pageText: string
   url: string
-  screenshotBase64: string
+  screenshotBase64?: string
   goal: string
   stepNumber: number
   recentActions: string[]
+  plan?: AgentPlan | null
+  siteMemory?: string
   paymentAuthorized?: boolean
   paymentAmountCents?: number
 }
 
 export function buildVisionParts(ctx: AgentStepContext): unknown[] {
+  const planSection = formatPlanForPrompt(ctx.plan || null)
   const parts: unknown[] = [
     {
       type: 'text',
-      text:
-        `GOAL: ${ctx.goal}\nURL: ${ctx.url}\nSTEP: ${ctx.stepNumber}\n` +
-        `PAYMENT STATUS: ${ctx.paymentAuthorized ? `verified Link authorization for exactly $${((ctx.paymentAmountCents || 0) / 100).toFixed(2)} with an approved one-time credential; use fill_payment and submit only if the visible total is still exactly this amount` : 'not authorized; hand off before any charge or order submission'}\n` +
-        (ctx.recentActions.length ? `RECENT ACTIONS (avoid repeating what did not work): ${ctx.recentActions.slice(-5).join(' | ')}\n` : '') +
+      text: [
+        `GOAL: ${ctx.goal}`,
+        planSection,
+        ctx.siteMemory || '',
+        `URL: ${ctx.url}`,
+        `STEP: ${ctx.stepNumber}`,
+        `PAYMENT STATUS: ${ctx.paymentAuthorized ? `verified Link authorization for exactly $${((ctx.paymentAmountCents || 0) / 100).toFixed(2)} with an approved one-time credential; use fill_payment and submit only if the visible total is still exactly this amount` : 'not authorized; hand off before any charge or order submission'}`,
+        ctx.recentActions.length ? `RECENT ACTIONS (avoid repeating what did not work): ${ctx.recentActions.slice(-5).join(' | ')}` : '',
         `PAGE TEXT (truncated):\n${ctx.pageText.slice(0, 3500)}`,
+      ].filter(Boolean).join('\n\n'),
     },
   ]
   // A failed screenshot must not become an empty data: URL — providers reject
