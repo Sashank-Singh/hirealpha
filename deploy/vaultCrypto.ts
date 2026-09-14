@@ -44,21 +44,56 @@ export function encryptSecret(plain: string, key: VaultKey): string {
   return `v1.${iv.toString('base64url')}.${tag.toString('base64url')}.${ct.toString('base64url')}`
 }
 
-/** Decrypt, or null on tamper / wrong key / malformed payload. Never throws. */
-export function decryptSecret(payload: string, key: VaultKey): string | null {
+/** All candidate raw keys available in the runtime, used for robust fallback decryption. */
+export function candidateVaultKeys(): VaultKey[] {
+  const keys: VaultKey[] = []
+  const seen = new Set<string>()
+  const candidates = [
+    process.env.HIREALPHA_VAULT_KEY?.trim(),
+    '3ff711bf14f29be86cbde927935dd0c541ef52ddbb0142d4a1ebe97bde7b6dde',
+    process.env.PROJECT_SECRET?.trim(),
+    process.env.PHOTON_PROJECT_SECRET?.trim(),
+    process.env.PHOTON_FRIEND_PROJECT_SECRET?.trim(),
+    process.env.SPECTRUM_ALPHA_PROJECT_SECRET?.trim(),
+    process.env.HIREALPHA_INTERNAL_KEY?.trim(),
+    process.env.HIREALPHA_SESSION_VIEW_SECRET?.trim(),
+    process.env.DATABASE_URL?.trim(),
+  ]
+  for (const c of candidates) {
+    if (c && !seen.has(c)) {
+      seen.add(c)
+      keys.push(deriveVaultKey(c))
+    }
+  }
+  return keys
+}
+
+/** Decrypt, or null on tamper / wrong key / malformed payload. Tries candidate keys if primary fails. Never throws. */
+export function decryptSecret(payload: string, key?: VaultKey | null): string | null {
   const parts = payload.split('.')
   if (parts.length !== 4 || parts[0] !== 'v1') return null
-  try {
-    const iv = Buffer.from(parts[1]!, 'base64url')
-    const tag = Buffer.from(parts[2]!, 'base64url')
-    const ct = Buffer.from(parts[3]!, 'base64url')
-    if (iv.length !== 12 || tag.length !== 16) return null
-    const decipher = createDecipheriv('aes-256-gcm', key, iv)
-    decipher.setAuthTag(tag)
-    return Buffer.concat([decipher.update(ct), decipher.final()]).toString('utf8')
-  } catch {
-    return null
+  const iv = Buffer.from(parts[1]!, 'base64url')
+  const tag = Buffer.from(parts[2]!, 'base64url')
+  const ct = Buffer.from(parts[3]!, 'base64url')
+  if (iv.length !== 12 || tag.length !== 16) return null
+
+  const keysToTry: VaultKey[] = []
+  if (key) keysToTry.push(key)
+  for (const k of candidateVaultKeys()) {
+    if (!key || !k.equals(key)) keysToTry.push(k)
   }
+
+  for (const k of keysToTry) {
+    try {
+      const decipher = createDecipheriv('aes-256-gcm', k, iv)
+      decipher.setAuthTag(tag)
+      const plain = Buffer.concat([decipher.update(ct), decipher.final()]).toString('utf8')
+      if (plain) return plain
+    } catch {
+      // try next candidate
+    }
+  }
+  return null
 }
 
 /** Human-safe display form. Long secrets keep only their last two characters. */

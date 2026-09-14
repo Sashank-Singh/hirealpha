@@ -282,7 +282,12 @@ export async function resumeBrowserHandoff(sql: SQL, id: string): Promise<boolea
  * The poll survives Postgres recovery windows (the run that hit a Yelp
  * CAPTCHA was killed by one): a read error is not a resume decision, so it
  * retries until the wait itself expires. */
-export async function waitForBrowserHandoff(sql: SQL, id: string, timeoutMs = 10 * 60_000): Promise<'resumed' | 'cancelled' | 'timeout'> {
+export async function waitForBrowserHandoff(
+  sql: SQL,
+  id: string,
+  timeoutMs = 10 * 60_000,
+  checkAutoResume?: () => Promise<{ resumed: boolean; reason?: string } | null>,
+): Promise<'resumed' | 'cancelled' | 'timeout'> {
   const started = Date.now()
   while (Date.now() - started < timeoutMs) {
     let rows: Array<{ status: string; handoff_resumed_at: Date | null }>
@@ -297,7 +302,21 @@ export async function waitForBrowserHandoff(sql: SQL, id: string, timeoutMs = 10
     const row = rows[0]
     if (!row || row.status === 'failed') return 'cancelled'
     if (row.status === 'running' && row.handoff_resumed_at) return 'resumed'
-    await Bun.sleep(1_000)
+
+    // Check if the user completed login or takeover in the live browser
+    if (checkAutoResume) {
+      try {
+        const auto = await checkAutoResume()
+        if (auto?.resumed) {
+          await resumeBrowserHandoff(sql, id)
+          return 'resumed'
+        }
+      } catch {
+        /* best-effort browser check */
+      }
+    }
+
+    await Bun.sleep(1_500)
   }
   return 'timeout'
 }

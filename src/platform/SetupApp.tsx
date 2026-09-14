@@ -256,6 +256,9 @@ export function SetupApp({ auth }: { auth: FeatureAuth }) {
     void apiSetup({ persona, done: true, ...a }).catch(() => undefined)
     try {
       localStorage.setItem('ha_setup_done', persona)
+      if (email) {
+        localStorage.setItem(`ha_setup_done_${email.toLowerCase().trim()}`, persona)
+      }
       localStorage.removeItem('ha_setup_step')
     } catch {
       /* private mode: server row is the only source */

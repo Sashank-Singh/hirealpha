@@ -9,6 +9,7 @@ import {
   generateSessionViewToken,
   getBrowserJob,
   verifySessionViewToken,
+  waitForBrowserHandoff,
   waitForBrowserHandoffAnswer,
 } from './browserJobs'
 import {
@@ -385,5 +386,31 @@ describe('chat-answer handoff (Route A)', () => {
     expect(job?.id).toBe('job-9')
     expect(queries[0]!.text).toContain("handoff_kind = 'question'")
     expect(queries[0]!.text).toContain("status = 'waiting'")
+  })
+
+  it('waitForBrowserHandoff auto-resumes when checkAutoResume detects completed login', async () => {
+    let resumedRow = false
+    const { sql, queries } = fakeSql((text) => {
+      if (text.includes('UPDATE hire_browser_jobs')) {
+        resumedRow = true
+        return [{ id: 'job-1' }]
+      }
+      if (text.includes('SELECT status, handoff_resumed_at')) {
+        return resumedRow
+          ? [{ status: 'running', handoff_resumed_at: new Date() }]
+          : [{ status: 'waiting', handoff_resumed_at: null }]
+      }
+      return []
+    })
+
+    let checked = false
+    const outcome = await waitForBrowserHandoff(sql, 'job-1', 5_000, async () => {
+      checked = true
+      return { resumed: true, reason: 'User logged in: navigated to dashboard' }
+    })
+
+    expect(checked).toBe(true)
+    expect(outcome).toBe('resumed')
+    expect(queries.some((q) => q.text.includes("status = 'running'"))).toBe(true)
   })
 })

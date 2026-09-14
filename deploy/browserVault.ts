@@ -989,8 +989,9 @@ export async function getVaultCredentialsForTask(
   sql: SQL,
   userId: string,
   origin: string,
-  key: VaultKey,
+  key?: VaultKey | null,
 ): Promise<VaultCredentials | null> {
+  const activeKey = key || vaultKey()
   let rows = (await sql`
     SELECT id, secret_encrypted, username, secret_ref FROM hire_vault_entries
     WHERE user_id = ${userId} AND origin = ${origin}
@@ -1013,19 +1014,71 @@ export async function getVaultCredentialsForTask(
     }
   }
   const row = rows[0]
-  if (!row) return null
-  await sql`UPDATE hire_vault_entries SET last_used_at = now() WHERE id = ${row.id}`
+  if (row) {
+    await sql`UPDATE hire_vault_entries SET last_used_at = now() WHERE id = ${row.id}`
 
-  if (row.secret_ref === HANDOFF_REF) return null
-
-  if (isOpRef(row.secret_ref)) {
-    const fields = await opGetItemFields(row.secret_ref)
-    if (!fields?.password) return null
-    return { username: fields.username ?? row.username ?? '', password: fields.password }
+    if (row.secret_ref && row.secret_ref !== HANDOFF_REF && isOpRef(row.secret_ref)) {
+      const fields = await opGetItemFields(row.secret_ref)
+      if (fields?.password) {
+        return { username: fields.username ?? row.username ?? '', password: fields.password }
+      }
+    } else if (row.secret_ref !== HANDOFF_REF && row.secret_encrypted) {
+      const password = decryptSecret(row.secret_encrypted, activeKey)
+      if (password) {
+        return { username: row.username || '', password }
+      }
+    }
   }
-  const password = decryptSecret(row.secret_encrypted, key)
-  if (!password) return null
-  return { username: row.username || '', password }
+
+  // Fallback: check vault_items_v2 (OpenBao / user-wrapped keys)
+  let host = ''
+  try { host = new URL(origin.startsWith('http') ? origin : `https://${origin}`).hostname.replace(/^www\./, '').toLowerCase() } catch {}
+  const rootDomain = host ? (host.split('.').length >= 2 ? host.split('.').slice(-2).join('.') : host) : ''
+
+  try {
+    const v2Rows = (await sql`
+      SELECT id, exact_origin, ciphertext FROM vault_items_v2
+      WHERE user_id = ${userId} AND revoked_at IS NULL AND ciphertext IS NOT NULL
+      ORDER BY updated_at DESC LIMIT 10
+    `) as Array<{ id: string; exact_origin: string; ciphertext: string }>
+
+    const matchingV2 = v2Rows.find((r) => {
+      const orig = (r.exact_origin || '').toLowerCase()
+      return (
+        orig === origin.toLowerCase() ||
+        (host && (orig.includes(host) || host.includes(orig))) ||
+        (rootDomain && orig.includes(rootDomain))
+      )
+    })
+
+    if (matchingV2) {
+      const { userKeyBrokerFromEnv, loadOrCreateUserKey, decryptUserPayload } = await import('../services/trust/userKeyBroker')
+      const broker = userKeyBrokerFromEnv()
+      if (broker) {
+        const userKey = await loadOrCreateUserKey(sql, broker, userId)
+        try {
+          const plaintext = decryptUserPayload(matchingV2.ciphertext, userKey, {
+            userId,
+            recordId: matchingV2.id,
+            scope: `vault:${matchingV2.exact_origin}`,
+          })
+          if (plaintext) {
+            const cred = JSON.parse(plaintext) as { username?: string; password?: string }
+            if (cred.password) {
+              await sql`UPDATE vault_items_v2 SET updated_at = now() WHERE id = ${matchingV2.id}`
+              return { username: cred.username || '', password: cred.password }
+            }
+          }
+        } finally {
+          userKey.fill(0)
+        }
+      }
+    }
+  } catch (err) {
+    console.warn(`[browserVault] v2 vault lookup failed for ${userId}:`, err)
+  }
+
+  return null
 }
 
 const MAX_STEPS = 12

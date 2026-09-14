@@ -57,6 +57,7 @@ export type KernelTask = {
     amountCents?: number
     merchant?: string
     item?: string
+    checkAutoResume?: () => Promise<{ resumed: boolean; reason?: string } | null>
   }) => Promise<
     | 'resumed'
     | 'cancelled'
@@ -302,33 +303,50 @@ export async function runKernelTask(
 
       if (action.type === 'handoff') {
         const kind = action.kind || 'confirmation'
-        let outcome: Awaited<ReturnType<typeof requireHandoff>>
+        let outcomeInfo: Awaited<ReturnType<typeof requireHandoff>>
         if (kind === 'payment' && !task.paymentAuthorized) {
           const cents = Number(action.amountCents || 0)
           if (cents > 0) {
-            outcome = await requireHandoff(task, {
+            outcomeInfo = await requireHandoff(task, browser, {
               kind: 'payment',
               message: action.message || 'Approve the checkout to continue.',
               url: browser.url(),
               amountCents: cents,
               merchant: action.merchant,
               item: action.item,
-            })
-            if (outcome === 'cancelled') return { ok: false, error: 'The user cancelled the purchase.' }
+            }, hasPasswordField)
+            if (outcomeInfo.outcome === 'cancelled') return { ok: false, error: 'The user cancelled the purchase.' }
           } else {
             continue
           }
         } else {
-          outcome = await requireHandoff(task, { kind, message: action.message || 'Your input is needed.', url: browser.url() })
-          if (outcome === 'cancelled') return { ok: false, error: 'The user cancelled this task.' }
+          outcomeInfo = await requireHandoff(task, browser, {
+            kind,
+            message: action.message || 'Your input is needed.',
+            url: browser.url(),
+          }, hasPasswordField)
+          if (outcomeInfo.outcome === 'cancelled') return { ok: false, error: 'The user cancelled this task.' }
         }
+
+        const triggerSummary = outcomeInfo.triggers.length
+          ? `Observed user actions: ${outcomeInfo.triggers.slice(-6).join(', ')}.`
+          : 'User completed interaction directly in browser.'
+        const navSummary = outcomeInfo.initialUrl !== outcomeInfo.finalUrl
+          ? `Page navigated from "${outcomeInfo.initialUrl}" (${outcomeInfo.initialTitle}) to "${outcomeInfo.finalUrl}" (${outcomeInfo.finalTitle}).`
+          : `Current page: "${outcomeInfo.finalUrl}" (${outcomeInfo.finalTitle}).`
+
         if (kind === 'password') {
-          recent.push('Credential connected in vault.')
-        } else if (typeof outcome === 'object' && outcome.answer) {
-          recent.push(`user answered: "${outcome.answer.slice(0, 200)}" — type this into the field the question was about`)
+          recent.push(`User took over and completed sign-in. ${triggerSummary} ${navSummary} Successfully authenticated. Now proceed with the task goal: "${task.goal || 'continue'}".`)
+        } else if (outcomeInfo.answer) {
+          recent.push(`user answered: "${outcomeInfo.answer.slice(0, 200)}" — type this into the field the question was about`)
         } else {
-          recent.push(`handoff:${kind} completed by the user`)
+          recent.push(`User took over and completed handoff:${kind}. ${triggerSummary} ${navSummary} Now proceed with the task goal: "${task.goal || 'continue'}".`)
         }
+
+        await task.onProgress?.({
+          action: outcomeInfo.autoResumed ? 'user_auto_resumed' : 'user_resumed',
+          url: outcomeInfo.finalUrl,
+        }).catch(() => undefined)
         continue
       }
 
@@ -345,18 +363,261 @@ export async function runKernelTask(
   }
 }
 
+export async function inspectTakeoverState(
+  browser: KernelBrowser,
+  initialUrl: string,
+  initialHasPassword: boolean,
+): Promise<{
+  resumed: boolean
+  reason?: string
+  triggers: string[]
+  currentUrl: string
+  currentTitle: string
+}> {
+  try {
+    return await browser.run<{
+      resumed: boolean
+      reason?: string
+      triggers: string[]
+      currentUrl: string
+      currentTitle: string
+    }>(`
+      const initialUrl = ${JSON.stringify(initialUrl)};
+      const initialHasPassword = ${JSON.stringify(initialHasPassword)};
+      const currentUrl = page.url();
+      const currentTitle = await page.title().catch(() => '');
+
+      try {
+        const readyState = await page.evaluate(() => document.readyState);
+        if (readyState !== 'complete') {
+          await page.waitForLoadState('domcontentloaded', { timeout: 3000 }).catch(() => undefined);
+        }
+      } catch {}
+
+      const rawEvents = await page.evaluate(() => {
+        window.__ha_events = window.__ha_events || [];
+        const events = [...window.__ha_events];
+        window.__ha_events = [];
+        if (!window.__ha_listener_installed) {
+          window.__ha_listener_installed = true;
+          document.addEventListener('click', (e) => {
+            try {
+              const el = e.target.closest('button, a, input[type="submit"], input[type="button"], [role="button"], input[type="checkbox"], input[type="radio"]');
+              if (el) {
+                const text = (el.innerText || el.value || el.getAttribute('aria-label') || el.id || el.className || el.tagName).slice(0, 80).replace(/\\s+/g, ' ').trim();
+                window.__ha_events.push({ action: 'click', label: text, tag: el.tagName.toLowerCase(), at: Date.now() });
+              }
+            } catch {}
+          }, { capture: true, passive: true });
+          document.addEventListener('submit', (e) => {
+            try {
+              const form = e.target;
+              const id = form.id || form.name || form.className || 'form';
+              window.__ha_events.push({ action: 'submit', form: String(id).slice(0, 50), at: Date.now() });
+            } catch {}
+          }, { capture: true, passive: true });
+          document.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+              window.__ha_events.push({ action: 'press_enter', at: Date.now() });
+            }
+          }, { capture: true, passive: true });
+        }
+        return events;
+      }).catch(() => []);
+
+      const triggers = rawEvents.map((e) => {
+        if (e.action === 'click') return 'clicked "' + e.label + '"';
+        if (e.action === 'submit') return 'submitted form ' + (e.form || '');
+        if (e.action === 'press_enter') return 'pressed Enter';
+        return e.action;
+      });
+
+      const pageInfo = await page.evaluate(() => {
+        const pwInput = document.querySelector('input[type="password"]');
+        const hasPw = Boolean(pwInput && pwInput.offsetParent !== null);
+        const bodyText = (document.body?.innerText || '').toLowerCase();
+        const hasSignOut = Boolean(
+          document.querySelector('a[href*="logout" i], a[href*="signout" i], button:has-text("Sign Out"), [aria-label*="sign out" i], [aria-label*="log out" i]') ||
+          bodyText.includes('sign out') || bodyText.includes('log out') || bodyText.includes('signed in as') ||
+          bodyText.includes('welcome,') || bodyText.includes('student center') || bodyText.includes('my account')
+        );
+        const isLoginError = bodyText.includes('invalid username') || bodyText.includes('invalid password') ||
+          bodyText.includes('incorrect user') || bodyText.includes('incorrect password') || bodyText.includes('authentication failed');
+        return { hasPw, hasSignOut, isLoginError };
+      }).catch(() => ({ hasPw: false, hasSignOut: false, isLoginError: false }));
+
+      const urlChanged = currentUrl !== initialUrl;
+      const isLoginUrl = /[\\/](login|signin|auth|sso|authenticate|cas|saml)(\\.jsp|\\.html|\\.php|\\/|$)/i.test(currentUrl);
+      const initialWasLoginUrl = /[\\/](login|signin|auth|sso|authenticate|cas|saml)(\\.jsp|\\.html|\\.php|\\/|$)/i.test(initialUrl);
+
+      let resumed = false;
+      let reason = '';
+
+      if (initialHasPassword) {
+        if (initialWasLoginUrl && !isLoginUrl && urlChanged && !pageInfo.isLoginError) {
+          resumed = true;
+          reason = 'User logged in: navigated to ' + currentUrl;
+        } else if (pageInfo.hasSignOut && !pageInfo.hasPw) {
+          resumed = true;
+          reason = 'User logged in: detected authenticated session';
+        } else if (!pageInfo.hasPw && urlChanged && !pageInfo.isLoginError) {
+          resumed = true;
+          reason = 'User completed login form';
+        }
+      } else if (urlChanged && !pageInfo.isLoginError) {
+        resumed = true;
+        reason = 'User completed interaction: navigated to ' + currentUrl;
+      }
+
+      return { resumed, reason, triggers, currentUrl, currentTitle };
+    `, 20_000)
+  } catch (err) {
+    return {
+      resumed: false,
+      triggers: [],
+      currentUrl: browser.url(),
+      currentTitle: '',
+    }
+  }
+}
+
 async function requireHandoff(
   task: KernelTask,
-  handoff: Parameters<NonNullable<KernelTask['onHandoff']>>[0],
-): Promise<'resumed' | 'cancelled' | 'timeout' | { answer: string | null }> {
-  if (!task.onHandoff) return 'cancelled'
-  const result = await task.onHandoff(handoff)
-  if (typeof result === 'string') return result
-  if ('paymentCard' in result) {
-    if (result.paymentCard) task.paymentCard = result.paymentCard
-    return 'resumed'
+  browser: KernelBrowser,
+  handoff: {
+    kind: 'password' | 'verification' | 'payment' | 'captcha' | 'confirmation' | 'question'
+    message: string
+    url: string
+    amountCents?: number
+    merchant?: string
+    item?: string
+  },
+  hasPasswordField = false,
+): Promise<{
+  outcome: 'resumed' | 'cancelled' | 'timeout'
+  answer: string | null
+  triggers: string[]
+  initialUrl: string
+  finalUrl: string
+  initialTitle: string
+  finalTitle: string
+  autoResumed: boolean
+  autoResumeReason?: string
+}> {
+  if (!task.onHandoff) {
+    return {
+      outcome: 'cancelled',
+      answer: null,
+      triggers: [],
+      initialUrl: browser.url(),
+      finalUrl: browser.url(),
+      initialTitle: '',
+      finalTitle: '',
+      autoResumed: false,
+    }
   }
-  return { answer: result.answer ?? null }
+
+  const initialUrl = browser.url()
+  const initialTitle = await browser.title().catch(() => '')
+  const initialHasPassword = hasPasswordField
+  const allTriggers: string[] = []
+  let autoResumed = false
+  let autoResumeReason = ''
+
+  // Arm listener on page immediately
+  await browser.run(`
+    window.__ha_events = window.__ha_events || [];
+    if (!window.__ha_listener_installed) {
+      window.__ha_listener_installed = true;
+      document.addEventListener('click', (e) => {
+        try {
+          const el = e.target.closest('button, a, input[type="submit"], input[type="button"], [role="button"], input[type="checkbox"], input[type="radio"]');
+          if (el) {
+            const text = (el.innerText || el.value || el.getAttribute('aria-label') || el.id || el.className || el.tagName).slice(0, 80).replace(/\\s+/g, ' ').trim();
+            window.__ha_events.push({ action: 'click', label: text, tag: el.tagName.toLowerCase(), at: Date.now() });
+          }
+        } catch {}
+      }, { capture: true, passive: true });
+      document.addEventListener('submit', (e) => {
+        try {
+          const form = e.target;
+          const id = form.id || form.name || form.className || 'form';
+          window.__ha_events.push({ action: 'submit', form: String(id).slice(0, 50), at: Date.now() });
+        } catch {}
+      }, { capture: true, passive: true });
+      document.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          window.__ha_events.push({ action: 'press_enter', at: Date.now() });
+        }
+      }, { capture: true, passive: true });
+    }
+  `, 10_000).catch(() => undefined)
+
+  const checkAutoResume = async (): Promise<{ resumed: boolean; reason?: string } | null> => {
+    try {
+      await browser.keepalive()
+      const inspection = await inspectTakeoverState(browser, initialUrl, initialHasPassword)
+      if (inspection.triggers && inspection.triggers.length) {
+        allTriggers.push(...inspection.triggers)
+      }
+      if (inspection.resumed) {
+        autoResumed = true
+        autoResumeReason = inspection.reason || 'User completed interaction'
+        return { resumed: true, reason: autoResumeReason }
+      }
+      return null
+    } catch {
+      return null
+    }
+  }
+
+  const result = await task.onHandoff({
+    ...handoff,
+    checkAutoResume: handoff.kind !== 'question' ? checkAutoResume : undefined,
+  })
+
+  // When resumed, give the new page a moment to settle
+  await browser.settle(10_000).catch(() => undefined)
+  const finalUrl = browser.url()
+  const finalTitle = await browser.title().catch(() => '')
+
+  // Drain any remaining tracked events from the page
+  try {
+    const remainingEvents = await browser.run<Array<{ action: string; label?: string; form?: string }>>(`
+      return (window.__ha_events || []).splice(0);
+    `, 10_000).catch(() => [])
+    for (const e of remainingEvents) {
+      if (e.action === 'click' && e.label) allTriggers.push(`clicked "${e.label}"`)
+      else if (e.action === 'submit') allTriggers.push(`submitted form ${e.form || ''}`)
+      else if (e.action === 'press_enter') allTriggers.push('pressed Enter')
+      else if (e.action) allTriggers.push(e.action)
+    }
+  } catch {}
+
+  let outcome: 'resumed' | 'cancelled' | 'timeout' = 'cancelled'
+  let answer: string | null = null
+
+  if (typeof result === 'string') {
+    outcome = result
+  } else if ('paymentCard' in result) {
+    if (result.paymentCard) task.paymentCard = result.paymentCard
+    outcome = 'resumed'
+  } else if ('answer' in result) {
+    outcome = 'resumed'
+    answer = result.answer ?? null
+  }
+
+  return {
+    outcome,
+    answer,
+    triggers: allTriggers,
+    initialUrl,
+    finalUrl,
+    initialTitle,
+    finalTitle,
+    autoResumed,
+    autoResumeReason,
+  }
 }
 
 async function capture(browser: KernelBrowser): Promise<{

@@ -10,6 +10,7 @@ import { startTaskLoopPoller } from '../../shared/taskLoops'
 import { startCofounderLoop } from '../../shared/cofounderPro'
 import { determineInboundReaction } from '../../shared/smartReactions'
 import { INTRO_TEXTS, startIntroPoller } from '../../shared/introQueue'
+import { onboardingCard } from '../../shared/miniApps'
 import { startHealthServer, startHeartbeat } from '../../shared/health'
 
 const agentId = 'cofounder' as const
@@ -52,6 +53,12 @@ startIntroPoller({
       const cleaned = sanitizeOutbound(text)
       if (cleaned) await space.send(cleaned)
       await space.shareContactCard().catch(() => undefined)
+      try {
+        const card = await onboardingCard(phone, agent.id)
+        if (card) await space.send(appCard(card.url, { live: card.live }))
+      } catch (cardErr) {
+        console.warn(`[${agent.id}] intro onboarding card failed`, cardErr)
+      }
     })
   },
 })

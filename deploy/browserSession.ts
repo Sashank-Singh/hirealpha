@@ -38,6 +38,7 @@ export type SessionTask = {
     amountCents?: number
     merchant?: string
     item?: string
+    checkAutoResume?: () => Promise<{ resumed: boolean; reason?: string } | null>
   }) => Promise<
     | 'resumed'
     | 'cancelled'
@@ -656,6 +657,99 @@ async function agentLoop(
           .catch(() => undefined)
       }
       const handoffStarted = Date.now()
+      const initialUrl = activePage.url()
+      const initialTitle = await activePage.title().catch(() => '')
+      const initialHasPassword = Boolean(await activePage.$('input[type="password"]').catch(() => null))
+      const allTriggers: string[] = []
+      let autoResumed = false
+
+      // Arm listener on page immediately
+      await activePage.evaluate(() => {
+        window.__ha_events = window.__ha_events || []
+        if (!window.__ha_listener_installed) {
+          window.__ha_listener_installed = true
+          document.addEventListener('click', (e) => {
+            try {
+              const el = (e.target as HTMLElement | null)?.closest('button, a, input[type="submit"], input[type="button"], [role="button"], input[type="checkbox"], input[type="radio"]')
+              if (el) {
+                const text = ((el as HTMLElement).innerText || (el as HTMLInputElement).value || el.getAttribute('aria-label') || el.id || el.className || el.tagName).slice(0, 80).replace(/\s+/g, ' ').trim()
+                window.__ha_events.push({ action: 'click', label: text, tag: el.tagName.toLowerCase(), at: Date.now() })
+              }
+            } catch {}
+          }, { capture: true, passive: true })
+          document.addEventListener('submit', (e) => {
+            try {
+              const form = e.target as HTMLFormElement | null
+              const id = form?.id || form?.name || form?.className || 'form'
+              window.__ha_events.push({ action: 'submit', form: String(id).slice(0, 50), at: Date.now() })
+            } catch {}
+          }, { capture: true, passive: true })
+          document.addEventListener('keydown', (e) => {
+            if ((e as KeyboardEvent).key === 'Enter') {
+              window.__ha_events.push({ action: 'press_enter', at: Date.now() })
+            }
+          }, { capture: true, passive: true })
+        }
+      }).catch(() => undefined)
+
+      const checkAutoResume = async (): Promise<{ resumed: boolean; reason?: string } | null> => {
+        try {
+          const currentUrl = activePage.url()
+          const urlChanged = currentUrl !== initialUrl
+          const isLoginUrl = /[\\/](login|signin|auth|sso|authenticate|cas|saml)(\.jsp|\.html|\.php|\/|$)/i.test(currentUrl)
+          const initialWasLoginUrl = /[\\/](login|signin|auth|sso|authenticate|cas|saml)(\.jsp|\.html|\.php|\/|$)/i.test(initialUrl)
+
+          const inspection = await activePage.evaluate(() => {
+            const raw = window.__ha_events || []
+            window.__ha_events = []
+            const pwInput = document.querySelector('input[type="password"]')
+            const hasPw = Boolean(pwInput && (pwInput as HTMLElement).offsetParent !== null)
+            const bodyText = (document.body?.innerText || '').toLowerCase()
+            const hasSignOut = Boolean(
+              document.querySelector('a[href*="logout" i], a[href*="signout" i], button:has-text("Sign Out"), [aria-label*="sign out" i], [aria-label*="log out" i]') ||
+              bodyText.includes('sign out') || bodyText.includes('log out') || bodyText.includes('signed in as') ||
+              bodyText.includes('welcome,') || bodyText.includes('student center') || bodyText.includes('my account')
+            )
+            const isLoginError = bodyText.includes('invalid username') || bodyText.includes('invalid password') ||
+              bodyText.includes('incorrect user') || bodyText.includes('incorrect password') || bodyText.includes('authentication failed')
+            return { raw, hasPw, hasSignOut, isLoginError }
+          }).catch(() => ({ raw: [], hasPw: false, hasSignOut: false, isLoginError: false }))
+
+          for (const ev of inspection.raw || []) {
+            if (ev.action === 'click' && ev.label) allTriggers.push(`clicked "${ev.label}"`)
+            else if (ev.action === 'submit') allTriggers.push(`submitted form ${ev.form || ''}`)
+            else if (ev.action === 'press_enter') allTriggers.push('pressed Enter')
+            else if (ev.action) allTriggers.push(ev.action)
+          }
+
+          let resumed = false
+          let reason = ''
+          if (initialHasPassword) {
+            if (initialWasLoginUrl && !isLoginUrl && urlChanged && !inspection.isLoginError) {
+              resumed = true
+              reason = `User logged in: navigated to ${currentUrl}`
+            } else if (inspection.hasSignOut && !inspection.hasPw) {
+              resumed = true
+              reason = 'User logged in: detected authenticated session'
+            } else if (!inspection.hasPw && urlChanged && !inspection.isLoginError) {
+              resumed = true
+              reason = 'User completed login form'
+            }
+          } else if (urlChanged && !inspection.isLoginError) {
+            resumed = true
+            reason = `User completed interaction: navigated to ${currentUrl}`
+          }
+
+          if (resumed) {
+            autoResumed = true
+            return { resumed: true, reason }
+          }
+          return null
+        } catch {
+          return null
+        }
+      }
+
       const handoff = await task.onHandoff({
         kind: action.kind,
         message: action.message,
@@ -663,6 +757,7 @@ async function agentLoop(
         amountCents: action.amountCents,
         merchant: action.merchant,
         item: action.item,
+        checkAutoResume: action.kind !== 'question' ? checkAutoResume : undefined,
       })
       deadline += Date.now() - handoffStarted
       if (handoff === 'cancelled') return { ok: false, error: 'The user stopped the browser task.' }
@@ -673,14 +768,25 @@ async function agentLoop(
         task.paymentAuthorized = true
         task.paymentAmountCents = action.amountCents
       }
+
+      await activePage.waitForLoadState('domcontentloaded', { timeout: 10_000 }).catch(() => undefined)
+      const finalUrl = activePage.url()
+      const finalTitle = await activePage.title().catch(() => '')
+      const triggerSummary = allTriggers.length
+        ? `Observed user actions: ${allTriggers.slice(-6).join(', ')}.`
+        : 'User completed interaction directly in browser.'
+      const navSummary = initialUrl !== finalUrl
+        ? `Page navigated from "${initialUrl}" (${initialTitle}) to "${finalUrl}" (${finalTitle}).`
+        : `Current page: "${finalUrl}" (${finalTitle}).`
+
       if (action.kind === 'password') {
-        recentActions.push('Credential connected in vault.')
+        recentActions.push(`User took over and completed sign-in. ${triggerSummary} ${navSummary} Successfully authenticated. Now proceed with the task goal: "${task.goal || 'continue'}".`)
       } else if (typeof handoff === 'object' && 'answer' in handoff && handoff.answer) {
         recentActions.push(`user answered: "${handoff.answer.slice(0, 200)}" — type this into the field the question was about`)
       } else {
-        recentActions.push(`human completed ${action.kind} handoff`)
+        recentActions.push(`User took over and completed handoff:${action.kind}. ${triggerSummary} ${navSummary} Now proceed with the task goal: "${task.goal || 'continue'}".`)
       }
-      await task.onProgress?.({ action: `handoff_${action.kind}`, url: page.url() })
+      await task.onProgress?.({ action: autoResumed ? 'user_auto_resumed' : `handoff_${action.kind}`, url: finalUrl })
       continue
     }
     if (isTerminal(action)) {

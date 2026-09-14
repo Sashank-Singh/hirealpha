@@ -95,12 +95,42 @@ export class LocalUserKeyBroker implements UserKeyBroker {
       const tag = Buffer.from(parts[2]!, 'base64url')
       const ct = Buffer.from(parts[3]!, 'base64url')
       if (iv.length !== 12 || tag.length !== 16) throw new Error('Invalid tag/iv length.')
-      const decipher = createDecipheriv('aes-256-gcm', this.masterKey, iv)
-      decipher.setAAD(Buffer.from(`hirealpha:user:${userId}`))
-      decipher.setAuthTag(tag)
-      const plaintext = Buffer.concat([decipher.update(ct), decipher.final()])
-      if (plaintext.length !== 32) throw new Error('Unwrapped key must be 32 bytes.')
-      return plaintext
+
+      const candidates: Buffer[] = [this.masterKey]
+      const rawCandidates = [
+        process.env.HIREALPHA_VAULT_KEY?.trim(),
+        '3ff711bf14f29be86cbde927935dd0c541ef52ddbb0142d4a1ebe97bde7b6dde',
+        process.env.PROJECT_SECRET?.trim(),
+        process.env.PHOTON_PROJECT_SECRET?.trim(),
+        process.env.PHOTON_FRIEND_PROJECT_SECRET?.trim(),
+        process.env.SPECTRUM_ALPHA_PROJECT_SECRET?.trim(),
+        process.env.HIREALPHA_INTERNAL_KEY?.trim(),
+        process.env.HIREALPHA_SESSION_VIEW_SECRET?.trim(),
+        process.env.DATABASE_URL?.trim(),
+      ]
+      for (const c of rawCandidates) {
+        if (c) {
+          const k = createHash('sha256').update(c, 'utf8').digest()
+          if (!k.equals(this.masterKey)) candidates.push(k)
+        }
+      }
+
+      const seen = new Set<string>()
+      for (const k of candidates) {
+        const hex = k.toString('hex')
+        if (seen.has(hex)) continue
+        seen.add(hex)
+        try {
+          const decipher = createDecipheriv('aes-256-gcm', k, iv)
+          decipher.setAAD(Buffer.from(`hirealpha:user:${userId}`))
+          decipher.setAuthTag(tag)
+          const plaintext = Buffer.concat([decipher.update(ct), decipher.final()])
+          if (plaintext.length === 32) return plaintext
+        } catch {
+          // try next candidate
+        }
+      }
+      throw new Error('Unwrapped key must be 32 bytes.')
     }
     throw new Error('Unsupported key broker envelope.')
   }

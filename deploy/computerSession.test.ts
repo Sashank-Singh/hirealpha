@@ -171,4 +171,24 @@ describe('/api/computer/session/:id endpoint', () => {
     const resume = await handleHireApi(new Request(`https://hirealpha.chat/api/computer/session/${JOB_ID}/resume?token=${token}`, { method: 'POST' }), sql)
     expect(resume?.status).toBe(409)
   })
+
+  it('provides direct stream URL and fallback proxy stream URL when live_view_url is present', async () => {
+    const token = generateSessionViewToken(JOB_ID, USER_ID)
+    const kernelLive = 'https://proxy.jfk-confident-pare.onkernel.com:8443/browser/live?jwt=test-jwt'
+    const { sql } = fakeSql([{
+      id: JOB_ID,
+      user_id: USER_ID,
+      kind: 'task',
+      url: 'https://campusnet.csuohio.edu',
+      status: 'waiting',
+      live_view_url: kernelLive,
+      handoff_kind: 'password',
+    }])
+    const res = await handleHireApi(new Request(`https://hirealpha.chat/api/computer/session/${JOB_ID}?token=${token}`), sql)
+    expect(res?.status).toBe(200)
+    const data = await res?.json()
+    expect(data.session.streamUrl).toBe(kernelLive)
+    expect(data.session.directStreamUrl).toBe(kernelLive)
+    expect(data.session.proxyStreamUrl).toContain(`/api/computer/live-proxy/${JOB_ID}?token=`)
+  })
 })

@@ -25,7 +25,7 @@ export function LoginPage() {
    * picked on the pricing card is honored; otherwise the single-hire trial is
    * the default (7 days free, then $5 x 2 months, then $19). The checkout
    * email IS the account email. */
-  async function continueToCheckout(email: string, planOverride?: string) {
+  async function continueToCheckout(email: string, planOverride?: string, isNewSignup = false) {
     const plan = planOverride || planParam || 'single'
     try {
       const res = await fetch('/api/billing/checkout', {
@@ -41,7 +41,7 @@ export function LoginPage() {
     } catch {
       /* fall through to the app */
     }
-    navigate('/app')
+    navigate(isNewSignup ? '/app/mini/friend/menu' : '/app')
   }
 
   /* A returning, complete account with a plan in the URL goes straight to
@@ -51,7 +51,10 @@ export function LoginPage() {
       void continueToCheckout(existing.email)
       return null
     }
-    return <Navigate to="/app" replace />
+    const isDone =
+      localStorage.getItem(`ha_setup_done_${existing.email.toLowerCase().trim()}`) === 'friend' ||
+      localStorage.getItem('ha_setup_done') === 'friend'
+    return <Navigate to={isDone ? '/app' : '/app/mini/friend/menu'} replace />
   }
 
   async function finish(nextName: string, nextEmail: string, nextPhone: string) {
@@ -80,7 +83,10 @@ export function LoginPage() {
       // Phone just landed on the account: if they already pay, home; else the
       // default single trial checkout.
       if (st?.hires?.friend) {
-        navigate('/app')
+        const isDone =
+          localStorage.getItem(`ha_setup_done_${nextEmail}`) === 'friend' ||
+          localStorage.getItem('ha_setup_done') === 'friend'
+        navigate(isDone ? '/app' : '/app/mini/friend/menu')
         return
       }
       void continueToCheckout(nextEmail)
@@ -134,6 +140,12 @@ export function LoginPage() {
     if (mode === 'signup') {
       void apiRegisterPassword({ email: nextEmail, password, phone: nextPhone, name: nextName })
         .then(async (data) => {
+          // Clear any stale setup state left on this browser so the onboarding wizard appears cleanly
+          try {
+            localStorage.removeItem('ha_setup_done')
+            localStorage.removeItem('ha_setup_step')
+            localStorage.removeItem(`ha_setup_done_${data.email.toLowerCase().trim()}`)
+          } catch {}
           signIn(data.email, data.phone || nextPhone, data.name || nextName)
           // Re-assert the phone on the server no matter what raced ahead of
           // us (guest checkout, webhook) — PUT /api/me/phone backfills the
@@ -143,7 +155,7 @@ export function LoginPage() {
           // A fresh signup expects Stripe: go now, hydrate the roster in the
           // background instead of making checkout wait on it.
           void hydrateFromServer().catch(() => undefined)
-          void continueToCheckout(data.email)
+          void continueToCheckout(data.email, undefined, true)
         })
         .catch((err) => {
           setError(err instanceof Error ? err.message : 'Could not create account')
@@ -169,7 +181,10 @@ export function LoginPage() {
               .catch(() => ({})),
           ]).then(([, s]) => s as { hires?: Record<string, boolean> })
           if (st.hires?.friend) {
-            navigate('/app')
+            const isDone =
+              localStorage.getItem(`ha_setup_done_${data.email.toLowerCase().trim()}`) === 'friend' ||
+              localStorage.getItem('ha_setup_done') === 'friend'
+            navigate(isDone ? '/app' : '/app/mini/friend/menu')
             return
           }
           void continueToCheckout(data.email)

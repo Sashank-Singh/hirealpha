@@ -4,7 +4,7 @@ import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { defaultReplyCard, getAgent, runHireTurn, runMemoryMaintenance, sanitizeOutbound } from '../../shared/runHireTurn'
 import { extractMessageText, fetchLiveProfile, handleInboundPhoto } from '../../shared/liveContext'
-import { mintMiniAppCard } from '../../shared/miniApps'
+import { mintMiniAppCard, onboardingCard } from '../../shared/miniApps'
 import { claimInbound } from '../../shared/inboundGuard'
 import { onceAsync } from '../../shared/delivery'
 import { createReactionGate } from '../../shared/progressiveDelivery'
@@ -175,6 +175,13 @@ startIntroPoller({
       // iOS reliably offers "Add Contact" for. The save_contact loop (~15 min
       // later) repeats the nudge for anyone who missed it.
       await sendContactVcf(space, phone).catch((err) => console.error(`[${agent.id}] intro vcf failed`, err))
+      // Deliver the onboarding mini-app card so the user can tap to configure Alpha right away
+      try {
+        const card = await onboardingCard(phone, agent.id)
+        if (card) await sendCardSafe(space, card.url, card.live)
+      } catch (cardErr) {
+        console.warn(`[${agent.id}] intro onboarding card failed`, cardErr)
+      }
     })
   },
 })

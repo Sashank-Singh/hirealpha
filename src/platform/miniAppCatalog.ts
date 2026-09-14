@@ -38,6 +38,8 @@ export const APP_ALIASES: Record<string, string> = {
   loops: 'open_loops',
   gratitude: 'home',
   gratitude_journal: 'home',
+  setup: 'menu',
+  onboarding: 'menu',
 }
 export const FRIEND_APP_ALIASES = APP_ALIASES
 

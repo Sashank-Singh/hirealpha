@@ -25,6 +25,8 @@ interface SessionData {
   result: string | null
   error: string | null
   streamUrl: string | null
+  directStreamUrl?: string | null
+  proxyStreamUrl?: string | null
   screenshotDataUrl?: string | null
   steps: SessionStep[]
   handoffKind?: HandoffKind
@@ -292,17 +294,17 @@ export function ComputerSessionView() {
                   cursor: 'pointer',
                 }}
               >
-                {streamMode === 'stream' && !streamError ? 'Switch to Port 443 Safe View' : 'Try Live Stream'}
+                {streamMode === 'stream' && !streamError ? 'Switch to Snapshot' : 'Try Live Stream'}
               </button>
             )}
           </div>
 
           <div className={`cs-stream ${takingControl ? 'cs-stream-control' : ''}`}>
-            {session.streamUrl && !streamError && streamMode === 'stream' ? (
+            {(session.streamUrl || session.directStreamUrl) && !streamError && streamMode === 'stream' ? (
               <iframe
                 ref={iframeRef}
                 className="cs-stream-frame"
-                src={session.streamUrl}
+                src={session.streamUrl || session.directStreamUrl || ''}
                 title={`Live browser on ${currentHost}`}
                 allow="clipboard-read; clipboard-write; fullscreen"
                 referrerPolicy="no-referrer"
@@ -324,7 +326,7 @@ export function ComputerSessionView() {
                 <span>{session.status === 'done' || session.status === 'failed' ? 'The private live view ended with this task.' : 'The live screen will appear here.'}</span>
               </div>
             )}
-            {!takingControl && session.streamUrl && <div className="cs-watch-shield" aria-hidden="true" />}
+            {!takingControl && (session.streamUrl || session.directStreamUrl) && <div className="cs-watch-shield" aria-hidden="true" />}
             {canControl && (
               <div className="cs-control-dock">
                 <span className="cs-control-note">{takingControl ? 'You have the mouse and keyboard' : 'Alpha has control'}</span>
@@ -342,8 +344,8 @@ export function ComputerSessionView() {
           <footer className="cs-stream-footer">
             <span><i className="cs-safety-light" /> Encrypted live view</span>
             <span>Protected by this private link</span>
-            {session.streamUrl && (
-              <a className="cs-direct-view" href={session.streamUrl} target="_blank" rel="noreferrer">Open direct view</a>
+            {(session.directStreamUrl || session.streamUrl) && (
+              <a className="cs-direct-view" href={session.directStreamUrl || session.streamUrl || ''} target="_blank" rel="noreferrer">Open direct view ↗</a>
             )}
           </footer>
         </section>

@@ -254,7 +254,7 @@ export function MiniAppPage() {
 
   const isDigest = kind === 'digest'
   const isEveningBrief = kind === 'pick_night'
-  const isMenu = kind === 'menu'
+  const isMenu = kind === 'menu' || kind === 'setup' || kind === 'onboarding'
   const isApps = kind === 'apps' || isMenu
   const isLiveMini = LIVE_MINI_KINDS.has(kind || '')
   const isFeature = FEATURE_KINDS.has(kind || '')
@@ -423,7 +423,12 @@ export function MiniAppPage() {
     // status read failed or the done-POST raced a stale token. The server row
     // stays the source of truth for everyone else.
     try {
-      if (localStorage.getItem('ha_setup_done') === 'friend') {
+      const emailKey = email ? `ha_setup_done_${email.toLowerCase().trim()}` : null
+      if (emailKey && localStorage.getItem(emailKey) === 'friend') {
+        setSetupDone(true)
+        return
+      }
+      if (!email && localStorage.getItem('ha_setup_done') === 'friend') {
         setSetupDone(true)
         return
       }
@@ -435,7 +440,9 @@ export function MiniAppPage() {
         if (!cancelled) setSetupDone(!!s.setupDone)
       })
       .catch(() => {
-        if (!cancelled) setSetupDone(true) // status offline: skip the wizard, do not block home
+        // If status call fails when explicitly visiting the menu card, do not prematurely treat setup as done;
+        // let the onboarding wizard render so the user can configure their setup.
+        if (!cancelled) setSetupDone(false)
       })
     return () => {
       cancelled = true
@@ -649,7 +656,9 @@ export function MiniAppPage() {
 
         {authed && !expired && isApps && !settingsOpen && (
           <div className="mini__body mini__body--home-screen">
-            {isMenuCard && setupDone === false ? (
+            {isMenuCard && setupDone === null ? (
+              <BriefLoading />
+            ) : isMenuCard && setupDone === false ? (
               <SetupApp
                 auth={{
                   persona: (persona as AgentId) || 'friend',

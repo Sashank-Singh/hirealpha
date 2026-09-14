@@ -414,7 +414,7 @@ export async function runJob(sql: SQL, job: JobRow, launch = runBrowserSession):
         await setBrowserScreenshot(sql, job.id, shot.dataUrl).catch(() => undefined)
       }
     },
-    onHandoff: async ({ kind: handoffKind, message, url, amountCents, merchant, item }) => {
+    onHandoff: async ({ kind: handoffKind, message, url, amountCents, merchant, item, checkAutoResume }) => {
       if (handoffKind === 'payment' && paymentCard) return { status: 'resumed' as const, paymentCard }
       // Route A: the agent asked a question. The answer channel is the chat
       // thread itself — no link, no live view, no takeover. The user's next
@@ -468,7 +468,7 @@ export async function runJob(sql: SQL, job: JobRow, launch = runBrowserSession):
       })
       const handoffOutcome = await (payment
         ? waitForLinkCredential(sql, job, payment)
-        : waitForBrowserHandoff(sql, job.id))
+        : waitForBrowserHandoff(sql, job.id, undefined, checkAutoResume))
 
       if (handoffOutcome === 'resumed' && key && (handoffKind === 'password' || !creds)) {
         const freshCreds = await getVaultCredentialsForTask(sql, job.user_id, origin, key).catch(() => null)

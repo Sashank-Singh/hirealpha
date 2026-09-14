@@ -11538,10 +11538,10 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
       if (subPath) {
         // Sub-paths are origin-root relative: the HTML rewrite (below) and the
         // websocket upgrade (web-server) both map proxy sub-paths onto the
-        // provider origin root, so the GET side must agree or assets and ws
-        // handshakes 404 against a path-prefixed live view URL.
+        // provider origin root. Preserve the search query (e.g. ?jwt=...).
         const baseOrigin = new URL(job.live_view_url).origin
-        targetUrl = `${baseOrigin}/${subPath}`
+        const search = url.search || ''
+        targetUrl = `${baseOrigin}/${subPath}${search}`
       }
 
       const upstream = await fetch(targetUrl, {
@@ -11552,17 +11552,24 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
       })
       const headers = new Headers(upstream.headers)
       headers.delete('content-security-policy')
+      headers.delete('x-frame-options')
       headers.set('access-control-allow-origin', '*')
 
       const contentType = upstream.headers.get('content-type') || ''
       if (contentType.includes('text/html')) {
         let html = await upstream.text()
-        const proxyBase = `/api/computer/live-proxy/${encodeURIComponent(jobId)}/`
+        const proxyPrefix = `/api/computer/live-proxy/${encodeURIComponent(jobId)}`
+        const proxyBase = `${proxyPrefix}/`
         if (html.includes('<head>')) {
           html = html.replace('<head>', `<head><base href="${proxyBase}">`)
         } else if (html.includes('<head ')) {
           html = html.replace(/<head\b[^>]*>/, `$&<base href="${proxyBase}">`)
         }
+        // Rewrite root-relative URLs (/browser/live/...) to point to our proxy
+        html = html.replaceAll('="/browser/live/', `="${proxyPrefix}/browser/live/`)
+        html = html.replaceAll("='/browser/live/", `='${proxyPrefix}/browser/live/`)
+        html = html.replaceAll('\\"/browser/live/', `\\"${proxyPrefix}/browser/live/`)
+
         // Route B: the page's absolute references to the provider origin (ws
         // and http) must land on our proxy — <base> only rewrites resource
         // URLs, not the ws:// strings its JS builds. Rewriting the origin here
@@ -11572,8 +11579,8 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
           const host = req.headers.get('host') || url.host
           const proto = req.headers.get('x-forwarded-proto') || url.protocol.replace(':', '')
           const isSecure = proto === 'https'
-          const proxyWsOrigin = `${isSecure ? 'wss' : 'ws'}://${host}/api/computer/live-proxy/${encodeURIComponent(jobId)}`
-          const proxyHttpOrigin = `${isSecure ? 'https' : 'http'}://${host}/api/computer/live-proxy/${encodeURIComponent(jobId)}`
+          const proxyWsOrigin = `${isSecure ? 'wss' : 'ws'}://${host}${proxyPrefix}`
+          const proxyHttpOrigin = `${isSecure ? 'https' : 'http'}://${host}${proxyPrefix}`
           html = html.split(`wss://${upstreamHost}`).join(proxyWsOrigin)
           html = html.split(`ws://${upstreamHost}`).join(proxyWsOrigin)
           html = html.split(`https://${upstreamHost}`).join(proxyHttpOrigin)
@@ -11581,7 +11588,7 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
         } catch { /* unparseable upstream URL: serve as-is */ }
         const headersOut = new Headers(headers)
         if (token) {
-          headersOut.append('set-cookie', `ha_live_${jobId}=${encodeURIComponent(token)}; Path=${proxyBase}; HttpOnly; SameSite=Lax; Secure; Max-Age=86400`)
+          headersOut.append('set-cookie', `ha_live_${jobId}=${encodeURIComponent(token)}; Path=${proxyPrefix}; HttpOnly; SameSite=None; Secure; Max-Age=86400`)
         }
         return new Response(html, { status: upstream.status, headers: headersOut })
       }
@@ -11667,26 +11674,23 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     if (action) return json({ error: 'Unknown computer session action.' }, 404)
 
     // The provider's own live view (Kernel) is the exact browser running the
-    // task and needs no local streaming stack; the noVNC container remains the
-    // fallback for jobs executed without a provider-hosted view.
+    // task and supports direct embedding via iframe. We prefer the direct live
+    // view so interactive mouse/keyboard events, low-latency WebRTC and
+    // WebSockets connect directly without intermediate hops. We also provide
+    // proxyStreamUrl as an HTTPS 443 fallback for restricted corporate networks.
     const providerLiveView = job.live_view_url?.trim() || ''
     const configuredStream = process.env.BROWSER_USE_STREAM_URL || (process.env.BROWSER_USE_DOMAIN ? `https://${process.env.BROWSER_USE_DOMAIN}/vnc.html` : 'https://browser.hirealpha.chat/vnc.html')
     const streamBase = configuredStream.replace('{sessionId}', encodeURIComponent(jobId))
     const vncPassword = process.env.CHROME_VNC_PASSWORD || ''
     const joiner = streamBase.includes('?') ? '&' : '?'
-    // If provider live view is on port 8443, proxy through hirealpha.chat so mobile
-    // and firewalled clients can open the view over standard port 443 HTTPS.
-    let streamUrl: string | null = null
-    if (providerLiveView) {
-      if (providerLiveView.includes(':8443')) {
-        const tokenParam = token ? `?token=${encodeURIComponent(token)}` : ''
-        streamUrl = `${appBase(req)}/api/computer/live-proxy/${encodeURIComponent(jobId)}${tokenParam}`
-      } else {
-        streamUrl = providerLiveView
-      }
-    } else {
-      streamUrl = `${streamBase}${joiner}autoconnect=true&resize=scale&reconnect=true${vncPassword ? `&password=${encodeURIComponent(vncPassword)}` : ''}`
-    }
+    const fallbackStream = `${streamBase}${joiner}autoconnect=true&resize=scale&reconnect=true${vncPassword ? `&password=${encodeURIComponent(vncPassword)}` : ''}`
+
+    const tokenParam = token ? `?token=${encodeURIComponent(token)}` : ''
+    const proxyStreamUrl = providerLiveView
+      ? `${appBase(req)}/api/computer/live-proxy/${encodeURIComponent(jobId)}${tokenParam}`
+      : null
+    const directStreamUrl = providerLiveView || null
+    const streamUrl = directStreamUrl || fallbackStream
 
     return json({
       ok: true,
@@ -11700,6 +11704,8 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
         result: job.result,
         error: job.error,
         streamUrl: ['running', 'waiting'].includes(job.status) ? streamUrl : null,
+        directStreamUrl: ['running', 'waiting'].includes(job.status) ? directStreamUrl : null,
+        proxyStreamUrl: ['running', 'waiting'].includes(job.status) ? proxyStreamUrl : null,
         screenshotDataUrl: job.last_screenshot
           ? (job.last_screenshot.startsWith('data:') ? job.last_screenshot : `data:image/jpeg;base64,${job.last_screenshot}`)
           : null,

@@ -766,11 +766,23 @@ async function handleLiveProxyUpgrade(req: Request, server: Bun.Server<LiveProxy
     if (!authorized) return false
     const upstream = new URL(liveView)
     const proto = upstream.protocol === 'https:' ? 'wss:' : 'ws:'
-    const rest = url.pathname.slice(('/api/computer/live-proxy/' + jobId).length) || '/'
-    const search = url.searchParams.get('token') || url.searchParams.get('t')
-      ? `?${new URLSearchParams([...url.searchParams].filter(([k]) => k !== 'token' && k !== 't')).toString()}`
-      : url.search
-    const target = `${proto}//${upstream.host}${rest}${search === '?' ? '' : search}`
+    let rest = url.pathname.slice(('/api/computer/live-proxy/' + jobId).length) || '/'
+    if (!rest.startsWith('/')) rest = '/' + rest
+    let upstreamPath = rest
+    // If the websocket path requested is /ws or /ws/, prefix with upstream pathname (e.g. /browser/live/ws)
+    if (rest === '/ws' || rest === '/ws/') {
+      const base = upstream.pathname.replace(/\/$/, '')
+      upstreamPath = `${base}/ws`
+    }
+    // Merge upstream query parameters (crucial for Kernel JWT auth) with request query parameters
+    const mergedParams = new URLSearchParams(upstream.searchParams)
+    for (const [k, v] of url.searchParams.entries()) {
+      if (k !== 'token' && k !== 't') {
+        mergedParams.set(k, v)
+      }
+    }
+    const searchStr = mergedParams.toString() ? `?${mergedParams.toString()}` : ''
+    const target = `${proto}//${upstream.host}${upstreamPath}${searchStr}`
     return server.upgrade(req, { data: { target, peer: null, queue: [] } })
   } catch (err) {
     console.warn('[web] live-proxy upgrade failed', err)

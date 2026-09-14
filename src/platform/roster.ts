@@ -63,6 +63,16 @@ export function signIn(email: string, phone = '', name?: string, timezone?: stri
 }
 
 export function signOut() {
+  const session = getSession()
+  if (session?.email) {
+    try {
+      localStorage.removeItem(`ha_setup_done_${session.email.toLowerCase().trim()}`)
+    } catch {}
+  }
+  try {
+    localStorage.removeItem('ha_setup_done')
+    localStorage.removeItem('ha_setup_step')
+  } catch {}
   localStorage.removeItem(SESSION_KEY)
   void fetch('/api/auth/logout', { method: 'POST' }).catch(() => undefined)
 }
