@@ -233,7 +233,7 @@ export async function createCapabilityGrant(
     ) VALUES (
       ${id}, ${request.user_id}, ${request.task_id}, ${request.resource_type}, ${request.resource_id},
       ${request.action}, ${request.exact_origin}, ${request.amount_cents}, ${request.currency},
-      ${request.merchant}, ${request.recipient}, ${JSON.stringify(request.cart)}::jsonb,
+      ${request.merchant}, ${request.recipient}, ${request.cart as never}::jsonb,
       ${request.requesting_agent}, ${request.purpose}, ${Buffer.from(digest, 'hex')}, 'pending', ${request.expires_at}
     )
   `

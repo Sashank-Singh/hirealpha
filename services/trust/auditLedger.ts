@@ -37,12 +37,21 @@ function required(value: string, name: string, max = 120): string {
   return result
 }
 
-export function sanitizeAuditMetadata(input: Record<string, unknown> = {}): Record<string, string | number | boolean | null> {
+export function sanitizeAuditMetadata(input: Record<string, unknown> | string | null | undefined = {}): Record<string, string | number | boolean | null> {
+  // Rows written before the jsonb double-encoding fix store the metadata as a
+  // JSON *string* scalar. Decode it so verifyAuditChain reproduces the original
+  // hash for historical events; object rows pass through unchanged.
+  let source: Record<string, unknown>
+  if (typeof input === 'string') {
+    try { source = JSON.parse(input) as Record<string, unknown> } catch { source = {} }
+  } else {
+    source = input ?? {}
+  }
   const output: Record<string, string | number | boolean | null> = {}
-  for (const key of Object.keys(input).sort()) {
+  for (const key of Object.keys(source).sort()) {
     if (FORBIDDEN_KEY.test(key)) throw new Error(`Sensitive audit metadata key is forbidden: ${key}.`)
     if (!SAFE_METADATA_KEYS.has(key)) continue
-    const value = input[key]
+    const value = source[key]
     if (value === null || typeof value === 'boolean') output[key] = value
     else if (typeof value === 'number' && Number.isFinite(value)) output[key] = value
     else if (typeof value === 'string') output[key] = value.slice(0, 500)
@@ -99,7 +108,7 @@ export async function appendAuditEvent(sql: SQL, input: AuditEventInput): Promis
         outcome, safe_metadata, previous_hash, event_hash, occurred_at
       ) VALUES (
         ${event.id}, ${event.user_id}, ${event.task_id}, ${event.capability_grant_id}, ${event.event_type},
-        ${event.resource_type}, ${event.outcome}, ${JSON.stringify(event.safe_metadata)}::jsonb,
+        ${event.resource_type}, ${event.outcome}, ${event.safe_metadata as never}::jsonb,
         ${previousHash}, ${hash}, ${event.occurred_at}
       )
     `

@@ -179,7 +179,7 @@ export async function createTask(sql: SQL, input: CreateTaskInput): Promise<Task
     await tx`
       INSERT INTO hire_task_events (event_id, task_id, user_id, type, actor, payload, task_seq)
       VALUES (${randomUUID()}, ${row.id}, ${input.userId}, ${created.type}, ${'system'},
-              ${JSON.stringify(created.payload)}::jsonb, ${1})
+              ${created.payload as never}::jsonb, ${1})
     `
     const updated = (await tx`
       UPDATE hire_tasks
@@ -264,21 +264,21 @@ export async function appendEvent(sql: SQL, input: AppendEventInput): Promise<Ap
       UPDATE hire_tasks
       SET state = ${next.state},
           resumed_state = ${next.resumed_state},
-          constraints = ${JSON.stringify(next.constraints)}::jsonb,
+          constraints = ${next.constraints as never}::jsonb,
           monitor_state = ${next.monitor_state},
-          monitor_policy = ${next.monitor_policy == null ? null : JSON.stringify(next.monitor_policy)}::jsonb,
+          monitor_policy = ${next.monitor_policy as never}::jsonb,
           monitor_next_check_at = ${next.monitor_next_check_at},
           plan_version = ${next.plan_version},
-          plan = ${next.plan == null ? null : JSON.stringify(next.plan)}::jsonb,
-          current_step = ${next.current_step == null ? null : JSON.stringify(next.current_step)}::jsonb,
-          options = ${JSON.stringify(next.options)}::jsonb,
+          plan = ${next.plan as never}::jsonb,
+          current_step = ${next.current_step as never}::jsonb,
+          options = ${next.options as never}::jsonb,
           selected_option_id = ${next.selected_option_id},
-          grants = ${JSON.stringify(next.grants)}::jsonb,
-          external_ops = ${JSON.stringify(next.external_ops)}::jsonb,
-          artifacts = ${JSON.stringify(next.artifacts)}::jsonb,
-          verification = ${next.verification == null ? null : JSON.stringify(next.verification)}::jsonb,
-          sync_state = ${JSON.stringify(next.sync_state)}::jsonb,
-          failure = ${next.failure == null ? null : JSON.stringify(next.failure)}::jsonb,
+          grants = ${next.grants as never}::jsonb,
+          external_ops = ${next.external_ops as never}::jsonb,
+          artifacts = ${next.artifacts as never}::jsonb,
+          verification = ${next.verification as never}::jsonb,
+          sync_state = ${next.sync_state as never}::jsonb,
+          failure = ${next.failure as never}::jsonb,
           version = version + 1,
           event_seq = ${seq},
           updated_at = now()
