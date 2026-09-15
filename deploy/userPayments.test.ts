@@ -282,10 +282,10 @@ describe('user payments API routes', () => {
     expect(res?.status).toBeGreaterThanOrEqual(400)
   })
 
-  it('spend create validates input through the API', async () => {
+  it('spend create refuses unverified client-supplied purchase values', async () => {
     const { sql } = fakeSql()
     const res = await handleUserPaymentsApi(req('/api/payments/spend', { action: 'create', amountCents: 5, merchant: 'x', purpose: 'y' }), sql, authedDeps)
-    expect(res?.status).toBe(400)
+    expect(res?.status).toBe(409)
   })
 
   it('spend GET returns masked dollar amounts and the cap', async () => {
@@ -308,7 +308,7 @@ describe('user payments API routes', () => {
     const { sql } = fakeSql(() => [
       { id: 'req_123', user_id: USER, amount_cents: 1899, merchant: 'amazon.com', purpose: '5lb Jasmine Rice', status: 'pending', payment_intent_id: null },
     ])
-    const res = await handleUserPaymentsApi(req('/api/payments/spend/approve?id=req_123'), sql, noAuthDeps)
+    const res = await handleUserPaymentsApi(req('/api/payments/spend/approve?id=req_123'), sql, authedDeps)
     expect(res?.status).toBe(200)
     const html = await res!.text()
     expect(html).toContain('Approve Purchase')
@@ -321,7 +321,7 @@ describe('user payments API routes', () => {
     const { sql } = fakeSql(() => [
       { id: 'req_123', user_id: USER, amount_cents: 1899, merchant: 'amazon.com', purpose: '5lb Jasmine Rice', status: 'consumed', payment_intent_id: 'pi_test123' },
     ])
-    const res = await handleUserPaymentsApi(req('/api/payments/spend/approve?id=req_123'), sql, noAuthDeps)
+    const res = await handleUserPaymentsApi(req('/api/payments/spend/approve?id=req_123'), sql, authedDeps)
     expect(res?.status).toBe(200)
     const html = await res!.text()
     expect(html).toContain('Already Approved')
@@ -331,7 +331,7 @@ describe('user payments API routes', () => {
     const { sql } = fakeSql(() => [
       { id: 'req_123', user_id: USER, amount_cents: 1899, merchant: 'amazon.com', purpose: '5lb Jasmine Rice', status: 'pending', payment_intent_id: null },
     ])
-    const res = await handleUserPaymentsApi(req('/api/payments/spend/approve?id=req_123&format=json'), sql, noAuthDeps)
+    const res = await handleUserPaymentsApi(req('/api/payments/spend/approve?id=req_123&format=json'), sql, authedDeps)
     expect(res?.status).toBe(200)
     const data = await res!.json()
     expect(data).toMatchObject({

@@ -7,8 +7,8 @@
  *  - Every new purchase is ask-first for THIS amount and THIS merchant and is
  *    capped (USER_SPEND_MAX_CENTS). Link issues a one-time credential only
  *    after that exact request is approved.
- *  - Full card data is never persisted or sent to the model. The browser
- *    worker retrieves it into memory and fills checkout fields directly.
+ *  - Kernel returns non-secret aliases only and substitutes the underlying
+ *    credential at browser egress. Card data never enters HireAlpha.
  *
  * Legacy Stripe Customer helpers remain below only to finalize already-issued
  * PaymentIntents during migration; new product purchases use Link spend
@@ -25,6 +25,7 @@ import {
   ensureLinkWalletSchema,
   getLinkStatus,
   listLinkPaymentMethods,
+  resolveKernelPaymentAction,
   retrieveLinkSpend,
   startLinkConnection,
 } from './linkWallet'
@@ -58,6 +59,7 @@ export async function ensureUserPaymentsSchema(sql: SQL): Promise<void> {
   await sql`ALTER TABLE hire_spend_approvals ADD COLUMN IF NOT EXISTS finalization_status TEXT NOT NULL DEFAULT 'pending'`
   await sql`ALTER TABLE hire_spend_approvals ADD COLUMN IF NOT EXISTS finalization_job_id UUID`
   await sql`ALTER TABLE hire_spend_approvals ADD COLUMN IF NOT EXISTS order_confirmation TEXT`
+  await sql`ALTER TABLE hire_spend_approvals ADD COLUMN IF NOT EXISTS currency TEXT NOT NULL DEFAULT 'USD'`
   await ensureLinkWalletSchema(sql)
 }
 
@@ -188,13 +190,15 @@ export async function createSpendRequest(
 export async function createLinkBackedSpendRequest(
   sql: SQL,
   userId: string,
-  input: { amountCents: number; merchant: string; merchantUrl: string; purpose: string },
+  input: { amountCents: number; currency: string; merchant: string; merchantUrl: string; purpose: string },
 ): Promise<{ requestId: string; approvalUrl: string } | { error: string }> {
   let merchantUrl: URL
   try { merchantUrl = new URL(input.merchantUrl) } catch { return { error: 'Purchase needs a valid merchant URL.' } }
   if (merchantUrl.protocol !== 'https:' || merchantUrl.username || merchantUrl.password) return { error: 'Purchase merchant URL must be secure.' }
   const hostname = merchantUrl.hostname.toLowerCase()
   const merchant = hostname.startsWith('www.') ? hostname.slice(4) : hostname
+  const currency = input.currency.trim().toUpperCase()
+  if (!/^[A-Z]{3}$/.test(currency)) return { error: 'Purchase currency could not be verified.' }
   const local = await createSpendRequest(sql, userId, { ...input, merchant })
   if (!('requestId' in local)) return local
   const capability = await createCapabilityGrant(sql, {
@@ -205,7 +209,7 @@ export async function createLinkBackedSpendRequest(
     action: 'issue_one_time_payment_credential',
     exactOrigin: merchantUrl.origin,
     amountCents: input.amountCents,
-    currency: 'USD',
+    currency,
     merchant,
     recipient: merchant,
     cart: [{ description: input.purpose, quantity: 1, unitAmountCents: input.amountCents }],
@@ -214,14 +218,14 @@ export async function createLinkBackedSpendRequest(
     expiresAt: new Date(Date.now() + 10 * 60 * 1000),
   })
   try {
-    const spend = await createLinkSpendRequest(sql, userId, { ...input, merchant, merchantUrl: merchantUrl.href, requestId: local.requestId })
+    const spend = await createLinkSpendRequest(sql, userId, { ...input, currency, merchant, merchantUrl: merchantUrl.href, requestId: local.requestId })
     if (!spend.id || !spend.approvalUrl) throw new Error('Link did not return an approval link.')
-    const approvalUrl = new URL(spend.approvalUrl)
+    const approvalUrl = new URL(spend.approvalUrl, (process.env.HIREALPHA_APP_URL || 'https://hirealpha.chat').replace(/\/$/, '') + '/')
     if (approvalUrl.protocol !== 'https:' || approvalUrl.username || approvalUrl.password) throw new Error('Link returned an invalid approval link.')
     await sql`
       UPDATE hire_spend_approvals
       SET link_spend_request_id = ${spend.id}, link_approval_url = ${approvalUrl.href},
-        merchant_url = ${merchantUrl.href}, capability_grant_id = ${capability.id},
+        merchant_url = ${merchantUrl.href}, currency = ${currency}, capability_grant_id = ${capability.id},
         finalization_status = 'awaiting_link', last_error = NULL
       WHERE id = ${local.requestId} AND user_id = ${userId}
     `
@@ -470,7 +474,7 @@ export async function queuePaidPurchaseFinalization(
  * says this exact spend request was approved. Safe to run in every worker. */
 export async function promoteApprovedLinkPurchases(sql: SQL, limit = 3): Promise<number> {
   const rows = (await sql`
-    SELECT a.id, a.user_id, a.amount_cents, a.merchant, a.merchant_url, a.purpose,
+    SELECT a.id, a.user_id, a.amount_cents, a.currency, a.merchant, a.merchant_url, a.purpose,
       a.link_spend_request_id, a.finalization_job_id, a.capability_grant_id, u.phone_e164
     FROM hire_spend_approvals a
     JOIN hire_users u ON u.id = a.user_id::text
@@ -478,7 +482,7 @@ export async function promoteApprovedLinkPurchases(sql: SQL, limit = 3): Promise
       AND a.finalization_status = 'awaiting_link'
     ORDER BY a.created_at ASC LIMIT ${limit}
   `) as Array<{
-    id: string; user_id: string; amount_cents: number; merchant: string; merchant_url: string;
+    id: string; user_id: string; amount_cents: number; currency: string; merchant: string; merchant_url: string;
     purpose: string; link_spend_request_id: string; finalization_job_id: string | null;
     capability_grant_id: string | null; phone_e164: string | null
   }>
@@ -487,7 +491,7 @@ export async function promoteApprovedLinkPurchases(sql: SQL, limit = 3): Promise
     let remote
     try { remote = await retrieveLinkSpend(sql, row.user_id, row.link_spend_request_id) }
     catch { continue }
-    if (['denied', 'expired', 'failed', 'canceled'].includes(remote.status)) {
+    if (['denied', 'declined', 'expired', 'failed', 'canceled', 'recovery_required'].includes(remote.status)) {
       if (row.capability_grant_id) {
         const grants = (await sql`SELECT task_id, encode(request_digest, 'hex') AS digest FROM capability_grants WHERE id = ${row.capability_grant_id} LIMIT 1`) as Array<{ task_id: string; digest: string }>
         if (grants[0]) await decideCapabilityGrant(sql, {
@@ -528,7 +532,7 @@ export async function promoteApprovedLinkPurchases(sql: SQL, limit = 3): Promise
       purpose: `Complete Link-approved purchase: ${row.purpose}`.slice(0, 200),
     })
     if ('error' in browserApproval) continue
-    const amount = `$${(row.amount_cents / 100).toFixed(2)}`
+    const amount = formatMoney(row.amount_cents, row.currency)
     const goal = [
       `Complete the Link-approved checkout for "${row.purpose}".`,
       `Verify the final total is exactly ${amount}; do not change the cart or accept substitutions.`,
@@ -576,6 +580,16 @@ function escapeHtml(value: string): string {
   })[char]!)
 }
 
+function formatMoney(amountCents: number, currency = 'USD'): string {
+  try {
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency', currency: currency.toUpperCase(), currencyDisplay: 'symbol',
+    }).format(amountCents / 100)
+  } catch {
+    return `${currency.toUpperCase()} ${(amountCents / 100).toFixed(2)}`
+  }
+}
+
 export type UserPaymentsDeps = {
   resolveUser: (sql: SQL, req: Request) => Promise<{ id: string } | null>
 }
@@ -586,16 +600,34 @@ export async function handleUserPaymentsApi(req: Request, sql: SQL, deps: UserPa
   const path = url.pathname
   if (!path.startsWith('/api/payments')) return null
 
+  // Every payment surface, including provider-action redirects, is bound to
+  // the authenticated owner. A request UUID or opaque action ID is never
+  // treated as authorization by itself.
+  const user = await deps.resolveUser(sql, req)
+  if (!user) return json({ error: 'Sign in first.' }, 401)
+
+  if (path === '/api/payments/kernel/action' && req.method === 'GET') {
+    const target = await resolveKernelPaymentAction(sql, user.id, url.searchParams.get('id') || '').catch(() => null)
+    if (!target) return new Response('This payment action is invalid or expired.', {
+      status: 410,
+      headers: { 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer' },
+    })
+    return new Response(null, {
+      status: 302,
+      headers: { Location: target, 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer' },
+    })
+  }
+
   // One-tap spend approval from iMessage / chat links
   if (path === '/api/payments/spend/approve' && req.method === 'GET') {
     const id = url.searchParams.get('id') || ''
     const isJson = url.searchParams.get('format') === 'json' || req.headers.get('accept')?.includes('application/json')
     if (!id) return isJson ? json({ error: 'Missing request id' }, 400) : new Response('Missing request id', { status: 400 })
     const rows = (await sql`
-      SELECT id, user_id, amount_cents, merchant, purpose, status, payment_intent_id,
+      SELECT id, user_id, amount_cents, currency, merchant, purpose, status, payment_intent_id,
         finalization_status, link_spend_request_id, link_approval_url
-      FROM hire_spend_approvals WHERE id = ${id} LIMIT 1
-    `) as Array<{ id: string; user_id: string; amount_cents: number; merchant: string; purpose: string; status: string; payment_intent_id: string | null; finalization_status: string; link_spend_request_id: string | null; link_approval_url: string | null }>
+      FROM hire_spend_approvals WHERE id = ${id} AND user_id = ${user.id} LIMIT 1
+    `) as Array<{ id: string; user_id: string; amount_cents: number; currency: string; merchant: string; purpose: string; status: string; payment_intent_id: string | null; finalization_status: string; link_spend_request_id: string | null; link_approval_url: string | null }>
     const item = rows[0]
     if (!item) {
       if (isJson) return json({ error: 'Request not found' }, 404)
@@ -604,11 +636,11 @@ export async function handleUserPaymentsApi(req: Request, sql: SQL, deps: UserPa
         status: 404,
       })
     }
-    const amountStr = `$${(item.amount_cents / 100).toFixed(2)}`
+    const amountStr = formatMoney(item.amount_cents, item.currency)
     if (item.link_spend_request_id && item.link_approval_url && isJson) {
       return json({
         ok: true, id: item.id, merchant: item.merchant, purpose: item.purpose,
-        amount_cents: item.amount_cents, amount: amountStr, status: item.status,
+        amount_cents: item.amount_cents, currency: item.currency, amount: amountStr, status: item.status,
         approval_url: item.status === 'pending' ? item.link_approval_url : undefined,
         finalization_status: item.finalization_status,
         already_approved: ['approved', 'consumed'].includes(item.status) || item.finalization_status === 'completed',
@@ -630,7 +662,11 @@ export async function handleUserPaymentsApi(req: Request, sql: SQL, deps: UserPa
           </div>
           <a href="${safeApprovalUrl}" rel="noreferrer" style="display:block;background:#635bff;color:#fff;text-decoration:none;padding:16px;border-radius:12px;font-weight:600;">Continue to Link</a>
           <p style="font-size:12px;color:#8b949e;">Link shows the merchant, item, and exact total before you approve.</p>
-        </div></body></html>`, { headers: { 'Content-Type': 'text/html; charset=utf-8' } })
+        </div></body></html>`, { headers: {
+          'Content-Type': 'text/html; charset=utf-8',
+          'Cache-Control': 'no-store',
+          'Referrer-Policy': 'no-referrer',
+        } })
     }
     if (item.status === 'approved' || item.status === 'consumed' || item.payment_intent_id) {
       if (isJson) {
@@ -727,9 +763,6 @@ export async function handleUserPaymentsApi(req: Request, sql: SQL, deps: UserPa
     })
   }
 
-  const user = await deps.resolveUser(sql, req)
-  if (!user) return json({ error: 'Sign in first.' }, 401)
-
   // Link device authorization belongs to this signed-in HireAlpha user only.
   if (path === '/api/payments/connect' && req.method === 'POST') {
     try {
@@ -768,16 +801,10 @@ export async function handleUserPaymentsApi(req: Request, sql: SQL, deps: UserPa
 
   // Spend requests: create → pending; user approves/denies; charge consumes.
   if (path === '/api/payments/spend' && req.method === 'POST') {
-    const body = (await req.json().catch(() => ({}))) as { action?: string; requestId?: string; amountCents?: number; merchant?: string; merchantUrl?: string; purpose?: string }
+    const body = (await req.json().catch(() => ({}))) as { action?: string; requestId?: string; amountCents?: number; currency?: string; merchant?: string; merchantUrl?: string; purpose?: string }
     const action = body.action || 'create'
     if (action === 'create') {
-      const res = await createLinkBackedSpendRequest(sql, user.id, {
-        amountCents: Number(body.amountCents),
-        merchant: String(body.merchant || ''),
-        merchantUrl: String(body.merchantUrl || ''),
-        purpose: String(body.purpose || ''),
-      })
-      return 'requestId' in res ? json(res) : json({ error: res.error }, 400)
+      return json({ error: 'Payment approval is created only from an independently verified live browser checkout.' }, 409)
     }
     if (action === 'approve' || action === 'deny') {
       if (action === 'approve') {
@@ -800,13 +827,13 @@ export async function handleUserPaymentsApi(req: Request, sql: SQL, deps: UserPa
   // Pending spend requests for the approvals UI.
   if (path === '/api/payments/spend' && req.method === 'GET') {
     const rows = (await sql`
-      SELECT id, amount_cents, merchant, purpose, status, created_at, last_error, link_approval_url
+      SELECT id, amount_cents, currency, merchant, purpose, status, created_at, last_error, link_approval_url
       FROM hire_spend_approvals WHERE user_id = ${user.id} ORDER BY created_at DESC LIMIT 20
-    `) as Array<{ id: string; amount_cents: number; merchant: string; purpose: string; status: string; created_at: Date; last_error: string | null; link_approval_url: string | null }>
+    `) as Array<{ id: string; amount_cents: number; currency: string; merchant: string; purpose: string; status: string; created_at: Date; last_error: string | null; link_approval_url: string | null }>
     return json({
       requests: rows.map((r) => ({
         ...r,
-        amount: `$${(r.amount_cents / 100).toFixed(2)}`,
+        amount: formatMoney(r.amount_cents, r.currency),
         pending: r.status === 'pending',
         approval_url: r.link_approval_url,
       })),

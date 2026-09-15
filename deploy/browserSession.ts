@@ -38,6 +38,7 @@ export type SessionTask = {
     message: string
     url: string
     amountCents?: number
+    currency?: string
     merchant?: string
     item?: string
     checkAutoResume?: () => Promise<{ resumed: boolean; reason?: string } | null>
@@ -565,7 +566,6 @@ async function agentLoop(
   await task.onProgress?.({ action: 'goto', url: activePage.url() })
   const goal = task.goal!.slice(0, 500)
   const recentActions: string[] = []
-  let answerChecked = false
   let challengeHandoffs = 0
   let deadline = Date.now() + DEFAULT_AGENT_LIMITS.wallMs
 
@@ -794,31 +794,31 @@ async function agentLoop(
     }
     if (isTerminal(action)) {
       if (action.type === 'done') {
-        if (!answerChecked) {
-          answerChecked = true
-          try {
-            const verdictRaw = await auditCall(buildVerificationParts({
-              goal, answer: action.answer, pageText, screenshotBase64: screenshot,
-            }))
-            if (process.env.BROWSER_AGENT_TRACE === '1') {
-              console.log(`[agent] verification raw: ${verdictRaw.slice(0, 1500)}`)
-            }
-            const verdict = parseVerification(verdictRaw, action.answer)
-            if (!verdict.supported) {
-              recentActions.push(`answer check failed (${verdict.unsupported.join('; ').slice(0, 200)}); scroll until each value is visible or write "not shown"`)
-              await task.onProgress?.({ action: 'answer_check_failed', url: activePage.url() })
-              continue
-            }
-          } catch {
-            // Verification is best-effort: a failed check must not discard a result.
-          }
+        let verdictRaw = ''
+        try {
+          verdictRaw = await auditCall(buildVerificationParts({
+            goal, answer: action.answer, pageText, screenshotBase64: screenshot,
+          }))
+        } catch (err) {
+          recentActions.push(`answer check failed because the auditor was unavailable (${err instanceof Error ? err.message : String(err)})`)
+          await task.onProgress?.({ action: 'answer_check_failed', url: activePage.url() })
+          continue
+        }
+        if (process.env.BROWSER_AGENT_TRACE === '1') {
+          console.log(`[agent] verification raw: ${verdictRaw.slice(0, 1500)}`)
+        }
+        const verdict = parseVerification(verdictRaw, action.answer)
+        if (!verdict.supported) {
+          recentActions.push(`answer check failed (${verdict.unsupported.join('; ').slice(0, 200)}); collect visible evidence before answering`)
+          await task.onProgress?.({ action: 'answer_check_failed', url: activePage.url() })
+          continue
         }
         return { ok: true, content: action.answer }
       }
       return { ok: false, error: `Agent gave up: ${action.reason}` }
     }
     const pagesBefore = new Set(activePage.context().pages())
-    const outcome = await executeAgentAction(activePage, action, task.paymentCard)
+    const outcome = await executeAgentAction(activePage, action, task.paymentCard, task.paymentAmountCents)
     const ok = outcome.ok
     if (action.type === 'fill_payment' && ok) task.paymentCard = undefined
     // A click on a real site often opens a same-site tab (hotel details,

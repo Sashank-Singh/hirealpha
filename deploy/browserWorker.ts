@@ -17,8 +17,9 @@ import { DISABLED_ERROR, resolveBrowserExecutorMode, withTaskSandbox } from './e
 import { E2BTaskEnvironmentProvider } from '../services/trust/taskEnvironments'
 import { KernelBrowser } from './kernelPage'
 import { runKernelTask } from './kernelSession'
+import { runBrowserUseTask } from './browserUseSession'
 import { formatIdentityForPrompt, loadIdentityProfile } from './userIdentity'
-import { reportLinkOutcome, retrieveLinkCard, retrieveLinkSpend, type LinkCardCredential } from './linkWallet'
+import { getKernelVaultId, reportLinkOutcome, retrieveLinkCard, retrieveLinkSpend, type LinkCardCredential } from './linkWallet'
 import { createLinkBackedSpendRequest, ensureUserPaymentsSchema, promoteApprovedLinkPurchases } from './userPayments'
 import {
   appendBrowserActivity,
@@ -125,7 +126,7 @@ export function hasMerchantOrderConfirmation(text: string): boolean {
 async function stageLinkPaymentHandoff(
   sql: SQL,
   job: JobRow,
-  input: { url: string; amountCents?: number; merchant?: string; item?: string },
+  input: { url: string; amountCents?: number; currency?: string; merchant?: string; item?: string },
 ): Promise<{ requestId: string; paymentUrl: string; linkSpendId: string }> {
   if (job.spend_request_id) {
     const rows = (await sql`
@@ -140,7 +141,7 @@ async function stageLinkPaymentHandoff(
       linkSpendId: rows[0].link_spend_request_id,
     }
   }
-  if (!input.amountCents || !input.item) throw new Error('The checkout total or item could not be verified, so no payment request was created.')
+  if (!input.amountCents || !input.item || !input.currency) throw new Error('The checkout amount, currency, or item could not be independently verified, so no payment request was created.')
   // Bind consent to the user-approved merchant origin, not a payment
   // processor hostname that may temporarily host the checkout page.
   const merchant = hostOf(job.url).toLowerCase().replace(/^www\./, '')
@@ -151,6 +152,7 @@ async function stageLinkPaymentHandoff(
   }
   const spend = await createLinkBackedSpendRequest(sql, job.user_id, {
     amountCents: input.amountCents,
+    currency: input.currency,
     merchant,
     merchantUrl: job.url,
     purpose: input.item,
@@ -170,7 +172,7 @@ async function stageLinkPaymentHandoff(
   await sql`
     INSERT INTO hire_drafts (id, user_id, persona, kind, to_addr, subject, body, status)
     VALUES (${crypto.randomUUID()}, ${job.user_id}, ${job.persona}, 'purchase', ${input.url}, ${input.item},
-      ${JSON.stringify({ amount: Number(amount), requestId, stagedJobId: job.id })}, 'pending')
+      ${JSON.stringify({ amount: Number(amount), currency: input.currency, requestId, stagedJobId: job.id })}, 'pending')
   `
   job.spend_request_id = requestId
   const rows = (await sql`
@@ -211,7 +213,7 @@ async function waitForLinkCredential(
       continue
     }
     const status = remote.status.toLowerCase()
-    if (['denied', 'expired', 'failed', 'canceled', 'cancelled'].includes(status)) {
+    if (['denied', 'declined', 'expired', 'failed', 'canceled', 'cancelled', 'recovery_required'].includes(status)) {
       await sql`
         UPDATE hire_spend_approvals
         SET status = ${status}, decided_at = now(), finalization_status = 'cancelled'
@@ -293,8 +295,13 @@ export async function runJob(sql: SQL, job: JobRow, launch = runBrowserSession):
       const apiKey = process.env.KERNEL_API_KEY?.trim() || ''
       if (!apiKey) return Promise.resolve({ ok: false as const, error: 'KERNEL_API_KEY is not configured.' })
       return (async () => {
+        // Vault attachment is fixed at browser creation. Attach the user's
+        // project-scoped payment vault before any checkout card item exists;
+        // Kernel will substitute aliases at egress after authorization.
+        const paymentVaultId = await getKernelVaultId(sql, job.user_id, false)
         const browser = await KernelBrowser.launch({
           apiKey,
+          vaultIds: paymentVaultId ? [paymentVaultId] : undefined,
           timeoutSeconds: Number(process.env.KERNEL_SESSION_SECONDS || 3600),
           profile: process.env.KERNEL_PROFILE_NAME?.trim() || undefined,
         })
@@ -302,7 +309,8 @@ export async function runJob(sql: SQL, job: JobRow, launch = runBrowserSession):
         // CAPTCHA or payment step — record it before the first model turn.
         if (browser.liveViewUrl) await setBrowserLiveView(sql, job.id, browser.liveViewUrl).catch(() => undefined)
         try {
-          return await runKernelTask(
+          const useBrowserUse = (process.env.KERNEL_AGENT_DRIVER || 'browser-use').trim().toLowerCase() === 'browser-use'
+          return await (useBrowserUse ? runBrowserUseTask : runKernelTask)(
             {
           url: task.url,
           username: task.username,
@@ -428,7 +436,7 @@ export async function runJob(sql: SQL, job: JobRow, launch = runBrowserSession):
         await setBrowserScreenshot(sql, job.id, shot.dataUrl).catch(() => undefined)
       }
     },
-    onHandoff: async ({ kind: handoffKind, message, url, amountCents, merchant, item, checkAutoResume }) => {
+    onHandoff: async ({ kind: handoffKind, message, url, amountCents, currency, merchant, item, checkAutoResume }) => {
       if (handoffKind === 'payment' && paymentCard) return { status: 'resumed' as const, paymentCard }
       // Route A: the agent asked a question. The answer channel is the chat
       // thread itself — no link, no live view, no takeover. The user's next
@@ -451,7 +459,7 @@ export async function runJob(sql: SQL, job: JobRow, launch = runBrowserSession):
         return wait.outcome
       }
       const payment = handoffKind === 'payment'
-        ? await stageLinkPaymentHandoff(sql, job, { url, amountCents, merchant, item })
+        ? await stageLinkPaymentHandoff(sql, job, { url, amountCents, currency, merchant, item })
         : null
       await appendBrowserActivity(sql, job.id, `needs_${handoffKind}`, url)
       const handoffMessage = payment

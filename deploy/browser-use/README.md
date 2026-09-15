@@ -19,7 +19,9 @@ Required variables:
 | Variable | Purpose |
 |---|---|
 | `DATABASE_URL` | Shared Postgres queue used by the API and browser worker |
-| `GMI_API_KEY` | Vision/action model used for arbitrary web tasks |
+| `KERNEL_API_KEY` | Creates the Kernel browser that Browser Use attaches to over CDP |
+| `KERNEL_PROJECT_ID` | Scopes user payment vaults and attached browsers to the same Kernel project |
+| `GMI_API_KEY` | OpenAI-compatible model key used by Browser Use and result auditing |
 | `SESSION_SECRET` | Must match the web/API resource so iMessage view links verify |
 | `CHROME_VNC_PASSWORD` | Password passed to the private noVNC client |
 
@@ -34,26 +36,29 @@ to a user's personal 1Password account:
 |---|---|
 | `OP_SERVICE_ACCOUNT_TOKEN` | Legacy server-readable 1Password storage; leave unset for handoff-only mode |
 | `OP_VAULT_ID` | Legacy operator vault; leave unset for handoff-only mode |
-| `HIREALPHA_VAULT_KEY` | Encrypts saved logins and each user's isolated Link authorization; required for agent purchases |
+| `HIREALPHA_VAULT_KEY` | Encrypts saved logins and short-lived Kernel provider-action redirects |
 | `USER_SPEND_MAX_CENTS` | Per-purchase approval cap (defaults to 20000 / $200) |
 
 ## How a task runs
 
 1. Alpha queues a scoped browser job and texts a signed `/computer/:id` link.
 2. The user approves the one-time browser session from that page.
-3. The worker opens a headful Chromium window on the streamed X display.
-4. The vision loop sees screenshots plus numbered interactive targets. It may
-   use stable selectors or coordinate-based mouse/keyboard actions.
+3. The worker creates a headful Kernel browser and records its private live-view URL.
+4. Browser Use attaches to that same browser over Kernel's CDP websocket and
+   orchestrates navigation with GLM-5.3-Flash. Set `KERNEL_AGENT_DRIVER=native`
+   to use HireAlpha's previous in-VM action loop as a rollback switch.
 5. At a password, one-time code, CAPTCHA, or identity check, the worker pauses
    without closing Chromium. The user takes control, completes the protected
    step on the site, and selects **Done — let Alpha continue**.
-6. At payment, Alpha waits until the merchant shows the final total, creates a
-   Link spend request for that exact merchant/item/amount, and texts its private
-   approval link. Manual resume is disabled for this checkpoint.
-7. After Link confirms approval, the same worker retrieves one one-time card
-   into memory, fills the live checkout without exposing it to the model or UI,
-   and resumes the same page. Alpha reports success only after the merchant
-   returns an order confirmation, then sends the result in iMessage.
+6. At payment, trusted code requires structured checkout data, compares its
+   amount with the rendered total, freezes merchant/item/currency/amount, and
+   creates a one-use Link card item in the user's Kernel vault. Its approval
+   action is exposed only through an authenticated, short-lived redirect.
+7. After Link confirms approval, the worker retrieves Kernel aliases and fills
+   them in the vault-attached browser. Kernel substitutes the real credential
+   at egress, so card data never enters HireAlpha or the browser DOM. A page
+   fence permits exactly one trusted submission; Alpha reports success only
+   after the merchant returns an order confirmation.
 
 The database activity feed contains only coarse action names and URLs. Field
 values, page text, passwords, and verification codes are not stored there.

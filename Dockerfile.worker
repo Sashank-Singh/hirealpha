@@ -17,14 +17,16 @@ WORKDIR /app
 # entry script says so rather than failing silently.
 RUN apt-get update \
   && apt-get install -y --no-install-recommends curl nodejs npm xvfb x11vnc novnc websockify openbox \
-    build-essential python3 \
+    build-essential python3 python3-pip python3-venv \
   && rm -rf /var/lib/apt/lists/*
-
-COPY deploy/link-cli-package.json /opt/hirealpha-link/package.json
-RUN npm install --prefix /opt/hirealpha-link --omit=dev --ignore-scripts
 
 COPY package.json package-lock.json ./
 RUN bun install --production
+
+# Browser Use connects to Kernel's remote Chromium, so no local browser binary
+# is installed. Pin the agent library to keep its Python protocol stable.
+RUN python3 -m venv /opt/browser-use \
+  && /opt/browser-use/bin/pip install --no-cache-dir "browser-use==0.13.10"
 
 # ---- source (the only layers a normal change invalidates) ----
 COPY deploy/browserWorker.ts ./browserWorker.ts
@@ -37,6 +39,8 @@ COPY deploy/agentDriver.ts ./agentDriver.ts
 COPY deploy/e2bExecutor.ts ./e2bExecutor.ts
 COPY deploy/kernelPage.ts ./kernelPage.ts
 COPY deploy/kernelSession.ts ./kernelSession.ts
+COPY deploy/browserUseSession.ts ./browserUseSession.ts
+COPY deploy/browserUseRunner.py ./browserUseRunner.py
 COPY deploy/siteMemory.ts ./siteMemory.ts
 COPY deploy/userIdentity.ts ./userIdentity.ts
 COPY deploy/challengeDetection.ts ./challengeDetection.ts
@@ -56,6 +60,8 @@ ENV WORKER_HEALTH_PORT=3000
 ENV DISPLAY=:99
 ENV BROWSER_HEADFUL=1
 ENV NODE_ENV=production
+ENV BROWSER_USE_PYTHON=/opt/browser-use/bin/python
+ENV KERNEL_AGENT_DRIVER=browser-use
 EXPOSE 3000 6080
 HEALTHCHECK --interval=15s --timeout=5s --start-period=30s --retries=3 \
   CMD curl -fsS http://127.0.0.1:3000/healthz || exit 1

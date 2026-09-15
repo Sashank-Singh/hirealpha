@@ -72,6 +72,7 @@ export type KernelTask = {
     message: string
     url: string
     amountCents?: number
+    currency?: string
     merchant?: string
     item?: string
     checkAutoResume?: () => Promise<{ resumed: boolean; reason?: string } | null>
@@ -85,6 +86,59 @@ export type KernelTask = {
   paymentAuthorized?: boolean
   paymentAmountCents?: number
   paymentCard?: PaymentCardSecrets
+}
+
+export type VerifiedPurchase = {
+  amountCents: number
+  currency: string
+  merchant: string
+  item: string
+  url: string
+}
+
+/** Deterministic checkout extraction. Payment authorization must never be
+ * built from model prose alone. Require structured commerce data and confirm
+ * its exact amount is also rendered in the current page. */
+export async function readVerifiedKernelPurchase(browser: KernelBrowser): Promise<VerifiedPurchase | null> {
+  const extracted = await browser.run<VerifiedPurchase | null>(`
+    return await page.evaluate(() => {
+      const objects = [];
+      for (const node of document.querySelectorAll('script[type="application/ld+json"]')) {
+        try {
+          const value = JSON.parse(node.textContent || 'null');
+          if (Array.isArray(value)) objects.push(...value); else if (value) objects.push(value);
+        } catch {}
+      }
+      const flat = [];
+      const visit = (value) => {
+        if (!value || typeof value !== 'object') return;
+        flat.push(value);
+        if (Array.isArray(value['@graph'])) value['@graph'].forEach(visit);
+        if (Array.isArray(value.itemListElement)) value.itemListElement.forEach(visit);
+      };
+      objects.forEach(visit);
+      const offerOwner = flat.find((value) => value.offers && (value.name || value['@type'] === 'Product'));
+      const offer = Array.isArray(offerOwner?.offers) ? offerOwner.offers[0] : offerOwner?.offers
+        || flat.find((value) => value.price != null && value.priceCurrency);
+      const meta = (name) => document.querySelector('meta[property="' + name + '"],meta[name="' + name + '"]')?.content || '';
+      const rawPrice = offer?.price ?? offer?.lowPrice ?? meta('product:price:amount');
+      const currency = String(offer?.priceCurrency || meta('product:price:currency') || '').toUpperCase();
+      const item = String(offerOwner?.name || offer?.name || meta('og:title') || '').replace(/\\s+/g, ' ').trim();
+      const price = Number(String(rawPrice ?? '').replace(/[^0-9.,-]/g, '').replace(/,(?=\\d{1,2}$)/, '.').replace(/,/g, ''));
+      if (!Number.isFinite(price) || price <= 0 || !/^[A-Z]{3}$/.test(currency) || !item) return null;
+      return {
+        amountCents: Math.round(price * 100), currency,
+        merchant: location.hostname.toLowerCase().replace(/^www\\./, ''),
+        item: item.slice(0, 200), url: location.href,
+      };
+    });
+  `, 20_000).catch(() => null)
+  if (!extracted) return null
+  const visible = await browser.text('body', 12_000).catch(() => '')
+  if (!pageShowsExactTotal(visible, extracted.amountCents)) return null
+  if (!new RegExp(`\\b${extracted.currency.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(visible)
+    && !/[$€£¥]/.test(visible)) return null
+  return extracted
 }
 
 export async function attemptKernelLogin(
@@ -448,7 +502,7 @@ export async function runKernelTask(
         continue
       }
 
-      const outcome = await execute(browser, action, task)
+      const outcome = await executeKernelAction(browser, action, task)
       lastActionFailed = !outcome.ok
       recent.push(outcome.ok ? `${action.type} ok` : `${action.type} failed: ${outcome.error || 'no effect'}`)
       if (!outcome.ok) {
@@ -602,6 +656,7 @@ async function requireHandoff(
     message: string
     url: string
     amountCents?: number
+    currency?: string
     merchant?: string
     item?: string
   },
@@ -696,8 +751,23 @@ async function requireHandoff(
     }
   }
 
+  let guardedHandoff = handoff
+  if (handoff.kind === 'payment') {
+    const verified = await readVerifiedKernelPurchase(browser)
+    if (!verified || verified.amountCents !== handoff.amountCents) {
+      return {
+        outcome: 'cancelled', answer: null, triggers: allTriggers,
+        initialUrl, finalUrl: browser.url(), initialTitle,
+        finalTitle: await browser.title().catch(() => ''), autoResumed: false,
+      }
+    }
+    guardedHandoff = {
+      ...handoff, url: verified.url, amountCents: verified.amountCents,
+      currency: verified.currency, merchant: verified.merchant, item: verified.item,
+    }
+  }
   const result = await task.onHandoff({
-    ...handoff,
+    ...guardedHandoff,
     checkAutoResume: handoff.kind !== 'question' ? checkAutoResume : undefined,
   })
 
@@ -848,7 +918,7 @@ function renderPrompt(
   ].filter(Boolean).join('\n\n')
 }
 
-async function execute(
+export async function executeKernelAction(
   browser: KernelBrowser,
   action: AgentAction,
   task: KernelTask,
@@ -857,6 +927,21 @@ async function execute(
     switch (action.type) {
       case 'click':
         if (!action.selector) return { ok: false, error: 'no selector' }
+        if (task.paymentAuthorized) {
+          const label = await browser.run<string>(
+            `const el = page.locator(${JSON.stringify(action.selector)}).first(); return String(await el.innerText().catch(() => '') || await el.getAttribute('value').catch(() => '') || await el.getAttribute('aria-label').catch(() => ''));`,
+            15_000,
+          ).catch(() => '')
+          if (/place order|pay now|complete purchase|confirm purchase|submit order|buy now/i.test(label)) {
+            const current = await browser.text('body', 12_000).catch(() => '')
+            if (!pageShowsExactTotal(current, task.paymentAmountCents || 0)) return { ok: false, error: 'checkout total changed before submission' }
+            const claimed = await browser.run<boolean>(
+              `if (window.__haPaymentSubmitted) return false; window.__haPaymentSubmitted = true; return true;`,
+              10_000,
+            ).catch(() => false)
+            if (!claimed) return { ok: false, error: 'checkout was already submitted' }
+          }
+        }
         return await browser.run<{ ok: boolean; error?: string }>(
           `const loc = page.locator(${JSON.stringify(action.selector)}).first();
            await loc.click({ timeout: 15000 });
@@ -864,6 +949,7 @@ async function execute(
           45_000,
         ).catch((err) => ({ ok: false, error: err instanceof Error ? err.message : String(err) }))
       case 'click_at':
+        if (task.paymentAuthorized) return { ok: false, error: 'coordinate clicks are disabled after payment approval; use a named purchase control' }
         return await browser.run<{ ok: boolean }>(
           `await page.mouse.click(${Number(action.x) || 0}, ${Number(action.y) || 0}); return { ok: true };`,
           45_000,
@@ -881,6 +967,9 @@ async function execute(
           60_000,
         ).catch((err) => ({ ok: false, error: err instanceof Error ? err.message : String(err) }))
       case 'press':
+        if (task.paymentAuthorized && String(action.key || '').toLowerCase() === 'enter') {
+          return { ok: false, error: 'Enter submission is disabled after payment approval; use the named purchase control once' }
+        }
         return await browser.run<{ ok: boolean }>(
           `await page.keyboard.press(${JSON.stringify(String(action.key || 'Enter'))}); return { ok: true };`,
           30_000,
@@ -913,7 +1002,11 @@ async function execute(
       case 'fill_payment': {
         const card = task.paymentCard
         if (!card) return { ok: false, error: 'no authorized card' }
-        const visibleTotal = pageShowsExactTotal('', task.paymentAmountCents || 0)
+        const livePageText = await browser.run<string>(
+          `return document.body?.innerText || '';`,
+          15_000,
+        ).catch(() => '')
+        const visibleTotal = pageShowsExactTotal(livePageText, task.paymentAmountCents || 0)
         if (!visibleTotal) return { ok: false, error: 'total not verified on the page' }
         return await browser.run<{ ok: boolean; error?: string }>(
           `const values = ${JSON.stringify(card)};

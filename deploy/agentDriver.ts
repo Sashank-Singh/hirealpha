@@ -8,8 +8,8 @@
  * caps (max steps, wall clock). A malformed model answer is skipped, not
  * obeyed — the parser is the only path from JSON to the browser.
  *
- * Model: the vision flash model already used for nutrition photos
- * (NUTRITION_VISION_MODEL / deepseek-v4-flash-exp). Pennies per task.
+ * Model: zai-org/GLM-5.3-Flash on GMI (AGENT_VISION_MODEL to override).
+ * Pennies per task.
  */
 
 export type AgentMeta = {
@@ -432,8 +432,8 @@ export function agentEnvCaller(kind: 'action' | 'audit' = 'action'): VisionCall 
   const apiKey = process.env.GMI_API_KEY?.trim() || process.env.OPENAI_API_KEY?.trim()
   if (!apiKey) return null
   const baseUrl = (process.env.GMI_BASE_URL || 'https://api.gmi-serving.com/v1').replace(/\/$/, '')
-  const model = process.env.AGENT_VISION_MODEL || process.env.NUTRITION_VISION_MODEL || 'deepseek-ai/DeepSeek-V4-Flash-0731'
-  const fallbackModels = (process.env.AGENT_FALLBACK_VISION_MODEL || 'deepseek-ai/DeepSeek-V4-Flash-0731,google/gemini-3.7-flash,google/gemini-3.8-flash,Qwen/Qwen3.8-Flash')
+  const model = process.env.AGENT_VISION_MODEL || process.env.NUTRITION_VISION_MODEL || 'zai-org/GLM-5.3-Flash'
+  const fallbackModels = (process.env.AGENT_FALLBACK_VISION_MODEL || 'zai-org/GLM-5.3-Flash')
     .split(',').map((m) => m.trim()).filter(Boolean)
   return makeVisionCaller({
     apiKey, baseUrl, model, fallbackModels,
@@ -534,7 +534,12 @@ async function fillApprovedPayment(page: import('playwright').Page, card: Paymen
  * model and the activity stream, and a run that dies reports it verbatim. */
 export type ActionOutcome = { ok: boolean; error?: string }
 
-export async function executeAgentAction(page: import('playwright').Page, action: AgentAction, paymentCard?: PaymentCardSecrets): Promise<ActionOutcome> {
+export async function executeAgentAction(
+  page: import('playwright').Page,
+  action: AgentAction,
+  paymentCard?: PaymentCardSecrets,
+  paymentAmountCents?: number,
+): Promise<ActionOutcome> {
   try {
     switch (action.type) {
       case 'click':
@@ -567,6 +572,16 @@ export async function executeAgentAction(page: import('playwright').Page, action
         return { ok: true }
       case 'fill_payment':
         if (!paymentCard) return { ok: false, error: 'no approved one-time payment credential is available' }
+        // Consent is bound to the total the user approved. Read the live DOM
+        // again immediately before exposing the one-time card to the checkout;
+        // shipping, tax, quantity, or merchant state may have changed while the
+        // approval handoff was open.
+        if (!Number.isInteger(paymentAmountCents) || !pageShowsExactTotal(
+          await page.evaluate(() => document.body?.innerText || '').catch(() => ''),
+          paymentAmountCents || 0,
+        )) {
+          return { ok: false, error: 'the live checkout total no longer matches the approved amount' }
+        }
         return (await fillApprovedPayment(page, paymentCard))
           ? { ok: true }
           : { ok: false, error: 'the card form fields were not found on the page' }
@@ -615,14 +630,18 @@ export function parseVerification(raw: string, answer: string): { supported: boo
   const jsonText = raw.replace(/```(?:json)?/g, '').trim()
   const start = jsonText.indexOf('{')
   const end = jsonText.lastIndexOf('}')
-  if (start === -1 || end <= start) return { supported: true, unsupported: [] }
+  if (start === -1 || end <= start) {
+    return { supported: false, unsupported: ['verification response was not valid JSON'] }
+  }
   let items: VerifiedItem[]
   try {
     const obj = JSON.parse(jsonText.slice(start, end + 1)) as { items?: unknown }
-    if (!Array.isArray(obj.items)) return { supported: true, unsupported: [] }
+    if (!Array.isArray(obj.items)) {
+      return { supported: false, unsupported: ['verification response did not contain an items array'] }
+    }
     items = obj.items as VerifiedItem[]
   } catch {
-    return { supported: true, unsupported: [] }
+    return { supported: false, unsupported: ['verification response was not valid JSON'] }
   }
   const unsupported: string[] = []
   for (const rawLine of answer.split(/\n+/)) {

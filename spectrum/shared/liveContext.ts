@@ -1255,16 +1255,13 @@ export async function autoLogStandup(
 
 /* ---- Workshop: Alpha builds software ---- */
 
-/** The workshop generator model. Deliberately NOT the chat model: the chat
- * default (DeepSeek-V4-Flash-0731) stalls for minutes on a full-program
- * generation, so every build died at the turn's deadline with "couldn't be
- * drafted". V4.1-Flash drafts a complete game in ~20-30s. */
-const WORKSHOP_MODEL = process.env.GMI_MODEL_WORKSHOP || 'deepseek-ai/DeepSeek-V4.1-Flash'
+/** The workshop generator model. All GMI traffic runs on zai-org/GLM-5.3-Flash. */
+const WORKSHOP_MODEL = process.env.GMI_MODEL_WORKSHOP || 'zai-org/GLM-5.3-Flash'
 /** Second opinion when the primary planner answers 200 with prose instead of
  * the requested JSON. gmiChat only fails over on a THROW, so a model that
  * "chats" about the app rather than emitting {"code":...} would otherwise burn
  * every attempt on the same stall and fail the build with no log. */
-const WORKSHOP_MODEL_FALLBACK = 'Qwen/Qwen3.8-Flash'
+const WORKSHOP_MODEL_FALLBACK = 'zai-org/GLM-5.3-Flash'
 /** Token ceiling for one workshop generation. Measured on V4.1-Flash: 8000
  * lets the reasoning model ramble past 180s (timeout = total build failure);
  * 4000 completes in ~30s and still fits a 250-line app. The planner prompt

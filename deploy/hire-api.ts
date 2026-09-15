@@ -46,7 +46,6 @@ import {
   ensureUserPaymentsSchema,
   handleUserPaymentsApi,
   noteSetupCompleted,
-  createLinkBackedSpendRequest,
   queuePaidPurchaseFinalization,
   decideSpendApproval,
   chargeApprovedSpend,
@@ -3562,10 +3561,8 @@ function nutritionModelConfig() {
     process.env.GMI_BASE_URL ||
     'https://api.gmi-serving.com/v1'
   ).replace(/\/$/, '')
-  const rawText = process.env.NUTRITION_MODEL || process.env.GMI_MODEL || ''
-  const textModel = rawText && !rawText.includes('0731') ? rawText : 'google/gemini-3.7-flash'
-  const rawVision = process.env.NUTRITION_VISION_MODEL || ''
-  const visionModel = rawVision && rawVision !== 'deepseek-v4-flash-exp' ? rawVision : 'google/gemini-3.7-flash'
+  const textModel = process.env.NUTRITION_MODEL || process.env.GMI_MODEL || 'zai-org/GLM-5.3-Flash'
+  const visionModel = process.env.NUTRITION_VISION_MODEL || 'zai-org/GLM-5.3-Flash'
   return { apiKey, baseUrl, textModel, visionModel }
 }
 
@@ -3651,13 +3648,9 @@ async function estimateNutrition(
       ]
     : [{ type: 'text', text: promptText }]
 
-  const visionCandidates = Array.from(
-    new Set([cfg.visionModel, 'google/gemini-3.7-flash', 'google/gemini-3.8-flash', 'stepfun-ai/Step-3.7-Flash']),
-  ).filter((m): m is string => Boolean(m && m !== 'deepseek-v4-flash-exp'))
+  const visionCandidates = Array.from(new Set([cfg.visionModel])).filter((m): m is string => Boolean(m))
 
-  const textCandidates = Array.from(
-    new Set([cfg.textModel, 'google/gemini-3.7-flash', 'deepseek-ai/DeepSeek-V4-Flash', 'Qwen/Qwen3.8-Flash']),
-  ).filter((m): m is string => Boolean(m && !m.includes('0731')))
+  const textCandidates = Array.from(new Set([cfg.textModel])).filter((m): m is string => Boolean(m))
 
   const attempt = async (m: string, parts: unknown[]) => {
     for (let tryCount = 0; tryCount < 2; tryCount++) {
@@ -12017,7 +12010,7 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
         session: q.get('s') || undefined,
         email: q.get('email') || undefined,
       })
-      return user ? { id: user.id, email: user.email } : null
+      return user ? { id: user.id } : null
     },
     keyBroker: openBaoBrokerFromEnv() || userKeyBrokerFromEnv(),
     memoryIndex: getMemoryIndex(),
@@ -12805,6 +12798,99 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
     return json({ events })
   }
 
+  // ── Numbered-choice surface (beat-instinct P1): offer publishes research
+  // results as cards on a fresh task; open/choose resolve a bare reply like
+  // "2" against the live selection. The bot calls proposeBrowserTask itself
+  // with the returned option+goal, so the approval/auto-launch policy stays
+  // in exactly one place. All state lives in hire_tasks - nothing here
+  // guesses from prose; turnPath.interpretChoice returns 'ask-classifier'
+  // for anything that is not the number grammar.
+  if (path === '/api/internal/tasks/offer' && req.method === 'POST') {
+    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
+    const body = (await req.json().catch(() => ({}))) as {
+      phone?: string; persona?: string; heading?: string; candidates?: unknown
+    }
+    if (!body.phone || !isPersona(body.persona || '') || !body.heading || !Array.isArray(body.candidates)) {
+      return json({ error: 'phone, persona, heading, candidates[] required' }, 400)
+    }
+    const user = await getUserByPhone(sql, body.phone)
+    if (!user) return json({ ok: false, error: 'no user for phone' }, 404)
+    const heading = String(body.heading).slice(0, 300)
+    const { createTask, appendEvent } = await import('../services/tasks/taskStore')
+    const { offerChoices } = await import('../services/tasks/turnPath')
+    const task = await createTask(sql, { userId: user.id, persona: body.persona, conversationId: body.phone, request: heading })
+    let offer: Awaited<ReturnType<typeof offerChoices>> | null = null
+    try {
+      await appendEvent(sql, { userId: user.id, taskId: task.id, type: 'state_changed', payload: { to: 'RESEARCHING' }, actor: 'alpha', idempotencyKey: 'offer:researching' })
+      offer = await offerChoices(sql, { userId: user.id, taskId: task.id, heading, candidates: body.candidates as never, now: new Date() })
+    } catch (err) {
+      await appendEvent(sql, { userId: user.id, taskId: task.id, type: 'state_changed', payload: { to: 'CANCELLED' }, actor: 'alpha', idempotencyKey: 'offer:error-cancel' }).catch(() => undefined)
+      return json({ ok: false, error: err instanceof Error ? err.message.slice(0, 300) : 'offer failed' })
+    }
+    if (!offer.published) {
+      // Nothing legal survived provenance checks: cancel the shell task so it
+      // never dangles in RESEARCHING, and let the caller fall back to prose.
+      await appendEvent(sql, { userId: user.id, taskId: task.id, type: 'state_changed', payload: { to: 'CANCELLED' }, actor: 'alpha', idempotencyKey: 'offer:empty-cancel' }).catch(() => undefined)
+      return json({ ok: false, noCards: true, dropped: offer.dropped })
+    }
+    return json({ ok: true, taskId: task.id, rendered: offer.rendered, dropped: offer.dropped })
+  }
+
+  if (path === '/api/internal/tasks/open' && req.method === 'GET') {
+    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
+    const phone = url.searchParams.get('phone') || ''
+    const persona = url.searchParams.get('persona') || ''
+    if (!phone || !isPersona(persona)) return json({ error: 'phone and persona required' }, 400)
+    const user = await getUserByPhone(sql, phone)
+    if (!user) return json({ tasks: [] })
+    const { listTasksForAdmin, loadProjection } = await import('../services/tasks/taskStore')
+    const rows = (await listTasksForAdmin(sql, { userId: user.id, limit: 10 })).filter((t) => t.persona === persona && t.state === 'WAITING_FOR_SELECTION')
+    const out: unknown[] = []
+    for (const t of rows.slice(0, 3)) {
+      const projection = await loadProjection(sql, { userId: user.id, taskId: t.id })
+      if (!projection || projection.state !== 'WAITING_FOR_SELECTION') continue
+      out.push({
+        taskId: t.id,
+        heading: t.request,
+        updatedAt: t.updated_at,
+        options: projection.options.filter((o) => !o.rejected && o.available !== false)
+          .map((o) => ({ id: o.id, title: o.title, price_cents: o.price_cents ?? null, source_url: o.source_url ?? null })),
+      })
+    }
+    return json({ tasks: out })
+  }
+
+  if (path === '/api/internal/tasks/choose' && req.method === 'POST') {
+    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
+    const body = (await req.json().catch(() => ({}))) as {
+      phone?: string; persona?: string; reply?: string; taskId?: string
+    }
+    if (!body.phone || !isPersona(body.persona || '') || !body.reply) return json({ error: 'phone, persona, reply required' }, 400)
+    const user = await getUserByPhone(sql, body.phone)
+    if (!user) return json({ ok: false, reason: 'no-user' })
+    const { listTasksForAdmin, loadProjection } = await import('../services/tasks/taskStore')
+    const { interpretChoice } = await import('../services/tasks/turnPath')
+    const { selectOption, handOffToExecutor } = await import('../services/tasks/choiceTurns')
+    const candidates = (await listTasksForAdmin(sql, { userId: user.id, limit: 10 }))
+      .filter((t) => t.persona === body.persona && t.state === 'WAITING_FOR_SELECTION' && (!body.taskId || t.id === body.taskId))
+    const pick = candidates[0]
+    if (!pick) return json({ ok: false, reason: 'no-open-choice' })
+    const projection = await loadProjection(sql, { userId: user.id, taskId: pick.id })
+    if (!projection) return json({ ok: false, reason: 'no-open-choice' })
+    const verdict = interpretChoice(projection, String(body.reply), { now: new Date() })
+    if (verdict.kind === 'ask-classifier') return json({ ok: false, reason: 'prose', taskId: pick.id })
+    if (verdict.kind === 'stale') return json({ ok: false, reason: 'stale', taskId: pick.id, optionId: verdict.optionId })
+    const chosen = projection.options.find((o) => o.id === verdict.optionId)
+    if (!chosen?.source_url) return json({ ok: false, reason: 'no-source', taskId: pick.id })
+    const selected = await selectOption(sql, { userId: user.id, taskId: pick.id, reply: String(body.reply), actor: 'user', now: new Date() })
+    if (selected.outcome !== 'selected') return json({ ok: false, reason: selected.outcome, taskId: pick.id })
+    await handOffToExecutor(sql, { userId: user.id, taskId: pick.id, enqueue: async () => 'pending-propose', actor: 'user' }).catch((err) =>
+      console.warn('[tasks/choose] handoff marker failed', err instanceof Error ? err.message : String(err)))
+    const price = chosen.price_cents == null ? '' : ` for $${(chosen.price_cents / 100).toFixed(2)}`
+    const goal = `${pick.request}\n\nChosen option: ${chosen.title}${price}${chosen.cancellation ? ` (${chosen.cancellation})` : ''}. Continue exactly where this ask left off on ${chosen.source_url}; stop and ask before entering any password or making any payment.`
+    return json({ ok: true, taskId: pick.id, option: { id: chosen.id, title: chosen.title, url: chosen.source_url, price_cents: chosen.price_cents ?? null }, goal })
+  }
+
   if (path === '/api/internal/handoff' && req.method === 'POST') {
     if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
     const body = (await req.json().catch(() => ({}))) as {
@@ -13537,26 +13623,13 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
         return json({ ok: true, id: pid, kind: 'purchase', needsSetup: true, setupUrl, paymentUrl: setupUrl, amount, item })
       }
 
-      // Link receives the exact merchant and total and returns its own approval URL.
-      const amountCents = Math.round(amount * 100)
-      const merchant = productUrl.hostname
-      const spend = await createLinkBackedSpendRequest(sql, live.userId!, {
-        amountCents,
-        merchant,
-        merchantUrl: url,
-        purpose: item,
-      })
-      if (!spend.requestId) {
-        return json({ ok: false, error: spend.error || 'Could not create spend approval' }, 400)
-      }
-      const approvalUrl = spend.approvalUrl
-      const pid = crypto.randomUUID()
-      await sql`
-        INSERT INTO hire_drafts (id, user_id, persona, kind, to_addr, subject, body, status)
-        VALUES (${pid}, ${live.userId}, ${body.persona}, 'purchase', ${url}, ${item},
-          ${JSON.stringify({ amount, requestId: spend.requestId, approvalUrl, needsSetup: false })}, 'pending')
-      `
-      return json({ ok: true, id: pid, kind: 'purchase', needsSetup: false, requestId: spend.requestId, approvalUrl, paymentUrl: approvalUrl, amount, item })
+      // User-entered draft values are a proposal, not payment authorization.
+      // The browser checkout must independently read structured merchant,
+      // amount, currency, and item data before creating a Kernel card item.
+      return json({
+        ok: false,
+        error: 'Open this as a browser checkout so Alpha can independently verify the live cart before requesting payment approval.',
+      }, 409)
     }
     const id = crypto.randomUUID()
     const kind = body.kind === 'event' || body.kind === 'reply' ? body.kind : 'email'

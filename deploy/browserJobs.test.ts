@@ -20,7 +20,9 @@ import {
   makeVisionCaller,
   pageShowsExactTotal,
   parseAgentAction,
+  parseVerification,
 } from './agentDriver'
+import { executeKernelAction, readVerifiedKernelPurchase } from './kernelSession'
 
 /* ============================================================================
  * Cloud computer plumbing — queue protocol + agent action parser. The parser
@@ -289,6 +291,19 @@ describe('vision caller + parts', () => {
   })
 })
 
+describe('answer evidence verification', () => {
+  it('fails closed when the auditor returns malformed output', () => {
+    expect(parseVerification('', 'Hotel Alpha: $189.00')).toEqual({
+      supported: false,
+      unsupported: ['verification response was not valid JSON'],
+    })
+    expect(parseVerification('{"answer":"looks good"}', 'Hotel Alpha: $189.00')).toEqual({
+      supported: false,
+      unsupported: ['verification response did not contain an items array'],
+    })
+  })
+})
+
 describe('real-site pacing and explicit action failures', () => {
   it('budgets the measured real-run time with headroom', () => {
     // Live booking runs measured 76-293s on the happy path, before a slow
@@ -329,6 +344,61 @@ describe('real-site pacing and explicit action failures', () => {
     const outcome = await executeAgentAction(page, { type: 'navigate', url: 'https://slow.example/' })
     expect(outcome.ok).toBe(false)
     expect(outcome.error).toContain('ERR_TIMED_OUT')
+  })
+
+  it('rechecks the live Playwright checkout total before filling an approved card', async () => {
+    const page = {
+      evaluate: async () => 'Order total $20.42',
+      frames: () => { throw new Error('card fields must not be touched when the total changed') },
+    } as unknown as import('playwright').Page
+    const outcome = await executeAgentAction(page, { type: 'fill_payment' }, {
+      number: '4242424242424242', cvc: '123', expMonth: '12', expYear: '2030',
+    }, 1899)
+    expect(outcome).toEqual({ ok: false, error: 'the live checkout total no longer matches the approved amount' })
+  })
+
+  it('uses live Kernel page text to validate the approved total', async () => {
+    const scripts: string[] = []
+    const browser = {
+      run: async (script: string) => {
+        scripts.push(script)
+        if (script.includes('document.body?.innerText')) return 'Order total $18.99'
+        return { ok: true }
+      },
+    } as unknown as import('./kernelPage').KernelBrowser
+    const outcome = await executeKernelAction(browser, { type: 'fill_payment' }, {
+      url: 'https://shop.example/checkout',
+      paymentAuthorized: true,
+      paymentAmountCents: 1899,
+      paymentCard: { number: '4242424242424242', cvc: '123', expMonth: '12', expYear: '2030' },
+    })
+    expect(outcome.ok).toBe(true)
+    expect(scripts.some((script) => script.includes('document.body?.innerText'))).toBe(true)
+  })
+
+  it('requires structured checkout data plus the same rendered total', async () => {
+    const browser = {
+      run: async () => ({
+        amountCents: 2306, currency: 'USD', merchant: 'shop.example',
+        item: 'One notebook', url: 'https://shop.example/checkout',
+      }),
+      text: async () => 'One notebook\nOrder total USD $23.06',
+    } as unknown as import('./kernelPage').KernelBrowser
+    expect(await readVerifiedKernelPurchase(browser)).toEqual({
+      amountCents: 2306, currency: 'USD', merchant: 'shop.example',
+      item: 'One notebook', url: 'https://shop.example/checkout',
+    })
+  })
+
+  it('fails payment verification when the structured and rendered totals disagree', async () => {
+    const browser = {
+      run: async () => ({
+        amountCents: 2306, currency: 'USD', merchant: 'shop.example',
+        item: 'One notebook', url: 'https://shop.example/checkout',
+      }),
+      text: async () => 'Order total USD $29.99',
+    } as unknown as import('./kernelPage').KernelBrowser
+    expect(await readVerifiedKernelPurchase(browser)).toBeNull()
   })
 })
 

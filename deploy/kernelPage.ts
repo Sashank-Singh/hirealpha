@@ -1,12 +1,10 @@
 /**
  * A Kernel cloud browser with a page-shaped surface.
  *
- * Kernel runs our Playwright code INSIDE the browser's own VM, so the agent
- * driver talks to this object instead of holding a websocket: every call is a
- * short script executed in the VM against a page that stays open between calls.
- * That removes the CDP-connection dependency entirely — which matters because
- * some networks (including the founder's laptop) cannot reach Kernel's proxy
- * port, while the API host is reachable everywhere.
+ * The native driver runs Playwright snippets inside Kernel's browser VM. The
+ * same session also exposes its CDP websocket so Browser Use can attach when
+ * the worker is configured to use it. Keeping both surfaces on one object lets
+ * guarded operations (notably payment filling) stay in this TypeScript worker.
  *
  * The surface deliberately mirrors the handful of Playwright page methods the
  * driver already uses, so the same agent loop runs on either backend.
@@ -15,6 +13,8 @@
 export type KernelPageOptions = {
   apiKey: string
   baseUrl?: string
+  /** Project-scoped Kernel vaults are immutable browser-session bindings. */
+  vaultIds?: string[]
   /** Milliseconds a launch may take before it is declared dead. */
   launchTimeoutMs?: number
 }
@@ -30,17 +30,19 @@ type ExecuteResponse = {
 export class KernelBrowser {
   readonly sessionId: string
   readonly liveViewUrl: string
+  readonly cdpUrl: string
   private readonly apiKey: string
   private readonly baseUrl: string
   private pageUrl = ''
   private closed = false
 
   private constructor(
-    private readonly init: { sessionId: string; liveViewUrl: string; pageUrl: string },
+    private readonly init: { sessionId: string; liveViewUrl: string; cdpUrl: string; pageUrl: string },
     options: KernelPageOptions,
   ) {
     this.sessionId = init.sessionId
     this.liveViewUrl = init.liveViewUrl
+    this.cdpUrl = init.cdpUrl
     this.pageUrl = init.pageUrl
     this.apiKey = options.apiKey
     this.baseUrl = (options.baseUrl || 'https://api.onkernel.com').replace(/\/$/, '')
@@ -58,6 +60,7 @@ export class KernelBrowser {
         stealth: true,
         timeout_seconds: Math.max(60, Math.min(86_400, options.timeoutSeconds ?? 600)),
         viewport: { width: 1280, height: 900 },
+        ...(options.vaultIds?.length ? { vaults: options.vaultIds.map((id) => ({ id })) } : {}),
         ...(options.profile ? { profile: { name: options.profile, save_changes: true } } : {}),
       }),
       signal: AbortSignal.timeout(options.launchTimeoutMs ?? 60_000),
@@ -65,12 +68,13 @@ export class KernelBrowser {
     if (!res.ok) {
       throw new Error(`Kernel browser launch failed (${res.status}): ${(await res.text().catch(() => '')).slice(0, 200)}`)
     }
-    const body = (await res.json()) as { session_id: string; browser_live_view_url?: string }
+    const body = (await res.json()) as { session_id: string; browser_live_view_url?: string; cdp_ws_url?: string }
     let liveViewUrl = body.browser_live_view_url || ''
+    let cdpUrl = body.cdp_ws_url || ''
     // Some Kernel tiers omit the view URL on the create response; the session
     // detail carries it. Without this the session page has nothing to embed
     // and the human-facing takeover path silently dies at a blank iframe.
-    if (!liveViewUrl) {
+    if (!liveViewUrl || !cdpUrl) {
       try {
         const detail = await fetch(`${options.baseUrl || 'https://api.onkernel.com'}/browsers/${body.session_id}`, {
           headers: { Authorization: `Bearer ${options.apiKey}` },
@@ -81,13 +85,16 @@ export class KernelBrowser {
           const found = [info.browser_live_view_url, info.live_view_url, (info.browser as Record<string, unknown> | undefined)?.live_view_url]
             .find((v): v is string => typeof v === 'string' && v.startsWith('http'))
           liveViewUrl = found || ''
+          const foundCdp = [info.cdp_ws_url, (info.browser as Record<string, unknown> | undefined)?.cdp_ws_url]
+            .find((v): v is string => typeof v === 'string' && /^(?:wss?|https?):\/\//.test(v))
+          cdpUrl = foundCdp || cdpUrl
         }
       } catch {
         /* best-effort: a missing view URL degrades to screenshot mode, as before */
       }
     }
     return new KernelBrowser(
-      { sessionId: body.session_id, liveViewUrl, pageUrl: '' },
+      { sessionId: body.session_id, liveViewUrl, cdpUrl, pageUrl: '' },
       options,
     )
   }

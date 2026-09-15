@@ -15,9 +15,6 @@ WORKDIR /app
 RUN apt-get update \
   && apt-get install -y --no-install-recommends curl nodejs npm \
   && rm -rf /var/lib/apt/lists/*
-COPY deploy/link-cli-package.json /opt/hirealpha-link/package.json
-RUN npm install --prefix /opt/hirealpha-link --omit=dev --ignore-scripts
-
 # Headless Chromium for the browser runner (vault tasks): cached permanently
 # above the source copies so code changes rebuild in seconds instead of minutes.
 ENV PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright
@@ -51,6 +48,8 @@ COPY deploy/browserWorker.ts ./browserWorker.ts
 COPY deploy/e2bExecutor.ts ./e2bExecutor.ts
 COPY deploy/kernelPage.ts ./kernelPage.ts
 COPY deploy/kernelSession.ts ./kernelSession.ts
+COPY deploy/browserUseSession.ts ./browserUseSession.ts
+COPY deploy/browserUseRunner.py ./browserUseRunner.py
 COPY deploy/siteMemory.ts ./siteMemory.ts
 COPY deploy/userIdentity.ts ./userIdentity.ts
 COPY deploy/challengeDetection.ts ./challengeDetection.ts

@@ -81,9 +81,8 @@ export async function gmiChat(options: GmiChatOptions): Promise<string> {
     const msg = err instanceof Error ? err.message : String(err)
     const worthFailover =
       /timed out|aborted|GMI error 5\d\d|GMI error 429|Rate limit exceeded|Empty GMI reply|echoed instructions/i.test(msg)
-    const primary = options.model || process.env.GMI_MODEL || process.env.HIREALPHA_MODEL || 'Qwen/Qwen3.8-Flash'
-    const fallback = process.env.GMI_MODEL_FALLBACK ||
-      (primary !== 'Qwen/Qwen3.8-Flash' ? 'Qwen/Qwen3.8-Flash' : 'deepseek-ai/DeepSeek-V4-Flash-0731')
+    const primary = options.model || process.env.GMI_MODEL || process.env.HIREALPHA_MODEL || 'zai-org/GLM-5.3-Flash'
+    const fallback = process.env.GMI_MODEL_FALLBACK || 'zai-org/GLM-5.3-Flash'
     const originalBudget = options.timeoutMs ?? 30_000
     // Only real turn-sized budgets fail over: a tiny probe deadline (tests,
     // health checks) must stay a fast rejection, never a second attempt.
@@ -115,7 +114,7 @@ async function gmiChatOnce(options: GmiChatOptions): Promise<string> {
     options.model ||
     process.env.GMI_MODEL ||
     process.env.HIREALPHA_MODEL ||
-    'Qwen/Qwen3.8-Flash'
+    'zai-org/GLM-5.3-Flash'
 
   const url = `${baseUrl}/chat/completions`
   const signal = AbortSignal.timeout(options.timeoutMs ?? 30_000)

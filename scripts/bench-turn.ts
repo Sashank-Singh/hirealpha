@@ -35,8 +35,8 @@ loadEnv(join(ROOT, 'spectrum', 'alpha', 'bench-runtime.env'), true)
 
 // Bun auto-loads ./.env and ./spectrum/alpha/.env before this file runs, so a
 // dev-only model can win the read. Pin what production runs.
-const PROD_MODEL = 'deepseek-ai/DeepSeek-V4-Flash-0731'
-if (!/^deepseek/i.test(process.env.GMI_MODEL || '')) process.env.GMI_MODEL = PROD_MODEL
+const PROD_MODEL = 'zai-org/GLM-5.3-Flash'
+if (!/GLM/i.test(process.env.GMI_MODEL || '')) process.env.GMI_MODEL = PROD_MODEL
 
 // Delivery is captured, so the harness never needs Photon. But runHireTurn and
 // liveContext read the API base/key at call time; keep those pointed at prod.

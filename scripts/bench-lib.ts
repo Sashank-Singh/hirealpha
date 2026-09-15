@@ -32,9 +32,9 @@ export function loadBenchEnv() {
   loadEnvFile(join(ROOT, 'spectrum', 'alpha', 'bench-runtime.env'), true)
   process.env.HIREALPHA_API_URL ||= 'https://hirealpha.chat'
   process.env.HIREALPHA_TOOL_LOOP_MS ||= '240000'
-  const PROD_MODEL = 'deepseek-ai/DeepSeek-V4-Flash-0731'
+  const PROD_MODEL = 'zai-org/GLM-5.3-Flash'
   process.env.GMI_MODEL = PROD_MODEL
-  process.env.GMI_MODEL_FALLBACK ||= 'Qwen/Qwen3.8-Flash'
+  process.env.GMI_MODEL_FALLBACK ||= 'zai-org/GLM-5.3-Flash'
 }
 
 export type BenchRecord = {

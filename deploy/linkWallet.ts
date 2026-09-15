@@ -1,16 +1,12 @@
 /**
- * Per-user Link wallet sessions.
+ * Per-user Kernel vault + Link wallet integration.
  *
- * The Link CLI auth document is encrypted at rest and materialized as a 0600
- * temporary file only for the duration of one CLI call. A user's document is
- * never shared with another user and full card credentials are returned only
- * to the browser worker, in memory, after a one-time spend approval.
+ * Provider actions are encrypted behind authenticated opaque redirects. The
+ * browser receives only Kernel aliases; the underlying card never enters this
+ * application, Browser Use, or the browser DOM.
  */
-import { chmod, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
-import { existsSync } from 'node:fs'
-import { resolve } from 'node:path'
-import { tmpdir } from 'node:os'
 import type { SQL } from 'bun'
+import Kernel from '@onkernel/sdk'
 import {
   decryptUserPayload,
   encryptUserPayload,
@@ -34,6 +30,15 @@ export type LinkMethodView = {
   link_wallet: true
 }
 
+type KernelPaymentRow = { vault_id: string; wallet_key: string; selected_payment_method_id: string | null }
+
+function kernelClient(): Kernel {
+  const apiKey = process.env.KERNEL_API_KEY?.trim()
+  const projectID = process.env.KERNEL_PROJECT_ID?.trim()
+  if (!apiKey || !projectID) throw new Error('KERNEL_API_KEY and KERNEL_PROJECT_ID are required for browser payments.')
+  return new Kernel({ apiKey, projectID, maxRetries: 0 })
+}
+
 export type LinkSpend = {
   id: string
   status: string
@@ -49,127 +54,116 @@ export type LinkCardCredential = {
   postalCode?: string
 }
 
-type WalletRow = { auth_encrypted: string; status: string }
-const walletLocks = new Map<string, Promise<unknown>>()
-
 export async function ensureLinkWalletSchema(sql: SQL): Promise<void> {
-  await sql`
-    CREATE TABLE IF NOT EXISTS hire_link_wallets (
-      user_id UUID PRIMARY KEY,
-      auth_encrypted TEXT NOT NULL,
-      status TEXT NOT NULL DEFAULT 'pending',
-      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
-    )
-  `
   await sql`ALTER TABLE hire_spend_approvals ADD COLUMN IF NOT EXISTS link_spend_request_id TEXT`
   await sql`ALTER TABLE hire_spend_approvals ADD COLUMN IF NOT EXISTS link_approval_url TEXT`
   await sql`ALTER TABLE hire_spend_approvals ADD COLUMN IF NOT EXISTS merchant_url TEXT`
   await sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_hire_spend_link_id ON hire_spend_approvals (link_spend_request_id) WHERE link_spend_request_id IS NOT NULL`
+  await sql`
+    CREATE TABLE IF NOT EXISTS hire_kernel_payment_vaults (
+      user_id UUID PRIMARY KEY,
+      vault_id TEXT NOT NULL UNIQUE,
+      wallet_key TEXT NOT NULL,
+      selected_payment_method_id TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `
+  await sql`
+    CREATE TABLE IF NOT EXISTS hire_kernel_payment_actions (
+      id UUID PRIMARY KEY,
+      user_id UUID NOT NULL,
+      vault_id TEXT NOT NULL,
+      item_key TEXT NOT NULL,
+      action_name TEXT NOT NULL,
+      url_encrypted TEXT NOT NULL,
+      expires_at TIMESTAMPTZ NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `
+  await sql`CREATE INDEX IF NOT EXISTS idx_kernel_payment_actions_user ON hire_kernel_payment_actions (user_id, expires_at)`
 }
 
-function parseCliJson(stdout: string): any {
-  const trimmed = stdout.trim()
-  if (!trimmed) throw new Error('Link returned an empty response.')
-  try { return JSON.parse(trimmed) } catch {}
-  const lines = trimmed.split(/\r?\n/).map((line) => line.trim()).filter(Boolean)
-  for (let i = lines.length - 1; i >= 0; i--) {
-    try { return JSON.parse(lines[i]!) } catch {}
-  }
-  throw new Error('Link returned an unreadable response.')
-}
-
-function lastEmission(data: any): any {
-  return Array.isArray(data) && data.length ? data[data.length - 1] : data
-}
-
-async function runCli(authPath: string, args: string[], timeoutMs = 25_000): Promise<any> {
-  // Keep Link's Ink/React dependency tree isolated from the web app. Production
-  // installs this executable under /opt; local development may use a global
-  // CLI, but --auth always points at the per-user temporary document above.
-  const isolatedCli = '/opt/hirealpha-link/node_modules/.bin/link-cli'
-  const cli = process.env.LINK_CLI_BIN?.trim() || (existsSync(isolatedCli) ? isolatedCli : 'link-cli')
-  const proc = Bun.spawn([cli, '--auth', authPath, '--format', 'json', ...args], {
-    stdout: 'pipe',
-    stderr: 'pipe',
-    env: { ...process.env, NO_COLOR: '1' },
-  })
-  const timer = setTimeout(() => proc.kill(), timeoutMs)
-  const [stdout, stderr, exitCode] = await Promise.all([
-    new Response(proc.stdout).text(),
-    new Response(proc.stderr).text(),
-    proc.exited,
-  ]).finally(() => clearTimeout(timer))
-  if (exitCode !== 0) {
-    let message = 'Link request failed.'
-    try {
-      const parsed = lastEmission(parseCliJson(stdout || stderr))
-      message = String(parsed?.error?.message || parsed?.message || message)
-    } catch {}
-    throw new Error(message.slice(0, 300))
-  }
-  return parseCliJson(stdout)
-}
-
-async function walletRow(sql: SQL, userId: string): Promise<WalletRow | null> {
-  const rows = (await sql`
-    SELECT auth_encrypted, status FROM hire_link_wallets WHERE user_id = ${userId} LIMIT 1
-  `) as WalletRow[]
+async function kernelPaymentRow(sql: SQL, userId: string): Promise<KernelPaymentRow | null> {
+  const rows = await sql`
+    SELECT vault_id, wallet_key, selected_payment_method_id
+    FROM hire_kernel_payment_vaults WHERE user_id = ${userId} LIMIT 1
+  ` as KernelPaymentRow[]
   return rows[0] || null
 }
 
-async function withUserAuthUnlocked<T>(sql: SQL, userId: string, create: boolean, fn: (path: string) => Promise<T>): Promise<T> {
+async function storeKernelAction(
+  sql: SQL,
+  userId: string,
+  input: { vaultId: string; itemKey: string; actionName: string; url: string; expiresAt?: string },
+): Promise<string> {
+  const url = new URL(input.url)
+  if (url.protocol !== 'https:' || url.username || url.password) throw new Error('Kernel returned an invalid provider action.')
   const broker = userKeyBrokerFromEnv()
-  if (!broker) throw new Error('Per-user wallet encryption is not configured on this server.')
+  if (!broker) throw new Error('Per-user payment encryption is not configured.')
   const key = await loadOrCreateUserKey(sql, broker, userId)
-  let dir: string | null = null
+  const id = crypto.randomUUID()
   try {
-    const row = await walletRow(sql, userId)
-    if (!row && !create) throw new Error('Link wallet is not connected.')
-    const context = { userId, recordId: 'link-wallet-auth', scope: 'payments:link-auth' }
-    const existing = row ? decryptUserPayload(row.auth_encrypted, key, context) : null
-    if (row && existing === null) throw new Error('This Link connection cannot be decrypted. Reconnect it in Settings.')
-
-    dir = await mkdtemp(resolve(tmpdir(), 'hirealpha-link-'))
-    const path = resolve(dir, 'auth.json')
-    await writeFile(path, existing || JSON.stringify({ auth: null, pendingDeviceAuth: null }), { mode: 0o600 })
-    await chmod(path, 0o600)
-    const result = await fn(path)
-    const updated = await readFile(path, 'utf8')
-    const encrypted = encryptUserPayload(updated, key, context)
-    const connected = Boolean(lastEmission(result)?.authenticated) || row?.status === 'connected'
-    if (row) {
-      // Optimistic fence: a concurrent disconnect/delete must win and must not
-      // be undone by an in-flight status poll or credential retrieval.
-      await sql`
-        UPDATE hire_link_wallets SET auth_encrypted = ${encrypted},
-          status = ${connected ? 'connected' : 'pending'}, updated_at = now()
-        WHERE user_id = ${userId} AND auth_encrypted = ${row.auth_encrypted}
-      `
-    } else {
-      await sql`
-        INSERT INTO hire_link_wallets (user_id, auth_encrypted, status, updated_at)
-        VALUES (${userId}, ${encrypted}, ${connected ? 'connected' : 'pending'}, now())
-        ON CONFLICT (user_id) DO NOTHING
-      `
-    }
-    return result
+    const encrypted = encryptUserPayload(url.href, key, { userId, recordId: id, scope: 'payments:kernel-action' })
+    const providerExpiry = input.expiresAt ? new Date(input.expiresAt).getTime() : Number.POSITIVE_INFINITY
+    const expiresAt = new Date(Math.min(Date.now() + 10 * 60_000, providerExpiry))
+    await sql`
+      INSERT INTO hire_kernel_payment_actions
+        (id, user_id, vault_id, item_key, action_name, url_encrypted, expires_at)
+      VALUES (${id}, ${userId}, ${input.vaultId}, ${input.itemKey}, ${input.actionName}, ${encrypted}, ${expiresAt})
+    `
+    return `/api/payments/kernel/action?id=${encodeURIComponent(id)}`
   } finally {
-    if (dir) await rm(dir, { recursive: true, force: true })
     key.fill(0)
   }
 }
 
-async function withUserAuth<T>(sql: SQL, userId: string, create: boolean, fn: (path: string) => Promise<T>): Promise<T> {
-  const previous = walletLocks.get(userId) ?? Promise.resolve()
-  const run = previous.then(
-    () => withUserAuthUnlocked(sql, userId, create, fn),
-    () => withUserAuthUnlocked(sql, userId, create, fn),
-  )
-  const tail = run.catch(() => undefined)
-  walletLocks.set(userId, tail)
-  try { return await run }
-  finally { if (walletLocks.get(userId) === tail) walletLocks.delete(userId) }
+export async function resolveKernelPaymentAction(sql: SQL, userId: string, id: string): Promise<string | null> {
+  const rows = await sql`
+    SELECT vault_id, item_key, action_name, url_encrypted
+    FROM hire_kernel_payment_actions
+    WHERE id = ${id} AND user_id = ${userId} AND expires_at > now() LIMIT 1
+  ` as Array<{ vault_id: string; item_key: string; action_name: string; url_encrypted: string }>
+  const row = rows[0]
+  if (!row) return null
+  const item = await kernelClient().vaults.items.retrieve(row.item_key, { id_or_name: row.vault_id })
+  if (!item.action || item.action.name !== row.action_name || !('url' in item.action)) return null
+  const broker = userKeyBrokerFromEnv()
+  if (!broker) return null
+  const key = await loadOrCreateUserKey(sql, broker, userId)
+  try {
+    const saved = decryptUserPayload(row.url_encrypted, key, { userId, recordId: id, scope: 'payments:kernel-action' })
+    return saved === item.action.url ? saved : null
+  } finally {
+    key.fill(0)
+  }
+}
+
+export async function getKernelVaultId(sql: SQL, userId: string, create = false): Promise<string | null> {
+  const existing = await kernelPaymentRow(sql, userId)
+  if (existing) return existing.vault_id
+  if (!create) return null
+  const client = kernelClient()
+  const vault = await client.vaults.upsert({ name: `hirealpha-${userId}` })
+  const items = await client.vaults.items.list(vault.id)
+  const wallets = items.filter((item) => item.type === 'wallet' && item.spec.provider === 'link')
+  if (wallets.length > 1) throw new Error('Kernel vault has more than one Link wallet.')
+  const wallet = wallets[0] || await client.vaults.items.upsert('link-wallet', {
+    id_or_name: vault.id,
+    type: 'wallet',
+    spec: { provider: 'link', authorization: { method: 'oauth', client: { type: 'kernel_managed' } } },
+  })
+  await sql`
+    INSERT INTO hire_kernel_payment_vaults (user_id, vault_id, wallet_key)
+    VALUES (${userId}, ${vault.id}, ${wallet.key})
+    ON CONFLICT (user_id) DO UPDATE SET vault_id = EXCLUDED.vault_id,
+      wallet_key = EXCLUDED.wallet_key, updated_at = now()
+  `
+  return vault.id
+}
+
+function lastEmission(data: any): any {
+  return Array.isArray(data) && data.length ? data[data.length - 1] : data
 }
 
 function trustedLinkUrl(value: unknown): string | undefined {
@@ -197,97 +191,130 @@ export function linkStatusFromCliOutput(data: any): LinkWalletStatus {
 }
 
 export async function startLinkConnection(sql: SQL, userId: string): Promise<LinkWalletStatus> {
-  const existing = await getLinkStatus(sql, userId).catch(() => null)
-  const requiredScopes = ['userinfo:read', 'payment_methods.agentic']
-  const currentScopes = new Set((existing?.scope || '').split(/\s+/).filter(Boolean))
-  if (existing?.connected && requiredScopes.every((scope) => currentScopes.has(scope))) return existing
-  if (existing?.pending) return existing
-  if (existing?.connected) {
-    const result = await withUserAuth(sql, userId, false, (path) => runCli(path, [
-      'auth', 'upgrade', '--client-name', 'HireAlpha', '--scope', requiredScopes.join(' '), '--interval', '0',
-    ]))
-    return linkStatusFromCliOutput(result)
+  const vaultId = await getKernelVaultId(sql, userId, true)
+  if (!vaultId) throw new Error('Kernel payment vault could not be created.')
+  const row = await kernelPaymentRow(sql, userId)
+  if (!row) throw new Error('Kernel payment wallet could not be found.')
+  const wallet = await kernelClient().vaults.items.retrieve(row.wallet_key, { id_or_name: vaultId })
+  if (wallet.type !== 'wallet' || wallet.spec.provider !== 'link') throw new Error('Kernel payment wallet is invalid.')
+  if (wallet.state.status === 'connected') return { connected: true, pending: false }
+  if (wallet.action?.name === 'link_oauth' && 'url' in wallet.action) {
+    const verificationUrl = await storeKernelAction(sql, userId, {
+      vaultId, itemKey: wallet.key, actionName: wallet.action.name, url: wallet.action.url, expiresAt: wallet.expires_at,
+    })
+    return { connected: false, pending: true, verificationUrl }
   }
-  const result = await withUserAuth(sql, userId, true, (path) => runCli(path, [
-    'auth', 'login', '--client-name', 'HireAlpha', '--scope', requiredScopes.join(' '), '--interval', '0',
-  ]))
-  return linkStatusFromCliOutput(result)
+  return { connected: false, pending: wallet.state.status === 'pending_authorization' }
 }
 
 export async function getLinkStatus(sql: SQL, userId: string): Promise<LinkWalletStatus> {
-  const row = await walletRow(sql, userId)
+  const row = await kernelPaymentRow(sql, userId)
   if (!row) return { connected: false, pending: false }
-  const result = await withUserAuth(sql, userId, false, (path) => runCli(path, [
-    'auth', 'status', '--interval', '0', '--max-attempts', '1',
-  ]))
-  return linkStatusFromCliOutput(result)
+  const wallet = await kernelClient().vaults.items.retrieve(row.wallet_key, { id_or_name: row.vault_id })
+  if (wallet.type !== 'wallet' || wallet.spec.provider !== 'link') return { connected: false, pending: false }
+  if (wallet.state.status === 'connected') return { connected: true, pending: false }
+  if (wallet.action?.name === 'link_oauth' && 'url' in wallet.action) {
+    return {
+      connected: false,
+      pending: true,
+      verificationUrl: await storeKernelAction(sql, userId, {
+        vaultId: row.vault_id, itemKey: wallet.key, actionName: wallet.action.name,
+        url: wallet.action.url, expiresAt: wallet.expires_at,
+      }),
+    }
+  }
+  return { connected: false, pending: wallet.state.status === 'pending_authorization' }
 }
 
 export async function disconnectLink(sql: SQL, userId: string): Promise<void> {
-  const row = await walletRow(sql, userId)
+  const row = await kernelPaymentRow(sql, userId)
   if (!row) return
-  await withUserAuth(sql, userId, false, (path) => runCli(path, ['auth', 'logout'])).catch(() => undefined)
-  await sql`DELETE FROM hire_link_wallets WHERE user_id = ${userId}`
+  const items = await kernelClient().vaults.items.list(row.vault_id)
+  const unresolved = items.some((item) => item.type === 'card' && ['pending_authorization', 'recovery_required'].includes(item.state.status))
+  if (unresolved) throw new Error('A payment is unresolved. Reconcile it before disconnecting Link.')
+  await kernelClient().vaults.delete(row.vault_id)
+  await sql`DELETE FROM hire_kernel_payment_actions WHERE user_id = ${userId}`
+  await sql`DELETE FROM hire_kernel_payment_vaults WHERE user_id = ${userId}`
 }
 
 export async function listLinkPaymentMethods(sql: SQL, userId: string): Promise<LinkMethodView[]> {
-  const data = await withUserAuth(sql, userId, false, (path) => runCli(path, ['payment-methods', 'list']))
-  const items = Array.isArray(data) ? data : Array.isArray(data?.data) ? data.data : []
-  return items.map((pm: any) => ({
-    id: String(pm.id || ''),
-    brand: String(pm.card_brand || pm.brand || pm.type || 'card'),
-    last4: String(pm.card_last4 || pm.last4 || '••••'),
-    exp: pm.exp_month && pm.exp_year ? `${pm.exp_month}/${String(pm.exp_year).slice(-2)}` : 'in Link',
+  const row = await kernelPaymentRow(sql, userId)
+  if (!row) return []
+  let wallet = await kernelClient().vaults.items.retrieve(row.wallet_key, { id_or_name: row.vault_id })
+  if (wallet.type !== 'wallet' || wallet.state.status !== 'connected'
+    || !wallet.available_expansions.some(({ type }) => type === 'payment_methods')) return []
+  wallet = await kernelClient().vaults.items.retrieve(row.wallet_key, { id_or_name: row.vault_id, expand: ['payment_methods'] })
+  if (wallet.type !== 'wallet') return []
+  return (wallet.expanded?.payment_methods || []).filter((pm) => pm.capabilities.single_use_card?.eligible !== false).map((pm) => ({
+    id: pm.id,
+    brand: pm.display.brand || pm.type || 'card',
+    last4: pm.display.last4 || '••••',
+    exp: pm.display.label || 'in Link',
     link_wallet: true as const,
-  })).filter((pm: LinkMethodView) => pm.id)
+  }))
 }
 
 export async function createLinkSpendRequest(
   sql: SQL,
   userId: string,
-  input: { amountCents: number; merchant: string; merchantUrl: string; purpose: string; requestId: string },
+  input: { amountCents: number; currency: string; merchant: string; merchantUrl: string; purpose: string; requestId: string },
 ): Promise<LinkSpend> {
-  const context = `HireAlpha found the requested item and is asking permission to use a one-time Link card for this exact purchase. Merchant: ${input.merchant}. Item: ${input.purpose}. Total: $${(input.amountCents / 100).toFixed(2)}. No substitutions or total changes are allowed.`
-  const line = `name:${input.purpose.replace(/[,\r\n]/g, ' ').slice(0, 140)},unit_amount:${input.amountCents},quantity:1,product_url:${input.merchantUrl}`
-  const total = `type:total,display_text:Total,amount:${input.amountCents}`
-  const raw = await withUserAuth(sql, userId, false, (path) => runCli(path, [
-    'spend-request', 'create', '--credential-type', 'card', '--amount', String(input.amountCents),
-    '--currency', 'usd', '--merchant-name', input.merchant, '--merchant-url', input.merchantUrl,
-    '--context', context, '--line-item', line, '--total', total, '--request-approval',
-    '--metadata', `hirealpha_request_id:${input.requestId}`,
-  ]))
-  const data = lastEmission(raw)
-  return { id: String(data.id || ''), status: String(data.status || ''), approvalUrl: trustedLinkUrl(data.approval_url) }
+  const row = await kernelPaymentRow(sql, userId)
+  if (!row) throw new Error('Connect Link before approving a purchase.')
+  let wallet = await kernelClient().vaults.items.retrieve(row.wallet_key, {
+    id_or_name: row.vault_id, expand: ['payment_methods'],
+  })
+  if (wallet.type !== 'wallet' || wallet.state.status !== 'connected') throw new Error('Link wallet is not connected.')
+  const methods = wallet.expanded?.payment_methods || []
+  const method = methods.find((pm) => pm.id === row.selected_payment_method_id)
+    || methods.find((pm) => pm.is_default && pm.capabilities.single_use_card?.eligible !== false)
+  if (!method) throw new Error('Select an eligible Link payment method before approving the purchase.')
+  const currency = input.currency.toLowerCase()
+  const context = `HireAlpha is requesting a one-use payment credential for this independently verified purchase only. Merchant: ${input.merchant}. Item: ${input.purpose}. Exact total: ${(input.amountCents / 100).toFixed(2)} ${currency.toUpperCase()} including the checkout's displayed charges. Do not allow substitutions, amount changes, or retries.`
+  const cardKey = `purchase-${input.requestId}`
+  let card = await kernelClient().vaults.items.upsert(cardKey, {
+    id_or_name: row.vault_id,
+    type: 'card',
+    spec: {
+      provider: 'link', wallet: row.wallet_key, payment_method_id: method.id,
+      amount: input.amountCents, currency, merchant_name: input.merchant,
+      merchant_url: input.merchantUrl, context,
+      line_items: [{ name: input.purpose.slice(0, 140), quantity: 1, unit_amount: input.amountCents, product_url: input.merchantUrl }],
+      totals: [{ type: 'total', display_text: 'Total', amount: input.amountCents }],
+      metadata: { hirealpha_request_id: input.requestId },
+    },
+  })
+  if (!card.available_operations.some(({ type }) => type === 'authorize')) throw new Error('Kernel payment authorization is unavailable.')
+  card = await kernelClient().vaults.items.performOperation(card.key, { id_or_name: row.vault_id, type: 'authorize' })
+  if (!card.action || !('url' in card.action)) throw new Error('Kernel did not return a payment approval action.')
+  const approvalUrl = await storeKernelAction(sql, userId, {
+    vaultId: row.vault_id, itemKey: card.key, actionName: card.action.name,
+    url: card.action.url, expiresAt: card.expires_at,
+  })
+  return { id: card.key, status: card.state.status, approvalUrl }
 }
 
 export async function retrieveLinkSpend(sql: SQL, userId: string, spendId: string): Promise<LinkSpend> {
-  const raw = await withUserAuth(sql, userId, false, (path) => runCli(path, [
-    'spend-request', 'retrieve', spendId, '--interval', '0', '--max-attempts', '1',
-  ]))
-  const data = lastEmission(raw)
-  return { id: String(data.id || spendId), status: String(data.status || ''), approvalUrl: trustedLinkUrl(data.approval_url) }
+  const row = await kernelPaymentRow(sql, userId)
+  if (!row) throw new Error('Kernel payment vault was not found.')
+  const card = await kernelClient().vaults.items.retrieve(spendId, { id_or_name: row.vault_id })
+  if (card.type !== 'card') throw new Error('Kernel payment item is invalid.')
+  const status = card.state.status === 'ready' ? 'approved' : card.state.status
+  return { id: card.key, status }
 }
 
 export async function retrieveLinkCard(sql: SQL, userId: string, spendId: string): Promise<LinkCardCredential> {
-  return withUserAuth(sql, userId, false, async (path) => {
-    const dir = await mkdtemp(resolve(tmpdir(), 'hirealpha-card-'))
-    const output = resolve(dir, 'credential.json')
-    try {
-      await runCli(path, ['spend-request', 'retrieve', spendId, '--include', 'card', '--output-file', output, '--force', '--interval', '0'])
-      const credential = JSON.parse(await readFile(output, 'utf8')) as any
-      const card = credential.card || {}
-      const result = {
-        number: String(card.number || ''), cvc: String(card.cvc || ''),
-        expMonth: String(card.exp_month || ''), expYear: String(card.exp_year || ''),
-        name: card.billing_address?.name ? String(card.billing_address.name) : card.name ? String(card.name) : undefined,
-        postalCode: card.billing_address?.postal_code ? String(card.billing_address.postal_code) : undefined,
-      }
-      if (!/^\d{12,19}$/.test(result.number) || !/^\d{3,4}$/.test(result.cvc)) throw new Error('Link did not return an approved card credential.')
-      return result
-    } finally {
-      await rm(dir, { recursive: true, force: true })
-    }
-  })
+  const row = await kernelPaymentRow(sql, userId)
+  if (!row) throw new Error('Kernel payment vault was not found.')
+  const card = await kernelClient().vaults.items.retrieve(spendId, { id_or_name: row.vault_id, wait: 60 })
+  if (card.type !== 'card' || card.state.status !== 'ready' || !card.state.aliases) {
+    throw new Error(`Kernel payment item is ${card.type === 'card' ? card.state.status : 'invalid'}.`)
+  }
+  const aliases = card.state.aliases
+  return {
+    number: aliases.number, cvc: aliases.cvc,
+    expMonth: aliases.exp_month, expYear: aliases.exp_year,
+  }
 }
 
 /** Link requires an outcome report after every credential-backed attempt. No
@@ -303,11 +330,10 @@ export async function reportLinkOutcome(
     context?: string
   },
 ): Promise<void> {
-  const domain = input.domain.trim().toLowerCase().replace(/^www\./, '').slice(0, 253)
-  if (!domain || !input.spendId.startsWith('lsrq_')) return
-  await withUserAuth(sql, userId, false, (path) => runCli(path, [
-    'report', '--domain', domain, '--outcome', input.outcome,
-    '--spend-request-id', input.spendId, '--step', input.step.slice(0, 100),
-    ...(input.context ? ['--freeform-context', input.context.slice(0, 500)] : []),
-  ]))
+  const row = await kernelPaymentRow(sql, userId)
+  if (!row) return
+  // Kernel item events are the authoritative substitution record. Fetching
+  // them here also gives operators a stable reconciliation point without
+  // sending browser or payment data to another reporting service.
+  await kernelClient().vaults.items.events(input.spendId, { id_or_name: row.vault_id }).catch(() => undefined)
 }
