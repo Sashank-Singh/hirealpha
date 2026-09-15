@@ -182,6 +182,22 @@ export async function mirrorJobFinished(
   })
 }
 
+/** A swept dead run: outcome unknown, side effect possible -> visible
+ * reconciliation, never an automatic retry (plan: forbidden transition). */
+export async function mirrorJobReconcile(sql: SQL, jobId: string, detail: string): Promise<void> {
+  await mirror('reconcile', async () => {
+    const link = await taskLink(sql, jobId)
+    if (!link) return
+    const { userId, taskId } = link
+    await appendEvent(sql, {
+      userId, taskId, type: 'failure_recorded',
+      payload: { reason_code: 'needs_reconciliation', detail: detail.slice(0, 500) },
+      actor: 'alpha', idempotencyKey: `${jobId}:reconcile:${link.seq}`,
+    })
+    await appendEvent(sql, { userId, taskId, type: 'state_changed', payload: { to: 'NEEDS_RECONCILIATION' }, actor: 'alpha', idempotencyKey: `${jobId}:reconcile-state:${link.seq}` })
+  })
+}
+
 /** The queue's own verdict after finishBrowserJob ran: pending = another attempt. */
 async function isJobRetryQueued(sql: SQL, jobId: string): Promise<boolean> {
   const rows = (await sql`SELECT status FROM hire_browser_jobs WHERE id = ${jobId} LIMIT 1`) as Array<{ status: string }>

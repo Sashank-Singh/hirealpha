@@ -6,6 +6,7 @@ import {
   mirrorJobFinished,
   mirrorJobHandoff,
   mirrorJobHandoffResumed,
+  mirrorJobReconcile,
 } from './taskLifecycle'
 
 type Row = Record<string, unknown>
@@ -201,6 +202,23 @@ describe('browser-job task mirror', () => {
     expect(projection?.state).toBe('VERIFYING')
     expect(projection?.verification?.passed).toBe(false)
     expect(projection?.failure?.reason_code).toBe('verification_failed')
+  })
+
+  it('swept dead runs land in visible reconciliation, never silent orphans', async () => {
+    process.env.HIREALPHA_TASK_RECORD = '1'
+    const job = baseJob({ status: 'running' })
+    const world = fakeWorld(job)
+    const taskId = await mirrorJobEnqueued(world.sql, meta)
+    await mirrorJobClaimed(world.sql, meta)
+    await mirrorJobReconcile(world.sql, 'job-1', 'Worker interrupted; outcome unknown. Review before retrying.')
+    const projection = await loadProjection(world.sql, { userId: 'user-1', taskId: taskId! })
+    expect(projection?.state).toBe('NEEDS_RECONCILIATION')
+    expect(projection?.failure?.reason_code).toBe('needs_reconciliation')
+    // and the contract forbids an automatic retry out of that state.
+    job.status = 'running'
+    await mirrorJobClaimed(world.sql, meta)
+    const after = await loadProjection(world.sql, { userId: 'user-1', taskId: taskId! })
+    expect(after?.state).toBe('NEEDS_RECONCILIATION')
   })
 
   it('reuses the existing task link when a job is enqueued twice', async () => {

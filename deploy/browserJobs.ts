@@ -18,7 +18,7 @@ import { randomBytes, randomUUID, createHmac, timingSafeEqual } from 'node:crypt
 import type { SQL } from 'bun'
 import type { PortalStep, BrowserTaskKind } from './browserVault'
 import { assertPublicHttpsUrl, type HostResolver } from './browserNetworkPolicy'
-import { mirrorJobClaimed, mirrorJobEnqueued, mirrorJobFinished, mirrorJobHandoff, mirrorJobHandoffResumed } from '../services/tasks/taskLifecycle'
+import { mirrorJobClaimed, mirrorJobEnqueued, mirrorJobFinished, mirrorJobHandoff, mirrorJobHandoffResumed, mirrorJobReconcile } from '../services/tasks/taskLifecycle'
 
 export type BrowserJobRow = {
   id: string
@@ -155,11 +155,17 @@ export async function sweepStaleRunningJobs(
   // 10 minutes: a run touches claimed_at every minute while working (see the
   // worker's heartbeat); only a genuinely dead worker has a stale claim. At
   // five minutes this sweep was killing healthy booking-site runs mid-flight.
-  return (await sql`
+  const swept = (await sql`
     UPDATE hire_browser_jobs SET status = 'failed', error = 'Worker interrupted; outcome unknown. Review before retrying.', finished_at = now()
     WHERE status = 'running' AND claimed_at < now() - interval '10 minutes'
     RETURNING id, user_id, persona, url
   `) as Array<{ id: string; user_id: string; persona: string; url: string }>
+  for (const row of swept) {
+    // The task record learns of a dead run the same moment the user does:
+    // NEEDS_RECONCILIATION with a reason - never an invisible orphan.
+    await mirrorJobReconcile(sql, row.id, 'Worker interrupted; outcome unknown. Review before retrying.')
+  }
+  return swept
 }
 
 export async function claimBrowserJobs(sql: SQL, limit: number): Promise<BrowserJobRow[]> {
@@ -168,16 +174,20 @@ export async function claimBrowserJobs(sql: SQL, limit: number): Promise<Browser
   if (process.env.HIREALPHA_DISABLE_BROWSER_JOBS === '1') return []
   await sweepStaleRunningJobs(sql)
   // Ask-first sweep: a denied approval kills its queued job; an unapproved one waits.
-  await sql`
+  const deniedApprovals = (await sql`
     UPDATE hire_browser_jobs j SET status = 'failed', error = 'Approval denied', finished_at = now()
     FROM hire_browser_approvals a
     WHERE j.approval_id = a.id AND a.status = 'denied' AND j.status = 'pending'
-  `
-  await sql`
+    RETURNING j.id
+  `) as Array<{ id: string }>
+  for (const row of deniedApprovals) await mirrorJobFinished(sql, row.id, { ok: false, error: 'Approval denied' })
+  const deniedCaps = (await sql`
     UPDATE hire_browser_jobs j SET status = 'failed', error = 'Capability denied or expired', finished_at = now()
     FROM capability_grants g
     WHERE j.credential_capability_id = g.id AND g.status IN ('denied', 'revoked', 'expired') AND j.status = 'pending'
-  `
+    RETURNING j.id
+  `) as Array<{ id: string }>
+  for (const row of deniedCaps) await mirrorJobFinished(sql, row.id, { ok: false, error: 'Capability denied or expired' })
   const rows = (await sql`
     UPDATE hire_browser_jobs SET status = 'running', attempts = attempts + 1, claimed_at = now()
     WHERE id IN (
