@@ -18,14 +18,25 @@
  *   finish ok   -> VERIFYING, then SYNCHRONIZING -> FULFILLED only with
  *                  captured page evidence; without it the task parks in
  *                  VERIFYING under verification_failed (never claim done from
- *                  model text alone)
+ *                  model text alone). Under the second gate
+ *                  HIREALPHA_RECEIPT_GATE=1, a PURCHASE-shaped finish
+ *                  (spend_request_id on the job row) instead records a real
+ *                  receipt via receipts.recordReceipt and only reaches
+ *                  FULFILLED when the plan's evidence table verifies it.
  *   finish fail -> FAILED_RETRYABLE | FAILED_FINAL
  */
 import type { SQL } from 'bun'
 import { appendEvent, createTask, getTask } from './taskStore'
+import { recordReceipt, type EvidenceRecord, type TaskClass } from './receipts'
 
 export function taskRecordEnabled(): boolean {
   return process.env.HIREALPHA_TASK_RECORD === '1'
+}
+
+/** Second, additive gate: turn-path receipt verification for purchase-shaped
+ * job finishes. Default off -> the screenshot behavior is untouched. */
+export function receiptGateEnabled(): boolean {
+  return process.env.HIREALPHA_RECEIPT_GATE === '1'
 }
 
 async function mirror(label: string, fn: () => Promise<void>): Promise<void> {
@@ -147,6 +158,17 @@ export async function mirrorJobFinished(
       await appendEvent(sql, { userId, taskId, type: 'artifact_recorded', payload: { kind: 'result', ref: outcome.result.slice(0, 2000) }, actor: 'alpha', idempotencyKey: `${jobId}:result` })
       await appendEvent(sql, { userId, taskId, type: 'external_op_recorded', payload: { operation: `browser_job:${jobId}`, idempotency_key: `${jobId}:done`, status: 'done', evidence_ref: `hire_browser_jobs:${jobId}` }, actor: 'alpha', idempotencyKey: `${jobId}:op-done` })
       await appendEvent(sql, { userId, taskId, type: 'state_changed', payload: { to: 'VERIFYING' }, actor: 'alpha', idempotencyKey: `${jobId}:verifying` })
+      // P1 turn-path receipts: a purchase-shaped finish (the job row carries a
+      // spend_request_id — the same signal the worker uses to demand a
+      // merchant order confirmation) is judged by the plan's evidence table
+      // through receipts.recordReceipt, not by a screenshot alone.
+      const taskClass = receiptGateEnabled()
+        ? classifyTaskClass({ spend_request_id: link.spendRequestId })
+        : null
+      if (taskClass === 'purchase') {
+        await recordPurchaseReceipt(sql, { userId, taskId, jobId, spendRequestId: link.spendRequestId, result: outcome.result })
+        return
+      }
       // Never claim completion from model text alone (plan: EXECUTING ->
       // FULFILLED forbidden without independent verification). The strongest
       // evidence a finished job row carries is the captured page screenshot;
@@ -205,11 +227,19 @@ async function isJobRetryQueued(sql: SQL, jobId: string): Promise<boolean> {
 }
 
 /** The current task link for a job, plus the evidence the row already holds. */
-async function taskLink(sql: SQL, jobId: string): Promise<{ userId: string; taskId: string; seq: number; hasScreenshot: boolean } | null> {
+async function taskLink(sql: SQL, jobId: string): Promise<{
+  userId: string
+  taskId: string
+  seq: number
+  hasScreenshot: boolean
+  kind: string | null
+  spendRequestId: string | null
+  goal: string | null
+} | null> {
   if (!taskRecordEnabled()) return null
   const rows = (await sql`
-    SELECT user_id, task_id, last_screenshot FROM hire_browser_jobs WHERE id = ${jobId} AND task_id IS NOT NULL LIMIT 1
-  `) as Array<{ user_id: string; task_id: string; last_screenshot: string | null }>
+    SELECT user_id, task_id, last_screenshot, kind, spend_request_id, goal FROM hire_browser_jobs WHERE id = ${jobId} AND task_id IS NOT NULL LIMIT 1
+  `) as Array<{ user_id: string; task_id: string; last_screenshot: string | null; kind?: string | null; spend_request_id?: string | null; goal?: string | null }>
   const row = rows[0]
   if (!row?.task_id) return null
   const task = await getTask(sql, { userId: String(row.user_id), taskId: String(row.task_id) })
@@ -219,5 +249,106 @@ async function taskLink(sql: SQL, jobId: string): Promise<{ userId: string; task
     taskId: task.id,
     seq: task.event_seq,
     hasScreenshot: typeof row.last_screenshot === 'string' && row.last_screenshot.length > 0,
+    kind: typeof row.kind === 'string' ? row.kind : null,
+    spendRequestId: row.spend_request_id ? String(row.spend_request_id) : null,
+    goal: typeof row.goal === 'string' ? row.goal : null,
   }
+}
+
+/**
+ * Structural task-class classifier for the receipt gate. The ONLY truthful
+ * signal a browser job row carries is its spend_request_id: a job that spent
+ * under a spend approval is a purchase. Everything else returns null and
+ * keeps the legacy screenshot behavior — the class is never guessed from
+ * prose (goal/kind text), per the receipts doctrine.
+ */
+function classifyTaskClass(_input: { spend_request_id?: string | null; goal?: string | null }): TaskClass | null {
+  return _input.spend_request_id ? 'purchase' : null
+}
+
+const CONFIRMATION_MARKERS = new Set(['confirmation', 'order'])
+const CONFIRMATION_SUBMARKERS = new Set(['number', 'no', 'id'])
+
+function isTokenChar(c: string): boolean {
+  return (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c === '-'
+}
+
+/**
+ * Non-regex structural scan for a confirmation reference, mirroring the
+ * worker's hasMerchantOrderConfirmation intent (deploy/browserWorker.ts):
+ * tokenize on non-[A-Za-z0-9-] boundaries with a per-char loop (no regex on
+ * prose), then take the token following an 'order'/'confirmation' marker
+ * (optionally past a 'number'/'no'/'id' sub-marker). Tokens are compared in
+ * lowercase. Returns the token or null; '#' is a boundary and drops out.
+ */
+function extractConfirmationToken(text: string): string | null {
+  const tokens: string[] = []
+  let current = ''
+  for (const c of Array.from(text)) {
+    const low = c.toLowerCase()
+    if (isTokenChar(low)) current += low
+    else {
+      if (current) tokens.push(current)
+      current = ''
+    }
+  }
+  if (current) tokens.push(current)
+  for (let i = 0; i < tokens.length; i += 1) {
+    if (!CONFIRMATION_MARKERS.has(tokens[i])) continue
+    let j = i + 1
+    // Step over sub-markers and repeated marker words ('order confirmation
+    // number: X'), then take the first real reference token.
+    while (j < tokens.length && (CONFIRMATION_SUBMARKERS.has(tokens[j]) || CONFIRMATION_MARKERS.has(tokens[j]))) j += 1
+    const candidate = tokens[j]
+    // The worker only trusts a reference of at least 4 characters.
+    if (candidate && candidate.length >= 4) return candidate
+  }
+  return null
+}
+
+/**
+ * Purchase finish under the receipt gate: build an EvidenceRecord from data
+ * the job row already links to and let receipts.recordReceipt (the plan's
+ * evidence table) decide. verified -> recordReceipt already advanced
+ * VERIFYING -> SYNCHRONIZING, and this adds SYNCHRONIZING -> FULFILLED.
+ * incomplete/contradictory -> recordReceipt wrote passed:false and the task
+ * stays parked in VERIFYING; no further transition, no retry.
+ */
+async function recordPurchaseReceipt(
+  sql: SQL,
+  input: { userId: string; taskId: string; jobId: string; spendRequestId: string | null; result: string },
+): Promise<void> {
+  const approvalRows = input.spendRequestId
+    ? (await sql`
+        SELECT amount_cents, status, finalization_status FROM hire_spend_approvals
+        WHERE id = ${input.spendRequestId} AND user_id = ${input.userId} LIMIT 1
+      `) as Array<{ amount_cents: number | string | null; status: string | null; finalization_status: string | null }>
+    : []
+  const approval = approvalRows[0]
+  const finalization = String(approval?.finalization_status ?? '').toLowerCase()
+  const status = String(approval?.status ?? '').toLowerCase()
+  const settled = finalization === 'completed' || finalization === 'finalized' || finalization === 'paid' || status === 'paid'
+  // payment_status is only ever the closed enum value 'paid' or an
+  // approval-namespaced raw enum (never the merchant-side words 'pending'/'
+  // authorized', which the receipt enum would silently accept); anything the
+  // approval row does not positively confirm is structurally contradictory
+  // to a paid claim and parks the task.
+  const evidence: EvidenceRecord = {
+    confirmation_id: extractConfirmationToken(input.result),
+    items: `job:${input.jobId}`,
+    total_cents: approval ? Number(approval.amount_cents) : null,
+    payment_status: approval ? (settled ? 'paid' : `approval_${finalization || status || 'unknown'}`) : 'approval_missing',
+  }
+  const recorded = await recordReceipt(sql, {
+    userId: input.userId,
+    taskId: input.taskId,
+    taskClass: 'purchase',
+    evidence,
+    idempotencyKey: `${input.jobId}:receipt`,
+  })
+  if (recorded.verdict !== 'verified') return
+  await appendEvent(sql, {
+    userId: input.userId, taskId: input.taskId, type: 'state_changed',
+    payload: { to: 'FULFILLED' }, actor: 'alpha', idempotencyKey: `${input.jobId}:fulfilled`,
+  })
 }
