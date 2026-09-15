@@ -1,6 +1,6 @@
-import { expect, it } from 'bun:test'
+import { describe, expect, it } from 'bun:test'
 import type { SQL } from 'bun'
-import { hasMerchantOrderConfirmation, runJob } from './browserWorker'
+import { runWithinCeiling, hasMerchantOrderConfirmation, runJob } from './browserWorker'
 import { openTaskPage } from './browserSession'
 import type { BrowserJobRow } from './browserJobs'
 
@@ -37,4 +37,22 @@ it('does not launch a browser without a valid approval', async () => {
   const sql = (async () => []) as unknown as SQL
   expect((await runJob(sql, { ...job, approval_id: null }, launch)).ok).toBe(false)
   expect((await runJob(sql, job, launch)).ok).toBe(false)
+})
+
+describe('runWithinCeiling', () => {
+  it('lets a completing run through untouched', async () => {
+    const settled = await runWithinCeiling(Promise.resolve({ ok: true as const, result: 'done' }), 5_000)
+    expect(settled.ran).toBe(true)
+    if (settled.ran) expect(settled.value.result).toBe('done')
+  })
+  it('a wedged run cannot hold the slot past the ceiling', async () => {
+    const never = new Promise<never>(() => undefined)
+    const settled = await runWithinCeiling(never, 20)
+    expect(settled).toEqual({ ran: false })
+  })
+  it('rejections inside the run are values, not ceilings', async () => {
+    const failed = runJob(null as never, null as never).catch((err: unknown) => ({ ok: false as const, error: String(err) }))
+    const settled = await runWithinCeiling(failed, 5_000)
+    expect(settled.ran).toBe(true)
+  })
 })

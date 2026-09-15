@@ -40,6 +40,7 @@ import {
   finalizeCapabilityConsumption,
 } from '../services/trust/capabilityGrants'
 import { consumeVaultCredential } from '../services/trust/vaultV2'
+import { mirrorJobReconcile } from '../services/tasks/taskLifecycle'
 import { openBaoBrokerFromEnv } from '../services/trust/userKeyBroker'
 
 const DATABASE_URL = process.env.DATABASE_URL || ''
@@ -508,6 +509,16 @@ export async function runJob(sql: SQL, job: JobRow, launch = runBrowserSession):
   return { ok: true, result: run.content }
 }
 
+/** Race a whole run against a hard ceiling; the heartbeat cannot mask it.
+ * Exported for tests (the worker loop only reaches the ceiling after 25m). */
+export function runWithinCeiling<T>(work: Promise<T>, ceilingMs: number): Promise<{ ran: true; value: T } | { ran: false }> {
+  let timer: ReturnType<typeof setTimeout>
+  return Promise.race([
+    work.then((value) => ({ ran: true as const, value })),
+    new Promise<{ ran: false }>((resolve) => { timer = setTimeout(() => resolve({ ran: false }), ceilingMs) }),
+  ]).finally(() => clearTimeout(timer))
+}
+
 async function report(sql: SQL, job: JobRow, outcome: JobOutcome): Promise<void> {
   // A result whose loop insert died in a DB recovery window is still sitting
   // in its job row with no browser_result loop row behind it. The insert is
@@ -687,6 +698,17 @@ async function main() {
   console.log(`[browser-worker] up: concurrency=${CONCURRENCY}`)
 
   let busy = 0
+  // Hard ceiling that races the ENTIRE run. The per-minute heartbeat keeps a
+  // wedged run's claim fresh, so the stale sweep (its only other backstop)
+  // never fires - a single stuck kernel await then pins the concurrency=1 slot
+  // forever until a redeploy. Seen live 09-15: an httpbin goal with no form
+  // looped and froze the queue for hours. This ceiling is the heartbeat-proof
+  // release: a run that cannot finish itself within it is declared outcome-
+  // unknown, lands in NEEDS_RECONCILIATION (never auto-retried - a side effect
+  // may have happened), frees the slot, and tells the user. Set well above any
+  // legitimate run (8m agent wall + bounded handoff waits); env overrides for
+  // tests only.
+  const HARD_RUN_CEILING_MS = Number(process.env.HIREALPHA_RUN_CEILING_MS || 25 * 60_000)
   const tick = async () => {
     if (busy >= CONCURRENCY) return
     busy++
@@ -712,8 +734,28 @@ async function main() {
       const job = rows[0]
       if (!job) return
       console.log(`[browser-worker] job ${job.id} (${job.kind}${job.goal ? ', agent' : ''}) for ${job.persona}:${job.user_id}`)
-      const outcome = await runJob(sql, job).catch((err) => ({ ok: false as const, error: err instanceof Error ? err.message : String(err) }))
-      await report(sql, job, outcome).catch((err) => console.warn('[browser-worker] report failed', err))
+      const settled = await runWithinCeiling(
+        runJob(sql, job).catch((err) => ({ ok: false as const, error: err instanceof Error ? err.message : String(err) })),
+        HARD_RUN_CEILING_MS,
+      )
+      if (!settled.ran) {
+        console.warn(`[browser-worker] run ${job.id} exceeded the ${HARD_RUN_CEILING_MS}ms ceiling — releasing slot`)
+        // Declare outcome unknown directly; do NOT route through report()/
+        // finishBrowserJob, which would mirror a definitive FAILED_FINAL when
+        // the real state is "may or may not have acted" -> reconcile.
+        await sql`
+          UPDATE hire_browser_jobs SET status = 'failed', error = 'Run exceeded the hard time ceiling; outcome unknown. Review before retrying.', finished_at = now()
+          WHERE id = ${job.id} AND status = 'running'
+        `.catch(() => undefined)
+        await mirrorJobReconcile(sql, job.id, 'Run exceeded the hard time ceiling; outcome unknown.')
+        await pushBrowserResultLoop(sql, {
+          userId: job.user_id, persona: job.persona, origin: job.url,
+          insights: 'That run hit my hard time limit before it could finish, so I cannot confirm what it did. Nothing is marked done — ask me to try again.',
+          jobId: job.id,
+        }, { retryDelaysMs: [0, 2_000, 8_000] }).catch((err) => console.warn('[browser-worker] ceiling notify failed', err))
+        return
+      }
+      await report(sql, job, settled.value)
     } catch (err) {
       console.warn('[browser-worker] tick failed', err)
     } finally {
