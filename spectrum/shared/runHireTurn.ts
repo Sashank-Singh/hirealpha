@@ -709,6 +709,61 @@ export function prettyPortalName(urlStr: string): string {
   }
 }
 
+/**
+ * Numbered-choice selection transport (beat-instinct P1). A bare "2" or
+ * "second" while Alpha has open cards is a SELECTION, not chat: resolve it
+ * against the server-owned task record (hire_tasks WAITING_FOR_SELECTION)
+ * BEFORE the model ever sees it, queue the chosen option through the same
+ * proposeBrowserTask path every other browser ask uses (one approval policy,
+ * one launch path), and confirm in one line. The local guard only decides
+ * whether to ASK the server; the server's grammar decides what was chosen.
+ * Every miss (no open task, prose, transport down) returns null and the turn
+ * continues exactly as before - this can never wedge the conversation.
+ */
+const SELECTION_ORDINALS = new Set([
+  'first', 'second', 'third', 'fourth', 'fifth', 'sixth', 'seventh', 'eighth', 'ninth', 'tenth',
+])
+
+function looksLikeSelectionReply(text: string): boolean {
+  const t = text.trim().toLowerCase()
+  if (!t || t.length > 12) return false
+  if (SELECTION_ORDINALS.has(t)) return true
+  let hasDigit = false
+  for (const c of [...t]) {
+    if (c >= '0' && c <= '9') hasDigit = true
+    else if (c !== ' ' && c !== '#' && c !== '.' && c !== '\n') return false
+  }
+  return hasDigit
+}
+
+async function tryTaskSelection(phone: string, persona: AgentId, text: string): Promise<string | null> {
+  if (!looksLikeSelectionReply(text)) return null
+  const base = (process.env.HIREALPHA_API_URL || '').trim()
+  const key = (process.env.HIREALPHA_INTERNAL_KEY || '').trim()
+  if (!base || !key) return null
+  try {
+    const res = await fetch(`${base}/api/internal/tasks/choose`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${key}` },
+      body: JSON.stringify({ phone, persona, reply: text }),
+      signal: AbortSignal.timeout(8000),
+    })
+    if (!res.ok) return null
+    const data = (await res.json().catch(() => ({}))) as {
+      ok?: boolean
+      option?: { id: string; title: string; url: string; price_cents: number | null }
+      goal?: string
+    }
+    if (!data.ok || !data.option?.url || !data.goal) return null
+    const staged = await proposeBrowserTask(phone, persona, { portal: data.option.url, goal: data.goal })
+    if (!staged.ok) return `I picked ${data.option.title}, but the run didn't queue — say try again and I'll relaunch.`
+    const price = data.option.price_cents == null ? '' : ` ($${(data.option.price_cents / 100).toFixed(2)})`
+    return `On it — ${data.option.title}${price}. I'll pause before any password or payment and send you the receipt.`
+  } catch {
+    return null
+  }
+}
+
 export async function runHireTurn(input: {
   agentId: AgentId
   dataDir: string
@@ -746,6 +801,18 @@ export async function runHireTurn(input: {
       { role: 'assistant', content: `[Alpha ${navigation.kind} card]` },
     ])
     return { reply: '', bubbles: [], source: 'local', authoritative: [], card }
+  }
+
+  // A numbered selection resolved here, before the model sees anything: if the
+  // user just picked a card Alpha offered, that beat IS the task, not prose.
+  // Falls through untouched when there is no open choice or the reply is prose.
+  const selection = await tryTaskSelection(input.senderId, agent.id, input.userText)
+  if (selection) {
+    appendThread(input.dataDir, input.senderId, [
+      { role: 'user', content: input.userText },
+      { role: 'assistant', content: selection },
+    ])
+    return { reply: selection, bubbles: [selection], source: 'local', authoritative: [], card: null }
   }
 
   const pendingVault = mem.pendingVaultTask || (
