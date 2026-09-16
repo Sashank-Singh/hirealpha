@@ -18,7 +18,7 @@ infrastructure or is recorded **BLOCKED**. A skip is never a pass.
 | `E2B_BROWSER_TEMPLATE` | same | output of `deploy/e2b/browser-template` build (`bunx e2b template build`) | record build id in the launch checklist when rebuilt |
 | `STRIPE_SECRET_KEY` | billing + purchases | Stripe dashboard → Developers → API keys | use a **restricted key** scoped to: PaymentIntents (write), Checkout Sessions (write), Customers (read/write). Never the account root key |
 | `STRIPE_WEBHOOK_SECRET` | `/api/billing/webhook` | Stripe dashboard → Webhooks → signing secret (`whsec_...`) | endpoint must be HTTPS; replay tests need the same secret |
-| `HIREALPHA_VAULT_KEY` | legacy vault rows (browserVault) | `openssl rand -base64 32` | v1 rows only; new rows use per-user OpenBao keys |
+| `HIREALPHA_VAULT_KEY` | encrypted local Vault fallback and legacy rows | `openssl rand -base64 32` | accepted by the browser worker while OpenBao is rolled out; v2 capability-backed credentials still require OpenBao |
 | `LINK_CLI_BIN` | Link wallet | leave unset in prod (uses `/opt/hirealpha-link`) | |
 | `SESSION_SIGNING_SECRET` / `HIREALPHA_INTERNAL_KEY` | web session + internal endpoints | `openssl rand -hex 32` | rotate = force re-login |
 | `MEM0_ENABLED` | memory recall (`services/trust/memoryIndex.ts`) | optional; Mem0 is on by default | set to `false` only for an emergency disable |
@@ -62,3 +62,9 @@ boot; certification refuses to start suites with missing variables. The
 certification command exits non-zero for both `FAIL` and `BLOCKED`; use
 `CERT_ALLOW_BLOCKED=1` only to collect a partial local evidence report, never
 for a release decision.
+
+The production browser worker requires one complete Vault key backend:
+`OPENBAO_ADDR` plus `OPENBAO_TOKEN`, or `HIREALPHA_VAULT_KEY`. A partial
+OpenBao configuration is rejected instead of silently falling back. OpenBao
+remains mandatory for v2 one-time credential capabilities and for the 9/10
+production certification score.

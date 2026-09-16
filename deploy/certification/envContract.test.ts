@@ -12,9 +12,32 @@ const READY = {
   KERNEL_TELEMETRY: 'true',
 }
 
+const READY_WITH_LOCAL_VAULT = {
+  DATABASE_URL: 'postgres://db/hirealpha',
+  KERNEL_API_KEY: 'kernel-test',
+  GMI_API_KEY: 'gmi-test',
+  HIREALPHA_VAULT_KEY: 'local-vault-test',
+  HIREALPHA_APP_URL: 'https://hirealpha.chat',
+  KERNEL_AGENT_DRIVER: 'browser-use',
+  KERNEL_TELEMETRY: 'true',
+}
+
 describe('production browser-worker readiness', () => {
   it('accepts the canonical Kernel + Browser Use path with safe defaults', () => {
     expect(validateProductionBrowserWorker(READY)).toEqual({ ok: true, problems: [] })
+  })
+
+  it('accepts the encrypted local Vault backend while OpenBao is being rolled out', () => {
+    expect(validateProductionBrowserWorker(READY_WITH_LOCAL_VAULT)).toEqual({ ok: true, problems: [] })
+  })
+
+  it('rejects a partial OpenBao configuration even when a local fallback exists', () => {
+    const result = validateProductionBrowserWorker({
+      ...READY_WITH_LOCAL_VAULT,
+      OPENBAO_ADDR: 'https://bao.example.com',
+    })
+    expect(result.ok).toBe(false)
+    expect(result.problems).toContain('missing:OPENBAO_TOKEN')
   })
 
   it('fails closed when canonical records, receipt verification, or telemetry are disabled', () => {
@@ -37,6 +60,7 @@ describe('production browser-worker readiness', () => {
     expect(result.ok).toBe(false)
     expect(result.problems).toContain('missing:DATABASE_URL')
     expect(result.problems).toContain('missing:KERNEL_API_KEY')
+    expect(result.problems).toContain('missing:VAULT_KEY_BACKEND')
     expect(result.problems.join(' ')).not.toContain('postgres://')
   })
 })

@@ -6,7 +6,7 @@ export type Surface = 'web' | 'worker' | 'kernel-worker' | 'openbao' | 'e2b' | '
 const REQUIREMENTS: Record<Surface, string[]> = {
   web: ['DATABASE_URL'],
   worker: ['DATABASE_URL'],
-  'kernel-worker': ['DATABASE_URL', 'KERNEL_API_KEY', 'GMI_API_KEY', 'OPENBAO_ADDR', 'OPENBAO_TOKEN'],
+  'kernel-worker': ['DATABASE_URL', 'KERNEL_API_KEY', 'GMI_API_KEY'],
   openbao: ['OPENBAO_ADDR', 'OPENBAO_TOKEN'],
   e2b: ['E2B_API_KEY', 'E2B_BROWSER_TEMPLATE'],
   stripe: ['STRIPE_SECRET_KEY', 'STRIPE_WEBHOOK_SECRET'],
@@ -20,6 +20,14 @@ export function validateProductionBrowserWorker(
 ): { ok: boolean; problems: string[] } {
   const problems = validateEnvironment('kernel-worker', env).missing.map((key) => `missing:${key}`)
   const disabled = (name: string) => ['0', 'false', 'off'].includes((env[name] || '').trim().toLowerCase())
+  const hasOpenBaoAddress = !!env.OPENBAO_ADDR?.trim()
+  const hasOpenBaoToken = !!env.OPENBAO_TOKEN?.trim()
+  const hasLocalVaultKey = !!env.HIREALPHA_VAULT_KEY?.trim()
+  if (hasOpenBaoAddress !== hasOpenBaoToken) {
+    problems.push(hasOpenBaoAddress ? 'missing:OPENBAO_TOKEN' : 'missing:OPENBAO_ADDR')
+  } else if (!hasOpenBaoAddress && !hasLocalVaultKey) {
+    problems.push('missing:VAULT_KEY_BACKEND')
+  }
   if (disabled('HIREALPHA_TASK_RECORD')) problems.push('unsafe:HIREALPHA_TASK_RECORD')
   if (disabled('HIREALPHA_RECEIPT_GATE')) problems.push('unsafe:HIREALPHA_RECEIPT_GATE')
   if ((env.KERNEL_AGENT_DRIVER || 'browser-use').trim().toLowerCase() !== 'browser-use') problems.push('unsafe:KERNEL_AGENT_DRIVER')
