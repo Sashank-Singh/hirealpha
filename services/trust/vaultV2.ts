@@ -126,7 +126,18 @@ export async function revokeVaultItem(sql: SQL, input: { userId: string; itemId:
 export async function consumeVaultCredential(
   sql: SQL,
   broker: UserKeyBroker,
-  input: { userId: string; taskId: string; itemId: string; capabilityId: string; digest: string; origin: string },
+  input: {
+    userId: string
+    taskId: string
+    itemId: string
+    capabilityId: string
+    digest: string
+    origin: string
+    /** Compatibility bridge for credentials saved by the original encrypted
+     * Vault. It is invoked only after the one-time capability has been claimed
+     * and verified for this exact user, item, action, and origin. */
+    fallbackCredential?: () => Promise<{ username: string; password: string } | null>
+  },
 ): Promise<{ username: string; password: string } | null> {
   const exactOrigin = normalizeExactOrigin(input.origin)
   const grant = await beginCapabilityConsumption(sql, {
@@ -153,34 +164,37 @@ export async function consumeVaultCredential(
     return null
   }
 
-  const key = await loadOrCreateUserKey(sql, broker, input.userId)
+  let key: Buffer | null = null
   try {
+    key = await loadOrCreateUserKey(sql, broker, input.userId)
     const plaintext = decryptUserPayload(rows[0].ciphertext, key, {
       userId: input.userId, recordId: rows[0].id, scope: `vault:${rows[0].exact_origin}`,
     })
-    if (!plaintext) {
-      await finalizeCapabilityConsumption(sql, {
-        id: input.capabilityId, userId: input.userId, taskId: input.taskId, outcome: 'cancelled_before_side_effect',
-      })
-      return null
-    }
+    if (!plaintext) throw new Error('Vault credential could not be decrypted.')
     let credential: { username?: unknown; password?: unknown }
     try {
       credential = JSON.parse(plaintext) as { username?: unknown; password?: unknown }
     } catch {
       credential = {}
     }
-    if (typeof credential.username !== 'string' || typeof credential.password !== 'string') {
-      await finalizeCapabilityConsumption(sql, {
-        id: input.capabilityId, userId: input.userId, taskId: input.taskId, outcome: 'cancelled_before_side_effect',
-      })
-      return null
-    }
+    if (typeof credential.username !== 'string' || typeof credential.password !== 'string') throw new Error('Vault credential is incomplete.')
     await finalizeCapabilityConsumption(sql, {
       id: input.capabilityId, userId: input.userId, taskId: input.taskId, outcome: 'completed',
     })
     return { username: credential.username, password: credential.password }
+  } catch {
+    const fallback = await input.fallbackCredential?.().catch(() => null)
+    if (fallback?.username.trim() && fallback.password) {
+      await finalizeCapabilityConsumption(sql, {
+        id: input.capabilityId, userId: input.userId, taskId: input.taskId, outcome: 'completed',
+      })
+      return fallback
+    }
+    await finalizeCapabilityConsumption(sql, {
+      id: input.capabilityId, userId: input.userId, taskId: input.taskId, outcome: 'cancelled_before_side_effect',
+    })
+    return null
   } finally {
-    key.fill(0)
+    key?.fill(0)
   }
 }

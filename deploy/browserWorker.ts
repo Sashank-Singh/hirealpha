@@ -372,6 +372,9 @@ export async function runJob(sql: SQL, job: JobRow, launch = runBrowserSession):
       capabilityId: job.credential_capability_id,
       digest: job.credential_capability_digest,
       origin,
+      fallbackCredential: key
+        ? () => getVaultCredentialsForTask(sql, job.user_id, origin, key)
+        : undefined,
     })
     if (!creds) return { ok: false, error: 'Vault capability could not be consumed.' }
   } else {

@@ -229,4 +229,53 @@ describe('Vault v2 capability security matrix', () => {
     expect(statusAfter()).toBe('terminal')
     realItem.ciphertext = ''
   })
+
+  it('uses the legacy encrypted credential only after validating the exact one-time capability', async () => {
+    realItem.ciphertext = 'v2.aaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+    const { sql, statusAfter } = capabilitySql({ grant: baseGrant, item: realItem })
+    let fallbacks = 0
+    const result = await consumeVaultCredential(sql, broker, {
+      userId: 'user-1', taskId: 'task-1', itemId: 'item-1', capabilityId: 'cap-1',
+      digest: 'a'.repeat(64), origin: 'https://example.com',
+      fallbackCredential: async () => {
+        fallbacks++
+        return { username: 'person@example.com', password: 'legacy-encrypted' }
+      },
+    })
+    expect(result).toEqual({ username: 'person@example.com', password: 'legacy-encrypted' })
+    expect(fallbacks).toBe(1)
+    expect(statusAfter()).toBe('terminal')
+    realItem.ciphertext = ''
+  })
+
+  it('never invokes the legacy fallback for a capability with the wrong origin', async () => {
+    const { sql, statusAfter } = capabilitySql({ grant: baseGrant, item: realItem })
+    let fallbacks = 0
+    const result = await consumeVaultCredential(sql, broker, {
+      userId: 'user-1', taskId: 'task-1', itemId: 'item-1', capabilityId: 'cap-1',
+      digest: 'a'.repeat(64), origin: 'https://evil.com',
+      fallbackCredential: async () => {
+        fallbacks++
+        return { username: 'person@example.com', password: 'must-not-leak' }
+      },
+    })
+    expect(result).toBeNull()
+    expect(fallbacks).toBe(0)
+    expect(statusAfter()).toBe('terminal')
+  })
+
+  it('closes the capability when key unwrapping and the fallback both fail', async () => {
+    const brokenBroker: UserKeyBroker = {
+      generate: async () => { throw new Error('not expected') },
+      unwrap: async () => { throw new Error('old key is unavailable') },
+    }
+    const { sql, statusAfter } = capabilitySql({ grant: baseGrant, item: realItem })
+    const result = await consumeVaultCredential(sql, brokenBroker, {
+      userId: 'user-1', taskId: 'task-1', itemId: 'item-1', capabilityId: 'cap-1',
+      digest: 'a'.repeat(64), origin: 'https://example.com',
+      fallbackCredential: async () => null,
+    })
+    expect(result).toBeNull()
+    expect(statusAfter()).toBe('terminal')
+  })
 })
