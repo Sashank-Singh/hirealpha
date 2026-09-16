@@ -623,6 +623,14 @@ export async function handleVaultApi(req: Request, sql: SQL, deps: VaultDeps): P
       `) as Array<{ id: string; url: string; persona: string }>
 
       for (const wJob of waitingJobs) {
+        // A newly saved credential may resume only the task waiting on this
+        // exact origin. Saving example.com must never wake another paused
+        // browser or hand that browser the wrong account state.
+        let waitingOrigin = ''
+        let savedOrigin = ''
+        try { waitingOrigin = new URL(wJob.url).origin } catch {}
+        try { savedOrigin = new URL(body.portal || '').origin } catch {}
+        if (!savedOrigin || waitingOrigin !== savedOrigin) continue
         await resumeBrowserHandoff(sql, wJob.id).catch(() => false)
         await appendBrowserActivity(sql, wJob.id, 'user_connected_credential', connectedMsg).catch(() => undefined)
       }

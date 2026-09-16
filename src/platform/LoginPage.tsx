@@ -11,6 +11,10 @@ export function LoginPage() {
   const [params] = useSearchParams()
   const emailParam = params.get('email') || ''
   const planParam = params.get('plan') || ''
+  const requestedNext = params.get('next') || ''
+  const nextPath = requestedNext.startsWith('/app/') && !requestedNext.startsWith('//')
+    ? requestedNext
+    : ''
   const [mode, setMode] = useState<AuthMode>(existing?.name ? 'signin' : 'signup')
   const [name, setName] = useState(existing?.name || '')
   const [email, setEmail] = useState(existing?.email || emailParam)
@@ -54,7 +58,7 @@ export function LoginPage() {
     const isDone =
       localStorage.getItem(`ha_setup_done_${existing.email.toLowerCase().trim()}`) === 'friend' ||
       localStorage.getItem('ha_setup_done') === 'friend'
-    return <Navigate to={isDone ? '/app' : '/app/mini/friend/menu'} replace />
+    return <Navigate to={nextPath || (isDone ? '/app' : '/app/mini/friend/menu')} replace />
   }
 
   async function finish(nextName: string, nextEmail: string, nextPhone: string) {
@@ -78,6 +82,10 @@ export function LoginPage() {
       ]).then(([, s]) => s as { hires?: Record<string, boolean> } | undefined)
       if (planParam) {
         void continueToCheckout(nextEmail)
+        return
+      }
+      if (nextPath) {
+        navigate(nextPath)
         return
       }
       // Phone just landed on the account: if they already pay, home; else the
@@ -155,6 +163,10 @@ export function LoginPage() {
           // A fresh signup expects Stripe: go now, hydrate the roster in the
           // background instead of making checkout wait on it.
           void hydrateFromServer().catch(() => undefined)
+          if (nextPath) {
+            navigate(nextPath)
+            return
+          }
           void continueToCheckout(data.email, undefined, true)
         })
         .catch((err) => {
@@ -180,6 +192,10 @@ export function LoginPage() {
               .then((res) => res.json().catch(() => ({})))
               .catch(() => ({})),
           ]).then(([, s]) => s as { hires?: Record<string, boolean> })
+          if (nextPath) {
+            navigate(nextPath)
+            return
+          }
           if (st.hires?.friend) {
             const isDone =
               localStorage.getItem(`ha_setup_done_${data.email.toLowerCase().trim()}`) === 'friend' ||
@@ -338,4 +354,3 @@ export function LoginPage() {
     </div>
   )
 }
-

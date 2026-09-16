@@ -915,16 +915,19 @@ describe('vault save with username + op backing marker', () => {
   })
 
   it('auto-triggers text message "{Tool} is connected." and resumes waiting browser job when credential is saved', async () => {
-    let resumedJobId = ''
+    const resumedJobIds: string[] = []
     let activityAppended = ''
     let loopText = ''
-    const { sql, queries } = fakeSql((text, values) => {
+    const { sql } = fakeSql((text, values) => {
       if (/FROM hire_browser_jobs/i.test(text) && /status = 'waiting'/i.test(text)) {
-        return [{ id: 'job-wait-1', url: 'https://portal.nseindia.com', persona: 'friend' }]
+        return [
+          { id: 'job-wrong-site', url: 'https://accounts.example.com/login', persona: 'friend' },
+          { id: 'job-wait-1', url: 'https://portal.nseindia.com/login', persona: 'friend' },
+        ]
       }
       if (/UPDATE hire_browser_jobs/i.test(text) && /SET status = 'running'/i.test(text)) {
-        resumedJobId = 'job-wait-1'
-        return [{ id: 'job-wait-1' }]
+        resumedJobIds.push(String(values?.[0] || ''))
+        return [{ id: values?.[0] }]
       }
       if (/UPDATE hire_browser_jobs/i.test(text) && /activity/i.test(text)) {
         activityAppended = values?.[0] || 'connected'
@@ -953,9 +956,8 @@ describe('vault save with username + op backing marker', () => {
     const res = await handleVaultApi(req, sql, authedDeps())
 
     expect(res.status).toBe(200)
-    expect(resumedJobId).toBe('job-wait-1')
+    expect(resumedJobIds).toEqual(['job-wait-1'])
     expect(activityAppended).toContain('is connected.')
     expect(loopText).toContain('is connected.')
   })
 })
-

@@ -6,15 +6,19 @@ import './vaultApp.css'
 export function VaultApp({
   auth,
   portal: initialPortal,
+  initialUsername,
+  captureOnly = false,
 }: {
   auth: FeatureAuth
   portal?: string
+  initialUsername?: string
+  captureOnly?: boolean
 }) {
   const searchParams = new URLSearchParams(window.location.search)
   const defaultPortal = initialPortal || searchParams.get('portal') || searchParams.get('url') || searchParams.get('site') || ''
 
   const [portal, setPortal] = useState(defaultPortal)
-  const [username, setUsername] = useState('')
+  const [username, setUsername] = useState(initialUsername || '')
   const [password, setPassword] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -33,8 +37,8 @@ export function VaultApp({
   }, [auth.token, auth.email])
 
   useEffect(() => {
-    void loadEntries()
-  }, [loadEntries])
+    if (!captureOnly) void loadEntries()
+  }, [captureOnly, loadEntries])
 
   async function handleSaveEncrypted(e?: React.FormEvent) {
     if (e) e.preventDefault()
@@ -61,7 +65,7 @@ export function VaultApp({
       if (res && res.ok !== false) {
         setSuccess(`Credentials saved securely for ${displayHost(targetPortal)}! Your task is now active.`)
         setPassword('')
-        void loadEntries()
+        if (!captureOnly) void loadEntries()
       } else {
         setError('Failed to save credentials. Please try again.')
       }
@@ -123,9 +127,9 @@ export function VaultApp({
   }
 
   return (
-    <div className="vault-app">
+    <div className={`vault-app${captureOnly ? ' vault-app--capture' : ''}`}>
       <div className="vault-app__card">
-        <div className="vault-app__topbar">
+        {!captureOnly && <div className="vault-app__topbar">
           <a
             href="sms:+14155951440"
             className="vault-app__back-link"
@@ -142,18 +146,18 @@ export function VaultApp({
             <span>Back to Messages</span>
           </a>
           <span className="vault-app__dismiss-hint">Swipe down or tap to return</span>
-        </div>
+        </div>}
 
         <header className="vault-app__head">
           <div className="vault-app__badge">
             <span className="vault-app__lock-icon" aria-hidden="true">🔒</span>
-            <span>ALPHA VAULT</span>
+            <span>HIREALPHA VAULT</span>
           </div>
           <h1 className="vault-app__title">
-            {portal ? `Add details for ${displayHost(portal)}` : 'Add details to Alpha vault'}
+            {portal ? `Sign in to ${displayHost(portal)}` : 'Add a login to HireAlpha Vault'}
           </h1>
           <p className="vault-app__desc">
-            Credentials are encrypted with OpenBao per-user keys and restricted to the exact website you approve. Plaintext passwords never touch chat.
+            Your password is encrypted for your account and restricted to this website. It is never sent through Messages or shown to Alpha.
           </p>
         </header>
 
@@ -167,12 +171,12 @@ export function VaultApp({
           <div className="vault-app__alert vault-app__alert--success" role="status">
             <p>{success}</p>
             <a href="sms:+14155951440" className="vault-app__sms-btn">
-              Return to iMessage 💬
+              Return to Messages
             </a>
           </div>
         )}
 
-        <form className="vault-app__form" onSubmit={handleSaveEncrypted}>
+        {!success && <form className="vault-app__form" onSubmit={handleSaveEncrypted}>
           <div className="vault-app__group">
             <label className="vault-app__label" htmlFor="vault-portal">
               Website or Service
@@ -193,7 +197,7 @@ export function VaultApp({
 
           <div className="vault-app__group">
             <label className="vault-app__label" htmlFor="vault-username">
-              Username or Email
+              Email or username
             </label>
             <input
               id="vault-username"
@@ -202,7 +206,7 @@ export function VaultApp({
               autoCapitalize="none"
               autoCorrect="off"
               autoComplete="username"
-              placeholder="Your username or email"
+              placeholder="you@example.com"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
               disabled={busy}
@@ -222,6 +226,7 @@ export function VaultApp({
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               disabled={busy}
+              autoFocus={captureOnly}
             />
           </div>
 
@@ -233,18 +238,22 @@ export function VaultApp({
             >
               {busy ? 'Saving securely…' : 'Save encrypted login'}
             </button>
-            <button
+            {!captureOnly && <button
               type="button"
               className="vault-app__btn vault-app__btn--secondary"
               onClick={handleSaveHandoff}
               disabled={busy || !portal.trim()}
             >
               Use no-save sign-in (private handoff)
-            </button>
+            </button>}
           </div>
-        </form>
+        </form>}
 
-        {vaultEntries && vaultEntries.length > 0 && (
+        {captureOnly && !success && (
+          <a href="sms:+14155951440" className="vault-app__return-link">Return to Messages</a>
+        )}
+
+        {!captureOnly && vaultEntries && vaultEntries.length > 0 && (
           <div className="vault-app__saved-section">
             <h2 className="vault-app__section-title">Saved logins</h2>
             <div className="vault-app__entries">

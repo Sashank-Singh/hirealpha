@@ -11,6 +11,55 @@
   box-sizing: border-box;
 }
 
+.vault-capture-page {
+  min-height: 100dvh;
+  background: #061a33;
+}
+
+.vault-app--capture {
+  min-height: 100dvh;
+  justify-content: center;
+  background: #061a33;
+  padding: max(24px, env(safe-area-inset-top)) 18px max(24px, env(safe-area-inset-bottom));
+}
+
+.vault-app--capture .vault-app__card {
+  background: #0a2443;
+  border-color: #173b62;
+  box-shadow: none;
+}
+
+.vault-app--capture .vault-app__badge {
+  color: #9dc9ff;
+  background: #0e3159;
+  border-color: #24517e;
+}
+
+.vault-app--capture .vault-app__input {
+  background: #071c35;
+  border-color: #21486f;
+}
+
+.vault-app--capture .vault-app__input:focus {
+  background: #09213e;
+  border-color: #65aaf5;
+}
+
+.vault-app--capture .vault-app__btn--primary,
+.vault-app--capture .vault-app__sms-btn {
+  background: #1677d2;
+}
+
+.vault-app__return-link {
+  display: block;
+  margin-top: 18px;
+  color: #9dc9ff;
+  font-size: 14px;
+  font-weight: 600;
+  text-align: center;
+  text-decoration: none;
+}
+
 .vault-app__card {
   width: 100%;
   max-width: 440px;

@@ -98,6 +98,7 @@ const RequireAuth = lazy(() => {
   return import('./platform/PlatformShell').then(m => ({ default: m.RequireAuth }))
 })
 const WorkspaceShell = lazy(() => import('./platform/WorkspaceShell').then((m) => ({ default: m.WorkspaceShell })))
+const VaultCapturePage = lazy(() => import('./platform/VaultCapturePage').then((m) => ({ default: m.VaultCapturePage })))
 const ComputerSessionView = lazy(() => import('./platform/ComputerSessionView').then((m) => ({ default: m.ComputerSessionView })))
 
 /* Old deep-link paths that still come in from texts and chat links —
@@ -122,6 +123,7 @@ export default function App() {
             <Route path="/app/mini/:persona/:kind" element={<MiniAppPage />} />
             <Route path="/app" element={<RequireAuth />}>
               <Route index element={<WorkspaceShell />} />
+              <Route path="vault-login" element={<VaultCapturePage />} />
               {/* Redirect every old sub-route back to /app */}
               <Route path="*" element={<AppRedirect />} />
             </Route>

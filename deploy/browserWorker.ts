@@ -469,7 +469,7 @@ export async function runJob(sql: SQL, job: JobRow, launch = runBrowserSession):
       const appBase = (process.env.HIREALPHA_APP_URL || 'https://hirealpha.chat').replace(/\/$/, '')
       const viewToken = generateSessionViewToken(job.id, job.user_id)
       const sessionUrl = `${appBase}/computer/${job.id}?token=${encodeURIComponent(viewToken)}`
-      const vaultUrl = `${appBase}/app/hires/${job.persona || 'friend'}?vault=1`
+      const vaultUrl = `${appBase}/app/vault-login?portal=${encodeURIComponent(origin)}&persona=${encodeURIComponent(job.persona || 'friend')}`
       // The challenge screenshot the session just took travels with the
       // handoff message: the user sees the wall in the thread, not a claim
       // that one exists.

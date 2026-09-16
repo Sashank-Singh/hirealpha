@@ -1,4 +1,4 @@
-import { Navigate, Outlet, useSearchParams } from 'react-router-dom'
+import { Navigate, Outlet, useLocation, useSearchParams } from 'react-router-dom'
 import { useEffect, useState } from 'react'
 import { getSession, signIn, signOut } from './roster'
 
@@ -11,7 +11,9 @@ export function RequireAuth() {
   const [verified, setVerified] = useState<boolean | null>(null)
   const [unavailable, setUnavailable] = useState(false)
   const [searchParams] = useSearchParams()
+  const location = useLocation()
   const token = searchParams.get('t') || searchParams.get('token') || ''
+  const loginUrl = `/app/login?next=${encodeURIComponent(`${location.pathname}${location.search}`)}`
 
   useEffect(() => {
     let active = true
@@ -46,9 +48,9 @@ export function RequireAuth() {
     }
   }, [token])
 
-  if (!session?.email && !token) return <Navigate to="/app/login" replace />
-  if (!session?.phone && !token && verified !== true) return <Navigate to="/app/login" replace />
-  if (verified === false) return <Navigate to="/app/login" replace />
+  if (!session?.email && !token) return <Navigate to={loginUrl} replace />
+  if (!session?.phone && !token && verified !== true) return <Navigate to={loginUrl} replace />
+  if (verified === false) return <Navigate to={loginUrl} replace />
   if (unavailable) return <p>Could not check your session. <button onClick={() => window.location.reload()}>Try again</button></p>
   if (!verified) return <p>Checking your session…</p>
   return <Outlet />
