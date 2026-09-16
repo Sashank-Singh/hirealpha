@@ -94,6 +94,64 @@ export async function runBrowserUseTask(
     max_steps: Number(process.env.BROWSER_USE_MAX_STEPS || 40),
   })
 
+  // Browser Use can occasionally click Login again after an error-page round
+  // trip without re-filling both fields. Enforce the invariant in the page,
+  // not merely in the prompt: an empty username/password submission is
+  // blocked and a visible alert tells the agent exactly what to refill.
+  const installLoginFence = () => credential.state !== 'complete'
+    ? Promise.resolve(undefined)
+    : browser.run(`
+      if (window.__haLoginFenceInstalled) return true;
+      window.__haLoginFenceInstalled = true;
+      const usernameSelectors = [
+        'input[placeholder*="csu" i]', 'input[placeholder*="id" i]',
+        'input[placeholder*="user" i]', 'input[name*="user" i]',
+        'input[name*="login" i]', 'input[name*="id" i]',
+        'input[id*="user" i]', 'input[id*="login" i]', 'input[id*="id" i]',
+        'input[autocomplete*="username" i]', 'input[type="email"]',
+        'input[type="text"]', 'input[type="number"]', 'input[type="tel"]'
+      ];
+      const fields = () => {
+        const password = document.querySelector('input[type="password"]');
+        const username = usernameSelectors.map((s) => document.querySelector(s)).find(Boolean);
+        return { username, password };
+      };
+      const showBlocked = (missing) => {
+        let alert = document.getElementById('hirealpha-login-guard');
+        if (!alert) {
+          alert = document.createElement('div');
+          alert.id = 'hirealpha-login-guard';
+          alert.setAttribute('role', 'alert');
+          alert.style.cssText = 'padding:10px;margin:8px 0;background:#fff3cd;color:#664d03;border:1px solid #ffecb5;font:14px sans-serif';
+          (document.querySelector('form') || document.body).prepend(alert);
+        }
+        alert.textContent = 'HireAlpha blocked an empty login submission. Re-fill the saved ' + missing.join(' and ') + ' before clicking Login.';
+      };
+      const check = (event) => {
+        const { username, password } = fields();
+        if (!password) return;
+        const missing = [];
+        if (!username || !String(username.value || '').trim()) missing.push('Login ID');
+        if (!String(password.value || '')) missing.push('Password');
+        if (!missing.length) {
+          document.getElementById('hirealpha-login-guard')?.remove();
+          return;
+        }
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        showBlocked(missing);
+      };
+      document.addEventListener('submit', check, true);
+      document.addEventListener('click', (event) => {
+        const control = event.target?.closest?.('button,input[type="submit"],[role="button"]');
+        const label = String(control?.innerText || control?.value || control?.getAttribute?.('aria-label') || '');
+        if (/log\\s*in|sign\\s*in/i.test(label)) check(event);
+      }, true);
+      return true;
+    `, 20_000).catch(() => undefined)
+
+  await installLoginFence()
+
   // Once card aliases are present, final purchase controls are permitted only
   // through the trusted one-shot submit event below. This turns "never retry"
   // into an enforced browser invariant instead of prompt advice.
@@ -146,6 +204,7 @@ export async function runBrowserUseTask(
     catch { continue }
 
     if (event.type === 'progress') {
+      await installLoginFence()
       const url = event.url || await browser.run<string>('return page.url();', 10_000).catch(() => '') || task.url
       await task.onProgress?.({ action: describeActions(event.actions), url })
       const shot = await browser.screenshot(55).catch(() => '')

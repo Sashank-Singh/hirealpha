@@ -48,4 +48,11 @@ describe('Browser Use login recovery policy', () => {
   it('gives a slow browser model enough time to return a step', () => {
     expect(runner).toContain('llm_timeout=120')
   })
+
+  it('backs the prompt with a browser-enforced empty-login fence', () => {
+    const bridge = readFileSync(new URL('./browserUseSession.ts', import.meta.url), 'utf8')
+    expect(bridge).toContain('HireAlpha blocked an empty login submission')
+    expect(bridge).toContain("document.addEventListener('submit', check, true)")
+    expect(bridge).toContain('await installLoginFence()')
+  })
 })
