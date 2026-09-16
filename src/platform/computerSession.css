@@ -44,6 +44,8 @@
 @keyframes cs-breathe { 50% { opacity: .35; transform: scale(.72); } }
 
 .cs-top-actions { display: flex; justify-content: flex-end; gap: .4rem; }
+.cs-return-link { display: inline-flex; align-items: center; min-height: 2.3rem; padding: 0 .8rem; border-radius: .35rem; color: #30312c; font-size: .78rem; font-weight: 650; text-decoration: none; transition: background .2s ease; }
+.cs-return-link:hover { background: #e5e5de; }
 .cs-icon-button { min-width: 2.3rem; height: 2.3rem; padding: .45rem; border: 0; background: transparent; color: #55564f; border-radius: .35rem; cursor: pointer; display: grid; place-items: center; transition: background .2s ease; }
 .cs-icon-button:hover { background: #e5e5de; }
 .cs-icon-button svg { width: 1.15rem; height: 1.15rem; fill: none; stroke: currentColor; stroke-width: 1.7; }
@@ -62,6 +64,7 @@
 }
 
 .cs-computer { min-width: 0; background: #20211f; box-shadow: 0 1.5rem 4rem rgba(38, 39, 32, .14); }
+.cs-return-button { margin-top: 1rem; text-decoration: none; }
 .cs-browser-bar { height: 3rem; display: flex; align-items: center; gap: .6rem; padding: 0 1rem; color: #bcbdb5; border-bottom: 1px solid #32332f; font-family: 'Space Mono', monospace; font-size: .7rem; }
 .cs-browser-security { width: 1rem; height: 1rem; display: grid; place-items: center; color: #9bad5c; }
 .cs-browser-security svg { width: .85rem; fill: none; stroke: currentColor; stroke-width: 1.7; }

@@ -66,6 +66,26 @@ export function needsConversationPlanner(userText: string, memory: ThreadMemory)
   return /\b(?:remember|remind|track|log|save|connect|gmail|email|inbox|calendar|schedule|meeting|drive|show|open|pull up|dashboard|apps?|nutrition|meal|ate|eaten|sleep|slept|workout|exercise|habit|budget|spend|spent|spending|decision|open loops?|brief|buy|purchase|re-?order|order|book|reserve|browser|website|log ?in|sign ?in|search|find|near me|restaurant|news|latest|price|weather|score|build|update (?:the|my|that) (?:app|game|site)|send|draft|forward|check|tell me|how much|paid|pay|payment|tuition|fee|fees|charges?|bill|billed|balance|grades?|class(?:es)?|campusnet|csuohio|portal|account|vault)\b/i.test(text)
 }
 
+/** Once a browser job is actually queued, its receipt is authoritative. Models
+ * sometimes hedge before the tool result arrives ("no live stream") or refer
+ * to a draft card that was never delivered. Drop only those contradictory
+ * paragraphs before appending the real, signed Cloud Computer receipt. */
+export function removeQueuedBrowserContradictions(text: string): string {
+  const contradictory = [
+    /\b(?:browser )?run\b.*\bdraft card\b.*\b(?:approval|approve|tap|waiting)\b/i,
+    /\bdraft card\b.*\b(?:browser|run|approval|approve|tap|waiting)\b/i,
+    /\b(?:do not|don't|cannot|can't)\b.*\b(?:live|real[ -]?time)\b.*\b(?:session|stream|view|watch)\b/i,
+    /\b(?:live|real[ -]?time)\b.*\b(?:session|stream|view|watch)\b.*\b(?:isn't|is not|unavailable|cannot|can't|don't|do not)\b/i,
+    /^\s*(?:two\s+)?(?:honest\s+)?notes?\s+on\s+the\s+rest\s*:?\s*$/i,
+  ]
+  return String(text || '')
+    .split(/\n{2,}/)
+    .map((paragraph) => paragraph.trim())
+    .filter((paragraph) => paragraph && !contradictory.some((pattern) => pattern.test(paragraph)))
+    .join('\n\n')
+    .trim()
+}
+
 /** Conversational agent turn engine: the model sees the conversation before choosing any
  * capability. No topic detector can log data, open a card, or replace the ask. */
 export async function runConversationalFriend(input: {
@@ -645,6 +665,7 @@ ${JSON.stringify(context)}` },
   // Same outbound contract as the classic path: iMessage renders no
   // markdown, so strip **/*/`/## before delivery; drop empty bubbles.
   let reply = sanitizeOutbound(outcome.reply)
+  if (browserQueued) reply = removeQueuedBrowserContradictions(reply)
   if (setupPaymentUrl && !reply.includes(setupPaymentUrl)) {
     reply += `\nRegister your card or Link wallet here to authorize purchases (one-time setup): ${setupPaymentUrl}\nOnce registered, reply or text me to complete the order!`
   } else if (spendApprovalReady) {

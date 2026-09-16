@@ -81,6 +81,7 @@ describe('/api/computer/session/:id endpoint', () => {
         user_id: USER_ID,
         persona: 'friend',
         phone_e164: '+14155550100',
+        assignedPhone: '+14155550999',
         kind: 'task',
         url: 'https://united.com',
         steps: [{ action: 'goto', value: 'https://united.com' }],
@@ -104,6 +105,7 @@ describe('/api/computer/session/:id endpoint', () => {
     expect(data.session.id).toBe(JOB_ID)
     expect(data.session.status).toBe('running')
     expect(data.session.goal).toBe('Check flight UA123')
+    expect(data.session.returnToMessagesUrl).toBe('sms:+14155550999')
     // No provider live view and no configured VNC stack must NOT fabricate a
     // stream URL (the old hardcoded browser.hirealpha.chat default pointed at
     // a deployment that never existed). Honest null → screenshot mode.

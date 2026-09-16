@@ -33,6 +33,7 @@ interface SessionData {
   handoffMessage?: string | null
   handoffAt?: string | null
   paymentUrl?: string | null
+  returnToMessagesUrl?: string | null
 }
 
 const ICONS = {
@@ -49,9 +50,6 @@ const ICONS = {
   ),
   external: (
     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 5h5v5M19 5l-8 8"/><path d="M18 13v5a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></svg>
-  ),
-  more: (
-    <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></svg>
   ),
 }
 
@@ -268,17 +266,17 @@ export function ComputerSessionView() {
           <button className="cs-icon-button" onClick={() => void copyLink()} aria-label="Copy private session link" title="Copy private link">
             {copied ? <span className="cs-copied">Copied</span> : ICONS.external}
           </button>
-          <button className="cs-icon-button" aria-label="More options" title="Session options">{ICONS.more}</button>
+          <a className="cs-return-link" href={session.returnToMessagesUrl || 'sms:'}>Return to Messages</a>
         </div>
       </header>
 
       <main className="cs-workspace">
-        <section ref={computerRef} className="cs-computer" aria-label="Live cloud computer">
+        <section ref={computerRef} className="cs-computer" aria-label={session.status === 'done' ? 'Completed browser snapshot' : 'Live cloud computer'}>
           <div className="cs-browser-bar">
             <span className="cs-browser-security">{ICONS.lock}</span>
             <span className="cs-browser-host">{currentHost}</span>
-            <span className="cs-browser-private">Private session</span>
-            {session.screenshotDataUrl && (
+            <span className="cs-browser-private">{session.status === 'done' ? 'Final snapshot' : 'Private session'}</span>
+            {session.screenshotDataUrl && (session.streamUrl || session.directStreamUrl) && (session.status === 'running' || session.status === 'waiting') && (
               <button
                 type="button"
                 className="cs-mode-toggle"
@@ -363,7 +361,7 @@ export function ComputerSessionView() {
           </div>
 
           <footer className="cs-stream-footer">
-            <span><i className="cs-safety-light" /> Encrypted live view</span>
+            <span><i className="cs-safety-light" /> {session.status === 'done' ? 'Encrypted final snapshot' : 'Encrypted live view'}</span>
             <span>Protected by this private link</span>
             {(session.directStreamUrl || session.streamUrl) && (
               <a className="cs-direct-view" href={session.directStreamUrl || session.streamUrl || ''} target="_blank" rel="noreferrer">Open direct view ↗</a>
@@ -456,6 +454,7 @@ export function ComputerSessionView() {
             <section className="cs-result">
               <p className="cs-eyebrow">Finished</p>
               <p>{session.result || 'The task completed. Alpha will send the result in iMessage.'}</p>
+              <a className="cs-button cs-button-primary cs-return-button" href={session.returnToMessagesUrl || 'sms:'}>Return to Messages</a>
             </section>
           )}
 

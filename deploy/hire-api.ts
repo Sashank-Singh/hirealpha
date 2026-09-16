@@ -11834,6 +11834,14 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
       : null
     const directStreamUrl = providerLiveView || null
     const streamUrl = directStreamUrl || fallbackStream
+    const assignedRows = (await sql`
+      SELECT assigned_phone AS "assignedPhone"
+      FROM hire_users
+      WHERE id = ${job.user_id}
+      LIMIT 1
+    `) as unknown as Array<{ assignedPhone?: string | null }>
+    const assignedPhone = String(assignedRows[0]?.assignedPhone || '').trim()
+    const returnToMessagesUrl = assignedPhone ? `sms:${assignedPhone}` : 'sms:'
 
     return json({
       ok: true,
@@ -11868,6 +11876,7 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
         paymentUrl: job.handoff_kind === 'payment' && job.spend_request_id
           ? `${appBase(req)}/api/payments/spend/approve?id=${encodeURIComponent(job.spend_request_id)}`
           : null,
+        returnToMessagesUrl,
       },
     })
   }

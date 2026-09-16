@@ -4,7 +4,25 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { appendThread, loadMemory } from './memory'
 import { detectAgeOrGenZ, runHireTurn } from './runHireTurn'
-import { needsConversationPlanner } from './conversationalFriend'
+import { needsConversationPlanner, removeQueuedBrowserContradictions } from './conversationalFriend'
+
+describe('queued browser receipt copy', () => {
+  it('removes model claims that contradict a real queued Cloud Computer session', () => {
+    const draft = `Found it from a public scan: the title is Example Domain.
+
+Two honest notes on the rest:
+
+The browser run itself is still sitting as a draft card waiting on your approval, tap it to continue.
+
+I don't have a live session stream to send, so real-time viewing isn't something I can offer.`
+    expect(removeQueuedBrowserContradictions(draft)).toBe('Found it from a public scan: the title is Example Domain.')
+  })
+
+  it('preserves useful model copy that does not conflict with the queued receipt', () => {
+    expect(removeQueuedBrowserContradictions('I found the right page. I’ll verify the exact title in the private browser.'))
+      .toBe('I found the right page. I’ll verify the exact title in the private browser.')
+  })
+})
 
 describe('explicit navigation wins over conversation history', () => {
   let dataDir: string
@@ -293,4 +311,3 @@ describe('age and Gen Z detection', () => {
     expect(detectAgeOrGenZ('hello', {}, [{ key: 'birth_year', value: '2001' }]).isGenZ).toBe(true)
   })
 })
-
