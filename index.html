@@ -13,12 +13,13 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
 <!--
       Analytics (Plausible Community Edition, self-hosted on Coolify —
-      see deploy/plausible/README.md; the instance serves script.js for any
-      site registered in its dashboard with data-domain="hirealpha.chat").
-      If you ever switch back to Plausible Cloud instead, revert this src to
-      https://plausible.io/js/script.js and keep the same data-domain.
+      see deploy/plausible/README.md). First-party proxy: the web server
+      serves /p/track.js (the Plausible script) and accepts /p/e (events),
+      forwarding both to the dashboard host, so ad blockers never see an
+      analytics hostname. data-domain must match the site registered in the
+      Plausible dashboard ("hirealpha.chat").
     -->
-    <script defer data-domain="hirealpha.chat" src="https://analytics.hirealpha.chat/js/script.js"></script>
+    <script defer data-domain="hirealpha.chat" data-api="https://hirealpha.chat/p/e" src="/p/track.js"></script>
  <link rel="canonical" href="https://hirealpha.chat/" />
  <meta property="og:type" content="website" />
  <meta property="og:site_name" content="HireAlpha" />

@@ -790,6 +790,62 @@ async function handleLiveProxyUpgrade(req: Request, server: Bun.Server<LiveProxy
   }
 }
 
+// First-party analytics proxy. Ad-blocker filter lists match analytics by
+// hostname (analytics.*, plausible.*, /js/script.js on known domains); serving
+// the tracker and its events from hirealpha.chat/p/* removes every
+// domain-shaped signal they key on. Plausible's script honours a data-api
+// attribute, so both paths can live under /p/. Upstream is PLAUSIBLE_URL
+// (defaults to the dashboard host; hairpins through Traefik on the box).
+const PLAUSIBLE_UPSTREAM = (process.env.PLAUSIBLE_URL || 'https://analytics.hirealpha.chat').replace(/\/+$/, '')
+const ANALYTICS_CORS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type',
+}
+
+async function handleAnalyticsProxy(req: Request, url: URL): Promise<Response | null> {
+  if (url.pathname === '/p/track.js') {
+    if (req.method !== 'GET' && req.method !== 'HEAD') return null
+    try {
+      const upstream = await fetch(`${PLAUSIBLE_UPSTREAM}/js/script.js`)
+      if (!upstream.ok) throw new Error(`upstream status ${upstream.status}`)
+      const body = await upstream.text()
+      return new Response(req.method === 'HEAD' ? null : body, {
+        headers: {
+          'Content-Type': 'application/javascript; charset=utf-8',
+          'Cache-Control': 'public, max-age=3600',
+          ...ANALYTICS_CORS,
+        },
+      })
+    } catch (err) {
+      console.warn('[analytics] script proxy failed', err)
+      return new Response('', { status: 502, headers: { 'Content-Type': 'text/plain' } })
+    }
+  }
+  if (url.pathname === '/p/e') {
+    if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: ANALYTICS_CORS })
+    if (req.method !== 'POST') return null
+    try {
+      const body = await req.arrayBuffer()
+      const headers: Record<string, string> = {
+        'Content-Type': req.headers.get('Content-Type') || 'text/plain;charset=UTF-8',
+      }
+      // Plausible reads the visitor IP from X-Forwarded-For (skipping private
+      // hops); forward the chain Traefik built so geolocation stays accurate.
+      const xff = req.headers.get('X-Forwarded-For')
+      if (xff) headers['X-Forwarded-For'] = xff
+      const upstream = await fetch(`${PLAUSIBLE_UPSTREAM}/api/event`, { method: 'POST', headers, body })
+      await upstream.body?.cancel().catch(() => {})
+      // Analytics is best-effort: the page never learns about upstream flakiness.
+      return new Response(null, { status: 204, headers: ANALYTICS_CORS })
+    } catch (err) {
+      console.warn('[analytics] event proxy failed', err)
+      return new Response(null, { status: 204, headers: ANALYTICS_CORS })
+    }
+  }
+  return null
+}
+
 Bun.serve<LiveProxyData>({
   port: PORT,
   hostname: '0.0.0.0',
@@ -854,6 +910,10 @@ Bun.serve<LiveProxyData>({
         console.error('[web] readyz db check failed', err)
         return json({ ok: false, checks: { db: false } }, 503)
       }
+    }
+    if (url.pathname === '/p/track.js' || url.pathname === '/p/e') {
+      const proxied = await handleAnalyticsProxy(req, url)
+      if (proxied) return proxied
     }
     if (url.pathname === '/api/waitlist') return handleWaitlist(req, sql)
     if (url.pathname === '/api/public/info') return json(PUBLIC_INFO)
