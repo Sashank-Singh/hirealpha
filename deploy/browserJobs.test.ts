@@ -65,7 +65,7 @@ describe('browser job queue', () => {
   it('returns the existing active job when a duplicate launch loses the unique race', async () => {
     const { sql, queries } = fakeSql((text) => {
       if (/INSERT INTO hire_browser_jobs/i.test(text)) return []
-      if (/SELECT id FROM hire_browser_jobs/i.test(text)) return [{ id: 'existing-job' }]
+      if (/SELECT id, status FROM hire_browser_jobs/i.test(text)) return [{ id: 'existing-job', status: 'pending' }]
       return []
     })
     const id = await enqueueBrowserJob(sql, {
@@ -75,10 +75,34 @@ describe('browser job queue', () => {
       kind: 'task',
       url: 'https://campusnet.csuohio.edu',
       goal: 'Check Fall 2024 payment history',
+      approvalId: 'fresh-approval',
       resolveHost: async () => ['93.184.216.34'],
     })
     expect(id).toBe('existing-job')
     expect(queries.some((q) => /status IN \('pending', 'running', 'waiting'\)/i.test(q.text))).toBe(true)
+    const refresh = queries.find((q) => /UPDATE hire_browser_jobs SET[\s\S]*approval_id/i.test(q.text))
+    expect(refresh).toBeTruthy()
+    expect(refresh!.values).toContain('fresh-approval')
+  })
+
+  it('never replaces authority on a running duplicate job', async () => {
+    const { sql, queries } = fakeSql((text) => {
+      if (/INSERT INTO hire_browser_jobs/i.test(text)) return []
+      if (/SELECT id, status FROM hire_browser_jobs/i.test(text)) return [{ id: 'running-job', status: 'running' }]
+      return []
+    })
+    const id = await enqueueBrowserJob(sql, {
+      userId: USER,
+      persona: 'friend',
+      phone: '+14155550100',
+      kind: 'task',
+      url: 'https://campusnet.csuohio.edu',
+      goal: 'Check Fall 2024 payment history',
+      approvalId: 'new-approval',
+      resolveHost: async () => ['93.184.216.34'],
+    })
+    expect(id).toBe('running-job')
+    expect(queries.some((q) => /UPDATE hire_browser_jobs SET[\s\S]*approval_id/i.test(q.text))).toBe(false)
   })
 
   it('kill switch env stops all new claims without touching the database', async () => {

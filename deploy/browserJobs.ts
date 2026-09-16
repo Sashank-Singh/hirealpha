@@ -145,13 +145,37 @@ export async function enqueueBrowserJob(
   `) as Array<{ id: string }>
   const insertedId = inserted[0]?.id
   const active = insertedId ? null : ((await sql`
-    SELECT id FROM hire_browser_jobs
+    SELECT id, status FROM hire_browser_jobs
     WHERE user_id = ${input.userId} AND persona = ${input.persona} AND url = ${target.href}
       AND status IN ('pending', 'running', 'waiting')
     ORDER BY created_at ASC LIMIT 1
-  `) as Array<{ id: string }>)[0]
+  `) as Array<{ id: string; status: BrowserJobRow['status'] }>)[0]
   const jobId = insertedId ?? active?.id ?? id
-  if (!insertedId) return jobId
+  if (!insertedId) {
+    // A duplicate request may find an older PENDING job whose one-time
+    // approval has expired. Reusing its id without refreshing authority leaves
+    // it permanently unclaimable: the UI says "Starting" but Kernel never sees
+    // a session. Refresh only queued work; running/waiting jobs keep their
+    // original immutable authority and browser state.
+    if (active?.status === 'pending') {
+      await sql`
+        UPDATE hire_browser_jobs SET
+          phone_e164 = ${input.phone},
+          kind = ${input.kind},
+          steps = ${input.steps ? JSON.stringify(input.steps) : null}::jsonb,
+          goal = ${input.goal ?? null},
+          approval_id = ${input.approvalId ?? null},
+          vault_item_id = ${input.vaultItemId ?? null},
+          credential_capability_id = ${input.credentialCapabilityId ?? null},
+          credential_capability_digest = ${input.credentialCapabilityDigest ?? null},
+          credential_task_id = ${input.credentialTaskId ?? null},
+          spend_request_id = ${input.spendRequestId ?? null},
+          error = NULL
+        WHERE id = ${active.id} AND status = 'pending'
+      `
+    }
+    return jobId
+  }
   await mirrorJobEnqueued(sql, {
     jobId, userId: input.userId, persona: input.persona, kind: input.kind,
     url: target.href, goal: input.goal ?? null,

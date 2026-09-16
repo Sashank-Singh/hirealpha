@@ -141,7 +141,7 @@ describe('/api/computer/session/:id endpoint', () => {
     expect(data.session.streamUrl).toBeNull()
   })
 
-  it('lets the signed session link approve the one-time browser request', async () => {
+  it('keeps the legacy signed approval endpoint for old session links', async () => {
     const token = generateSessionViewToken(JOB_ID, USER_ID)
     const { sql, queries } = fakeSql([{ id: JOB_ID, user_id: USER_ID, kind: 'task', url: 'https://example.com', status: 'pending', approval_id: 'approval-1' }])
     const req = new Request(`https://hirealpha.chat/api/computer/session/${JOB_ID}/approve?token=${token}`, { method: 'POST' })

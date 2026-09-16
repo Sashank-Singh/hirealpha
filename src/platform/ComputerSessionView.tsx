@@ -382,10 +382,9 @@ export function ComputerSessionView() {
             <section className="cs-checkpoint cs-checkpoint-start">
               <span className="cs-checkpoint-index">01</span>
               <div>
-                <h2>Starting this browser session</h2>
-                <p>Alpha will work only on <strong>{hostname(session.url)}</strong> for this task. It pauses on its own before anything needs a password or payment.</p>
+                <h2>Queued for the secure browser</h2>
+                <p>Your request already authorized this task on <strong>{hostname(session.url)}</strong>. Alpha will start automatically and pause only if it needs missing login details, verification, or payment approval.</p>
                 <div className="cs-checkpoint-actions">
-                  <button className="cs-button cs-button-primary" disabled={acting} onClick={() => void postAction('approve')}>Start task</button>
                   <button className="cs-text-button" disabled={acting} onClick={() => void postAction('cancel')}>Cancel</button>
                 </div>
               </div>
