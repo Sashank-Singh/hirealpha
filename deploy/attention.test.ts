@@ -180,5 +180,9 @@ describe('/api/digest attention fields', () => {
     expect(body).toBeTruthy()
     expect(Array.isArray(body!.meetings)).toBe(true)
     expect('attention' in body!).toBe(true)
-  })
+    // Explicit 15s: the digest's model calls now really complete on GLM (the
+    // system-only 400 fix turned a fast failure into a live round trip), and
+    // this test exercises the actual network path. The 5s default sat on the
+    // edge and flapped at 4.7s/5.1s.
+  }, 15_000)
 })

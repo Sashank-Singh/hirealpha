@@ -4098,6 +4098,32 @@ async function composioResolveAccountId(
     const forToolkit = items
       .filter((i) => !i.isDisabled && (i.toolkit?.slug || '').toLowerCase() === toolkit.toLowerCase() && !!i.id)
       .sort((a, b) => Date.parse(b.createdAt || '') - Date.parse(a.createdAt || ''))
+    if (forToolkit[0]?.id) return forToolkit[0].id
+  } catch {
+    // SDK list timed out or threw — fall through to the REST read below.
+  }
+  // A null SDK resolution used to mean "run unpinned", which is exactly how a
+  // mail read silently executed against the wrong (or an EXPIRED) account while
+  // the founder had two ACTIVE ones. The management-key REST list is a cheap,
+  // dependency-free second opinion: if the SDK could not pick, ask directly.
+  const key = composioKey()
+  if (!key) return null
+  try {
+    const url = new URL('https://backend.composio.dev/api/v3/connected_accounts')
+    url.searchParams.set('user_ids', userId)
+    url.searchParams.set('statuses', 'ACTIVE')
+    url.searchParams.set('limit', '50')
+    const res = await fetch(url, {
+      headers: { Authorization: `Bearer ${key}`, Accept: 'application/json' },
+      signal: AbortSignal.timeout(3500),
+    })
+    if (!res.ok) return null
+    const data = (await res.json()) as {
+      items?: Array<{ id?: string; is_disabled?: boolean; toolkit?: { slug?: string }; created_at?: string | null }>
+    }
+    const forToolkit = (data.items || [])
+      .filter((i) => !i.is_disabled && (i.toolkit?.slug || '').toLowerCase() === toolkit.toLowerCase() && !!i.id)
+      .sort((a, b) => Date.parse(b.created_at || '') - Date.parse(a.created_at || ''))
     return forToolkit[0]?.id || null
   } catch {
     return null
@@ -4580,18 +4606,21 @@ async function composioExecuteWithPin(
   try {
     return await race(run(pinned))
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err)
-    const code = (err as { code?: string } | null)?.code || ''
-    // Two ACTIVE accounts on one toolkit make plain execute throw; drop the
-    // memo, resolve again, retry once rather than dropping the read.
-    if (toolkit && (code === 'MULTIPLE_CONNECTED_ACCOUNTS' || /multiple connected accounts/i.test(msg))) {
+    // Any throw first gets ONE retry against a freshly resolved account.
+    // "Multiple connected accounts" needs it; so does a backend that threw
+    // while holding a stale connection — the founder's mail reads failed four
+    // times in a row last night because only the multi-account branch retried,
+    // and the SDK's generic "Error executing the tool" message never matched
+    // it. A second opinion from the account list is one cheap call.
+    if (toolkit) {
       composioInvalidatePin(userId, toolkit)
-      const accountId = await race(composioResolveAccountId(userId, toolkit))
-      if (accountId) return await race(run(accountId))
+      try {
+        const accountId = await race(composioResolveAccountId(userId, toolkit))
+        if (accountId && accountId !== pinned) return await race(run(accountId))
+      } catch {
+        /* budget spent — surface the original failure */
+      }
     }
-    // Any other failure may mean the pin went stale (re-auth during the TTL);
-    // clear it so the next call resolves fresh, then surface the failure.
-    if (toolkit) composioInvalidatePin(userId, toolkit)
     throw err
   }
 }
@@ -4609,12 +4638,22 @@ async function composioExecuteData(
   try {
     const res = await composioExecuteWithPin(userId, tool, args, timeoutMs)
     if (!res?.successful || res.error) {
-      console.warn(`[composio] ${tool} failed`, res?.error || 'unknown error')
+      // The SDK returns the upstream failure inside `error`/`data`, not the
+      // message — "Error executing the tool" alone hid a Gmail delegation
+      // denial for a whole night. Log the whole rejection shape, bounded.
+      console.warn(
+        `[composio] ${tool} failed`,
+        JSON.stringify({ error: res?.error, data: res?.data }).slice(0, 600),
+      )
       return null
     }
     return res.data ?? null
   } catch (err) {
-    console.warn(`[composio] ${tool} threw`, err instanceof Error ? err.message : String(err))
+    const detail =
+      err && typeof err === 'object'
+        ? JSON.stringify({ message: (err as Error).message, code: (err as { code?: string }).code, data: (err as { data?: unknown }).data })
+        : String(err)
+    console.warn(`[composio] ${tool} threw`, detail.slice(0, 600))
     return null
   }
 }

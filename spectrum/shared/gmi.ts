@@ -131,11 +131,19 @@ async function gmiChatOnce(options: GmiChatOptions): Promise<string> {
     // Never reuse a possibly-dead keep-alive socket (see the timeout note).
     Connection: 'close',
   }
+  // GLM's backend 400s on system-only message arrays ("System-only messages
+  // are not supported by this backend"). Several helpers legitimately send a
+  // single system prompt, so normalize once here rather than at every call
+  // site: append a neutral user turn when none exists.
+  const messages =
+    options.messages.length > 0 && options.messages.every((m) => m.role === 'system')
+      ? [...options.messages, { role: 'user' as const, content: 'Proceed.' }]
+      : options.messages
   const payload = (reasoningEffort?: string) => {
     const body: Record<string, unknown> = {
       model,
       temperature: options.temperature ?? 0.7,
-      messages: options.messages,
+      messages,
     }
     if (options.maxTokens) {
       // Reasoning models (gemini-3.7-flash and thinking modes generally) spend

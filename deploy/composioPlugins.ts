@@ -74,7 +74,7 @@ export const COMPOSIO_READ: Record<
         : 'newer_than:5d',
       verbose: false,
     }),
-    empty: 'Gmail lookup failed. Do not invent emails. Tell them to reconnect Gmail in Settings.',
+    empty: 'Gmail lookup failed. Do not invent emails. Say the inbox check did not go through and offer to try again; only if it keeps failing across turns should you suggest re-connecting Gmail in Settings.',
   },
   slack: {
     slugs: ['SLACK_SEARCH_MESSAGES', 'SLACK_LIST_CHANNELS', 'SLACK_FETCH_CONVERSATION_HISTORY'],

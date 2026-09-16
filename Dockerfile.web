@@ -7,18 +7,30 @@ COPY index.html vite.config.ts tsconfig.json tsconfig.app.json tsconfig.node.jso
 COPY public ./public
 COPY src ./src
 RUN npm run build
-RUN npm prune --omit=dev
 
 FROM oven/bun:1-slim
 WORKDIR /app
-# Coolify healthchecks use curl/wget
+# Coolify healthchecks use curl/wget; build-essential+python3 compile the one
+# native dep (better-sqlite3 via mem0ai) against this stage's glibc — the alpine
+# builder's musl build can never load here (and worker 14b57be proved the recipe).
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends curl nodejs npm \
+  && apt-get install -y --no-install-recommends curl nodejs npm build-essential python3 \
   && rm -rf /var/lib/apt/lists/*
 # Headless Chromium for the browser runner (vault tasks): cached permanently
 # above the source copies so code changes rebuild in seconds instead of minutes.
 ENV PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright
 RUN bunx playwright install --with-deps chromium
+
+# Server deps are installed HERE (debian/glibc), not copied from the alpine
+# builder: musl-compiled natives cannot load in this runtime, and bun silently
+# auto-installed mem0 from its cache instead — where better-sqlite3 was absent,
+# which is why every memory search failed with "Cannot find package".
+# The /node_modules symlink is load-bearing: services/trust is copied to
+# /services (outside /app), and Node/Bun resolution walks UP from the importing
+# file — without it, import('mem0ai/oss') never sees /app/node_modules.
+COPY package.json package-lock.json ./
+RUN bun install --production \
+  && ln -s /app/node_modules /node_modules
 
 COPY deploy/web-server.ts ./web-server.ts
 COPY deploy/appPreload.ts ./appPreload.ts
@@ -45,6 +57,7 @@ COPY deploy/browserJobs.ts ./browserJobs.ts
 COPY deploy/browserNetworkPolicy.ts ./browserNetworkPolicy.ts
 COPY deploy/browserSession.ts ./browserSession.ts
 COPY deploy/browserWorker.ts ./browserWorker.ts
+COPY deploy/certification/envContract.ts ./certification/envContract.ts
 COPY deploy/e2bExecutor.ts ./e2bExecutor.ts
 COPY deploy/kernelPage.ts ./kernelPage.ts
 COPY deploy/kernelSession.ts ./kernelSession.ts
@@ -65,7 +78,6 @@ COPY spectrum ../spectrum
 # src/agents is runtime-safe (pure TS data, no vite/browser deps).
 COPY src/agents /src/agents
 RUN ln -s /app /deploy
-COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 
 ENV PORT=80

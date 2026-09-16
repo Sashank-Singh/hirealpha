@@ -407,10 +407,17 @@ export function startReminderScheduler(opts: {
   send: (phone: string, text: string, card?: MiniAppCard) => Promise<void>
 }) {
   const pollMs = opts.pollMs ?? 30_000
+  // A failed nudge reverts to due instantly, and the 30s poll re-fired the same
+  // Photon SetTyping rejection every cycle all night (dinner check-in, 09-15).
+  // Back each failing key off for ten minutes so one dead RPC degrades to two
+  // honest retries an hour instead of ~1200.
+  const nudgeBackoff = new Map<string, number>()
+  const NUDGE_BACKOFF_MS = 10 * 60_000
   const timer = setInterval(async () => {
     try {
       const nudges = await fetchDueEventNudges(opts.persona as AgentId)
       for (const n of nudges) {
+        if ((nudgeBackoff.get(n.key) || 0) > Date.now()) continue
         if (await killSwitchBlocksSend(n.phone)) continue
         try {
           let card: MiniAppCard | undefined
@@ -419,7 +426,18 @@ export function startReminderScheduler(opts: {
               card = (await mintMiniAppCard(n.phone, opts.persona as AgentId, n.cardKind as any)) || undefined
             } catch {}
           }
-          await opts.send(n.phone, n.text, card)
+          try {
+            await opts.send(n.phone, n.text, card)
+          } catch (sendErr) {
+            // Photon's new-user gate rejects the whole send inside SetTyping for
+            // a few seconds; respondWithRetry does the same dance for inbound
+            // turns. Nudges get one 3s-delayed retry before anything reverts.
+            const gateMsg = sendErr instanceof Error ? sendErr.message : String(sendErr)
+            if (!/Target not allowed|SetTyping/i.test(gateMsg)) throw sendErr
+            await new Promise((r) => setTimeout(r, 3000))
+            await opts.send(n.phone, n.text, card)
+          }
+          nudgeBackoff.delete(n.key)
           await recordProactiveSent(n.phone, opts.persona as AgentId, n.topic)
           // Pushed trigger events get a hard finalizer: the inbox row was
           // claimed (marked sent) at fetch time, so ack closes the loop on a
@@ -432,6 +450,7 @@ export function startReminderScheduler(opts: {
             continue
           }
           console.warn(`[reminders:${opts.persona}] nudge send failed, reverting ${n.key}`, err)
+          nudgeBackoff.set(n.key, Date.now() + NUDGE_BACKOFF_MS)
           await revertEventNudge(n.phone, opts.persona as AgentId, n.key)
         }
       }
