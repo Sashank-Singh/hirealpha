@@ -503,12 +503,13 @@ export async function handleVaultApi(req: Request, sql: SQL, deps: VaultDeps): P
       requestId?: string
       kind?: BrowserTaskKind
       url?: string
+      steps?: unknown
     }
     if (!body.userId || !body.requestId || !['newsletter', 'ticker', 'task'].includes(body.kind as string) || !body.url) {
       return json({ error: 'userId, requestId, kind and url are required.' }, 400)
     }
     if (!key) return json({ error: 'Vault is not configured on this server.' }, 503)
-    const result = await runBrowserTask(deps, sql, {
+    const result = await runBrowserTask({ ...deps, key }, sql, {
       userId: body.userId,
       persona: body.persona || 'coworker',
       requestId: body.requestId,
@@ -607,7 +608,7 @@ export async function handleVaultApi(req: Request, sql: SQL, deps: VaultDeps): P
       if (!entryRes.ok && !id) return json({ error: entryRes.error }, 400)
       if (!id) {
         id = user.id
-        backed = entryRes.backed ?? 'local'
+        backed = entryRes.ok ? entryRes.backed ?? 'local' : 'local'
       }
     }
 
@@ -772,13 +773,14 @@ export async function handleVaultApi(req: Request, sql: SQL, deps: VaultDeps): P
     `) as Array<{ id: string; status: string }>
     const live = pending[0]
     if (!live || live.status !== 'approved') {
-      const requestId = live?.id
-        ?? (await requestBrowserApproval(sql, {
+      const approval = live?.id ? { requestId: live.id } : await requestBrowserApproval(sql, {
           userId: user.id,
           persona: entry.persona,
           portal: entry.origin,
           purpose: `Browser task on ${entry.origin}`,
-        })).requestId
+        })
+      if ('error' in approval) return json({ ok: false, error: approval.error }, 400)
+      const requestId = approval.requestId
       return json({
         ok: false,
         approvalRequired: true,
@@ -828,7 +830,7 @@ export async function handleVaultApi(req: Request, sql: SQL, deps: VaultDeps): P
 
     if (!key) return json({ ok: false, error: 'vault_missing', detail: 'No vault key.' }, 503)
 
-    const result = await runBrowserTask(deps, sql, {
+    const result = await runBrowserTask({ ...deps, key }, sql, {
       userId: user.id,
       persona: entry.persona,
       requestId: live.id,

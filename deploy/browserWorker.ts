@@ -43,6 +43,7 @@ import {
 import { consumeVaultCredential } from '../services/trust/vaultV2'
 import { mirrorJobReconcile } from '../services/tasks/taskLifecycle'
 import { openBaoBrokerFromEnv } from '../services/trust/userKeyBroker'
+import { validateProductionBrowserWorker } from './certification/envContract'
 
 const DATABASE_URL = process.env.DATABASE_URL || ''
 // One noVNC display must never multiplex multiple customer browsers. Scale
@@ -301,6 +302,7 @@ export async function runJob(sql: SQL, job: JobRow, launch = runBrowserSession):
         const paymentVaultId = await getKernelVaultId(sql, job.user_id, false)
         const browser = await KernelBrowser.launch({
           apiKey,
+          telemetry: process.env.KERNEL_TELEMETRY !== '0' && process.env.KERNEL_TELEMETRY !== 'false',
           vaultIds: paymentVaultId ? [paymentVaultId] : undefined,
           timeoutSeconds: Number(process.env.KERNEL_SESSION_SECONDS || 3600),
           profile: process.env.KERNEL_PROFILE_NAME?.trim() || undefined,
@@ -690,6 +692,13 @@ async function main() {
   if (!DATABASE_URL) {
     console.error('[browser-worker] fatal: DATABASE_URL missing')
     process.exit(1)
+  }
+  if (process.env.NODE_ENV === 'production') {
+    const readiness = validateProductionBrowserWorker(process.env)
+    if (!readiness.ok) {
+      console.error(`[browser-worker] fatal: production readiness failed (${readiness.problems.join(', ')})`)
+      process.exit(1)
+    }
   }
   const sql = new SQL(DATABASE_URL, { max: 4, idleTimeout: 30, connectionTimeout: 10, connection: { options: '-c timezone=UTC' } })
   await ensureBrowserVaultSchema(sql)

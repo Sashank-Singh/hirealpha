@@ -17,6 +17,8 @@ export type KernelPageOptions = {
   vaultIds?: string[]
   /** Milliseconds a launch may take before it is declared dead. */
   launchTimeoutMs?: number
+  /** Lightweight Kernel operational telemetry. Network/console capture stays off. */
+  telemetry?: boolean
 }
 
 type ExecuteResponse = {
@@ -25,6 +27,23 @@ type ExecuteResponse = {
   result?: unknown
   stdout?: string
   stderr?: string
+}
+
+export function kernelBrowserCreatePayload(
+  options: KernelPageOptions & { profile?: string; timeoutSeconds?: number },
+): Record<string, unknown> {
+  return {
+    headless: false,
+    stealth: true,
+    // `enabled: true` with no browser category overrides selects Kernel's
+    // lightweight defaults only. Do not capture network bodies or console
+    // output by default on sessions that may handle credentials or payments.
+    telemetry: { enabled: options.telemetry !== false },
+    timeout_seconds: Math.max(60, Math.min(86_400, options.timeoutSeconds ?? 600)),
+    viewport: { width: 1280, height: 900 },
+    ...(options.vaultIds?.length ? { vaults: options.vaultIds.map((id) => ({ id })) } : {}),
+    ...(options.profile ? { profile: { name: options.profile, save_changes: true } } : {}),
+  }
 }
 
 export class KernelBrowser {
@@ -37,7 +56,7 @@ export class KernelBrowser {
   private closed = false
 
   private constructor(
-    private readonly init: { sessionId: string; liveViewUrl: string; cdpUrl: string; pageUrl: string },
+    init: { sessionId: string; liveViewUrl: string; cdpUrl: string; pageUrl: string },
     options: KernelPageOptions,
   ) {
     this.sessionId = init.sessionId
@@ -55,14 +74,7 @@ export class KernelBrowser {
     const res = await fetch(`${options.baseUrl || 'https://api.onkernel.com'}/browsers`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${options.apiKey}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        headless: false,
-        stealth: true,
-        timeout_seconds: Math.max(60, Math.min(86_400, options.timeoutSeconds ?? 600)),
-        viewport: { width: 1280, height: 900 },
-        ...(options.vaultIds?.length ? { vaults: options.vaultIds.map((id) => ({ id })) } : {}),
-        ...(options.profile ? { profile: { name: options.profile, save_changes: true } } : {}),
-      }),
+      body: JSON.stringify(kernelBrowserCreatePayload(options)),
       signal: AbortSignal.timeout(options.launchTimeoutMs ?? 60_000),
     })
     if (!res.ok) {

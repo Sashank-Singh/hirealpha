@@ -29,6 +29,18 @@ export type DraftCall =
 
 export type PersonHit = { name: string; phone?: string; email?: string }
 
+/** Grounded web results suitable for the canonical task choice surface. The
+ * turn engine may publish these after the loop finishes; no model-generated
+ * title, URL, price, or freshness value enters this structure. */
+export type GroundedChoiceCandidate = {
+  title: string
+  reason: string
+  source_url: string
+  freshness: string
+  price_cents?: number
+  currency?: string
+}
+
 type ConversationMessage = { role: 'system' | 'user' | 'assistant'; content: string }
 type SavedDraft = { id: string; type: DraftCall['type'] }
 
@@ -160,6 +172,9 @@ export async function runToolConversation(input: {
    * loop instead of paying a full round trip before it starts. */
   intent?: TurnIntent | Promise<TurnIntent>
   capabilities?: ConversationCapability[]
+  /** Read-only observation hook. It never performs the write inside the tool
+   * loop, preventing retries or a second lookup from creating duplicate tasks. */
+  onResearchResults?: (results: GroundedChoiceCandidate[]) => void
 }): Promise<{ reply: string; draft?: SavedDraft }> {
   const messages = [...input.messages]
   const progress = createProgressiveDelivery(input.delivery || {})
@@ -686,6 +701,23 @@ Reactions are optional and usually absent. You may add "reaction":"<emoji>" to a
                   publicMatches.set(url.href, `${match[1].slice(0, 160)}\n${url.href}${match[3] ? `\n${match[3].slice(0, 240)}` : ''}`)
                 } catch { /* Ignore malformed source links. */ }
               }
+            }
+            if (input.onResearchResults && publicMatches.size) {
+              const observedAt = new Date().toISOString()
+              const candidates: GroundedChoiceCandidate[] = [...publicMatches.entries()].slice(0, 10).map(([source_url, block]) => {
+                const [title = source_url, , ...detailLines] = block.split('\n')
+                const reason = detailLines.join(' ').trim() || `Current result from ${new URL(source_url).hostname.replace(/^www\./, '')}`
+                const price = /\$\s*([0-9][0-9,]*(?:\.[0-9]{1,2})?)/.exec(block)
+                const amount = price ? Number(price[1].replace(/,/g, '')) : Number.NaN
+                return {
+                  title: title.trim().slice(0, 160),
+                  reason: reason.slice(0, 500),
+                  source_url,
+                  freshness: observedAt,
+                  ...(Number.isFinite(amount) ? { price_cents: Math.round(amount * 100), currency: 'USD' } : {}),
+                }
+              })
+              input.onResearchResults(candidates)
             }
           }
           if (sourceTool === 'maps' && !noResults(data)) {

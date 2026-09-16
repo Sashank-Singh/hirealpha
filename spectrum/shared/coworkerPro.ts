@@ -73,7 +73,7 @@ export function detectMeetingWrap(text: string): Record<string, never> | null {
 /* ---- Capture: cofounder detectors plus the work detectors ---- */
 
 export type CoworkerCapture =
-  | { kind: 'promise' | 'decision' | 'person'; summary: string }
+  | { kind: 'promise' | 'decision' | 'person' | 'opportunity'; summary: string }
   | { kind: 'draft'; summary: string; name: string }
   | { kind: 'slots'; name?: string }
   | { kind: 'wrap' }
@@ -141,7 +141,7 @@ export function pickCoworkerItem(digest: CoworkerDigest | null, now: Date = new 
     return { kind: 'drafts', count: Math.floor(drafts), ...(named ? { name: named } : {}) }
   }
   if (digest.standupReady === false) return { kind: 'standup' }
-  const t = (d: Date) => new Date(d).getTime()
+  const t = (d: Date | string) => new Date(d).getTime()
   const overdue = (digest.duePromises || [])
     .filter((p) => p && p.title && p.dueAt && Number.isFinite(t(p.dueAt)) && t(p.dueAt) < now.getTime())
     .sort((a, b) => t(a.dueAt) - t(b.dueAt))

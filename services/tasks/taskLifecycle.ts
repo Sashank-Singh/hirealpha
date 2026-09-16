@@ -5,7 +5,7 @@
  *
  * The browser job stays the execution engine; hire_tasks becomes the canonical
  * record. Every browser lifecycle point appends task events. This mirror is:
- *   - OFF unless HIREALPHA_TASK_RECORD=1 (the feature flag),
+ *   - ON by default; set HIREALPHA_TASK_RECORD=0 for an emergency rollback,
  *   - best-effort: it can never change a job outcome — every call swallows
  *     its own errors and logs them. A broken mirror is an observability
  *     problem, not a production incident.
@@ -18,8 +18,8 @@
  *   finish ok   -> VERIFYING, then SYNCHRONIZING -> FULFILLED only with
  *                  captured page evidence; without it the task parks in
  *                  VERIFYING under verification_failed (never claim done from
- *                  model text alone). Under the second gate
- *                  HIREALPHA_RECEIPT_GATE=1, a PURCHASE-shaped finish
+ *                  model text alone). With receipt verification enabled by
+ *                  default, a PURCHASE-shaped finish
  *                  (spend_request_id on the job row) instead records a real
  *                  receipt via receipts.recordReceipt and only reaches
  *                  FULFILLED when the plan's evidence table verifies it.
@@ -30,13 +30,16 @@ import { appendEvent, createTask, getTask } from './taskStore'
 import { recordReceipt, type EvidenceRecord, type TaskClass } from './receipts'
 
 export function taskRecordEnabled(): boolean {
-  return process.env.HIREALPHA_TASK_RECORD === '1'
+  const value = process.env.HIREALPHA_TASK_RECORD?.trim().toLowerCase()
+  return value !== '0' && value !== 'false' && value !== 'off'
 }
 
-/** Second, additive gate: turn-path receipt verification for purchase-shaped
- * job finishes. Default off -> the screenshot behavior is untouched. */
+/** Purchase receipt verification is production law. The explicit negative
+ * values remain as a rollback switch, but an omitted variable must never
+ * silently restore screenshot-only purchase completion. */
 export function receiptGateEnabled(): boolean {
-  return process.env.HIREALPHA_RECEIPT_GATE === '1'
+  const value = process.env.HIREALPHA_RECEIPT_GATE?.trim().toLowerCase()
+  return value !== '0' && value !== 'false' && value !== 'off'
 }
 
 async function mirror(label: string, fn: () => Promise<void>): Promise<void> {

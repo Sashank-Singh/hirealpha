@@ -98,8 +98,9 @@ function wantsEncoding(req: Request): 'br' | 'gzip' | null {
   return null
 }
 
-function squeeze(bytes: Uint8Array, enc: 'br' | 'gzip', quality: number) {
-  if (enc === 'gzip') return Bun.gzipSync(bytes, { level: 6 })
+function squeeze(bytes: Uint8Array, enc: 'br' | 'gzip', quality: number): Uint8Array<ArrayBuffer> {
+  const owned = Uint8Array.from(bytes)
+  if (enc === 'gzip') return Uint8Array.from(Bun.gzipSync(owned, { level: 6 }))
   return new Uint8Array(
     brotliCompressSync(bytes, {
       params: {
@@ -110,7 +111,7 @@ function squeeze(bytes: Uint8Array, enc: 'br' | 'gzip', quality: number) {
   )
 }
 
-function bytesResponse(body: Uint8Array, type: string, cache: string, enc?: 'br' | 'gzip') {
+function bytesResponse(body: Uint8Array<ArrayBuffer>, type: string, cache: string, enc?: 'br' | 'gzip') {
   const headers: Record<string, string> = {
     'Content-Type': type,
     'Cache-Control': cache,

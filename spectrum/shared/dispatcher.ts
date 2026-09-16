@@ -39,7 +39,7 @@ export type DispatchContext = {
   timezone: string
   memories: string[]
   context: Record<string, string>
-  contacts: Array<{ name: string; phone?: string }>
+  contacts: Array<{ name: string; phone?: string; email?: string }>
   userName?: string | null
   spending?: { logs: Array<{ amount: number; category: string; description: string; spentAt?: string }>; weekly: number; budget: number }
   retainDraft?: (draft: { to: string; toName: string; subject: string; body: string }) => void

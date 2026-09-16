@@ -205,20 +205,18 @@ export function parseComposioCalendarData(data: unknown, depth = 0): CalItem[] {
 export function hydrateCalItems(
   rows: Array<{ start: string; title: string; allDay?: boolean; kind?: string; rawStart?: string; description?: string }>,
 ): CalItem[] {
-  return rows
-    .map((r) => {
+  return rows.flatMap((r): CalItem[] => {
       const start = new Date(r.start)
-      if (Number.isNaN(start.getTime())) return null
-      return {
+      if (Number.isNaN(start.getTime())) return []
+      return [{
         start,
         title: r.title,
         allDay: !!r.allDay,
         kind: r.kind || 'Meeting',
         rawStart: r.rawStart,
         description: r.description || '',
-      } satisfies CalItem
+      }]
     })
-    .filter((x): x is CalItem => !!x)
 }
 
 export function serializeCalItems(items: CalItem[]) {

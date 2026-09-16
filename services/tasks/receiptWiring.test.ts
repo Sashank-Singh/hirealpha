@@ -144,7 +144,7 @@ function evidenceRefs(world: ReturnType<typeof fakeWorld>): string[] {
 describe('turn-path receipts wiring (HIREALPHA_RECEIPT_GATE)', () => {
   it('gate off: a purchase finish keeps the legacy screenshot behavior exactly', async () => {
     process.env.HIREALPHA_TASK_RECORD = '1'
-    delete process.env.HIREALPHA_RECEIPT_GATE
+    process.env.HIREALPHA_RECEIPT_GATE = '0'
     const job = purchaseJob({ last_screenshot: 'data:image/png;base64,RECEIPT' })
     const { world, taskId } = await runToFinish(job)
     await mirrorJobFinished(world.sql, 'job-1', { ok: true, result: 'Confirmation: ORD-4471' })
@@ -155,6 +155,17 @@ describe('turn-path receipts wiring (HIREALPHA_RECEIPT_GATE)', () => {
     expect(evidenceRefs(world)).toEqual(['hire_browser_jobs:job-1', 'screenshot:job-1'])
     expect(world.events.some((e) => e.idempotency_key === 'job-1:verified')).toBe(true)
     expect(world.events.some((e) => String(e.idempotency_key ?? '').startsWith('job-1:receipt'))).toBe(false)
+  })
+
+  it('defaults to receipt verification for purchase-shaped finishes', async () => {
+    process.env.HIREALPHA_TASK_RECORD = '1'
+    delete process.env.HIREALPHA_RECEIPT_GATE
+    const job = purchaseJob({ last_screenshot: null })
+    const { world, taskId } = await runToFinish(job)
+    await mirrorJobFinished(world.sql, 'job-1', { ok: true, result: 'Confirmation: ORD-DEFAULT-1' })
+    const projection = await loadProjection(world.sql, { userId: 'user-1', taskId })
+    expect(projection?.state).toBe('FULFILLED')
+    expect(evidenceRefs(world).some((r) => r.startsWith('receipt:purchase:sha256:'))).toBe(true)
   })
 
   it('gate on: confirmation token + paid approval row -> receipt verdict FULFILLS the task', async () => {

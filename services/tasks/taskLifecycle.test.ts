@@ -114,7 +114,7 @@ const meta = {
 
 describe('browser-job task mirror', () => {
   it('is completely inert while the flag is off', async () => {
-    delete process.env.HIREALPHA_TASK_RECORD
+    process.env.HIREALPHA_TASK_RECORD = '0'
     const job = baseJob()
     const world = fakeWorld(job)
     expect(await mirrorJobEnqueued(world.sql, meta)).toBe(null)
@@ -122,6 +122,14 @@ describe('browser-job task mirror', () => {
     await mirrorJobFinished(world.sql, 'job-1', { ok: true, result: 'done' })
     expect(world.events).toHaveLength(0)
     expect(world.tasks.size).toBe(0)
+  })
+
+  it('is enabled by default so production cannot silently omit the task record', async () => {
+    delete process.env.HIREALPHA_TASK_RECORD
+    const job = baseJob()
+    const world = fakeWorld(job)
+    expect(await mirrorJobEnqueued(world.sql, meta)).not.toBe(null)
+    expect(world.tasks.size).toBe(1)
   })
 
   it('mirrors enqueue -> claim -> handoff -> resume -> finish as a fulfilled task', async () => {

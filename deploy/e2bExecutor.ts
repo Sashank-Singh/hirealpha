@@ -75,6 +75,7 @@ export async function withTaskSandbox<T>(
     outcome: 'ready',
     safeMetadata: { environment_id: environment.providerEnvironmentId, provider: 'e2b' },
   })
+  if (!environment.cdpUrl) throw new Error('The task environment did not provide a CDP URL.')
   try {
     return await run(environment.cdpUrl)
   } finally {

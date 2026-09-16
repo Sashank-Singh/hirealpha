@@ -293,6 +293,42 @@ export async function fetchLiveTools(
   return []
 }
 
+export type CanonicalChoiceCandidate = {
+  title: string
+  reason: string
+  source_url: string
+  freshness: string
+  price_cents?: number
+  currency?: string
+}
+
+/** Publish one grounded research set into the canonical task record. This is
+ * deliberately separate from fetchLiveTools: reads may retry, task creation
+ * must happen once after the turn has settled on its evidence. */
+export async function publishTaskChoices(
+  phone: string,
+  persona: AgentId,
+  heading: string,
+  candidates: CanonicalChoiceCandidate[],
+): Promise<{ taskId: string; rendered: string } | null> {
+  const base = apiBase()
+  const key = process.env.HIREALPHA_INTERNAL_KEY || ''
+  if (!base || !key || candidates.length < 2) return null
+  try {
+    const res = await fetch(`${base}/api/internal/tasks/offer`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${key}` },
+      body: JSON.stringify({ phone, persona, heading: heading.slice(0, 300), candidates: candidates.slice(0, 5) }),
+      signal: AbortSignal.timeout(8_000),
+    })
+    if (!res.ok) return null
+    const data = await res.json().catch(() => ({})) as { ok?: boolean; taskId?: string; rendered?: string }
+    return data.ok && data.taskId && data.rendered ? { taskId: data.taskId, rendered: data.rendered } : null
+  } catch {
+    return null
+  }
+}
+
 export type PrepBundle = {
   text: string
   draft?:

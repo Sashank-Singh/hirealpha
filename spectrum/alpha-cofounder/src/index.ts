@@ -1,5 +1,5 @@
-import { Spectrum, app as appCard } from 'spectrum-ts'
-import { imessage } from '@spectrum-ts/imessage'
+import { Spectrum, UnsupportedError, app as appCard, contact, fromVCard, markdown, type ContentInput } from 'spectrum-ts'
+import { effect, imessage } from '@spectrum-ts/imessage'
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { defaultReplyCard, getAgent, runHireTurn, runMemoryMaintenance, sanitizeOutbound } from '../../shared/runHireTurn'
@@ -12,6 +12,7 @@ import { determineInboundReaction } from '../../shared/smartReactions'
 import { INTRO_TEXTS, startIntroPoller } from '../../shared/introQueue'
 import { onboardingCard } from '../../shared/miniApps'
 import { startHealthServer, startHeartbeat } from '../../shared/health'
+import { buildAlphaVcard, resolveAlphaContactPhone } from '../../shared/alphaContact'
 
 const agentId = 'cofounder' as const
 const agent = getAgent(agentId)
@@ -29,12 +30,37 @@ const app = await Spectrum({
 
 const im = imessage(app)
 
+const styledText = (value: string) => markdown(value)
+
+async function sendIntroText(
+  space: { send: (content: ContentInput) => Promise<unknown> },
+  value: string,
+): Promise<void> {
+  const content = styledText(value)
+  try {
+    await space.send(effect(content, imessage.effect.message.gentle))
+  } catch (err) {
+    if (!(err instanceof UnsupportedError)) throw err
+    await space.send(content)
+  }
+}
+
+async function sendAlphaContact(
+  space: { phone?: string; send: (content: ContentInput) => Promise<unknown> },
+  userPhone: string,
+): Promise<void> {
+  const tel = await resolveAlphaContactPhone(userPhone, space.phone)
+  if (!tel) throw new Error(`Photon has not provided an assigned line for ${userPhone}`)
+  await space.send(contact(await fromVCard(buildAlphaVcard(tel))))
+}
+
 if (introTo) {
   try {
     const user = await im.user(introTo)
     const space = await im.space.create(user)
     await space.responding(async () => {
-      await space.send(INTRO_TEXTS[agent.id])
+      await sendIntroText(space, INTRO_TEXTS[agent.id])
+      await sendAlphaContact(space, introTo).catch((err) => console.error(`[${agent.id}] intro contact card failed`, err))
     })
     console.log(`[${agent.id}] intro sent to ${introTo}`)
   } catch (err) {
@@ -51,8 +77,8 @@ startIntroPoller({
     const space = await im.space.create(user)
     await space.responding(async () => {
       const cleaned = sanitizeOutbound(text)
-      if (cleaned) await space.send(cleaned)
-      await space.shareContactCard().catch(() => undefined)
+      if (cleaned) await sendIntroText(space, cleaned)
+      await sendAlphaContact(space, phone).catch((err) => console.error(`[${agent.id}] intro contact card failed`, err))
       try {
         const card = await onboardingCard(phone, agent.id)
         if (card) await space.send(appCard(card.url, { live: card.live }))
@@ -74,7 +100,7 @@ startTaskLoopPoller({
     const space = await im.space.create(user)
     await space.responding(async () => {
       const cleaned = sanitizeOutbound(text)
-      if (cleaned) await space.send(cleaned)
+      if (cleaned) await space.send(styledText(cleaned))
     })
   },
 })
@@ -88,7 +114,7 @@ startCofounderLoop({
     const space = await im.space.create(user)
     await space.responding(async () => {
       const cleaned = sanitizeOutbound(text)
-      if (cleaned) await space.send(cleaned)
+      if (cleaned) await space.send(styledText(cleaned))
     })
   },
 })
@@ -100,7 +126,7 @@ startReminderScheduler({
     const space = await im.space.create(user)
     await space.responding(async () => {
       const cleaned = sanitizeOutbound(text)
-      if (cleaned) await space.send(cleaned)
+      if (cleaned) await space.send(styledText(cleaned))
       if (card) await space.send(appCard(card.url, { live: card.live }))
     })
   },
@@ -152,8 +178,8 @@ for await (const [space, message] of app.messages) {
             if (card) await space.send(appCard(card.url, { live: card.live }))
             return
           }
-          await message.reply(texts[0]!)
-          for (let i = 1; i < texts.length; i++) await space.send(texts[i]!)
+          await message.reply(styledText(texts[0]!))
+          for (let i = 1; i < texts.length; i++) await space.send(styledText(texts[i]!))
           const delivered = card ?? (await defaultReplyCard(senderId, agentId))
           if (delivered) await space.send(appCard(delivered.url, { live: delivered.live }))
           if (source === 'gmi') {
@@ -165,7 +191,7 @@ for await (const [space, message] of app.messages) {
       }
       if (photoReply) {
         const cleaned = sanitizeOutbound(photoReply)
-        if (cleaned) await message.reply(cleaned)
+        if (cleaned) await message.reply(styledText(cleaned))
       }
     } catch (err) {
       console.warn(`[${agent.id}] photo handling failed`, err)
@@ -207,7 +233,7 @@ for await (const [space, message] of app.messages) {
       }
       console.log(`[${agent.id}] sending 1 text, card: ${!!card}`)
       console.log(`[${agent.id}] bubble: ${JSON.stringify(text.slice(0, 200))}`)
-      await message.reply(text)
+      await message.reply(styledText(text))
       if (card) await space.send(appCard(card.url, { live: card.live }))
       if (source === 'gmi') {
         void runMemoryMaintenance({ dataDir, senderId, agentId, authoritative, userText, reply })
@@ -217,7 +243,7 @@ for await (const [space, message] of app.messages) {
   } catch (err) {
     console.error(`[${agent.id}] turn failed:`, err)
     try {
-      await space.send('Got tripped up for a sec. Try me again?')
+      await space.send(styledText('Got tripped up for a sec. Try me again?'))
     } catch {
       /* ignore */
     }

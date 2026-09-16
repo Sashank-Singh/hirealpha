@@ -1,7 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto'
 import type { SQL } from 'bun'
 import { Sandbox, SandboxNotFoundError } from 'e2b'
-import Kernel, { NotFoundError } from '@onkernel/sdk'
 
 /** CDP port the browser template exposes inside the sandbox. The worker
  * connects over the sandbox's public host routing to the template's CDP

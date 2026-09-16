@@ -1,5 +1,6 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto'
 import type { SQL } from 'bun'
+import type { VaultKey } from '../../deploy/vaultCrypto'
 
 export type WrappedDataKey = { plaintext: Buffer; wrapped: string }
 

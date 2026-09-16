@@ -176,6 +176,32 @@ describe('multi-step agent execution', () => {
     expect(result.draft).toEqual({ id: 'draft123', type: 'reply' })
   })
 
+  it('exposes grounded web choices without inventing price or provenance', async () => {
+    const observed: any[] = []
+    const answers = [
+      '{"action":"lookup","tool":"web","query":"coffee beans"}',
+      'I found two current options.',
+    ]
+    await runToolConversation({
+      messages: [{ role: 'user', content: 'Find me two coffee bean options.' }],
+      availableTools: ['web'],
+      canDraft: true,
+      chat: async () => answers.shift() ?? 'I found two current options.',
+      lookup: async () => [
+        'Web search retrieved at 2026-09-15.\n- Alpha Roast — $18.50\n  https://shop.example.com/alpha\n  Washed Ethiopian beans\n- Beta Roast\n  https://beans.example.com/beta\n  Chocolate notes',
+      ],
+      propose: async () => ({ ok: false }),
+      onResearchResults: (choices) => observed.push(...choices),
+    })
+    expect(observed).toHaveLength(2)
+    expect(observed[0]).toMatchObject({
+      title: 'Alpha Roast — $18.50', source_url: 'https://shop.example.com/alpha',
+      reason: 'Washed Ethiopian beans', price_cents: 1850, currency: 'USD',
+    })
+    expect(observed[1].price_cents).toBeUndefined()
+    expect(Date.parse(observed[0].freshness)).not.toBeNaN()
+  })
+
   it('suppresses repeated equivalent searches and still lets the model answer', async () => {
     const s = scenario(['TOOL gmail from:maya', 'TOOL GMAIL FROM:maya', 'I found the thread.'])
     expect((await s.run()).reply).toBe('I found the thread.')

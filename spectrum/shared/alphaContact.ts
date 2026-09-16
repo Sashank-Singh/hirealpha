@@ -39,28 +39,83 @@ export function getAlphaContactPhotoB64(): string {
   return cachedB64
 }
 
+function usablePhone(value: unknown): string | null {
+  const phone = String(value || '').trim()
+  return /^\+[1-9]\d{7,14}$/.test(phone) ? phone : null
+}
+
+/** Resolve the line serving this specific conversation. Photon may expose an
+ * E.164 line on the space; shared-token mode exposes the literal "shared", so
+ * ask hire-api for that user's assignment instead. Never invent a fallback. */
+export async function resolveAlphaContactPhone(
+  userPhone: string,
+  providerPhone?: string,
+): Promise<string | null> {
+  const direct = usablePhone(providerPhone)
+  if (direct) return direct
+
+  // In managed shared mode the SDK exposes `space.phone === "shared"`, but
+  // the project user record contains the real line Photon selected. Query the
+  // bot's own project first so each persona uses its own assignment.
+  const projectId = process.env.PROJECT_ID || ''
+  const projectSecret = process.env.PROJECT_SECRET || ''
+  if (projectId && projectSecret) {
+    try {
+      const auth = Buffer.from(`${projectId}:${projectSecret}`).toString('base64')
+      const res = await fetch(`https://spectrum.photon.codes/projects/${projectId}/users/`, {
+        headers: { Authorization: `Basic ${auth}` },
+        signal: AbortSignal.timeout(3000),
+      })
+      if (res.ok) {
+        const body = (await res.json()) as {
+          data?: { users?: Array<{ phoneNumber?: string; assignedPhoneNumber?: string }> }
+        }
+        const user = (body.data?.users || []).find((entry) => entry.phoneNumber === userPhone)
+        const assigned = usablePhone(user?.assignedPhoneNumber)
+        if (assigned) return assigned
+      }
+    } catch {
+      // Fall through to hire-api, which may have the same assignment cached.
+    }
+  }
+
+  const base = (process.env.HIREALPHA_API_URL || 'https://hirealpha.chat').replace(/\/$/, '')
+  try {
+    const res = await fetch(`${base}/api/assigned-phone?phone=${encodeURIComponent(userPhone)}`, {
+      headers: { Authorization: `Bearer ${process.env.HIREALPHA_INTERNAL_KEY || ''}` },
+      signal: AbortSignal.timeout(3000),
+    })
+    if (!res.ok) return null
+    const body = (await res.json()) as { assignedPhone?: string | null }
+    return usablePhone(body.assignedPhone)
+  } catch {
+    return null
+  }
+}
+
 /**
  * Builds a vCard 3.0 string with Alpha's name, assigned line, organization,
  * and the embedded avatar logo photo folded per RFC 2425/RFC 6350.
  */
-export function buildAlphaVcard(tel: string = "+14155951440"): string {
+export function buildAlphaVcard(tel: string | null = null): string {
   const lines = [
     "BEGIN:VCARD",
     "VERSION:3.0",
     "N:;Alpha;;;",
     "FN:Alpha",
     "ORG:HireAlpha",
-    `TEL;TYPE=CELL:${tel}`,
   ]
+  const phone = usablePhone(tel)
+  if (phone) lines.push(`TEL;TYPE=CELL:${phone}`)
   const b64 = getAlphaContactPhotoB64()
   if (b64) {
     // Fold counts the whole line: the first chunk fits after the 26-char
     // property prefix and the rest continue at 74 with a leading space.
     const head = "PHOTO;ENCODING=b;TYPE=PNG:"
     const rest = b64.match(/.{1,74}/g) || []
-    lines.push(head + rest[0].slice(0, 75 - head.length))
+    lines.push(head + rest[0]!.slice(0, 75 - head.length))
     for (let i = 0; i < rest.length; i++) {
-      const part = i === 0 ? rest[0].slice(75 - head.length) : rest[i]
+      const part = i === 0 ? rest[0]!.slice(75 - head.length) : rest[i]
       if (part) lines.push(" " + part)
     }
   }

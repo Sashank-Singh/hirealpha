@@ -21,6 +21,7 @@ Required variables:
 | `DATABASE_URL` | Shared Postgres queue used by the API and browser worker |
 | `KERNEL_API_KEY` | Creates the Kernel browser that Browser Use attaches to over CDP |
 | `KERNEL_PROJECT_ID` | Scopes user payment vaults and attached browsers to the same Kernel project |
+| `KERNEL_TELEMETRY` | Enables Kernel's lightweight default operational telemetry (`control`, `connection`, `system`, and `captcha`); set `false` to disable |
 | `GMI_API_KEY` | OpenAI-compatible model key used by Browser Use and result auditing |
 | `SESSION_SECRET` | Must match the web/API resource so iMessage view links verify |
 | `CHROME_VNC_PASSWORD` | Password passed to the private noVNC client |

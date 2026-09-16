@@ -13,6 +13,7 @@ export interface LoopTask {
   title?: string
   next_run?: string
   payload?: Record<string, unknown>
+  persona?: AgentId
 }
 
 export type LoopOutcome = 'done' | 'failed' | 'snoozed'
@@ -345,7 +346,7 @@ const flightCheckinHandler: LoopHandler = (task) => {
   if (texts.announce) {
     return { text: texts.announce, outcome: 'snoozed', next_run: texts.windowAt.toISOString() }
   }
-  return { text: texts.checkin, outcome: 'done' }
+  return { ...(texts.checkin ? { text: texts.checkin } : {}), outcome: 'done' }
 }
 
 /* ---- Refund hunter ---- */
@@ -661,7 +662,7 @@ const quietCheckHandler: LoopHandler = (task) => {
 
 /* ---- Save-contact nudge ----
  * The server arms one of these per (user, persona) after the intro lands.
- * Bots that override it (friend) send the native card + .vcf; everyone else
+ * Bots that override it (friend) send the native card; everyone else
  * sends the plain-text nudge so the task never fails with "no handler". */
 
 export function buildSaveContactText(): string {
@@ -780,7 +781,7 @@ export const LOOP_HANDLERS: Record<string, LoopHandler> = {
           headers: authHeaders(),
           body: JSON.stringify({
             phone: task.phone,
-            persona: task.persona,
+            persona: task.persona || 'friend',
             kind: 'browser',
             url: payload.url,
             body: `${String(payload.goal || '')} This is an automated watch check with mock/test data only: never enter real personal details, never complete a payment.`,

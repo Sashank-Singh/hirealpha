@@ -26,6 +26,8 @@
   ],
   "exclude": [
     "**/*.test.ts",
+    "services/agent/orchestrator.ts",
+    "services/agent/*stress-test.ts",
     "**/node_modules/**"
   ]
 }

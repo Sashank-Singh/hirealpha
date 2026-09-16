@@ -668,15 +668,19 @@ async function agentLoop(
 
       // Arm listener on page immediately
       await activePage.evaluate(() => {
-        window.__ha_events = window.__ha_events || []
-        if (!window.__ha_listener_installed) {
-          window.__ha_listener_installed = true
+        const state = window as typeof window & {
+          __ha_events?: Array<{ action: string; label?: string; tag?: string; form?: string; at: number }>
+          __ha_listener_installed?: boolean
+        }
+        state.__ha_events = state.__ha_events || []
+        if (!state.__ha_listener_installed) {
+          state.__ha_listener_installed = true
           document.addEventListener('click', (e) => {
             try {
               const el = (e.target as HTMLElement | null)?.closest('button, a, input[type="submit"], input[type="button"], [role="button"], input[type="checkbox"], input[type="radio"]')
               if (el) {
                 const text = ((el as HTMLElement).innerText || (el as HTMLInputElement).value || el.getAttribute('aria-label') || el.id || el.className || el.tagName).slice(0, 80).replace(/\s+/g, ' ').trim()
-                window.__ha_events.push({ action: 'click', label: text, tag: el.tagName.toLowerCase(), at: Date.now() })
+                state.__ha_events!.push({ action: 'click', label: text, tag: el.tagName.toLowerCase(), at: Date.now() })
               }
             } catch {}
           }, { capture: true, passive: true })
@@ -684,12 +688,12 @@ async function agentLoop(
             try {
               const form = e.target as HTMLFormElement | null
               const id = form?.id || form?.name || form?.className || 'form'
-              window.__ha_events.push({ action: 'submit', form: String(id).slice(0, 50), at: Date.now() })
+              state.__ha_events!.push({ action: 'submit', form: String(id).slice(0, 50), at: Date.now() })
             } catch {}
           }, { capture: true, passive: true })
           document.addEventListener('keydown', (e) => {
             if ((e as KeyboardEvent).key === 'Enter') {
-              window.__ha_events.push({ action: 'press_enter', at: Date.now() })
+              state.__ha_events!.push({ action: 'press_enter', at: Date.now() })
             }
           }, { capture: true, passive: true })
         }
@@ -703,8 +707,9 @@ async function agentLoop(
           const initialWasLoginUrl = /[\\/](login|signin|auth|sso|authenticate|cas|saml)(\.jsp|\.html|\.php|\/|$)/i.test(initialUrl)
 
           const inspection = await activePage.evaluate(() => {
-            const raw = window.__ha_events || []
-            window.__ha_events = []
+            const state = window as typeof window & { __ha_events?: Array<{ action: string; label?: string; form?: string }> }
+            const raw = state.__ha_events || []
+            state.__ha_events = []
             const pwInput = document.querySelector('input[type="password"]')
             const hasPw = Boolean(pwInput && (pwInput as HTMLElement).offsetParent !== null)
             const bodyText = (document.body?.innerText || '').toLowerCase()

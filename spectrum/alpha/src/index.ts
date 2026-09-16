@@ -1,5 +1,5 @@
-import { Spectrum, app as appCard, attachment, contact, fromVCard } from 'spectrum-ts'
-import { imessage } from '@spectrum-ts/imessage'
+import { Spectrum, UnsupportedError, app as appCard, attachment, contact, fromVCard, markdown, type ContentInput } from 'spectrum-ts'
+import { effect, imessage } from '@spectrum-ts/imessage'
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { defaultReplyCard, getAgent, runHireTurn, runMemoryMaintenance, sanitizeOutbound } from '../../shared/runHireTurn'
@@ -16,7 +16,7 @@ import { INTRO_TEXTS, startIntroPoller } from '../../shared/introQueue'
 import { startScheduledTextPoller } from '../../shared/scheduledTexts'
 import { startHealthServer, startHeartbeat } from '../../shared/health'
 import { backfillScores, hashPhone, logTurn, readTurns } from '../../shared/evals'
-import { buildAlphaVcard } from '../../shared/alphaContact'
+import { buildAlphaVcard, resolveAlphaContactPhone } from '../../shared/alphaContact'
 
 const reactOccasionally = createReactionGate()
 const agentId = 'friend' as const
@@ -47,6 +47,21 @@ const app = await Spectrum({
 })
 
 const im = imessage(app)
+
+const styledText = (value: string) => markdown(value)
+
+async function sendIntroText(
+  space: { send: (content: ContentInput) => Promise<unknown> },
+  value: string,
+): Promise<void> {
+  const content = styledText(value)
+  try {
+    await space.send(effect(content, imessage.effect.message.gentle))
+  } catch (err) {
+    if (!(err instanceof UnsupportedError)) throw err
+    await space.send(content)
+  }
+}
 
 /** Mini-app cards ride a different RPC than text (SendCustomizedMiniAppMessage)
  * and Photon briefly rejects rich sends to a brand-new project user with
@@ -99,41 +114,12 @@ async function respondWithRetry(
  * contact card with Alpha's avatar logo. Resolves the user's assigned line
  * best-effort, falling back to Alpha's primary line, and embeds the official photo. */
 async function sendContactVcf(
-  space: { send: (content: unknown) => Promise<unknown> },
+  space: { phone?: string; send: (content: ContentInput) => Promise<unknown> },
   phone: string,
 ): Promise<void> {
-  const base = (process.env.HIREALPHA_API_URL || 'https://hirealpha.chat').replace(/\/$/, '')
-  let tel = '+14155951440'
-  try {
-    const res = await fetch(`${base}/api/assigned-phone?phone=${encodeURIComponent(phone)}`, {
-      headers: { Authorization: `Bearer ${process.env.HIREALPHA_INTERNAL_KEY || ''}` },
-    })
-    const body = res.ok ? ((await res.json()) as { assignedPhone?: string | null }) : null
-    if (body?.assignedPhone) tel = body.assignedPhone
-  } catch (err) {
-    console.warn(`[${agentId}] assigned-phone lookup failed, using default line`, err)
-  }
-
-  // First try fetching the official vCard from hire-api; fallback to local builder
-  let vcf: string | null = null
-  try {
-    const res = await fetch(`${base}/api/contact/alpha.vcf?phone=${encodeURIComponent(tel)}`, {
-      headers: { Authorization: `Bearer ${process.env.HIREALPHA_INTERNAL_KEY || ''}` },
-      signal: AbortSignal.timeout(3000),
-    })
-    if (res.ok) {
-      const text = await res.text()
-      if (text.includes('BEGIN:VCARD') && text.includes('PHOTO')) {
-        vcf = text
-      }
-    }
-  } catch (err) {
-    console.warn(`[${agentId}] /api/contact/alpha.vcf fetch failed, using local builder with photo`, err)
-  }
-
-  if (!vcf) {
-    vcf = buildAlphaVcard(tel)
-  }
+  const tel = await resolveAlphaContactPhone(phone, space.phone)
+  if (!tel) throw new Error(`Photon has not provided an assigned line for ${phone}`)
+  const vcf = buildAlphaVcard(tel)
 
   try {
     await space.send(contact(await fromVCard(vcf)))
@@ -144,14 +130,23 @@ async function sendContactVcf(
   }
 }
 
+/** Send the branded vCard directly. Native contact sharing is Business-only,
+ * while a vCard preserves Alpha's name, logo, and actual sending number on
+ * every Photon tier. */
+async function shareAlphaContact(
+  space: { send: (content: ContentInput) => Promise<unknown> },
+  phone: string,
+): Promise<void> {
+  await sendContactVcf(space, phone)
+}
+
 if (introTo) {
   try {
     const user = await im.user(introTo)
     const space = await im.space.create(user)
     await space.responding(async () => {
-      await space.send(INTRO_TEXTS[agent.id])
-      await space.shareContactCard().catch(() => undefined)
-      await sendContactVcf(space, introTo).catch((err) => console.error(`[${agent.id}] intro vcf failed`, err))
+      await sendIntroText(space, INTRO_TEXTS[agent.id])
+      await shareAlphaContact(space, introTo).catch((err) => console.error(`[${agent.id}] intro contact card failed`, err))
     })
     console.log(`[${agent.id}] intro sent to ${introTo}`)
   } catch (err) {
@@ -170,12 +165,8 @@ startIntroPoller({
     const space = await im.space.create(user)
     await space.responding(async () => {
       const cleaned = sanitizeOutbound(text)
-      if (cleaned) await space.send(cleaned)
-      await space.shareContactCard().catch((err) => console.error(`[${agent.id}] intro shareContactCard failed`, err))
-      // Native card alone doesn't always render — the .vcf attachment is what
-      // iOS reliably offers "Add Contact" for. The save_contact loop (~15 min
-      // later) repeats the nudge for anyone who missed it.
-      await sendContactVcf(space, phone).catch((err) => console.error(`[${agent.id}] intro vcf failed`, err))
+      if (cleaned) await sendIntroText(space, cleaned)
+      await shareAlphaContact(space, phone).catch((err) => console.error(`[${agent.id}] intro contact card failed`, err))
       // Deliver the onboarding mini-app card so the user can tap to configure Alpha right away
       try {
         const card = await onboardingCard(phone, agent.id)
@@ -194,7 +185,7 @@ startScheduledTextPoller(agent.id, async (phone, text) => {
   const space = await im.space.create(user)
   await space.responding(async () => {
     const cleaned = sanitizeOutbound(text)
-    if (cleaned) await space.send(cleaned)
+    if (cleaned) await space.send(styledText(cleaned))
   })
 })
 
@@ -214,7 +205,7 @@ startTaskLoopPoller({
       // Strip the internal marker so it never shows to the user.
       const visible = text.replace(/^\[savecontact\]\s*/i, '')
       const cleaned = sanitizeOutbound(visible)
-      if (cleaned) await space.send(cleaned)
+      if (cleaned) await space.send(styledText(cleaned))
       // A screenshot is the proof a browser run happened and a way for the user
       // to check the choice before money moves. Best-effort: a failed image
       // must never cost the text that explains it.
@@ -230,19 +221,17 @@ startTaskLoopPoller({
               // The caption is a label for a picture sent without prose; when
               // the bubble already carries the result text, a trailing
               // "Step 9" line is noise (seen live glued to the receipt).
-              if (image.caption && !String(text || '').trim()) await space.send(sanitizeOutbound(image.caption).slice(0, 300))
+              const caption = sanitizeOutbound(image.caption || '').slice(0, 300)
+              if (caption && !String(text || '').trim()) await space.send(styledText(caption))
             }
           }
         } catch (err) {
           console.warn(`[${agentId}] screenshot send failed`, err)
         }
       }
-      // One-off "save Alpha's number" nudge: share the native card AND send a
-      // real .vcf file so iOS offers "Add Contact" regardless of the line
-      // identity sync state (native card alone showed nothing).
+      // One-off save-contact nudge uses the same native-first path as intro.
       if (/^\[savecontact\]/i.test(text)) {
-        await space.shareContactCard().catch((err) => console.error(`[${agentId}] shareContactCard failed`, err))
-        await sendContactVcf(space, phone).catch((err) => console.error(`[${agentId}] sendContactVcf failed`, err))
+        await shareAlphaContact(space, phone).catch((err) => console.error(`[${agentId}] contact card failed`, err))
       }
     })
   },
@@ -291,7 +280,7 @@ startReminderScheduler({
     const space = await im.space.create(user)
     await space.responding(async () => {
       const cleaned = sanitizeOutbound(text)
-      if (cleaned) await space.send(cleaned)
+      if (cleaned) await space.send(styledText(cleaned))
       if (card) await sendCardSafe(space, card.url, card.live)
     })
   },
@@ -324,7 +313,7 @@ async function handleIncoming([space, message]: Incoming, combinedText?: string)
         const reply = sanitizeOutbound("Got your location — I'll use it for nearby searches. What are we finding?")
         if (reply) {
           await space.responding(async () => {
-            await message.reply(reply)
+            await message.reply(styledText(reply))
           })
         }
       } catch (err) {
@@ -359,8 +348,8 @@ async function handleIncoming([space, message]: Incoming, combinedText?: string)
             if (card) await sendCardSafe(space, card.url, card.live)
             return
           }
-          await message.reply(texts[0]!)
-          for (let i = 1; i < texts.length; i++) await space.send(texts[i]!)
+          await message.reply(styledText(texts[0]!))
+          for (let i = 1; i < texts.length; i++) await space.send(styledText(texts[i]!))
           // The mini-app card lands after the LAST bubble only, never between them.
           const delivered = card ?? (await defaultReplyCard(senderId, agentId))
           if (delivered) await sendCardSafe(space, delivered.url, delivered.live)
@@ -374,7 +363,7 @@ async function handleIncoming([space, message]: Incoming, combinedText?: string)
       if (photoReply) {
         const cleaned = sanitizeOutbound(photoReply)
         if (cleaned) {
-          await message.reply(cleaned)
+          await message.reply(styledText(cleaned))
           /* A photo log has a natural destination: the Nutrition app. Send its
            * card so the tap-through goes straight to the log instead of a
            * general menu the user has to search. Only on photo-log replies. */
@@ -415,7 +404,7 @@ async function handleIncoming([space, message]: Incoming, combinedText?: string)
           if (!clean) throw new Error('Progress text was filtered')
           // Mark attempted before sending: ambiguous delivery must not restart work.
           sentAnything = true
-          await space.send(clean)
+          await space.send(styledText(clean))
           progressTexts++
         },
         onReaction: reaction => {
@@ -455,12 +444,11 @@ async function handleIncoming([space, message]: Incoming, combinedText?: string)
       console.log(`[${agent.id}] sending ${texts.length} text(s), card: ${!!card}`)
       console.log(`[${agent.id}] bubble: ${JSON.stringify(texts[0]!.slice(0, 200))}`)
       if (contactCardFirst) {
-        await space.shareContactCard().catch((err) => console.error(`[${agent.id}] shareContactCard failed`, err))
-        await sendContactVcf(space, senderId).catch((err) => console.error(`[${agent.id}] sendContactVcf failed`, err))
+        await shareAlphaContact(space, senderId).catch((err) => console.error(`[${agent.id}] contact card failed`, err))
       }
-      await message.reply(texts[0]!)
+      await message.reply(styledText(texts[0]!))
       sentAnything = true
-      for (let i = 1; i < texts.length; i++) await space.send(texts[i]!)
+      for (let i = 1; i < texts.length; i++) await space.send(styledText(texts[i]!))
       // Every response carries the mini-app card, attached after the LAST bubble.
       const delivered = card ?? (await defaultReplyCard(senderId, agentId))
       if (delivered) {
@@ -486,7 +474,7 @@ async function handleIncoming([space, message]: Incoming, combinedText?: string)
   } catch (err) {
     console.error(`[${agent.id}] turn failed:`, err)
     try {
-      await space.send('Got tripped up for a sec. Try me again?')
+      await space.send(styledText('Got tripped up for a sec. Try me again?'))
     } catch {
       /* ignore */
     }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import { buildAlphaVcard, getAlphaContactPhotoB64 } from './alphaContact'
+import { buildAlphaVcard, getAlphaContactPhotoB64, resolveAlphaContactPhone } from './alphaContact'
 
 describe('alphaContact', () => {
   it('loads Alpha contact photo as valid PNG base64', () => {
@@ -32,9 +32,13 @@ describe('alphaContact', () => {
     expect(extractedB64).toBe(getAlphaContactPhotoB64())
   })
 
-  it('defaults to primary line when no phone is specified', () => {
+  it('does not invent a phone number when no assignment is available', () => {
     const vcf = buildAlphaVcard()
-    expect(vcf).toContain('TEL;TYPE=CELL:+14155951440')
+    expect(vcf).not.toContain('TEL;TYPE=CELL:')
     expect(vcf).toContain('PHOTO;ENCODING=b;TYPE=PNG:')
+  })
+
+  it('uses the conversation-specific provider line', async () => {
+    expect(await resolveAlphaContactPhone('+15551234567', '+16282647648')).toBe('+16282647648')
   })
 })

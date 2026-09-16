@@ -14,7 +14,7 @@ import { appendThread, loadMemory, setPendingSpend, setPendingVaultTask, upsertF
 import { extractFacts, summarizeOld } from './memoryMaintain'
 import { liveFactsToInput, localFactsToInput, mergeMemoryFacts, selectMemoryFacts } from './memoryBlock'
 import { autoIterateWorkshop, autoLogGratitude, autoLogHabit, autoLogMood, autoLogNutrition, autoLogSleep, autoLogSpend, autoLogWorkout, autoLogNetwork, autoLogDecision, autoLogLoops, autoLogPipeline, autoLogStandup, autoRunWorkshop, autoWorkshopKeep, autoWorkshopToss, autoSaveLearning, autoSetBudget, autoSetPrefs, executeSpendApproval, fetchLiveProfile, fetchLiveTools, fetchMiniRun, fetchPrepBundle, fetchWeekBundle, formatHireContext, persistLiveFacts, proposeLiveDraft,
-  proposePurchase, proposeBrowserTask, touchInbound, importChatExport, addMeeting, fetchRenewalRadar, setTravel,
+  proposePurchase, proposeBrowserTask, publishTaskChoices, touchInbound, importChatExport, addMeeting, fetchRenewalRadar, setTravel,
   fetchAwaitingBrowserAnswer, submitBrowserAnswer } from './liveContext'
 import { captureFromChat } from './cofounderPro'
 import { coworkerCaptureFromChat } from './coworkerPro'
@@ -65,6 +65,7 @@ import {
   LIVE_TOOLS,
   type DraftCall,
   type PersonHit,
+  type GroundedChoiceCandidate,
 } from './toolLoop'
 import { runLanggraphWorkflow } from './langgraphWorkflow'
 
@@ -2013,6 +2014,10 @@ export async function runHireTurn(input: {
       let purchaseSetupUrl: string | null = null
       let purchaseRequestId: string | null = null
       let browserSessionUrl: string | null = null
+      let browserNeedsVault = false
+      let groundedChoices: GroundedChoiceCandidate[] = []
+      const wantsCanonicalChoices = /\b(?:options?|choices?|compare|recommend|suggest|show me|find me|find)\b/i.test(input.userText)
+        && !/\b(?:news|score|who won|weather)\b/i.test(input.userText)
       const outcome = await runToolConversation({
         messages: baseMessages,
         delivery: input.delivery,
@@ -2022,6 +2027,7 @@ export async function runHireTurn(input: {
             saveFriendDraft(input.senderId, agent.id, draft).then((r: any) => {
               if (draft.type === 'browser' && r?.ok) {
                 if (r.needsVault) {
+                  browserNeedsVault = true
                   setPendingVaultTask(input.dataDir, input.senderId, {
                     portal: draft.portal,
                     goal: draft.goal || input.userText,
@@ -2054,11 +2060,18 @@ export async function runHireTurn(input: {
         availableTools: LIVE_TOOLS.filter((tool) => tool === 'maps' || tool === 'web' || (live.connected as string[]).includes(tool)),
         canDraft: !hardStop && humanLimit !== 'grief' && humanLimit !== 'negotiation' && !confirmKind,
         existingDraft: confirmQuery?.draft ? { id: confirmQuery.draft, type: 'mail' } : undefined,
+        onResearchResults: wantsCanonicalChoices
+          ? (results) => { groundedChoices = results }
+          : undefined,
       })
       reply = outcome.reply
+      if (!outcome.draft && groundedChoices.length >= 2) {
+        const offered = await publishTaskChoices(input.senderId, agent.id, input.userText, groundedChoices)
+        if (offered) reply = `${reply}\n\n${offered.rendered}`.trim()
+      }
       if (outcome.draft) {
         if (outcome.draft.type === 'browser') {
-          if (confirmKind === 'vault') {
+          if (browserNeedsVault) {
             // Vault card requested: reply already explains the lock
           } else {
             // Auto-launch: the run starts now, scoped to the named site for this
