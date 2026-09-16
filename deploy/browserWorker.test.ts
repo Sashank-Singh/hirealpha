@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'bun:test'
 import type { SQL } from 'bun'
-import { runWithinCeiling, hasMerchantOrderConfirmation, runJob } from './browserWorker'
+import { runWithinCeiling, hasMerchantOrderConfirmation, runJob, workerCredentialBrokerFromEnv } from './browserWorker'
 import { openTaskPage } from './browserSession'
 import type { BrowserJobRow } from './browserJobs'
+import { LocalUserKeyBroker, OpenBaoTransitClient } from '../services/trust/userKeyBroker'
 
 const job: BrowserJobRow = { id: 'test-job', user_id: 'test-user', persona: 'friend', phone_e164: null, kind: 'task', url: 'https://example.com/', steps: null, goal: 'Read the page heading', status: 'running', attempts: 1, result: null, error: null, approval_id: 'test-approval', spend_request_id: null }
 
@@ -37,6 +38,26 @@ it('does not launch a browser without a valid approval', async () => {
   const sql = (async () => []) as unknown as SQL
   expect((await runJob(sql, { ...job, approval_id: null }, launch)).ok).toBe(false)
   expect((await runJob(sql, job, launch)).ok).toBe(false)
+})
+
+describe('worker credential broker selection', () => {
+  it('uses the encrypted local broker when OpenBao is not configured', () => {
+    const broker = workerCredentialBrokerFromEnv({ HIREALPHA_VAULT_KEY: 'test-only-vault-key' } as NodeJS.ProcessEnv)
+    expect(broker).toBeInstanceOf(LocalUserKeyBroker)
+  })
+
+  it('prefers OpenBao when both backends are configured', () => {
+    const broker = workerCredentialBrokerFromEnv({
+      HIREALPHA_VAULT_KEY: 'test-only-vault-key',
+      OPENBAO_ADDR: 'https://vault.example.com',
+      OPENBAO_TOKEN: 'test-token',
+    } as NodeJS.ProcessEnv)
+    expect(broker).toBeInstanceOf(OpenBaoTransitClient)
+  })
+
+  it('fails closed when no Vault backend is configured', () => {
+    expect(workerCredentialBrokerFromEnv({} as NodeJS.ProcessEnv)).toBeNull()
+  })
 })
 
 describe('runWithinCeiling', () => {

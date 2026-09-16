@@ -42,7 +42,7 @@ import {
 } from '../services/trust/capabilityGrants'
 import { consumeVaultCredential } from '../services/trust/vaultV2'
 import { mirrorJobReconcile } from '../services/tasks/taskLifecycle'
-import { openBaoBrokerFromEnv } from '../services/trust/userKeyBroker'
+import { userKeyBrokerFromEnv } from '../services/trust/userKeyBroker'
 import { validateProductionBrowserWorker } from './certification/envContract'
 
 const DATABASE_URL = process.env.DATABASE_URL || ''
@@ -67,6 +67,13 @@ function hostOf(url: string): string {
 type JobRow = BrowserJobRow
 
 type JobOutcome = { ok: true; result: string } | { ok: false; error: string }
+
+/** Keep the worker's Vault backend selection aligned with the web app and
+ * production-readiness checks: prefer OpenBao, then use the encrypted local
+ * broker when the deployment is configured with a local master key. */
+export function workerCredentialBrokerFromEnv(env: NodeJS.ProcessEnv = process.env) {
+  return userKeyBrokerFromEnv(env)
+}
 
 async function retrieveCapabilityBoundLinkCard(
   sql: SQL,
@@ -356,8 +363,8 @@ export async function runJob(sql: SQL, job: JobRow, launch = runBrowserSession):
     if (!job.credential_capability_id || !job.vault_item_id || !job.credential_capability_digest || !job.credential_task_id) {
       return { ok: false, error: 'Credential capability metadata is incomplete.' }
     }
-    const broker = openBaoBrokerFromEnv()
-    if (!broker) return { ok: false, error: 'OpenBao per-user keys are not configured.' }
+    const broker = workerCredentialBrokerFromEnv()
+    if (!broker) return { ok: false, error: 'Vault key backend is not configured.' }
     creds = await consumeVaultCredential(sql, broker, {
       userId: job.user_id,
       taskId: job.credential_task_id,
