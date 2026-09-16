@@ -101,6 +101,8 @@ export async function runBrowserUseTask(
   const installLoginFence = () => credential.state !== 'complete'
     ? Promise.resolve(undefined)
     : browser.run(`
+      const expectedUsername = ${JSON.stringify(credential.username)};
+      const expectedPassword = ${JSON.stringify(credential.password)};
       if (window.__haLoginFenceInstalled) return true;
       window.__haLoginFenceInstalled = true;
       const usernameSelectors = [
@@ -127,7 +129,29 @@ export async function runBrowserUseTask(
         }
         alert.textContent = 'HireAlpha blocked an empty login submission. Re-fill the saved ' + missing.join(' and ') + ' before clicking Login.';
       };
+      const setNativeValue = (field, value) => {
+        if (!field || field.value === value) return;
+        const setter = Object.getOwnPropertyDescriptor(
+          field instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype,
+          'value'
+        )?.set;
+        setter?.call(field, value);
+        field.dispatchEvent(new Event('input', { bubbles: true }));
+        field.dispatchEvent(new Event('change', { bubbles: true }));
+      };
+      const restoreVaultFields = () => {
+        const { username, password } = fields();
+        if (!password) return false;
+        setNativeValue(username, expectedUsername);
+        setNativeValue(password, expectedPassword);
+        return Boolean(username?.value?.trim() && password.value);
+      };
       const check = (event) => {
+        // Browser models sometimes focus/click a submit control in a way that
+        // clears an earlier fill. Restore the capability-scoped Vault values
+        // synchronously in the capture phase so the actual form payload—not
+        // merely the screenshot—contains both credentials.
+        restoreVaultFields();
         const { username, password } = fields();
         if (!password) return;
         const missing = [];
@@ -147,6 +171,10 @@ export async function runBrowserUseTask(
         const label = String(control?.innerText || control?.value || control?.getAttribute?.('aria-label') || '');
         if (/log\\s*in|sign\\s*in/i.test(label)) check(event);
       }, true);
+      // Keep the login form reconciled while the agent is operating it. This
+      // also handles pages whose own scripts replace or reset the inputs.
+      window.__haLoginFenceTimer = setInterval(restoreVaultFields, 250);
+      restoreVaultFields();
       return true;
     `, 20_000).catch(() => undefined)
 

@@ -53,6 +53,8 @@ describe('Browser Use login recovery policy', () => {
     const bridge = readFileSync(new URL('./browserUseSession.ts', import.meta.url), 'utf8')
     expect(bridge).toContain('HireAlpha blocked an empty login submission')
     expect(bridge).toContain("document.addEventListener('submit', check, true)")
+    expect(bridge).toContain('setInterval(restoreVaultFields, 250)')
+    expect(bridge).toContain('restoreVaultFields();')
     expect(bridge).toContain('await installLoginFence()')
   })
 })
