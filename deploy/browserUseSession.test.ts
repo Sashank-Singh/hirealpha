@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'bun:test'
 import { buildBrowserUseCredentialConfig } from './browserUseSession'
+import { readFileSync } from 'node:fs'
 
 describe('Browser Use credential configuration', () => {
   it('marks a complete Vault login and scopes it to the target origin', () => {
@@ -29,5 +30,22 @@ describe('Browser Use credential configuration', () => {
       username: '',
       password: '',
     }).state).toBe('missing')
+  })
+})
+
+describe('Browser Use login recovery policy', () => {
+  const runner = readFileSync(new URL('./browserUseRunner.py', import.meta.url), 'utf8')
+
+  it('requires populated username and password fields before submitting', () => {
+    expect(runner).toContain('never click Login with either field empty')
+  })
+
+  it('retries a failed Vault login at most three times before handoff', () => {
+    expect(runner).toContain('Make at most three login submissions total')
+    expect(runner).toContain('After the third failure, call request_user_handoff')
+  })
+
+  it('gives a slow browser model enough time to return a step', () => {
+    expect(runner).toContain('llm_timeout=120')
   })
 })
