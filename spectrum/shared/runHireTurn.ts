@@ -1536,8 +1536,8 @@ export async function runHireTurn(input: {
     try {
       const captured = await coworkerCaptureFromChat(input.senderId, agent.id, input.userText)
       const logged = captured.filter(
-        (c): c is Extract<typeof c, { kind: 'promise' | 'decision' | 'person' }> =>
-          c.kind === 'promise' || c.kind === 'decision' || c.kind === 'person',
+        (c): c is Extract<typeof c, { kind: 'promise' | 'decision' | 'person' | 'opportunity' }> =>
+          c.kind === 'promise' || c.kind === 'decision' || c.kind === 'person' || c.kind === 'opportunity',
       )
       if (logged.length) {
         extras.push(

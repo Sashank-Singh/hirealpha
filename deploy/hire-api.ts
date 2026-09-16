@@ -66,7 +66,7 @@ import {
 import { memoryIndexFromEnv, memoryIndexStatusFromEnv, type MemoryIndexHit } from '../services/trust/memoryIndex'
 import { parseChatExport, scanSubscriptions } from '../spectrum/shared/smartFeatures'
 import { PLACE_ASK_RE } from '../spectrum/shared/toolLoop'
-import { buildAlphaVcard, getAlphaContactPhotoB64 } from '../spectrum/shared/alphaContact'
+import { buildAlphaVcard } from '../spectrum/shared/alphaContact'
 import {
   isValidTimeZone,
   parseSpokenWhen,
@@ -1595,7 +1595,7 @@ export async function ensureInvites(sql: SQL, phone: string): Promise<string[]> 
  * hire_referral_credits row per converted code. Each credit is a free month
  * applied automatically at the referrer's next checkout. */
 
-export type ClaimResult = { ok: boolean; error?: string; referrer?: string }
+export type ClaimResult = { ok: boolean; error?: string; referrer?: string; reward?: number }
 
 export async function claimInvite(sql: SQL, phone: string, code: string): Promise<ClaimResult> {
   const e164 = normalizePhone(phone)
@@ -1621,7 +1621,7 @@ export async function claimInvite(sql: SQL, phone: string, code: string): Promis
     ON CONFLICT (source_code) DO NOTHING
   `
   // One converted code is one credit; the old every-3 mechanic is retired.
-  return { ok: true, referrer: invite.referrer }
+  return { ok: true, referrer: invite.referrer, reward: 1 }
 }
 
 /** Progress for the referrer's invite row: how many codes are used. */
@@ -1727,7 +1727,7 @@ async function upsertSubscription(
   sql: SQL,
   opts: {
     userId: string
-    persona: Persona
+    persona: Persona | 'all'
     stripeSubscriptionId?: string | null
     stripeCustomerId?: string | null
     status: string
@@ -1778,7 +1778,8 @@ async function handleBillingWebhook(req: Request, sql: SQL) {
   } else if (type === 'checkout.session.completed') {
     // Wallet-connect sessions (mode=setup, purpose=user_wallet) carry no
     // subscription — log and return before the subscription machinery.
-    if (String(obj['metadata']?.purpose || '') === 'user_wallet') {
+    const metadata = obj['metadata'] as Record<string, unknown> | undefined
+    if (String(metadata?.purpose || '') === 'user_wallet') {
       await noteSetupCompleted({ data: { object: obj as Record<string, unknown> } })
       return new Response('ok')
     }
@@ -1985,11 +1986,6 @@ export function demoDirectUrls(baseUrl: string): string[] {
     out.push(`${base}/app/mini/${persona}/home?t=${token}`)
   }
   return out
-}
-
-/* Alpha's contact photo for the vCard, loaded once and cached. */
-async function alphaContactPhoto(): Promise<string | null> {
-  return getAlphaContactPhotoB64() || null
 }
 
 /** How long a signed web-session token stays valid. */
@@ -3785,7 +3781,7 @@ async function transcribeAudio(mimeType: string, audioBytes: Uint8Array): Promis
   try {
     const form = new FormData()
     const ext = mimeType.includes('mpeg') ? 'mpeg' : mimeType.includes('webm') ? 'webm' : 'm4a'
-    form.append('file', new Blob([audioBytes], { type: mimeType }), `voice.${ext}`)
+    form.append('file', new Blob([Uint8Array.from(audioBytes)], { type: mimeType }), `voice.${ext}`)
     form.append('model', model)
     const res = await fetch(`${baseUrl}/audio/transcriptions`, {
       method: 'POST',
@@ -4403,7 +4399,7 @@ function startOfLocalDay(timezone: string, dayOffset = 0): Date {
 
 async function fetchCalendarItems(
   access: string,
-  opts?: { timeMin?: Date; timeMax?: Date; maxResults?: number },
+  opts?: { timeMin?: Date; timeMax?: Date; maxResults?: number; checkSecondary?: boolean },
 ): Promise<{ ok: true; items: CalItem[] } | { ok: false; status: number }> {
   const now = opts?.timeMin || new Date()
   const end = opts?.timeMax || new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000)
@@ -6555,7 +6551,7 @@ async function readBriefDb(
   userId: string,
   persona: string,
   kind: string,
-): Promise<{ payload: unknown; day: string; builtAt: Date } | null> {
+): Promise<{ payload: Record<string, unknown>; day: string; builtAt: Date } | null> {
   try {
     const rows = (await sql`
       SELECT day, payload, built_at AS "builtAt" FROM hire_brief_cache
@@ -6570,7 +6566,7 @@ async function readBriefDb(
         (f: any) => f?.key !== 'gratitude' && !/gratitude/i.test(f?.label || '') && !/gratitude/i.test(f?.key || '')
       )
     }
-    return { payload, day: row.day, builtAt: row.builtAt }
+    return { payload: payload as Record<string, unknown>, day: row.day, builtAt: row.builtAt }
   } catch {
     return null
   }
@@ -7110,7 +7106,7 @@ export type BriefWeather = {
 
 export async function fetchWeatherForUser(
   sql: SQL,
-  user: { id: string; timezone: string | null },
+  user: { id: string; timezone: string | null; name?: string | null },
 ): Promise<BriefWeather | null> {
   const activeLoc = await pickActiveLocation(sql, user.id).catch(() => null)
   let lat = 37.7749
@@ -7344,6 +7340,7 @@ async function digestPayload(
           : null,
       }
     })(),
+    fetchWeatherForUser(sql, user),
   ])
 
   const beats = calToday.meets
@@ -8601,8 +8598,8 @@ async function collectEventNudgesForUser(
     try {
       const access = await googleAccessToken(sql, user.id, 'calendar')
       if (access) {
-        const pastFrom = new Date(now - 45 * 60_000).toISOString()
-        const pastTo = new Date(now - 10 * 60_000).toISOString()
+        const pastFrom = new Date(now - 45 * 60_000)
+        const pastTo = new Date(now - 10 * 60_000)
         const got = await fetchCalendarItems(access, { timeMin: pastFrom, timeMax: pastTo, maxResults: 4 })
         const events = got.ok ? got.items.filter((e) => !e.allDay && !isHotelStayEvent(e)) : []
         for (const ev of events) {
@@ -9494,7 +9491,7 @@ async function judgmentStatePayload(
   for (const p of radar as Array<{ name: string; lastTouch: Date | null; cadenceDays: number }>) {
     const days = p.lastTouch ? Math.floor((Date.now() - new Date(p.lastTouch).getTime()) / 86400000) : 999
     if (days >= (p.cadenceDays || 14) && !peopleDue.some((x) => x.name === p.name)) {
-      peopleDue.push({ name: p.name, days })
+      peopleDue.push({ name: p.name, days, note: undefined, phone: undefined })
     }
   }
 
@@ -9683,7 +9680,7 @@ async function touchInbound(sql: SQL, phone: string, persona: Persona) {
 
 async function miniPayload(
   sql: SQL,
-  user: { id: string; timezone: string | null },
+  user: { id: string; timezone: string | null; name?: string | null },
   persona: Persona,
   kind: string,
 ) {
@@ -10296,6 +10293,7 @@ async function livePayload(sql: SQL, phone: string, persona: Persona, query?: st
     vaultOrigins,
     memories,
     email: user.email,
+    phone: user.phone,
     name: user.name,
     timezone: user.timezone,
     userId: user.id,
@@ -10998,24 +10996,22 @@ async function loadPrepCandidates(
             attendees?: Array<{ email?: string }>
           }>
         }
-        return (data.items || [])
-          .map((it) => {
-            const start = it.start?.dateTime
-              ? new Date(it.start.dateTime)
-              : it.start?.date
-                ? new Date(`${it.start.date}T12:00:00Z`)
-                : null
-            if (!start || Number.isNaN(start.getTime())) return null
-            return {
-              id: it.id || crypto.randomUUID(),
-              title: it.summary || '(untitled)',
-              start,
-              attendees: (it.attendees || [])
-                .map((a) => String(a.email || '').toLowerCase())
-                .filter(Boolean),
-            }
-          })
-          .filter((e): e is PrepCandidate => !!e)
+        return (data.items || []).flatMap((it): PrepCandidate[] => {
+          const start = it.start?.dateTime
+            ? new Date(it.start.dateTime)
+            : it.start?.date
+              ? new Date(`${it.start.date}T12:00:00Z`)
+              : null
+          if (!start || Number.isNaN(start.getTime())) return []
+          return [{
+            id: it.id || crypto.randomUUID(),
+            title: it.summary || '(untitled)',
+            start,
+            attendees: (it.attendees || [])
+              .map((a) => String(a.email || '').toLowerCase())
+              .filter(Boolean),
+          }]
+        })
       }
     } catch (err) {
       console.warn('[meeting/prep] google list failed', err)
@@ -11952,6 +11948,7 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
   }
 
   if (!sql) return json({ error: 'Database unavailable' }, 503)
+  const db = sql
 
   // TEMPORARY ADMIN — grant premium bundle access to an email. Remove after use.
   if (path === '/api/admin/grant-premium' && req.method === 'POST') {
@@ -11988,7 +11985,7 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
     const rows = (await sql`
       SELECT persona, status, current_period_end AS "currentPeriodEnd"
       FROM hire_subscriptions WHERE user_id = ${user.id}
-    `) as Array<{ persona: Persona; status: string; currentPeriodEnd: string | null }>
+    `) as Array<{ persona: Persona | 'all'; status: string; currentPeriodEnd: string | null }>
     const hires: Record<string, boolean> = {}
     for (const p of PERSONAS) hires[p] = false
     for (const row of rows) {
@@ -13471,7 +13468,9 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
     const tz = pickUserTimezone({
       message,
       userTz: live.timezone,
-      contextTz: typeof live.context?.timezone === 'string' ? live.context.timezone : '',
+      contextTz: typeof (live.context as Record<string, unknown>)?.timezone === 'string'
+        ? String((live.context as Record<string, unknown>).timezone)
+        : '',
       memoryTz: live.memories.find((m) => m.key === 'timezone')?.value,
       latitude: loc?.latitude,
       longitude: loc?.longitude,
@@ -13517,6 +13516,8 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
       title?: string
       start?: string
       end?: string
+      url?: string
+      amount?: number
     }
     if (!body.phone || !body.persona || !isPersona(body.persona)) {
       return json({ error: 'phone and persona required' }, 400)
@@ -14720,7 +14721,7 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
     if (error) return error
     const fields = await loadContext(sql, user!.id, persona)
     const setup = parseSetupField(fields.setup)
-    let setupDone = fields.setup_done === true || fields.setup_done === 'true'
+    let setupDone = fields.setup_done === 'true'
     // Auto-detect: the wizard's per-step writes land in their own tables even
     // when the final done-POST is lost (stale token, closed tab). When the
     // account carries nutrition goals + mini prefs + a person + a saved place,
@@ -14783,7 +14784,7 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
         : body.done === true && requested.length === 0
           ? existing
           : [...new Set([...existing, ...requested])]
-    const setupDone = body.done === true || fields.setup_done === true || fields.setup_done === 'true'
+    const setupDone = body.done === true || fields.setup_done === 'true'
     const nextFields = { ...fields, setup: next, setup_done: setupDone }
     await sql`
       INSERT INTO hire_context (user_id, persona, fields, updated_at)
@@ -15312,7 +15313,7 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
 
   if (path.startsWith('/api/meetings/') && path.endsWith('/transcribe') && req.method === 'POST') {
     const id = path.slice('/api/meetings/'.length, -'/transcribe'.length)
-    const body = (await req.json({ maxSize: 24 * 1024 * 1024 }).catch(() => ({}))) as {
+    const body = (await req.json().catch(() => ({}))) as {
       token?: string; email?: string; audioBase64?: string; mimeType?: string
     }
     const audio = body.audioBase64 ? Buffer.from(body.audioBase64, 'base64') : null
@@ -15502,7 +15503,7 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
     if (!body.phone || !isPersona(body.persona || '') || !description) {
       return json({ error: 'phone, persona, and description required' }, 400)
     }
-    const user = await getUserByPhone(sql, body.phone)
+    const user = await getUserByPhone(sql, body.phone || '')
     if (!user) return json({ error: 'User not found' }, 404)
     // Always log the meal. The estimator is a downstream model that can be
     // down or reply something unreadable — that is no reason to lose the log,
@@ -15536,7 +15537,7 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
     if (!body.phone || !isPersona(body.persona || '') || imageBase64.length < 64) {
       return json({ error: 'phone, persona, and image required' }, 400)
     }
-    const user = await getUserByPhone(sql, body.phone)
+    const user = await getUserByPhone(sql, body.phone || '')
     if (!user) return json({ error: 'User not found' }, 404)
     const described = String(body.description || '').trim().slice(0, 300)
     let estimate: Awaited<ReturnType<typeof estimateNutrition>> = { ok: false, needsKey: true }
@@ -15868,7 +15869,7 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
       if (!payload.trim()) continue
       lines += p.lines.length
       const key = `chat:${p.name}`
-      await upsertMemories(sql, user.id, body.persona!, [
+      await upsertMemories(sql, user.id, body.persona as Persona, [
         { key, value: payload, durable: true },
       ])
     }
@@ -15904,7 +15905,7 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
       query?: string
     }
     if (!body.phone || !isPersona(body.persona || '')) return json({ error: 'phone and persona required' }, 400)
-    const live = await livePayload(sql, body.phone, body.persona)
+    const live = await livePayload(sql, body.phone, body.persona as Persona)
     if (!live.found || !live.hired || !live.userId) return json({ ok: false, hits: [], error: 'not hired' }, 404)
     const bundle = await buildPrepBundle(
       sql,
@@ -15932,7 +15933,7 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
     if (!user) return json({ error: 'User not found' }, 404)
     const dest = String(body.dest).trim().slice(0, 80)
     const tz = String(body.tz || '').slice(0, 60)
-    await upsertMemories(sql, user.id, body.persona!, [
+    await upsertMemories(sql, user.id, body.persona as Persona, [
       { key: 'travel_dest', value: dest, durable: true },
       ...(tz ? [{ key: 'travel_tz', value: tz, durable: true }] : []),
     ])
@@ -16137,7 +16138,7 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
 
   async function storeArtifactFiles(userId: string, artifactId: string, files: Array<{ name: string; bytes: Uint8Array }>) {
     for (const f of files) {
-      await sql`
+      await db`
         INSERT INTO hire_artifact_files (artifact_id, name, content)
         VALUES (${artifactId}, ${f.name}, ${Buffer.from(f.bytes).toString('base64')})
         ON CONFLICT (artifact_id, name) DO UPDATE SET content = excluded.content
@@ -16148,7 +16149,7 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
   async function deleteArtifactRow(userId: string, artifactId: string | undefined, persona: string) {
     let id = artifactId
     if (!id) {
-      const rows = await sql`
+      const rows = await db`
         SELECT id FROM hire_artifacts
         WHERE user_id = ${userId} AND state = 'delivered'
         ORDER BY created_at DESC LIMIT 1
@@ -16156,13 +16157,13 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
       id = (rows[0] as { id?: string } | undefined)?.id
     }
     if (!id) return { ok: false, logged: false, error: 'No delivered artifact found' }
-    const owned = await sql`
+    const owned = await db`
       SELECT id FROM hire_artifacts WHERE id = ${id} AND user_id = ${userId} LIMIT 1
     `
     if (!owned[0]) return { ok: false, logged: false, error: 'No delivered artifact found' }
-    await sql`DELETE FROM hire_artifact_files WHERE artifact_id = ${id}`
+    await db`DELETE FROM hire_artifact_files WHERE artifact_id = ${id}`
     await rm(artifactDirFor(userId, id), { recursive: true, force: true })
-    await sql`DELETE FROM hire_artifacts WHERE id = ${id} AND user_id = ${userId}`
+    await db`DELETE FROM hire_artifacts WHERE id = ${id} AND user_id = ${userId}`
     void persona
     return { ok: true, logged: true, id }
   }
@@ -16298,7 +16299,7 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
       phone?: string; to?: string; subject?: string; body?: string
     }
     if (!body.phone || !body.to || !body.subject) return json({ error: 'phone, to, and subject required' }, 400)
-    const user = await getUserByPhone(sql, body.phone)
+    const user = await getUserByPhone(sql, body.phone || '')
     if (!user) return json({ error: 'User not found' }, 404)
     const sent = await gmailSendMessage(sql, user.id, {
       to: String(body.to).trim(),
@@ -16335,7 +16336,7 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
     if (!body.phone || !isPersona(body.persona || '') || !body.artifactId) {
       return json({ error: 'phone, persona, and artifactId required' }, 400)
     }
-    const user = await getUserByPhone(sql, body.phone)
+    const user = await getUserByPhone(sql, body.phone || '')
     if (!user) return json({ error: 'User not found' }, 404)
     const src = await sql`
       SELECT title, kind, files, template_key FROM hire_artifacts
@@ -16503,7 +16504,7 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
   if (path === '/api/internal/workshop/keep' && req.method === 'POST') {
     if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
     const body = (await req.json().catch(() => ({}))) as { phone?: string; persona?: string; artifactId?: string }
-    const user = await getUserByPhone(sql, body.phone)
+    const user = await getUserByPhone(sql, body.phone || '')
     if (!user) return json({ error: 'User not found' }, 404)
     const result = await (async () => {
       const id = body.artifactId
@@ -16526,7 +16527,7 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
   if (path === '/api/internal/workshop/toss' && req.method === 'POST') {
     if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
     const body = (await req.json().catch(() => ({}))) as { phone?: string; persona?: string; artifactId?: string }
-    const user = await getUserByPhone(sql, body.phone)
+    const user = await getUserByPhone(sql, body.phone || '')
     if (!user) return json({ error: 'User not found' }, 404)
     return json(await deleteArtifactRow(user.id, body.artifactId, body.persona || ''))
   }
@@ -18436,6 +18437,7 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
       token?: string; email?: string
       workoutPlace?: string; workoutMoveCount?: number; workoutDays?: number[]
       sleepBedtime?: string; sleepWake?: string
+      currentWeightLb?: number; targetWeightLb?: number; weightGoal?: string
     }
     const { user, error } = await resolveAuthedUser(sql, { token: body.token, session: (body as { session?: string }).session, email: body.email })
     if (error) return error

@@ -7,6 +7,7 @@ import {
   mirrorJobHandoff,
   mirrorJobHandoffResumed,
   mirrorJobReconcile,
+  taskRecordFailureIsFatal,
 } from './taskLifecycle'
 
 type Row = Record<string, unknown>
@@ -113,6 +114,12 @@ const meta = {
 }
 
 describe('browser-job task mirror', () => {
+  it('makes canonical-record divergence fatal in production only', () => {
+    expect(taskRecordFailureIsFatal({ NODE_ENV: 'production' })).toBe(true)
+    expect(taskRecordFailureIsFatal({ NODE_ENV: 'production', HIREALPHA_TASK_RECORD: '0' })).toBe(false)
+    expect(taskRecordFailureIsFatal({ NODE_ENV: 'test' })).toBe(false)
+  })
+
   it('is completely inert while the flag is off', async () => {
     process.env.HIREALPHA_TASK_RECORD = '0'
     const job = baseJob()

@@ -10,6 +10,8 @@ infrastructure or is recorded **BLOCKED**. A skip is never a pass.
 | `DATABASE_URL` | web, worker, certification | Coolify app env (Postgres on the same VPS) | already live in prod; certification uses a **separate** `CERT_DATABASE_URL` database so prod data is never touched |
 | `CERT_DATABASE_URL` | certification (postgres suite) | create empty DB on the VPS: `CREATE DATABASE hirealpha_cert;` | must NOT point at prod |
 | `CERT_ALLOW_LIVE` | all certification suites | set to `1` explicitly | two-hand rule: refuses to run live suites implicitly |
+| `CERT_LOGIN_URL` | Vault autofill certification | HTTPS staging login form owned for testing | never use a production customer account |
+| `CERT_STAGING_URL` | load/latency certification | deployed staging app base URL | must be HTTPS and isolated from production data |
 | `OPENBAO_ADDR` | vault, memory, wallet encryption | self-hosted OpenBao on the VPS (`https://bao.<domain>:8200`) | transit mount `transit`, key `hirealpha-user-deks` |
 | `OPENBAO_TOKEN` | same | OpenBao policy token with transit encrypt/decrypt + datakey only | rotate quarterly; token must never have broader policy |
 | `E2B_API_KEY` | browser worker, certification (e2b suite) | e2b dashboard → API keys | |
@@ -56,4 +58,7 @@ existed, rather than failing turns.
 
 `deploy/certification/envContract.ts` exports `validateEnvironment(mode)` listing
 missing variables for a given surface. The browser worker logs the result at
-boot; certification refuses to start suites with missing variables.
+boot; certification refuses to start suites with missing variables. The
+certification command exits non-zero for both `FAIL` and `BLOCKED`; use
+`CERT_ALLOW_BLOCKED=1` only to collect a partial local evidence report, never
+for a release decision.

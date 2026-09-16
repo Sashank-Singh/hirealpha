@@ -9,7 +9,7 @@
     "lint": "oxlint",
     "preview": "vite preview",
     "test": "bun test spectrum/shared/ deploy/ services/ src/",
-    "check": "npm run lint && npm test && npm run build",
+    "check": "npm run lint && npm run typecheck:backend && npm test && npm run build",
     "test:mini": "bun test spectrum/shared/miniApps.test.ts",
     "testbed": "bun run testbed/server.ts",
     "test:load": "bun run testbed/load/run.ts",

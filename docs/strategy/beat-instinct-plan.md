@@ -1,8 +1,29 @@
 # HireAlpha plan to beat Instinct
 
 Date: 2026-09-14  
-Status: proposed  
+Status: implementation in progress; local quality gates green, live certification blocked
 Strategy: match Instinct's real-world execution, then win with visual mini-apps, user-controlled authority, and verifiable outcomes.
+
+## Implementation checkpoint — 2026-09-16
+
+Local engineering gates are green: backend typecheck, production frontend build,
+and the full test suite (1,896 pass, 0 fail, 16 live-provider tests skipped).
+The canonical Kernel worker now requires Browser Use, OpenBao, telemetry,
+canonical task recording, receipt verification, and an HTTPS app URL in
+production. CI runs the same lint, backend typecheck, test, and build gates on
+every pull request and main-branch push.
+
+Current evidence-based scores:
+
+| Dimension | Score | Evidence / remaining gate |
+|---|---:|---|
+| Architecture | 9.0/10 | Canonical task/event model, authority broker, isolated browser execution, fail-closed verification, telemetry, and explicit recovery states are wired. The remaining point is earned only by operating evidence at scale. |
+| Implementation | 9.0/10 | Full local suite and builds pass; browser payments, Vault handoff, grounded choices, task mirroring, and readiness validation are implemented. |
+| Production readiness | 6.5/10 | The release gate is intentionally blocked until live Postgres, OpenBao, E2B/Kernel, Stripe/Link, Vault login, load, and restart-recovery evidence is recorded. BLOCKED certification now exits non-zero and cannot be reported as a pass. |
+
+Production readiness reaches 9.0 only after the certification suites below run
+against staging with zero failures; missing credentials or operator runs remain
+BLOCKED, never inferred as successful.
 
 ## Product thesis
 

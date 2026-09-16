@@ -15,21 +15,26 @@ import { validateEnvironment, type Surface } from '../deploy/certification/envCo
 
 type Suite = {
   name: string
-  kind: 'bun-test' | 'manual'
+  kind: 'bun-test' | 'command' | 'manual'
   file?: string
+  command?: string[]
   surface?: Surface
-  required?: string[]
+  requiredEnv?: string[]
+  prerequisites?: string[]
   manualSteps?: string[]
 }
 
 const suites: Suite[] = [
-  { name: 'unit-regression', kind: 'bun-test', file: 'deploy/browserWorker.test.ts deploy/browserJobs.test.ts services/trust/' },
-  { name: 'postgres-migrations-and-isolation', kind: 'bun-test', file: 'deploy/certification/postgres.live.test.ts', surface: 'certification', required: ['CERT_DATABASE_URL', 'CERT_ALLOW_LIVE'] },
-  { name: 'openbao-isolation-and-rotation', kind: 'bun-test', file: 'deploy/certification/openbao.live.test.ts', surface: 'openbao', required: ['OPENBAO_ADDR', 'OPENBAO_TOKEN'] },
-  { name: 'e2b-fresh-sandbox-and-destruction', kind: 'bun-test', file: 'deploy/certification/e2b.live.test.ts', surface: 'e2b', required: ['E2B_API_KEY', 'E2B_BROWSER_TEMPLATE'] },
+  { name: 'static-quality-gates', kind: 'command', command: ['npm', 'run', 'lint'] },
+  { name: 'backend-typecheck', kind: 'command', command: ['npm', 'run', 'typecheck:backend'] },
+  { name: 'production-build', kind: 'command', command: ['npm', 'run', 'build'] },
+  { name: 'unit-regression', kind: 'bun-test', file: 'spectrum/shared/ deploy/ services/ src/' },
+  { name: 'postgres-migrations-and-isolation', kind: 'bun-test', file: 'deploy/certification/postgres.live.test.ts', surface: 'certification' },
+  { name: 'openbao-isolation-and-rotation', kind: 'bun-test', file: 'deploy/certification/openbao.live.test.ts', surface: 'openbao' },
+  { name: 'e2b-fresh-sandbox-and-destruction', kind: 'bun-test', file: 'deploy/certification/e2b.live.test.ts', surface: 'e2b' },
   {
     name: 'stripe-link-test-mode-lifecycle', kind: 'manual', surface: 'stripe',
-    required: ['STRIPE_SECRET_KEY (restricted)', 'STRIPE_WEBHOOK_SECRET', 'a Link-connected test user'],
+    prerequisites: ['a Link-connected test user'],
     manualSteps: [
       'Connect a Link wallet for the staging test user (Settings → Payments).',
       'Ask Alpha to stage a purchase; confirm merchant + exact total appear on the approval page before any approval.',
@@ -43,7 +48,7 @@ const suites: Suite[] = [
   },
   {
     name: 'vault-end-to-end-autofill', kind: 'manual', surface: 'openbao',
-    required: ['OPENBAO_ADDR', 'OPENBAO_TOKEN', 'staging site with a login form', 'E2B_API_KEY + E2B_BROWSER_TEMPLATE'],
+    requiredEnv: ['E2B_API_KEY', 'E2B_BROWSER_TEMPLATE', 'CERT_LOGIN_URL'],
     manualSteps: [
       'Save a credential for the staging site (Trust → Vault).',
       'Ask Alpha to sign in to the staging site; approve the exact-site request in Trust & Audit.',
@@ -54,7 +59,7 @@ const suites: Suite[] = [
   },
   {
     name: 'load-and-queue-latency', kind: 'manual', surface: 'certification',
-    required: ['staging deployment'],
+    requiredEnv: ['CERT_STAGING_URL', 'CERT_DATABASE_URL'],
     manualSteps: [
       'Enqueue 20 browser jobs for 5 synthetic users at 1 job/s.',
       'Record queue wait, E2B startup, and end-to-end latency percentiles (p50/p95).',
@@ -83,8 +88,8 @@ for (const suite of suites) {
   const stamp = new Date().toISOString()
   if (suite.kind === 'manual' || suite.surface) {
     const missing = suite.surface ? validateEnvironment(suite.surface as Surface).missing : []
-    const manualMissing = suite.required && suite.kind === 'manual' ? suite.required : []
-    const allMissing = [...new Set([...manualMissing, ...missing])]
+    const requiredMissing = (suite.requiredEnv || []).filter((key) => !process.env[key]?.trim())
+    const allMissing = [...new Set([...missing, ...requiredMissing])]
     if (allMissing.length) {
       blocked++
       results.push({
@@ -100,11 +105,21 @@ for (const suite of suites) {
   if (suite.kind === 'manual') {
     // Configured but not yet executed by an operator.
     blocked++
-    results.push({ suite: suite.name, status: 'BLOCKED', at: stamp, reason: 'manual suite not yet executed', requiredSteps: suite.manualSteps })
+    results.push({
+      suite: suite.name,
+      status: 'BLOCKED',
+      at: stamp,
+      reason: 'manual suite not yet executed',
+      prerequisites: suite.prerequisites,
+      requiredSteps: suite.manualSteps,
+    })
     console.log(`BLOCKED  ${suite.name} — manual suite not yet executed`)
     continue
   }
-  const proc = Bun.spawnSync(['bun', 'test', ...suite.file!.split(' ')], {
+  const argv = suite.kind === 'command'
+    ? suite.command!
+    : ['bun', 'test', ...suite.file!.split(' ')]
+  const proc = Bun.spawnSync(argv, {
     env: { ...process.env, CERT_ALLOW_LIVE: process.env.CERT_ALLOW_LIVE || '' },
     stdout: 'pipe', stderr: 'pipe',
   })
@@ -131,4 +146,8 @@ const lines = [
 ]
 await Bun.write(join(dir, 'summary.md'), lines.join('\n'))
 console.log(`\nevidence: ${dir}`)
-if (failures > 0) process.exit(1)
+// Certification is a release gate, not a best-effort report. A missing live
+// provider or operator run is intentionally non-zero so CI/deploy cannot call
+// a partially evidenced release production-ready. Local evidence collection
+// can opt out explicitly while still preserving BLOCKED in the report.
+if (failures > 0 || (blocked > 0 && process.env.CERT_ALLOW_BLOCKED !== '1')) process.exit(1)

@@ -111,7 +111,7 @@ function squeeze(bytes: Uint8Array, enc: 'br' | 'gzip', quality: number): Uint8A
   )
 }
 
-function bytesResponse(body: Uint8Array<ArrayBuffer>, type: string, cache: string, enc?: 'br' | 'gzip') {
+function bytesResponse(body: Uint8Array, type: string, cache: string, enc?: 'br' | 'gzip') {
   const headers: Record<string, string> = {
     'Content-Type': type,
     'Cache-Control': cache,
@@ -120,7 +120,7 @@ function bytesResponse(body: Uint8Array<ArrayBuffer>, type: string, cache: strin
     Vary: 'Accept-Encoding',
   }
   if (enc) headers['Content-Encoding'] = enc
-  return new Response(body, { headers })
+  return new Response(Uint8Array.from(body), { headers })
 }
 
 /**

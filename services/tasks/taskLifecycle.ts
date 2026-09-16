@@ -6,9 +6,9 @@
  * The browser job stays the execution engine; hire_tasks becomes the canonical
  * record. Every browser lifecycle point appends task events. This mirror is:
  *   - ON by default; set HIREALPHA_TASK_RECORD=0 for an emergency rollback,
- *   - best-effort: it can never change a job outcome — every call swallows
- *     its own errors and logs them. A broken mirror is an observability
- *     problem, not a production incident.
+ *   - fail-closed in production: divergence from the canonical record is a
+ *     production incident and propagates to the caller; non-production mocks
+ *     keep the best-effort behavior so isolated queue tests stay lightweight.
  *
  * Mapping (one delegated browser execution = one task):
  *   enqueue  (approval/capability pending) -> PLANNING_ACTION -> WAITING_FOR_AUTHORITY
@@ -29,9 +29,15 @@ import type { SQL } from 'bun'
 import { appendEvent, createTask, getTask } from './taskStore'
 import { recordReceipt, type EvidenceRecord, type TaskClass } from './receipts'
 
-export function taskRecordEnabled(): boolean {
-  const value = process.env.HIREALPHA_TASK_RECORD?.trim().toLowerCase()
+export function taskRecordEnabled(env: Record<string, string | undefined> = process.env): boolean {
+  const value = env.HIREALPHA_TASK_RECORD?.trim().toLowerCase()
   return value !== '0' && value !== 'false' && value !== 'off'
+}
+
+export function taskRecordFailureIsFatal(
+  env: Record<string, string | undefined> = process.env,
+): boolean {
+  return env.NODE_ENV === 'production' && taskRecordEnabled(env)
 }
 
 /** Purchase receipt verification is production law. The explicit negative
@@ -47,8 +53,8 @@ async function mirror(label: string, fn: () => Promise<void>): Promise<void> {
   try {
     await fn()
   } catch (error) {
-    // Never let the mirror touch the caller's outcome.
     console.warn(`[task-record] ${label} failed:`, error instanceof Error ? error.message : String(error))
+    if (taskRecordFailureIsFatal()) throw error
   }
 }
 
