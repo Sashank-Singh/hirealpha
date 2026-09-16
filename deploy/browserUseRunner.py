@@ -13,12 +13,73 @@ import uuid
 from typing import Literal
 
 from browser_use import ActionResult, Agent, Browser, ChatOpenAI, Tools
+from browser_use.agent.views import AgentOutput
+from pydantic import ValidationError
 
 PREFIX = "HIREALPHA_EVENT "
 
 
 def emit(payload: dict) -> None:
 	print(PREFIX + json.dumps(payload, separators=(",", ":")), flush=True)
+
+
+def _embedded_step_json(text: str) -> str | None:
+	"""Recover the action object when the model prefixes its JSON step with prose.
+
+	browser-use validates the whole completion as JSON; GLM sometimes emits
+	"The login attempt failed..." before the real {"action": ...} object.
+	"""
+	candidates: list[str] = []
+	depth = 0
+	start = -1
+	in_str = False
+	esc = False
+	for i, ch in enumerate(text):
+		if in_str:
+			if esc:
+				esc = False
+			elif ch == "\\":
+				esc = True
+			elif ch == '"':
+				in_str = False
+			continue
+		if ch == '"':
+			in_str = True
+		elif ch == "{":
+			depth += 1
+			if depth == 1:
+				start = i
+		elif ch == "}" and depth:
+			depth -= 1
+			if depth == 0 and start >= 0:
+				candidates.append(text[start : i + 1])
+	for candidate in reversed(candidates):
+		try:
+			parsed = json.loads(candidate)
+		except json.JSONDecodeError:
+			continue
+		if isinstance(parsed, dict) and "action" in parsed:
+			return candidate
+	return None
+
+
+_orig_validate_json = AgentOutput.model_validate_json.__func__
+
+
+def _tolerant_validate_json(cls, data, *args, **kwargs):
+	if not isinstance(data, str):
+		return _orig_validate_json(cls, data, *args, **kwargs)
+	try:
+		return _orig_validate_json(cls, data, *args, **kwargs)
+	except ValidationError:
+		repaired = _embedded_step_json(data)
+		if repaired is None:
+			raise
+		print("[hirealpha] repaired prose-prefixed model step", file=sys.stderr, flush=True)
+		return _orig_validate_json(cls, repaired, *args, **kwargs)
+
+
+AgentOutput.model_validate_json = classmethod(_tolerant_validate_json)
 
 
 async def read_reply(request_id: str) -> dict:
@@ -153,6 +214,12 @@ Never claim success unless the current page visibly supports every factual state
 		answer = history.final_result() or ""
 		success = bool(history.is_successful()) and bool(answer.strip())
 		emit({"type": "result", "ok": success, "content": answer, "errors": history.errors()[-3:]})
+	except ValidationError:
+		emit({
+			"type": "result",
+			"ok": False,
+			"error": "The browser model returned a step that could not be read, even after repair, so the task was stopped.",
+		})
 	finally:
 		# Disconnect only. Kernel owns and explicitly terminates the cloud session.
 		await browser.stop()
