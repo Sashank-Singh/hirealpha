@@ -45,7 +45,7 @@ const USER = 'u-alice'
 
 describe('browser job queue', () => {
   it('enqueue inserts a pending row with steps serialized', async () => {
-    const { sql, queries } = fakeSql()
+    const { sql, queries } = fakeSql((text, values) => /RETURNING id/i.test(text) ? [{ id: String(values?.[0]) }] : [])
     const id = await enqueueBrowserJob(sql, {
       userId: USER,
       persona: 'friend',
@@ -60,6 +60,25 @@ describe('browser job queue', () => {
     const insert = queries.find((q) => /INSERT INTO hire_browser_jobs/i.test(q.text))!
     expect(insert.text).toContain("'pending'")
     expect(JSON.stringify(insert.values)).toContain('click')
+  })
+
+  it('returns the existing active job when a duplicate launch loses the unique race', async () => {
+    const { sql, queries } = fakeSql((text) => {
+      if (/INSERT INTO hire_browser_jobs/i.test(text)) return []
+      if (/SELECT id FROM hire_browser_jobs/i.test(text)) return [{ id: 'existing-job' }]
+      return []
+    })
+    const id = await enqueueBrowserJob(sql, {
+      userId: USER,
+      persona: 'friend',
+      phone: '+14155550100',
+      kind: 'task',
+      url: 'https://campusnet.csuohio.edu',
+      goal: 'Check Fall 2024 payment history',
+      resolveHost: async () => ['93.184.216.34'],
+    })
+    expect(id).toBe('existing-job')
+    expect(queries.some((q) => /status IN \('pending', 'running', 'waiting'\)/i.test(q.text))).toBe(true)
   })
 
   it('kill switch env stops all new claims without touching the database', async () => {

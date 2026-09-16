@@ -13517,7 +13517,6 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
       phone?: string
       persona?: string
       kind?: string
-      autoApprove?: boolean
       to?: string
       subject?: string
       body?: string
@@ -13562,6 +13561,7 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
         /\.edu\b/i.test(portal) ||
         /\/login|\/signin|\/auth|\/account|\/portal/i.test(portal)
 
+      let hostedVaultItem: { id: string; exact_origin: string; label: string } | null = null
       if (isProtectedPortal && hostname) {
         const parts = hostname.split('.')
         const rootDomain = parts.length >= 2 ? parts.slice(-2).join('.') : hostname
@@ -13585,22 +13585,13 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
           )
         })
 
-        const hasVaultItem = hasVault || (await sql`
-          SELECT exact_origin, label FROM vault_items_v2 WHERE user_id = ${live.userId!} AND revoked_at IS NULL
-        `.then((r) => (r as any[]).some((row) => {
-          const orig = (row.exact_origin || '').toLowerCase()
-          const lbl = (row.label || '').toLowerCase()
-          let entryHost = ''
-          try {
-            entryHost = new URL(orig.startsWith('http') ? orig : `https://${orig}`).hostname.replace(/^www\./, '').toLowerCase()
-          } catch {}
-          return (
-            orig.includes(hostname) || orig.includes(rootDomain) ||
-            (entryHost && (hostname.includes(entryHost) || entryHost.includes(hostname) || entryHost.includes(rootDomain) || rootDomain.includes(entryHost))) ||
-            (lbl && (lbl.includes(hostname) || hostname.includes(lbl) || (rootDomain && lbl.includes(rootDomain)) || (hostname.includes('campusnet') && (lbl.includes('campusnet') || lbl.includes('csu'))))) ||
-            (hostname.includes('campusnet') && (orig.includes('campusnet') || orig.includes('csuohio')))
-          )
-        })).catch(() => false))
+        const requestedOrigin = new URL(portal).origin.toLowerCase()
+        const hostedItems = await sql`
+          SELECT id, exact_origin, label FROM vault_items_v2
+          WHERE user_id = ${live.userId!} AND revoked_at IS NULL AND ciphertext IS NOT NULL
+        `.then((r) => r as Array<{ id: string; exact_origin: string; label: string }>).catch(() => [])
+        hostedVaultItem = hostedItems.find((row) => row.exact_origin.toLowerCase() === requestedOrigin) ?? null
+        const hasVaultItem = hasVault || Boolean(hostedVaultItem)
 
         if (!hasVault && !hasVaultItem) {
           return json({
@@ -13614,32 +13605,65 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
       const phoneE164 = live.phone || ''
       const { requestBrowserApproval } = await import('./browserVault')
       const { enqueueBrowserJob, generateSessionViewToken } = await import('./browserJobs')
-      const approval = await requestBrowserApproval(sql, {
-        userId: live.userId!, persona: body.persona, portal,
-        purpose: goal.slice(0, 200),
-      })
-      if ('error' in approval) return json({ ok: false, error: approval.error }, 400)
+      let approvalId: string | null = null
+      let credential: {
+        vaultItemId: string
+        credentialCapabilityId: string
+        credentialCapabilityDigest: string
+        credentialTaskId: string
+      } | null = null
+      if (hostedVaultItem) {
+        const { createCapabilityGrant, decideCapabilityGrant } = await import('../services/trust/capabilityGrants')
+        const created = await createCapabilityGrant(sql, {
+          userId: live.userId!,
+          taskId: crypto.randomUUID(),
+          resourceType: 'credential',
+          resourceId: hostedVaultItem.id,
+          action: 'autofill',
+          exactOrigin: hostedVaultItem.exact_origin,
+          requestingAgent: 'alpha',
+          purpose: goal.slice(0, 200),
+          expiresAt: new Date(Date.now() + 10 * 60 * 1000),
+        })
+        const approved = await decideCapabilityGrant(sql, {
+          id: created.id,
+          userId: live.userId!,
+          taskId: created.request.task_id,
+          digest: created.digest,
+          decision: 'approved',
+        })
+        if (!approved) return json({ ok: false, error: 'Could not authorize this login task.' }, 409)
+        credential = {
+          vaultItemId: hostedVaultItem.id,
+          credentialCapabilityId: created.id,
+          credentialCapabilityDigest: created.digest,
+          credentialTaskId: created.request.task_id,
+        }
+      } else {
+        const approval = await requestBrowserApproval(sql, {
+          userId: live.userId!, persona: body.persona, portal,
+          purpose: goal.slice(0, 200),
+        })
+        if ('error' in approval) return json({ ok: false, error: approval.error }, 400)
+        const { decideBrowserApproval } = await import('./browserVault')
+        const approved = await decideBrowserApproval(sql, live.userId!, approval.requestId, 'approve')
+        if (!approved) return json({ ok: false, error: 'Could not authorize this login task.' }, 409)
+        approvalId = approval.requestId
+      }
       const jobId = await enqueueBrowserJob(sql, {
         userId: live.userId!, persona: body.persona, phone: phoneE164,
         kind: 'task', url: portal, goal: goal.slice(0, 400),
-        approvalId: approval.requestId,
+        approvalId,
+        ...(credential ?? {}),
       })
-      // Browser sessions auto-launch per-task; autoApprove:false opts out.
-      // Payment stays gated separately by Link, and watch loops stay capped
-      // (payload.runs), so this cannot become unattended spending.
-      const autoApprove = body.autoApprove !== false
-      if (autoApprove) {
-        const { decideBrowserApproval } = await import('./browserVault')
-        await decideBrowserApproval(sql, live.userId!, approval.requestId, 'approve')
-      }
       const viewToken = generateSessionViewToken(jobId, live.userId!)
       const sessionUrl = `https://hirealpha.chat/computer/${jobId}?token=${viewToken}`
       return json({
         ok: true,
         id: jobId,
         kind: 'browser',
-        requestId: approval.requestId,
-        origin: approval.portal,
+        requestId: approvalId,
+        origin: new URL(portal).origin,
         token: viewToken,
         sessionUrl,
       })

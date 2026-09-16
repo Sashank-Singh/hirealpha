@@ -700,7 +700,7 @@ function sqlForRun(opts: { approval?: 'none' | 'pending' | 'approved'; secret?: 
   })
 }
 
-describe('POST /api/browser/run (ask-first run route)', () => {
+describe('POST /api/browser/run (task-authorized run route)', () => {
   const runReq = (entryId = 'e1') =>
     new Request(RUN_URL, {
       method: 'POST',
@@ -708,24 +708,41 @@ describe('POST /api/browser/run (ask-first run route)', () => {
       body: JSON.stringify({ entryId, kind: 'task' }),
     })
 
-  it('creates an approval and returns 202 when none is live', async () => {
-    const { sql, queries } = sqlForRun({ approval: 'none', secret: 'hunter2!' })
-    const res = await handleVaultApi(runReq(), sql, authedDeps())
-    expect(res?.status).toBe(202)
-    const body = (await res!.json()) as { ok: boolean; approvalRequired: boolean; requestId: string }
-    expect(body.ok).toBe(false)
-    expect(body.approvalRequired).toBe(true)
-    expect(body.requestId).toBeTruthy()
-    expect(queries.some((q) => /INSERT INTO hire_browser_approvals/i.test(q.text))).toBe(true)
+  it('treats Open as authorization and queues without a second approval tap', async () => {
+    const previous = process.env.HIREALPHA_BROWSER_WORKER
+    process.env.HIREALPHA_BROWSER_WORKER = '1'
+    try {
+      const { sql, queries } = sqlForRun({ approval: 'none', secret: 'hunter2!' })
+      const res = await handleVaultApi(runReq(), sql, authedDeps())
+      expect(res?.status).toBe(202)
+      const body = (await res!.json()) as { ok: boolean; queued: boolean; approvalRequired?: boolean; sessionUrl: string }
+      expect(body.ok).toBe(true)
+      expect(body.queued).toBe(true)
+      expect(body.approvalRequired).toBeUndefined()
+      expect(body.sessionUrl).toContain('/computer/')
+      expect(queries.some((q) => /INSERT INTO hire_browser_approvals/i.test(q.text))).toBe(true)
+      expect(queries.some((q) => /UPDATE hire_browser_approvals SET status/i.test(q.text))).toBe(true)
+    } finally {
+      if (previous === undefined) delete process.env.HIREALPHA_BROWSER_WORKER
+      else process.env.HIREALPHA_BROWSER_WORKER = previous
+    }
   })
 
-  it('returns 202 without creating a duplicate while one is pending', async () => {
-    const { sql, queries } = sqlForRun({ approval: 'pending', secret: 'hunter2!' })
-    const res = await handleVaultApi(runReq(), sql, authedDeps())
-    expect(res?.status).toBe(202)
-    const body = (await res!.json()) as { requestId: string }
-    expect(body.requestId).toBe('r1')
-    expect(queries.some((q) => /INSERT INTO hire_browser_approvals/i.test(q.text))).toBe(false)
+  it('does not make an old pending approval visible to the user', async () => {
+    const previous = process.env.HIREALPHA_BROWSER_WORKER
+    process.env.HIREALPHA_BROWSER_WORKER = '1'
+    try {
+      const { sql, queries } = sqlForRun({ approval: 'pending', secret: 'hunter2!' })
+      const res = await handleVaultApi(runReq(), sql, authedDeps())
+      const body = (await res!.json()) as { queued: boolean; approvalRequired?: boolean }
+      expect(res?.status).toBe(202)
+      expect(body.queued).toBe(true)
+      expect(body.approvalRequired).toBeUndefined()
+      expect(queries.some((q) => /INSERT INTO hire_browser_approvals/i.test(q.text))).toBe(true)
+    } finally {
+      if (previous === undefined) delete process.env.HIREALPHA_BROWSER_WORKER
+      else process.env.HIREALPHA_BROWSER_WORKER = previous
+    }
   })
 
   it('runs the task on an approved approval and queues a browser_result loop', async () => {

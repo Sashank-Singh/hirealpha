@@ -372,7 +372,7 @@ Reactions are optional and usually absent. You may add "reaction":"<emoji>" to a
         ? { tool: json.tool as LiveTool, query: json.query.trim() }
         : null
       : parseToolCall(raw)
-    const draft = json ? parseExtractedWrite(JSON.stringify(json)) : parseDraftCall(raw)
+    let draft = json ? parseExtractedWrite(JSON.stringify(json)) : parseDraftCall(raw)
     const directive = (!!json && json.action !== 'answer') || /^\s*(?:TOOL\b|DRAFT_|```|\{\s*"action")/i.test(raw)
     // An empty completion is a failure, not an answer. Treating it as a reply
     // made the loop below re-nudge and call again — one turn could spend a
@@ -385,6 +385,12 @@ Reactions are optional and usually absent. You may add "reaction":"<emoji>" to a
     }
     if (raw && raw.trim()) lastRaw = stripToolDirectives(raw)
     if (!lookup && !draft && !directive) {
+      // A successful browser proposal is terminal for this turn. Letting the
+      // generic lazy-answer fallback run after it deterministically staged a
+      // second job for the same request.
+      if (savedDraft?.type === 'browser') {
+        return { reply: stripToolDirectives(raw).trim() || fallback(), draft: savedDraft }
+      }
       // Lazy-answer guard. The classified intent decides what this turn needs;
       // the word patterns below are only the fallback when the caller had no
       // intent (older call sites and tests), because matching words is what
@@ -732,6 +738,14 @@ Reactions are optional and usually absent. You may add "reaction":"<emoji>" to a
         }
       }
     } else if (draft) {
+      // Known services must resolve from the user's words, not a model-guessed
+      // hostname. A CampusNet request once launched campusnet.com and then the
+      // fallback launched the real CSU portal, producing two browser sessions.
+      // Canonicalize before validation and before the proposal is persisted.
+      if (draft.type === 'browser') {
+        const canonicalPortal = merchantSiteFromAsk(lastUserAsk)
+        if (canonicalPortal) draft = { ...draft, portal: canonicalPortal }
+      }
       const connector = draft.type === 'event' ? 'calendar' : 'gmail'
       const purchaseProblem = draft.type === 'purchase'
         ? validatePurchase(draft)

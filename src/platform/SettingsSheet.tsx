@@ -653,8 +653,8 @@ export function SettingsSheet({ view = 'workspace', embedded = false }: { view?:
     if (!email) return
     let portal = vaultPortal.trim()
     if (portal && !portal.startsWith('http://') && !portal.startsWith('https://')) portal = `https://${portal}`
-    if (!portal || vaultPassword.length < 4) {
-      setVaultError('Enter an HTTPS website and a password of at least four characters.')
+    if (!portal || !vaultUsername.trim() || vaultPassword.length < 4) {
+      setVaultError('Enter an HTTPS website, username, and password of at least four characters.')
       return
     }
     setVaultBusy(true)
@@ -1336,7 +1336,7 @@ export function SettingsSheet({ view = 'workspace', embedded = false }: { view?:
                       />
                     </div>
                     <div className="ss-actions">
-                      <button type="button" className="ss-btn" disabled={vaultBusy || !vaultPortal.trim() || vaultPassword.length < 4} onClick={() => void saveHostedCredential()}>
+                      <button type="button" className="ss-btn" disabled={vaultBusy || !vaultPortal.trim() || !vaultUsername.trim() || vaultPassword.length < 4} onClick={() => void saveHostedCredential()}>
                         {vaultBusy ? 'Saving…' : 'Save login'}
                       </button>
                       <button type="button" className="ss-btn-text" disabled={vaultBusy || !vaultPortal.trim()} onClick={() => void saveHandoffSite()}>

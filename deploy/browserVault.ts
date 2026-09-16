@@ -5,9 +5,9 @@
  *  - A credential is scoped to exactly one portal origin at save time. The
  *    runner can only decrypt it for a task whose URL lives on that origin —
  *    a stolen task spec cannot teleport a password to another site.
- *  - Nothing launches without a one-time user approval for that portal. The
- *    approval is consumed atomically (the UPDATE refuses an already-consumed
- *    row), so one tap buys exactly one browser session.
+ *  - Nothing launches without one-time, origin-scoped authority. An explicit
+ *    user task or Open tap mints that authority automatically; its atomic
+ *    consume prevents the same request from powering a second session.
  *  - One browser session per user at a time, and nothing persists: the runner
  *    launches a fresh context per task with no storage state and closes it in
  *    a finally. Between tasks there is no cookie jar, no profile, no cache.
@@ -22,7 +22,7 @@ import { enqueueBrowserJob, generateSessionViewToken, resumeBrowserHandoff, appe
 import type { HostResolver } from './browserNetworkPolicy'
 import { listVaultItems, revokeVaultItem, saveVaultItem } from '../services/trust/vaultV2'
 import { userKeyBrokerFromEnv, type UserKeyBroker } from '../services/trust/userKeyBroker'
-import { createCapabilityGrant } from '../services/trust/capabilityGrants'
+import { createCapabilityGrant, decideCapabilityGrant } from '../services/trust/capabilityGrants'
 
 /* ------------------------------- types ---------------------------------- */
 
@@ -662,6 +662,7 @@ export async function handleVaultApi(req: Request, sql: SQL, deps: VaultDeps): P
       SELECT id, portal, origin, purpose, status, created_at
       FROM hire_browser_approvals
       WHERE user_id = ${user.id} AND status = 'pending'
+        AND created_at > now() - interval '10 minutes'
       ORDER BY created_at DESC LIMIT 20
     `) as Array<{ id: string; portal: string; purpose: string; created_at: Date }>
     return json({ approvals: rows })
@@ -676,9 +677,10 @@ export async function handleVaultApi(req: Request, sql: SQL, deps: VaultDeps): P
     return decided ? json({ ok: true }) : json({ error: 'No pending approval with that id.' }, 404)
   }
 
-  // Run a saved login's portal task from the settings UI. Ask-first: without a
-  // live approved approval the route returns 202 and the user taps Approve —
-  // one tap buys exactly one browser session, same fence as the bot path.
+  // Run a saved login's portal task from the settings UI. The user's Open tap
+  // is the authorization for this exact-site login task; we still mint and
+  // approve a one-time auditable capability internally, but never demand a
+  // second approval tap. Payments and irreversible actions remain separate.
   // With a worker configured (HIREALPHA_BROWSER_WORKER=1) the web container
   // never launches Chromium: the tap consumes the approval and the session
   // runs on the browser-worker, result landing in the thread.
@@ -702,40 +704,26 @@ export async function handleVaultApi(req: Request, sql: SQL, deps: VaultDeps): P
         if (process.env.HIREALPHA_BROWSER_WORKER !== '1') {
           return json({ ok: false, error: 'browser_worker_required', detail: 'Vault autofill requires the isolated browser worker.' }, 503)
         }
-        const grants = (await sql`
-          SELECT id, task_id, encode(request_digest, 'hex') AS digest, status
-          FROM capability_grants
-          WHERE user_id = ${user.id} AND resource_type = 'credential' AND resource_id = ${hosted.id}
-            AND action = 'autofill' AND exact_origin = ${hosted.exact_origin}
-            AND status IN ('pending', 'approved') AND expires_at > now()
-          ORDER BY created_at DESC LIMIT 1
-        `) as Array<{ id: string; task_id: string; digest: string; status: string }>
-        let grant = grants[0]
-        if (!grant) {
-          const created = await createCapabilityGrant(sql, {
-            userId: user.id,
-            taskId: randomUUID(),
-            resourceType: 'credential',
-            resourceId: hosted.id,
-            action: 'autofill',
-            exactOrigin: hosted.exact_origin,
-            requestingAgent: 'alpha',
-            purpose: `Use ${hosted.label} to sign in to ${hostOfOrigin(hosted.exact_origin)}`,
-            expiresAt: new Date(Date.now() + APPROVAL_TTL_MS),
-          })
-          grant = { id: created.id, task_id: created.request.task_id, digest: created.digest, status: 'pending' }
-        }
-        if (grant.status !== 'approved') {
-          return json({
-            ok: false,
-            approvalRequired: true,
-            unifiedApproval: true,
-            requestId: grant.id,
-            origin: hosted.exact_origin,
-            error: 'approval_required',
-            message: 'Approve this login in Vault, then tap Open again.',
-          }, 202)
-        }
+        const created = await createCapabilityGrant(sql, {
+          userId: user.id,
+          taskId: randomUUID(),
+          resourceType: 'credential',
+          resourceId: hosted.id,
+          action: 'autofill',
+          exactOrigin: hosted.exact_origin,
+          requestingAgent: 'alpha',
+          purpose: `Use ${hosted.label} to sign in to ${hostOfOrigin(hosted.exact_origin)}`,
+          expiresAt: new Date(Date.now() + APPROVAL_TTL_MS),
+        })
+        const approved = await decideCapabilityGrant(sql, {
+          id: created.id,
+          userId: user.id,
+          taskId: created.request.task_id,
+          digest: created.digest,
+          decision: 'approved',
+        })
+        if (!approved) return json({ ok: false, error: 'Could not authorize this login task.' }, 409)
+        const grant = { id: created.id, task_id: created.request.task_id, digest: created.digest }
         const phone = (await sql`SELECT phone_e164 FROM hire_users WHERE id = ${user.id} LIMIT 1`) as unknown as Array<{ phone_e164: string | null }>
         const jobId = await enqueueBrowserJob(sql, {
           userId: user.id,
@@ -764,32 +752,15 @@ export async function handleVaultApi(req: Request, sql: SQL, deps: VaultDeps): P
     }
     if (!entry) return json({ ok: false, error: 'No saved login with that id.' }, 404)
 
-    const pending = (await sql`
-      SELECT id, status FROM hire_browser_approvals
-      WHERE user_id = ${user.id} AND origin = ${entry.origin}
-        AND consumed_at IS NULL AND status IN ('pending', 'approved')
-        AND created_at > now() - interval '10 minutes'
-      ORDER BY created_at DESC LIMIT 1
-    `) as Array<{ id: string; status: string }>
-    const live = pending[0]
-    if (!live || live.status !== 'approved') {
-      const approval = live?.id ? { requestId: live.id } : await requestBrowserApproval(sql, {
-          userId: user.id,
-          persona: entry.persona,
-          portal: entry.origin,
-          purpose: `Browser task on ${entry.origin}`,
-        })
-      if ('error' in approval) return json({ ok: false, error: approval.error }, 400)
-      const requestId = approval.requestId
-      return json({
-        ok: false,
-        approvalRequired: true,
-        requestId,
-        origin: entry.origin,
-        error: 'approval_required',
-        message: 'Alpha needs your OK before opening a private browser session.',
-      }, 202)
-    }
+    const approval = await requestBrowserApproval(sql, {
+      userId: user.id,
+      persona: entry.persona,
+      portal: entry.origin,
+      purpose: `Browser task on ${entry.origin}`,
+    })
+    if ('error' in approval) return json({ ok: false, error: approval.error }, 400)
+    const approved = await decideBrowserApproval(sql, user.id, approval.requestId, 'approve')
+    if (!approved) return json({ ok: false, error: 'Could not authorize this login task.' }, 409)
 
     if (process.env.HIREALPHA_BROWSER_WORKER === '1') {
       // The worker consumes this one-time approval immediately before launch.
@@ -804,7 +775,7 @@ export async function handleVaultApi(req: Request, sql: SQL, deps: VaultDeps): P
         goal: goal ?? (entry.secret_ref === HANDOFF_REF
           ? 'Sign in to this website and wait until the account home page is ready. Hand off every password, verification, CAPTCHA, or confirmation step to the user.'
           : null),
-        approvalId: live.id,
+        approvalId: approval.requestId,
         resolveHost: deps.resolveHost,
       })
       const viewToken = generateSessionViewToken(jobId, user.id)
@@ -833,7 +804,7 @@ export async function handleVaultApi(req: Request, sql: SQL, deps: VaultDeps): P
     const result = await runBrowserTask({ ...deps, key }, sql, {
       userId: user.id,
       persona: entry.persona,
-      requestId: live.id,
+      requestId: approval.requestId,
       kind,
       url: entry.origin,
       steps,

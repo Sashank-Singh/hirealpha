@@ -96,6 +96,16 @@ export async function ensureBrowserJobsSchema(sql: SQL): Promise<void> {
   await sql`ALTER TABLE hire_browser_jobs ADD COLUMN IF NOT EXISTS pending_text TEXT`
   await sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_hire_browser_jobs_approval ON hire_browser_jobs (approval_id) WHERE approval_id IS NOT NULL`
   await sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_hire_browser_jobs_spend_request ON hire_browser_jobs (spend_request_id) WHERE spend_request_id IS NOT NULL`
+  await sql`
+    WITH ranked AS (
+      SELECT id, row_number() OVER (PARTITION BY user_id, persona, url ORDER BY created_at ASC, id ASC) AS position
+      FROM hire_browser_jobs WHERE status IN ('pending', 'running', 'waiting')
+    )
+    UPDATE hire_browser_jobs AS jobs
+    SET status = 'failed', error = 'Duplicate active browser session retired during idempotency migration.', finished_at = now()
+    FROM ranked WHERE jobs.id = ranked.id AND ranked.position > 1
+  `
+  await sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_hire_browser_jobs_one_active_site ON hire_browser_jobs (user_id, persona, url) WHERE status IN ('pending', 'running', 'waiting')`
   await sql`CREATE INDEX IF NOT EXISTS idx_hire_browser_jobs_status ON hire_browser_jobs (status, created_at)`
 }
 
@@ -121,7 +131,7 @@ export async function enqueueBrowserJob(
 ): Promise<string> {
   const target = await assertPublicHttpsUrl(input.url, input.resolveHost)
   const id = input.idempotencyId || randomUUID()
-  await sql`
+  const inserted = (await sql`
     INSERT INTO hire_browser_jobs (
       id, user_id, persona, phone_e164, kind, url, steps, goal, status, approval_id,
       vault_item_id, credential_capability_id, credential_capability_digest, credential_task_id, spend_request_id
@@ -130,16 +140,26 @@ export async function enqueueBrowserJob(
       ${input.steps ? JSON.stringify(input.steps) : null}::jsonb, ${input.goal ?? null}, 'pending', ${input.approvalId ?? null},
       ${input.vaultItemId ?? null}, ${input.credentialCapabilityId ?? null}, ${input.credentialCapabilityDigest ?? null},
       ${input.credentialTaskId ?? null}, ${input.spendRequestId ?? null})
-    ON CONFLICT (id) DO NOTHING
-  `
+    ON CONFLICT DO NOTHING
+    RETURNING id
+  `) as Array<{ id: string }>
+  const insertedId = inserted[0]?.id
+  const active = insertedId ? null : ((await sql`
+    SELECT id FROM hire_browser_jobs
+    WHERE user_id = ${input.userId} AND persona = ${input.persona} AND url = ${target.href}
+      AND status IN ('pending', 'running', 'waiting')
+    ORDER BY created_at ASC LIMIT 1
+  `) as Array<{ id: string }>)[0]
+  const jobId = insertedId ?? active?.id ?? id
+  if (!insertedId) return jobId
   await mirrorJobEnqueued(sql, {
-    jobId: id, userId: input.userId, persona: input.persona, kind: input.kind,
+    jobId, userId: input.userId, persona: input.persona, kind: input.kind,
     url: target.href, goal: input.goal ?? null,
     approval_id: input.approvalId ?? null,
     credential_capability_id: input.credentialCapabilityId ?? null,
     spend_request_id: input.spendRequestId ?? null,
   })
-  return id
+  return jobId
 }
 
 /** Claim only fresh approvals scoped to this user and origin. Interrupted jobs

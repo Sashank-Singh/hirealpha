@@ -563,6 +563,24 @@ describe('browser run targeting', () => {
     expect(result.reply).toContain('browser run is starting now')
   })
 
+  it('replaces a model-guessed CampusNet hostname before saving the browser run', async () => {
+    const drafts: unknown[] = []
+    const answers = [
+      '{"action":"browser","portal":"https://campusnet.com","goal":"Check Fall 2024 payment history"}',
+      'The browser run is starting now.',
+    ]
+    await runToolConversation({
+      messages: [{ role: 'user', content: 'Can you log in to CampusNet and check how much I paid for Fall 2024?' }],
+      availableTools: ['web', 'maps'],
+      canDraft: true,
+      chat: async () => answers.shift() || 'Done.',
+      lookup: async () => [],
+      propose: async (draft) => { drafts.push(draft); return { ok: true, id: 'job-campusnet-canonical' } },
+    })
+    expect(drafts).toHaveLength(1)
+    expect(drafts[0]).toMatchObject({ type: 'browser', portal: 'https://campusnet.csuohio.edu' })
+  })
+
   it('stages the named merchant even when the provider returns nothing', async () => {
     const drafts: unknown[] = []
     const result = await runToolConversation({
