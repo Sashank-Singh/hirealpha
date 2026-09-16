@@ -9,6 +9,30 @@ import type { KernelBrowser } from './kernelPage'
 
 const EVENT_PREFIX = 'HIREALPHA_EVENT '
 
+export type BrowserUseCredentialConfig = {
+  state: 'complete' | 'partial' | 'missing'
+  username: string
+  password: string
+  origin: string
+}
+
+/** Browser Use placeholders are not a credential-validity check: a missing
+ * secret is only warned about by the library. Make completeness explicit so
+ * the runner can hand off instead of attempting a login with a blank field. */
+export function buildBrowserUseCredentialConfig(task: Pick<KernelTask, 'url' | 'username' | 'password'>): BrowserUseCredentialConfig {
+  const username = task.username?.trim() || ''
+  const password = task.password || ''
+  let origin = ''
+  try { origin = new URL(task.url).origin } catch { /* task URL is validated by the worker */ }
+  const supplied = Number(Boolean(username)) + Number(Boolean(password))
+  return {
+    state: supplied === 2 ? 'complete' : supplied === 1 ? 'partial' : 'missing',
+    username,
+    password,
+    origin,
+  }
+}
+
 type BridgeEvent =
   | { type: 'progress'; step: number; url?: string; actions?: Array<Record<string, unknown>> }
   | { type: 'handoff'; request_id: string; kind: NonNullable<Parameters<NonNullable<KernelTask['onHandoff']>>[0]>['kind']; message: string; amount_cents?: number; merchant?: string; item?: string }
@@ -57,12 +81,15 @@ export async function runBrowserUseTask(
   })
   const writer = proc.stdin
   const send = (value: unknown) => writer.write(`${JSON.stringify(value)}\n`)
+  const credential = buildBrowserUseCredentialConfig(task)
   send({
     cdp_url: browser.cdpUrl,
     url: task.url,
     goal: task.goal,
-    username: task.username || '',
-    password: task.password || '',
+    username: credential.username,
+    password: credential.password,
+    credential_state: credential.state,
+    credential_origin: credential.origin,
     identity: task.identity || '',
     max_steps: Number(process.env.BROWSER_USE_MAX_STEPS || 40),
   })

@@ -74,6 +74,7 @@ export function removeQueuedBrowserContradictions(text: string): string {
   const contradictory = [
     /\b(?:browser )?run\b.*\bdraft card\b.*\b(?:approval|approve|tap|waiting)\b/i,
     /\bdraft card\b.*\b(?:browser|run|approval|approve|tap|waiting)\b/i,
+    /\b(?:browser )?run\b.*\b(?:queued|waiting)\b.*\b(?:review|approval|approve|tap|card)\b/i,
     /\b(?:do not|don't|cannot|can't)\b.*\b(?:live|real[ -]?time)\b.*\b(?:session|stream|view|watch)\b/i,
     /\b(?:live|real[ -]?time)\b.*\b(?:session|stream|view|watch)\b.*\b(?:isn't|is not|unavailable|cannot|can't|don't|do not)\b/i,
     /^\s*(?:two\s+)?(?:honest\s+)?notes?\s+on\s+the\s+rest\s*:?\s*$/i,

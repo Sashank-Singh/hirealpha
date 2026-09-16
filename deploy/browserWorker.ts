@@ -472,6 +472,7 @@ export async function runJob(sql: SQL, job: JobRow, launch = runBrowserSession):
       const viewToken = generateSessionViewToken(job.id, job.user_id)
       const sessionUrl = `${appBase}/computer/${job.id}?token=${encodeURIComponent(viewToken)}`
       const vaultUrl = `${appBase}/app/vault-login?portal=${encodeURIComponent(origin)}&persona=${encodeURIComponent(job.persona || 'friend')}`
+      const hasCompleteCredentials = Boolean(creds?.username.trim() && creds?.password)
       // The challenge screenshot the session just took travels with the
       // handoff message: the user sees the wall in the thread, not a claim
       // that one exists.
@@ -483,7 +484,7 @@ export async function runJob(sql: SQL, job: JobRow, launch = runBrowserSession):
         insights: payment
           ? `Checkout is staged at a verified total of $${((amountCents || 0) / 100).toFixed(2)}. Approve the one-time payment in Link: ${payment.paymentUrl} — watch the live checkout here: ${sessionUrl}`
           : handoffKind === 'password'
-            ? (creds?.password
+            ? (hasCompleteCredentials
                 ? `Alpha paused at the sign-in screen on ${origin ? new URL(origin).hostname.replace(/^www\./, '') : 'the portal'}. If two-factor or security verification is needed, take over here: ${sessionUrl}`
                 : `Your login password or username is not in Vault yet. Connect it securely here: ${vaultUrl} — or take over the live computer: ${sessionUrl}`)
             : `Alpha paused and needs you to ${message.replace(/[.!]+$/, '').toLowerCase()}. Open the live computer: ${sessionUrl}`,

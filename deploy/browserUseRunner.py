@@ -178,10 +178,21 @@ async def main() -> None:
 		remove_defaults_from_schema=True,
 	)
 	sensitive_data = {}
-	if config.get("username"):
-		sensitive_data["hirealpha_username"] = config["username"]
-	if config.get("password"):
-		sensitive_data["hirealpha_password"] = config["password"]
+	credential_state = config.get("credential_state", "missing")
+	credential_origin = config.get("credential_origin")
+	if credential_state == "complete" and credential_origin:
+		# Domain-scoped secrets cannot be substituted after an untrusted redirect.
+		sensitive_data[credential_origin] = {
+			"hirealpha_username": config["username"],
+			"hirealpha_password": config["password"],
+		}
+
+	credential_instruction = (
+		"Use <secret>hirealpha_username</secret> and <secret>hirealpha_password</secret> for the login. "
+		"After submitting, inspect the page. If it is still a login page or reports that the login failed, immediately call request_user_handoff with kind password; do not retry or loop."
+		if credential_state == "complete"
+		else "The Vault login is incomplete. Do not type or submit a login. Immediately call request_user_handoff with kind password so the user can securely complete or update it."
+	)
 
 	identity = config.get("identity") or "No verified identity fields were supplied. Ask the user instead of inventing any."
 	task = f"""Open {config['url']} and complete this goal: {config['goal']}
@@ -189,7 +200,7 @@ async def main() -> None:
 Verified user identity (use only these values):
 {identity}
 
-If credentials are available, use <secret>hirealpha_username</secret> and <secret>hirealpha_password</secret>.
+{credential_instruction}
 Use request_user_handoff for passwords not supplied, MFA, CAPTCHA, confirmation, or missing personal facts.
 For any purchase, call request_payment_approval with the exact visible final total, then call submit_approved_order exactly once. Never use the normal click tool on a final purchase control.
 Never claim success unless the current page visibly supports every factual statement. Return concise evidence in the final answer."""

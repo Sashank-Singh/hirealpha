@@ -234,7 +234,7 @@ export function VaultApp({
             <button
               type="submit"
               className="vault-app__btn vault-app__btn--primary"
-              disabled={busy || !portal.trim() || password.length < 3}
+              disabled={busy || !portal.trim() || !username.trim() || password.length < 3}
             >
               {busy ? 'Saving securely…' : 'Save encrypted login'}
             </button>

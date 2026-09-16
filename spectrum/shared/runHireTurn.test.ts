@@ -22,6 +22,11 @@ I don't have a live session stream to send, so real-time viewing isn't something
     expect(removeQueuedBrowserContradictions('I found the right page. I’ll verify the exact title in the private browser.'))
       .toBe('I found the right page. I’ll verify the exact title in the private browser.')
   })
+
+  it('removes queued-review copy once the live session was already launched', () => {
+    const draft = 'Quick heads up, the CampusNet run is queued and waiting on your review. Tap the card in the thread to approve it.'
+    expect(removeQueuedBrowserContradictions(draft)).toBe('')
+  })
 })
 
 describe('explicit navigation wins over conversation history', () => {
