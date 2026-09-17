@@ -722,25 +722,90 @@ const day1CheckinHandler: LoopHandler = (task) => {
 }
 
 /* ---- Inbox ping (watchtower) ----
- * Payload carries the single confirmed hit: { mailId, from, subject, why }.
+ * Payload carries the single confirmed hit: { mailId, from, subject, why, kind }.
  * Empty payload resolves done with no send so the server never re-claims. */
 
-export function buildInboxPingText(p: { from: string; subject: string; why: string }): string {
-  const who = String(p.from || '').trim() || 'Someone'
+/** "Priya Sharma <priya@acme.com>" reads as a person; the address does not. A
+ * bare address is kept whole — "billing" alone is worse than the domain that
+ * makes it identifiable. */
+export function senderDisplayName(from: string): string {
+  const raw = String(from || '').trim()
+  if (!raw) return ''
+  const named = raw.replace(/<[^>]*>/g, '').replace(/"/g, '').trim()
+  if (named) return named
+  return raw.replace(/[<>]/g, '').trim()
+}
+
+/** What Alpha can actually do about each kind, offered only when it fits. A
+ * ping that ends in an offer is a request for a decision; one that ends in a
+ * period is a notification the user has to carry alone. */
+const PING_OFFERS: Record<string, string[]> = {
+  reply: ['Want the reply drafted?', 'Should I draft something back?'],
+  money: ['Want me to pull up the details?', 'Want me to look at what it is?'],
+  assessment: ['Want me to check the deadline and what it wants?', 'Should I open it and tell you what it needs?'],
+  travel: ['Want it on your calendar?', 'Should I put it on your calendar?'],
+}
+
+function sentenceCase(text: string): string {
+  const t = String(text || '').trim().replace(/[.\s]+$/, '')
+  if (!t) return ''
+  return `${t.charAt(0).toUpperCase()}${t.slice(1)}.`
+}
+
+/**
+ * One confirmed email, three lines at most: who and what, why it matters, and
+ * what Alpha can do about it. The reason line is the whole point — a ping with
+ * no reason is indistinguishable from a notification the user did not ask for.
+ */
+export function buildInboxPingText(p: {
+  from: string
+  subject: string
+  why: string
+  kind?: string
+  /** Stable per mail, so a retry sends the same wording. */
+  seed?: string
+}): string {
+  const who = senderDisplayName(p.from) || 'Someone'
   const subj = String(p.subject || '').trim()
-  const why = String(p.why || '').trim()
-  return `Heads up — ${who}${subj ? `: "${subj}"` : ''}${why ? `. ${why}.` : '.'}`
+  const head = subj ? `${who} · ${subj}` : who
+  const why = sentenceCase(p.why)
+  const offers = PING_OFFERS[String(p.kind || '').trim().toLowerCase()] || []
+  const offer = pickFlavor(offers, String(p.seed || ''), 81)
+  return [head, why, offer].filter(Boolean).join('\n')
 }
 
 const inboxPingHandler: LoopHandler = (task) => {
-  const p = (task.payload || {}) as { mailId?: unknown; from?: unknown; subject?: unknown; why?: unknown }
+  const p = (task.payload || {}) as { mailId?: unknown; from?: unknown; subject?: unknown; why?: unknown; kind?: unknown }
   const mailId = String(p.mailId || '').trim()
   if (!mailId) return { outcome: 'done', note: 'inbox_ping empty' }
   return {
-    text: buildInboxPingText({ from: String(p.from || ''), subject: String(p.subject || ''), why: String(p.why || '') }),
+    text: buildInboxPingText({
+      from: String(p.from || ''),
+      subject: String(p.subject || ''),
+      why: String(p.why || ''),
+      kind: String(p.kind || ''),
+      seed: mailId,
+    }),
     outcome: 'done',
     note: `inbox_ping ${mailId}`,
   }
+}
+
+/* ---- Inbox watch armed ----
+ * The watchtower runs whether or not the user ever asked for it, so without
+ * this the capability is invisible until the first hit. One text per user,
+ * ever, on the day the watch first covers them. */
+
+export function buildInboxWatchOnText(seed = ''): string {
+  return pickFlavor([
+    "Inbox watch is on. I'll text you when something actually needs you, and stay quiet for everything else.",
+    "I'm watching your inbox now. You'll hear from me when a mail actually needs you, not for promos or newsletters.",
+    'Watching your inbox from here. When something real lands you get a text, everything else I leave alone.',
+  ], seed, 91)
+}
+
+const inboxWatchOnHandler: LoopHandler = (task) => {
+  return { text: buildInboxWatchOnText(task.phone), outcome: 'done', note: 'inbox_watch_on' }
 }
 
 /* ---- Browser run result ----
@@ -786,6 +851,7 @@ export const LOOP_HANDLERS: Record<string, LoopHandler> = {
   save_contact: saveContactHandler,
   day1_checkin: day1CheckinHandler,
   inbox_ping: inboxPingHandler,
+  inbox_watch_on: inboxWatchOnHandler,
   browser_result: browserResultHandler,
   /** Goal-conditioned watch: re-run the same visit on a schedule. The agent
    * itself judges the goal ("price under $400") because the condition is

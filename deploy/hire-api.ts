@@ -1351,7 +1351,7 @@ async function writeInboxPing(
   sql: SQL,
   userId: string,
   phone: string,
-  hit: { id: string; from: string; subject: string; why: string; score: number },
+  hit: { id: string; from: string; subject: string; why: string; score: number; kind?: string },
   state: WatchtowerPingState,
   exists: boolean,
 ) {
@@ -1362,6 +1362,9 @@ async function writeInboxPing(
     subject: hit.subject,
     why: hit.why,
     score: hit.score,
+    // The bot turns the kind into the fitting offer ("want the reply
+    // drafted?"), so a ping ends in a decision rather than a notification.
+    ...(hit.kind ? { kind: hit.kind } : {}),
     pingedIds: [...state.pingedIds, hit.id].slice(-50),
     lastPingAt: now,
   })
@@ -1388,24 +1391,62 @@ async function writeInboxPing(
   `
 }
 
+/**
+ * One-time "the watch covers you now" text.
+ *
+ * The watchtower arms itself for anyone Gmail-connected and recently active,
+ * so without this the capability is invisible until the first hit — the user
+ * never learns they have it, and the first ping reads as a bot talking to
+ * itself. Users who already received a ping are skipped: they know.
+ */
+async function armInboxWatchOn(sql: SQL, userId: string, phone: string): Promise<boolean> {
+  const prior = (await sql`
+    SELECT 1 FROM hire_task_loops
+    WHERE user_id = ${userId} AND persona = 'friend' AND kind IN ('inbox_ping', 'inbox_watch_on')
+    LIMIT 1
+  `) as unknown[]
+  if (prior.length) return false
+  await sql`
+    INSERT INTO hire_task_loops (id, user_id, persona, phone_e164, kind, title, payload, status, next_run)
+    VALUES (${crypto.randomUUID()}, ${userId}, 'friend', ${phone}, 'inbox_watch_on',
+      'Inbox watch on', '{}'::jsonb, 'pending', now())
+    ON CONFLICT (user_id, persona, kind) DO NOTHING
+  `
+  return true
+}
+
 /** Scan Gmail-connected, recently active users for newly arrived high-signal
  * mail and arm one inbox_ping loop each. Runs every 30 minutes; the model
  * judge only fires when the free regex gate already found a candidate, so the
  * common case (nothing urgent) costs zero model calls. */
 export async function armInboxWatchtower(sql: SQL): Promise<number> {
+  // Gmail arrives two ways: a Google OAuth token row, or a Composio connection.
+  // The inner join here used to require the former, so an account whose Gmail
+  // was connected through Composio was never scanned at all: the watch existed,
+  // read mail fine everywhere else, and silently never covered that user.
   const users = (await sql`
-    SELECT DISTINCT u.id AS "userId", u.phone_e164 AS phone
+    SELECT DISTINCT u.id AS "userId", u.phone_e164 AS phone,
+      (g.user_id IS NOT NULL) AS "hasGoogle"
     FROM hire_users u
-    JOIN hire_google_tokens g ON g.user_id = u.id
+    LEFT JOIN hire_google_tokens g ON g.user_id = u.id
     LEFT JOIN hire_brief_cache b ON b.user_id = u.id AND b.built_at > now() - interval '7 days'
     LEFT JOIN hire_intro_queue q ON q.phone_e164 = u.phone_e164 AND q.status = 'sent' AND q.created_at > now() - interval '7 days'
     WHERE b.user_id IS NOT NULL OR q.phone_e164 IS NOT NULL
     LIMIT 100
-  `) as Array<{ userId: string; phone: string }>
+  `) as Array<{ userId: string; phone: string; hasGoogle: boolean }>
   let armed = 0
   for (const u of users) {
     try {
       if (!u.userId || !normalizePhone(u.phone)) continue
+      // Only pay the connector lookup for users without a Google token; the
+      // Composio list is a cached network call, not a cheap SQL predicate.
+      if (!u.hasGoogle) {
+        const toolkits = await composioConnected(u.userId).catch(() => [])
+        if (!toolkits.some((t) => /gmail/i.test(t))) continue
+      }
+      // Arm the one-time "watch is on" text first: it must go out even when
+      // the very first scan finds nothing, which is the common case.
+      await armInboxWatchOn(sql, u.userId, u.phone).catch(() => false)
       const { status, state } = await readInboxPingState(sql, u.userId)
       if (status === 'pending' || status === 'running') continue
       const rich = await withTimeout(loadGmailRich(sql, u.userId, importantMailQuery('1d'), 8), 12000, [])
@@ -1448,6 +1489,7 @@ export async function armInboxWatchtower(sql: SQL): Promise<number> {
           subject: best.c.subject,
           why: best.v?.why || 'needs your eyes',
           score: best.v?.score ?? best.c.score,
+          kind: best.c.kind,
         },
         state,
         status !== null,

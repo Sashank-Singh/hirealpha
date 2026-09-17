@@ -5,7 +5,7 @@ import { MAX_REPLY_BUBBLES, splitBubbles } from './runHireTurn'
 import { flavorIndex, pickFlavor } from './proactiveFlavors'
 import { isBitFactKey, isDurableFactKey, isToneFactKey } from './memory'
 import { selectMemoryFacts, MEMORY_BLOCK_MAX_BITS } from './memoryBlock'
-import { buildQuietCheckText, buildSaveContactText } from './taskLoops'
+import { buildQuietCheckText, buildSaveContactText, buildInboxPingText, buildInboxWatchOnText, senderDisplayName } from './taskLoops'
 
 describe('tapback rhythm', () => {
   const rhythm = () => createTapbackRhythm()
@@ -134,5 +134,60 @@ describe('bit and tone facts', () => {
       ...Array.from({ length: 70 }, (_, i) => ({ key: `filler_${i}`, value: 'x'.repeat(50), at: 10 + i })),
     ]
     expect(selectMemoryFacts(facts).map((f) => f.key)).toContain('tone_playfulness')
+  })
+})
+
+describe('inbox ping text', () => {
+  it('reads the sender as a person, not as an address', () => {
+    expect(senderDisplayName('Priya Sharma <priya@acme.com>')).toBe('Priya Sharma')
+    expect(senderDisplayName('"Chase" <no-reply@chase.com>')).toBe('Chase')
+    expect(senderDisplayName('billing@acme.com')).toBe('billing@acme.com')
+    expect(senderDisplayName('')).toBe('')
+  })
+
+  it('leads with who and what, then why it matters', () => {
+    const text = buildInboxPingText({
+      from: 'Priya Sharma <priya@acme.com>',
+      subject: 'Invoice #4242 due tomorrow',
+      why: 'needs your approval by end of day',
+      kind: 'money',
+      seed: 'm1',
+    })
+    const [head, why] = text.split('\n')
+    expect(head).toBe('Priya Sharma · Invoice #4242 due tomorrow')
+    expect(why).toBe('Needs your approval by end of day.')
+  })
+
+  it('offers the action it can actually take for that kind', () => {
+    const base = { from: 'Priya Sharma <priya@acme.com>', subject: 'Invoice', why: 'needs you', seed: 'm1' }
+    expect(buildInboxPingText({ ...base, kind: 'reply' })).toMatch(/draft/i)
+    expect(buildInboxPingText({ ...base, kind: 'travel' })).toMatch(/calendar/i)
+    // An unknown kind is not a reason to invent an offer.
+    expect(buildInboxPingText({ ...base, kind: 'other' }).split('\n')).toHaveLength(2)
+    expect(buildInboxPingText(base).split('\n')).toHaveLength(2)
+  })
+
+  it('carries no em dash and does not open like a notification', () => {
+    const text = buildInboxPingText({ from: 'Chase', subject: 'Card declined', why: 'autopay failed', kind: 'money', seed: 'x' })
+    expect(text).not.toContain('—')
+    expect(text.startsWith('Heads up')).toBe(false)
+  })
+
+  it('is stable per mail so a retry sends the same wording', () => {
+    const args = { from: 'Chase', subject: 'Card declined', why: 'autopay failed', kind: 'money', seed: 'm9' }
+    expect(buildInboxPingText(args)).toBe(buildInboxPingText(args))
+  })
+
+  it('drops the subject line rather than printing an empty one', () => {
+    const text = buildInboxPingText({ from: 'Chase', subject: '', why: 'autopay failed', seed: 'x' })
+    expect(text.split('\n')[0]).toBe('Chase')
+  })
+
+  it('announces the watch without promising anything it does not do', () => {
+    const text = buildInboxWatchOnText('+15551234567')
+    expect(text).toMatch(/watching|watch/i)
+    expect(text).not.toContain('—')
+    // Same phone, same wording: a retry must not re-roll the sentence.
+    expect(buildInboxWatchOnText('+15551234567')).toBe(text)
   })
 })
