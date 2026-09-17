@@ -50,3 +50,21 @@ export function createReactionGate(now: () => number = Date.now, cooldownMs = 18
   }
 }
 
+/** A person texting a thought in parts pauses between them; the cadence is most
+ * of what makes a burst read as typing rather than as a delivered message. */
+export const BUBBLE_GAP_MIN_MS = 400
+export const BUBBLE_GAP_MAX_MS = 900
+
+/**
+ * Gap before bubble `index` (0-based, where 0 already went out as the reply).
+ * Deterministic per index so a retry reproduces the same cadence. Later
+ * bubbles get the longer end of the range — a three-part reply that lands every
+ * bubble at the same offset sounds like a queue draining.
+ */
+export function bubbleGapMs(index: number, jitter = 0): number {
+  const span = BUBBLE_GAP_MAX_MS - BUBBLE_GAP_MIN_MS
+  const base = BUBBLE_GAP_MIN_MS + (span * Math.min(Math.max(index - 1, 0), 2)) / 2
+  const offset = Math.abs(Math.round(jitter)) % (span + 1)
+  return Math.min(BUBBLE_GAP_MAX_MS, Math.max(BUBBLE_GAP_MIN_MS, Math.round(base) + (offset - span / 2)))
+}
+

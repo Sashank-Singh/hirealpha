@@ -19,14 +19,18 @@ export async function extractFacts(input: {
       : '(none)'
   const prompt = `Extract durable, factual things a user reveals about themselves (name, company, job, location, goals, dates, preferences, relationship details, dietary restrictions, travel preferences). Do NOT extract one-off small talk, emotions, or ephemera.
 
+Also extract "bits": things that will still be funny or pointed three weeks from now. A bit is a running reference, a nickname they use, a team they suffer for, a recurring gripe, an ongoing project they joke about, or something they asked you to stop or start doing. Keys for these MUST start with "bit-" (for example bit-knicks, bit-pasta-tuesday, bit-nickname, bit-standup-gripe, bit-coffee-order). The value is short and concrete, and must be usable as a callback in a text. If nothing in the turn rises to that, extract no bits — a bit invented from small talk is worse than no bit.
+
+Also extract tone_playfulness when the user asks how you should talk to them (more playful, funnier, keep it straight, no jokes, be serious). Value is exactly one of: playful, straight.
+
 User: ${input.userText}
 Assistant: ${input.reply}
 
 Return a JSON object only, with no prose, in this exact shape:
 {"facts":[{"key":"kebab_case_short_key","value":"short value"}, ...]}
 
-Prefer durable keys when they fit: preferred_name, people, timezone, sister, sister_flight, partner, city, company, role_title, projects, standup_time, company_name, stage, weekly_focus, hard_nos, diet, seat_preference, flight_preference, this_weeks_decision.
-Reuse an existing key if the fact already exists, otherwise invent a short kebab-case key. Omit anything not durable. Never expire names, people, timezone, or this week's decision.
+Prefer durable keys when they fit: preferred_name, people, timezone, sister, sister_flight, partner, city, company, role_title, projects, standup_time, company_name, stage, weekly_focus, hard_nos, diet, seat_preference, flight_preference, this_weeks_decision, tone_playfulness.
+Reuse an existing key if the fact already exists, otherwise invent a short kebab-case key. Omit anything not durable. Never expire names, people, timezone, bits, tone, or this week's decision.
 
 GROUND TRUTH — do not re-extract anything already known here:
 ${authLines}

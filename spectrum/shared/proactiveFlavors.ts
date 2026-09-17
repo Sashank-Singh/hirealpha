@@ -185,6 +185,33 @@ export function postMeetingDebriefText(title: string, who?: string): string {
   return `Just wrapped ${target}. Want to capture any next steps or follow-ups while it's fresh?`
 }
 
+/* ---- Proactive voice rotation ----
+ *
+ * Unprompted texts are the ones that give a hire away: the same sentence
+ * landing every time reads as a cron job, not as someone who thought of you.
+ * The variants below say the same true thing in a different rhythm; which one
+ * a user gets is a hash of their phone, so it is stable per person (a retry
+ * never re-rolls the wording) while two people never get the same opener.
+ */
+
+/** FNV-1a over the seed, salted per call site. Empty seed = no rotation, so a
+ * caller with no user to key on keeps variant 0 and its tests stay exact. */
+export function flavorIndex(seed: string, count: number, salt = 0): number {
+  if (!Number.isFinite(count) || count <= 0) return 0
+  if (!seed) return 0
+  let hash = (2166136261 ^ salt) >>> 0
+  for (let i = 0; i < seed.length; i++) {
+    hash ^= seed.charCodeAt(i)
+    hash = Math.imul(hash, 16777619) >>> 0
+  }
+  return hash % count
+}
+
+export function pickFlavor(variants: readonly string[], seed: string, salt = 0): string {
+  if (!variants.length) return ''
+  return variants[flavorIndex(seed, variants.length, salt)]!
+}
+
 /* ---- Commitment detection ---- */
 
 export interface DetectedCommitment {

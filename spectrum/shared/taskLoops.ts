@@ -1,6 +1,6 @@
 import type { AgentId } from '../../src/agents/types'
 import { isRecipientSendBlocked } from './judgment'
-import { buildApprovalText, needsApproval } from './proactiveFlavors'
+import { buildApprovalText, needsApproval, pickFlavor } from './proactiveFlavors'
 
 /** Server owned task loops: the bot claims, acts, and reports the outcome.
  * Every claim result is posted back exactly once so a slow send can never
@@ -519,21 +519,33 @@ const billIncreaseHandler: LoopHandler = (task) => {
 /* ---- Wake up ---- */
 
 /** Text only for now. Real voice call wake ups come later. */
-export function buildWakeupText(topItems: string[] = []): string {
+export function buildWakeupText(topItems: string[] = [], seed = ''): string {
   const items = topItems.filter((i) => String(i || '').trim()).slice(0, 2)
   if (items.length === 2) {
-    return `Morning. First up, ${items[0]!}. Then ${items[1]!}, and I'll check in tonight.`
+    return pickFlavor([
+      `Morning. First up, ${items[0]!}. Then ${items[1]!}, and I'll check in tonight.`,
+      `Morning. Two things today: ${items[0]!}, then ${items[1]!}. I'll ask how it went tonight.`,
+      `Morning. ${items[0]!} first, ${items[1]!} after. Check in later.`,
+    ], seed, 11)
   }
   if (items.length === 1) {
-    return `Morning. One thing matters today, ${items[0]!}. I'll check in tonight to see how it went.`
+    return pickFlavor([
+      `Morning. One thing matters today, ${items[0]!}. I'll check in tonight to see how it went.`,
+      `Morning. Today it's just ${items[0]!}. Nothing else needs you. I'll ask tonight.`,
+      `Morning. ${items[0]!} is the whole list today. Check in tonight.`,
+    ], seed, 12)
   }
-  return "Morning. Nothing is on fire, so pick the one thing that matters and start there. I'll check in tonight."
+  return pickFlavor([
+    "Morning. Nothing is on fire, so pick the one thing that matters and start there. I'll check in tonight.",
+    "Morning. Clear day. Pick the one thing that matters and start there. I'll check in tonight.",
+    "Morning. Nothing urgent. Pick one thing worth doing and go. I'll ask about it tonight.",
+  ], seed, 13)
 }
 
 const wakeupHandler: LoopHandler = (task) => {
   const raw = task.payload?.top_items
   const items = Array.isArray(raw) ? (raw as unknown[]).map(String) : []
-  return { text: buildWakeupText(items), outcome: 'done' }
+  return { text: buildWakeupText(items, task.phone), outcome: 'done' }
 }
 
 /* ---- Birthday reminder (#33) ----
@@ -589,11 +601,15 @@ const birthdayReminderHandler: LoopHandler = async (task) => {
  * the durable memory untouched longest; no stale memory = silent run, never a
  * filler text. */
 
-export function buildMemoryResurfaceText(value: string): string {
+export function buildMemoryResurfaceText(value: string, seed = ''): string {
   const v = String(value || '').trim().replace(/\s+/g, ' ')
   if (!v) return ''
   const short = v.length > 80 ? `${v.slice(0, 77).trimEnd()}…` : v
-  return `You told me to keep this: "${short}". Still true, or can I let it go?`
+  return pickFlavor([
+    `You told me to keep this: "${short}". Still true, or can I let it go?`,
+    `Old note of yours: "${short}". Still a thing, or should I drop it?`,
+    `You once told me: "${short}". Still true? Happy to let it go if not.`,
+  ], seed, 21)
 }
 
 const memoryResurfaceHandler: LoopHandler = async (task) => {
@@ -601,7 +617,7 @@ const memoryResurfaceHandler: LoopHandler = async (task) => {
   const mem = (data.memory || null) as { key?: string; value?: string; updatedAt?: string } | null
   const value = String(mem?.value || '').trim()
   if (!value) return { outcome: 'done', note: 'memory_resurface nothing stale to resurface' }
-  const text = buildMemoryResurfaceText(value)
+  const text = buildMemoryResurfaceText(value, task.phone)
   if (!text) return { outcome: 'done', note: 'memory_resurface empty value' }
   const when = mem?.updatedAt ? ` ${String(mem.updatedAt).slice(0, 10)}` : ''
   return { text, outcome: 'done', note: `memory_resurface ${String(mem?.key || '').slice(0, 30)}${when}` }
@@ -613,17 +629,21 @@ const memoryResurfaceHandler: LoopHandler = async (task) => {
  * handler trusts the payload the server wrote: streak count, last logged
  * date, and habit name. No data call needed; one warm text, no shame. */
 
-export function buildStreakEndedText(habitName: string, streak: number): string {
+export function buildStreakEndedText(habitName: string, streak: number, seed = ''): string {
   const name = String(habitName || '').trim() || 'your habit'
   const n = Math.max(1, Math.floor(Number(streak) || 0))
-  return `You went ${n} days on ${name} and stopped. That was a real run. New target or a break?`
+  return pickFlavor([
+    `You went ${n} days on ${name} and stopped. That was a real run. New target or a break?`,
+    `${n} days on ${name}, then a stop. Real run either way. New target, or a break?`,
+    `${n} straight days on ${name}. That counted. Want a new target or a break?`,
+  ], seed, 31)
 }
 
 const streakEndedHandler: LoopHandler = (task) => {
   const streak = Math.max(1, Math.floor(Number(task.payload?.streak) || 0))
   const habitName = String(task.payload?.habitName || '').trim()
   const lastDate = String(task.payload?.lastDate || '').trim()
-  const text = buildStreakEndedText(habitName, streak)
+  const text = buildStreakEndedText(habitName, streak, task.phone)
   const note = lastDate ? `streak_ended ${habitName.slice(0, 30)} ${lastDate}` : `streak_ended ${habitName.slice(0, 30)}`
   return { text, outcome: 'done', note }
 }
@@ -634,13 +654,17 @@ const streakEndedHandler: LoopHandler = (task) => {
  * conservative: if the server armed it, send the warm acknowledgment. If the
  * arming side ever lies, the text is still small and never shaming. */
 
-export function buildOverworkText(): string {
-  return "You have been at it late. That is load, not laziness. What can wait till tomorrow?"
+export function buildOverworkText(seed = ''): string {
+  return pickFlavor([
+    'You have been at it late. That is load, not laziness. What can wait till tomorrow?',
+    'Late night again. That is load, not laziness. What can slide to tomorrow?',
+    'You are still going. That is a lot of load, not a character flaw. What can wait till morning?',
+  ], seed, 41)
 }
 
 const overworkCheckHandler: LoopHandler = (task) => {
   const note = `overwork_check ${String(task.payload?.date || '').trim()}`
-  return { text: buildOverworkText(), outcome: 'done', note }
+  return { text: buildOverworkText(task.phone), outcome: 'done', note }
 }
 
 /* ---- Cross-domain quiet check (#93) ----
@@ -650,14 +674,18 @@ const overworkCheckHandler: LoopHandler = (task) => {
  * start, not the day, so the bot can stay quiet across multiple silent days
  * without a follow-up. */
 
-export function buildQuietCheckText(): string {
-  return "You've gone quiet everywhere this week, not just one thing. Everything ok?"
+export function buildQuietCheckText(seed = ''): string {
+  return pickFlavor([
+    "You've gone quiet everywhere this week, not just one thing. Everything ok?",
+    'Quiet on every front this week, not just the usual one. You good?',
+    "Haven't heard from you anywhere this week. Everything ok?",
+  ], seed, 51)
 }
 
 const quietCheckHandler: LoopHandler = (task) => {
   const windowStart = String(task.payload?.windowStart || '').trim()
   const note = windowStart ? `quiet_check ${windowStart}` : 'quiet_check'
-  return { text: buildQuietCheckText(), outcome: 'done', note }
+  return { text: buildQuietCheckText(task.phone), outcome: 'done', note }
 }
 
 /* ---- Save-contact nudge ----
@@ -665,24 +693,32 @@ const quietCheckHandler: LoopHandler = (task) => {
  * Bots that override it (friend) send the native card; everyone else
  * sends the plain-text nudge so the task never fails with "no handler". */
 
-export function buildSaveContactText(): string {
-  return "If you haven't saved my number yet, add it to your contacts so I always reach you."
+export function buildSaveContactText(seed = ''): string {
+  return pickFlavor([
+    "If you haven't saved my number yet, add it to your contacts so I always reach you.",
+    "Save my number when you get a sec, so I'm not just some unknown texter.",
+    "Worth adding me to your contacts, otherwise I show up as a stranger every time.",
+  ], seed, 61)
 }
 
-const saveContactHandler: LoopHandler = () => {
-  return { text: buildSaveContactText(), outcome: 'done', note: 'save_contact' }
+const saveContactHandler: LoopHandler = (task) => {
+  return { text: buildSaveContactText(task.phone), outcome: 'done', note: 'save_contact' }
 }
 
 /* ---- Day-1 check-in ----
  * Enqueued by scheduleDay1Checkin 24h after a successful intro. Previously no
  * bot registered this kind, so every one failed with "no handler". */
 
-export function buildDay1CheckinText(): string {
-  return "Day one check-in: how are we doing so far? Anything you want me to start tracking for you?"
+export function buildDay1CheckinText(seed = ''): string {
+  return pickFlavor([
+    'Day one check-in: how are we doing so far? Anything you want me to start tracking for you?',
+    'First day in. How is it going so far? Anything you want me to start keeping track of?',
+    'Checking in on day one. How are we doing, and is there anything I should start tracking?',
+  ], seed, 71)
 }
 
-const day1CheckinHandler: LoopHandler = () => {
-  return { text: buildDay1CheckinText(), outcome: 'done', note: 'day1_checkin' }
+const day1CheckinHandler: LoopHandler = (task) => {
+  return { text: buildDay1CheckinText(task.phone), outcome: 'done', note: 'day1_checkin' }
 }
 
 /* ---- Inbox ping (watchtower) ----

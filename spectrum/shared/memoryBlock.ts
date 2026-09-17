@@ -1,4 +1,4 @@
-import { isDurableFactKey, type MemoryFact } from './memory'
+import { isBitFactKey, isDurableFactKey, isToneFactKey, type MemoryFact } from './memory'
 
 /**
  * Identity facts that must survive every cutoff. These are the facts a
@@ -55,6 +55,13 @@ export const MEMORY_BLOCK_TOKEN_BUDGET = 1200
 export const MEMORY_BLOCK_MAX_FACTS = 60
 
 /**
+ * Bits are durable by design, so without their own cap they accumulate forever
+ * and crowd out the facts a turn is actually broken without. Three is roughly
+ * what a reply can use before callbacks turn into a comedy routine.
+ */
+export const MEMORY_BLOCK_MAX_BITS = 3
+
+/**
  * Merge the local thread facts with the server's facts, keyed and deduped.
  * The server wins on value (it is the shared record across restarts; the local
  * file is process-local and dies with the container), but the newest timestamp
@@ -91,7 +98,13 @@ function newest(a?: number, b?: number): number | undefined {
 }
 
 function isAlwaysIncluded(fact: MemoryFactInput): boolean {
-  return ALWAYS_INCLUDE.has(fact.key.trim().toLowerCase()) || isDurableFactKey(fact.key)
+  const key = fact.key.trim().toLowerCase()
+  // Bits are durable but capped, so they are selected separately below rather
+  // than pinned with the identity facts.
+  if (isBitFactKey(key)) return false
+  // The tone dial is a standing instruction about every reply, so it is never
+  // the fact that gets dropped for budget.
+  return isToneFactKey(key) || ALWAYS_INCLUDE.has(key) || isDurableFactKey(key)
 }
 
 function priorityOf(key: string): number {
@@ -110,24 +123,30 @@ function byRecency(a: MemoryFactInput, b: MemoryFactInput): number {
  * Select the facts to inject, newest-first, with identity facts pinned.
  *
  * Order of business: identity facts in a stable declared order (so the block is
- * deterministic across turns), then everything else newest-first, then stop at
- * whichever of the token budget or the count cap binds first.
+ * deterministic across turns), then the newest bits, then everything else
+ * newest-first, then stop at whichever of the token budget or the count cap
+ * binds first.
  */
 export function selectMemoryFacts(
   facts: MemoryFactInput[],
-  options: { budget?: number; maxFacts?: number } = {},
+  options: { budget?: number; maxFacts?: number; maxBits?: number } = {},
 ): MemoryFactInput[] {
   const budget = options.budget ?? MEMORY_BLOCK_TOKEN_BUDGET
   const maxFacts = options.maxFacts ?? MEMORY_BLOCK_MAX_FACTS
+  const maxBits = options.maxBits ?? MEMORY_BLOCK_MAX_BITS
 
   const pinned = facts
     .filter(isAlwaysIncluded)
     .sort((a, b) => priorityOf(a.key) - priorityOf(b.key) || byRecency(a, b))
-  const rest = facts.filter((fact) => !isAlwaysIncluded(fact)).sort(byRecency)
+  const bits = facts.filter((fact) => isBitFactKey(fact.key)).sort(byRecency).slice(0, maxBits)
+  const bitKeys = new Set(bits.map((f) => f.key))
+  const rest = facts
+    .filter((fact) => !isAlwaysIncluded(fact) && !bitKeys.has(fact.key) && !isBitFactKey(fact.key))
+    .sort(byRecency)
 
   const selected: MemoryFactInput[] = []
   let tokens = 0
-  for (const fact of [...pinned, ...rest]) {
+  for (const fact of [...pinned, ...bits, ...rest]) {
     if (selected.length >= maxFacts) break
     const cost = estimateTokens(`${fact.key}: ${fact.value}`) + 1
     // One oversized fact must not empty the block: take it when it is all we

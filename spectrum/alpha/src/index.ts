@@ -7,11 +7,11 @@ import { extractMessageText, fetchLiveProfile, handleInboundPhoto } from '../../
 import { mintMiniAppCard, onboardingCard } from '../../shared/miniApps'
 import { claimInbound } from '../../shared/inboundGuard'
 import { onceAsync } from '../../shared/delivery'
-import { createReactionGate } from '../../shared/progressiveDelivery'
-import { determineInboundReaction } from '../../shared/smartReactions'
+import { createReactionGate, bubbleGapMs } from '../../shared/progressiveDelivery'
+import { createTapbackRhythm, determineInboundReaction } from '../../shared/smartReactions'
 import { createMessageBursts } from '../../shared/messageBursts'
 import { startReminderScheduler } from '../../shared/reminders'
-import { startTaskLoopPoller } from '../../shared/taskLoops'
+import { buildSaveContactText, startTaskLoopPoller } from '../../shared/taskLoops'
 import { INTRO_TEXTS, startIntroPoller } from '../../shared/introQueue'
 import { startScheduledTextPoller } from '../../shared/scheduledTexts'
 import { startHealthServer, startHeartbeat } from '../../shared/health'
@@ -19,6 +19,7 @@ import { backfillScores, hashPhone, logTurn, readTurns } from '../../shared/eval
 import { buildAlphaVcard, resolveAlphaContactPhone } from '../../shared/alphaContact'
 
 const reactOccasionally = createReactionGate()
+const tapbackRhythm = createTapbackRhythm()
 const agentId = 'friend' as const
 const agent = getAgent(agentId)
 const dataDir = join(import.meta.dir, '..', 'data')
@@ -236,8 +237,8 @@ startTaskLoopPoller({
     })
   },
   runKind: {
-    save_contact: async () => ({
-      text: "[savecontact] If you haven't saved Alpha's number, tap Add so I always reach you.",
+    save_contact: async (task) => ({
+      text: `[savecontact] ${buildSaveContactText(String(task.phone || ''))}`,
       outcome: 'done',
     }),
     // Onboarding just completed in the setup wizard: one warm welcome that names
@@ -349,7 +350,10 @@ async function handleIncoming([space, message]: Incoming, combinedText?: string)
             return
           }
           await message.reply(styledText(texts[0]!))
-          for (let i = 1; i < texts.length; i++) await space.send(styledText(texts[i]!))
+          for (let i = 1; i < texts.length; i++) {
+            await new Promise((resolve) => setTimeout(resolve, bubbleGapMs(i, texts[i]!.length)))
+            await space.send(styledText(texts[i]!))
+          }
           // The mini-app card lands after the LAST bubble only, never between them.
           const delivered = card ?? (await defaultReplyCard(senderId, agentId))
           if (delivered) await sendCardSafe(space, delivered.url, delivered.live)
@@ -387,7 +391,12 @@ async function handleIncoming([space, message]: Incoming, combinedText?: string)
   console.log(`[${agent.id}] inbound from ${senderId}: ${userText.slice(0, 120)}`)
 
   let reacted = false
-  const smartReaction = determineInboundReaction({ dataDir, senderId, userText })
+  const startReaction = determineInboundReaction({ dataDir, senderId, userText })
+  // A live conversation still gets tapbacks, just not every turn: the rhythm
+  // counts inbound turns and spends one every few. An opening reaction restarts
+  // the count so the next mid-thread one is never back-to-back with it.
+  const smartReaction = startReaction ?? tapbackRhythm.note(senderId, userText)
+  if (startReaction) tapbackRhythm.reset(senderId)
   if (smartReaction) {
     reacted = true
     console.log(`[${agent.id}] smart reaction to ${senderId}: ${smartReaction}`)
@@ -448,7 +457,12 @@ async function handleIncoming([space, message]: Incoming, combinedText?: string)
       }
       await message.reply(styledText(texts[0]!))
       sentAnything = true
-      for (let i = 1; i < texts.length; i++) await space.send(styledText(texts[i]!))
+      for (let i = 1; i < texts.length; i++) {
+        // Bubbles arrive with a human gap instead of all at once, so a reply
+        // split into parts reads as someone typing, not a batch landing.
+        await new Promise((resolve) => setTimeout(resolve, bubbleGapMs(i, texts[i]!.length)))
+        await space.send(styledText(texts[i]!))
+      }
       // Every response carries the mini-app card, attached after the LAST bubble.
       const delivered = card ?? (await defaultReplyCard(senderId, agentId))
       if (delivered) {

@@ -10,10 +10,19 @@ export const MAX_FACTS = 60
 export const FACT_TTL_DAYS = 30
 
 const DURABLE_KEY =
-  /^(preferred_name|people|timezone|check_ins|company|role_title|projects|standup_time|company_name|stage|weekly_focus|hard_nos|diet|seat_preference|flight_preference|name|sister|partner|city|this_weeks_decision)|^(people|name|sister|partner|family|company|weekly|timezone|diet|seat)/i
+  /^(preferred_name|people|timezone|check_ins|company|role_title|projects|standup_time|company_name|stage|weekly_focus|hard_nos|diet|seat_preference|flight_preference|name|sister|partner|city|this_weeks_decision|tone_playfulness)|^bit[-_]|^(people|name|sister|partner|family|company|weekly|timezone|diet|seat)/i
 
 export function isDurableFactKey(key: string) {
   return DURABLE_KEY.test(key)
+}
+
+/** Running bits and the tone dial, grouped for the selector. */
+export function isBitFactKey(key: string) {
+  return /^bit[-_]/i.test(key.trim())
+}
+
+export function isToneFactKey(key: string) {
+  return /^tone_playfulness$/i.test(key.trim())
 }
 
 export interface MemoryFact {

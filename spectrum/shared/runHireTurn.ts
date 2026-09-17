@@ -99,6 +99,10 @@ export function isDegenerateRepetition(text: string): boolean {
   return false
 }
 
+/** Most a reply is allowed to arrive in. Past three bubbles the parts read as
+ * a list being delivered rather than a person typing. */
+export const MAX_REPLY_BUBBLES = 3
+
 export function splitBubbles(text: string): string[] {
   const cleaned = sanitizeOutbound(text.replace(/\r/g, ''))
   if (!cleaned) return []
@@ -109,9 +113,14 @@ export function splitBubbles(text: string): string[] {
     .map((b) => b.trim())
     .filter(Boolean)
   const parts = blocks.length > 1 ? blocks : [cleaned]
+  // Overflow folds into the final bubble rather than being dropped: the tail of
+  // a long answer is usually the ask, and it must not arrive as bubble four.
+  const capped = parts.length > MAX_REPLY_BUBBLES
+    ? [...parts.slice(0, MAX_REPLY_BUBBLES - 1), parts.slice(MAX_REPLY_BUBBLES - 1).join('\n\n')]
+    : parts
   // A repeated identical bubble reads as a glitch (and a delivery retry can
   // double the whole text) — say it once.
-  return parts.filter((b, i) => i === 0 || b !== parts[i - 1])
+  return capped.filter((b, i) => i === 0 || b !== capped[i - 1])
 }
 
 /* No default card: a text-first hire replies in text. If the turn minted no

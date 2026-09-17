@@ -171,3 +171,51 @@ export function determineInboundReaction(input: {
   }
   return selectSmartReaction(input.userText)
 }
+
+/**
+ * Turns that must pass before the next tapback. The first message of a thread
+ * still gets an instant reaction (that is {@link determineInboundReaction});
+ * inside a live conversation a reaction every turn stops reading as a person
+ * and starts reading as a bot agreeing with itself.
+ */
+export const REACTION_MIN_TURN_GAP = 4
+
+/**
+ * Mid-conversation tapback rhythm. Counting turns (rather than wall-clock) is
+ * what keeps the texture human: two texts a minute apart in a live back-and-
+ * forth are still two turns, and reacting to the second one is what a friend
+ * does not do.
+ */
+export function createTapbackRhythm(options: { minTurnGap?: number } = {}) {
+  const minTurnGap = options.minTurnGap ?? REACTION_MIN_TURN_GAP
+  const turnsSince = new Map<string, number>()
+
+  return {
+    /**
+     * Count this inbound turn and return a reaction only on turns that earned
+     * one. Confirmation fragments ("ok", "yes", a bare number) never do — they
+     * are answers to us, not things we react to.
+     */
+    note(senderId: string, userText: string): string | null {
+      const trimmed = userText.trim()
+      if (!trimmed) return null
+      const turns = (turnsSince.get(senderId) ?? 0) + 1
+      if (CONTINUATION_FRAGMENT_REGEX.test(trimmed)) {
+        turnsSince.set(senderId, turns)
+        return null
+      }
+      const reaction = selectSmartReaction(trimmed)
+      if (!reaction || turns < minTurnGap) {
+        turnsSince.set(senderId, turns)
+        return null
+      }
+      turnsSince.set(senderId, 0)
+      return reaction
+    },
+
+    /** A tapback already went out this turn; wait out the gap again. */
+    reset(senderId: string) {
+      turnsSince.set(senderId, 0)
+    },
+  }
+}
