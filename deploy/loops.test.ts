@@ -402,3 +402,30 @@ describe('inbox watchtower picker', () => {
     expect(out.length).toBeLessThanOrEqual(1)
   })
 })
+
+describe('inbox watchtower coverage and mail window', () => {
+  it('reads the shared two-day window at the shared cap', async () => {
+    const { importantMailQuery, MAIL_READ_WINDOW, MAIL_READ_CAP } = await import('./gmailHelpers')
+    expect(MAIL_READ_WINDOW).toBe('2d')
+    expect(MAIL_READ_CAP).toBe(30)
+    expect(importantMailQuery(MAIL_READ_WINDOW)).toBe('is:inbox -is:spam newer_than:2d')
+  })
+
+  it('scans a Composio inbox with no Google token, and arms the one-time notice', async () => {
+    const { armInboxWatchtower } = await import('./authenticatedTestApi')
+    const { sql, queries } = fakeSql((text) =>
+      /FROM hire_users/i.test(text) && /hasGoogle/i.test(text)
+        ? [{ userId: 'u1', phone: '+14155551212', hasGoogle: true }]
+        : [],
+    )
+    await armInboxWatchtower(sql)
+    const texts = queries.map((q) => q.text)
+    const userQuery = texts.find((t) => /FROM hire_users/i.test(t) && /hasGoogle/i.test(t)) || ''
+    // An inner join here is the bug that made the watch skip every account
+    // whose Gmail arrives through the connector instead of Google OAuth.
+    expect(userQuery).toContain('LEFT JOIN hire_google_tokens')
+    // The "watch is on" text is armed even when the first scan finds nothing,
+    // which is the common case; without it the capability is invisible.
+    expect(texts.some((t) => t.includes('inbox_watch_on'))).toBe(true)
+  })
+})

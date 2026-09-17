@@ -99,6 +99,8 @@ import {
   scoreMail,
   senderKey,
   topNeedsYou,
+  MAIL_READ_CAP,
+  MAIL_READ_WINDOW,
   type ComposioMailBody,
   type ComposioMailItem,
   type GmailMimePart,
@@ -1449,7 +1451,7 @@ export async function armInboxWatchtower(sql: SQL): Promise<number> {
       await armInboxWatchOn(sql, u.userId, u.phone).catch(() => false)
       const { status, state } = await readInboxPingState(sql, u.userId)
       if (status === 'pending' || status === 'running') continue
-      const rich = await withTimeout(loadGmailRich(sql, u.userId, importantMailQuery('1d'), 8), 12000, [])
+      const rich = await withTimeout(loadGmailRich(sql, u.userId, importantMailQuery(MAIL_READ_WINDOW), MAIL_READ_CAP), 12000, [])
       if (!rich.length) continue
       const signals = await loadMailSenderSignals(sql, u.userId)
       const candidates = pickWatchtowerCandidates(
@@ -5015,14 +5017,16 @@ async function composioMailHeaders(userId: string, msgId: string): Promise<Compo
 
 function normalizeGmailQuery(raw: string): string {
   const trimmed = (raw || '').trim()
-  if (!trimmed) return 'newer_than:7d'
+  if (!trimmed) return `newer_than:${MAIL_READ_WINDOW}`
   if (/\b(?:from:|to:|subject:|is:|label:|has:|newer_than:|older_than:|after:|before:)/i.test(trimmed)) {
     return trimmed
   }
   if (/^(?:what|any|check|read|get|pull|show|tell me about|do I have any|are there any)?\s*(?:new|unread|recent|latest|important|my)?\s*(?:e-?mails?|messages?|inbox|mail)(?:\s*(?:do I have|received|today|recently|for me))?[.?!]*$/i.test(trimmed)) {
-    if (/\bunread\b/i.test(trimmed)) return 'is:unread newer_than:14d'
-    if (/\bimportant\b/i.test(trimmed)) return 'is:important newer_than:14d'
-    return 'newer_than:7d'
+    if (/\bunread\b/i.test(trimmed)) return `is:unread newer_than:${MAIL_READ_WINDOW}`
+    if (/\bimportant\b/i.test(trimmed)) return `is:important newer_than:${MAIL_READ_WINDOW}`
+    // A bare "show me my emails" covers the same window as everything else
+    // rather than silently reaching back a week for the first eight.
+    return `newer_than:${MAIL_READ_WINDOW}`
   }
   return trimmed
 }
@@ -5045,7 +5049,12 @@ async function loadGmailRich(
   try {
     const access = await withTimeout(googleAccessToken(sql, userId, 'gmail'), 3000, null)
     if (access) {
-      const rich = await withTimeout(fetchGmailRich(access, query, maxResults), 5000, null)
+      // The Google path is a list call plus one header fetch per message, run
+      // in parallel, so a wider read costs round-trips rather than a queue.
+      // Headers for 30 messages need more than the old 5s, but the connector
+      // fallback still has to fit inside the caller's 12s.
+      const budget = maxResults > 10 ? 6500 : 5000
+      const rich = await withTimeout(fetchGmailRich(access, query, maxResults), budget, null)
       if (rich) return rich
     }
   } catch {
@@ -5873,9 +5882,9 @@ export async function runToolsForMessage(
         return [text ? `Email body id=${messageId} (up to 12000 characters; attachments not included):\n${text.slice(0, 12000)}` : `Could not retrieve the body for id=${messageId}. Do not infer its contents from the subject.`]
       }
       const mailQuery = normalizeGmailQuery(query)
-      let mail = await withTimeout(loadGmailRich(sql, input.userId, mailQuery, 8), 12000, [])
+      let mail = await withTimeout(loadGmailRich(sql, input.userId, mailQuery, MAIL_READ_CAP), 12000, [])
       if (!mail.length && mailQuery !== 'newer_than:7d') {
-        mail = await withTimeout(loadGmailRich(sql, input.userId, 'newer_than:7d', 8), 8000, [])
+        mail = await withTimeout(loadGmailRich(sql, input.userId, 'newer_than:7d', MAIL_READ_CAP), 8000, [])
       }
       return [mail.length
         ? `Email results for ${JSON.stringify(query)}:\n${mail.map((m) => `- id=${m.id} | ${m.from.slice(0, 100)} | ${m.date.slice(0, 50)} | ${m.subject.slice(0, 140)} | ${m.snippet.slice(0, 200)}`).join('\n')}`
@@ -13178,7 +13187,7 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
     if (!phone) return json({ error: 'valid phone required' }, 400)
     const user = await getUserByPhone(sql, phone)
     if (!user) return json({ mail: [] })
-    const limit = Math.min(Math.max(Number(url.searchParams.get('limit')) || 10, 1), 30)
+    const limit = Math.min(Math.max(Number(url.searchParams.get('limit')) || MAIL_READ_CAP, 1), MAIL_READ_CAP)
     const rich = await loadGmailRich(sql, user.id, importantMailQuery('14d'), limit)
     const mail = rich.map((m) => ({
       subject: m.subject,

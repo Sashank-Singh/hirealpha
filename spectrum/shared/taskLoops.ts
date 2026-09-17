@@ -388,7 +388,9 @@ export function buildRefundText(candidates: MailRow[]): string {
 }
 
 /** Ask the server for this phone's mail context; graceful empty when the
- * endpoint or env is missing. */
+ * endpoint or env is missing. The route names the array `mail`; reading
+ * `mails` here silently returned nothing and the refund hunter never found a
+ * candidate for anyone. Accept either key so a rename cannot do that again. */
 async function fetchMailContext(phone: string): Promise<MailRow[]> {
   const base = apiBase()
   if (!base) return []
@@ -397,8 +399,8 @@ async function fetchMailContext(phone: string): Promise<MailRow[]> {
       headers: authHeaders(),
     })
     if (!res.ok) return []
-    const data = (await res.json()) as { mails?: MailRow[] }
-    return data.mails || []
+    const data = (await res.json()) as { mail?: MailRow[]; mails?: MailRow[] }
+    return data.mail || data.mails || []
   } catch {
     return []
   }

@@ -14,6 +14,18 @@ export function importantMailQuery(timespan: string): string {
   return `is:inbox -is:spam newer_than:${timespan}`
 }
 
+/**
+ * How far back a conversational mail read looks, and how much of it is read.
+ *
+ * These were scattered defaults once (1d/8 for the watch, 7d/8 for a chat
+ * lookup, 2d/30 for the brief), so "show me my emails" and "what's important
+ * in my email" quietly answered over different windows and different slices of
+ * the same inbox. Two days and thirty messages is what a person means by their
+ * mail; the brief owns the longer looks.
+ */
+export const MAIL_READ_WINDOW = '2d'
+export const MAIL_READ_CAP = 30
+
 export type MailJudgeItem = {
   id: string
   from: string
