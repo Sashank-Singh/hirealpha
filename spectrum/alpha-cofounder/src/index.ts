@@ -3,7 +3,7 @@ import { effect, imessage } from '@spectrum-ts/imessage'
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { defaultReplyCard, getAgent, runHireTurn, runMemoryMaintenance, sanitizeOutbound } from '../../shared/runHireTurn'
-import { extractMessageText, handleInboundPhoto } from '../../shared/liveContext'
+import { extractMessageText, findInboundVoice, handleInboundPhoto, resolveInboundVoiceTurn } from '../../shared/liveContext'
 import { claimInbound } from '../../shared/inboundGuard'
 import { startReminderScheduler } from '../../shared/reminders'
 import { startTaskLoopPoller } from '../../shared/taskLoops'
@@ -148,10 +148,25 @@ for await (const [space, message] of app.messages) {
   }
 
   if (message.content.type !== 'text') {
-    // Non-text: a bare food photo, or an iMessage text+photo group.
+    // Non-text: a bare food photo, an iMessage text+photo group, or a voice note.
     const senderId = message.sender?.id ?? space.id
     try {
       await message.react('👍').catch(() => undefined)
+      // Voice note: transcribe it, then run it as the user's own turn.
+      if (findInboundVoice(message.content)) {
+        if (!claimInbound(senderId, '', message.id)) {
+          console.warn(`[${agent.id}] duplicate inbound skipped: ${message.id}`)
+          continue
+        }
+        const turn = await resolveInboundVoiceTurn(senderId, message.content)
+        if (!turn) {
+          await message.reply(styledText("That voice note didn't come through. Send it again, or just type it?"))
+          continue
+        }
+        // The opening 👍 already acknowledged the clip; react to the words.
+        await runTextTurn(space, message, senderId, turn.userText, { note: turn.note, react: false })
+        continue
+      }
       const photoReply = await handleInboundPhoto(senderId, agent.id, message.content)
       const photoText = extractMessageText(message.content)
       if (!photoReply && !photoText) continue
@@ -207,11 +222,38 @@ for await (const [space, message] of app.messages) {
     continue
   }
   console.log(`[${agent.id}] inbound from ${senderId}: ${userText.slice(0, 120)}`)
+  await runTextTurn(space, message, senderId, userText)
+}
 
+type SpaceLike = {
+  id: string
+  send: (content: ContentInput) => Promise<unknown>
+  responding: <T>(fn: () => T | Promise<T>) => Promise<T>
+}
+type MessageLike = {
+  reply: (content: ContentInput) => Promise<unknown>
+  react: (value: string) => Promise<unknown>
+  read: () => Promise<unknown>
+}
+
+/**
+ * Run one inbound turn and deliver it. Typed messages and transcribed voice
+ * notes both come through here, so a voice note gets the same treatment as a
+ * typed ask.
+ */
+async function runTextTurn(
+  space: SpaceLike,
+  message: MessageLike,
+  senderId: string,
+  userText: string,
+  options: { note?: string; react?: boolean } = {},
+): Promise<void> {
   try {
-    const reaction = determineInboundReaction({ dataDir, senderId, userText })
-    if (reaction) {
-      await message.react(reaction).catch(() => undefined)
+    if (options.react !== false) {
+      const reaction = determineInboundReaction({ dataDir, senderId, userText })
+      if (reaction) {
+        await message.react(reaction).catch(() => undefined)
+      }
     }
     await message.read().catch(() => undefined)
     await space.responding(async () => {
@@ -220,6 +262,7 @@ for await (const [space, message] of app.messages) {
         dataDir,
         senderId,
         userText,
+        ...(options.note ? { inboundNote: options.note } : {}),
       })
       const text = sanitizeOutbound(bubbles[0] || reply || '')
       if (!text) {

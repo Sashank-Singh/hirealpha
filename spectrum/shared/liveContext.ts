@@ -843,6 +843,129 @@ export async function handleInboundPhoto(
   }
 }
 
+/**
+ * Walk inbound content and return the first voice-note attachment. Photon maps
+ * an iMessage audio message to its own content type (`voice`, any `audio/*`
+ * mime), either bare or inside a text+voice group.
+ */
+export function findInboundVoice(content: {
+  type?: string
+  items?: Array<{ type?: string; content?: unknown }>
+  mimeType?: string
+  read?: () => Promise<Buffer>
+  [key: string]: unknown
+}): { read: () => Promise<Buffer>; mimeType: string } | null {
+  const walk = (c: {
+    type?: string
+    items?: Array<{ type?: string; content?: unknown }>
+    mimeType?: string
+    read?: () => Promise<Buffer>
+  }): { read: () => Promise<Buffer>; mimeType: string } | null => {
+    const audio = c.type === 'voice' || /^audio\//i.test(c.mimeType || '')
+    if (audio && typeof c.read === 'function') {
+      return { read: c.read as () => Promise<Buffer>, mimeType: c.mimeType || 'audio/mp4' }
+    }
+    if (c.type === 'group' && Array.isArray(c.items)) {
+      for (const item of c.items) {
+        const inner = item.content && typeof item.content === 'object' ? item.content : item
+        if (inner && typeof inner === 'object') {
+          const found = walk(inner as { type?: string; items?: Array<{ content?: unknown }>; mimeType?: string; read?: () => Promise<Buffer> })
+          if (found) return found
+        }
+      }
+    }
+    return null
+  }
+  return walk(content)
+}
+
+/** Transcribe one voice note through hire-api's internal STT route. The budget
+ * sits just past the route's own whisper timeout so its error is the one that
+ * surfaces instead of a client-side abort racing it. */
+async function transcribeVoiceNote(mimeType: string, audio: Buffer): Promise<{ text: string; ms: number } | null> {
+  const base = apiBase()
+  if (!base) return null
+  const res = await timedFetch(
+    `${base}/api/internal/transcribe`,
+    {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify({ audioBase64: audio.toString('base64'), mimeType }),
+    },
+    135_000,
+  )
+  if (!res.ok) {
+    const body = await res.text().catch(() => '')
+    console.warn(`[live] transcribe failed ${res.status}: ${body.slice(0, 160)}`)
+    return null
+  }
+  const data = (await res.json()) as { ok?: boolean; text?: string; ms?: number }
+  const text = String(data.text || '').trim()
+  if (!data.ok || !text) return null
+  return { text, ms: Number(data.ms) || 0 }
+}
+
+/**
+ * Handle an inbound voice note: read the audio, transcribe it, and hand the
+ * transcript back so the caller can run it as the user's own turn. Returns
+ * null when the message carries no audio or the transcript did not come back.
+ */
+export async function handleInboundVoice(
+  phone: string,
+  content: {
+    type?: string
+    items?: Array<{ type?: string; content?: unknown }>
+    mimeType?: string
+    read?: () => Promise<Buffer>
+    [key: string]: unknown
+  },
+): Promise<{ transcript: string; ms: number } | null> {
+  const voice = findInboundVoice(content)
+  if (!voice) return null
+  try {
+    const buf = await voice.read()
+    if (!buf || buf.length < 256) return null
+    const started = Date.now()
+    const heard = await transcribeVoiceNote(voice.mimeType, buf)
+    if (!heard) return null
+    console.log(
+      `[live] voice note from ${phone}: ${(buf.length / 1024).toFixed(0)}KB in ${Date.now() - started}ms (stt ${heard.ms}ms)`,
+    )
+    return { transcript: heard.text, ms: heard.ms }
+  } catch (err) {
+    console.warn('[live] voice note failed', err)
+    return null
+  }
+}
+
+/**
+ * Turn an inbound voice note into the user's own turn: the transcript becomes
+ * the ask, and the note tells the turn engine it was spoken so garbled names
+ * and numbers get confirmed instead of guessed. A typed caption riding along
+ * (iMessage text + voice group) is handed over as context. Null when there is
+ * no audio or it could not be transcribed.
+ */
+export async function resolveInboundVoiceTurn(
+  phone: string,
+  content: {
+    type?: string
+    items?: Array<{ type?: string; content?: unknown }>
+    mimeType?: string
+    read?: () => Promise<Buffer>
+    [key: string]: unknown
+  },
+): Promise<{ userText: string; note: string } | null> {
+  const heard = await handleInboundVoice(phone, content)
+  if (!heard) return null
+  const caption = extractMessageText(content)
+  const note = [
+    'The user sent this as a voice note; the message text is a transcription of what they said.',
+    'If a name, number, time, or place looks garbled, say what you heard and confirm it instead of guessing.',
+    caption ? `They also typed this alongside it: "${caption}"` : '',
+  ].filter(Boolean).join(' ')
+  return { userText: heard.transcript, note }
+}
+
 async function autoLogText<T extends { ok?: boolean; logged?: boolean; error?: string }>(
   path: string,
   phone: string,

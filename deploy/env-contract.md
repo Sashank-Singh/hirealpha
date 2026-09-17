@@ -27,6 +27,9 @@ infrastructure or is recorded **BLOCKED**. A skip is never a pass.
 | `MEM0_EMBED_DIMS` | same | `1024` | must match the model. Wrong dims = dimension errors on insert |
 | `MEM0_COLLECTION` | same | `hirealpha_memories` | the pgvector table name |
 | `MEM0_RECALL_TIMEOUT_MS` | same | `1500` | recall is best-effort; past this the turn proceeds without it rather than blocking a reply |
+| `STT_URL` | voice notes (bots → `/api/internal/transcribe`) and meeting memos (`/api/meetings/:id/transcribe`) | Coolify service `HireAlpha-Whisper` (`http://whisper-hkwfzdglv38jeqhzxys4xkvd:8000/v1`) | self-hosted speaches / faster-whisper-server, so it is infrastructure rather than a new subprocessor |
+| `STT_MODEL` | same | unset; defaults to `small` | any CTranslate2 whisper repo on Hugging Face. `Systran/faster-distil-whisper-small.en` is ~5x faster for English at similar accuracy, but the service downloads it on first use and holds it in RAM, so size the box before pinning it |
+| `STT_LANGUAGE` | same | unset; defaults to `en` | skipped automatically for `.en`-only models. Set it empty to let the model detect the language per clip |
 
 ## Deploy prerequisites for memory recall
 

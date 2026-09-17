@@ -3,7 +3,7 @@ import { effect, imessage } from '@spectrum-ts/imessage'
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { defaultReplyCard, getAgent, runHireTurn, runMemoryMaintenance, sanitizeOutbound } from '../../shared/runHireTurn'
-import { extractMessageText, fetchLiveProfile, handleInboundPhoto } from '../../shared/liveContext'
+import { extractMessageText, fetchLiveProfile, findInboundVoice, handleInboundPhoto, resolveInboundVoiceTurn } from '../../shared/liveContext'
 import { mintMiniAppCard, onboardingCard } from '../../shared/miniApps'
 import { claimInbound } from '../../shared/inboundGuard'
 import { onceAsync } from '../../shared/delivery'
@@ -322,6 +322,11 @@ async function handleIncoming([space, message]: Incoming, combinedText?: string)
       }
       return
     }
+    // Voice note: transcribe it and run it as the user's own turn.
+    if (findInboundVoice(message.content)) {
+      await runTurn(space, message, senderId, () => resolveInboundVoiceTurn(senderId, message.content))
+      return
+    }
     try {
       const photoReply = await handleInboundPhoto(senderId, agent.id, message.content)
       const photoText = extractMessageText(message.content)
@@ -388,46 +393,93 @@ async function handleIncoming([space, message]: Incoming, combinedText?: string)
   const userText = combinedText ?? message.content.text.trim()
   if (!userText) return
   const senderId = message.sender?.id ?? space.id
-  console.log(`[${agent.id}] inbound from ${senderId}: ${userText.slice(0, 120)}`)
+  await runTurn(space, message, senderId, userText)
+}
 
+type SpaceLike = {
+  id: string
+  send: (content: ContentInput) => Promise<unknown>
+  responding: <T>(fn: () => T | Promise<T>) => Promise<T>
+}
+type MessageLike = {
+  reply: (content: ContentInput) => Promise<unknown>
+  react: (value: string) => Promise<unknown>
+}
+
+/** A turn's user text: a typed message, or a voice note whose transcript has
+ * to be fetched first. Lazy so the transcription can run inside the responding
+ * block and the typing indicator covers the wait. */
+type TurnInput = string | (() => Promise<{ userText: string; note?: string } | null>)
+
+/**
+ * Run one inbound user turn and deliver it: tapback rhythm, retry past
+ * Photon's new-user gate, bubble pacing, the mini-app card, and the eval log.
+ * Typed messages and transcribed voice notes both land here, so a voice note
+ * gets exactly the same treatment as a typed ask.
+ */
+async function runTurn(
+  space: SpaceLike,
+  message: MessageLike,
+  senderId: string,
+  turn: TurnInput,
+): Promise<void> {
+  let sentAnything = false
+  let progressTexts = 0
   let reacted = false
-  const startReaction = determineInboundReaction({ dataDir, senderId, userText })
-  // A live conversation still gets tapbacks, just not every turn: the rhythm
-  // counts inbound turns and spends one every few. An opening reaction restarts
-  // the count so the next mid-thread one is never back-to-back with it.
-  const smartReaction = startReaction ?? tapbackRhythm.note(senderId, userText)
-  if (startReaction) tapbackRhythm.reset(senderId)
-  if (smartReaction) {
-    reacted = true
-    console.log(`[${agent.id}] smart reaction to ${senderId}: ${smartReaction}`)
-    message.react(smartReaction).catch(err => console.warn(`[${agent.id}] initial react failed:`, err))
-  }
+
+  // Resolution, the opening tapback, and the turn itself all sit inside one
+  // once-guard: respondWithRetry replays the body after Photon's new-user gate,
+  // and a replayed voice note must not be transcribed or reacted to twice.
+  const getTurn = onceAsync(async () => {
+    const resolved = typeof turn === 'string' ? { userText: turn, note: undefined } : await turn()
+    if (!resolved) return null
+    const { userText, note } = resolved
+    console.log(`[${agent.id}] inbound from ${senderId}: ${userText.slice(0, 120)}`)
+
+    const startReaction = determineInboundReaction({ dataDir, senderId, userText })
+    // A live conversation still gets tapbacks, just not every turn: the rhythm
+    // counts inbound turns and spends one every few. An opening reaction restarts
+    // the count so the next mid-thread one is never back-to-back with it.
+    const smartReaction = startReaction ?? tapbackRhythm.note(senderId, userText)
+    if (startReaction) tapbackRhythm.reset(senderId)
+    if (smartReaction) {
+      reacted = true
+      console.log(`[${agent.id}] smart reaction to ${senderId}: ${smartReaction}`)
+      message.react(smartReaction).catch(err => console.warn(`[${agent.id}] initial react failed:`, err))
+    }
+
+    const result = await runHireTurn({ agentId, dataDir, senderId, userText, ...(note ? { inboundNote: note } : {}), delivery: {
+      onProgress: async text => {
+        const clean = sanitizeOutbound(text)
+        if (!clean) throw new Error('Progress text was filtered')
+        // Mark attempted before sending: ambiguous delivery must not restart work.
+        sentAnything = true
+        await space.send(styledText(clean))
+        progressTexts++
+      },
+      onReaction: reaction => {
+        if (reacted) return Promise.resolve()
+        return reactOccasionally(JSON.stringify([space.id, senderId]), reaction, value => {
+          reacted = true
+          return message.react(value)
+        })
+      },
+    } })
+    return { ...result, userText }
+  })
 
   try {
-    let sentAnything = false
-    let progressTexts = 0
-    const getTurn = onceAsync(() =>
-      runHireTurn({ agentId, dataDir, senderId, userText, delivery: {
-        onProgress: async text => {
-          const clean = sanitizeOutbound(text)
-          if (!clean) throw new Error('Progress text was filtered')
-          // Mark attempted before sending: ambiguous delivery must not restart work.
-          sentAnything = true
-          await space.send(styledText(clean))
-          progressTexts++
-        },
-        onReaction: reaction => {
-          if (reacted) return Promise.resolve()
-          return reactOccasionally(JSON.stringify([space.id, senderId]), reaction, value => {
-            reacted = true
-            return message.react(value)
-          })
-        },
-      } }),
-    )
     await respondWithRetry(space, () => sentAnything, async () => {
       const t0 = Date.now()
-      const { bubbles, source, authoritative, reply, card, contactCardFirst } = await getTurn()
+      const turnResult = await getTurn()
+      if (!turnResult) {
+        // A voice note we could not transcribe: ask for it again rather than
+        // running a turn on an empty ask.
+        await message.reply(styledText("That voice note didn't come through. Send it again, or just type it?"))
+        sentAnything = true
+        return
+      }
+      const { bubbles, source, authoritative, reply, card, contactCardFirst, userText } = turnResult
       const texts = bubbles.map((b) => sanitizeOutbound(b)).filter(Boolean)
       if (!texts.length) {
         if (card) {
@@ -519,6 +571,11 @@ for await (const incoming of app.messages) {
     const text = message.content.type === 'text' ? message.content.text.trim() : ''
     if (!text || !claimInbound(senderId, text, message.id)) continue
     // Acknowledge receipt immediately; response generation waits for the burst.
+    void message.read().catch(() => undefined)
+  } else if (findInboundVoice(message.content)) {
+    // A voice note is a real ask: claim it so a redelivery can't be
+    // transcribed and answered twice, and read it so the sender sees it land.
+    if (!claimInbound(senderId, '', message.id)) continue
     void message.read().catch(() => undefined)
   }
   bursts.enqueue(JSON.stringify([space.id, senderId]), incoming, isText)

@@ -238,3 +238,77 @@ describe('/api/internal/digest', () => {
     expect(data.text).toContain('Morning')
   })
 })
+
+describe('/api/internal/transcribe', () => {
+  const realFetch = globalThis.fetch
+
+  afterEach(() => {
+    globalThis.fetch = realFetch
+  })
+
+  function stubWhisper(responder: () => Response) {
+    const bodies: Array<{ url: string; model: string }> = []
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const form = init?.body as FormData
+      bodies.push({ url: String(input), model: String(form.get('model')) })
+      return responder()
+    }) as typeof fetch
+    return bodies
+  }
+
+  function request(body: unknown, token = 'test-key') {
+    return new Request('https://hirealpha.chat/api/internal/transcribe', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify(body),
+    })
+  }
+
+  it('refuses without the internal key', async () => {
+    process.env.HIREALPHA_INTERNAL_KEY = 'test-key'
+    const { sql } = fakeSql(rowsForUsers)
+    const res = await handleHireApi(request({ audioBase64: 'AAAA' }, 'wrong-key'), sql as never)
+    expect(res?.status).toBe(401)
+  })
+
+  it('returns the transcript for a voice note', async () => {
+    process.env.HIREALPHA_INTERNAL_KEY = 'test-key'
+    process.env.STT_URL = 'http://whisper.test:8000/v1'
+    const bodies = stubWhisper(() => Response.json({ text: 'book the earliest slot' }))
+    const { sql } = fakeSql(rowsForUsers)
+    const res = await handleHireApi(
+      request({ audioBase64: Buffer.alloc(2048, 3).toString('base64'), mimeType: 'audio/mp4' }),
+      sql as never,
+    )
+    expect(res?.status).toBe(200)
+    const data = (await res?.json()) as { ok?: boolean; text?: string; ms?: number }
+    expect(data.ok).toBe(true)
+    expect(data.text).toBe('book the earliest slot')
+    expect(typeof data.ms).toBe('number')
+    expect(bodies[0]!.url).toBe('http://whisper.test:8000/v1/audio/transcriptions')
+  })
+
+  it('rejects a payload too small to be a voice note', async () => {
+    process.env.HIREALPHA_INTERNAL_KEY = 'test-key'
+    const bodies = stubWhisper(() => Response.json({ text: 'never reached' }))
+    const { sql } = fakeSql(rowsForUsers)
+    const res = await handleHireApi(request({ audioBase64: Buffer.alloc(8).toString('base64') }), sql as never)
+    expect(res?.status).toBe(400)
+    expect(bodies).toHaveLength(0)
+  })
+
+  it('answers 502 when whisper refuses, so the bot can ask for a resend', async () => {
+    process.env.HIREALPHA_INTERNAL_KEY = 'test-key'
+    process.env.STT_URL = 'http://whisper.test:8000/v1'
+    stubWhisper(() => new Response('model unavailable', { status: 503 }))
+    const { sql } = fakeSql(rowsForUsers)
+    const res = await handleHireApi(
+      request({ audioBase64: Buffer.alloc(2048, 3).toString('base64'), mimeType: 'audio/mp4' }),
+      sql as never,
+    )
+    expect(res?.status).toBe(502)
+    const data = (await res?.json()) as { ok?: boolean; error?: string }
+    expect(data.ok).toBe(false)
+    expect(data.error).toContain('Whisper 503')
+  })
+})

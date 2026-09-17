@@ -1,4 +1,7 @@
 import { webSearchContext } from './webSearch'
+/* Speech to text lives in its own module: one place that owns STT_URL, the
+ * model, and the fallback for when the configured model cannot be loaded. */
+import { transcribeAudio } from './stt'
 /**
  * HireAlpha live config + connectors API (Postgres).
  * Dashboard writes here. iMessage bots read here.
@@ -3901,39 +3904,6 @@ async function estimateNutrition(
   }
 }
 
-/**
- * Self-hosted speech-to-text (faster-whisper-server, OpenAI-compatible).
- * Configure via STT_URL (defaults to an internal whisper service name on the
- * Coolify network) and STT_MODEL. Returns transcription text or throws.
- */
-async function transcribeAudio(mimeType: string, audioBytes: Uint8Array): Promise<{ text: string }> {
-  const baseUrl = (process.env.STT_URL || 'http://whisper-hkwfzdglv38jeqhzxys4xkvd:8000/v1').replace(/\/$/, '')
-  const model = process.env.STT_MODEL || 'small'
-  const ctrl = new AbortController()
-  const t = setTimeout(() => ctrl.abort(), 120_000)
-  try {
-    const form = new FormData()
-    const ext = mimeType.includes('mpeg') ? 'mpeg' : mimeType.includes('webm') ? 'webm' : 'm4a'
-    form.append('file', new Blob([Uint8Array.from(audioBytes)], { type: mimeType }), `voice.${ext}`)
-    form.append('model', model)
-    const res = await fetch(`${baseUrl}/audio/transcriptions`, {
-      method: 'POST',
-      body: form,
-      signal: ctrl.signal,
-    })
-    if (!res.ok) {
-      const t2 = await res.text().catch(() => '')
-      throw new Error(`Whisper ${res.status}: ${t2.slice(0, 160)}`)
-    }
-    const data = (await res.json()) as { text?: string }
-    const text = String(data.text || '').trim()
-    if (!text) throw new Error('Whisper returned empty transcript')
-    return { text }
-  } finally {
-    clearTimeout(t)
-  }
-}
-
 export type MemoryRow = { key: string; value: string; durable: boolean; updatedAt?: string }
 
 /**
@@ -5037,6 +5007,27 @@ function normalizeGmailQuery(raw: string): string {
  * those accounts show an empty inbox on home and in the brief while Settings
  * says Gmail is connected.
  */
+/**
+ * Gmail access for the read paths, with one retry after a short beat.
+ *
+ * A cold token refresh can outlive any wait worth putting on a page load, and
+ * the request it started keeps running and writes the new row — so the second
+ * look usually finds a warm token. Without the retry that race hands the whole
+ * read to the connector, which spikes to 6-8s under load and then times out,
+ * and the caller sees an empty inbox. Accounts with no Google row at all pay
+ * one indexed lookup and nothing else.
+ */
+async function gmailAccess(sql: SQL, userId: string): Promise<string | null> {
+  const access = await withTimeout(googleAccessToken(sql, userId, 'gmail'), 3000, null)
+  if (access) return access
+  const rows = (await sql`
+    SELECT 1 FROM hire_google_tokens WHERE user_id = ${userId} LIMIT 1
+  `.catch(() => [])) as unknown[]
+  if (!rows.length) return null
+  await new Promise((resolve) => setTimeout(resolve, 600))
+  return withTimeout(googleAccessToken(sql, userId, 'gmail'), 3000, null)
+}
+
 async function loadGmailRich(
   sql: SQL,
   userId: string,
@@ -5047,7 +5038,7 @@ async function loadGmailRich(
   // the connector, not surface as an empty read. The caller caps the whole
   // block at 12s.
   try {
-    const access = await withTimeout(googleAccessToken(sql, userId, 'gmail'), 3000, null)
+    const access = await gmailAccess(sql, userId)
     if (access) {
       // The Google path is a list call plus one header fetch per message, run
       // in parallel, so a wider read costs round-trips rather than a queue.
@@ -5071,7 +5062,7 @@ async function loadGmailRich(
 
 async function loadGmail(sql: SQL, userId: string, query: string, maxResults = 8): Promise<string> {
   try {
-    const access = await withTimeout(googleAccessToken(sql, userId, 'gmail'), 3000, null)
+    const access = await gmailAccess(sql, userId)
     if (access) {
       const out = await withTimeout(fetchGmail(access, query, maxResults), 5000, '')
       if (out && !/^Gmail error \d/.test(out)) return out
@@ -7507,6 +7498,40 @@ async function digestPayload(
   const judgeVerdicts = mail.verdicts
   finalEmailItems = mailGroups.flatMap((g) => g.items)
   finalEmails = finalEmailItems.map((e) => e.label)
+
+  if (!finalEmails.length) {
+    // A first read that comes back empty is usually a lost race, not an empty
+    // inbox: the token refresh it started keeps running, so seconds later the
+    // same read lands. Retry that before falling to the text-only scan below —
+    // only this path hands back Gmail message ids, and an id is what makes a
+    // row openable and its Draft reply button real.
+    try {
+      const retry = await withTimeout(
+        loadGmailRich(sql, user.id, importantMailQuery('3d'), JUDGE_MAIL_CAP),
+        9000,
+        [] as Array<{ id: string; from: string; date: string; subject: string; snippet: string }>,
+      )
+      if (retry.length) {
+        const done = await triagedMailIds(sql, user.id).catch(() => new Set<string>())
+        const grouped = groupBriefMail(retry.filter((m) => !done.has(m.id)))
+        mailGroups = grouped.map((g) => ({
+          kind: g.kind,
+          label: g.label,
+          count: g.count,
+          items: g.items.map((m) => ({
+            id: m.id,
+            label: formatMailLineFromParts(m.from, m.subject),
+            snippet: m.snippet,
+          })),
+        }))
+        mailTallyLine = mailTally(grouped)
+        finalEmailItems = mailGroups.flatMap((g) => g.items)
+        finalEmails = finalEmailItems.map((e) => e.label)
+      }
+    } catch {
+      // best-effort; the text scan below is the last resort
+    }
+  }
 
   if (!finalEmails.length) {
     try {
@@ -14005,6 +14030,30 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
       return json({ error: 'phone and persona required' }, 400)
     }
     return json(await touchInbound(sql, body.phone, body.persona))
+  }
+
+  // Speech to text for the bots: an inbound iMessage voice note is transcribed
+  // here rather than in each bot process, so the whisper endpoint and model are
+  // configured in exactly one place (see transcribeAudio).
+  if (path === '/api/internal/transcribe' && req.method === 'POST') {
+    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
+    const body = (await req.json().catch(() => ({}))) as {
+      audioBase64?: string
+      mimeType?: string
+    }
+    const audio = body.audioBase64 ? Buffer.from(body.audioBase64, 'base64') : null
+    if (!audio || audio.length < 256) return json({ error: 'audio is required' }, 400)
+    const started = Date.now()
+    try {
+      const { text } = await transcribeAudio(body.mimeType || 'audio/mp4', audio)
+      const ms = Date.now() - started
+      console.log(`[stt] transcribed ${audio.length} bytes in ${ms}ms`)
+      return json({ ok: true, text, ms })
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      console.error(`[stt] transcribe failed after ${Date.now() - started}ms: ${msg}`)
+      return json({ ok: false, error: msg.slice(0, 200) }, 502)
+    }
   }
 
   if (path === '/api/internal/memory' && req.method === 'POST') {
