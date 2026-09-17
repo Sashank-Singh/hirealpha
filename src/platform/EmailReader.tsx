@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent, type KeyboardEvent } from 'react'
 import type { MailMessage, ReplyDraft } from './api'
 import { apiDraftNewEmail, apiGetMailMessage, apiRewriteDraft, apiSaveGmailDraft, apiSendDraft } from './api'
 import type { FeatureAuth } from './FeatureMiniApps'
+import { cleanEmailBody, htmlIsPlainText, htmlToText, renderRichText } from './mailText'
 import { useStableAuth } from './useStableAuth'
 
 /** Strip dangerous HTML constructs from an email body before rendering. */
@@ -40,99 +41,6 @@ function fmtEmailFrom(raw: string | undefined): string {
   if (!raw) return ''
   const name = raw.replace(/<[^>]+>/g, '').trim()
   return name || raw
-}
-
-const EMAIL_ENTITIES: Record<string, string> = {
-  amp: '&',
-  lt: '<',
-  gt: '>',
-  quot: '"',
-  nbsp: ' ',
-  apos: "'",
-}
-
-function decodeEntities(text: string): string {
-  return text
-    .replace(/&#(\d+);/g, (_, n) => String.fromCodePoint(Number(n)))
-    .replace(/&#x([0-9a-f]+);/gi, (_, n) => String.fromCodePoint(parseInt(n, 16)))
-    .replace(/&([a-z]+);/gi, (m, name) => EMAIL_ENTITIES[String(name).toLowerCase()] ?? m)
-}
-
-/**
- * Plain-text mail arrives full of client artifacts: inline image refs, URLs the
- * client already linkified wrapped in angle brackets, HTML entities, and the
- * double blank lines Outlook inserts between every paragraph. Clean those so a
- * thread reads like something a person wrote.
- */
-function cleanEmailBody(text: string): string {
-  return decodeEntities(text)
-    .replace(/\[cid:[^\]]+\]/g, '')
-    .replace(/(\b[\w.-]+\.[a-z]{2,}(?:\/\S*)?)<(https?:\/\/[^>]+)>/gi, '$2')
-    .replace(/[ \t]+\n/g, '\n')
-    .replace(/\n{3,}/g, '\n\n')
-    .replace(/^\s+|\s+$/g, '')
-}
-
-/** Plain-text emails read as a wall of markdown. Escape, then lift the common
- * shapes — bold, italics, links, bullets, quotes, headings — into real HTML so
- * the reader renders them like a person wrote them. Everything else stays text. */
-function renderRichText(raw: string): string {
-  const esc = (v: string) =>
-    v.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-  const inline = (v: string) =>
-    esc(v)
-      .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>')
-      .replace(/(^|[\s(])((?:https?:\/\/)[^\s<)"']+)/g, '$1<a href="$2" target="_blank" rel="noopener noreferrer">$2</a>')
-      .replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>')
-      .replace(/(^|[\s*_])_([^_\n]+)_(?=[\s.,!?]|$)/g, '$1<em>$2</em>')
-      .replace(/`([^`\n]+)`/g, '<code>$1</code>')
-  const out: string[] = []
-  let inList = false
-  let inQuote = false
-  const closeList = () => { if (inList) { out.push('</ul>'); inList = false } }
-  const closeQuote = () => { if (inQuote) { out.push('</blockquote>'); inQuote = false } }
-  // Reply chains (On … wrote: + the quoted block after) and trailing
-  // signature blocks add noise, not content. The opening message is what the
-  // reader is for; drop everything after a quoted-header line.
-  const bodyLines = cleanEmailBody(raw).split('\n')
-  let cut = bodyLines.length
-  for (let i = 0; i < bodyLines.length; i++) {
-    const t = bodyLines[i]!.trim()
-    if (/^On\b.+\bwrote:$/i.test(t) || /^[_\-]{2,}\s*(from:)/i.test(t) || /^>\s{0,3}On .+wrote:$/i.test(t)) {
-      cut = i
-      break
-    }
-  }
-  for (let i = 0; i < cut; i++) {
-    const line = bodyLines[i]!
-    const t = line.trim()
-    if (!t) { closeList(); closeQuote(); continue }
-    // Quoted-forwarded lines inside the opening message get dimmed, not dropped.
-    if (/^>/.test(t)) {
-      out.push('<p class="emq">' + inline(t.replace(/^>\s*/, '')) + '</p>')
-      continue
-    }
-    const h = /^(#{1,4})\s+(.*)$/.exec(t)
-    if (h) { closeList(); closeQuote(); out.push(`<strong class="rt-h">${inline(h[2])}</strong>`); continue }
-    const li = /^(?:[-*•]|\d+[.)])\s+(.*)$/.exec(t)
-    if (li) {
-      closeQuote()
-      if (!inList) { out.push('<ul class="rt-list">'); inList = true }
-      out.push(`<li>${inline(li[1])}</li>`)
-      continue
-    }
-    const q = /^>\s?(.*)$/.exec(t)
-    if (q) {
-      closeList()
-      if (!inQuote) { out.push('<blockquote class="rt-quote">'); inQuote = true }
-      out.push(`<div>${inline(q[1])}</div>`)
-      continue
-    }
-    closeList(); closeQuote()
-    out.push(`<p class="rt-p">${inline(t)}</p>`)
-  }
-  closeList(); closeQuote()
-  return out.join('')
 }
 
 /** Quick ways to have Alpha rework the reply; each maps to a natural instruction. */
@@ -311,6 +219,11 @@ export function EmailReader({ messageId, label, summary, auth, persona, onClose,
 
   const sanitizedHtml = msg?.ok && msg.bodyHtml ? sanitizeEmailHtml(msg.bodyHtml) : ''
   const bodyText = msg?.ok ? (msg.bodyText || '') : ''
+  // A mail-merge HTML part is often one wrapping element around the same
+  // markdown-ish text as the plain part ("*About Micro1:*", "<https://…>").
+  // Reading that as HTML shows the artifacts; read it as text instead.
+  const blankHtml = !!sanitizedHtml && htmlIsPlainText(sanitizedHtml)
+  const richText = bodyText || (blankHtml ? htmlToText(sanitizedHtml) : '')
   const connectHref = `/app/hires/${persona || 'friend'}`
 
   return (
@@ -454,16 +367,16 @@ export function EmailReader({ messageId, label, summary, auth, persona, onClose,
                 <span className="email-reader-date">{fmtEmailDate(msg.date)}</span>
               )}
             </div>
-            {sanitizedHtml ? (
+            {sanitizedHtml && !blankHtml ? (
               <div
                 className="email-reader-html"
                 // biome-ignore lint/security/noDangerouslySetInnerHtml: sanitized above
                 dangerouslySetInnerHTML={{ __html: sanitizedHtml }}
               />
-            ) : bodyText ? (
+            ) : richText ? (
               <div
                 className="email-reader-html email-reader-text-html"
-                dangerouslySetInnerHTML={{ __html: renderRichText(bodyText) }}
+                dangerouslySetInnerHTML={{ __html: renderRichText(richText) }}
               />
             ) : msg.snippet ? (
               <p className="email-reader-text">{cleanEmailBody(msg.snippet)}</p>

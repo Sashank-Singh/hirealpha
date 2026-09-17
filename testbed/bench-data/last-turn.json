@@ -1,22 +1,25 @@
 {
   "dim": "",
   "phone": "+12163032166",
-  "userText": "any important emails today?",
+  "userText": "Remind me to call mom at 6.",
   "bubbles": [
-    "Quick heads up: the search on Alleviate Health didn't surface anything useful, it returned unrelated healthcare stories (Atul Gawande's old venture, AllizHealth, etc.), so I can't give you verified background on the company or Devi Dasgupta from that.\n\nWhat I do have from your inbox: the interview is confirmed today at 12:30 PM (reminder from Cal.com, subject: *Founding Engineer @ Alleviate Health between Devi Dasgupta and Sashank Singh*).\n\nWant me to try a more targeted search (e.g., \"Alleviate Health\" + Devi Dasgupta), or dig through the original Cal.com invite for any attached context? I can also draft a quick thank you or prep note either way.\n\nhttps://bigwire.in/2018/06/23/who-is-dr-atul-gawande/\n\nhttps://h2i.utoronto.ca/event/femstem-2025-kickoff-panel/"
+    "The direct reminder didn't save on my end, so I set it up as a calendar event instead: Call mom, today at 6:00 PM. It's waiting on your review card, tap Book and it's locked in, and your calendar will ping you at 6."
   ],
-  "reply": "Quick heads up: the search on Alleviate Health didn't surface anything useful, it returned unrelated healthcare stories (Atul Gawande's old venture, AllizHealth, etc.), so I can't give you verified background on the company or Devi Dasgupta from that.\n\nWhat I do have from your inbox: the interview is confirmed today at 12:30 PM (reminder from Cal.com, subject: *Founding Engineer @ Alleviate Health between Devi Dasgupta and Sashank Singh*).\n\nWant me to try a more targeted search (e.g., \"Alleviate Health\" + Devi Dasgupta), or dig through the original Cal.com invite for any attached context? I can also draft a quick thank you or prep note either way.\n\nhttps://bigwire.in/2018/06/23/who-is-dr-atul-gawande/\n\nhttps://h2i.utoronto.ca/event/femstem-2025-kickoff-panel/",
+  "reply": "The direct reminder didn't save on my end, so I set it up as a calendar event instead: Call mom, today at 6:00 PM. It's waiting on your review card, tap Book and it's locked in, and your calendar will ping you at 6.",
   "source": "gmi",
   "authoritative": [
     "proactive",
     "hasVault",
     "vaultOrigins"
   ],
-  "card": null,
+  "card": {
+    "url": "https://hirealpha.chat/app/mini/friend/home?draft=f1727cf1-283c-4b75-af9e-a0b5d3ba84a1",
+    "live": false
+  },
   "contactCardFirst": false,
   "progress": [
-    "I’m checking your email for this."
+    "I’m working through your request."
   ],
   "reactions": [],
-  "totalMs": 66242
+  "totalMs": 53229
 }

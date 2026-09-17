@@ -639,7 +639,7 @@ export function BuildsApp({ auth, persona }: { auth: FeatureAuth; persona: Agent
           <span className="ma-callout-kicker">Build on demand</span>
           <strong>Nothing built yet</strong>
           <span className="ma-sub">
-            Ask Alpha: <em>&ldquo;build a flappy bird game&rdquo;</em> or <em>&ldquo;make a habit tracker&rdquo;</em>. Alpha writes the code, tests it in the sandbox, delivers a live link in chat, and saves it right here.
+            Ask Alpha: <em>&ldquo;build a ping pong game&rdquo;</em> or <em>&ldquo;make a habit tracker&rdquo;</em>. Alpha writes the code, tests it in the sandbox, delivers a live link in chat, and saves it right here.
           </span>
           <div className="ma-callout-actions">
             <a className="ma-btn" href="sms:+14155951440&body=Build%20a%20game">Text Alpha to build</a>

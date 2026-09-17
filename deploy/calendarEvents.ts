@@ -326,6 +326,45 @@ export function isPersonMeetSuggestion(e: {
   return true
 }
 
+/** Capitalized name-ish token: "Amy", "O'Brien", "Anne-Marie". */
+const NAME_TOKEN = /^[A-Z][\p{L}'’.-]*$/u
+/** Lowercase particles that sit inside real names. */
+const NAME_PARTICLE =
+  /^(?:de|del|della|der|den|van|von|la|le|los|las|dos|da|di|du|st|bin|ibn|al|el|y|e|ter|ten)$/i
+/** Capitalized words that show up in event titles but are never a person. */
+const NOT_A_NAME_WORD = new Set([
+  'more', 'less', 'others', 'everyone', 'everybody', 'anyone', 'someone', 'nobody', 'all', 'both',
+  'team', 'folks', 'people', 'guests', 'staff', 'family', 'friends', 'public',
+  'info', 'details', 'updates', 'news', 'agenda', 'recap', 'notes', 'highlights',
+  'food', 'drinks', 'snacks', 'coffee', 'brunch', 'happy', 'hour', 'party', 'trivia',
+  'mixer', 'networking', 'panel', 'workshop', 'session', 'training', 'games', 'prizes',
+  'fun', 'free', 'rsvp', 'tbd', 'etc', 'and', 'plus',
+])
+
+/**
+ * Does a fragment read as a person's name? "Amy Black" and "van der Berg" do,
+ * the tail of "AI Trivia - Video, Agents, and More" does not. Titles are prose
+ * far more often than they are two attendees, so the and-split below only keeps
+ * a side that survives this test.
+ */
+export function looksLikePersonName(value: string): boolean {
+  const v = String(value || '').trim().replace(/[.!?]+$/, '')
+  if (!v || v.length > 48) return false
+  if (/[0-9,;:/\\()[\]{}@<>|"“”]/.test(v)) return false
+  if (/\s[-–—]\s/.test(v)) return false
+  const words = v.split(/\s+/).filter(Boolean)
+  if (!words.length || words.length > 4) return false
+  for (const w of words) {
+    if (NAME_TOKEN.test(w) || NAME_PARTICLE.test(w)) continue
+    return false
+  }
+  if (words.length === 1) {
+    const lone = words[0]!.toLowerCase()
+    if (NOT_A_NAME_WORD.has(lone) || NOT_A_PERSON.test(lone)) return false
+  }
+  return true
+}
+
 /**
  * Given a calendar title like "Sashank Singh and Amy Black, 12:30pm"
  * and the user's own display name, extract only the other person's name.
@@ -338,6 +377,10 @@ export function extractOtherPerson(title: string, myName: string | null): string
     .replace(/\s+at\s+.+$/i, '')
     .trim()
 
+  const withoutPrefix = clean
+    .replace(/^(?:meet(?:ing)?(?:\s+with)?|call(?:\s+with)?|coffee\s+with|lunch\s+with|dinner\s+with)\s+/i, '')
+    .trim() || clean
+
   const andMatch = clean.match(/^(.+?)\s+and\s+(.+)$/i)
   if (andMatch) {
     const left = andMatch[1]!.trim()
@@ -347,12 +390,15 @@ export function extractOtherPerson(title: string, myName: string | null): string
       if (left.toLowerCase().startsWith(myFirst)) return right
       if (right.toLowerCase().startsWith(myFirst)) return left
     }
-    return right
+    // Neither side is the user, so this is two people only if a side reads as a
+    // name — "AI Trivia - Video, Agents, and More" is a title, and calling it
+    // "More" is how a real event ends up named after its last word.
+    if (looksLikePersonName(right)) return right
+    if (looksLikePersonName(left)) return left
+    return withoutPrefix
   }
 
-  return clean
-    .replace(/^(?:meet(?:ing)?(?:\s+with)?|call(?:\s+with)?|coffee\s+with|lunch\s+with|dinner\s+with)\s+/i, '')
-    .trim() || clean
+  return withoutPrefix
 }
 
 /** Timed events through 8:00 PM local. All day stays. */

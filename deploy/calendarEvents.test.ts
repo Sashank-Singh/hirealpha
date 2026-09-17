@@ -9,6 +9,7 @@ import {
   isHotelStayEvent,
   isPersonMeetSuggestion,
   isWalkIn,
+  looksLikePersonName,
   parseComposioCalendarData,
   parseFormattedEventLine,
   parseGoogleCalendarItems,
@@ -117,6 +118,40 @@ describe('extractOtherPerson', () => {
 
   it('returns right side when no myName given', () => {
     expect(extractOtherPerson('Alice and Bob', null)).toBe('Bob')
+  })
+
+  it('keeps the whole title when "and" joins prose, not people', () => {
+    expect(extractOtherPerson('AI Trivia - Video, Agents, and More', 'Sashank Singh')).toBe(
+      'AI Trivia - Video, Agents, and More',
+    )
+    expect(extractOtherPerson('Trivia and More', null)).toBe('Trivia and More')
+    expect(extractOtherPerson('Standup and Coffee', 'Sashank Singh')).toBe('Standup and Coffee')
+  })
+
+  it('takes the name side when only one side is a person', () => {
+    expect(extractOtherPerson('Maria and the Q3 planning session', null)).toBe('Maria')
+    expect(extractOtherPerson('Dinner with Amy and Bob', null)).toBe('Bob')
+  })
+
+  it('still resolves the user side on prose titles', () => {
+    expect(extractOtherPerson('Sashank Singh and the recruiting team', 'Sashank Singh')).toBe('the recruiting team')
+  })
+})
+
+describe('looksLikePersonName', () => {
+  it('accepts plain and decorated names', () => {
+    expect(looksLikePersonName('Amy Black')).toBe(true)
+    expect(looksLikePersonName('McKenley')).toBe(true)
+    expect(looksLikePersonName("O'Brien")).toBe(true)
+    expect(looksLikePersonName('van der Berg')).toBe(true)
+  })
+
+  it('rejects title text, lists, and non-name words', () => {
+    expect(looksLikePersonName('AI Trivia - Video, Agents,')).toBe(false)
+    expect(looksLikePersonName('the Q3 planning session')).toBe(false)
+    expect(looksLikePersonName('More')).toBe(false)
+    expect(looksLikePersonName('Lunch')).toBe(false)
+    expect(looksLikePersonName('one two three four five')).toBe(false)
   })
 })
 

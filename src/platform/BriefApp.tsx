@@ -17,6 +17,7 @@ import {
   type SleepNight,
 } from './api'
 import type { FeatureAuth } from './FeatureMiniApps'
+import { isOpenableMail, mailScanOnlyFrom } from './briefMail'
 import {
   firstName,
   isNoiseReminder,
@@ -342,7 +343,7 @@ function NeedsYouRow({
 }) {
   const [busy, setBusy] = useState(false)
   const bits = mailBits(item.label)
-  const tappable = !!(item.id && !item.id.startsWith('text-'))
+  const tappable = isOpenableMail(item.id)
 
   const fail = (err: unknown) => {
     notify(err instanceof Error && err.message ? err.message : 'Could not reach Alpha just now')
@@ -418,7 +419,7 @@ function PileRow({
 }) {
   const [busy, setBusy] = useState(false)
   const [gone, setGone] = useState(false)
-  const tappable = !!(e.id && !e.id.startsWith('text-'))
+  const tappable = isOpenableMail(e.id)
   const bits = mailBits(e.label)
   if (gone) return null
 
@@ -803,6 +804,8 @@ export function BriefApp({
   const [, setPeople] = useState<NetworkPerson[]>([])
   const [todayMeets, setTodayMeets] = useState<NetworkToday[]>([])
   const [needsYou, setNeedsYou] = useState<NeedsYouItem[]>([])
+  /** Mail came back as a text-only scan: real senders, no messages behind them. */
+  const [mailScanOnly, setMailScanOnly] = useState(false)
   const [reminders, setReminders] = useState<Array<{ id?: string; time?: string; text?: string }>>([])
   const [carry, setCarry] = useState<CarryOverItem[]>([])
   const [openPiles, setOpenPiles] = useState<Set<string>>(new Set())
@@ -866,7 +869,14 @@ export function BriefApp({
     const raw = data?.story?.needsYou || data?.needsYou || []
     // Promote any reply group items from mailGroups so emails needing reply are never buried in bottom trays
     const replyGroup = (data?.story?.mailGroups || data?.mailGroups || []).find((g) => g.kind === 'reply')
-    const replyItems: NeedsYouItem[] = (replyGroup?.items || []).map((m) => ({
+    /* One run of the mail read comes back as a text-only scan when Gmail will
+     * not answer. Those rows have no message behind them, so promoting them
+     * would fill this list with rows that say "waiting on you", open nothing,
+     * and offer no reply. Nothing judged them either. Say so instead. */
+    const scanOnly = mailScanOnlyFrom(data?.story?.mailGroups || data?.mailGroups)
+    setMailScanOnly(scanOnly)
+    const promotableItems = scanOnly ? [] : replyGroup?.items || []
+    const replyItems: NeedsYouItem[] = promotableItems.map((m) => ({
       id: m.id,
       label: m.label,
       snippet: m.snippet,
@@ -1050,7 +1060,7 @@ export function BriefApp({
    * yet, so both lists render nothing and today's screens stay as they were. */
   const upNext = (data?.meetings || []).slice(0, 5)
   const attention = !isEvening ? data?.attention || null : null
-  const attentionTappable = !!(attention && attention.id && !attention.id.startsWith('text-'))
+  const attentionTappable = !!attention && isOpenableMail(attention.id)
 
   const openFirstMail = () => {
     const first = needsYou[0]
@@ -1138,6 +1148,18 @@ export function BriefApp({
       )}
 
       {!isEvening && <FactStrip facts={facts} />}
+
+      {mailScanOnly && (
+        <p className="brief-limited">
+          Gmail didn't answer, so mail is a text-only scan: senders and subjects only, nothing to
+          open or reply to.{' '}
+          {onRefresh ? (
+            <button type="button" className="brief-tap" onClick={handleRefresh} disabled={refreshing}>
+              {refreshing ? 'Trying…' : 'Try again'}
+            </button>
+          ) : null}
+        </p>
+      )}
 
       {doCard && doCard.kind !== 'mail' && (
         <DoCard

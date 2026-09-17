@@ -247,13 +247,20 @@ async function gmiChatOnce(options: GmiChatOptions): Promise<string> {
     reply = reply.slice(convStart).trim()
   }
   // Backends occasionally answer 200 with nothing in content; one clean retry
-  // beats failing every caller on a transient empty.
+  // beats failing every caller on a transient empty. The retry has to change
+  // something, though: an empty content field is usually the whole token
+  // ceiling spent on hidden reasoning (measured: 4383 reasoning tokens, 0
+  // characters of answer), and 'none' is rejected outright by some backends —
+  // so it walks the ladder instead of repeating the request that just failed.
   if (!reply) {
-    await sleep(600)
-    res = await fetch(url, { method: 'POST', headers, body: payload('none'), signal })
-    if (res.ok) {
+    for (const effort of ['low', 'omit', 'none']) {
+      await sleep(600)
+      res = await withProviderSlot(() => fetch(url, { method: 'POST', headers, body: payload(effort), signal }))
+      if (!res.ok) continue
       const retry = (await res.json()) as { choices?: Array<{ message?: { content?: string } }> }
       reply = (retry.choices?.[0]?.message?.content ?? '').trim()
+      reply = reply.replace(/<think>[\s\S]*?<\/think>/gi, '').trim()
+      if (reply) break
     }
   }
   // Degenerate completion: the model echoes its own instructions ("No markdown.

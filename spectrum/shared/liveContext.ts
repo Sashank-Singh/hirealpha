@@ -1427,7 +1427,7 @@ const WORKSHOP_MODEL_FALLBACK = 'zai-org/GLM-5.3-Flash'
  * asks for compact output and the repair pass shortens on truncation. */
 const WORKSHOP_MAX_TOKENS = 4000
 
-const WORKSHOP_PLANNER = [
+export const WORKSHOP_PLANNER = [
   'You generate a single-file JavaScript program for a sandbox.',
   'Sandbox rules: Bun runtime, NO network, NO environment variables, no child processes.',
   'Do useful work, then WRITE every output file into the out/ directory (create it if needed), e.g. await Bun.write("out/index.html", html).',
@@ -1656,6 +1656,9 @@ export async function autoIterateWorkshop(input: {
       // A whole app is thousands of tokens on a reasoning model; the default
       // 30s deadline killed every workshop build in prod ("couldn't be
       // drafted") while the model was still mid-generation.
+      // Same reasoning ceiling as the planner: rewriting an app is a long
+      // visible answer, and the default chain of thought eats the whole budget.
+      reasoningEffort: 'low',
       timeoutMs: 90_000,
       messages: [
         { role: 'system', content: WORKSHOP_ITERATOR },
@@ -1735,6 +1738,14 @@ export async function autoRunWorkshop(
           model: attempt === 0 ? WORKSHOP_MODEL : WORKSHOP_MODEL_FALLBACK,
           temperature: 0.2,
           maxTokens: WORKSHOP_MAX_TOKENS,
+          // Measured on the ping-pong ask with the provider default: 61s and
+          // 4383 hidden reasoning tokens, finish=length, and a content field of
+          // exactly zero characters — the ceiling is spent thinking, so the
+          // planner "fails" on a build that only needed less deliberation. At
+          // 'low' the same ask answered in 20s with the whole app. This is the
+          // one call in the product where the visible output is thousands of
+          // tokens long, so the thinking budget has to lose the argument.
+          reasoningEffort: 'low',
           timeoutMs: 90_000,
           messages: [
             { role: 'system', content: WORKSHOP_PLANNER },

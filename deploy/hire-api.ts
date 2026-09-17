@@ -5002,12 +5002,6 @@ function normalizeGmailQuery(raw: string): string {
 }
 
 /**
- * Like loadGmail but returns structured items with Gmail message IDs. Google
- * first, then Composio for accounts connected that way — without the fallback
- * those accounts show an empty inbox on home and in the brief while Settings
- * says Gmail is connected.
- */
-/**
  * Gmail access for the read paths, with one retry after a short beat.
  *
  * A cold token refresh can outlive any wait worth putting on a page load, and
@@ -5028,6 +5022,12 @@ async function gmailAccess(sql: SQL, userId: string): Promise<string | null> {
   return withTimeout(googleAccessToken(sql, userId, 'gmail'), 3000, null)
 }
 
+/**
+ * Like loadGmail but returns structured items with Gmail message IDs. Google
+ * first, then Composio for accounts connected that way — without the fallback
+ * those accounts show an empty inbox on home and in the brief while Settings
+ * says Gmail is connected.
+ */
 async function loadGmailRich(
   sql: SQL,
   userId: string,
