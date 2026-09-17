@@ -33,13 +33,12 @@ async function captureWithRetry(browser: KernelBrowser, attempts = 3) {
  */
 import {
   agentEnvCaller,
-  buildVerificationParts,
   DEFAULT_AGENT_LIMITS,
   parseAgentAction,
-  parseVerification,
   pageShowsExactTotal,
   updateAgentPlan,
   formatPlanForPrompt,
+  verifyAnswerAgainstPage,
   type AgentAction,
   type AgentPlan,
   type PaymentCardSecrets,
@@ -436,8 +435,9 @@ export async function runKernelTask(
         if (action.type === 'giveup') return { ok: false, error: action.reason || 'The goal could not be reached.' }
         const answer = String(action.answer || '').trim()
         if (!answer) return { ok: false, error: 'The agent produced an empty answer.' }
-        const verdict = await auditCall(buildVerificationParts({ goal: task.goal || '', answer, pageText, screenshotBase64: screenshot })).catch(() => '')
-        const checked = parseVerification(verdict || '', answer)
+        const checked = await verifyAnswerAgainstPage(auditCall, {
+          goal: task.goal || '', answer, pageText, screenshotBase64: screenshot,
+        })
         if (!checked.supported) {
           recent.push(`answer was not supported by the page (${checked.unsupported}) — look again`)
           lastActionFailed = true

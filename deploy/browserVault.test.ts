@@ -745,16 +745,15 @@ describe('POST /api/browser/run (task-authorized run route)', () => {
     }
   })
 
-  it('runs the task on an approved approval and queues a browser_result loop', async () => {
+  it('runs the task on an approved approval and queues a browser_result delivery', async () => {
     const { sql, queries } = sqlForRun({ approval: 'approved', secret: 'hunter2!' })
     const res = await handleVaultApi(runReq(), sql, authedDeps())
     expect(res?.status).toBe(200)
     const body = (await res!.json()) as { ok: boolean; insights: string }
     expect(body.ok).toBe(true)
-    const loopInsert = queries.find((q) => /INSERT INTO hire_task_loops/i.test(q.text))
-    expect(loopInsert).toBeTruthy()
-    expect(loopInsert!.text).toContain('browser_result')
-    expect(JSON.stringify(loopInsert!.values)).not.toContain('hunter2!')
+    const delivery = queries.find((q) => /INSERT INTO hire_browser_result_deliveries/i.test(q.text))
+    expect(delivery).toBeTruthy()
+    expect(JSON.stringify(delivery!.values)).not.toContain('hunter2!')
   })
 
   it('queues a credential-free handoff with a private computer URL and sign-in goal', async () => {
@@ -791,20 +790,39 @@ describe('POST /api/browser/run (task-authorized run route)', () => {
 })
 
 describe('pushBrowserResultLoop', () => {
-  it('queues a pending browser_result row with the portal host in the text', async () => {
+  it('queues a pending delivery keyed by job with the portal host and task label in the text', async () => {
     const { sql, queries } = fakeSql(() => [{ phone_e164: '+14155550100' }])
-    const ok = await pushBrowserResultLoop(sql, { userId: USER, persona: 'friend', origin: NSE, insights: 'Nifty ends higher' })
+    const ok = await pushBrowserResultLoop(sql, {
+      userId: USER, persona: 'friend', origin: NSE, insights: 'Nifty ends higher',
+      jobId: 'job-42', label: 'Check the Nifty close',
+    })
     expect(ok).toBe(true)
-    const insert = queries.find((q) => /INSERT INTO hire_task_loops/i.test(q.text))!
-    expect(insert.text).toContain("'browser_result'")
-    expect(JSON.stringify(insert.values)).toContain('portal.nseindia.com')
+    const insert = queries.find((q) => /INSERT INTO hire_browser_result_deliveries/i.test(q.text))!
+    const values = JSON.stringify(insert.values)
+    expect(values).toContain('portal.nseindia.com')
+    // The delivery is keyed by the job so a later run cannot overwrite it.
+    expect(values).toContain('job-42')
+    // The text names the task it belongs to, so a report that lands minutes
+    // later is never read as an answer about whatever was asked most recently.
+    expect(values).toContain('Check the Nifty close')
+  })
+
+  it('key every push by its own run, so a run can only supersede itself', async () => {
+    const { sql, queries } = fakeSql(() => [{ phone_e164: '+14155550100' }])
+    await pushBrowserResultLoop(sql, { userId: USER, persona: 'friend', origin: NSE, insights: 'paused at sign-in', jobId: 'job-42' })
+    await pushBrowserResultLoop(sql, { userId: USER, persona: 'friend', origin: NSE, insights: 'posted', jobId: 'job-42' })
+    await pushBrowserResultLoop(sql, { userId: USER, persona: 'friend', origin: NSE, insights: 'other run', jobId: 'job-43' })
+    const ids = queries
+      .filter((q) => /INSERT INTO hire_browser_result_deliveries/i.test(q.text))
+      .map((q) => q.values[0])
+    expect(ids).toEqual(['job-42', 'job-42', 'job-43'])
   })
 
   it('skips users with no phone on file', async () => {
     const { sql, queries } = fakeSql(() => [{ phone_e164: null }])
     const ok = await pushBrowserResultLoop(sql, { userId: USER, persona: 'friend', origin: NSE, insights: 'x' })
     expect(ok).toBe(false)
-    expect(queries.some((q) => /INSERT INTO hire_task_loops/i.test(q.text))).toBe(false)
+    expect(queries.some((q) => /INSERT INTO hire_browser_result_deliveries/i.test(q.text))).toBe(false)
   })
 })
 
@@ -953,7 +971,7 @@ describe('vault save with username + op backing marker', () => {
       if (/SELECT phone_e164 FROM hire_users/i.test(text)) {
         return [{ phone_e164: '+14155550100' }]
       }
-      if (/INSERT INTO hire_task_loops/i.test(text)) {
+      if (/INSERT INTO hire_browser_result_deliveries/i.test(text)) {
         loopText = JSON.stringify(values)
         return []
       }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test'
 import type { SQL } from 'bun'
-import { runWithinCeiling, hasMerchantOrderConfirmation, runJob, workerCredentialBrokerFromEnv } from './browserWorker'
+import { runWithinCeiling, hasMerchantOrderConfirmation, runJob, workerCredentialBrokerFromEnv, flushUndeliveredResults } from './browserWorker'
 import { openTaskPage } from './browserSession'
 import type { BrowserJobRow } from './browserJobs'
 import { LocalUserKeyBroker, OpenBaoTransitClient } from '../services/trust/userKeyBroker'
@@ -57,6 +57,50 @@ describe('worker credential broker selection', () => {
 
   it('fails closed when no Vault backend is configured', () => {
     expect(workerCredentialBrokerFromEnv({} as NodeJS.ProcessEnv)).toBeNull()
+  })
+})
+
+describe('undelivered result recovery', () => {
+  it('re-queues a finished run whose delivery never landed, named by its own task', async () => {
+    const pushes: Array<Record<string, unknown>> = []
+    const sql = (async (strings: TemplateStringsArray) => {
+      const query = strings.join('?')
+      if (query.includes('FROM hire_browser_jobs')) {
+        return [{
+          id: 'job-7', userId: 'u1', persona: 'friend', url: 'https://httpbin.org/forms/post',
+          goal: 'Fill the form with my name, email and phone number',
+          result: 'Task completed successfully.', error: null, status: 'done', spendRequestId: null,
+        }]
+      }
+      return []
+    }) as unknown as SQL
+    await flushUndeliveredResults(sql, (async (_sql: unknown, input: Record<string, unknown>) => {
+      pushes.push(input)
+      return true
+    }) as never)
+    expect(pushes).toHaveLength(1)
+    expect(pushes[0].jobId).toBe('job-7')
+    // The text names the task, so a report that lands during a newer request is
+    // never read as the answer to that request.
+    expect(pushes[0].label).toBe('Fill the form with my name, email and phone number')
+    expect(String(pushes[0].insights)).toContain('Task completed successfully.')
+  })
+
+  it('keys recovery to the delivery row, not to a timestamp a newer push can fake', async () => {
+    const seen: string[] = []
+    const sql = (async (strings: TemplateStringsArray) => {
+      seen.push(strings.join('?'))
+      return []
+    }) as unknown as SQL
+    await flushUndeliveredResults(sql, (async () => true) as never)
+    const sweep = seen.find((q) => q.includes('FROM hire_browser_jobs'))!
+    expect(sweep).toContain('NOT EXISTS')
+    expect(sweep).toContain('FROM hire_browser_result_deliveries d WHERE d.id = latest.id')
+    // The old shape suppressed recovery by comparing the shared loop row's
+    // updated_at to finished_at, which both hid unsent results and re-sent sent
+    // ones. Nothing in the sweep may look at that row again.
+    expect(sweep).not.toContain('hire_task_loops')
+    expect(sweep).not.toContain('updated_at >')
   })
 })
 

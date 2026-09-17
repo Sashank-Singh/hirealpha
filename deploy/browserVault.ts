@@ -95,6 +95,27 @@ export async function ensureBrowserVaultSchema(sql: SQL): Promise<void> {
     )
   `
   await sql`CREATE INDEX IF NOT EXISTS idx_hire_browser_approvals_user ON hire_browser_approvals (user_id, status)`
+  // One delivery row per browser run, keyed by the job id. The legacy
+  // `hire_task_loops` browser_result row is unique per (user, persona, kind),
+  // so a new run's report overwrote an undelivered one and every delivery
+  // question had to be answered with a timestamp guess. Keyed by job, a run's
+  // report can be neither overwritten before it is sent nor re-sent after.
+  await sql`
+    CREATE TABLE IF NOT EXISTS hire_browser_result_deliveries (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      persona TEXT NOT NULL,
+      phone_e164 TEXT NOT NULL,
+      payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      status TEXT NOT NULL DEFAULT 'pending',
+      attempts INTEGER NOT NULL DEFAULT 0,
+      next_run TIMESTAMPTZ,
+      last_result TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `
+  await sql`CREATE INDEX IF NOT EXISTS idx_hire_browser_result_deliveries_due ON hire_browser_result_deliveries (persona, status, next_run)`
   // Optional login handle + 1Password backing (`op1p:<vaultId>:<itemId>`); when
   // secret_ref is set the AES column holds only an empty-marker ciphertext.
   await sql`ALTER TABLE hire_vault_entries ADD COLUMN IF NOT EXISTS username TEXT`
@@ -820,16 +841,15 @@ export async function handleVaultApi(req: Request, sql: SQL, deps: VaultDeps): P
 }
 
 /**
- * Queue the run's outcome into the iMessage thread: one `browser_result` loop
- * row per (user, persona), re-armed on every run — the bot's poller claims it
- * and sends the text. No phone on file → nothing to queue, the UI already
- * showed the result.
+ * Queue the run's outcome into the iMessage thread: one delivery row per run,
+ * keyed by its job id — the bot's poller claims it and sends the text. No
+ * phone on file → nothing to queue, the UI already showed the result.
  *
  * The Postgres box flaps into recovery windows under load, and an insert lost
  * in one used to vanish silently: the job row was already 'done', so nothing
- * ever asked for the loop row again. The insert is idempotent (ON CONFLICT
- * re-arms the same row), so retrying with backoff is always safe; the worker
- * additionally re-pushes completed jobs whose row never landed.
+ * ever asked for the row again. The insert is idempotent (ON CONFLICT re-arms
+ * the same row), so retrying with backoff is always safe; the worker
+ * additionally re-pushes completed jobs whose delivery row never landed.
  *
  * Throws only after every attempt failed; the worker catches that and leaves
  * the completed job to the recovery sweep.
@@ -843,9 +863,14 @@ export async function pushBrowserResultLoop(
     insights: string
     screenshotDataUrl?: string
     screenshotCaption?: string
-    /** The hire_browser_jobs row this result came from. Written into the
-     * payload so a delivered row can be traced back to its run. */
+    /** The hire_browser_jobs row this result came from. It is the delivery's
+     * key, so a later run's report (or its handoff prompt) can only supersede
+     * this run's, never another run's. Ad-hoc pushes without a job get one
+     * generated per call and stay idempotent across the retries below. */
     jobId?: string
+    /** What the user asked for (the run's goal), rendered into the text so a
+     * report that arrives minutes later still names its own task. */
+    label?: string
   },
   opts?: { retryDelaysMs?: number[] },
 ): Promise<boolean> {
@@ -858,7 +883,10 @@ export async function pushBrowserResultLoop(
     input.insights.startsWith('Alpha paused') ||
     input.insights.startsWith('Checkout is staged') ||
     input.insights.startsWith('Your login')
-  const text = isDirect ? input.insights : `Checked ${host} in a private browser session: ${input.insights.slice(0, 300)}`
+  const label = (input.label || '').replace(/\s+/g, ' ').trim().slice(0, 90)
+  const text = isDirect
+    ? input.insights
+    : `Checked ${host} in a private browser session${label ? ` (${label})` : ''}: ${input.insights.slice(0, 300)}`
   // Note the `::text::jsonb` cast below: a parameter cast straight to
   // `::jsonb` makes Bun type it jsonb and JSON-encode the string a second
   // time, storing a jsonb *string scalar* (payload->>'jobId' then reads
@@ -873,6 +901,7 @@ export async function pushBrowserResultLoop(
       ? { imageDataUrl: input.screenshotDataUrl, imageCaption: input.screenshotCaption }
       : {}),
   })
+  const deliveryId = input.jobId || `ad-hoc:${randomUUID()}`
   // Recovery windows last seconds at a time; four tries over ~15s cover them
   // without parking a web request (or the worker tick) for minutes.
   const delays = opts?.retryDelaysMs?.length ? opts.retryDelaysMs : [0, 1_500, 4_000, 10_000]
@@ -889,10 +918,9 @@ export async function pushBrowserResultLoop(
       // there is no thread to deliver to, so do not burn retries on it.
       if (!phone) return false
       await sql`
-        INSERT INTO hire_task_loops (id, user_id, persona, phone_e164, kind, title, payload, status, next_run)
-        VALUES (${randomUUID()}, ${input.userId}, ${input.persona}, ${phone}, 'browser_result',
-          ${`Browser check: ${host}`}, ${payload}::text::jsonb, 'pending', now())
-        ON CONFLICT (user_id, persona, kind) DO UPDATE SET
+        INSERT INTO hire_browser_result_deliveries (id, user_id, persona, phone_e164, payload, status, next_run)
+        VALUES (${deliveryId}, ${input.userId}, ${input.persona}, ${phone}, ${payload}::text::jsonb, 'pending', now())
+        ON CONFLICT (id) DO UPDATE SET
           payload = EXCLUDED.payload,
           status = 'pending',
           attempts = 0,
@@ -905,17 +933,17 @@ export async function pushBrowserResultLoop(
       lastErr = err
       if (attempt < delays.length - 1) {
         console.warn(
-          `[browserVault] browser_result loop insert failed for ${input.userId}:${input.persona} (attempt ${attempt + 1}/${delays.length}, retrying)`,
+          `[browserVault] browser_result delivery insert failed for ${input.userId}:${input.persona} (attempt ${attempt + 1}/${delays.length}, retrying)`,
           err instanceof Error ? err.message : err,
         )
       }
     }
   }
   console.error(
-    `[browserVault] browser_result loop insert EXHAUSTED for ${input.userId}:${input.persona}`,
+    `[browserVault] browser_result delivery insert EXHAUSTED for ${input.userId}:${input.persona}`,
     lastErr instanceof Error ? lastErr.message : lastErr,
   )
-  throw lastErr instanceof Error ? lastErr : new Error('browser_result loop insert failed')
+  throw lastErr instanceof Error ? lastErr : new Error('browser_result delivery insert failed')
 }
 
 function hostOfOrigin(origin: string): string {

@@ -16,11 +16,13 @@ import {
   buildVisionParts,
   DEFAULT_AGENT_LIMITS,
   executeAgentAction,
+  hasCheckableClaims,
   isTerminal,
   makeVisionCaller,
   pageShowsExactTotal,
   parseAgentAction,
   parseVerification,
+  verifyAnswerAgainstPage,
 } from './agentDriver'
 import { executeKernelAction, readVerifiedKernelPurchase } from './kernelSession'
 
@@ -335,15 +337,56 @@ describe('vision caller + parts', () => {
 })
 
 describe('answer evidence verification', () => {
-  it('fails closed when the auditor returns malformed output', () => {
+  it('fails closed when the auditor returns malformed output for a claimed price', () => {
+    const reason = 'the page auditor returned no usable JSON, so the claimed values could not be checked'
     expect(parseVerification('', 'Hotel Alpha: $189.00')).toEqual({
       supported: false,
-      unsupported: ['verification response was not valid JSON'],
+      unsupported: [reason],
+      verifierUnavailable: true,
     })
     expect(parseVerification('{"answer":"looks good"}', 'Hotel Alpha: $189.00')).toEqual({
       supported: false,
-      unsupported: ['verification response did not contain an items array'],
+      unsupported: [reason],
+      verifierUnavailable: true,
     })
+  })
+
+  it('passes a claim-free answer when the auditor replies with prose', () => {
+    // Live 2026-09-17: the tweet "Hey. its alpha!" was posted on x.com, the
+    // auditor answered with prose, and the run was reported to the user as
+    // "Couldn't check x.com: ... not valid JSON" on a post that was already
+    // live. Nothing in the answer is a value the auditor could refute, so its
+    // unusable reply must not become a verdict against the run.
+    expect(parseVerification('I could not find any prices on this page.', 'Posted the tweet to x.com.')).toEqual({
+      supported: true,
+      unsupported: [],
+      verifierUnavailable: true,
+    })
+    expect(hasCheckableClaims('Posted the tweet to x.com.')).toBe(false)
+    expect(hasCheckableClaims('Hotel Alpha: $189.00')).toBe(true)
+  })
+
+  it('retries an unusable auditor reply once with the strict instruction', async () => {
+    const prompts: string[] = []
+    const call = async (parts: unknown[]) => {
+      prompts.push(JSON.stringify(parts))
+      return prompts.length === 1 ? 'Sure! Here is my audit:' : '{"items":[{"name":"Hotel Alpha","price_text":"$189.00"}]}'
+    }
+    const verdict = await verifyAnswerAgainstPage(call, { goal: 'find the price', answer: 'Hotel Alpha: $189.00' })
+    expect(verdict).toEqual({ supported: true, unsupported: [] })
+    expect(prompts).toHaveLength(2)
+    expect(prompts[1]).toContain('No prose')
+  })
+
+  it('stops after the retry when the auditor stays unusable, without failing a claim-free run', async () => {
+    let calls = 0
+    const verdict = await verifyAnswerAgainstPage(async () => { calls++; return 'prose only' }, {
+      goal: 'post the tweet', answer: 'Posted the tweet to x.com.',
+    })
+    expect(calls).toBe(2)
+    expect(verdict.supported).toBe(true)
+    expect(verdict.verifierUnavailable).toBe(true)
+    expect(verdict.unsupported).toEqual([])
   })
 })
 

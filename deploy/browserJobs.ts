@@ -194,7 +194,7 @@ export async function enqueueBrowserJob(
  * silent death, so the sweep must speak. */
 export async function sweepStaleRunningJobs(
   sql: SQL,
-): Promise<Array<{ id: string; user_id: string; persona: string; url: string }>> {
+): Promise<Array<{ id: string; user_id: string; persona: string; url: string; goal: string | null }>> {
   if (process.env.HIREALPHA_DISABLE_BROWSER_JOBS === '1') return []
   // 10 minutes: a run touches claimed_at every minute while working (see the
   // worker's heartbeat); only a genuinely dead worker has a stale claim. At
@@ -202,8 +202,8 @@ export async function sweepStaleRunningJobs(
   const swept = (await sql`
     UPDATE hire_browser_jobs SET status = 'failed', error = 'Worker interrupted; outcome unknown. Review before retrying.', finished_at = now()
     WHERE status = 'running' AND claimed_at < now() - interval '10 minutes'
-    RETURNING id, user_id, persona, url
-  `) as Array<{ id: string; user_id: string; persona: string; url: string }>
+    RETURNING id, user_id, persona, url, goal
+  `) as Array<{ id: string; user_id: string; persona: string; url: string; goal: string | null }>
   for (const row of swept) {
     // The task record learns of a dead run the same moment the user does:
     // NEEDS_RECONCILIATION with a reason - never an invisible orphan.

@@ -8,7 +8,7 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { runPortalLogin, runSteps, extractPageText } from './browserRunner'
-import { agentEnvCaller, buildVisionParts, buildVerificationParts, executeAgentAction, isTerminal, pageShowsExactTotal, parseAgentAction, parseVerification, DEFAULT_AGENT_LIMITS, type PaymentCardSecrets } from './agentDriver'
+import { agentEnvCaller, buildVisionParts, executeAgentAction, isTerminal, pageShowsExactTotal, parseAgentAction, verifyAnswerAgainstPage, DEFAULT_AGENT_LIMITS, type PaymentCardSecrets } from './agentDriver'
 import type { PortalTask, PortalStep } from './browserVault'
 import { installBrowserNetworkPolicy } from './browserNetworkPolicy'
 import { challengeFailureMessage, challengeHandoffMessage, detectChallenge, type ChallengeSignal } from './challengeDetection'
@@ -799,20 +799,15 @@ async function agentLoop(
     }
     if (isTerminal(action)) {
       if (action.type === 'done') {
-        let verdictRaw = ''
-        try {
-          verdictRaw = await auditCall(buildVerificationParts({
-            goal, answer: action.answer, pageText, screenshotBase64: screenshot,
-          }))
-        } catch (err) {
-          recentActions.push(`answer check failed because the auditor was unavailable (${err instanceof Error ? err.message : String(err)})`)
-          await task.onProgress?.({ action: 'answer_check_failed', url: activePage.url() })
-          continue
-        }
+        // verifyAnswerAgainstPage retries an unusable auditor reply once and
+        // passes claim-free answers outright, so a flapping auditor can no
+        // longer burn the step budget here or refute a post that landed.
+        const verdict = await verifyAnswerAgainstPage(auditCall, {
+          goal, answer: action.answer, pageText, screenshotBase64: screenshot,
+        })
         if (process.env.BROWSER_AGENT_TRACE === '1') {
-          console.log(`[agent] verification raw: ${verdictRaw.slice(0, 1500)}`)
+          console.log(`[agent] verification: ${JSON.stringify(verdict).slice(0, 1500)}`)
         }
-        const verdict = parseVerification(verdictRaw, action.answer)
         if (!verdict.supported) {
           recentActions.push(`answer check failed (${verdict.unsupported.join('; ').slice(0, 200)}); collect visible evidence before answering`)
           await task.onProgress?.({ action: 'answer_check_failed', url: activePage.url() })

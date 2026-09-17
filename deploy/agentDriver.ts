@@ -605,7 +605,10 @@ export function isTerminal(action: AgentAction): action is Extract<AgentAction, 
  * a value it never saw is worse than one that says "not shown": unsupported
  * claims send the loop back to look again; a second identical failure is
  * accepted rather than losing the whole result to a finicky verifier. */
-export function buildVerificationParts(ctx: { goal: string; answer: string; pageText?: string; screenshotBase64?: string }): unknown[] {
+export function buildVerificationParts(
+  ctx: { goal: string; answer: string; pageText?: string; screenshotBase64?: string },
+  opts?: { strict?: boolean },
+): unknown[] {
   const parts: unknown[] = [{
     type: 'text',
     text:
@@ -613,7 +616,10 @@ export function buildVerificationParts(ctx: { goal: string; answer: string; page
       `PAGE TEXT (truncated):\n${(ctx.pageText || '').slice(0, 3500)}\n\n` +
       'For EACH item mentioned in the proposed answer, locate that same item on the page and copy the EXACT price text and cancellation/prepayment text shown for that item, exactly as printed. ' +
       'Use null for a field that is not visible for that item. Never carry a value over from a different item. ' +
-      'Reply with ONLY JSON: {"items":[{"name":"<item name>","price_text":"<exact visible price text or null>","cancellation_text":"<exact visible cancellation text or null>"}]}',
+      'Reply with ONLY JSON: {"items":[{"name":"<item name>","price_text":"<exact visible price text or null>","cancellation_text":"<exact visible cancellation text or null>"}]}' +
+      // Second attempt after an unusable reply: models that preface JSON with
+      // prose or a reasoning trace get one short, unambiguous instruction.
+      (opts?.strict ? ' No prose, no explanation, no markdown fences — the JSON object only, starting with {"items".' : ''),
   }]
   if (ctx.screenshotBase64) {
     parts.push({ type: 'image_url', image_url: { url: `data:image/jpeg;base64,${ctx.screenshotBase64}` } })
@@ -623,25 +629,58 @@ export function buildVerificationParts(ctx: { goal: string; answer: string; page
 
 type VerifiedItem = { name?: unknown; price_text?: unknown; cancellation_text?: unknown }
 
+export type VerificationVerdict = {
+  supported: boolean
+  unsupported: string[]
+  /** The auditor never produced usable JSON (provider refusal, truncation,
+   * prose-only reply). Distinct from "the page contradicts the answer": an
+   * unusable audit is a tooling gap, not evidence against the claim. */
+  verifierUnavailable?: boolean
+}
+
+/** The claims this check can actually refute: a line naming an item with a
+ * $amount, or a free-cancellation/prepayment claim. An answer with none of
+ * those (a post, a form submit, a login) cannot be contradicted by the
+ * auditor, so its JSON being unusable must not fail the run. */
+export function hasCheckableClaims(answer: string): boolean {
+  for (const rawLine of answer.split(/\n+/)) {
+    const line = rawLine.trim()
+    if (!line) continue
+    const amounts = /\$\s?[\d,]+(?:\.\d{1,2})?/.test(line)
+    const claimsCancellation = /free\s+cancellation|no\s+prepayment/i.test(line)
+    if (!amounts && !claimsCancellation) continue
+    const claimedName = line.replace(/^\s*(?:[-*•]|\d+[.)])\s*/, '').split(/[:\-–—]/)[0].trim()
+    if (claimedName.length >= 3) return true
+  }
+  return false
+}
+
 /** Compare the claimed answer against the verifier's per-item transcription.
  * Only confidently mappable claims (a line with a name and a $amount, or a
- * free-cancellation claim) can fail the check; prose without amounts passes. */
-export function parseVerification(raw: string, answer: string): { supported: boolean; unsupported: string[] } {
+ * free-cancellation claim) can fail the check; prose without amounts passes.
+ * An unusable audit response passes a claim-free answer (nothing to refute)
+ * and fails a claim-bearing one, flagged `verifierUnavailable` so the caller
+ * reports "could not verify" instead of "the page refutes it". */
+export function parseVerification(raw: string, answer: string): VerificationVerdict {
+  const checkable = hasCheckableClaims(answer)
+  const unusable = (reason: string): VerificationVerdict => checkable
+    ? { supported: false, unsupported: [reason], verifierUnavailable: true }
+    : { supported: true, unsupported: [], verifierUnavailable: true }
   const jsonText = raw.replace(/```(?:json)?/g, '').trim()
   const start = jsonText.indexOf('{')
   const end = jsonText.lastIndexOf('}')
   if (start === -1 || end <= start) {
-    return { supported: false, unsupported: ['verification response was not valid JSON'] }
+    return unusable('the page auditor returned no usable JSON, so the claimed values could not be checked')
   }
   let items: VerifiedItem[]
   try {
     const obj = JSON.parse(jsonText.slice(start, end + 1)) as { items?: unknown }
     if (!Array.isArray(obj.items)) {
-      return { supported: false, unsupported: ['verification response did not contain an items array'] }
+      return unusable('the page auditor returned no usable JSON, so the claimed values could not be checked')
     }
     items = obj.items as VerifiedItem[]
   } catch {
-    return { supported: false, unsupported: ['verification response was not valid JSON'] }
+    return unusable('the page auditor returned no usable JSON, so the claimed values could not be checked')
   }
   const unsupported: string[] = []
   for (const rawLine of answer.split(/\n+/)) {
@@ -673,4 +712,22 @@ export function parseVerification(raw: string, answer: string): { supported: boo
     }
   }
   return { supported: unsupported.length === 0, unsupported: unsupported.slice(0, 5) }
+}
+
+/** Audit a "done" answer against the live page, with one stricter retry when
+ * the auditor's reply arrives unusable (empty, prose-only, truncated). The
+ * retry is cheap next to a run that reports success on nothing; the second
+ * unusable reply stands as the verdict so the caller can say "could not
+ * verify" rather than looping forever on a flapping provider. */
+export async function verifyAnswerAgainstPage(
+  call: (parts: unknown[]) => Promise<string>,
+  ctx: { goal: string; answer: string; pageText?: string; screenshotBase64?: string },
+): Promise<VerificationVerdict> {
+  const first = await call(buildVerificationParts(ctx)).catch(() => '')
+  let verdict = parseVerification(first, ctx.answer)
+  if (verdict.verifierUnavailable) {
+    const retry = await call(buildVerificationParts(ctx, { strict: true })).catch(() => '')
+    verdict = parseVerification(retry, ctx.answer)
+  }
+  return verdict
 }

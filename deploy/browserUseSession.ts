@@ -1,7 +1,6 @@
 import {
   agentEnvCaller,
-  buildVerificationParts,
-  parseVerification,
+  verifyAnswerAgainstPage,
   type AgentAction,
 } from './agentDriver'
 import { executeKernelAction, readVerifiedKernelPurchase, type KernelTask } from './kernelSession'
@@ -337,9 +336,20 @@ export async function runBrowserUseTask(
   const screenshot = await browser.screenshot(60).catch(() => '')
   const audit = agentEnvCaller('audit') || agentEnvCaller()
   if (!audit) return { ok: false, error: 'No model is configured to verify the Browser Use result.' }
-  const raw = await audit(buildVerificationParts({ goal: task.goal, answer: result.content, pageText, screenshotBase64: screenshot })).catch(() => '')
-  const verdict = parseVerification(raw, result.content)
-  if (!verdict.supported) return { ok: false, error: `Browser Use result was not supported by the live page: ${verdict.unsupported.join('; ')}` }
+  const verdict = await verifyAnswerAgainstPage(audit, {
+    goal: task.goal, answer: result.content, pageText, screenshotBase64: screenshot,
+  })
+  if (!verdict.supported) {
+    // "Could not verify" and "the page refutes this" are different outcomes and
+    // must reach the user as such: an auditor that answered with prose used to
+    // read as "the tweet never happened" on a post that had already gone live.
+    return {
+      ok: false,
+      error: verdict.verifierUnavailable
+        ? `Browser Use result could not be independently verified: ${verdict.unsupported.join('; ')}`
+        : `Browser Use result was not supported by the live page: ${verdict.unsupported.join('; ')}`,
+    }
+  }
   if (screenshot) await task.onScreenshot?.({ dataUrl: `data:image/jpeg;base64,${screenshot}`, caption: 'Final Browser Use result' })
   return { ok: true, content: result.content }
 }

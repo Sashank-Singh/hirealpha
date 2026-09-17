@@ -171,22 +171,36 @@ describe('scheduleDay1Checkin', () => {
 })
 
 describe('claimDueLoops', () => {
-  it('resets stale running rows and claims only due pending ones', async () => {
-    const claimed = [
-      { id: 't1', userId: 'u1', persona: 'friend', phone: '+14155551212', kind: 'wakeup', title: 'Morning wakeup', payload: {} },
-    ]
-    const { sql, queries } = fakeSql((text) =>
-      /RETURNING id, user_id/i.test(text) ? claimed : [],
-    )
+  const delivery = { id: 'job-9', userId: 'u1', persona: 'friend', phone: '+14155551212', kind: 'browser_result', title: 'Browser run result', payload: {} }
+  const loop = { id: 't1', userId: 'u1', persona: 'friend', phone: '+14155551212', kind: 'wakeup', title: 'Morning wakeup', payload: {} }
+
+  it('resets stale running rows in both queues and hands out finished-run results first', async () => {
+    const { sql, queries } = fakeSql((text) => {
+      if (/FROM hire_browser_result_deliveries/.test(text)) return [delivery]
+      if (/FROM hire_task_loops/.test(text)) return [loop]
+      return []
+    })
     const rows = await claimDueLoops(sql, 'friend', 3)
-    expect(rows).toEqual(claimed)
+    // Finished-run reports are the message the person is waiting on, and they
+    // keep the bot's browser_result kind so dispatch is unchanged.
+    expect(rows).toEqual([delivery, loop])
     expect(queries[0].text).toContain("status = 'running' AND updated_at < now()")
-    expect(queries[1].text).toContain("status = 'running'")
-    expect(queries[1].text).toContain("status = 'pending'")
-    expect(queries[1].text).toContain('FOR UPDATE SKIP LOCKED')
-    expect(queries[1].text).toContain(`attempts < ?`)
-    expect(queries[1].values).toContain(TASK_LOOP_MAX_ATTEMPTS)
-    expect(queries[1].text).toContain('next_run <= now()')
+    expect(queries[0].text).toContain('hire_task_loops')
+    expect(queries[1].text).toContain('hire_browser_result_deliveries')
+    expect(queries[2].text).toContain('FROM hire_browser_result_deliveries')
+    expect(queries[2].text).toContain('FOR UPDATE SKIP LOCKED')
+    expect(queries[2].text).toContain(`attempts < ?`)
+    expect(queries[2].values).toContain(TASK_LOOP_MAX_ATTEMPTS)
+    expect(queries[2].text).toContain('next_run <= now()')
+    expect(queries[3].text).toContain('FROM hire_task_loops')
+    expect(queries[3].text).toContain('FOR UPDATE SKIP LOCKED')
+  })
+
+  it('leaves the loop queue alone when due results already fill the claim', async () => {
+    const { sql, queries } = fakeSql((text) => /FROM hire_browser_result_deliveries/.test(text) ? [delivery, { ...delivery, id: 'job-10' }] : [])
+    const rows = await claimDueLoops(sql, 'friend', 2)
+    expect(rows).toHaveLength(2)
+    expect(queries.some((q) => /FROM hire_task_loops/.test(q.text) && /FOR UPDATE SKIP LOCKED/.test(q.text))).toBe(false)
   })
 })
 
@@ -220,6 +234,20 @@ describe('finishTaskLoop', () => {
     await finishTaskLoop(sql, 't1', 'snoozed')
     const when = new Date(String(queries[0].values.find((v) => String(v).endsWith('Z'))!))
     expect(when.getTime()).toBeGreaterThan(Date.now() + 55 * 60 * 1000)
+  })
+
+  it('acks a browser delivery through its own table when no loop row matches', async () => {
+    const { sql, queries } = fakeSql((text) => /UPDATE hire_task_loops/.test(text) ? [] : [])
+    await finishTaskLoop(sql, 'job-9', 'done', 'browser_result')
+    expect(queries[0].text).toContain('UPDATE hire_task_loops')
+    expect(queries[1].text).toContain('UPDATE hire_browser_result_deliveries')
+    expect(queries[1].values).toContain('job-9')
+  })
+
+  it('never touches the delivery table when the loop row matched', async () => {
+    const { sql, queries } = fakeSql((text) => /UPDATE hire_task_loops/.test(text) ? [{ id: 't1' }] : [])
+    await finishTaskLoop(sql, 't1', 'done', 'sent the wakeup')
+    expect(queries.filter((q) => /hire_browser_result_deliveries/.test(q.text))).toHaveLength(0)
   })
 })
 

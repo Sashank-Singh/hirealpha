@@ -1514,20 +1514,51 @@ export async function armSaveContactLoops(sql: SQL): Promise<number> {
 
 /** Hand due loops for one persona to the bot that owns the line, same claim
  * protocol as the intro queue: attempts bump on claim, claims stuck in
- * 'running' past the reset window go back to pending on the next pass. */
+ * 'running' past the reset window go back to pending on the next pass.
+ *
+ * Browser-run reports live in their own per-job table (a run's report must not
+ * be overwritten by the next run before it is sent) but are handed to the bot
+ * with the same shape and kind, so dispatch is unchanged. They are claimed
+ * first: that message is the one the person is actively waiting on. */
 export async function claimDueLoops(sql: SQL, persona: Persona, limit: number) {
   await sql`
     UPDATE hire_task_loops SET status = 'pending'
     WHERE status = 'running' AND updated_at < now() - interval '10 minutes'
   `
-  const rows = (await sql`
+  await sql`
+    UPDATE hire_browser_result_deliveries SET status = 'pending'
+    WHERE status = 'running' AND updated_at < now() - interval '10 minutes'
+  `
+  const deliveries = (await sql`
+    UPDATE hire_browser_result_deliveries SET status = 'running', attempts = attempts + 1, updated_at = now()
+    WHERE id IN (
+      SELECT id FROM hire_browser_result_deliveries
+      WHERE persona = ${persona} AND status = 'pending' AND attempts < ${TASK_LOOP_MAX_ATTEMPTS}
+        AND (next_run IS NULL OR next_run <= now())
+      ORDER BY next_run
+      LIMIT ${limit}
+      FOR UPDATE SKIP LOCKED
+    )
+    RETURNING id, user_id AS "userId", persona, phone_e164 AS phone, 'browser_result' AS kind,
+      'Browser run result' AS title, payload
+  `) as Array<{
+    id: string
+    userId: string
+    persona: Persona
+    phone: string
+    kind: string
+    title: string
+    payload: unknown
+  }>
+  const remaining = Math.max(0, limit - deliveries.length)
+  const rows = remaining === 0 ? [] : (await sql`
     UPDATE hire_task_loops SET status = 'running', updated_at = now()
     WHERE id IN (
       SELECT id FROM hire_task_loops
       WHERE persona = ${persona} AND status = 'pending' AND attempts < ${TASK_LOOP_MAX_ATTEMPTS}
         AND (next_run IS NULL OR next_run <= now())
       ORDER BY next_run
-      LIMIT ${limit}
+      LIMIT ${remaining}
       FOR UPDATE SKIP LOCKED
     )
     RETURNING id, user_id AS "userId", persona, phone_e164 AS phone, kind, title, payload
@@ -1540,11 +1571,13 @@ export async function claimDueLoops(sql: SQL, persona: Persona, limit: number) {
     title: string
     payload: unknown
   }>
-  return rows
+  return [...deliveries, ...rows]
 }
 
 /** A claimed loop reports back: done ends it, a failure burns one of the five
- * attempts before parking as terminal, a snooze sets the next run. */
+ * attempts before parking as terminal, a snooze sets the next run. A claimed
+ * browser delivery carries an id from its own table, so the first update that
+ * matches no loop row falls through to it. */
 export async function finishTaskLoop(
   sql: SQL,
   id: string,
@@ -1553,32 +1586,61 @@ export async function finishTaskLoop(
   nextRun?: string | null,
 ) {
   const result = String(note || '').slice(0, 500)
+  const target = async (
+    loops: () => Promise<unknown>,
+    deliveries: () => Promise<unknown>,
+  ): Promise<void> => {
+    const rows = (await loops()) as Array<{ id?: string }>
+    if (Array.isArray(rows) && rows.length === 0) await deliveries()
+  }
   if (outcome === 'done') {
-    await sql`
-      UPDATE hire_task_loops SET status = 'done', last_result = ${result}, updated_at = now()
-      WHERE id = ${id}
-    `
+    await target(
+      () => sql`
+        UPDATE hire_task_loops SET status = 'done', last_result = ${result}, updated_at = now()
+        WHERE id = ${id} RETURNING id
+      `,
+      () => sql`
+        UPDATE hire_browser_result_deliveries SET status = 'done', last_result = ${result}, updated_at = now()
+        WHERE id = ${id}
+      `,
+    )
     return
   }
   if (outcome === 'failed') {
-    await sql`
-      UPDATE hire_task_loops SET
-        status = CASE WHEN attempts + 1 < ${TASK_LOOP_MAX_ATTEMPTS} THEN 'pending' ELSE 'failed' END,
-        attempts = attempts + 1,
-        last_result = ${result},
-        updated_at = now()
-      WHERE id = ${id}
-    `
+    await target(
+      () => sql`
+        UPDATE hire_task_loops SET
+          status = CASE WHEN attempts + 1 < ${TASK_LOOP_MAX_ATTEMPTS} THEN 'pending' ELSE 'failed' END,
+          attempts = attempts + 1,
+          last_result = ${result},
+          updated_at = now()
+        WHERE id = ${id} RETURNING id
+      `,
+      () => sql`
+        UPDATE hire_browser_result_deliveries SET
+          status = CASE WHEN attempts + 1 < ${TASK_LOOP_MAX_ATTEMPTS} THEN 'pending' ELSE 'failed' END,
+          attempts = attempts + 1,
+          last_result = ${result},
+          updated_at = now()
+        WHERE id = ${id}
+      `,
+    )
     return
   }
   const when = new Date(String(nextRun || ''))
   const snoozedTo = Number.isNaN(when.getTime())
     ? new Date(Date.now() + 60 * 60 * 1000).toISOString()
     : when.toISOString()
-  await sql`
-    UPDATE hire_task_loops SET status = 'pending', next_run = ${snoozedTo}, last_result = ${result}, updated_at = now()
-    WHERE id = ${id}
-  `
+  await target(
+    () => sql`
+      UPDATE hire_task_loops SET status = 'pending', next_run = ${snoozedTo}, last_result = ${result}, updated_at = now()
+      WHERE id = ${id} RETURNING id
+    `,
+    () => sql`
+      UPDATE hire_browser_result_deliveries SET status = 'pending', next_run = ${snoozedTo}, last_result = ${result}, updated_at = now()
+      WHERE id = ${id}
+    `,
+  )
 }
 
 /* ---- Invites ----
