@@ -532,6 +532,67 @@ individual turns, recorded per dimension.
    (one user message got two contradictory replies) by unloading the
    launchd agent.
 
+## 2026-09-17 — authenticated action run (X post) — internal rehearsal, NOT an official dimension
+
+Logged under the protocol template. This is not one of the 15 scored dimensions
+and it is not an official run: the task entered through the internal propose
+endpoint (`POST /api/internal/propose`) rather than an iMessage from the
+evaluator's number, so the conversational turn engine and the classifier were
+not exercised and the goal text reached the worker verbatim. What it does
+exercise is the browser execution stack end to end — the same machinery dims 1,
+4 and 14 depend on — and it is the first authenticated third-party action
+(post under the user's own account) completed in production.
+
+- Production revision: main @ `064d398` (pushed 08:00Z 09-17; push webhook
+  redeployed Web + Worker; bot containers unchanged).
+- Channel and test account: internal propose route → HireAlpha-Worker
+  (concurrency 1) → Kernel cloud browser; report delivered to the founder's
+  real iMessage thread (+12163032166 → +14155951440), account @shank2600.
+- Exact resolved dates/location: n/a — no dated or location-bound artefact.
+- Connected providers and granted scopes: no OAuth on this path. One Vault
+  credential (x.com password) under an exact-origin, one-task, one-use grant.
+- Start/end timestamps (UTC): enqueued ≈12:14:2x, claimed 12:14:25.944,
+  finished 12:15:04.242, delivery acked by the bot 12:15:41.275.
+- Published task: “Post Hey, it's Alpha Online on x”.
+- Complete thread/evidence link: job `caa816c6-2145-4045-8f59-7f0fc1029820`;
+  worker log `job caa816c6… (task, agent) for friend`; delivery row in
+  `hire_browser_result_deliveries` with id = job id, status `done`,
+  `last_result = browser_result`; live view
+  `https://hirealpha.chat/computer/caa816c6-…`.
+- Approval requested and decision: none at run time — the founder issued the
+  instruction directly. Standing browser policy (founder directive 2026-09-11)
+  gates password entry and payment only; the password was released by Vault
+  under that gate, and posting required no card or tap.
+- Real-world artifact or outcome: a live post on x.com from @shank2600 reading
+  “Hey, it's Alpha Online”. Account-owner confirmation is the one external
+  check outstanding; the run's own evidence is the “Your post was sent” toast
+  plus the post rendering at the top of the home timeline with handle and
+  timestamp.
+- Retries, corrections and failures: none. 1 of max 3 login submissions used;
+  both login fields verified populated before submit; no CAPTCHA; no handoff;
+  no re-plan.
+- Security/privacy observations: the password appears in no goal, activity
+  entry, chat text or report; the login fence restores and verifies Vault
+  values synchronously at submit time; the delivered screenshot shows the
+  timeline, not the credential form.
+- Anchor score: **9 / 10 internal** (execution class). Official: N/A.
+- Why this anchor applies: against the Online-task anchors — 3 advice only,
+  7 completes with one or two corrections, 10 completes from one message with
+  the required confirmation — this completed from a single instruction, with
+  zero corrections, and with checkable page evidence rather than a claim.
+  Held at 9, not 10, for three recorded reasons: (1) entry was the internal
+  API, so natural-language understanding through the chat turn engine was not
+  tested; (2) verification is the run's own page view — nothing re-opens the
+  profile from a second session; (3) no dated or multi-system artefact was
+  involved, so this cannot stand in for dims 1/2/14.
+- Run shape: 38.3 s wall claim→finish, 9 recorded actions, report in thread
+  37 s after the run. The bot's loop poll is 60 s, so the poll — not the
+  browser — is now the dominant source of report latency.
+- Follow-up owner and deadline: engineering — decide whether a
+  social/authenticated-action test enters the internal task set. The public
+  benchmark has no posting dimension, so this stays supporting evidence for
+  dims 1, 4 and 14; no aggregate moves.
+
 ## Current official result
 
 ### 2026-09-10
@@ -540,3 +601,7 @@ individual turns, recorded per dimension.
 - Scored dimensions: 0 of 15.
 - Personality quotes: 4 founder quotes; excluded from public-opinion percentage.
 - No internal rehearsal may be represented as an official benchmark score.
+- Internal evidence as of 2026-09-17: an authenticated third-party action
+  (X post, job `caa816c6`) completed end to end in production — see the run
+  record above. Internal 9/10 for the execution class; **0 of 15 official
+  dimensions scored, aggregate unchanged.**

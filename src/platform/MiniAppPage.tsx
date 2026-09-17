@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useState, type CSSProperties } from 'react'
-import { Link, Navigate, useParams, useSearchParams } from 'react-router-dom'
+import { Link, Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { AlphaFace, type AlphaFaceMood } from '../AlphaFace'
 import { AGENTS, getAgent } from '../agents'
 import type { AgentId } from '../agents/types'
@@ -12,6 +12,8 @@ import { localYmd } from './home'
 import { apiSetupStatus } from './api'
 import type { ReplyDraft } from './api'
 import { BriefLoading } from './BriefLoading'
+import { useSwipeBack } from './useSwipeBack'
+import { swipeBackTarget } from './swipeBack'
 import './homeA.css'
 
 
@@ -210,6 +212,7 @@ export function MiniAppPage() {
   const persona = (AGENTS.some((a) => a.id === params.persona) ? params.persona : 'friend') as AgentId
   const kind = params.kind
   const [searchParams] = useSearchParams()
+  const navigate = useNavigate()
   const token = searchParams.get('t') || ''
   const agent = getAgent(persona)
   const kindInfo =
@@ -251,6 +254,13 @@ export function MiniAppPage() {
     setOpenEmailSummary(snippet)
     setOpenDraft(draft)
   }
+
+  const closeMail = useCallback(() => {
+    setOpenEmailId(null)
+    setOpenEmailLabel(undefined)
+    setOpenEmailSummary(undefined)
+    setOpenDraft(null)
+  }, [])
 
   const isDigest = kind === 'digest'
   const isEveningBrief = kind === 'pick_night'
@@ -457,6 +467,41 @@ export function MiniAppPage() {
   const openHref = (featureKind: string) => `/app/mini/${persona || 'friend'}/${featureKind}${q}`
   const aliasKind = kind ? APP_ALIASES[kind] : undefined
 
+  /* Swipe right to go back, the way a phone does it: whatever is open on top
+   * closes first, then the screen the user came from. */
+  const swipeBack = useCallback(() => {
+    const target = swipeBackTarget({
+      mailOpen: !!openEmailId,
+      sheetOpen: settingsOpen,
+      historyIdx: (window.history.state as { idx?: number } | null)?.idx ?? 0,
+      homeHref: appsHref,
+    })
+    if (target.kind === 'mail') return closeMail()
+    if (target.kind === 'sheet') {
+      setSettingsOpen(false)
+      setSettingsTick((n) => n + 1)
+      return
+    }
+    if (target.kind === 'history') return navigate(-1)
+    navigate(target.href, { replace: true })
+  }, [openEmailId, settingsOpen, closeMail, navigate, appsHref])
+  const swipeHintRef = useSwipeBack({ onBack: swipeBack })
+  const swipeHint = (
+    <div className="swipe-back-hint" ref={swipeHintRef} aria-hidden="true">
+      <span className="swipe-back-hint__pill">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <path
+            d="M15 6l-6 6 6 6"
+            stroke="currentColor"
+            strokeWidth="2.25"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+      </span>
+    </div>
+  )
+
   if (aliasKind) {
     return <Navigate to={`/app/mini/${persona || 'friend'}/${aliasKind}${q}`} replace />
   }
@@ -487,6 +532,7 @@ export function MiniAppPage() {
             />
           </div>
         </div>
+        {swipeHint}
       </div>
     )
   }
@@ -510,6 +556,7 @@ export function MiniAppPage() {
             />
           </div>
         </div>
+        {swipeHint}
       </div>
     )
   }
@@ -548,6 +595,7 @@ export function MiniAppPage() {
             </Suspense>
           </div>
         </div>
+        {swipeHint}
       </div>
     )
   }
@@ -955,15 +1003,11 @@ export function MiniAppPage() {
           auth={{ persona: (persona as AgentId) || 'friend', email: email || undefined, token: token || undefined }}
           persona={(persona as AgentId) || 'friend'}
           draft={openDraft}
-          onClose={() => {
-            setOpenEmailId(null)
-            setOpenEmailLabel(undefined)
-            setOpenEmailSummary(undefined)
-            setOpenDraft(null)
-          }}
+          onClose={closeMail}
         />
         </Suspense>
       )}
+      {swipeHint}
     </div>
   )
 }

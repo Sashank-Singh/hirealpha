@@ -2480,6 +2480,53 @@ button, input { font: inherit; }
   font-family: inherit;
 }
 
+/* Right-swipe to go back. The hint rides the gesture: the scrim deepens and the
+   chevron slides in as the finger pulls, then the whole layer fades once the
+   swipe commits. Nothing here moves the page itself — a transformed card would
+   re-anchor every fixed overlay inside it. */
+.swipe-back-hint {
+  position: fixed;
+  inset: 0;
+  z-index: 1300;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.18s ease;
+}
+.swipe-back-hint[data-swiping='1'] {
+  opacity: 1;
+  transition: none;
+}
+.swipe-back-hint::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: #000;
+  opacity: calc(var(--swipe-p, 0) * 0.28);
+}
+.swipe-back-hint__pill {
+  position: absolute;
+  left: max(8px, env(safe-area-inset-left, 0px));
+  top: 50%;
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 999px;
+  color: var(--fg, #f4f4f4);
+  background: rgb(255 255 255 / 0.1);
+  border: 1px solid rgb(255 255 255 / 0.16);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  box-shadow: 0 6px 20px rgb(0 0 0 / 0.35);
+  opacity: var(--swipe-p, 0);
+  transform: translateY(-50%) translateX(calc((var(--swipe-p, 0) - 1) * 16px))
+    scale(calc(0.86 + var(--swipe-p, 0) * 0.14));
+  transition: transform 0.18s ease, opacity 0.18s ease;
+}
+.swipe-back-hint[data-swiping='1'] .swipe-back-hint__pill {
+  transition: none;
+}
+
 /* Feature mini-app components */
 .mini__feature--on {
   border-color: var(--mini-accent);
