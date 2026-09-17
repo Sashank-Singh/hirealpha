@@ -236,6 +236,11 @@ export function ComputerSessionView() {
 
   const copy = statusCopy(session.status)
   const currentHost = hostname(session.currentUrl || session.url)
+  // Embed through our own proxy first: it is same-origin over 443, so it works
+  // on networks that block the provider's :8443 host. The raw provider URL
+  // stays for the explicit "Open direct view" escape hatch.
+  const liveSrc = session.proxyStreamUrl || session.streamUrl || session.directStreamUrl || ''
+  const hasLiveView = Boolean(liveSrc)
   const recentSteps = (session.steps || [])
     .filter((step): step is SessionStep => !!step && typeof step === 'object')
     .slice(-5)
@@ -276,7 +281,7 @@ export function ComputerSessionView() {
             <span className="cs-browser-security">{ICONS.lock}</span>
             <span className="cs-browser-host">{currentHost}</span>
             <span className="cs-browser-private">{session.status === 'done' ? 'Final snapshot' : 'Private session'}</span>
-            {session.screenshotDataUrl && (session.streamUrl || session.directStreamUrl) && (session.status === 'running' || session.status === 'waiting') && (
+            {session.screenshotDataUrl && hasLiveView && (session.status === 'running' || session.status === 'waiting') && (
               <button
                 type="button"
                 className="cs-mode-toggle"
@@ -301,11 +306,11 @@ export function ComputerSessionView() {
           </div>
 
           <div className={`cs-stream ${takingControl ? 'cs-stream-control' : ''}`}>
-            {(session.streamUrl || session.directStreamUrl) && !streamError && streamMode === 'stream' ? (
+            {hasLiveView && !streamError && streamMode === 'stream' ? (
               <iframe
                 ref={iframeRef}
                 className="cs-stream-frame"
-                src={session.streamUrl || session.directStreamUrl || ''}
+                src={liveSrc}
                 title={`Live browser on ${currentHost}`}
                 allow="clipboard-read; clipboard-write; fullscreen"
                 referrerPolicy="no-referrer"

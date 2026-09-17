@@ -61,6 +61,7 @@ COPY deploy/certification/envContract.ts ./certification/envContract.ts
 COPY deploy/e2bExecutor.ts ./e2bExecutor.ts
 COPY deploy/kernelPage.ts ./kernelPage.ts
 COPY deploy/kernelSession.ts ./kernelSession.ts
+COPY deploy/telemetry.ts ./telemetry.ts
 COPY deploy/browserUseSession.ts ./browserUseSession.ts
 COPY deploy/browserUseRunner.py ./browserUseRunner.py
 COPY deploy/siteMemory.ts ./siteMemory.ts

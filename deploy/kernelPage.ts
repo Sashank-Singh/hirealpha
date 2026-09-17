@@ -9,6 +9,7 @@
  * The surface deliberately mirrors the handful of Playwright page methods the
  * driver already uses, so the same agent loop runs on either backend.
  */
+import { startSpan } from './telemetry'
 
 export type KernelPageOptions = {
   apiKey: string
@@ -71,14 +72,29 @@ export class KernelBrowser {
    * view — the page a human solves a CAPTCHA on — only for headful sessions,
    * and an unresolved challenge must reach a person rather than die silently. */
   static async launch(options: KernelPageOptions & { profile?: string; timeoutSeconds?: number }): Promise<KernelBrowser> {
+    const span = startSpan('browser.provider.launch', {
+      'browser.provider': 'kernel',
+      'browser.provider.endpoint': options.baseUrl || 'https://api.onkernel.com',
+      'browser.provider.stealth': true,
+      'browser.provider.vault_attached': Boolean(options.vaultIds?.length),
+    })
+    const startedAt = Date.now()
     const res = await fetch(`${options.baseUrl || 'https://api.onkernel.com'}/browsers`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${options.apiKey}`, 'Content-Type': 'application/json' },
       body: JSON.stringify(kernelBrowserCreatePayload(options)),
       signal: AbortSignal.timeout(options.launchTimeoutMs ?? 60_000),
+    }).catch((err) => {
+      span.end({ 'browser.provider.launch_ms': Date.now() - startedAt }, err)
+      throw err
     })
     if (!res.ok) {
-      throw new Error(`Kernel browser launch failed (${res.status}): ${(await res.text().catch(() => '')).slice(0, 200)}`)
+      const detail = (await res.text().catch(() => '')).slice(0, 200)
+      span.end(
+        { 'browser.provider.launch_ms': Date.now() - startedAt, 'browser.provider.http_status': res.status },
+        new Error(`Kernel browser launch failed (${res.status}): ${detail}`),
+      )
+      throw new Error(`Kernel browser launch failed (${res.status}): ${detail}`)
     }
     const body = (await res.json()) as { session_id: string; browser_live_view_url?: string; cdp_ws_url?: string }
     let liveViewUrl = body.browser_live_view_url || ''
@@ -105,6 +121,13 @@ export class KernelBrowser {
         /* best-effort: a missing view URL degrades to screenshot mode, as before */
       }
     }
+    span.end({
+      'browser.provider.launch_ms': Date.now() - startedAt,
+      'browser.provider.http_status': res.status,
+      'browser.provider.session_id': body.session_id,
+      'browser.provider.live_view': Boolean(liveViewUrl),
+      'browser.provider.cdp': Boolean(cdpUrl),
+    })
     return new KernelBrowser(
       { sessionId: body.session_id, liveViewUrl, cdpUrl, pageUrl: '' },
       options,

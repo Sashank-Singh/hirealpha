@@ -45,6 +45,7 @@ import {
   type PaymentCardSecrets,
 } from './agentDriver'
 import { KernelBrowser } from './kernelPage'
+import { startSpan, traceHost } from './telemetry'
 import { claimPendingText } from './browserJobs'
 import {
   extractRootDomain,
@@ -382,6 +383,13 @@ export async function runKernelTask(
         await task.onScreenshot?.({ dataUrl: `data:image/jpeg;base64,${screenshot}`, caption: title?.trim() ? `Step ${step + 1}: ${title}` : `Step ${step + 1}` }).catch(() => undefined)
       }
       let raw = ''
+      const decisionSpan = startSpan('browser.step.decide', {
+        'browser.step.index': step,
+        'browser.step.page_chars': pageText.length,
+        'browser.step.targets': targets.length,
+        'browser.step.screenshot_attached': Boolean(needScreenshot && screenshot),
+      })
+      const decisionStart = Date.now()
       try {
         raw = await call(parts)
       } catch (callErr) {
@@ -389,10 +397,12 @@ export async function runKernelTask(
         try {
           raw = await call([{ type: 'text', text: promptText }])
         } catch (textErr) {
+          decisionSpan.end({ 'browser.step.decide_ms': Date.now() - decisionStart }, textErr)
           recent.push(`model error: ${textErr instanceof Error ? textErr.message : String(textErr)}`)
           continue
         }
       }
+      decisionSpan.end({ 'browser.step.decide_ms': Date.now() - decisionStart, 'browser.step.reply_chars': raw.length })
       const action = raw ? parseAgentAction(raw) : null
       if (process.env.KERNEL_TRACE === '1' || process.env.DEBUG) console.error(`[kernel] step ${step} reply: ${String(raw).slice(0, 300)}`)
       if (!action) {
@@ -502,7 +512,22 @@ export async function runKernelTask(
         continue
       }
 
+      const actionSpan = startSpan('browser.step.act', {
+        'browser.step.index': step,
+        'browser.action': action.type,
+        'browser.target.host': traceHost(browser.url()),
+      })
+      const actionStart = Date.now()
       const outcome = await executeKernelAction(browser, action, task)
+      actionSpan.end(
+        {
+          'browser.action_ms': Date.now() - actionStart,
+          'browser.action.ok': outcome.ok,
+          'browser.action.error': outcome.ok ? undefined : String(outcome.error || 'no effect').slice(0, 200),
+          'browser.step.retry_count': failed.get(key) ?? 0,
+        },
+        outcome.ok ? undefined : new Error(String(outcome.error || `${action.type} had no effect`)),
+      )
       lastActionFailed = !outcome.ok
       recent.push(outcome.ok ? `${action.type} ok` : `${action.type} failed: ${outcome.error || 'no effect'}`)
       if (!outcome.ok) {

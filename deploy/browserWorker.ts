@@ -19,6 +19,7 @@ import { KernelBrowser } from './kernelPage'
 import { runKernelTask } from './kernelSession'
 import { runBrowserUseTask } from './browserUseSession'
 import { formatIdentityForPrompt, loadIdentityProfile } from './userIdentity'
+import { drainTelemetry, startSpan, telemetryEnabled, traceHost, traceText } from './telemetry'
 import { getKernelVaultId, reportLinkOutcome, retrieveLinkCard, retrieveLinkSpend, type LinkCardCredential } from './linkWallet'
 import { createLinkBackedSpendRequest, ensureUserPaymentsSchema, promoteApprovedLinkPurchases } from './userPayments'
 import {
@@ -723,7 +724,7 @@ async function main() {
       catch { return new Response('Database unavailable', { status: 503 }) }
     },
   })
-  console.log(`[browser-worker] up: concurrency=${CONCURRENCY}`)
+  console.log(`[browser-worker] up: concurrency=${CONCURRENCY} telemetry=${telemetryEnabled() ? 'on' : 'off'}`)
 
   let busy = 0
   // Hard ceiling that races the ENTIRE run. The per-minute heartbeat keeps a
@@ -762,11 +763,27 @@ async function main() {
       const job = rows[0]
       if (!job) return
       console.log(`[browser-worker] job ${job.id} (${job.kind}${job.goal ? ', agent' : ''}) for ${job.persona}:${job.user_id}`)
+      // One root span per job: the job row is the only place both the operator
+      // and the trace can see the same id, so it is the join key for
+      // "why did this run take four minutes".
+      const jobSpan = startSpan('browser.job', {
+        'browser.job.id': job.id,
+        'browser.job.kind': job.kind,
+        'browser.user.id': job.user_id,
+        'browser.persona': job.persona,
+        'browser.target.host': traceHost(job.url),
+        'browser.executor.mode': resolveBrowserExecutorMode(),
+        'browser.goal': traceText(job.goal),
+        'browser.goal.length': (job.goal || '').length,
+      })
+      const startedAt = Date.now()
       const settled = await runWithinCeiling(
         runJob(sql, job).catch((err) => ({ ok: false as const, error: err instanceof Error ? err.message : String(err) })),
         HARD_RUN_CEILING_MS,
       )
       if (!settled.ran) {
+        jobSpan.end({ 'browser.status': 'ceiling', 'browser.duration_ms': Date.now() - startedAt }, new Error('Run exceeded the hard time ceiling; outcome unknown.'))
+        await drainTelemetry()
         console.warn(`[browser-worker] run ${job.id} exceeded the ${HARD_RUN_CEILING_MS}ms ceiling — releasing slot`)
         // Declare outcome unknown directly; do NOT route through report()/
         // finishBrowserJob, which would mirror a definitive FAILED_FINAL when
@@ -783,6 +800,15 @@ async function main() {
         }, { retryDelaysMs: [0, 2_000, 8_000] }).catch((err) => console.warn('[browser-worker] ceiling notify failed', err))
         return
       }
+      jobSpan.end(
+        {
+          'browser.status': settled.value.ok ? 'ok' : 'failed',
+          'browser.duration_ms': Date.now() - startedAt,
+          'browser.error': settled.value.ok ? undefined : settled.value.error.slice(0, 300),
+        },
+        settled.value.ok ? undefined : new Error(settled.value.error),
+      )
+      await drainTelemetry()
       await report(sql, job, settled.value)
     } catch (err) {
       console.warn('[browser-worker] tick failed', err)

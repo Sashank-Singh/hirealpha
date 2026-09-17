@@ -33,6 +33,7 @@ COPY deploy/browserWorker.ts ./browserWorker.ts
 # b01b27b made browserWorker import this at boot without a COPY line: the next
 # rebuild would crash-loop the worker on "Cannot find module" (the 09-10 class).
 COPY deploy/certification/envContract.ts ./certification/envContract.ts
+COPY deploy/telemetry.ts ./telemetry.ts
 COPY deploy/browserSession.ts ./browserSession.ts
 COPY deploy/browserRunner.ts ./browserRunner.ts
 COPY deploy/browserVault.ts ./browserVault.ts

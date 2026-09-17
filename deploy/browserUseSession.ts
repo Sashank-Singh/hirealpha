@@ -6,6 +6,7 @@ import {
 } from './agentDriver'
 import { executeKernelAction, readVerifiedKernelPurchase, type KernelTask } from './kernelSession'
 import type { KernelBrowser } from './kernelPage'
+import { startSpan, traceHost } from './telemetry'
 
 const EVENT_PREFIX = 'HIREALPHA_EVENT '
 
@@ -214,6 +215,10 @@ export async function runBrowserUseTask(
   await installPaymentFence()
 
   let result: Extract<BridgeEvent, { type: 'result' }> | undefined
+  // Step wall-time comes from the gap between progress events: the runner only
+  // reports after it has acted, so the delta is the real per-step cost,
+  // including everything the model spent deciding.
+  let lastStepAt = Date.now()
   const stderrChunks: string[] = []
   const drainStderr = (async () => {
     for await (const line of lines(proc.stderr)) {
@@ -232,11 +237,21 @@ export async function runBrowserUseTask(
     catch { continue }
 
     if (event.type === 'progress') {
+      const stepSpan = startSpan('browser.step', { 'browser.step.index': event.step })
+      const stepStart = Date.now()
       await installLoginFence()
       const url = event.url || await browser.run<string>('return page.url();', 10_000).catch(() => '') || task.url
       await task.onProgress?.({ action: describeActions(event.actions), url })
       const shot = await browser.screenshot(55).catch(() => '')
       if (shot) await task.onScreenshot?.({ dataUrl: `data:image/jpeg;base64,${shot}`, caption: `Browser Use step ${event.step}` })
+      stepSpan.end({
+        'browser.actions': describeActions(event.actions),
+        'browser.target.host': traceHost(url),
+        'browser.step.duration_ms': stepStart - lastStepAt,
+        'browser.step.handler_ms': Date.now() - stepStart,
+        'browser.step.screenshot': Boolean(shot),
+      })
+      lastStepAt = Date.now()
       continue
     }
     if (event.type === 'submit_payment') {

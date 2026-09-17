@@ -305,6 +305,33 @@ function internalOk(req: Request) {  const key = process.env.HIREALPHA_INTERNAL_
   return auth === `Bearer ${key}`
 }
 
+/**
+ * The provider's live-view page fetches its own bundles with only its own
+ * `?jwt=` query, never our `?token=`, so every asset request reaches the proxy
+ * route unauthenticated. The `ha_live_<jobId>` cookie is supposed to cover
+ * exactly that, but a live session proved it does not — the identical token
+ * answers 200 as `?token=` and 403 as a `Cookie` header — and the page then
+ * boots to an empty `#neko` div because chunk-vendors.js, app.js and app.css
+ * are all rejected. Stamping the token onto the URLs we already rewrite drops
+ * the dependency on that fallback.
+ *
+ * A cookie stays useful for the websocket upgrade, which builds its URL from
+ * the provider origin string rather than from a document URL.
+ */
+export function appendSessionTokenToProxyAssets(html: string, proxyPrefix: string, token: string): string {
+  if (!token) return html
+  const escapedPrefix = proxyPrefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const encodedToken = encodeURIComponent(token)
+  // The provider page embeds some URLs as \"...\" (backslash-escaped quotes),
+  // so the delimiter is an optional run of backslashes plus the quote — the
+  // back-reference keeps the closing delimiter identical to the opening one.
+  return html.replace(
+    new RegExp(`((?:\\\\+)?["'])(${escapedPrefix}/[^"']+)\\1`, 'g'),
+    (_match, quote: string, assetUrl: string) =>
+      `${quote}${assetUrl}${assetUrl.includes('?') ? '&' : '?'}token=${encodedToken}${quote}`,
+  )
+}
+
 /** A bot stops retrying an intro after this many failed attempts; the signup
  * screen covers the rest by telling the person to text first. */
 export const INTRO_MAX_ATTEMPTS = 5
@@ -11639,7 +11666,15 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     const job = await getBrowserJob(sql, jobId)
     if (!job || !job.live_view_url) return new Response('Live view unavailable or session ended.', { status: 404 })
 
-    const token = url.searchParams.get('token') || url.searchParams.get('t') || req.headers.get('x-session-token')
+    // The view token only rides the first request. The SPA then pulls its own
+    // bundles with ?jwt=<provider token> and no ?token=, so the HTML response
+    // plants an ha_live_<jobId> cookie scoped to this proxy path. The websocket
+    // upgrade in web-server.ts already trusts that cookie; without the same
+    // fallback here every asset answers 403 and the live view boots blank.
+    const liveCookie = (req.headers.get('cookie') || '').split(';').map((v) => v.trim())
+      .find((v) => v.startsWith(`ha_live_${jobId}=`))?.slice(`ha_live_${jobId}=`.length)
+    const token = url.searchParams.get('token') || url.searchParams.get('t')
+      || req.headers.get('x-session-token') || liveCookie
     let isAuthorized = false
     if (token && verifySessionViewToken(jobId, job.user_id, token)) {
       isAuthorized = true
@@ -11697,6 +11732,18 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
         html = html.replaceAll('="/browser/live/', `="${proxyPrefix}/browser/live/`)
         html = html.replaceAll("='/browser/live/", `='${proxyPrefix}/browser/live/`)
         html = html.replaceAll('\\"/browser/live/', `\\"${proxyPrefix}/browser/live/`)
+
+        // The provider page fetches its own bundles with only its ?jwt=, never
+        // our ?token=, so every asset request lands on this route unauthenticated.
+        // The cookie fallback above is what is supposed to cover that, but a
+        // live session proved it does not: the same token returns 200 as
+        // ?token= and 403 as a Cookie header, and the page then boots to an
+        // empty #neko div because chunk-vendors.js, app.js and app.css are all
+        // rejected. Appending the token to the rewritten URLs removes the
+        // dependency on that fallback entirely.
+        if (token) {
+          html = appendSessionTokenToProxyAssets(html, proxyPrefix, token)
+        }
 
         // Route B: the page's absolute references to the provider origin (ws
         // and http) must land on our proxy — <base> only rewrites resource
