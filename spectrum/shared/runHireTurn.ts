@@ -394,6 +394,7 @@ async function classifyFreeLookup(
     const raw = await gmiChat({
       temperature: 0,
       maxTokens: 60,
+      reasoningEffort: 'low',
       messages: [
         {
           role: 'system',
@@ -515,6 +516,7 @@ async function pickLiveTool(
     const raw = await gmiChat({
       temperature: 0,
       maxTokens: 40,
+      reasoningEffort: 'low',
       messages: [
         {
           role: 'system',
@@ -2110,6 +2112,7 @@ export async function runHireTurn(input: {
       reply = await gmiChat({
         temperature: agent.temperature,
         maxTokens,
+        reasoningEffort: 'low',
         messages: baseMessages,
       })
     }

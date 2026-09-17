@@ -64,6 +64,15 @@ export interface GmiChatOptions {
   baseUrl?: string
   /** Total deadline across the initial request and any retries. */
   timeoutMs?: number
+  /**
+   * Hidden-thinking budget. Unset keeps the provider default, which for this
+   * model means a long private chain of thought before the visible answer:
+   * measured on the conversational path at 10.4s and 12.3s (the second one
+   * spending 2661 reasoning characters and returning an EMPTY reply), against
+   * 3.3-3.5s at 'low'. Latency-sensitive calls pass 'low'; a judgement call
+   * that benefits from thinking leaves it alone.
+   */
+  reasoningEffort?: 'low' | 'none' | 'omit'
 }
 
 /**
@@ -184,9 +193,10 @@ async function gmiChatOnce(options: GmiChatOptions): Promise<string> {
     const body = await response.clone().text().catch(() => '')
     return /rate.?limit|too many requests|overloaded|try again/i.test(body)
   }
-  const call = () => withProviderSlot(() =>
-    fetch(url, { method: 'POST', headers, body: payload('omit'), signal }))
-  let res = await call()
+  const call = (effort: string) => withProviderSlot(() =>
+    fetch(url, { method: 'POST', headers, body: payload(effort), signal }))
+  const primaryEffort = options.reasoningEffort ?? 'omit'
+  let res = await call(primaryEffort)
   // One retry, and only when the deadline can still fit it. The retry lands in
   // the provider's next window; the throttle it arms keeps every later call in
   // this turn spaced until the pressure clears.
@@ -194,15 +204,22 @@ async function gmiChatOnce(options: GmiChatOptions): Promise<string> {
     noteRefusal()
     if (Date.now() - startedAt + 1_100 + MIN_REQUEST_MS <= attemptBudgetMs) {
       await sleep(1_100)
-      res = await call()
+      res = await call(primaryEffort)
     }
   }
   if (!res.ok && res.status === 400) {
     const errText = await res.clone().text().catch(() => '')
     if (/reasoning_effort/i.test(errText)) {
-      // If endpoint strictly requires reasoning_effort (e.g. low/medium/high)
-      const fallbackEffort = /'low'/i.test(errText) || /must be one of/i.test(errText) ? 'low' : 'none'
-      res = await fetch(url, { method: 'POST', headers, body: payload(fallbackEffort), signal })
+      // Endpoints disagree about this field: some require low/medium/high,
+      // some accept only 'none', some reject it outright. Walk the ladder from
+      // what the error asks for down to sending nothing at all, so a primary
+      // effort the backend dislikes degrades into the old behaviour instead of
+      // failing the turn.
+      const strict = /'low'/i.test(errText) || /must be one of/i.test(errText)
+      for (const effort of strict ? ['low', 'omit'] : ['none', 'omit']) {
+        res = await call(effort)
+        if (res.ok) break
+      }
     }
   }
 

@@ -6,6 +6,7 @@
  * intro queue uses, and acks. Shape mirrors introQueue.ts on purpose.
  */
 import type { AgentId } from '../../src/agents/types'
+import { PROACTIVE_POLL_MS } from './delivery'
 import { ensurePhotonUser } from './introQueue'
 
 type ScheduledClaim = { id: string; toPhone: string; body: string }
@@ -24,7 +25,7 @@ function authHeaders(): Record<string, string> {
 export function startScheduledTextPoller(
   persona: AgentId,
   send: (phone: string, text: string) => Promise<void>,
-  intervalMs = 60_000,
+  intervalMs = PROACTIVE_POLL_MS,
 ): void {
   const base = apiBase()
   const key = process.env.HIREALPHA_INTERNAL_KEY || ''

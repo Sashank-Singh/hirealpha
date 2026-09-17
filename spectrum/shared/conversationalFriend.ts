@@ -5,6 +5,7 @@ import { getAgent, type AgentId } from '../../src/agents'
 import { runAgentLocally } from '../../src/agents/runtime'
 import { formatNowForAgent, pickUserTimezone } from '../../deploy/timezones'
 import { gmiChat, type GmiChatMessage } from './gmi'
+import { FAST_REPLY_WALL_MS } from './delivery'
 import { appendThread, recordCardDelivered, setPendingConnection, setPendingSpend, setPendingVaultTask, upsertFacts, type ThreadMemory } from './memory'
 import {
   autoLogNutrition, autoLogWorkout, autoLogSleep, autoLogGratitude, autoLogMood,
@@ -217,7 +218,13 @@ export async function runConversationalFriend(input: {
       summary: memory.summary,
       inboundResult: input.inboundNote,
     }
-    const timeoutMs = Math.min(15_000, Math.max(2_500, Number(process.env.HIREALPHA_FAST_REPLY_TIMEOUT_MS) || 12_000))
+    // The reply has a wall-clock bar, not just a per-attempt timeout: a user
+    // reading a text does not care which leg was slow. Attempt one gets most of
+    // the budget; the retry only runs if enough of the wall is left to finish
+    // it, so a stalled provider degrades to the local reply instead of holding
+    // the thread for a second full timeout.
+    const attemptMs = Math.min(15_000, Math.max(2_500, Number(process.env.HIREALPHA_FAST_REPLY_TIMEOUT_MS) || 6_000))
+    const startsAt = Date.now()
     let source: 'gmi' | 'local' = 'gmi'
     let reply: string
     const fastMessages: GmiChatMessage[] = [
@@ -225,20 +232,32 @@ export async function runConversationalFriend(input: {
       ...memory.history.slice(-12),
       { role: 'user', content: input.userText },
     ]
+    // Low thinking budget: measured 3.3-3.5s against 10.4-12.3s on the provider
+    // default, and the default twice burned its whole budget on hidden
+    // reasoning, once returning nothing visible at all.
+    const ask = (timeoutMs: number) =>
+      gmiChat({ messages: fastMessages, temperature: 0.6, maxTokens: 220, timeoutMs, reasoningEffort: 'low' })
     try {
-      reply = await gmiChat({ messages: fastMessages, temperature: 0.6, maxTokens: 220, timeoutMs })
+      reply = await ask(attemptMs)
     } catch (error) {
       // One clean retry before the canned local fallback: a transient GMI
       // timeout/empty answer was surfacing to users as "I hit a quick snag,
       // say that once more?" on trivial messages, and the retry almost always
-      // lands on the second attempt.
-      console.warn(`[${persona}] fast GMI failed, retrying once:`, error)
-      try {
-        reply = await gmiChat({ messages: fastMessages, temperature: 0.6, maxTokens: 220, timeoutMs })
-      } catch (retryError) {
-        console.warn(`[${persona}] fast GMI fallback:`, retryError)
+      // lands on the second attempt. It only runs when the wall allows it.
+      const left = FAST_REPLY_WALL_MS - (Date.now() - startsAt)
+      if (left < 2_500) {
+        console.warn(`[${persona}] fast GMI failed with ${left}ms left, going local:`, error)
         reply = runAgentLocally(agent, input.userText)
         source = 'local'
+      } else {
+        console.warn(`[${persona}] fast GMI failed, retrying once:`, error)
+        try {
+          reply = await ask(Math.min(attemptMs, left))
+        } catch (retryError) {
+          console.warn(`[${persona}] fast GMI fallback:`, retryError)
+          reply = runAgentLocally(agent, input.userText)
+          source = 'local'
+        }
       }
     }
     reply = sanitizeOutbound(reply)

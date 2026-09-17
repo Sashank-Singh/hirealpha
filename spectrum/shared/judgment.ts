@@ -22,7 +22,6 @@ export type JudgmentState = {
   timezone: string
   tick: string
   proactive: string
-  quietHours?: string
   lastInboundMinutesAgo: number | null
   lastProactiveMinutesAgo: number | null
   lastProactiveTopic: string | null
@@ -178,7 +177,7 @@ export function isRecipientSendBlocked(err: unknown): boolean {
 export async function setProactiveMode(
   phone: string,
   persona: AgentId,
-  patch: { proactive?: string; quietHours?: string; pausedUntil?: string | null; pauseToday?: boolean },
+  patch: { proactive?: string; pausedUntil?: string | null; pauseToday?: boolean },
 ) {
   const base = apiBase()
   const key = process.env.HIREALPHA_INTERNAL_KEY || ''

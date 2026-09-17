@@ -9,7 +9,10 @@ export type DeliveryHooks = {
  * for fast replies. Failed/ambiguous sends consume their slot and aren't retried. */
 export function createProgressiveDelivery(hooks: DeliveryHooks, options: { quietMs?: number; now?: () => number } = {}) {
   const now = options.now ?? Date.now
-  const quietMs = options.quietMs ?? 2500
+  // A stage acknowledgement ("checking your email...") exists to answer the
+  // silence while real work runs, so it has to land while the user is still
+  // waiting. At 2500ms it arrived after most fast replies already had.
+  const quietMs = options.quietMs ?? 1_200
   const began = now()
   let attempts = 0, lastAt = -Infinity
   const seen = new Set<string>()

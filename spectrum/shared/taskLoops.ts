@@ -1,4 +1,5 @@
 import type { AgentId } from '../../src/agents/types'
+import { PROACTIVE_POLL_MS } from './delivery'
 import { isRecipientSendBlocked } from './judgment'
 import { buildApprovalText, needsApproval, pickFlavor } from './proactiveFlavors'
 
@@ -929,7 +930,7 @@ export function startTaskLoopPoller(opts: {
   runKind?: Record<string, LoopHandler>
   pollMs?: number
 }) {
-  const pollMs = opts.pollMs ?? 60_000
+  const pollMs = opts.pollMs ?? PROACTIVE_POLL_MS
   const base = apiBase()
   if (!base || !process.env.HIREALPHA_INTERNAL_KEY) {
     console.log(`[taskLoops:${opts.persona}] off: HIREALPHA_API_URL or HIREALPHA_INTERNAL_KEY missing`)

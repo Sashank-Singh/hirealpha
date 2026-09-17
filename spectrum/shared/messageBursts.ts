@@ -1,3 +1,11 @@
+/** Batching is here to answer three texts with one reply, not to sit on a
+ * message: every millisecond of quiet is a millisecond the user is staring at
+ * a thread that has not answered, so the window is as short as it can be while
+ * still catching a burst typed in one go. */
+export const BURST_QUIET_MS = 500
+/** After this long a still-arriving burst is answered anyway. */
+export const BURST_MAX_WAIT_MS = 1_200
+
 /** Coalesce rapid texts without blocking ingestion or other conversations.
  * Active work is never restarted: messages arriving during it form the next
  * turn, which starts only after the current turn finishes. State is in memory. */
@@ -10,8 +18,8 @@ export function createMessageBursts<T>(options: {
   schedule?: (fn: () => void, ms: number) => unknown
   cancel?: (timer: unknown) => void
 }) {
-  const quietMs = options.quietMs ?? 650
-  const maxWaitMs = options.maxWaitMs ?? 2500
+  const quietMs = options.quietMs ?? BURST_QUIET_MS
+  const maxWaitMs = options.maxWaitMs ?? BURST_MAX_WAIT_MS
   const now = options.now ?? Date.now
   const schedule = options.schedule ?? ((fn, ms) => setTimeout(fn, ms))
   const cancel = options.cancel ?? ((timer) => clearTimeout(timer as ReturnType<typeof setTimeout>))

@@ -38,6 +38,13 @@ beforeEach(() => {
   saved.key = process.env.HIREALPHA_INTERNAL_KEY
   process.env.HIREALPHA_INTERNAL_KEY = 'test-key'
   saved.secret = process.env.STRIPE_SECRET_KEY
+  /* These routes read live connectors when a real key is present in the shell
+   * or .env, so a test asserting a response SHAPE would hit the network and
+   * pass or fail on how fast the provider answered that minute (measured: 5s
+   * timeout against a live Composio call, 1ms with the key gone). Unit tests
+   * assert shapes; the connect-specific suites cover the live path. */
+  saved.composio = process.env.COMPOSIO_API_KEY
+  delete process.env.COMPOSIO_API_KEY
 })
 
 afterAll(() => {
@@ -45,6 +52,7 @@ afterAll(() => {
   else process.env.HIREALPHA_INTERNAL_KEY = saved.key
   if (saved.secret === undefined) delete process.env.STRIPE_SECRET_KEY
   else process.env.STRIPE_SECRET_KEY = saved.secret
+  if (saved.composio !== undefined) process.env.COMPOSIO_API_KEY = saved.composio
   delete process.env.STRIPE_PRICE_BUNDLE
   delete process.env.STRIPE_PRICE_BUNDLE_ANNUAL
   delete process.env.STRIPE_PRICE_ULTRA

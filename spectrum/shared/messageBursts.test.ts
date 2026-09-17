@@ -1,5 +1,5 @@
 import { expect, it } from 'bun:test'
-import { createMessageBursts } from './messageBursts'
+import { BURST_MAX_WAIT_MS, BURST_QUIET_MS, createMessageBursts } from './messageBursts'
 
 function fixture(run?: (items: string[]) => Promise<void>) {
   let time = 0
@@ -31,23 +31,30 @@ function fixture(run?: (items: string[]) => Promise<void>) {
 
 it('combines four restaurant and ride fragments into one ordered turn', async () => {
   const f = fixture()
-  for (const text of ['Hey I want to', 'go to a Chinese restaurant', 'at 8 pm nearby', 'and tell me how much is the Uber']) {
+  const texts = ['Hey I want to', 'go to a Chinese restaurant', 'at 8 pm nearby', 'and tell me how much is the Uber']
+  for (const [i, text] of texts.entries()) {
     f.queue.enqueue('alice', text)
-    await f.advance(300)
+    if (i < texts.length - 1) await f.advance(300)
   }
+  // Still arriving: the point of the window is that nothing is answered yet.
   expect(f.batches).toEqual([])
-  await f.advance(650)
-  expect(f.batches).toEqual([['Hey I want to', 'go to a Chinese restaurant', 'at 8 pm nearby', 'and tell me how much is the Uber']])
+  await f.advance(BURST_MAX_WAIT_MS)
+  expect(f.batches).toEqual([texts])
 })
 
-it('starts a single message after the quiet window and caps a continuous burst', async () => {
+it('answers a single message after the quiet window, and caps a burst that never stops', async () => {
   const f = fixture()
   f.queue.enqueue('alice', 'one message')
-  await f.advance(650)
+  await f.advance(BURST_QUIET_MS)
   expect(f.batches).toEqual([['one message']])
+  // A burst that keeps arriving is answered at the cap rather than waiting for
+  // a gap that never comes, then the remainder forms the next turn. Every
+  // message is still answered, in order, exactly once.
   for (let i = 0; i < 6; i++) { f.queue.enqueue('alice', String(i)); await f.advance(400) }
-  await f.advance(100)
-  expect(f.batches[1]).toEqual(['0', '1', '2', '3', '4', '5'])
+  await f.advance(BURST_MAX_WAIT_MS)
+  const answered = f.batches.slice(1).flat()
+  expect(answered).toEqual(['0', '1', '2', '3', '4', '5'])
+  expect(f.batches.length).toBeGreaterThan(1)
 })
 
 it('serializes one sender while letting another sender proceed', async () => {

@@ -1,4 +1,5 @@
 import { gmiChat } from './gmi'
+import { PROACTIVE_POLL_MS, SEND_FAILURE_BACKOFF_MS } from './delivery'
 import { buildDigestBriefing, mintMiniAppCard, type MiniAppCard } from './miniApps'
 import { ackEventNudge, fetchDueEventNudges, revertEventNudge } from './eventNudges'
 import {
@@ -406,13 +407,17 @@ export function startReminderScheduler(opts: {
   pollMs?: number
   send: (phone: string, text: string, card?: MiniAppCard) => Promise<void>
 }) {
-  const pollMs = opts.pollMs ?? 30_000
+  const pollMs = opts.pollMs ?? PROACTIVE_POLL_MS
   // A failed nudge reverts to due instantly, and the 30s poll re-fired the same
   // Photon SetTyping rejection every cycle all night (dinner check-in, 09-15).
   // Back each failing key off for ten minutes so one dead RPC degrades to two
   // honest retries an hour instead of ~1200.
   const nudgeBackoff = new Map<string, number>()
-  const NUDGE_BACKOFF_MS = 10 * 60_000
+  const NUDGE_BACKOFF_MS = SEND_FAILURE_BACKOFF_MS
+  // A reminder whose send failed for a reason that is not a blocked recipient
+  // reverts to due, so a fast poll would retry it every cycle. Same backoff
+  // idea as the nudges above, keyed by reminder id.
+  const sendBackoff = new Map<string, number>()
   const timer = setInterval(async () => {
     try {
       const nudges = await fetchDueEventNudges(opts.persona as AgentId)
@@ -458,6 +463,7 @@ export function startReminderScheduler(opts: {
       const due = await fetchDueReminders(opts.persona)
       for (const r of due) {
         if (!r.phone) continue
+        if ((sendBackoff.get(r.id) || 0) > Date.now()) continue
         // Armed kill switch skips the send and leaves the reminder due.
         if (await killSwitchBlocksSend(r.phone)) continue
         const tz = r.timezone || 'America/Los_Angeles'
