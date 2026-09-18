@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync, statSync } from 'node:fs'
 import { dirname, join, relative, resolve } from 'node:path'
 
 /**
@@ -30,8 +30,10 @@ function reachableFrom(copies: Array<{ repo: string }>, entries: string[]): stri
     const source = readFileSync(file, 'utf8')
     for (const match of source.matchAll(/(?:^|\n)\s*(?:import|export)[^'"]*?from\s+['"](\.[^'"]+)['"]/g)) {
       const base = resolve(dirname(file), match[1]!)
+      // Files only: `base` can be a directory (an imported folder), and reading
+      // one as a module throws EISDIR instead of reporting a missing COPY.
       const hit = [base, `${base}.ts`, `${base}.tsx`, join(base, 'index.ts'), join(base, 'index.tsx')]
-        .find((candidate) => existsSync(candidate) && !candidate.includes('node_modules'))
+        .find((candidate) => existsSync(candidate) && !candidate.includes('node_modules') && statSync(candidate).isFile())
       if (!hit) continue
       if (!inImage(copies, hit)) missing.add(relative(root, hit))
       walk(hit)
@@ -50,5 +52,19 @@ describe('docker image file sets', () => {
   it('worker image copies every module reachable from its entry point', () => {
     const copies = copySources('Dockerfile.worker')
     expect(reachableFrom(copies, ['deploy/browserWorker.ts'])).toEqual([])
+  })
+
+  /* The bot image copies `spectrum/shared` wholesale and only two files out of
+   * `deploy/`. Nothing checked that — so when a shared module imported
+   * `../../deploy/jsonExtract`, the build succeeded, the container died with
+   * "Cannot find module" and prod rolled back. The three bots are the entry
+   * points; the shared tree is where the coupling creeps in. */
+  it('bot image copies every module reachable from the three bots', () => {
+    const copies = copySources('Dockerfile')
+    expect(reachableFrom(copies, [
+      'spectrum/alpha/src/index.ts',
+      'spectrum/alpha-coworker/src/index.ts',
+      'spectrum/alpha-cofounder/src/index.ts',
+    ])).toEqual([])
   })
 })

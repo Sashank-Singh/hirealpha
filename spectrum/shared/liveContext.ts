@@ -1,5 +1,5 @@
 import { gmiChat } from './gmi'
-import { extractJsonObject } from '../../deploy/jsonExtract'
+import { extractJsonObject } from './jsonExtract'
 import type { AgentId } from '../../src/agents/types'
 
 export type LiveProfile = {
