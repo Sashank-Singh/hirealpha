@@ -68,11 +68,19 @@ export function resetTrvlState() {
 }
 
 async function defaultRunner(args: string[], timeoutMs: number): Promise<unknown | null> {
-  const proc = Bun.spawn([trvlBin(), ...args], {
-    stdout: 'pipe',
-    stderr: 'pipe',
-    env: { ...process.env, NO_COLOR: '1' },
-  })
+  const started = Date.now()
+  let proc: ReturnType<typeof Bun.spawn>
+  try {
+    proc = Bun.spawn([trvlBin(), ...args], {
+      stdout: 'pipe',
+      stderr: 'pipe',
+      env: { ...process.env, NO_COLOR: '1' },
+    })
+  } catch (err) {
+    // No binary in this image, or it is not executable.
+    console.warn(`[trvl] spawn failed: ${(err as Error).message.slice(0, 160)}`)
+    return null
+  }
   const timer = setTimeout(() => {
     try {
       proc.kill(9)
@@ -81,14 +89,27 @@ async function defaultRunner(args: string[], timeoutMs: number): Promise<unknown
     }
   }, timeoutMs)
   try {
-    const [out] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text()])
+    const [out, err] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text()])
     const code = await proc.exited
-    if (code !== 0) return null
-    // Progress lines and provider warnings go to stderr; stdout is the JSON.
+    const ms = Date.now() - started
+    if (code !== 0) {
+      // The reason lives on stderr: blocked providers, a rotated API version,
+      // a route it could not resolve. Without this the caller only ever sees
+      // "no results" and the cause is invisible from the container log.
+      console.warn(`[trvl] ${args.join(' ').slice(0, 80)} exited ${code} in ${ms}ms: ${err.replace(/\s+/g, ' ').slice(-240)}`)
+      return null
+    }
     const start = out.indexOf('{')
-    if (start === -1) return null
-    return JSON.parse(out.slice(start)) as unknown
-  } catch {
+    if (start === -1) {
+      console.warn(`[trvl] ${args[0]} produced no JSON in ${ms}ms (stdout ${out.length}b): ${out.slice(0, 120)}`)
+      return null
+    }
+    const data = JSON.parse(out.slice(start)) as unknown
+    const count = Number((data as { count?: number }).count || (data as { flights?: unknown[] }).flights?.length || (data as { hotels?: unknown[] }).hotels?.length || 0)
+    console.log(`[trvl] ${args.join(' ').slice(0, 80)} ok in ${ms}ms (${count} results)`)
+    return data
+  } catch (err) {
+    console.warn(`[trvl] ${args[0]} failed after ${Date.now() - started}ms: ${(err as Error).message.slice(0, 160)}`)
     return null
   } finally {
     clearTimeout(timer)

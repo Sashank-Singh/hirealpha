@@ -208,8 +208,12 @@ export async function fetchLiveTools(
   message: string,
   want?: 'maps' | 'web' | 'gmail' | 'calendar' | 'drive',
 ): Promise<string[]> {
+  /* A fare or a rate is answered by the server: that is where the trvl binary
+   * and the metered SerpAPI key live, and a local web search here returned a
+   * Kayak mirror for the same ask. Anything else keeps the fast local path. */
+  const travelLookup = /\b(?:flights?|airfare|airlines?|nonstop|round ?trip|hotels?|hostels?|motels?|lodging|room rates?)\b/i.test(message)
   // Web searches run directly through LangSearch API for fast, rich AI results
-  if (want === 'web') {
+  if (want === 'web' && !travelLookup) {
     try {
       const { webSearchContext } = await import('../../deploy/webSearch')
       const ctx = await webSearchContext(message)
