@@ -792,6 +792,40 @@ check needs the Friend deploy below.
   steakhouse, dinner hours on the diner). Verified hours and menu prices need a
   provider that returns them — that is decision 1 below.
 
+### Post-deploy production-line re-run — dims 1, 2, 7 (deployed bot, iMessage)
+
+Shipped revision: all four commits pushed (`bb4f8d5 → d2a5b13`); HireAlpha-Web
+and HireAlpha-Friend both rebuilt and finished on `d2a5b13`. Channel: real
+iMessage thread (+12163032166 → Alpha +14155951440), production bot, production
+API, live trvl in the Web image. Replies transcribed from the Friend container
+log, which prints every inbound and every outgoing bubble.
+
+- **Dim 7 — pass, deterministic.** Inbound: “On weekdays at 7:00 AM send me a
+  digest…” → one bubble: “Set. Weekdays at 7:00 AM (America/Los_Angeles): your
+  calendar, emails still owed a reply, and the weather. Pause or move it any
+  time. Next one: Mon, Sep 21, 7:00 AM.” Read receipts followed. This is the
+  pre-fix failure case: three runs of the same sentence used to give three
+  different answers, none of them fast.
+- **Dim 1 — improves to 7.** Inbound: hotel Friday–Saturday next week, under
+  $250, near the Loop, free cancellation → “The booking run is live on Kayak for
+  Congress Plaza, Sep 25, 27 at the **$197/night free cancellation rate**. It
+  pauses at payment…” Every stated constraint is satisfied by a named property
+  with a real refundable rate, and the run is staged with the payment pause
+  stated. Held at 7, not 10, because nothing is booked yet: the anchor asks for
+  the booking (or its confirmed confirmation), and the run completes
+  asynchronously through the worker.
+- **Dim 2 — improves to 6.** Inbound: round trip New York→Chicago, Friday
+  morning out, Sunday evening back, aisle seat, under $400, then check in →
+  “Booking run is live on aa.com for the 6:55 AM American nonstop out Friday,
+  Sunday evening return, aisle seat, **$326 round trip**. It pauses before
+  payment…” Real fare under the ceiling, the aisle preference carried into the
+  goal, the run staged. Held at 6 because check-in still cannot be executed and
+  the boarding pass is therefore not delivered.
+- Observations, not blockers: the live profile lookup aborted on three of these
+  turns and the memory fact-extraction pass timed out on one; both are covered
+  by fallbacks (the digest turn still answered deterministically and the stated
+  preferences were kept), but they are the next latency item to chase.
+
 ### Founder decisions this run is waiting on
 
 1. `SERPAPI_API_KEY` + `SERPAPI_TEST_PHONES=+12163032166` on HireAlpha-Web
