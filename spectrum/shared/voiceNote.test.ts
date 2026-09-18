@@ -75,17 +75,20 @@ describe('resolveInboundVoiceTurn', () => {
     const calls = stubFetch(() =>
       Response.json({ ok: true, text: 'book me a haircut before Thursday', ms: 850 }),
     )
-    const turn = await resolveInboundVoiceTurn('+15551234567', voiceNote())
+    const turn = await resolveInboundVoiceTurn('+15551234567', 'friend', voiceNote())
     expect(turn?.userText).toBe('book me a haircut before Thursday')
     expect(turn?.note).toContain('transcription')
     expect(calls[0]!.url).toBe('https://api.test/api/internal/transcribe')
     expect(calls[0]!.body.mimeType).toBe('audio/mp4')
     expect(String(calls[0]!.body.audioBase64).length).toBeGreaterThan(100)
+    // The route biases the decoder with this user's own names and places.
+    expect(calls[0]!.body.phone).toBe('+15551234567')
+    expect(calls[0]!.body.persona).toBe('friend')
   })
 
   it('carries a typed caption alongside the spoken words', async () => {
     stubFetch(() => Response.json({ ok: true, text: 'push the standup to nine thirty', ms: 400 }))
-    const turn = await resolveInboundVoiceTurn('+15551234567', {
+    const turn = await resolveInboundVoiceTurn('+15551234567', 'friend', {
       type: 'group',
       items: [
         { type: 'attachment', content: voiceNote() },
@@ -98,17 +101,17 @@ describe('resolveInboundVoiceTurn', () => {
 
   it('returns null instead of throwing when the STT route refuses', async () => {
     stubFetch(() => new Response('whisper is down', { status: 502 }))
-    expect(await resolveInboundVoiceTurn('+15551234567', voiceNote())).toBeNull()
+    expect(await resolveInboundVoiceTurn('+15551234567', 'friend', voiceNote())).toBeNull()
   })
 
   it('returns null when the transcript comes back empty', async () => {
     stubFetch(() => Response.json({ ok: true, text: '   ', ms: 300 }))
-    expect(await resolveInboundVoiceTurn('+15551234567', voiceNote())).toBeNull()
+    expect(await resolveInboundVoiceTurn('+15551234567', 'friend', voiceNote())).toBeNull()
   })
 
   it('never posts a payload too small to be audio', async () => {
     const calls = stubFetch(() => Response.json({ ok: true, text: 'hello', ms: 10 }))
-    const turn = await resolveInboundVoiceTurn('+15551234567', voiceNote({ read: async () => Buffer.alloc(64) }))
+    const turn = await resolveInboundVoiceTurn('+15551234567', 'friend', voiceNote({ read: async () => Buffer.alloc(64) }))
     expect(turn).toBeNull()
     expect(calls).toHaveLength(0)
   })

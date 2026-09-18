@@ -879,10 +879,18 @@ export function findInboundVoice(content: {
   return walk(content)
 }
 
-/** Transcribe one voice note through hire-api's internal STT route. The budget
- * sits just past the route's own whisper timeout so its error is the one that
- * surfaces instead of a client-side abort racing it. */
-async function transcribeVoiceNote(mimeType: string, audio: Buffer): Promise<{ text: string; ms: number } | null> {
+/**
+ * Transcribe one voice note through hire-api's internal STT route. Phone and
+ * persona ride along so the route can bias the decoder with the user's own
+ * names and places; the budget sits just past the route's own whisper timeout
+ * so its error is the one that surfaces instead of a client abort racing it.
+ */
+async function transcribeVoiceNote(
+  phone: string,
+  persona: AgentId,
+  mimeType: string,
+  audio: Buffer,
+): Promise<{ text: string; ms: number } | null> {
   const base = apiBase()
   if (!base) return null
   const res = await timedFetch(
@@ -890,7 +898,7 @@ async function transcribeVoiceNote(mimeType: string, audio: Buffer): Promise<{ t
     {
       method: 'POST',
       headers: authHeaders(),
-      body: JSON.stringify({ audioBase64: audio.toString('base64'), mimeType }),
+      body: JSON.stringify({ phone, persona, audioBase64: audio.toString('base64'), mimeType }),
     },
     135_000,
   )
@@ -912,6 +920,7 @@ async function transcribeVoiceNote(mimeType: string, audio: Buffer): Promise<{ t
  */
 export async function handleInboundVoice(
   phone: string,
+  persona: AgentId,
   content: {
     type?: string
     items?: Array<{ type?: string; content?: unknown }>
@@ -926,7 +935,7 @@ export async function handleInboundVoice(
     const buf = await voice.read()
     if (!buf || buf.length < 256) return null
     const started = Date.now()
-    const heard = await transcribeVoiceNote(voice.mimeType, buf)
+    const heard = await transcribeVoiceNote(phone, persona, voice.mimeType, buf)
     if (!heard) return null
     console.log(
       `[live] voice note from ${phone}: ${(buf.length / 1024).toFixed(0)}KB in ${Date.now() - started}ms (stt ${heard.ms}ms)`,
@@ -947,6 +956,7 @@ export async function handleInboundVoice(
  */
 export async function resolveInboundVoiceTurn(
   phone: string,
+  persona: AgentId,
   content: {
     type?: string
     items?: Array<{ type?: string; content?: unknown }>
@@ -955,7 +965,7 @@ export async function resolveInboundVoiceTurn(
     [key: string]: unknown
   },
 ): Promise<{ userText: string; note: string } | null> {
-  const heard = await handleInboundVoice(phone, content)
+  const heard = await handleInboundVoice(phone, persona, content)
   if (!heard) return null
   const caption = extractMessageText(content)
   const note = [
@@ -1426,6 +1436,10 @@ const WORKSHOP_MODEL_FALLBACK = 'zai-org/GLM-5.3-Flash'
  * 4000 completes in ~30s and still fits a 250-line app. The planner prompt
  * asks for compact output and the repair pass shortens on truncation. */
 const WORKSHOP_MAX_TOKENS = 4000
+/** Rewriting an app means re-emitting the whole file, which is the largest
+ * visible answer the product asks for and grows with every feature the user
+ * adds. Sized for the fifth version, not the first. */
+const WORKSHOP_ITERATE_MAX_TOKENS = 8000
 
 export const WORKSHOP_PLANNER = [
   'You generate a single-file JavaScript program for a sandbox.',
@@ -1647,48 +1661,69 @@ export async function autoIterateWorkshop(input: {
 }): Promise<{ ok?: boolean; logged?: boolean; error?: string; artifactId?: string; url?: string; title?: string } | null> {
   const source = await fetchWorkshopSource(input.phone, input.artifactId)
   if (!source) return null
-  let raw = ''
-  try {
-    raw = await gmiChat({
-      model: WORKSHOP_MODEL,
-      temperature: 0.2,
-      maxTokens: WORKSHOP_MAX_TOKENS,
-      // A whole app is thousands of tokens on a reasoning model; the default
-      // 30s deadline killed every workshop build in prod ("couldn't be
-      // drafted") while the model was still mid-generation.
-      // Same reasoning ceiling as the planner: rewriting an app is a long
-      // visible answer, and the default chain of thought eats the whole budget.
-      reasoningEffort: 'low',
-      timeoutMs: 90_000,
-      messages: [
-        { role: 'system', content: WORKSHOP_ITERATOR },
-        {
-          role: 'user',
-          content: `Current app (title: ${source.title}):\n\n${source.html}\n\nRequested change: ${input.instruction}\n\nReply with the full updated HTML as JSON now.`,
-        },
-      ],
-    })
-  } catch (err) {
-    console.warn('[live] workshop iterate model failed', err)
-    return { ok: false, logged: false, error: 'could not apply the change' }
+  // Two tries, like a fresh build. The provider hiccups (an empty completion, a
+  // dropped connection, a refusal) at a rate that shows up as "the update
+  // didn't go through" often enough to matter, and one lost attempt used to be
+  // the user's whole answer. The retry asks for the same thing with a nudge.
+  let lastError = 'could not apply the change'
+  for (let attempt = 0; attempt < 2; attempt++) {
+    let raw = ''
+    try {
+      raw = await gmiChat({
+        model: WORKSHOP_MODEL,
+        temperature: 0.2,
+        // A whole app is thousands of tokens on a reasoning model; the default
+        // 30s deadline killed every workshop build in prod ("couldn't be
+        // drafted") while the model was still mid-generation.
+        // Same reasoning ceiling as the planner: rewriting an app is a long
+        // visible answer, and the default chain of thought eats the whole budget.
+        reasoningEffort: 'low',
+        // The whole file comes back, so this is the largest visible answer the
+        // product asks for — and it grows every time the user adds a feature.
+        // A ceiling sized for the first version truncates the fifth.
+        maxTokens: WORKSHOP_ITERATE_MAX_TOKENS,
+        timeoutMs: 90_000,
+        messages: [
+          { role: 'system', content: WORKSHOP_ITERATOR },
+          {
+            role: 'user',
+            content:
+              `Current app (title: ${source.title}):\n\n${source.html}\n\nRequested change: ${input.instruction}\n\nReply with the full updated HTML as JSON now.` +
+              (attempt === 0 ? '' : '\n\nYour previous reply was unusable (cut off or not valid JSON). Reply again with the whole updated app, shorter if needed. JSON only.'),
+          },
+        ],
+      })
+    } catch (err) {
+      console.warn('[live] workshop iterate model failed', err)
+      lastError = 'could not apply the change'
+      continue
+    }
+    const m = (raw || '').match(/\{[\s\S]*\}/)
+    if (!m) {
+      console.warn(`[live] workshop iterate returned no JSON; reply was: ${(raw || '').slice(0, 200)}`)
+      lastError = 'could not apply the change'
+      continue
+    }
+    try {
+      const parsed = JSON.parse(m[0]) as { title?: string; html?: string }
+      const html = String(parsed.html || '')
+      if (!html.trim()) {
+        lastError = 'the updated app came back empty'
+        continue
+      }
+      return await iterateWorkshopBuild({
+        phone: input.phone,
+        persona: input.persona,
+        artifactId: source.artifactId,
+        title: String(parsed.title || source.title),
+        html,
+        instruction: input.instruction,
+      })
+    } catch {
+      lastError = 'could not apply the change'
+    }
   }
-  const m = (raw || '').match(/\{[\s\S]*\}/)
-  if (!m) return { ok: false, logged: false, error: 'could not apply the change' }
-  try {
-    const parsed = JSON.parse(m[0]) as { title?: string; html?: string }
-    const html = String(parsed.html || '')
-    if (!html.trim()) return { ok: false, logged: false, error: 'the updated app came back empty' }
-    return await iterateWorkshopBuild({
-      phone: input.phone,
-      persona: input.persona,
-      artifactId: source.artifactId,
-      title: String(parsed.title || source.title),
-      html,
-      instruction: input.instruction,
-    })
-  } catch {
-    return { ok: false, logged: false, error: 'could not apply the change' }
-  }
+  return { ok: false, logged: false, error: lastError }
 }
 
 export async function autoRunWorkshop(

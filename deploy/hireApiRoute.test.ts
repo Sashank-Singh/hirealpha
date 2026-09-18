@@ -247,10 +247,15 @@ describe('/api/internal/transcribe', () => {
   })
 
   function stubWhisper(responder: () => Response) {
-    const bodies: Array<{ url: string; model: string }> = []
+    const bodies: Array<{ url: string; model: string; hotwords: string | null; vad: string | null }> = []
     globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
       const form = init?.body as FormData
-      bodies.push({ url: String(input), model: String(form.get('model')) })
+      bodies.push({
+        url: String(input),
+        model: String(form.get('model')),
+        hotwords: form.get('hotwords') ? String(form.get('hotwords')) : null,
+        vad: form.get('vad_filter') ? String(form.get('vad_filter')) : null,
+      })
       return responder()
     }) as typeof fetch
     return bodies
@@ -286,6 +291,45 @@ describe('/api/internal/transcribe', () => {
     expect(data.text).toBe('book the earliest slot')
     expect(typeof data.ms).toBe('number')
     expect(bodies[0]!.url).toBe('http://whisper.test:8000/v1/audio/transcriptions')
+  })
+
+  it('biases the decoder with the caller\'s own names and places', async () => {
+    process.env.HIREALPHA_INTERNAL_KEY = 'test-key'
+    process.env.STT_URL = 'http://whisper.test:8000/v1'
+    const bodies = stubWhisper(() => Response.json({ text: 'how is the weather in SF' }))
+    const { sql } = fakeSql((text) => {
+      if (/FROM hire_users/i.test(text)) return [USER]
+      if (/FROM hire_memories/i.test(text)) {
+        return [
+          { key: 'city', value: 'San Francisco (home base)', durable: true, updatedAt: new Date().toISOString() },
+          { key: 'name', value: 'Sashank Singh', durable: true, updatedAt: new Date().toISOString() },
+          { key: 'weekly_focus', value: 'a long prose value the decoder has no use for', durable: true, updatedAt: new Date().toISOString() },
+        ]
+      }
+      return []
+    })
+    const res = await handleHireApi(
+      request({ phone: '+15551234567', persona: 'friend', audioBase64: Buffer.alloc(2048, 3).toString('base64'), mimeType: 'audio/mp4' }),
+      sql as never,
+    )
+    expect(res?.status).toBe(200)
+    expect(bodies[0]!.hotwords).toContain('San Francisco')
+    expect(bodies[0]!.hotwords).toContain('Sashank Singh')
+    expect(bodies[0]!.hotwords).not.toContain('weekly_focus')
+    expect(bodies[0]!.vad).toBe('true')
+  })
+
+  it('still transcribes when the phone is unknown to the database', async () => {
+    process.env.HIREALPHA_INTERNAL_KEY = 'test-key'
+    process.env.STT_URL = 'http://whisper.test:8000/v1'
+    const bodies = stubWhisper(() => Response.json({ text: 'no bias, still fine' }))
+    const { sql } = fakeSql(() => [])
+    const res = await handleHireApi(
+      request({ phone: '+15550000000', persona: 'friend', audioBase64: Buffer.alloc(2048, 3).toString('base64') }),
+      sql as never,
+    )
+    expect(res?.status).toBe(200)
+    expect(bodies[0]!.hotwords).toBeNull()
   })
 
   it('rejects a payload too small to be a voice note', async () => {

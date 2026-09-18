@@ -324,7 +324,7 @@ async function handleIncoming([space, message]: Incoming, combinedText?: string)
     }
     // Voice note: transcribe it and run it as the user's own turn.
     if (findInboundVoice(message.content)) {
-      await runTurn(space, message, senderId, () => resolveInboundVoiceTurn(senderId, message.content))
+      await runTurn(space, message, senderId, () => resolveInboundVoiceTurn(senderId, agent.id, message.content))
       return
     }
     try {

@@ -39,6 +39,80 @@ let degraded = false
  * with no speech in it must not silently switch models. */
 export class SttModelError extends Error {}
 
+/** Memory keys whose values name the people, places, and things a voice note is
+ * most likely to mention, most valuable first: the decoder gets the user's own
+ * name and city before it spends the budget on project names. */
+const BIAS_KEYS: string[] = [
+  'preferred_name',
+  'name',
+  'city',
+  'home_city',
+  'work_city',
+  'location',
+  'neighborhood',
+  'people',
+  'partner',
+  'sister',
+  'team',
+  'company',
+  'company_name',
+  'school',
+  'projects',
+  'hotel_city',
+]
+
+/** Trim to `max` without ending on half a word. */
+function trimWord(value: string, max: number): string {
+  if (value.length <= max) return value
+  const cut = value.slice(0, max)
+  const space = cut.lastIndexOf(' ')
+  return (space > 20 ? cut.slice(0, space) : cut).trim()
+}
+
+/**
+ * Proper nouns to bias the decoder with. Whisper hears what it expects: the
+ * 4-second "how's the weather in SF?" came back as "how's the weather in
+ * itself" until the user's own city was in the prompt. Deliberately short —
+ * a long prompt makes the model hear words nobody said — and never fatal:
+ * without memories the transcription just runs unbiased.
+ */
+export function hotwordsFromMemories(memories: Array<{ key?: string; value?: string }>, cap = 240): string {
+  const byKey = new Map<string, string[]>()
+  for (const memory of memories) {
+    const key = String(memory.key || '').trim().toLowerCase()
+    if (!BIAS_KEYS.includes(key)) continue
+    const clean = trimWord(
+      String(memory.value || '')
+        .replace(/\([^)]*\)/g, ' ')
+        .replace(/[^\p{L}\p{N}\s'&.-]/gu, ' ')
+        .replace(/\s+/g, ' ')
+        .trim(),
+      60,
+    )
+    if (!clean) continue
+    const values = byKey.get(key) || []
+    values.push(clean)
+    byKey.set(key, values)
+  }
+  const words: string[] = []
+  const seen = new Set<string>()
+  for (const key of BIAS_KEYS) {
+    for (const value of byKey.get(key) || []) {
+      const normalized = value.toLowerCase()
+      if (seen.has(normalized)) continue
+      seen.add(normalized)
+      words.push(value)
+    }
+  }
+  let bias = ''
+  for (const word of words) {
+    const next = bias ? `${bias}. ${word}` : word
+    if (next.length > cap) break
+    bias = next
+  }
+  return bias
+}
+
 /** Test seam: forget that the configured model failed. */
 export function resetSttModelDegraded(): void {
   degraded = false
@@ -57,6 +131,7 @@ async function postTranscription(
   model: string,
   mimeType: string,
   audioBytes: Uint8Array,
+  hotwords = '',
 ): Promise<string> {
   const ctrl = new AbortController()
   const t = setTimeout(() => ctrl.abort(), 120_000)
@@ -69,6 +144,10 @@ async function postTranscription(
     // An English-only model rejects the hint; a multilingual one uses it.
     const language = process.env.STT_LANGUAGE ?? 'en'
     if (language && !/\.en$/i.test(model)) form.append('language', language)
+    if (hotwords) form.append('hotwords', hotwords)
+    // Voice notes are recorded around speech, not on top of it: the VAD pass
+    // drops the silence that whisper likes to hallucinate words into.
+    form.append('vad_filter', 'true')
     const res = await fetch(`${baseUrl}/audio/transcriptions`, {
       method: 'POST',
       body: form,
@@ -92,16 +171,19 @@ async function postTranscription(
 }
 
 /** Transcribe one clip. Throws when the service refuses, so callers can tell
- * the user their note did not come through. */
+ * the user their note did not come through. `hotwords` carries the user's own
+ * names and places; see {@link hotwordsFromMemories}. */
 export async function transcribeAudio(
   mimeType: string,
   audioBytes: Uint8Array,
+  options: { hotwords?: string } = {},
 ): Promise<{ text: string; model: string }> {
   const baseUrl = sttUrl()
   const primary = configuredSttModel()
+  const hotwords = options.hotwords || ''
   if (!degraded && primary !== STT_MODEL_FALLBACK) {
     try {
-      return { text: await postTranscription(baseUrl, primary, mimeType, audioBytes), model: primary }
+      return { text: await postTranscription(baseUrl, primary, mimeType, audioBytes, hotwords), model: primary }
     } catch (err) {
       if (!(err instanceof SttModelError)) throw err
       degraded = true
@@ -109,7 +191,7 @@ export async function transcribeAudio(
     }
   }
   return {
-    text: await postTranscription(baseUrl, STT_MODEL_FALLBACK, mimeType, audioBytes),
+    text: await postTranscription(baseUrl, STT_MODEL_FALLBACK, mimeType, audioBytes, hotwords),
     model: STT_MODEL_FALLBACK,
   }
 }

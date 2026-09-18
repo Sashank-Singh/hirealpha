@@ -158,7 +158,7 @@ for await (const [space, message] of app.messages) {
           console.warn(`[${agent.id}] duplicate inbound skipped: ${message.id}`)
           continue
         }
-        const turn = await resolveInboundVoiceTurn(senderId, message.content)
+        const turn = await resolveInboundVoiceTurn(senderId, agent.id, message.content)
         if (!turn) {
           await message.reply(styledText("That voice note didn't come through. Send it again, or just type it?"))
           continue

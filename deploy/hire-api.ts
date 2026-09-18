@@ -1,7 +1,8 @@
 import { webSearchContext } from './webSearch'
 /* Speech to text lives in its own module: one place that owns STT_URL, the
- * model, and the fallback for when the configured model cannot be loaded. */
-import { transcribeAudio } from './stt'
+ * model, the fallback for when the configured model cannot be loaded, and the
+ * hotword bias that carries the user's own names and places. */
+import { hotwordsFromMemories, transcribeAudio } from './stt'
 /**
  * HireAlpha live config + connectors API (Postgres).
  * Dashboard writes here. iMessage bots read here.
@@ -14040,14 +14041,30 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
     const body = (await req.json().catch(() => ({}))) as {
       audioBase64?: string
       mimeType?: string
+      phone?: string
+      persona?: string
     }
     const audio = body.audioBase64 ? Buffer.from(body.audioBase64, 'base64') : null
     if (!audio || audio.length < 256) return json({ error: 'audio is required' }, 400)
+    // Bias the decoder with the words this user actually says: their name,
+    // city, and the people they talk about. A 4-second "how's the weather in
+    // SF?" came back as "in itself" until the city was in the prompt. Memory
+    // is an optimization here — never a reason to fail the transcription.
+    let hotwords = ''
+    if (body.phone) {
+      try {
+        const user = await getUserByPhone(sql, body.phone)
+        const persona: Persona = isPersona(body.persona || '') ? (body.persona as Persona) : 'friend'
+        if (user) hotwords = hotwordsFromMemories(await loadMemories(sql, user.id, persona, 24))
+      } catch (err) {
+        console.warn('[stt] memory bias unavailable', err)
+      }
+    }
     const started = Date.now()
     try {
-      const { text } = await transcribeAudio(body.mimeType || 'audio/mp4', audio)
+      const { text, model } = await transcribeAudio(body.mimeType || 'audio/mp4', audio, { hotwords })
       const ms = Date.now() - started
-      console.log(`[stt] transcribed ${audio.length} bytes in ${ms}ms`)
+      console.log(`[stt] transcribed ${audio.length} bytes in ${ms}ms (${model}${hotwords ? ', biased' : ''})`)
       return json({ ok: true, text, ms })
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)

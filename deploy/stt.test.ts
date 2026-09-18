@@ -1,5 +1,5 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'bun:test'
-import { configuredSttModel, resetSttModelDegraded, sttUrl, transcribeAudio } from './stt'
+import { configuredSttModel, hotwordsFromMemories, resetSttModelDegraded, sttUrl, transcribeAudio } from './stt'
 
 const realFetch = globalThis.fetch
 const env = {
@@ -8,7 +8,15 @@ const env = {
   language: process.env.STT_LANGUAGE,
 }
 
-type Call = { url: string; model: string; language: string | null; filename: string; mimeType: string }
+type Call = {
+  url: string
+  model: string
+  language: string | null
+  filename: string
+  mimeType: string
+  hotwords: string | null
+  vadFilter: string | null
+}
 
 /** Capture the multipart request the way the whisper service sees it. */
 function stubWhisper(responder: (model: string, call: number) => Response) {
@@ -22,6 +30,8 @@ function stubWhisper(responder: (model: string, call: number) => Response) {
       language: form.get('language') ? String(form.get('language')) : null,
       filename: file.name,
       mimeType: file.type,
+      hotwords: form.get('hotwords') ? String(form.get('hotwords')) : null,
+      vadFilter: form.get('vad_filter') ? String(form.get('vad_filter')) : null,
     }
     calls.push(call)
     return responder(call.model, calls.length)
@@ -59,6 +69,17 @@ describe('speech to text', () => {
     expect(calls[0]!.model).toBe('small')
     expect(calls[0]!.language).toBe('en')
     expect(calls[0]!.filename).toBe('voice.m4a')
+  })
+
+  it('sends the user bias as hotwords and turns the silence filter on', async () => {
+    const calls = stubWhisper(() => Response.json({ text: 'ok' }))
+    await transcribeAudio('audio/mp4', new Uint8Array(1024), { hotwords: 'Sashank Singh. San Francisco' })
+    expect(calls[0]!.hotwords).toBe('Sashank Singh. San Francisco')
+    expect(calls[0]!.vadFilter).toBe('true')
+
+    const unbiased = stubWhisper(() => Response.json({ text: 'ok' }))
+    await transcribeAudio('audio/mp4', new Uint8Array(1024))
+    expect(unbiased[0]!.hotwords).toBeNull()
   })
 
   it('names the upload from the real mime type, including iPhone CAF', async () => {
@@ -129,5 +150,35 @@ describe('speech to text', () => {
   it('exposes the resolved url and model the health path reads', () => {
     expect(sttUrl()).toBe('http://whisper.test:8000/v1')
     expect(configuredSttModel()).toBe('small')
+  })
+})
+
+describe('hotwordsFromMemories', () => {
+  it('keeps the proper nouns and drops the prose', () => {
+    const bias = hotwordsFromMemories([
+      { key: 'city', value: 'San Francisco (home base)' },
+      { key: 'name', value: 'Sashank Singh' },
+      { key: 'people', value: 'Stephen, recruiter contact about a Founding AI Engineer role' },
+      { key: 'weekly_focus', value: 'ship the voice path and never look back at the old one' },
+      { key: 'timezone', value: 'PDT' },
+    ])
+    expect(bias).toStartWith('Sashank Singh. San Francisco')
+    expect(bias).not.toContain('home base')
+    expect(bias).not.toContain('PDT')
+    expect(bias).not.toContain('ship the voice path')
+  })
+
+  it('stays short and deduped so the decoder is not talked over', () => {
+    const rows = Array.from({ length: 12 }, (_, i) => ({ key: 'projects', value: `Project Number ${i} With A Long Name` }))
+    rows.push({ key: 'city', value: 'Oakland' }, { key: 'name', value: 'Oakland' })
+    const bias = hotwordsFromMemories(rows)
+    expect(bias.length).toBeLessThanOrEqual(240)
+    expect(bias.match(/Oakland/g)).toHaveLength(1)
+  })
+
+  it('is empty when there is nothing worth biasing with', () => {
+    expect(hotwordsFromMemories([])).toBe('')
+    expect(hotwordsFromMemories([{ key: 'mood', value: 'good' }])).toBe('')
+    expect(hotwordsFromMemories([{ key: 'city', value: '   ' }])).toBe('')
   })
 })
