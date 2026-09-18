@@ -763,6 +763,35 @@ recorded as a floor.
   that are not connected. The complete list is in the founder-decision block
   below.
 
+### Re-run after the fixes — dims 1, 2, 7 against the production API
+
+Same harness, no local override: the turn engine in this tree against
+`https://hirealpha.chat` (live Postgres, live Composio connectors, live trvl in
+the Web image). Delivery captured, nothing texted. What this proves and what it
+does not: the engine-side fixes are exercised against production data, but the
+deployed bot container still runs the revision before them, so a real iMessage
+check needs the Friend deploy below.
+
+- **Dim 7 — pass.** “Set. Weekdays at 7:00 AM (America/Los_Angeles): your
+  calendar, emails still owed a reply, and the weather. Pause or move it any
+  time. Next one: Mon, Sep 21 at 7:00 AM.” **938 ms**, deterministic path (the
+  pre-fix runs took 11–23 s through the model and flapped between a real row, a
+  narrated “scheduler is rejecting it”, and the canned “web lookup did not
+  run”).
+- **Dim 1 — holds at 6, better shape.** Real dates (Fri Sep 25 → Sun Sep 27),
+  LondonHouse staged on Kayak with the under-$250 and free-cancellation flags
+  carried into the run goal, payment pause stated, card link offered outside
+  chat. Still staged rather than completed, so the anchor does not move.
+- **Dim 2 — holds at 5.** Correct dates both ways (out Sep 25, back Sep 27),
+  aisle seat and the $400 ceiling carried into the staged run, and the check-in
+  limit stated plainly instead of promised. No in-thread fare yet in this run,
+  and check-in as an action still does not exist.
+- **Dim 3 — improves to 8 on the local re-run:** three named, addressed picks
+  with walk times, the chain excluded with its reason, and each option's unmet
+  constraint stated (vegetarian tag missing on the closest, budget risk on the
+  steakhouse, dinner hours on the diner). Verified hours and menu prices need a
+  provider that returns them — that is decision 1 below.
+
 ### Founder decisions this run is waiting on
 
 1. `SERPAPI_API_KEY` + `SERPAPI_TEST_PHONES=+12163032166` on HireAlpha-Web
