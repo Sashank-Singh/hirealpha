@@ -524,7 +524,7 @@ export async function runJob(sql: SQL, job: JobRow, launch = runBrowserSession):
           : handoffKind === 'password'
             ? (hasCompleteCredentials
                 ? `Alpha paused at the sign-in screen on ${origin ? new URL(origin).hostname.replace(/^www\./, '') : 'the portal'}. If two-factor or security verification is needed, take over here: ${sessionUrl}`
-                : `Your login password or username is not in Vault yet. Connect it securely here: ${vaultUrl} — or take over the live computer: ${sessionUrl}`)
+                : `This one needs an account on ${origin ? new URL(origin).hostname.replace(/^www\./, '') : 'that site'} before it will go further, and I do not have a login for it. Three ways: save the login in Vault (${vaultUrl}), create an account there and save it, or take over the live computer and finish the sign-in yourself (${sessionUrl}).`)
             : `Alpha paused and needs you to ${message.replace(/[.!]+$/, '').toLowerCase()}. Open the live computer: ${sessionUrl}`,
         screenshotDataUrl: handoffShot?.dataUrl,
         screenshotCaption: handoffShot?.caption || handoffMessage,

@@ -60,6 +60,20 @@ if [ "$STACK" = "1" ]; then
     if curl -fsS "http://127.0.0.1:$PORT/healthz" >/dev/null 2>&1; then break; fi
     sleep 0.5
   done
+  if ! curl -fsS "http://127.0.0.1:$PORT/healthz" >/dev/null 2>&1; then
+    cat <<'HINT' >&2
+[dev] the local web server did not come up. Its most common reason: DATABASE_URL
+      in spectrum/alpha/bench-runtime.env points at a host only the Coolify
+      network can reach, so the server dies with "PostgresError: Connection
+      closed" before it binds a port. Either run without --stack (bot only,
+      against the production API), or tunnel the database from your own terminal:
+
+        ssh -N -L 5433:localhost:5432 root@<coolify-host>
+        DATABASE_URL=postgres://<user>:<pass>@127.0.0.1:5433/<db> ./scripts/dev-imsg.sh --stack
+
+      The password is on the Web app's env vars in Coolify.
+HINT
+  fi
   export HIREALPHA_API_URL="http://127.0.0.1:$PORT"
   echo "[dev] bot will call the LOCAL api at $HIREALPHA_API_URL"
 else

@@ -102,6 +102,23 @@ const LOGIN_TEXT_PATTERNS: ReadonlyArray<{ signal: string; re: RegExp }> = [
   { signal: 'password-required', re: /enter your password/i },
 ]
 
+/** Doors that make a sign-in page optional rather than a wall. */
+const GUEST_PATH_PATTERNS: RegExp[] = [
+  /continue as (?:a )?guest/i,
+  /(?:checkout|check out|order|book) as (?:a )?guest/i,
+  /guest (?:checkout|booking|order)/i,
+  /(?:sign ?up|create (?:an )?account|create your account|register|new (?:customer|account|user))/i,
+  /(?:skip|not now|no thanks|later|continue without)\b/i,
+  /join (?:for )?free/i,
+]
+
+/** True when the page offers a way in that does not need this person's account. */
+export function guestPathOffered(pageText: string): boolean {
+  const text = String(pageText || '')
+  if (!text) return false
+  return GUEST_PATH_PATTERNS.some((re) => re.test(text))
+}
+
 function clean(value: string): string {
   return value.replace(/\s+/g, ' ').trim().slice(0, MAX_EVIDENCE)
 }
@@ -142,6 +159,11 @@ export function detectChallenge(input: ChallengeInput): ChallengeSignal | null {
   }
 
   if (input.hasPasswordField) {
+    /* A page that also offers to sign you up or to continue as a guest is not a
+     * wall: pausing there is what asked a first-time visitor for a vault
+     * password on a site they had never used, before the agent had even tried
+     * the guest path. Let the agent take the door that is open. */
+    if (guestPathOffered(text)) return null
     const title = input.title || ''
     // A password field plus a sign-in title is a wall; a password field in a
     // checkout "create password" form has no such title.

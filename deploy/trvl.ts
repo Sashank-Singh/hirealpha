@@ -89,7 +89,11 @@ async function defaultRunner(args: string[], timeoutMs: number): Promise<unknown
     }
   }, timeoutMs)
   try {
-    const [out, err] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text()])
+    // stdout/stderr are streams here (both were spawned as 'pipe'); the Bun type
+    // also allows a file descriptor, which Response cannot take.
+    const stdout = proc.stdout as ReadableStream<Uint8Array> | undefined
+    const stderr = proc.stderr as ReadableStream<Uint8Array> | undefined
+    const [out, err] = await Promise.all([new Response(stdout ?? '').text(), new Response(stderr ?? '').text()])
     const code = await proc.exited
     const ms = Date.now() - started
     if (code !== 0) {

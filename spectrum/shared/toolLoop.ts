@@ -499,11 +499,19 @@ Reactions are optional and usually absent. You may add "reaction":"<emoji>" to a
        * task on someone else's site — it launched a Cloud Computer run anyway,
        * live, with no action verb anywhere in it. Nothing to do with an outside
        * site means no run, whatever the classifier says. */
+      /* A question is a lookup, never a run. "What round trip flights go from
+       * New York to Chicago on Sep 25" launched a Cloud Computer session on
+       * Kayak tonight — no action verb anywhere in it, just a question the fare
+       * tools answer. Only an explicit action keeps the browser in play. */
+      const questionAsk =
+        /^\s*(?:what|which|who|when|where|how|is |are |does |do |any |can you tell|tell me)/i.test(userAsk) &&
+        !ACTION_ASK_RE.test(userAsk) &&
+        !ASK_BUY_RE.test(userAsk)
       const scheduleAsk =
         /\b(?:schedule|calendar|agenda|meetings?|appointments?|what'?s (?:on|next|coming)|today|tomorrow|this (?:week|morning|afternoon))\b/i.test(userAsk) &&
         !ACTION_ASK_RE.test(userAsk) &&
         !ASK_BUY_RE.test(userAsk)
-      const needsBrowser = !isMemoryAsk && !wantsMail && !attemptedMail && !appTweakAsk && !scheduleAsk && (request
+      const needsBrowser = !isMemoryAsk && !wantsMail && !attemptedMail && !appTweakAsk && !scheduleAsk && !questionAsk && (request
         ? (request.needsBrowser || ACTION_ASK_RE.test(userAsk)) && !findOnlyAsk
         : ACTION_ASK_RE.test(userAsk) && !findOnlyAsk)
       // A booking ask that already produced search results gets a second nudge

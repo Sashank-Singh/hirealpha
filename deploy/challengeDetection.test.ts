@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'bun:test'
-import { challengeFailureMessage, challengeHandoffMessage, detectChallenge } from './challengeDetection'
+import {
+  challengeFailureMessage,
+  challengeHandoffMessage,
+  detectChallenge,
+  guestPathOffered,
+} from './challengeDetection'
 
 /* ============================================================================
  * Anti-bot detection: the run must hand off (or fail explicitly) instead of
@@ -121,5 +126,33 @@ describe('handoff and failure messages', () => {
     expect(message).toContain('shop.example')
     expect(message).toContain('cloudflare-turnstile')
     expect(message).toContain('challenges.cloudflare.com')
+  })
+})
+
+describe('a sign-in page with a way in is not a wall', () => {
+  /* Live complaint: a first-time visitor to a new site was asked to put their
+   * password in the vault before the agent had even reached signup. Any site's
+   * own login page has a password field and the words "Sign in", so every new
+   * site looked like a wall. */
+  it('does not pause when the page offers signup or a guest path', () => {
+    const page = {
+      title: 'Sign in',
+      hasPasswordField: true,
+      text: 'Sign in to continue. New to Store? Create an account. Or continue as guest.',
+    }
+    expect(detectChallenge(page)).toBeNull()
+  })
+
+  it('still pauses on a hard wall with no way in', () => {
+    const wall = detectChallenge({ title: 'Sign in', hasPasswordField: true, text: 'Sign in to continue.' })
+    expect(wall?.kind).toBe('login')
+    expect(detectChallenge({ title: 'Sign in', hasPasswordField: true, text: 'You must sign in to view this order.' })?.kind).toBe('login')
+  })
+
+  it('names the phrases it treats as a way in', () => {
+    expect(guestPathOffered('Checkout as guest')).toBe(true)
+    expect(guestPathOffered('Create your account')).toBe(true)
+    expect(guestPathOffered('Skip for now')).toBe(true)
+    expect(guestPathOffered('Sign in to continue')).toBe(false)
   })
 })
