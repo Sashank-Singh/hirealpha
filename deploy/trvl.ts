@@ -26,6 +26,33 @@ export function trvlEnabled(): boolean {
   return process.env.TRVL_ENABLED !== '0'
 }
 
+/**
+ * A source that answered 429 is left alone for a while.
+ *
+ * Measured from the Coolify box: kiwi and skiplagged throttle the datacenter IP
+ * on every flight search, so each ask burned the full 45s and still produced
+ * nothing. The cooldown means the first ask pays that cost and the next twenty
+ * minutes go straight to the next source in the chain.
+ */
+const RATE_LIMITED_COOLDOWN_MS = Number(process.env.TRVL_RATE_LIMIT_COOLDOWN_MS || 20 * 60 * 1000)
+let rateLimitedUntil = 0
+
+function noteRateLimit(kind: string, stderr: string) {
+  if (!/\b429\b|rate ?limit|too many requests/i.test(stderr)) return
+  rateLimitedUntil = Date.now() + RATE_LIMITED_COOLDOWN_MS
+  console.warn(`[trvl] ${kind} providers rate limit this host; skipping trvl ${kind} for ${Math.round(RATE_LIMITED_COOLDOWN_MS / 60000)}min`)
+}
+
+/** Test seam. */
+export function resetTrvlRateLimit() {
+  rateLimitedUntil = 0
+}
+
+/** Test seam: stand in for the stderr note the real runner takes. */
+export function noteTrvlRateLimitForTest(kind: string, stderr: string) {
+  noteRateLimit(kind, stderr)
+}
+
 function trvlBin(): string {
   return process.env.TRVL_BIN?.trim() || 'trvl'
 }
@@ -60,11 +87,12 @@ export function setTrvlRunner(next: TrvlRunner | null) {
   runner = next || defaultRunner
 }
 
-/** Test seam: drop cached answers and the day's FX rate. */
+/** Test seam: drop cached answers, the day's FX rate and any cooldown. */
 export function resetTrvlState() {
   cache.clear()
   fxRate = null
   runner = defaultRunner
+  rateLimitedUntil = 0
 }
 
 async function defaultRunner(args: string[], timeoutMs: number): Promise<unknown | null> {
@@ -97,6 +125,7 @@ async function defaultRunner(args: string[], timeoutMs: number): Promise<unknown
     const code = await proc.exited
     const ms = Date.now() - started
     if (code !== 0) {
+      noteRateLimit(args[0] || 'search', err)
       // The reason lives on stderr: blocked providers, a rotated API version,
       // a route it could not resolve. Without this the caller only ever sees
       // "no results" and the cause is invisible from the container log.
@@ -214,6 +243,8 @@ export async function trvlFlights(input: {
   const key = `flights|${from}|${to}|${input.date}|${input.returnDate || ''}|${input.cabin || ''}|${input.maxStops ?? ''}`
   const hit = cached(key)
   if (hit) return hit
+  // Throttled ten minutes ago is still throttled: do not spend 20s finding out.
+  if (Date.now() < rateLimitedUntil) return null
 
   /* A city maps to several airports and trvl searches every pair: JFK,EWR,LGA
    * × ORD,MDW is six routes, doubled for a round trip. Measured from the
@@ -223,7 +254,7 @@ export async function trvlFlights(input: {
   const maxAirports = Math.max(1, Number(process.env.TRVL_MAX_AIRPORTS || '1') || 1)
   const fromIata = from.split(',').slice(0, maxAirports).join(',')
   const toIata = to.split(',').slice(0, maxAirports).join(',')
-  const args = ['flights', fromIata, toIata, input.date, '--format', 'json']
+  const args = ['flights', fromIata, toIata, input.date, '--format', 'json', '--timeout', `${Math.min(20, Math.round(TRVL_TIMEOUT_MS / 1000))}s`]
   if (input.returnDate) args.push('--return', input.returnDate)
   if (input.cabin) args.push('--cabin', input.cabin)
   if (input.maxStops === 0) args.push('--stops', 'nonstop')

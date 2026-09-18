@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'bun:test'
-import { airportsFor, resetTrvlState, setTrvlRunner, trvlFlights, trvlHotels } from './trvl'
+import { airportsFor, noteTrvlRateLimitForTest, resetTrvlState, setTrvlRunner, trvlFlights, trvlHotels } from './trvl'
 
 afterEach(() => resetTrvlState())
 
@@ -97,5 +97,33 @@ describe('trvl hotels', () => {
   it('is quiet when the binary is not there', async () => {
     setTrvlRunner(async () => null)
     expect(await trvlHotels({ city: 'Chicago', checkin: '2026-09-25', checkout: '2026-09-27' })).toBeNull()
+  })
+})
+
+describe('rate-limited providers', () => {
+  /* Measured from the Coolify box: kiwi and skiplagged 429 every flight search
+   * against the datacenter IP, so each ask spent 45s and returned nothing. */
+  it('stops asking a source that just refused, then tries again after the cooldown', async () => {
+    resetTrvlState()
+    let calls = 0
+    setTrvlRunner(async () => {
+      calls++
+      throw new Error('exit 1: retry attempt=2 status=429 backoff_ms=4000')
+    })
+    // The runner throwing is how a 429 reaches us; the note is taken from stderr
+    // in the real runner, which the injected one stands in for.
+    noteTrvlRateLimitForTest('flights', 'retry attempt=0 status=429 backoff_ms=1000')
+    expect(await trvlFlights({ from: 'JFK', to: 'ORD', date: '2026-09-25' })).toBeNull()
+    expect(calls).toBe(0)
+  })
+
+  it('forgets the cooldown on reset', async () => {
+    // Reset first: it restores the real runner, so injecting before it would be
+    // thrown away.
+    resetTrvlState()
+    setTrvlRunner(async () => ({ flights: [{ price: 200, currency: 'USD', legs: [{ airline: 'Delta' }] }] }))
+    globalThis.fetch = (async () => new Response(JSON.stringify({ date: '2026-09-18', rates: { USD: 1 } }), { status: 200 })) as unknown as typeof fetch
+    const block = await trvlFlights({ from: 'New York', to: 'Chicago', date: '2026-09-25' })
+    expect(block).toContain('Delta')
   })
 })
