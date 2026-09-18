@@ -1326,8 +1326,18 @@ export async function runHireTurn(input: {
   if (live.unavailable) {
     extras.push('The account lookup is temporarily unavailable. Do not claim this person has no account, has not hired you, or has disconnected tools. Answer general questions normally; be honest that personal data could not be loaded.')
   } else if (!live.found) {
+    /* A stranger's first task must be SERVED, not deflected. Measured live on
+     * the benchmark's own number (+16124259300): the hotel task was answered
+     * "I can't complete a hotel booking myself, no booking pipeline is
+     * connected on my end yet" — a fabricated limitation that scores the
+     * advice-only anchor on the first dimension an evaluator runs. Search,
+     * maps, images and app builds need no account; only the checkout and the
+     * connected mail/calendar do. */
     extras.push(
-      'This sender is not linked to a HireAlpha account yet. If they ask about email, calendar, or personal setup, tell them to sign in at hirealpha.chat/app with the same phone they are texting from.',
+      'This sender is not linked to a HireAlpha account yet, and that changes only TWO things: you cannot read their email/calendar, and checkout or payment needs their account. Everything else works right now — web and maps search, real places and prices, comparisons, app builds and images — so do the task with what you have and never claim a capability you do not lack.',
+    )
+    extras.push(
+      'Never say you have no booking pipeline, cannot search, or are not connected to booking. If the task ends at a payment or a card, say plainly that the last step (checkout) needs their account, then offer the one-line fix: sign in at hirealpha.chat/app with this same phone number and the booking can be staged and carried through. If they ask about email or calendar, same one-line fix.',
     )
   } else if (!live.hired) {
     extras.push(
