@@ -6,6 +6,7 @@ import {
   fetchMapSearch,
   formatMapResults,
   geocodeMapArea,
+  mapAreaCandidates,
   mapAreaFromQuery,
   PLACE_ASK_RE,
   geocodeRowUsableForTest,
@@ -368,3 +369,37 @@ describe('fetchMapSearch named path', () => {
   })
 })
 
+
+describe('constraint-heavy place asks', () => {
+  /* Live 2026-09-18: the dining task ("vegetarian-friendly, not a chain, under
+   * $40 a head, walking distance from my hotel") was answered three times with
+   * "my searches keep returning stale results". Two bugs, both here. */
+  it('reads a sentence of constraints as the kind it ends on', () => {
+    // "vegetarian-friendly" normalises to "vegetarian friendly"; the head token
+    // landed on "friendly", the kind lookup missed, and the whole ask was
+    // classified as a landmark — so it went to a web search, not the map.
+    expect(classifyMapQuery('vegetarian-friendly non-chain restaurants near the Loop Chicago, dinner for four, under $40 per person')).toEqual({ mode: 'nearby', kinds: ['restaurant'] })
+    expect(classifyMapQuery('Find a dinner spot for four tomorrow at 7:30, walking distance from my hotel, vegetarian-friendly, not a chain, under $40 a head')).toEqual({ mode: 'nearby', kinds: ['restaurant'] })
+  })
+
+  it('still reads a landmark as a place', () => {
+    expect(classifyMapQuery('golden gate park')).toEqual({ mode: 'named' })
+  })
+
+  it('does not mistake the reference point for the kind', () => {
+    // "from my hotel" is where you start, not something to recommend, so it
+    // must not turn a constraint-only sentence into a hotel search.
+    const out = classifyMapQuery('walking distance from my hotel, vegetarian-friendly, not a chain')
+    expect(out.mode === 'nearby' ? out.kinds.includes('hotel') : false).toBe(false)
+    const withKind = classifyMapQuery('walking distance from my hotel, vegetarian-friendly restaurants')
+    expect(withKind).toEqual({ mode: 'nearby', kinds: ['restaurant'] })
+  })
+
+  it('finds the area even when a later kind word trails the sentence', () => {
+    // Keying off the LAST kind word made the area empty here ("hotels" ends it),
+    // the search ran with no anchor, and the answer came back as a Las Vegas
+    // buffet review.
+    expect(mapAreaCandidates('vegetarian-friendly independent restaurants near the Loop, Chicago, open for dinner Saturday, walking distance from downtown hotels')[0]).toBe('loop chicago')
+    expect(mapAreaCandidates('vegetarian friendly independent restaurants near the Loop, Chicago')[0]).toBe('loop chicago')
+  })
+})

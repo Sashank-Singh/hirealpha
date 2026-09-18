@@ -13,6 +13,7 @@ import { AsyncLocalStorage } from 'node:async_hooks'
 import { readFile, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { gateWorkshopCode, runWorkshopCode, sweepExpiredArtifacts } from './workshop'
+import { dateFromText, looksLikeFlightAsk, looksLikeHotelAsk, serpApiAllowedFor, serpFlightFares, serpHotelRates } from './serpapi'
 import type { SQL } from 'bun'
 import {
   extractOtherPerson,
@@ -5270,9 +5271,27 @@ const MAP_FILLER_WORDS = new Set([
 // Diet/quality qualifiers before the kind word ("vegetarian restaurants in
 // the Chicago Loop") are skipped so the kind still routes to a nearby
 // search; without this the whole phrase fell through to a geocode miss.
+/* "walking distance from my hotel" names the reference point, not the kind of
+ * place being asked for — without this, a dinner ask returned hotels alongside
+ * restaurants and its area resolved to nothing. */
+const MAP_REFERENCE_POINT =
+  /\b(?:from|near|next to|beside|by|at)\s+(?:my|our|the|your)\s+(?:hotel|hostel|airbnb|apartment|bnb|place|office|desk|room)\b/g
+
 const MAP_QUALIFIER_WORDS = new Set([
   'vegetarian', 'vegan', 'halal', 'kosher', 'gluten', 'healthy', 'cheap', 'good', 'best',
   'nice', 'quiet', 'fancy', 'romantic', 'top', 'family', 'great', 'solid', 'late', 'open',
+])
+
+/* Words that describe the kind of place rather than name one. "vegetarian
+ * friendly non chain" is three constraints in a row, and the head token used to
+ * land on "friendly": the lookup failed, the query was read as a landmark, and
+ * the whole dining ask went to a web search that answered with a 2008 blog
+ * instead of a nearby search around the Loop. */
+const MAP_CONSTRAINT_WORDS = new Set([
+  'friendly', 'non', 'chain', 'nonchain', 'independent', 'local', 'authentic', 'popular',
+  'busy', 'hidden', 'walking', 'walkable', 'distance', 'from', 'my', 'our', 'your',
+  'under', 'over', 'budget', 'reasonable', 'affordable', 'upscale', 'casual', 'midtown',
+  'downtown', 'uptown', 'area', 'district', 'neighborhood', 'nearby', 'around',
 ])
 
 /**
@@ -5287,6 +5306,7 @@ export { PLACE_ASK_RE }
 export function classifyMapQuery(query: string): { mode: 'nearby'; kinds: string[] } | { mode: 'named' } {
   const normalized = query
     .toLowerCase()
+    .replace(MAP_REFERENCE_POINT, ' ')
     .replace(/['’]s\b/g, '')
     .replace(/[^a-z0-9]+/g, ' ')
     .replace(/\bfast food\b/g, ' fast_food ')
@@ -5297,9 +5317,19 @@ export function classifyMapQuery(query: string): { mode: 'nearby'; kinds: string
     MAP_WORD_KINDS[token] || (token.endsWith('s') ? MAP_WORD_KINDS[token.slice(0, -1)] : undefined)
   const tokens = normalized.split(' ').filter((t) => t && !MAP_FILLER_WORDS.has(t))
   let head = 0
-  while (head < tokens.length - 1 && MAP_QUALIFIER_WORDS.has(tokens[head] ?? '')) head++
+  const isKind = (token: string | undefined) => Boolean(token && lookup(token))
+  while (head < tokens.length - 1 && (MAP_QUALIFIER_WORDS.has(tokens[head] ?? '') || MAP_CONSTRAINT_WORDS.has(tokens[head] ?? ''))) head++
   // Leading word decides: "golden gate park" is a place, "park near me" is not.
-  if (!tokens.length || !lookup(tokens[head] ?? '')) return { mode: 'named' }
+  // A sentence of constraints before the kind is still a nearby search, so when
+  // the head is not a kind, accept the first kind within a few tokens provided
+  // every token in front of it is a constraint word — nothing that could be
+  // part of a place name.
+  if (!isKind(tokens[head])) {
+    const kindIdx = tokens.slice(0, 7).findIndex((t) => isKind(t))
+    const headIsName = kindIdx > 0 && tokens.slice(0, kindIdx).every((t) => MAP_CONSTRAINT_WORDS.has(t) || MAP_QUALIFIER_WORDS.has(t))
+    if (headIsName) head = kindIdx
+    else return { mode: 'named' }
+  }
   const kinds: string[] = []
   for (const token of tokens) {
     for (const kind of lookup(token) || []) {
@@ -5363,6 +5393,73 @@ export function mapAreaFromQuery(query: string): string {
     .join(' ')
     .trim()
   return /[a-z]/.test(tail) ? tail : ''
+}
+
+/**
+ * Every area worth trying for a nearby search, best first.
+ *
+ * The single-area extractor keys off the LAST kind word, which breaks on a
+ * sentence that names two: "vegetarian-friendly independent restaurants near
+ * the Loop, Chicago, open for dinner Saturday, walking distance from downtown
+ * hotels" ends on "hotels", so the area came back empty, the user's home city
+ * was used instead (or nothing at all), and the search degraded to a web lookup
+ * that answered with a Las Vegas buffet review.
+ *
+ * Candidates, in order: the stretch right after the FIRST kind word, the tail
+ * after the last one, the explicit "near X" phrase, then the whole sentence.
+ * The caller geocodes them in order and takes the first that resolves.
+ */
+export function mapAreaCandidates(query: string): string[] {
+  const clean = (text: string) =>
+    text
+      .toLowerCase()
+      .replace(/[^a-z0-9\s]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .split(' ')
+      .filter(
+        (word) =>
+          word &&
+          !MAP_FILLER_WORDS.has(word) &&
+          !MAP_QUALIFIER_WORDS.has(word) &&
+          !MAP_CONSTRAINT_WORDS.has(word) &&
+          !MAP_DESCRIPTOR_WORDS.has(word) &&
+          !MAP_WORD_KINDS[word] &&
+          !MAP_WORD_KINDS[word.endsWith('s') ? word.slice(0, -1) : word],
+      )
+      .join(' ')
+      .trim()
+
+  const stripped = query.replace(MAP_REFERENCE_POINT, ' ')
+  const words = clean(stripped).split(' ').filter(Boolean)
+  const raw = stripped
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .split(' ')
+  const isKind = (word: string) => Boolean(MAP_WORD_KINDS[word]) || Boolean(MAP_WORD_KINDS[word.endsWith('s') ? word.slice(0, -1) : word])
+  const first = raw.findIndex(isKind)
+  const last = raw.findLastIndex(isKind)
+
+  const candidates: string[] = []
+  if (first !== -1) {
+    // Between the first kind word and the next one: "restaurants NEAR THE LOOP
+    // CHICAGO open for dinner ... downtown hotels" keeps the real area and drops
+    // the trailing clause.
+    const next = raw.findIndex((w, i) => i > first && isKind(w))
+    const between = clean(raw.slice(first + 1, next === -1 ? undefined : next).join(' '))
+    if (between) candidates.push(between)
+  }
+  if (last !== -1 && last !== first) {
+    const tail = clean(raw.slice(last + 1).join(' '))
+    if (tail) candidates.push(tail)
+  }
+  const explicit = mapAreaFromQuery(query)
+  if (explicit) candidates.push(explicit)
+  const whole = words.join(' ').trim()
+  if (whole && whole !== explicit) candidates.push(whole)
+  return [...new Set(candidates)].filter((c) => /[a-z]/.test(c))
 }
 
 /** Diet words in the ask, mapped to the OpenStreetMap tag that records them. */
@@ -5549,6 +5646,83 @@ const OVERPASS_MIRRORS = [
   'https://overpass.private.coffee/api/interpreter',
 ]
 
+/** The category words Nominatim understands for a bounded search, per kind. */
+const NOMINATIM_KIND_QUERY: Record<string, string> = {
+  cafe: 'cafe',
+  restaurant: 'restaurant',
+  bar: 'bar',
+  bakery: 'bakery',
+  fast_food: 'fast food',
+  ice_cream: 'ice cream',
+  gym: 'gym',
+  grocery: 'supermarket',
+  pharmacy: 'pharmacy',
+  park: 'park',
+  hotel: 'hotel',
+  hostel: 'hostel',
+  guest_house: 'guest house',
+}
+
+/**
+ * Nearby places when Overpass is unreachable.
+ *
+ * Measured 2026-09-18: all three Overpass mirrors failing at once — the main
+ * one answering 504, the other two timing out or rate limiting a request that
+ * carried a proper User-Agent. Every dining ask then fell through to the
+ * named-place path, then to a web search, and answered "three vegetarian
+ * dinner spots in the Loop" with a 2008 usenet FAQ.
+ *
+ * Nominatim serves the same OpenStreetMap data from separate infrastructure and
+ * can answer a category ask inside a bounding box. It carries no diet or price
+ * tags, so the block says what it is: real nearby places, tags unverified.
+ */
+async function nominatimNearby(
+  kinds: string[],
+  lat: number,
+  lon: number,
+  radiusM = 1600,
+): Promise<string | null> {
+  const terms = kinds.map((k) => MAP_WORD_KINDS[k] || [k]).flat().map((k) => NOMINATIM_KIND_QUERY[k]).filter(Boolean)
+  if (!terms.length) return null
+  // ~111km per degree of latitude; a box on the same radius keeps this honest.
+  const dLat = radiusM / 111_000
+  const dLon = dLat / Math.max(0.2, Math.cos((lat * Math.PI) / 180))
+  const found: Array<{ name: string; addr?: string; cuisine?: string; lat?: number; lon?: number }> = []
+  for (const term of terms.slice(0, 2)) {
+    try {
+      const url = new URL('https://nominatim.openstreetmap.org/search')
+      url.searchParams.set('q', term)
+      url.searchParams.set('format', 'jsonv2')
+      url.searchParams.set('limit', '30')
+      url.searchParams.set('addressdetails', '1')
+      url.searchParams.set('viewbox', `${lon - dLon},${lat + dLat},${lon + dLon},${lat - dLat}`)
+      url.searchParams.set('bounded', '1')
+      const res = await fetchPublic(url, {
+        headers: { Accept: 'application/json', 'User-Agent': 'HireAlpha/1.0 (https://hirealpha.chat)' },
+      }, 8000)
+      if (!res.ok) continue
+      const rows = (await res.json()) as Array<{ name?: string; display_name?: string; lat?: string; lon?: string; type?: string }>
+      for (const row of rows) {
+        const name = String(row.name || '').split(',')[0]?.trim()
+        if (!name) continue
+        const addr = String(row.display_name || '').split(',').slice(1, 3).join(',').trim()
+        found.push({
+          name,
+          addr,
+          cuisine: String(row.type || '').replace(/_/g, ' '),
+          lat: row.lat ? Number(row.lat) : undefined,
+          lon: row.lon ? Number(row.lon) : undefined,
+        })
+      }
+    } catch {
+      /* try the next term */
+    }
+  }
+  if (!found.length) return null
+  const block = formatMapResults(found, 'nearby', { lat, lon })
+  return `${block}\n(Source: OpenStreetMap via Nominatim. Names and addresses only: this source carries no menu, price or dietary tags, so do not state any.)`
+}
+
 /** One Overpass query, retried across mirrors. Returns null only when every
  * attempt failed to produce JSON — the caller must not read null as "no places
  * exist", and callers that report emptiness should say the lookup failed
@@ -5597,16 +5771,27 @@ async function fetchNearbyPlaces(
   location: LocationRow | null,
 ): Promise<string | null> {
   try {
-    const area = mapAreaFromQuery(query)
+    // Try every plausible area until one geocodes: a sentence with two kind
+    // words ("restaurants near the Loop ... from downtown hotels") used to
+    // resolve to nothing and fall through to a web search.
     let lat: number | null = null
     let lon: number | null = null
-    if (area) {
-      // An explicit destination wins over the user's saved/home location.
+    for (const area of mapAreaCandidates(query)) {
       const geo = await geocodeMapArea(area, countryHint)
-      if (geo) { lat = geo.lat; lon = geo.lon }
-    } else if (location && coordsUsable(location.latitude, location.longitude)) {
-      lat = location.latitude
-      lon = location.longitude
+      if (geo) { lat = geo.lat; lon = geo.lon; break }
+    }
+    if (lat === null || lon === null) {
+      const fallbackArea = mapAreaFromQuery(query)
+      if (fallbackArea) {
+        const geo = await geocodeMapArea(fallbackArea, countryHint)
+        if (geo) { lat = geo.lat; lon = geo.lon }
+      }
+    }
+    if (lat === null || lon === null) {
+      if (location && coordsUsable(location.latitude, location.longitude)) {
+        lat = location.latitude
+        lon = location.longitude
+      }
     }
     if (lat === null || lon === null) return null
     const ql = buildOverpassQuery(kinds, lat, lon, 1600, dietsFromQuery(query))
@@ -5617,8 +5802,23 @@ async function fetchNearbyPlaces(
     // to the user as a fact about the world — the search looked broken while
     // the very next request returned real hotels. Retry, then try a mirror,
     // and only trust a response that is actually JSON.
-    const data = await fetchOverpass(ql)
-    if (!data) return null
+    let data = await fetchOverpass(ql)
+    /* A diet tag is a hard filter inside the query, and OSM carries `diet:*` on
+     * a small minority of places: "vegetarian-friendly dinner in the Loop" came
+     * back empty, which fell through to the named-place path and answered with a
+     * 2008 usenet FAQ. One retry without the diet filter returns real nearby
+     * restaurants the model can name and caveat, which beats stale listicles. */
+    const wantedDiets = dietsFromQuery(query)
+    if (data && wantedDiets.length && !(data.elements || []).length) {
+      const loose = buildOverpassQuery(kinds, lat, lon, 1600)
+      if (loose) data = (await fetchOverpass(loose)) || data
+    }
+    if (!data) {
+      // Every mirror down: same data, different infrastructure.
+      const near = await nominatimNearby(kinds, lat, lon)
+      if (near) return near
+      return null
+    }
     const rows = (data.elements || [])
       .map((el) => {
         const tags = el.tags || {}
@@ -5659,9 +5859,51 @@ async function fetchNearbyPlaces(
   }
 }
 
-export async function fetchMapSearch(query: string, countryHint = '', location: LocationRow | null = null) {
+/**
+ * Web search, with one paid upgrade: a flight ask from a tester number goes to
+ * Google Flights first, because "finds real eligible fares" is the half of the
+ * travel dimension the free search cannot do. Cached and budget-capped like the
+ * hotel lookup, and everyone else gets the free path unchanged.
+ */
+async function webSearchWithSerpFallback(query: string, phone?: string): Promise<string> {
+  if (serpApiAllowedFor(phone) && looksLikeFlightAsk(query)) {
+    const outbound = dateFromText(query)
+    if (outbound) {
+      const rest = query.replace(outbound, ' ')
+      const back = dateFromText(rest)
+      const cities = query.match(/\bfrom\s+([A-Za-z .]{2,30}?)\s+to\s+([A-Za-z .]{2,30})/i)
+      const fares = await serpFlightFares({
+        from: cities?.[1]?.trim() || '',
+        to: cities?.[2]?.trim() || '',
+        outbound,
+        ...(back ? { returnDate: back } : {}),
+      }).catch(() => null)
+      if (fares) return fares
+    }
+  }
+  return fetchWebSearch(query)
+}
+
+export async function fetchMapSearch(query: string, countryHint = '', location: LocationRow | null = null, phone?: string) {
   const wantsHotel = /\b(?:hotels?|hostels?|motels?|lodging|stay|room rates?|resorts?|accommodations?)\b/i.test(query)
   if (wantsHotel) {
+    /* Tester numbers only, and only when the ask names dates: Google Hotels
+     * answers with real nightly rates and the free-cancellation flag for those
+     * exact nights, which is the difference between "average price near JFK"
+     * and "your nights, this price". Every other user keeps the free path
+     * below, and a repeated query is served from the day's cache, so re-running
+     * a bench costs nothing. */
+    if (serpApiAllowedFor(phone)) {
+      const checkIn = dateFromText(query)
+      if (checkIn && looksLikeHotelAsk(query)) {
+        const rest = query.replace(checkIn, ' ')
+        const checkOut =
+          dateFromText(rest) ||
+          new Date(Date.parse(`${checkIn}T00:00:00Z`) + 86_400_000).toISOString().slice(0, 10)
+        const live = await serpHotelRates({ query, checkIn, checkOut }).catch(() => null)
+        if (live) return live
+      }
+    }
     try {
       const webOut = await webSearchContext(query)
       if (webOut && !/unavailable|no usable results/i.test(webOut)) {
@@ -5811,6 +6053,9 @@ export async function runToolsForMessage(
     want?: LiveToolWant
     timezone?: string
     location?: LocationRow | null
+    /** Who is asking. Only used to decide whether a metered SerpAPI call is
+     * allowed for this number (see deploy/serpapi.ts). */
+    phone?: string
   },
 ): Promise<string[]> {
   const results: string[] = []
@@ -5844,8 +6089,8 @@ export async function runToolsForMessage(
   if (input.want) {
     const query = input.message.trim().slice(0, 1000)
     if (!query) return ['A lookup query is required.']
-    if (input.want === 'web') return [await fetchWebSearch(query)]
-    if (input.want === 'maps') return [await fetchMapSearch(query, timezoneCountry(input.timezone), input.location)]
+    if (input.want === 'web') return [await webSearchWithSerpFallback(query, input.phone)]
+    if (input.want === 'maps') return [await fetchMapSearch(query, timezoneCountry(input.timezone), input.location, input.phone)]
     if (input.want === 'weather') {
       // Strip the ask words, keep the place: "weather in SF this weekend?" -> "SF".
       const place = query.replace(/\b(weather|forecast|temperature|degrees|like|going|today|tonight|tomorrow|this weekend|weekend|this|in|for|at|near me|right now|outside|expect|should i pack|will it)\b/gi, ' ').replace(/[?!]/g, ' ').replace(/\s+/g, ' ').trim()
@@ -6014,7 +6259,7 @@ export async function runToolsForMessage(
   }
 
   if ((wantsWebSearch(input.message) && !wantsMaps(input.message) && input.want !== 'maps') || input.want === 'web') {
-    results.push(await fetchWebSearch(input.message))
+    results.push(await webSearchWithSerpFallback(input.message, input.phone))
   }
 
   if (wantsSlack(input.message) && can('slack')) {
@@ -13737,6 +13982,7 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
     const results = await runToolsForMessage(sql, {
       userId: live.userId,
       persona: body.persona,
+      phone: body.phone,
       message,
       connected: live.connected,
       want,

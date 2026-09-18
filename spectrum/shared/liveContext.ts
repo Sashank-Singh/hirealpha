@@ -1,4 +1,5 @@
 import { gmiChat } from './gmi'
+import { extractJsonObject } from '../../deploy/jsonExtract'
 import type { AgentId } from '../../src/agents/types'
 
 export type LiveProfile = {
@@ -1698,14 +1699,17 @@ export async function autoIterateWorkshop(input: {
       lastError = 'could not apply the change'
       continue
     }
-    const m = (raw || '').match(/\{[\s\S]*\}/)
-    if (!m) {
+    /* Balanced-object search, not a greedy regex: one stray brace in the prose
+     * (or in the program itself) made the parse fail and cost the update even
+     * though the JSON was right there. Same helper as the planner below. */
+    const parsedReply = extractJsonObject(raw || '')
+    if (!parsedReply) {
       console.warn(`[live] workshop iterate returned no JSON; reply was: ${(raw || '').slice(0, 200)}`)
       lastError = 'could not apply the change'
       continue
     }
     try {
-      const parsed = JSON.parse(m[0]) as { title?: string; html?: string }
+      const parsed = parsedReply as { title?: string; html?: string }
       const html = String(parsed.html || '')
       if (!html.trim()) {
         lastError = 'the updated app came back empty'
@@ -1788,16 +1792,11 @@ export async function autoRunWorkshop(
           ],
         })
         lastRaw = raw || ''
-        const jsonMatch = (raw || '').match(/\{[\s\S]*\}/)
-        if (!jsonMatch) continue
-        try {
-          const parsed = JSON.parse(jsonMatch[0]) as { title?: string; code?: string }
-          title = String(parsed.title || '').slice(0, 120)
-          code = String(parsed.code || '')
-          if (code.trim()) break
-        } catch {
-          /* retry once */
-        }
+        const parsed = extractJsonObject(raw || '') as { title?: string; code?: string } | null
+        if (!parsed) continue
+        title = String(parsed.title || '').slice(0, 120)
+        code = String(parsed.code || '')
+        if (code.trim()) break
       }
     } catch (err) {
       // A provider hiccup (429, 5xx, backend 400) should get the repair pass,

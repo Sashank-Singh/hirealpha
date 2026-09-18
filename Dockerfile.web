@@ -36,6 +36,9 @@ COPY deploy/web-server.ts ./web-server.ts
 COPY deploy/appPreload.ts ./appPreload.ts
 COPY deploy/agentReady.ts ./agentReady.ts
 COPY deploy/workshop.ts ./workshop.ts
+COPY deploy/serpapi.ts ./serpapi.ts
+COPY deploy/jsonExtract.ts ./jsonExtract.ts
+COPY deploy/flightExtract.ts ./flightExtract.ts
 COPY deploy/hire-api.ts ./hire-api.ts
 COPY deploy/stt.ts ./stt.ts
 COPY deploy/webSearch.ts ./webSearch.ts

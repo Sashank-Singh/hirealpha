@@ -1,11 +1,11 @@
 {
   "dim": "",
   "phone": "+12163032166",
-  "userText": "thanks",
+  "userText": "Can you build a ping pong game",
   "bubbles": [
-    "Anytime! Want me to set a reminder about the Algoverse Sunday deadline so it doesn't sneak up on you?"
+    "Done! Your ping pong game is live:\n\nhttps://hirealpha.chat/b/f84e33f8-7025-4cd0-88c6-1a634993f6fc\n\nRetro Pong: drag or arrow keys to move your paddle, AI opponent on the right, ball speeds up each rally, first to 11 wins. Works on your phone too. Tell me if you want tweaks, difficulty, colors, two player mode."
   ],
-  "reply": "Anytime! Want me to set a reminder about the Algoverse Sunday deadline so it doesn't sneak up on you?",
+  "reply": "Done! Your ping pong game is live:\n\nhttps://hirealpha.chat/b/f84e33f8-7025-4cd0-88c6-1a634993f6fc\n\nRetro Pong: drag or arrow keys to move your paddle, AI opponent on the right, ball speeds up each rally, first to 11 wins. Works on your phone too. Tell me if you want tweaks, difficulty, colors, two player mode.",
   "source": "gmi",
   "authoritative": [
     "proactive",
@@ -14,7 +14,9 @@
   ],
   "card": null,
   "contactCardFirst": false,
-  "progress": [],
+  "progress": [
+    "I’m working on your app. I’ll send the result here when this build finishes."
+  ],
   "reactions": [],
-  "totalMs": 5108
+  "totalMs": 37071
 }
