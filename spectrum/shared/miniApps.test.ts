@@ -847,6 +847,16 @@ describe('Mini-app Text Triggers', () => {
       expect(canonicalMiniAppKind('friend', 'check_in')).toBe('home')
     })
 
+    it('keeps the confirm screens for the friend, which now drafts things', () => {
+      /* Live: "add the micro1 interview at 2 to my calendar" drafted the event,
+       * said a review card was coming, and the card folded to home — a screen
+       * with no confirm on it. The event never landed. */
+      expect(canonicalMiniAppKind('friend', 'pick_slot')).toBe('pick_slot')
+      expect(canonicalMiniAppKind('friend', 'approve_send')).toBe('approve_send')
+      // The one fold that stays: nothing to confirm on a spiral.
+      expect(canonicalMiniAppKind('friend', 'spiral_options')).toBe('home')
+    })
+
     it('detects networking_crm for friend', () => {
       const result = detectMiniAppRequest('Pull up networking', 'friend')
       expect(result?.kind).toBe('networking_crm')

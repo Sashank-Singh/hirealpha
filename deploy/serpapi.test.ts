@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from 'bun:test'
 import {
   dateFromText,
+  datesFromText,
   looksLikeFlightAsk,
   looksLikeHotelAsk,
   resetSerpApiState,
@@ -77,5 +78,16 @@ describe('ask shapes', () => {
     expect(dateFromText('hotels for 2026-09-25 to 2026-09-27')).toBe('2026-09-25')
     expect(dateFromText('hotels Sep 25 to Sep 27')).toBe('2026-09-25')
     expect(dateFromText('no dates here')).toBeNull()
+  })
+})
+
+describe('datesFromText', () => {
+  /* A stay names two dates. Resolving only the first made every booking a
+   * single night, and the hotel lookup then searched the wrong window. */
+  it('reads both dates of a stay, in order', () => {
+    expect(datesFromText('hotels near the Loop Chicago Sep 25 to Sep 27 under 250 a night')).toEqual(['2026-09-25', '2026-09-27'])
+    expect(datesFromText('flight from New York to Chicago 2026-09-25 returning 2026-09-27')).toEqual(['2026-09-25', '2026-09-27'])
+    expect(datesFromText('hotel Sep 25')).toEqual(['2026-09-25'])
+    expect(datesFromText('no dates at all')).toEqual([])
   })
 })

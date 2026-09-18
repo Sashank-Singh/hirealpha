@@ -954,13 +954,17 @@ export function MiniAppPage() {
             {kind === 'later' && (
               <LaterHubApp auth={{ persona: (persona as AgentId) || 'friend', email: email || undefined, token: token || undefined }} />
             )}
-            {kind === 'approve_send' && persona !== 'friend' && (
+            {/* Both screens were coworker-and-up only, from when the friend
+              * never drafted anything. It drafts events and replies now, and
+              * this is the only surface that can confirm them — the card's
+              * whole promise is the tap. */}
+            {kind === 'approve_send' && (
               <ApproveSendApp
                 auth={{ persona: (persona as AgentId) || 'friend', email: email || undefined, token: token || undefined }}
                 draftId={searchParams.get('draft') || undefined}
               />
             )}
-            {kind === 'pick_slot' && persona !== 'friend' && (
+            {kind === 'pick_slot' && (
               <PickSlotApp
                 auth={{ persona: (persona as AgentId) || 'friend', email: email || undefined, token: token || undefined }}
                 draftId={searchParams.get('draft') || undefined}

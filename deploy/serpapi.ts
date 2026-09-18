@@ -270,6 +270,29 @@ export function looksLikeFlightAsk(query: string): boolean {
   return /\b(?:from|to|between|out of|into)\b/i.test(query)
 }
 
+/**
+ * Every date the ask named, in the order it named them. "Sep 25 to Sep 27" is a
+ * check-in and a check-out; resolving only the first one made every stay a
+ * single night.
+ */
+export function datesFromText(text: string, now = new Date()): string[] {
+  const out: string[] = []
+  const pattern = new RegExp(`\\b(\\d{4}-\\d{2}-\\d{2})\\b|\\b(${MONTHS.join('|')}|${MONTHS.map((m) => m.slice(0, 3)).join('|')})\\.?\\s+(\\d{1,2})\\b`, 'gi')
+  for (const match of String(text || '').matchAll(pattern)) {
+    if (match[1]) {
+      out.push(match[1])
+      continue
+    }
+    const monthName = String(match[2] || '').toLowerCase()
+    const month = MONTHS.findIndex((m) => m === monthName || m.startsWith(monthName))
+    if (month === -1) continue
+    const day = Number(match[3])
+    const year = month + 1 < now.getUTCMonth() + 1 ? now.getUTCFullYear() + 1 : now.getUTCFullYear()
+    out.push(`${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`)
+  }
+  return out
+}
+
 const MONTHS = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december']
 
 /** Resolve a date the ask named ("Sep 25", "next friday", "2026-09-25") to

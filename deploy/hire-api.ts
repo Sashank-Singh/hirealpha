@@ -13,7 +13,8 @@ import { AsyncLocalStorage } from 'node:async_hooks'
 import { readFile, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { gateWorkshopCode, runWorkshopCode, sweepExpiredArtifacts } from './workshop'
-import { dateFromText, looksLikeFlightAsk, looksLikeHotelAsk, serpApiAllowedFor, serpFlightFares, serpHotelRates } from './serpapi'
+import { dateFromText, datesFromText, looksLikeFlightAsk, looksLikeHotelAsk, serpApiAllowedFor, serpFlightFares, serpHotelRates } from './serpapi'
+import { trvlFlights, trvlHotels } from './trvl'
 import type { SQL } from 'bun'
 import {
   extractOtherPerson,
@@ -5409,6 +5410,20 @@ export function mapAreaFromQuery(query: string): string {
  * after the last one, the explicit "near X" phrase, then the whole sentence.
  * The caller geocodes them in order and takes the first that resolves.
  */
+/** Drop the numbers, months and money an ask carries, so a city search gets a
+ * city: "loop chicago sep 25 sep 27 250 night" → "loop chicago". */
+export function mapPlaceWords(area: string): string {
+  const months = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december']
+  const shorts = months.map((m) => m.slice(0, 3))
+  return String(area || '')
+    .replace(/\b\d{1,4}\b/g, ' ')
+    .replace(new RegExp(`\\b(?:${months.join('|')}|${shorts.join('|')})\\b`, 'gi'), ' ')
+    .replace(/\b(?:nights?|under|over|below|above|budget|per|a|each|for|to|from|and)\b/gi, ' ')
+    .replace(/[^a-z0-9\s,]/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
 export function mapAreaCandidates(query: string): string[] {
   const clean = (text: string) =>
     text
@@ -5866,6 +5881,22 @@ async function fetchNearbyPlaces(
  * hotel lookup, and everyone else gets the free path unchanged.
  */
 async function webSearchWithSerpFallback(query: string, phone?: string): Promise<string> {
+  if (looksLikeFlightAsk(query)) {
+    /* trvl merges Google Flights, Kiwi and Skiplagged and costs nothing per
+     * call, so a flight ask from any user gets real fares. The question says
+     * which two places and when; the resolver turns a city into its airports. */
+    const when = datesFromText(query)
+    const cities = query.match(/\bfrom\s+([A-Za-z .,]{2,40}?)\s+to\s+([A-Za-z .,]{2,40})/i)
+    if (when[0] && cities?.[1] && cities?.[2]) {
+      const fares = await trvlFlights({
+        from: cities[1].trim(),
+        to: cities[2].trim(),
+        date: when[0],
+        ...(when[1] ? { returnDate: when[1] } : {}),
+      }).catch(() => null)
+      if (fares) return fares
+    }
+  }
   if (serpApiAllowedFor(phone) && looksLikeFlightAsk(query)) {
     const outbound = dateFromText(query)
     if (outbound) {
@@ -5893,6 +5924,22 @@ export async function fetchMapSearch(query: string, countryHint = '', location: 
      * and "your nights, this price". Every other user keeps the free path
      * below, and a repeated query is served from the day's cache, so re-running
      * a bench costs nothing. */
+    /* trvl first: real nightly rates for the exact dates from six booking
+     * sources, at no per-call cost, for every user. SerpAPI stays behind the
+     * tester gate as the second source, and the web path is last. */
+    const stayDates = datesFromText(query)
+    const checkInTrvl = stayDates[0]
+    if (checkInTrvl) {
+      // Two dates named = check-in and check-out; one date + a stay ask = the night after.
+      const checkOutTrvl =
+        stayDates[1] ||
+        new Date(Date.parse(`${checkInTrvl}T00:00:00Z`) + 86_400_000).toISOString().slice(0, 10)
+      const area = mapPlaceWords(mapAreaCandidates(query)[0] || (location ? locationLabel(location) : ''))
+      if (area) {
+        const live = await trvlHotels({ city: area, checkin: checkInTrvl, checkout: checkOutTrvl }).catch(() => null)
+        if (live) return live
+      }
+    }
     if (serpApiAllowedFor(phone)) {
       const checkIn = dateFromText(query)
       if (checkIn && looksLikeHotelAsk(query)) {

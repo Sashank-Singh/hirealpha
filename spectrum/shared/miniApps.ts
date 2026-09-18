@@ -392,10 +392,12 @@ export function canonicalMiniAppKind(persona: AgentId, kind: MiniAppKind): MiniA
   const aliased = KIND_ALIASES[kind] ?? kind
   // 'next' is not a screen for anyone anymore — home leads with the queue.
   if (kind === 'next_move') return 'home'
-  if (persona === 'friend') {
-    if (kind === 'spiral_options') return 'home'
-    if (kind === 'approve_send' || kind === 'pick_slot') return 'home'
-  }
+  if (persona === 'friend' && kind === 'spiral_options') return 'home'
+  /* approve_send and pick_slot used to fold into home for the friend, from when
+   * the friend only listened. It drafts calendar events and email replies now,
+   * and home has no confirm UI — so the review card that said "tap to confirm
+   * so it lands on your calendar" opened a screen with nothing to tap, and the
+   * event never landed. Each keeps its own screen for every persona. */
   return aliased
 }
 
