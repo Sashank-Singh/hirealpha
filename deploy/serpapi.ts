@@ -1,3 +1,4 @@
+import { airportsFor } from './trvl'
 /* SerpAPI: the paid, structured view of Google's hotel, flight and local data.
  *
  * The free tier is 250 searches a month and that is the whole budget, so this
@@ -268,6 +269,52 @@ export function looksLikeHotelAsk(query: string): boolean {
 export function looksLikeFlightAsk(query: string): boolean {
   if (!/\b(?:flights?|airfare|airfares|fares?|airline|nonstop|round ?trip)\b/i.test(query)) return false
   return /\b(?:from|to|between|out of|into)\b/i.test(query)
+}
+
+/**
+ * The two places a flight ask names.
+ *
+ * A model writes the route in whatever shape reads naturally — "from New York
+ * to Chicago", "New York to Chicago", "JFK → ORD" — with the dates and the
+ * price wedged in wherever. Requiring the literal "from X to Y" skipped both
+ * fare sources for every other shape and handed the user a Kayak mirror, so
+ * every shape is tried, filler and trailing clauses are trimmed, and a pair
+ * only counts when BOTH sides resolve through the city/airport table (which is
+ * also what rejects "Sep 25 to Sep 27").
+ */
+export function routeFromText(text: string): { from: string; to: string } | null {
+  const patterns = [
+    /\bfrom\s+([A-Za-z .,'-]{2,40}?)\s+(?:to|→|->)\s+([A-Za-z .,'-]{2,60})/gi,
+    /\b([A-Za-z .,'-]{2,40}?)\s+(?:to|→|->)\s+([A-Za-z .,'-]{2,60})/gi,
+  ]
+  for (const pattern of patterns) {
+    for (const match of String(text || '').matchAll(pattern)) {
+      const from = trimRouteWords(match[1] || '')
+      const to = trimRouteWords(match[2] || '')
+      if (!from || !to) continue
+      const fromAirports = airportsFor(from)
+      const toAirports = airportsFor(to)
+      if (fromAirports && toAirports) return { from, to }
+    }
+  }
+  return null
+}
+
+/** Words an ask wraps around a place: "round trip flights New York" is New York. */
+const ROUTE_LEAD =
+  /^(?:(?:round ?trip|one ?way|nonstop|direct|cheap(?:est)?|best|flights?|tickets?|airfare|a|an|the|me|for|out of|leaving|departing)\s+)+/i
+/** Everything from the first date, price or preposition clause onward. */
+const ROUTE_TRAIL =
+  /\s+(?:on|for|return(?:ing)?|back|leaving|departing|arriving|around|near|in|under|below|above|over)\b[\s\S]*$|\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\.?[\s\S]*$|\s*[\d$€£][\s\S]*$/i
+
+function trimRouteWords(value: string): string {
+  let out = value.trim().replace(/\.+$/, '')
+  for (let i = 0; i < 3; i++) {
+    const next = out.replace(ROUTE_LEAD, '').replace(ROUTE_TRAIL, '').trim().replace(/[.,]+$/, '')
+    if (next === out) break
+    out = next
+  }
+  return out
 }
 
 /**

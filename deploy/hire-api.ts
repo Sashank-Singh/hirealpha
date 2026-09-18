@@ -13,7 +13,7 @@ import { AsyncLocalStorage } from 'node:async_hooks'
 import { readFile, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { gateWorkshopCode, runWorkshopCode, sweepExpiredArtifacts } from './workshop'
-import { dateFromText, datesFromText, looksLikeFlightAsk, looksLikeHotelAsk, serpApiAllowedFor, serpFlightFares, serpHotelRates } from './serpapi'
+import { dateFromText, datesFromText, looksLikeFlightAsk, routeFromText, looksLikeHotelAsk, serpApiAllowedFor, serpFlightFares, serpHotelRates } from './serpapi'
 import { trvlFlights, trvlHotels } from './trvl'
 import type { SQL } from 'bun'
 import {
@@ -5886,11 +5886,11 @@ async function webSearchWithSerpFallback(query: string, phone?: string): Promise
      * call, so a flight ask from any user gets real fares. The question says
      * which two places and when; the resolver turns a city into its airports. */
     const when = datesFromText(query)
-    const cities = query.match(/\bfrom\s+([A-Za-z .,]{2,40}?)\s+to\s+([A-Za-z .,]{2,40})/i)
-    if (when[0] && cities?.[1] && cities?.[2]) {
+    const route = routeFromText(query)
+    if (when[0] && route) {
       const fares = await trvlFlights({
-        from: cities[1].trim(),
-        to: cities[2].trim(),
+        from: route.from,
+        to: route.to,
         date: when[0],
         ...(when[1] ? { returnDate: when[1] } : {}),
       }).catch(() => null)
@@ -5902,10 +5902,10 @@ async function webSearchWithSerpFallback(query: string, phone?: string): Promise
     if (outbound) {
       const rest = query.replace(outbound, ' ')
       const back = dateFromText(rest)
-      const cities = query.match(/\bfrom\s+([A-Za-z .]{2,30}?)\s+to\s+([A-Za-z .]{2,30})/i)
+      const route = routeFromText(query)
       const fares = await serpFlightFares({
-        from: cities?.[1]?.trim() || '',
-        to: cities?.[2]?.trim() || '',
+        from: route?.from || '',
+        to: route?.to || '',
         outbound,
         ...(back ? { returnDate: back } : {}),
       }).catch(() => null)

@@ -5,6 +5,7 @@ import {
   looksLikeFlightAsk,
   looksLikeHotelAsk,
   resetSerpApiState,
+  routeFromText,
   serpApiAllowedFor,
   serpApiBudget,
   serpHotelRates,
@@ -89,5 +90,20 @@ describe('datesFromText', () => {
     expect(datesFromText('flight from New York to Chicago 2026-09-25 returning 2026-09-27')).toEqual(['2026-09-25', '2026-09-27'])
     expect(datesFromText('hotel Sep 25')).toEqual(['2026-09-25'])
     expect(datesFromText('no dates at all')).toEqual([])
+  })
+})
+
+describe('routeFromText', () => {
+  /* Requiring the literal "from X to Y" meant the fare sources were skipped for
+   * every other shape and the user got a Kayak mirror instead. */
+  it('reads the route however the ask words it', () => {
+    expect(routeFromText('round trip flights from New York to Chicago on Sep 25 returning Sep 27')).toEqual({ from: 'New York', to: 'Chicago' })
+    expect(routeFromText('round trip flights New York to Chicago on Sep 25 return Sep 27')).toEqual({ from: 'New York', to: 'Chicago' })
+    expect(routeFromText('flights JFK to ORD Sep 25')).toEqual({ from: 'JFK', to: 'ORD' })
+  })
+
+  it('does not mistake dates for a route', () => {
+    expect(routeFromText('hotel Sep 25 to Sep 27 in Chicago')).toBeNull()
+    expect(routeFromText('flight prices this week')).toBeNull()
   })
 })
