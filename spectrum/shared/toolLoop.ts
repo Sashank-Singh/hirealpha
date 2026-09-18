@@ -175,6 +175,22 @@ export function pickBrowserPortal(input: {
   return named || fromAsk || product || anyMerchant || fromRaw || null
 }
 
+/**
+ * True when the ask only wants information — find, show, compare, see if — and
+ * names no action. The browser is for acting; a lookup that stages a run costs
+ * a sandbox session, an ack, a live link, a card, a result and a screenshot to
+ * answer what a free unlimited search answers in seconds.
+ */
+export function isLookupOnlyAsk(text: string): boolean {
+  const ask = String(text || '')
+  if (!ask) return false
+  /* Verbs that only a run can carry out. Deliberately narrower than
+   * ACTION_ASK_RE, which also fires on "how much is …" to route a *portal*
+   * price check — a question whose answer is a search. */
+  if (/\b(?:re-?order|buy|purchase|order(?: me)?|pay for|book(?:ing)?|reserv(?:e|ing|ation)|sign me up|fill (?:out )?(?:the )?form|create an account|log ?in|sign ?in|place the order|check ?out|check (?:my |the )?(?:account|portal|balance|bill)|add (?:it )?to (?:the )?cart)\b/i.test(ask)) return false
+  return /\b(?:find|search|look ?up|show|recommend|suggest|options?|choices?|compare|which|see if|check if|check whether|what|how|when|where|any good|tell me about)\b/i.test(ask)
+}
+
 /** A turn that wants a place picked (restaurant, cafe, hotel...). Decides only
  * that the maps tool has to run before a place answer is allowed out. */
 // One definition, shared with the maps tool: a pattern that missed "hotels
@@ -1003,11 +1019,17 @@ Reactions are optional and usually absent. You may add "reaction":"<emoji>" to a
       if (draft.type === 'browser' && bookTravelAsk && !travelLookupTried && !travelBlock && !input.skipFreshLookup) {
         await runTravelLookup()
       }
+      /* A lookup is a search, not a run. The engine's own staging is guarded
+       * above, but the MODEL can still emit a browser action for a search ask —
+       * that is what this blocks. */
+      const lookupProblem = draft.type === 'browser' && isLookupOnlyAsk(lastUserAsk)
+        ? 'This ask is a lookup: search it and answer. Stage a run only when the user asks you to act (book, order, reserve, submit, sign in).'
+        : null
       const purchaseProblem = draft.type === 'purchase'
         ? validatePurchase(draft)
         : draft.type === 'browser' && buyAsk && !isMerchantPortal(draft.portal)
           ? 'A purchase browser run must target the real merchant or product page, not a directory or search-results page.'
-          : null
+          : lookupProblem
       if (purchaseProblem) {
         result = { status: 'blocked', message: `${purchaseProblem} Do not retry an invalid action; fix it from the named merchant or tell the user plainly.` }
       } else if ((draft.type === 'mail' && (!/^[^\s@]+[^\s@]*@[^\s@]+\.[^\s@]+$/.test(draft.to) || !draft.body.trim())) ||

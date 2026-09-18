@@ -33,6 +33,12 @@ function loadEnv(file: string, force = false) {
 // A harness that measures a different model measures nothing.
 loadEnv(join(ROOT, 'spectrum', 'alpha', 'bench-runtime.env'), true)
 
+/* Point the turn at a different server without editing the env file:
+ *   BENCH_API_URL=http://127.0.0.1:8099 bun run scripts/bench-turn.ts "…"
+ * That is the whole point of the local stack — a server change is testable in
+ * seconds instead of a Coolify build. */
+if (process.env.BENCH_API_URL) process.env.HIREALPHA_API_URL = process.env.BENCH_API_URL
+
 // Bun auto-loads ./.env and ./spectrum/alpha/.env before this file runs, so a
 // dev-only model can win the read. Pin what production runs.
 const PROD_MODEL = 'zai-org/GLM-5.3-Flash'
