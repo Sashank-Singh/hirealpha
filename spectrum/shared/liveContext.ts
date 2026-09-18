@@ -1571,7 +1571,7 @@ async function cloneWorkshopBuild(
 
 /* ---- Iterate: change requests on an existing build ---- */
 
-const WORKSHOP_ITERATOR = [
+export const WORKSHOP_ITERATOR = [
   'You update an existing single-file HTML app. Apply ONLY the change the user asks for; keep everything else working exactly as it was.',
   'The result must be one complete self-contained HTML file with inline CSS/JS.',
   'Put the <script> after all elements it uses. Never leave an unescaped apostrophe inside a single quoted JS string (reword or use double quotes). Every button must work.',

@@ -12,6 +12,7 @@ const raw = await gmiChat({
   model: process.env.GMI_MODEL_WORKSHOP || 'zai-org/GLM-5.3-Flash',
   temperature: 0.2,
   maxTokens: 4000,
+  reasoningEffort: 'low',
   timeoutMs: 90_000,
   messages: [
     { role: 'system', content: WORKSHOP_PLANNER },

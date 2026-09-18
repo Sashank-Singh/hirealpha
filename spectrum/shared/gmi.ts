@@ -272,7 +272,13 @@ async function gmiChatOnce(options: GmiChatOptions): Promise<string> {
   const imperative = (reply.match(/\b(?:do not|never|no |use |only if|must)\b/gi) || []).length
   const schemaish = /\b\w+_\w+\b:\s*(?:input\s*)?\{/.test(reply) || /\binput\s*\{/.test(reply)
   const conversational = /\b(?:i (?:can|'ll|will|found|set|think|'m)|you(?:'r| are)|let me|want me to|here(?:'s| is))\b/i.test(reply.slice(0, 300))
+  // A JSON payload is an answer, never an echo — but a generated program
+  // contains `word_word: {` shapes and imperative words in its own code, so the
+  // heuristic below can fire on it and silently regenerate a build that was
+  // already correct (measured: one workshop call took 84s for exactly this).
+  const looksLikeJson = /^[{[]/.test(reply.trim())
   const looksLikeEcho =
+    !looksLikeJson &&
     ((/^(?:no markdown|no emojis|if the user asks|you are alpha|never |always |do not )/i.test(reply) && imperative >= 4) ||
       (schemaish && imperative >= 3)) &&
     reply.split(/\s+/).length > 24 &&

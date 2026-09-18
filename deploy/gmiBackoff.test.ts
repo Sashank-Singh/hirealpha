@@ -77,3 +77,52 @@ describe('gmi 400-body rate limits', () => {
     }
   }, 15_000)
 })
+
+describe('gmi empty completion', () => {
+  /* The measured workshop failure: 200, finish=length, 4383 reasoning tokens
+   * and a content field of zero characters. The old retry repeated the request
+   * with reasoning_effort 'none', which this backend 400s outright — a second
+   * request that could never answer. It now walks down the effort ladder. */
+  it('retries an empty completion at a lower thinking effort', async () => {
+    const { gmiChat } = await import('/Users/sashanksingh/Projects/HireAlpha/spectrum/shared/gmi')
+    const realFetch = globalThis.fetch
+    const efforts: Array<string | undefined> = []
+    globalThis.fetch = (async (_url: string, init: RequestInit) => {
+      const body = JSON.parse(String(init.body)) as { reasoning_effort?: string }
+      efforts.push(body.reasoning_effort)
+      if (efforts.length === 1) {
+        return new Response(JSON.stringify({ choices: [{ finish_reason: 'length', message: { content: '', reasoning_content: 'x'.repeat(500) } }] }), { status: 200 })
+      }
+      return new Response(JSON.stringify({ choices: [{ message: { content: '{"title":"Touch Pong","code":"…"}' } }] }), { status: 200 })
+    }) as unknown as typeof fetch
+    try {
+      const reply = await gmiChat({ messages: [{ role: 'user', content: 'build a ping pong game' }], maxTokens: 4000, timeoutMs: 20_000, apiKey: 'k' })
+      expect(reply).toContain('Touch Pong')
+      expect(efforts[0]).toBeUndefined()
+      expect(efforts[1]).toBe('low')
+    } finally {
+      globalThis.fetch = realFetch
+    }
+  }, 30_000)
+
+  it('keeps walking the ladder when a backend rejects low effort', async () => {
+    const { gmiChat } = await import('/Users/sashanksingh/Projects/HireAlpha/spectrum/shared/gmi')
+    const realFetch = globalThis.fetch
+    const efforts: Array<string | undefined> = []
+    globalThis.fetch = (async (_url: string, init: RequestInit) => {
+      const body = JSON.parse(String(init.body)) as { reasoning_effort?: string }
+      efforts.push(body.reasoning_effort)
+      if (efforts.length === 1) return new Response(JSON.stringify({ choices: [{ message: { content: '' } }] }), { status: 200 })
+      if (body.reasoning_effort === 'low') return new Response(JSON.stringify({ error: 'Invalid request parameters' }), { status: 400 })
+      return new Response(JSON.stringify({ choices: [{ message: { content: 'recovered' } }] }), { status: 200 })
+    }) as unknown as typeof fetch
+    try {
+      expect(await gmiChat({ messages: [{ role: 'user', content: 'hi' }], timeoutMs: 20_000, apiKey: 'k' })).toBe('recovered')
+      // 'omit' means the field is absent from the body, so the third rung reads
+      // as undefined — the point is that the ladder kept walking past 'low'.
+      expect(efforts).toEqual([undefined, 'low', undefined])
+    } finally {
+      globalThis.fetch = realFetch
+    }
+  }, 30_000)
+})
