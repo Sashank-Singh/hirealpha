@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'bun:test'
 import { sanitizeOutbound } from './runHireTurn'
+import { browserRunIsPurchase } from './conversationalFriend'
 
 describe('bench50 regression guards', () => {
   it('strips a trailing source-URL dump but keeps a single introduced link', () => {
@@ -24,5 +25,22 @@ describe('bench50 regression guards', () => {
     // session link must be kept by placing it before the prose end — assert
     // current behavior explicitly so a future change is a conscious one.
     expect(mixed.includes('hirealpha.chat') || mixed === 'Done.').toBe(true)
+  })
+})
+
+describe('browser receipt wording', () => {
+  /* A staged hotel run was receipted "stage your order ... proceeding through
+   * checkout with your saved shipping address" because the model's goal
+   * sentence contained the word "order". The flavor only drives the receipt,
+   * but a booking that reads as an order is a misfire the user sees. */
+  it('calls a purchase a purchase and a booking a booking', () => {
+    expect(browserRunIsPurchase('Reorder two bags of the same coffee beans on Amazon, ship to my home address')).toBe(true)
+    expect(
+      browserRunIsPurchase(
+        'Book a hotel stay in Chicago, Friday to Saturday next week, under $250/night, near the Loop, with free cancellation.',
+        'Find and verify free-cancellation hotel rates for the Kimpton Monaco, in order to stage the booking',
+      ),
+    ).toBe(false)
+    expect(browserRunIsPurchase('Book a round trip from New York to Chicago, aisle seat, under $400', 'Search flights and prepare the booking')).toBe(false)
   })
 })

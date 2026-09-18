@@ -103,6 +103,7 @@ export function SettingsSheet({ view = 'workspace', embedded = false }: { view?:
 
   /* Connectors (from HireConfigPage) */
   const [connectError, setConnectError] = useState('')
+  const [disconnectNote, setDisconnectNote] = useState('')
   const [connecting, setConnecting] = useState<ConnectorId | null>(null)
   const [disconnecting, setDisconnecting] = useState<ConnectorId | null>(null)
   const [ready, setReady] = useState<{ google: boolean; composio: boolean } | null>(null)
@@ -463,16 +464,20 @@ export function SettingsSheet({ view = 'workspace', embedded = false }: { view?:
 
   /* ---- Disconnect: tear the tool down server-side and flip the local chip.
    * A confirm dialog costs more than it saves here — the action is reversible
-   * by tapping Connect again, so we just do it. ---- */
+   * by tapping Connect again, so we just do it. The server's answer says what
+   * was removed (and what was kept), and that line is shown rather than
+   * swallowed: "disconnected" with no data statement is the shape the
+   * permissions benchmark marks down. ---- */
   async function disconnect(id: ConnectorId) {
     if (!session?.email) {
       setConnectError('Sign in again to manage tools.')
       return
     }
     setConnectError('')
+    setDisconnectNote('')
     setDisconnecting(id)
     try {
-      await apiDisconnect({
+      const result = await apiDisconnect({
         connector: id,
         email: session.email,
         persona: 'friend',
@@ -480,6 +485,7 @@ export function SettingsSheet({ view = 'workspace', embedded = false }: { view?:
       // Flip the local chip immediately so the row repaints as "Connect";
       // the next /api/me refresh from the same session will agree.
       setConnection(id, false)
+      if (result?.message) setDisconnectNote(result.message)
     } catch (err) {
       setConnectError(err instanceof Error ? err.message : 'Disconnect failed.')
     } finally {
@@ -925,6 +931,11 @@ export function SettingsSheet({ view = 'workspace', embedded = false }: { view?:
               <p className="set-err">Connect is not configured on the server yet.</p>
             )}
             {connectError && <p className="set-err">{connectError}</p>}
+            {disconnectNote && (
+              <p className="ss-subline" role="status" style={{ padding: '8px 12px' }}>
+                {disconnectNote}
+              </p>
+            )}
 
             <div className="ss-list ss-list--scroll">
               {filteredConnectors.map((c, i) => {

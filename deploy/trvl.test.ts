@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'bun:test'
-import { airportsFor, noteTrvlRateLimitForTest, resetTrvlState, setTrvlRunner, trvlFlights, trvlHotels } from './trvl'
+import { airportsFor, knownCityIn, noteTrvlRateLimitForTest, resetTrvlState, setTrvlRunner, trvlFlights, trvlHotels } from './trvl'
 
 afterEach(() => resetTrvlState())
 
@@ -49,6 +49,21 @@ describe('airport resolution', () => {
     expect(airportsFor('JFK,EWR')).toBe('JFK,EWR')
     expect(airportsFor('Springfield')).toBeNull()
   })
+
+  it('reads a city with words around it and the common short names', () => {
+    expect(airportsFor('New York City')).toBe('JFK,EWR,LGA')
+    expect(airportsFor('Chicago downtown')).toBe('ORD,MDW')
+    expect(airportsFor('NY')).toBe('JFK,EWR,LGA')
+  })
+
+  /* The hotel search key: the binary returned zero usable hotels for the
+   * neighborhood phrase but Loop inventory with distances for the city. */
+  it('finds the city inside a neighborhood phrase', () => {
+    expect(knownCityIn('chicago loop')).toBe('chicago')
+    expect(knownCityIn('loop chicago')).toBe('chicago')
+    expect(knownCityIn('new york manhattan')).toBe('new york')
+    expect(knownCityIn('the loop')).toBeNull()
+  })
 })
 
 describe('trvl fares', () => {
@@ -81,6 +96,21 @@ describe('trvl fares', () => {
     expect(await trvlFlights({ from: 'Springfield', to: 'Chicago', date: '2026-09-25' })).toBeNull()
     expect(await trvlFlights({ from: 'New York', to: 'Chicago', date: 'next friday' })).toBeNull()
   })
+
+  /* Measured in production: the binary's own --timeout is per request and its
+   * 429 retry storm ran to our 45s kill (exit 137), so the user waited 45s for
+   * a web fallback. The flight ceiling is tighter than the hotel one. */
+  it('gives a throttled flight search a tighter ceiling than a hotel search', async () => {
+    let ceiling = 0
+    setTrvlRunner(async (_args, timeoutMs) => {
+      ceiling = timeoutMs
+      return FLIGHTS
+    })
+    globalThis.fetch = (async () => new Response(JSON.stringify({ date: '2026-09-18', rates: { USD: 1.1 } }), { status: 200 })) as unknown as typeof fetch
+    await trvlFlights({ from: 'New York', to: 'Chicago', date: '2026-09-25' })
+    expect(ceiling).toBeGreaterThan(0)
+    expect(ceiling).toBeLessThanOrEqual(25_000)
+  })
 })
 
 describe('trvl hotels', () => {
@@ -97,6 +127,68 @@ describe('trvl hotels', () => {
   it('is quiet when the binary is not there', async () => {
     setTrvlRunner(async () => null)
     expect(await trvlHotels({ city: 'Chicago', checkin: '2026-09-25', checkout: '2026-09-27' })).toBeNull()
+  })
+
+  /* The scored hotel ask carries a price ceiling, an area and free
+   * cancellation. The first search ignored all three: a Loop ask listed
+   * properties 35 km out at any price, and the reply said cancellation could
+   * not be confirmed while the data carried room-level policies. */
+  describe('the constraints the ask stated', () => {
+    const ROOMS = {
+      success: true,
+      count: 4,
+      hotels: [
+        {
+          name: 'Cambria Chicago Loop', stars: 4, rating: 8.6, review_count: 2007, price: 180, currency: 'USD', address: 'Chicago Loop', distance_km: 0.4,
+          room_types: [{ name: 'Saver rate', nightly_price: 180, refundable: false, cancellation_policy: 'Non-refundable' }],
+        },
+        {
+          name: 'Central Loop Hotel', stars: 4, rating: 8, review_count: 1711, price: 148, currency: 'USD', address: 'Chicago Loop', distance_km: 0.5,
+          room_types: [{ name: 'Flex rate', nightly_price: 210, refundable: true, cancellation_policy: 'Free cancellation until 24 hours before' }],
+        },
+        {
+          name: 'River North Over Budget', stars: 5, rating: 9, review_count: 400, price: 320, currency: 'USD', address: 'Chicago', distance_km: 1.2,
+          room_types: [{ name: 'Flex rate', nightly_price: 340, refundable: true, cancellation_policy: 'Free cancellation until 48 hours before' }],
+        },
+        {
+          name: "O'Hare Airport Inn", stars: 3, rating: 7.5, review_count: 900, price: 120, currency: 'USD', address: 'Chicago (IL)', distance_km: 35.2,
+          room_types: [{ name: 'Flex rate', nightly_price: 130, refundable: true, cancellation_policy: 'Free cancellation' }],
+        },
+      ],
+    }
+    const ask = { city: 'chicago loop', checkin: '2026-09-25', checkout: '2026-09-26', maxPricePerNight: 250, freeCancellation: true, maxDistanceKm: 5 }
+
+    it('keeps only in-budget, in-area, refundable rooms and prices them at the refundable rate', async () => {
+      setTrvlRunner(async () => ROOMS)
+      const block = await trvlHotels(ask)
+      expect(block).toContain('Central Loop Hotel')
+      expect(block).toContain('free-cancellation rate $210/night')
+      // Over budget, too far, or a stated non-refundable rate: none is a candidate.
+      expect(block).not.toContain('Over Budget')
+      expect(block).not.toContain('Airport Inn')
+      expect(block).not.toContain('Cambria')
+      expect(block).toContain('at or under the $250/night ceiling')
+    })
+
+    it('keeps a row whose cancellation is simply not stated, and says so', async () => {
+      setTrvlRunner(async () => ({
+        success: true,
+        count: 1,
+        hotels: [{ name: 'Quiet Loop Inn', stars: 3, rating: 8, review_count: 50, price: 140, currency: 'USD', address: 'Chicago Loop', distance_km: 0.7 }],
+      }))
+      const block = await trvlHotels(ask)
+      expect(block).toContain('Quiet Loop Inn')
+      expect(block).toContain('cancellation not stated')
+      expect(block).toContain('No room entry in this result stated a free-cancellation rate')
+    })
+
+    it('shows every row, nearest first, when the ask stated no constraints', async () => {
+      setTrvlRunner(async () => ROOMS)
+      const block = await trvlHotels({ city: 'chicago', checkin: '2026-09-25', checkout: '2026-09-26' })
+      expect(block).toContain('Cambria')
+      expect(block).toContain('Airport Inn')
+      expect(block!.indexOf('Cambria')).toBeLessThan(block!.indexOf('Airport Inn'))
+    })
   })
 })
 

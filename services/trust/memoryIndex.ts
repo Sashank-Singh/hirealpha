@@ -188,6 +188,26 @@ async function withTimeout<T>(work: Promise<T>, ms: number): Promise<T | null> {
   }
 }
 
+/** The Postgres errors that mean pgvector is not installed. Everything else is
+ * transient (connection, timeout) and must not latch the index off. */
+export function isVectorMissingError(err: unknown): boolean {
+  const seen = new Set<unknown>()
+  let current: unknown = err
+  while (current && typeof current === 'object' && !seen.has(current)) {
+    seen.add(current)
+    const message = 'message' in current ? String((current as { message?: unknown }).message || '') : ''
+    if (
+      /extension\s+"?vector"?\s+is not available/i.test(message) ||
+      /type\s+"?vector"?\s+does not exist/i.test(message) ||
+      /could not open extension control file[^"]*vector/i.test(message)
+    ) {
+      return true
+    }
+    current = 'cause' in current ? (current as { cause?: unknown }).cause : null
+  }
+  return false
+}
+
 async function loadDefaultMemory(config: unknown): Promise<Mem0Like> {
   // Must be set before the module is evaluated: mem0 reads it at import time
   // and defaults to ON. Left on, every init awaits a PostHog POST.
@@ -201,6 +221,24 @@ export function createMemoryIndex(options: MemoryIndexOptions): MemoryIndex {
   const collection = options.collection || 'hirealpha_memories'
   const createBackend = options.createBackend ?? loadDefaultMemory
   let backendPromise: Promise<Mem0Like> | null = null
+  /**
+   * Latched when Postgres reports the `vector` extension missing. Production
+   * Postgres does not have pgvector installed (`extension "vector" is not
+   * available` in the web logs), and mem0's pgvector provider throws on every
+   * operation. Retrying it per call only buys error spam and latency, so the
+   * first confirmed miss disables the index for this process; recall then
+   * falls back to the authoritative store by recency, which is what the
+   * degraded path was already doing.
+   */
+  let vectorUnavailable = false
+
+  const disableVector = (err: unknown) => {
+    if (vectorUnavailable || !isVectorMissingError(err)) return
+    vectorUnavailable = true
+    console.warn(
+      '[memoryIndex] pgvector is not available on this Postgres; semantic memory recall is disabled for this process. Facts still round-trip through the authoritative store (recency order).',
+    )
+  }
 
   const getBackend = async (): Promise<Mem0Like> => {
     if (!backendPromise) {
@@ -225,7 +263,9 @@ export function createMemoryIndex(options: MemoryIndexOptions): MemoryIndex {
         },
         disableHistory: true,
       }).catch((err) => {
-        // Don't cache a broken constructor forever: let the next caller retry.
+        disableVector(err)
+        // Don't cache a broken constructor forever: let the next caller retry
+        // (except for a confirmed missing extension, which never heals in-process).
         backendPromise = null
         throw err
       })
@@ -259,6 +299,7 @@ export function createMemoryIndex(options: MemoryIndexOptions): MemoryIndex {
 
   return {
     async index(record: MemoryIndexRecord): Promise<boolean> {
+      if (vectorUnavailable) return false
       try {
         const backend = await getBackend()
         const prefix = record.key ? keyPrefix(record.key) : null
@@ -290,12 +331,14 @@ export function createMemoryIndex(options: MemoryIndexOptions): MemoryIndex {
         }
         return true
       } catch (err) {
+        disableVector(err)
         console.warn('[memoryIndex] index failed', err)
         return false
       }
     },
 
     async search(input): Promise<MemoryIndexHit[]> {
+      if (vectorUnavailable) return []
       try {
         const backend = await getBackend()
         const result = await withTimeout(
@@ -326,12 +369,14 @@ export function createMemoryIndex(options: MemoryIndexOptions): MemoryIndex {
           ]
         })
       } catch (err) {
+        disableVector(err)
         console.warn('[memoryIndex] search failed', err)
         return []
       }
     },
 
     async removeKeys(input): Promise<number> {
+      if (vectorUnavailable) return 0
       const wanted = new Set(input.keys.filter(Boolean))
       if (!wanted.size) return 0
       try {
@@ -346,12 +391,14 @@ export function createMemoryIndex(options: MemoryIndexOptions): MemoryIndex {
           .flatMap((item) => (item.id ? [item.id] : []))
         return await deleteIds(ids)
       } catch (err) {
+        disableVector(err)
         console.warn('[memoryIndex] removeKeys failed', err)
         return 0
       }
     },
 
     async dropByUser(userId: string): Promise<number> {
+      if (vectorUnavailable) return 0
       let removed = 0
       try {
         const backend = await getBackend()
@@ -366,6 +413,7 @@ export function createMemoryIndex(options: MemoryIndexOptions): MemoryIndex {
         }
         return removed
       } catch (err) {
+        disableVector(err)
         console.warn('[memoryIndex] dropByUser failed', err)
         return removed
       }

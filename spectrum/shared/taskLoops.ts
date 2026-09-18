@@ -1,6 +1,6 @@
 import type { AgentId } from '../../src/agents/types'
 import { PROACTIVE_POLL_MS } from './delivery'
-import { isRecipientSendBlocked } from './judgment'
+import { fetchJudgmentState, inQuietHours, isRecipientSendBlocked } from './judgment'
 import { buildApprovalText, needsApproval, pickFlavor } from './proactiveFlavors'
 
 /** Server owned task loops: the bot claims, acts, and reports the outcome.
@@ -43,8 +43,45 @@ export interface LoopSendContext {
   send: (phone: string, text: string, image?: LoopImage) => Promise<void>
   /** Injectable for tests. Default posts kill-switch/check. */
   checkKillSwitch?: (phone: string) => Promise<boolean>
+  /** Injectable for tests. Default reads judgment state. Returns true when the
+   * send must wait for the quiet window to close. */
+  checkQuietHours?: (task: LoopTask) => Promise<boolean>
   /** Injectable for tests. Default posts loops/result. */
   postResult?: (id: string, result: { outcome: LoopOutcome; note?: string; next_run?: string; payload?: Record<string, unknown> }) => Promise<void>
+}
+
+/** Kinds whose text is a direct answer to something the user did (a browser
+ * run they launched, an onboarding welcome) — holding those until morning
+ * would break a promise instead of respecting a boundary. Every other loop is
+ * a discretionary touch and waits out quiet hours. */
+const QUIET_EXEMPT_KINDS = new Set(['browser_result', 'browser_watch', 'onboard_done', 'save_contact'])
+
+/** Imminent flights are the one time-critical case: a gate/delay ping that
+ * waits for morning is worthless, so a departure inside 3 hours is exempt
+ * from the quiet hold (it is still subject to the kill switch). */
+export function taskObeysQuietHours(task: LoopTask, now = new Date()): boolean {
+  if (QUIET_EXEMPT_KINDS.has(task.kind)) return false
+  if (task.kind === 'flight_checkin') {
+    const payload = parseLoopPayload(task.payload) as { date?: unknown }
+    const depart = new Date(String(payload.date || '')).getTime()
+    const delta = depart - now.getTime()
+    if (Number.isFinite(depart) && delta >= 0 && delta <= 3 * 3_600_000) return false
+  }
+  return true
+}
+
+/** Quiet-hours hold for one loop. Fail-open on a state fetch failure: an
+ * unknown clock must not mute every scheduled text forever, while the kill
+ * switch (a stop request) stays fail-closed because that one is an order. */
+export async function quietHoursHoldForTask(task: LoopTask, persona: string): Promise<boolean> {
+  if (!taskObeysQuietHours(task)) return false
+  try {
+    const state = await fetchJudgmentState(task.phone, persona as AgentId, 'judge')
+    if (!state) return false
+    return inQuietHours(state.localTime, state.quietHours)
+  } catch {
+    return false
+  }
 }
 
 function apiBase() {
@@ -184,6 +221,20 @@ export async function runLoopTask(task: LoopTask, handler: LoopHandler, ctx: Loo
         })
         return
       }
+      // Discretionary loop texts hold through quiet hours. The handler already
+      // ran (its window math is stored nowhere else), so re-run on the next
+      // claim after the hold; 90 minutes keeps re-checks cheap and cannot
+      // outlast a normal night.
+      const quietCheck = ctx.checkQuietHours || ((t: LoopTask) => quietHoursHoldForTask(t, String(ctx.persona || t.persona || '')))
+      if (await quietCheck(task)) {
+        console.log(`[taskLoops] ${task.kind} held for quiet hours ${task.phone}`)
+        await post(task.id, {
+          outcome: 'snoozed',
+          note: 'quiet hours',
+          next_run: new Date(Date.now() + 90 * 60 * 1000).toISOString(),
+        })
+        return
+      }
       await ctx.send(task.phone, result.text, result.image)
     }
     await post(task.id, {
@@ -309,6 +360,28 @@ export function flightLandingRetimeNote(payload: FlightPayload, at: Date): strin
   return `After you land, I will move briefs and reminders to ${place} time.`
 }
 
+/** Airline check-in pages, by carrier name or IATA code. A reminder that says
+ * "check in on the Delta site" without the page leaves the person (and the
+ * browser run) to find it; the scored travel tasks both end at this link. */
+const AIRLINE_CHECKIN: Record<string, string> = {
+  delta: 'https://www.delta.com/checkin', dl: 'https://www.delta.com/checkin',
+  united: 'https://www.united.com/en/us/checkin', ua: 'https://www.united.com/en/us/checkin',
+  american: 'https://www.aa.com/checkin', 'american airlines': 'https://www.aa.com/checkin', aa: 'https://www.aa.com/checkin',
+  southwest: 'https://www.southwest.com/air/check-in/', wn: 'https://www.southwest.com/air/check-in/',
+  alaska: 'https://www.alaskaair.com/checkin', as: 'https://www.alaskaair.com/checkin',
+  jetblue: 'https://www.jetblue.com/check-in', b6: 'https://www.jetblue.com/check-in',
+  spirit: 'https://www.spirit.com/check-in', nk: 'https://www.spirit.com/check-in',
+  frontier: 'https://www.flyfrontier.com/check-in', f9: 'https://www.flyfrontier.com/check-in',
+}
+
+/** The carrier's own check-in page from the payload, or null. */
+export function airlineCheckinUrl(payload: FlightPayload): string | null {
+  const name = String(payload.airline || '').trim().toLowerCase()
+  if (AIRLINE_CHECKIN[name]) return AIRLINE_CHECKIN[name]!
+  const code = String(payload.flight || '').trim().split(/\s+/)[0]?.toLowerCase() || ''
+  return AIRLINE_CHECKIN[code] || null
+}
+
 /** Check in opens 24h before departure unless the payload says otherwise. */
 export function buildFlightCheckinTexts(payload: FlightPayload, now: Date): FlightCheckinTexts {
   const explicit = payload.checkin_at ? new Date(payload.checkin_at).getTime() : NaN
@@ -326,8 +399,9 @@ export function buildFlightCheckinTexts(payload: FlightPayload, now: Date): Flig
       windowAt,
     }
   }
-  const base = payload.confirmation_url
-    ? `Check in now: ${payload.confirmation_url}`
+  const checkinUrl = payload.confirmation_url || airlineCheckinUrl(payload)
+  const base = checkinUrl
+    ? `Check in now: ${checkinUrl}`
     : `Check in now on the ${payload.airline || 'airline'} site, the window is open.`
   const retime = flightLandingRetimeNote(payload, windowAt)
   let checkin = base

@@ -32,7 +32,66 @@ import {
   formatMapPicks,
   mapQueryForAsk,
   ACTION_ASK_RE,
+  looksLikeCalendarBlockAsk,
+  calendarBlockWhen,
+  calendarBlockTitle,
+  localWeekdayYmd,
+  missingConnectorNote,
 } from './toolLoop'
+
+describe('calendar block ask (dim 8)', () => {
+  it('recognises a real calendar write, not a scheduling question', () => {
+    expect(looksLikeCalendarBlockAsk('put a 30-minute block on my calendar Thursday afternoon')).toBe(true)
+    expect(looksLikeCalendarBlockAsk('Add "Q3 planning" to my Notion tasks, put a 30-minute block on my calendar Thursday afternoon, and Slack Sam that it is on.')).toBe(true)
+    expect(looksLikeCalendarBlockAsk('hold 30 minutes on my calendar tomorrow afternoon')).toBe(true)
+  })
+
+  it('leaves scheduling questions and mail asks alone', () => {
+    expect(looksLikeCalendarBlockAsk("what's on my calendar today?")).toBe(false)
+    expect(looksLikeCalendarBlockAsk("reply to Sam's Thursday email and offer two slots")).toBe(false)
+    expect(looksLikeCalendarBlockAsk('send an email to Dana about the meeting')).toBe(false)
+  })
+
+  it('resolves the named day and the part of day without guessing a clock time', () => {
+    // 2026-09-17 is a Thursday; 18:00 UTC is 11:00 in Los Angeles.
+    const thursdayNoonUtc = Date.parse('2026-09-17T18:00:00Z')
+    const when = calendarBlockWhen('put a 30-minute block on my calendar Thursday afternoon', 'America/Los_Angeles', thursdayNoonUtc)
+    expect(when.day).toBe('2026-09-17')
+    expect(when.partOfDay).toBe('afternoon')
+    expect(when.durationMin).toBe(30)
+    const next = calendarBlockWhen('block 45 minutes on Friday morning', 'America/Los_Angeles', thursdayNoonUtc)
+    expect(next.day).toBe('2026-09-18')
+    expect(next.partOfDay).toBe('morning')
+    expect(next.durationMin).toBe(45)
+  })
+
+  it('returns an empty day rather than inventing one when no day is named', () => {
+    const when = calendarBlockWhen('put a block on my calendar tomorrow', 'America/Los_Angeles', Date.parse('2026-09-17T18:00:00Z'))
+    expect(when.day).toBe('')
+    expect(when.durationMin).toBe(30)
+  })
+
+  it('labels the next matching local weekday', () => {
+    const thursdayNoonUtc = Date.parse('2026-09-17T18:00:00Z')
+    expect(localWeekdayYmd(thursdayNoonUtc, 'America/Los_Angeles', 'thursday')).toBe('2026-09-17')
+    expect(localWeekdayYmd(thursdayNoonUtc, 'America/Los_Angeles', 'friday')).toBe('2026-09-18')
+    expect(localWeekdayYmd(thursdayNoonUtc, 'America/Los_Angeles', 'someday')).toBeNull()
+  })
+
+  it('takes the block title from the user words, never from the schedule', () => {
+    expect(calendarBlockTitle('Add "Q3 planning" to my Notion tasks, put a 30-minute block on my calendar Thursday afternoon')).toBe('Q3 planning')
+    expect(calendarBlockTitle('put a 30-minute block on my calendar Thursday afternoon')).toBe('Focus block')
+  })
+
+  it('names the connectors the ask needed and the user has not connected', () => {
+    const ask = 'Add "Q3 planning" to my Notion tasks, put a 30-minute block on my calendar Thursday afternoon, and Slack Sam that it is on.'
+    const note = missingConnectorNote(ask, ['gmail', 'calendar'])
+    expect(note).toContain('Notion')
+    expect(note).toContain('Slack')
+    expect(note).not.toContain('Calendar')
+    expect(missingConnectorNote(ask, ['notion', 'slack', 'calendar'])).toBe('')
+  })
+})
 
 describe('browser run routing', () => {
   it('never sends a run at a directory or search surface', () => {
@@ -74,6 +133,16 @@ describe('browser run routing', () => {
 
   it('takes a real merchant page when the user named none', () => {
     expect(pickBrowserPortal({ ask: 'reorder the coffee beans', resultUrls: ['https://www.amazon.com/dp/B08XY'] })).toBe('https://www.amazon.com/dp/B08XY')
+  })
+
+  it('reads a check-in ask as an action on a site, not as chat', () => {
+    // The scored chained task is worded exactly like this; without the action
+    // verb the engine refused the run before any system was tried.
+    expect(ACTION_ASK_RE.test("Check in for tomorrow's flight using the confirmation in email")).toBe(true)
+    expect(ACTION_ASK_RE.test('check in on my Delta flight for tomorrow')).toBe(true)
+    // Social check-ins are not site actions.
+    expect(ACTION_ASK_RE.test('check in with me tomorrow morning')).toBe(false)
+    expect(ACTION_ASK_RE.test('just checking in')).toBe(false)
   })
 })
 

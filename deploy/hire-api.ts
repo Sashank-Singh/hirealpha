@@ -14,7 +14,7 @@ import { readFile, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { gateWorkshopCode, runWorkshopCode, sweepExpiredArtifacts } from './workshop'
 import { dateFromText, datesFromText, looksLikeFlightAsk, routeFromText, looksLikeHotelAsk, serpApiAllowedFor, serpFlightFares, serpHotelRates } from './serpapi'
-import { trvlFlights, trvlHotels } from './trvl'
+import { knownCityIn, trvlFlights, trvlHotels } from './trvl'
 import type { SQL } from 'bun'
 import {
   extractOtherPerson,
@@ -73,6 +73,7 @@ import { memoryIndexFromEnv, memoryIndexStatusFromEnv, type MemoryIndexHit } fro
 import { parseChatExport, scanSubscriptions } from '../spectrum/shared/smartFeatures'
 import { PLACE_ASK_RE } from '../spectrum/shared/toolLoop'
 import { buildAlphaVcard } from '../spectrum/shared/alphaContact'
+import { inQuietHours } from '../spectrum/shared/judgment'
 import {
   isValidTimeZone,
   parseSpokenWhen,
@@ -197,8 +198,19 @@ const COMPOSIO_SLUG_ALIASES: Record<string, string> = {
   google_gmail: 'gmail',
 }
 
+/* Connectors a persona may not touch even when the account is connected.
+ * The friend list is deliberately empty now: it used to refuse Slack, Notion,
+ * Linear, GitHub, Stripe and Figma outright, which meant a user who connected
+ * their own Notion or Slack was told the connector was "off limits for this
+ * hire" by the assistant that was supposed to use it — exactly what the
+ * Integrations and Permissions dimensions score. Connection is the gate: the
+ * user opted in by authorizing the account, and nothing in the friend path can
+ * write to those services (they are read-only tool specs). Proactive work data
+ * still never enters a friend brief unless the user made that connection.
+ * Founder: this reverses a prior posture — revert this one line if the friend
+ * should stay out of work connectors. */
 export const PERSONA_DENIED: Record<Persona, ReadonlySet<string>> = {
-  friend: new Set(['slack', 'linear', 'github', 'stripe', 'figma', 'notion']),
+  friend: new Set<string>(),
   coworker: new Set(['spotify', 'uber']),
   cofounder: new Set(['uber', 'spotify']),
 }
@@ -212,6 +224,26 @@ const GOOGLE_SCOPES = [
   'https://www.googleapis.com/auth/calendar.events',
   'https://www.googleapis.com/auth/drive.readonly',
 ].join(' ')
+
+/* The read-only grant. Same Google client, narrower consent: Alpha can read
+ * Gmail, Calendar and Drive and cannot send mail, create drafts, or write an
+ * event, so a "read-only is fine" user never has to hand over send rights to
+ * get an inbox answer. Requested with ?readonly=1 on the connect route; the
+ * granted scope string is stored with the token (hire_google_tokens.scopes), so
+ * every later action is bounded by what the user actually approved. */
+const GOOGLE_READONLY_SCOPES = [
+  'openid',
+  'email',
+  'https://www.googleapis.com/auth/gmail.readonly',
+  'https://www.googleapis.com/auth/calendar.readonly',
+  'https://www.googleapis.com/auth/drive.readonly',
+].join(' ')
+
+export function googleScopesFor(readonly: boolean | string | null | undefined): string {
+  return readonly === true || readonly === '1' || readonly === 'true' || readonly === 'readonly'
+    ? GOOGLE_READONLY_SCOPES
+    : GOOGLE_SCOPES
+}
 
 const LOGIN_SCOPES = 'openid email profile'
 const LOGIN_STATE_USER = 'login'
@@ -1273,6 +1305,151 @@ export async function armCalendarDefense(sql: SQL): Promise<number> {
   return armed
 }
 
+/* ---- Flight check-in (dimension 6) ----
+ * The bot has had a flight_checkin handler since the beginning and NOTHING
+ * ever created a flight_checkin loop, so a flight on the calendar produced at
+ * most a "new calendar event" ping. Detection here is deliberately narrow: an
+ * airline word or a carrier+number code, a timed (not all-day) start, and a
+ * start in the future. Anything ambiguous stays null rather than pinging a
+ * person about a flight they do not have. */
+
+const AIRLINE_CODE_RE =
+  /\b(?:UA|AA|DL|WN|AS|B6|NK|F9|HA|AC|BA|LH|AF|KL|EK|QF|SQ|CX|JL|NH|TK|IB|AZ|VS|FR|U2|ET|QR|EY|SN|OS|LX|AY|TP|SK|NZ|WS|PD|AM|LA|AV|CM|G3|AD)\s?\d{1,4}\b/
+const FLIGHT_WORD_RE = /\b(?:flight|airlines?|airways|boarding|departure|departs|nonstop|non-stop)\b/i
+const CONFIRM_URL_RE = /https?:\/\/[^\s<>"')]+/i
+
+export type FlightEventHit = {
+  airline?: string
+  flight?: string
+  /** Departure instant as ISO. */
+  departAt: string
+  /** Confirmation/check-in URL when the event carries one. */
+  confirmationUrl?: string
+  destination?: string
+}
+
+/** Pull a flight out of one calendar event. Title wins over description for
+ * the carrier code; destination is the last "to X" / location tail. */
+export function extractFlightEvent(item: {
+  title: string
+  description?: string
+  location?: string
+  start: Date
+  allDay?: boolean
+}): FlightEventHit | null {
+  if (Number.isNaN(item.start.getTime())) return null
+  if (item.allDay) return null
+  const title = String(item.title || '').trim()
+  const desc = String(item.description || '')
+  const loc = String(item.location || '')
+  const codeMatch = title.match(AIRLINE_CODE_RE) || desc.match(AIRLINE_CODE_RE)
+  const blob = `${title} ${desc} ${loc}`
+  if (!codeMatch) {
+    // Without a carrier code an event needs a flight signal AND a second
+    // signal: a bare "flight" is not enough ("Flight of the Conchords" is a
+    // concert), and a bare route or terminal is not either.
+    const flightWord = FLIGHT_WORD_RE.test(blob)
+    const airportWord = /\b(?:airport|terminal|gate)\b/i.test(blob)
+    const route = /\b(?:to|from)\s+[A-Za-z][A-Za-z .'-]{2,30}\b/.test(`${title} ${loc}`)
+    if (!flightWord && !airportWord) return null
+    if (!route && !airportWord) return null
+  }
+  const flight = codeMatch ? codeMatch[0].replace(/\s+/, ' ').toUpperCase() : undefined
+  const airline = flight ? flight.split(/\s+/)[0] : undefined
+  const urlMatch = `${desc} ${loc}`.match(CONFIRM_URL_RE)
+  const destMatch = `${title} ${loc}`.match(/\bto\s+([A-Za-z][A-Za-z .'-]{2,30})\b/)
+  return {
+    ...(airline ? { airline } : {}),
+    ...(flight ? { flight } : {}),
+    departAt: item.start.toISOString(),
+    ...(urlMatch ? { confirmationUrl: urlMatch[0] } : {}),
+    ...(destMatch ? { destination: destMatch[1]!.trim() } : {}),
+  }
+}
+
+/** Arm a flight_checkin loop for a flight within the next 7 days. Idempotent
+ * per user+departure: a re-scan updates the same row instead of texting twice.
+ * next_run = check-in window (departure - 24h, clamped to now). */
+export async function armFlightCheckins(sql: SQL): Promise<number> {
+  const users = (await sql`
+    SELECT DISTINCT u.id AS "userId", u.phone_e164 AS phone, u.timezone AS tz
+    FROM hire_users u
+    JOIN hire_google_tokens g ON g.user_id = u.id
+    LEFT JOIN hire_brief_cache b ON b.user_id = u.id AND b.built_at > now() - interval '7 days'
+    LEFT JOIN hire_intro_queue q ON q.phone_e164 = u.phone_e164 AND q.status = 'sent' AND q.created_at > now() - interval '7 days'
+    WHERE (b.user_id IS NOT NULL OR q.phone_e164 IS NOT NULL)
+      AND u.phone_e164 IS NOT NULL
+    LIMIT 100
+  `) as Array<{ userId: string; phone: string; tz: string | null }>
+  let armed = 0
+  for (const u of users) {
+    try {
+      if (!u.userId || !normalizePhone(u.phone)) continue
+      const tz = u.tz || 'America/Los_Angeles'
+      const access = await googleAccessToken(sql, u.userId, 'calendar')
+      if (!access) continue
+      const got = await withTimeout(
+        fetchCalendarItems(access, { timeMin: new Date(), timeMax: new Date(Date.now() + 7 * 86_400_000), maxResults: 30 }),
+        12000,
+        null,
+      )
+      if (!got || !got.ok || !got.items.length) continue
+      for (const item of got.items) {
+        const hit = extractFlightEvent(item)
+        if (!hit) continue
+        const departMs = new Date(hit.departAt).getTime()
+        if (!Number.isFinite(departMs) || departMs <= Date.now()) continue
+        const windowAt = new Date(Math.max(Date.now(), departMs - 24 * 60 * 60 * 1000)).toISOString()
+        const payload = JSON.stringify({
+          airline: hit.airline,
+          flight: hit.flight,
+          date: hit.departAt,
+          checkin_at: windowAt,
+          confirmation_url: hit.confirmationUrl,
+          destination: hit.destination,
+          home_tz: tz,
+        })
+        const existing = (await sql`
+          SELECT id, status, payload->>'date' AS "flightDate" FROM hire_task_loops
+          WHERE user_id = ${u.userId} AND persona = 'friend' AND kind = 'flight_checkin'
+          LIMIT 1
+        `) as Array<{ id: string; status: string; flightDate: string | null }>
+        const row = existing[0]
+        if (row && row.flightDate === hit.departAt) break
+        if (row) {
+          await sql`
+            UPDATE hire_task_loops SET
+              title = ${`Check in ${hit.flight || 'flight'}`.slice(0, 120)},
+              phone_e164 = ${u.phone},
+              payload = ${payload}::jsonb,
+              status = 'pending',
+              attempts = 0,
+              last_result = NULL,
+              next_run = ${windowAt},
+              updated_at = now()
+            WHERE id = ${row.id}
+          `
+        } else {
+          await sql`
+            INSERT INTO hire_task_loops (id, user_id, persona, phone_e164, kind, title, payload, status, next_run)
+            VALUES (${crypto.randomUUID()}, ${u.userId}, 'friend', ${u.phone}, 'flight_checkin',
+              ${`Check in ${hit.flight || 'flight'}`.slice(0, 120)}, ${payload}::jsonb, 'pending', ${windowAt})
+          `
+        }
+        armed++
+        // One tracked flight per user (the unique index allows one row per
+        // kind anyway, and the calendar is walk-forward so the first hit is
+        // the next departure). A return flight is armed on the next scan.
+        break
+      }
+    } catch (err) {
+      console.warn('[loops] flight check-in arm failed', err)
+    }
+  }
+  if (armed) console.log(`[loops] flight_checkin armed: ${armed}`)
+  return armed
+}
+
 /* ---- Inbox watchtower ----
  * Push, don't wait: VIP mail, deadlines, interview invites, money owed, and
  * travel confirmations earn a proactive text. Promos, newsletters, and blasts
@@ -1325,6 +1502,9 @@ export function pickWatchtowerCandidates(
         (m.kind === 'reply' ||
           m.kind === 'money' ||
           m.kind === 'assessment' ||
+          // A delivery delay is low-risk and needs no decision from anyone:
+          // surface it once, on its own, and never ask.
+          m.kind === 'delivery' ||
           mailHasDeadline(m) ||
           isTravelConfirmation(m)),
     )
@@ -4958,15 +5138,18 @@ async function composioMailData(
   })
 }
 
-/** Gmail through Composio, for accounts that connected it that way. */
+/** Gmail through Composio, for accounts that connected it that way. `null` is a
+ * refused read, `[]` is a query that genuinely matched nothing — the same
+ * distinction the Google path makes, because conflating them is how a search
+ * for "from:sam Thursday" came back with unrelated recent mail. */
 async function composioGmailRich(
   userId: string,
   query: string,
   maxResults = 8,
   timeoutMs = 8000,
-): Promise<ComposioMailItem[]> {
+): Promise<ComposioMailItem[] | null> {
   const data = await composioMailData(userId, { max_results: maxResults, query, verbose: false }, timeoutMs)
-  if (data == null) return []
+  if (data == null) return null
   // A row with no message id cannot be opened later, so it is not offered.
   return parseComposioMailItems(data)
     .filter((m) => m.id)
@@ -5029,6 +5212,25 @@ function normalizeGmailQuery(raw: string): string {
 }
 
 /**
+ * The operator-only core of a Gmail query: "from:sam Thursday" -> "from:sam".
+ * Gmail ANDs free-text terms with operators, so a plausible compound query
+ * ("the Thursday email from Sam") can legitimately match nothing while Sam's
+ * mail sits in the inbox. When the exact query is empty the caller runs this
+ * one and labels the rows as a relaxation, so the assistant can honestly say
+ * "no Thursday mail from Sam — here is what he did send" instead of reporting
+ * that Sam never wrote. Returns '' when the query is already operator-only (no
+ * relaxation) or has no operators at all (nothing to relax to).
+ */
+export function relaxedGmailQuery(raw: string): string {
+  const parts = String(raw || '').trim().split(/\s+/).filter(Boolean)
+  if (!parts.length) return ''
+  const OPERATOR = /^(?:from|to|cc|bcc|subject|is|label|has|in|newer_than|older_than|after|before|filename|list|category):/i
+  const ops = parts.filter((part) => OPERATOR.test(part))
+  if (!ops.length || ops.length === parts.length) return ''
+  return ops.join(' ')
+}
+
+/**
  * Gmail access for the read paths, with one retry after a short beat.
  *
  * A cold token refresh can outlive any wait worth putting on a page load, and
@@ -5054,13 +5256,18 @@ async function gmailAccess(sql: SQL, userId: string): Promise<string | null> {
  * first, then Composio for accounts connected that way — without the fallback
  * those accounts show an empty inbox on home and in the brief while Settings
  * says Gmail is connected.
+ *
+ * `failed` says the read itself was refused; `items: []` says the query ran and
+ * genuinely matched nothing. Callers that answer a specific search need the
+ * difference: an empty search must never be filled in with recent mail under
+ * the search's name.
  */
-async function loadGmailRich(
+async function readGmailExact(
   sql: SQL,
   userId: string,
   query: string,
   maxResults = 8,
-): Promise<Array<{ id: string; from: string; date: string; subject: string; snippet: string }>> {
+): Promise<{ items: Array<{ id: string; from: string; date: string; subject: string; snippet: string }>; failed: boolean }> {
   // Staged budgets: a stalled token refresh or list call must fall through to
   // the connector, not surface as an empty read. The caller caps the whole
   // block at 12s.
@@ -5073,7 +5280,7 @@ async function loadGmailRich(
       // fallback still has to fit inside the caller's 12s.
       const budget = maxResults > 10 ? 6500 : 5000
       const rich = await withTimeout(fetchGmailRich(access, query, maxResults), budget, null)
-      if (rich) return rich
+      if (rich) return { items: rich, failed: false }
     }
   } catch {
     // fall through to the connector
@@ -5081,10 +5288,20 @@ async function loadGmailRich(
   try {
     // 8s inside the caller's 12s cap: Composio itself spikes to 6-8s under
     // load (measured), and a cut at 6s threw away reads that were about to land.
-    return await composioGmailRich(userId, query, maxResults, 8000)
+    const items = await composioGmailRich(userId, query, maxResults, 8000)
+    return { items: items || [], failed: items === null }
   } catch {
-    return []
+    return { items: [], failed: true }
   }
+}
+
+async function loadGmailRich(
+  sql: SQL,
+  userId: string,
+  query: string,
+  maxResults = 8,
+): Promise<Array<{ id: string; from: string; date: string; subject: string; snippet: string }>> {
+  return (await readGmailExact(sql, userId, query, maxResults)).items
 }
 
 async function loadGmail(sql: SQL, userId: string, query: string, maxResults = 8): Promise<string> {
@@ -5410,18 +5627,50 @@ export function mapAreaFromQuery(query: string): string {
  * after the last one, the explicit "near X" phrase, then the whole sentence.
  * The caller geocodes them in order and takes the first that resolves.
  */
-/** Drop the numbers, months and money an ask carries, so a city search gets a
- * city: "loop chicago sep 25 sep 27 250 night" → "loop chicago". */
+/** Drop the numbers, months, weekdays and constraint words an ask carries, so
+ * a city search gets a city: "loop chicago sep 25 sep 27 250 night" → "loop
+ * chicago". A dated benchmark ask read "chicago friday saturday next week
+ * under 250 night loop with free cancellation", and that whole sentence went to
+ * the hotel search as the location. */
 export function mapPlaceWords(area: string): string {
   const months = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december']
   const shorts = months.map((m) => m.slice(0, 3))
   return String(area || '')
     .replace(/\b\d{1,4}\b/g, ' ')
     .replace(new RegExp(`\\b(?:${months.join('|')}|${shorts.join('|')})\\b`, 'gi'), ' ')
-    .replace(/\b(?:nights?|under|over|below|above|budget|per|a|each|for|to|from|and)\b/gi, ' ')
+    .replace(
+      /\b(?:nights?|nightly|under|over|below|above|budget|per|a|each|for|to|from|and|stay|staying|rooms?|free|cancellation|cancel|refundable|with|next|this|week|weekend|sun|mon|tue|tues|wed|thu|thurs|fri|sat|sunday|monday|tuesday|wednesday|thursday|friday|saturday)\b/gi,
+      ' ',
+    )
     .replace(/[^a-z0-9\s,]/gi, ' ')
     .replace(/\s+/g, ' ')
     .trim()
+}
+
+/**
+ * The hard constraints a hotel ask stated: the nightly ceiling, whether free
+ * cancellation is required, and how far out is acceptable when the ask named a
+ * neighborhood rather than a city. The looked-up rates are filtered by these
+ * before the model ever sees them — a search that ignores "under $250/night"
+ * or "free cancellation" reads as a non-answer against the scored task.
+ */
+export function hotelConstraintsFromAsk(query: string): {
+  maxPricePerNight: number | null
+  freeCancellation: boolean
+  maxDistanceKm: number | null
+} {
+  const text = String(query || '')
+  const named =
+    /\b(?:under|below|less than|no more than|max(?:imum)?|up to|cheaper than|budget(?: of)?)\s*\$?\s*(\d{2,4})\b/i.exec(text) ||
+    /\$\s*(\d{2,4})\b/.exec(text)
+  const raw = named ? Number(named[1]) : NaN
+  // A "for 4 nights" ask carries numbers too; a bare 3-4 digit figure followed
+  // by a night word is the nightly ceiling, everything else is only trusted
+  // when it sits next to a dollar sign or a budget word (the regex above).
+  const maxPricePerNight = Number.isFinite(raw) && raw >= 30 && raw <= 10_000 ? raw : null
+  const freeCancellation = /\b(?:free|flexible|full)\s+cancel(?:lation)?\b|\bcancel(?:lation)?\s+(?:is\s+)?free\b|\brefundable\b/i.test(text)
+  const maxDistanceKm = /walk(?:ing|able)?\s+distance|walkable|\bnear\s+the\b|\bnear\b|\bdowntown\b|\bthe loop\b/i.test(text) ? 5 : null
+  return { maxPricePerNight, freeCancellation, maxDistanceKm }
 }
 
 export function mapAreaCandidates(query: string): string[] {
@@ -5875,12 +6124,63 @@ async function fetchNearbyPlaces(
 }
 
 /**
+ * Real dated hotel rates for a booking ask, whoever routed it here.
+ *
+ * The ask names the dates in words ("Friday to Saturday next week"), the area
+ * as a place phrase ("in Chicago ... near the Loop"), and the constraints as
+ * prose ("under $250/night ... with free cancellation"). All three are resolved
+ * before the search runs, so the block the model answers from is already
+ * filtered to the rooms that satisfy the task; a search that ignored them
+ * presented the whole metro at any price.
+ */
+async function trvlHotelBlockForAsk(query: string, location: LocationRow | null): Promise<string | null> {
+  const dates = datesFromText(query)
+  const checkin = dates[0]
+  if (!checkin) return null
+  // Two dates named = check-in and check-out; one date + a stay ask = the night after.
+  const checkout = dates[1] || new Date(Date.parse(`${checkin}T00:00:00Z`) + 86_400_000).toISOString().slice(0, 10)
+  const cleaned = mapPlaceWords(mapAreaCandidates(query)[0] || (location ? locationLabel(location) : ''))
+  if (!cleaned) return null
+  /* The reliable search key is the city, not the neighborhood: measured on
+   * v1.21.6, "Chicago" returns Loop inventory 0.02-0.7 km out with room-level
+   * cancellation rates, while "Chicago Loop" returned zero usable hotels. The
+   * neighborhood still drives the answer — the distance ranking and the ask's
+   * area filter decide which of the city's properties count as "near the
+   * Loop". One search per turn: it measures 20-50s, and a second attempt would
+   * blow every deadline, so the phrase itself is used only when no city could
+   * be resolved from it. */
+  const city = knownCityIn(cleaned) || cleaned
+  const constraints = hotelConstraintsFromAsk(query)
+  return trvlHotels({
+    city,
+    checkin,
+    checkout,
+    ...(constraints.maxPricePerNight ? { maxPricePerNight: constraints.maxPricePerNight } : {}),
+    freeCancellation: constraints.freeCancellation,
+    ...(constraints.maxDistanceKm ? { maxDistanceKm: constraints.maxDistanceKm } : {}),
+  }).catch(() => null)
+}
+
+/**
  * Web search, with one paid upgrade: a flight ask from a tester number goes to
  * Google Flights first, because "finds real eligible fares" is the half of the
  * travel dimension the free search cannot do. Cached and budget-capped like the
  * hotel lookup, and everyone else gets the free path unchanged.
  */
 async function webSearchWithSerpFallback(query: string, phone?: string): Promise<string> {
+  // A question about a hotel ("how far is my hotel from the airport?") is not
+  // a booking ask; the rate search is a 20-50s provider call and must not run
+  // for one.
+  const questionAsk = /^\s*(?:what|which|who|when|where|how|is |are |does |do |any |can you|could you|tell me)/i.test(query.trim())
+  if (looksLikeHotelAsk(query) && !questionAsk) {
+    /* The model's own hotel habit is `lookup web` (the friend prompt says so),
+     * and this path used to answer a dated booking ask from a web listicle —
+     * the rates on screen were an aggregator's marketing copy, not rooms for
+     * the nights. The same dated trvl source the maps tool uses runs here
+     * first, with the ask's own price, cancellation and area constraints. */
+    const block = await trvlHotelBlockForAsk(query, null)
+    if (block) return block
+  }
   if (looksLikeFlightAsk(query)) {
     /* trvl merges Google Flights, Kiwi and Skiplagged and costs nothing per
      * call, so a flight ask from any user gets real fares. The question says
@@ -5912,7 +6212,16 @@ async function webSearchWithSerpFallback(query: string, phone?: string): Promise
       if (fares) return fares
     }
   }
-  return fetchWebSearch(query)
+  const web = await fetchWebSearch(query)
+  /* Every live fare/rate source above declined (no trvl binary, a throttled
+   * provider, no metered key). A general web page is then the only thing left,
+   * and it carries stale ranges and marketing copy, never a bookable price for
+   * these dates — say so in the payload so the model cannot present a listicle
+   * figure as a quote. */
+  if (looksLikeFlightAsk(query) || looksLikeHotelAsk(query)) {
+    return `LIVE FARE/RATE SOURCE UNAVAILABLE for this ask (the dated sources returned nothing). The text below is a general web search, not verified availability or prices for these dates: do not present any figure from it as a fare or a rate, and say plainly that live pricing could not be verified.\n\n${web}`
+  }
+  return web
 }
 
 export async function fetchMapSearch(query: string, countryHint = '', location: LocationRow | null = null, phone?: string) {
@@ -5927,19 +6236,8 @@ export async function fetchMapSearch(query: string, countryHint = '', location: 
     /* trvl first: real nightly rates for the exact dates from six booking
      * sources, at no per-call cost, for every user. SerpAPI stays behind the
      * tester gate as the second source, and the web path is last. */
-    const stayDates = datesFromText(query)
-    const checkInTrvl = stayDates[0]
-    if (checkInTrvl) {
-      // Two dates named = check-in and check-out; one date + a stay ask = the night after.
-      const checkOutTrvl =
-        stayDates[1] ||
-        new Date(Date.parse(`${checkInTrvl}T00:00:00Z`) + 86_400_000).toISOString().slice(0, 10)
-      const area = mapPlaceWords(mapAreaCandidates(query)[0] || (location ? locationLabel(location) : ''))
-      if (area) {
-        const live = await trvlHotels({ city: area, checkin: checkInTrvl, checkout: checkOutTrvl }).catch(() => null)
-        if (live) return live
-      }
-    }
+    const live = await trvlHotelBlockForAsk(query, location)
+    if (live) return live
     if (serpApiAllowedFor(phone)) {
       const checkIn = dateFromText(query)
       if (checkIn && looksLikeHotelAsk(query)) {
@@ -5954,7 +6252,9 @@ export async function fetchMapSearch(query: string, countryHint = '', location: 
     try {
       const webOut = await webSearchContext(query)
       if (webOut && !/unavailable|no usable results/i.test(webOut)) {
-        return webOut
+        // The dated sources returned nothing: the web page is not evidence of
+        // a rate, so the payload says so before the model can quote it.
+        return `LIVE RATE SOURCE UNAVAILABLE for this ask (the dated hotel sources returned nothing). The text below is a general web search, not verified room availability or nightly prices for these dates: do not present any figure from it as a rate, and say plainly that live pricing could not be verified.\n\n${webOut}`
       }
     } catch {
       /* fall back to nearby / osm */
@@ -6190,12 +6490,30 @@ export async function runToolsForMessage(
         return [text ? `Email body id=${messageId} (up to 12000 characters; attachments not included):\n${text.slice(0, 12000)}` : `Could not retrieve the body for id=${messageId}. Do not infer its contents from the subject.`]
       }
       const mailQuery = normalizeGmailQuery(query)
-      let mail = await withTimeout(loadGmailRich(sql, input.userId, mailQuery, MAIL_READ_CAP), 12000, [])
+      const row = (m: { id: string; from: string; date: string; subject: string; snippet: string }) =>
+        `- id=${m.id} | ${m.from.slice(0, 100)} | ${m.date.slice(0, 50)} | ${m.subject.slice(0, 140)} | ${m.snippet.slice(0, 200)}`
+      const first = await withTimeout(readGmailExact(sql, input.userId, mailQuery, MAIL_READ_CAP), 12000, { items: [], failed: true })
+      if (!first.items.length && !first.failed && mailQuery !== 'newer_than:7d') {
+        /* A real zero-match search stays a zero-match answer. Filling the gap
+         * with the last 7 days' mail under the query's name is how "from:sam
+         * Thursday" came back as a KAYAK receipt and the assistant reported
+         * that Sam had not written. Relax to the operator-only core once, and
+         * label the rows for what they are. */
+        const relaxed = relaxedGmailQuery(mailQuery)
+        if (relaxed) {
+          const wider = await withTimeout(readGmailExact(sql, input.userId, relaxed, MAIL_READ_CAP), 8000, { items: [], failed: true })
+          if (wider.items.length) {
+            return [`No email matched ${JSON.stringify(query)}. Closest matches instead (${JSON.stringify(relaxed)} — same sender or window, but not every term):\n${wider.items.map(row).join('\n')}`]
+          }
+        }
+        return [`No email matched ${JSON.stringify(query)}. This is a real zero-match result, not a failed read and not an empty inbox: say plainly that no message matches that search, and offer a wider query (for example just the sender) if they want it.`]
+      }
+      let mail = first.items
       if (!mail.length && mailQuery !== 'newer_than:7d') {
         mail = await withTimeout(loadGmailRich(sql, input.userId, 'newer_than:7d', MAIL_READ_CAP), 8000, [])
       }
       return [mail.length
-        ? `Email results for ${JSON.stringify(query)}:\n${mail.map((m) => `- id=${m.id} | ${m.from.slice(0, 100)} | ${m.date.slice(0, 50)} | ${m.subject.slice(0, 140)} | ${m.snippet.slice(0, 200)}`).join('\n')}`
+        ? `Email results for ${JSON.stringify(query)}:\n${mail.map(row).join('\n')}`
         : 'Email lookup returned no usable records. Try a different query if needed. This does not establish that the inbox is empty.']
     }
     if (!can(input.want)) {
@@ -8454,7 +8772,7 @@ async function armPokes(
       SELECT id FROM hire_reminders
       WHERE user_id = ${user.id} AND persona = ${persona}
         AND text LIKE '[digest]%'
-        AND (status = 'pending' OR recurrence = 'daily')
+        AND status IN ('pending', 'paused')
       LIMIT 1
     `
     if (!digest[0]) {
@@ -8470,7 +8788,7 @@ async function armPokes(
       SELECT id FROM hire_reminders
       WHERE user_id = ${user.id} AND persona = ${persona}
         AND text LIKE '[digest]%'
-        AND (status = 'pending' OR recurrence = 'daily')
+        AND status IN ('pending', 'paused')
       LIMIT 1
     `
     if (!morning[0]) {
@@ -8499,7 +8817,7 @@ async function armPokes(
       SELECT id FROM hire_reminders
       WHERE user_id = ${user.id} AND persona = ${persona}
         AND text LIKE '[digest]%'
-        AND (status = 'pending' OR recurrence = 'daily')
+        AND status IN ('pending', 'paused')
       LIMIT 1
     `
     if (!morning[0]) {
@@ -8529,7 +8847,7 @@ async function armPokes(
       AND EXISTS (
         SELECT 1 FROM hire_reminders d
         WHERE d.user_id = hire_reminders.user_id AND d.persona = hire_reminders.persona
-          AND d.text LIKE '[digest]%' AND d.status = 'pending'
+          AND d.text LIKE '[digest]%' AND d.status IN ('pending', 'paused')
       )
   `
   if (!context.proactive) {
@@ -8557,7 +8875,7 @@ async function armMorningBrief(sql: SQL, user: { id: string; timezone: string | 
       WHERE user_id = ${user.id} AND persona = ${persona}
         AND (text LIKE '[digest]%'
              OR text = ${JUDGE_MARKER + 'morning'})
-        AND (status = 'pending' OR recurrence = 'daily')
+        AND status IN ('pending', 'paused')
       LIMIT 1
     `
     if (existing[0]) return
@@ -8670,14 +8988,38 @@ type EventNudge = {
   cardKind?: string
 }
 
-function outboundNudgeBlock(
+/* The 10s poll re-evaluates every candidate for every user, so a hard guard
+ * that holds for hours (the Photon unanswered cap) produced one identical
+ * skip line every 10s, per topic, all night — the log was the flood. Emit a
+ * skip only when the reason changes or every 6h, so the guard stays auditable
+ * without burying every other line. */
+export const NUDGE_SKIP_LOG_INTERVAL_MS = 6 * 60 * 60 * 1000
+export type NudgeSkipRecord = { reason: string; at: number }
+
+export function shouldEmitNudgeSkip(
+  prev: NudgeSkipRecord | undefined,
+  reason: string,
+  at: number,
+  intervalMs = NUDGE_SKIP_LOG_INTERVAL_MS,
+): boolean {
+  if (!prev) return true
+  if (prev.reason !== reason) return true
+  return at - prev.at >= intervalMs
+}
+
+const nudgeSkipLogMemo = new Map<string, NudgeSkipRecord>()
+
+export function outboundNudgeBlock(
   context: Record<string, string>,
   lastInboundAt: Date | string | null,
   timezone: string,
   urgent: boolean,
   topic?: string,
+  /** Set only by a caller that knows the item itself is imminent (e.g. a
+   * flight departing within hours). Nothing else may break quiet hours. */
+  imminent = false,
 ): string | null {
-  const { today } = localClock(timezone)
+  const { today, localTime } = localClock(timezone)
   const pausedUntil = String(context.paused_until || '')
   let proactive = String(context.proactive || 'on').toLowerCase()
   if (proactive === 'paused' && pausedUntil && new Date(pausedUntil).getTime() < Date.now()) {
@@ -8685,11 +9027,19 @@ function outboundNudgeBlock(
   }
   if (proactive === 'off') return 'proactive off'
   if (proactive === 'paused') return 'paused'
+  // Quiet hours were stored and never checked here, so an urgent flag could
+  // also text at 3 AM. Urgency buys a skip of the shared send-budget caps, not
+  // of the person's night: only a genuinely imminent item passes quiet hours.
+  if (!imminent && inQuietHours(localTime, context.quiet_hours)) return 'quiet hours'
   const inboundAgo = minutesAgo(lastInboundAt)
   if (inboundAgo != null && inboundAgo < 20) return 'in conversation'
-  const unanswered = Math.max(0, Number(context.unanswered_proactive) || 0)
-  if (unanswered >= 2) return 'awaiting reply'
   if (!urgent) {
+    // The cap used to sit above the urgent branch, so a flight check-in or a
+    // gate change was silently swallowed whenever two routine nudges were
+    // unanswered. Time-critical items now bypass the capped budget; quiet
+    // hours above still hold everything that is not provably imminent.
+    const unanswered = Math.max(0, Number(context.unanswered_proactive) || 0)
+    if (unanswered >= 2) return 'awaiting reply'
     const isRoutineCheckin = topic === 'meal_checkin' || topic === 'workout_checkin'
     const lastAgo = minutesAgo(context.last_proactive_at)
     const minSpacing = isRoutineCheckin ? 120 : 60
@@ -9304,9 +9654,16 @@ async function collectEventNudgesForUser(
   for (const c of candidates) {
     const blocked = outboundNudgeBlock(context, lastInboundAt, tz, c.urgent, c.topic)
     if (blocked) {
-      console.log(`[nudge:${persona}] skip ${user.phone} ${c.topic}: ${blocked}`)
+      const skipKey = `${user.id}:${c.topic}`
+      const now = Date.now()
+      if (shouldEmitNudgeSkip(nudgeSkipLogMemo.get(skipKey), blocked, now)) {
+        if (nudgeSkipLogMemo.size > 500) nudgeSkipLogMemo.clear()
+        nudgeSkipLogMemo.set(skipKey, { reason: blocked, at: now })
+        console.log(`[nudge:${persona}] skip ${user.phone} ${c.topic}: ${blocked}`)
+      }
       continue
     }
+    nudgeSkipLogMemo.delete(`${user.id}:${c.topic}`)
     const claimed = await claimNudge(sql, user.id, persona, c.key)
     if (!claimed) continue
     return { phone: user.phone, topic: c.topic, key: c.key, text: c.text, urgent: c.urgent, cardKind: (c as any).cardKind }
@@ -9319,15 +9676,22 @@ async function dueEventNudges(sql: SQL, persona: Persona): Promise<EventNudge[]>
   // Pushed trigger events first: they are the reason the poller woke up.
   // Claim with SKIP LOCKED so overlapping poll cycles can never double-send.
   const inbox = (await sql`
-    SELECT i.id, i.user_id, i.topic, i.key, i.text, i.urgent, u.phone_e164 AS phone
+    SELECT i.id, i.user_id, i.topic, i.key, i.text, i.urgent, u.phone_e164 AS phone, u.timezone,
+           c.fields->>'quiet_hours' AS "quietHours"
     FROM hire_event_inbox i
     JOIN hire_users u ON u.id = i.user_id
+    LEFT JOIN hire_context c ON c.user_id = i.user_id AND c.persona = i.persona
     WHERE i.persona = ${persona} AND i.status = 'pending' AND u.phone_e164 IS NOT NULL
     ORDER BY i.created_at ASC
     LIMIT 8
     FOR UPDATE OF i SKIP LOCKED
-  `) as Array<{ id: string; user_id: string; topic: string; key: string; text: string; urgent: boolean; phone: string }>
+  `) as Array<{ id: string; user_id: string; topic: string; key: string; text: string; urgent: boolean; phone: string; timezone: string | null; quietHours: string | null }>
   for (const row of inbox) {
+    // A pushed event used to be claimed and sent at any hour: the webhook
+    // comment claimed quiet hours, but nothing implemented them. Rows that
+    // arrive at night stay pending here and go out when the window opens;
+    // nothing is lost and nothing wakes the user.
+    if (inQuietHours(localClock(row.timezone || 'America/Los_Angeles').localTime, row.quietHours)) continue
     await sql`UPDATE hire_event_inbox SET status = 'sent', sent_at = now() WHERE id = ${row.id}`
     out.push({
       phone: row.phone,
@@ -11691,6 +12055,70 @@ export function formatSlotLabel(d: Date, timezone: string): string {
   return `${get('weekday')} ${get('hour')}:${get('minute')}`
 }
 
+export type SlotRange = { start: string; end: string; label: string }
+
+/** The hours a part of the day spans, in the user's timezone. */
+export function partOfDayWindow(part: string | undefined): { start: number; end: number } | null {
+  const p = String(part || '').toLowerCase().trim()
+  if (/^(?:morning|am)\b/.test(p)) return { start: 9, end: 12 }
+  if (/^(?:afternoon|midday|pm)\b/.test(p)) return { start: 12, end: 18 }
+  if (/^(?:evening|night)\b/.test(p)) return { start: 17, end: 21 }
+  return null
+}
+
+/**
+ * Free 30-minute steps inside work hours as real ranges, with their labels.
+ * `suggestSlotsFromBusy` is the label-only view of this; the chat engine needs
+ * the ISO start/end too, because it drafts the calendar event itself and must
+ * never draft one onto a busy block. `day` (YYYY-MM-DD, user's timezone)
+ * narrows the walk to a single local date, which is how "a block on Thursday
+ * afternoon" gets verified instead of guessed.
+ */
+export function suggestSlotRanges(
+  busy: Array<{ start: number; end: number }>,
+  opts: {
+    now?: number
+    windowDays?: number
+    durationMin?: number
+    timezone?: string
+    workStartHour?: number
+    workEndHour?: number
+    day?: string
+    limit?: number
+  } = {},
+): SlotRange[] {
+  const tz = opts.timezone || 'America/Los_Angeles'
+  const now = opts.now ?? Date.now()
+  const windowDays = Math.min(7, Math.max(1, Math.round(opts.windowDays || 3)))
+  const durationMin = Math.min(240, Math.max(15, Math.round(opts.durationMin || 30)))
+  const workStart = opts.workStartHour ?? 9
+  const workEnd = opts.workEndHour ?? 18
+  const limit = Math.min(12, Math.max(1, Math.round(opts.limit || 3)))
+  const day = /^\d{4}-\d{2}-\d{2}$/.test(String(opts.day || '')) ? String(opts.day) : ''
+  const firstYmd = new Intl.DateTimeFormat('en-CA', {
+    timeZone: tz,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date(now))
+  const days = day ? [day] : Array.from({ length: windowDays }, (_, d) => shiftDateStr(firstYmd, d))
+  const slots: SlotRange[] = []
+  for (const ymd of days) {
+    for (let minute = workStart * 60; minute + durationMin <= workEnd * 60 && slots.length < limit; minute += 30) {
+      const start = wallTimeToUtc(ymd, Math.floor(minute / 60), minute % 60, tz).getTime()
+      if (start < now) continue
+      const end = start + durationMin * 60_000
+      if (busy.some((b) => start < b.end && end > b.start)) continue
+      slots.push({
+        start: new Date(start).toISOString(),
+        end: new Date(end).toISOString(),
+        label: formatSlotLabel(new Date(start), tz),
+      })
+    }
+  }
+  return slots
+}
+
 export function suggestSlotsFromBusy(
   busy: Array<{ start: number; end: number }>,
   opts: {
@@ -11702,30 +12130,7 @@ export function suggestSlotsFromBusy(
     workEndHour?: number
   } = {},
 ): string[] {
-  const tz = opts.timezone || 'America/Los_Angeles'
-  const now = opts.now ?? Date.now()
-  const windowDays = Math.min(7, Math.max(1, Math.round(opts.windowDays || 3)))
-  const durationMin = Math.min(240, Math.max(15, Math.round(opts.durationMin || 30)))
-  const workStart = opts.workStartHour ?? 9
-  const workEnd = opts.workEndHour ?? 18
-  const firstYmd = new Intl.DateTimeFormat('en-CA', {
-    timeZone: tz,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).format(new Date(now))
-  const slots: string[] = []
-  for (let d = 0; d < windowDays && slots.length < 3; d++) {
-    const ymd = shiftDateStr(firstYmd, d)
-    for (let minute = workStart * 60; minute + durationMin <= workEnd * 60 && slots.length < 3; minute += 30) {
-      const start = wallTimeToUtc(ymd, Math.floor(minute / 60), minute % 60, tz).getTime()
-      if (start < now) continue
-      const end = start + durationMin * 60_000
-      if (busy.some((b) => start < b.end && end > b.start)) continue
-      slots.push(formatSlotLabel(new Date(start), tz))
-    }
-  }
-  return slots
+  return suggestSlotRanges(busy, opts).map((slot) => slot.label)
 }
 
 /** freeBusy when Google is wired, event times otherwise. */
@@ -13069,12 +13474,13 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
         INSERT INTO hire_oauth_state (state, user_id, redirect_after)
         VALUES (${state}, ${user.id}, ${afterWithFlag})
       `
+      const readonly = url.searchParams.get('readonly') || url.searchParams.get('scope') === 'readonly'
       const creds = googleCreds()!
       const auth = new URL('https://accounts.google.com/o/oauth2/v2/auth')
       auth.searchParams.set('client_id', creds.clientId)
       auth.searchParams.set('redirect_uri', `${appBase(req)}/api/oauth/google/callback`)
       auth.searchParams.set('response_type', 'code')
-      auth.searchParams.set('scope', GOOGLE_SCOPES)
+      auth.searchParams.set('scope', googleScopesFor(readonly))
       auth.searchParams.set('access_type', 'offline')
       auth.searchParams.set('prompt', 'consent')
       auth.searchParams.set('state', state)
@@ -13096,7 +13502,14 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
    * token row for gmail/calendar/drive (the row carries all three scopes
    * together, so dropping it disconnects them all — same shape a re-Connect
    * would land back on). Auth: same email-keyed lookup the rest of the API
-   * uses; the cookie session token backs the same route. */
+   * uses; the cookie session token backs the same route.
+   *
+   * The response says what happened to the data, and for Google the copies of
+   * mailbox content Alpha had cached (daily briefs, sender kinds, triage
+   * feedback) go with the access — otherwise "disconnect" would leave mail text
+   * readable in a table the user thinks they revoked. Drafts Alpha wrote and
+   * memories the user asked for are NOT silently purged; they are named in the
+   * message so deleting them is the user's call. */
   if (path.startsWith('/api/connect/') && req.method === 'DELETE') {
     const connector = path.slice('/api/connect/'.length).split('?')[0]
     if (!connector) return json({ error: 'connector required' }, 400)
@@ -13109,14 +13522,33 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
     try {
       if (GOOGLE_CONNECTORS.has(connector)) {
         await sql`DELETE FROM hire_google_tokens WHERE user_id = ${user.id}`
-        return json({ ok: true, connector, provider: 'google' })
+        const purged: string[] = []
+        await sql`DELETE FROM hire_brief_cache WHERE user_id = ${user.id}`
+          .then(() => purged.push('cached briefs')).catch(() => {})
+        await sql`DELETE FROM hire_mail_kinds WHERE user_id = ${user.id}`
+          .then(() => purged.push('sender kinds')).catch(() => {})
+        await sql`DELETE FROM hire_mail_feedback WHERE user_id = ${user.id}`
+          .then(() => purged.push('triage feedback')).catch(() => {})
+        return json({
+          ok: true,
+          connector,
+          provider: 'google',
+          purged,
+          message: `Google access removed — the stored token is deleted, so Alpha can no longer read or send from Gmail, Calendar or Drive until you connect again. Mail-derived copies Alpha had cached (${purged.join(', ') || 'none found'}) were deleted with it. Drafts Alpha already wrote for you and anything you saved to memory stay in your account until you delete them.`,
+        })
       }
       const toolkit = UI_TO_COMPOSIO[connector]
       if (!toolkit) return json({ error: 'Unknown connector' }, 400)
       const removed = await composioDisconnect(user.id, toolkit)
       // Nothing to delete is still "this connector is off" — the end state the
       // caller wanted. Client just clears its local chip.
-      return json({ ok: true, connector, provider: 'composio', wasConnected: removed })
+      return json({
+        ok: true,
+        connector,
+        provider: 'composio',
+        wasConnected: removed,
+        message: `${connector} disconnected — the connected ${connector} account is removed from Alpha, so no further reads or actions on it are possible. Anything Alpha already saved from it (memories, drafts, logged items) stays in your account until you delete it.`,
+      })
     } catch (err) {
       console.warn('[disconnect] failed', connector, err)
       return json({ error: 'Disconnect failed. Try again.' }, 500)
@@ -17952,6 +18384,135 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
     if (!id) return json({ error: 'id required' }, 400)
     await sql`DELETE FROM hire_reminders WHERE id = ${id}`
     return json({ ok: true })
+  }
+
+  /* Chat-driven morning digest control. The wizard route (/api/digest/time)
+   * needs a user session, so the bot literally had no way to honor "set my
+   * weekday digest for 7am", "pause my digest", or "move it to 8". The bot
+   * parses the ask with its intent parser and lands here. */
+  if (path === '/api/internal/digest/manage' && req.method === 'POST') {
+    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
+    const body = (await req.json().catch(() => ({}))) as {
+      phone?: string
+      persona?: string
+      action?: string
+      time?: string
+      recurrence?: string
+      label?: string
+    }
+    const persona = body.persona || ''
+    const action = String(body.action || '').toLowerCase()
+    if (!body.phone || !isPersona(persona) || !['set', 'pause', 'resume', 'status'].includes(action)) {
+      return json({ error: 'phone, persona, and action set|pause|resume|status required' }, 400)
+    }
+    const user = await getUserByPhone(sql, body.phone)
+    if (!user) return json({ error: 'User not found' }, 404)
+    const tz = user.timezone || 'America/Los_Angeles'
+    const digestRows = (await sql`
+      SELECT id, text, scheduled_at AS "scheduledAt", recurrence, status
+      FROM hire_reminders
+      WHERE user_id = ${user.id} AND persona = ${persona} AND text LIKE '[digest]%'
+      ORDER BY scheduled_at ASC
+    `) as Array<{ id: string; text: string; scheduledAt: Date; recurrence: string; status: string }>
+
+    const state = () =>
+      json({
+        ok: true,
+        action,
+        digest: digestRows.map((r) => ({
+          id: r.id,
+          text: r.text.replace(/^\[digest\]\s*/i, ''),
+          scheduledAt: new Date(r.scheduledAt).toISOString(),
+          recurrence: r.recurrence,
+          status: r.status,
+        })),
+      })
+
+    if (action === 'status') return state()
+
+    if (action === 'pause') {
+      if (!digestRows.length) return json({ ok: true, action, digest: [], note: 'no digest scheduled' })
+      await sql`
+        UPDATE hire_reminders SET status = 'paused', updated_at = now()
+        WHERE user_id = ${user.id} AND persona = ${persona} AND text LIKE '[digest]%'
+      `
+      // The default [judge]morning tick carries the same brief. Pausing one
+      // while the other stays armed means the "pause" did nothing tomorrow.
+      await sql`
+        DELETE FROM hire_reminders
+        WHERE user_id = ${user.id} AND persona = ${persona} AND text = ${JUDGE_MARKER + 'morning'}
+      `
+      for (const r of digestRows) r.status = 'paused'
+      return state()
+    }
+
+    if (action === 'resume') {
+      const paused = digestRows.find((r) => r.status === 'paused') || digestRows[0]
+      if (!paused) {
+        // Nothing to resume: arm the product default so the promise is real.
+        await sql`
+          INSERT INTO hire_reminders (id, user_id, persona, text, scheduled_at, recurrence, timezone, status)
+          VALUES (${crypto.randomUUID()}, ${user.id}, ${persona}, ${DIGEST_BRIEF_TEXT},
+            ${nextLocalTimeUtc(tz, 8, 0)}, 'daily', ${tz}, 'pending')
+        `
+        return json({ ok: true, action, digest: [{ text: 'Daily brief', recurrence: 'daily', status: 'pending' }] })
+      }
+      // Keep the wall-clock time the person chose before the pause.
+      const at = new Date(paused.scheduledAt)
+      const hh = Number(
+        new Intl.DateTimeFormat('en-US', { timeZone: tz, hour: 'numeric', hour12: false }).format(at),
+      )
+      const mm = Number(
+        new Intl.DateTimeFormat('en-US', { timeZone: tz, minute: 'numeric' }).format(at),
+      )
+      let nextAt = nextLocalTimeUtc(tz, hh, Number.isFinite(mm) ? mm : 0)
+      for (let i = 0; i < 7 && /^weekdays$/.test(paused.recurrence); i++) {
+        const dow = new Date(nextAt).toLocaleDateString('en-US', { timeZone: tz, weekday: 'short' })
+        if (dow !== 'Sat' && dow !== 'Sun') break
+        nextAt = nextReminderAt(nextAt, 'weekdays', tz)
+      }
+      await sql`
+        UPDATE hire_reminders SET status = 'pending', scheduled_at = ${nextAt}, updated_at = now()
+        WHERE id = ${paused.id}
+      `
+      return json({
+        ok: true,
+        action,
+        digest: [{ id: paused.id, status: 'pending', scheduledAt: nextAt, recurrence: paused.recurrence }],
+      })
+    }
+
+    // action === 'set'
+    const m = String(body.time || '08:00').match(/^(\d{1,2})(?::(\d{2}))?\s*(am|pm)?$/i)
+    if (!m) return json({ error: 'time must be like 7:00, 7am, or 19:30' }, 400)
+    let h = Number(m[1])
+    const min = m[2] ? Number(m[2]) : 0
+    const ap = (m[3] || '').toLowerCase()
+    if (ap === 'pm' && h < 12) h += 12
+    if (ap === 'am' && h === 12) h = 0
+    if (h > 23 || min > 59) return json({ error: 'time out of range' }, 400)
+    const recurrence = body.recurrence === 'weekdays' || body.recurrence === 'weekly' ? body.recurrence : 'daily'
+    const label = String(body.label || '').trim().slice(0, 120) || DIGEST_BRIEF_TEXT.slice('[digest]'.length)
+    let at = nextLocalTimeUtc(tz, h, min)
+    for (let i = 0; i < 7 && recurrence === 'weekdays'; i++) {
+      const dow = new Date(at).toLocaleDateString('en-US', { timeZone: tz, weekday: 'short' })
+      if (dow !== 'Sat' && dow !== 'Sun') break
+      at = nextReminderAt(at, 'weekdays', tz)
+    }
+    await sql`
+      DELETE FROM hire_reminders
+      WHERE user_id = ${user.id} AND persona = ${persona} AND text LIKE '[digest]%'
+    `
+    await sql`
+      INSERT INTO hire_reminders (id, user_id, persona, text, scheduled_at, recurrence, timezone, status)
+      VALUES (${crypto.randomUUID()}, ${user.id}, ${persona}, ${`[digest]${label}`},
+        ${at}, ${recurrence}, ${tz}, 'pending')
+    `
+    await sql`
+      DELETE FROM hire_reminders
+      WHERE user_id = ${user.id} AND persona = ${persona} AND text = ${JUDGE_MARKER + 'morning'}
+    `
+    return json({ ok: true, action, digest: [{ text: label, scheduledAt: at, recurrence, status: 'pending' }] })
   }
 
   /* ---- Habits ---- */

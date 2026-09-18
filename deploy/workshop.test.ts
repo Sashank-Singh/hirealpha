@@ -15,6 +15,20 @@ describe('workshop gate', () => {
     expect(gateWorkshopCode(`await Bun.write('out/index.html', '<h1>hi</h1>')`).ok).toBe(true)
     expect(gateWorkshopCode(`const rows = [1,2,3]; console.log(rows.length)`).ok).toBe(true)
   })
+
+  it('does not block game code that merely says "secret answer"', () => {
+    // A real trivia-game build was rejected live by the case-insensitive
+    // SECRET pattern; the English word is not a credential probe.
+    const game = `const secretAnswer = 'Jurassic Park'; const hint = 'secret answer hidden below'; await Bun.write('out/index.html', '<script>const s = secretAnswer</script>')`
+    expect(gateWorkshopCode(game).ok).toBe(true)
+  })
+
+  it('still blocks credential-shaped identifiers', () => {
+    expect(gateWorkshopCode(`const API_KEY = 'sk-live-123'`).ok).toBe(false)
+    expect(gateWorkshopCode(`const DATABASE_URL = 'postgres://x'`).ok).toBe(false)
+    expect(gateWorkshopCode(`const CLIENT_SECRET = 'abc'`).ok).toBe(false)
+    expect(gateWorkshopCode(`const SECRET = 'abc'`).ok).toBe(false)
+  })
 })
 
 describe('workshop runner', () => {

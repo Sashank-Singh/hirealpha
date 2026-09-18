@@ -250,6 +250,14 @@ export async function fetchLiveTools(
   // 18s + 0.3s + 14s keeps the worst case under ~35s: the server caps a gmail
   // read at 12s on top of connector resolution, so the retry only ever waits
   // on a genuinely stalled server, and a warm account pin makes it fast.
+  //
+  // A dated travel lookup is the exception: the server runs a real provider
+  // search there (trvl merges six booking sources) and measures 20-50s, so an
+  // 18s client ceiling threw away the real rates and the answer fell back to a
+  // web listicle. The travel budget is larger; a retry only happens when the
+  // first attempt came back empty (the common case returns on the first).
+  const travelBudget = travelLookup ? 60000 : 18000
+  const travelRetry = travelLookup ? 30000 : 14000
   const attempt = async (ms: number): Promise<string[]> => {
     const res = await timedFetch(
       `${base}/api/internal/live/tools`,
@@ -265,13 +273,13 @@ export async function fetchLiveTools(
     return data.results || []
   }
   try {
-    const first = await attempt(18000)
+    const first = await attempt(travelBudget)
     // A connected user can briefly read as empty results while the backing
     // tool (Gmail/Calendar) is mid-refresh. Retry once so a single empty
     // response can't turn into a "can't see your inbox" reply.
     if (first.length) return first
     await new Promise((r) => setTimeout(r, 300))
-    const second = await attempt(14000)
+    const second = await attempt(travelRetry)
     if (second.length) return second
   } catch (err) {
     console.warn('[live] tools failed', err)
@@ -402,6 +410,51 @@ export async function fetchWeekBundle(phone: string, persona: AgentId): Promise<
   } catch (err) {
     console.warn('[live] week failed', err)
     return null
+  }
+}
+
+export type FreeSlot = { start: string; end: string; label: string }
+
+/**
+ * Real free calendar time for the chat paths. The server reads Google freeBusy
+ * (or the event listing when Google is not wired) and walks the gaps with the
+ * same function the pick-slot card uses, so an offered time and a bookable time
+ * can never disagree. `connect: true` means Calendar is not connected — the
+ * caller must not offer or book anything in that case. `unavailable: true`
+ * means the read itself did not answer (older server without the route, a
+ * timeout): the caller must not report the calendar as checked or full.
+ */
+export async function suggestCalendarSlots(
+  phone: string,
+  persona: AgentId,
+  opts: { day?: string; partOfDay?: string; durationMin?: number; windowDays?: number; limit?: number } = {},
+): Promise<{ slots: FreeSlot[]; connect: boolean; unavailable: boolean }> {
+  const base = apiBase()
+  const key = process.env.HIREALPHA_INTERNAL_KEY || ''
+  if (!base || !key) return { slots: [], connect: false, unavailable: true }
+  const payload: Record<string, unknown> = { phone, persona }
+  if (opts.day) payload.day = opts.day
+  if (opts.partOfDay) payload.partOfDay = opts.partOfDay
+  if (opts.durationMin) payload.durationMin = opts.durationMin
+  if (opts.windowDays) payload.windowDays = opts.windowDays
+  if (opts.limit) payload.limit = opts.limit
+  try {
+    const res = await timedFetch(
+      `${base}/api/internal/work/slots`,
+      { method: 'POST', headers: authHeaders(), body: JSON.stringify(payload) },
+      9000,
+    )
+    const data = (await res.json().catch(() => ({}))) as { slots?: FreeSlot[]; connect?: boolean }
+    if (!res.ok) return { slots: [], connect: false, unavailable: true }
+    if (!Array.isArray(data.slots)) return { slots: [], connect: !!data.connect, unavailable: true }
+    return {
+      slots: data.slots.filter((slot) => slot && typeof slot.start === 'string' && typeof slot.label === 'string'),
+      connect: !!data.connect,
+      unavailable: false,
+    }
+  } catch (err) {
+    console.warn('[live] slot suggest failed', err)
+    return { slots: [], connect: false, unavailable: true }
   }
 }
 

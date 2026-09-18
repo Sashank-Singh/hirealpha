@@ -54,6 +54,17 @@ describe('flight check in texts', () => {
     expect(out.checkin).not.toBeNull()
     expect(buildFlightCheckinTexts({}, NOW).windowAt).toBeNull()
   })
+  it('links the carrier check-in page when the payload names no confirmation link', () => {
+    // The reminder is the last step of the scored chain: it must land on the
+    // airline's own check-in page, not tell the user to go find it.
+    const byName = buildFlightCheckinTexts({ airline: 'Delta', flight: 'DL 4915', date: '2026-08-20T18:00:00Z' }, NOW)
+    expect(byName.checkin).toContain('https://www.delta.com/checkin')
+    const byCode = buildFlightCheckinTexts({ flight: 'AA 100', date: '2026-08-20T18:00:00Z' }, NOW)
+    expect(byCode.checkin).toContain('https://www.aa.com/checkin')
+    // An unknown carrier keeps the honest text.
+    const unknown = buildFlightCheckinTexts({ airline: 'Boutique Air', date: '2026-08-20T18:00:00Z' }, NOW)
+    expect(unknown.checkin).toContain('on the Boutique Air site')
+  })
   it('handler announces then checks in', async () => {
     const soon = new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString()
     const past = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString()
@@ -102,7 +113,9 @@ describe('flight landing re-time note', () => {
       },
       NOW,
     )
-    expect(out.checkin).toBe('Check in now on the United site, the window is open.')
+    // The carrier's own check-in page is linked (see the test below); the
+    // point here is that no re-time note is appended for a same-zone flight.
+    expect(out.checkin).toBe('Check in now: https://www.united.com/en/us/checkin')
     expect(flightLandingRetimeNote(
       { home_tz: 'America/New_York', destination_tz: 'America/New_York' },
       NOW,
@@ -136,7 +149,7 @@ describe('flight landing re-time note', () => {
   it('no-ops when the zone cannot be resolved', () => {
     expect(flightLandingRetimeNote({ home_tz: 'America/Los_Angeles', destination: 'Mars' }, NOW)).toBe('')
     expect(buildFlightCheckinTexts({ airline: 'Delta', date: '2026-08-20T18:00:00Z' }, NOW).checkin).toBe(
-      'Check in now on the Delta site, the window is open.',
+      'Check in now: https://www.delta.com/checkin',
     )
   })
 })

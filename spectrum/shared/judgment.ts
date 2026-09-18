@@ -15,6 +15,51 @@ export function isJudgeTick(text: string): boolean {
   return text.startsWith(JUDGE_MARKER) || text.startsWith('[poke]') || text.startsWith('[digest]')
 }
 
+/** Minutes past local midnight from a wall-clock "YYYY-MM-DDTHH:MM[:SS]".
+ * Null when there is no readable time. */
+export function localMinutesOfDay(localTime: string | null | undefined): number | null {
+  const m = String(localTime || '').match(/(?:T|\s)(\d{1,2}):(\d{2})/)
+  if (!m) return null
+  const h = Number(m[1])
+  const min = Number(m[2])
+  if (!Number.isFinite(h) || !Number.isFinite(min) || h > 23 || min > 59) return null
+  return h * 60 + min
+}
+
+/**
+ * True when the local wall clock sits inside a quiet-hours window
+ * ("22:00-08:00"). Windows that cross midnight are the normal case. A missing
+ * or unparseable window falls back to the product default; an unusable local
+ * time is treated as NOT quiet so a state glitch can never silently mute the
+ * assistant forever.
+ */
+export function inQuietHours(
+  localTime: string | null | undefined,
+  quietHours: string | null | undefined,
+  fallbackWindow = '22:00-08:00',
+): boolean {
+  const t = localMinutesOfDay(localTime)
+  if (t == null) return false
+  const raw = String(quietHours || '').trim() || fallbackWindow
+  const m = raw.match(/^(\d{1,2}):(\d{2})\s*-\s*(\d{1,2}):(\d{2})$/)
+  if (!m) return false
+  const start = Number(m[1]) * 60 + Number(m[2])
+  const end = Number(m[3]) * 60 + Number(m[4])
+  if (start === end) return false
+  return start < end ? t >= start && t < end : t >= start || t < end
+}
+
+/** Local wall clock at which the quiet window ends ("08:00" → minutes); null
+ * when the window is unusable. Used by callers that hold a send until morning. */
+export function quietHoursEndMinutes(quietHours: string | null | undefined): number | null {
+  const m = String(quietHours || '').match(/-\s*(\d{1,2}):(\d{2})/)
+  if (!m) return null
+  const h = Number(m[1])
+  const min = Number(m[2])
+  if (!Number.isFinite(h) || !Number.isFinite(min) || h > 23 || min > 59) return null
+  return h * 60 + min
+}
+
 export type JudgmentState = {
   persona: AgentId
   localTime: string
@@ -22,6 +67,8 @@ export type JudgmentState = {
   timezone: string
   tick: string
   proactive: string
+  /** "22:00-08:00"; the server has always returned this, the type forgot it. */
+  quietHours?: string
   lastInboundMinutesAgo: number | null
   lastProactiveMinutesAgo: number | null
   lastProactiveTopic: string | null
@@ -198,10 +245,15 @@ export async function setProactiveMode(
   }
 }
 
-function hardGuard(state: JudgmentState): string | null {
+/** Quiet hours were stored in the judgment state since the beginning but
+ * nothing ever read them: a 3 AM meal nudge could fire at 3 AM. Discretionary
+ * pokes now hold until morning. Explicit user-scheduled reminders (including a
+ * user-chosen 7 AM digest) never come through here, so they are unaffected. */
+export function hardGuard(state: JudgmentState): string | null {
   const mode = (state.proactive || 'on').toLowerCase()
   if (mode === 'off') return 'proactive off'
   if (mode === 'paused') return 'paused'
+  if (inQuietHours(state.localTime, state.quietHours)) return 'quiet hours'
   if (state.lastInboundMinutesAgo != null && state.lastInboundMinutesAgo < 20) return 'in conversation'
   if (state.lastProactiveMinutesAgo != null && state.lastProactiveMinutesAgo < 60) return 'sent recently'
   const unanswered = Number(state.unansweredProactive) || 0

@@ -32,7 +32,11 @@ const BANNED: Array<[RegExp, string]> = [
   [/Bun\.(spawn|connect|serve|listen)/, 'Bun.spawn/serve'],
   [/process\.env/, 'process.env (the sandbox has no secrets to read)'],
   [/\/etc\//, 'system path'],
-  [/\bDB_URL|DATABASE_URL|API_KEY|SECRET\b/i, 'credential probe'],
+  // Credential-shaped identifiers, not the English word: `/i` on SECRET
+  // rejected legitimate builds whose code said "secret answer" or
+  // `secretAnswer` (a trivia game was blocked live on 2026-09-18). Env reads
+  // are already banned above, so this only needs to catch a credential name.
+  [/\b(?:DB_URL|DATABASE_URL|API_KEY|SECRET_KEY|CLIENT_SECRET|SECRET_TOKEN)\b|\bSECRET\b(?=\s*[=:])/, 'credential probe'],
 ]
 
 export function gateWorkshopCode(code: string): { ok: true } | { ok: false; reason: string } {

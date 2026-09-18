@@ -204,6 +204,139 @@ export async function parseReminderIntent(
   }
 }
 
+/* ---- Morning digest control (dimension 7) ----
+ * The chat path used to refuse weekday briefs ("reminders can only nudge with
+ * static text") and had no way to pause or move a digest. The digest is a real
+ * [digest] reminder row, so setting/pausing/editing it is reminder management,
+ * not a new capability; the parser below is deterministic so the bench ask
+ * never depends on the model. */
+
+export type DigestControl =
+  | { action: 'set'; time?: string; recurrence: 'daily' | 'weekdays'; label: string }
+  | { action: 'pause' }
+  | { action: 'resume' }
+
+/** Does the text talk about the morning digest/brief at all? Used to stop
+ * digest questions ("when is my brief") from falling into the reminder LLM. */
+export function mentionsDigest(text: string): boolean {
+  return /\b(?:morning|daily|weekday)\s+(?:brief|digest|recap)\b|\bmy\s+(?:morning\s+|daily\s+|weekday\s+)?(?:brief|digest|recap)\b|\b(?:brief|digest|recap)\s+(?:is|was|comes?)\b/i.test(
+    String(text || ''),
+  )
+}
+
+/** "7", "7:30", "07:15" + am/pm → canonical "HH:MM"; null when absent. */
+export function clockFromText(text: string): string | null {
+  const m = String(text || '').match(/\b(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b/i) || String(text || '').match(/\b(\d{1,2}):(\d{2})\b/)
+  if (!m) return null
+  let h = Number(m[1])
+  const min = Number(m[2] || '0')
+  const ap = (m[3] || '').toLowerCase()
+  if (!Number.isFinite(h) || !Number.isFinite(min) || h > 23 || min > 59) return null
+  if (ap === 'pm' && h < 12) h += 12
+  if (ap === 'am' && h === 12) h = 0
+  return `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}`
+}
+
+/** A digest ask the bot can act on, or null when the text is a question or
+ * some other request. Deliberately conservative: it must name the digest and
+ * carry a scheduling verb (or an explicit clock for the set case). */
+export function digestControlIntent(text: string): DigestControl | null {
+  const t = String(text || '').trim()
+  if (!t || !mentionsDigest(t)) return null
+  if (/\b(?:pause|stop|turn (?:it )?off|hold|disable|cancel)\b/i.test(t)) return { action: 'pause' }
+  if (/\b(?:resume|unpause|re-?enable|restart|start (?:it )?again)\b/i.test(t) || /\bturn\b.{0,24}\bback on\b/i.test(t)) {
+    return { action: 'resume' }
+  }
+  const schedulingVerb = /\b(?:set(?: me)? up|setup|schedule|create|make|start|change|move|edit|update|switch|push)\b/i.test(t)
+  const explicitClock = /\b\d{1,2}(?::\d{2})?\s*(?:am|pm)\b/i.test(t)
+  if (!schedulingVerb && !explicitClock) return null
+  const recurrence = /\b(?:weekdays?|monday\s*(?:-|to|through|–)\s*friday|mon\s*-\s*fri|work(?:ing)?\s*days)\b/i.test(t)
+    ? 'weekdays'
+    : 'daily'
+  const time = clockFromText(t) || undefined
+  return { action: 'set', ...(time ? { time } : {}), recurrence, label: recurrence === 'weekdays' ? 'Weekday morning digest' : 'Morning digest' }
+}
+
+export type DigestManageResult = {
+  ok: boolean
+  action?: string
+  note?: string
+  digest?: Array<{ text?: string; scheduledAt?: string; recurrence?: string; status?: string }>
+}
+
+/** Set/pause/resume the [digest] reminder through the internal route. */
+export async function manageDigest(
+  phone: string,
+  persona: string,
+  control: DigestControl,
+): Promise<DigestManageResult | null> {
+  const base = apiBase()
+  if (!base) return null
+  try {
+    const res = await fetch(`${base}/api/internal/digest/manage`, {
+      signal: AbortSignal.timeout(10000),
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify({
+        phone,
+        persona,
+        action: control.action,
+        ...(control.action === 'set' ? { time: control.time, recurrence: control.recurrence, label: control.label } : {}),
+      }),
+    })
+    if (!res.ok) return null
+    return (await res.json()) as DigestManageResult
+  } catch {
+    return null
+  }
+}
+
+/** Human line for a digest manage result, so the reply states the real state. */
+export function digestManageReply(control: DigestControl, result: DigestManageResult, timezone: string): string {
+  if (control.action === 'pause') {
+    return result.note ? "There wasn't a digest running, so nothing to pause. Say set up my morning digest and I will arm one." : "Paused the morning digest. Say resume my digest whenever you want it back."
+  }
+  if (control.action === 'resume') {
+    const at = result.digest?.[0]?.scheduledAt
+    const when = at ? digestWhenLabel(at, timezone) : 'the next morning'
+    return `Back on. Next digest ${when}.`
+  }
+  const row = result.digest?.[0]
+  const cadence = row?.recurrence === 'weekdays' ? 'Weekdays' : 'Daily'
+  const time = row?.scheduledAt ? digestClockLabel(row.scheduledAt, timezone) : control.time || '8:00'
+  const next = row?.scheduledAt ? digestWhenLabel(row.scheduledAt, timezone) : ''
+  return `Set. ${cadence} at ${time} (${timezone}): your calendar, emails still owed a reply, and the weather. Pause or move it any time${next ? `. Next one: ${next}` : ''}.`
+}
+
+function digestClockLabel(iso: string, timezone: string): string {
+  try {
+    return new Intl.DateTimeFormat('en-US', {
+      timeZone: timezone,
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true,
+    }).format(new Date(iso))
+  } catch {
+    return ''
+  }
+}
+
+function digestWhenLabel(iso: string, timezone: string): string {
+  try {
+    return new Intl.DateTimeFormat('en-US', {
+      timeZone: timezone,
+      weekday: 'short',
+      month: 'short',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true,
+    }).format(new Date(iso))
+  } catch {
+    return ''
+  }
+}
+
 /** Current local wall-clock (no offset) for the given IANA zone. */
 export function formatLocalNow(timezone: string): string {
   const dtf = new Intl.DateTimeFormat('en-CA', {
@@ -584,6 +717,11 @@ export function startReminderScheduler(opts: {
             continue
           }
           console.warn(`[reminders:${opts.persona}] send failed for ${r.id}, reverting claim`, err)
+          // Reverting makes the reminder due again at once. Without this the
+          // 10s poll re-sent it every cycle: one RateLimitError became ~360
+          // attempts an hour, all against the same small shared send budget.
+          // Back the key off before reverting so the retry is an honest one.
+          sendBackoff.set(r.id, Date.now() + SEND_FAILURE_BACKOFF_MS)
           await markReminderDone(r.id, undefined, true).catch(() => undefined)
         }
       }

@@ -257,18 +257,21 @@ export async function apiDisconnect(input: {
   connector: ConnectorId
   email: string
   persona?: AgentId
-}) {
+}): Promise<{ message?: string }> {
   const qs = new URLSearchParams({ email: input.email })
   if (input.persona) qs.set('persona', input.persona)
   const res = await fetch(`${API}/api/connect/${input.connector}?${qs}`, { method: 'DELETE' })
   if (res.status === 404) {
     // Endpoint or token not found on server — treat as disconnected
-    return
+    return {}
   }
-  const data = await parseJson<{ ok?: boolean; error?: string }>(res)
+  const data = await parseJson<{ ok?: boolean; error?: string; message?: string }>(res)
   if (!res.ok || !data.ok) {
     throw new Error(data.error || 'Disconnect failed.')
   }
+  // The server names what was removed and what stays; show it rather than
+  // leaving "Disconnect" as an unexplained state flip.
+  return { message: data.message }
 }
 
 export async function apiSetup(input: {

@@ -303,12 +303,21 @@ export function routeFromText(text: string): { from: string; to: string } | null
 /** Words an ask wraps around a place: "round trip flights New York" is New York. */
 const ROUTE_LEAD =
   /^(?:(?:round ?trip|one ?way|nonstop|direct|cheap(?:est)?|best|flights?|tickets?|airfare|a|an|the|me|for|out of|leaving|departing)\s+)+/i
-/** Everything from the first date, price or preposition clause onward. */
+/** Everything from the first date, price, weekday or travel-detail clause
+ * onward. A benchmark-shaped ask — "from New York to Chicago, Friday morning to
+ * Sunday evening, aisle seat, under $400" — put the whole second sentence in
+ * the destination and the route came back unresolvable, so every fare source
+ * was skipped. */
 const ROUTE_TRAIL =
-  /\s+(?:on|for|return(?:ing)?|back|leaving|departing|arriving|around|near|in|under|below|above|over)\b[\s\S]*$|\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\.?[\s\S]*$|\s*[\d$€£][\s\S]*$/i
+  /\s+(?:on|for|return(?:ing)?|back|leaving|departing|arriving|around|near|in|under|below|above|over)\b[\s\S]*$|\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\.?[\s\S]*$|\s*[\d$€£][\s\S]*$|\s+(?:sunday|monday|tuesday|wednesday|thursday|friday|saturday|sun|mon|tues|tue|wed|thurs|thu|fri|sat|today|tonight|tomorrow|next week|this week)\b[\s\S]*$|\s+(?:morning|afternoon|evening|night|red-?eye|aisle|window|middle|nonstop|non-stop|one ?way|round ?trip)\b[\s\S]*$/i
 
 function trimRouteWords(value: string): string {
   let out = value.trim().replace(/\.+$/, '')
+  // A trailing clause starts at the first comma: "Chicago, Friday morning to
+  // Sunday evening" is Chicago. A comma-separated airport list keeps its codes
+  // ("JFK,EWR") because the token after the comma is a three-letter code.
+  const comma = out.indexOf(',')
+  if (comma !== -1 && !/^\s*[A-Z]{3}\s*(?:,|$)/.test(out.slice(comma + 1))) out = out.slice(0, comma)
   for (let i = 0; i < 3; i++) {
     const next = out.replace(ROUTE_LEAD, '').replace(ROUTE_TRAIL, '').trim().replace(/[.,]+$/, '')
     if (next === out) break
@@ -321,6 +330,11 @@ function trimRouteWords(value: string): string {
  * Every date the ask named, in the order it named them. "Sep 25 to Sep 27" is a
  * check-in and a check-out; resolving only the first one made every stay a
  * single night.
+ *
+ * Weekday and relative wording is resolved too — "Friday to Saturday next week"
+ * is how both scored travel tasks are actually worded, and returning [] for it
+ * skipped every dated source (trvl, Google Hotels, Google Flights) and answered
+ * a real booking ask from a web listicle.
  */
 export function datesFromText(text: string, now = new Date()): string[] {
   const out: string[] = []
@@ -337,7 +351,55 @@ export function datesFromText(text: string, now = new Date()): string[] {
     const year = month + 1 < now.getUTCMonth() + 1 ? now.getUTCFullYear() + 1 : now.getUTCFullYear()
     out.push(`${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`)
   }
-  return out
+  return out.length ? out : relativeDatesFromText(text, now)
+}
+
+/** Weekday words → JS getUTCDay() index. */
+const WEEKDAYS: Record<string, number> = {
+  sunday: 0, sun: 0, monday: 1, mon: 1, tuesday: 2, tue: 2, tues: 2,
+  wednesday: 3, wed: 3, thursday: 4, thu: 4, thurs: 4, friday: 5, fri: 5, saturday: 6, sat: 6,
+}
+
+function isoDay(base: Date, addDays: number): string {
+  return new Date(Date.UTC(base.getUTCFullYear(), base.getUTCMonth(), base.getUTCDate() + addDays)).toISOString().slice(0, 10)
+}
+
+/**
+ * Dates an ask names in words, best effort: "Friday to Saturday next week",
+ * "tomorrow", "tonight". "next week" moves the baseline seven days out, so the
+ * Friday of next week is not today. Two weekdays are read as an ordered range,
+ * which is what a hotel stay or a round trip always is.
+ */
+export function relativeDatesFromText(text: string, now = new Date()): string[] {
+  const lower = String(text || '').toLowerCase()
+  const base = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + (/\bnext week\b/.test(lower) ? 7 : 0)))
+  const baseDow = base.getUTCDay()
+  const out: string[] = []
+  let previous = -1
+  const pattern = /\b(sunday|monday|tuesday|wednesday|thursday|friday|saturday|sun|mon|tues|tue|wed|thurs|thu|fri|sat)\b/g
+  for (const match of lower.matchAll(pattern)) {
+    const dow = WEEKDAYS[match[1]!]
+    if (dow === undefined) continue
+    let delta = (dow - baseDow + 7) % 7
+    // "next Friday" is the Friday of the following week, not today's (a Friday
+    // ask sent on a Friday resolved to the same day, which reads as a same-day
+    // booking the user never asked for).
+    if (/\bnext\s+$/.test(lower.slice(0, match.index))) delta += 7
+    // A weekday that is today with a part of day attached ("Friday morning
+    // out" said on a Friday afternoon) is the same slot a week out: the
+    // morning it names has already gone.
+    else if (delta === 0 && /^\s*(?:morning|afternoon|evening|night|redeye|red-eye)\b/.test(lower.slice(match.index + match[0].length))) delta += 7
+    // Two weekdays in one ask are a range: "Friday to Saturday" is the next
+    // Friday and the Saturday after it. An earlier weekday after a later one
+    // ("Sunday ... back, Friday ... out") rolls into the following week.
+    while (previous !== -1 && delta <= previous) delta += 7
+    previous = delta
+    out.push(isoDay(base, delta))
+  }
+  if (out.length) return out
+  if (/\btomorrow\b/.test(lower)) return [isoDay(base, 1)]
+  if (/\b(?:today|tonight)\b/.test(lower)) return [isoDay(base, 0)]
+  return []
 }
 
 const MONTHS = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december']
@@ -362,5 +424,5 @@ export function dateFromText(text: string, now = new Date()): string | null {
     const year = month < now.getUTCMonth() + 1 ? now.getUTCFullYear() + 1 : now.getUTCFullYear()
     return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
   }
-  return null
+  return relativeDatesFromText(text, now)[0] || null
 }

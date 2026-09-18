@@ -91,6 +91,34 @@ describe('datesFromText', () => {
     expect(datesFromText('hotel Sep 25')).toEqual(['2026-09-25'])
     expect(datesFromText('no dates at all')).toEqual([])
   })
+
+  /* The two scored travel tasks are worded with weekdays and "next week". No
+   * date came back for either, so every dated source (trvl, Google Hotels,
+   * Google Flights) was skipped and the booking ask was answered from a web
+   * listicle. */
+  describe('relative wording', () => {
+    const friday = new Date('2026-09-18T20:00:00Z')
+
+    it('resolves the wording the scored asks actually use', () => {
+      expect(
+        datesFromText('Book a hotel stay in Chicago, Friday to Saturday next week, under $250/night, near the Loop, with free cancellation.', friday),
+      ).toEqual(['2026-09-25', '2026-09-26'])
+      expect(
+        datesFromText('Book a round trip from New York to Chicago, Friday morning to Sunday evening, aisle seat, under $400', friday),
+      ).toEqual(['2026-09-25', '2026-09-27'])
+      expect(datesFromText('hotel tomorrow night', friday)).toEqual(['2026-09-19'])
+      expect(datesFromText('hotel tonight', friday)).toEqual(['2026-09-18'])
+      expect(datesFromText('what should I wear', friday)).toEqual([])
+    })
+
+    it('reads "next Friday" as the following week, not today', () => {
+      expect(dateFromText('hotel in Chicago next Friday to Saturday near the Loop', friday)).toBe('2026-09-25')
+    })
+
+    it('keeps explicit dates ahead of weekday wording', () => {
+      expect(datesFromText('flights New York to Chicago 2026-09-25 returning 2026-09-27', friday)).toEqual(['2026-09-25', '2026-09-27'])
+    })
+  })
 })
 
 describe('routeFromText', () => {
@@ -100,6 +128,19 @@ describe('routeFromText', () => {
     expect(routeFromText('round trip flights from New York to Chicago on Sep 25 returning Sep 27')).toEqual({ from: 'New York', to: 'Chicago' })
     expect(routeFromText('round trip flights New York to Chicago on Sep 25 return Sep 27')).toEqual({ from: 'New York', to: 'Chicago' })
     expect(routeFromText('flights JFK to ORD Sep 25')).toEqual({ from: 'JFK', to: 'ORD' })
+  })
+
+  it('stops the destination at the clause the ask added', () => {
+    // The scored travel ask carries a whole second sentence; leaving it in the
+    // destination made both sides unresolvable and skipped every fare source.
+    expect(
+      routeFromText('Book a round trip from New York to Chicago, Friday morning to Sunday evening, aisle seat, under $400'),
+    ).toEqual({ from: 'New York', to: 'Chicago' })
+    expect(routeFromText('flights from New York to Chicago tomorrow evening')).toEqual({ from: 'New York', to: 'Chicago' })
+  })
+
+  it('keeps a comma-separated airport list together', () => {
+    expect(routeFromText('flights from JFK,EWR to ORD on 2026-09-25')).toEqual({ from: 'JFK,EWR', to: 'ORD' })
   })
 
   it('does not mistake dates for a route', () => {

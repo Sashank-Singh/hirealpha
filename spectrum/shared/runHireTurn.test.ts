@@ -259,6 +259,59 @@ describe('explicit navigation wins over conversation history', () => {
     expect(requests.some((url) => url.endsWith('/api/internal/memory'))).toBe(false)
   })
 
+  it('captures a preference stated in passing and injects it into later prompts', async () => {
+    hired = true
+    await runHireTurn({
+      agentId: 'friend',
+      dataDir,
+      senderId: 'test-user',
+      userText: "I always want aisle seats and I don't eat pork.",
+    })
+    const facts = loadMemory(dataDir, 'test-user').facts
+    expect(facts.find((f) => f.key === 'seat_preference')?.value).toBe('aisle seat')
+    expect(facts.find((f) => f.key === 'hard_nos')?.value).toBe('no pork anywhere')
+    // Persisted to the server store too, so a container restart cannot lose it.
+    expect(requests.some((url) => url.endsWith('/api/internal/memory'))).toBe(true)
+
+    answers = ['Doing well.']
+    await runHireTurn({ agentId: 'friend', dataDir, senderId: 'test-user', userText: 'How is it going?' })
+    // The fact reaches the model prompt (fast-chat path puts it in threadFacts;
+    // the engine path puts it in the facts block).
+    expect(
+      modelInputs.some(
+        (body) =>
+          body.includes('seat_preference') &&
+          body.includes('aisle seat') &&
+          body.includes('no pork anywhere'),
+      ),
+    ).toBe(true)
+  })
+
+  it('holds a place ask that contradicts the trip planned in the thread', async () => {
+    hired = true
+    appendThread(dataDir, 'test-user', [
+      { role: 'user', content: 'Book a hotel stay in Chicago, Friday to Saturday next week, near the Loop.' },
+      { role: 'assistant', content: 'Found Loop hotels with free cancellation.' },
+    ])
+    const before = {
+      tools: toolRequests.length,
+      models: modelInputs.length,
+    }
+    const result = await runHireTurn({
+      agentId: 'friend',
+      dataDir,
+      senderId: 'test-user',
+      userText: 'Great, now find me a dinner spot in New York on Saturday night.',
+    })
+    // The turn asks about the mismatch instead of searching, with no tool or
+    // model call on the wrong city.
+    expect(result.reply).toContain('Chicago')
+    expect(result.reply).toContain('New York')
+    expect(result.source).toBe('local')
+    expect(toolRequests.length).toBe(before.tools)
+    expect(modelInputs.length).toBe(before.models)
+  })
+
   it('chains mail and calendar lookups into a saved reply, without sending it', async () => {
     hired = true
     answers = [

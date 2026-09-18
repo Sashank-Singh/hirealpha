@@ -18,7 +18,25 @@
  */
 import { formatFares, type FlightRow } from '../spectrum/shared/flightExtract'
 
-const TRVL_TIMEOUT_MS = Number(process.env.TRVL_TIMEOUT_MS || 45_000)
+/** The base ceiling for the binary. The two search kinds below narrow it. */
+const TRVL_TIMEOUT_MS = Number(process.env.TRVL_TIMEOUT_MS || 50_000)
+/**
+ * A throttled flight source must not hold a turn open.
+ *
+ * Measured in production: `--timeout 20s` is a per-request ceiling inside the
+ * binary, and its retry/backoff storm ran the command to our own 45s kill
+ * (exit 137) with three 429 retries on the way — the user waited 45s for a web
+ * fallback. The flight kill is therefore tighter than the hotel one; a hotel
+ * search measures 20-50s and returns real rows.
+ */
+const TRVL_FLIGHT_TIMEOUT_MS = Number(process.env.TRVL_FLIGHT_TIMEOUT_MS || Math.min(25_000, TRVL_TIMEOUT_MS))
+/**
+ * A hotel search measures 20-50s (six booking sources, room-level enrichment),
+ * longer than the flight one, and still has to leave room for the turn to
+ * write its answer. The ceiling bounds a stalled provider without cutting off a
+ * search that is merely slow.
+ */
+const TRVL_HOTEL_TIMEOUT_MS = Number(process.env.TRVL_HOTEL_TIMEOUT_MS || TRVL_TIMEOUT_MS)
 const CACHE_TTL_MS = 6 * 60 * 60 * 1000
 const CACHE_MAX = 120
 
@@ -151,8 +169,8 @@ async function defaultRunner(args: string[], timeoutMs: number): Promise<unknown
 
 /** City, area or code → the IATA list trvl accepts ("JFK,EWR,LGA"). */
 const AIRPORTS: Record<string, string> = {
-  'new york': 'JFK,EWR,LGA', nyc: 'JFK,EWR,LGA', manhattan: 'JFK,EWR,LGA',
-  chicago: 'ORD,MDW', 'san francisco': 'SFO,OAK', 'bay area': 'SFO,OAK,SJC',
+  'new york': 'JFK,EWR,LGA', nyc: 'JFK,EWR,LGA', ny: 'JFK,EWR,LGA', manhattan: 'JFK,EWR,LGA',
+  chicago: 'ORD,MDW', chi: 'ORD,MDW', 'san francisco': 'SFO,OAK', 'bay area': 'SFO,OAK,SJC', sf: 'SFO,OAK',
   'los angeles': 'LAX,BUR,LGB,SNA', la: 'LAX,BUR,LGB,SNA',
   boston: 'BOS', seattle: 'SEA', austin: 'AUS', denver: 'DEN', miami: 'MIA,FLL',
   atlanta: 'ATL', dallas: 'DFW,DAL', houston: 'IAH,HOU', phoenix: 'PHX', vegas: 'LAS',
@@ -183,8 +201,15 @@ export function airportsFor(place: string): string | null {
   if (/^[A-Z]{3}(?:,[A-Z]{3})*$/.test(bare)) return bare
   const key = bare.toLowerCase().replace(/\b(?:airport|intl|international|the)\b/g, ' ').replace(/\s+/g, ' ').trim()
   if (AIRPORTS[key]) return AIRPORTS[key]!
-  const first = key.split(' ')[0]!
-  return AIRPORTS[first] || null
+  /* The city is not always alone in the phrase ("New York City", "Chicago
+   * downtown"), and the leading words are the name in every such case; a
+   * one-word lookup alone missed them and skipped every fare source. */
+  const words = key.split(' ').filter(Boolean)
+  for (const take of [2, 3]) {
+    const phrase = words.slice(0, take).join(' ')
+    if (AIRPORTS[phrase]) return AIRPORTS[phrase]!
+  }
+  return words[0] ? AIRPORTS[words[0]] || null : null
 }
 
 /** EUR→USD, cached for the day, from a keyless ECB feed. Null when unavailable
@@ -254,12 +279,12 @@ export async function trvlFlights(input: {
   const maxAirports = Math.max(1, Number(process.env.TRVL_MAX_AIRPORTS || '1') || 1)
   const fromIata = from.split(',').slice(0, maxAirports).join(',')
   const toIata = to.split(',').slice(0, maxAirports).join(',')
-  const args = ['flights', fromIata, toIata, input.date, '--format', 'json', '--timeout', `${Math.min(20, Math.round(TRVL_TIMEOUT_MS / 1000))}s`]
+  const args = ['flights', fromIata, toIata, input.date, '--format', 'json', '--timeout', `${Math.max(8, Math.round(TRVL_FLIGHT_TIMEOUT_MS / 1000) - 5)}s`]
   if (input.returnDate) args.push('--return', input.returnDate)
   if (input.cabin) args.push('--cabin', input.cabin)
   if (input.maxStops === 0) args.push('--stops', 'nonstop')
 
-  const data = (await runner(args, TRVL_TIMEOUT_MS)) as { flights?: TrvlFlight[]; price_position?: { verdict?: string } } | null
+  const data = (await runner(args, TRVL_FLIGHT_TIMEOUT_MS)) as { flights?: TrvlFlight[]; price_position?: { verdict?: string } } | null
   const flights = data?.flights || []
   if (!flights.length) return null
 
@@ -302,6 +327,18 @@ export async function trvlFlights(input: {
   return remember(key, `${formatFares(rows, { label: `from ${from} to ${to} on ${input.date}` })}${fxNote}${verdictNote}`)
 }
 
+type TrvlRoom = {
+  name?: string
+  price?: number
+  nightly_price?: number
+  total_price?: number
+  currency?: string
+  provider?: string
+  /** The room-level cancellation truth: a refundable rate carries a real
+   * cancellation policy, a saver rate reads "Non-refundable". */
+  refundable?: boolean
+  cancellation_policy?: string
+}
 type TrvlHotel = {
   name?: string
   stars?: number
@@ -312,10 +349,50 @@ type TrvlHotel = {
   address?: string
   distance_km?: number
   booking_url?: string
-  room_types?: Array<{ name?: string; price?: number; nightly_price?: number }>
+  room_types?: TrvlRoom[]
   sources?: unknown
 }
-export type TrvlHotelRow = { name: string; stars: number; rating: number; reviews: number; priceUsd: number; currency: string; address: string; bookingUrl: string; distanceKm: number }
+export type TrvlHotelRow = {
+  name: string
+  stars: number
+  rating: number
+  reviews: number
+  priceUsd: number
+  currency: string
+  address: string
+  bookingUrl: string
+  distanceKm: number
+  /** Cheapest nightly USD rate whose own room entry says it is refundable, or
+   * null when no room entry states a policy. */
+  refundableUsd: number | null
+  /** The room-level cancellation wording, when the source carries it. */
+  cancellation: string | null
+}
+
+/** One room's nightly rate in USD, or 0 when it does not carry a number. */
+function roomNightlyUsd(room: TrvlRoom, rate: number | null): number {
+  const nightly = Number(room.nightly_price ?? room.price)
+  if (!Number.isFinite(nightly) || nightly <= 0) return 0
+  const currency = String(room.currency || '')
+  return currency === 'USD' || !currency ? nightly : rate ? nightly * rate : 0
+}
+
+/** The refundable rate and the cancellation wording from the room entries. A
+ * top-level price is a headline (often a non-refundable saver rate) and says
+ * nothing about cancellation, which is exactly the constraint the hotel task
+ * scores. */
+function cancellationFromRooms(rooms: TrvlRoom[], rate: number | null): { refundableUsd: number | null; cancellation: string | null } {
+  let refundableUsd: number | null = null
+  let cancellation: string | null = null
+  for (const room of rooms) {
+    const policy = String(room.cancellation_policy || '').trim()
+    if (policy && !cancellation) cancellation = policy.slice(0, 80)
+    if (room.refundable !== true) continue
+    const usd = roomNightlyUsd(room, rate)
+    if (usd > 0 && (refundableUsd === null || usd < refundableUsd)) refundableUsd = usd
+  }
+  return { refundableUsd, cancellation }
+}
 
 /** The hotel rows behind the block, for callers that want the structure. */
 export async function trvlHotelRows(input: { city: string; checkin: string; checkout: string }): Promise<TrvlHotelRow[]> {
@@ -328,6 +405,8 @@ export async function trvlHotelRows(input: { city: string; checkin: string; chec
       const price = Number(h.price)
       const currency = String(h.currency || '')
       const usd = currency === 'USD' ? price : rate ? price * rate : 0
+      const rooms = Array.isArray(h.room_types) ? h.room_types : []
+      const { refundableUsd, cancellation } = cancellationFromRooms(rooms, rate)
       return {
         name: String(h.name || '').trim(),
         stars: Number(h.stars) || 0,
@@ -338,6 +417,8 @@ export async function trvlHotelRows(input: { city: string; checkin: string; chec
         address: String(h.address || '').trim(),
         bookingUrl: String(h.booking_url || '').trim(),
         distanceKm: Number(h.distance_km) || 0,
+        refundableUsd: refundableUsd === null ? null : Math.round(refundableUsd),
+        cancellation,
       }
     })
     .filter((h) => h.name && h.priceUsd > 0)
@@ -348,21 +429,106 @@ async function trvlHotelsRaw(input: { city: string; checkin: string; checkout: s
   if (!trvlEnabled()) return null
   const city = String(input.city || '').trim()
   if (!city || !/^\d{4}-\d{2}-\d{2}$/.test(input.checkin) || !/^\d{4}-\d{2}-\d{2}$/.test(input.checkout)) return null
-  return runner(['hotels', city, '--checkin', input.checkin, '--checkout', input.checkout, '--format', 'json'], TRVL_TIMEOUT_MS)
+  return runner(['hotels', city, '--checkin', input.checkin, '--checkout', input.checkout, '--format', 'json'], TRVL_HOTEL_TIMEOUT_MS)
+}
+
+/**
+ * The known city inside a place phrase, or null.
+ *
+ * The binary's location resolver is not monotonic in cleanliness: measured on
+ * v1.21.6, "Chicago" returns 126 properties with Loop inventory 0.02-0.7 km out
+ * and room-level cancellation rates, while the neighborhood phrase "Chicago
+ * Loop" came back with 858 rentals and zero usable hotels. The city name is
+ * therefore the reliable search key, and the neighborhood is what the distance
+ * ranking and filter resolve.
+ */
+export function knownCityIn(area: string): string | null {
+  const words = String(area || '')
+    .toLowerCase()
+    .replace(/[^a-z\s]/g, ' ')
+    .split(/\s+/)
+    .filter(Boolean)
+  for (let i = 0; i < words.length; i++) {
+    const pair = `${words[i]} ${words[i + 1] || ''}`.trim()
+    if (AIRPORTS[pair]) return pair
+    if (AIRPORTS[words[i]!]) return words[i]!
+  }
+  return null
+}
+
+export type TrvlHotelQuery = {
+  city: string
+  checkin: string
+  checkout: string
+  /** The nightly ceiling the ask named ("under $250/night"). Rows above it are
+   * dropped rather than ranked, so the reply cannot present an over-budget
+   * property as a candidate. */
+  maxPricePerNight?: number
+  /** The ask required free cancellation: keep only rooms whose own entry says
+   * they are refundable, and never present a non-refundable rate as free. */
+  freeCancellation?: boolean
+  /** The ask named an area ("near the Loop"): properties the source measured
+   * farther than this are dropped. */
+  maxDistanceKm?: number
 }
 
 /** Real rooms and nightly rates for the exact dates, from six sources. */
-export async function trvlHotels(input: { city: string; checkin: string; checkout: string }): Promise<string | null> {
-  const key = `hotels|${input.city}|${input.checkin}|${input.checkout}`
+export async function trvlHotels(input: TrvlHotelQuery): Promise<string | null> {
+  const key = `hotels|${input.city}|${input.checkin}|${input.checkout}|${input.maxPricePerNight ?? ''}|${input.freeCancellation ? 1 : 0}|${input.maxDistanceKm ?? ''}`
   const hit = cached(key)
   if (hit) return hit
-  const rows = await trvlHotelRows(input)
+  let rows = await trvlHotelRows(input)
   if (!rows.length) return null
-  /* A city search returns the whole metro (an O'Hare property reads 35 km out
-   * for a Loop ask), so anything the source measured leads by distance: the ask
-   * was almost always "near where I am". */
+  const notes: string[] = []
+  if (input.freeCancellation) {
+    /* The room entries are the only cancellation truth the source carries; a
+     * headline price with no room detail is not evidence either way. Rows with
+     * a refundable room are kept and priced at that rate; rows with a stated
+     * non-refundable policy are excluded, because the ask made free
+     * cancellation a hard constraint. */
+    const refundable = rows.filter((h) => h.refundableUsd !== null)
+    const unknown = rows.filter((h) => h.refundableUsd === null && !h.cancellation)
+    const kept = [...refundable, ...unknown]
+    notes.push(
+      refundable.length
+        ? `${refundable.length} of ${rows.length} show a free-cancellation rate below.`
+        : 'No room entry in this result stated a free-cancellation rate.',
+    )
+    if (kept.length) rows = kept
+    /* A property can carry both a saver and a flexible rate; the constraint is
+     * only met at the refundable one, so that is the rate this block prices. */
+    rows = rows.map((h) => (h.refundableUsd !== null ? { ...h, priceUsd: h.refundableUsd } : h))
+  }
+  if (input.maxPricePerNight && input.maxPricePerNight > 0) {
+    const within = rows.filter((h) => h.priceUsd <= input.maxPricePerNight!)
+    notes.push(
+      within.length
+        ? `All shown are at or under the $${input.maxPricePerNight}/night ceiling.`
+        : `Nothing on these nights came in at or under $${input.maxPricePerNight}/night.`,
+    )
+    if (within.length) rows = within
+  }
+  if (input.maxDistanceKm && input.maxDistanceKm > 0) {
+    /* A city search returns the whole metro (an O'Hare property reads 35 km out
+     * for a Loop ask). Only measured properties can be filtered; an unmeasured
+     * row is kept and shown without a distance. */
+    const near = rows.filter((h) => !h.distanceKm || h.distanceKm <= input.maxDistanceKm!)
+    if (near.length) rows = near
+    else notes.push(`No result carried a measured distance under ${input.maxDistanceKm} km.`)
+  }
+  /* A refundable row leads when the ask made free cancellation a hard
+   * constraint: the list is capped at eight, and distance alone filled it with
+   * rows whose cancellation was not stated while the eleven real
+   * free-cancellation rates sat below the cut. */
+  const confirmedFirst = (a: TrvlHotelRow, b: TrvlHotelRow) =>
+    (input.freeCancellation ? Number(b.refundableUsd !== null) - Number(a.refundableUsd !== null) : 0)
+  /* Distance leads when the ask named an area, then the cheapest rate: the ask
+   * was almost always "near where I am", and a distant bargain is not the
+   * answer to it. */
   const measured = rows.filter((h) => h.distanceKm > 0)
-  const ranked = measured.length ? [...measured].sort((a, b) => a.distanceKm - b.distanceKm) : rows
+  const ranked = measured.length
+    ? [...measured].sort((a, b) => confirmedFirst(a, b) || a.distanceKm - b.distanceKm || a.priceUsd - b.priceUsd)
+    : [...rows].sort((a, b) => confirmedFirst(a, b) || a.priceUsd - b.priceUsd)
   const lines = ranked.slice(0, 8).map((h) => {
     const bits = [
       `$${h.priceUsd}/night`,
@@ -371,11 +537,14 @@ export async function trvlHotels(input: { city: string; checkin: string; checkou
       h.reviews ? `${h.reviews} reviews` : '',
       h.address || '',
       h.distanceKm ? `${h.distanceKm} km out` : '',
+      h.refundableUsd !== null ? `free-cancellation rate $${h.refundableUsd}/night` : h.cancellation ? h.cancellation : '',
+      h.refundableUsd === null && !h.cancellation ? 'cancellation not stated' : '',
     ].filter(Boolean)
     return `- ${h.name}: ${bits.join(', ')}`
   })
+  const caveat = notes.length ? ` ${notes.join(' ')}` : ''
   return remember(
     key,
-    `Live hotel rates for ${input.checkin} to ${input.checkout} in ${input.city} (merged from six booking sources):\n${lines.join('\n')}\nThese are real rates for those nights. Cancellation terms and the final total come from the booking page, so confirm them there before promising either.`,
+    `Live hotel rates for ${input.checkin} to ${input.checkout} in ${input.city} (merged from six booking sources):\n${lines.join('\n')}\nThese are real rates for those nights.${caveat} The final total and the exact cancellation deadline still come from the booking page, so confirm them there before promising either.`,
   )
 }

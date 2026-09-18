@@ -600,10 +600,15 @@ export function MiniAppPage() {
     )
   }
 
-  if (
-    persona === 'friend' &&
-    (kind === 'approve_send' || kind === 'pick_slot' || kind === 'linear_triage' || kind === 'standup_paste')
-  ) {
+  /* approve_send and pick_slot are deliberately NOT redirected for the friend:
+   * canonicalMiniAppKind stopped folding them into home (spectrum/shared/
+   * miniApps.ts) because the friend drafts replies and calendar events now, and
+   * this redirect made the card's "tap to confirm" promise dead — the tap
+   * landed on home, which has no confirm UI, so the mail never went and the
+   * event never landed. The render branch below is the only surface that can
+   * send or book a friend draft. Home still backs the kinds that are hubs
+   * there (linear_triage, standup_paste). */
+  if (persona === 'friend' && (kind === 'linear_triage' || kind === 'standup_paste')) {
     return <Navigate to={openHref('home')} replace />
   }
 

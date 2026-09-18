@@ -171,17 +171,18 @@ export function parseMailJudgeKeepIds(raw: string, items: MailJudgeItem[]): stri
     .map((v) => v.id)
 }
 
-export type MailKind = 'reply' | 'thanks' | 'assessment' | 'money' | 'other'
+export type MailKind = 'reply' | 'thanks' | 'assessment' | 'money' | 'delivery' | 'other'
 
 export const MAIL_GROUP_LABEL: Record<MailKind, string> = {
   reply: 'To reply',
   assessment: 'Assessments',
   thanks: 'Thanks',
   money: 'Money',
+  delivery: 'Deliveries',
   other: 'More',
 }
 
-const MAIL_GROUP_ORDER: MailKind[] = ['reply', 'assessment', 'thanks', 'money', 'other']
+const MAIL_GROUP_ORDER: MailKind[] = ['reply', 'assessment', 'thanks', 'money', 'delivery', 'other']
 
 /** Already singular, or uncountable, despite the trailing s. */
 const KEEP_PLURAL = new Set(['thanks', 'news', 'sales', 'logistics', 'expenses'])
@@ -290,6 +291,15 @@ export function classifyBriefMail(m: { from: string; subject: string; snippet?: 
   if (/\b(thank you|thanks|thx|appreciate it|grateful)\b/.test(hay) && !/[?]/.test(hay) && !/\b(can you|could you|let me know|please reply)\b/.test(hay)) {
     return 'thanks'
   }
+  // Delivery notices are low-risk: nobody needs a reply, but a delay or an
+  // out-for-delivery note is exactly the thing Alpha can surface once, on its
+  // own, without a decision. Kept narrow (carrier + shipping word, or the
+  // "out for delivery" phrase) so a person writing "delayed reply" is not
+  // filed as a parcel.
+  const deliveryCarrier = /\b(?:fedex|ups|usps|dhl|ontrac|lasership|royal mail|canada post|dpd|evri)\b/.test(hay)
+  const deliveryWords =
+    /\b(?:package|parcel|shipment|out for delivery|delivery (?:update|date|attempt|window)|tracking (?:number|info|link)|shipped|arriving (?:today|tomorrow|by)|delayed|delay)\b/.test(hay)
+  if (/\bout for delivery\b/.test(hay) || (deliveryCarrier && deliveryWords)) return 'delivery'
   if (
     /\bnew message from\b/.test(hay) ||
     /[?]/.test(hay) ||
@@ -319,6 +329,7 @@ export function groupBriefMail(
     assessment: [],
     thanks: [],
     money: [],
+    delivery: [],
     other: [],
   }
   for (const m of items) {
@@ -403,7 +414,7 @@ export function mailTally(groups: Array<{ kind: string; count: number; label?: s
  * The score decides which three mails lead the brief; the reasons are shown
  * as chips so the ranking never feels arbitrary.
  */
-export type MailScoreReason = 'waiting_on_you' | 'deadline' | 'vip_sender' | 'money'
+export type MailScoreReason = 'waiting_on_you' | 'deadline' | 'vip_sender' | 'money' | 'delivery'
 
 /** Per-sender history from hire_mail_feedback, resolved by the caller. */
 export type SenderSignal = {
@@ -501,16 +512,23 @@ export function scoreMail(
 ): { score: number; reasons: MailScoreReason[] } {
   const isAutomated = AUTOMATED_NOISE_RE.test(m.from || '')
   const isPromoOrStatus = PROMO_OR_STATUS_RE.test(`${m.subject || ''} ${m.snippet || ''}`)
+  // Carriers send from no-reply addresses; the delivery kind is how a notice
+  // escapes the automated-noise cull. It was classified 'other' before, got
+  // the -30, and a package delay was never surfaced at all.
+  const isDelivery = m.kind === 'delivery'
 
   let score = 40
   const reasons: MailScoreReason[] = []
 
-  if (isAutomated || isPromoOrStatus) {
+  if ((isAutomated || isPromoOrStatus) && !isDelivery) {
     score -= 30
     return { score: Math.max(0, Math.min(100, score)), reasons }
   }
 
-  if (m.kind === 'reply' || mailWaitingOnYou(m)) {
+  if (isDelivery) {
+    score += 30
+    reasons.push('delivery')
+  } else if (m.kind === 'reply' || mailWaitingOnYou(m)) {
     score += 25
     reasons.push('waiting_on_you')
   } else if (m.kind === 'money') {

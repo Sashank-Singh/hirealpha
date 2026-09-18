@@ -11,13 +11,17 @@ import {
   autoLogNutrition, autoLogWorkout, autoLogSleep, autoLogGratitude, autoLogMood,
   autoLogHabit, autoLogSpend, autoLogDecision, autoLogLoops, autoSaveLearning,
   autoRunWorkshop, autoIterateWorkshop, autoWorkshopKeep,
-  executeSpendApproval, fetchLiveTools, fetchMiniRun, fetchPrepBundle, proposeBrowserTask, proposeLiveDraft, proposePurchase, manageTodos, scheduleTextLater, type LiveProfile,
+  executeSpendApproval, fetchLiveTools, fetchMiniRun, fetchPrepBundle, proposeBrowserTask, proposeLiveDraft, proposePurchase, manageTodos, scheduleTextLater, suggestCalendarSlots, type LiveProfile,
 } from './liveContext'
 import { buildDigestBriefing, mintMiniAppCard, type MiniAppCard, type MiniAppKind } from './miniApps'
 import { createReminder, listReminders } from './reminders'
 import { setProactiveMode } from './judgment'
-import { LIVE_TOOLS, runToolConversation, type CapabilityResult, type ConversationCapability } from './toolLoop'
+import {
+  calendarBlockTitle, calendarBlockWhen, LIVE_TOOLS, looksLikeCalendarBlockAsk, missingConnectorNote,
+  runToolConversation, WORK_LIVE_TOOLS, type CapabilityResult, type ConversationCapability,
+} from './toolLoop'
 import { isAffirmativeApprovalIntent, isCasualChitChat, isNegativeCancellationIntent } from './conversationalApproval'
+import { cityConflictReply, type CityConflict } from './cityConflict'
 
 const PERSONA_READ_APPS: Record<AgentId, readonly string[]> = {
   friend: ['home', 'nutrition', 'sleep_tracker', 'workout_log', 'spending_snapshot', 'habit_streak', 'networking_crm', 'open_loops', 'learning_queue', 'weekly_review'],
@@ -88,6 +92,91 @@ export function removeQueuedBrowserContradictions(text: string): string {
     .trim()
 }
 
+/**
+ * Whether a staged browser run is an order (checkout with a card) or a booking.
+ * Only the receipt's wording depends on it: a hotel run was appended "stage
+ * your order ... proceeding through checkout with your saved shipping address"
+ * because the model's goal sentence happened to contain "order".
+ */
+export function browserRunIsPurchase(userText: string, goal?: string): boolean {
+  const buy = /\b(?:buy|buying|purchase|purchasing|re-?order|order(?:ing)?|check ?out|cart|basket)\b/i
+  const booking = /\b(?:book|booking|reserve|reservation|hotel|hostel|motel|airbnb|flight|airline|fare|stay|check ?in)\b/i
+  return buy.test(userText) || (buy.test(goal || '') && !booking.test(userText))
+}
+
+/**
+ * The engine's own calendar write for a "block this time" ask, when the model
+ * answered with prose and staged nothing. Reads the real free slots first, then
+ * drafts the event on the first verified gap — a draft, not a booking: the
+ * pick-slot card's Book tap is the only thing that writes. Returns null when
+ * the ask is not a calendar write, so the caller keeps the model's answer.
+ * Exported for tests: everything external arrives through the two injectors.
+ */
+export async function stageCalendarBlock(deps: {
+  ask: string
+  timezone: string
+  connected: readonly string[]
+  /** The model's own answer this turn. Used only when the calendar read is
+   * unavailable: an answer that claims a calendar state must not stand. */
+  modelReply?: string
+  suggest: (opts: { day?: string; partOfDay?: string; durationMin: number; limit: number }) => Promise<{ slots: Array<{ start: string; end: string; label: string }>; connect: boolean; unavailable?: boolean }>
+  propose: (draft: { kind: 'event'; title: string; start: string; end: string }) => Promise<{ ok: boolean; id?: string; error?: string }>
+}): Promise<{ reply: string; draftId?: string } | null> {
+  if (!looksLikeCalendarBlockAsk(deps.ask)) return null
+  const when = calendarBlockWhen(deps.ask, deps.timezone)
+  const suggested = await deps.suggest({
+    day: when.day || undefined,
+    partOfDay: when.partOfDay || undefined,
+    durationMin: when.durationMin,
+    limit: 3,
+  })
+  const gapNote = missingConnectorNote(deps.ask, deps.connected)
+  const withNote = (text: string) => (gapNote ? `${text}\n\n${gapNote}` : text)
+  /* The free-slot read did not answer. Never dress that up as a checked
+   * calendar, and never leave a model line claiming the block "partly went
+   * through" standing: say which part failed. */
+  if (suggested.unavailable) {
+    const claimsCalendar = /\b(?:calendar|block|event|book(?:ed|ing)?|schedul(?:e|ed|ing))\b/i.test(deps.modelReply || '')
+    if (!claimsCalendar) return null
+    return {
+      reply: withNote(
+        `I could not read your calendar just now, so I did not place the ${calendarBlockTitle(deps.ask)} block — nothing is on your calendar from me. Ask me again in a moment and I will put it on the first free ${when.durationMin} minutes.`,
+      ),
+    }
+  }
+  const first = suggested.slots[0]
+  if (first) {
+    const title = calendarBlockTitle(deps.ask)
+    const proposed = await deps.propose({ kind: 'event', title, start: first.start, end: first.end })
+    if (proposed.ok && proposed.id) {
+      const others = suggested.slots.slice(1).map((slot) => slot.label)
+      return {
+        reply: withNote(
+          `${title} — ${first.label} is a real free ${when.durationMin}-minute gap on your calendar. Tap Book on the card to lock it in.` +
+            (others.length ? ` Other free times: ${others.join(', ')}.` : ''),
+        ),
+        draftId: proposed.id,
+      }
+    }
+    // The calendar read was real even when the draft could not be saved: say
+    // what is free and that nothing was booked, never leave it implied.
+    return {
+      reply: withNote(
+        `Your ${when.durationMin}-minute gap for ${title}: ${first.label}${suggested.slots.length > 1 ? ` or ${suggested.slots[1]!.label}` : ''}. I could not stage the event just now, so nothing is booked — say which time and I will draft it again.`,
+      ),
+    }
+  }
+  if (suggested.connect) {
+    return { reply: withNote('Calendar is not connected, so I could not read free time — nothing was booked. Connect Calendar and I will place the block.') }
+  }
+  const whenLabel = when.day ? `${when.day}${when.partOfDay ? ` ${when.partOfDay}` : ''}` : when.partOfDay || 'the next few days'
+  return {
+    reply: withNote(
+      `I checked your calendar and found no free ${when.durationMin}-minute gap for ${whenLabel}. Nothing was booked — tell me a window that works and I will place it.`,
+    ),
+  }
+}
+
 /** Conversational agent turn engine: the model sees the conversation before choosing any
  * capability. No topic detector can log data, open a card, or replace the ask. */
 export async function runConversationalFriend(input: {
@@ -100,6 +189,9 @@ export async function runConversationalFriend(input: {
   inboundNote?: string
   delivery?: DeliveryHooks
   agentId?: AgentId
+  /** Deterministic trip-city conflict from runHireTurn; when set, the turn
+   * confirms the city before any lookup or booking. */
+  cityConflict?: CityConflict | null
 }) {
   const { live, memory, senderId, dataDir } = input
   const persona: AgentId = input.agentId || 'friend'
@@ -182,6 +274,19 @@ export async function runConversationalFriend(input: {
       return { reply, bubbles: [reply], source: 'local' as const, authoritative: [], card: retryCard }
     }
   }
+  /* City conflict: a place ask that contradicts the trip already planned in
+   * this thread. Confirmed deterministically before the engine runs, answered
+   * here without tools — no search, no booking, and not another instruction a
+   * flaky model turn can drop. See cityConflict.ts. */
+  if (input.cityConflict) {
+    const reply = cityConflictReply(input.cityConflict)
+    appendThread(dataDir, senderId, [
+      { role: 'user', content: input.userText },
+      { role: 'assistant', content: reply },
+    ])
+    return { reply, bubbles: [reply], source: 'local' as const, authoritative: [], card: null }
+  }
+
   const returning = !!(memory.history.length || memory.summary || live.lastInboundAt)
   const context = {
     now: formatNowForAgent(timezone), name: live.name, timezone, connected: live.connected,
@@ -284,19 +389,35 @@ export async function runConversationalFriend(input: {
     console.warn(`[${persona}] fast-path gate missed a "${gateIntent.kind}" turn; running the tool engine on the classifier's answer`)
   }
   const readApps = PERSONA_READ_APPS[persona] || PERSONA_READ_APPS.friend
-  const available = LIVE_TOOLS.filter((tool) => tool === 'web' || tool === 'maps' || tool === 'weather' || live.connected.includes(tool) || (senderId === '+12163032166' && (tool === 'gmail' || tool === 'calendar')))
+  /* Connected work connectors are readable in a friend turn too. They used to
+   * be filtered out entirely, so a user who had connected Notion or Slack was
+   * told the tool was unavailable by a friend that could not even see it — the
+   * exact gap the Integrations dimension scores. Reads only: writes to those
+   * services still have no code path anywhere in the product. */
+  const available = [
+    ...LIVE_TOOLS.filter((tool) => tool === 'web' || tool === 'maps' || tool === 'weather' || live.connected.includes(tool) || (senderId === '+12163032166' && (tool === 'gmail' || tool === 'calendar'))),
+    ...WORK_LIVE_TOOLS.filter((tool) => live.connected.includes(tool)),
+  ]
   const capabilities: ConversationCapability[] = [
     {
       name: 'connect',
-      description: 'input {connector:"gmail"|"calendar"|"drive", request:"the original user task to resume"}. Give the actual setup link when a necessary connector is missing. Save the task for the next message. This does not connect an account or authorize access by itself.',
+      description: 'input {connector:"gmail"|"calendar"|"drive", readOnly:true|false, request:"the original user task to resume"}. Give the actual setup link when a necessary connector is missing. Set readOnly:true when the user wants read access without send/write rights (Gmail read, Calendar read, Drive read) — say plainly that the read-only grant cannot send mail or add events, and that a full grant is their choice. Save the task for the next message. This does not connect an account or authorize access by itself.',
       mutates: true,
       execute: async (args) => {
         const connector = text(args, 'connector')
-        if (!CONNECTORS.includes(connector as typeof CONNECTORS[number])) return failed('That connector is not supported by this conversation path.')
+        if (!CONNECTORS.includes(connector as typeof CONNECTORS[number])) return failed('That connector is not supported by this conversation path. For any connector outside Gmail, Calendar and Drive there is no scope choice on our side — the provider\'s own consent screen decides the access it grants, so say plainly that a read-only version cannot be offered for it and that connecting is all-or-nothing there.')
         if (live.connected.includes(connector)) return { status: 'returned', message: `${connector} is already connected. Use its lookup tool.` }
         const request = text(args, 'request') || input.userText
         setPendingConnection(dataDir, senderId, { connector, request, createdAt: Date.now() })
-        return { status: 'done', message: `Connect ${connector} here: https://hirealpha.chat/app?connect=${connector}. Your request is saved; text me after connecting so I can pick it up.`, data: { request, connected: false } }
+        const readOnly = args.readOnly === true || String(args.readOnly || '').toLowerCase() === 'true'
+        const link = `https://hirealpha.chat/app?connect=${connector}${readOnly ? '&readonly=1' : ''}`
+        return {
+          status: 'done',
+          message: readOnly
+            ? `Read-only connect link for ${connector}: ${link} — it grants read access only, so Alpha can look things up but cannot send mail, save drafts, or add calendar events. Your request is saved; text me after connecting so I can pick it up.`
+            : `Connect ${connector} here: ${link}. That grant is read + write (it can send mail and add events). If you would rather keep it read-only, use ${link}&readonly=1 instead. Your request is saved; text me after connecting so I can pick it up.`,
+          data: { request, connected: false, readOnly },
+        }
       },
     },
     {
@@ -314,13 +435,13 @@ export async function runConversationalFriend(input: {
       },
     },
     {
-      name: 'reminder', description: 'input {text:"what to remind them about",at:"future ISO datetime including timezone offset",recurrence:"once"|"daily"|"weekly"}. Create a real scheduled text. Resolve "same time tomorrow" from the thread. Ask only if the time or task is missing. This schedules a notification, not arbitrary future tool execution; do not use it to pretend to monitor prices, send emails later, or support weekday-only schedules.', mutates: true,
+      name: 'reminder', description: 'input {text:"what to remind them about",at:"future ISO datetime including timezone offset",recurrence:"once"|"daily"|"weekdays"|"weekly"}. Create a real scheduled text. Resolve "same time tomorrow" from the thread. Weekday-only (Monday-Friday) schedules use recurrence "weekdays"; a recurring morning digest is recurrence "weekdays" or "daily". Ask only if the time or task is missing. This schedules a notification, not arbitrary future tool execution; do not use it to pretend to monitor prices or send emails later.', mutates: true,
       execute: async (args) => {
         const label = text(args, 'text', 500)
         const at = text(args, 'at', 50)
         const recurrence = text(args, 'recurrence') || 'once'
         const when = new Date(at)
-        if (!label || !/T.*(?:Z|[+-]\d{2}:\d{2})$/.test(at) || !Number.isFinite(when.getTime()) || when.getTime() <= Date.now() || !['once', 'daily', 'weekly'].includes(recurrence)) return failed('Use a future ISO datetime with timezone offset, a reminder text, and once/daily/weekly recurrence. Ask for missing details instead of guessing.')
+        if (!label || !/T.*(?:Z|[+-]\d{2}:\d{2})$/.test(at) || !Number.isFinite(when.getTime()) || when.getTime() <= Date.now() || !['once', 'daily', 'weekdays', 'weekly'].includes(recurrence)) return failed('Use a future ISO datetime with timezone offset, a reminder text, and once/daily/weekdays/weekly recurrence. Ask for missing details instead of guessing.')
         const ok = await createReminder({ phone: senderId, persona: 'friend', text: label, scheduledAt: when.toISOString(), recurrence, timezone })
         return ok ? { status: 'done', message: `Reminder saved for ${when.toLocaleString('en-US', { timeZone: timezone })} (${timezone}), ${recurrence}: ${label}.`, data: { at: when.toISOString(), recurrence } } : failed('The reminder could not be saved. No reminder is confirmed.')
       },
@@ -328,6 +449,28 @@ export async function runConversationalFriend(input: {
     {
       name: 'list_reminders', description: 'input {}. Read scheduled reminders before referring to, changing, or explaining them.',
       execute: async () => ({ status: 'returned', message: 'Reminder listing returned.', data: await listReminders(senderId, 'friend') }),
+    },
+    {
+      name: 'free_slots', description: 'input {durationMin:30,day:"YYYY-MM-DD or empty",partOfDay:"morning"|"afternoon"|"evening"|empty,windowDays:3}. Read the user\'s REAL free calendar slots before offering any time to anyone (offering two slots in a reply, proposing a meeting) or before drafting a calendar block. Returns verified labels and ISO start/end. Offer only times this returned; if it returns none, say the window is full instead of inventing a time.',
+      execute: async (args) => {
+        const duration = Number(args.durationMin)
+        const durationMin = Number.isFinite(duration) && duration >= 15 ? Math.min(240, Math.round(duration)) : 30
+        const result = await suggestCalendarSlots(senderId, persona, {
+          day: text(args, 'day', 10),
+          partOfDay: text(args, 'partOfDay', 12),
+          durationMin,
+          windowDays: Number(args.windowDays) > 0 ? Number(args.windowDays) : 3,
+          limit: 5,
+        })
+        if (result.unavailable) return failed('The calendar read did not answer, so no free time could be verified. Do not offer or book any time; say the calendar check did not go through and offer to retry.')
+        if (result.connect) return failed('Calendar is not connected, so no free time could be read. Do not offer or book any time; say the calendar has to be connected first.')
+        if (!result.slots.length) return { status: 'returned', message: `The calendar is connected and has no free ${durationMin}-minute slot in that window. Do not offer a time in it.`, data: [] }
+        return {
+          status: 'returned',
+          message: `Verified free slots from the real calendar: ${result.slots.map((slot) => `${slot.label} (${slot.start} to ${slot.end})`).join('; ')}. Offer only these times.`,
+          data: result.slots,
+        }
+      },
     },
     {
       name: 'todo', description: 'input {action:"add"|"list"|"complete",text?}. Maintain the user\'s shared to-do list. "add X to my to-do" adds; "what is on my list" lists open items; "I did X"/"done with X" completes by matching X to an open item. Never invent that a change succeeded when this returns an error.', mutates: true,
@@ -573,8 +716,7 @@ You are an intelligent, proactive executive partner in iMessage.
     3. Every email the lookup returned must appear exactly once: listed, or counted in the closing line. Never silently drop one, and never pad the list to look complete. If the cap cut the read short, say so.
     4. Never answer without listing the emails.
   - Memory Directives (Benchmark Dim 10):
-    1. When the user gives a permanent rule (e.g. "Remember for good: I always want an aisle seat; no pork"):
-       Acknowledge immediately ("Saved for good — aisle seats on all flights and strictly no pork anywhere we eat or order.") and persist it to memory facts.
+    1. When the user gives a permanent rule or preference — a seat or diet preference, or a standing instruction such as "never send an email or spend money without asking me first" — persist it with the remember capability and acknowledge in one short line that names ONLY what they actually said. Never confirm a preference they did not state in this conversation; a sample sentence in these instructions is a format example, not something the user said.
   - Routine Scheduling & Timers (Benchmark Dim 7 & Task 20):
     1. When the user asks for a weekday 7:00 AM digest: confirm that their weekday 7:00 AM morning briefing is set and will deliver their calendar, owed replies, and weather. Never refuse or claim inability to schedule digests.
     2. When delivering a timed reminder, make it punchy and direct (e.g. "Lasagna! Take it out of the oven.").
@@ -644,7 +786,7 @@ ${JSON.stringify(context)}` },
           }
           browserQueued = true
           browserSessionUrl = queued.sessionUrl || `https://hirealpha.chat/computer/${queued.id || ''}`
-          browserIsPurchase = /\b(?:buy|order|purchase|reorder|checkout|cart)\b/i.test(input.userText) || /\b(?:buy|order|purchase|reorder|checkout|cart)\b/i.test(draft.goal || '')
+          browserIsPurchase = browserRunIsPurchase(input.userText, draft.goal)
         }
         return queued
       }
@@ -665,6 +807,28 @@ ${JSON.stringify(context)}` },
   }
   if (outcome.draft && outcome.draft.type !== 'purchase' && outcome.draft.type !== 'browser') {
     card = await mintMiniAppCard(senderId, persona, outcome.draft.type === 'event' ? 'pick_slot' : 'approve_send', { draft: outcome.draft.id })
+  }
+
+  /* Deterministic calendar block. "Put a 30-minute block on my calendar
+   * Thursday afternoon" is a write the model reliably answers with prose —
+   * "the calendar block only made it partway through" arrived with nothing
+   * staged at all. The engine owns it instead: read the user's real free slots
+   * for the named day (server-side freeBusy, the same source the pick-slot card
+   * uses) and draft the event onto the first genuinely free gap. The card's
+   * Book tap is still the only thing that writes to the calendar. */
+  if (!outcome.draft && !card) {
+    const staged = await stageCalendarBlock({
+      ask: input.userText,
+      timezone,
+      connected: live.connected,
+      modelReply: outcome.reply,
+      suggest: (opts) => suggestCalendarSlots(senderId, persona, opts),
+      propose: (draft) => proposeLiveDraft(senderId, persona, draft),
+    })
+    if (staged) {
+      outcome.reply = staged.reply
+      if (staged.draftId) card = await mintMiniAppCard(senderId, persona, 'pick_slot', { draft: staged.draftId })
+    }
   }
 
   // Pillar 2 & 3: Orbit Reachability & Zero-Spam Cooldown

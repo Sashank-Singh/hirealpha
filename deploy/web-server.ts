@@ -634,7 +634,7 @@ await loadManifest()
 if (sql) {
   const { upgradePromoSubscriptions, armTrialEndingLoops, prewarmJudgeCaches,
     armBirthdayReminders, armStreakEndedLoops, armOverworkCheckLoops, armQuietCheckLoops, armSaveContactLoops, armInboxWatchtower,
-    armCalendarDefense } = await import('./hire-api')
+    armCalendarDefense, armFlightCheckins } = await import('./hire-api')
   setInterval(() => upgradePromoSubscriptions(sql!), 24 * 60 * 60 * 1000)
   // Run once on boot to catch any overdue upgrades
   upgradePromoSubscriptions(sql).catch((e) => console.error('[billing] initial promo check failed', e))
@@ -674,6 +674,11 @@ if (sql) {
   // never scheduled; without this it never armed for anyone.
   setInterval(() => armCalendarDefense(sql!).catch((e) => console.error('[loops] calendar defense arm failed', e)), 24 * 60 * 60 * 1000)
   armCalendarDefense(sql).catch((e) => console.error('[loops] initial calendar defense arm failed', e))
+  // Flight check-in (dimension 6): scan a week of calendar for a flight and
+  // arm the check-in ping at departure-24h. Every six hours so a flight added
+  // after the daily pass still gets its ping the same day.
+  setInterval(() => armFlightCheckins(sql!).catch((e) => console.error('[loops] flight check-in arm failed', e)), sixHours)
+  armFlightCheckins(sql).catch((e) => console.error('[loops] initial flight check-in arm failed', e))
 
   // Capability-grant expiry: pending/approved grants past expires_at flip to
   // 'expired' so a stale approval can never be consumed later. Every 5 min.

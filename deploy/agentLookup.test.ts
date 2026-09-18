@@ -65,3 +65,74 @@ describe('agent-directed lookups', () => {
     expect(calls).toBe(0)
   })
 })
+
+describe('a zero-match Gmail search is not backfilled with unrelated mail', () => {
+  const gmailSql = (async () => [{ access_token: 'test-token', scopes: 'https://www.googleapis.com/auth/gmail.readonly', expires_at: new Date(Date.now() + 3600000) }]) as never
+
+  it('relaxes "from:sam Thursday" to the sender and labels the rows', async () => {
+    const queries: string[] = []
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const url = new URL(String(input))
+      const q = url.searchParams.get('q') || ''
+      queries.push(q)
+      if (url.pathname.endsWith('/messages')) {
+        return Response.json(q === 'from:sam' ? { messages: [{ id: 'sam-1' }] } : { messages: [] })
+      }
+      return Response.json({
+        snippet: 'Can we do Thursday at 2?',
+        payload: { headers: [{ name: 'From', value: 'Sam Rivera <sam@acme.co>' }, { name: 'Subject', value: 'Thursday sync' }] },
+      })
+    }) as typeof fetch
+    const result = await runToolsForMessage(gmailSql, {
+      userId: 'test',
+      persona: 'friend',
+      connected: ['gmail'],
+      want: 'gmail',
+      message: 'from:sam Thursday',
+    })
+    const text = result.join('\n')
+    expect(queries).toContain('from:sam Thursday')
+    expect(queries).toContain('from:sam')
+    expect(text).toContain('No email matched "from:sam Thursday"')
+    expect(text).toContain('id=sam-1')
+    expect(text).toContain('Sam Rivera')
+  })
+
+  it('says plainly when nothing matches and there is no operator to relax to', async () => {
+    globalThis.fetch = (async () => Response.json({ messages: [] })) as typeof fetch
+    const result = await runToolsForMessage(gmailSql, {
+      userId: 'test',
+      persona: 'friend',
+      connected: ['gmail'],
+      want: 'gmail',
+      message: 'from:no-such-person@example.com',
+    })
+    const text = result.join('\n')
+    expect(text).toContain('No email matched')
+    expect(text).toContain('real zero-match result')
+    expect(text).not.toContain('newer_than:7d')
+  })
+
+  it('still fills in the recent window when the read itself failed', async () => {
+    let listCalls = 0
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const url = new URL(String(input))
+      if (url.pathname.endsWith('/messages')) {
+        listCalls++
+        if ((url.searchParams.get('q') || '').includes('from:sam')) return new Response('boom', { status: 500 })
+        return Response.json({ messages: [{ id: 'recent-1' }] })
+      }
+      return Response.json({ snippet: 'recent', payload: { headers: [{ name: 'From', value: 'news@example.com' }, { name: 'Subject', value: 'Weekly' }] } })
+    }) as typeof fetch
+    const result = await runToolsForMessage(gmailSql, {
+      userId: 'test',
+      persona: 'friend',
+      connected: ['gmail'],
+      want: 'gmail',
+      message: 'from:sam Thursday',
+    })
+    const text = result.join('\n')
+    expect(listCalls).toBeGreaterThan(1)
+    expect(text).toContain('id=recent-1')
+  })
+})

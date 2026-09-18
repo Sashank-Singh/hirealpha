@@ -6,8 +6,10 @@ import {
   fetchMapSearch,
   formatMapResults,
   geocodeMapArea,
+  hotelConstraintsFromAsk,
   mapAreaCandidates,
   mapAreaFromQuery,
+  mapPlaceWords,
   PLACE_ASK_RE,
   geocodeRowUsableForTest,
 } from './hire-api'
@@ -401,5 +403,35 @@ describe('constraint-heavy place asks', () => {
     // buffet review.
     expect(mapAreaCandidates('vegetarian-friendly independent restaurants near the Loop, Chicago, open for dinner Saturday, walking distance from downtown hotels')[0]).toBe('loop chicago')
     expect(mapAreaCandidates('vegetarian friendly independent restaurants near the Loop, Chicago')[0]).toBe('loop chicago')
+  })
+})
+
+describe('hotel ask constraints', () => {
+  /* The scored hotel task states a ceiling, an area and free cancellation in
+   * one sentence, and the first search ignored all three: the city string sent
+   * to the rate source was the whole sentence, and neither constraint was read
+   * anywhere. */
+  const ask =
+    'Book a hotel stay in Chicago, Friday to Saturday next week, under $250/night, near the Loop, with free cancellation.'
+
+  it('reads the nightly ceiling, the cancellation rule and the area out of the ask', () => {
+    expect(hotelConstraintsFromAsk(ask)).toEqual({ maxPricePerNight: 250, freeCancellation: true, maxDistanceKm: 5 })
+    expect(mapPlaceWords(mapAreaCandidates(ask)[0]!)).toBe('chicago loop')
+  })
+
+  it('reads a budget written without a dollar sign', () => {
+    expect(hotelConstraintsFromAsk('hotels in Chicago Loop for 2026-09-25 to 2026-09-26 under 250 free cancellation')).toEqual({
+      maxPricePerNight: 250,
+      freeCancellation: true,
+      maxDistanceKm: null,
+    })
+  })
+
+  it('leaves the constraints unset when the ask stated none', () => {
+    expect(hotelConstraintsFromAsk('hotel in Chicago 2026-09-25 to 2026-09-26')).toEqual({
+      maxPricePerNight: null,
+      freeCancellation: false,
+      maxDistanceKm: null,
+    })
   })
 })

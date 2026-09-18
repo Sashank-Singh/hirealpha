@@ -61,9 +61,11 @@ export type ConversationCapability = {
  * lookup, not a checkout; treating it as one pointed a real run at a search
  * result directory and burned a session on the wrong site. Bare "buy" and
  * "get me" are excluded so "what should I buy" and "get me the score" stay
- * lookups. */
+ * lookups. "Check in for/on <a flight or booking>" is an action: the scored
+ * chained task is exactly that ask, and without it the engine refused the run
+ * before any system was tried. "Check in with/at" is social, not an action. */
 export const ACTION_ASK_RE =
-  /\b(?:re-?order|order(?:ing| me)?|purchase|pay for|buy (?:me|the|this|that|it|them|two|a|an|another|more|some)\b|book(?:ing)?|reserv(?:e|ing|ation)|fill (?:out )?(?:the )?form|sign me up|check ?out|check (?:my |in )?(?:account|portal|campusnet|csuohio|balance|tuition|statement|grades?|financial aid|charges?|bill)|log ?in|sign ?in|(?:check|see|show|get|find|pull|tell me)(?:\s+me)?\s+(?:the\s+)?(?:actual\s+)?(?:rates?|prices?|availability|how much)|what(?:'s| is| are)\s+(?:the\s+)?(?:rates?|prices?|it\s+cost)|how much (?:is|are|does|do|did|was|were|I|we|have I|paid|to pay|owe|due)|how much (?:did I|I) (?:pay|paid|spend|spent)|paid in|nightly rate)\b/i
+  /\b(?:re-?order|order(?:ing| me)?|purchase|pay for|buy (?:me|the|this|that|it|them|two|a|an|another|more|some)\b|book(?:ing)?|reserv(?:e|ing|ation)|fill (?:out )?(?:the )?form|sign me up|check ?out|check ?in\s+(?:for|on)\b|check (?:my |in )?(?:account|portal|campusnet|csuohio|balance|tuition|statement|grades?|financial aid|charges?|bill)|log ?in|sign ?in|(?:check|see|show|get|find|pull|tell me)(?:\s+me)?\s+(?:the\s+)?(?:actual\s+)?(?:rates?|prices?|availability|how much)|what(?:'s| is| are)\s+(?:the\s+)?(?:rates?|prices?|it\s+cost)|how much (?:is|are|does|do|did|was|were|I|we|have I|paid|to pay|owe|due)|how much (?:did I|I) (?:pay|paid|spend|spent)|paid in|nightly rate)\b/i
 /** Buying asks, including "reorder", stage an order rather than a browse. */
 const ASK_BUY_RE = /\b(?:re-?order|buy|buy me|purchase|order(?: me)?|get me|pay for)\b/i
 /** Merchant-hosted product pages, the strongest run target for a purchase. */
@@ -262,12 +264,20 @@ export async function runToolConversation(input: {
    * facts depend on it and the turn still has to write them. A first failure
    * gets exactly one retry while the wall allows it — "the web lookup did not
    * run" reached users on a single transient abort (bench50 #18), and one
-   * clean retry almost always lands. */  const fetchLookupOnce = async (tool: LiveTool, query: string) => {
+   * clean retry almost always lands.
+   *
+   * A dated hotel/fare lookup is the exception: it is a live provider search
+   * that measures 20-50s (trvl merges six sources), and the 12-15s ceiling cut
+   * it off on every turn — the real rates existed and the reply still fell
+   * back to a listicle. Travel lookups get their own, larger budget. */
+  const travelLookup = /\b(?:hotels?|hostels?|motels?|lodging|room rates?|flights?|airline|tickets?|fares?|airfare|round ?trip|nonstop)\b/i
+  const fetchLookupOnce = async (tool: LiveTool, query: string) => {
     let timer: ReturnType<typeof setTimeout> | undefined
+    const budget = travelLookup.test(query) ? 55_000 : tool === 'maps' ? 12_000 : 15_000
     try {
       return await Promise.race([
         input.lookup(tool, query),
-        new Promise<string[]>((_, reject) => { timer = setTimeout(() => reject(new Error('Lookup deadline')), Math.max(1, Math.min(tool === 'maps' ? 12_000 : 15_000, deadline - Date.now()))) }),
+        new Promise<string[]>((_, reject) => { timer = setTimeout(() => reject(new Error('Lookup deadline')), Math.max(1, Math.min(budget, deadline - Date.now()))) }),
       ])
     } finally { clearTimeout(timer) }
   }
@@ -354,7 +364,7 @@ export async function runToolConversation(input: {
 Tools available: ${input.availableTools.join(', ') || 'none'}. web, maps and weather need no connection; the rest need theirs. weather answers conditions and forecasts with live numbers — never answer a weather ask from climate averages.
 - web/maps: ALWAYS web-lookup anything time-sensitive (news, prices, scores, releases, availability, "how much", "who won"). maps answers where; it says nothing about quality, price, or hours.
 - Restaurant or place picks: the maps results are the source of truth for what exists and where. Name the places the user asked for (three when they want options), each with its address and any walk time or diet tag the result carries. State menus, prices, or hours only when a result carries them; a listing without them is not evidence.
-- gmail uses real operators (from:, subject:, older_than:); drive takes a filename and returns filenames only, not contents; calendar needs "start=<ISO> end=<ISO>" with real dates and the user's offset, max 31 days; slack/linear/github/notion/stripe/hubspot return the fields named in their tool description — state only what you were given, never compute or invent.
+- gmail uses real operators (from:, subject:, older_than:); a single message's full text comes back when the query is exactly "id=<the id= value from a mail result>" — read that message before replying to it, never reply from a snippet alone. A search that matched nothing is a real answer: say no mail matches, never present other mail as the match. drive takes a filename and returns filenames only, not contents; calendar needs "start=<ISO> end=<ISO>" with real dates and the user's offset, max 31 days; slack/linear/github/notion/stripe/hubspot return the fields named in their tool description — state only what you were given, never compute or invent.
 
 Guessing is worse than saying you don't know. Never invent prices, ratings, hours, availability, or results.
 
@@ -996,6 +1006,117 @@ export function looksLikeEventWrite(text: string) {
     /\bon (?:my )?calendar\b/i.test(t) ||
     /\bbook (?:me |a )?(?:slot|time|meeting|call)\b/i.test(t)
   )
+}
+
+const WEEKDAYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'] as const
+
+/** The local date (YYYY-MM-DD in `timezone`) of the next named weekday, today
+ * included. "Thursday" said on a Thursday means today; when today's window has
+ * already gone the free-gap walk returns nothing and the reply says so. */
+export function localWeekdayYmd(now: number, timezone: string, named: string): string | null {
+  const want = WEEKDAYS.findIndex((d) => named.toLowerCase().startsWith(d))
+  if (want < 0) return null
+  for (let i = 0; i < 8; i++) {
+    const probe = new Date(now + i * 24 * 60 * 60 * 1000)
+    const ymd = new Intl.DateTimeFormat('en-CA', {
+      timeZone: timezone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(probe)
+    const weekday = new Intl.DateTimeFormat('en-US', { timeZone: timezone, weekday: 'short' })
+      .format(probe)
+      .toLowerCase()
+      .slice(0, 3)
+    if (weekday === WEEKDAYS[want] && ymd) return ymd
+  }
+  return null
+}
+
+/**
+ * An ask that reserves time on the user's own calendar. Deliberately narrower
+ * than looksLikeEventWrite: a mail ask that mentions scheduling a reply is not
+ * this, and neither is "what's on my calendar". The engine drafts the event
+ * itself for this shape, so the gate decides whether a write happens at all.
+ */
+export function looksLikeCalendarBlockAsk(text: string): boolean {
+  const t = String(text || '')
+  if (!looksLikeEventWrite(t)) return false
+  if (/\b(?:reply|email|e-?mail|inbox|draft|send)\b/i.test(t)) return false
+  if (/\b(?:what|which|when|where|how|do i have|any)\b[^.?!]{0,24}\b(?:calendar|agenda|schedule|events?|meetings?)\b/i.test(t)) return false
+  return /\b(?:block|slot|hold|time|session|focus|event)\b/i.test(t)
+}
+
+/** {day, partOfDay, durationMin} for a calendar-block ask, resolved from the
+ * words the user actually used. Unknown pieces stay empty so the caller can
+ * search a wider window instead of guessing a time. */
+export function calendarBlockWhen(
+  text: string,
+  timezone: string,
+  now = Date.now(),
+): { day: string; partOfDay: string; durationMin: number } {
+  const t = String(text || '')
+  const named = /\b(sunday|monday|tuesday|wednesday|thursday|friday|saturday)\b/i.exec(t)?.[1]
+  const explicitDate = /\b(\d{4}-\d{2}-\d{2})\b/.exec(t)?.[1]
+  const partOfDay = /\b(morning)\b/i.test(t)
+    ? 'morning'
+    : /\b(afternoon|midday|after lunch)\b/i.test(t)
+      ? 'afternoon'
+      : /\b(evening|tonight|after work|end of day|eod)\b/i.test(t)
+        ? 'evening'
+        : ''
+  const durationMin = (() => {
+    const m = /\b(\d{1,3})\s*(?:-|\s)?\s*(?:min(?:ute)?s?|m)\b/i.exec(t)
+    if (m) return Math.min(240, Math.max(15, Number(m[1])))
+    if (/\bhalf an hour\b/i.test(t)) return 30
+    if (/\ban hour\b|\b1\s*(?:-|\s)\s*hour\b/i.test(t)) return 60
+    return 30
+  })()
+  const day = explicitDate || (named ? localWeekdayYmd(now, timezone, named) || '' : '')
+  return { day: day || '', partOfDay, durationMin }
+}
+
+/** A short title for the calendar block, taken from the user's own words: a
+ * quoted phrase if they gave one, otherwise the clause before the scheduling
+ * verb. Never invents a topic. */
+export function calendarBlockTitle(text: string): string {
+  const t = String(text || '').replace(/\s+/g, ' ').trim()
+  const quoted = /["“'']([^"“”'']{2,60})["”'']/.exec(t)?.[1]
+  if (quoted) return quoted.trim()
+  const head = t.split(/\b(?:and|then|,)\b/i)[0] || t
+  const cleaned = head
+    .replace(/^\s*(?:please\s+)?(?:can you\s+|could you\s+|i need you to\s+)?/i, '')
+    .replace(/\b(?:add|put|create|book|schedule|hold|make|reserve|block|set up|set)\b/i, ' ')
+    .replace(/\b(?:\d{1,3}\s*(?:-|\s)?\s*(?:min(?:ute)?s?|m|hours?|hrs?)|half an hour|an hour)\b/gi, ' ')
+    .replace(/\b(?:a|an|the|my|on|to|for|in|at|of|this|next|afternoon|morning|evening|today|tomorrow|monday|tuesday|wednesday|thursday|friday|saturday|sunday|calendar|block|slot|hold|time|notion|tasks?|list)\b/gi, ' ')
+    .replace(/[^A-Za-z0-9&/'’ -]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+  const words = cleaned.split(' ').filter(Boolean).slice(0, 6).join(' ')
+  return words.length >= 2 ? words : 'Focus block'
+}
+
+/** Connectors the ask names that are not connected, as one honest line. The
+ * friend engine cannot see Notion or Slack until they are connected, and it
+ * must say that instead of narrating a partial success. */
+export function missingConnectorNote(text: string, connected: readonly string[]): string {
+  const t = String(text || '')
+  const named: Array<[string, RegExp]> = [
+    ['Notion', /\bnotion\b/i],
+    ['Slack', /\bslack\b/i],
+    ['Linear', /\blinear\b/i],
+    ['GitHub', /\bgithub\b/i],
+    ['Drive', /\bdrive\b/i],
+    ['Calendar', /\bcalendar\b/i],
+    ['Gmail', /\b(?:gmail|inbox)\b/i],
+  ]
+  const missing = named
+    .filter(([label, re]) => re.test(t) && !connected.some((c) => c.toLowerCase() === label.toLowerCase()))
+    .map(([label]) => label)
+  if (!missing.length) return ''
+  return missing.length === 1
+    ? `${missing[0]} is not connected, so I could not touch anything there. Connect it and I will finish that part.`
+    : `${missing.slice(0, -1).join(', ')} and ${missing[missing.length - 1]} are not connected, so I could not touch anything there. Connect them and I will finish those parts.`
 }
 
 export function looksLikeFollowUp(text: string) {

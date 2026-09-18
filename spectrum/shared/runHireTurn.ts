@@ -12,7 +12,8 @@ import { isAffirmativeApprovalIntent, isNegativeCancellationIntent } from './con
 import { skillsPromptBlock, SKILLS } from './skills'
 import { gmiChat } from './gmi'
 import { appendThread, loadMemory, setPendingSpend, setPendingVaultTask, upsertFacts, pruneExpiredFacts, setSummary, trimHistory, MAX_RAW, type ThreadMemory } from './memory'
-import { extractFacts, summarizeOld } from './memoryMaintain'
+import { captureStatedPreferences, extractFacts, summarizeOld } from './memoryMaintain'
+import { cityConflictInstruction, detectCityConflict } from './cityConflict'
 import { liveFactsToInput, localFactsToInput, mergeMemoryFacts, selectMemoryFacts } from './memoryBlock'
 import { autoIterateWorkshop, autoLogGratitude, autoLogHabit, autoLogMood, autoLogNutrition, autoLogSleep, autoLogSpend, autoLogWorkout, autoLogNetwork, autoLogDecision, autoLogLoops, autoLogPipeline, autoLogStandup, autoRunWorkshop, autoWorkshopKeep, autoWorkshopToss, autoSaveLearning, autoSetBudget, autoSetPrefs, executeSpendApproval, fetchLiveProfile, fetchLiveTools, fetchMiniRun, fetchPrepBundle, fetchWeekBundle, formatHireContext, persistLiveFacts, proposeLiveDraft,
   proposePurchase, proposeBrowserTask, publishTaskChoices, touchInbound, importChatExport, addMeeting, fetchRenewalRadar, setTravel,
@@ -27,6 +28,10 @@ import {
   listReminders,
   localTimeToUtc,
   formatLocalNow,
+  digestControlIntent,
+  mentionsDigest,
+  manageDigest,
+  digestManageReply,
 } from './reminders'
 import { setProactiveMode, fetchLastProactiveTopic, fetchJudgmentState } from './judgment'
 import { keepHonestPlan, parseBrainDump, keepTravelPlan, scanSubscriptions } from './smartFeatures'
@@ -613,6 +618,20 @@ async function handleReminderMessage(input: {
   userText: string
   timezone: string
 }): Promise<string | null> {
+  // A digest ask ("weekday 7am digest", "pause my morning digest") is reminder
+  // management, not a generic reminder. Handled first and deterministically:
+  // the model-facing reminder tool only knew once/daily/weekly and narrated a
+  // fake "scheduler rejected it" snag for exactly the bench phrasing.
+  const control = digestControlIntent(input.userText)
+  if (control) {
+    const result = await manageDigest(input.phone, input.persona, control)
+    if (!result?.ok) return "I couldn't change the digest right now. Try again in a sec?"
+    return digestManageReply(control, result, input.timezone)
+  }
+  // A digest *question* ("when does my brief come") must not burn a reminder
+  // parse and come back as a reminder they never asked for. A genuine reminder
+  // that merely says "digest" ("remind me to read my digest") still parses.
+  if (mentionsDigest(input.userText) && !looksLikeReminder(input.userText)) return null
   const intent = await parseReminderIntent(input.userText, input.timezone)
   if (intent.action === 'set') {
     const utc = localTimeToUtc(intent.localTime, input.timezone)
@@ -628,7 +647,8 @@ async function handleReminderMessage(input: {
       timezone: input.timezone,
     })
     if (!ok) return "I couldn't save that reminder right now. Try again in a sec?"
-    const when = intent.recurrence === 'once' ? '' : ` ${intent.recurrence}`
+    const when =
+      intent.recurrence === 'once' ? '' : intent.recurrence === 'weekdays' ? ' every weekday' : ` ${intent.recurrence}`
     return `Got it. I'll remind you${when} at ${intent.localTime.slice(0, 16).replace('T', ' ')} (${input.timezone}): "${intent.text}".`
   }
   if (intent.action === 'list') {
@@ -822,6 +842,23 @@ export async function runHireTurn(input: {
   if (rewritten && rewritten !== input.userText) {
     console.log(`[turn] ${correctedAsk ? 'correction' : 'refinement'} applied: "${input.userText.slice(0, 60)}" -> "${rewritten.slice(0, 140)}"`)
     input = { ...input, userText: rewritten }
+  }
+
+  /* Durable preferences stated in passing ("I always want aisle seats and I
+   * don't eat pork") are captured here, synchronously, not only in the
+   * post-reply maintenance pass: that pass is skipped whenever the turn falls
+   * back to a local reply (source !== 'gmi'), which is exactly where a provider
+   * snag used to lose the preference forever. Captured facts are persisted both
+   * locally (so this thread applies them from now on) and to the server memory
+   * store (so a fresh container and other personas see them too). */
+  const statedPrefs = captureStatedPreferences(input.userText)
+  if (statedPrefs.length) {
+    upsertFacts(input.dataDir, input.senderId, statedPrefs)
+    void persistLiveFacts(
+      input.senderId,
+      agent.id,
+      statedPrefs.map((f) => ({ key: f.key, value: f.value })),
+    ).catch(() => undefined)
   }
 
   // Navigation is independent of account/profile availability and prior topics.
@@ -1022,6 +1059,22 @@ export async function runHireTurn(input: {
     input.senderId ? fetchContacts(input.senderId) : Promise.resolve([]),
     input.senderId && (agent.id !== 'friend' || input.userText.trim().startsWith('/')) ? fetchSpending(input.senderId) : Promise.resolve({ logs: [], weekly: 0, budget: 0 }),
   ])
+  /* A place ask in a different city than the trip already planned in this
+   * thread must not silently search the wrong city (public rehearsal: a
+   * Chicago hotel plan, then a New York dinner ask searched NY with no
+   * question). The check is deterministic and runs before any lookup; the
+   * friend engine turns it into the confirmation question with no tools. */
+  const cityConflict = detectCityConflict({
+    userText: input.userText,
+    history,
+    facts: [
+      ...mem.facts.map((f) => ({ key: f.key, value: f.value, at: f.lastSeen ?? f.ts })),
+      ...(live.memories || []).map((f) => ({ key: f.key, value: f.value, updatedAt: f.updatedAt })),
+    ],
+  })
+  if (cityConflict) {
+    console.log(`[turn] city conflict: ask ${cityConflict.askCity} vs trip ${cityConflict.tripCity}`)
+  }
   if (live.hired && !input.userText.trim().startsWith('/')) {
     void touchInbound(input.senderId, agent.id)
     // Exact opt-out controls remain available even when the model is down.
@@ -1033,7 +1086,25 @@ export async function runHireTurn(input: {
       appendThread(input.dataDir, input.senderId, [{ role: 'user', content: input.userText }, { role: 'assistant', content: reply }])
       return { reply, bubbles: [reply], source: 'local', authoritative: [], card: null }
     }
-    return runConversationalFriend({ ...input, agentId: agent.id, live, memory: mem, contacts })
+    // Digest set/pause/edit is reminder management with a deterministic parser.
+    // It runs here, before the conversational engine: the model-facing reminder
+    // tool only knew once/daily/weekly and narrated a fake "scheduler rejected
+    // it" snag for the exact weekday ask the routine dimension scores.
+    const digestControl = digestControlIntent(input.userText)
+    if (digestControl) {
+      const result = await manageDigest(input.senderId, agent.id, digestControl)
+      const reply = stripDashes(
+        result?.ok
+          ? digestManageReply(digestControl, result, live.timezone || 'America/Los_Angeles')
+          : "I couldn't change the digest right now. Try again in a sec?",
+      )
+      appendThread(input.dataDir, input.senderId, [
+        { role: 'user', content: input.userText },
+        { role: 'assistant', content: reply },
+      ])
+      return { reply, bubbles: splitBubbles(reply), source: 'local', authoritative: [], card: null }
+    }
+    return runConversationalFriend({ ...input, agentId: agent.id, live, memory: mem, contacts, cityConflict })
   }
   if (live.unavailable && wantsLiveData(input.userText)) {
     const reply = 'I could not load your connected account data right now. Please try again in a moment. You do not need to reconnect anything based on this error.'
@@ -1092,7 +1163,11 @@ export async function runHireTurn(input: {
     }
   }
 
-  if (live.hired && looksLikeReminder(input.userText)) {
+  // Digest scheduling phrasing rarely says "remind me" ("set up a weekday 7am
+  // digest"), so the deterministic digest parser is its own gate.
+  const digestAsk = digestControlIntent(input.userText) !== null
+  const reminderAsk = digestAsk || looksLikeReminder(input.userText)
+  if (live.hired && reminderAsk) {
     const handled = await handleReminderMessage({
       phone: input.senderId,
       persona: agent.id,
@@ -1139,7 +1214,7 @@ export async function runHireTurn(input: {
     miniApp.kind !== 'pick_night' &&
     miniApp.kind !== 'digest' &&
     !writeIntent
-  )
+  ) || !!cityConflict
 
 /* ---- Dispatcher: slash commands, manifest routing, Tier 4 delegate ----
    * One entry point for every capability. Slash wins, then the manifest, then
@@ -1891,6 +1966,9 @@ export async function runHireTurn(input: {
   if (input.inboundNote) {
     extras.push(input.inboundNote)
   }
+  if (cityConflict) {
+    extras.push(cityConflictInstruction(cityConflict))
+  }
 
   /* Connector ask in context: when the ask is mail, calendar, brief, or
    * schedule shaped and Google is not connected, hand over the deep link that
@@ -1925,7 +2003,9 @@ export async function runHireTurn(input: {
     extras.push(...fullGraphState.suggestedPromptAdditions)
   }
 
-  const memoryBlock = buildMemoryBlock(mem, live.memories || [])
+  // Re-read: preferences captured earlier in this turn must be visible to this
+  // turn's prompt too, not only the next one.
+  const memoryBlock = buildMemoryBlock(loadMemory(input.dataDir, input.senderId), live.memories || [])
 
   const system = [
     buildSystemPrompt(agent, live.connected),
