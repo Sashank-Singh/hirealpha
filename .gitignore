@@ -81,3 +81,6 @@ spectrum/alpha/data/threads/+12163032166.json
 spectrum/alpha/data/evals/
 spectrum/alpha/bench-runtime.env
 
+
+# Local dev stack binaries (scripts/dev-stack.sh downloads trvl here)
+.dev-bin/

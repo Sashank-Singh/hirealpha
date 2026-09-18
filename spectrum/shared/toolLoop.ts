@@ -176,6 +176,25 @@ export function pickBrowserPortal(input: {
 }
 
 /**
+ * True when the ask wants a notification schedule written — a digest, a
+ * reminder, a recurring text. Those are answered by writing a row, not by
+ * reading the world, and the freshness gate must not demand a lookup for
+ * them: the classifier read the bench phrasing ("send me a digest with my
+ * calendar...") as needsLookup, the model answered it correctly, and the turn
+ * still returned the canned "web lookup did not run". A time or a cadence is
+ * required, so "remind me how much the Aeropress costs" — a question wearing a
+ * reminding word — stays a lookup.
+ */
+export function isSchedulingAsk(text: string): boolean {
+  const t = String(text || '')
+  if (!t) return false
+  if (!/\b(?:digest|brief|recap|remind(?:er)?s?|notification)\b/i.test(t)) return false
+  const when = /\b(?:weekdays?|daily|weekly|every|each|nightly|mornings?|evenings?|nights?|am|pm|\d{1,2}(?::\d{2})?)\b/i.test(t)
+  const manage = /\b(?:set ?up|setup|schedule|create|make|start|send|give|pause|stop|resume|turn (?:it )?(?:off|on)|move|change|edit|update|switch|push|cancel|remove|delete)\b/i.test(t)
+  return when || manage
+}
+
+/**
  * True when the ask only wants information — find, show, compare, see if — and
  * names no action. The browser is for acting; a lookup that stages a run costs
  * a sandbox session, an ack, a live link, a card, a result and a screenshot to
@@ -603,7 +622,10 @@ Reactions are optional and usually absent. You may add "reaction":"<emoji>" to a
         !isMemoryAsk &&
         /\b(?:find|recommend|suggest|looking for|where(?:'s| is| can| should)|place)\b[^.!?\n]{0,60}\b(?:restaurants?|cafes?|coffee shops?|hotels?|places? to eat|dinner|lunch|brunch|breakfast|bar|drinks|eat(?:ing)? out)\b/i.test(freshnessContext)
       const asksToBuy = !isMemoryAsk && (buyAsk || /\b(?:buy|purchase|order(?: me)?|pay for)\b/i.test(freshnessContext))
-      const needsFresh = !isMemoryAsk && (request?.needsLookup === true || (request === null && (asksForPlaces || asksToBuy || /\b(news|latest|price|prices|how much (?:is|does|do)|score|who won|release date|next .{0,40}event|this week|today|yesterday|tonight|right now)\b/i.test(freshnessContext))))
+      const needsFresh =
+        !isMemoryAsk &&
+        !isSchedulingAsk(userAsk) &&
+        (request?.needsLookup === true || (request === null && (asksForPlaces || asksToBuy || /\b(news|latest|price|prices|how much (?:is|does|do)|score|who won|release date|next .{0,40}event|this week|today|yesterday|tonight|right now)\b/i.test(freshnessContext))))
       const attemptedWeb = [...seen].some(key => key.startsWith('web:'))
       const attemptedMaps = [...seen].some(key => key.startsWith('maps:'))
       // Booking/doing asks: a plain-text "queued it" with no browser action is a

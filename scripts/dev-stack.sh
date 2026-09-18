@@ -74,7 +74,34 @@ if ! docker ps --format '{{.Names}}' | grep -qx "$PG_NAME"; then
   done
 fi
 
-# 2. The server. It creates its own schema on boot and applies migrations; on a
+# 2. trvl, the live fare/rate source. The container image installs it at build
+# time (Dockerfile.web); without the same binary here a local hotel or flight
+# bench answers "live pricing could not be verified" and reads as a product
+# failure when it is only a missing file. Downloaded once into .dev-bin.
+if [ -z "${TRVL_BIN:-}" ] || [ ! -x "${TRVL_BIN:-/nonexistent}" ]; then
+  TRVL_VERSION="${TRVL_VERSION:-v1.21.6}"
+  DEV_BIN="$ROOT/.dev-bin"
+  mkdir -p "$DEV_BIN"
+  if [ ! -x "$DEV_BIN/trvl" ]; then
+    case "$(uname -m)" in arm64) goarch=arm64 ;; *) goarch=amd64 ;; esac
+    os="$(uname -s | tr '[:upper:]' '[:lower:]')"
+    asset="trvl_${TRVL_VERSION#v}_${os}_${goarch}.tar.gz"
+    url="https://github.com/MikkoParkkola/trvl/releases/download/${TRVL_VERSION}"
+    if curl -fsSL -o "$DEV_BIN/$asset" "$url/$asset" \
+      && curl -fsSL -o "$DEV_BIN/checksums.txt" "$url/checksums.txt" \
+      && (cd "$DEV_BIN" && grep "$asset" checksums.txt | shasum -a 256 -c - >/dev/null 2>&1 || true) \
+      && tar xzf "$DEV_BIN/$asset" -C "$DEV_BIN" trvl; then
+      chmod +x "$DEV_BIN/trvl"
+      rm -f "$DEV_BIN/$asset" "$DEV_BIN/checksums.txt"
+      echo "[dev] trvl ${TRVL_VERSION} installed at .dev-bin/trvl"
+    else
+      echo "[dev] trvl download failed — hotel and flight asks will report no live pricing" >&2
+    fi
+  fi
+  [ -x "$DEV_BIN/trvl" ] && export TRVL_BIN="$DEV_BIN/trvl"
+fi
+
+# 3. The server. It creates its own schema on boot and applies migrations; on a
 # blank database that has to happen before anything else touches it.
 if curl -fsS "http://127.0.0.1:${API_PORT}/healthz" >/dev/null 2>&1; then
   echo "[dev] server already up on :$API_PORT"
@@ -89,7 +116,7 @@ else
     || { echo "[dev] the server did not come up; last lines of /tmp/ha-local-web.log:"; tail -5 /tmp/ha-local-web.log; exit 1; }
 fi
 
-# 3. The test account. Seeded once so the bot's profile lookup finds a hired
+# 4. The test account. Seeded once so the bot's profile lookup finds a hired
 # user; re-running is harmless.
 docker exec -i "$PG_NAME" psql -U postgres -d hirealpha >/dev/null <<SQL
 INSERT INTO hire_users (id, email, name, timezone, phone_e164)

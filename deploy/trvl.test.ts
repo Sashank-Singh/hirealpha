@@ -99,7 +99,11 @@ describe('trvl fares', () => {
 
   /* Measured in production: the binary's own --timeout is per request and its
    * 429 retry storm ran to our 45s kill (exit 137), so the user waited 45s for
-   * a web fallback. The flight ceiling is tighter than the hotel one. */
+   * a web fallback. A one-way search from one airport pair answers inside 25s,
+   * so the flight ceiling stays under the hotel one (50s) — but it must clear
+   * the wall a round trip needs: on 2026-09-18 the old 25s ceiling killed a
+   * JFK→ORD round trip at 25005ms (exit 137, nothing returned) while the
+   * identical command by hand produced 12 fares in ~30s. */
   it('gives a throttled flight search a tighter ceiling than a hotel search', async () => {
     let ceiling = 0
     setTrvlRunner(async (_args, timeoutMs) => {
@@ -108,8 +112,8 @@ describe('trvl fares', () => {
     })
     globalThis.fetch = (async () => new Response(JSON.stringify({ date: '2026-09-18', rates: { USD: 1.1 } }), { status: 200 })) as unknown as typeof fetch
     await trvlFlights({ from: 'New York', to: 'Chicago', date: '2026-09-25' })
-    expect(ceiling).toBeGreaterThan(0)
-    expect(ceiling).toBeLessThanOrEqual(25_000)
+    expect(ceiling).toBeGreaterThanOrEqual(30_000)
+    expect(ceiling).toBeLessThanOrEqual(45_000)
   })
 
   /* A round-trip search answers with combined itineraries; the label has to
@@ -254,5 +258,36 @@ describe('rate-limited providers', () => {
     globalThis.fetch = (async () => new Response(JSON.stringify({ date: '2026-09-18', rates: { USD: 1 } }), { status: 200 })) as unknown as typeof fetch
     const block = await trvlFlights({ from: 'New York', to: 'Chicago', date: '2026-09-25' })
     expect(block).toContain('Delta')
+  })
+})
+
+describe('one itinerary is one option', () => {
+  /* Measured on JFK→ORD 2026-09-18: the providers return the same flight once
+   * per return-leg variant — four "JetBlue B6 405, $336" rows that the model
+   * repeated as four separate choices, three of them with invented durations. */
+  it('collapses same-flight same-price duplicates and keeps the shortest', async () => {
+    resetTrvlState()
+    globalThis.fetch = (async () => new Response(JSON.stringify({ date: '2026-09-18', rates: { USD: 1 } }), { status: 200 })) as unknown as typeof fetch
+    const leg = (airline: string, flight: string, depart: string, arrive: string) => ({
+      departure_airport: { code: 'JFK' },
+      arrival_airport: { code: 'ORD' },
+      departure_time: depart,
+      arrival_time: arrive,
+      airline,
+      flight_number: flight,
+    })
+    setTrvlRunner(async () => ({
+      flights: [
+        { price: 336, currency: 'USD', duration: 173, stops: 0, legs: [leg('JetBlue', 'B6 405', '2026-09-18T20:05:00-04:00', '2026-09-18T22:58:00-05:00')] },
+        { price: 336, currency: 'USD', duration: 314, stops: 0, legs: [leg('JetBlue', 'B6 405', '2026-09-18T20:05:00-04:00', '2026-09-19T01:19:00-05:00')] },
+        { price: 336, currency: 'USD', duration: 327, stops: 0, legs: [leg('JetBlue Airways', 'B6 405', '2026-09-18T20:05:00-04:00', '2026-09-19T00:25:00-05:00')] },
+        { price: 346, currency: 'USD', duration: 408, stops: 1, legs: [leg('JetBlue', 'B6 405', '2026-09-18T20:05:00-04:00', '2026-09-19T03:00:00-05:00')] },
+      ],
+    }))
+    const block = await trvlFlights({ from: 'New York', to: 'Chicago', date: '2026-09-18' })
+    const rows = (block || '').split('\n').filter((line) => line.startsWith('- '))
+    expect(rows.length).toBe(2)
+    expect(rows[0]).toContain('2h 53m')
+    expect(rows.filter((r) => r.includes('$336')).length).toBe(1)
   })
 })

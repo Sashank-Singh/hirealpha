@@ -26,10 +26,17 @@ const TRVL_TIMEOUT_MS = Number(process.env.TRVL_TIMEOUT_MS || 50_000)
  * Measured in production: `--timeout 20s` is a per-request ceiling inside the
  * binary, and its retry/backoff storm ran the command to our own 45s kill
  * (exit 137) with three 429 retries on the way — the user waited 45s for a web
- * fallback. The flight kill is therefore tighter than the hotel one; a hotel
- * search measures 20-50s and returns real rows.
+ * fallback. A one-way search from a single airport pair answers inside 25s.
+ *
+ * A round trip does not: the return leg doubles the provider work, and after
+ * the flight sources trvl still walks its ground-transport providers
+ * (rome2rio 403, ferryhopper no-route) before printing. Measured 2026-09-18:
+ * `flights JFK ORD <date> --format json --timeout 25s --return <date>` was
+ * killed by this ceiling at 25005ms with nothing returned, while the same
+ * command run by hand produced 12 fares in ~30s. So the return-trip ceiling is
+ * 45s — still bounded, but past the wall the binary needs.
  */
-const TRVL_FLIGHT_TIMEOUT_MS = Number(process.env.TRVL_FLIGHT_TIMEOUT_MS || Math.min(25_000, TRVL_TIMEOUT_MS))
+const TRVL_FLIGHT_TIMEOUT_MS = Number(process.env.TRVL_FLIGHT_TIMEOUT_MS || Math.min(45_000, TRVL_TIMEOUT_MS))
 /**
  * A hotel search measures 20-50s (six booking sources, room-level enrichment),
  * longer than the flight one, and still has to leave room for the turn to
@@ -314,6 +321,26 @@ export async function trvlFlights(input: {
   }
   if (!rows.length) return null
   rows.sort((a, b) => a.priceUsd - b.priceUsd)
+  /* The providers return one row per itinerary variant, so a single flight
+   * number arrives three times at the same price with different return legs —
+   * measured on JFK→ORD: four "JetBlue B6 405, $336" rows (plus a "JetBlue
+   * Airways" spelling of the same one) that the model then repeated as
+   * separate options. Same airline, same flight number, same price is one
+   * option; the shortest total duration is the honest representative. */
+  const deduped: FlightRow[] = []
+  const seenFare = new Map<string, number>()
+  for (const row of rows) {
+    const key = `${row.airline.toLowerCase().replace(/\s+(?:airways|airlines)$/, '')}|${row.flightNumber || ''}|${Math.round(row.priceUsd)}`
+    const at = seenFare.get(key)
+    if (at === undefined) {
+      seenFare.set(key, deduped.length)
+      deduped.push(row)
+      continue
+    }
+    if (minutesOf(row) < minutesOf(deduped[at]!)) deduped[at] = row
+  }
+  rows.length = 0
+  rows.push(...deduped)
 
   const currencies = [...new Set(flights.map((f) => f.currency).filter(Boolean))]
   const fxNote =
@@ -333,6 +360,15 @@ export async function trvlFlights(input: {
     : `from ${from} to ${to} on ${input.date}`
   const legNote = input.returnDate ? ' Each price is for the full round trip (both legs), not per leg.' : ''
   return remember(key, `${formatFares(rows, { label })}${legNote}${fxNote}${verdictNote}`)
+}
+
+/** "2h 53m" / "45m" → 173 / 45; Infinity when the duration is missing. */
+function minutesOf(row: FlightRow): number {
+  const m = String(row.duration || '').match(/(?:(\d+)\s*h)?\s*(?:(\d+)\s*m)?/i)
+  const hours = Number(m?.[1] || 0)
+  const mins = Number(m?.[2] || 0)
+  const total = hours * 60 + mins
+  return total > 0 ? total : Infinity
 }
 
 type TrvlRoom = {

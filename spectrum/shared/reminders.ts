@@ -217,9 +217,16 @@ export type DigestControl =
   | { action: 'resume' }
 
 /** Does the text talk about the morning digest/brief at all? Used to stop
- * digest questions ("when is my brief") from falling into the reminder LLM. */
+ * digest questions ("when is my brief") from falling into the reminder LLM.
+ *
+ * The verb shapes matter as much as the noun: "send me a digest with my
+ * calendar" is the bench phrasing and the old patterns ("morning digest",
+ * "my digest", "digest is") all missed it, so the ask fell through to the
+ * model and three runs of the same sentence produced three outcomes — a real
+ * row, a narrated "scheduler is rejecting it", and the freshness gate's
+ * canned "web lookup did not run". */
 export function mentionsDigest(text: string): boolean {
-  return /\b(?:morning|daily|weekday)\s+(?:brief|digest|recap)\b|\bmy\s+(?:morning\s+|daily\s+|weekday\s+)?(?:brief|digest|recap)\b|\b(?:brief|digest|recap)\s+(?:is|was|comes?)\b/i.test(
+  return /\b(?:morning|daily|weekday)\s+(?:brief|digest|recap)\b|\bmy\s+(?:morning\s+|daily\s+|weekday\s+)?(?:brief|digest|recap)\b|\b(?:brief|digest|recap)\s+(?:is|was|comes?|with|that|each|every|at)\b|\b(?:set ?up|setup|schedule|create|make|start|send(?: me)?|give me|put together)\b[^.!?]{0,40}?\b(?:a\s+|the\s+)?(?:morning\s+|daily\s+|weekday\s+)?(?:brief|digest|recap)\b/i.test(
     String(text || ''),
   )
 }

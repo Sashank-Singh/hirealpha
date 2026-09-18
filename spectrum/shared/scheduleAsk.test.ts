@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'bun:test'
-import { isLookupOnlyAsk } from './toolLoop'
+import { isLookupOnlyAsk, isSchedulingAsk } from './toolLoop'
+import { mentionsDigest, digestControlIntent } from './reminders'
 
 /* The guard is inside runToolConversation; this pins the shape it must reject
  * and the shapes it must still allow, using the same patterns. */
@@ -72,5 +73,45 @@ describe('a price question is a search, not an action', () => {
     expect(isLookupOnlyAsk('What are the rates at the Palmer House')).toBe(true)
     // …while a real portal price check still needs the login path.
     expect(isLookupOnlyAsk('Check my account balance on the portal')).toBe(false)
+  })
+})
+
+describe('a schedule write is not a freshness lookup', () => {
+  /* Live: three runs of the bench digest sentence produced three outcomes —
+   * a real row, a narrated "scheduler is rejecting it", and the freshness
+   * gate's canned "web lookup did not run" — because the classifier read the
+   * sentence as needsLookup and no tool could satisfy it. */
+  it('recognises the digest phrasings that need a row, not the web', () => {
+    expect(isSchedulingAsk('On weekdays at 7:00 AM send me a digest with my calendar, the replies I owe, and the weather.')).toBe(true)
+    expect(isSchedulingAsk('set up my morning digest')).toBe(true)
+    expect(isSchedulingAsk('send me my digest')).toBe(true)
+    expect(isSchedulingAsk('remind me every Monday at 9 to send the invoice')).toBe(true)
+    expect(isSchedulingAsk('pause my digest')).toBe(true)
+  })
+
+  it('leaves questions and lookups alone', () => {
+    expect(isSchedulingAsk('when does my brief come')).toBe(false)
+    expect(isSchedulingAsk('what time is my digest')).toBe(false)
+    expect(isSchedulingAsk('remind me how much the Aeropress costs')).toBe(false)
+    expect(isSchedulingAsk('find a coffee shop near the Loop')).toBe(false)
+  })
+})
+
+describe('digest phrasing reaches the deterministic path', () => {
+  it('matches the verb shapes the old pattern missed', () => {
+    expect(mentionsDigest('On weekdays at 7:00 AM send me a digest with my calendar')).toBe(true)
+    expect(mentionsDigest('send me a digest with my calendar, the replies I owe, and the weather')).toBe(true)
+    expect(mentionsDigest('set me up a weekday brief at 7am')).toBe(true)
+  })
+
+  it('still recognises the old shapes', () => {
+    expect(mentionsDigest('morning digest')).toBe(true)
+    expect(mentionsDigest('my daily brief is late')).toBe(true)
+    expect(mentionsDigest('what time does my digest come')).toBe(true)
+  })
+
+  it('is not fooled by unrelated text', () => {
+    expect(mentionsDigest('find a coffee shop near the Loop')).toBe(false)
+    expect(mentionsDigest('the email mentioned a brief delay')).toBe(false)
   })
 })

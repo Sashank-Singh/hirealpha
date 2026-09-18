@@ -1857,10 +1857,17 @@ export async function autoRunWorkshop(
       }
     } catch (err) {
       // A provider hiccup (429, 5xx, backend 400) should get the repair pass,
-      // not an instant failure — the outer loop re-plans from scratch.
+      // not an instant failure — the outer loop re-plans from scratch. Two
+      // immediate refusals are the provider's rate limiter talking, so the
+      // re-plan waits it out instead of spending its attempts inside the same
+      // refusal window (measured: a build ask failed in 10s with no workshop
+      // call reaching the server, then succeeded unchanged a minute later).
       console.warn('[live] workshop planner failed', err)
       lastError = 'the model provider hiccuped'
-      if (pass === 0) continue
+      if (pass === 0) {
+        await new Promise((resolve) => setTimeout(resolve, 1500))
+        continue
+      }
       return { ok: false, logged: false, error: 'could not draft the program' }
     }
     if (!code.trim()) {
