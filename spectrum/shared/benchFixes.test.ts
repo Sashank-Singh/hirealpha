@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test'
 import { sanitizeOutbound } from './runHireTurn'
-import { browserRunIsPurchase } from './conversationalFriend'
+import { browserRunIsPurchase, statedTravelPreferences } from './conversationalFriend'
 
 describe('bench50 regression guards', () => {
   it('strips a trailing source-URL dump but keeps a single introduced link', () => {
@@ -42,5 +42,18 @@ describe('browser receipt wording', () => {
       ),
     ).toBe(false)
     expect(browserRunIsPurchase('Book a round trip from New York to Chicago, aisle seat, under $400', 'Search flights and prepare the booking')).toBe(false)
+  })
+
+  it('carries only seat-like standing preferences into a booking run goal', () => {
+    const facts = [
+      { key: 'seat_preference', value: 'aisle seat' },
+      { key: 'diet', value: 'no pork' },
+      { key: 'hard_nos', value: 'Aisle seats on all flights; never eats pork' },
+    ]
+    const line = statedTravelPreferences(facts)
+    expect(line.toLowerCase()).toContain('aisle seat')
+    expect(line.toLowerCase()).not.toContain('pork')
+    expect(statedTravelPreferences([{ key: 'diet', value: 'no pork' }])).toBe('')
+    expect(statedTravelPreferences(undefined)).toBe('')
   })
 })

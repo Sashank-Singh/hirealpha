@@ -46,6 +46,10 @@ const TIME_WORDS = new Set([
 const REJECT_WORDS = new Set([
   'the', 'a', 'an', 'my', 'our', 'town', 'general', 'advance', 'front', 'total',
   'person', 'people', 'fact', 'question', 'side', 'area', 'loop', 'downtown',
+  // Capitalized tool names after "in" are not cities: "passport information in
+  // Drive" became the active trip ("the plan in our thread is Drive") and then
+  // blocked every real place ask with a nonsense confirmation question.
+  'drive', 'gmail', 'email', 'inbox', 'calendar', 'vault', 'photos', 'notes',
 ])
 
 const CITY_ALIASES: Record<string, string> = {

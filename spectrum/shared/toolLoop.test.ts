@@ -857,3 +857,174 @@ describe('map-grounded place picks', () => {
     expect(result.reply).toBe(grounded)
   })
 })
+
+describe('dated travel booking asks (dims 1 and 2)', () => {
+  const HOTEL_ASK =
+    'Book a hotel in Chicago for Friday September 25 to Saturday September 26, under $250 a night, near the Loop, with free cancellation.'
+  const HOTEL_BLOCK =
+    'Live hotel rates for 2026-09-25 to 2026-09-26 in chicago (merged from six booking sources):\n' +
+    '- The Wade: $199/night, 4-star, 8.2 rating, 2.2 km out, free-cancellation rate $199/night\n' +
+    '- Homewood Suites by Hilton Chicago-Downtown: $182/night, 3-star, 1.8 km out, cancellation not stated\n' +
+    'These are real rates for those nights. 14 of 132 show a free-cancellation rate below. All shown are at or under the $250/night ceiling.'
+  const FLIGHT_ASK = 'Book a round trip from New York to Chicago Friday morning to Sunday evening, under $400.'
+  const FARE_BLOCK =
+    'Live fares from JFK,EWR,LGA to ORD,MDW: out 2026-09-25, back 2026-09-27 (read from the airline search page):\n' +
+    '- $325, Delta Air Lines, nonstop, departs 06:55, on 2026-09-25\n' +
+    '- $326, American, nonstop, departs 07:30, on 2026-09-25\n' +
+    'Fares are what the page showed when it was read.'
+
+  it('reads the live dated source before staging the booking run and keeps the real rate in the reply', async () => {
+    const order: string[] = []
+    const drafts: Array<Record<string, unknown>> = []
+    const answers = [
+      'The Kayak hotel run is launching now for Friday Sep 25 to Saturday Sep 26 near the Loop, under $250/night with free cancellation. I will report back with real options once it finishes.',
+      '{"action":"browser","portal":"https://www.kayak.com/hotels","goal":"book a Chicago Loop hotel Sep 25-26 under $250 with free cancellation"}',
+      'The run is live for the Loop stay, under $250/night with free cancellation. It pauses before payment.',
+    ]
+    const result = await runToolConversation({
+      messages: [{ role: 'user', content: HOTEL_ASK }],
+      availableTools: ['web', 'maps'],
+      canDraft: true,
+      chat: async () => answers.shift() || 'Done.',
+      lookup: async (tool, query) => { order.push(`lookup:${tool}`); return [HOTEL_BLOCK] },
+      propose: async (draft) => { order.push('propose'); drafts.push(draft as Record<string, unknown>); return { ok: true, id: 'job-hotel' } },
+    })
+    // The lookup must run before the run is staged, and it carries the ask
+    // itself (dates + area + ceiling) — not a paraphrase.
+    expect(order.indexOf('lookup:web')).toBeGreaterThanOrEqual(0)
+    expect(order.indexOf('lookup:web')).toBeLessThan(order.indexOf('propose'))
+    expect(drafts).toHaveLength(1)
+    expect(drafts[0]).toMatchObject({ type: 'browser', portal: 'https://www.kayak.com/hotels' })
+    // The reply carries the verified rate and the free-cancellation row.
+    expect(result.reply).toContain('$199')
+    expect(result.reply).toContain('free-cancellation')
+  })
+
+  it('reads the live source before staging a dated run the model issued first', async () => {
+    const order: string[] = []
+    const drafts: Array<Record<string, unknown>> = []
+    const answers = [
+      '{"action":"browser","portal":"https://www.kayak.com/flights","goal":"book the round trip under $400"}',
+      'The run is live and pauses before payment.',
+    ]
+    const result = await runToolConversation({
+      messages: [{ role: 'user', content: FLIGHT_ASK }],
+      availableTools: ['web', 'maps'],
+      canDraft: true,
+      chat: async () => answers.shift() || 'Done.',
+      lookup: async (tool, query) => { order.push(`lookup:${tool}`); return [FARE_BLOCK] },
+      propose: async (draft) => { order.push('propose'); drafts.push(draft as Record<string, unknown>); return { ok: true, id: 'job-flight' } },
+    })
+    expect(drafts).toHaveLength(1)
+    expect(order.indexOf('lookup:web')).toBeGreaterThanOrEqual(0)
+    expect(order.indexOf('lookup:web')).toBeLessThan(order.indexOf('propose'))
+    expect(result.reply).toContain('$325')
+  })
+
+  it('carries a standing seat preference into the model-issued booking run', async () => {
+    const drafts: Array<Record<string, unknown>> = []
+    const answers = [
+      'The Kayak flight run is launching for the New York to Chicago round trip.',
+      '{"action":"browser","portal":"https://www.kayak.com/flights","goal":"book the round trip under $400"}',
+      'Run staged.',
+    ]
+    await runToolConversation({
+      messages: [{ role: 'user', content: FLIGHT_ASK }],
+      availableTools: ['web', 'maps'],
+      canDraft: true,
+      preferences: 'Aisle seats on all flights',
+      chat: async () => answers.shift() || 'Done.',
+      lookup: async () => [FARE_BLOCK],
+      propose: async (draft) => { drafts.push(draft as Record<string, unknown>); return { ok: true, id: 'job-pref' } },
+    })
+    expect(drafts).toHaveLength(1)
+    expect(String(drafts[0]!.goal)).toContain('Aisle seats on all flights')
+  })
+
+  it('never rides an unavailable notice or a listicle along as live options', async () => {
+    const answers = [
+      'The Kayak hotel run is launching now for the Loop stay.',
+      '{"action":"browser","portal":"https://www.kayak.com/hotels","goal":"book the Loop hotel under $250"}',
+      'The run is live; nothing is charged without approval.',
+    ]
+    const unavailable =
+      'LIVE FARE/RATE SOURCE UNAVAILABLE for this ask (the dated sources returned nothing). The text below is a general web search, not verified availability or prices for these dates: do not present any figure from it as a fare or a rate.\n\n' +
+      '- 10 Hotels In Chicago With Best Views\n  https://www.holidify.com/hotel-collections/hotels-in-chicago-with-best-views\n  The Loop 1.2 kms from Chicago $ 570 onwards Michigan Avenue'
+    const result = await runToolConversation({
+      messages: [{ role: 'user', content: HOTEL_ASK }],
+      availableTools: ['web'],
+      canDraft: true,
+      chat: async () => answers.shift() || 'Done.',
+      lookup: async () => [unavailable],
+      propose: async () => ({ ok: true, id: 'job-nolive' }),
+    })
+    expect(result.reply).not.toContain('holidify')
+    expect(result.reply).not.toContain('Live options for the dates')
+    expect(result.reply).toContain('The run is live')
+  })
+
+  it('keeps a seat preference off a non-travel run', async () => {
+    const drafts: Array<Record<string, unknown>> = []
+    const ask = 'Reorder two bags of the same coffee beans from Amazon using the home address.'
+    // The model's own action for a purchase must not gain the seat line...
+    await runToolConversation({
+      messages: [{ role: 'user', content: ask }],
+      availableTools: ['web'],
+      canDraft: true,
+      preferences: 'Aisle seats on all flights',
+      chat: async () => '{"action":"browser","portal":"https://www.amazon.com/gp/css/order-history","goal":"reorder the coffee beans, two bags, home address"}',
+      lookup: async () => [],
+      propose: async (draft) => { drafts.push(draft as Record<string, unknown>); return { ok: true, id: 'job-buy-2' } },
+    })
+    // ...and neither must the engine-staged goal.
+    await runToolConversation({
+      messages: [{ role: 'user', content: ask }],
+      availableTools: ['web'],
+      canDraft: true,
+      preferences: 'Aisle seats on all flights',
+      chat: async () => 'I do not have your Amazon order history here, so I cannot pull the exact item. Send me the product link and I will set it up.',
+      lookup: async () => [],
+      propose: async (draft) => { drafts.push(draft as Record<string, unknown>); return { ok: true, id: 'job-buy-3' } },
+    })
+    expect(drafts).toHaveLength(2)
+    for (const draft of drafts) {
+      expect(String(draft.goal)).not.toContain('Aisle')
+      expect(String(draft.goal)).toContain('home address')
+    }
+  })
+
+  it('keeps the buy ask\'s own constraints in the staged run goal', async () => {
+    const drafts: Array<Record<string, unknown>> = []
+    const ask =
+      'Reorder a product on Amazon — the same coffee beans as last time, two bags, to the home address, confirm before charging, return the order confirmation.'
+    await runToolConversation({
+      messages: [{ role: 'user', content: ask }],
+      availableTools: ['web'],
+      canDraft: true,
+      chat: async () => 'Locked. Everything is ready as soon as you are signed in.',
+      lookup: async () => [],
+      propose: async (draft) => { drafts.push(draft as Record<string, unknown>); return { ok: true, id: 'job-buy' } },
+    })
+    expect(drafts).toHaveLength(1)
+    const goal = String(drafts[0]!.goal)
+    expect(goal).toContain('two bags')
+    expect(goal).toContain('home address')
+    expect(goal).toContain('confirm before charging')
+  })
+
+  it('does not send a check-in ask to the fare search', async () => {
+    const lookups: string[] = []
+    const drafts: Array<Record<string, unknown>> = []
+    await runToolConversation({
+      messages: [{ role: 'user', content: "Check in for tomorrow's flight using the confirmation in my email and the passport information in my Drive." }],
+      availableTools: ['web', 'gmail', 'drive'],
+      canDraft: true,
+      chat: async () => '{"action":"browser","portal":"https://www.delta.com/checkin","goal":"check in for tomorrow flight with the confirmation code"}',
+      lookup: async (tool, query) => { lookups.push(`${tool}:${query}`); return [] },
+      propose: async (draft) => { drafts.push(draft as Record<string, unknown>); return { ok: true, id: 'job-checkin' } },
+    })
+    expect(lookups.filter((entry) => entry.startsWith('web:'))).toHaveLength(0)
+    expect(drafts).toHaveLength(1)
+    expect(drafts[0]).toMatchObject({ portal: 'https://www.delta.com/checkin' })
+  })
+})

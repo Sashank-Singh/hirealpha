@@ -93,6 +93,22 @@ describe('detectCityConflict', () => {
     ).toBeNull()
   })
 
+  it('does not read a capitalized tool name as a trip city', () => {
+    // Live: "passport information in Drive" made the active trip "Drive", and
+    // every later place ask (Chicago hotel, NYC flight) was answered with a
+    // nonsense "the plan in our thread is Drive" confirmation question.
+    expect(
+      detectCityConflict({
+        userText: 'Book a hotel stay in Chicago, Friday to Saturday next week, under $250/night, near the Loop.',
+        history: [
+          { role: 'user', content: "Check in for tomorrow's flight using the confirmation in email and the passport information in Drive." },
+          { role: 'assistant', content: 'There is no flight confirmation in your inbox.' },
+        ] as never,
+        now,
+      }),
+    ).toBeNull()
+  })
+
   it('stays silent for non-place asks', () => {
     expect(
       detectCityConflict({ userText: 'What is the weather in New York?', history: chicagoPlan, now }),

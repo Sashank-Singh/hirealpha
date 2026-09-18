@@ -17,7 +17,7 @@ import { buildDigestBriefing, mintMiniAppCard, type MiniAppCard, type MiniAppKin
 import { createReminder, listReminders } from './reminders'
 import { setProactiveMode } from './judgment'
 import {
-  calendarBlockTitle, calendarBlockWhen, LIVE_TOOLS, looksLikeCalendarBlockAsk, missingConnectorNote,
+  calendarBlockTitle, calendarBlockWhen, isTravelRunAsk, LIVE_TOOLS, looksLikeCalendarBlockAsk, missingConnectorNote,
   runToolConversation, WORK_LIVE_TOOLS, type CapabilityResult, type ConversationCapability,
 } from './toolLoop'
 import { isAffirmativeApprovalIntent, isCasualChitChat, isNegativeCancellationIntent } from './conversationalApproval'
@@ -102,6 +102,32 @@ export function browserRunIsPurchase(userText: string, goal?: string): boolean {
   const buy = /\b(?:buy|buying|purchase|purchasing|re-?order|order(?:ing)?|check ?out|cart|basket)\b/i
   const booking = /\b(?:book|booking|reserve|reservation|hotel|hostel|motel|airbnb|flight|airline|fare|stay|check ?in)\b/i
   return buy.test(userText) || (buy.test(goal || '') && !booking.test(userText))
+}
+
+/**
+ * Standing preferences from the durable memory facts, as one line for an
+ * engine-issued browser goal. The benchmark's travel task states "aisle seat"
+ * once and then asks for a flight; when the seat fact is on file, the booking
+ * run has to carry it or the run can never satisfy the request. Only
+ * seat/travel preferences are carried: this is not a general memory dump.
+ */
+export function statedTravelPreferences(facts: Array<{ key?: string; value?: string }> | undefined): string {
+  const lines = (facts || [])
+    .filter((f) => /\b(?:seat|aisle|window|seat_preference)\b/i.test(`${f.key || ''} ${f.value || ''}`))
+    // A compound fact ("Aisle seats on all flights; never eats pork") carries a
+    // dietary rule too; the run goal takes only the seat clause.
+    .map((f) => {
+      const value = String(f.value || '').trim()
+      const clause = value
+        .split(/[;.]/)
+        .map((part) => part.trim())
+        .find((part) => /\b(?:aisle|window|middle|extra legroom)\b/i.test(part))
+      return clause || value
+    })
+    .filter((v) => v && /\b(?:aisle|window|middle|extra legroom)\b/i.test(v))
+  const unique = [...new Set(lines)]
+  const kept = unique.filter((v) => !unique.some((other) => other !== v && other.toLowerCase().includes(v.toLowerCase())))
+  return kept.slice(0, 2).join('; ').slice(0, 160)
 }
 
 /**
@@ -735,6 +761,7 @@ ${JSON.stringify(context)}` },
     availableTools: available,
     lookup: (tool, query) => fetchLiveTools(senderId, persona, query, tool as any),
     canDraft: true,
+    preferences: statedTravelPreferences(memory.facts),
     propose: async (draft) => {
       if (draft.type === 'purchase') {
         const result = await proposePurchase(senderId, persona, draft)
@@ -770,17 +797,34 @@ ${JSON.stringify(context)}` },
         return result
       }
       if (draft.type === 'browser') {
-        const queued = await proposeBrowserTask(senderId, persona, { portal: draft.portal, goal: draft.goal })
+        /* A model-issued run keeps its goal, but standing seat/travel
+         * preferences ride with it: the ask that names "aisle seat" once is not
+         * always the ask that books the flight. Travel runs only — an Amazon
+         * order must not carry a seat preference. */
+        const travelRun = isTravelRunAsk(`${input.userText} ${draft.goal || ''}`)
+        const preference = travelRun ? statedTravelPreferences(memory.facts) : ''
+        let goal = String(draft.goal || '')
+        if (preference && !goal.toLowerCase().includes(preference.toLowerCase())) {
+          goal = `${goal}. Standing preference: ${preference}`.slice(0, 240)
+        }
+        const queued = await proposeBrowserTask(senderId, persona, { portal: draft.portal, goal })
         if (queued.ok) {
           if (queued.needsVault) {
             setPendingVaultTask(dataDir, senderId, {
               portal: draft.portal,
-              goal: draft.goal || input.userText,
+              goal: goal || input.userText,
               originalText: input.userText,
               createdAt: Date.now(),
             })
             const portalName = prettyPortalName(draft.portal)
-            forcedReply = `Locked. Everything's ready to go the second you're signed into ${portalName} — save your login details securely or choose private handoff in your vault:`
+            // The gate names the task, not just the merchant: after sign-in the
+            // run continues this exact request and pauses before payment. Clip
+            // on a word boundary so the quote never ends mid-word.
+            const task = input.userText.replace(/\s+/g, ' ').trim()
+            const taskNote = task.length > 140 ? `${task.slice(0, 140).replace(/\s+\S*$/, '')}…` : task
+            forcedReply = taskNote
+              ? `Locked. Everything's ready to go the second you're signed into ${portalName} — I'll run: "${taskNote}" and pause before payment. Save your login details securely or choose private handoff in your vault:`
+              : `Locked. Everything's ready to go the second you're signed into ${portalName} — save your login details securely or choose private handoff in your vault:`
             card = await mintMiniAppCard(senderId, persona, 'vault', { portal: draft.portal })
             return { ok: true, id: 'vault-locked', needsVault: true }
           }

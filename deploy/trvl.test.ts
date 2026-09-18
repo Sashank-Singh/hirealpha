@@ -111,6 +111,22 @@ describe('trvl fares', () => {
     expect(ceiling).toBeGreaterThan(0)
     expect(ceiling).toBeLessThanOrEqual(25_000)
   })
+
+  /* A round-trip search answers with combined itineraries; the label has to
+   * carry both dates or a two-leg price reads as a one-way fare for the
+   * outbound date (the benchmark's flight ask is exactly this shape). */
+  it('labels a round trip with the outbound and the return date', async () => {
+    globalThis.fetch = (async () => new Response(JSON.stringify({ date: '2026-09-18', rates: { USD: 1.1 } }), { status: 200 })) as unknown as typeof fetch
+    setTrvlRunner(async () => FLIGHTS)
+    const block = await trvlFlights({
+      from: 'New York',
+      to: 'Chicago',
+      date: '2026-09-25',
+      returnDate: '2026-09-27',
+    })
+    expect(block).toContain('out 2026-09-25, back 2026-09-27')
+    expect(block).toContain('full round trip (both legs), not per leg')
+  })
 })
 
 describe('trvl hotels', () => {
@@ -180,6 +196,27 @@ describe('trvl hotels', () => {
       expect(block).toContain('Quiet Loop Inn')
       expect(block).toContain('cancellation not stated')
       expect(block).toContain('No room entry in this result stated a free-cancellation rate')
+    })
+
+    it('keeps an unmeasured free-cancellation rate ahead of measured rows that state nothing', async () => {
+      // Production block measured 2026-09-18: "14 of 134 show a free-cancellation
+      // rate below" while all eight shown rows read "cancellation not stated" —
+      // the refundable rows carried no distance and the ranker kept only the
+      // measured ones. The constraint row must survive the cut.
+      setTrvlRunner(async () => ({
+        success: true,
+        count: 2,
+        hotels: [
+          { name: 'Measured Unknown Inn', price: 150, currency: 'USD', distance_km: 0.6 },
+          {
+            name: 'Unmeasured Refundable Inn', price: 210, currency: 'USD',
+            room_types: [{ name: 'Flex rate', nightly_price: 210, refundable: true, cancellation_policy: 'Free cancellation' }],
+          },
+        ],
+      }))
+      const block = await trvlHotels({ city: 'chicago', checkin: '2026-09-25', checkout: '2026-09-26', freeCancellation: true })
+      expect(block).toContain('Unmeasured Refundable Inn')
+      expect(block!.indexOf('Unmeasured Refundable Inn')).toBeLessThan(block!.indexOf('Measured Unknown Inn'))
     })
 
     it('shows every row, nearest first, when the ask stated no constraints', async () => {

@@ -324,7 +324,15 @@ export async function trvlFlights(input: {
       : ''
   const verdict = data?.price_position?.verdict
   const verdictNote = verdict && verdict !== 'unknown' ? ` Price position on this route: ${verdict}.` : ''
-  return remember(key, `${formatFares(rows, { label: `from ${from} to ${to} on ${input.date}` })}${fxNote}${verdictNote}`)
+  /* A round-trip search returns combined itineraries; the label has to say so,
+   * or the model reads a two-leg price as a one-way fare for the outbound date
+   * (measured: "American's 6:55 AM nonstop ($326 each way...)" for a $326
+   * round-trip itinerary). */
+  const label = input.returnDate
+    ? `from ${from} to ${to}: out ${input.date}, back ${input.returnDate}`
+    : `from ${from} to ${to} on ${input.date}`
+  const legNote = input.returnDate ? ' Each price is for the full round trip (both legs), not per leg.' : ''
+  return remember(key, `${formatFares(rows, { label })}${legNote}${fxNote}${verdictNote}`)
 }
 
 type TrvlRoom = {
@@ -519,16 +527,23 @@ export async function trvlHotels(input: TrvlHotelQuery): Promise<string | null> 
   /* A refundable row leads when the ask made free cancellation a hard
    * constraint: the list is capped at eight, and distance alone filled it with
    * rows whose cancellation was not stated while the eleven real
-   * free-cancellation rates sat below the cut. */
+   * free-cancellation rates sat below the cut. Measured production block that
+   * made this concrete: "14 of 134 show a free-cancellation rate below" while
+   * all eight shown rows read "cancellation not stated" — the refundable rows
+   * had no distance and the old ranker kept only the measured ones. */
   const confirmedFirst = (a: TrvlHotelRow, b: TrvlHotelRow) =>
     (input.freeCancellation ? Number(b.refundableUsd !== null) - Number(a.refundableUsd !== null) : 0)
   /* Distance leads when the ask named an area, then the cheapest rate: the ask
    * was almost always "near where I am", and a distant bargain is not the
-   * answer to it. */
-  const measured = rows.filter((h) => h.distanceKm > 0)
-  const ranked = measured.length
-    ? [...measured].sort((a, b) => confirmedFirst(a, b) || a.distanceKm - b.distanceKm || a.priceUsd - b.priceUsd)
-    : [...rows].sort((a, b) => confirmedFirst(a, b) || a.priceUsd - b.priceUsd)
+   * answer to it. An unmeasured row sorts after a measured one but is never
+   * dropped for lacking a distance. */
+  const byDistanceThenPrice = (list: TrvlHotelRow[]) =>
+    [...list].sort((a, b) => {
+      const da = a.distanceKm > 0 ? a.distanceKm : Number.POSITIVE_INFINITY
+      const db = b.distanceKm > 0 ? b.distanceKm : Number.POSITIVE_INFINITY
+      return da - db || a.priceUsd - b.priceUsd
+    })
+  const ranked = byDistanceThenPrice(rows).sort(confirmedFirst)
   const lines = ranked.slice(0, 8).map((h) => {
     const bits = [
       `$${h.priceUsd}/night`,

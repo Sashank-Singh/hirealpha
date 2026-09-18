@@ -3,23 +3,20 @@
   "phone": "+12163032166",
   "userText": "Reorder a product on Amazon — the same coffee beans as last time, two bags, to the home address, confirm before charging, return the order confirmation.",
   "bubbles": [
-    "Locked. Everything's ready to go the second you're signed into Amazon, save your login details securely or choose private handoff in your vault:"
+    "Locked. Everything's ready to go the second you're signed into Amazon, I'll run: \"Reorder a product on Amazon, the same coffee beans as last time, two bags, to the home address, confirm before charging, return the order c\" and pause before payment. Save your login details securely or choose private handoff in your vault:"
   ],
-  "reply": "Locked. Everything's ready to go the second you're signed into Amazon, save your login details securely or choose private handoff in your vault:",
+  "reply": "Locked. Everything's ready to go the second you're signed into Amazon, I'll run: \"Reorder a product on Amazon, the same coffee beans as last time, two bags, to the home address, confirm before charging, return the order c\" and pause before payment. Save your login details securely or choose private handoff in your vault:",
   "source": "gmi",
   "authoritative": [
-    "proactive",
-    "unanswered_day_count",
-    "unanswered_proactive",
     "hasVault",
     "vaultOrigins"
   ],
   "card": {
-    "url": "https://hirealpha.chat/app/mini/friend/vault?t=eyJwaG9uZSI6IisxMjE2MzAzMjE2NiIsInBlcnNvbmEiOiJmcmllbmQiLCJraW5kIjoidmF1bHQiLCJleHAiOjE3OTAzNzA3Njk2ODR9.Dg8onuBIUVxy6OptRNwTnlAFFzJiCr6M_TTE8xWedAg&portal=https%3A%2F%2Fwww.amazon.com",
+    "url": "https://hirealpha.chat/app/mini/friend/vault?t=eyJwaG9uZSI6IisxMjE2MzAzMjE2NiIsInBlcnNvbmEiOiJmcmllbmQiLCJraW5kIjoidmF1bHQiLCJleHAiOjE3OTAzNzE0MDcwMTZ9.pPR5bune5jqQmBaMm_ziKSbxfRtUpIhqoq87f-ZYRl8&portal=https%3A%2F%2Fwww.amazon.com",
     "live": false
   },
   "contactCardFirst": false,
   "progress": [],
   "reactions": [],
-  "totalMs": 7085
+  "totalMs": 39711
 }
