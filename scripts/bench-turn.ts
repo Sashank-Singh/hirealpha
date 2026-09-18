@@ -123,6 +123,13 @@ const out = {
   contactCardFirst: result.contactCardFirst ?? false,
   progress,
   reactions,
+  // A generated picture is delivery, not text: record its shape so a bench run
+  // can prove the image half of a dimension without dumping base64.
+  images: (result.images || []).map((image) => ({
+    mimeType: image.mimeType,
+    bytes: Math.round((image.dataUrl.length * 3) / 4),
+    caption: image.caption || '',
+  })),
   totalMs: Date.now() - started,
 }
 

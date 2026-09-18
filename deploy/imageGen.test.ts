@@ -1,0 +1,40 @@
+import { afterEach, describe, expect, it } from 'bun:test'
+import { generateImage, renderPrompt } from './imageGen'
+
+const realFetch = globalThis.fetch
+afterEach(() => { globalThis.fetch = realFetch })
+
+describe('the render prompt', () => {
+  it('carries the no-lettering clause and stays bounded', () => {
+    const prompt = renderPrompt('  a dog hosting a 1990s trivia game   for the group ')
+    expect(prompt).toContain('no words')
+    expect(prompt).toContain('a dog hosting a 1990s trivia game for the group')
+    expect(renderPrompt('x'.repeat(900)).length).toBeLessThan(600)
+  })
+
+  it('refuses an empty ask instead of rendering nothing', () => {
+    expect(renderPrompt('   ')).toContain('no words')
+  })
+})
+
+describe('generation', () => {
+  /* The provider is a free open endpoint; the product must degrade to "no
+   * image" rather than to a broken bubble when it answers with prose, a
+   * redirect body, or a 200 with an HTML content type. */
+  it('returns null when the provider answers with something that is not an image', async () => {
+    globalThis.fetch = (async () => new Response('<html>busy</html>', { status: 200, headers: { 'content-type': 'text/html' } })) as unknown as typeof fetch
+    expect(await generateImage('a dog')).toBeNull()
+  })
+
+  it('returns null on a provider error', async () => {
+    globalThis.fetch = (async () => new Response('nope', { status: 502 })) as unknown as typeof fetch
+    expect(await generateImage('a dog')).toBeNull()
+  })
+
+  it('wraps real bytes in a data URL', async () => {
+    globalThis.fetch = (async () => new Response(new Uint8Array([1, 2, 3, 4]), { status: 200, headers: { 'content-type': 'image/jpeg' } })) as unknown as typeof fetch
+    const image = await generateImage('a dog')
+    expect(image?.mimeType).toBe('image/jpeg')
+    expect(image?.dataUrl.startsWith('data:image/jpeg;base64,')).toBe(true)
+  })
+})

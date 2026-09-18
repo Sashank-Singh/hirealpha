@@ -479,7 +479,7 @@ async function runTurn(
         sentAnything = true
         return
       }
-      const { bubbles, source, authoritative, reply, card, contactCardFirst, userText } = turnResult
+      const { bubbles, source, authoritative, reply, card, contactCardFirst, userText, images } = turnResult
       const texts = bubbles.map((b) => sanitizeOutbound(b)).filter(Boolean)
       if (!texts.length) {
         if (card) {
@@ -514,6 +514,24 @@ async function runTurn(
         // split into parts reads as someone typing, not a batch landing.
         await new Promise((resolve) => setTimeout(resolve, bubbleGapMs(i, texts[i]!.length)))
         await space.send(styledText(texts[i]!))
+      }
+      // A generated picture goes out as a real attachment, the same path a
+      // browser screenshot takes. Best-effort: a failed image must never cost
+      // the text that describes it.
+      for (const image of images || []) {
+        try {
+          const match = /^data:(image\/[a-z0-9.+-]+);base64,(.+)$/i.exec(image.dataUrl)
+          if (!match) continue
+          const bytes = Buffer.from(match[2]!, 'base64')
+          if (!bytes.byteLength || bytes.byteLength > 4_000_000) {
+            console.warn(`[${agent.id}] image dropped: ${bytes.byteLength} bytes`)
+            continue
+          }
+          const ext = match[1]!.includes('png') ? 'png' : 'jpg'
+          await space.send(attachment(bytes, { mimeType: match[1]!, name: `alpha-image.${ext}` }))
+        } catch (err) {
+          console.warn(`[${agent.id}] image send failed`, err)
+        }
       }
       // Every response carries the mini-app card, attached after the LAST bubble.
       const delivered = card ?? (await defaultReplyCard(senderId, agentId))

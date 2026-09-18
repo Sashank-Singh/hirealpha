@@ -65,6 +65,11 @@ export type TurnIntent =
     }
   /** Affirmation or cancellation of something Alpha just proposed. */
   | { kind: 'approval'; decision: 'affirm' | 'deny' }
+  /** The user asked for a picture. Carries the prompt to render, in their
+   * terms — this is a model judgement, not a keyword scan, so "draw me a
+   * birthday card for the group" reads as an image ask while "add a picture
+   * to my to-do list" does not. */
+  | { kind: 'image'; image: { prompt: string } }
 
 export type ClassifyInput = {
   userText: string
@@ -191,6 +196,13 @@ export function normalizeTurnIntent(raw: unknown): TurnIntent {
     if (decision === 'affirm' || decision === 'deny') return { kind: 'approval', decision }
   }
 
+  if (kind === 'image') {
+    const image = data.image as Record<string, unknown> | undefined
+    const prompt = shortText(image?.prompt, 400)
+    // A picture ask with no describable subject is a guess; answer as chat.
+    return prompt ? { kind: 'image', image: { prompt } } : { kind: 'chat' }
+  }
+
   return { kind: 'chat' }
 }
 
@@ -233,6 +245,15 @@ Rules for logs:
 
 4. The user is answering a proposal Alpha made (only when a pending question is shown below):
 {"kind":"approval","decision":"affirm"}  or  {"kind":"approval","decision":"deny"}
+
+5. The user wants a PICTURE made — an image, illustration, drawing, poster, card, logo, or artwork:
+{"kind":"image","image":{"prompt":"a birthday card with a dog hosting a 1990s trivia game, party balloons"}}
+
+Rules for images:
+- The prompt is what to draw, in their terms, with any style or content they named. Keep it one line.
+- Only a picture they want CREATED is an image. Saving, sending, finding or describing an existing photo is not: "save this picture", "what's in this photo", "find me a picture of a dog" are requests or chat.
+- "make me a birthday card" and "draw a logo for my bakery" are images. "make me a to-do list" and "build me a web page" are not — those are requests.
+- A web page or app that happens to show art is still a request (needsBrowser false, needsLookup false), not an image.
 
 Reply with JSON only. No prose, no code fences.`
 

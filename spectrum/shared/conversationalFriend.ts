@@ -1,6 +1,7 @@
 import type { DeliveryHooks } from './progressiveDelivery'
 import { sanitizeOutbound } from './runHireTurn'
 import { classifyTurnStrict, ClassifierUnavailableError, logsOf } from './turnIntent'
+import { generateTurnImage, type TurnImage } from './imageRequest'
 import { getAgent, type AgentId } from '../../src/agents'
 import { runAgentLocally } from '../../src/agents/runtime'
 import { formatNowForAgent, pickUserTimezone } from '../../deploy/timezones'
@@ -413,6 +414,32 @@ export async function runConversationalFriend(input: {
       return { reply, bubbles: [reply], source, authoritative: live.found ? Object.keys(live.context) : [], card: null }
     }
     console.warn(`[${persona}] fast-path gate missed a "${gateIntent.kind}" turn; running the tool engine on the classifier's answer`)
+  }
+  /* A picture ask gets a picture. The classifier decides that the turn is an
+   * image request (nothing in this path pattern-matches user language); the
+   * server route owns the provider. Before this, every picture ask came back
+   * as either "I can't generate images" or a workshop HTML card, which is a
+   * different artifact — the dimension asks for the image itself. */
+  {
+    const intent = await intentPromise
+    if (intent.kind === 'image') {
+      const image = await generateTurnImage(senderId, intent.image.prompt)
+      const reply = image
+        ? "Made it — here's the picture. Tell me what to change and I'll redo it."
+        : "I couldn't finish that picture — the image service didn't answer. Say it again and I'll retry."
+      appendThread(dataDir, senderId, [
+        { role: 'user', content: input.userText },
+        { role: 'assistant', content: reply },
+      ])
+      return {
+        reply,
+        bubbles: [reply],
+        source: 'gmi' as const,
+        authoritative: [],
+        card: null,
+        images: image ? [{ ...image, caption: input.userText.slice(0, 200) }] : [],
+      }
+    }
   }
   const readApps = PERSONA_READ_APPS[persona] || PERSONA_READ_APPS.friend
   /* Connected work connectors are readable in a friend turn too. They used to

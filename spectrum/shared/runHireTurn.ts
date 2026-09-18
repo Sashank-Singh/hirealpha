@@ -8,6 +8,7 @@ import { runAgentLocally } from '../../src/agents/runtime'
 import { runConversationalFriend } from './conversationalFriend'
 import { previousUserAsk, rewriteWithCorrection, rewriteWithRefinement } from './followUpCorrection'
 import { classifyTurnStrict } from './turnIntent'
+import type { TurnImage } from './imageRequest'
 import { isAffirmativeApprovalIntent, isNegativeCancellationIntent } from './conversationalApproval'
 import { skillsPromptBlock, SKILLS } from './skills'
 import { gmiChat } from './gmi'
@@ -817,6 +818,9 @@ export async function runHireTurn(input: {
   /** True on the pinned first-text welcome: the bot should share its contact
    * card BEFORE the reply so the Add banner leads the conversation. */
   contactCardFirst?: boolean
+  /** Pictures generated for this turn (an image ask). The bot attaches them
+   * after the text, the same way a browser screenshot rides along. */
+  images?: TurnImage[]
 }> {
   const agent = getAgent(input.agentId)
   /* The turn clock, for the message log: how long the user waited between

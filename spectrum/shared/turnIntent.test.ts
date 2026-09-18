@@ -57,6 +57,16 @@ describe('intent normalization', () => {
     expect(normalizeTurnIntent({ kind: 'approval', decision: 'affirm' })).toEqual({ kind: 'approval', decision: 'affirm' })
     expect(normalizeTurnIntent({ kind: 'approval', decision: 'maybe' })).toEqual({ kind: 'chat' })
   })
+
+  it('keeps an image ask only when it carries a describable subject', () => {
+    expect(normalizeTurnIntent({ kind: 'image', image: { prompt: 'a dog hosting a 90s trivia night' } })).toEqual({
+      kind: 'image',
+      image: { prompt: 'a dog hosting a 90s trivia night' },
+    })
+    // A picture ask with no subject renders whatever the provider dreams up.
+    expect(normalizeTurnIntent({ kind: 'image', image: { prompt: '   ' } })).toEqual({ kind: 'chat' })
+    expect(normalizeTurnIntent({ kind: 'image' })).toEqual({ kind: 'chat' })
+  })
 })
 
 const live = Boolean(process.env.GMI_API_KEY)
@@ -90,6 +100,20 @@ async function classifyForTest(text: string, attempts = 4) {
  * right: a request writes nothing, which is the property this list is about.
  * Asserting 'chat' for it would have been asserting my own first guess rather
  * than what the turn should do. */
+
+const MUST_BE_IMAGE = [
+  'Create a birthday image with a dog playing a 1990s trivia game for the group',
+  'draw a poster for our trivia night, dog host, 90s theme',
+]
+
+/** Picture asks that are NOT generations: an existing photo is found, saved or
+ * described rather than drawn. */
+const NOT_IMAGE = [
+  'save this picture for later',
+  'find me a picture of a samoyed puppy',
+  'make me a to-do list for the trip',
+]
+
 const MUST_BE_CHAT = [
   'good morning',
   'good night',
@@ -141,6 +165,18 @@ describe.skipIf(!live)('intent classification (live model)', () => {
     expect(intent.request.needsBrowser).toBe(true)
     expect(intent.request.site).toContain('opentable.com')
   }, 60_000)
+
+  it('reads a picture ask as an image, and an existing photo as not one', async () => {
+    for (const text of MUST_BE_IMAGE) {
+      const intent = await classifyForTest(text)
+      expect({ text, kind: intent.kind }).toEqual({ text, kind: 'image' })
+      if (intent.kind === 'image') expect(intent.image.prompt.length).toBeGreaterThan(10)
+    }
+    for (const text of NOT_IMAGE) {
+      const intent = await classifyForTest(text)
+      expect({ text, kind: intent.kind === 'image' ? 'image' : 'not-image' }).toEqual({ text, kind: 'not-image' })
+    }
+  }, 240_000)
 
   it('reads a current-facts question as a lookup request', async () => {
     const intent = await classifyForTest('what is the latest news on apple')

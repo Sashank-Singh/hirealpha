@@ -13,6 +13,7 @@ import { AsyncLocalStorage } from 'node:async_hooks'
 import { readFile, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { gateWorkshopCode, runWorkshopCode, sweepExpiredArtifacts } from './workshop'
+import { generateImage } from './imageGen'
 import { dateFromText, datesFromText, looksLikeFlightAsk, routeFromText, looksLikeHotelAsk, serpApiAllowedFor, serpFlightFares, serpHotelRates } from './serpapi'
 import { knownCityIn, trvlFlights, trvlHotels } from './trvl'
 import type { SQL } from 'bun'
@@ -17234,6 +17235,22 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
     await db`DELETE FROM hire_artifacts WHERE id = ${id} AND user_id = ${userId}`
     void persona
     return { ok: true, logged: true, id }
+  }
+
+  /* Image generation for a picture ask. The bot's classifier decides that an
+   * image is what was asked for (no pattern matching in the conversation path);
+   * this route owns the provider, so a keyed provider replaces one function
+   * call and the bot never learns which one ran. */
+  if (path === '/api/internal/image' && req.method === 'POST') {
+    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
+    const body = (await req.json().catch(() => ({}))) as { phone?: string; prompt?: string; width?: number; height?: number }
+    const prompt = String(body.prompt || '').trim()
+    if (!prompt) return json({ error: 'prompt required' }, 400)
+    if (prompt.length > 500) return json({ error: 'prompt too long' }, 400)
+    const image = await generateImage(prompt, { width: body.width, height: body.height })
+    if (!image) return json({ error: 'image generation unavailable' }, 502)
+    console.log(`[image] generated for ${body.phone || 'unknown'} (${image.mimeType}, prompt ${image.prompt.length} chars)`)
+    return json({ ok: true, dataUrl: image.dataUrl, mimeType: image.mimeType, model: image.model })
   }
 
   if (path === '/api/internal/workshop/count' && req.method === 'GET') {
