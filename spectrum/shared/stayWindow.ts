@@ -34,6 +34,16 @@ function nextWeekday(weekday: number, from: Date): Date {
   return day
 }
 
+/** Monday-anchored week comparison, so "next week" can be honoured. */
+function sameWeek(a: Date, b: Date): boolean {
+  const monday = (d: Date) => {
+    const copy = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()))
+    copy.setUTCDate(copy.getUTCDate() - ((copy.getUTCDay() + 6) % 7))
+    return copy.toISOString().slice(0, 10)
+  }
+  return monday(a) === monday(b)
+}
+
 function weekdayIndex(token: string): number | null {
   const t = token.toLowerCase().replace(/[^a-z]/g, '')
   const full = WEEKDAYS.indexOf(t)
@@ -94,7 +104,14 @@ export function stayWindowFromAsk(text: string, now = new Date()): StayWindow | 
   if (nights === null) return null
 
   const anchor = weekdays.length ? weekdays[0]! : null
-  const checkIn = anchor === null ? new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1)) : nextWeekday(anchor, now)
+  let checkIn = anchor === null ? new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1)) : nextWeekday(anchor, now)
+  /* "next week" means the week after this one. Asking on a Friday, "Friday
+   * next week" resolved to today and every rate came back for the wrong
+   * weekend — the arithmetic was right and the week was not. */
+  if (anchor !== null && /\bnext\s+week\b/i.test(ask) && sameWeek(checkIn, now)) {
+    checkIn = new Date(checkIn)
+    checkIn.setUTCDate(checkIn.getUTCDate() + 7)
+  }
   const checkOut = new Date(checkIn)
   checkOut.setUTCDate(checkOut.getUTCDate() + nights)
   return { checkIn: ymd(checkIn), checkOut: ymd(checkOut), nights }

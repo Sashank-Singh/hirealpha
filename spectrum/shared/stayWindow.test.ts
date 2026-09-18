@@ -7,8 +7,23 @@ const FRIDAY = new Date('2026-09-18T15:00:00Z')
 describe('stayWindowFromAsk', () => {
   /* Live: "hotel in Chicago for Friday and Saturday next week" was read as one
    * night, so every rate the user saw was for the wrong stay. */
+  it('honours "next week"', () => {
+    // Asked on a Friday, "Friday and Saturday next week" is the following
+    // weekend, not tonight: same arithmetic, different week.
+    expect(stayWindowFromAsk('hotel in Chicago for Friday and Saturday next week', FRIDAY)).toEqual({
+      checkIn: '2026-09-25',
+      checkOut: '2026-09-27',
+      nights: 2,
+    })
+    expect(stayWindowFromAsk('hotel Tuesday to Thursday next week', FRIDAY)).toEqual({
+      checkIn: '2026-09-22',
+      checkOut: '2026-09-24',
+      nights: 2,
+    })
+  })
+
   it('reads two named nights as two nights', () => {
-    expect(stayWindowFromAsk('Book me a hotel in Chicago for Friday and Saturday next week, under 250 a night', FRIDAY)).toEqual({
+    expect(stayWindowFromAsk('Book me a hotel in Chicago for Friday and Saturday, under 250 a night', FRIDAY)).toEqual({
       checkIn: '2026-09-18',
       checkOut: '2026-09-20',
       nights: 2,

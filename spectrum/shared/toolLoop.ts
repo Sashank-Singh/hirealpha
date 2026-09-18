@@ -429,7 +429,14 @@ export async function runToolConversation(input: {
     const base = ((askLed ? opts.ask : opts.summary || opts.ask) || stripToolDirectives(opts.raw)).trim()
     const pref = isTravelRunAsk(`${opts.ask} ${base}`) ? String(input.preferences || '').trim() : ''
     const withPref = pref && !base.toLowerCase().includes(pref.toLowerCase()) ? `${base}. Standing preference: ${pref}` : base
-    const goalText = withPref.slice(0, 240)
+    /* The resolved stay window rides the goal too. The dates a run books are
+     * the ones in its goal, and the model's own reading of "Friday and Saturday
+     * next week" was a single night in the wrong week. */
+    const stay = isTravelRunAsk(opts.ask) ? stayWindowFromAsk(opts.ask) : null
+    const withStay = stay && !withPref.includes(stay.checkOut)
+      ? `${withPref}. Stay ${stay.checkIn} to ${stay.checkOut} (${stay.nights} night${stay.nights === 1 ? '' : 's'})`
+      : withPref
+    const goalText = withStay.slice(0, 300)
     if (goalText.length < 8) return null
     try {
       const queued = await input.propose({ type: 'browser', portal: opts.portal, goal: goalText })
