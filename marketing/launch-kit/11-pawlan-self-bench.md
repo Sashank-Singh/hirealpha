@@ -734,7 +734,7 @@ recorded as a floor.
   by any of the 16 turns). The three-signal evening scenario still needs an
   evening observation window.
 
-### 16. Images/games — games 7, images 0
+### 16. Images/games — games 7, images 7
 
 - Ask: “Make me a trivia game I can play in chat. 90s edition, dog host.”
 - Outcome: a real artifact — planner → sandbox → inline-script parse all
@@ -745,15 +745,31 @@ recorded as a floor.
   failed in 10 s with no build call reaching the server and blamed “the app
   builder”; the planner now waits 1.5 s before spending its second pass on a
   provider refusal window (fixed here).
-- Images: 0 — no image-generation provider is configured, and the reply says so
-  rather than pretending. A key (fal.ai FLUX schnell ≈ $0.003/image) is the
-  only missing piece.
+- Images: 7 — **built and verified on the production line after this run.**
+  The image half had been scored 0 on the assumption that only a paid key could
+  produce a picture; that assumption was wrong. A picture ask is now classified
+  as an image by the same model call that decides the rest of the turn (no
+  patterns in the conversation path), the prompt it extracts goes to
+  `/api/internal/image`, and the bytes come back as a real attachment on the
+  same path a browser screenshot already uses. Live in the founder's thread:
+  *"Create a birthday image with a dog playing a 1990s trivia game for the
+  group"* → *"Made it, here's the picture. Tell me what to change and I'll redo
+  it."* with a 47KB JPEG attached; the server log carries
+  `[image] generated for +12163032166 (image/jpeg)`.
+- Why 7 and not 10: iteration is supported but not yet exercised end to end,
+  the free provider watermarks its corner, and it sometimes plasters garbled
+  lettering across the card despite the prompt's no-text clause (measured on
+  two renders; the clause was strengthened and is stated twice). A keyed
+  provider — fal.ai FLUX schnell ≈ $0.003/image — replaces one function call
+  and removes both artifacts; it stays on the decision list as an upgrade, not
+  as a blocker.
 
 ### Rehearsal aggregate
 
 - Scored dimensions: 15 of 15 attempted (11 unscored items above are recorded
   as reachable vs blocked).
-- Aggregate ≈ 5.1/10 on the written anchors. Strongest: routine (7,
+- Aggregate ≈ 5.8/10 on the written anchors (dim 16's image half moved from
+  0 to 7 when the image path shipped the same evening). Strongest: routine (7,
   deterministic), picks (7), memory (7), permissions (7), restraint (7),
   games (7). Weakest: purchasing (3), email (3), integrations (3), chained (3),
   images (0).
@@ -837,7 +853,9 @@ log, which prints every inbound and every outgoing bubble.
 4. The check-in execution decision: whether Alpha may check in with the airline
    when the window opens (capability + policy).
 5. The passport-data decision for dim 14 (where the number may read it from).
-6. An image-generation key (~$0.003/image) for dim 16's image half.
+6. An image-generation key (~$0.003/image) to upgrade dim 16's image half:
+   images now ship on a free open endpoint, so this is a quality upgrade
+   (no watermark, no garbled lettering), not a blocker.
 7. Notion and Slack reconnected with write access, plus the write tools
    themselves (dim 8).
 8. pgvector on the production Postgres (memory recall quality).
