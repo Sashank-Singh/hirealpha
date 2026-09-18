@@ -215,7 +215,15 @@ export async function trvlFlights(input: {
   const hit = cached(key)
   if (hit) return hit
 
-  const args = ['flights', from, to, input.date, '--format', 'json']
+  /* A city maps to several airports and trvl searches every pair: JFK,EWR,LGA
+   * × ORD,MDW is six routes, doubled for a round trip. Measured from the
+   * container that fanned out into skiplagged and kiwi 429s and blew past both
+   * this timeout and the bot's patience (exit 137 = our own kill). The primary
+   * airport answers first; TRVL_MAX_AIRPORTS widens it deliberately. */
+  const maxAirports = Math.max(1, Number(process.env.TRVL_MAX_AIRPORTS || '1') || 1)
+  const fromIata = from.split(',').slice(0, maxAirports).join(',')
+  const toIata = to.split(',').slice(0, maxAirports).join(',')
+  const args = ['flights', fromIata, toIata, input.date, '--format', 'json']
   if (input.returnDate) args.push('--return', input.returnDate)
   if (input.cabin) args.push('--cabin', input.cabin)
   if (input.maxStops === 0) args.push('--stops', 'nonstop')
