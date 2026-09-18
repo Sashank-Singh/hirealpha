@@ -52,6 +52,31 @@ const REJECT_WORDS = new Set([
   'drive', 'gmail', 'email', 'inbox', 'calendar', 'vault', 'photos', 'notes',
 ])
 
+/* Cities we know by name. Anything else is not a city for this check.
+ *
+ * A reject list could not hold: any capitalized word after a preposition read
+ * as a place, so "from Amazon" became a city and the conflict confirm fired on
+ * an order ("the plan in our thread is Chicago, but you just asked about
+ * Amazon"). Missing a real conflict in an unknown city is the milder failure —
+ * the confirm is a courtesy, hijacking every order is not.
+ */
+const KNOWN_CITIES = new Set([
+  'chicago', 'new york', 'san francisco', 'los angeles', 'boston', 'seattle', 'austin', 'denver',
+  'miami', 'atlanta', 'dallas', 'houston', 'phoenix', 'las vegas', 'philadelphia', 'washington',
+  'portland', 'nashville', 'new orleans', 'minneapolis', 'detroit', 'cleveland', 'columbus',
+  'cincinnati', 'pittsburgh', 'charlotte', 'orlando', 'tampa', 'san diego', 'san jose', 'sacramento',
+  'san antonio', 'salt lake city', 'kansas city', 'st louis', 'baltimore', 'milwaukee', 'indianapolis',
+  'london', 'paris', 'rome', 'milan', 'barcelona', 'madrid', 'amsterdam', 'berlin', 'munich',
+  'zurich', 'vienna', 'lisbon', 'dublin', 'istanbul', 'athens', 'prague', 'warsaw', 'copenhagen',
+  'stockholm', 'oslo', 'brussels', 'geneva', 'tokyo', 'osaka', 'kyoto', 'seoul', 'beijing',
+  'shanghai', 'hong kong', 'singapore', 'bangkok', 'hanoi', 'jakarta', 'manila', 'kuala lumpur',
+  'sydney', 'melbourne', 'brisbane', 'perth', 'auckland', 'toronto', 'vancouver', 'montreal',
+  'calgary', 'ottawa', 'mexico city', 'cancun', 'bogota', 'lima', 'santiago', 'buenos aires',
+  'sao paulo', 'rio de janeiro', 'dubai', 'abu dhabi', 'doha', 'riyadh', 'delhi', 'new delhi',
+  'mumbai', 'bengaluru', 'bangalore', 'hyderabad', 'chennai', 'cairo', 'johannesburg', 'cape town',
+  'nairobi', 'tel aviv', 'jerusalem', 'honolulu', 'anchorage', 'palm springs', 'santa monica',
+])
+
 const CITY_ALIASES: Record<string, string> = {
   nyc: 'new york',
   ny: 'new york',
@@ -81,9 +106,10 @@ export function normalizeCity(raw: string | null | undefined): string | null {
   if (!words.length) return null
   const joined = words.join(' ').toLowerCase()
   const aliased = CITY_ALIASES[joined] || joined
-  // Reject the stop words only when they are the whole candidate.
   if (aliased.length < 2) return null
-  return aliased
+  // Known cities only: a capitalized word after a preposition is a brand, a
+  // tool or a person's name far more often than it is a place.
+  return KNOWN_CITIES.has(aliased) ? aliased : null
 }
 
 /**

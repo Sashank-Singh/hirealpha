@@ -128,3 +128,33 @@ describe('detectCityConflict', () => {
     expect(instruction).toContain('Do NOT search or book')
   })
 })
+
+describe('only real cities can conflict', () => {
+  /* The confirm hijacked real traffic twice: "passport information in Drive"
+   * and then "the same coffee beans … from Amazon" both became the ask city,
+   * so an order was answered with "the plan in our thread is Chicago, but you
+   * just asked about Amazon". */
+  it('does not read a brand or a tool name as a city', () => {
+    expect(normalizeCity('Amazon')).toBeNull()
+    expect(normalizeCity('Drive')).toBeNull()
+    expect(normalizeCity('Verkada')).toBeNull()
+    expect(normalizeCity('Gmail')).toBeNull()
+  })
+
+  it('still reads the cities the check exists for', () => {
+    expect(normalizeCity('Chicago')).toBe('chicago')
+    expect(normalizeCity('New York')).toBe('new york')
+    expect(normalizeCity('NYC')).toBe('new york')
+    expect(normalizeCity('Chicago Friday')).toBe('chicago')
+  })
+
+  it('leaves an order alone even when a trip is planned in the thread', () => {
+    const history = [
+      { role: 'user' as const, content: 'Book me a hotel in Chicago for Friday and Saturday next week' },
+      { role: 'assistant' as const, content: 'Staged the Loop hotel.' },
+    ]
+    expect(detectCityConflict({ userText: 'Order the same coffee beans I bought last time from Amazon, two bags, to my home address', history })).toBeNull()
+    // And the case it exists for still fires.
+    expect(detectCityConflict({ userText: 'Find a dinner spot for four in New York tomorrow at 7:30', history })?.askCity).toBe('new york')
+  })
+})
