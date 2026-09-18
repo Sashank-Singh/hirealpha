@@ -1,3 +1,4 @@
+import { stayWindowFromAsk } from './stayWindow'
 import { createProgressiveDelivery, type DeliveryHooks } from './progressiveDelivery'
 import type { TurnIntent } from './turnIntent'
 export const LIVE_TOOLS = ['maps', 'web', 'gmail', 'calendar', 'drive', 'weather'] as const
@@ -337,7 +338,13 @@ export async function runToolConversation(input: {
   const runTravelLookup = async (): Promise<string> => {
     if (!bookTravelAsk || travelLookupTried || !input.availableTools.includes('web')) return ''
     travelLookupTried = true
-    const query = lastUserAsk.trim()
+    /* The ask's own stay window wins over the dates the model guessed: "Friday
+     * and Saturday" came back as a single night, so every rate shown was for
+     * the wrong stay. Explicit dates in the ask are left alone. */
+    const stay = stayWindowFromAsk(lastUserAsk)
+    const query = stay
+      ? `${lastUserAsk.trim()} from ${stay.checkIn} to ${stay.checkOut}`
+      : lastUserAsk.trim()
     if (!query) return ''
     // Mark it seen so a model lookup of the same ask is a duplicate, not a
     // second 20-50s provider search.
