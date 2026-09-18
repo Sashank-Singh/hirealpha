@@ -951,9 +951,18 @@ Reactions are optional and usually absent. You may add "reaction":"<emoji>" to a
               } catch { /* the requested lookup below may still answer */ }
             }
           }
+          /* The server's travel resolver reads the dates, the area and the
+           * price ceiling out of the phrasing it is handed, and the model's
+           * paraphrase loses at least one of them: "Friday morning out, Sunday
+           * evening back" asked on a Friday came back as today's Friday in the
+           * model's query while the staged window said next Friday, so one
+           * reply carried two different date ranges. For a travel ask the
+           * user's own words go to the resolver. */
+          const lookupQuery =
+            bookTravelAsk && lookup.tool === 'web' && lastUserAsk.trim() ? lastUserAsk.trim() : lookup.query
           let data: string[]
           try {
-            data = await progress.stage(STAGE_LINE[lookup.tool] || 'I’m checking the sources for this.', () => fetchLookup(lookup.tool, lookup.query))
+            data = await progress.stage(STAGE_LINE[lookup.tool] || 'I’m checking the sources for this.', () => fetchLookup(lookup.tool, lookupQuery))
           } catch (error) {
             if (lookup.tool !== 'maps') throw error
             data = []
@@ -964,7 +973,7 @@ Reactions are optional and usually absent. You may add "reaction":"<emoji>" to a
             if (!seen.has(webKey)) {
               seen.add(webKey)
               sourceTool = 'web'
-              data = await fetchLookup('web', lookup.query)
+              data = await fetchLookup('web', lookupQuery)
             }
           }
           // A map result carries its own place links and is answered by the
