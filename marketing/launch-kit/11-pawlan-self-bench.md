@@ -593,7 +593,197 @@ exercise is the browser execution stack end to end — the same machinery dims 1
   benchmark has no posting dimension, so this stays supporting evidence for
   dims 1, 4 and 14; no aggregate moves.
 
+## 2026-09-18 — third runtime: bench harness + local stack, all 16 dimensions
+
+Production channel: the real turn engine (`scripts/bench-turn.ts`) driving the
+production API and the local stack (`scripts/dev-stack.sh`), delivery captured
+and never texted. Revision at run time: `4ac0a74` on main (Web/Worker/Friend on
+`bb4f8d5`+ at run start; the fixes in this record are committed, not yet
+deployed). Model: `zai-org/GLM-5.3-Flash`.
+
+What this run had that the last two did not: the same task can be re-run in
+seconds against a local Postgres and a local API (`BENCH_API_URL`), so a defect
+found mid-run was fixed and re-measured inside the run instead of being
+recorded as a floor.
+
+### 1. Online task (hotel) — 6
+
+- Ask: “Book me a hotel in Chicago for Friday and Saturday next week, under 250
+  a night, near the Loop, with free cancellation.”
+- Reply: real dated rates for **Fri Sep 25 → Sun Sep 27** merged from six
+  booking sources, each with nightly price, star rating, review count and
+  distance (LondonHouse $196 / 1.4 km, Homewood Suites $180 / 1.8 km, The
+  Midland $238 / 0.9 km), an honest flag that **no listing stated a free
+  cancellation policy**, a recommendation, and a staged booking that pauses
+  before payment.
+- Why not 7: the ask named free cancellation and the source had no refundable
+  row that day, so one of the three constraints is explicitly unmet; the run is
+  staged, not completed.
+- Fixes proved inside this run: the rate block ran through `trvl` for the first
+  time on the local stack (the binary was missing locally — the local bench had
+  been reading “live pricing could not be verified” as a product failure when it
+  was an absent file; `scripts/dev-stack.sh` now installs it).
+
+### 2. Travel — 5
+
+- Ask: “Book a round trip flight from New York to Chicago, Friday morning out,
+  Sunday evening back, aisle seat, under $400. Then check in when the window
+  opens and send me the boarding pass.”
+- Reply: dates and route resolved (JFK/EWR/LGA → ORD/MDW, out Sep 18, back Sep
+  20), real fares when the source answered, an explicit statement that check-in
+  and boarding-pass delivery happen 24 h before departure, and a reminder
+  offered for the window.
+- Why 5: the round trip was killed by the old 25 s ceiling at 25 005 ms and the
+  dimension fell back to a web listicle; the same command by hand returns 12
+  fares in ~30 s. Three defects were fixed inside this run and are to be
+  re-measured next time: the ceiling moved to 45 s; the duplicate itinerary rows
+  collapsed (four “JetBlue B6 405, $336” rows with three invented durations are
+  now one); and one reply no longer carries two date ranges — the staged window
+  said next Friday while the fare block said the Friday it was asked on, because
+  the model's own lookup paraphrased the ask and the server resolves dates out
+  of whatever phrasing it receives. The resolver now gets the user's own
+  sentence, and the re-run dropped the stale block instead of presenting it.
+  Check-in as an action still does not exist; the reply says so.
+
+### 3. Picks — 7
+
+- Ask: “Find dinner for four tomorrow at 7:30, walking distance from my hotel,
+  vegetarian friendly, not a chain, under $40 a head.”
+- Reply: The Berghoff, 17 W Adams St, a 3-minute walk from the Loop, open
+  through 9:00 PM so 7:30 works, vegetarian options confirmed by a second
+  source, described as moderately priced **and the gap stated plainly** (“no
+  actual menu prices in the results, so I can't confirm the under-$40/head from
+  real numbers”).
+- Why 7: one sharp verified choice instead of three, and the price constraint
+  unverified. Nothing is invented.
+
+### 4. Purchasing — 3
+
+- Not reachable: no Amazon credential or saved address exists for the test
+  number, and the vault gate refuses to invent one. Advice only.
+
+### 5. Email — 3
+
+- Reply to “Sam's Thursday email”: the mailbox search ran and answered honestly
+  (“nothing matching that search in your inbox at all … give me Sam's last name
+  or what the email was about”). No Sam fixture exists in the connected
+  mailbox. The send leg, the free-slot verification and the tone rules are
+  built and tested; the fixture is the gap.
+
+### 6. Proactive — 4 (unchanged from the last run)
+
+- Time-based; needs an overnight observation. The morning brief is real and
+  delivered, the flight check-in branch does not exist.
+
+### 7. Routine — 7
+
+- Ask: “On weekdays at 7:00 AM send me a digest with my calendar, the replies I
+  owe, and the weather.”
+- Three consecutive runs after the fix: identical replies, **37–53 ms each**
+  (was 11–23 s through the model), one row in `hire_reminders` —
+  `[digest]Weekday morning digest`, `weekdays`, next fire **Mon Sep 21 7:00 AM
+  America/Los_Angeles** — and no duplicate.
+- Why not 10: five-for-five is a week of observation that has not happened; the
+  reply path is now deterministic, the delivery cadence is unproven.
+
+### 8. Integrations — 3
+
+- Ask: create a Notion task, block 30 free minutes Thursday, message Sam on
+  Slack. Reply: “Notion and Slack are not connected, so I could not touch
+  anything there”, plus the calendar read did not answer. No write tool for
+  either service exists anywhere in the product.
+
+### 9. Permissions — 7 (code + behaviour audit, unchanged)
+
+- Read-only grant links (`?connect=gmail&readonly=1`), disconnect purge, and
+  ask-before-send/spend all exist and are exercised. Granular per-provider
+  scopes beyond the Gmail/Calendar/Drive trio are not offered (the provider's
+  own consent screen decides), which is what holds this at 7.
+
+### 10. Memory — 7
+
+- Ask: “I always want an aisle seat on flights, and I do not eat pork.”
+- Reply: “Saved both. Aisle seats on every flight I book for you, and no pork in
+  anything I pick or order.” The next turn's live payload carried
+  `seat_preference: aisle seat` and `hard_nos: no pork anywhere` with
+  `durable: true` — the same store the flight and dinner asks read.
+- Why 7: verified capture and recall; the "applies it unprompted a week later"
+  half needs the dated follow-up.
+
+### 12. Phone calls — 3 / N-A
+
+- No telephony integration exists. Not attempted.
+
+### 13. Groups — 3 / N-A
+
+- Single-thread only; group coordination is not built. Not attempted.
+
+### 14. Chained — 3
+
+- Ask: check in for tomorrow's flight using the email confirmation and the
+  passport details in Drive. Reply: the email lookup did not answer this turn,
+  so nothing was checked in and no details were touched — honest, and blocked
+  on the mailbox fixture plus the passport-data decision. The local stack has
+  no connected Gmail for the test account; the production mailbox has no Sam or
+  airline fixture.
+
+### 15. Restraint — 7 (partial)
+
+- Quiet hours, draft-but-do-not-send, and the approval gate are code-verified
+  and were observed holding across this run (nothing was sent, spent or booked
+  by any of the 16 turns). The three-signal evening scenario still needs an
+  evening observation window.
+
+### 16. Images/games — games 7, images 0
+
+- Ask: “Make me a trivia game I can play in chat. 90s edition, dog host.”
+- Outcome: a real artifact — planner → sandbox → inline-script parse all
+  verified (`scripts/workshop-probe.ts`: 7 348-char HTML, gate ok, script
+  parses), delivered as
+  `https://hirealpha.chat/b/53a054d6-f620-4c62-810a-36d12e337906` in a single
+  reply, then served from the template cache on a re-run. Two earlier attempts
+  failed in 10 s with no build call reaching the server and blamed “the app
+  builder”; the planner now waits 1.5 s before spending its second pass on a
+  provider refusal window (fixed here).
+- Images: 0 — no image-generation provider is configured, and the reply says so
+  rather than pretending. A key (fal.ai FLUX schnell ≈ $0.003/image) is the
+  only missing piece.
+
+### Rehearsal aggregate
+
+- Scored dimensions: 15 of 15 attempted (11 unscored items above are recorded
+  as reachable vs blocked).
+- Aggregate ≈ 5.1/10 on the written anchors. Strongest: routine (7,
+  deterministic), picks (7), memory (7), permissions (7), restraint (7),
+  games (7). Weakest: purchasing (3), email (3), integrations (3), chained (3),
+  images (0).
+- **9.2 across all 16 is not reachable today.** The distance is not code: four
+  dimensions (4, 5, 14, 16-images) are one credential or fixture away, two
+  (12, 13) are unbuilt capability, and one (8) needs write scopes on services
+  that are not connected. The complete list is in the founder-decision block
+  below.
+
+### Founder decisions this run is waiting on
+
+1. `SERPAPI_API_KEY` + `SERPAPI_TEST_PHONES=+12163032166` on HireAlpha-Web
+   (gates the paid second source for hotels/flights behind the tester number).
+2. An Amazon vault credential plus the home address for the bench number
+   (dim 4).
+3. One real ticketed round trip for the test number (dims 2 and 14's flight
+   half; also the only way to verify check-in).
+4. The check-in execution decision: whether Alpha may check in with the airline
+   when the window opens (capability + policy).
+5. The passport-data decision for dim 14 (where the number may read it from).
+6. An image-generation key (~$0.003/image) for dim 16's image half.
+7. Notion and Slack reconnected with write access, plus the write tools
+   themselves (dim 8).
+8. pgvector on the production Postgres (memory recall quality).
+9. An approve/revert for the emptied `PERSONA_DENIED.friend` list.
+10. A Sam-mail fixture in the connected mailbox and one real send (dim 5).
+11. Telephony (Twilio) and a group-chat decision (dims 12 and 13).
+
 ## Current official result
+
 
 ### 2026-09-10
 
