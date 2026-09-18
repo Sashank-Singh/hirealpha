@@ -38,6 +38,10 @@ beforeEach(() => {
   saved.key = process.env.HIREALPHA_INTERNAL_KEY
   process.env.HIREALPHA_INTERNAL_KEY = 'test-key'
   saved.secret = process.env.STRIPE_SECRET_KEY
+  /* The checkout suites cover the PAID path, which is off by default while
+   * HireAlpha is free to use (HIREALPHA_PAYMENTS=1 turns it back on). */
+  saved.payments = process.env.HIREALPHA_PAYMENTS
+  process.env.HIREALPHA_PAYMENTS = '1'
   /* These routes read live connectors when a real key is present in the shell
    * or .env, so a test asserting a response SHAPE would hit the network and
    * pass or fail on how fast the provider answered that minute (measured: 5s
@@ -53,6 +57,8 @@ afterAll(() => {
   if (saved.secret === undefined) delete process.env.STRIPE_SECRET_KEY
   else process.env.STRIPE_SECRET_KEY = saved.secret
   if (saved.composio !== undefined) process.env.COMPOSIO_API_KEY = saved.composio
+  if (saved.payments === undefined) delete process.env.HIREALPHA_PAYMENTS
+  else process.env.HIREALPHA_PAYMENTS = saved.payments
   delete process.env.STRIPE_PRICE_BUNDLE
   delete process.env.STRIPE_PRICE_BUNDLE_ANNUAL
   delete process.env.STRIPE_PRICE_ULTRA

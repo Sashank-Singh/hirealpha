@@ -356,3 +356,71 @@ describe('/api/internal/transcribe', () => {
     expect(data.error).toContain('Whisper 503')
   })
 })
+
+describe('free mode (payments off)', () => {
+  /* HireAlpha is free while it is in beta. Signup must not touch Stripe, and
+   * every surface that asks "is this person paid" has to say yes, or a skipped
+   * signup lands in the product as a second-class account. */
+  it('answers the public config with payments off', async () => {
+    const prev = process.env.HIREALPHA_PAYMENTS
+    delete process.env.HIREALPHA_PAYMENTS
+    try {
+      const { sql } = fakeSql(rowsForUsers)
+      const res = await handleHireApi(new Request('https://hirealpha.chat/api/config'), sql)
+      expect(res?.status).toBe(200)
+      const body = (await res!.json()) as { payments: boolean; free: boolean }
+      expect(body.payments).toBe(false)
+      expect(body.free).toBe(true)
+    } finally {
+      if (prev === undefined) delete process.env.HIREALPHA_PAYMENTS
+      else process.env.HIREALPHA_PAYMENTS = prev
+    }
+  })
+
+  it('refuses to open a checkout and tells the client to carry on', async () => {
+    const prev = process.env.HIREALPHA_PAYMENTS
+    delete process.env.HIREALPHA_PAYMENTS
+    try {
+      const { sql } = fakeSql(rowsForUsers)
+      const res = await handleHireApi(new Request('https://hirealpha.chat/api/billing/checkout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: 'a@b.co', hire: 'friend', plan: 'single', trial_days: 7 }),
+      }), sql)
+      expect(res?.status).toBe(200)
+      const body = (await res!.json()) as { ok?: boolean; free?: boolean; url?: string | null }
+      expect(body.free).toBe(true)
+      expect(body.url ?? null).toBeNull()
+    } finally {
+      if (prev === undefined) delete process.env.HIREALPHA_PAYMENTS
+      else process.env.HIREALPHA_PAYMENTS = prev
+    }
+  })
+
+  it('logs a conversation turn into the message corpus', async () => {
+    const prevKey = process.env.HIREALPHA_INTERNAL_KEY
+    process.env.HIREALPHA_INTERNAL_KEY = 'test-internal-key'
+    try {
+    const { sql, queries } = fakeSql((text) => (/FROM hire_users/i.test(text) ? [USER] : []))
+    const res = await handleHireApi(new Request('https://hirealpha.chat/api/internal/message-log', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer test-internal-key' },
+      body: JSON.stringify({
+        phone: '+15551234567',
+        persona: 'friend',
+        turnId: 'turn-1',
+        replyMs: 1200,
+        rows: [{ role: 'user', text: 'hi' }, { role: 'alpha', text: 'hey', source: 'gmi' }],
+      }),
+    }), sql)
+    expect(res?.status).toBe(200)
+    const body = (await res!.json()) as { ok?: boolean; logged?: number }
+    expect(body.ok).toBe(true)
+    expect(body.logged).toBe(2)
+    expect(queries.some((q) => /INSERT INTO hire_message_log/i.test(q.text))).toBe(true)
+    } finally {
+      if (prevKey === undefined) delete process.env.HIREALPHA_INTERNAL_KEY
+      else process.env.HIREALPHA_INTERNAL_KEY = prevKey
+    }
+  })
+})

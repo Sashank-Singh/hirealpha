@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import { fetchPageText, parseBingRss, parseBraveResults, parseDuckDuckGoResults, parseLangSearchResults, parseYahooResults, searchLangSearch, searchWeb, webSearchContext } from './webSearch'
+import { fetchPageText, parseBingRss, parseBraveResults, parseDuckDuckGoResults, parseLangSearchResults, parseYahooResults, relevantResults, searchLangSearch, searchWeb, webSearchContext } from './webSearch'
 
 describe('web search evidence', () => {
   it('does not let fast off-topic results cancel a relevant provider', async () => {
@@ -189,5 +189,35 @@ describe('provider parsing and priority', () => {
     }) as typeof fetch)
     expect(results).toHaveLength(1)
     expect(results[0]!.url).toBe('https://amazon.com/dp/B001')
+  })
+})
+
+describe('price-ask result hygiene', () => {
+  /* Live: "hotel near LGA under $150" came back as a kayak.ae page quoting AED
+   * 1,283, and the reply told the user the average was "$1,200" — the wrong
+   * currency read as dollars, off by a factor of four. */
+  it('drops prices quoted only in a foreign currency for a US ask', () => {
+    const rows = [
+      { title: 'Hotels near New York LaGuardia Airport', url: 'https://www.kayak.ae/New-York-LaGuardia-Airport-Hotels.LGA.aph.ksp', snippet: 'The average price of a double room is AED 1,283 per night.' },
+      { title: 'Hotels near LGA', url: 'https://www.kayak.com/New-York-LaGuardia-Airport-Hotels.LGA.aph.ksp', snippet: 'The average price of a double room is $180 per night.' },
+    ]
+    const kept = relevantResults('cheap hotel near LGA under $150', rows)
+    expect(kept.map((r) => r.url)).toEqual(['https://www.kayak.com/New-York-LaGuardia-Airport-Hotels.LGA.aph.ksp'])
+  })
+
+  it('keeps a foreign price when the ask is for that country', () => {
+    const rows = [
+      { title: 'Hotels near Dubai Marina', url: 'https://www.kayak.ae/hotels', snippet: 'Rooms from AED 420 per night.' },
+    ]
+    expect(relevantResults('cheap hotel in Dubai', rows)).toHaveLength(1)
+  })
+
+  it('collapses the same page on country mirrors to one result', () => {
+    const rows = ['il', 'nz', 'ie'].map((cc) => ({
+      title: 'Best hotels near JFK',
+      url: `https://www.${cc}.kayak.com/New-York-John-F-Kennedy-Airport-Hotels.JFK.aph.ksp`,
+      snippet: 'KAYAK insights for hotels near JFK. The average price of a double room is $685 per night.',
+    }))
+    expect(relevantResults('hotel near JFK price per night', rows)).toHaveLength(1)
   })
 })

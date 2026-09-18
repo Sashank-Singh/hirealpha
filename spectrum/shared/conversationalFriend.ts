@@ -583,7 +583,13 @@ ${JSON.stringify(context)}` },
       ...memory.history,
       { role: 'user', content: input.userText },
     ],
-    chat: (messages, timeoutMs) => gmiChat({ messages, temperature: 0.6, timeoutMs }),
+    /* The loop calls this with a 30s cap, several times a turn. At the
+     * provider's default thinking budget an answer that reasons about tool
+     * results runs past that cap and comes back empty, which is how a mailbox
+     * question ended as "I could not finish this request" with the mail
+     * already sitting in the messages. Low effort is the difference between an
+     * answer and a deadline. */
+    chat: (messages, timeoutMs) => gmiChat({ messages, temperature: 0.6, reasoningEffort: 'low', timeoutMs }),
     availableTools: available,
     lookup: (tool, query) => fetchLiveTools(senderId, persona, query, tool as any),
     canDraft: true,

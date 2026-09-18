@@ -65,6 +65,29 @@ function hostOf(url: string): string {
   }
 }
 
+/** What the user reads when a run fails.
+ *
+ * The runner's error strings are written for engineers — provider parameter
+ * dumps, truncated structured-output diagnostics — and one reached a phone
+ * verbatim ("Model output was truncated at max_completion_tokens=4096; the
+ * structured output is incomplete. Increase max_completion_tokens or request
+ * shorter output."), cut off mid-sentence at the slice limit. Say what
+ * happened in plain words; keep the raw text in the log where it belongs. */
+/** One plain sentence for why a run stopped, for the copy that carries a reason. */
+export function plainReason(error: string | null | undefined): string {
+  const raw = String(error || '')
+  if (/target not allowed|sign in|log in|login|password|credential|vault/i.test(raw)) return 'It asked for a sign in I do not have.'
+  if (/truncated at max_completion_tokens|structured output is incomplete/i.test(raw)) return 'The page was more than it could read in one pass.'
+  if (/tim(?:e|ed) ?out|deadline/i.test(raw)) return 'It ran out of time.'
+  if (/could not be read|invalid action|not valid JSON|unreadable/i.test(raw)) return 'It lost track of the page.'
+  if (/not (?:been )?approved/i.test(raw)) return 'The payment step was never approved.'
+  return 'The run stopped on my side before it could check anything.'
+}
+
+export function plainRunFailure(host: string, error: string | null | undefined): string {
+  return `Couldn't check ${host}. ${plainReason(error)} Nothing was sent and nothing changed on that site.`
+}
+
 type JobRow = BrowserJobRow
 
 type JobOutcome = { ok: true; result: string } | { ok: false; error: string }
@@ -605,9 +628,9 @@ export async function flushUndeliveredResults(
         : (row.result || 'The task completed.')
       : row.spendRequestId
         ? paymentWasApproved
-          ? `Payment was approved, but the merchant order was not confirmed: ${(row.error || 'unknown error').slice(0, 200)}. No retry was attempted because the submission outcome may be uncertain.`
-          : `The checkout stopped before payment was approved: ${(row.error || 'unknown error').slice(0, 200)}.`
-        : `Couldn't check ${hostOf(row.url)}: ${(row.error || 'unknown error').slice(0, 200)}`
+          ? `Payment was approved, but the merchant order was not confirmed. ${plainReason(row.error)} No retry was attempted because the submission outcome may be uncertain.`
+          : `The checkout stopped before payment was approved. ${plainReason(row.error)}`
+        : plainRunFailure(hostOf(row.url), row.error)
     try {
       await push(sql, {
         userId: row.userId,
@@ -694,15 +717,18 @@ async function report(sql: SQL, job: JobRow, outcome: JobOutcome): Promise<void>
     }
   }
   try {
+    // The user gets the plain line; the runner's own words stay here for the
+    // next person reading the container log.
+    if (outcome.error) console.warn(`[browser-worker] job ${job.id} failed: ${String(outcome.error).slice(0, 500)}`)
     await pushBrowserResultLoop(sql, {
       userId: job.user_id,
       persona: job.persona,
       origin: job.url,
       insights: job.spend_request_id
         ? paymentWasApproved
-          ? `Payment was approved, but the merchant order was not confirmed: ${outcome.error.slice(0, 200)}. No retry was attempted because the submission outcome may be uncertain.`
-          : `The checkout stopped before payment was approved: ${outcome.error.slice(0, 200)}.`
-        : `Couldn't check ${hostOf(job.url)}: ${outcome.error.slice(0, 200)}`,
+          ? `Payment was approved, but the merchant order was not confirmed. ${plainReason(outcome.error)} No retry was attempted because the submission outcome may be uncertain.`
+          : `The checkout stopped before payment was approved. ${plainReason(outcome.error)}`
+        : plainRunFailure(hostOf(job.url), outcome.error),
       jobId: job.id,
       label: job.goal || '',
     }, { retryDelaysMs: [0, 2_000, 8_000, 20_000] })
@@ -790,7 +816,7 @@ async function main() {
         'browser.persona': job.persona,
         'browser.target.host': traceHost(job.url),
         'browser.executor.mode': resolveBrowserExecutorMode(),
-        'browser.goal': traceText(job.goal),
+        'browser.goal': traceText(job.goal ?? undefined),
         'browser.goal.length': (job.goal || '').length,
       })
       const startedAt = Date.now()

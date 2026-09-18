@@ -12,6 +12,7 @@ import {
   type Decision,
 } from './api'
 import { liveCatalog, type ConnectorId } from './connectors'
+import { paymentsEnabled } from './paymentsConfig'
 import { ConnectorLogo } from './ConnectorLogo'
 import { SettingsSheet } from './SettingsSheet'
 import { TIERS, type Tier } from '../marketing/Pricing'
@@ -129,6 +130,12 @@ export function PlatformDashboard() {
   const handleStripeCheckout = async (plan: Tier) => {
     if (plan === 'free') {
       alert('You are on the Free tier. Alpha sends you a weekly briefing every Friday at 9:00 PM.')
+      return
+    }
+    /* Free mode: there is nothing to buy, so nothing opens. The Stripe call
+     * below is unchanged and runs again the moment HIREALPHA_PAYMENTS=1. */
+    if (!(await paymentsEnabled())) {
+      alert('Alpha is free while it is in beta. No card needed.')
       return
     }
     const targetEmail = email || session?.email || ''

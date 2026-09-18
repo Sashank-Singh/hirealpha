@@ -6,6 +6,7 @@ import {
 } from '../../src/agents'
 import { runAgentLocally } from '../../src/agents/runtime'
 import { runConversationalFriend } from './conversationalFriend'
+import { previousUserAsk, rewriteWithCorrection, rewriteWithRefinement } from './followUpCorrection'
 import { classifyTurnStrict } from './turnIntent'
 import { isAffirmativeApprovalIntent, isNegativeCancellationIntent } from './conversationalApproval'
 import { skillsPromptBlock, SKILLS } from './skills'
@@ -798,8 +799,30 @@ export async function runHireTurn(input: {
   contactCardFirst?: boolean
 }> {
   const agent = getAgent(input.agentId)
+  /* The turn clock, for the message log: how long the user waited between
+   * texting and getting the reply. */
+  const startedAt = Date.now()
   const mem = loadMemory(input.dataDir, input.senderId)
   const history = mem.history
+
+  /* A follow-up that repairs the message before it — "Nyc I meant" after a
+   * typo'd city — is run against the ask it refers to, not as a new message.
+   * Live: the typo sent a hotel search to the wrong coast and two corrections
+   * were answered as fresh, contextless texts, so the wrong frame survived
+   * three turns. Rewriting here means the classifier, the tools, and the answer
+   * all see one corrected request.
+   *
+   * A refinement — "not NYE, next week Monday to Thursday" — is the same move
+   * with the change named instead of applied: the original request keeps its
+   * city, airport, and budget, and only the dates move. */
+  const lastAsk = previousUserAsk(history, input.userText)
+  const correctedAsk = rewriteWithCorrection(lastAsk, input.userText)
+  const refinedAsk = correctedAsk ? null : rewriteWithRefinement(lastAsk, input.userText)
+  const rewritten = correctedAsk || refinedAsk
+  if (rewritten && rewritten !== input.userText) {
+    console.log(`[turn] ${correctedAsk ? 'correction' : 'refinement'} applied: "${input.userText.slice(0, 60)}" -> "${rewritten.slice(0, 140)}"`)
+    input = { ...input, userText: rewritten }
+  }
 
   // Navigation is independent of account/profile availability and prior topics.
   // Do this before any profile, judgment, onboarding, or model work. The card's
@@ -2032,7 +2055,7 @@ export async function runHireTurn(input: {
       const outcome = await runToolConversation({
         messages: baseMessages,
         delivery: input.delivery,
-        chat: (messages, timeoutMs) => gmiChat({ temperature: Math.min(agent.temperature, 0.3), messages, timeoutMs }),
+        chat: (messages, timeoutMs) => gmiChat({ temperature: Math.min(agent.temperature, 0.3), messages, reasoningEffort: 'low', timeoutMs }),
         lookup: (tool, query) => fetchLiveTools(input.senderId, agent.id, query, tool as any),
           propose: (draft) =>
             saveFriendDraft(input.senderId, agent.id, draft).then((r: any) => {
@@ -2189,7 +2212,68 @@ export async function runHireTurn(input: {
     card = await onboardingCard(input.senderId, agent.id)
   }
 
+  /* Save the exchange before returning: the user's own words and what Alpha
+   * answered, in one row each, so the corpus for improving the model lives in
+   * Postgres rather than a container volume that a redeploy erases. Fire and
+   * forget — a logging failure must never cost the turn its reply, and the bot
+   * process outlives the request, so it lands. */
+  void logConversationTurn({
+    phone: input.senderId,
+    persona: agent.id,
+    userText: input.userText,
+    reply: finalReply,
+    source,
+    startedAt,
+  }).catch(() => undefined)
+
   return { reply: finalReply, bubbles: splitBubbles(finalReply), source, authoritative, card }
+}
+
+/** One POST carrying the user's text and Alpha's reply for this turn. */
+export async function logConversationTurn(input: {
+  phone: string
+  persona: AgentId
+  userText: string
+  reply: string
+  source: string
+  startedAt: number
+}): Promise<void> {
+  const base = (process.env.HIREALPHA_API_URL || '').replace(/\/$/, '')
+  const key = process.env.HIREALPHA_INTERNAL_KEY || ''
+  if (!base || !key) return
+  const rows: Array<{ role: string; text: string; source?: string }> = []
+  if (input.userText.trim()) rows.push({ role: 'user', text: input.userText })
+  if (input.reply.trim()) rows.push({ role: 'alpha', text: input.reply, source: input.source })
+  if (!rows.length) return
+  const ctrl = new AbortController()
+  const timer = setTimeout(() => ctrl.abort(), 4_000)
+  try {
+    await fetch(`${base}/api/internal/message-log`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${key}`,
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+        Connection: 'close',
+      },
+      body: JSON.stringify({
+        phone: input.phone,
+        persona: input.persona,
+        turnId: turnLogId(input.phone),
+        replyMs: Date.now() - input.startedAt,
+        rows,
+      }),
+      signal: ctrl.signal,
+    })
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+/** Stable id for this turn, so the user's text and the reply can be read back
+ * together after a retry or a replay. */
+function turnLogId(phone: string): string {
+  return `${phone.slice(-6)}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
 }
 
 /** Throttle identical cards: same person, same persona, same kind, inside 90s. */

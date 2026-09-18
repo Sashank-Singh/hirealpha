@@ -1795,6 +1795,30 @@ export async function referralFreeMonths(sql: SQL, phone: string): Promise<numbe
  * until BILLING_ENFORCE=1 — ship the plumbing first, flip the switch when the
  * prices exist in the Stripe dashboard. */
 
+/**
+ * Payments are OFF: HireAlpha is free to use while it is being built, so no
+ * signup goes to Stripe, no price is shown, and a skip-the-checkout account is
+ * treated as a full one.
+ *
+ * Nothing below this line was deleted. The checkout session, the webhook, the
+ * price envs, the subscription rows, and the pro gating all still work — flip
+ * this one flag (env `HIREALPHA_PAYMENTS=1`, or change the default here) and
+ * the paid product comes back exactly as it was. Restore steps:
+ *   1. HIREALPHA_PAYMENTS=1 on the Web app.
+ *   2. Free-tier rationing returns automatically (also honours FREE_TIER_LIMIT).
+ *   3. Redeploy Web + Friend.
+ * The one thing a skipped signup does NOT get is a hire_subscriptions row, so
+ * if you ever turn payments on with existing free users in the database, they
+ * fall back to the free tier rather than being silently charged. */
+export const PAYMENTS_ENABLED = process.env.HIREALPHA_PAYMENTS === '1'
+
+/** Read per call, not once at import: a long-lived container can have the env
+ * changed by a redeploy without the module being re-imported in a test process,
+ * and the paid path has to be switchable in tests to stay covered. */
+function paymentsOn(): boolean {
+  return process.env.HIREALPHA_PAYMENTS === '1'
+}
+
 function stripeSecret() {
   return process.env.STRIPE_SECRET_KEY?.trim() || ''
 }
@@ -6734,6 +6758,8 @@ export interface BriefBuildStatus {
   limit?: number
 }
 async function briefBuildAllowed(sql: SQL, userId: string): Promise<BriefBuildStatus> {
+  // Free mode: nothing is rationed, whatever FREE_TIER_LIMIT says.
+  if (!paymentsOn()) return { allowed: true }
   const limit = Number(process.env.FREE_TIER_LIMIT || '')
   if (!Number.isFinite(limit) || limit <= 0) return { allowed: true }
   try {
@@ -10426,9 +10452,14 @@ async function livePayload(sql: SQL, phone: string, persona: Persona, query?: st
   const connected = connectedRaw.filter((id) => !PERSONA_DENIED[persona].has(id))
   let pro = false
   if (hired) {
-    // The demo never gets a fake subscription row — nothing pretend may look
-    // paid — so pro is granted at the read instead.
-    if (isDemoUserId(user.id)) {
+    /* Free mode: a skipped signup has no subscription row and must still be a
+     * full user. Everything that asks "is this person paid" reads this flag, so
+     * the product stays whole without pretending a row exists. */
+    if (!paymentsOn()) {
+      pro = true
+    } else if (isDemoUserId(user.id)) {
+      // The demo never gets a fake subscription row — nothing pretend may look
+      // paid — so pro is granted at the read instead.
       pro = true
     } else {
       const subs = (await sql`
@@ -11782,7 +11813,7 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
     '/api/waitlist', '/api/auth/google', '/api/auth/ticket', '/api/auth/register', '/api/auth/login',
     '/api/oauth/google/callback', '/api/billing/webhook', '/api/billing/checkout',
     '/api/assigned-phone', '/api/contact/alpha.vcf', '/api/connectors/status', '/api/status',
-    '/api/invites/redeem', '/api/wishlist', '/api/payments/spend/approve',
+    '/api/invites/redeem', '/api/wishlist', '/api/payments/spend/approve', '/api/config',
   ])
   if (path === '/api/auth/logout' && req.method === 'POST') {
     const response = json({ ok: true })
@@ -13325,6 +13356,13 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
   }
 
   if (path === '/api/billing/checkout' && req.method === 'POST') {
+    /* Free mode: signup must not touch Stripe. Every client treats a response
+     * with no `url` as "carry on into the app", which is exactly the skip the
+     * founder asked for — so the whole paid path below stays as it is and this
+     * one early return is the switch. */
+    if (!paymentsOn()) {
+      return json({ ok: true, free: true, url: null, message: 'HireAlpha is free while it is in beta. No card, no trial to cancel.' })
+    }
     const body = (await req.json().catch(() => ({}))) as {
       email?: string
       hire?: string
@@ -13609,6 +13647,17 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
       GROUP BY vote ORDER BY count DESC, vote
     `) as Array<{ vote: string; count: string | number }>
     return json({ ideas: rows.map((r) => ({ vote: r.vote, count: Number(r.count) })) })
+  }
+
+  /* What the marketing pages and the app need to know before they draw a
+   * price: with payments off there is no price to show and no checkout to
+   * open. Public on purpose — it is the same answer for everyone. */
+  if (path === '/api/config' && req.method === 'GET') {
+    return json({
+      payments: paymentsOn(),
+      free: !paymentsOn(),
+      note: paymentsOn() ? null : 'Free while in beta. No card required.',
+    })
   }
 
   // Public status page: a hire is up while its heartbeats keep arriving.
@@ -14031,6 +14080,41 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
       return json({ error: 'phone and persona required' }, 400)
     }
     return json(await touchInbound(sql, body.phone, body.persona))
+  }
+
+  /* The corpus. One row per text the user sent and one per reply, written by
+   * the turn path after delivery — so the material for improving the model
+   * lives in Postgres instead of dying with a container volume. Best effort by
+   * design: a logging failure must never cost a turn its answer. */
+  if (path === '/api/internal/message-log' && req.method === 'POST') {
+    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
+    const body = (await req.json().catch(() => ({}))) as {
+      phone?: string
+      persona?: string
+      turnId?: string
+      replyMs?: number
+      rows?: Array<{ role?: string; text?: string; source?: string }>
+    }
+    const rows = (body.rows || []).filter((r) => (r.role === 'user' || r.role === 'alpha') && String(r.text || '').trim())
+    if (!body.phone || !isPersona(body.persona || '') || !rows.length) {
+      return json({ error: 'phone, persona, and rows required' }, 400)
+    }
+    try {
+      const user = await getUserByPhone(sql, body.phone)
+      const turnId = String(body.turnId || crypto.randomUUID()).slice(0, 64)
+      for (const row of rows) {
+        await sql`
+          INSERT INTO hire_message_log (user_id, phone, persona, role, text, source, turn_id, reply_ms)
+          VALUES (${user?.id ?? null}, ${body.phone}, ${body.persona}, ${row.role},
+            ${String(row.text).slice(0, 8000)}, ${row.source ? String(row.source).slice(0, 40) : null},
+            ${turnId}, ${Number.isFinite(body.replyMs) ? Math.round(Number(body.replyMs)) : null})
+        `
+      }
+      return json({ ok: true, logged: rows.length })
+    } catch (err) {
+      console.warn('[message-log] write failed', err)
+      return json({ ok: false, logged: 0 }, 200)
+    }
   }
 
   // Speech to text for the bots: an inbound iMessage voice note is transcribed

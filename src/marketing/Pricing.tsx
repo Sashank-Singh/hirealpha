@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import { paymentsEnabled } from '../platform/paymentsConfig'
 import { getSession } from '../platform/roster'
 
 export type Tier = 'free' | 'single' | 'bundle' | 'ultra'
@@ -102,7 +103,46 @@ async function choosePlan(tier: Tier, annual: boolean, email?: string) {
 
 export function Pricing() {
   const [annual, setAnnual] = useState(false)
+  /* Free by default, paid only when the server says so: the first paint must
+   * never show a price this app is not going to charge. The paid markup below
+   * is untouched — set HIREALPHA_PAYMENTS=1 on the server and it comes back. */
+  const [paid, setPaid] = useState(false)
+  useEffect(() => {
+    let live = true
+    void paymentsEnabled().then((on) => { if (live) setPaid(on) })
+    return () => { live = false }
+  }, [])
 
+  if (!paid) {
+    const tier = TIERS.find((t) => t.id === 'single')!
+    return (
+      <section className="pricing section" id="pricing" aria-labelledby="pricing-heading">
+        <div className="container">
+          <p className="deed__eyebrow">Pricing</p>
+          <h2 id="pricing-heading">Free while it is in beta.</h2>
+          <p className="pricing__sub">
+            No card, no trial to cancel, nothing to skip later. Sign up once and text Alpha.
+          </p>
+          <div className="pricing__grid">
+            <article className="price-card price-card--hot">
+              <span className="price-card__badge">Live now</span>
+              <h3>{tier.name}</h3>
+              <p className="price-card__price">
+                <strong>Free</strong>
+                <span>while in beta</span>
+              </p>
+              <p className="price-card__blurb">
+                Alpha the Friend. Unlimited texts, apps in the thread, everything the paid plan had.
+              </p>
+              <button type="button" className="btn btn--accent" onClick={() => choosePlan('free', false)}>
+                Start free
+              </button>
+            </article>
+          </div>
+        </div>
+      </section>
+    )
+  }
 
   return (
     <section className="pricing section" id="pricing" aria-labelledby="pricing-heading">

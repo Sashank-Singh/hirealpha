@@ -1,25 +1,20 @@
 {
   "dim": "",
   "phone": "+12163032166",
-  "userText": "Remind me to call mom at 6.",
+  "userText": "thanks",
   "bubbles": [
-    "The direct reminder didn't save on my end, so I set it up as a calendar event instead: Call mom, today at 6:00 PM. It's waiting on your review card, tap Book and it's locked in, and your calendar will ping you at 6."
+    "Anytime! Want me to set a reminder about the Algoverse Sunday deadline so it doesn't sneak up on you?"
   ],
-  "reply": "The direct reminder didn't save on my end, so I set it up as a calendar event instead: Call mom, today at 6:00 PM. It's waiting on your review card, tap Book and it's locked in, and your calendar will ping you at 6.",
+  "reply": "Anytime! Want me to set a reminder about the Algoverse Sunday deadline so it doesn't sneak up on you?",
   "source": "gmi",
   "authoritative": [
     "proactive",
     "hasVault",
     "vaultOrigins"
   ],
-  "card": {
-    "url": "https://hirealpha.chat/app/mini/friend/home?draft=f1727cf1-283c-4b75-af9e-a0b5d3ba84a1",
-    "live": false
-  },
+  "card": null,
   "contactCardFirst": false,
-  "progress": [
-    "I’m working through your request."
-  ],
+  "progress": [],
   "reactions": [],
-  "totalMs": 53229
+  "totalMs": 5108
 }

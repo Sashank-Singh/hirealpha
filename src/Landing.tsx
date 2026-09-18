@@ -990,9 +990,16 @@ function WaitlistForm() {
           trial_days: 7,
         }),
       })
-      const data = (await res.json().catch(() => ({}))) as { url?: string; error?: string }
+      const data = (await res.json().catch(() => ({}))) as { url?: string; error?: string; free?: boolean }
       if (data.url) {
         window.location.href = data.url
+        return
+      }
+      /* Free mode: the server answers with no checkout to open, so the signup
+       * is done and the app is the destination. The paid path above is
+       * untouched and takes over when HIREALPHA_PAYMENTS=1. */
+      if (data.free) {
+        window.location.href = '/app'
         return
       }
       setError(data.error || 'Checkout is not ready yet. Alpha will still text you.')

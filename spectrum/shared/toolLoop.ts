@@ -80,14 +80,43 @@ function isDirectoryHost(host: string): boolean {
   return DIRECTORY_HOSTS.some((blocked) => host === blocked || host.endsWith(`.${blocked}`))
 }
 
+/* Ourselves. A browser run staged against our own app asks the user to put
+ * their HireAlpha credentials in the vault and drive a computer around the page
+ * they were just texting about — seen live, when an app tweak had the build
+ * link sitting in the conversation and the run picked it as the "merchant". */
+const OWN_ORIGINS: RegExp[] = [
+  /^hirealpha\.chat$/i,
+  /^www\.hirealpha\.chat$/i,
+  /^localhost$/i,
+  /^127\.0\.0\.1$/i,
+  /\.alphasphere\.trade$/i,
+  /\.coolify\./i,
+]
+
+function isOwnOrigin(hostname: string): boolean {
+  const host = hostname.toLowerCase().replace(/^www\./, '')
+  if (OWN_ORIGINS.some((re) => re.test(host) || re.test(hostname))) return true
+  for (const raw of [process.env.APP_BASE_URL, process.env.HIREALPHA_API_URL, process.env.HIREALPHA_API_BASE]) {
+    if (!raw) continue
+    try {
+      if (new URL(raw).hostname.toLowerCase().replace(/^www\./, '') === host) return true
+    } catch {
+      /* not a URL; nothing to compare */
+    }
+  }
+  return false
+}
+
 /** True when a URL is a real merchant/checkout origin a browser run may use.
- * Rejects non-https, directory/aggregator/wiki/social hosts, and search or
- * category pages — all surfaces where a checkout can never finish. */
+ * Rejects non-https, directory/aggregator/wiki/social hosts, search or
+ * category pages — all surfaces where a checkout can never finish — and our own
+ * app, where the only thing a run can do is ask for the user's login. */
 export function isMerchantPortal(raw: string | undefined): boolean {
   if (!raw || !/^https:\/\//i.test(raw)) return false
   try {
     const url = new URL(raw)
     if (url.username || url.password) return false
+    if (isOwnOrigin(url.hostname)) return false
     if (isDirectoryHost(url.hostname.toLowerCase().replace(/^www\./, ''))) return false
     if (/^\/(?:s|search|browse|catalog|category|categories|collections?|deals)(?:\/|$)/i.test(url.pathname)) return false
     return true
@@ -208,12 +237,32 @@ export async function runToolConversation(input: {
   const wantsWebForRichPlace = /\b(?:hotels?|hostels?|motels?|lodging|room rates?|staying|nightly rates?|flights?|airline|tickets?|fare|fares)\b/i.test(lastUserAsk)
   const maxSteps = Math.min(8, Math.max(1, input.maxSteps ?? 6))
   const deadline = Date.now() + (input.maxDurationMs ?? Number(process.env.HIREALPHA_TOOL_LOOP_MS || 90_000))
+  /** Last-resort answer: one more call that only writes prose, for the turns
+   * that would otherwise ship a raw link list. Skipped when the wall is already
+   * gone, and it never returns a tool directive. */
+  const answerFromResults = async (): Promise<string> => {
+    if (Date.now() >= deadline - 2_000) return ''
+    try {
+      const asked: ConversationMessage[] = [
+        ...messages,
+        {
+          role: 'user',
+          content:
+            'System note: no more actions are available this turn. Answer the user now in plain text using only the results above. No links unless a link is the answer itself, no promises about actions you did not take. If the results do not settle it, say in one line what could not be verified.',
+        },
+      ]
+      const text = await input.chat(asked, Math.min(25_000, Math.max(5_000, deadline - Date.now())))
+      const cleaned = stripToolDirectives(text || '').trim()
+      return /^\s*(?:TOOL\b|DRAFT_|```|\{\s*"action")/i.test(cleaned) ? '' : cleaned
+    } catch {
+      return ''
+    }
+  }
   /** One lookup with its own deadline; maps gets less because the answer's
    * facts depend on it and the turn still has to write them. A first failure
    * gets exactly one retry while the wall allows it — "the web lookup did not
    * run" reached users on a single transient abort (bench50 #18), and one
-   * clean retry almost always lands. */
-  const fetchLookupOnce = async (tool: LiveTool, query: string) => {
+   * clean retry almost always lands. */  const fetchLookupOnce = async (tool: LiveTool, query: string) => {
     let timer: ReturnType<typeof setTimeout> | undefined
     try {
       return await Promise.race([
@@ -438,7 +487,15 @@ Reactions are optional and usually absent. You may add "reaction":"<emoji>" to a
       const wantsMail = /\b(inbox|email|e-?mail|gmail|mailbox|unread|replies owed)\b/i.test(userAsk)
       const attemptedMail = [...seen].some(key => key.startsWith('gmail:'))
       const findOnlyAsk = /\b(?:find|recommend|suggest|show|compare|options?|choices?|which)\b/i.test(userAsk) && !ACTION_ASK_RE.test(userAsk)
-      const needsBrowser = !isMemoryAsk && !wantsMail && !attemptedMail && (request
+      /* A change to an app Alpha just delivered is the workshop's turn, never a
+       * browser's: "add sound effects" arrived as needsBrowser from the
+       * classifier and put a Cloud Computer run (pointed at our own build link)
+       * in front of the user. Same shape the iterate gate uses — change-worded,
+       * short, and a /b/ link already in the thread. */
+      const appTweakAsk =
+        /\b(?:add|remove|rename|swap|change|update|modify|tweak|revise|iterate|make it|bigger|smaller|faster|slower)\b/i.test(userAsk) &&
+        messages.slice(-6).some((m) => (m.role === 'assistant' || m.role === 'system') && String(m.content).includes('/b/'))
+      const needsBrowser = !isMemoryAsk && !wantsMail && !attemptedMail && !appTweakAsk && (request
         ? (request.needsBrowser || ACTION_ASK_RE.test(userAsk)) && !findOnlyAsk
         : ACTION_ASK_RE.test(userAsk) && !findOnlyAsk)
       // A booking ask that already produced search results gets a second nudge
@@ -532,11 +589,23 @@ Reactions are optional and usually absent. You may add "reaction":"<emoji>" to a
         // Place/dining asks belong on maps FIRST unless they want hotels or prices/rates:
         // hotel and pricing asks use LangSearch web search to get real rates and booking details.
         const wantsPlace = asksForPlaces && !wantsWebForRichPlace && input.availableTools.includes('maps') && !attemptedMaps
-        const freshTool = wantsMail && input.availableTools.includes('gmail')
-          ? 'gmail'
+        /* A tool that already ran this turn is not nudged again — that is how a
+         * mail ask whose mailbox results were sitting in the messages still
+         * ended on "I could not check your inbox just now". Once the read has
+         * happened the only thing left is to answer from it, so the fresh-tool
+         * slot goes empty rather than pointing at the web (which would answer a
+         * mailbox question from listicles). */
+        const freshTool = wantsMail
+          ? attemptedMail || !input.availableTools.includes('gmail')
+            ? null
+            : 'gmail'
           : wantsPlace
-            ? 'maps'
-            : input.availableTools.includes('web') ? 'web' : null
+            ? attemptedMaps
+              ? null
+              : 'maps'
+            : input.availableTools.includes('web') && !attemptedWeb
+              ? 'web'
+              : null
         if (!freshTool) {
           // No tool can answer a freshness ask; let the model answer honestly.
         } else if (webNudged || step === maxSteps) {
@@ -592,7 +661,15 @@ Reactions are optional and usually absent. You may add "reaction":"<emoji>" to a
         messages.push({ role: 'user', content: 'System note: include the actual product or website link from the search results in your recommendation.' })
         continue
       }
-      return { reply: stripToolDirectives(raw) || fallback(), draft: savedDraft }
+      /* Nothing usable came back from the last action — a lookup that never
+       * parsed, a draft that was refused. The results on hand are still real, so
+       * ask once for the answer itself instead of handing the user a raw link
+       * list: "Here are the top matches I found" with three Kayak mirrors is
+       * what a dead end looks like from the phone. */
+      const lastChance = stripToolDirectives(raw)
+      if (lastChance) return { reply: lastChance, draft: savedDraft }
+      const forced = await answerFromResults()
+      return { reply: forced || fallback(), draft: savedDraft }
     }
     if (step === maxSteps || Date.now() >= deadline) return { reply: fallback(), draft: savedDraft }
     messages.push({ role: 'assistant', content: raw })

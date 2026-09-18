@@ -176,6 +176,13 @@ async def main() -> None:
 		dont_force_structured_output=True,
 		remove_min_items_from_schema=True,
 		remove_defaults_from_schema=True,
+		# browser-use defaults the step reply to 4096 tokens, and a rich page
+		# (long extracted_content, several element indices) blows through it:
+		# the run dies with "Model output was truncated at
+		# max_completion_tokens=4096; the structured output is incomplete" and
+		# the user is told nothing they can act on. The step JSON is worth the
+		# headroom — max_actions_per_step already keeps it bounded.
+		max_completion_tokens=int(os.environ.get("AGENT_MAX_COMPLETION_TOKENS", "12000")),
 	)
 	sensitive_data = {}
 	credential_state = config.get("credential_state", "missing")

@@ -1,21 +1,72 @@
 export type WebSearchResult = { title: string; url: string; snippet: string }
 
+/* Prices arrive from whatever country mirror the engine happened to index:
+ * "hotel near LGA under $150" came back as a kayak.ae page quoting AED 1,283,
+ * and the model then told the user the average was "$1,200" — a number off by a
+ * factor of four, in the wrong currency, with no way for the reader to tell.
+ * Two guards: a foreign-currency-only price is not an answer for a US ask, and
+ * the same page on six country mirrors is one result. */
+const FOREIGN_CURRENCY =
+  /\b(?:AED|AUD|BRL|CAD|CHF|CNY|CZK|DKK|EGP|EUR|GBP|HKD|HUF|IDR|ILS|INR|JPY|KRW|MAD|MXN|MYR|NOK|NZD|PHP|PLN|RON|RUB|SAR|SEK|SGD|THB|TRY|TWD|UAH|VND|ZAR)\b|[€£₹¥₩₪₺]/
+const USD_PRICE = /\$\s?\d|\bUSD\b/i
+const FOREIGN_PLACE_QUERY =
+  /\b(?:uae|dubai|abu dhabi|canada|toronto|vancouver|mexico|australia|sydney|melbourne|new zealand|auckland|india|delhi|mumbai|bangalore|japan|tokyo|kyoto|korea|seoul|china|beijing|shanghai|singapore|thailand|bangkok|vietnam|hanoi|indonesia|bali|jakarta|philippines|manila|malaysia|kuala lumpur|europe|paris|france|london|uk|england|scotland|ireland|dublin|germany|berlin|munich|spain|madrid|barcelona|italy|rome|milan|portugal|lisbon|netherlands|amsterdam|belgium|brussels|switzerland|zurich|austria|vienna|sweden|stockholm|norway|oslo|denmark|copenhagen|poland|warsaw|turkey|istanbul|israel|tel aviv|egypt|cairo|south africa|cape town|brazil|sao paulo|argentina|buenos aires)\b/i
+
+/** Country mirrors of one page ("nz.kayak.com/x", "kayak.ie/x") collapse to a
+ * single result, preferring the plain .com host when the set has one. */
+function dedupeMirrors(rows: WebSearchResult[]): WebSearchResult[] {
+  const brandPath = (url: string): string | null => {
+    try {
+      const u = new URL(url)
+      const labels = u.hostname.replace(/^www\./, '').split('.')
+      // "kayak.com" → "kayak"; "nz.kayak.com" → "kayak"; "kayak.co.uk" → "kayak"
+      const brand = labels.length > 2 && labels[labels.length - 1]!.length === 2 ? labels[labels.length - 3] : labels[labels.length - 2]
+      if (!brand) return null
+      return `${brand}|${u.pathname.replace(/\/+$/, '').toLowerCase()}`
+    } catch {
+      return null
+    }
+  }
+  const best = new Map<string, WebSearchResult>()
+  const order: string[] = []
+  for (const row of rows) {
+    const key = brandPath(row.url)
+    if (!key) continue
+    const current = best.get(key)
+    if (!current) {
+      best.set(key, row)
+      order.push(key)
+      continue
+    }
+    const plainCom = (u: string) => /^https:\/\/(?:www\.)?[a-z0-9-]+\.com\//i.test(u)
+    if (plainCom(row.url) && !plainCom(current.url)) best.set(key, row)
+  }
+  const deduped = order.map((key) => best.get(key)!).filter(Boolean)
+  return deduped.length ? deduped : rows
+}
+
 /** A provider returning HTML successfully is not enough: reject obvious topic
  * misses before it can win the race and abort the other providers. */
-function relevantResults(query: string, rows: WebSearchResult[]): WebSearchResult[] {
+export function relevantResults(query: string, rows: WebSearchResult[]): WebSearchResult[] {
   const ignored = new Set('a an the in at on for of to and or near me can you find search best nice good official website websites menu address latest please buy'.split(' '))
   const terms = [...new Set(query.toLowerCase().match(/[a-z0-9]+/g) || [])].filter(t => t.length > 2 && !ignored.has(t))
   const dining = /\b(?:restaurants?|dining|dinner|cafes?|ristorante|pizzeria)\b/i.test(query)
   const hotel = /\b(?:hotels?|hostels?|motels?|lodging|stay|room rates?)\b/i.test(query)
   const flights = /\b(?:flights?|airline|tickets?|airfare|fares?)\b/i.test(query)
-  return rows.filter(row => {
+  const priced = hotel || flights
+  const foreignAsk = FOREIGN_PLACE_QUERY.test(query)
+  const kept = rows.filter(row => {
     const content = `${row.title} ${row.snippet} ${row.url}`.toLowerCase()
     if (dining && !/\b(?:restaurants?|dining|dinner|cafes?|ristorante|bistro|pizzeria|steakhouse|seafood|italian|sushi|food|eatery|grill|kitchen|bakery|tacos?|taqueria)\b/i.test(content)) return false
     if (hotel && !/\b(?:hotels?|hostels?|motels?|lodging|accommodations?|suites?|resorts?|rooms?|inns?|stay|guest house|bed and breakfast|vacation rental)\b/i.test(content)) return false
     if (flights && !/\b(?:flights?|airline|airlines|airways|tickets?|fares?|airfare|nonstop|roundtrip|one-way|airport)\b/i.test(content)) return false
     if (hotel && /\b(?:national basketball association|nba|football club|baseball|sports team|roster|season)\b/i.test(content)) return false
+    // A price ask answered only in someone else's currency: the reader cannot
+    // convert it, and the model has been seen to read AED as dollars.
+    if (priced && !foreignAsk && !USD_PRICE.test(`${row.title} ${row.snippet}`) && FOREIGN_CURRENCY.test(`${row.title} ${row.snippet}`)) return false
     return !terms.length || terms.some(t => content.includes(t.replace(/s$/, '')))
   })
+  return dedupeMirrors(kept)
 }
 
 const UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36'

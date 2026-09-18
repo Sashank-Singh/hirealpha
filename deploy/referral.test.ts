@@ -64,7 +64,9 @@ describe('/api/invites/status', () => {
 
 /* ---- Checkout harness: Stripe over stubbed fetch, SQL captured ---- */
 
-const STRIPE_ENV = ['STRIPE_SECRET_KEY', 'STRIPE_PRICE_FRIEND']
+/* These exercise the checkout path, which is behind HIREALPHA_PAYMENTS=1 while
+ * HireAlpha is free to use. Turning it on here keeps the paid path covered. */
+const STRIPE_ENV = ['STRIPE_SECRET_KEY', 'STRIPE_PRICE_FRIEND', 'HIREALPHA_PAYMENTS']
 const savedStripe = new Map<string, string | undefined>()
 
 type StripeCall = { url: string; method: string; body: string }
@@ -118,7 +120,8 @@ afterEach(() => {
 function withStripeEnv() {
   for (const k of STRIPE_ENV) {
     savedStripe.set(k, process.env[k])
-    process.env[k] = k === 'STRIPE_SECRET_KEY' ? 'sk_test_referral' : 'price_friend_test'
+    process.env[k] =
+      k === 'STRIPE_SECRET_KEY' ? 'sk_test_referral' : k === 'HIREALPHA_PAYMENTS' ? '1' : 'price_friend_test'
   }
 }
 

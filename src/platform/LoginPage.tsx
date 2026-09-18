@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react'
 import { Link, Navigate, useNavigate, useSearchParams } from 'react-router-dom'
 import { apiLoginPassword, apiRegisterPassword, apiSavePhone, apiSignIn } from './api'
+import { paymentsEnabled } from './paymentsConfig'
 import { getSession, hydrateFromServer, signIn } from './roster'
 
 type AuthMode = 'signin' | 'signup'
@@ -25,12 +26,22 @@ export function LoginPage() {
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
 
-  /** The moment auth completes the account goes to Stripe — always. A plan
-   * picked on the pricing card is honored; otherwise the single-hire trial is
-   * the default (7 days free, then $5 x 2 months, then $19). The checkout
-   * email IS the account email. */
+  /**
+   * The moment auth completes the account goes on to the app.
+   *
+   * While payments are off there is no checkout at all: signup finishes and the
+   * user is in. The Stripe call below is intact and takes over the moment
+   * HIREALPHA_PAYMENTS=1 is set on the server — a plan picked on the pricing
+   * card is honored then, and otherwise the single-hire trial is the default
+   * (7 days free, then $5 x 2 months, then $19). The checkout email IS the
+   * account email.
+   */
   async function continueToCheckout(email: string, planOverride?: string, isNewSignup = false) {
     const plan = planOverride || planParam || 'single'
+    if (!(await paymentsEnabled())) {
+      navigate(isNewSignup ? '/app/mini/friend/menu' : '/app')
+      return
+    }
     try {
       const res = await fetch('/api/billing/checkout', {
         method: 'POST',

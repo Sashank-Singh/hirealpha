@@ -24,6 +24,7 @@ import {
   parseVerification,
   verifyAnswerAgainstPage,
 } from './agentDriver'
+import { plainRunFailure } from './browserWorker'
 import { executeKernelAction, readVerifiedKernelPurchase } from './kernelSession'
 
 /* ============================================================================
@@ -568,5 +569,25 @@ describe('chat-answer handoff (Route A)', () => {
     expect(checked).toBe(true)
     expect(outcome).toBe('resumed')
     expect(queries.some((q) => q.text.includes("status = 'running'"))).toBe(true)
+  })
+})
+
+describe('run failure copy', () => {
+  /* The runner's errors are written for engineers. One reached a phone
+   * verbatim: "Couldn't check hirealpha.chat: Model output was truncated at
+   * max_completion_tokens=4096; the structured output is incomplete. Increase
+   * max_completion_tokens or request shorter output." — cut off mid-sentence by
+   * the 200-char slice, and naming a parameter the user cannot act on. */
+  it('never ships a provider parameter dump to the user', () => {
+    const raw = 'Model output was truncated at max_completion_tokens=4096; the structured output is incomplete. Increase max_completion_tokens or request shorter output.'
+    const text = plainRunFailure('hirealpha.chat', raw)
+    expect(text).toBe("Couldn't check hirealpha.chat. The page was more than it could read in one pass. Nothing was sent and nothing changed on that site.")
+    expect(text).not.toMatch(/max_completion_tokens|4096|structured output/)
+  })
+
+  it('names the reason in plain words when the run recognises it', () => {
+    expect(plainRunFailure('campusnet.csuohio.edu', 'Target not allowed for this project')).toContain('asked for a sign in')
+    expect(plainRunFailure('example.com', 'The operation was aborted')).toContain('run stopped on my side')
+    expect(plainRunFailure('example.com', undefined)).toContain('run stopped on my side')
   })
 })

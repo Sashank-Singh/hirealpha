@@ -49,6 +49,17 @@ describe('browser run routing', () => {
     expect(pickBrowserPortal({ ask: 'book a table on opentable', resultUrls: [] })).toBe('https://www.opentable.com')
   })
 
+  it('never stages a run against our own app', () => {
+    // Seen live: an app tweak ("add sound effects") was flagged needsBrowser,
+    // the delivered build link was in the conversation, and the run picked it
+    // as the portal — so Alpha asked the user to save their HireAlpha password
+    // in the vault and drive a computer around the page they were texting about.
+    expect(isMerchantPortal('https://hirealpha.chat/b/2a3319d4-acdc-48f2-a596-3a635124f0c6')).toBe(false)
+    expect(isMerchantPortal('https://www.hirealpha.chat/app/vault-login?portal=https%3A%2F%2Fhirealpha.chat')).toBe(false)
+    expect(isMerchantPortal('http://localhost:5173/b/x')).toBe(false)
+    expect(pickBrowserPortal({ ask: 'add sound effects to the game', resultUrls: ['https://hirealpha.chat/b/2a3319d4'] })).toBeNull()
+  })
+
   it('treats a rates ask as a booking ask, and a browse ask as maps-only', () => {
     // Map data has no prices, so a rates ask has to reach the real site or the
     // answer is an honest 'I could not verify prices' at best.
