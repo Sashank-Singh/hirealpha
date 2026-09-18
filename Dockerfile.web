@@ -37,6 +37,23 @@ COPY deploy/appPreload.ts ./appPreload.ts
 COPY deploy/agentReady.ts ./agentReady.ts
 COPY deploy/workshop.ts ./workshop.ts
 COPY deploy/serpapi.ts ./serpapi.ts
+COPY deploy/trvl.ts ./trvl.ts
+
+# trvl: the travel search binary (github.com/MikkoParkkola/trvl). Real dated
+# fares and hotel rates merged from several sources, called over its CLI with
+# --format json. Pinned, checksum-verified, and optional at runtime: a missing
+# binary just falls through to the other sources.
+ARG TRVL_VERSION=v1.21.6
+RUN set -eux; \
+  arch="$(dpkg --print-architecture)"; \
+  case "$arch" in amd64) goarch=amd64 ;; arm64) goarch=arm64 ;; *) goarch=amd64 ;; esac; \
+  curl -fsSL -o /tmp/trvl.tar.gz "https://github.com/MikkoParkkola/trvl/releases/download/${TRVL_VERSION}/trvl_${TRVL_VERSION#v}_linux_${goarch}.tar.gz"; \
+  curl -fsSL -o /tmp/trvl.sha256 "https://github.com/MikkoParkkola/trvl/releases/download/${TRVL_VERSION}/checksums.txt"; \
+  (cd /tmp && grep "trvl_${TRVL_VERSION#v}_linux_${goarch}.tar.gz" trvl.sha256 | sha256sum -c -); \
+  tar xzf /tmp/trvl.tar.gz -C /usr/local/bin trvl; \
+  chmod +x /usr/local/bin/trvl; \
+  rm -f /tmp/trvl.tar.gz /tmp/trvl.sha256
+ENV TRVL_BIN=/usr/local/bin/trvl
 COPY deploy/hire-api.ts ./hire-api.ts
 COPY deploy/stt.ts ./stt.ts
 COPY deploy/webSearch.ts ./webSearch.ts
