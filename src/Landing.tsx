@@ -4,6 +4,7 @@ import { AlphaFace } from './AlphaFace'
 import { Invites } from './marketing/Invites'
 import { Pricing } from './marketing/Pricing'
 import { ShareButton } from './marketing/ShareButton'
+import { getSession, signOut } from './platform/roster'
 import { track } from './track'
 import { GreatestHits } from './marketing/GreatestHits'
 import './landing-stage.css'
@@ -1185,6 +1186,13 @@ function WaitlistForm() {
 
 export default function Landing() {
   const [scrolled, setScrolled] = useState(false)
+  /* Someone with an account should never be shown "Sign in" and "Get started"
+   * as if they had neither. The landing is public, so the session is read after
+   * mount rather than during render. */
+  const [signedIn, setSignedIn] = useState(false)
+  useEffect(() => {
+    setSignedIn(!!getSession()?.email)
+  }, [])
   const [focus, setFocus] = useState<AgentId>('friend')
   const [demoPaused, setDemoPaused] = useState(false)
   const focused = AGENTS.find((a) => a.id === focus)!
@@ -1232,13 +1240,34 @@ export default function Landing() {
               <a href="#faq">FAQ</a>
               {/* Existing users need a way back in. The pricing CTAs only start
                   a new checkout, so without this the landing page had no route
-                  to the dashboard for anyone already signed up. */}
-              <a href="/app/login" className="btn btn--ghost btn--sm">
-                Sign in
-              </a>
-              <a href="#pricing" className="btn btn--primary btn--sm">
-                Get started
-              </a>
+                  to the dashboard for anyone already signed up — and once
+                  signed in, "Sign in" and "Get started" are both wrong. */}
+              {signedIn ? (
+                <>
+                  <button
+                    type="button"
+                    className="btn btn--ghost btn--sm"
+                    onClick={() => {
+                      signOut()
+                      setSignedIn(false)
+                    }}
+                  >
+                    Log out
+                  </button>
+                  <a href="/app" className="btn btn--primary btn--sm">
+                    Dashboard
+                  </a>
+                </>
+              ) : (
+                <>
+                  <a href="/app/login" className="btn btn--ghost btn--sm">
+                    Sign in
+                  </a>
+                  <a href="#pricing" className="btn btn--primary btn--sm">
+                    Get started
+                  </a>
+                </>
+              )}
             </div>
           </div>
         </nav>
@@ -1325,8 +1354,8 @@ export default function Landing() {
             </div>
 
             <div className="stage__dock">
-              <a href="#pricing" className="btn btn--primary btn--lg">
-                Get started
+              <a href={signedIn ? '/app' : '#pricing'} className="btn btn--primary btn--lg">
+                {signedIn ? 'Open the dashboard' : 'Get started'}
               </a>
               <p>Not an app. People in your Messages who text first and remember everything.</p>
             </div>

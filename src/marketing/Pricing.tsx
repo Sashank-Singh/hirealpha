@@ -73,11 +73,16 @@ function displayPrice(tier: { id: Tier; price: number; promo?: number; per: stri
 
 /** Checkout needs a signed-in email: a known session fires Stripe immediately;
  * a fresh visitor is sent to /app/login?plan=... which collects the account
- * (name, email, phone) and auto-continues to checkout on success. Free has
- * nothing to charge, so it walks to the signup form. */
+ * (name, email, phone) and auto-continues to checkout on success.
+ *
+ * Free has nothing to charge, so the click is the signup itself: an account
+ * exists already → the dashboard, otherwise → account creation. It used to
+ * scroll to a waitlist form that is not always on the page, which made the card
+ * feel dead: pressing "Start free" did nothing at all. */
 async function choosePlan(tier: Tier, annual: boolean, email?: string) {
   if (tier === 'free') {
-    document.getElementById('waitlist')?.scrollIntoView({ behavior: 'smooth' })
+    const signedIn = getSession()?.email || ''
+    window.location.href = signedIn.includes('@') ? '/app' : '/app/login'
     return
   }
   const fromSession = getSession()?.email || ''
