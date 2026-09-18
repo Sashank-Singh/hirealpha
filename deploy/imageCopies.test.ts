@@ -68,3 +68,19 @@ describe('docker image file sets', () => {
     ])).toEqual([])
   })
 })
+
+describe('the trvl install recipe', () => {
+  /* Live failure 2026-09-18: the tarball was saved as trvl.tar.gz while the
+   * checksum file names trvl_1.21.6_linux_amd64.tar.gz, so `sha256sum -c` could
+   * not find the file, the build died in 30 seconds and the whole Web deploy
+   * failed. The download must carry the asset's own name. */
+  it('downloads the asset under the name the checksum file uses', () => {
+    const dockerfile = readFileSync(join(root, 'Dockerfile.web'), 'utf8')
+    const block = dockerfile.slice(dockerfile.indexOf('ARG TRVL_VERSION'), dockerfile.indexOf('ENV TRVL_BIN'))
+    expect(block).toContain('asset="trvl_')
+    expect(block).toContain('-o "$asset"')
+    expect(block).toContain('grep "$asset" checksums.txt | sha256sum -c -')
+    expect(block).not.toMatch(/-o \/tmp\/trvl\.tar\.gz/)
+    expect(block).toContain('tar xzf "$asset"')
+  })
+})
