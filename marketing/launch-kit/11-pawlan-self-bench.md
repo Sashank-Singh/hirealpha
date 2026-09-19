@@ -70,7 +70,11 @@ lifecycle. The two findings that would have been visible:
 **The brief could not read a Composio calendar and called the day quiet.**
 `todayMeetsCache` waits 8 s; the connector calendar call used a 15 s default, so
 the read could never land in time on an account that reads through Composio —
-which is the account in question. The timeout then reported `connected: true,
+which is the account in question. **Verified fixed on production with the real
+account: `/api/internal/digest` now returns one calendar entry and leads with
+"Enterprise Deployment Build Day @ AGI House at 10:00 AM", where before the fix
+it returned `calendar: []` and "A quiet day so far" (18 mail items in the same
+payload).** The timeout then reported `connected: true,
 meets: []`, and the brief led with "A quiet day so far" (or asked a connected
 user to "Connect Calendar in Settings"). The calendar result now carries the
 third state — read-failed — the connector call takes the caller's budget, and
