@@ -160,6 +160,41 @@ nothing was confirmed), and the brief now sets `pending` when it hands back a
 cached build while a rebuild runs behind it, which is the one field the client's
 retry ladder reads. **Every finding from all three audit rounds is closed.**
 
+## NIGHT OF 2026-09-19, PART FOUR — memory, and the screen budget (`837f072`)
+
+A fourth audit, on what the bot knows about a user each turn. Every finding was
+the same shape: the capture side and the recall side disagreed about which keys
+matter, or the durable copy could be dropped.
+
+- **The travel-run preference read only the container-local file**, which dies
+  with the container — so the goal sent to the browser carried no seat
+  preference at all on the first turn after any deploy. Measured with a fresh
+  dataDir: `{"body":"Book a round trip New York to Chicago"}` while
+  `seat_preference: aisle seat` sat on the server; the same fact present locally
+  produced "…Standing preference: aisle seat". Both call sites read both stores
+  now.
+- **The server did not treat the captured keys as durable**: `seat_preference`,
+  `flight_preference`, `diet` and `tone_playfulness` were stored as loose notes
+  and ranked last — with 60 newer facts, `seat_preference` fell out of a 40-fact
+  recall entirely. Added to the durable set.
+- **The model's `remember` capability wrote local-only** while the prompt tells
+  it to persist permanent rules that way. It dual-writes now.
+- **The fast path injected the TAIL of the memory list**, and the server orders
+  pinned-first then newest-first — so the facts that reached the model were the
+  oldest loose notes, with the name, timezone and city missing. It takes the head.
+- **Re-stating a preference did not move it**: the local array is
+  insertion-ordered and the prompt takes its tail, so a weekly-repeated fact
+  still aged toward eviction. Upsert re-inserts at the newest position.
+- **The seat-conflict detector read keys nothing writes** (`seat`/`flight_seat`
+  vs the captured `seat_preference`/`flight_preference`), so "you prefer aisle,
+  I'm holding a window" could never be flagged. Fixed, with the old keys as
+  aliases and a test on the captured shape.
+
+**Also verified:** the standing screen budget holds after the night's frontend
+edits — 8/8 screens under 1000 ms on the production bundle (login 422 ms, home
+358 ms, brief 354 ms), measured after installing the Playwright browser the
+local cache had lost.
+
 ## CURRENT INTERNAL SCORECARD — 2026-09-19 (read this first)
 
 The per-run sections below are history. This block is the single current state;
