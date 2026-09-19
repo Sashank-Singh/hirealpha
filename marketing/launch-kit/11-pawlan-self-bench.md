@@ -2554,3 +2554,36 @@ keep instead of claiming a save that never happened.
 
 Item closed. Still open and not mine to close: the builder's update leg
 (upstream, retryable) and the founder taps.
+
+### 16 — why every tweak shipped a new link (the founder's question, answered in code)
+
+The founder, looking at the workshop list: *"WHY NEW LINK WHY NEW DEVELOPMENT AND
+DEPLOYMENT WHY NO ITERATION ON THE SAME LINK"* — with two Tip Splitters and four
+Retro Pongs on screen, and the Tip Splitter he was looking at being the **first**
+build, because that was the link he held.
+
+The answer was in the iterate handler: it minted `crypto.randomUUID()` and
+INSERTed a second artifact row beside the source. So every tweak produced a new
+`/b/` URL, the link the user already had kept serving the old version, and the
+list filled with copies — while the reply said "that's the same build that took
+the custom tip percentage", which was true of the *content* and false of the
+*artifact*.
+
+`33ea729` makes an update an update: same artifact id, same URL, new bytes. The
+row's title/state/expiry are updated in place (a change to a KEPT app still
+inherits `kept`), the `index.html` row is replaced rather than duplicated, the
+workshop task records against the same artifact, and the response returns the
+same id and url — so `lastBuild` and its durable mirror keep pointing at the app
+the user is actually holding.
+
+Left alone deliberately: the artifacts already duplicated by the old behaviour
+stay put. Deleting someone's builds is their call, not this commit's. Also left
+alone: ordering. The list is `ORDER BY created_at DESC`, so an updated app keeps
+its original slot rather than jumping to the top; whether an update should
+re-surface is a product call, not a bug to assume.
+
+**The iterate path itself works**, which this also settles: "add one line at the
+very bottom … tip-splitter build v2" came back *"Done, the version line is at the
+bottom: https://hirealpha.chat/b/9efe9ed5-…"* with the custom-percentage build
+underneath it. The two failures before that were the builder's own refusals, and
+the route now mints no new artifact for either outcome.
