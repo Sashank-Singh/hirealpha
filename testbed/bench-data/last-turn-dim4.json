@@ -1,22 +1,23 @@
 {
   "dim": "4",
   "phone": "+12163032166",
-  "userText": "Reorder a product on Amazon — the same coffee beans as last time, two bags, to the home address, confirm before charging, return the order confirmation.",
+  "userText": "Reorder two bags of the same coffee beans I usually buy from Amazon, shipped to my home address.",
   "bubbles": [
-    "Locked. Everything's ready to go the second you're signed into Amazon, I'll run: \"Reorder a product on Amazon, the same coffee beans as last time, two bags, to the home address, confirm before charging, return the order c\" and pause before payment. Save your login details securely or choose private handoff in your vault:"
+    "Locked. Everything's ready to go the second you're signed into Amazon, I'll run: \"Reorder two bags of the same coffee beans I usually buy from Amazon, shipped to my home address.\" and pause before payment. Save your login details securely or choose private handoff in your vault:"
   ],
-  "reply": "Locked. Everything's ready to go the second you're signed into Amazon, I'll run: \"Reorder a product on Amazon, the same coffee beans as last time, two bags, to the home address, confirm before charging, return the order c\" and pause before payment. Save your login details securely or choose private handoff in your vault:",
+  "reply": "Locked. Everything's ready to go the second you're signed into Amazon, I'll run: \"Reorder two bags of the same coffee beans I usually buy from Amazon, shipped to my home address.\" and pause before payment. Save your login details securely or choose private handoff in your vault:",
   "source": "gmi",
   "authoritative": [
+    "proactive",
     "hasVault",
     "vaultOrigins"
   ],
   "card": {
-    "url": "https://hirealpha.chat/app/mini/friend/vault?t=eyJwaG9uZSI6IisxMjE2MzAzMjE2NiIsInBlcnNvbmEiOiJmcmllbmQiLCJraW5kIjoidmF1bHQiLCJleHAiOjE3OTAzNzE0MDcwMTZ9.pPR5bune5jqQmBaMm_ziKSbxfRtUpIhqoq87f-ZYRl8&portal=https%3A%2F%2Fwww.amazon.com",
+    "url": "https://hirealpha.chat/app/mini/friend/vault?t=eyJwaG9uZSI6IisxMjE2MzAzMjE2NiIsInBlcnNvbmEiOiJmcmllbmQiLCJraW5kIjoidmF1bHQiLCJleHAiOjE3OTAzNzc2MTgzNTZ9.Sh7Q0syg8vLJXh-UyDK5dDQpBXotouhi0zYkLd9OpOk&portal=https%3A%2F%2Fwww.amazon.com",
     "live": false
   },
   "contactCardFirst": false,
   "progress": [],
   "reactions": [],
-  "totalMs": 39711
+  "totalMs": 6825
 }

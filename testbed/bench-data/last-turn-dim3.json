@@ -1,14 +1,22 @@
 {
   "dim": "3",
   "phone": "+12163032166",
-  "userText": "Find dinner for four tomorrow at 7:30 PM, walkable from the Loop in Chicago, vegetarian-friendly, not a chain, under $40 per person. Three options with why each fits.",
+  "userText": "Find a dinner spot for four tomorrow at 7:30 PM, walkable from my hotel, vegetarian friendly, not a chain, under \\$40 per person.",
   "bubbles": [
-    "I could not load your connected account data right now. Please try again in a moment. You do not need to reconnect anything based on this error."
+    "The map lookup keeps returning the same cached results, so here's the honest picture for tomorrow (Sunday) at 7:30, four people, walkable from LondonHouse:\n\n1. Jake Melnick's Corner Tap · 41 E Superior St · ~2 min walk. Closest, independent, but I couldn't verify vegetarian options from the results, so that's the one to confirm on the menu.\n\n2. Chicago Cut Steakhouse · 300 N LaSalle Blvd · ~13 min walk. Vegan options confirmed, though a steakhouse will likely push past $40/head.\n\n3. Eggy's · 333 E Benton Place · ~18 min walk. Vegetarian friendly confirmed, but it's a diner and I couldn't verify dinner service at 7:30.\n\nSweet Green at 150 N Michigan is vegetarian friendly and a 3 minute walk, but it's a small chain, so it only counts if you're flexible on that rule.\n\nWant me to check live tables for four at 7:30 for one of these?"
   ],
-  "reply": "I could not load your connected account data right now. Please try again in a moment. You do not need to reconnect anything based on this error.",
-  "source": "local",
+  "reply": "The map lookup keeps returning the same cached results, so here's the honest picture for tomorrow (Sunday) at 7:30, four people, walkable from LondonHouse:\n\n1. Jake Melnick's Corner Tap · 41 E Superior St · ~2 min walk. Closest, independent, but I couldn't verify vegetarian options from the results, so that's the one to confirm on the menu.\n\n2. Chicago Cut Steakhouse · 300 N LaSalle Blvd · ~13 min walk. Vegan options confirmed, though a steakhouse will likely push past $40/head.\n\n3. Eggy's · 333 E Benton Place · ~18 min walk. Vegetarian friendly confirmed, but it's a diner and I couldn't verify dinner service at 7:30.\n\nSweet Green at 150 N Michigan is vegetarian friendly and a 3 minute walk, but it's a small chain, so it only counts if you're flexible on that rule.\n\nWant me to check live tables for four at 7:30 for one of these?",
+  "source": "gmi",
+  "authoritative": [
+    "hasVault",
+    "vaultOrigins"
+  ],
   "card": null,
-  "progress": [],
+  "contactCardFirst": false,
+  "progress": [
+    "I’m checking nearby options."
+  ],
   "reactions": [],
-  "totalMs": 25513
+  "images": [],
+  "totalMs": 35971
 }
