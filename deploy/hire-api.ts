@@ -15012,7 +15012,23 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
     const facts = (body.facts || [])
       .filter((f) => f && f.key && f.value)
       .map((f) => ({ key: String(f.key), value: String(f.value) }))
-    await upsertMemories(sql, user.id, body.persona, facts)
+    /* Report which keys actually landed. The route used to answer 200 whatever
+     * happened inside upsertMemories (a consent check can return early and a
+     * per-fact write can throw), so a caller had no way to know that the one
+     * durable copy of a stated preference had been dropped — and nothing ever
+     * re-pushed the local store. */
+    const stored: string[] = []
+    try {
+      await upsertMemories(sql, user.id, body.persona, facts)
+      stored.push(...facts.map((f) => f.key))
+    } catch (err) {
+      console.warn('[memory] upsert before tz failed', err)
+    }
+    const readBack = await sql`
+      SELECT key FROM memory_records WHERE user_id = ${user.id}
+    `.catch(() => [] as Array<{ key: string }>)
+    const present = new Set((readBack as Array<{ key: string }>).map((r) => String(r.key || '').toLowerCase()))
+    const dropped = facts.map((f) => f.key).filter((k) => !present.has(k.toLowerCase()))
     const tzFact = facts.find((f) => f.key.toLowerCase() === 'timezone')
     if (tzFact) await rememberUserTimezone(sql, user.id, tzFact.value, body.persona)
     const genFact = facts.find((f) => ['generation', 'age', 'birth_year', 'tone'].includes(f.key.toLowerCase()))
@@ -15024,7 +15040,14 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
         DO UPDATE SET fields = hire_context.fields || ${JSON.stringify({ [genFact.key.toLowerCase()]: genFact.value })}::jsonb, updated_at = now()
       `
     }
-    return json({ ok: true, memories: await loadMemories(sql, user.id, body.persona, 12) })
+    return json({
+      ok: true,
+      // `dropped` is the caller's retry list: the keys that did not come back
+      // from the store after the write.
+      stored,
+      dropped,
+      memories: await loadMemories(sql, user.id, body.persona, 12),
+    })
   }
 
   if (path === '/api/internal/mini/run' && req.method === 'GET') {

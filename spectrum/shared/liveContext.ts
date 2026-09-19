@@ -675,23 +675,44 @@ export async function persistLiveFacts(
   phone: string,
   persona: AgentId,
   facts: Array<{ key: string; value: string }>,
-): Promise<void> {
+): Promise<{ dropped: string[] }> {
   const base = apiBase()
   const key = process.env.HIREALPHA_INTERNAL_KEY || ''
-  if (!base || !key || !facts.length) return
-  try {
-    await timedFetch(
-      `${base}/api/internal/memory`,
-      {
-        method: 'POST',
-        headers: authHeaders(),
-        body: JSON.stringify({ phone, persona, facts }),
-      },
-      8000,
-    )
-  } catch (err) {
-    console.warn('[live] persist facts failed', err)
+  if (!base || !key || !facts.length) return { dropped: [] }
+  /* The durable copy is the only one that survives a container recreation, so a
+   * single 8s attempt whose failure was logged and dropped could lose a stated
+   * preference for good. One retry, and the route now names the keys that did
+   * not land so the caller can push them again on the next turn. */
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const res = await timedFetch(
+        `${base}/api/internal/memory`,
+        {
+          method: 'POST',
+          headers: authHeaders(),
+          body: JSON.stringify({ phone, persona, facts }),
+        },
+        8000,
+      )
+      if (!res.ok) {
+        if (attempt === 0) continue
+        return { dropped: facts.map((f) => f.key) }
+      }
+      const data = (await res.json().catch(() => ({}))) as { dropped?: string[] }
+      const dropped = Array.isArray(data.dropped) ? data.dropped : []
+      if (!dropped.length) return { dropped: [] }
+      if (attempt === 0) continue
+      console.warn('[live] memory store did not take:', dropped.join(', '))
+      return { dropped }
+    } catch (err) {
+      if (attempt === 0) await new Promise((r) => setTimeout(r, 600))
+      else {
+        console.warn('[live] persist facts failed', err)
+        return { dropped: facts.map((f) => f.key) }
+      }
+    }
   }
+  return { dropped: [] }
 }
 
 export async function touchInbound(phone: string, persona: AgentId): Promise<void> {

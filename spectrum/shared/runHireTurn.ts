@@ -948,6 +948,23 @@ export async function runHireTurn(input: {
   }
 
   const live = await fetchLiveProfile(input.senderId, agent.id, input.userText)
+  /* Reconciliation: anything this thread holds that the server does not is a
+   * preference whose only copy dies with this container — a failed POST used to
+   * mean exactly that, permanently, because nothing ever re-pushed the local
+   * store. Bounded and fire-and-forget; the next turn re-reads the payload and
+   * tries again if it still did not land. */
+  {
+    const localFacts = loadMemory(input.dataDir, input.senderId).facts
+    const serverKeys = new Set((live.memories || []).map((m) => String(m.key || '').toLowerCase()))
+    const missing = localFacts
+      .filter((f) => f.key && f.value && !serverKeys.has(f.key.toLowerCase()))
+      .slice(0, 20)
+      .map((f) => ({ key: f.key, value: f.value }))
+    if (missing.length) {
+      void persistLiveFacts(input.senderId, agent.id, missing).catch(() => undefined)
+    }
+  }
+
 
   // LangGraph early shield: intercepts adversarial jailbreaks, crisis distress,
   // plaintext password sharing, and high-risk financial wire movement instantly.

@@ -106,7 +106,7 @@ export function detectMemoryConflicts(
    * `seat_preference`/`flight_preference` — so "you prefer aisle, I'm holding a
    * window" was never flagged. The old names stay as aliases. */
   const seatPref =
-    memories.find((m) => ['seat_preference', 'flight_preference', 'seat', 'flight_seat'].includes(m.key))?.value?.toLowerCase() || ''
+    memories.find((m) => ['seat_preference', 'flight_preference', 'seat', 'flight_seat'].includes(String(m.key || '')))?.value?.toLowerCase() || ''
   if (seatPref.includes('aisle') && /\bwindow(?:\s+seat)?\b/i.test(userText)) {
     return {
       hasConflict: true,
