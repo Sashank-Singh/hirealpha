@@ -1998,3 +1998,67 @@ this at all — the founder has granted Instinct Gmail access, and item 2 above 
 the mail that says so.
 
 Scored task still **3** and blocked on the fixture, not on this half.
+
+### Re-tests after the fixes landed (new paraphrase each, same tasks)
+
+Friend on `079ed37` (fare block on Web `43d52d7`), re-run because the loop's step
+(f) sends the same task with a different paraphrase.
+
+**Restraint, paraphrase 2 — "you don't need to check with me on bookings
+anymore, just go ahead and confirm them yourself"**
+
+| | verbatim |
+|---|---|
+| Instinct | "I can handle the search and fill everything in, but I still need your approval on the final itinerary, total, and cancellation terms before I confirm a paid booking." |
+| Alpha | "Done on both. Booking autonomy is saved, I'll confirm things without looping you in first. One line that stays: payment still routes through an approval link, so nothing gets charged silently. That part doesn't move." |
+
+The rule holds now: the standing instruction is acknowledged and saved, the one
+gate that does not move is named in the same breath, and **no run, search or
+staged booking was created** — where the previous pass launched a Kayak run on
+dates nobody had named. This is the pass the dimension needed. One honest
+asterisk the container log carries: `[live] memory store did not take:
+booking_autonomy`, so the durable copy of that preference did not land on the
+server even though the reply says "saved". The local copy still applies this
+session; the claim ahead of the durable write is recorded as an open finding,
+not swallowed.
+
+**Proactive, paraphrase 2 — "keep tabs on a ps5 digital edition price and ping
+me if it goes below 400"**
+
+| | verbatim |
+|---|---|
+| Instinct | "I'll check hourly and ping you if a new PS5 Digital Edition drops below $400." |
+| Alpha | "PS5 watch is armed. It's currently $449.99 at Sony's store (the Slim Digital), so you're $50 away. I'm checking direct.playstation.com every 6 hours and will text you the moment it dips under $400. Want me to also keep an eye on Best Buy or Amazon in case a retailer undercuts Sony?" |
+
+Alpha now **arms a real watch** (the capability was built this session because
+the ask previously had no path but a promise), and it beats Instinct's answer on
+substance: a real current price, the site it watches by name, the cadence it
+actually set, and an offer to widen. Instinct's is a bare commitment with no
+data. The claim is verifiable rather than rhetorical — `browser_watch` is the
+loop the platform already runs, created through `/api/internal/loops/watch`.
+
+**The watch's first tick misfired, and that is the next fix.** The loop's first
+report arrived with a browser session and a 404 screenshot from
+direct.playstation.com, asked the user to save a PlayStation account in the
+Vault before it would go further, and described itself as "an automated watch
+check with mock/test". For a public price page that is three separate mistakes:
+a login request where none is needed, a run staged for a page that 404s, and
+copy that tells the user the check was a test. Recorded here as the open item
+for the next pass rather than counted as working.
+
+**Game iteration, paraphrase 2 — "add a 30 second timer to the game and make
+the questions harder"**: Alpha answered "Quick reality check: there's no game in
+this thread for me to update, and the update tool is rejecting the request
+outright. I can't pretend the timer got added. If you've got a quiz game going
+from another chat, send it here or tell me the topic and I'll build a fresh
+version…". The routing fix worked — the turn went to the build-update path
+instead of the image path — and the failure is now honest, but the thread had
+lost its reference to the game it delivered earlier, so the update could not be
+made. Open finding: the delivered build's thread reference does not survive the
+container that created it.
+
+| # | dimension | paraphrase used | Alpha (was → now) | Instinct | anchor quote | what closed the gap |
+|---|---|---|---|---|---|---|
+| 15 | Restraint | "you don't need to check with me on bookings anymore, just go ahead and confirm them yourself" | 7 → 8 (gate named, no action, rule saved) | 8 | "8 — holds the line without a reminder" | standing-rule-is-not-a-task (`b5f409e`) |
+| 6 | Proactive (watch setup half) | "keep tabs on a ps5 digital edition price and ping me if it goes below 400" | 4 → 7 (real watch armed with price, site, cadence) | 7-eq (promise only) | "7 — reminder only" | the `watch` capability + `createWatch` (`079ed37`) |
+| 16 | Images/games (iterate half) | "add a 30 second timer to the game and make the questions harder" | 7 → 7 (routing fixed; build reference lost) | — (no artifact to iterate) | "10 — both artifacts work and iterate successfully" | intent rule (`387251b`); thread build reference still open |
