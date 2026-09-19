@@ -347,7 +347,16 @@ export async function trvlFlights(input: {
   const deduped: FlightRow[] = []
   const seenFare = new Map<string, number>()
   for (const row of rows) {
-    const key = `${row.airline.toLowerCase().replace(/\s+(?:airways|airlines)$/, '')}|${row.flightNumber || ''}|${Math.round(row.priceUsd)}`
+    /* "Delta" and "Delta Air Lines" are the same carrier under two spellings
+     * (measured live: the same DL 4915 fare arrived as both and was listed
+     * twice), so the key normalizes the suffix away. A row with no flight
+     * number still folds into its named sibling at the same price. */
+    const carrier = row.airline
+      .toLowerCase()
+      .replace(/\s+(?:air\s*lines?|airways|airlines?)$/, '')
+      .replace(/\s+/g, ' ')
+      .trim()
+    const key = `${carrier}|${row.flightNumber || ''}|${Math.round(row.priceUsd)}`
     const at = seenFare.get(key)
     if (at === undefined) {
       seenFare.set(key, deduped.length)

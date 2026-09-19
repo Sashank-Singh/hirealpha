@@ -308,3 +308,30 @@ describe('flight providers are asked one at a time', () => {
     expect(env.TRVL_NO_GEO).toBe('1')
   })
 })
+
+describe('one carrier, two spellings, one row', () => {
+  /* Measured live: the same DL 4915 fare came back as "Delta" and as "Delta Air
+   * Lines" at $325 and was listed twice. */
+  it('folds the airline-name suffix into the dedupe key', async () => {
+    resetTrvlState()
+    globalThis.fetch = (async () => new Response(JSON.stringify({ date: '2026-09-18', rates: { USD: 1 } }), { status: 200 })) as unknown as typeof fetch
+    const leg = (airline: string, flight: string, depart: string, arrive: string) => ({
+      departure_airport: { code: 'JFK' },
+      arrival_airport: { code: 'ORD' },
+      departure_time: depart,
+      arrival_time: arrive,
+      airline,
+      flight_number: flight,
+    })
+    setTrvlRunner(async () => ({
+      flights: [
+        { price: 325, currency: 'USD', duration: 178, stops: 0, legs: [leg('Delta', 'DL 4915', '2026-09-25T15:01:00-04:00', '2026-09-25T17:59:00-05:00')] },
+        { price: 325, currency: 'USD', duration: 319, stops: 0, legs: [leg('Delta Air Lines', 'DL 4915', '2026-09-25T15:01:00-04:00', '2026-09-25T20:20:00-05:00')] },
+      ],
+    }))
+    const block = (await trvlFlights({ from: 'New York', to: 'Chicago', date: '2026-09-25' })) || ''
+    const rows = block.split('\n').filter((l) => l.startsWith('- '))
+    expect(rows.length).toBe(1)
+    expect(rows[0]).toContain('2h 58m')
+  })
+})
