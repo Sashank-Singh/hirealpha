@@ -217,11 +217,15 @@ export async function fetchLiveTools(
   persona: AgentId,
   message: string,
   want?: 'maps' | 'web' | 'gmail' | 'calendar' | 'drive',
+  /** What the classifier understood the ask to be. Sent so the server's travel
+   * sources receive airports and dates as data — the understanding came from
+   * the model, and nothing downstream has to guess it back out of the words. */
+  travel?: { kind: 'flight' | 'hotel'; from?: string; to?: string; place?: string; checkin?: string; checkout?: string; maxPrice?: number },
 ): Promise<string[]> {
   /* A fare or a rate is answered by the server: that is where the trvl binary
    * and the metered SerpAPI key live, and a local web search here returned a
    * Kayak mirror for the same ask. Anything else keeps the fast local path. */
-  const travelLookup = /\b(?:flights?|airfare|airlines?|nonstop|round ?trip|hotels?|hostels?|motels?|lodging|room rates?)\b/i.test(message)
+  const travelLookup = !!travel || /\b(?:flights?|airfare|airlines?|nonstop|round ?trip|hotels?|hostels?|motels?|lodging|room rates?)\b/i.test(message)
   // Web searches run directly through LangSearch API for fast, rich AI results
   if (want === 'web' && !travelLookup) {
     try {
@@ -274,7 +278,7 @@ export async function fetchLiveTools(
       {
         method: 'POST',
         headers: authHeaders(),
-        body: JSON.stringify({ phone, persona, message, ...(want ? { want } : {}) }),
+        body: JSON.stringify({ phone, persona, message, ...(want ? { want } : {}), ...(travel ? { travel } : {}) }),
       },
       ms,
     )

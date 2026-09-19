@@ -260,7 +260,11 @@ export async function runToolConversation(input: {
   messages: ConversationMessage[]
   delivery?: DeliveryHooks
   chat: (messages: ConversationMessage[], timeoutMs: number) => Promise<string>
-  lookup: (tool: LiveTool, query: string) => Promise<string[]>
+  lookup: (
+    tool: LiveTool,
+    query: string,
+    travel?: { kind: 'flight' | 'hotel'; from?: string; to?: string; place?: string; checkin?: string; checkout?: string; maxPrice?: number },
+  ) => Promise<string[]>
   propose: (draft: DraftCall) => Promise<{ ok: boolean; id?: string; error?: string }>
   availableTools: readonly LiveTool[]
   canDraft: boolean
@@ -354,12 +358,26 @@ export async function runToolConversation(input: {
    * it off on every turn — the real rates existed and the reply still fell
    * back to a listicle. Travel lookups get their own, larger budget. */
   const travelLookup = /\b(?:hotels?|hostels?|motels?|lodging|room rates?|flights?|airline|tickets?|fares?|airfare|round ?trip|nonstop)\b/i
+  /* What the classifier understood the ask to be, resolved once. When it names
+   * a trip, the server's fares and rate sources receive airports and dates as
+   * data — nothing downstream re-guesses them out of the sentence, which is how
+   * "Tickets to lax from sfo for 25-28 sept" reached no fare source at all. */
+  let understoodTravel: { kind: 'flight' | 'hotel'; from?: string; to?: string; place?: string; checkin?: string; checkout?: string; maxPrice?: number } | null = null
+  const travelUnderstanding = (async () => {
+    try {
+      const resolved = input.intent ? await input.intent : null
+      if (resolved?.kind === 'request' && resolved.request.travel) understoodTravel = resolved.request.travel
+    } catch {
+      /* a classifier outage leaves this null; the text resolvers still run */
+    }
+  })()
+
   const fetchLookupOnce = async (tool: LiveTool, query: string) => {
     let timer: ReturnType<typeof setTimeout> | undefined
     const budget = travelLookup.test(query) ? 55_000 : tool === 'maps' ? 12_000 : 15_000
     try {
       return await Promise.race([
-        input.lookup(tool, query),
+        input.lookup(tool, query, understoodTravel || undefined),
         new Promise<string[]>((_, reject) => { timer = setTimeout(() => reject(new Error('Lookup deadline')), Math.max(1, Math.min(budget, deadline - Date.now()))) }),
       ])
     } finally { clearTimeout(timer) }
@@ -403,6 +421,9 @@ export async function runToolConversation(input: {
   const runTravelLookup = async (): Promise<string> => {
     if (!bookTravelAsk || travelLookupTried || !input.availableTools.includes('web')) return ''
     travelLookupTried = true
+    // The classifier's reading of the ask, when it has one, is what the server
+    // sources receive.
+    await travelUnderstanding
     /* The ask's own stay window wins over the dates the model guessed: "Friday
      * and Saturday" came back as a single night, so every rate shown was for
      * the wrong stay. Explicit dates in the ask are left alone. */

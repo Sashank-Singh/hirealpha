@@ -189,3 +189,38 @@ describe.skipIf(!live)('intent classification (live model)', () => {
     expect((await classifyForTest('how are you doing today?')).kind).toBe('chat')
   }, 60_000)
 })
+
+describe('a trip is read, not parsed', () => {
+  /* The ask that started this: it contains no word the old detectors looked
+   * for — no "flight", no city names, dates written as "25-28 sept" — so it
+   * reached no fare source and the turn staged a browser run that failed. The
+   * model reads it now, and every field comes back as data. */
+  it('reads airports, dates and a ceiling out of the ask', async () => {
+    if (!live) return
+    const intent = await classifyForTest('Tickets to lax from sfo for 25-28 sept')
+    expect(intent.kind).toBe('request')
+    if (intent.kind !== 'request') return
+    expect(intent.request.travel?.kind).toBe('flight')
+    expect(intent.request.travel?.from?.toUpperCase()).toBe('SFO')
+    expect(intent.request.travel?.to?.toUpperCase()).toBe('LAX')
+    // The range is the trip: out the 25th, back the 28th.
+    expect(intent.request.travel?.checkin).toMatch(/^\d{4}-09-25$/)
+    expect(intent.request.travel?.checkout).toMatch(/^\d{4}-09-28$/)
+  }, 240_000)
+
+  it('carries a hotel stay with its dates and ceiling', async () => {
+    if (!live) return
+    const intent = await classifyForTest('hotel in Chicago Loop for Friday and Saturday next week under 250 a night with free cancellation')
+    if (intent.kind !== 'request') return
+    expect(intent.request.travel?.kind).toBe('hotel')
+    expect(intent.request.travel?.place).toContain('Chicago')
+    expect(intent.request.travel?.maxPrice).toBe(250)
+  }, 240_000)
+
+  it('leaves a non-travel ask without a trip', async () => {
+    if (!live) return
+    const intent = await classifyForTest('what is the weather in chicago')
+    if (intent.kind !== 'request') return
+    expect(intent.request.travel).toBeUndefined()
+  }, 240_000)
+})

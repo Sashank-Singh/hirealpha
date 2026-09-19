@@ -333,9 +333,25 @@ export async function runConversationalFriend(input: {
   // of dead time to every message. Strict, so an outage is VISIBLE instead of
   // silently becoming "chat" (936a485) — the lenient wrapper made a
   // rate-limited classifier indistinguishable from a genuine "chat".
+  /* The classifier gets today's date and weekday, because a relative date in
+   * the ask ("25-28 sept", "next Friday") is arithmetic it can do and a pattern
+   * cannot. */
+  const nowLocal = (() => {
+    const t0 = new Date()
+    try {
+      return {
+        today: new Intl.DateTimeFormat('en-CA', { timeZone: timezone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(t0),
+        weekday: new Intl.DateTimeFormat('en-US', { timeZone: timezone, weekday: 'long' }).format(t0),
+      }
+    } catch {
+      return { today: t0.toISOString().slice(0, 10), weekday: '' }
+    }
+  })()
   const intentPromise = classifyTurnStrict({
     userText: input.userText,
     recentTurns: memory.history.slice(-6).map((m) => ({ role: m.role, content: m.content })),
+    today: nowLocal.today,
+    weekday: nowLocal.weekday,
   }).catch((error) => {
     if (error instanceof ClassifierUnavailableError) {
       console.warn('[intent] classifier unavailable this turn; continuing without it', error.message.slice(0, 200))
@@ -867,7 +883,7 @@ ${JSON.stringify(context)}` },
      * answer and a deadline. */
     chat: (messages, timeoutMs) => gmiChat({ messages, temperature: 0.6, reasoningEffort: 'low', timeoutMs }),
     availableTools: available,
-    lookup: (tool, query) => fetchLiveTools(senderId, persona, query, tool as any),
+    lookup: (tool, query, travel) => fetchLiveTools(senderId, persona, query, tool as any, travel),
     canDraft: true,
     /* Both stores: the container-local file dies with the container, so on the
      * first turn after any deploy the standing preference existed only on the

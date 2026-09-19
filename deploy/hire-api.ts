@@ -16,6 +16,7 @@ import { gateWorkshopCode, runWorkshopCode, sweepExpiredArtifacts } from './work
 import { generateImage } from './imageGen'
 import { googleHotelsRates } from './googleHotels'
 import { googleFlightsRates } from './googleFlights'
+import { airportsFor } from './trvl'
 import { formatPlaceSiteFacts, readPlaceSites } from './placeSite'
 import { dateFromText, datesFromText, looksLikeFlightAsk, routeFromText, looksLikeHotelAsk, serpApiAllowedFor, serpFlightFares, serpHotelRates } from './serpapi'
 import { knownCityIn, trvlFlights, trvlHotels } from './trvl'
@@ -6204,6 +6205,43 @@ function maxPriceFromAsk(query: string): number | null {
   const m = /(?:under|below|less than|max(?:imum)?|up to|cheaper than)\s*\$?\s*(\d{2,5})/i.exec(String(query || ''))
   const n = m ? Number(m[1]) : NaN
   return Number.isFinite(n) && n > 0 ? n : null
+}
+
+/** The fare or rate block for a trip the classifier understood: airports and
+ * dates arrive as data, so the sources are called with them directly. A flight
+ * ask reaches trvl and Google Flights with the codes the user typed; a stay
+ * reaches the hotel sources with the dates they named. Nothing here parses the
+ * sentence — that is the whole point. */
+async function fetchRowsForUnderstoodTrip(
+  sql: SQL,
+  userId: string,
+  trip: { kind: 'flight' | 'hotel'; from?: string; to?: string; place?: string; checkin?: string; checkout?: string; maxPrice?: number },
+): Promise<string[]> {
+  const rows: string[] = []
+  if (trip.kind === 'flight') {
+    const from = airportsFor(trip.from || '')
+    const to = airportsFor(trip.to || '')
+    if (!from || !to || !trip.checkin) return []
+    const fares = await trvlFlights({
+      from: trip.from!,
+      to: trip.to!,
+      date: trip.checkin,
+      ...(trip.checkout ? { returnDate: trip.checkout } : {}),
+    }).catch(() => null)
+    if (fares) rows.push(fares)
+    return rows
+  }
+  const city = trip.place || trip.to || ''
+  if (!city || !trip.checkin) return []
+  const checkout = trip.checkout || new Date(Date.parse(`${trip.checkin}T00:00:00Z`) + 86_400_000).toISOString().slice(0, 10)
+  const rates = await trvlHotels({
+    city,
+    checkin: trip.checkin,
+    checkout,
+    ...(trip.maxPrice ? { maxPricePerNight: trip.maxPrice } : {}),
+  }).catch(() => null)
+  if (rates) rows.push(rates)
+  return rows
 }
 
 async function googleHotelBlockForAsk(query: string, location: LocationRow | null): Promise<string | null> {
@@ -14632,6 +14670,9 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
       persona?: string
       message?: string
       want?: string
+      /** What the classifier understood: airports and dates as data. The model
+       * read the ask; nothing here re-guesses it from the sentence. */
+      travel?: { kind?: string; from?: string; to?: string; place?: string; checkin?: string; checkout?: string; maxPrice?: number }
     }
     if (!body.phone || !body.persona || !isPersona(body.persona)) {
       return json({ error: 'phone and persona required' }, 400)
@@ -14681,6 +14722,24 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
     ).includes(body.want || '')
       ? (body.want as LiveToolWant)
       : undefined
+    const understoodTrip =
+      body.travel && (body.travel.kind === 'flight' || body.travel.kind === 'hotel') && (body.travel.from || body.travel.place)
+        ? {
+            kind: body.travel.kind as 'flight' | 'hotel',
+            ...(body.travel.from ? { from: String(body.travel.from) } : {}),
+            ...(body.travel.to ? { to: String(body.travel.to) } : {}),
+            ...(body.travel.place ? { place: String(body.travel.place) } : {}),
+            ...(body.travel.checkin ? { checkin: String(body.travel.checkin) } : {}),
+            ...(body.travel.checkout ? { checkout: String(body.travel.checkout) } : {}),
+            ...(Number(body.travel.maxPrice) > 0 ? { maxPrice: Number(body.travel.maxPrice) } : {}),
+          }
+        : null
+    // The understood trip answers first; the text-driven path is the fallback,
+    // for a classifier outage or a trip it did not carry.
+    if (understoodTrip && (want === 'web' || want === 'maps' || want === undefined)) {
+      const rows = await fetchRowsForUnderstoodTrip(sql, live.userId, understoodTrip).catch(() => [])
+      if (rows.length) return json({ results: rows })
+    }
     const results = await runToolsForMessage(sql, {
       userId: live.userId,
       persona: body.persona,

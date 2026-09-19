@@ -61,6 +61,19 @@ export type TurnIntent =
         site?: string
         /** True when the answer depends on current facts (news, prices, scores). */
         needsLookup: boolean
+        /** A flight or hotel ask, read as data rather than guessed from words
+         * later: the airports, the dates resolved to YYYY-MM-DD against the
+         * date given in the prompt, and any price ceiling they stated. */
+        travel?: {
+          kind: 'flight' | 'hotel'
+          from?: string
+          to?: string
+          /** City or area for a hotel. */
+          place?: string
+          checkin?: string
+          checkout?: string
+          maxPrice?: number
+        }
       }
     }
   /** Affirmation or cancellation of something Alpha just proposed. */
@@ -77,6 +90,11 @@ export type ClassifyInput = {
   recentTurns?: Array<{ role: 'user' | 'assistant'; content: string }>
   /** The proposal Alpha is currently waiting on, when there is one. */
   pendingQuestion?: string
+  /** Today's local date (YYYY-MM-DD) and weekday, so a relative date in the ask
+   * ("25-28 sept", "next Friday") is arithmetic the model can do rather than a
+   * pattern the code guesses at. */
+  today?: string
+  weekday?: string
 }
 
 const LOG_DOMAINS: LogKind[] = ['mood', 'sleep', 'nutrition', 'workout', 'gratitude', 'spend', 'habit']
@@ -180,6 +198,26 @@ export function normalizeTurnIntent(raw: unknown): TurnIntent {
     const request = data.request as Record<string, unknown> | undefined
     const summary = shortText(request?.summary, 300)
     if (!summary) return { kind: 'chat' }
+    const travelRaw = request?.travel as Record<string, unknown> | undefined
+    const isoDate = (value: unknown): string | undefined => {
+      const t = typeof value === 'string' ? value.trim() : ''
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(t)) return undefined
+      return Number.isNaN(Date.parse(`${t}T00:00:00Z`)) ? undefined : t
+    }
+    const travelKind = travelRaw?.kind === 'flight' || travelRaw?.kind === 'hotel' ? travelRaw.kind : undefined
+    const maxPrice = Number(travelRaw?.maxPrice)
+    const travel: Extract<TurnIntent, { kind: 'request' }>['request']['travel'] =
+      travelKind
+        ? {
+            kind: travelKind,
+            ...(shortText(travelRaw?.from, 40) ? { from: shortText(travelRaw?.from, 40)! } : {}),
+            ...(shortText(travelRaw?.to, 40) ? { to: shortText(travelRaw?.to, 40)! } : {}),
+            ...(shortText(travelRaw?.place, 80) ? { place: shortText(travelRaw?.place, 80)! } : {}),
+            ...(isoDate(travelRaw?.checkin) ? { checkin: isoDate(travelRaw?.checkin)! } : {}),
+            ...(isoDate(travelRaw?.checkout) ? { checkout: isoDate(travelRaw?.checkout)! } : {}),
+            ...(Number.isFinite(maxPrice) && maxPrice > 0 && maxPrice < 100_000 ? { maxPrice: Math.round(maxPrice) } : {}),
+          }
+        : undefined
     return {
       kind: 'request',
       request: {
@@ -187,6 +225,7 @@ export function normalizeTurnIntent(raw: unknown): TurnIntent {
         needsBrowser: request?.needsBrowser === true,
         needsLookup: request?.needsLookup === true,
         ...(shortText(request?.site, 300) ? { site: shortText(request?.site, 300)! } : {}),
+        ...(travel ? { travel } : {}),
       },
     }
   }
@@ -241,6 +280,13 @@ Rules for logs:
 - needsBrowser is true when fulfilling it means acting on a website (booking, ordering, filling a form, checking an account).
 - needsLookup is true when the answer depends on current facts. "what's the latest news on X", "how much is X", "who won X", "when does X come out", and "is X available" are ALL requests with needsLookup true — never chat.
 - site is the website they named, as an https URL, when they named one. Omit it when they did not.
+- travel: when the ask is a flight or a hotel stay, read the trip as data and include it. Do not guess a field they did not give.
+  {"kind":"request","request":{"summary":"round trip flights San Francisco to Los Angeles","needsBrowser":true,"needsLookup":true,"travel":{"kind":"flight","from":"SFO","to":"LAX","checkin":"2026-09-25","checkout":"2026-09-28","maxPrice":400}}}
+  * kind is "flight" for air travel and "hotel" for a stay.
+  * from/to are airports — the IATA code the user typed ("lax", "sfo") or the main airports of the city they named ("New York" is JFK,EWR,LGA; "Chicago" is ORD,MDW).
+  * place is the city or area for a hotel ("Chicago Loop").
+  * checkin/checkout are YYYY-MM-DD resolved against the date given below. "25-28 sept" and "Sept 25 to 28" are a range. A range that crosses a month boundary keeps both months. A single date with a stay ask means check-in, and checkout is the night after unless they said otherwise. A weekday means the next such day after today, and "next Friday" the one after that.
+  * maxPrice is the ceiling they stated ("under $400", "$250 a night"), a number with no symbol.
 - Only questions answerable from the conversation itself, from general knowledge that does not change, or from what the assistant already knows are {"kind":"chat"}. "explain compound interest" and "how are you" are chat; "what's the news" is a request.
 
 4. The user is answering a proposal Alpha made (only when a pending question is shown below):
@@ -307,6 +353,12 @@ export async function classifyTurnStrict(input: ClassifyInput): Promise<TurnInte
       timeoutMs: 25_000,
       messages: [
         { role: 'system', content: SYSTEM },
+        ...(input.today
+          ? [{
+              role: 'user' as const,
+              content: `Today is ${input.weekday ? `${input.weekday}, ` : ''}${input.today}. Resolve any date in the message against that.`,
+            }]
+          : []),
         ...(context ? [{ role: 'user' as const, content: `Recent turns:\n${context}` }] : []),
         ...(input.pendingQuestion
           ? [{ role: 'user' as const, content: `Alpha is currently waiting on this, so a short reply may be an answer to it:\n${input.pendingQuestion.slice(0, 300)}` }]
