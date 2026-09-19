@@ -31,6 +31,37 @@ not official scores.
 8. Never send, spend, book or disclose protected information without the
    approval required by the user's policy.
 
+## NIGHT OF 2026-09-19 — what two parallel audits found (all fixed, `63bb8d0`)
+
+Two agents were pointed at the two chains nobody had walked end to end: the
+purchase completion path, and every unprompted send path. Both returned
+findings that were then verified by hand before anything was changed.
+
+**The purchase chain would not have completed the founder's first real
+purchase.** `kernelSession.ts` filled the card expiry from a field the
+credential does not have (`values.expiry` vs `expMonth`/`expYear`), so the fill
+threw after Link approval: order never placed, no money moved, and the user
+would have read "Payment was approved, but the merchant order was not
+confirmed." The same fill returned ok:true having matched no field at all on an
+iframed checkout, so a run could submit an empty form and blame the merchant —
+it now reports which fields it set and fails honestly when the card number was
+never accepted. Two smaller breaks in the same chain: the order number was
+truncated out of the only message carrying it (the receipt line was not treated
+as direct), and `payment_intent.succeeded` joined `uuid = text` so every webhook
+retry 500'd.
+
+**The coworker and cofounder daily digests had never fired for anyone.** The
+bots start those loops without a phone, the digest route requires one, so every
+poll was a 400 — for as long as the loops have existed. There is now
+`GET /api/internal/persona/users` and both loops walk the users who hired that
+persona, with a per-user day slot. The same audit listed the remaining
+proactivity gaps still open (approval prompts can bypass quiet hours; task-loop
+sends do not count toward the unanswered cap; `browser_watch` texts every 6h
+forever; overdue recurring reminders can double-fire; a failed recurring send
+loses the occurrence; `calendar_defense` and `handoff` loops are armed with no
+handler) — recorded here as the next audit's starting list rather than quietly
+dropped.
+
 ## CURRENT INTERNAL SCORECARD — 2026-09-19 (read this first)
 
 The per-run sections below are history. This block is the single current state;
