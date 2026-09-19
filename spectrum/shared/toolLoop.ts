@@ -788,7 +788,7 @@ Reactions are optional and usually absent. You may add "reaction":"<emoji>" to a
           messages.push({
             role: 'user',
             content:
-              'System note: the live results above are the verified basis for this answer. Present the real options with their rates or fares for the ask\'s exact dates and every constraint the user stated (area, price ceiling, cancellation, seat). Do not invent a rate or property outside them. The booking run is staged right after your answer; nothing is charged without approval.',
+              'System note: the live results above are the verified basis for this answer. Present TWO OR THREE of the real options — never a single one when the results carry more — each with carrier or property, departure and arrival times (or distance and rating for a stay), stops, and the total. Then name the one you would pick and the reason in one clause, and close by asking whether to book it. Every constraint the ask stated (dates, area, price ceiling, cancellation, seat) must be visibly satisfied or named as unmet. Do not invent a rate or property outside these results. The booking run is staged right after your answer; nothing is charged without approval.',
           })
         } else {
           messages.push({
