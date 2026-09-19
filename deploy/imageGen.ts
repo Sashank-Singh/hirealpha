@@ -45,31 +45,44 @@ export async function generateImage(ask: string, opts?: { width?: number; height
   if (!prompt) return null
   const width = Math.min(1024, Math.max(512, Math.round(opts?.width || 1024)))
   const height = Math.min(1024, Math.max(512, Math.round(opts?.height || 1024)))
-  const url = `${IMAGE_ENDPOINT}/${encodeURIComponent(prompt)}?width=${width}&height=${height}&nologo=true`
-  try {
-    const res = await fetch(url, { signal: AbortSignal.timeout(TIMEOUT_MS) })
-    if (!res.ok) {
-      console.warn(`[image] provider answered ${res.status}`)
-      return null
+  /* The free endpoint is not an SLA: measured live, one call answered 502 with
+   * no image after the turn had already told the user a picture was coming.
+   * Two attempts against a different backend each time, because a 5xx here is
+   * usually one worker refusing, not the service being down. */
+  const attempts = [
+    { model: '', seed: Math.floor(Math.random() * 1_000_000) },
+    { model: 'flux', seed: Math.floor(Math.random() * 1_000_000) },
+  ]
+  for (const [i, attempt] of attempts.entries()) {
+    if (i > 0) await new Promise((resolve) => setTimeout(resolve, 1200))
+    const params = new URLSearchParams({ width: String(width), height: String(height), nologo: 'true', seed: String(attempt.seed) })
+    if (attempt.model) params.set('model', attempt.model)
+    const url = `${IMAGE_ENDPOINT}/${encodeURIComponent(prompt)}?${params.toString()}`
+    try {
+      const res = await fetch(url, { signal: AbortSignal.timeout(TIMEOUT_MS) })
+      if (!res.ok) {
+        console.warn(`[image] provider answered ${res.status}${attempt.model ? ` (model ${attempt.model})` : ''}`)
+        continue
+      }
+      const mimeType = (res.headers.get('content-type') || '').split(';')[0]!.trim()
+      if (!/^image\//.test(mimeType)) {
+        console.warn(`[image] provider answered with ${mimeType || 'no content type'}`)
+        continue
+      }
+      const bytes = Buffer.from(await res.arrayBuffer())
+      if (!bytes.byteLength || bytes.byteLength > MAX_IMAGE_BYTES) {
+        console.warn(`[image] provider returned ${bytes.byteLength} bytes`)
+        continue
+      }
+      return {
+        dataUrl: `data:${mimeType};base64,${bytes.toString('base64')}`,
+        mimeType,
+        prompt,
+        model: res.headers.get('x-model') || attempt.model || 'pollinations',
+      }
+    } catch (err) {
+      console.warn('[image] generation failed', err instanceof Error ? err.message : err)
     }
-    const mimeType = (res.headers.get('content-type') || '').split(';')[0]!.trim()
-    if (!/^image\//.test(mimeType)) {
-      console.warn(`[image] provider answered with ${mimeType || 'no content type'}`)
-      return null
-    }
-    const bytes = Buffer.from(await res.arrayBuffer())
-    if (!bytes.byteLength || bytes.byteLength > MAX_IMAGE_BYTES) {
-      console.warn(`[image] provider returned ${bytes.byteLength} bytes`)
-      return null
-    }
-    return {
-      dataUrl: `data:${mimeType};base64,${bytes.toString('base64')}`,
-      mimeType,
-      prompt,
-      model: res.headers.get('x-model') || 'pollinations',
-    }
-  } catch (err) {
-    console.warn('[image] generation failed', err instanceof Error ? err.message : err)
-    return null
   }
+  return null
 }

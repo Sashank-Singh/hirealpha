@@ -51,3 +51,33 @@ describe('pictures made through the tool engine travel out with the turn', () =>
     expect(takeTurnImages('+15550002222')).toEqual([])
   })
 })
+
+describe('a provider refusal gets a second backend', () => {
+  /* Measured live: the first call answered 502 and the turn had already
+   * promised a picture. One retry with a seed and, failing that, the flux
+   * backend — then an honest null. */
+  it('retries once and returns the second attempt when the first refuses', async () => {
+    const calls: string[] = []
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const url = String(input)
+      calls.push(url)
+      if (calls.length === 1) return new Response('busy', { status: 502 })
+      return new Response(new Uint8Array([9, 9, 9]), { status: 200, headers: { 'content-type': 'image/png' } })
+    }) as unknown as typeof fetch
+    const image = await generateImage('a blue dog')
+    expect(calls.length).toBe(2)
+    expect(calls[1]).toContain('model=flux')
+    expect(calls[1]).toContain('seed=')
+    expect(image?.mimeType).toBe('image/png')
+  })
+
+  it('gives up honestly after both attempts fail', async () => {
+    let n = 0
+    globalThis.fetch = (async () => {
+      n++
+      return new Response('nope', { status: 500 })
+    }) as unknown as typeof fetch
+    expect(await generateImage('a blue dog')).toBeNull()
+    expect(n).toBe(2)
+  })
+})
