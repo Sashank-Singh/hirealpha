@@ -367,6 +367,19 @@ place's own OpenStreetMap tags.
 running (`launchctl list | grep hirealpha`, `ps aux | grep src/index.ts`). One
 line answers per number; a second client makes every test unreadable.
 
+**And a second leak from the same testing, cleaned the same night.** Rehearsals
+write to the real account: the harness drives the production API with the
+founder's own number, so every bench run that states a preference persists it.
+Five facts from my own runs were sitting in his memory as if he had asked for
+them — `trivia_app_project`, `bit-90s-trivia-birthday`, `dinner_spot`,
+`hotel_location`, `chicago_trip_dates`. All five are deleted, and that deletion
+was the first live exercise of the tombstone work: the payload's `deletedKeys`
+lists exactly them, so the bot drops them from its container-local store and
+never pushes them back. `scripts/bench-turn.ts` takes `BENCH_NO_PERSIST=1` now
+(bench-group sets it always) and drops the one POST that writes facts — verified
+with a live run that answered correctly and left the account's fact count
+unchanged.
+
 ## CURRENT INTERNAL SCORECARD — 2026-09-19 (read this first)
 
 The per-run sections below are history. This block is the single current state;
