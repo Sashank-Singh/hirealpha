@@ -246,6 +246,17 @@ wherever trvl runs. Production re-run after the deploy: the dim-2 ask stages the
 run and lists real dated fares — **Delta DL 4915 $325 nonstop, American AA 3221
 6:55 AM nonstop $326, JetBlue $332** — all under the $400 ceiling, in 14s.
 
+**Both paid sources are off, on the founder's calls** — scrape.do ("too
+expensive") and the SerpAPI key ("also expensive") — so the whole stack is free
+sources only: trvl for hotels and flights, Overpass/Nominatim for places,
+LangSearch and Brave's HTML for the web, Open-Meteo for weather, pollinations
+for images, and the browser runs for actions. That makes squeezing the free
+sources worth doing, and one was sitting unused: **Overpass already returns each
+place's `opening_hours` and `website` tags**, and the row builder dropped them —
+so a pick could not say when a place is open, which the picks task names as a
+constraint. They ride in the row note now, at no cost and with no new
+dependency.
+
 **scrape.do is switched off**, per the founder's call that the per-call cost is
 not worth it: the token is deleted from Coolify and from `.env`, and the two
 modules (Google Hotels / Google Flights through the proxy) stay in the tree one
