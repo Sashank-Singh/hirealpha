@@ -525,23 +525,26 @@ recently "the founder's own failing thread" and the session log under it.
 | 3 | Picks | 9 | hours, prices and dietary facts now read from each venue's own page; nothing left to verify but table availability |
 | 4 | Purchasing | 3 | one Amazon credential + the home address away (plumbing verified) |
 | 5 | Email | 3 | the "Sam proposing Thursday" fixture does not exist in the mailbox |
-| 6 | Proactive | 4 | check-ins armed; a flight-status feed does not exist |
+| 6 | Proactive | 5 | a real watch is now armed from a chat ask and reports on its own cadence (verified live); the flight-status feed still does not exist |
 | 7 | Routine | 7 | deterministic; five weekdays of observation not yet elapsed |
 | 8 | Integrations | 3 | the write code is built and guarded — the grants are expired |
-| 9 | Permissions | 8 | granular scopes exist for Google only (the provider decides elsewhere) |
-| 10 | Memory | 7 | capture + recall verified; the week-later replay not elapsed |
+| 9 | Permissions | 8 | the transparency half is now verified live (inventory, what is not reachable, three revoke paths); the disconnect purge is verified on the local stack only, and granular scopes exist for Google only |
+| 10 | Memory | 8 | capture, supersede (aisle→window read back) and refusal-surfacing all verified live today; the week-later replay has not elapsed |
 | 12 | Phone calls | 3 | no telephony (Twilio ≈$1.15/mo) |
 | 13 | Groups | 7 | consensus measured by simulation; a real four-person thread not run |
 | 14 | Chained | 3 | needs the mail fixture + the passport-data decision |
-| 15 | Restraint | 7 | one-nudge-per-brief observed; the three-signal scenario needs fixtures |
-| 16 | Images/games | 7.5 | both artifacts work and iterate; free-tier watermark + lettering |
+| 15 | Restraint | 8 | a stated rule is saved, the gate is named and no action is taken — verified live on three phrasings; the three-signal scenario needs fixtures |
+| 16 | Images/games | 8 | the game plays in the thread and as an app, the deliverable survives a container swap and the change lands on the same link (all verified live); free-tier watermark + lettering on images |
 
-**Aggregate ≈ 5.6** — the running mean over the 15 scored dimensions
-(personality is opinion-only; nothing is filed N/A). Sum 84.5 ÷ 15. See the public
+**Aggregate ≈ 5.9** — the running mean over the 15 scored dimensions
+(personality is opinion-only; nothing is filed N/A). Sum 89 ÷ 15. See the public
 leaderboard comparison below for where that lands among the 116 assistants.
 
-Movement this session: hotel 6→7 · travel 5→6 · picks 7→9 · permissions 7→8 ·
-images 0→8 · groups 3→7. Three dead production paths were also revived and
+Movement today, all from the head-to-head pass and verified on the running build:
+proactive 4→5 · memory 7→8 · restraint 7→8 · images/games 7.5→8 (the game now
+plays in-thread, the deliverable survives a container swap, and a change lands on
+the same link). Earlier this session: hotel 6→7 · travel 5→6 · picks 7→9 ·
+permissions 7→8 · images 0→8 · groups 3→7. Three dead production paths were also revived and
 verified (Link wallet, voice STT, reply drafts) — they do not move a dimension
 on their own but every purchase, voice and email score depends on them.
 
