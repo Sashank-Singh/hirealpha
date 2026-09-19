@@ -716,8 +716,9 @@ async function catchUpMissedMessages(): Promise<void> {
      * missing piece, and a warning that says only "unavailable" costs another
      * deploy cycle to chase down. */
     const handles = Object.keys((im ?? {}) as unknown as Record<string, unknown>).join(', ')
+    const msgKeys = Object.keys(((im as unknown as { messages?: object }).messages ?? {}) as Record<string, unknown>).join(', ')
     console.warn(
-      `[${agent.id}] inbound catch-up unavailable: no history handle (provider handles: ${handles || 'none'}); a message delivered during a restart will be lost`,
+      `[${agent.id}] inbound catch-up unavailable: no history handle (provider handles: ${handles || 'none'}; messages keys: ${msgKeys || 'none'}); a message delivered during a restart will be lost`,
     )
     return
   }
