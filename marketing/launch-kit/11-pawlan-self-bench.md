@@ -301,6 +301,35 @@ exposed a wording gap — every row was above the ask's $250 ceiling and the blo
 listed them without saying so — now fixed to state plainly that nothing came back
 under the ceiling.
 
+## 2026-09-19 — the live-line test, and the deploy it exposed
+
+The founder asked for an iMessage test after the night's work. Three asks went
+to the real line:
+
+- **Hotel (dim 1)** — two replies, both staged runs with real inventory:
+  "the Kayak run is live for LondonHouse on Sept 25, 26. It pauses before
+  payment…" and then, on a re-ask a week later in the thread, "Booking run is
+  live on Kayak for the Best Western River North, Oct 2, 3, targeting the
+  **$237/night free cancellation rate**." A 🏨 tapback preceded the first.
+- **Dinner (dim 3)** — honest about what it could not verify: "The web search
+  didn't turn up current Berghoff menu prices, so I can't verify the
+  under-$40/head there from data. What I do have confirmed: 1. The Berghoff ·
+  17 W Adams St · ~16 min walk · …". Named pick, address, walk time, and the
+  gap stated rather than papered over.
+- **Flights (dim 2)** — the same path was exercised through the harness after
+  the deploy: dated fares under the ceiling (see the flight section above).
+
+**The test also caught a deploy failure and a bug of mine.** Three Web deploys
+had failed in a row — `error: Cannot find module './googleFlights' from
+'/app/hire-api.ts'` — because the module was imported and never added to
+`Dockerfile.web`; Coolify rolled back on each failed healthcheck, so production
+was never serving a broken build. The COPY-drift guard does catch it and does
+fail on it now; the earlier run happened before the file existed. Separately,
+the live log showed `[live] memory store did not take: city, chicago_trip_dates,
+…` for facts that were stored fine — my new read-back was checking
+`memory_records` (the mem0 store) while the write targets `hire_memories`, so
+every key looked dropped. Both fixed.
+
 ## CURRENT INTERNAL SCORECARD — 2026-09-19 (read this first)
 
 The per-run sections below are history. This block is the single current state;
