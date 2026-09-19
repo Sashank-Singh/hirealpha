@@ -2175,3 +2175,26 @@ policy sentence becoming an order but not the "note for later" shape, which is
 the same mistake with a different opening word. `4cfe788` names both, and the
 rule is the same one the restraint dimension scores: save it, say what it means
 for the next real booking, take no action this turn.
+
+### The preference-sentence fix, verified live (the third shape of the same bug)
+
+`4cfe788` (prompt) was not enough and the re-test is what proved it: "for the
+record: no red-eyes when you book me flights" still launched a run — "Run's live
+on Kayak now, hunting daytime SFO→ORD options to stack against the $186
+overnight you approved." — on a route and a budget read out of the thread. The
+mechanism was in the engine, not the prompt: `bookTravelAsk` fires when a
+message names a travel word and a booking verb, and a preference sentence does
+both ("when you book me flights"), so the deterministic staging ran whatever the
+prompt said. `4abaf5c` adds `preferenceStatement` to the engine, and the same
+task paraphrased once more — "just so you know going forward, i dont want
+overnight flights on anything you book" — now answers:
+
+> "Nothing's queued or needed here, you just set a preference and I've saved it.
+> No overnight flights on any future bookings."
+
+No run, no search, no dates, no browser session. The reply directly above it in
+the thread is the failing version, so the before and after sit in one screenshot.
+This is the restraint dimension's rule doing its job on the third phrasing of the
+same sentence, and it took three fixes because the bug had three layers: the
+prompt rule (`b5f409e`), the note-shaped wording (`4cfe788`), and the engine's
+own booking-ask predicate (`4abaf5c`).
