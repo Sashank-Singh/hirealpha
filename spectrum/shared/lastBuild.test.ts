@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'bun:test'
-import { lastBuildFor, type ThreadMemory } from './memory'
+import { mkdtempSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { lastBuildFor, loadMemory, recordDeliveredBuild, type ThreadMemory } from './memory'
 
 /* Live, 2026-09-19: a trivia game was delivered, the container was replaced by
  * the next deploy, and the follow-up "add a 30 second timer to the game" was
@@ -32,5 +35,29 @@ describe('lastBuildFor', () => {
     ]
     expect(lastBuildFor(mem({ facts }))?.artifactId).toBe('new')
     expect(lastBuildFor(mem({ facts: [{ key: 'last_build_url', value: 'no-separator' }] }))).toBeUndefined()
+  })
+})
+
+describe('recordDeliveredBuild', () => {
+  /* The write side, which is what the live check disproved the first time: the
+   * workshop's turn wrote the mirror and the `build` capability — the path a
+   * "make me a dice roller" takes — wrote nothing, so asking for the fact
+   * returned "No, there's no saved fact called last_build_url." Both paths call
+   * this now. */
+  it('writes the thread reference and the durable fact in one call', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'build-ref-'))
+    recordDeliveredBuild(dir, '+15550001111', { artifactId: 'z1', url: 'https://hirealpha.chat/b/z1' })
+
+    const mem = loadMemory(dir, '+15550001111')
+    expect(mem.lastBuild).toEqual({ artifactId: 'z1', url: 'https://hirealpha.chat/b/z1' })
+    expect(lastBuildFor(mem)?.artifactId).toBe('z1')
+
+    // The container swap: the thread file is gone, the payload re-hydrates the
+    // fact, and the reference still resolves.
+    const rehydrated = {
+      history: [],
+      facts: [{ key: 'last_build_url', value: 'z1|https://hirealpha.chat/b/z1', ts: Date.now(), lastSeen: Date.now() }],
+    } as ThreadMemory
+    expect(lastBuildFor(rehydrated)).toEqual({ artifactId: 'z1', url: 'https://hirealpha.chat/b/z1' })
   })
 })
