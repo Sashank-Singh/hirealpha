@@ -6172,7 +6172,7 @@ async function fetchNearbyPlaces(
     const dietRanked = wanted.length
       ? [...usable].sort((a, b) => Number(Boolean(b.note)) - Number(Boolean(a.note)))
       : usable
-    const block = formatMapResults(dietRanked, query.trim().slice(0, 60), { lat, lon })
+    const block = formatMapResults(dietRanked, query.trim().slice(0, 120), { lat, lon })
     /* The one thing OSM cannot carry is what the place charges and whether it is
      * open when the user asked. Both live on the venue's own page, which this
      * same free response already linked, so the top picks are read from their own
@@ -6449,10 +6449,16 @@ export async function fetchMapSearch(query: string, countryHint = '', location: 
     url.searchParams.set('format', 'jsonv2')
     url.searchParams.set('limit', '5')
     url.searchParams.set('dedupe', '1')
-    if (location && coordsUsable(location.latitude, location.longitude) && !FOREIGN_PLACE.test(cleaned)) {
+    /* The ask's own city outranks the user's coordinates. With the location
+     * bias always on, "dinner for four in austin" came back as Applausi, 199
+     * Sound Beach Avenue — Old Greenwich, Connecticut — because Nominatim
+     * preferred what was near the stored lat/lon over the city in the query.
+     * Bias only when the ask names no city of its own. */
+    const askNamesCity = !!knownCityIn(cleaned)
+    if (location && coordsUsable(location.latitude, location.longitude) && !FOREIGN_PLACE.test(cleaned) && !askNamesCity) {
       url.searchParams.set('lat', String(location.latitude))
       url.searchParams.set('lon', String(location.longitude))
-    } else if (countryHint && !FOREIGN_PLACE.test(cleaned)) {
+    } else if (countryHint && !FOREIGN_PLACE.test(cleaned) && !askNamesCity) {
       url.searchParams.set('countrycodes', countryHint)
     }
     const res = await fetchPublic(url, {
