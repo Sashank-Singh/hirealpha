@@ -144,13 +144,18 @@ Follow-ups from all three audits that were still open have since been closed
 (`5ce4587`): the delivery upsert can no longer re-arm an already-sent result
 (duplicate text), a failed source read can no longer make a change request
 vanish silently, and a judge failure now serves the same-day cache row instead
-of throwing away the brief's whole ranking. Still open from the same lists: the
-hard ceiling fails a job without cancelling the browser it abandons; the brief
-reports mail as absent when Gmail fails entirely; "Try again" does not refresh
-the judgment, so newly arrived mail can never reach Needs Reply; the brief cache
-serves the previous build while the rebuild completes with no signal the client
-consumes; and keep/toss/iterate still act on the newest delivered row because no
-caller passes an artifactId.
+of throwing away the brief's whole ranking. A second follow-up batch (`e16cba4`)
+closed three more: the brief now says "Couldn't read your inbox just now" when
+Gmail fails instead of showing no Mail section at all; "Try again" drops the
+judge cache too, so mail that arrived since the last judgment can finally reach
+Needs Reply; and keep/toss/iterate pass the artifact id of the build actually
+delivered in this thread (`lastBuild` in the thread memory), instead of acting on
+the newest delivered row.
+
+Still open from the same lists, and they are the last of
+them: the hard ceiling fails a job without cancelling the browser it abandons,
+and `hire_brief_cache` serves the previous build while the rebuild completes
+with no signal the client consumes.
 
 ## CURRENT INTERNAL SCORECARD — 2026-09-19 (read this first)
 
