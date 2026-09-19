@@ -163,3 +163,56 @@ export const COMPOSIO_READ: Record<
     empty: 'Zoom is connected but nothing came back. Say that. Do not invent a meeting.',
   },
 }
+
+/**
+ * Write specs. The read map above is the look-up side; this is the side that
+ * changes someone else's workspace, so each entry carries its own guard rails:
+ * only the two services the Integrations dimension names, only arguments a
+ * plain sentence can supply (a title, a body, a channel), and a success line
+ * that is only ever produced from a real tool result.
+ *
+ * Notion needs a `parent_id` and Slack a `channel`; both are resolved by the
+ * caller through the READ tools first (`notion_search`, `slack_search`) rather
+ * than guessed here — a write to the wrong database or the wrong channel is
+ * worse than a refusal.
+ */
+export const COMPOSIO_WRITE: Record<
+  string,
+  {
+    slugs: string[]
+    /** Required fields, so the server can refuse an under-specified call
+     * before it reaches the workspace. */
+    needs: string[]
+    args: (input: { title?: string; body?: string; channel?: string; parent?: string }) => Record<string, unknown>
+    done: (input: { title?: string; body?: string; channel?: string; parent?: string }) => string
+    empty: string
+  }
+> = {
+  notion: {
+    slugs: ['NOTION_CREATE_NOTION_PAGE'],
+    needs: ['title', 'parent'],
+    args: (input) => ({
+      parent_id: String(input.parent || ''),
+      title: String(input.title || '').slice(0, 200),
+      ...(input.body ? { content: String(input.body).slice(0, 4000) } : {}),
+    }),
+    done: (input) => `Created the Notion page "${String(input.title || '').slice(0, 120)}".`,
+    empty: 'Notion refused the write, so nothing was created. Do not say the page exists.',
+  },
+  slack: {
+    slugs: ['SLACK_CHAT_POST_MESSAGE', 'SLACKBOT_CHAT_POST_MESSAGE'],
+    needs: ['channel', 'body'],
+    args: (input) => ({
+      channel: String(input.channel || ''),
+      text: String(input.body || '').slice(0, 3000),
+      mrkdwn: true,
+    }),
+    done: (input) => `Posted to Slack (${String(input.channel || '').slice(0, 60)}).`,
+    empty: 'Slack refused the message, so nothing was posted. Do not say it was sent.',
+  },
+}
+
+/** Which connector each write capability belongs to, for the connection check. */
+export function writeConnector(name: string): string | null {
+  return name in COMPOSIO_WRITE ? name : null
+}

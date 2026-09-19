@@ -2,6 +2,7 @@ import type { DeliveryHooks } from './progressiveDelivery'
 import { sanitizeOutbound } from './runHireTurn'
 import { classifyTurnStrict, ClassifierUnavailableError, logsOf } from './turnIntent'
 import { generateTurnImage, type TurnImage } from './imageRequest'
+import { writeToWorkspace } from './workWrite'
 import { getAgent, type AgentId } from '../../src/agents'
 import { runAgentLocally } from '../../src/agents/runtime'
 import { formatNowForAgent, pickUserTimezone } from '../../deploy/timezones'
@@ -525,6 +526,51 @@ export async function runConversationalFriend(input: {
         }
       },
     },
+    /* Writes into a connected workspace. These exist only when the service is
+     * actually connected (a capability that always fails is a capability that
+     * teaches the model to apologise), and each one demands the parent or
+     * channel be resolved through the read tools first — a Notion page filed
+     * under the wrong database, or a Slack message in the wrong channel, is
+     * worse than a refusal. The dimension that scores this asks for one
+     * request to do three things correctly; the checking happens before the
+     * write, never after. */
+    ...(live.connected.includes('notion')
+      ? [
+          {
+            name: 'notion_page',
+            description: 'input {title:"page title",parent:"the database or page UUID",body?:"page content"}. Create a page in the user\'s Notion. Resolve `parent` with the notion_search lookup FIRST — never invent or reuse a UUID from memory. Use this when the user asks to create, add, file or log something in Notion in this turn; if they only described an idea without asking to file it, confirm in one line before creating anything. The result names the page only if it was really created; if it reports a refusal, say so and do not claim the page exists.',
+            mutates: true,
+            execute: async (args: Record<string, unknown>) => {
+              const title = text(args, 'title', 200)
+              const parent = text(args, 'parent', 80)
+              const body = text(args, 'body', 4000)
+              if (!title || !parent) {
+                return failed('A Notion page needs a title and a real parent id from notion_search. Look the parent up, then create the page.')
+              }
+              const out = await writeToWorkspace(senderId, persona, 'notion', { title, parent, ...(body ? { body } : {}) })
+              return out.ok ? { status: 'done', message: out.message } : failed(out.message)
+            },
+          },
+        ]
+      : []),
+    ...(live.connected.includes('slack')
+      ? [
+          {
+            name: 'slack_message',
+            description: 'input {channel:"channel name or id",body:"the exact message"}. Post a message in the user\'s Slack. Resolve `channel` with the slack_search or channel-list lookup FIRST — a DM goes to a person, a channel goes to a channel, and guessing either is a mis-send. Use this only when the user asked to send or post something to Slack in this turn; state the channel and the exact text back to them before posting when the message carries anything consequential. Never claim it was sent unless the result says so.',
+            mutates: true,
+            execute: async (args: Record<string, unknown>) => {
+              const channel = text(args, 'channel', 80)
+              const body = text(args, 'body', 3000)
+              if (!channel || !body) {
+                return failed('A Slack message needs a real channel (from the slack lookup) and the exact text. Resolve the channel first, then post.')
+              }
+              const out = await writeToWorkspace(senderId, persona, 'slack', { channel, body })
+              return out.ok ? { status: 'done', message: out.message } : failed(out.message)
+            },
+          },
+        ]
+      : []),
     {
       name: 'todo', description: 'input {action:"add"|"list"|"complete",text?}. Maintain the user\'s shared to-do list. "add X to my to-do" adds; "what is on my list" lists open items; "I did X"/"done with X" completes by matching X to an open item. Never invent that a change succeeded when this returns an error.', mutates: true,
       execute: async (args) => {

@@ -34,7 +34,7 @@ import {
   serializeCalItems,
   type CalItem,
 } from './calendarEvents'
-import { COMPOSIO_READ, composioLooksFailed, formatComposioData } from './composioPlugins'
+import { COMPOSIO_READ, COMPOSIO_WRITE, composioLooksFailed, formatComposioData, writeConnector } from './composioPlugins'
 // The canonical persona capability matrix. deploy/ has no prior src/ import;
 // this one is deliberate — the skill lists must have exactly one home.
 import { SKILLS } from '../src/agents/skills'
@@ -17235,6 +17235,60 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
     await db`DELETE FROM hire_artifacts WHERE id = ${id} AND user_id = ${userId}`
     void persona
     return { ok: true, logged: true, id }
+  }
+
+  /* A write to a connected workspace (Notion page, Slack message). The bot's
+   * capability layer decides WHEN this may run — the caller has to have asked
+   * for it in this turn — and this route decides whether it CAN: the connector
+   * must be connected for this user and persona, and every field the provider
+   * requires must be present before anything reaches the workspace. A refusal
+   * is phrased as a refusal, and success is only reported from a real result;
+   * an invented "done" here would be a lie about someone else's workspace. */
+  if (path === '/api/internal/work/write' && req.method === 'POST') {
+    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
+    const body = (await req.json().catch(() => ({}))) as {
+      phone?: string
+      persona?: string
+      connector?: string
+      title?: string
+      body?: string
+      channel?: string
+      parent?: string
+    }
+    const persona = body.persona || ''
+    const connector = writeConnector(String(body.connector || ''))
+    if (!body.phone || !isPersona(persona) || !connector) {
+      return json({ error: 'phone, persona, and a known connector required' }, 400)
+    }
+    const user = await getUserByPhone(sql, body.phone)
+    if (!user) return json({ error: 'User not found' }, 404)
+    const spec = COMPOSIO_WRITE[connector]!
+    const input = { title: body.title, body: body.body, channel: body.channel, parent: body.parent }
+    const missing = spec.needs.filter((field) => !String((input as Record<string, unknown>)[field] || '').trim())
+    if (missing.length) {
+      return json(
+        {
+          ok: false,
+          error: `missing ${missing.join(', ')}`,
+          message: `${connector} needs ${missing.join(' and ')} before anything can be written — resolve it with the ${connector === 'slack' ? 'slack_search' : 'notion_search'} lookup first. Nothing was written.`,
+        },
+        200,
+      )
+    }
+    const connected = (await connectedForUser(sql, user.id)).filter((id) => !PERSONA_DENIED[persona as Persona].has(id))
+    if (!connected.includes(connector)) {
+      return json(
+        { ok: false, error: 'not connected', message: `${connector} is not connected for this account, so nothing was written. Offer the connect link.` },
+        200,
+      )
+    }
+    const out = await composioFirst(user.id, spec.slugs, spec.args(input), 20_000)
+    if (!out || composioLooksFailed(out)) {
+      console.warn(`[write] ${connector} refused`, out?.slice(0, 160))
+      return json({ ok: false, error: 'refused', message: spec.empty }, 200)
+    }
+    console.log(`[write] ${connector} ok for ${body.phone}`)
+    return json({ ok: true, connector, message: spec.done(input), result: out.slice(0, 1200) })
   }
 
   /* Image generation for a picture ask. The bot's classifier decides that an
