@@ -458,6 +458,32 @@ on the code path to be next exercised.
 The consent screen is real and live; the wallet connects when the account owner
 opens it from Settings → Payment vault → Connect Link.
 
+### Environment audit after the payment find: one more latent break, cleaned
+
+The way the dead payment path was found — exercising a user-facing surface
+against production — was applied to the rest of the authenticated API and to
+the Coolify environment of both containers. The API surface is healthy
+(`/api/artifacts`, `/api/digest`, `/api/actions`, `/api/habits`, `/api/dropzone`,
+`/api/billing/status` all 200 with real data; `/api/billing/manage` returns a
+live Stripe portal URL; all four mini-app cards and a Cloud Computer session
+link serve), and the environment audit found one more latent trap of the same
+class:
+
+- **`STT_URL` had two rows with different values** — the production whisper
+  service and `http://host.docker.internal:9000/v1`, a local development
+  address. With duplicate keys the winner is not something to leave to chance,
+  and losing that coin-flip breaks voice notes. The dev row is deleted; the
+  service row stands, and `deploy/stt.ts` already carries the same URL as its
+  code default, so the container cannot land anywhere else.
+- Duplicate `GMI_MODEL` and `NUTRITION_VISION_MODEL` rows (same values, added
+  twice over time) were collapsed to one each — harmless, but they are how a
+  conflicting pair hides.
+- Both containers were then re-checked for empty-but-present values, the shape
+  that hid the missing Kernel project id: `GMI_API_KEY`, `COMPOSIO_API_KEY`,
+  `STRIPE_WEBHOOK_SECRET`, `HIREALPHA_VAULT_KEY`, `HIREALPHA_INTERNAL_KEY`,
+  `E2B_API_KEY`, `E2B_BROWSER_TEMPLATE` and `HIREALPHA_BROWSER_MODE` (`e2b`)
+  are all non-empty.
+
 ### Rehearsal aggregate
 
 - Scored dimensions: 15 of 15 attempted; aggregate ≈ 3.9/10.
