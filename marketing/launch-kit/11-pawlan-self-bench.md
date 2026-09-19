@@ -1685,3 +1685,42 @@ four-person thread — the consensus drive itself is already measured.
   (X post, job `caa816c6`) completed end to end in production — see the run
   record above. Internal 9/10 for the execution class; **0 of 15 official
   dimensions scored, aggregate unchanged.**
+
+## RUN 2026-09-19 — every dimension, paraphrased with fresh places
+
+Method note first, because it decides what a result means: `POST
+/api/internal/live/tools` exercises the **server-side tools only**. It is a valid
+vehicle for the dimensions answered by a tool (1 hotel, 2 travel, 3 picks, 4
+purchasing, 8 integrations) and **invalid for anything carried by the turn
+engine** — a routine ask, a preference statement and an image ask all came back
+as web searches, which tests the route, not the dimension. Those need the real
+channel (`scripts/bench-turn.ts` or an iMessage turn).
+
+| # | dimension | paraphrased task | result | score |
+|---|---|---|---|---|
+| 1 | Online task | "need a place to stay in montreal friday to sunday, near old town, under 300 a night" | **real rates**, six sources: Renaissance Downtown $237, Hilton Garden Inn Centre-Ville $207 | **7** |
+| 2 | Travel | "round trip chicago to miami friday morning to sunday evening, aisle, under 500" | real round-trip fares, but the cheapest are **2-stop 22–34h itineraries** — priced, not usable | **6** |
+| 3 | Picks | "dinner for four in austin tomorrow at 7:30, walkable from downtown, vegetarian, not a chain, under 40 a head" | **wrong city**: returned *Applausi, 199 Sound Beach Avenue* — Old Greenwich, **Connecticut** (lat 41.03), for an Austin ask, and the query was truncated at "walkable from do" | **3** |
+| 7 | Routine | digest ask | not testable on this route (needs a turn + the loop) | — |
+| 10 | Memory | "I always want an aisle seat and no pork" | not testable on this route (preference capture is turn-side) | — |
+| 16 | Images | birthday image ask | not testable on this route (image is a turn action) | — |
+
+**Two bugs found by this run, both worth more than the scores:**
+
+1. **A place ask can resolve to the wrong city and never say so.** The Austin
+   dinner ask returned a Connecticut restaurant because the resolver used the
+   user's stored location as a proximity bias while Nominatim matched the
+   truncated query. A wrong-city answer is worse than the "needs a city" refusal
+   it replaced: the refusal asks, this one lies. The truncation ("…walkable from
+   do") is part of it — the query reaches Nominatim cut short.
+2. **Travel prices the cheapest option without checking it is usable.** $477 for
+   a 22-hour, 2-stop round trip is technically the cheapest and practically not
+   an answer; the aisle request and the "under 500" ceiling were met while the
+   itinerary quality was never considered. Instinct answered the same shape of
+   ask with nonstops and a recommendation.
+
+**Still to run (needs the turn engine, one per dimension):** 5 email, 6 proactive,
+7 routine, 8 integrations, 9 permissions, 10 memory, 12 calls, 13 groups, 14
+multi-step, 15 restraint, 16 images. Paraphrased tasks for each are ready; the
+blockers are the known resource ones (mail fixture, OAuth grants, Amazon
+credential) plus elapsed calendar time for routines and memory.
