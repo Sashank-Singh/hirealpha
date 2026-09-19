@@ -16,6 +16,7 @@ import { gateWorkshopCode, runWorkshopCode, sweepExpiredArtifacts } from './work
 import { generateImage } from './imageGen'
 import { googleHotelsRates } from './googleHotels'
 import { googleFlightsRates } from './googleFlights'
+import { formatPlaceSiteFacts, readPlaceSites } from './placeSite'
 import { dateFromText, datesFromText, looksLikeFlightAsk, routeFromText, looksLikeHotelAsk, serpApiAllowedFor, serpFlightFares, serpHotelRates } from './serpapi'
 import { knownCityIn, trvlFlights, trvlHotels } from './trvl'
 import type { SQL } from 'bun'
@@ -6123,6 +6124,7 @@ async function fetchNearbyPlaces(
       if (near) return near
       return null
     }
+    const sitesByName = new Map<string, string>()
     const rows = (data.elements || [])
       .map((el) => {
         const tags = el.tags || {}
@@ -6144,6 +6146,7 @@ async function fetchNearbyPlaces(
           hours ? `hours: ${hours}` : '',
           site ? `site: ${site}` : '',
         ].filter(Boolean)
+        if (site) sitesByName.set(String(tags.name || '').trim(), site)
         return {
           name: String(tags.name || '').trim(),
           addr: [housenumber, street].filter(Boolean).join(' ') || tags['addr:city'] || '',
@@ -6168,7 +6171,16 @@ async function fetchNearbyPlaces(
     const dietRanked = wanted.length
       ? [...usable].sort((a, b) => Number(Boolean(b.note)) - Number(Boolean(a.note)))
       : usable
-    return formatMapResults(dietRanked, query.trim().slice(0, 60), { lat, lon })
+    const block = formatMapResults(dietRanked, query.trim().slice(0, 60), { lat, lon })
+    /* The one thing OSM cannot carry is what the place charges and whether it is
+     * open when the user asked. Both live on the venue's own page, which this
+     * same free response already linked, so the top picks are read from their own
+     * sites and their published facts ride under the results. */
+    const topPicks = dietRanked.slice(0, 3).filter((r) => sitesByName.has(r.name))
+    if (!topPicks.length) return block
+    const facts = await readPlaceSites(topPicks.map((r) => ({ name: r.name, site: sitesByName.get(r.name)! }))).catch(() => [])
+    const extra = formatPlaceSiteFacts(facts)
+    return extra ? `${block}\n\n${extra}` : block
   } catch {
     return null
   }
