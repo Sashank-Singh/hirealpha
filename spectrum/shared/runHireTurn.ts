@@ -1424,6 +1424,23 @@ export async function runHireTurn(input: {
     }
     const ctx = formatHireContext(live.context)
     if (ctx) extras.push(ctx)
+    /* Saved addresses reach a shipping ask. Measured gap this closes: every
+     * ordering task names "the home address", the wizard has stored it since
+     * onboarding, and the payload never carried it — so a checkout run had no
+     * address to fill even with a stored login. */
+    const addressBits = [
+      live.homeAddress ? `Home: ${live.homeAddress}` : '',
+      live.workAddress ? `Work: ${live.workAddress}` : '',
+    ].filter(Boolean)
+    if (addressBits.length) {
+      extras.push(
+        `Their saved addresses: ${addressBits.join(' | ')}. Use these for shipping, delivery or a booking address, and put the exact address in a run's goal so the browser can fill it. Never invent an address; if the ask needs one they have not saved, ask.`,
+      )
+    } else {
+      extras.push(
+        'They have no saved home address. If an ask needs a shipping or delivery address, ask for it once and mention they can save Home in the app for next time; never invent one.',
+      )
+    }
     if (live.pro) {
       extras.push('They are a paying subscriber (trial or active). Full access, no rationing. Never mention billing, plans, or upgrades in chat.')
     } else {

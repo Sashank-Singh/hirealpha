@@ -11340,6 +11340,13 @@ async function livePayload(sql: SQL, phone: string, persona: Persona, query?: st
     connected,
     vaultOrigins,
     memories,
+    /* The saved home and work labels, when the user set them in the app. A
+     * checkout run needs the shipping address ("reorder the coffee beans to my
+     * home address"), and the wizard has been storing it all along — the live
+     * payload simply never carried it, so the address could not reach a run goal
+     * even with a stored login. */
+    homeAddress: (await getLocation(sql, user.id, 'home').catch(() => null))?.label || null,
+    workAddress: (await getLocation(sql, user.id, 'work').catch(() => null))?.label || null,
     /* Keys the account holder deleted, so the bot can drop them from its
      * container-local store instead of injecting them until recreation. */
     deletedKeys: (await sql`

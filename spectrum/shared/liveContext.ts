@@ -23,6 +23,10 @@ export type LiveProfile = {
   /** Keys the user deleted on the server. The bot drops them from its
    * container-local facts instead of re-injecting them until recreation. */
   deletedKeys?: string[]
+  /** The confirmed home/work labels the user set in the app (geocoded
+   * addresses). A shipping ask needs one; the wizard has stored them all along. */
+  homeAddress?: string | null
+  workAddress?: string | null
 }
 
 const EMPTY: LiveProfile = {
@@ -151,6 +155,8 @@ export async function fetchLiveProfile(phone: string, persona: AgentId, query?: 
       vaultOrigins: data.vaultOrigins || [],
       memories: data.memories || [],
       deletedKeys: Array.isArray(data.deletedKeys) ? data.deletedKeys.map((k) => String(k).toLowerCase()) : [],
+      homeAddress: typeof data.homeAddress === 'string' && data.homeAddress.trim() ? data.homeAddress.trim() : null,
+      workAddress: typeof data.workAddress === 'string' && data.workAddress.trim() ? data.workAddress.trim() : null,
     }
   }
   try {
