@@ -133,6 +133,38 @@ export function statedTravelPreferences(facts: Array<{ key?: string; value?: str
   return kept.slice(0, 2).join('; ').slice(0, 160)
 }
 
+/** The seat a sentence names, or null. */
+function seatWordIn(text: string): string | null {
+  const match = /\b(aisle|window|middle|extra[- ]legroom)\b/i.exec(String(text || ''))
+  return match ? match[1]!.toLowerCase() : null
+}
+
+/**
+ * The ask names a seat the standing preference contradicts — "window seats on
+ * planes" on file, this ask says "aisle" — or null when they agree.
+ *
+ * Live head-to-head, 2026-09-19, same string to both assistants ("flights
+ * raleigh to denver oct 8 back oct 11, aisle, under 450 round trip"): the
+ * benchmark's own assistant caught it — "You just set window seats as the
+ * standing rule, so I'll search window, not aisle, unless this trip is the
+ * exception." — and Alpha said nothing about it, having quietly written an
+ * aisle search over a window preference the user stated minutes earlier. The
+ * comparison is deterministic here so the reply cannot miss it; what the reply
+ * does with it (ask, or state which reading it took) stays the model's call.
+ */
+export function seatPreferenceConflict(
+  ask: string,
+  facts: Array<{ key?: string; value?: string }> | undefined,
+): { asked: string; standing: string } | null {
+  const asked = seatWordIn(ask)
+  if (!asked) return null
+  const standing = statedTravelPreferences(facts)
+  if (!standing) return null
+  const standingSeat = seatWordIn(standing)
+  if (!standingSeat || standingSeat === asked) return null
+  return { asked, standing }
+}
+
 /**
  * The engine's own calendar write for a "block this time" ask, when the model
  * answered with prose and staged nothing. Reads the real free slots first, then
@@ -779,6 +811,10 @@ export async function runConversationalFriend(input: {
   // themselves are durable either way, so a slow classifier can never delay or
   // lose a log.
   const autoNotes: string[] = []
+  /** Everything the prompt is told before the conversation rules: the auto-log
+   * confirmations plus the standing-preference conflict. Kept separate from
+   * `autoNotes` because that one also gates the forced fresh lookup. */
+  const promptNotes: string[] = autoNotes
   const notesReady = (async () => {
     const intent = await intentPromise
     for (const log of logsOf(intent, 'gratitude')) {
@@ -811,6 +847,15 @@ export async function runConversationalFriend(input: {
   // writes a brief head start so the reply can confirm them in the same turn.
   // Past that window the turn proceeds without them rather than waiting.
   await Promise.race([notesReady, new Promise((r) => setTimeout(r, 250))])
+  /* The standing-preference conflict rides the prompt, never `autoNotes`: that
+   * array also suppresses the forced fresh lookup, and a travel ask with a seat
+   * conflict still has to price real fares. */
+  const conflict = seatPreferenceConflict(input.userText, [...memory.facts, ...(live.memories || [])])
+  if (conflict) {
+    promptNotes.push(
+      `Standing-preference conflict: this ask says ${conflict.asked} seats, and the preference on file is "${conflict.standing}". Name both in one line and either ask which applies for this trip or say plainly which reading you took — never search the ask's seat silently over a stated preference`,
+    )
+  }
   let forcedReply: string | null = null
   const outcome = await runToolConversation({
     skipFreshLookup: autoNotes.length > 0,
@@ -821,7 +866,7 @@ export async function runConversationalFriend(input: {
     } : undefined,
     messages: [
       { role: 'system', content: `${agent.systemPrompt}
-${autoNotes.length ? autoNotes.join('; ') + '. ' : ''}CONVERSATION_ENGINE:
+${promptNotes.length ? promptNotes.join('; ') + '. ' : ''}CONVERSATION_ENGINE:
 You are an intelligent, proactive executive partner in iMessage.
 - CURRENT ASK ONLY: answer the latest user message. Earlier thread topics are context, never the task — a new question about email must not end with hotel rates from the previous ask.
 - LOCATION: "near me" / "near home" means the user's saved city and home location in the profile context. Never infer the city from what the thread was last about (a Chicago hotel search does not move the user to Chicago).

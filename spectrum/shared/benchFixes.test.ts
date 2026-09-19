@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test'
 import { sanitizeOutbound } from './runHireTurn'
-import { browserRunIsPurchase, statedTravelPreferences } from './conversationalFriend'
+import { browserRunIsPurchase, seatPreferenceConflict, statedTravelPreferences } from './conversationalFriend'
 
 describe('bench50 regression guards', () => {
   it('strips a trailing source-URL dump but keeps a single introduced link', () => {
@@ -55,5 +55,26 @@ describe('browser receipt wording', () => {
     expect(line.toLowerCase()).not.toContain('pork')
     expect(statedTravelPreferences([{ key: 'diet', value: 'no pork' }])).toBe('')
     expect(statedTravelPreferences(undefined)).toBe('')
+  })
+
+  /* Live head-to-head, 2026-09-19: the same ask to both assistants — "flights
+   * raleigh to denver oct 8 back oct 11, aisle, under 450 round trip" — over a
+   * window-seat preference stated minutes earlier. The benchmark's own
+   * assistant caught the contradiction out loud; Alpha searched aisle and said
+   * nothing. */
+  it('flags an ask whose seat contradicts the standing preference', () => {
+    const facts = [
+      { key: 'seat_preference', value: 'window seats only' },
+      { key: 'allergy', value: 'shellfish' },
+    ]
+    expect(seatPreferenceConflict('flights raleigh to denver oct 8 back oct 11, aisle, under 450 round trip', facts)).toEqual({
+      asked: 'aisle',
+      standing: 'window seats only',
+    })
+    // The same seat is not a conflict, and neither is an ask that names none.
+    expect(seatPreferenceConflict('flights to denver friday, window seat please', facts)).toBeNull()
+    expect(seatPreferenceConflict('find me a flight to denver friday', facts)).toBeNull()
+    // No seat preference on file means nothing to contradict.
+    expect(seatPreferenceConflict('flights to denver, aisle', [{ key: 'diet', value: 'no pork' }])).toBeNull()
   })
 })
