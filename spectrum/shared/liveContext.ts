@@ -675,6 +675,10 @@ export async function proposeBrowserTask(
   }
 }
 
+/** One warning per distinct dropped-key set per process: the reconcile step
+ * retries every turn, and a stuck key would otherwise log forever. */
+const warnedDropped = new Set<string>()
+
 export async function persistLiveFacts(
   phone: string,
   persona: AgentId,
@@ -706,7 +710,13 @@ export async function persistLiveFacts(
       const dropped = Array.isArray(data.dropped) ? data.dropped : []
       if (!dropped.length) return { dropped: [] }
       if (attempt === 0) continue
-      console.warn('[live] memory store did not take:', dropped.join(', '))
+      /* Loud only when it keeps failing: the reconcile step re-pushes what the
+       * server still lacks, so one warn per turn would fill the container log
+       * with the same keys. */
+      if (!warnedDropped.has(dropped.join(','))) {
+        warnedDropped.add(dropped.join(','))
+        console.warn('[live] memory store did not take:', dropped.join(', '))
+      }
       return { dropped }
     } catch (err) {
       if (attempt === 0) await new Promise((r) => setTimeout(r, 600))

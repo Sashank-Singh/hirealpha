@@ -15121,8 +15121,13 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
     } catch (err) {
       console.warn('[memory] upsert before tz failed', err)
     }
+    /* Read back from the table the write actually targets — hire_memories, not
+     * the mem0 store memory_records. The first version checked the wrong table
+     * and reported every key as dropped, which would have made the bot re-push
+     * the whole store on every turn (and the log claimed failures that were not
+     * happening). */
     const readBack = await sql`
-      SELECT key FROM memory_records WHERE user_id = ${user.id}
+      SELECT key FROM hire_memories WHERE user_id = ${user.id} AND persona = ${body.persona}
     `.catch(() => [] as Array<{ key: string }>)
     const present = new Set((readBack as Array<{ key: string }>).map((r) => String(r.key || '').toLowerCase()))
     const dropped = facts.map((f) => f.key).filter((k) => !present.has(k.toLowerCase()))
