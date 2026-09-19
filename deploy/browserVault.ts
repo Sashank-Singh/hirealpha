@@ -999,6 +999,34 @@ export type VaultCredentials = { username: string; password: string }
  * reference is resolved through Connect (plaintext exists only inside this
  * call), a local entry is decrypted from AES. Only same-origin entries match.
  */
+/** The host a URL actually belongs to: lowercased, `www.` stripped. */
+function vaultHost(value: string): string {
+  try {
+    return new URL(value.startsWith('http') ? value : `https://${value}`).hostname.replace(/^www\./, '').toLowerCase()
+  } catch {
+    return ''
+  }
+}
+
+/**
+ * May a credential stored for `stored` be released for `requested`?
+ *
+ * Exact host, with `www.` equivalence — the same rule a browser's own password
+ * manager uses. This used to be substring matching in both directions
+ * (`host.includes(entryHost) || entryHost.includes(host)`) plus a root-domain
+ * clause, a free-text label clause and a hardcoded campusnet exception, which
+ * meant a job on `https://accounts.google.com.<attacker>.io` matched the stored
+ * `https://accounts.google.com` entry, decrypted its password and typed it into
+ * the attacker's page. A password is released for the site it was saved for,
+ * nothing looser; anything else asks the user to save it for that origin.
+ */
+export function vaultOriginMatches(stored: string, requested: string): boolean {
+  const a = vaultHost(stored)
+  const b = vaultHost(requested)
+  if (!a || !b) return false
+  return a === b
+}
+
 export async function getVaultCredentialsForTask(
   sql: SQL,
   userId: string,
@@ -1012,19 +1040,18 @@ export async function getVaultCredentialsForTask(
     ORDER BY updated_at DESC LIMIT 1
   `) as Array<{ id: string; secret_encrypted: string; username: string | null; secret_ref: string | null }>
   if (!rows[0]) {
-    let host = ''
-    try { host = new URL(origin.startsWith('http') ? origin : `https://${origin}`).hostname.replace(/^www\./, '').toLowerCase() } catch {}
+    /* Same host, www-equivalent — the substring query that used to be here
+     * matched any origin CONTAINING the stored host, which is how a look-alike
+     * domain could pull the real password. */
+    const host = vaultHost(origin)
     if (host) {
-      const parts = host.split('.')
-      const rootDomain = parts.length >= 2 ? parts.slice(-2).join('.') : host
-      rows = (await sql`
-        SELECT id, secret_encrypted, username, secret_ref FROM hire_vault_entries
-        WHERE user_id = ${userId} AND (
-          origin ILIKE ${`%${host}%`} OR portal ILIKE ${`%${host}%`}
-          OR origin ILIKE ${`%${rootDomain}%`} OR portal ILIKE ${`%${rootDomain}%`}
-        )
-        ORDER BY updated_at DESC LIMIT 1
-      `) as Array<{ id: string; secret_encrypted: string; username: string | null; secret_ref: string | null }>
+      const candidates = (await sql`
+        SELECT id, secret_encrypted, username, secret_ref, origin, portal FROM hire_vault_entries
+        WHERE user_id = ${userId}
+        ORDER BY updated_at DESC LIMIT 25
+      `) as Array<{ id: string; secret_encrypted: string; username: string | null; secret_ref: string | null; origin: string | null; portal: string | null }>
+      const match = candidates.find((c) => vaultOriginMatches(c.origin || '', origin) || vaultOriginMatches(c.portal || '', origin))
+      if (match) rows = [match]
     }
   }
   const row = rows[0]
@@ -1045,10 +1072,6 @@ export async function getVaultCredentialsForTask(
   }
 
   // Fallback: check vault_items_v2 (OpenBao / user-wrapped keys)
-  let host = ''
-  try { host = new URL(origin.startsWith('http') ? origin : `https://${origin}`).hostname.replace(/^www\./, '').toLowerCase() } catch {}
-  const rootDomain = host ? (host.split('.').length >= 2 ? host.split('.').slice(-2).join('.') : host) : ''
-
   try {
     const v2Rows = (await sql`
       SELECT id, exact_origin, label, ciphertext FROM vault_items_v2
@@ -1057,17 +1080,11 @@ export async function getVaultCredentialsForTask(
     `) as Array<{ id: string; exact_origin: string; label: string; ciphertext: string }>
 
     const matchingV2 = v2Rows.find((r) => {
-      const orig = (r.exact_origin || '').toLowerCase()
-      const lbl = (r.label || '').toLowerCase()
-      let entryHost = ''
-      try { entryHost = new URL(orig.startsWith('http') ? orig : `https://${orig}`).hostname.replace(/^www\./, '').toLowerCase() } catch {}
-      return (
-        orig === origin.toLowerCase() ||
-        (host && (orig.includes(host) || host.includes(orig) || (entryHost && (entryHost.includes(host) || host.includes(entryHost))))) ||
-        (rootDomain && (orig.includes(rootDomain) || (entryHost && entryHost.includes(rootDomain)))) ||
-        (lbl && (lbl.includes(host) || host.includes(lbl) || (rootDomain && lbl.includes(rootDomain)))) ||
-        (host.includes('campusnet') && (orig.includes('campusnet') || orig.includes('csuohio') || lbl.includes('campusnet') || lbl.includes('csu')))
-      )
+      // Exact origin first, then the same-host rule. No substrings, no label
+      // matching, no hardcoded exceptions: every one of those was a way for a
+      // look-alike host to pull a real password.
+      if ((r.exact_origin || '').toLowerCase() === origin.toLowerCase()) return true
+      return vaultOriginMatches(r.exact_origin || '', origin)
     })
 
     if (matchingV2) {

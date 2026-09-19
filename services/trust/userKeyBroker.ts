@@ -99,8 +99,9 @@ export class LocalUserKeyBroker implements UserKeyBroker {
 
       const candidates: Buffer[] = [this.masterKey]
       const rawCandidates = [
+        // The vault key comes from the environment, never from source: a
+        // compiled-in copy made any DB dump decryptable with the repo alone.
         process.env.HIREALPHA_VAULT_KEY?.trim(),
-        '3ff711bf14f29be86cbde927935dd0c541ef52ddbb0142d4a1ebe97bde7b6dde',
         process.env.PROJECT_SECRET?.trim(),
         process.env.PHOTON_PROJECT_SECRET?.trim(),
         process.env.PHOTON_FRIEND_PROJECT_SECRET?.trim(),

@@ -652,7 +652,19 @@ export async function proposeBrowserTask(
     )
     const data = (await res.json().catch(() => ({}))) as { ok?: boolean; needsVault?: boolean; id?: string; requestId?: string; origin?: string; sessionUrl?: string; error?: string }
     if (!res.ok || !data.ok) return { ok: false, error: data.error || `browser propose failed (${res.status})` }
-    return { ok: true, needsVault: data.needsVault, id: data.id, requestId: data.requestId, origin: data.origin, sessionUrl: data.sessionUrl || `https://hirealpha.chat/computer/${data.id || ''}` }
+    /* No id means no job was created (the vault branch answers
+     * `{ok:true, needsVault:true}` with neither id nor sessionUrl). Building a
+     * `/computer/` link from an absent id handed the user a URL for a run that
+     * does not exist — the fabricated-progress shape. */
+    const sessionUrl = data.sessionUrl || (data.id ? `https://hirealpha.chat/computer/${data.id}` : undefined)
+    return {
+      ok: true,
+      needsVault: data.needsVault,
+      id: data.id,
+      requestId: data.requestId,
+      origin: data.origin,
+      ...(sessionUrl ? { sessionUrl } : {}),
+    }
   } catch (err) {
     console.warn('[live] browser propose failed', err)
     return { ok: false, error: 'Could not queue the browser run.' }

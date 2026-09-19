@@ -209,7 +209,32 @@ export async function sweepStaleRunningJobs(
     // NEEDS_RECONCILIATION with a reason - never an invisible orphan.
     await mirrorJobReconcile(sql, row.id, 'Worker interrupted; outcome unknown. Review before retrying.')
   }
-  return swept
+  /* Two more ways a job used to strand forever, both with no claim, no sweep
+   * and no message:
+   *
+   * - `waiting`: the worker is mid-handoff (a password, a CAPTCHA, a payment)
+   *   and a redeploy kills it. The row is invisible to this sweep (it only
+   *   matched 'running'), invisible to the claim (which wants 'pending'), and
+   *   the site-uniqueness index keeps deduping every later launch for the same
+   *   URL back to the dead row.
+   * - `pending` whose approval or grant aged out while the worker was down: the
+   *   claim's fresh-approval window (10 minutes) has passed, so nothing will
+   *   ever pick it up.
+   *
+   * The handoff window is 15 minutes rather than the 10-minute claim window
+   * because the worker's own handoff timeout is exactly 10 — reaping at 10
+   * would race healthy waits. */
+  const stranded = (await sql`
+    UPDATE hire_browser_jobs
+    SET status = 'failed', error = 'Run never finished; nothing was confirmed. Start it again when you are ready.', finished_at = now()
+    WHERE (status = 'waiting' AND handoff_at IS NOT NULL AND handoff_at < now() - interval '15 minutes')
+       OR (status = 'pending' AND created_at < now() - interval '15 minutes')
+    RETURNING id, user_id, persona, url, goal
+  `) as Array<{ id: string; user_id: string; persona: string; url: string; goal: string | null }>
+  for (const row of stranded) {
+    await mirrorJobReconcile(sql, row.id, 'Run never finished; nothing was confirmed.')
+  }
+  return [...swept, ...stranded]
 }
 
 export async function claimBrowserJobs(sql: SQL, limit: number): Promise<BrowserJobRow[]> {

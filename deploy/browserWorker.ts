@@ -441,8 +441,15 @@ export async function runJob(sql: SQL, job: JobRow, launch = runBrowserSession):
   // Heartbeat: the claim sweeper fails any 'running' row whose claimed_at is
   // older than ten minutes; real booking sites exceed that. Touching the row
   // every minute keeps a healthy long run from being reaped as a dead worker.
+  let heartbeatWarned = false
   const heartbeat = setInterval(() => {
-    void sql`UPDATE hire_browser_jobs SET claimed_at = now() WHERE id = ${job.id} AND status = 'running'`.catch(() => undefined)
+    void sql`UPDATE hire_browser_jobs SET claimed_at = now() WHERE id = ${job.id} AND status = 'running'`.catch((err) => {
+      // A swallowed heartbeat is how a live run gets swept as a dead worker.
+      if (!heartbeatWarned) {
+        heartbeatWarned = true
+        console.warn(`[browser-worker] heartbeat for ${job.id} failed (a sweep may reap this run):`, err instanceof Error ? err.message : err)
+      }
+    })
   }, 60_000)
   let run: Awaited<ReturnType<typeof launchTask>>
   try {
@@ -650,7 +657,18 @@ export async function flushUndeliveredResults(
 async function report(sql: SQL, job: JobRow, outcome: JobOutcome): Promise<void> {
   await flushUndeliveredResults(sql).catch((err) => console.warn('[browser-worker] undelivered result sweep failed', err))
   if (outcome.ok) {
-    await sql`UPDATE hire_browser_jobs SET status = 'done', result = ${outcome.result}, finished_at = now() WHERE id = ${job.id}`
+    /* Only a row that is still running may be completed. If the claim sweeper
+     * already failed this job during a database flap (the heartbeat below used
+     * to swallow its own failures), the run kept going and this update used to
+     * overwrite 'failed' with 'done' — a second, contradictory report to the
+     * user about a job that had already been announced as interrupted. */
+    const settled = (await sql`
+      UPDATE hire_browser_jobs SET status = 'done', result = ${outcome.result}, finished_at = now()
+      WHERE id = ${job.id} AND status = 'running' RETURNING id
+    `) as Array<{ id: string }>
+    if (!settled.length) {
+      console.warn(`[browser-worker] job ${job.id} finished after being settled (swept or cancelled); result not re-reported`)
+    }
     if (job.spend_request_id) {
       await sql`
         UPDATE hire_spend_approvals

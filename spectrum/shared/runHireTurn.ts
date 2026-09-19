@@ -916,6 +916,26 @@ export async function runHireTurn(input: {
     setPendingVaultTask(input.dataDir, input.senderId)
     const queued = await proposeBrowserTask(input.senderId, agent.id, { portal: pendingVault.portal, goal: pendingVault.goal })
     const portalName = prettyPortalName(pendingVault.portal)
+    /* This branch used to promise "Starting the run now" whatever the propose
+     * answered — including the vault branch that creates NO job and the
+     * transport failures — so the most common message after saving a password
+     * said a run had started when none had. */
+    if (!queued.ok) {
+      const reply = `I have your login saved, but the ${portalName} run did not queue${queued.error ? ` (${String(queued.error).slice(0, 80)})` : ''}. Nothing is running yet. Say retry and I'll try again.`
+      appendThread(input.dataDir, input.senderId, [
+        { role: 'user', content: input.threadLine || input.userText },
+        { role: 'assistant', content: reply },
+      ])
+      return { reply, bubbles: [reply], source: 'local' as const, authoritative: [], card: null }
+    }
+    if (queued.needsVault) {
+      const reply = `I still need the ${portalName} login before that run can start. Save it in the vault, then say saved and I'll go.`
+      appendThread(input.dataDir, input.senderId, [
+        { role: 'user', content: input.threadLine || input.userText },
+        { role: 'assistant', content: reply },
+      ])
+      return { reply, bubbles: [reply], source: 'local' as const, authoritative: [], card: null }
+    }
     const sessionUrl = queued.sessionUrl || (queued.id ? `https://hirealpha.chat/computer/${queued.id}` : null)
     const reply = sessionUrl
       ? `I see your credentials are saved! Starting the ${portalName} run now for "${pendingVault.goal}".\nWatch it live: ${sessionUrl} (I'll report back here as soon as it's done).`

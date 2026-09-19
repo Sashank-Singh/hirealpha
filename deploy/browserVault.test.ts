@@ -19,6 +19,7 @@ import {
   saveVaultEntry,
   withUserBrowserLock,
   type PortalTask,
+  vaultOriginMatches,
 } from './browserVault'
 import { gateWorkshopCode } from './workshop'
 import type { UserKeyBroker } from '../services/trust/userKeyBroker'
@@ -994,5 +995,31 @@ describe('vault save with username + op backing marker', () => {
     expect(resumedJobIds).toEqual(['job-wait-1'])
     expect(activityAppended).toContain('is connected.')
     expect(loopText).toContain('is connected.')
+  })
+})
+
+describe('a password is released only for the site it was saved for', () => {
+  /* The matcher used to accept substring matches in both directions plus a
+   * root-domain and a free-text label clause, so a job on
+   * `https://accounts.google.com.<attacker>.io` matched the stored
+   * `https://accounts.google.com` entry and the password was typed into the
+   * attacker's page. */
+  it('never releases across look-alike hosts', () => {
+    expect(vaultOriginMatches('https://accounts.google.com', 'https://accounts.google.com.evil.io')).toBe(false)
+    expect(vaultOriginMatches('https://kayak.com', 'https://kayak.com.evil.io')).toBe(false)
+    expect(vaultOriginMatches('https://accounts.google.com', 'https://mail.google.com')).toBe(false)
+    expect(vaultOriginMatches('https://bank.com', 'https://bank.com.co')).toBe(false)
+  })
+
+  it('still matches the same site with or without www, and any scheme', () => {
+    expect(vaultOriginMatches('https://www.kayak.com', 'https://kayak.com')).toBe(true)
+    expect(vaultOriginMatches('kayak.com', 'https://www.kayak.com/login')).toBe(true)
+    expect(vaultOriginMatches('http://campusnet.csuohio.edu', 'https://campusnet.csuohio.edu/portal')).toBe(true)
+  })
+
+  it('refuses junk rather than guessing', () => {
+    expect(vaultOriginMatches('', 'https://kayak.com')).toBe(false)
+    expect(vaultOriginMatches('https://kayak.com', '')).toBe(false)
+    expect(vaultOriginMatches('not a url', 'https://kayak.com')).toBe(false)
   })
 })
