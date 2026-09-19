@@ -6421,8 +6421,14 @@ export async function fetchMapSearch(query: string, countryHint = '', location: 
     /* `fetchNearbyPlaces` returns the marker only when it could not place the
      * ask at all. That must not become a worldwide search — UNLESS the ask
      * named a specific place ("find the Berghoff"), where searching for that
-     * name is exactly right. A nameless ask asks which city instead. */
-    if (nearby === MAPS_NEEDS_LOCATION && !namesAPlace(query)) return MAPS_NEEDS_LOCATION
+     * name is exactly right. A nameless ask asks which city instead.
+     * A lowercase city is a name too: `namesAPlace` wants a capitalised word,
+     * so "dinner in seattle tomorrow, not touristy" was refused here and fell
+     * through to a web search — three real venues, no hours, no links, and the
+     * reply apologising that its sources carry none. `knownCityIn` scans the
+     * words for a city the airport table knows, which is exactly the case that
+     * was being thrown away. */
+    if (nearby === MAPS_NEEDS_LOCATION && !namesAPlace(query) && !knownCityIn(query)) return MAPS_NEEDS_LOCATION
     // Overpass miss, no coords, or empty result: the named place path below answers.
   }
   if (location && !/\b(?:near|around|in|at|by)\b/i.test(query)) {
@@ -6430,8 +6436,9 @@ export async function fetchMapSearch(query: string, countryHint = '', location: 
     query = `${query} near ${marker}`
   }
   const cleaned = query
-    .replace(/\b(find|search|show|recommend|tonight|maps|hangout|near me|near us|nearby|near\b|around|where should we|where can we)\b/gi, ' ')
+    .replace(/\b(find|search|show|recommend|tonight|tomorrow|today|this (?:week|weekend|evening|afternoon)|weekend|maps|hangout|near me|near us|nearby|near\b|around|where should we|where can we|not touristy|non[- ]?touristy|touristy|non[- ]?tourist)\b/gi, ' ')
     .replace(/\s+/g, ' ')
+    .replace(/[\s,]+$/, '')
     .trim()
   if (!cleaned || /^(quiet|good|best|eat|food|dinner|lunch|breakfast|coffee|drink|drink|hangout)$/i.test(cleaned)) {
     return 'Maps search needs a city, neighborhood, or address. Ask for a place in a specific area.'
