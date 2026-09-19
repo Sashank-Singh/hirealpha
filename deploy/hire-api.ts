@@ -18709,17 +18709,33 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
       | undefined
     if (!row) return json({ error: 'Reminder not found' }, 404)
     if (body.revert) {
-      // Send failed after claim — return to 'pending' so the next poll retries
-      // (same-time for once, current scheduled time for recurring).
-      await sql`UPDATE hire_reminders SET status = 'pending', updated_at = now() WHERE id = ${row.id}`
+      /* Send failed after the claim. The claim already advanced a recurring
+       * row's scheduled_at, so returning only the status deferred the attempt a
+       * whole period — a failed 8am digest came back at 8am tomorrow, and the
+       * comment here claimed otherwise. A retry window of ten minutes puts the
+       * occurrence back on the next poll; the send path's own backoff bounds
+       * how often that can happen. */
+      await sql`
+        UPDATE hire_reminders
+        SET status = 'pending', scheduled_at = now() + interval '10 minutes', updated_at = now()
+        WHERE id = ${row.id}
+      `
       return json({ ok: true, claimed: true, reverted: true })
     }
     if (row.recurrence !== 'once') {
       const ts = new Date(row.scheduledAt).toISOString()
-      const nextAt =
+      const tz = row.timezone || 'America/Los_Angeles'
+      let nextAt =
         body.nextAt && !Number.isNaN(new Date(body.nextAt).getTime())
           ? body.nextAt
-          : nextReminderAt(ts, row.recurrence, row.timezone || 'America/Los_Angeles')
+          : nextReminderAt(ts, row.recurrence, tz)
+      /* Step past NOW, not past the old scheduled time. A daily digest that was
+       * due three days ago (a redeploy, a stalled poll) used to advance one
+       * period per claim, so the next polls each found it due again and sent
+       * three copies in half a minute. */
+      for (let guard = 0; guard < 400 && new Date(nextAt).getTime() <= Date.now(); guard++) {
+        nextAt = nextReminderAt(nextAt, row.recurrence, tz)
+      }
       const upd = await sql`
         UPDATE hire_reminders
         SET scheduled_at = ${nextAt}, updated_at = now()

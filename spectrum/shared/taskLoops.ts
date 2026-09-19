@@ -54,7 +54,15 @@ export interface LoopSendContext {
  * run they launched, an onboarding welcome) — holding those until morning
  * would break a promise instead of respecting a boundary. Every other loop is
  * a discretionary touch and waits out quiet hours. */
-const QUIET_EXEMPT_KINDS = new Set(['browser_result', 'browser_watch', 'onboard_done', 'save_contact'])
+const QUIET_EXEMPT_KINDS = new Set([
+  'browser_result',
+  /* browser_watch is NOT here: it used to be, and every routine tick texted
+   * "Scheduled check ran for …" every six hours including 5am. A watch reports
+   * its finding through the run's own result, so its remaining texts are
+   * failures and the end of its run — discretionary, and held at night. */
+  'onboard_done',
+  'save_contact',
+])
 
 /** Imminent flights are the one time-critical case: a gate/delay ping that
  * waits for morning is worthless, so a departure inside 3 hours is exempt
@@ -204,6 +212,16 @@ export async function runLoopTask(task: LoopTask, handler: LoopHandler, ctx: Loo
       const text = buildApprovalText(action, detail)
       if (await check(task.phone)) {
         await post(task.id, { outcome: 'snoozed', note: 'kill switch armed', next_run: new Date(Date.now() + 60 * 60 * 1000).toISOString() })
+        return
+      }
+      /* An approval request is still an unprompted text: this branch used to
+       * send before the quiet-hours check below, so a queued approval could
+       * land at 3am. It holds the same way every other discretionary loop text
+       * does — the ask does not expire because the night passed. */
+      const approvalQuiet = ctx.checkQuietHours || ((t: LoopTask) => quietHoursHoldForTask(t, String(ctx.persona || t.persona || '')))
+      if (await approvalQuiet(task)) {
+        console.log(`[taskLoops] ${task.kind} approval held for quiet hours ${task.phone}`)
+        await post(task.id, { outcome: 'snoozed', note: 'quiet hours', next_run: new Date(Date.now() + 90 * 60 * 1000).toISOString() })
         return
       }
       await ctx.send(task.phone, text)
@@ -952,7 +970,9 @@ export const LOOP_HANDLERS: Record<string, LoopHandler> = {
     const base = apiBase()
     const key = process.env.HIREALPHA_INTERNAL_KEY || ''
     let note = 'browser_watch enqueued'
-    let text = `Scheduled check ran for ${String(payload.url || '').replace(/^https?:\/\/(www\.)?/, '')}.`
+    // No text for a routine tick: the watch's finding arrives through the run's
+    // own report, so "the check ran" is pure noise — and it was six-hourly.
+    let text = ''
     if (base && key) {
       try {
         const res = await fetch(`${base}/api/internal/propose`, {
@@ -970,8 +990,8 @@ export const LOOP_HANDLERS: Record<string, LoopHandler> = {
         })
         const data = (await res.json().catch(() => ({}))) as { ok?: boolean; sessionUrl?: string; error?: string }
         if (res.ok && data.ok) {
-          text = data.sessionUrl ? `Watch check launched: ${data.sessionUrl}` : text
           note = 'browser_watch run queued'
+          text = ''
         } else {
           note = `browser_watch propose failed: ${data.error || res.status}`
           text = 'The scheduled check could not start this time. It will retry on the next interval.'
@@ -981,14 +1001,23 @@ export const LOOP_HANDLERS: Record<string, LoopHandler> = {
         text = 'The scheduled check could not start this time. It will retry on the next interval.'
       }
     }
+    /* A watch with no cap re-armed forever (the server never set `runs`). The
+     * default is a week of six-hourly checks; when it runs out the user is told
+     * once and can start another. */
+    const DEFAULT_WATCH_RUNS = 28
     const hadCap = Number.isFinite(runsLeft)
-    const nextRuns = hadCap ? Math.max(0, Number(runsLeft) - 1) : undefined
+    const cap = hadCap ? Number(runsLeft) : DEFAULT_WATCH_RUNS
+    const nextRuns = Math.max(0, cap - 1)
+    if (nextRuns === 0) {
+      text = `That watch has run its course (${hadCap ? Number(runsLeft) : DEFAULT_WATCH_RUNS} checks). Say keep watching if you want it to keep going.`
+    }
     return {
       text,
-      outcome: 'snoozed',
+      // 'done' retires the loop when the cap is spent; anything else re-arms.
+      outcome: nextRuns === 0 ? 'done' : 'snoozed',
       note,
       next_run: new Date(Date.now() + intervalHours * 3600_000).toISOString(),
-      nextPayload: { ...payload, ...(nextRuns !== undefined ? { runs: nextRuns } : {}) },
+      nextPayload: { ...payload, runs: nextRuns },
     }
   },
 }

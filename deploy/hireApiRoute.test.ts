@@ -206,7 +206,10 @@ describe('/api/digest with a same-day brief row', () => {
     const data = (await res?.json()) as { calendar?: string[]; revalidating?: boolean; pending?: boolean; error?: string }
     expect(data.calendar).toEqual(['9am · Standup'])
     expect(data.revalidating).toBe(true)
-    expect(data.pending).toBeUndefined()
+    /* `pending` is set on purpose now: the client's retry ladder keys on that
+     * field alone, so without it the rebuild landing behind this response was
+     * never picked up and the screen kept showing the previous build. */
+    expect(data.pending).toBe(true)
   })
 })
 
