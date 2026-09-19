@@ -617,6 +617,11 @@ export async function proposeBrowserTask(
   const base = apiBase()
   const key = process.env.HIREALPHA_INTERNAL_KEY || ''
   if (!base || !key) {
+    /* Local/dev fallback: no API to stage against, so a session runs on this
+     * machine and the link below is a LABEL, not a server session — the route
+     * only accepts job UUIDs, so it 404s. Say so, because a fabricated-looking
+     * "the run is live" line is exactly the failure this shape produced once. */
+    console.warn('[browserTask] no API base/internal key: running a LOCAL session; the session link will not resolve on the server')
     const id = 'task_' + Math.random().toString(36).slice(2, 10)
     void (async () => {
       try {

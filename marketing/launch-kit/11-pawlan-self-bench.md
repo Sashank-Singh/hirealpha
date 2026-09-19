@@ -861,9 +861,26 @@ recorded as a floor.
   speaker's name in front — "Sam: I can do Friday" — while the engine still
   classifies and searches the clean sentence. The room is now visible to the
   model across turns, which is the precondition for the consensus drive.
-- Still scored 3, not N/A: the consensus drive itself (ask each member, collect
-  answers across turns, book on the group's behalf) has not been run end to end
-  in a real four-person thread.
+- **The consensus drive is VERIFIED — by simulation against production, since
+  a real four-person thread needs four phones.** `scripts/bench-group.ts` drives
+  the real engine with the same two inputs the bot builds for a group turn (the
+  speaker-attributed storage line and the group note) and reads the replies back
+  in order. Four members, one ask ("find a dinner date everyone can make"):
+  Alpha opened by telling the room to drop their nights and flagged that it can
+  only see one person's calendar; answered Sam by name and excluded Wednesday;
+  tallied Priya and Dev against it ("Thursday and Friday are both still alive");
+  then closed with "Next Thursday is Sept 24, that clears Sam (not Wednesday),
+  Priya, and you — want me to lock a spot for Thursday 7:30, four people,
+  vegetarian friendly?" It enforced the privacy rule unprompted — "no private
+  schedule details shared here" — which is the note's load-bearing clause.
+- **Score 7, the "coordinates the group" anchor.** Not 10: the final booking
+  inherits dim 1's venue quality (the same run answered a Chicago Loop dinner
+  ask with a Bangalore listicle, and announced a run "on the named site" when
+  no site had been named), and no booking has completed for a group.
+- Two findings for the next pass, both outside the group path: the venue search
+  returned Bangalore content for a Chicago ask, and the staging line says "the
+  named site" when the model named none — the second is the same
+  fabricated-site shape the image veto closed, one layer up.
 
 ### 14. Chained — 3
 
