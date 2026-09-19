@@ -2402,3 +2402,38 @@ older value by key.
 | # | dimension | paraphrase used | Alpha (was → now) | Instinct | anchor quote | what closed the gap |
 |---|---|---|---|---|---|---|
 | 10 | Memory | "i only ever want window seats, please make that the rule going forward" → "what seat do you have on file for me now?" | 7 → 8 (capture verified, supersede verified: aisle → window, read back on the next turn) | 9 published | "10 — applies both preferences unprompted" | `5490f56` — the seat half of a two-fact statement is written, not just acknowledged; read-back verified live |
+
+### 16 (continued) — the lost build reference, fixed twice, and what verified it
+
+The deferred finding from the iterate pass: a delivered game lost its thread
+reference at the next deploy, so the change request was refused.
+
+`caf392f` mirrored the delivered build into the durable fact store from the
+workshop's own turn. **The live check disproved it.** After delivering a dice
+roller, asking whether a `last_build_url` fact existed returned: *"No, there's no
+saved fact called last_build_url. The closest thing is the app link I sent you
+earlier in this thread, but that's not stored as a fact."* The delivery had gone
+through the friend's `build` capability — the path a plain "make me a dice
+roller" actually takes — and that capability recorded nothing at all: not the
+thread reference, not the fact.
+
+`f94e28e` fixes that properly: one `recordDeliveredBuild` writes both local
+stores, and both delivery paths call it (the workshop turn and the
+`build`/`update_build` capabilities). `lastBuildFor` reads the thread file first
+and falls back to the mirror, and it feeds the iterate gate — which had been
+losing its `/b/` signal with the history — plus keep and toss.
+
+**What is verified and what is not, stated plainly:** the reader and the key
+round-trip are unit-tested (thread file, post-deploy fact, live-payload copy,
+newest-wins, junk), and the fix is deployed. The end-to-end live proof — build,
+restart, then iterate — could not be run this pass, because the build provider
+failed twice in a row on the attempt to deliver the test app ("the build attempt
+failed on my end twice, not a you problem": the bot's own words, and an honest
+failure rather than a fabricated success). That is the one verification this
+item is still owed.
+
+One unrelated observation from the same log, recorded rather than dropped:
+`[live] memory store did not take: projects` appeared on that turn. The
+wrong-table bug that produced this line systematically is fixed
+(`ff89282`) — the seat and diet facts now round-trip and read back — so
+this is a residual, not the same failure, and it is not yet explained.
