@@ -6342,6 +6342,7 @@ async function webSearchWithSerpFallback(query: string, phone?: string): Promise
         to: route.to,
         date: when[0],
         ...(when[1] ? { returnDate: when[1] } : {}),
+        ...(maxPriceFromAsk(query) ? { maxPriceUsd: maxPriceFromAsk(query)! } : {}),
       }).catch(() => null)
       if (fares) return fares
     }

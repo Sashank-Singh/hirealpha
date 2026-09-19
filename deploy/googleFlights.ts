@@ -87,13 +87,18 @@ export async function googleFlightsRates(input: GoogleFlightsInput): Promise<str
     console.warn('[googleFlights] extraction failed', err instanceof Error ? err.message : err)
     return null
   }
-  const rows = normalizeFlightRows(reply, {
-    ...(input.maxPriceUsd && input.maxPriceUsd > 0 ? { maxPrice: input.maxPriceUsd } : {}),
-    searchDate: input.date,
-  })
+  /* The cap is a verdict, not a filter. Dropping every over-cap row is what
+   * left a capped ask with nothing to say and the reply falling back to "live
+   * pricing could not be verified" while a real $611 fare was on the page —
+   * the honest answer is that the cheapest fare misses the cap, and it is only
+   * writable if the row survives. */
+  const rows = normalizeFlightRows(reply, { searchDate: input.date })
   if (!rows.length) return null
   const label = input.returnDate
     ? `from ${from} to ${to}: out ${input.date}, back ${input.returnDate}`
     : `from ${from} to ${to} on ${input.date}`
-  return `${formatFares(rows.slice(0, 8), { label })}`
+  return `${formatFares(rows.slice(0, 8), {
+    label,
+    ...(input.maxPriceUsd && input.maxPriceUsd > 0 ? { maxPrice: input.maxPriceUsd } : {}),
+  })}`
 }

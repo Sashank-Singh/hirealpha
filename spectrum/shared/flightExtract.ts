@@ -61,7 +61,7 @@ export function flightExtractionPrompt(input: {
   const filters = input.filters || {}
   const currency = filters.currency || 'USD'
   const rules: string[] = []
-  if (filters.maxPrice) rules.push(`- ONLY include flights priced at or below ${filters.maxPrice}`)
+  if (filters.maxPrice) rules.push(`- Prefer flights priced at or below ${filters.maxPrice}. If none are, still return the cheapest fares the page shows — the reply has to say the cap was not met rather than show nothing`)
   if (typeof filters.maxStops === 'number') {
     rules.push(filters.maxStops === 0 ? '- ONLY include nonstop/direct flights' : `- ONLY include flights with ${filters.maxStops} stop(s) or fewer`)
   }
@@ -136,10 +136,54 @@ export function normalizeFlightRows(reply: string, opts?: { maxPrice?: number; s
   return out
 }
 
-/** The fares as a block the model can answer from, with the caveats stated. */
-export function formatFares(rows: FlightRow[], opts?: { label?: string }): string {
+/** "2h 53m" / "45m" → 173 / 45. Infinity when the duration is missing, so an
+ * unknown never outranks a known one in a quality comparison. */
+export function itineraryMinutes(row: Pick<FlightRow, 'duration'>): number {
+  const m = String(row.duration || '').match(/(?:(\d+)\s*h)?\s*(?:(\d+)\s*m)?/i)
+  const hours = Number(m?.[1] || 0)
+  const mins = Number(m?.[2] || 0)
+  const total = hours * 60 + mins
+  return total > 0 ? total : Infinity
+}
+
+/** The itinerary worth recommending: fewest stops, then shortest total time,
+ * then cheapest. An unknown stop count never wins. */
+function bestItinerary(rows: FlightRow[]): FlightRow | null {
+  let best: FlightRow | null = null
+  for (const row of rows) {
+    if (!best) { best = row; continue }
+    const stops = row.stops === null ? Infinity : row.stops
+    const bestStops = best.stops === null ? Infinity : best.stops
+    if (stops !== bestStops) { if (stops < bestStops) best = row; continue }
+    const mins = itineraryMinutes(row)
+    const bestMins = itineraryMinutes(best)
+    if (mins !== bestMins) { if (mins < bestMins) best = row; continue }
+    if (row.priceUsd < best.priceUsd) best = row
+  }
+  return best
+}
+
+/** The fares as a block the model can answer from, with the caveats stated.
+ *
+ * The shape is the one a person needs to decide, not a raw price list: the
+ * budget verdict first, then every row with its stops and total time, then the
+ * itinerary worth taking named explicitly, and a cheap-but-worse fare called
+ * out as such. Live, 2026-09-19: an ask with a $550 cap came back as four
+ * Frontier itineraries of 23-33 hours with no nonstop and no recommendation,
+ * while the same ask answered by hand led with "Nothing under $550 on those
+ * dates right now. Cheapest is $611, but it's a bad separate-ticket itinerary
+ * with a 17-hour return layover. Best clean option is Delta nonstop both ways
+ * for $909." The block carried every one of those facts; the reply did not,
+ * because nothing in the block said which row was the trap and which was the
+ * answer. */
+export function formatFares(rows: FlightRow[], opts?: { label?: string; maxPrice?: number }): string {
   if (!rows.length) return ''
-  const lines = rows.map((r) => {
+  const byPrice = [...rows].sort((a, b) => a.priceUsd - b.priceUsd)
+  const cheapest = byPrice[0]!
+  const best = bestItinerary(rows)
+  const cap = opts?.maxPrice && opts.maxPrice > 0 ? opts.maxPrice : null
+  const underCap = cap ? byPrice.filter((r) => r.priceUsd <= cap) : byPrice
+  const lines = byPrice.map((r) => {
     const bits = [
       `$${Math.round(r.priceUsd)}`,
       r.airline || '',
@@ -150,7 +194,52 @@ export function formatFares(rows: FlightRow[], opts?: { label?: string }): strin
       r.duration || '',
       r.travelDate ? `on ${r.travelDate}` : '',
     ].filter(Boolean)
-    return `- ${bits.join(', ')}`
+    const tags: string[] = []
+    if (r === cheapest) tags.push('cheapest')
+    if (r === best) tags.push('best itinerary')
+    if (cap && r.priceUsd > cap) tags.push(`over the $${cap} cap`)
+    return `- ${bits.join(', ')}${tags.length ? ` [${tags.join('; ')}]` : ''}`
   })
-  return `Live fares${opts?.label ? ` ${opts.label}` : ''} (read from the airline search page):\n${lines.join('\n')}\nFares are what the page showed when it was read. Seat selection happens with the airline, and nothing is booked until the user approves.`
+  /* The verdict the reply has to lead with. Silence here is what let a capped
+   * ask ship fares that all broke the cap. */
+  const verdict = cap
+    ? underCap.length
+      ? `Budget: at or under $${cap} — cheapest qualifying fare is $${Math.round(underCap[0]!.priceUsd)}.`
+      : `Budget: NONE of these are at or under $${cap}; the cheapest is $${Math.round(cheapest.priceUsd)}.`
+    : ''
+  /* Why the cheapest is not the answer, when it is not: stops first, then the
+   * total time, so the sentence states a fact from the row and nothing else. */
+  const cheaperButWorse: string[] = []
+  if (best && cheapest !== best) {
+    const moreStops = (cheapest.stops ?? 0) > (best.stops ?? 0)
+    const cheapMins = itineraryMinutes(cheapest)
+    const bestMins = itineraryMinutes(best)
+    const muchLonger = Number.isFinite(cheapMins) && Number.isFinite(bestMins) && cheapMins > bestMins * 1.5
+    if (moreStops || muchLonger) {
+      const why = [
+        moreStops ? `${cheapest.stops ?? 'more'} stop${(cheapest.stops ?? 0) > 1 ? 's' : ''} vs ${best.stops === 0 ? 'nonstop' : `${best.stops}`}` : '',
+        muchLonger ? `${cheapest.duration} total vs ${best.duration}` : '',
+      ].filter(Boolean).join(' and ')
+      cheaperButWorse.push(`The $${Math.round(cheapest.priceUsd)} fare is the cheap one, not the good one (${why}).`)
+    }
+  }
+  const bestLine =
+    best && cheapest !== best
+      ? `Best itinerary: $${Math.round(best.priceUsd)}, ${[
+          best.airline || '',
+          best.stops === null ? '' : best.stops === 0 ? 'nonstop' : `${best.stops} stop${best.stops > 1 ? 's' : ''}`,
+          best.departTime && best.arriveTime ? `${best.departTime}-${best.arriveTime}` : '',
+          best.duration || '',
+          best.travelDate ? `on ${best.travelDate}` : '',
+        ].filter(Boolean).join(', ')}.`
+      : ''
+  const head = `Live fares${opts?.label ? ` ${opts.label}` : ''} (read from the airline search page):`
+  const tail = [bestLine, ...cheaperButWorse].filter(Boolean).join(' ')
+  return [
+    head,
+    verdict,
+    lines.join('\n'),
+    tail,
+    'Fares are what the page showed when it was read. Seat selection happens with the airline, and nothing is booked until the user approves.',
+  ].filter(Boolean).join('\n')
 }

@@ -16,7 +16,7 @@
  * Everything is best-effort: no binary, no network, a timeout, or a non-JSON
  * reply all return null and the caller carries on with the next source.
  */
-import { formatFares, type FlightRow } from '../spectrum/shared/flightExtract'
+import { formatFares, itineraryMinutes, type FlightRow } from '../spectrum/shared/flightExtract'
 
 /** The base ceiling for the binary. The two search kinds below narrow it. */
 const TRVL_TIMEOUT_MS = Number(process.env.TRVL_TIMEOUT_MS || 50_000)
@@ -284,6 +284,9 @@ export async function trvlFlights(input: {
   returnDate?: string
   cabin?: string
   maxStops?: number | null
+  /** The ask's ceiling, when it named one. Never a filter here — the block
+   * states whether the cheapest fare meets it. */
+  maxPriceUsd?: number
 }): Promise<string | null> {
   if (!trvlEnabled()) return null
   const from = airportsFor(input.from)
@@ -363,7 +366,7 @@ export async function trvlFlights(input: {
       deduped.push(row)
       continue
     }
-    if (minutesOf(row) < minutesOf(deduped[at]!)) deduped[at] = row
+    if (itineraryMinutes(row) < itineraryMinutes(deduped[at]!)) deduped[at] = row
   }
   rows.length = 0
   rows.push(...deduped)
@@ -385,16 +388,10 @@ export async function trvlFlights(input: {
     ? `from ${from} to ${to}: out ${input.date}, back ${input.returnDate}`
     : `from ${from} to ${to} on ${input.date}`
   const legNote = input.returnDate ? ' Each price is for the full round trip (both legs), not per leg.' : ''
-  return remember(key, `${formatFares(rows, { label })}${legNote}${fxNote}${verdictNote}`)
-}
-
-/** "2h 53m" / "45m" → 173 / 45; Infinity when the duration is missing. */
-function minutesOf(row: FlightRow): number {
-  const m = String(row.duration || '').match(/(?:(\d+)\s*h)?\s*(?:(\d+)\s*m)?/i)
-  const hours = Number(m?.[1] || 0)
-  const mins = Number(m?.[2] || 0)
-  const total = hours * 60 + mins
-  return total > 0 ? total : Infinity
+  return remember(key, `${formatFares(rows, {
+    label,
+    ...(input.maxPriceUsd && input.maxPriceUsd > 0 ? { maxPrice: input.maxPriceUsd } : {}),
+  })}${legNote}${fxNote}${verdictNote}`)
 }
 
 type TrvlRoom = {
