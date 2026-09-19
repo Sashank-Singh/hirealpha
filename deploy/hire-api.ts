@@ -17989,7 +17989,6 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
           return json({ ok: false, logged: false, error: `the updated app's JavaScript does not parse: ${(e as Error).message}`.slice(0, 300) })
         }
       }
-      const newId = crypto.randomUUID()
       const title = String(body.title || src.title).slice(0, 120)
       /* A change to a KEPT app inherits "kept". It used to be hardcoded
        * delivered + 7 days, so the version the user had just saved replaced
@@ -17997,24 +17996,39 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
        * deleted at the next sweep while A survives. */
       const inheritKept = src.state === 'kept'
       const expires = new Date(Date.now() + 7 * 86_400_000)
+      /* The change lands on the SAME artifact, so the link the user already has
+       * keeps working. This used to mint a new id and INSERT a second row,
+       * which meant every tweak produced a new /b/ URL, the old link kept
+       * serving the old version, and "Your builds" filled with copies — the
+       * founder's workshop list showed two Tip Splitters and four Retro Pongs,
+       * and his question was the honest one: "WHY NEW LINK … WHY NO ITERATION
+       * ON THE SAME LINK". An update is an update: same id, same URL, new
+       * bytes. */
       await sql`
-        INSERT INTO hire_artifacts (id, user_id, title, kind, files, state, expires_at, template_key)
-        VALUES (${newId}, ${user.id}, ${title}, 'page', ${JSON.stringify(['index.html'])}, ${inheritKept ? 'kept' : 'delivered'}, ${inheritKept ? null : expires.toISOString()}, ${src.template_key})
+        UPDATE hire_artifacts
+        SET title = ${title},
+            state = ${inheritKept ? 'kept' : 'delivered'},
+            expires_at = ${inheritKept ? null : expires.toISOString()},
+            files = ${JSON.stringify(['index.html'])}
+        WHERE id = ${artifactId} AND user_id = ${user.id}
+      `
+      await sql`
+        DELETE FROM hire_artifact_files WHERE artifact_id = ${artifactId} AND name = 'index.html'
       `
       await sql`
         INSERT INTO hire_artifact_files (artifact_id, name, content)
-        VALUES (${newId}, 'index.html', ${Buffer.from(html).toString('base64')})
+        VALUES (${artifactId}, 'index.html', ${Buffer.from(html).toString('base64')})
       `
       await sql`
         INSERT INTO hire_workshop_tasks (id, user_id, prompt, status, artifact_id)
-        VALUES (${crypto.randomUUID()}, ${user.id}, ${('iterate: ' + String(body.instruction || '')).slice(0, 500)}, 'done', ${newId})
+        VALUES (${crypto.randomUUID()}, ${user.id}, ${('iterate: ' + String(body.instruction || '')).slice(0, 500)}, 'done', ${artifactId})
       `
       return json({
         ok: true,
         logged: true,
-        artifactId: newId,
+        artifactId,
         title,
-        url: `${appBase(req)}/b/${newId}`,
+        url: `${appBase(req)}/b/${artifactId}`,
       })
     } catch (err) {
       console.error('[workshop] iterate threw', err)
