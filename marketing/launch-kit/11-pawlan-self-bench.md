@@ -2317,3 +2317,11 @@ moment the taps land:
 Still time-gated and not on this list: routines (dim 7) need five elapsed
 weekdays — Monday's digest is armed and deterministic — and memory (dim 10)
 needs the week-later replay. Neither is a tap.
+
+**Pre-flight on the code those taps wake up** (so a grant is not followed by a
+broken run): `deploy/composioWrite.test.ts`, `deploy/browserVault.test.ts` and
+`deploy/kernelPage.test.ts` — 82 pass, 0 fail; `deploy/browserJobs.test.ts` — 42
+pass, 0 fail, including the checkout-fill path whose expiry field is read from
+`expMonth`/`expYear` (`kernelSession.ts:1037`), the bug that would have thrown
+after Link approval this morning. The plumbing behind the taps is green; what is
+missing is only the grants and the taps themselves.
