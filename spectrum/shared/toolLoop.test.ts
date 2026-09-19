@@ -38,6 +38,8 @@ import {
   localWeekdayYmd,
   missingConnectorNote,
 } from './toolLoop'
+import { stayWindowFromAsk } from './stayWindow'
+import { datesFromText } from '../../deploy/serpapi'
 
 describe('calendar block ask (dim 8)', () => {
   it('recognises a real calendar write, not a scheduling question', () => {
@@ -1067,6 +1069,51 @@ describe('a travel lookup waits for the classified trip', () => {
     for (const travel of seen) {
       expect(travel).toMatchObject({ kind: 'flight', from: 'SFO', to: 'ORD', checkin: '2026-09-22' })
     }
+  })
+})
+
+describe('a travel lookup prices the window the engine resolved', () => {
+  /* Live, 2026-09-19: "flights austin to boston next thursday coming back
+   * sunday, aisle seat, keep it under 550 round trip" left the model's own
+   * lookup carrying the raw words, and the server's relative-date reader took
+   * "next thursday" a week further out than the engine's window helper — the
+   * reply priced Oct 1/Oct 4 while the booking goal carried Sep 24/27. The
+   * fares on screen were for dates the run would never book. One resolver
+   * decides the trip; every lookup this turn prices that trip. */
+  it('appends the resolved dates to a travel lookup that names no calendar date', async () => {
+    const queries: string[] = []
+    const ask = 'flights austin to boston next thursday coming back sunday, aisle seat, keep it under 550 round trip'
+    const window = stayWindowFromAsk(ask)!
+    expect(window).toBeTruthy()
+    await runToolConversation({
+      messages: [{ role: 'user', content: ask }],
+      availableTools: ['web'],
+      canDraft: false,
+      chat: async () => '{"action":"lookup","tool":"web","query":"flights austin to boston next thursday coming back sunday aisle seat under 550"}',
+      lookup: async (_tool, query) => { queries.push(query); return ['Live fares from AUS to BOS on 2026-09-24'] },
+      propose: async () => ({ ok: false }),
+    })
+    expect(queries.length).toBeGreaterThan(0)
+    for (const query of queries) {
+      // What the fare source will resolve: the engine's own window, not a
+      // second reading of "next thursday".
+      expect(datesFromText(query)).toEqual([window.checkIn, window.checkOut])
+    }
+  })
+
+  it('leaves an ask that names its own calendar date alone', async () => {
+    const queries: string[] = []
+    const ask = 'flights austin to boston sep 24 back sep 27, aisle seat'
+    await runToolConversation({
+      messages: [{ role: 'user', content: ask }],
+      availableTools: ['web'],
+      canDraft: false,
+      chat: async () => '{"action":"lookup","tool":"web","query":"flights austin to boston sep 24 back sep 27 aisle seat"}',
+      lookup: async (_tool, query) => { queries.push(query); return ['Live fares from AUS to BOS on 2026-09-24'] },
+      propose: async () => ({ ok: false }),
+    })
+    expect(queries.length).toBeGreaterThan(0)
+    for (const query of queries) expect(query).not.toContain(' from 2026-')
   })
 })
 

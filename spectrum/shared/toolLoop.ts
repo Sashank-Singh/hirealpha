@@ -1,6 +1,10 @@
 import { stayWindowFromAsk } from './stayWindow'
 import { createProgressiveDelivery, type DeliveryHooks } from './progressiveDelivery'
 import type { TurnIntent } from './turnIntent'
+
+/** A month word anywhere in a query means the ask named its own date; only then
+ * is the engine's resolved window kept out of the lookup. */
+const MONTH_WORD_RE = /\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)/i
 export const LIVE_TOOLS = ['maps', 'web', 'gmail', 'calendar', 'drive', 'weather'] as const
 /** Work connectors the work hires can select as a single targeted read. The
  * server's /api/internal/live/tools whitelist and runToolsForMessage accept
@@ -404,10 +408,28 @@ export async function runToolConversation(input: {
      * bounded: a classifier that never settles must not hold the turn open, so
      * after the cap the lookup leaves with whatever is known (the old shape). */
     if (isTravel) await Promise.race([travelUnderstanding, new Promise<void>((resolve) => setTimeout(resolve, 2500))])
+    /* A travel lookup that names no calendar date gets the window the ENGINE
+     * resolved, appended as ISO dates. Live, 2026-09-19: "flights austin to
+     * boston next thursday coming back sunday, aisle seat, keep it under 550
+     * round trip" left the model's own lookup with the raw words, the server's
+     * relative-date reader took "next thursday" a week further out than the
+     * window helper did, and the reply priced Oct 1/Oct 4 while the booking goal
+     * carried Sep 24/27 — the fares on screen were for dates the run would
+     * never book. One resolver decides the trip; every lookup this turn prices
+     * that trip. An ask that names its own dates (ISO or a month) is left
+     * alone, because then the user has already been specific. */
+    const travelQueryFor = (q: string): string => {
+      if (!isTravel) return q
+      if (/\b\d{4}-\d{2}-\d{2}\b/.test(q) || MONTH_WORD_RE.test(q)) return q
+      const window = stayWindowFromAsk(lastUserAsk)
+      if (!window || q.includes(window.checkOut)) return q
+      return `${q} from ${window.checkIn} to ${window.checkOut}`
+    }
     const budget = isTravel ? 55_000 : tool === 'maps' ? 12_000 : 15_000
+    const outboundQuery = travelQueryFor(query)
     try {
       return await Promise.race([
-        input.lookup(tool, query, understoodTravel || undefined),
+        input.lookup(tool, outboundQuery, understoodTravel || undefined),
         new Promise<string[]>((_, reject) => { timer = setTimeout(() => reject(new Error('Lookup deadline')), Math.max(1, Math.min(budget, deadline - Date.now()))) }),
       ])
     } finally { clearTimeout(timer) }
