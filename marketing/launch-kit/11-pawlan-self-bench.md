@@ -31,6 +31,42 @@ not official scores.
 8. Never send, spend, book or disclose protected information without the
    approval required by the user's policy.
 
+## CURRENT INTERNAL SCORECARD — 2026-09-19 (read this first)
+
+The per-run sections below are history. This block is the single current state;
+the evidence for every number is in the dated run records that follow, most
+recently "the founder's own failing thread" and the session log under it.
+
+| # | dimension | score | what holds it back |
+|---|---|---|---|
+| 1 | Online task (hotel) | 7 | staged, not booked — completion needs a payment step |
+| 2 | Travel | 6 | real fares; check-in cannot execute |
+| 3 | Picks | 8 | three verified picks; menus/hours unverified without a paid source |
+| 4 | Purchasing | 3 | one Amazon credential + the home address away (plumbing verified) |
+| 5 | Email | 3 | the "Sam proposing Thursday" fixture does not exist in the mailbox |
+| 6 | Proactive | 4 | check-ins armed; a flight-status feed does not exist |
+| 7 | Routine | 7 | deterministic; five weekdays of observation not yet elapsed |
+| 8 | Integrations | 3 | the write code is built and guarded — the grants are expired |
+| 9 | Permissions | 8 | granular scopes exist for Google only (the provider decides elsewhere) |
+| 10 | Memory | 7 | capture + recall verified; the week-later replay not elapsed |
+| 12 | Phone calls | 3 | no telephony (Twilio ≈$1.15/mo) |
+| 13 | Groups | 7 | consensus measured by simulation; a real four-person thread not run |
+| 14 | Chained | 3 | needs the mail fixture + the passport-data decision |
+| 15 | Restraint | 7 | one-nudge-per-brief observed; the three-signal scenario needs fixtures |
+| 16 | Images/games | 7.5 | both artifacts work and iterate; free-tier watermark + lettering |
+
+**Aggregate ≈ 5.6** — the running mean over the 15 scored dimensions
+(personality is opinion-only; nothing is filed N/A). Sum 83.5 ÷ 15.
+
+Movement this session: hotel 6→7 · travel 5→6 · picks 7→8 · permissions 7→8 ·
+images 0→8 · groups 3→7. Three dead production paths were also revived and
+verified (Link wallet, voice STT, reply drafts) — they do not move a dimension
+on their own but every purchase, voice and email score depends on them.
+
+**Everything still below 7 is blocked on a founder-supplied resource, a real
+world window, or a paid API — not on code.** The list is at the end of this
+document under "Founder decisions this run is waiting on".
+
 ## Official dimensions
 
 ### 1. Online task
