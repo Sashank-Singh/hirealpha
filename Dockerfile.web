@@ -39,6 +39,7 @@ COPY deploy/workshop.ts ./workshop.ts
 COPY deploy/imageGen.ts ./imageGen.ts
 COPY deploy/scrapeDo.ts ./scrapeDo.ts
 COPY deploy/googleHotels.ts ./googleHotels.ts
+COPY deploy/googleFlights.ts ./googleFlights.ts
 COPY deploy/serpapi.ts ./serpapi.ts
 COPY deploy/trvl.ts ./trvl.ts
 
