@@ -756,8 +756,19 @@ recorded as a floor.
   calendar, location, budget or memories to the other members (anything that
   needs the account goes to them in a direct message). The note is null for a
   DM, so the one-to-one path is untouched — unit-tested both ways.
-- Still scored 3, not N/A: the coordination half (four people agreeing on a
-  date, then the booking) is unbuilt.
+- **Second step shipped after the run:** the thread itself. A group message
+  used to be handled as if the speaker were texting Alpha one-to-one — their
+  own thread file, their own history, no idea the other members existed, which
+  is precisely the "communicates only with the requester" anchor. A group turn
+  now resolves the account holder (the member who actually has an account,
+  cached per space, falling back to the speaker so an ownerless group still
+  gets the stranger path) and records the turn in THAT person's thread with the
+  speaker's name in front — "Sam: I can do Friday" — while the engine still
+  classifies and searches the clean sentence. The room is now visible to the
+  model across turns, which is the precondition for the consensus drive.
+- Still scored 3, not N/A: the consensus drive itself (ask each member, collect
+  answers across turns, book on the group's behalf) has not been run end to end
+  in a real four-person thread.
 
 ### 14. Chained — 3
 
