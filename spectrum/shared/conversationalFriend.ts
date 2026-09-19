@@ -425,8 +425,16 @@ export async function runConversationalFriend(input: {
     const intent = await intentPromise
     if (intent.kind === 'image') {
       const image = await generateTurnImage(senderId, intent.image.prompt)
+      /* The same sentence twice in a row after "make the dog blue" reads like a
+       * bot that did not notice the change. Rotate the phrasing so a follow-up
+       * lands as an answer to the follow-up. */
+      const imageReplies = [
+        "Made it — here's the picture. Tell me what to change and I'll redo it.",
+        "Here's the new version. Keep the changes coming.",
+        "Done — that's the updated one. Say the word if you want another pass.",
+      ]
       const reply = image
-        ? "Made it — here's the picture. Tell me what to change and I'll redo it."
+        ? imageReplies[Math.floor(Math.random() * imageReplies.length)]!
         : "I couldn't finish that picture — the image service didn't answer. Say it again and I'll retry."
       appendThread(dataDir, senderId, [
         { role: 'user', content: input.threadLine || input.userText },

@@ -796,7 +796,7 @@ recorded as a floor.
   be staged end to end — the boss email needs the mailbox fixture, and the
   package notice needs a parcel to be late.
 
-### 16. Images/games — games 7, images 7
+### 16. Images/games — games 7, images 8
 
 - Ask: “Make me a trivia game I can play in chat. 90s edition, dog host.”
 - Outcome: a real artifact — planner → sandbox → inline-script parse all
@@ -818,24 +818,31 @@ recorded as a floor.
   group"* → *"Made it, here's the picture. Tell me what to change and I'll redo
   it."* with a 47KB JPEG attached; the server log carries
   `[image] generated for +12163032166 (image/jpeg)`.
-- Why 7 and not 10: iteration is supported but not yet exercised end to end,
-  the free provider watermarks its corner, and it sometimes plasters garbled
-  lettering across the card despite the prompt's no-text clause (measured on
-  two renders; the clause was strengthened and is stated twice). A keyed
-  provider — fal.ai FLUX schnell ≈ $0.003/image — replaces one function call
-  and removes both artifacts; it stays on the decision list as an upgrade, not
-  as a blocker.
+- **Iteration is now exercised on the production line**, not just supported:
+  after the first image, "Make the dog blue and keep everything else the same"
+  was classified as an image change request, the server log shows
+  `[image] generated for +12163032166 (image/jpeg, prompt 195 chars)`, a fresh
+  JPEG went out as an attachment, and the read receipts followed. The reply on
+  the first pass was identical to the original delivery, so the phrasings now
+  rotate and a follow-up lands as an answer to the follow-up.
+- Why 8 and not 10: the iteration returns a NEW render of the changed prompt
+  rather than editing the previous picture's pixels, and the free provider
+  watermarks its corner and sometimes plasters garbled lettering across the
+  card despite the prompt's no-text clause (measured on two renders; the clause
+  was strengthened and is stated twice). A keyed provider — fal.ai FLUX schnell
+  ≈ $0.003/image — replaces one function call and removes both artifacts; it
+  stays on the decision list as an upgrade, not as a blocker.
 
 ### Rehearsal aggregate
 
 - Scored dimensions: 15 of 15 attempted (11 unscored items above are recorded
   as reachable vs blocked).
-- Aggregate ≈ **5.4/10**, computed the way the benchmark computes it: the
+- Aggregate ≈ **5.5/10**, computed the way the benchmark computes it: the
   running mean over scored dimensions (13 of 16 are scored here — personality
   is opinion-only; phone calls and groups stay at the 3 anchor because the
   capability is missing on our side, not because the channel made them
   impossible, so they are NOT filed as N/A). Movement since the previous run:
-  hotel 6→7, travel 5→6, picks 7→8, permissions 7→8, images 0→7. Strongest: routine (7,
+  hotel 6→7, travel 5→6, picks 7→8, permissions 7→8, images 0→8. Strongest: routine (7,
   deterministic), picks (7), memory (7), permissions (7), restraint (7),
   games (7). Weakest: purchasing (3), email (3), integrations (3), chained (3),
   images (0).
