@@ -434,6 +434,14 @@ export async function runToolConversation(input: {
   const bookTravelAsk =
     /\b(?:book|booking|reserve|reservation|stay|round ?trip|flight|flights|hotel|hotels|hostel|hostels|lodging|airfare)\b/i.test(lastUserAsk) &&
     /\b(?:book|booking|reserve|reservation|stay|round ?trip)\b/i.test(lastUserAsk)
+  /* A dated travel ASK — booking or not — must be answered from the live
+   * source, and the reply must carry the rates. Live, 2026-09-19: "where should
+   * i stay in denver friday night? somewhere central" had real rates in hand
+   * from the six booking sources (Populus $215, Art Hotel $273) and the reply
+   * named hotels from memory with no price at all, because the engine only
+   * fetched and appended the dated block for booking asks. The founder's bar is
+   * the reply he can act on, so a travel-shaped ask is grounded the same way. */
+  const datedTravelAsk = bookTravelAsk || travelLookup.test(lastUserAsk)
   /** The verified dated block, or null when the reply is not one: the
    * "LIVE FARE/RATE SOURCE UNAVAILABLE" notice and a general web listicle both
    * carry dollar signs and must never ride along as live options. Only a block
@@ -449,7 +457,7 @@ export async function runToolConversation(input: {
    * server-side resolver reads the dates, the area and the price ceiling out of
    * that phrasing (the model's paraphrase loses at least one of them). */
   const runTravelLookup = async (): Promise<string> => {
-    if (!bookTravelAsk || travelLookupTried || !input.availableTools.includes('web')) return ''
+    if (!datedTravelAsk || travelLookupTried || !input.availableTools.includes('web')) return ''
     travelLookupTried = true
     // The classifier's reading of the ask, when it has one, is what the server
     // sources receive.
@@ -492,7 +500,7 @@ export async function runToolConversation(input: {
       .some((line) => [...line.matchAll(/\$\s*\d[\d,.]*/g)].some((match) => lower.includes(match[0].replace(/\s+/g, '').toLowerCase())))
   }
   const withTravelRates = (text: string) =>
-    travelBlock && bookTravelAsk && !verifiedRateIn(text) ? `${text}\n\nLive options for the dates:\n${travelBlock.slice(0, 1800)}` : text
+    travelBlock && datedTravelAsk && !verifiedRateIn(text) ? `${text}\n\nLive options for the dates:\n${travelBlock.slice(0, 1800)}` : text
   const fallback = () => {
     // A staged purchase receipt is explicit: we found the real item, checked
     // the saved address, and paused for payment.
@@ -768,7 +776,7 @@ Reactions are optional and usually absent. You may add "reaction":"<emoji>" to a
        * The trigger is the missing block, not a model that has not tried: a
        * model lookup that came back empty is exactly when the canonical ask
        * (dates + area + ceiling) is worth one engine-side retry. */
-      if (needsBrowser && bookTravelAsk && !travelLookupTried && !travelBlock && !input.skipFreshLookup) {
+      if (datedTravelAsk && !travelLookupTried && !travelBlock && !input.skipFreshLookup) {
         messages.push({ role: 'assistant', content: raw })
         const block = await runTravelLookup()
         if (block) {
