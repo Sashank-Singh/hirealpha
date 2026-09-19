@@ -15235,20 +15235,34 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
      * durable copy of a stated preference had been dropped — and nothing ever
      * re-pushed the local store. */
     const stored: string[] = []
+    /* Which table the write will land in. With a vault key broker configured,
+     * `upsertMemories` stores every fact through `storeConsentedMemory`, which
+     * writes `memory_records` (encrypted, key column `memory_key`); the
+     * plaintext `hire_memories` row is only written on the un-migrated path. */
+    const brokered = !!userKeyBrokerFromEnv()
     try {
       await upsertMemories(sql, user.id, body.persona, facts)
       stored.push(...facts.map((f) => f.key))
     } catch (err) {
       console.warn('[memory] upsert before tz failed', err)
     }
-    /* Read back from the table the write actually targets — hire_memories, not
-     * the mem0 store memory_records. The first version checked the wrong table
-     * and reported every key as dropped, which would have made the bot re-push
-     * the whole store on every turn (and the log claimed failures that were not
-     * happening). */
-    const readBack = await sql`
-      SELECT key FROM hire_memories WHERE user_id = ${user.id} AND persona = ${body.persona}
-    `.catch(() => [] as Array<{ key: string }>)
+    /* Read back from the table the write actually targets. The first version
+     * checked the mem0 store `memory_records` while the write targeted
+     * `hire_memories` and reported every key dropped; the fix made it read
+     * `hire_memories` unconditionally, which is wrong the other way on any
+     * deployment where the broker is configured — every freshly written key
+     * came back missing and the bot re-pushed facts that had in fact landed.
+     * Reproduced live 2026-09-19: "[live] memory store did not take:
+     * boston_trip, seat_preference, flight_budget" in the same turn the reply
+     * told the user the preference was saved. */
+    const readBack = brokered
+      ? await sql`
+          SELECT memory_key AS key FROM memory_records
+          WHERE user_id = ${user.id} AND persona = ${body.persona} AND deleted_at IS NULL
+        `.catch(() => [] as Array<{ key: string }>)
+      : await sql`
+          SELECT key FROM hire_memories WHERE user_id = ${user.id} AND persona = ${body.persona}
+        `.catch(() => [] as Array<{ key: string }>)
     const present = new Set((readBack as Array<{ key: string }>).map((r) => String(r.key || '').toLowerCase()))
     const dropped = facts.map((f) => f.key).filter((k) => !present.has(k.toLowerCase()))
     const tzFact = facts.find((f) => f.key.toLowerCase() === 'timezone')
