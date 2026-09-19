@@ -302,6 +302,7 @@ Rules for images:
 - Only a picture they want CREATED is an image. Saving, sending, finding or describing an existing photo is not: "save this picture", "what's in this photo", "find me a picture of a dog" are requests or chat.
 - "make me a birthday card" and "draw a logo for my bakery" are images. "make me a to-do list" and "build me a web page" are not — those are requests.
 - A web page or app that happens to show art is still a request (needsBrowser false, needsLookup false), not an image.
+- A CHANGE to something Alpha already built — a game, quiz, app or page — is a request, never an image: "make the host a grumpy old robot and add 3 more questions" about a trivia game changes the game, and "make the buttons bigger" changes the app. Live, 2026-09-19: that exact game follow-up was read as a picture ask and answered "I couldn't finish that picture, the image service didn't answer" for a game delivered two messages earlier.
 
 Reply with JSON only. No prose, no code fences.`
 
