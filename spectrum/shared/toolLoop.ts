@@ -1772,9 +1772,22 @@ export function formatMapPicks(block: string, ask = ''): string {
   const budget = /\b(?:under|below|max(?:imum)?|up to)?\s*\$\s*\d+[^,.;!?]*/i.exec(ask)?.[0]?.replace(/\s+/g, ' ').trim()
   const time = /\b\d{1,2}(?::\d{2})?\s*(?:a\.?m\.?|p\.?m\.?)\b/i.exec(ask)?.[0]
   const unverified = [budget ? `the ${budget}` : 'prices', time ? `a ${time} table` : ''].filter(Boolean)
-  const caveats = `Map data carries no menus, hours, or availability, so I could not verify ${unverified.join(' or ')}.`
-  const chain = /\bchain\b/i.test(ask) ? ' It also lists no ownership, so the no-chain constraint is unverified.' : ''
-  return `${places.length > 1 ? `${places.length} options` : 'One option'} from live map data:\n${lines.join('\n')}\n\n${caveats}${chain} Worth confirming before you go.`
+  /* A rates block reaching this formatter must not wear the map's clothes.
+   * Measured on the real line, 2026-09-19: the Montreal hotel answer read
+   * "3 options from live map data" over three booking-source rates, then closed
+   * "Map data carries no menus, hours, or availability, so I could not verify
+   * the prices" — three prices it had just quoted, called unverified, with the
+   * source misnamed and no question at the end. */
+  const ratesBlock = /^Live (?:hotel rates|fares)\b/im.test(block) || /\$\s*\d[\d,.]*\s*\/\s*night/i.test(block)
+  const caveats = ratesBlock
+    ? 'Rates are per night from the booking sources; cancellation terms and availability are not confirmed.'
+    : `Map data carries no menus, hours, or availability, so I could not verify ${unverified.join(' or ')}.`
+  const chain = !ratesBlock && /\bchain\b/i.test(ask) ? ' It also lists no ownership, so the no-chain constraint is unverified.' : ''
+  const lead = ratesBlock
+    ? `${places.length > 1 ? `${places.length} options` : 'One option'} from live rates:`
+    : `${places.length > 1 ? `${places.length} options` : 'One option'} from live map data:`
+  const closing = ratesBlock ? ' Want me to book one?' : ' Worth confirming before you go.'
+  return `${lead}\n${lines.join('\n')}\n\n${caveats}${chain}${closing}`
 }
 
 /**
