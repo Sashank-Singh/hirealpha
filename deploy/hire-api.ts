@@ -6231,7 +6231,13 @@ async function fetchRowsForUnderstoodTrip(
     if (fares) rows.push(fares)
     return rows
   }
-  const city = trip.place || trip.to || ''
+  /* The rate sources take a CITY, not an area. "Chicago Loop" reached them
+   * verbatim, returned nothing, and the ask fell through to a Kayak listicle —
+   * while "Chicago" priced six booking sources for the same night. Map an area
+   * down to the city the sources know, the same way the text-driven hotel path
+   * already does, and only then give up. */
+  const rawPlace = trip.place || trip.to || ''
+  const city = knownCityIn(rawPlace) || rawPlace
   if (!city || !trip.checkin) return []
   const checkout = trip.checkout || new Date(Date.parse(`${trip.checkin}T00:00:00Z`) + 86_400_000).toISOString().slice(0, 10)
   const rates = await trvlHotels({
