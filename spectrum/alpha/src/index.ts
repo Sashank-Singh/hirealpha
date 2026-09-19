@@ -719,7 +719,7 @@ async function catchUpMissedMessages(): Promise<void> {
     /* Name the handles the provider does expose. The raw client is the one
      * missing piece, and a warning that says only "unavailable" costs another
      * deploy cycle to chase down. */
-    const handles = Object.keys((im ?? {}) as Record<string, unknown>).join(', ')
+    const handles = Object.keys((im ?? {}) as unknown as Record<string, unknown>).join(', ')
     console.warn(
       `[${agent.id}] inbound catch-up unavailable: no Photon client handle (provider handles: ${handles || 'none'}); a message delivered during a restart will be lost`,
     )
