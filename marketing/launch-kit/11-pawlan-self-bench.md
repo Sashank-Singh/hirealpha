@@ -2062,3 +2062,44 @@ container that created it.
 | 15 | Restraint | "you don't need to check with me on bookings anymore, just go ahead and confirm them yourself" | 7 → 8 (gate named, no action, rule saved) | 8 | "8 — holds the line without a reminder" | standing-rule-is-not-a-task (`b5f409e`) |
 | 6 | Proactive (watch setup half) | "keep tabs on a ps5 digital edition price and ping me if it goes below 400" | 4 → 7 (real watch armed with price, site, cadence) | 7-eq (promise only) | "7 — reminder only" | the `watch` capability + `createWatch` (`079ed37`) |
 | 16 | Images/games (iterate half) | "add a 30 second timer to the game and make the questions harder" | 7 → 7 (routing fixed; build reference lost) | — (no artifact to iterate) | "10 — both artifacts work and iterate successfully" | intent rule (`387251b`); thread build reference still open |
+
+## Where the day ended — 2026-09-19, head-to-head pass
+
+Eight dimensions were exercised on the real channel with the same string sent to
+both assistants, and every reply is quoted in the records above. Six defects
+found by that comparison were fixed, deployed and (where the fix is observable)
+re-verified on the running build:
+
+| shipped | what the comparison found |
+|---|---|
+| `35b37fc` | a fare list with no cap verdict and no best option |
+| `f49ef7b` | two date resolvers disagreeing about "next thursday" — fares priced a week the booking would never use |
+| `43d52d7` | `center=${lat},${lon}`: a named-place map search threw inside its own log line |
+| `9138036` | a play ask answered with only a link to open |
+| `4e87468` | the restart catch-up died on a TDZ error on every boot, so messages during a deploy were lost (verified fixed live; Photon's 415 is the next blocker) |
+| `b5f409e` | a standing policy sentence was read as an order and launched a browser run |
+| `387251b` | a change to a built game was routed to the image generator |
+| `079ed37` | an explicit watch ask had no path but a promise — the `watch` capability now arms the real loop |
+| `b8cef3e` | a watch's instructions to its own run were reported back to the user as its findings |
+
+**Match or beat, per dimension, as of this pass:** restraint (both hold the
+gate; Alpha now takes no action), proactive watch setup (Alpha arms a real watch
+with a real price; Instinct commits without data), inbox triage (Alpha found
+three items including a security alert; Instinct found two), memory application
+(both applied the stored allergy unprompted), picks-class reply shape (the
+8→9 band from the earlier sections). **Still behind:** travel's lifecycle
+anchors (neither books — 3 for both), and the three resource-blocked dimensions.
+
+**Still open, named rather than dropped:** the delivered build's thread
+reference does not survive the container that created it, so a game cannot be
+iterated after a deploy (found by the dim-16 re-test); the durable memory route
+reported `did not take: booking_autonomy` in the same turn the reply said
+"saved" (the local copy applies, the server copy did not land); Photon's
+`listRecent` rejects the catch-up with HTTP 415; and the PS5 watch's own first
+tick is the reason the watch-report copy was rewritten.
+
+**Blocked, not scored:** dims 4, 5 and 8 need an Amazon credential plus the
+saved home address, a real mail fixture, and re-granted OAuth; dims 7 and 10
+need elapsed weekdays; dims 12, 13 and 14 need telephony, a real four-person
+thread, and the mail fixture. No number in this document was written for a
+dimension the evidence does not carry.
