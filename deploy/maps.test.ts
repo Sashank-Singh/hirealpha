@@ -447,3 +447,21 @@ describe('hotel ask constraints', () => {
     })
   })
 })
+
+describe('a place row carries the free facts OSM actually has', () => {
+  /* The picks task names opening hours as a constraint, and OSM already returns
+   * `opening_hours` in the same response — the rows simply dropped it, so a
+   * verified pick could not say when the place is open. */
+  it('formats hours and site into the row note', () => {
+    const rows = [
+      { name: 'The Berghoff', addr: '17 W Adams St', note: 'vegetarian, confirmed | hours: Mo-Sa 11:30-21:00 | site: https://theberghoff.com' },
+      { name: 'No Tags Cafe', addr: '1 Main St' },
+    ]
+    const block = formatMapResults(rows, 'nearby', null)
+    expect(block).toContain('hours: Mo-Sa 11:30-21:00')
+    expect(block).toContain('theberghoff.com')
+    // A place with no tags keeps working, with no invented hours.
+    expect(block).toContain('No Tags Cafe')
+    expect(block.split('No Tags Cafe')[1]!.split('\n')[0]).not.toContain('hours')
+  })
+})

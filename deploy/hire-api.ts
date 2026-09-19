@@ -6011,7 +6011,7 @@ async function nominatimNearby(
   }
   if (!found.length) return null
   const block = formatMapResults(found, 'nearby', { lat, lon })
-  return `${block}\n(Source: OpenStreetMap via Nominatim. Names and addresses only: this source carries no menu, price or dietary tags, so do not state any.)`
+  return `${block}\n(Source: OpenStreetMap via Nominatim. Names and addresses only: this source carries no menu, price or dietary tags, so do not state any. Opening hours, where a row carries them, come from OpenStreetMap too.)`
 }
 
 /** One Overpass query, retried across mirrors. Returns null only when every
@@ -6133,11 +6133,22 @@ async function fetchNearbyPlaces(
         const diet = Object.entries(tags)
           .filter(([key, value]) => key.startsWith('diet:') && value === 'yes')
           .map(([key]) => `${key.slice('diet:'.length).replace(/_/g, ' ')}, confirmed`)
+        /* OSM tags the opening hours and sometimes the site. Both are free and
+         * already in the response — the answer path was simply not using them,
+         * so a verified pick could not say when the place is open, which is one
+         * of the constraints the picks task names. */
+        const hours = String(tags.opening_hours || '').trim().slice(0, 120)
+        const site = String(tags.website || tags['contact:website'] || '').trim().slice(0, 160)
+        const notes = [
+          diet.join('; '),
+          hours ? `hours: ${hours}` : '',
+          site ? `site: ${site}` : '',
+        ].filter(Boolean)
         return {
           name: String(tags.name || '').trim(),
           addr: [housenumber, street].filter(Boolean).join(' ') || tags['addr:city'] || '',
           cuisine: tags.cuisine || '',
-          note: diet.join('; '),
+          note: notes.join(' | '),
           lat: typeof elLat === 'number' ? elLat : undefined,
           lon: typeof elLon === 'number' ? elLon : undefined,
         }
