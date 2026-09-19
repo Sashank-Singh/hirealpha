@@ -83,6 +83,10 @@ export async function googleHotelsRates(input: GoogleHotelsInput): Promise<strin
     lines.join('\n'),
     ceiling && inBudget.length
       ? `Only properties at or under $${ceiling}/night are listed. These are per-night rates for those dates; the exact cancellation terms come from the booking page, so do not promise them.`
-      : `These are per-night rates for those dates; the exact cancellation terms come from the booking page, so do not promise them.`,
+      : ceiling
+        // Nothing met the ceiling: say that rather than quietly listing over-budget
+        // rows as if they qualified.
+        ? `Nothing at or under $${ceiling}/night came back from this source; these are the closest options, all ABOVE the stated ceiling, so say that plainly instead of presenting one as the pick. Cancellation terms come from the booking page.`
+        : `These are per-night rates for those dates; the exact cancellation terms come from the booking page, so do not promise them.`,
   ].join('\n')
 }

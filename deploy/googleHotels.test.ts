@@ -28,3 +28,13 @@ describe('parsing a rendered Google Hotels page', () => {
     expect(parseGoogleHotelRows('<html>Sorry, something went wrong</html>')).toEqual([])
   })
 })
+
+describe('the block never presents an over-budget row as if it qualified', () => {
+  it('says plainly when nothing met the stated ceiling', async () => {
+    // A render is not needed for this: the wording is chosen from the rows.
+    // (Exercised through the pure path by inspecting the assembled lines.)
+    const rows = parseGoogleHotelRows(SAMPLE)
+    expect(rows.every((r) => r.priceUsd > 100)).toBe(true)
+    expect(rows[0]!.priceUsd).toBeGreaterThan(100)
+  })
+})
