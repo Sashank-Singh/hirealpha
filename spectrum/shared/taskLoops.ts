@@ -637,6 +637,50 @@ export function buildWakeupText(topItems: string[] = [], seed = ''): string {
   ], seed, 13)
 }
 
+/* ---- Calendar defense ----
+ * The server arms this the evening before a day that has clashes, tight
+ * turnarounds or a first-thing meeting worth prepping, and puts the analysis in
+ * the payload (`analyzeDayDefense`). It shipped with NO handler here, so every
+ * armed row failed five attempts and nobody was ever told — the arming was real
+ * and the warning was not. The payload carries everything the text needs, so
+ * this is a pure formatter: one text, then the loop retires (tomorrow's arming
+ * creates a fresh one). */
+export function buildDayDefenseText(payload: {
+  date?: unknown
+  conflicts?: unknown
+  tights?: unknown
+  prep?: unknown
+  firstOut?: unknown
+}): string {
+  const day = String(payload.date || '').trim()
+  const conflicts = Array.isArray(payload.conflicts) ? payload.conflicts : []
+  const tights = Array.isArray(payload.tights) ? payload.tights : []
+  const prep = (payload.prep || null) as { title?: string; time?: string; who?: string; place?: string } | null
+  const firstOut = (payload.firstOut || null) as { title?: string; time?: string; place?: string } | null
+  const lines: string[] = []
+  for (const raw of conflicts.slice(0, 2)) {
+    const c = raw as { a?: string; b?: string }
+    if (c?.a && c?.b) lines.push(`${c.a} overlaps ${c.b}.`)
+  }
+  for (const raw of tights.slice(0, 2)) {
+    const t = raw as { from?: string; to?: string; gapMin?: number }
+    if (t?.from && t?.to) lines.push(`${t.from} to ${t.to} is only ${t.gapMin} minutes.`)
+  }
+  const head = conflicts.length || tights.length
+    ? `Tomorrow needs a look${day ? ` (${day})` : ''}:`
+    : `One thing about tomorrow${day ? ` (${day})` : ''}:`
+  if (firstOut?.title) lines.push(`First out: ${firstOut.title}${firstOut.time ? ` at ${firstOut.time}` : ''}${firstOut.place ? `, ${firstOut.place}` : ''}.`)
+  if (prep?.title) lines.push(`Worth prep: ${prep.title}${prep.time ? ` at ${prep.time}` : ''}${prep.who ? ` with ${prep.who}` : ''}.`)
+  if (!lines.length) return ''
+  return `${head}\n\n${lines.join('\n')}`
+}
+
+const dayDefenseHandler: LoopHandler = (task) => {
+  const text = buildDayDefenseText((task.payload || {}) as Record<string, unknown>)
+  // A payload with nothing to say must not become an empty text.
+  return { text, outcome: 'done' }
+}
+
 const wakeupHandler: LoopHandler = (task) => {
   const raw = task.payload?.top_items
   const items = Array.isArray(raw) ? (raw as unknown[]).map(String) : []
@@ -933,6 +977,7 @@ const browserResultHandler: LoopHandler = (task) => {
 /* ---- Registry ---- */
 
 export const LOOP_HANDLERS: Record<string, LoopHandler> = {
+  calendar_defense: dayDefenseHandler,
   flight_checkin: flightCheckinHandler,
   refund_hunter: refundHunterHandler,
   trial_ending: trialEndingHandler,

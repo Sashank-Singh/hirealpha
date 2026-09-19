@@ -425,3 +425,29 @@ describe('memory resurface', () => {
       expect(out.text).toBeUndefined()
     })
 })
+
+describe('the day-defense loop finally speaks', () => {
+  /* The server has armed `calendar_defense` since the audit's first round, and
+   * the loop had NO handler — every armed row failed five attempts and nobody
+   * was ever told. */
+  it('formats clashes, tight turnarounds and the first thing out', () => {
+    const { buildDayDefenseText } = require('./taskLoops') as typeof import('./taskLoops')
+    const text = buildDayDefenseText({
+      date: '2026-09-20',
+      conflicts: [{ a: 'Standup (9am)', b: 'Board call (9:30am)' }],
+      tights: [{ from: 'Board call (9:30am)', to: 'Airport run (10:05am)', gapMin: 10 }],
+      prep: { title: 'Board call', time: '9:30am', who: 'Dmitri', place: 'Zoom' },
+      firstOut: { title: 'Standup', time: '9am', place: 'HQ' },
+    })
+    expect(text).toContain('Tomorrow needs a look (2026-09-20)')
+    expect(text).toContain('Standup (9am) overlaps Board call (9:30am)')
+    expect(text).toContain('only 10 minutes')
+    expect(text).toContain('First out: Standup at 9am, HQ')
+    expect(text).toContain('Worth prep: Board call at 9:30am with Dmitri')
+  })
+
+  it('returns nothing rather than an empty text when the payload has no findings', () => {
+    const { buildDayDefenseText } = require('./taskLoops') as typeof import('./taskLoops')
+    expect(buildDayDefenseText({ date: '2026-09-20' })).toBe('')
+  })
+})
