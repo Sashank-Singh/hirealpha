@@ -428,6 +428,36 @@ inbound → `fast-path gate missed a "image" turn` → exactly ONE bubble ("Here
 the new version. Keep the changes coming.") with the image attached, read
 receipts following, no run, no refusal, no 502. One ask, one answer.
 
+### The payment path was dead in production, and that is the flow the product rests on
+
+Found while exercising the Settings payment block against production with a
+minted session for the account: **Connect Link answered**
+
+```
+{"error":"KERNEL_API_KEY and KERNEL_PROJECT_ID are required for browser payments."}
+```
+
+The API key was set on HireAlpha-Web; the project id was not (the row existed
+with no value, and the env-var list masks an empty value as `***`, so it read as
+configured). Behind that one sentence the entire Link wallet is dead — connect,
+status, saved methods, spend approvals, the charge itself — which is the
+"book → pay → receipt" flow every purchase dimension in this document depends
+on, including the one-time card the Purchasing dimension needs.
+
+The id does not need a person: `GET https://api.onkernel.com/projects` with the
+same key returns the account's projects (one active "Default",
+`e3rxowke9j70b5yr8dk3spgj`). `kernelClient()` now resolves it from the API when
+the env var is absent and caches it for the process, every call site awaits it,
+and the two strings a user could see are plain English instead of env-var
+names. The value is also set on Web now, so the fix is live rather than waiting
+on the code path to be next exercised.
+
+**Verified after the deploy, same call:** `{"connected":false,"pending":true,
+"verificationUrl":"/api/payments/kernel/action?id=…"}`, and that URL answers
+`302 → https://login.link.com/auth?client_id=…&scope=payment_methods.agentic+userinfo:read`.
+The consent screen is real and live; the wallet connects when the account owner
+opens it from Settings → Payment vault → Connect Link.
+
 ### Rehearsal aggregate
 
 - Scored dimensions: 15 of 15 attempted; aggregate ≈ 3.9/10.
