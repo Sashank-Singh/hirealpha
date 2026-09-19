@@ -37,6 +37,8 @@ COPY deploy/appPreload.ts ./appPreload.ts
 COPY deploy/agentReady.ts ./agentReady.ts
 COPY deploy/workshop.ts ./workshop.ts
 COPY deploy/imageGen.ts ./imageGen.ts
+COPY deploy/scrapeDo.ts ./scrapeDo.ts
+COPY deploy/googleHotels.ts ./googleHotels.ts
 COPY deploy/serpapi.ts ./serpapi.ts
 COPY deploy/trvl.ts ./trvl.ts
 

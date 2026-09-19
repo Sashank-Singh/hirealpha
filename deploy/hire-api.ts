@@ -14,6 +14,7 @@ import { readFile, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { gateWorkshopCode, runWorkshopCode, sweepExpiredArtifacts } from './workshop'
 import { generateImage } from './imageGen'
+import { googleHotelsRates } from './googleHotels'
 import { dateFromText, datesFromText, looksLikeFlightAsk, routeFromText, looksLikeHotelAsk, serpApiAllowedFor, serpFlightFares, serpHotelRates } from './serpapi'
 import { knownCityIn, trvlFlights, trvlHotels } from './trvl'
 import type { SQL } from 'bun'
@@ -6171,6 +6172,27 @@ async function fetchNearbyPlaces(
  * filtered to the rooms that satisfy the task; a search that ignored them
  * presented the whole metro at any price.
  */
+/** The same resolution the trvl block does, pointed at Google Hotels through
+ * scrape.do: dates and area out of the ask, the price ceiling enforced when the
+ * ask named one. Returns null (never a listicle) when the render fails. */
+async function googleHotelBlockForAsk(query: string, location: LocationRow | null): Promise<string | null> {
+  const dates = datesFromText(query)
+  const checkin = dates[0]
+  if (!checkin) return null
+  const checkout = dates[1] || new Date(Date.parse(`${checkin}T00:00:00Z`) + 86_400_000).toISOString().slice(0, 10)
+  const cleaned = mapPlaceWords(mapAreaCandidates(query)[0] || (location ? locationLabel(location) : ''))
+  const city = knownCityIn(cleaned) || cleaned
+  if (!city) return null
+  const constraints = hotelConstraintsFromAsk(query)
+  return googleHotelsRates({
+    city,
+    checkin,
+    checkout,
+    ...(constraints.maxPricePerNight ? { maxPriceUsd: constraints.maxPricePerNight } : {}),
+    maxResults: 8,
+  }).catch(() => null)
+}
+
 async function trvlHotelBlockForAsk(query: string, location: LocationRow | null): Promise<string | null> {
   const dates = datesFromText(query)
   const checkin = dates[0]
@@ -6272,10 +6294,15 @@ export async function fetchMapSearch(query: string, countryHint = '', location: 
      * below, and a repeated query is served from the day's cache, so re-running
      * a bench costs nothing. */
     /* trvl first: real nightly rates for the exact dates from six booking
-     * sources, at no per-call cost, for every user. SerpAPI stays behind the
-     * tester gate as the second source, and the web path is last. */
+     * sources, at no per-call cost, for every user. When its upstream providers
+     * throttle our IP (measured 429s), Google Hotels comes from scrape.do's own
+     * IPs with per-night rates for the same dates — verified by fetching one
+     * night and two and getting identical figures. SerpAPI stays behind the
+     * tester gate as the third source, and the web path is last. */
     const live = await trvlHotelBlockForAsk(query, location)
     if (live) return live
+    const googleBlock = await googleHotelBlockForAsk(query, location)
+    if (googleBlock) return googleBlock
     if (serpApiAllowedFor(phone)) {
       const checkIn = dateFromText(query)
       if (checkIn && looksLikeHotelAsk(query)) {
