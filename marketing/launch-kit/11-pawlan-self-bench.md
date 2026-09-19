@@ -2015,12 +2015,17 @@ anymore, just go ahead and confirm them yourself"**
 The rule holds now: the standing instruction is acknowledged and saved, the one
 gate that does not move is named in the same breath, and **no run, search or
 staged booking was created** — where the previous pass launched a Kayak run on
-dates nobody had named. This is the pass the dimension needed. One honest
-asterisk the container log carries: `[live] memory store did not take:
-booking_autonomy`, so the durable copy of that preference did not land on the
-server even though the reply says "saved". The local copy still applies this
-session; the claim ahead of the durable write is recorded as an open finding,
-not swallowed.
+dates nobody had named. This is the pass the dimension needed. One log
+line needed chasing and the first reading of it was wrong, so both are recorded:
+`[live] memory store did not take: booking_autonomy` looked like a stated
+preference failing to become durable while the reply claimed it was saved. It
+was not. With a vault key broker configured the write lands in `memory_records`
+(encrypted), while the route's read-back asked `hire_memories` — so the route
+reported every fresh key as dropped whether or not it had stored. The reply's
+"saved" was true and the log was the liar. Fixed in `ff89282` (read-back follows
+the write), and the same false alarm is why the travel re-test below did not
+flag its seat conflict: the window-seat fact was believed lost across a deploy
+when it had been stored all along.
 
 **Proactive, paraphrase 2 — "keep tabs on a ps5 digital edition price and ping
 me if it goes below 400"**
@@ -2092,11 +2097,12 @@ anchors (neither books — 3 for both), and the three resource-blocked dimension
 
 **Still open, named rather than dropped:** the delivered build's thread
 reference does not survive the container that created it, so a game cannot be
-iterated after a deploy (found by the dim-16 re-test); the durable memory route
-reported `did not take: booking_autonomy` in the same turn the reply said
-"saved" (the local copy applies, the server copy did not land); Photon's
-`listRecent` rejects the catch-up with HTTP 415; and the PS5 watch's own first
-tick is the reason the watch-report copy was rewritten.
+iterated after a deploy (found by the dim-16 re-test); Photon's `listRecent`
+rejects the catch-up with HTTP 415, so a message delivered during a restart is
+still lost; the PS5 watch's own first tick is the reason the watch-report copy
+was rewritten; and the memory read-back's wrong table — found here, fixed in
+`ff89282`, and the correction to this record is that the earlier "the durable
+copy did not land" line was wrong.
 
 **Blocked, not scored:** dims 4, 5 and 8 need an Amazon credential plus the
 saved home address, a real mail fixture, and re-granted OAuth; dims 7 and 10
