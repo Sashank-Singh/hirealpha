@@ -798,6 +798,23 @@ async function tryTaskSelection(phone: string, persona: AgentId, text: string): 
   }
 }
 
+/** The key the delivered build is mirrored under: `<artifactId>|<url>`. */
+const LAST_BUILD_KEY = 'last_build_url'
+
+/** The build this thread was last given: the thread file first, then the
+ * durable fact the live payload re-hydrates after a container swap. */
+export function lastBuildFor(
+  mem: ThreadMemory,
+  liveMemories?: Array<{ key?: string; value?: string }>,
+): { artifactId: string; url: string } | undefined {
+  if (mem.lastBuild?.artifactId && mem.lastBuild.url) return mem.lastBuild
+  const raw = [...mem.facts, ...(liveMemories || [])]
+    .reverse()
+    .find((f) => String(f.key || '').toLowerCase() === LAST_BUILD_KEY)?.value
+  const [artifactId, url] = String(raw || '').split('|')
+  return artifactId && url ? { artifactId, url } : undefined
+}
+
 export async function runHireTurn(input: {
   agentId: AgentId
   dataDir: string
@@ -1815,6 +1832,10 @@ export async function runHireTurn(input: {
       const built = await autoRunWorkshop(input.senderId, agent.id, input.userText)
       if (built?.logged && built.url && built.artifactId) {
         setLastBuild(input.dataDir, input.senderId, { artifactId: built.artifactId, url: built.url })
+        /* Durable mirror of the same reference (see `lastBuildFor`). */
+        const mirror = `${built.artifactId}|${built.url}`
+        upsertFacts(input.dataDir, input.senderId, [{ key: LAST_BUILD_KEY, value: mirror, ts: Date.now(), lastSeen: Date.now() }])
+        void persistLiveFacts(input.senderId, agent.id, [{ key: LAST_BUILD_KEY, value: mirror }]).catch(() => undefined)
       }
       if (built?.logged && built.url) {
         extras.push(
@@ -1836,8 +1857,15 @@ export async function runHireTurn(input: {
   /* Iterate: a change request on a build Alpha recently delivered. Only when
    * a /b/ link went out recently, no other intent claimed the message, and
    * the ask is short and change-shaped — "make it 50/10", "add a sound",
-   * "dark theme". Long messages and other intents stay normal chat. */
-  const recentBuildDelivered = history
+   * "dark theme". Long messages and other intents stay normal chat.
+   *
+   * The thread file dies with the container, so the /b/ link and the artifact
+   * id both vanish at the next deploy and a change request is refused — live,
+   * 2026-09-19, minutes after a game was delivered: "there's no game in this
+   * thread for me to update". The fact store is the only copy that survives,
+   * so the delivered build is mirrored into it and read back here. */
+  const durableBuild = lastBuildFor(mem, live.memories)
+  const recentBuildDelivered = !!durableBuild || history
     .filter((m) => m.role === 'assistant')
     .slice(-4)
     .some((m) => m.content.includes('/b/'))
@@ -1849,7 +1877,7 @@ export async function runHireTurn(input: {
     /\b(?:change|update|modify|tweak|iterate|revise|remake|make it|add|remove|rename|swap)\b/i.test(input.userText)
   ) {
     try {
-      const lastBuild = loadMemory(input.dataDir, input.senderId).lastBuild
+      const lastBuild = lastBuildFor(loadMemory(input.dataDir, input.senderId), live.memories)
       const updated = await autoIterateWorkshop({
         phone: input.senderId,
         persona: agent.id,
@@ -1881,7 +1909,7 @@ export async function runHireTurn(input: {
 
   if (looksLikeKeepIt(input.userText)) {
     try {
-      const keepTarget = loadMemory(input.dataDir, input.senderId).lastBuild
+      const keepTarget = lastBuildFor(loadMemory(input.dataDir, input.senderId), live.memories)
       const kept = await autoWorkshopKeep(input.senderId, agent.id, keepTarget?.artifactId)
       if (kept?.logged) {
         extras.push('They said keep it: the last built artifact is now saved permanently. Confirm in a few words.')
@@ -1898,7 +1926,7 @@ export async function runHireTurn(input: {
    * delivered app: the branch had no recent-build guard at all. */
   if (looksLikeTossIt(input.userText) && recentBuildDelivered) {
     try {
-      const tossTarget = loadMemory(input.dataDir, input.senderId).lastBuild
+      const tossTarget = lastBuildFor(loadMemory(input.dataDir, input.senderId), live.memories)
       const tossed = await autoWorkshopToss(input.senderId, agent.id, tossTarget?.artifactId)
       if (tossed?.logged) {
         extras.push('They said toss it: the last built artifact was deleted. Confirm in a few words.')
