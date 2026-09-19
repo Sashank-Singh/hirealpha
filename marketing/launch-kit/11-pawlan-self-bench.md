@@ -1956,3 +1956,45 @@ pushed and queued behind six other builds for the shared repo — the founder
 should expect them to land without further action, and the two follow-ups they
 fix (the standing-rule turn and the game-iteration turn) are worth re-running
 once the Friend build reports that revision.
+
+### 5. Email — the inbox half, head-to-head (the Sam fixture still blocks the scored task)
+
+Paraphrase (identical to both): *"anything in my inbox i actually need to deal
+with today?"*. This is the read-and-triage half of the dimension, not the
+scored task (reply to Sam's Thursday email, verify two free slots, send) — that
+one still has no fixture in the mailbox and no send approval, so it is recorded
+as blocked rather than scored.
+
+**Instinct**: "One real deadline: GroqCloud is decommissioning the Compound
+model Monday. If you're using it anywhere, switch models this weekend. / One
+optional loop: micro1 says your Software Engineer application needs a brief AI
+interview to move forward. / No email actually needs a reply today. The rest is
+job alerts, promos, and FYIs."
+
+**Alpha**: "Yeah, three things actually need you today: 1. micro1 · 'Your
+Software Engineer application is incomplete' · 4h, you're one step from moving
+forward, and you've got an interview scheduled with them already, so worth
+finishing. 2. Google · Security alert · 6h, 'Instinct' was granted access to
+your Google account. If that wasn't you, revoke it now. 3. micro1 verification
+codes · 4h, two codes came in (189495 and 421326). If you didn't request those,
+someone may be poking at your account; same bucket as the Google alert. /
+Everything else is noise: job alerts (LinkedIn, Jobright, Frolo, Indeed,
+Bandana), application confirmations (Spring Health, Terac, Lyft pass),
+newsletters, and sales outreach from Scrape.do. The one nice bit buried in
+there: your A/ML Engineer interview with micro1 came back complete, so you're
+matched for next steps. / Want me to pull up the full micro1 incomplete
+application email so you can knock it out?"
+
+Alpha's is the stronger triage on this turn: it finds three items against
+Instinct's two, it puts a security item (an OAuth grant to a third-party
+assistant, plus two verification codes arriving the same afternoon) in front of
+the user instead of leaving it in the "rest", it names senders as names with
+relative times and numbers them so "2" is a usable reply, it accounts for
+everything else in one counted line, and it closes with an action question.
+Instinct's is shorter, still honest, and leads with a real deadline. **Both
+would keep a human's trust; a human would rather receive Alpha's.** Worth
+saying plainly: the mail that Alpha surfaced is also why Instinct could answer
+this at all — the founder has granted Instinct Gmail access, and item 2 above is
+the mail that says so.
+
+Scored task still **3** and blocked on the fixture, not on this half.
