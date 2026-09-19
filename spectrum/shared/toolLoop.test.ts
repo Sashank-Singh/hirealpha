@@ -1219,3 +1219,43 @@ describe('an access question is answered from context, never a lookup', () => {
     expect(result.reply).toContain('Connected')
   })
 })
+
+describe('a question about buying is not a purchase', () => {
+  /* Live, 2026-09-19, on the real line: "quick one - what home address and what
+   * saved logins do you have on file for me right now? were about to test an
+   * amazon reorder and i want to know what you already have" came back as
+   * "Everything's ready to go the second you're signed into Amazon, I'll run:
+   * 'quick one, what home address…'" with a Vault card attached — a queued run
+   * whose goal was the question, and no answer. */
+  it('never stages a purchase run for an informational question', async () => {
+    const drafts: unknown[] = []
+    const result = await runToolConversation({
+      messages: [{ role: 'user', content: 'quick one - what home address and what saved logins do you have on file for me right now? were about to test an amazon reorder and i want to know what you already have' }],
+      availableTools: ['web'],
+      canDraft: true,
+      chat: async () => 'No home address is saved, and the Vault has no Amazon entry yet.',
+      lookup: async () => ['https://www.amazon.com/dp/B0EXAMPLE two bags'],
+      propose: async (draft) => { drafts.push(draft); return { ok: true, id: 'draft-1' } },
+    })
+    expect(drafts).toHaveLength(0)
+    expect(result.reply).toContain('No home address is saved')
+  })
+
+  it('still stages a real order when the ask is one', async () => {
+    const drafts: Array<Record<string, unknown>> = []
+    const answers = [
+      '{"action":"browser","portal":"https://www.amazon.com/dp/B0EXAMPLE","goal":"order two bags of the same coffee beans and ship to the saved home address"}',
+      'The order run is live on Amazon. It pauses before payment.',
+    ]
+    await runToolConversation({
+      messages: [{ role: 'user', content: 'reorder two bags of the same coffee beans from amazon, ship to my home address' }],
+      availableTools: ['web'],
+      canDraft: true,
+      chat: async () => answers.shift() || 'Done.',
+      lookup: async () => ['https://www.amazon.com/dp/B0EXAMPLE two bags'],
+      propose: async (draft) => { drafts.push(draft as Record<string, unknown>); return { ok: true, id: 'draft-1' } },
+    })
+    expect(drafts).toHaveLength(1)
+    expect(drafts[0]).toMatchObject({ type: 'browser' })
+  })
+})

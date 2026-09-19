@@ -75,6 +75,32 @@ export const ACTION_ASK_RE =
   /\b(?:re-?order|order(?:ing| me)?|purchase|pay for|buy (?:me|the|this|that|it|them|two|a|an|another|more|some)\b|book(?:ing)?|reserv(?:e|ing|ation)|fill (?:out )?(?:the )?form|sign me up|check ?out|check ?in\s+(?:for|on)\b|check (?:my |in )?(?:account|portal|campusnet|csuohio|balance|tuition|statement|grades?|financial aid|charges?|bill)|log ?in|sign ?in|(?:check|see|show|get|find|pull|tell me)(?:\s+me)?\s+(?:the\s+)?(?:actual\s+)?(?:rates?|prices?|availability|how much)|what(?:'s| is| are)\s+(?:the\s+)?(?:rates?|prices?|it\s+cost)|how much (?:is|are|does|do|did|was|were|I|we|have I|paid|to pay|owe|due)|how much (?:did I|I) (?:pay|paid|spend|spent)|paid in|nightly rate)\b/i
 /** Buying asks, including "reorder", stage an order rather than a browse. */
 const ASK_BUY_RE = /\b(?:re-?order|buy|buy me|purchase|order(?: me)?|get me|pay for)\b/i
+
+/** A message that only ASKS ABOUT something is not an instruction to do it.
+ *
+ * Informational openers ("what/which/who/when/where/how/do/did/is/are/have")
+ * and a trailing question mark mark a question; "can/could/would/will you" is a
+ * request and stays actionable. Live, 2026-09-19: "quick one - what home address
+ * and what saved logins do you have on file for me right now? were about to
+ * test an amazon reorder and i want to know what you already have" staged an
+ * Amazon run whose goal was the question text itself — "Everything's ready to
+ * go the second you're signed into Amazon, I'll run: \"quick one, what home
+ * address…\"" — instead of answering a question the assistant's own context
+ * could answer. Mentioning a purchase is not making one. */
+export function isInformationalAsk(text: string): boolean {
+  const t = String(text || '').trim()
+  if (!t) return false
+  // "can you order me two bags" is a request wearing a question mark.
+  if (/^(?:can|could|would|will|please)\b/i.test(t)) return false
+  // An action verb in front keeps it a task even with a question mark after it
+  // ("book me a flight? under 400").
+  if (/^(?:book|reserve|order|buy|purchase|get|find|search|look|send|add|re-?order|pay|schedule|set)\b/i.test(t)) return false
+  if (/^(?:what|which|who|when|where|how|do|does|did|is|are|was|were|have|has|any)\b/i.test(t)) return true
+  // A question mark anywhere else in the message still marks a question — the
+  // live one read "…for me right now? were about to test an amazon reorder…",
+  // so testing only the final character missed it.
+  return /\?/.test(t)
+}
 /** Merchant-hosted product pages, the strongest run target for a purchase. */
 const PRODUCT_PATH_RE = /\/(?:dp|gp\/product|product(?:s)?\/|item\/|listing\/)/i
 /** Directories, aggregators, wikis, and social pages: a run there can browse
@@ -172,7 +198,7 @@ export function pickBrowserPortal(input: {
   const urls = input.resultUrls || []
   const named = input.namedSite && isMerchantPortal(input.namedSite) ? input.namedSite : null
   const fromAsk = merchantSiteFromAsk(input.ask)
-  const product = ASK_BUY_RE.test(input.ask)
+  const product = ASK_BUY_RE.test(input.ask) && !isInformationalAsk(input.ask)
     ? urls.find((url) => isMerchantPortal(url) && PRODUCT_PATH_RE.test(new URL(url).pathname))
     : undefined
   const anyMerchant = urls.find(isMerchantPortal)
@@ -344,7 +370,7 @@ export async function runToolConversation(input: {
    * model's text is not automatically treated as invented. */
   let sawPriceData = false
   const lastUserAsk = [...input.messages].reverse().find((m) => m.role === 'user')?.content || ''
-  const buyAsk = ASK_BUY_RE.test(lastUserAsk)
+  const buyAsk = ASK_BUY_RE.test(lastUserAsk) && !isInformationalAsk(lastUserAsk)
   const wantsWebForRichPlace = /\b(?:hotels?|hostels?|motels?|lodging|room rates?|staying|nightly rates?|flights?|airline|tickets?|fare|fares)\b/i.test(lastUserAsk)
   const maxSteps = Math.min(8, Math.max(1, input.maxSteps ?? 6))
   const deadline = Date.now() + (input.maxDurationMs ?? Number(process.env.HIREALPHA_TOOL_LOOP_MS || 90_000))
@@ -759,7 +785,11 @@ Reactions are optional and usually absent. You may add "reaction":"<emoji>" to a
       const accessQuestion =
         /\b(?:what|which)\b[^?]{0,60}\b(?:access|permissions?|accounts?|connected)\b/i.test(userAsk) ||
         /\byou\b[^?]{0,40}\b(?:have )?(?:access|permission)s?\b/i.test(userAsk) ||
-        /\b(?:disconnect|revoke)\b/i.test(userAsk)
+        /\b(?:disconnect|revoke)\b/i.test(userAsk) ||
+        // What the assistant already holds about the user: the answer is its own
+        // record, and a web lookup cannot supply it ("what home address and what
+        // saved logins do you have on file for me" died on the canned failure).
+        /\b(?:on file|saved|stored)\b[^?]{0,40}\b(?:for me|about me|on me)?\b/i.test(userAsk)
       const needsFresh =
         !isMemoryAsk &&
         !accessQuestion &&
@@ -807,7 +837,12 @@ Reactions are optional and usually absent. You may add "reaction":"<emoji>" to a
        * needsBrowser rode through and the reply announced a live Kayak run
        * instead of the $209 nonstop the same turn had already priced. */
       const searchOnlyAsk = SEARCH_NOUN_RE.test(userAsk) && !RUN_ONLY_ACTION_RE.test(userAsk)
-      const needsBrowser = !isMemoryAsk && !wantsMail && !attemptedMail && !appTweakAsk && !scheduleAsk && !questionAsk && !searchOnlyAsk && (request
+      /* A question is not a browser task, whatever nouns it carries: the same
+       * live message ("what home address and what saved logins do you have on
+       * file for me right now? … about to test an amazon reorder") reached the
+       * staging path through `needsBrowser` after `questionAsk` let it through
+       * because it contained a buy verb. */
+      const needsBrowser = !isMemoryAsk && !wantsMail && !attemptedMail && !appTweakAsk && !scheduleAsk && !questionAsk && !searchOnlyAsk && !isInformationalAsk(userAsk) && (request
         ? (request.needsBrowser || ACTION_ASK_RE.test(userAsk)) && !findOnlyAsk
         : ACTION_ASK_RE.test(userAsk) && !findOnlyAsk)
       // A booking ask that already produced search results gets a second nudge
