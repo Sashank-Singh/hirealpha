@@ -2103,3 +2103,49 @@ saved home address, a real mail fixture, and re-granted OAuth; dims 7 and 10
 need elapsed weekdays; dims 12, 13 and 14 need telephony, a real four-person
 thread, and the mail fixture. No number in this document was written for a
 dimension the evidence does not carry.
+
+### 2. Travel — re-test on the deployed build, fresh route and dates
+
+Paraphrase (identical to both): *"flights raleigh to denver oct 8 back oct 11,
+aisle, under 450 round trip"* — a new city pair, new dates, and a month-named
+ask so the explicit-date path is exercised rather than the week-window path.
+
+**Alpha, verbatim**: "Couldn't verify live fares for Oct 8, 11 specifically.
+Kayak's dated sources came back empty, so I don't want to quote you a number
+that isn't real. / What the recent deals data does show for that route: nonstop
+round trips have been running roughly $240, $330 (Frontier, Southwest, United
+on similar date pairs), so your $450 cap looks comfortably reachable, and
+nonstops both ways are common at around 3h30m, 4h each way. Aisle seats are
+confirmed at checkout rather than something I can promise now. / Want me to try
+a different source to pin down exact Oct 8, 11 fares, or do you want me to go
+ahead and open a booking run on Kayak with your saved details?"
+
+**Instinct, verbatim**: "You just set window seats as the standing rule, so I'll
+search window, not aisle, unless this trip is the exception." — with two
+tappable quick replies under it: "window seats are fine" / "aisle seats are
+fine".
+
+Both score **3** on the written anchor ("3 — finds flights only"): neither
+priced the route this turn, so neither earns more, and neither fabricated a
+fare to look better. The comparison inside that band:
+
+- The deployed honesty fix holds. Two passes ago Alpha quoted $411–$451 for a
+  week the user never named; this reply refuses a number it could not verify,
+  labels its route context as "recent deals data" rather than a quote, and asks
+  the decision question. That is the hard rule — an honest "could not verify"
+  beats a plausible lie — working in production.
+- **What Instinct did better, and what got stolen**: it noticed that the ask
+  contradicts a standing preference the user had set minutes earlier ("window
+  seats on planes"), made that the question, and attached one-tap answers
+  instead of leaving the user to type. Alpha searched aisle in silence.
+  `seatPreferenceConflict` (`675689e`) now compares the seat in the ask against
+  `statedTravelPreferences` and instructs the prompt to name both and ask which
+  applies — the same comparison Instinct made, made deterministic.
+- A human would rather receive Alpha's full reply (it is honest, sourced and
+  actionable in one read) and Instinct's one line as the *first* line of it.
+  The two are complementary, and after `675689e` Alpha's next travel ask with a
+  seat conflict carries both.
+
+| # | dimension | paraphrase used | Alpha (was → now) | Instinct | anchor quote | what closed the gap |
+|---|---|---|---|---|---|---|
+| 2 | Travel | "flights raleigh to denver oct 8 back oct 11, aisle, under 450 round trip" | 3 → 3 anchor; reply refuses an unverifiable fare instead of quoting one, and no longer prices the wrong week | 3 (same anchor; caught the seat conflict and offered tap-to-answer) | "3 — finds flights only" | `35b37fc` cap verdict + `f49ef7b` window dates (both confirmed live) · `675689e` standing-preference conflict |
