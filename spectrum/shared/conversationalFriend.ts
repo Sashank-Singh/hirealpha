@@ -17,7 +17,7 @@ import {
   executeSpendApproval, fetchLiveTools, fetchMiniRun, fetchPrepBundle, proposeBrowserTask, proposeLiveDraft, proposePurchase, manageTodos, scheduleTextLater, suggestCalendarSlots, type LiveProfile,
 } from './liveContext'
 import { buildDigestBriefing, mintMiniAppCard, type MiniAppCard, type MiniAppKind } from './miniApps'
-import { createReminder, listReminders } from './reminders'
+import { createReminder, createWatch, listReminders } from './reminders'
 import { setProactiveMode } from './judgment'
 import {
   calendarBlockTitle, calendarBlockWhen, isTravelRunAsk, LIVE_TOOLS, looksLikeCalendarBlockAsk, missingConnectorNote,
@@ -565,7 +565,7 @@ export async function runConversationalFriend(input: {
       },
     },
     {
-      name: 'reminder', description: 'input {text:"what to remind them about",at:"future ISO datetime including timezone offset",recurrence:"once"|"daily"|"weekdays"|"weekly"}. Create a real scheduled text. Resolve "same time tomorrow" from the thread. Weekday-only (Monday-Friday) schedules use recurrence "weekdays"; a recurring morning digest is recurrence "weekdays" or "daily". Ask only if the time or task is missing. This schedules a notification, not arbitrary future tool execution; do not use it to pretend to monitor prices or send emails later.', mutates: true,
+      name: 'reminder', description: 'input {text:"what to remind them about",at:"future ISO datetime including timezone offset",recurrence:"once"|"daily"|"weekdays"|"weekly"}. Create a real scheduled text. Resolve "same time tomorrow" from the thread. Weekday-only (Monday-Friday) schedules use recurrence "weekdays"; a recurring morning digest is recurrence "weekdays" or "daily". Ask only if the time or task is missing. This schedules a notification, not arbitrary future tool execution; do not use it to pretend to monitor prices or send emails later — anything that has to KEEP CHECKING a page (a price, a listing, availability) is the watch capability does that job, not this one.', mutates: true,
       execute: async (args) => {
         const label = text(args, 'text', 500)
         const at = text(args, 'at', 50)
@@ -579,6 +579,20 @@ export async function runConversationalFriend(input: {
     {
       name: 'list_reminders', description: 'input {}. Read scheduled reminders before referring to, changing, or explaining them.',
       execute: async () => ({ status: 'returned', message: 'Reminder listing returned.', data: await listReminders(senderId, 'friend') }),
+    },
+    {
+      name: 'watch', description: 'input {url:"https://<exact page to check>",goal:"the condition to report on",intervalHours?:number}. Arm a real recurring check of one page: Alpha re-visits it on the interval and texts the user when the goal\'s condition is met (a price under a threshold, a listing back in stock, an availability change), pausing for approval before acting. Use it whenever the user asks to WATCH, TRACK or KEEP AN EYE ON something over time ("watch the price", "tell me if it goes on sale", "let me know when it\'s available") — this is the only capability that actually monitors, and the reminder capability is explicitly not a substitute for it. Find the exact product/listing page in the results you already have before arming; if no real URL is in hand, say which page you need instead of inventing one. State the site and the condition back to the user with the cadence you armed.', mutates: true,
+      execute: async (args) => {
+        const url = text(args, 'url', 500)
+        const goal = text(args, 'goal', 400)
+        const hours = Math.max(1, Math.min(168, Math.floor(Number(text(args, 'intervalHours')) || 6)))
+        if (!/^https:\/\//i.test(url)) return failed('A watch needs the exact https page to check. Find the product or listing page first, or ask which site to watch.')
+        if (goal.length < 8) return failed('A watch needs the condition to report on.')
+        const saved = await createWatch({ phone: senderId, persona, url, goal, intervalHours: hours, title: `Watch: ${goal.slice(0, 60)}` })
+        return saved.ok
+          ? { status: 'done', message: `Watch armed every ${saved.intervalHours || hours}h on ${new URL(url).host}: ${goal}. It reports here when the condition is met.`, data: { url, intervalHours: saved.intervalHours || hours } }
+          : failed('The watch could not be armed. Say so plainly; do not promise a check that is not running.')
+      },
     },
     {
       name: 'free_slots', description: 'input {durationMin:30,day:"YYYY-MM-DD or empty",partOfDay:"morning"|"afternoon"|"evening"|empty,windowDays:3}. Read the user\'s REAL free calendar slots before offering any time to anyone (offering two slots in a reply, proposing a meeting) or before drafting a calendar block. Returns verified labels and ISO start/end. Offer only times this returned; if it returns none, say the window is full instead of inventing a time.',

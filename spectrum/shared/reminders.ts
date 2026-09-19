@@ -480,8 +480,42 @@ export async function createReminder(input: {
   }
 }
 
-export async function listReminders(phone: string, persona: string): Promise<Array<{ text: string; scheduledAt: string; recurrence: string; status: string }>> {
+/** Arm a real recurring page watch. The loop already exists server-side
+ * (`browser_watch`: re-visits one page on an interval until the goal's
+ * condition is met, retires after 28 checks, reports through the run it
+ * enqueues) — what was missing was a way for a turn to create one, so an
+ * explicit "watch the price for me" could only be answered with a promise. The
+ * reminder capability's own description forbids standing in for a watch, which
+ * left the ask with no path at all: live, 2026-09-19, "watch the sonos era 100
+ * price for me and text me if it drops under 180" was answered "I can't watch
+ * the price continuously in the background … want me to set that up?" while
+ * the same ask answered by hand committed to an hourly check. */
+export async function createWatch(input: {
+  phone: string
+  persona: string
+  url: string
+  goal: string
+  title?: string
+  intervalHours?: number
+}): Promise<{ ok: boolean; intervalHours?: number }> {
   const base = apiBase()
+  if (!base) return { ok: false }
+  try {
+    const res = await fetch(`${base}/api/internal/loops/watch`, {
+      signal: AbortSignal.timeout(10000),
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify(input),
+    })
+    if (!res.ok) return { ok: false }
+    const data = (await res.json().catch(() => ({}))) as { ok?: boolean; intervalHours?: number }
+    return data.ok ? { ok: true, ...(data.intervalHours ? { intervalHours: data.intervalHours } : {}) } : { ok: false }
+  } catch {
+    return { ok: false }
+  }
+}
+
+export async function listReminders(phone: string, persona: string): Promise<Array<{ text: string; scheduledAt: string; recurrence: string; status: string }>> {  const base = apiBase()
   if (!base) return []
   try {
     const res = await fetch(
