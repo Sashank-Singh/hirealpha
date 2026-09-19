@@ -726,11 +726,23 @@ recorded as a floor.
   number could place the call and report back — so this is our missing
   capability and it is scored as such rather than filed as N/A.
 
-### 13. Groups — 3 (not N/A)
+### 13. Groups — 3 (not N/A; vendor question answered, build is ours)
 
-- Single-thread only; group coordination is not built. Photon has to confirm the
-  line can join a thread, but the capability is ours to build, so it is scored
-  rather than filed as N/A.
+- The open question was whether the channel can do groups at all. It can, and
+  the evidence is the provider's own typings: an iMessage space carries
+  `type: "dm" | "group"`, `space.create(users[])` resolves or creates a group
+  from its participants, and `addMembers` is documented as "remote + group
+  only". So nothing is blocked upstream — what is missing is ours: nothing
+  reads the group type, and no code coordinates members (poll, reconcile,
+  book on the group's behalf).
+- First step shipped: group awareness. A turn that arrives in a group thread
+  now carries the speaker's name, the group size, and two rules — reply to the
+  group and address the asker, and never surface the account holder's mail,
+  calendar, location, budget or memories to the other members (anything that
+  needs the account goes to them in a direct message). The note is null for a
+  DM, so the one-to-one path is untouched — unit-tested both ways.
+- Still scored 3, not N/A: the coordination half (four people agreeing on a
+  date, then the booking) is unbuilt.
 
 ### 14. Chained — 3
 
@@ -879,7 +891,10 @@ log, which prints every inbound and every outgoing bubble.
 8. pgvector on the production Postgres (memory recall quality).
 9. An approve/revert for the emptied `PERSONA_DENIED.friend` list.
 10. A Sam-mail fixture in the connected mailbox and one real send (dim 5).
-11. Telephony (Twilio) and a group-chat decision (dims 12 and 13).
+11. Telephony (Twilio ≈$1.15/mo + per-minute) for dim 12 — and, separately,
+   dim 13 (groups) is no longer a decision: the vendor's SDK supports iMessage
+   groups, so the remaining work is ours (the coordination half), not a purchase
+   or a Photon confirmation.
 
 ## Current official result
 

@@ -3,6 +3,7 @@ import { effect, imessage } from '@spectrum-ts/imessage'
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { defaultReplyCard, getAgent, runHireTurn, runMemoryMaintenance, sanitizeOutbound } from '../../shared/runHireTurn'
+import { groupTurnNote, type SpaceParticipant } from '../../shared/groupChat'
 import { extractMessageText, fetchLiveProfile, findInboundVoice, handleInboundPhoto, resolveInboundVoiceTurn } from '../../shared/liveContext'
 import { mintMiniAppCard, onboardingCard } from '../../shared/miniApps'
 import { claimInbound } from '../../shared/inboundGuard'
@@ -393,13 +394,28 @@ async function handleIncoming([space, message]: Incoming, combinedText?: string)
   const userText = combinedText ?? message.content.text.trim()
   if (!userText) return
   const senderId = message.sender?.id ?? space.id
-  await runTurn(space, message, senderId, userText)
+  /* A group thread changes who is being answered and what may be said in it.
+   * The note is null for a DM, so nothing about the ordinary path changes. */
+  const groupNote = groupTurnNote({
+    ...(space.type ? { spaceType: space.type } : {}),
+    ...(Array.isArray(space.members) ? { members: space.members } : {}),
+    speakerId: senderId,
+    speakerName: (message.sender as { name?: string } | undefined)?.name || '',
+  })
+  if (groupNote) console.log(`[${agent.id}] group turn from ${senderId} in ${space.id}`)
+  await runTurn(space, message, senderId, groupNote ? { text: userText, note: groupNote } : userText)
 }
 
 type SpaceLike = {
   id: string
   send: (content: ContentInput) => Promise<unknown>
   responding: <T>(fn: () => T | Promise<T>) => Promise<T>
+  /** The provider's space type. 'group' means a multi-member thread; absent
+   * means the older shape and is treated as a DM. */
+  type?: string
+  /** Members, when the provider exposes them. Read defensively: the field is
+   * optional in the SDK's shape and absent on some spaces. */
+  members?: SpaceParticipant[]
 }
 type MessageLike = {
   reply: (content: ContentInput) => Promise<unknown>
@@ -409,7 +425,10 @@ type MessageLike = {
 /** A turn's user text: a typed message, or a voice note whose transcript has
  * to be fetched first. Lazy so the transcription can run inside the responding
  * block and the typing indicator covers the wait. */
-type TurnInput = string | (() => Promise<{ userText: string; note?: string } | null>)
+type TurnInput =
+  | string
+  | { text: string; note: string }
+  | (() => Promise<{ userText: string; note?: string } | null>)
 
 /**
  * Run one inbound user turn and deliver it: tapback rhythm, retry past
@@ -431,7 +450,12 @@ async function runTurn(
   // once-guard: respondWithRetry replays the body after Photon's new-user gate,
   // and a replayed voice note must not be transcribed or reacted to twice.
   const getTurn = onceAsync(async () => {
-    const resolved = typeof turn === 'string' ? { userText: turn, note: undefined } : await turn()
+    const resolved =
+      typeof turn === 'string'
+        ? { userText: turn, note: undefined }
+        : typeof turn === 'function'
+          ? await turn()
+          : { userText: turn.text, note: turn.note }
     if (!resolved) return null
     const { userText, note } = resolved
     console.log(`[${agent.id}] inbound from ${senderId}: ${userText.slice(0, 120)}`)
