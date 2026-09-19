@@ -2325,3 +2325,45 @@ pass, 0 fail, including the checkout-fill path whose expiry field is read from
 `expMonth`/`expYear` (`kernelSession.ts:1037`), the bug that would have thrown
 after Link approval this morning. The plumbing behind the taps is green; what is
 missing is only the grants and the taps themselves.
+
+### Before asking the founder to tap: the state question, and the bug it found
+
+The unblock sheet tells the founder to save a home address and an Amazon login.
+Rather than send him to do work that might already be done, the assistant was
+asked what it already holds — *"quick one - what home address and what saved
+logins do you have on file for me right now? were about to test an amazon
+reorder and i want to know what you already have"*.
+
+**That question staged an Amazon run.** The reply was "Locked. Everything's
+ready to go the second you're signed into Amazon, I'll run: 'quick one, what
+home address…'" with the Vault card attached, and no answer at all — a queued
+run whose goal was the question text, because three predicates read the sentence
+as a task: it contains "amazon reorder" (`buyAsk`), the buy verb survived into
+`needsBrowser`, and the turn then ended on the canned "web lookup did not run".
+`bc64086` adds `isInformationalAsk` (a leading what/which/who/when/where/how/
+do/did/is/are/have, or a question mark anywhere, while keeping "can/could/would/
+will you" requests and any ask that opens with an action verb actionable), guards
+those three predicates with it, and routes a what-do-you-have-on-file question
+to the same context-answer path as an access question.
+
+**Re-tested live** (paraphrase 2 — "before i set anything up - do you already
+have a home address or any saved logins for me?"):
+
+> "Nope, I've got neither. No home address on file and no saved logins for
+> anything. What I do have is mostly travel and preference stuff: aisle seats,
+> morning flights, no red eyes, free cancellation hotel rates only, shellfish
+> allergy, and a few trips in the works (Boston and Denver in October, plus a
+> PS5 price watch). If you want to add an address or anything else, just send it
+> over and I'll keep it on file."
+
+So the blockers in the unblock sheet are **confirmed live, not assumed**: there
+really is no home address and no saved login, and both taps are still needed.
+(One observation worth its own line, not yet chased: the preferences it lists
+start with "aisle seats" when the user later said window seats and Alpha
+acknowledged "the aisle thing is officially retired" — the superseding fact may
+not be the one that survived. Recorded as an open item.)
+
+This is the ninth phrasing of the same underlying bug — a sentence that mentions
+a task is not a request to do it — and the fix list is now: prompt rule
+(`b5f409e`), note-shaped wording (`4cfe788`), the engine's travel predicate
+(`4abaf5c`), and the engine's buy/browse predicates (`bc64086`).
