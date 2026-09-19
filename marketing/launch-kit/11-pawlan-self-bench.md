@@ -417,7 +417,29 @@ Two builds, both from free sources, both aimed at the dimensions that were
 closest to the next anchor rather than at new capability.
 
 **Picks now read the venue's own page** (`c82756c`, deployed as part of
-`923ba57`). The task names prices as a constraint and OpenStreetMap has none —
+`923ba57`), and the production re-run is the strongest single result of the
+night. The dim-3 ask came back as:
+
+> 1. **Jake Melnick's Corner Tap** · 41 E Superior St · ~9 min walk. *Open
+>    Sunday till 10:30 PM*, and their site confirms *a vegetarian burger plus
+>    cauliflower wings* … *Wings run $18.95*, well under $40 a head.
+> 2. **The Berghoff** · 17 W Adams St · ~13 min walk. Vegetarian options
+>    confirmed on their site … *mains around $30*. One catch for you: they note
+>    *fryers aren't segregated*, so if that matters for the *no pork* rule, we'd
+>    want to confirm with them. Closes 9 PM Sunday.
+> 3. **Pizano's Pizza & Pasta** · 61 E Madison St · ~10 min walk. Open till
+>    11 PM … their site *didn't confirm* a dedicated vegetarian menu.
+>
+> Cheesecake Factory is vegetarian confirmed but it's *a chain, so per your rule*
+> it's out.
+
+Hours, prices, dietary confirmation and the chain rule are each checked against
+the venue's own page, unsupported claims are named as such, and the stored "no
+pork" preference is applied unprompted (to the fryer note). That is the written
+10-anchor — three sharp, verified choices with reasons — minus table
+availability, which needs a booking, so the dimension moves to 9.
+
+Details, for the record. The task names prices as a constraint and OpenStreetMap has none —
 but the same free Overpass response carries the venue's `website`, and the menu
 page is where prices actually live. The top three ranked places are read from
 their own sites (never an aggregator: a review-site price is not the venue's
@@ -460,7 +482,7 @@ recently "the founder's own failing thread" and the session log under it.
 |---|---|---|---|
 | 1 | Online task (hotel) | 7 | staged, not booked — completion needs a payment step |
 | 2 | Travel | 6 | real fares; check-in cannot execute |
-| 3 | Picks | 8 | three verified picks; menus/hours unverified without a paid source |
+| 3 | Picks | 9 | hours, prices and dietary facts now read from each venue's own page; nothing left to verify but table availability |
 | 4 | Purchasing | 3 | one Amazon credential + the home address away (plumbing verified) |
 | 5 | Email | 3 | the "Sam proposing Thursday" fixture does not exist in the mailbox |
 | 6 | Proactive | 4 | check-ins armed; a flight-status feed does not exist |
@@ -474,10 +496,10 @@ recently "the founder's own failing thread" and the session log under it.
 | 15 | Restraint | 7 | one-nudge-per-brief observed; the three-signal scenario needs fixtures |
 | 16 | Images/games | 7.5 | both artifacts work and iterate; free-tier watermark + lettering |
 
-**Aggregate ≈ 5.6** — the running mean over the 15 scored dimensions
+**Aggregate ≈ 5.7** — the running mean over the 15 scored dimensions
 (personality is opinion-only; nothing is filed N/A). Sum 83.5 ÷ 15.
 
-Movement this session: hotel 6→7 · travel 5→6 · picks 7→8 · permissions 7→8 ·
+Movement this session: hotel 6→7 · travel 5→6 · picks 7→9 · permissions 7→8 ·
 images 0→8 · groups 3→7. Three dead production paths were also revived and
 verified (Link wallet, voice STT, reply drafts) — they do not move a dimension
 on their own but every purchase, voice and email score depends on them.
