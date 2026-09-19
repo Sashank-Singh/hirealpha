@@ -380,6 +380,37 @@ never pushes them back. `scripts/bench-turn.ts` takes `BENCH_NO_PERSIST=1` now
 with a live run that answered correctly and left the account's fact count
 unchanged.
 
+## 2026-09-19, PART FIVE — the proactivity audit's open findings, closed
+
+The first audit round left a list of unprompted-send findings that were recorded
+rather than fixed. All of them are closed now:
+
+- **An approval request could text at 3am** — its branch sent before the
+  quiet-hours check every other discretionary loop text passes through. It holds
+  the same way now; the ask does not expire overnight.
+- **`browser_watch` narrated every tick and re-armed forever** — "Scheduled
+  check ran for …" every six hours, including 5am, because the kind was
+  quiet-exempt and the server never set a run cap. Routine ticks say nothing now
+  (a watch reports through the run it enqueues), failures and the final tick
+  still speak, the kind is no longer quiet-exempt, and it retires after 28 checks
+  with one line telling the user how to continue.
+- **An overdue recurring reminder could fire several times in half a minute** —
+  the advance stepped one period past the OLD scheduled time, so a digest that
+  was due during a redeploy stayed due on every poll. It steps past NOW.
+- **A failed recurring send lost the occurrence** — the revert restored only the
+  status while the claim had already advanced `scheduled_at`, so a failed 8am
+  digest came back at 8am the next day. It re-arms ten minutes out now.
+- **`calendar_defense` was armed with no handler** — the server analysed
+  tomorrow's clashes, tight turnarounds and prep-worthy meetings and handed the
+  analysis to a loop that had nothing to send it with, so every armed row failed
+  five attempts in silence. It has a formatter now: one line per clash and per
+  tight gap, the first thing out, what is worth prepping, and nothing at all when
+  there is no finding.
+
+One test encoded the pre-fix brief contract (`pending` absent on a served cache
+row); it asserts the new one, with the reason recorded in the test rather than
+quietly edited.
+
 ## CURRENT INTERNAL SCORECARD — 2026-09-19 (read this first)
 
 The per-run sections below are history. This block is the single current state;
