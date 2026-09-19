@@ -2265,3 +2265,55 @@ provider-side revoke as the authoritative cutoff, and one line on retention.
 Every one of those is now in Alpha's prompt rule and in its live answer. The one
 place Alpha's answer leads: it separates "disconnect here" from "revoke at the
 provider" by saying which one still works if the other glitches.
+
+## The unblock sheet — what only the founder can tap, and what each tap scores
+
+Every remaining gap on the board is gated on something I must not do on someone
+else's behalf: entering credentials, granting OAuth consent, or approving a real
+payment. So this is the whole remaining list, in the order that unlocks the most,
+with each path verified in code before it was written down (a route that 404s
+would cost a round trip of the founder's time, which is the point of checking).
+
+**1. Save the home address** — `https://hirealpha.chat/app?tab=settings`
+Settings → Location → the *Home* slot → "Enter street address or city" → Save.
+Verified: that field saves a `home` row (`manualSave('home')`), the profile
+payload serves it (`getLocation(sql, user.id, 'home')`), and the turn context
+prints it as `Home: <address>` (`runHireTurn.ts:1432`). Unlocks the shipping
+half of dim 4 and the "saved address" half of every checkout.
+
+**2. Save an Amazon login in the Vault** — Vault → add an entry for amazon.com.
+Verified: the vault matcher is exact-host with `www.` equivalence, so an entry
+for `https://www.amazon.com` matches Amazon and nothing that looks like it.
+Unlocks the order half of dim 4.
+
+**3. Connect Link** — `https://hirealpha.chat/app?tab=settings&connect=payments`
+(returns 200). Payment vault → Connect Link → approve at link.com. This is the
+only thing standing between a staged run and dims 1 and 2's lifecycle anchors:
+the run already pauses before payment on purpose, so with a funded wallet the
+founder's tap is the difference between "staged" (3) and "booked" (7–10).
+
+**4. Re-grant Google / Notion / Slack** — `?connect=gmail`, `?connect=notion`,
+`?connect=slack` on `https://hirealpha.chat/app/hires/friend` (all three return
+200). The write tools behind them are built, guarded and tested; only the grants
+expired. Unlocks dim 8, and Gmail send unlocks dim 5's send leg.
+
+**5. One real payment approval, on any staged run** — tap the card. Nothing
+else; the fill path was fixed and verified earlier today.
+
+**6. A Sam fixture in the mailbox** — send yourself one email that proposes
+Thursday, from a "Sam". Unlocks dim 5's actual task (decline + two real free
+slots + send) and half of dim 14.
+
+**After those taps, four re-runs, one text each** — and I will run them the
+moment the taps land:
+
+| dim | the text to send | what it should score |
+|---|---|---|
+| 4 Purchasing | "reorder two bags of the same coffee beans from Amazon, ship to my home address" | order number after the approval tap → 7–10 |
+| 8 Connected apps | "put a note in my Notion: <one line>" / "DM <name> on Slack: <one line>" | real write, approval-gated → 7–8 |
+| 5 Email | reply to the Sam fixture, declining and offering two verified free slots | send leg verified → 7–10 |
+| 1 + 2 completion | book the staged hotel/flight and approve | lifecycle anchor, the 7–10 band |
+
+Still time-gated and not on this list: routines (dim 7) need five elapsed
+weekdays — Monday's digest is armed and deterministic — and memory (dim 10)
+needs the week-later replay. Neither is a tap.
