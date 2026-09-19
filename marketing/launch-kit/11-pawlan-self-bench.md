@@ -140,9 +140,17 @@ longer overwrite "failed" with "done" and text the user a second, contradictory
 result. The heartbeat also stopped swallowing its own failures — that silence is
 what let a live run look dead.
 
-Also recorded from this audit, still open: the retry upsert can re-arm an
-already-sent delivery (duplicate result text), and the hard ceiling fails a job
-without cancelling the browser it abandons.
+Follow-ups from all three audits that were still open have since been closed
+(`5ce4587`): the delivery upsert can no longer re-arm an already-sent result
+(duplicate text), a failed source read can no longer make a change request
+vanish silently, and a judge failure now serves the same-day cache row instead
+of throwing away the brief's whole ranking. Still open from the same lists: the
+hard ceiling fails a job without cancelling the browser it abandons; the brief
+reports mail as absent when Gmail fails entirely; "Try again" does not refresh
+the judgment, so newly arrived mail can never reach Needs Reply; the brief cache
+serves the previous build while the rebuild completes with no signal the client
+consumes; and keep/toss/iterate still act on the newest delivered row because no
+caller passes an artifactId.
 
 ## CURRENT INTERNAL SCORECARD — 2026-09-19 (read this first)
 
