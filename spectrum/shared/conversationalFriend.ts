@@ -734,7 +734,7 @@ export async function runConversationalFriend(input: {
       },
     },
     {
-      name: 'build', description: 'input {request:"complete description of the small app or game the user wants"}. Build and deliver a working mini-app. Use only when the user wants software, not ordinary plans, advice, or rapport. Include phone/touch support for games.', mutates: true,
+      name: 'build', description: 'input {request:"complete description of the small app or game the user wants"}. Build and deliver a working mini-app. Use only when the user wants software, not ordinary plans, advice, or rapport. Include phone/touch support for games. The built app IS the deliverable and the link leads the reply — but when the ask is to PLAY something ("a game I can play in the chat", "quiz me"), also start it in the thread by the second line: post question 1 with its answer options, grade their next message, and keep the score here. The app is the better toy; the in-thread round is what makes it playable without leaving the conversation.', mutates: true,
       execute: async (args) => {
         const request = text(args, 'request')
         if (!request) return failed('The build needs a description.')
