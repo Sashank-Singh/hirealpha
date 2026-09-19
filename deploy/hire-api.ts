@@ -6432,6 +6432,7 @@ export async function fetchMapSearch(query: string, countryHint = '', location: 
       }
     }
     const nearby = await fetchNearbyPlaces(query, classified.kinds, countryHint, center)
+    console.warn(`[maps] branch=nearby query="${query.slice(0, 80)}" center=${center ? `${center.latitude},${center.longitude}` : "none"}`)
     if (nearby) return nearby
     /* `fetchNearbyPlaces` returns the marker only when it could not place the
      * ask at all. That must not become a worldwide search — UNLESS the ask
@@ -6490,6 +6491,7 @@ export async function fetchMapSearch(query: string, countryHint = '', location: 
       if (webOut && !/unavailable|no usable results/i.test(webOut)) return webOut
       return `No map results found for "${cleaned}".`
     }
+    console.warn(`[maps] branch=named query="${query.slice(0, 80)}" cleaned="${cleaned}" center=${lat},${lon}`)
     return `Map results for "${cleaned}":\n${rows
       .map((row) => {
         const label = String(row.display_name || '').split(',').slice(0, 3).join(',')
