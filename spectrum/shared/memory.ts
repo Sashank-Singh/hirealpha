@@ -128,6 +128,45 @@ export function setPendingVaultTask(dataDir: string, senderId: string, pending?:
   writeMemory(dataDir, senderId, mem)
 }
 
+/** The key a delivered build is mirrored under: `<artifactId>|<url>`. */
+export const LAST_BUILD_KEY = 'last_build_url'
+
+/** The build this thread was last given: the thread file first, then the
+ * durable fact, which is the only copy that survives a container swap and is
+ * re-hydrated from the live payload on the next turn. Live, 2026-09-19: a game
+ * was delivered, the next deploy replaced the container, and the follow-up
+ * "add a 30 second timer to the game" was refused — "there's no game in this
+ * thread for me to update" — because both the /b/ link and the artifact id
+ * lived only in the thread file. */
+export function lastBuildFor(
+  mem: ThreadMemory,
+  liveMemories?: Array<{ key?: string; value?: string }>,
+): { artifactId: string; url: string } | undefined {
+  if (mem.lastBuild?.artifactId && mem.lastBuild.url) return mem.lastBuild
+  const raw = [...mem.facts, ...(liveMemories || [])]
+    .reverse()
+    .find((f) => String(f.key || '').toLowerCase() === LAST_BUILD_KEY)?.value
+  const [artifactId, url] = String(raw || '').split('|')
+  return artifactId && url ? { artifactId, url } : undefined
+}
+
+/** Record a delivered build in both local stores. Every delivery path must call
+ * this: the workshop's own turn did, the `build` capability did not — and that
+ * capability is the path a plain "make me a dice roller" actually takes, so the
+ * mirror written by the turn never happened and the next change request had
+ * nothing to iterate. The durable (server) copy is the caller's job, since it
+ * holds the persona and the API client. */
+export function recordDeliveredBuild(
+  dataDir: string,
+  senderId: string,
+  build: { artifactId: string; url: string },
+): void {
+  setLastBuild(dataDir, senderId, build)
+  upsertFacts(dataDir, senderId, [
+    { key: LAST_BUILD_KEY, value: `${build.artifactId}|${build.url}`, ts: Date.now(), lastSeen: Date.now() },
+  ])
+}
+
 /** The build Alpha most recently delivered in this thread. Keep, toss and
  * iterate all used to act on "the newest delivered row", which is a different
  * build the moment the user has two — "keep it" about the older app kept the

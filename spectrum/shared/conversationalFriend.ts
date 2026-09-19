@@ -9,7 +9,7 @@ import { runAgentLocally } from '../../src/agents/runtime'
 import { formatNowForAgent, pickUserTimezone } from '../../deploy/timezones'
 import { gmiChat, type GmiChatMessage } from './gmi'
 import { FAST_REPLY_WALL_MS } from './delivery'
-import { appendThread, recordCardDelivered, setPendingConnection, setPendingSpend, setPendingVaultTask, upsertFacts, type ThreadMemory } from './memory'
+import { appendThread, LAST_BUILD_KEY, recordCardDelivered, recordDeliveredBuild, setPendingConnection, setPendingSpend, setPendingVaultTask, upsertFacts, type ThreadMemory } from './memory'
 import {
   autoLogNutrition, autoLogWorkout, autoLogSleep, autoLogGratitude, autoLogMood,
   autoLogHabit, autoLogSpend, autoLogDecision, autoLogLoops, autoSaveLearning,
@@ -807,6 +807,13 @@ export async function runConversationalFriend(input: {
         const request = text(args, 'request')
         if (!request) return failed('The build needs a description.')
         const result = await autoRunWorkshop(senderId, persona, request)
+        if (result?.ok && result.url && result.artifactId) {
+          /* Both stores, like every other delivery path: this is the path a
+           * plain "make me a dice roller" takes, and it used to record nothing,
+           * so the next change request had no build to iterate. */
+          recordDeliveredBuild(dataDir, senderId, { artifactId: result.artifactId, url: result.url })
+          void persistLiveFacts(senderId, persona, [{ key: LAST_BUILD_KEY, value: `${result.artifactId}|${result.url}` }]).catch(() => undefined)
+        }
         return result?.ok && result.url ? { status: 'done', message: `Built ${result.title || 'your app'}: ${result.url}`, data: { artifactId: result.artifactId } } : failed(result?.error || 'The build did not complete.')
       },
     },
@@ -816,6 +823,10 @@ export async function runConversationalFriend(input: {
         const instruction = text(args, 'instruction')
         if (!instruction) return failed('A build update needs an instruction.')
         const result = await autoIterateWorkshop({ phone: senderId, persona, instruction })
+        if (result?.ok && result.url && result.artifactId) {
+          recordDeliveredBuild(dataDir, senderId, { artifactId: result.artifactId, url: result.url })
+          void persistLiveFacts(senderId, persona, [{ key: LAST_BUILD_KEY, value: `${result.artifactId}|${result.url}` }]).catch(() => undefined)
+        }
         return result?.ok && result.url ? { status: 'done', message: `Updated your app: ${result.url}` } : failed(result?.error || 'No update was confirmed.')
       },
     },

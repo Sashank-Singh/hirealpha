@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import { lastBuildFor } from './runHireTurn'
-import type { ThreadMemory } from './memory'
+import { lastBuildFor, type ThreadMemory } from './memory'
 
 /* Live, 2026-09-19: a trivia game was delivered, the container was replaced by
  * the next deploy, and the follow-up "add a 30 second timer to the game" was

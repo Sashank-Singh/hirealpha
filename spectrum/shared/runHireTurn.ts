@@ -12,7 +12,7 @@ import { takeTurnImages, type TurnImage } from './imageRequest'
 import { isAffirmativeApprovalIntent, isNegativeCancellationIntent } from './conversationalApproval'
 import { skillsPromptBlock, SKILLS } from './skills'
 import { gmiChat } from './gmi'
-import { appendThread, loadMemory, removeFacts, setLastBuild, setPendingSpend, setPendingVaultTask, upsertFacts, pruneExpiredFacts, setSummary, trimHistory, MAX_RAW, type ThreadMemory } from './memory'
+import { appendThread, LAST_BUILD_KEY, lastBuildFor, loadMemory, recordDeliveredBuild, removeFacts, setPendingSpend, setPendingVaultTask, upsertFacts, pruneExpiredFacts, setSummary, trimHistory, MAX_RAW, type ThreadMemory } from './memory'
 import { captureStatedPreferences, extractFacts, summarizeOld } from './memoryMaintain'
 import { cityConflictInstruction, detectCityConflict } from './cityConflict'
 import { liveFactsToInput, localFactsToInput, mergeMemoryFacts, selectMemoryFacts } from './memoryBlock'
@@ -796,23 +796,6 @@ async function tryTaskSelection(phone: string, persona: AgentId, text: string): 
   } catch {
     return null
   }
-}
-
-/** The key the delivered build is mirrored under: `<artifactId>|<url>`. */
-const LAST_BUILD_KEY = 'last_build_url'
-
-/** The build this thread was last given: the thread file first, then the
- * durable fact the live payload re-hydrates after a container swap. */
-export function lastBuildFor(
-  mem: ThreadMemory,
-  liveMemories?: Array<{ key?: string; value?: string }>,
-): { artifactId: string; url: string } | undefined {
-  if (mem.lastBuild?.artifactId && mem.lastBuild.url) return mem.lastBuild
-  const raw = [...mem.facts, ...(liveMemories || [])]
-    .reverse()
-    .find((f) => String(f.key || '').toLowerCase() === LAST_BUILD_KEY)?.value
-  const [artifactId, url] = String(raw || '').split('|')
-  return artifactId && url ? { artifactId, url } : undefined
 }
 
 export async function runHireTurn(input: {
@@ -1831,11 +1814,9 @@ export async function runHireTurn(input: {
     try {
       const built = await autoRunWorkshop(input.senderId, agent.id, input.userText)
       if (built?.logged && built.url && built.artifactId) {
-        setLastBuild(input.dataDir, input.senderId, { artifactId: built.artifactId, url: built.url })
-        /* Durable mirror of the same reference (see `lastBuildFor`). */
-        const mirror = `${built.artifactId}|${built.url}`
-        upsertFacts(input.dataDir, input.senderId, [{ key: LAST_BUILD_KEY, value: mirror, ts: Date.now(), lastSeen: Date.now() }])
-        void persistLiveFacts(input.senderId, agent.id, [{ key: LAST_BUILD_KEY, value: mirror }]).catch(() => undefined)
+        recordDeliveredBuild(input.dataDir, input.senderId, { artifactId: built.artifactId, url: built.url })
+        /* The durable copy: the local file dies with the container. */
+        void persistLiveFacts(input.senderId, agent.id, [{ key: LAST_BUILD_KEY, value: `${built.artifactId}|${built.url}` }]).catch(() => undefined)
       }
       if (built?.logged && built.url) {
         extras.push(
