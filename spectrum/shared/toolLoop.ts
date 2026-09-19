@@ -453,7 +453,22 @@ export async function runToolConversation(input: {
    * run launched and the reply carried a promise instead of a rate. A
    * check-in ask also names a flight but is not a booking: it must not be sent
    * to a fare search. */
+  /* A sentence that STATES A PREFERENCE is not a booking ask, however many
+   * travel words it carries. "for the record: no red-eyes when you book me
+   * flights" names flights and "book" and asks for nothing; live, 2026-09-19 it
+   * started a Kayak run for SFO→ORD — a route read out of the thread — and
+   * answered with a Cloud Computer link, and an hour earlier "note for later: i
+   * prefer morning departures before 9am when you book flights" did the same on
+   * TPA→BOS. The three parts are deliberate: a preference marker, a clause that
+   * generalizes it ("when you", "from now on"), and no leading imperative — so
+   * "i'd prefer the morning one, book it" is still a booking. */
+  const preferenceStatement =
+    /^\s*(?:note|for the record|fyi|remember|btw|by the way)\b/i.test(lastUserAsk) ||
+    (/\b(?:i (?:prefer|always|never)|i'?d rather|i don'?t want|i do not want|no red-?eyes?)\b/i.test(lastUserAsk) &&
+      /\b(?:when (?:you|we)\b|from now on|going forward|on (?:my|any|all) (?:flights|trips))\b/i.test(lastUserAsk) &&
+      !/^\s*(?:please\s+)?(?:book|reserve|find|get|search|look|pick)\b/i.test(lastUserAsk))
   const bookTravelAsk =
+    !preferenceStatement &&
     /\b(?:book|booking|reserve|reservation|stay|round ?trip|flight|flights|hotel|hotels|hostel|hostels|lodging|airfare)\b/i.test(lastUserAsk) &&
     /\b(?:book|booking|reserve|reservation|stay|round ?trip)\b/i.test(lastUserAsk)
   /* A dated travel ASK — booking or not — must be answered from the live
@@ -463,7 +478,7 @@ export async function runToolConversation(input: {
    * named hotels from memory with no price at all, because the engine only
    * fetched and appended the dated block for booking asks. The founder's bar is
    * the reply he can act on, so a travel-shaped ask is grounded the same way. */
-  const datedTravelAsk = bookTravelAsk || travelLookup.test(lastUserAsk)
+  const datedTravelAsk = bookTravelAsk || (travelLookup.test(lastUserAsk) && !preferenceStatement)
   /** The verified dated block, or null when the reply is not one: the
    * "LIVE FARE/RATE SOURCE UNAVAILABLE" notice and a general web listicle both
    * carry dollar signs and must never ride along as live options. Only a block

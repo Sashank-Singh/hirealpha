@@ -1151,3 +1151,48 @@ describe('money never moves on a search', () => {
     expect(drafts.filter((d) => d.type === 'purchase')).toHaveLength(1)
   })
 })
+
+describe('a stated preference is not a booking ask', () => {
+  /* Live, 2026-09-19: "for the record: no red-eyes when you book me flights"
+   * started a Kayak run on a route read out of the thread and answered with a
+   * Cloud Computer link, and "note for later: i prefer morning departures
+   * before 9am when you book flights" did the same an hour earlier. Both carry
+   * the words the booking path keys on and neither asks for anything. */
+  it('never stages a travel run for a preference sentence', async () => {
+    const prompts: string[] = []
+    const lookups: string[] = []
+    for (const ask of [
+      'for the record: no red-eyes when you book me flights',
+      'note for later: i prefer morning departures before 9am when you book flights',
+    ]) {
+      const result = await runToolConversation({
+        messages: [{ role: 'user', content: ask }],
+        availableTools: ['web'],
+        canDraft: true,
+        chat: async (messages) => { prompts.push(JSON.stringify(messages)); return 'Saved — no red-eyes on anything I book for you.' },
+        lookup: async (_tool, query) => { lookups.push(query); return ['Live fares from AUS to BOS on 2026-09-24'] },
+        propose: async () => ({ ok: true, id: 'draft-should-not-exist' }),
+      })
+      expect(result.draft).toBeUndefined()
+    }
+    expect(lookups).toHaveLength(0)
+  })
+
+  it('still stages a real booking ask that carries a preference', async () => {
+    const drafts: Array<Record<string, unknown>> = []
+    const answers = [
+      '{"action":"browser","portal":"https://www.kayak.com/flights","goal":"book a round trip AUS to DEN Friday morning, aisle seat"}',
+      'The run is live on Kayak for Friday morning. It pauses before payment.',
+    ]
+    await runToolConversation({
+      messages: [{ role: 'user', content: 'book me a round trip to denver friday, i prefer the morning one' }],
+      availableTools: ['web'],
+      canDraft: true,
+      chat: async () => answers.shift() || 'Done.',
+      lookup: async () => ['Live fares from AUS to DEN on 2026-09-24'],
+      propose: async (draft) => { drafts.push(draft as Record<string, unknown>); return { ok: true, id: 'draft-1' } },
+    })
+    expect(drafts).toHaveLength(1)
+    expect(drafts[0]).toMatchObject({ type: 'browser', portal: 'https://www.kayak.com/flights' })
+  })
+})
