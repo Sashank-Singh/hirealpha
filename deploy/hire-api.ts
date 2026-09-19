@@ -4144,6 +4144,14 @@ const DURABLE_KEYS = new Set([
   'partner',
   'city',
   'this_weeks_decision',
+  /* The bot's own isDurableFactKey treats these as durable preferences, so the
+   * server was storing them as loose notes: unpinned, ranked last, and able to
+   * fall out of a 40-fact payload once enough newer facts existed. Measured
+   * with 60 newer facts, `seat_preference` was gone from recall. */
+  'seat_preference',
+  'flight_preference',
+  'diet',
+  'tone_playfulness',
 ])
 
 export function isDurableKey(key: string) {

@@ -185,6 +185,10 @@ export function upsertFacts(
   const byKey = new Map(mem.facts.map((f) => [f.key, f]))
   for (const f of facts) {
     if (!f.key || !f.value) continue
+    /* Re-stating a preference moves it back to the newest position: the array
+     * is insertion-ordered and the prompt takes its tail, so a fact the user
+     * repeats weekly used to age toward eviction anyway. */
+    byKey.delete(f.key)
     byKey.set(f.key, { key: f.key, value: f.value, ts: now, lastSeen: now })
   }
   const next: ThreadMemory = {

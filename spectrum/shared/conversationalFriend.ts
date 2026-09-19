@@ -3,6 +3,7 @@ import { sanitizeOutbound } from './runHireTurn'
 import { classifyTurnStrict, ClassifierUnavailableError, logsOf } from './turnIntent'
 import { generateTurnImage, pushTurnImage } from './imageRequest'
 import { writeToWorkspace } from './workWrite'
+import { persistLiveFacts } from './liveContext'
 import { getAgent, type AgentId } from '../../src/agents'
 import { runAgentLocally } from '../../src/agents/runtime'
 import { formatNowForAgent, pickUserTimezone } from '../../deploy/timezones'
@@ -349,7 +350,11 @@ export async function runConversationalFriend(input: {
       now: context.now,
       name: context.name,
       timezone: context.timezone,
-      preferences: live.memories.slice(-12),
+      /* The HEAD, not the tail: the server orders pinned (durable preferences)
+       * first, then recall hits, then the rest newest-first — so `slice(-12)`
+       * kept the oldest loose notes and dropped the name, timezone and city the
+       * turn depends on. */
+      preferences: live.memories.slice(0, 12),
       threadFacts: memory.facts.slice(-12),
       summary: memory.summary,
       inboundResult: input.inboundNote,
@@ -535,6 +540,11 @@ export async function runConversationalFriend(input: {
         const value = text(args, 'value', 500)
         if (!/^[a-z][a-z0-9_-]{0,59}$/.test(key) || !value) return failed('A preference needs a short key and a value.')
         upsertFacts(dataDir, senderId, [{ key, value, ts: Date.now(), lastSeen: Date.now() }])
+        /* Dual write, like the capture path: the local file is process-local and
+         * dies with the container, so a rule saved only here is gone at the
+         * next deploy — and the system prompt tells the model to persist
+         * permanent rules through exactly this capability. */
+        void persistLiveFacts(senderId, persona, [{ key, value }]).catch(() => undefined)
         return { status: 'done', message: `Remembered: ${value}.`, data: { key, value } }
       },
     },
@@ -859,7 +869,11 @@ ${JSON.stringify(context)}` },
     availableTools: available,
     lookup: (tool, query) => fetchLiveTools(senderId, persona, query, tool as any),
     canDraft: true,
-    preferences: statedTravelPreferences(memory.facts),
+    /* Both stores: the container-local file dies with the container, so on the
+     * first turn after any deploy the standing preference existed only on the
+     * server — and the run goal went out without it (measured: "Book a round
+     * trip New York to Chicago" with no seat preference riding along). */
+    preferences: statedTravelPreferences([...memory.facts, ...(live.memories || [])]),
     propose: async (draft) => {
       if (draft.type === 'purchase') {
         const result = await proposePurchase(senderId, persona, draft)
@@ -900,7 +914,7 @@ ${JSON.stringify(context)}` },
          * always the ask that books the flight. Travel runs only — an Amazon
          * order must not carry a seat preference. */
         const travelRun = isTravelRunAsk(`${input.userText} ${draft.goal || ''}`)
-        const preference = travelRun ? statedTravelPreferences(memory.facts) : ''
+        const preference = travelRun ? statedTravelPreferences([...memory.facts, ...(live.memories || [])]) : ''
         let goal = String(draft.goal || '')
         if (preference && !goal.toLowerCase().includes(preference.toLowerCase())) {
           goal = `${goal}. Standing preference: ${preference}`.slice(0, 240)

@@ -101,7 +101,12 @@ export function detectMemoryConflicts(
   }
 
   // 3. Check seat preference conflicts (e.g. always aisle vs user asks for window)
-  const seatPref = memories.find((m) => m.key === 'seat' || m.key === 'flight_seat')?.value?.toLowerCase() || ''
+  /* The keys the pipeline actually writes. `seat`/`flight_seat` were the only
+   * ones read here, and nothing writes them — capture produces
+   * `seat_preference`/`flight_preference` — so "you prefer aisle, I'm holding a
+   * window" was never flagged. The old names stay as aliases. */
+  const seatPref =
+    memories.find((m) => ['seat_preference', 'flight_preference', 'seat', 'flight_seat'].includes(m.key))?.value?.toLowerCase() || ''
   if (seatPref.includes('aisle') && /\bwindow(?:\s+seat)?\b/i.test(userText)) {
     return {
       hasConflict: true,

@@ -232,3 +232,20 @@ describe('End-to-End Worst-Case Turn Execution', () => {
     expect(state.vaultLink).toBeUndefined()
   })
 })
+
+describe('a seat preference the pipeline actually writes still raises a conflict', () => {
+  /* Live shape: capture produces `seat_preference`/`flight_preference`, while
+   * this detector read only `seat`/`flight_seat` — keys nothing writes — so
+   * "you prefer aisle, I'm holding a window" was never flagged. */
+  it('flags a window ask against a stored aisle preference', () => {
+    const conflict = detectMemoryConflicts('get me a window seat on the flight', [
+      { key: 'seat_preference', value: 'aisle seat' },
+    ])
+    expect(conflict?.hasConflict).toBe(true)
+    expect(conflict?.resolutionAdvice || '').toContain('aisle')
+  })
+
+  it('keeps the legacy keys working', () => {
+    expect(detectMemoryConflicts('book me a window seat', [{ key: 'seat', value: 'aisle' }])?.hasConflict).toBe(true)
+  })
+})
