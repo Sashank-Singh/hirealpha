@@ -215,7 +215,12 @@ describe('fetchMapSearch nearby path', () => {
     expect(out).toContain('Beanery')
   })
 
-  it('keeps the named fallback when there are no coords at all', async () => {
+  /* Changed deliberately: a GENERIC ask with no place to be near used to fall
+   * through to a worldwide name search — measured live, a group dinner ask for
+   * the Chicago Loop answered with a Bangalore listicle. It now asks which city
+   * instead. A NAMED venue still searches for that name, which is the case the
+   * global fallback exists for. */
+  it('asks which city for a generic ask with no coords, instead of searching the world', async () => {
     const calls: string[] = []
     globalThis.fetch = (async (input: RequestInfo | URL) => {
       const url = String(input instanceof URL ? input : (input as Request).url ?? input)
@@ -224,7 +229,14 @@ describe('fetchMapSearch nearby path', () => {
     }) as typeof fetch
     const out = await fetchMapSearch('good coffee')
     expect(calls.every((c) => !c.includes('overpass-api.de'))).toBe(true)
-    expect(out).toContain('Coffee Shop, Portland')
+    expect(out).toContain('needs a city')
+  })
+
+  it('still searches globally for a named venue', async () => {
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify([{ display_name: 'The Berghoff, Chicago', lat: '41.8', lon: '-87.6', type: 'restaurant' }]), { status: 200 })) as typeof fetch
+    const out = await fetchMapSearch('find the Berghoff')
+    expect(out).toContain('Berghoff')
   })
 })
 

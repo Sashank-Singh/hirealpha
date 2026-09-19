@@ -6029,6 +6029,19 @@ async function fetchOverpass(query: string): Promise<{
 }
 
 // Overpass for category asks; a null return falls back to the Nominatim path.
+/** A nearby ask with no place to be near. Returned INSTEAD of falling through
+ * to a global place search: measured live, a group dinner ask with no
+ * resolvable city answered with a Bangalore listicle for a Chicago Loop
+ * request. Asking which city is the honest answer; a worldwide search is not. */
+const MAPS_NEEDS_LOCATION = 'Maps search needs a city, neighborhood, or address. Ask which area to search, then look again — do not answer with places from anywhere else.'
+
+/** Does the ask contain a proper name — a capitalised word past the first?
+ * "find the Berghoff" does; "vegetarian friendly thali" does not, and that is
+ * the difference between searching for a venue and searching the world. */
+function namesAPlace(query: string): boolean {
+  return /[A-Z][a-z]{2,}/.test(String(query || '').slice(1))
+}
+
 async function fetchNearbyPlaces(
   query: string,
   kinds: string[],
@@ -6058,7 +6071,7 @@ async function fetchNearbyPlaces(
         lon = location.longitude
       }
     }
-    if (lat === null || lon === null) return null
+    if (lat === null || lon === null) return MAPS_NEEDS_LOCATION
     const ql = buildOverpassQuery(kinds, lat, lon, 1600, dietsFromQuery(query))
     if (!ql) return null
     // Overpass answers a busy moment with HTTP 200 and an HTML error page
@@ -6265,6 +6278,11 @@ export async function fetchMapSearch(query: string, countryHint = '', location: 
   if (classified.mode === 'nearby') {
     const nearby = await fetchNearbyPlaces(query, classified.kinds, countryHint, location)
     if (nearby) return nearby
+    /* `fetchNearbyPlaces` returns the marker only when it could not place the
+     * ask at all. That must not become a worldwide search — UNLESS the ask
+     * named a specific place ("find the Berghoff"), where searching for that
+     * name is exactly right. A nameless ask asks which city instead. */
+    if (nearby === MAPS_NEEDS_LOCATION && !namesAPlace(query)) return MAPS_NEEDS_LOCATION
     // Overpass miss, no coords, or empty result: the named place path below answers.
   }
   if (location && !/\b(?:near|around|in|at|by)\b/i.test(query)) {

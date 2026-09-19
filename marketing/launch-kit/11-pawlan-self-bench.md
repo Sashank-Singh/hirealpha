@@ -877,10 +877,18 @@ recorded as a floor.
   inherits dim 1's venue quality (the same run answered a Chicago Loop dinner
   ask with a Bangalore listicle, and announced a run "on the named site" when
   no site had been named), and no booking has completed for a group.
-- Two findings for the next pass, both outside the group path: the venue search
-  returned Bangalore content for a Chicago ask, and the staging line says "the
-  named site" when the model named none — the second is the same
-  fabricated-site shape the image veto closed, one layer up.
+- Both findings from the rehearsal were fixed the same night. **The staging
+  line** no longer says "on the named site" when nothing was named: it carries
+  the portal's host when the draft has one ("on kayak.com") and drops the claim
+  entirely when it does not — the same fabricated-progress shape the image veto
+  closed, one layer up in the engine's own copy. **The venue search** no longer
+  answers a nameless nearby ask with a worldwide place search: a nearby ask
+  that could not be placed at all now comes back "needs a city, neighborhood,
+  or address — ask which area to search", while a NAMED venue ("find the
+  Berghoff") still searches for that name, which is the case the global
+  fallback exists for. Both are tested; the second changed a test that had
+  encoded the old worldwide-search behaviour, and the change is recorded in the
+  test itself rather than quietly edited.
 
 ### 14. Chained — 3
 
