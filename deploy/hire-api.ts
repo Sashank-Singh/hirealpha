@@ -6416,7 +6416,22 @@ export async function fetchMapSearch(query: string, countryHint = '', location: 
   }
   const classified = classifyMapQuery(query)
   if (classified.mode === 'nearby') {
-    const nearby = await fetchNearbyPlaces(query, classified.kinds, countryHint, location)
+    /* A city named in the ask beats the user's own coordinates. With the stored
+     * location as the center this branch searched around the user and answered
+     * "dinner for four in austin" with Applausi, 199 Sound Beach Avenue — Old
+     * Greenwich, Connecticut. Geocode the named city and search there; fall
+     * back to the user's location only when the ask names none. */
+    let center = location
+    const namedCity = knownCityIn(query)
+    if (namedCity) {
+      const hit = await geocodeMapArea(namedCity, countryHint ?? '').catch(() => null)
+      const lat = Number(hit?.lat)
+      const lon = Number(hit?.lon)
+      if (Number.isFinite(lat) && Number.isFinite(lon)) {
+        center = { ...(location ?? {}), latitude: lat, longitude: lon } as typeof location
+      }
+    }
+    const nearby = await fetchNearbyPlaces(query, classified.kinds, countryHint, center)
     if (nearby) return nearby
     /* `fetchNearbyPlaces` returns the marker only when it could not place the
      * ask at all. That must not become a worldwide search — UNLESS the ask
