@@ -472,6 +472,46 @@ on disk, never whether it is committed, which is why there is now
 spectrum/src have uncommitted changes**, and runs both typechecks. One command
 before every push.
 
+## 2026-09-19, PART SEVEN — understanding instead of patterns
+
+The ask that produced the night's worst answer: **"Tickets to lax from sfo for
+25-28 sept"**. It reached no fare source at all. Three pattern-based resolvers
+each missed it — the flight detector wanted the word "flight", the route reader
+wanted city names rather than IATA codes, and the date reader wanted "Sept 25"
+rather than a range with the month after it — so the turn staged a browser run on
+Kayak, the run failed, and the reply was *"Couldn't check www.kayak.com"*. The
+founder's verdict was blunt and correct: *"no regex bullshit it needed to
+understand the intent."*
+
+So the classifier understands it. `turnIntent` returns the trip **as data**
+alongside the request — kind, airports, dates resolved against today's date and
+weekday (which the prompt now carries, because that is arithmetic the model can
+do and a pattern cannot), and the ceiling the user stated. That reading travels
+with the lookup: the tool loop resolves it once and hands it to every lookup, and
+`/api/internal/live/tools` calls trvl and Google Hotels with the airports and
+dates directly, using the text path only when the classifier carried no trip.
+
+Measured on the ask itself:
+
+```
+"Tickets to lax from sfo for 25-28 sept"
+  → {kind:'flight', from:'SFO', to:'LAX', checkin:'2026-09-25', checkout:'2026-09-28'}
+
+"Book me a hotel in Chicago for Friday and Saturday next week, under 250 a night"
+  → {kind:'hotel', place:'Chicago Loop', checkin:'2026-09-25', checkout:'2026-09-27', maxPrice:250}
+
+"what is the weather in chicago"
+  → request, no trip at all
+```
+
+And the turn now answers the flight ask with real fares before staging anything:
+*"The Kayak run is live for SFO → LAX, Fri Sep 25 out, Mon Sep 28 back, aisle
+seat… From the first fare pull, all three nonstops (United 6:00 AM, American 7:00
+AM, Delta 9:30 AM) were $252 round trip."*
+
+No framework, no new dependency, no pattern: the reading is one field on the
+model call the turn was already making.
+
 ## CURRENT INTERNAL SCORECARD — 2026-09-19 (read this first)
 
 The per-run sections below are history. This block is the single current state;
