@@ -398,6 +398,36 @@ excused away.
    by open time — that is why "Start task" did nothing), and the worker's
    Link approval poll no longer crash-loops on a text-vs-uuid join.
 
+### The founder's own failing thread, fixed the same night
+
+The founder watched one message produce four answers and said so: *"there is 4
+different answer and api request to get answer we need to remove the failed ones
+and keep winner keep the first one and remove the eager browser task not needed
+and the one that just rejected the request and last one also rejeceted"*. The
+message was "Make the dog blue and keep everything else the same." — and the
+four answers were: the real image; an eager browser run that named an invented
+site ("The run's live on Bing Image Creator now") and reported a result that
+never existed; and two refusals claiming images are impossible.
+
+Three fixes, each aimed at one of those failures:
+
+1. **The refusal is impossible now.** `image` is a real capability in the tool
+   list, so the engine has something to call instead of narrating that it
+   cannot — the same mechanism that keeps `build` honest.
+2. **A browser can never claim picture work.** The draft validator reads the
+   GOAL the model wrote (never the user's words, matching the other validators)
+   and blocks a run about generating or editing an image, or one that names an
+   image service as its workplace. The invented Bing Image Creator run and the
+   "Launching Cloud Computer" bubble under a picture ask are both gone.
+3. **The free provider is not an SLA.** A live 502 after the turn had already
+   promised a picture produced the honest failure line; the call now makes two
+   attempts, the second on a different backend with a fresh seed.
+
+**Verified on the production line, same message, after the deploy:** one
+inbound → `fast-path gate missed a "image" turn` → exactly ONE bubble ("Here's
+the new version. Keep the changes coming.") with the image attached, read
+receipts following, no run, no refusal, no 502. One ask, one answer.
+
 ### Rehearsal aggregate
 
 - Scored dimensions: 15 of 15 attempted; aggregate ≈ 3.9/10.
