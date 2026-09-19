@@ -330,6 +330,43 @@ the live log showed `[live] memory store did not take: city, chicago_trip_dates,
 `memory_records` (the mem0 store) while the write targets `hire_memories`, so
 every key looked dropped. Both fixed.
 
+## 2026-09-19 — why there were four answers
+
+The founder's screenshot showed one dinner ask answered four times, each with
+different restaurants and different caveats. The production container's log
+shows **one inbound and one bubble** for that message — so three of the four
+answers came from somewhere else, and the somewhere else was this Mac:
+
+```
+launchctl list
+2303  0  com.hirealpha.alpha            (launchd, bun --watch src/index.ts)
+2308  0  com.hirealpha.alpha-coworker
+      0  com.hirealpha.alpha-cofounder
+ps: three `bun run src/index.ts` processes, all cwd spectrum/alpha
+```
+
+Three local instances of the Friend bot were polling the same Photon line as
+the production container. Each keeps its own conversation state and its own
+model calls, which is exactly why the four answers disagreed: one was the
+container's, three were the laptop's, and none of them knew about the others.
+
+This is the standing P0 recorded on 2026-09-11 (`com.hirealpha.alpha`, installed
+Aug 9) — it had been stopped by hand that night and came back. It is now
+***disabled***, not stopped: all three agents are unloaded and their plists moved
+to `~/Library/LaunchAgents/disabled-hirealpha/`, so they cannot start at login
+again. To bring any of them back deliberately, move the plist out of that folder
+and `launchctl bootstrap gui/$(id -u) <plist>`.
+
+**Verified after the fix, on the real line:** one ask in, one reply out —
+"Three picks near the Loop: 1. Intelligentsia Coffee · 53 E Randolph St · ~3 min
+walk, **open 7am, 7pm** … Best overall pick. 2. Hero Coffee Bar · …". That reply
+also shows the free OSM opening-hours work in production: the hours came from the
+place's own OpenStreetMap tags.
+
+**Rule for any future test:** before texting the line, check that no local bot is
+running (`launchctl list | grep hirealpha`, `ps aux | grep src/index.ts`). One
+line answers per number; a second client makes every test unreadable.
+
 ## CURRENT INTERNAL SCORECARD — 2026-09-19 (read this first)
 
 The per-run sections below are history. This block is the single current state;
