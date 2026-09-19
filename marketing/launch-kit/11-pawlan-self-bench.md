@@ -2367,3 +2367,38 @@ This is the ninth phrasing of the same underlying bug — a sentence that mentio
 a task is not a request to do it — and the fix list is now: prompt rule
 (`b5f409e`), note-shaped wording (`4cfe788`), the engine's travel predicate
 (`4abaf5c`), and the engine's buy/browse predicates (`bc64086`).
+
+### 10 (continued) — the superseded preference that was never written
+
+The open item from the previous pass, chased instead of left as a note. Asked
+directly, the live bot answered **"Aisle."** — and asking for the whole file
+returned `seat_preference: aisle`, with no window fact anywhere — hours after
+the user said "two things for the record: i only ever want window seats on
+planes, and im allergic to shellfish" and the reply acknowledged "window seats
+from now on (the aisle thing is officially retired)".
+
+The diet half of that message was written (`diet: shellfish allergy`), so the
+capture path itself works; the seat half was **claimed and never written**. That
+is the memory anchor's exact failure: a preference that does not exist cannot be
+applied unprompted a turn later, and a retirement announced with no write is the
+same class as a send announced with no draft.
+
+`statedSeatPreference` reads a standing seat preference out of the message
+(permanence marker plus a seat word; a one-flight request like "find me a window
+seat on the tuesday flight" is not one) and the turn writes `seat_preference`
+through the same upsert + durable dual-write `remember` uses, replacing the
+older value by key.
+
+**Verified live, both directions:**
+
+- "small correction: i only ever want window seats, please make that the rule
+  going forward" → *"Done, window seats is the standing rule now, replacing the
+  aisle preference on file. I'll apply it to every flight going forward,
+  including anything still in flight like the Boston booking."*
+- "what seat do you have on file for me now?" → **"Window seat, all the way."**
+  (the same question answered "Aisle." before the fix, and no
+  `memory store did not take` line appeared on either turn)
+
+| # | dimension | paraphrase used | Alpha (was → now) | Instinct | anchor quote | what closed the gap |
+|---|---|---|---|---|---|---|
+| 10 | Memory | "i only ever want window seats, please make that the rule going forward" → "what seat do you have on file for me now?" | 7 → 8 (capture verified, supersede verified: aisle → window, read back on the next turn) | 9 published | "10 — applies both preferences unprompted" | `5490f56` — the seat half of a two-fact statement is written, not just acknowledged; read-back verified live |
