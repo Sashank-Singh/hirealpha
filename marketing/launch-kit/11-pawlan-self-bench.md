@@ -192,6 +192,15 @@ images 0→8 · groups 3→7. Three dead production paths were also revived and
 verified (Link wallet, voice STT, reply drafts) — they do not move a dimension
 on their own but every purchase, voice and email score depends on them.
 
+**Re-run after all 37 pushes (same night, production API, the real line):**
+dim 7 deterministic ("Set. Weekdays at 7:00 AM … Next one: Mon, Sep 21 at 7:00
+AM", 2.6 s) · dim 3 holds at three named, addressed picks with walk times and
+each option's unmet constraint stated ("Jake Melnick's Corner Tap · 41 E
+Superior St · ~2 min walk … I couldn't verify vegetarian options … the one to
+confirm on the menu") · dim 1 stages the Kayak run for the right nights with the
+payment pause and the card link stated. The audit batch did not move the scored
+behavior down.
+
 **Everything still below 7 is blocked on a founder-supplied resource, a real
 world window, or a paid API — not on code.** The list is at the end of this
 document under "Founder decisions this run is waiting on".
