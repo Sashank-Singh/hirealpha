@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'bun:test'
 import type { SQL } from 'bun'
-import { runWithinCeiling, hasMerchantOrderConfirmation, runJob, workerCredentialBrokerFromEnv, flushUndeliveredResults } from './browserWorker'
+import {
+  runWithinCeiling,
+  hasMerchantOrderConfirmation,
+  runJob,
+  workerCredentialBrokerFromEnv,
+  flushUndeliveredResults,
+  closeAbandonedBrowser,
+  liveBrowserByJobForTest,
+} from './browserWorker'
 import { openTaskPage } from './browserSession'
 import type { BrowserJobRow } from './browserJobs'
 import { LocalUserKeyBroker, OpenBaoTransitClient } from '../services/trust/userKeyBroker'
@@ -119,5 +127,22 @@ describe('runWithinCeiling', () => {
     const failed = runJob(null as never, null as never).catch((err: unknown) => ({ ok: false as const, error: String(err) }))
     const settled = await runWithinCeiling(failed, 5_000)
     expect(settled.ran).toBe(true)
+  })
+})
+
+describe('a run that hits the hard ceiling is actually stopped', () => {
+  /* The ceiling released the worker slot and told the user "nothing is
+   * confirmed" — while the abandoned run kept browsing for up to an hour. */
+  it('closes the live session it abandons', async () => {
+    let closed = false
+    liveBrowserByJobForTest.set('job-ceiling', { close: async () => { closed = true } })
+    expect(await closeAbandonedBrowser('job-ceiling')).toBe(true)
+    expect(closed).toBe(true)
+    // Registered once: a second close is a no-op, not a second teardown.
+    expect(await closeAbandonedBrowser('job-ceiling')).toBe(false)
+  })
+
+  it('is a no-op for a job with no live session', async () => {
+    expect(await closeAbandonedBrowser('never-launched')).toBe(false)
   })
 })

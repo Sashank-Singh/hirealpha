@@ -15189,7 +15189,14 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
         if (sameDayCached) {
           return jsonRevalidated(req, 0, {
             ...sameDayCached.payload,
+            /* `pending` is the only field the client's retry ladder reads
+             * (MiniAppPage keys on it); `revalidating` was set here and
+             * consumed nowhere, so every open showed the previous build — which
+             * can be hours old — and the fresh one only appeared on a later
+             * open. Both are set now: the row is handed back immediately, and
+             * the ladder knows a rebuild is in flight behind it. */
             revalidating: true,
+            pending: true,
             cardUrl: `${appBase(req)}/app/mini/${persona}/digest`,
           })
         }

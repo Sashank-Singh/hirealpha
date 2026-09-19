@@ -341,6 +341,7 @@ export async function runJob(sql: SQL, job: JobRow, launch = runBrowserSession):
         // The live view is the page a person opens to take over a login,
         // CAPTCHA or payment step — record it before the first model turn.
         if (browser.liveViewUrl) await setBrowserLiveView(sql, job.id, browser.liveViewUrl).catch(() => undefined)
+        liveBrowserByJob.set(job.id, { close: () => browser.close() })
         try {
           const useBrowserUse = (process.env.KERNEL_AGENT_DRIVER || 'browser-use').trim().toLowerCase() === 'browser-use'
           return await (useBrowserUse ? runBrowserUseTask : runKernelTask)(
@@ -362,6 +363,7 @@ export async function runJob(sql: SQL, job: JobRow, launch = runBrowserSession):
             browser,
           )
         } finally {
+          liveBrowserByJob.delete(job.id)
           // Keep the container accessible via liveViewUrl for a grace period (default 120s)
           // so that the user can inspect the session without encountering
           // "proxy.*.onkernel.com took too long to respond".
@@ -563,6 +565,27 @@ export async function runJob(sql: SQL, job: JobRow, launch = runBrowserSession):
     return { ok: false, error: 'Merchant did not return an order confirmation number.' }
   }
   return { ok: true, result: run.content }
+}
+
+/* The live browser for each running job. The hard ceiling releases the worker
+ * slot but the abandoned run kept browsing (its session lives for an hour, and
+ * the close grace is 120s) — so a run that had been announced as "hit my time
+ * limit, nothing is marked done" could still act afterwards. Registering the
+ * closer lets the ceiling end it for real. The E2B path needs nothing here: its
+ * sandbox carries its own timeout. */
+const liveBrowserByJob = new Map<string, { close: () => Promise<void> }>()
+
+/** Test seam: the registry is module state, and a test file needs to place a
+ * session in it (or clear one) without launching a browser. */
+export const liveBrowserByJobForTest = liveBrowserByJob
+
+/** Close the browser a run abandoned. Exported for tests. */
+export async function closeAbandonedBrowser(jobId: string): Promise<boolean> {
+  const session = liveBrowserByJob.get(jobId)
+  if (!session) return false
+  liveBrowserByJob.delete(jobId)
+  await session.close().catch(() => undefined)
+  return true
 }
 
 /** Race a whole run against a hard ceiling; the heartbeat cannot mask it.
@@ -854,6 +877,11 @@ async function main() {
           WHERE id = ${job.id} AND status = 'running'
         `.catch(() => undefined)
         await mirrorJobReconcile(sql, job.id, 'Run exceeded the hard time ceiling; outcome unknown.')
+        /* Stop it, do not just stop counting it: the run's browser was left
+         * browsing for up to an hour after the user was told it had hit its
+         * limit and that nothing was confirmed. */
+        const ended = await closeAbandonedBrowser(job.id)
+        console.warn(`[browser-worker] ceiling: ${ended ? 'browser closed' : 'no live session to close'} for ${job.id}`)
         await pushBrowserResultLoop(sql, {
           userId: job.user_id, persona: job.persona, origin: job.url,
           insights: 'That run hit my hard time limit before it could finish, so I cannot confirm what it did. Nothing is marked done — ask me to try again.',
