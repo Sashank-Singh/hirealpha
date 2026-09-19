@@ -2155,3 +2155,23 @@ fare to look better. The comparison inside that band:
 | # | dimension | paraphrase used | Alpha (was → now) | Instinct | anchor quote | what closed the gap |
 |---|---|---|---|---|---|---|
 | 2 | Travel | "flights raleigh to denver oct 8 back oct 11, aisle, under 450 round trip" | 3 → 3 anchor; reply refuses an unverifiable fare instead of quoting one, and no longer prices the wrong week | 3 (same anchor; caught the seat conflict and offered tap-to-answer) | "3 — finds flights only" | `35b37fc` cap verdict + `f49ef7b` window dates (both confirmed live) · `675689e` standing-preference conflict |
+
+### The memory read-back, verified on the live line — and the bug the verification found
+
+`ff89282` finished on HireAlpha-Web at 20:59Z. The check: state a fresh
+preference on the real thread and watch the container log for the line every
+such turn used to print. Sent *"note for later: i prefer morning departures
+before 9am when you book flights"*; the turn's log carries the inbound, the
+bubble, and **no `[live] memory store did not take:` line** — where every
+preference turn before the fix printed one. The read-back now follows the write.
+
+That same verification turn found the next bug, which is the honest reason to
+keep re-testing after a fix lands: the sentence started a booking run —
+"Booking run is live on United for TPA→BOS, Oct 15 out, Oct 18 back, morning
+departure with an aisle seat." The message was a preference ("note for later"),
+and the route and dates were read out of the thread from an ask that had already
+been answered. `b5f409e` had named the "from now on just book…" shape of a
+policy sentence becoming an order but not the "note for later" shape, which is
+the same mistake with a different opening word. `4cfe788` names both, and the
+rule is the same one the restraint dimension scores: save it, say what it means
+for the next real booking, take no action this turn.
