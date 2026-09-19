@@ -54,6 +54,8 @@ export type BriefPayload = {
   date?: string
   brief?: 'morning' | 'evening'
   calendar?: string[]
+  /** The calendar read did not answer — distinct from a genuinely quiet day. */
+  calendarFailed?: boolean
   emails?: string[]
   emailItems?: BriefAsk[]
   mailGroups?: BriefMailGroup[]
@@ -1258,7 +1260,9 @@ export function BriefApp({
                 })}
               </ol>
             ) : (
-              <p className="brief-empty-note">No scheduled meetings today.</p>
+              <p className="brief-empty-note">
+                {data?.calendarFailed ? "Couldn't check your calendar just now." : 'No scheduled meetings today.'}
+              </p>
             )}
           </section>
         )}

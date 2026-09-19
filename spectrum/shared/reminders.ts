@@ -272,6 +272,15 @@ export type DigestManageResult = {
 }
 
 /** Set/pause/resume the [digest] reminder through the internal route. */
+/** Said when the brief build came back with nothing. "Your brief is ready"
+ * over an empty message promises content that does not exist; the card is still
+ * minted so tapping rebuilds it. */
+export function briefBuildFailedLine(morning: boolean): string {
+  return morning
+    ? "I couldn't pull your brief this morning. Tap the card and I'll try again."
+    : "I couldn't pull your evening wrap. Tap the card and I'll try again."
+}
+
 export async function manageDigest(
   phone: string,
   persona: string,
@@ -669,14 +678,17 @@ export function startReminderScheduler(opts: {
               } else {
                 const fallbackCardKind = briefTime === 'evening' ? 'pick_night' : 'digest'
                 card = await mintMiniAppCard(r.phone, opts.persona as AgentId, fallbackCardKind)
-                text = morningReadyLine(briefTime === 'morning')
+                // The build returned nothing: say that, rather than "your brief
+                // is ready" over an empty text. The card still lets them tap to
+                // try again.
+                text = briefBuildFailedLine(briefTime === 'morning')
                 judgedTopic = 'daily_brief'
               }
             } catch (err) {
               console.warn(`[reminders:${opts.persona}] brief card mint failed ${r.id}`, err)
               const fallbackCardKind = briefTime === 'evening' ? 'pick_night' : 'digest'
               card = await mintMiniAppCard(r.phone, opts.persona as AgentId, fallbackCardKind)
-              text = morningReadyLine(briefTime === 'morning')
+              text = briefBuildFailedLine(briefTime === 'morning')
               judgedTopic = 'daily_brief'
             }
           } else {

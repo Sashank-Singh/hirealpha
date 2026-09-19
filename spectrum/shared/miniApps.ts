@@ -543,7 +543,13 @@ export async function buildDigestBriefing(
   try {
     const res = await fetch(
       `${base}/api/internal/digest?phone=${encodeURIComponent(phone)}&persona=${encodeURIComponent(persona)}`,
-      { headers: authHeaders() },
+      {
+        headers: authHeaders(),
+        // The digest build is slow by design (mail judge + calendar), but a
+        // hung API must not stall the scheduler tick after the recurring row
+        // has already been rescheduled forward.
+        signal: AbortSignal.timeout(60_000),
+      },
     )
     if (!res.ok) return null
     const data = (await res.json()) as {

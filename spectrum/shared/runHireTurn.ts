@@ -1814,7 +1814,10 @@ export async function runHireTurn(input: {
       extras.push('They said keep it but the keep request hit an error. Say so plainly and ask them to try again.')
     }
   }
-  if (looksLikeTossIt(input.userText)) {
+  /* Toss needs build context, exactly like iterate has. A bare "delete it"
+   * about a todo, a reminder or a memory used to destroy the user's latest
+   * delivered app: the branch had no recent-build guard at all. */
+  if (looksLikeTossIt(input.userText) && recentBuildDelivered) {
     try {
       const tossed = await autoWorkshopToss(input.senderId, agent.id)
       if (tossed?.logged) {

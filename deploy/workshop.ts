@@ -133,9 +133,18 @@ export async function sweepExpiredArtifacts(
     SELECT id, user_id FROM hire_artifacts
     WHERE state = 'delivered' AND expires_at IS NOT NULL AND expires_at < now()
   `) as Array<{ id: string; user_id: string }>
+  let removed = 0
   for (const row of expired) {
+    /* The state filter is repeated in the DELETE: a `keep` landing between the
+     * SELECT above and this line used to lose the row anyway, which is exactly
+     * the promise the user was given ("kept builds never expire"). The rm waits
+     * until the row is really gone. */
+    const deleted = (await sql`
+      DELETE FROM hire_artifacts WHERE id = ${row.id} AND state = 'delivered' RETURNING id
+    `) as Array<{ id: string }>
+    if (!deleted.length) continue
     await rm(join(artifactsDir, row.user_id, row.id), { recursive: true, force: true })
-    await sql`DELETE FROM hire_artifacts WHERE id = ${row.id}`
+    removed++
   }
-  return expired.length
+  return removed
 }

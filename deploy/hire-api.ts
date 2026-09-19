@@ -6821,7 +6821,16 @@ function parseCalendarMeets(
 }
 
 type TodayMeet = { time: string; title: string; who: string; place: string; kind: string }
-type TodayResult = { meets: TodayMeet[]; stay: { title: string; place: string } | null; calendarConnected: boolean }
+type TodayResult = {
+  meets: TodayMeet[]
+  stay: { title: string; place: string } | null
+  calendarConnected: boolean
+  /** The read itself did not answer. Distinct from an empty calendar: the
+   * brief said "A quiet day so far" for a FAILED read (and, on the Composio
+   * path, asked a connected user to "Connect Calendar in Settings") — both
+   * claims the data did not support. */
+  calendarFailed?: boolean
+}
 
 async function todayCalendarMeets(
   sql: SQL,
@@ -6872,10 +6881,17 @@ async function todayCalendarMeets(
     })
     if (got.ok) return itemsToResult(got.items)
   }
+  /* A read that did not answer must not read as an empty day. The sink is set
+   * when the connector refused or the budget ran out. */
+  const failureSink = { failed: false }
   const cached = await googleEventsRaw(sql, user.id, {
     timeMin: startOfLocalDay(tz),
     timeMax: startOfLocalDay(tz, 1),
     maxResults: 100,
+    // The digest waits 8s for this whole function; leave room for the
+    // connector pass below rather than spending it all on one provider.
+    budgetMs: 6000,
+    failureSink,
   }).catch(() => [])
   if (cached.length) {
     return itemsToResult(
@@ -6889,7 +6905,11 @@ async function todayCalendarMeets(
       })),
     )
   }
-  if (!connected.includes('calendar')) return { meets: [], stay: null, calendarConnected: false }
+  if (!connected.includes('calendar')) {
+    return failureSink.failed
+      ? { meets: [], stay: null, calendarConnected: true, calendarFailed: true }
+      : { meets: [], stay: null, calendarConnected: false }
+  }
   const results = await withTimeout(
     runToolsForMessage(sql, {
       userId: user.id,
@@ -6902,6 +6922,9 @@ async function todayCalendarMeets(
     [] as string[],
   )
   const calendarBlock = results.find((t) => isCalendarToolResult(t))
+  // A connector result carrying the failure prose means the read did not
+  // answer — that is the third state, not an empty day.
+  if (!calendarBlock && results.some((t) => /lookup failed|failed to|not connected/i.test(t))) failureSink.failed = true
   const calMeets = parseCalendarMeets(calendarBlock, tz).filter((e) => e.day === 'today')
   let stay: { title: string; place: string } | null = null
   const meets: TodayMeet[] = []
@@ -6914,7 +6937,7 @@ async function todayCalendarMeets(
     }
     meets.push(row)
   }
-  return { meets, stay, calendarConnected: true }
+  return { meets, stay, calendarConnected: true, ...(failureSink.failed ? { calendarFailed: true } : {}) }
 }
 
 /**
@@ -8392,9 +8415,11 @@ async function digestPayload(
       ? "I didn't see your sleep last night. How many hours did you get?"
       : lastNightLogged
         ? `Last night ${Math.round(lastNightHours * 10) / 10}h`
-        : calToday.calendarConnected
-          ? 'A quiet day so far'
-          : 'Connect Calendar in Settings'
+        : calToday.calendarFailed
+          ? 'Could not check your calendar just now'
+          : calToday.calendarConnected
+            ? 'A quiet day so far'
+            : 'Connect Calendar in Settings'
   const leadReason = (reasons: string[]): string => {
     if (reasons.includes('waiting_on_you')) return 'They are waiting on you.'
     if (reasons.includes('deadline')) return 'There is a deadline on this.'
@@ -8566,6 +8591,9 @@ async function digestPayload(
       due: [],
       later: tomorrowCal.slice(0, 2),
       calendarConnected: calToday.calendarConnected,
+      /* Three states reach the card, not two: connected-and-quiet,
+       * not-connected, and the read that did not answer. */
+      calendarFailed: !!calToday.calendarFailed,
       weather: weather || undefined,
     },
   }
@@ -11316,7 +11344,7 @@ function calItemsToNextRows(items: CalItem[], prefix: string) {
 async function googleEventsRaw(
   sql: SQL,
   userId: string,
-  opts: { timeMin: Date; timeMax: Date; maxResults?: number },
+  opts: { timeMin: Date; timeMax: Date; maxResults?: number; budgetMs?: number; failureSink?: { failed: boolean } },
 ): Promise<Array<{ id: string; title: string; start: string; end: string; allDay: boolean }>> {
   const access = await googleAccessToken(sql, userId, 'calendar')
   if (access) {
@@ -11344,8 +11372,16 @@ async function googleEventsRaw(
       calendarId: 'primary',
       calendar_id: 'primary',
     },
+    // The digest waits 8s (todayMeetsCache.read). composioFirst defaults to
+    // 15s, so on a Composio-only account the calendar could NEVER land in
+    // time: the brief then led with "Connect Calendar in Settings" for a
+    // connected calendar. The caller passes its own budget.
+    opts.budgetMs ?? 15_000,
   )
-  if (!raw || /failed/i.test(raw)) return []
+  if (!raw || /failed/i.test(raw)) {
+    if (opts.failureSink) opts.failureSink.failed = true
+    return []
+  }
   try {
     const parsed = JSON.parse(raw) as { __calItems?: Array<{ start: string; title: string; allDay?: boolean; kind?: string; rawStart?: string; description?: string }> }
     if (Array.isArray(parsed.__calItems)) return calItemsToNextRows(hydrateCalItems(parsed.__calItems), 'c')
@@ -17629,9 +17665,9 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
       const user = await getUserByPhone(sql, body.phone)
       if (!user) return json({ error: 'User not found' }, 404)
       const srcRows = await sql`
-        SELECT title, template_key FROM hire_artifacts WHERE id = ${artifactId} AND user_id = ${user.id} LIMIT 1
+        SELECT title, template_key, state, expires_at FROM hire_artifacts WHERE id = ${artifactId} AND user_id = ${user.id} LIMIT 1
       `
-      const src = srcRows[0] as { title: string; template_key: string | null } | undefined
+      const src = srcRows[0] as { title: string; template_key: string | null; state: string; expires_at: Date | null } | undefined
       if (!src) return json({ ok: false, logged: false, error: 'source build no longer exists' })
       // Same inline-JS parse gate as fresh builds: dead buttons never ship.
       const inlineScripts = [...html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/gi)]
@@ -17646,10 +17682,15 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
       }
       const newId = crypto.randomUUID()
       const title = String(body.title || src.title).slice(0, 120)
+      /* A change to a KEPT app inherits "kept". It used to be hardcoded
+       * delivered + 7 days, so the version the user had just saved replaced
+       * their app with one on a clock: keep A, ask for a change, and B is
+       * deleted at the next sweep while A survives. */
+      const inheritKept = src.state === 'kept'
       const expires = new Date(Date.now() + 7 * 86_400_000)
       await sql`
         INSERT INTO hire_artifacts (id, user_id, title, kind, files, state, expires_at, template_key)
-        VALUES (${newId}, ${user.id}, ${title}, 'page', ${JSON.stringify(['index.html'])}, 'delivered', ${expires.toISOString()}, ${src.template_key})
+        VALUES (${newId}, ${user.id}, ${title}, 'page', ${JSON.stringify(['index.html'])}, ${inheritKept ? 'kept' : 'delivered'}, ${inheritKept ? null : expires.toISOString()}, ${src.template_key})
       `
       await sql`
         INSERT INTO hire_artifact_files (artifact_id, name, content)
@@ -17707,7 +17748,14 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
     const result = await (async () => {
       const id = body.artifactId
       if (id) {
-        await sql`UPDATE hire_artifacts SET state = 'kept', expires_at = NULL WHERE id = ${id} AND user_id = ${user.id}`
+        // Confirm the row was actually kept: an expired, deleted or foreign id
+        // used to answer "saved permanently" over an UPDATE that touched
+        // nothing, and the build was swept anyway.
+        const kept = (await sql`
+          UPDATE hire_artifacts SET state = 'kept', expires_at = NULL
+          WHERE id = ${id} AND user_id = ${user.id} RETURNING id
+        `) as Array<{ id: string }>
+        if (!kept.length) return { ok: false, logged: false, error: 'That build is no longer on file, so nothing was kept.' }
         return { ok: true, logged: true, id }
       }
       const rows = await sql`
@@ -17716,7 +17764,11 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
       `
       const latest = (rows[0] as { id?: string } | undefined)?.id
       if (!latest) return { ok: false, logged: false, error: 'Nothing to keep' }
-      await sql`UPDATE hire_artifacts SET state = 'kept', expires_at = NULL WHERE id = ${latest} AND user_id = ${user.id}`
+      const keptLatest = (await sql`
+        UPDATE hire_artifacts SET state = 'kept', expires_at = NULL
+        WHERE id = ${latest} AND user_id = ${user.id} RETURNING id
+      `) as Array<{ id: string }>
+      if (!keptLatest.length) return { ok: false, logged: false, error: 'Nothing to keep' }
       return { ok: true, logged: true, id: latest }
     })()
     return json(result)
@@ -17772,10 +17824,14 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
     try {
       const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
       const rows = await sql`
-        SELECT title, files, state FROM hire_artifacts WHERE id = ${publicBuild[1]} LIMIT 1
+        SELECT title, files, state, expires_at AS "expiresAt" FROM hire_artifacts WHERE id = ${publicBuild[1]} LIMIT 1
       `
-      const rawRow = rows[0] as { title: string; files: string[] | string; state: string } | undefined
-      if (!rawRow || rawRow.state === 'tossed') {
+      const rawRow = rows[0] as { title: string; files: string[] | string; state: string; expiresAt: Date | null } | undefined
+      /* Expiry is enforced HERE as well as by the sweep: the sweep only runs at
+       * boot (the "runs hourly" comment was never implemented), so an expired
+       * build kept serving its app days past the promise. */
+      const expired = rawRow?.expiresAt ? new Date(rawRow.expiresAt).getTime() < Date.now() : false
+      if (!rawRow || rawRow.state === 'tossed' || expired) {
         return gonePage('This build is gone. Ask Alpha to build it again.')
       }
       // JSONB can arrive as a parsed array or as raw JSON text depending on
