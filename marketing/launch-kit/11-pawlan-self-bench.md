@@ -218,6 +218,46 @@ edits — 8/8 screens under 1000 ms on the production bundle (login 422 ms, home
 358 ms, brief 354 ms), measured after installing the Playwright browser the
 local cache had lost.
 
+## 2026-09-19 — the flight question, answered with free software
+
+Two repos the founder asked about, evaluated the same way trvl was (license
+first, then capability, then a real run):
+
+- **`punitarani/fli`** — MIT, 3.1k stars, actively maintained, and the right
+  *architecture*: Google Flights' own API rather than scraping. Installed it and
+  ran it here: the CLI answers "No flights found" for JFK→ORD on a busy Friday,
+  and at the library level `SearchFlights().search()` returns `None` for both a
+  round trip and a one-way. Google's endpoint does not answer this client from
+  this network, so it cannot be relied on as the source.
+- **`affromero/flight-finder`** — MIT, but BYOK (it wants an Anthropic/OpenAI/
+  Google key of its own), Playwright-based, and a whole self-hosted tracking
+  platform with VPN price-routing. Wrong shape for one fares lookup.
+
+**The free fix was already inside trvl**, the binary we ship:
+
+| providers | measured |
+|---|---|
+| parallel (default) | kiwi and skiplagged answer 429; the ask either loses their fares or waits out the retry storm |
+| **serialized** (`TRVL_PROVIDER_CONCURRENCY=1`) | **12 fares, zero 429s, 19.5s** |
+
+Serialization is now the default, set in the environment the binary is spawned
+with (`trvlChildEnv`, exported and tested) rather than in Coolify, so it holds
+wherever trvl runs. Production re-run after the deploy: the dim-2 ask stages the
+run and lists real dated fares — **Delta DL 4915 $325 nonstop, American AA 3221
+6:55 AM nonstop $326, JetBlue $332** — all under the $400 ceiling, in 14s.
+
+**scrape.do is switched off**, per the founder's call that the per-call cost is
+not worth it: the token is deleted from Coolify and from `.env`, and the two
+modules (Google Hotels / Google Flights through the proxy) stay in the tree one
+environment variable away, with every caller checking `scrapeDoEnabled()` first.
+Nothing spends. Worth noting for the same list: **trvl reads `SERPAPI_KEY`
+itself**, so the paid second source the founder was considering plugs straight
+into the binary we already deploy.
+
+One more defect surfaced by the production re-run and fixed: the same DL 4915
+fare came back as "Delta" and "Delta Air Lines" at the same price and was listed
+twice; the dedupe key only stripped "airlines"/"airways", not "Air Lines".
+
 ## 2026-09-19 — scrape.do: dated hotel rates without a SerpAPI key
 
 The founder supplied a scrape.do token, so the paid-second-source question is
