@@ -2525,3 +2525,32 @@ log for that window shows no `[live] workshop source NNN` warning, so the source
 fetch did not fail — the iterate reached the model-rewrite step and was rejected
 there, twice, which is upstream and matches the reply's own wording. Retryable,
 not a code claim.
+
+### 10 — the refused key now says so (the open item, closed and verified)
+
+The half of the consent finding that was left open, built and checked live rather
+than half-done at the end of the night.
+
+`remember` fired the durable write with `void` and answered "Remembered:
+<value>." whatever the store said, so a key the account refuses was announced as
+saved. It reads the result now, bounded to 2.5s so a slow store cannot hold the
+turn, with three honest outcomes: confirmed ("Remembered"), named in `dropped`
+(a failed result that tells the model, in the message it must act on, that this
+holds only for the conversation, is not permanent, and must not be retried under
+the same key), or unanswered (saved here, permanent copy unconfirmed — never
+claimed as permanent).
+
+**Verified live** (`475c11e`): *"remember that my company is called Northwind
+Robotics"* — a key that maps to the work category the friend persona does not
+hold — answered:
+
+> "Quick heads up before I say \"done\" and quietly drop it: I tried this category
+> before and this personal hire's memory refuses work record facts like
+> company/role/project names, it accepts identity, pre…"
+
+with `[live] memory store did not take: company` in the container log beside it.
+The refusal reaches the user, and the reply names the categories this hire does
+keep instead of claiming a save that never happened.
+
+Item closed. Still open and not mine to close: the builder's update leg
+(upstream, retryable) and the founder taps.
