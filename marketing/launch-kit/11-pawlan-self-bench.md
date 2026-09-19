@@ -2198,3 +2198,70 @@ This is the restraint dimension's rule doing its job on the third phrasing of th
 same sentence, and it took three fixes because the bug had three layers: the
 prompt rule (`b5f409e`), the note-shaped wording (`4cfe788`), and the engine's
 own booking-ask predicate (`4abaf5c`).
+
+### 9. Permissions — the access question, head-to-head
+
+Paraphrase (identical to both): *"quick check - what do you actually have access
+to on my accounts right now, and how do i lock any of it down?"*. The written
+task ends by disconnecting Gmail/Calendar/Drive; that half was **not exercised
+on this account** — disconnecting the founder's live Google connection is not a
+test I run unprompted, and the purge itself was verified on the local stack in an
+earlier session (`purged: ["cached briefs", "sender kinds", "triage feedback"]`,
+DB checked afterwards). What this pass scores is the transparency and revoke
+half, which the anchor's 10 also requires.
+
+**Instinct, verbatim** (inventory): "Right now I have access to: - Google account
+singhsashank08@gmail.com: Gmail, Calendar, Drive, Docs, Sheets, Slides, Tasks,
+and Contacts - One saved card in your secure vault: Hotel booking card ending
+5629 - A cloud-browser profile that can retain website logins you complete.
+Slack, GitHub, Notion, Outlook, Linear, and Link aren't connected." … "To lock it
+down: - Tell me to disconnect Google entirely or just Gmail - Or revoke Instinct
+directly in your Google account permissions - Disconnect Google first, then use
+'Delete external data' in Instinct Workspace if you also want the indexed copies
+removed - Tell me if you want the saved card removed." … "Connected-service data
+is encrypted, indexed, and stored for your use. It isn't used for model
+training."
+
+**Alpha, first pass**: "I could not verify current information because the web
+lookup did not run. Please try again." — **a dropped turn** on a question whose
+entire answer is local state, against a benchmark that lists "never a dropped
+turn" as a rule. Fixed in `709f140`: `needsFresh` excludes an access question,
+so no lookup is forced and the canned failure cannot answer it.
+
+**Alpha, second pass** (paraphrase 2 — "which of my accounts are you connected
+to, and whats the fastest way to cut one off?"): the dropped turn was gone, but
+the answer asserted "I don't have any authenticated connections on file right
+now, no email, calendar, or linked accounts are hooked up for you. So there's
+nothing to cut off, which is the good news." — in a thread where the same
+assistant had listed that user's real mail an hour earlier. The connection list
+was empty while the connectors were perfectly usable (the founder's line reaches
+Gmail and Calendar through a Composio grant that never appears in
+`live.connected`), and an unreadable state was read as a confirmed absence.
+`77c3d96` forbids that claim in words; `3c49668` makes the answer true instead of
+cautious — an access question now carries the tool list the turn can actually
+reach.
+
+**Alpha, third pass** (paraphrase 3 — "remind me what youre hooked into on my
+side, and how i would revoke one"): "…granted full access) / Google Calendar,
+read your schedule and add events / Saved logins in Alpha Vault (used only when
+you ask me to check something behind them) / CampusNet (CSU Ohio) / Kayak / X
+(Twitter) / Not connected: drive, Slack, or anything else, maps, web, and
+weather lookups don't need an account. / To revoke one: 1. Disconnect it right
+here in the app's Settings, kills my access immediately. 2. Revoke at the
+provider itself (Google account security page for Gmail/Calendar, or the site's
+connected apps settings), that's the authoritative cutoff even if something here
+glitched. 3. Delete stored copies, for the vault logins, clear them from the
+Vault; for Google, revoking at the provider ends the token. Anything already
+pulled into the thread stays in the thread history, but no new data flows after
+revocation. / Want me to walk through disconnecting any of them now?"
+
+| # | dimension | paraphrase used | Alpha (was → now) | Instinct | anchor quote | what closed the gap |
+|---|---|---|---|---|---|---|
+| 9 | Permissions | "quick check - what do you actually have access to on my accounts right now, and how do i lock any of it down?" | 8 → 8 (transparency half now verified live: inventory, what is not reachable, three revoke paths incl. the provider-side cutoff, retention line, closing offer; disconnect purge still verified on the local stack only) | 5 published; this answer is the strongest of the three | "10 — granular access, policy honored and disconnect deletion verified" | `709f140` (no forced lookup, no canned failure) · `77c3d96` (an unreadable absence is not an absence) · `3c49668` (answer from the tools that actually work) |
+
+**What Instinct did better, and what got stolen**: the inventory itself — named
+account, named scopes, the card's last four, what is NOT connected, the
+provider-side revoke as the authoritative cutoff, and one line on retention.
+Every one of those is now in Alpha's prompt rule and in its live answer. The one
+place Alpha's answer leads: it separates "disconnect here" from "revoke at the
+provider" by saying which one still works if the other glitches.
