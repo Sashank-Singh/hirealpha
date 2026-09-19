@@ -687,46 +687,42 @@ for await (const incoming of app.messages) intakeMessage(incoming)
 const CATCHUP_WINDOW_MS = Number(process.env.INBOUND_CATCHUP_WINDOW_MS || 20 * 60 * 1000)
 const CATCHUP_MAX = Number(process.env.INBOUND_CATCHUP_MAX || 10)
 
-type PhotonHistory = {
-  messages?: {
-    listRecent?: (options?: { after?: Date; pageSize?: number; isFromMe?: boolean }) => Promise<{
-      messages: readonly {
-        id: string
-        direction?: string
-        content?: { type?: string }
-        sender?: { id?: string }
-        timestamp?: Date | string
-      }[]
-    }>
-  }
+type HistoryMessage = {
+  id: string
+  direction?: string
+  content?: { type?: string }
+  sender?: { id?: string }
+  timestamp?: Date | string
 }
+type RecentLister = (options?: { after?: Date; pageSize?: number; isFromMe?: boolean }) => Promise<{ messages: readonly HistoryMessage[] }>
 
-/** The raw Photon client behind the Spectrum provider. The provider does not
- * document a public accessor, so this tries the handles it has been seen to
- * expose and says so plainly when none is there — a catch-up that silently
- * does nothing would be the same bug it exists to fix. */
-function photonClient(): PhotonHistory | null {
-  for (const holder of [im as unknown, app as unknown]) {
-    const candidate = (holder as { client?: unknown }).client as PhotonHistory | undefined
-    if (candidate?.messages?.listRecent) return candidate
-  }
+/** How to page history. The provider exposes its handles on the object
+ * `imessage(app)` returns — measured in production, they are `user, space,
+ * messages, getMessage, getMembers, getAvatar, getDisplayName, getAttachment`,
+ * and the first version of this looked for a `.client` that does not exist and
+ * logged the list so this could be fixed from the boot log instead of guessed. */
+function photonListRecent(): RecentLister | null {
+  const direct = (im as unknown as { messages?: { listRecent?: unknown } }).messages
+  if (typeof direct?.listRecent === 'function') return (direct.listRecent as RecentLister).bind(direct)
+  const viaClient = (app as unknown as { client?: { messages?: { listRecent?: unknown } } }).client?.messages
+  if (typeof viaClient?.listRecent === 'function') return (viaClient.listRecent as RecentLister).bind(viaClient)
   return null
 }
 
 async function catchUpMissedMessages(): Promise<void> {
-  const client = photonClient()
-  if (!client) {
-    /* Name the handles the provider does expose. The raw client is the one
+  const listRecent = photonListRecent()
+  if (!listRecent) {
+    /* Name the handles the provider does expose. The history handle is the one
      * missing piece, and a warning that says only "unavailable" costs another
      * deploy cycle to chase down. */
     const handles = Object.keys((im ?? {}) as unknown as Record<string, unknown>).join(', ')
     console.warn(
-      `[${agent.id}] inbound catch-up unavailable: no Photon client handle (provider handles: ${handles || 'none'}); a message delivered during a restart will be lost`,
+      `[${agent.id}] inbound catch-up unavailable: no history handle (provider handles: ${handles || 'none'}); a message delivered during a restart will be lost`,
     )
     return
   }
   const after = new Date(Date.now() - CATCHUP_WINDOW_MS)
-  const page = await client.messages!.listRecent!({ after, isFromMe: false, pageSize: 50 })
+  const page = await listRecent({ after, isFromMe: false, pageSize: 50 })
   const rows = (page.messages || []).filter((m) => m.content?.type === 'text' && m.sender?.id)
   if (!rows.length) return
   /* The newest message per sender decides: if the last thing in a thread is
