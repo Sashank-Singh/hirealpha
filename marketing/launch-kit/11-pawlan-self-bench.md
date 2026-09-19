@@ -218,6 +218,38 @@ edits — 8/8 screens under 1000 ms on the production bundle (login 422 ms, home
 358 ms, brief 354 ms), measured after installing the Playwright browser the
 local cache had lost.
 
+## 2026-09-19 — scrape.do: dated hotel rates without a SerpAPI key
+
+The founder supplied a scrape.do token, so the paid-second-source question is
+answered with what he already has instead of a new key.
+
+Tested before wiring. A rendered Google Hotels search for the exact
+check-in/check-out comes back in ~5s, ~2.8MB, from the proxy's own IP
+(`178.20.215.51`, not ours) — and the results travel in the page's own bundle
+as `["Name","<url>","$price",null,<id>,<rating>,…]`. Whether those figures were
+nightly rates or stay totals was settled by fetching one night and two: the
+numbers were identical, so they are **per-night rates** and the ask's ceiling
+can be enforced against them.
+
+Two modules, both with the disciplines this codebase already uses:
+- `deploy/scrapeDo.ts` — daily call budget (default 40) so a loop cannot drain
+  the account, a 6h cache, a two-minute ceiling for a stalled render, and errors
+  that reach the log (a bad or spent token is visible, not silent).
+- `deploy/googleHotels.ts` — the URL for the resolved dates and city, the tuple
+  parser (tested against a captured render, including a repeated property and a
+  missing rating), and a block shaped like trvl's so the model's answer path is
+  unchanged.
+
+Wired as the hotel chain's second source: trvl (free, six booking sources) →
+**Google Hotels via scrape.do** → the tester-gated SerpAPI → the web fallback
+that already refuses to present a listicle as a rate. Verified end to end with
+trvl deliberately disabled: the dim-1 ask returned real per-night rates for the
+exact dates (Pendry $605, St. Regis $1215, Ritz-Carlton $985, Westin $739,
+Sheraton $439, Fairfield $294, AC Hotel $253, Hyatt Centric $364). That test also
+exposed a wording gap — every row was above the ask's $250 ceiling and the block
+listed them without saying so — now fixed to state plainly that nothing came back
+under the ceiling.
+
 ## CURRENT INTERNAL SCORECARD — 2026-09-19 (read this first)
 
 The per-run sections below are history. This block is the single current state;
