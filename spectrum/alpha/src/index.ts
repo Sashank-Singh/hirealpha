@@ -668,10 +668,17 @@ function intakeMessage(incoming: Incoming): void {
 /* Started BEFORE the stream loop, which never returns: anything after
  * `for await` would be dead code, and the first version of this shipped exactly
  * that way — the boot log proved it (health and "listening as", no catch-up
- * line). The stream buffers while this runs, so a live message is not lost.
- * The two constants above must stay above this line as well: with `const`
- * declarations below it, boot threw "Cannot access 'CATCHUP_WINDOW_MS' before
- * initialization" from the temporal dead zone. */
+ * line). The stream buffers while this runs, so a live message is not lost. */
+/* The catch-up's own constants have to be initialized here, above the call and
+ * above the `for await`: that loop suspends module evaluation for the life of
+ * the process, so anything declared after it is never initialized at all, and
+ * the catch-up (which runs concurrently) threw "Cannot access
+ * 'CATCHUP_WINDOW_MS' before initialization" on every boot — reproduced in the
+ * deploy log on 2026-09-19, which is the one thing this whole block exists to
+ * prevent. */
+const CATCHUP_WINDOW_MS = Number(process.env.INBOUND_CATCHUP_WINDOW_MS || 20 * 60 * 1000)
+const CATCHUP_MAX = Number(process.env.INBOUND_CATCHUP_MAX || 10)
+
 void catchUpMissedMessages().catch((err) => console.warn(`[${agent.id}] inbound catch-up failed:`, err))
 
 for await (const incoming of app.messages) intakeMessage(incoming)
@@ -688,8 +695,6 @@ for await (const incoming of app.messages) intakeMessage(incoming)
  * a message the stream already handled is claimed and skipped, so the worst
  * case of a race is one duplicate attempt, and the common case of a restart is
  * a message that gets its answer instead of vanishing. */
-const CATCHUP_WINDOW_MS = Number(process.env.INBOUND_CATCHUP_WINDOW_MS || 20 * 60 * 1000)
-const CATCHUP_MAX = Number(process.env.INBOUND_CATCHUP_MAX || 10)
 
 type HistoryMessage = {
   id: string
