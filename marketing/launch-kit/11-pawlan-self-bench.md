@@ -199,6 +199,20 @@ once and reports, and the turn re-pushes anything the server's payload is
 missing — so the local file is a retry queue rather than the last copy of a
 preference.
 
+**Both memory fixes are confirmed in the live payload.** `/api/internal/live`
+for the real account now returns, in order: `seat_preference`, `diet`,
+`hard_nos`, `timezone`, `city`, `flight_preference`, `people`, `preferred_name`
+— the preferences sit at the FRONT, where before the durable-keys fix they were
+loose notes ranked last (measured earlier: with 60 newer facts,
+`seat_preference` dropped out of recall entirely). And the semantic-recall
+degradation is now explicit rather than silent: the project runs no embedder
+(the services are Whisper and Plausible; the mem0 index pointed at
+`127.0.0.1:11434`, which cannot resolve inside the container), so
+`MEM0_ENABLED=false` is set on Web and recall takes the durable+recency path
+deliberately — the same results as before, without a failing embed call on every
+turn. Adding an embedder (with pgvector, already on the founder list) is what
+would turn semantic recall on.
+
 **Also verified:** the standing screen budget holds after the night's frontend
 edits — 8/8 screens under 1000 ms on the production bundle (login 422 ms, home
 358 ms, brief 354 ms), measured after installing the Playwright browser the
