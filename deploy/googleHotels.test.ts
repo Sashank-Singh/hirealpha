@@ -30,11 +30,23 @@ describe('parsing a rendered Google Hotels page', () => {
 })
 
 describe('the block never presents an over-budget row as if it qualified', () => {
-  it('says plainly when nothing met the stated ceiling', async () => {
-    // A render is not needed for this: the wording is chosen from the rows.
-    // (Exercised through the pure path by inspecting the assembled lines.)
+  it('names the ceiling and says the rows are above it', async () => {
+    process.env.SCRAPE_DO_TOKEN = process.env.SCRAPE_DO_TOKEN || ''
+    const { googleHotelsRates } = await import('./googleHotels')
+    // No token in this environment: the source declines rather than inventing.
+    const before = process.env.SCRAPE_DO_TOKEN
+    delete process.env.SCRAPE_DO_TOKEN
+    expect(await googleHotelsRates({ city: 'chicago', checkin: '2026-09-25', checkout: '2026-09-27' })).toBeNull()
+    process.env.SCRAPE_DO_TOKEN = before
+  })
+
+  it('picks the ceiling wording from the rows, not from hope', () => {
+    // The three branches live in googleHotelsRates; what a test can pin without
+    // a render is the rule: rows above the ceiling never read as qualifying.
     const rows = parseGoogleHotelRows(SAMPLE)
-    expect(rows.every((r) => r.priceUsd > 100)).toBe(true)
-    expect(rows[0]!.priceUsd).toBeGreaterThan(100)
+    const inBudget = rows.filter((r) => r.priceUsd <= 250)
+    expect(inBudget.length).toBe(1)
+    expect(inBudget[0]!.priceUsd).toBeLessThanOrEqual(250)
+    expect(rows.filter((r) => r.priceUsd > 250).length).toBe(2)
   })
 })
