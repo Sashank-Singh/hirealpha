@@ -747,6 +747,15 @@ recorded as a floor.
 
 - Not reachable: no Amazon credential or saved address exists for the test
   number, and the vault gate refuses to invent one. Advice only.
+- The plumbing behind it was verified against production: `/api/vault` returns
+  the account's real saved entries (kayak.com and the campus portal) with the
+  username masked (`si•••@gmail.com`) and the secret masked, `backed:
+  "hirealpha"`, and the same call without a session is a 401. So the vault
+  stores and lists credentials correctly — what this dimension needs is one
+  more entry, not another layer of code. (The write route was deliberately NOT
+  exercised: saving a credential also texts "X is connected" and resumes any
+  waiting browser job, which is not something to trigger on someone's phone as
+  a test.)
 
 ### 5. Email — 3
 
