@@ -759,6 +759,19 @@ recorded as a floor.
 
 ### 5. Email — 3
 
+- **A deeper defect was found and fixed while exercising this dimension's draft
+  leg** (`9a229bc`). A real drafting turn — "find the most recent email that
+  needs a reply, draft it in my tone, show me before sending" — produced a
+  genuinely good draft in the founder's voice and then said "The draft save
+  didn't go through on Gmail's end". Reproduced with the bot's own call:
+  `POST /api/internal/propose {kind:"reply"}` answered "Could not load that
+  mail to reply." while the SAME message id opened fine in the reader. Cause:
+  `gmailReplyMeta` was Google-token-only, and this mailbox reads through
+  Composio (`connectors/status: {"google":false,"composio":true}`) — so every
+  reply draft on such an account failed, which is also why no review card
+  appeared. It now falls back to the connector for the one header a reply needs,
+  the same way the reader and the draft-save path already do. **Verified after
+  the deploy: `{"ok":true,"id":"eb999d1e-…","kind":"email"}`.**
 - Reply to “Sam's Thursday email”: the mailbox search ran and answered honestly
   (“nothing matching that search in your inbox at all … give me Sam's last name
   or what the email was about”). No Sam fixture exists in the connected
