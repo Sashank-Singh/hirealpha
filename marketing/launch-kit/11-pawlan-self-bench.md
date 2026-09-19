@@ -62,6 +62,43 @@ loses the occurrence; `calendar_defense` and `handoff` loops are armed with no
 handler) — recorded here as the next audit's starting list rather than quietly
 dropped.
 
+## NIGHT OF 2026-09-19, PART TWO — the brief and the builds (all fixed, `43954c7`)
+
+Two more agents, one per chain: the digest pipeline and the workshop artifact
+lifecycle. The two findings that would have been visible:
+
+**The brief could not read a Composio calendar and called the day quiet.**
+`todayMeetsCache` waits 8 s; the connector calendar call used a 15 s default, so
+the read could never land in time on an account that reads through Composio —
+which is the account in question. The timeout then reported `connected: true,
+meets: []`, and the brief led with "A quiet day so far" (or asked a connected
+user to "Connect Calendar in Settings"). The calendar result now carries the
+third state — read-failed — the connector call takes the caller's budget, and
+the lead and the card both say the check did not go through. A failed digest
+build also stopped texting "your brief is ready" over an empty message.
+
+**Keeping an app and then changing it lost the new version.** Iterate created a
+fresh row hardcoded `delivered` on a 7-day clock, so an update to a KEPT app was
+the version that got swept while the pre-change copy survived. Updates inherit
+`kept` now.
+
+Also fixed from the same audits: `/b/` never checked `expires_at` and the sweep
+only ran at boot (the "runs hourly" comment was never implemented), so expired
+builds kept serving; the sweep's DELETE now repeats its state filter so a racing
+`keep` cannot lose the row; `keep` on an unknown id no longer answers "saved
+permanently"; a bare "delete it" about a todo or reminder no longer destroys the
+latest delivered app (the toss branch had no build-context guard); and
+`buildDigestBriefing` got the request timeout it was missing.
+
+Still open from these two audits, listed rather than dropped: the brief reports
+mail as absent when Gmail fails entirely (no notice anywhere); a judge failure
+silently drops all ranking and discards a same-day cache row; "Try again" does
+not refresh the judgment so newly arrived mail can never reach Needs Reply;
+`hire_brief_cache` serves the previous build while the new one completes with no
+signal the client consumes; the iterate path cannot report a failure it
+silently swallows; and keep/toss/iterate still act on the newest delivered row
+because no caller passes an artifactId.
+
 ## CURRENT INTERNAL SCORECARD — 2026-09-19 (read this first)
 
 The per-run sections below are history. This block is the single current state;
