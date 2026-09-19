@@ -696,21 +696,44 @@ type HistoryMessage = {
 }
 type RecentLister = (options?: { after?: Date; pageSize?: number; isFromMe?: boolean }) => Promise<{ messages: readonly HistoryMessage[] }>
 
-/** How to page history. The provider exposes its handles on the object
- * `imessage(app)` returns — measured in production, they are `user, space,
- * messages, getMessage, getMembers, getAvatar, getDisplayName, getAttachment`,
- * and the first version of this looked for a `.client` that does not exist and
- * logged the list so this could be fixed from the boot log instead of guessed. */
-function photonListRecent(): RecentLister | null {
+/** How to page history. The provider exposes no client and its `messages`
+ * handle is the live stream itself (its only own key is `close` — measured in
+ * production), so the history call is built here the same way the provider
+ * builds it: the middleware address from the environment (default
+ * `imessage.spectrum.photon.codes:443`) and a bearer token issued from the
+ * project credentials the bot already carries. Everything is guarded — if the
+ * token shape ever changes, this degrades to the warning instead of throwing. */
+async function photonListRecent(): Promise<RecentLister | null> {
   const direct = (im as unknown as { messages?: { listRecent?: unknown } }).messages
   if (typeof direct?.listRecent === 'function') return (direct.listRecent as RecentLister).bind(direct)
   const viaClient = (app as unknown as { client?: { messages?: { listRecent?: unknown } } }).client?.messages
   if (typeof viaClient?.listRecent === 'function') return (viaClient.listRecent as RecentLister).bind(viaClient)
-  return null
+  try {
+    const core = (await import('@spectrum-ts/core')) as unknown as {
+      cloud?: { issueImessageTokens?: (id: string, secret: string) => Promise<Record<string, unknown>> }
+    }
+    const issue = core.cloud?.issueImessageTokens
+    const projectId = process.env.PROJECT_ID
+    const projectSecret = process.env.PROJECT_SECRET
+    if (!issue || !projectId || !projectSecret) return null
+    const tokens = await issue(projectId, projectSecret)
+    const token = typeof tokens.token === 'string' ? tokens.token : typeof tokens.initialToken === 'string' ? tokens.initialToken : ''
+    if (!token) return null
+    const sdk = (await import('@photon-ai/advanced-imessage')) as unknown as {
+      createHttpClient?: (options: { address: string; token: string }) => { messages: { listRecent: RecentLister } }
+    }
+    const make = sdk.createHttpClient
+    if (!make) return null
+    const client = make({ address: process.env.SPECTRUM_IMESSAGE_ADDRESS ?? 'imessage.spectrum.photon.codes:443', token })
+    return client.messages.listRecent.bind(client.messages) as RecentLister
+  } catch (err) {
+    console.warn(`[${agent.id}] catch-up could not build a history client:`, err)
+    return null
+  }
 }
 
 async function catchUpMissedMessages(): Promise<void> {
-  const listRecent = photonListRecent()
+  const listRecent = await photonListRecent()
   if (!listRecent) {
     /* Name the handles the provider does expose. The history handle is the one
      * missing piece, and a warning that says only "unavailable" costs another
