@@ -1028,7 +1028,15 @@ export const LOOP_HANDLERS: Record<string, LoopHandler> = {
             persona: task.persona || 'friend',
             kind: 'browser',
             url: payload.url,
-            body: `${String(payload.goal || '')} This is an automated watch check with mock/test data only: never enter real personal details, never complete a payment.`,
+            /* These are DIRECTIVES to the run, not a description of it. The
+             * earlier wording ("This is an automated watch check with mock/test
+             * data only") was read back to the user verbatim — live,
+             * 2026-09-19, a PS5 price watch reported itself as "an automated
+             * watch check with mock/test", attached a 404 screenshot, and asked
+             * the user to save a PlayStation account in the Vault before a
+             * public price page would be checked. A page that cannot be read
+             * plainly is a failed check, not a reason to ask for a login. */
+            body: `${String(payload.goal || '')}\n\nAutomated price/availability check — rules for this run: read the public page only. Do not sign in, do not enter credentials or personal details, do not buy anything. If the page cannot be read without an account, report that the check could not read the page and stop; never ask the user for a login for a public page. Report what the page actually shows, with the price and the date it was read.`,
             autoApprove: true,
           }),
           signal: AbortSignal.timeout(20_000),
