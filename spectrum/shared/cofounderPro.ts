@@ -335,10 +335,15 @@ export function startCofounderLoop(opts: {
   pollMs?: number
   /** Best effort fire hour in local time. */
   startHour?: number
+  /** Optional known user phone. When absent the loop asks the server which
+   * users hired this persona and runs one digest per user. */
+  phone?: string
   /** Injectables for tests. */
   now?: () => Date
-  fetchDigest?: (persona: string) => Promise<CofounderDigest | null>
+  fetchDigest?: (persona: string, phone?: string) => Promise<CofounderDigest | null>
   checkKillSwitch?: (phone: string) => Promise<boolean>
+  /** Injectable user discovery, for tests. */
+  fetchUsers?: () => Promise<string[]>
 }) {
   const pollMs = opts.pollMs ?? 60 * 60 * 1000
   const startHour = opts.startHour ?? 9
@@ -351,10 +356,13 @@ export function startCofounderLoop(opts: {
   }
   const fetchDigest =
     opts.fetchDigest ||
-    (async (persona: string): Promise<CofounderDigest | null> => {
+    (async (persona: string, phone?: string): Promise<CofounderDigest | null> => {
       try {
+        const q = new URLSearchParams({ persona })
+        const target = phone || opts.phone
+        if (target) q.set('phone', target)
         const res = await timedFetch(
-          `${base}/api/internal/cofounder/digest?persona=${encodeURIComponent(persona)}`,
+          `${base}/api/internal/cofounder/digest?${q.toString()}`,
           { headers: authHeaders() },
           10000,
         )
@@ -366,26 +374,46 @@ export function startCofounderLoop(opts: {
       }
     })
 
+  /* Same fix as the coworker loop: the digest route requires a phone and this
+   * loop was started without one, so it 400'd every hour and never fired. With
+   * no phone configured, walk the users who hired this persona. */
+  const fetchPersonaUsers = opts.fetchUsers || (async (): Promise<string[]> => {
+    try {
+      const res = await fetch(`${base}/api/internal/persona/users?persona=${encodeURIComponent(opts.persona)}`, {
+        headers: authHeaders(),
+      })
+      if (!res.ok) return []
+      const data = (await res.json()) as { users?: Array<{ phone?: string }> }
+      return (data.users || []).map((u) => String(u.phone || '')).filter(Boolean)
+    } catch (err) {
+      console.warn(`[cofounderPro:${opts.persona}] user list failed`, err)
+      return []
+    }
+  })
+
   const tick = async () => {
     const now = nowFn()
-    if (!canFireDaily(lastFiredByPersona.get(opts.persona) || null, now, startHour)) return
-    const digest = await fetchDigest(opts.persona)
-    const pick = pickDailyItem(digest, now)
-    // Nothing to say (or the server blipped): leave the day unfired so a
-    // later hour can retry with a healthy digest.
-    if (!pick) return
-    const phone = digest?.phone || ''
-    if (!phone) return
-    if (await checkKillSwitch(phone)) {
-      // Armed: burn the day's slot so the loop never spams once disarmed.
-      lastFiredByPersona.set(opts.persona, dayKey(now))
-      return
-    }
-    try {
-      await opts.send(phone, buildDailyText(pick, now))
-      lastFiredByPersona.set(opts.persona, dayKey(now))
-    } catch (err) {
-      console.warn(`[cofounderPro:${opts.persona}] daily send failed`, err)
+    const phones = opts.phone ? [opts.phone] : await fetchPersonaUsers()
+    if (!phones.length) return
+    for (const phone of phones) {
+      const slot = `${opts.persona}:${phone}`
+      if (!canFireDaily(lastFiredByPersona.get(slot) || null, now, startHour)) continue
+      const digest = await fetchDigest(opts.persona, phone)
+      const pick = pickDailyItem(digest, now)
+      // Nothing to say (or the server blipped): leave the day unfired so a
+      // later hour can retry with a healthy digest.
+      if (!pick) continue
+      if (await checkKillSwitch(phone)) {
+        // Armed: burn the day's slot so the loop never spams once disarmed.
+        lastFiredByPersona.set(slot, dayKey(now))
+        continue
+      }
+      try {
+        await opts.send(phone, buildDailyText(pick, now))
+        lastFiredByPersona.set(slot, dayKey(now))
+      } catch (err) {
+        console.warn(`[cofounderPro:${opts.persona}] daily send failed`, err)
+      }
     }
   }
 

@@ -186,8 +186,10 @@ export function startCoworkerLoop(opts: {
   phone?: string
   /** Injectables for tests. */
   now?: () => Date
-  fetchDigest?: (persona: string) => Promise<CoworkerDigest | null>
+  fetchDigest?: (persona: string, phone?: string) => Promise<CoworkerDigest | null>
   checkKillSwitch?: (phone: string) => Promise<boolean>
+  /** Injectable user discovery, for tests. */
+  fetchUsers?: () => Promise<string[]>
 }) {
   const pollMs = opts.pollMs ?? 60 * 60 * 1000
   const startHour = opts.startHour ?? 9
@@ -204,10 +206,11 @@ export function startCoworkerLoop(opts: {
   })
   const fetchDigest =
     opts.fetchDigest ||
-    (async (persona: string): Promise<CoworkerDigest | null> => {
+    (async (persona: string, phone?: string): Promise<CoworkerDigest | null> => {
       try {
         const q = new URLSearchParams({ persona })
-        if (opts.phone) q.set('phone', opts.phone)
+        const target = phone || opts.phone
+        if (target) q.set('phone', target)
         const res = await fetch(`${base}/api/internal/coworker/digest?${q.toString()}`, {
           headers: authHeaders(),
         })
@@ -219,26 +222,49 @@ export function startCoworkerLoop(opts: {
       }
     })
 
+  /* Who to send to. The digest route requires a phone and the bots used to
+   * start this loop without one, so every poll was a 400 and the daily digest
+   * never fired for anybody. With no phone configured, ask the server which
+   * users hired this persona and run one digest per user. */
+  const fetchPersonaUsers = opts.fetchUsers || (async (): Promise<string[]> => {
+    try {
+      const res = await fetch(`${base}/api/internal/persona/users?persona=${encodeURIComponent(opts.persona)}`, {
+        headers: authHeaders(),
+      })
+      if (!res.ok) return []
+      const data = (await res.json()) as { users?: Array<{ phone?: string }> }
+      return (data.users || []).map((u) => String(u.phone || '')).filter(Boolean)
+    } catch (err) {
+      console.warn(`[coworkerPro:${opts.persona}] user list failed`, err)
+      return []
+    }
+  })
+
   const tick = async () => {
     const now = nowFn()
-    if (!canFireDaily(lastFiredByPersona.get(opts.persona) || null, now, startHour)) return
-    const digest = await fetchDigest(opts.persona)
-    const pick = pickCoworkerItem(digest, now)
-    // Nothing to say (or the server blipped): leave the day unfired so a
-    // later hour can retry with a healthy digest.
-    if (!pick) return
-    const phone = opts.phone || digest?.phone || ''
-    if (!phone) return
-    if (await checkKillSwitch(phone)) {
-      // Armed: burn the day's slot so the loop never spams once disarmed.
-      lastFiredByPersona.set(opts.persona, dayKey(now))
-      return
-    }
-    try {
-      await opts.send(phone, buildCoworkerText(pick, now))
-      lastFiredByPersona.set(opts.persona, dayKey(now))
-    } catch (err) {
-      console.warn(`[coworkerPro:${opts.persona}] daily send failed`, err)
+    const phones = opts.phone ? [opts.phone] : await fetchPersonaUsers()
+    if (!phones.length) return
+    for (const phone of phones) {
+      // Per-user day slot: one digest per person per day, even though the loop
+      // now walks several people.
+      const slot = `${opts.persona}:${phone}`
+      if (!canFireDaily(lastFiredByPersona.get(slot) || null, now, startHour)) continue
+      const digest = await fetchDigest(opts.persona, phone)
+      const pick = pickCoworkerItem(digest, now)
+      // Nothing to say (or the server blipped): leave the day unfired so a
+      // later hour can retry with a healthy digest.
+      if (!pick) continue
+      if (await checkKillSwitch(phone)) {
+        // Armed: burn the day's slot so the loop never spams once disarmed.
+        lastFiredByPersona.set(slot, dayKey(now))
+        continue
+      }
+      try {
+        await opts.send(phone, buildCoworkerText(pick, now))
+        lastFiredByPersona.set(slot, dayKey(now))
+      } catch (err) {
+        console.warn(`[coworkerPro:${opts.persona}] daily send failed`, err)
+      }
     }
   }
 

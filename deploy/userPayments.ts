@@ -351,7 +351,10 @@ export async function queuePaidPurchaseFinalization(
     SELECT a.id, a.user_id, a.amount_cents, a.merchant, a.purpose, a.payment_intent_id,
       a.finalization_job_id, u.phone_e164
     FROM hire_spend_approvals a
-    JOIN hire_users u ON u.id = a.user_id
+    /* hire_users.id is TEXT and hire_spend_approvals.user_id is UUID —
+     * without the cast this join is a Postgres 42883 on the webhook path, so
+     * every payment_intent.succeeded retried and 500'd. */
+    JOIN hire_users u ON u.id = a.user_id::text
     WHERE a.id = ${requestId} AND a.user_id = ${metadataUserId}
     LIMIT 1
   `) as Array<{

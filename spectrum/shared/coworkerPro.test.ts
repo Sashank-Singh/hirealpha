@@ -259,6 +259,7 @@ describe('daily fire once logic', () => {
     }
     const sent: string[] = []
     const loop = startCoworkerLoop({
+      phone: '+15550009999',
       persona: 'coworker-test',
       send: async (_phone, text) => {
         sent.push(text)
@@ -295,6 +296,7 @@ describe('daily fire once logic', () => {
     delete process.env.HIREALPHA_API_URL
     const sent: string[] = []
     const loop = startCoworkerLoop({
+      phone: '+15550009999',
       persona: 'coworker-off',
       send: async (_phone, text) => {
         sent.push(text)
@@ -317,6 +319,7 @@ describe('daily fire once logic', () => {
     const sent: string[] = []
     let healthy = false
     const loop = startCoworkerLoop({
+      phone: '+15550009999',
       persona: 'coworker-blip',
       send: async (_phone, text) => {
         sent.push(text)
@@ -338,7 +341,35 @@ describe('daily fire once logic', () => {
     if (savedKey) process.env.HIREALPHA_INTERNAL_KEY = savedKey
     else delete process.env.HIREALPHA_INTERNAL_KEY
   })
-  it('stays silent when no phone is known, and the day stays unfired', async () => {
+  it('runs one digest per user when the loop was started without a phone', async () => {
+    resetCoworkerLoopState('coworker-multi')
+    const savedUrl = process.env.HIREALPHA_API_URL
+    const savedKey = process.env.HIREALPHA_INTERNAL_KEY
+    process.env.HIREALPHA_API_URL = 'http://unused.local'
+    process.env.HIREALPHA_INTERNAL_KEY = 'k'
+    const sent: string[] = []
+    const seen: string[] = []
+    const loop = startCoworkerLoop({
+      persona: 'coworker-multi',
+      fetchUsers: async () => ['+15550001111', '+15550002222'],
+      send: async (phone, text) => {
+        sent.push(`${phone}:${text}`)
+      },
+      pollMs: 20,
+      fetchDigest: async (_persona, phone) => {
+        seen.push(String(phone))
+        return { phone, draftsWaiting: 1 }
+      },
+      checkKillSwitch: async () => false,
+      now: () => new Date('2026-08-20T10:00:00'),
+    })
+    await Bun.sleep(80)
+    loop.stop()
+    expect(seen.sort()).toEqual(['+15550001111', '+15550002222'])
+    expect(sent.length).toBe(2)
+  })
+
+  it('stays silent when the persona has no users, and the day stays unfired', async () => {
     resetCoworkerLoopState('coworker-nophone')
     const savedUrl = process.env.HIREALPHA_API_URL
     const savedKey = process.env.HIREALPHA_INTERNAL_KEY
@@ -347,6 +378,9 @@ describe('daily fire once logic', () => {
     const sent: string[] = []
     const loop = startCoworkerLoop({
       persona: 'coworker-nophone',
+      // No configured phone and nobody hired this persona: the loop must stay
+      // quiet rather than invent a recipient.
+      fetchUsers: async () => [],
       send: async (_phone, text) => {
         sent.push(text)
       },

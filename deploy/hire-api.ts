@@ -17119,6 +17119,25 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
   }
 
   /* Coworker digest: the shared staleness pass plus the live day view. */
+  /* Who this persona serves. The Pro daily loops poll a per-user digest, but
+   * the bots started them without a phone and the digest route requires one —
+   * so every poll returned 400 and the coworker/cofounder daily digest had
+   * never fired for anyone. A loop now asks for its users first. */
+  if (path === '/api/internal/persona/users' && req.method === 'GET') {
+    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
+    const persona = url.searchParams.get('persona') || ''
+    if (!isPersona(persona)) return json({ error: 'persona required' }, 400)
+    const rows = (await sql`
+      SELECT u.phone_e164 AS phone, u.timezone
+      FROM hire_roster r
+      JOIN hire_users u ON u.id = r.user_id
+      WHERE r.persona = ${persona} AND u.phone_e164 IS NOT NULL AND u.phone_e164 <> ''
+      ORDER BY u.created_at ASC
+      LIMIT 500
+    `) as Array<{ phone: string; timezone: string | null }>
+    return json({ users: rows.map((r) => ({ phone: r.phone, timezone: r.timezone || 'America/Los_Angeles' })) })
+  }
+
   if (path === '/api/internal/coworker/digest' && req.method === 'GET') {
     if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
     const phone = normalizePhone(url.searchParams.get('phone') || '')

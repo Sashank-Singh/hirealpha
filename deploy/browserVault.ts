@@ -882,6 +882,11 @@ export async function pushBrowserResultLoop(
     input.insights.startsWith('O connected this.') ||
     input.insights.startsWith('Alpha paused') ||
     input.insights.startsWith('Checkout is staged') ||
+    // The receipt line carries the order number at the END of the text, and the
+    // non-direct branch slices to 300 chars with a ~150-char prefix — measured
+    // as the way a real order number got truncated out of the only message that
+    // carries it.
+    input.insights.startsWith('Order submitted after payment') ||
     input.insights.startsWith('Your login')
   const label = (input.label || '').replace(/\s+/g, ' ').trim().slice(0, 90)
   const text = isDirect

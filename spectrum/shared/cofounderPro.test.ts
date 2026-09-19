@@ -223,6 +223,7 @@ describe('daily fire once logic', () => {
     }
     const sent: string[] = []
     const loop = startCofounderLoop({
+      phone: '+15550009999',
       persona: 'cofounder-test',
       send: async (_phone, text) => {
         sent.push(text)
@@ -259,6 +260,7 @@ describe('daily fire once logic', () => {
     delete process.env.HIREALPHA_API_URL
     const sent: string[] = []
     const loop = startCofounderLoop({
+      phone: '+15550009999',
       persona: 'cofounder-off',
       send: async (_phone, text) => {
         sent.push(text)
@@ -281,6 +283,7 @@ describe('daily fire once logic', () => {
     const sent: string[] = []
     let healthy = false
     const loop = startCofounderLoop({
+      phone: '+15550009999',
       persona: 'cofounder-blip',
       send: async (_phone, text) => {
         sent.push(text)

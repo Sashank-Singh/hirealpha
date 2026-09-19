@@ -1033,16 +1033,38 @@ export async function executeKernelAction(
         ).catch(() => '')
         const visibleTotal = pageShowsExactTotal(livePageText, task.paymentAmountCents || 0)
         if (!visibleTotal) return { ok: false, error: 'total not verified on the page' }
-        return await browser.run<{ ok: boolean; error?: string }>(
+        return await browser.run<{ ok: boolean; error?: string; filled?: string[] }>(
+          /* The credential is {number, cvc, expMonth, expYear} (linkWallet's
+           * retrieveLinkCard) — this script used to read `values.expiry`, which
+           * is not a field on it, so the expiry fill passed undefined and threw
+           * AFTER Link approval: the order was never placed and the user got
+           * "Payment was approved, but the merchant order was not confirmed".
+           * The expiry is derived here, both shapes accepted.
+           *
+           * The filled list is returned because the old version reported ok:true
+           * when it matched NO field at all (an iframed Stripe form), so the run
+           * submitted an empty form and blamed the merchant. A card number the
+           * page never accepted is a failure, and it says so. */
           `const values = ${JSON.stringify(card)};
-           const set = async (selector, value) => {
+           const expiry = values.expiry || (values.expMonth
+             ? values.expMonth + '/' + String(values.expYear || '').slice(-2)
+             : '');
+           const filled = [];
+           const set = async (name, selector, value) => {
+             if (!value) return;
              const loc = page.locator(selector).first();
-             if (await loc.count().catch(() => 0)) await loc.fill(value, { timeout: 8000 });
+             if (await loc.count().catch(() => 0)) {
+               await loc.fill(String(value), { timeout: 8000 });
+               filled.push(name);
+             }
            };
-           await set('input[autocomplete="cc-number"],input[name*="cardnumber" i]', values.number);
-           await set('input[autocomplete="cc-exp"],input[name*="expiry" i],input[name*="expiration" i]', values.expiry);
-           await set('input[autocomplete="cc-csc"],input[name*="cvc" i],input[name*="cvv" i]', values.cvc);
-           return { ok: true };`,
+           await set('number', 'input[autocomplete="cc-number"],input[name*="cardnumber" i]', values.number);
+           await set('expiry', 'input[autocomplete="cc-exp"],input[name*="expiry" i],input[name*="expiration" i]', expiry);
+           await set('cvc', 'input[autocomplete="cc-csc"],input[name*="cvc" i],input[name*="cvv" i]', values.cvc);
+           if (!filled.includes('number')) {
+             return { ok: false, error: 'the checkout did not expose a card number field (an iframed payment form cannot be filled here)', filled };
+           }
+           return { ok: true, filled };`,
           45_000,
         ).catch((err) => ({ ok: false, error: err instanceof Error ? err.message : String(err) }))
       }
