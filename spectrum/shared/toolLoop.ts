@@ -200,6 +200,19 @@ export function isSchedulingAsk(text: string): boolean {
  * a sandbox session, an ack, a live link, a card, a result and a screenshot to
  * answer what a free unlimited search answers in seconds.
  */
+/** Does this staged run claim to be making or editing a picture? Reads the
+ * GOAL the model wrote, not the user's words — the same shape as the other
+ * draft validators: the model may not spend a sandbox session inventing an
+ * image site, because no image site can do the job the capability does. */
+export function draftLooksLikeImageWork(draft: { goal?: string; portal?: string }): boolean {
+  const text = `${draft.goal || ''} ${draft.portal || ''}`.toLowerCase()
+  if (!text.trim()) return false
+  const imageWord = /\b(?:image|images|picture|photo|illustration|artwork|logo|poster|portrait|drawing|render)\b/.test(text)
+  const makeWord = /\b(?:generate|create|make|draw|render|design|edit|retouch|recolou?r|blue|colou?rize)\b/.test(text)
+  const imageSite = /\b(?:image ?creator|midjourney|dall ?e|canva|figma|photoshop|pixlr|remove\.?bg|leonardo|nightcafe)\b/.test(text)
+  return imageSite || (imageWord && makeWord)
+}
+
 export function isLookupOnlyAsk(text: string): boolean {
   const ask = String(text || '')
   if (!ask) return false
@@ -1056,11 +1069,19 @@ Reactions are optional and usually absent. You may add "reaction":"<emoji>" to a
       const lookupProblem = draft.type === 'browser' && isLookupOnlyAsk(lastUserAsk)
         ? 'This ask is a lookup: search it and answer. Stage a run only when the user asks you to act (book, order, reserve, submit, sign in).'
         : null
+      /* A browser cannot make a picture. Live failure this blocks: "Make the
+       * dog blue" staged a run whose goal invented a site ("The run's live on
+       * Bing Image Creator now") and reported a result that never existed —
+       * the same ask also produced a real image and two refusals, four answers
+       * for one message. Image asks belong to the `image` capability. */
+      const imageProblem = draft.type === 'browser' && draftLooksLikeImageWork(draft)
+        ? 'A browser run cannot generate or edit an image. Call the image capability with the full description instead, and never name an image site as the place a run is working.'
+        : null
       const purchaseProblem = draft.type === 'purchase'
         ? validatePurchase(draft)
         : draft.type === 'browser' && buyAsk && !isMerchantPortal(draft.portal)
           ? 'A purchase browser run must target the real merchant or product page, not a directory or search-results page.'
-          : lookupProblem
+          : imageProblem || lookupProblem
       if (purchaseProblem) {
         result = { status: 'blocked', message: `${purchaseProblem} Do not retry an invalid action; fix it from the named merchant or tell the user plainly.` }
       } else if ((draft.type === 'mail' && (!/^[^\s@]+[^\s@]*@[^\s@]+\.[^\s@]+$/.test(draft.to) || !draft.body.trim())) ||

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import { isLookupOnlyAsk, isSchedulingAsk } from './toolLoop'
+import { draftLooksLikeImageWork, isLookupOnlyAsk, isSchedulingAsk } from './toolLoop'
 import { mentionsDigest, digestControlIntent } from './reminders'
 
 /* The guard is inside runToolConversation; this pins the shape it must reject
@@ -113,5 +113,22 @@ describe('digest phrasing reaches the deterministic path', () => {
   it('is not fooled by unrelated text', () => {
     expect(mentionsDigest('find a coffee shop near the Loop')).toBe(false)
     expect(mentionsDigest('the email mentioned a brief delay')).toBe(false)
+  })
+})
+
+describe('a picture is not a browser job', () => {
+  /* Live: one "Make the dog blue" produced four answers — a real image, an
+   * eager run on an invented site ("The run's live on Bing Image Creator
+   * now"), and two refusals. The run is what this blocks. */
+  it('rejects a staged run that claims to be making a picture', () => {
+    expect(draftLooksLikeImageWork({ goal: 'Generate a blue dog image for the birthday card', portal: 'https://www.bing.com/images/create' })).toBe(true)
+    expect(draftLooksLikeImageWork({ goal: 'edit the image: make the dog blue' })).toBe(true)
+    expect(draftLooksLikeImageWork({ goal: 'sign in to Canva and design a poster' })).toBe(true)
+  })
+
+  it('leaves real browsing alone', () => {
+    expect(draftLooksLikeImageWork({ goal: 'Book the Palmer House for Sep 25 to Sep 26', portal: 'https://www.kayak.com' })).toBe(false)
+    expect(draftLooksLikeImageWork({ goal: 'Reorder two bags of the same coffee beans', portal: 'https://www.amazon.com' })).toBe(false)
+    expect(draftLooksLikeImageWork({ goal: '' })).toBe(false)
   })
 })

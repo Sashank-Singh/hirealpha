@@ -38,3 +38,16 @@ describe('generation', () => {
     expect(image?.dataUrl.startsWith('data:image/jpeg;base64,')).toBe(true)
   })
 })
+
+describe('pictures made through the tool engine travel out with the turn', () => {
+  it('hands the bytes to the turn once, then forgets them', async () => {
+    const { pushTurnImage, takeTurnImages } = await import('../spectrum/shared/imageRequest')
+    const image = { dataUrl: 'data:image/jpeg;base64,AA==', mimeType: 'image/jpeg' }
+    pushTurnImage('+15550001111', image)
+    expect(takeTurnImages('+15550001111')).toEqual([image])
+    // Drained: a later turn cannot re-send the previous picture.
+    expect(takeTurnImages('+15550001111')).toEqual([])
+    // And another thread's turn is unaffected.
+    expect(takeTurnImages('+15550002222')).toEqual([])
+  })
+})

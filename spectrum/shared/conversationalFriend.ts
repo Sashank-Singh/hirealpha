@@ -1,7 +1,7 @@
 import type { DeliveryHooks } from './progressiveDelivery'
 import { sanitizeOutbound } from './runHireTurn'
 import { classifyTurnStrict, ClassifierUnavailableError, logsOf } from './turnIntent'
-import { generateTurnImage, type TurnImage } from './imageRequest'
+import { generateTurnImage, pushTurnImage, type TurnImage } from './imageRequest'
 import { writeToWorkspace } from './workWrite'
 import { getAgent, type AgentId } from '../../src/agents'
 import { runAgentLocally } from '../../src/agents/runtime'
@@ -688,6 +688,25 @@ export async function runConversationalFriend(input: {
           }
         }
         return result?.logged ? { status: 'done', message: `Saved your ${logKind} entry.`, data: result } : failed(result?.error || 'The entry was not confirmed saved. Do not claim it was logged.')
+      },
+    },
+    /* The picture capability, so the tool engine can deliver an image instead
+     * of narrating that it cannot. Live failure this exists for: the same
+     * "make the dog blue" ask produced four answers — one real image, an eager
+     * browser run on an invented site, and two refusals ("I can't generate or
+     * edit images"). A capability in the list is what stops the refusal: the
+     * model has something to call. */
+    {
+      name: 'image',
+      description: 'input {prompt:"what the picture should show"}. Generate a picture and send it in this thread. Use it whenever the user asks for an image, picture, drawing, poster or card — and for a change to one you just sent ("make the dog blue"), passing the FULL description of the new picture rather than only the diff. Never tell the user you cannot generate images, and never stage a browser run for one.',
+      mutates: true,
+      execute: async (args: Record<string, unknown>) => {
+        const prompt = text(args, 'prompt', 400)
+        if (!prompt) return failed('An image needs a description of what to draw.')
+        const image = await generateTurnImage(senderId, prompt)
+        if (!image) return failed('The image service did not answer, so no picture was produced. Say that plainly; do not claim one is coming.')
+        pushTurnImage(senderId, { ...image, caption: prompt.slice(0, 200) })
+        return { status: 'done', message: 'The picture is attached to your reply. Describe it in one line; do not restate the prompt.' }
       },
     },
     {

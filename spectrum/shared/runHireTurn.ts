@@ -8,7 +8,7 @@ import { runAgentLocally } from '../../src/agents/runtime'
 import { runConversationalFriend } from './conversationalFriend'
 import { previousUserAsk, rewriteWithCorrection, rewriteWithRefinement } from './followUpCorrection'
 import { classifyTurnStrict } from './turnIntent'
-import type { TurnImage } from './imageRequest'
+import { takeTurnImages, type TurnImage } from './imageRequest'
 import { isAffirmativeApprovalIntent, isNegativeCancellationIntent } from './conversationalApproval'
 import { skillsPromptBlock, SKILLS } from './skills'
 import { gmiChat } from './gmi'
@@ -1113,7 +1113,14 @@ export async function runHireTurn(input: {
       ])
       return { reply, bubbles: splitBubbles(reply), source: 'local', authoritative: [], card: null }
     }
-    return runConversationalFriend({ ...input, agentId: agent.id, live, memory: mem, contacts, cityConflict })
+    const conversational = await runConversationalFriend({ ...input, agentId: agent.id, live, memory: mem, contacts, cityConflict })
+    /* A picture made through the `image` capability is collected here: the
+     * capability hands the bytes to the registry because a tool result is text,
+     * and the turn carries them out on the same field the fast path uses. */
+    const madeImages = takeTurnImages(input.senderId)
+    return madeImages.length
+      ? { ...conversational, images: [...(conversational.images || []), ...madeImages] }
+      : conversational
   }
   if (live.unavailable && wantsLiveData(input.userText)) {
     const reply = 'I could not load your connected account data right now. Please try again in a moment. You do not need to reconnect anything based on this error.'

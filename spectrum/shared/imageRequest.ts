@@ -47,3 +47,22 @@ export async function generateTurnImage(
     return null
   }
 }
+
+/* A picture produced inside the tool engine has to travel out with the turn.
+ * Capabilities return text, not bytes, so the capability hands the image here
+ * and the turn drains it into `images` on the way out — the same field the
+ * fast path fills. Keyed by phone and emptied on read: one turn, one set of
+ * pictures, no cross-turn leakage. */
+const pendingTurnImages = new Map<string, TurnImage[]>()
+
+export function pushTurnImage(phone: string, image: TurnImage): void {
+  const list = pendingTurnImages.get(phone) || []
+  list.push(image)
+  pendingTurnImages.set(phone, list)
+}
+
+export function takeTurnImages(phone: string): TurnImage[] {
+  const list = pendingTurnImages.get(phone) || []
+  pendingTurnImages.delete(phone)
+  return list
+}
