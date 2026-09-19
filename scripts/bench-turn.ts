@@ -90,6 +90,26 @@ if (process.env.BENCH_TRACE === '1') {
   }) as typeof fetch
 }
 
+/* BENCH_NO_PERSIST=1 keeps a rehearsal from writing to the REAL account's
+ * memory. Measured cost of not having it: my own bench runs wrote
+ * `trivia_app_project`, `bit-90s-trivia-birthday`, `dinner_spot`,
+ * `hotel_location` and `chicago_trip_dates` into the founder's account, where
+ * they would have shown up in his briefs as if he had asked for them. The
+ * engine persists facts through /api/internal/memory, so that one POST is what
+ * this drops; everything else the turn does is untouched. */
+if (process.env.BENCH_NO_PERSIST === '1') {
+  const realFetch = globalThis.fetch
+  globalThis.fetch = (async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
+    if (String(input).includes('/api/internal/memory')) {
+      return new Response(JSON.stringify({ ok: true, stored: [], dropped: [] }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }
+    return realFetch(input, init)
+  }) as typeof fetch
+}
+
 const { runHireTurn } = await import('../spectrum/shared/runHireTurn')
 
 const started = Date.now()

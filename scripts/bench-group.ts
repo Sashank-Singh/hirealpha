@@ -34,6 +34,22 @@ for (const file of ['spectrum/alpha/.env', 'spectrum/alpha/bench-runtime.env']) 
 }
 process.env.HIREALPHA_API_URL ||= 'https://hirealpha.chat'
 if (process.env.BENCH_API_URL) process.env.HIREALPHA_API_URL = process.env.BENCH_API_URL
+/* Same guard as bench-turn: a rehearsal must not write facts to the real
+ * account (see BENCH_NO_PERSIST there). */
+process.env.BENCH_NO_PERSIST = process.env.BENCH_NO_PERSIST || '1'
+{
+  const realFetch = globalThis.fetch
+  globalThis.fetch = (async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
+    if (String(input).includes('/api/internal/memory')) {
+      return new Response(JSON.stringify({ ok: true, stored: [], dropped: [] }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }
+    return realFetch(input, init)
+  }) as typeof fetch
+}
+
 const { groupTurnLine, groupTurnNote } = await import('../spectrum/shared/groupChat')
 const { runHireTurn } = await import('../spectrum/shared/runHireTurn')
 
