@@ -664,6 +664,12 @@ function intakeMessage(incoming: Incoming): void {
   bursts.enqueue(JSON.stringify([space.id, senderId]), incoming, isText)
 }
 
+/* Started BEFORE the stream loop, which never returns: anything after
+ * `for await` would be dead code, and the first version of this shipped exactly
+ * that way — the boot log proved it (health and "listening as", no catch-up
+ * line). The stream buffers while this runs, so a live message is not lost. */
+void catchUpMissedMessages().catch((err) => console.warn(`[${agent.id}] inbound catch-up failed:`, err))
+
 for await (const incoming of app.messages) intakeMessage(incoming)
 
 /* A message that arrives while this process is booting is otherwise lost for
@@ -744,5 +750,4 @@ async function catchUpMissedMessages(): Promise<void> {
   }
 }
 
-void catchUpMissedMessages().catch((err) => console.warn(`[${agent.id}] inbound catch-up failed:`, err))
 
