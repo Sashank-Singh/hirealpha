@@ -1817,7 +1817,14 @@ export async function runHireTurn(input: {
       // null or 'no build on file' → not an iteration target; fall through to
       // normal chat silently.
     } catch (err) {
+      /* The source fetch now throws when the build store failed (as opposed to
+       * answering "no build on file"), and a change request that cannot be
+       * applied must not vanish: the user asked for something and is owed an
+       * answer. A thrown planner is included — either way nothing changed. */
       console.warn('[turn] workshop iterate crashed', err)
+      extras.push(
+        'The update did not go through (the build store or the planner did not answer). In one line, say the change was not applied and that they can ask again.',
+      )
     }
   }
 

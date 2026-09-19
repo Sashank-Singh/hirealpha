@@ -932,6 +932,12 @@ export async function pushBrowserResultLoop(
           last_result = NULL,
           next_run = now(),
           updated_at = now()
+        /* A retry must not re-arm a delivery that already went out. If an
+         * attempt committed but its response was lost, the next attempt used to
+         * reset the row to 'pending' and the same result was texted twice —
+         * measured as the duplicate-report path. The payload is still refreshed
+         * for a row that has not been sent yet. */
+        WHERE hire_browser_result_deliveries.status <> 'done'
       `
       return true
     } catch (err) {

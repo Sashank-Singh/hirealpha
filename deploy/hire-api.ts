@@ -7121,7 +7121,21 @@ export async function loadJudgeVerdicts(
     }
   }
   const verdicts = await judgeAllBatch(mails, meets, vocab ?? (await loadMailKindVocab(sql, userId)))
-  if (!verdicts.mails.size && !verdicts.meets.size) return null
+  if (!verdicts.mails.size && !verdicts.meets.size) {
+    /* The model did not answer. A same-day row that is merely past its TTL is
+     * still far better than no ranking at all — and returning null threw away
+     * a usable cache and silently dropped Needs You ordering, scores, prep
+     * flags and reasons for the whole brief. Serve the stale row when it is
+     * from today; only a total miss returns null. */
+    if (row && row.day === today) {
+      console.warn('[judge] model did not answer; serving the same-day cache row')
+      return {
+        mails: new Map(row.payload.mails.map((m) => [m.id, m])),
+        meets: new Map(row.payload.meets.map((m) => [m.id, m])),
+      }
+    }
+    return null
+  }
   await writeJudgeRow(sql, userId, today, {
     mails: [...verdicts.mails.values()],
     meets: [...verdicts.meets.values()],

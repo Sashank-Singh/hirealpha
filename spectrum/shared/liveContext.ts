@@ -1682,9 +1682,19 @@ export async function fetchWorkshopSource(
       { headers: authHeaders() },
       12000,
     )
-    if (!res.ok) return null
+    if (!res.ok) {
+      /* A 404 ("no build on file") and a transient 500 used to be the same
+       * `null`, and the iterate caller answers null by falling through to
+       * ordinary chat — so a change request could simply vanish with no reply.
+       * Anything that is not a definitive "no build" is worth naming. */
+      if (res.status === 404) return null
+      const body = await res.text().catch(() => '')
+      console.warn(`[live] workshop source ${res.status}: ${body.slice(0, 160)}`)
+      throw new Error(`the build store answered ${res.status}`)
+    }
     return (await res.json()) as { artifactId: string; title: string; html: string; templateKey?: string | null }
-  } catch {
+  } catch (err) {
+    if (err instanceof Error && err.message.startsWith('the build store answered')) throw err
     return null
   }
 }
