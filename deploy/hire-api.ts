@@ -6472,9 +6472,14 @@ export async function fetchMapSearch(query: string, countryHint = '', location: 
      * preferred what was near the stored lat/lon over the city in the query.
      * Bias only when the ask names no city of its own. */
     const askNamesCity = !!knownCityIn(cleaned)
-    if (location && coordsUsable(location.latitude, location.longitude) && !FOREIGN_PLACE.test(cleaned) && !askNamesCity) {
-      url.searchParams.set('lat', String(location.latitude))
-      url.searchParams.set('lon', String(location.longitude))
+    /* The center this search actually used: the stored coordinates when the
+     * bias applied, otherwise the ask's own city. The log line below names it,
+     * so a wrong-city result can be told apart from a wrong-branch one without
+     * a second run. */
+    const bias = location && coordsUsable(location.latitude, location.longitude) && !FOREIGN_PLACE.test(cleaned) && !askNamesCity ? location : null
+    if (bias) {
+      url.searchParams.set('lat', String(bias.latitude))
+      url.searchParams.set('lon', String(bias.longitude))
     } else if (countryHint && !FOREIGN_PLACE.test(cleaned) && !askNamesCity) {
       url.searchParams.set('countrycodes', countryHint)
     }
@@ -6492,7 +6497,7 @@ export async function fetchMapSearch(query: string, countryHint = '', location: 
       if (webOut && !/unavailable|no usable results/i.test(webOut)) return webOut
       return `No map results found for "${cleaned}".`
     }
-    console.warn(`[maps] branch=named query="${query.slice(0, 80)}" cleaned="${cleaned}" center=${lat},${lon}`)
+    console.warn(`[maps] branch=named query="${query.slice(0, 80)}" cleaned="${cleaned}" center=${bias ? `${bias.latitude},${bias.longitude}` : askNamesCity ? `ask:${cleaned}` : 'none'}`)
     return `Map results for "${cleaned}":\n${rows
       .map((row) => {
         const label = String(row.display_name || '').split(',').slice(0, 3).join(',')
