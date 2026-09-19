@@ -263,7 +263,7 @@ export function isLookupOnlyAsk(text: string): boolean {
 // One definition, shared with the maps tool: a pattern that missed "hotels
 // near X" made a verified map result invisible to the answer builder.
 export const PLACE_ASK_RE =
-  /\b(?:find|recommend|suggest|looking for|where(?:'s| is| can| should)|place|places|any)\b[^.!?\n]{0,60}\b(?:restaurants?|cafes?|coffee shops?|hotels?|hostels?|places? to eat|dinner|lunch|brunch|breakfast|bar|drinks|eat(?:ing)? out)\b|\b(?:restaurants?|cafes?|coffee shops?|hotels?|hostels?|bars?|dinner|lunch|brunch|breakfast)\b[^.!?\n]{0,40}\bnear\b|\b(?:\w+\s+){0,3}(?:restaurants?|hotels?|hostels?|cafes?|bars?)\b[^.!?\n]{0,30}\b(?:in|at|near|around|walkable from|walkable to)\b|\b(?:restaurants?|hotels?|hostels?|cafes?|bars?)\s+[A-Z][a-z]/i
+  /\b(?:find|recommend|suggest|looking for|where(?:'s| is| can| should)|place|places|any)\b[^.!?\n]{0,60}\b(?:restaurants?|cafes?|coffee|espresso|coffee shops?|hotels?|hostels?|places? to eat|dinner|lunch|brunch|breakfast|bar|drinks|eat(?:ing)? out)\b|\b(?:restaurants?|cafes?|coffee|coffee shops?|hotels?|hostels?|bars?|dinner|lunch|brunch|breakfast)\b[^.!?\n]{0,40}\bnear\b|\b(?:\w+\s+){0,3}(?:restaurants?|hotels?|hostels?|cafes?|bars?)\b[^.!?\n]{0,30}\b(?:in|at|near|around|walkable from|walkable to)\b|\b(?:restaurants?|hotels?|hostels?|cafes?|bars?)\s+[A-Z][a-z]/i
 
 /** Whether an ask or run goal is travel. Seat preferences belong on travel
  * runs only — a coffee order must not carry "aisle seat". */
@@ -1155,8 +1155,16 @@ Reactions are optional and usually absent. You may add "reaction":"<emoji>" to a
       const imageProblem = draft.type === 'browser' && draftLooksLikeImageWork(draft)
         ? 'A browser run cannot generate or edit an image. Call the image capability with the full description instead, and never name an image site as the place a run is working.'
         : null
+      /* Money never moves on a search. Live failure this blocks: "what flights
+       * get me to chicago tuesday morning from sf?" was answered with a payment
+       * link and not one word about which flight it was — the founder's words:
+       * "why directly want to book AND IT DIDNT SHOW ME ITINERARY OR WHICH
+       * FLIGHT". A search presents the options and asks; a purchase draft only
+       * follows an ask to book. */
       const purchaseProblem = draft.type === 'purchase'
-        ? validatePurchase(draft)
+        ? isLookupOnlyAsk(lastUserAsk)
+          ? 'This ask is a search: present what the sources returned — carrier, date, times, stops and total — say what the fare does not include, then ask whether to book it. Never send a payment request for an ask that only asked what is available.'
+          : validatePurchase(draft)
         : draft.type === 'browser' && buyAsk && !isMerchantPortal(draft.portal)
           ? 'A purchase browser run must target the real merchant or product page, not a directory or search-results page.'
           : imageProblem || lookupProblem
@@ -1176,7 +1184,7 @@ Reactions are optional and usually absent. You may add "reaction":"<emoji>" to a
             savedDraft = { id: proposed.id, type: draft.type, ...(draft.type === 'browser' && draft.portal ? { portal: draft.portal } : {}) }
             result = { status: 'draft_saved', ...savedDraft, message: draft.type === 'browser'
             ? `The browser run is launching now${runSitePhrase(draft.portal)} for this one task and pauses before payment or any password. The result will arrive in this thread when it finishes. Do not claim anything was booked or completed.`
-            : draft.type === 'purchase' ? 'A payment link is queued for the user to tap and pay. NOTHING has been purchased yet; do not claim it was. Tell them to tap Pay on the card if they want it.' : `A review card will be delivered. Tell the user to review it and tap ${draft.type === 'event' ? 'Book' : 'Send'}. Nothing has been sent or booked.` }
+            : draft.type === 'purchase' ? 'A payment link is queued for the user to tap and pay. NOTHING has been purchased yet; do not claim it was. Tell them to tap Pay on the card if they want it, and in the same reply name exactly what they are paying for — carrier, date, departure and arrival times, stops and total for a flight; the property and nights for a stay — so the card is never the only description of the purchase.' : `A review card will be delivered. Tell the user to review it and tap ${draft.type === 'event' ? 'Book' : 'Send'}. Nothing has been sent or booked.` }
           } else result = { status: 'failed', message: 'Draft save was not confirmed. Do not claim success or retry this write.' }
         } catch {
           result = { status: 'unknown', message: 'Draft save status is unknown. Do not retry or claim success. Ask the user to check drafts.' }

@@ -1069,3 +1069,38 @@ describe('a travel lookup waits for the classified trip', () => {
     }
   })
 })
+
+describe('money never moves on a search', () => {
+  /* Live, 2026-09-19: "what flights get me to chicago tuesday morning from sf?"
+   * was answered with a payment link and no itinerary — real $186 Frontier
+   * fare, but the founder never got to see the flight he was being asked to
+   * pay for. A search presents the options and asks; a payment request follows
+   * an ask to book, and nothing else. */
+  const purchaseDraft = '{"action":"purchase","item":"Frontier flight SFO to ORD, 22 Sep","amount":186,"url":"https://www.flyfrontier.com/booking/abc123"}'
+
+  it('blocks a payment request for an ask that only asked what is available', async () => {
+    const drafts: Array<Record<string, unknown>> = []
+    await runToolConversation({
+      messages: [{ role: 'user', content: 'what flights get me to chicago tuesday morning from sf?' }],
+      availableTools: ['web'],
+      canDraft: true,
+      chat: async () => purchaseDraft,
+      lookup: async () => ['Live fares from SFO to ORD on 2026-09-22: $186 Frontier, 1 stop, departs 19:11, arrives 05:38.'],
+      propose: async (draft) => { drafts.push(draft as Record<string, unknown>); return { ok: true, id: 'job-1' } },
+    })
+    expect(drafts.filter((d) => d.type === 'purchase')).toHaveLength(0)
+  })
+
+  it('lets the payment request through once they ask to book', async () => {
+    const drafts: Array<Record<string, unknown>> = []
+    await runToolConversation({
+      messages: [{ role: 'user', content: 'book the $186 Frontier flight to chicago on tuesday' }],
+      availableTools: ['web'],
+      canDraft: true,
+      chat: async () => purchaseDraft,
+      lookup: async () => ['Live fares from SFO to ORD on 2026-09-22: $186 Frontier, 1 stop, departs 19:11, arrives 05:38.'],
+      propose: async (draft) => { drafts.push(draft as Record<string, unknown>); return { ok: true, id: 'job-2' } },
+    })
+    expect(drafts.filter((d) => d.type === 'purchase')).toHaveLength(1)
+  })
+})
