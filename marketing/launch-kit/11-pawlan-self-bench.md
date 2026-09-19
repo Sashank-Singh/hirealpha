@@ -103,6 +103,47 @@ signal the client consumes; the iterate path cannot report a failure it
 silently swallows; and keep/toss/iterate still act on the newest delivered row
 because no caller passes an artifactId.
 
+## NIGHT OF 2026-09-19, PART THREE — the vault and the run loop (`5dee212`)
+
+A third audit, on the browser-run job loop and the credential handoff. It found
+a credential-disclosure path, so that part is a security fix rather than a
+polish one.
+
+**A stored password could be released to a look-alike host.** The vault matcher
+accepted an entry when either origin merely *contained* the other, plus a
+root-domain clause, a free-text label clause and a hardcoded exception for one
+university portal. A staged job on `https://accounts.google.com.<attacker>.io`
+therefore matched the stored `https://accounts.google.com` entry, decrypted the
+password and typed it into the attacker's page — reachable through the
+auto-approved propose path, no user action between. Matching is now exact-host
+with `www.` equivalence (the rule a browser's own password manager uses), for
+both the v2 items and the legacy entries, with tests for the exact look-alikes
+that used to pass.
+
+**The production vault key was compiled into the source** in two places, as a
+decryption candidate — so any database dump was decryptable with the repo alone.
+Both copies are gone; the same value is what the environment variable carries
+everywhere it is set.
+
+**"Starting the run now" for a run that never existed.** The branch that fires
+right after a user saves a password promised the run had started whatever the
+propose endpoint answered — including the branch that creates no job — and the
+client fabricated a `/computer/` link when no id came back. Both are honest now.
+
+**Runs that stranded or double-reported.** A redeploy during a password/payment
+handoff left the job `waiting`, and an approval that aged out while the worker
+was down left it `pending`; neither state was swept or claimable, and the
+site-uniqueness index turned each into a permanently blocked URL. Both are
+swept now, with the existing interrupted notice. The completion update requires
+`status = 'running'`, so a run finishing after the sweeper failed it can no
+longer overwrite "failed" with "done" and text the user a second, contradictory
+result. The heartbeat also stopped swallowing its own failures — that silence is
+what let a live run look dead.
+
+Also recorded from this audit, still open: the retry upsert can re-arm an
+already-sent delivery (duplicate result text), and the hard ceiling fails a job
+without cancelling the browser it abandons.
+
 ## CURRENT INTERNAL SCORECARD — 2026-09-19 (read this first)
 
 The per-run sections below are history. This block is the single current state;
