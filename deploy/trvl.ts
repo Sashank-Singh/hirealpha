@@ -120,6 +120,23 @@ export function resetTrvlState() {
   rateLimitedUntil = 0
 }
 
+/** The environment the trvl binary runs with. Exported so the defaults are
+ * testable without spawning anything.
+ *
+ * Providers run one at a time by default. Measured from the container: the
+ * parallel fan-out (Google Flights + Kiwi + Skiplagged at once) tripped
+ * kiwi/skiplagged 429s, and the flight ask either lost its fares or waited out
+ * their backoff — while serialized, the same JFK→ORD round trip returned 12
+ * fares with no 429 at all in 19.5s. TRVL_PROVIDER_CONCURRENCY still overrides
+ * this, and TRVL_NO_TELEMETRY stays whatever the caller set. */
+export function trvlChildEnv(base: NodeJS.ProcessEnv = process.env): Record<string, string> {
+  const env: Record<string, string> = {}
+  for (const [k, v] of Object.entries(base)) if (typeof v === 'string') env[k] = v
+  env.NO_COLOR = '1'
+  env.TRVL_PROVIDER_CONCURRENCY = base.TRVL_PROVIDER_CONCURRENCY || '1'
+  return env
+}
+
 async function defaultRunner(args: string[], timeoutMs: number): Promise<unknown | null> {
   const started = Date.now()
   let proc: ReturnType<typeof Bun.spawn>
@@ -127,7 +144,7 @@ async function defaultRunner(args: string[], timeoutMs: number): Promise<unknown
     proc = Bun.spawn([trvlBin(), ...args], {
       stdout: 'pipe',
       stderr: 'pipe',
-      env: { ...process.env, NO_COLOR: '1' },
+      env: trvlChildEnv(),
     })
   } catch (err) {
     // No binary in this image, or it is not executable.

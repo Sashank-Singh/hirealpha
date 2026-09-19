@@ -1,6 +1,10 @@
 /**
  * scrape.do — a rendering proxy, used as the dated-price source when the free
- * ones are throttled or walled.
+ * ones are throttled or walled. OFF BY DEFAULT, and deliberately so: the
+ * founder's call is that the per-call cost is not worth it while trvl can be
+ * made to work (serialized providers), so `SCRAPE_DO_TOKEN` is unset everywhere
+ * and every caller checks `scrapeDoEnabled()` first. The modules stay because
+ * the option is one environment variable away, not because anything spends.
  *
  * Why it exists: `trvl` covers hotels and flights but its upstream providers
  * rate-limit our datacenter IP (429s from kiwi and skiplagged measured), and

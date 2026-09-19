@@ -15,6 +15,7 @@ import { join } from 'node:path'
 import { gateWorkshopCode, runWorkshopCode, sweepExpiredArtifacts } from './workshop'
 import { generateImage } from './imageGen'
 import { googleHotelsRates } from './googleHotels'
+import { googleFlightsRates } from './googleFlights'
 import { dateFromText, datesFromText, looksLikeFlightAsk, routeFromText, looksLikeHotelAsk, serpApiAllowedFor, serpFlightFares, serpHotelRates } from './serpapi'
 import { knownCityIn, trvlFlights, trvlHotels } from './trvl'
 import type { SQL } from 'bun'
@@ -6175,6 +6176,13 @@ async function fetchNearbyPlaces(
 /** The same resolution the trvl block does, pointed at Google Hotels through
  * scrape.do: dates and area out of the ask, the price ceiling enforced when the
  * ask named one. Returns null (never a listicle) when the render fails. */
+/** The dollar ceiling an ask names ("under $400", "under 250 a night"). */
+function maxPriceFromAsk(query: string): number | null {
+  const m = /(?:under|below|less than|max(?:imum)?|up to|cheaper than)\s*\$?\s*(\d{2,5})/i.exec(String(query || ''))
+  const n = m ? Number(m[1]) : NaN
+  return Number.isFinite(n) && n > 0 ? n : null
+}
+
 async function googleHotelBlockForAsk(query: string, location: LocationRow | null): Promise<string | null> {
   const dates = datesFromText(query)
   const checkin = dates[0]
@@ -6247,6 +6255,20 @@ async function webSearchWithSerpFallback(query: string, phone?: string): Promise
      * which two places and when; the resolver turns a city into its airports. */
     const when = datesFromText(query)
     const route = routeFromText(query)
+    // Same discipline as hotels: when trvl's upstreams throttle our IP, Google
+    // Flights is rendered through scrape.do and the page's fares are read with
+    // the extractor the browser path uses. Measured: JFK→ORD 2026-09-25→27 in
+    // ~10s with airline, stops, times and prices.
+    if (when[0] && route) {
+      const google = await googleFlightsRates({
+        from: route.from,
+        to: route.to,
+        date: when[0],
+        ...(when[1] ? { returnDate: when[1] } : {}),
+        ...(maxPriceFromAsk(query) ? { maxPriceUsd: maxPriceFromAsk(query)! } : {}),
+      }).catch(() => null)
+      if (google) return google
+    }
     if (when[0] && route) {
       const fares = await trvlFlights({
         from: route.from,

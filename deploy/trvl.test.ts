@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'bun:test'
-import { airportsFor, knownCityIn, noteTrvlRateLimitForTest, resetTrvlState, setTrvlRunner, trvlFlights, trvlHotels } from './trvl'
+import { airportsFor, knownCityIn, noteTrvlRateLimitForTest, resetTrvlState, setTrvlRunner, trvlChildEnv, trvlFlights, trvlHotels } from './trvl'
 
 afterEach(() => resetTrvlState())
 
@@ -289,5 +289,22 @@ describe('one itinerary is one option', () => {
     expect(rows.length).toBe(2)
     expect(rows[0]).toContain('2h 53m')
     expect(rows.filter((r) => r.includes('$336')).length).toBe(1)
+  })
+})
+
+describe('flight providers are asked one at a time', () => {
+  /* Measured: the parallel fan-out tripped kiwi/skiplagged 429s and the ask
+   * lost its fares; serialized, the same round trip returned 12 fares in 19.5s
+   * with no rate-limit hit. */
+  it('defaults to one provider at a time, and lets the operator override it', () => {
+    expect(trvlChildEnv({}).TRVL_PROVIDER_CONCURRENCY).toBe('1')
+    expect(trvlChildEnv({ TRVL_PROVIDER_CONCURRENCY: '4' }).TRVL_PROVIDER_CONCURRENCY).toBe('4')
+    expect(trvlChildEnv({}).NO_COLOR).toBe('1')
+  })
+
+  it("carries the caller's environment through for everything else", () => {
+    const env = trvlChildEnv({ HOME: '/root', TRVL_NO_GEO: '1' })
+    expect(env.HOME).toBe('/root')
+    expect(env.TRVL_NO_GEO).toBe('1')
   })
 })
