@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import { draftLooksLikeImageWork, isLookupOnlyAsk, isSchedulingAsk } from './toolLoop'
+import { draftLooksLikeImageWork, isLookupOnlyAsk, isSchedulingAsk, runSitePhrase } from './toolLoop'
 import { mentionsDigest, digestControlIntent } from './reminders'
 
 /* The guard is inside runToolConversation; this pins the shape it must reject
@@ -130,5 +130,23 @@ describe('a picture is not a browser job', () => {
     expect(draftLooksLikeImageWork({ goal: 'Book the Palmer House for Sep 25 to Sep 26', portal: 'https://www.kayak.com' })).toBe(false)
     expect(draftLooksLikeImageWork({ goal: 'Reorder two bags of the same coffee beans', portal: 'https://www.amazon.com' })).toBe(false)
     expect(draftLooksLikeImageWork({ goal: '' })).toBe(false)
+  })
+})
+
+describe('a staged run names its site or says nothing about one', () => {
+  /* Live: the group rehearsal closed with "The browser run is starting now on
+   * the named site" when no site had been named — the fabricated-progress shape
+   * the founder caught with an invented "Bing Image Creator" run. */
+  it('uses the real host when there is one', () => {
+    expect(runSitePhrase('https://www.kayak.com/hotels')).toBe(' on kayak.com')
+    expect(runSitePhrase('opentable.com')).toBe(' on opentable.com')
+    expect(runSitePhrase('https://aa.com')).toBe(' on aa.com')
+  })
+
+  it('claims no site when none was named', () => {
+    expect(runSitePhrase('')).toBe('')
+    expect(runSitePhrase(undefined)).toBe('')
+    expect(runSitePhrase(null)).toBe('')
+    expect(runSitePhrase('not a url')).toBe('')
   })
 })

@@ -43,7 +43,9 @@ export type GroundedChoiceCandidate = {
 }
 
 type ConversationMessage = { role: 'system' | 'user' | 'assistant'; content: string }
-type SavedDraft = { id: string; type: DraftCall['type'] }
+type SavedDraft = { id: string; type: DraftCall['type']   /** The site a browser run was staged against, when one was named. */
+  portal?: string
+}
 
 export type CapabilityResult = {
   status: 'done' | 'returned' | 'blocked' | 'failed'
@@ -204,6 +206,21 @@ export function isSchedulingAsk(text: string): boolean {
  * GOAL the model wrote, not the user's words — the same shape as the other
  * draft validators: the model may not spend a sandbox session inventing an
  * image site, because no image site can do the job the capability does. */
+/** How a staged run names its site. A real host when one was named, and no
+ * site claim at all when none was — "on the named site" with nothing named is
+ * the same fabricated-progress shape that put an invented "Bing Image Creator"
+ * run in front of the founder. */
+export function runSitePhrase(portal?: string | null): string {
+  const raw = String(portal || '').trim()
+  if (!raw) return ''
+  try {
+    const host = new URL(raw.startsWith('http') ? raw : `https://${raw}`).hostname.replace(/^www\./, '')
+    return host ? ` on ${host}` : ''
+  } catch {
+    return ''
+  }
+}
+
 export function draftLooksLikeImageWork(draft: { goal?: string; portal?: string }): boolean {
   const text = `${draft.goal || ''} ${draft.portal || ''}`.toLowerCase()
   if (!text.trim()) return false
@@ -437,7 +454,7 @@ export async function runToolConversation(input: {
       ? savedDraft.type === 'purchase'
         ? `Order staged. Review the details on the card and tap to place it.`
         : savedDraft.type === 'browser'
-          ? withTravelRates(`The browser run is starting now on the named site for this one task. It pauses on its own before payment or any password; the result lands here when it finishes.`)
+          ? withTravelRates(`The browser run is starting now${runSitePhrase(savedDraft.portal)} for this one task. It pauses on its own before payment or any password; the result lands here when it finishes.`)
           : `Your ${savedDraft.type === 'event' ? 'event' : 'email'} draft is saved. Review it and tap ${savedDraft.type === 'event' ? 'Book' : 'Send'} on the card. Nothing has been ${savedDraft.type === 'event' ? 'booked' : 'sent'} yet.`
       : draftAttempted
         ? 'I could not confirm that your draft was saved. Please check your drafts before trying again.'
@@ -1095,9 +1112,9 @@ Reactions are optional and usually absent. You may add "reaction":"<emoji>" to a
         try {
           const proposed = await input.propose(draft)
           if (proposed.ok && proposed.id) {
-            savedDraft = { id: proposed.id, type: draft.type }
+            savedDraft = { id: proposed.id, type: draft.type, ...(draft.type === 'browser' && draft.portal ? { portal: draft.portal } : {}) }
             result = { status: 'draft_saved', ...savedDraft, message: draft.type === 'browser'
-            ? 'The browser run is launching now on the named site for this one task and pauses before payment or any password. The result will arrive in this thread when it finishes. Do not claim anything was booked or completed.'
+            ? `The browser run is launching now${runSitePhrase(draft.portal)} for this one task and pauses before payment or any password. The result will arrive in this thread when it finishes. Do not claim anything was booked or completed.`
             : draft.type === 'purchase' ? 'A payment link is queued for the user to tap and pay. NOTHING has been purchased yet; do not claim it was. Tell them to tap Pay on the card if they want it.' : `A review card will be delivered. Tell the user to review it and tap ${draft.type === 'event' ? 'Book' : 'Send'}. Nothing has been sent or booked.` }
           } else result = { status: 'failed', message: 'Draft save was not confirmed. Do not claim success or retry this write.' }
         } catch {
