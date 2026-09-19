@@ -2587,3 +2587,24 @@ very bottom … tip-splitter build v2" came back *"Done, the version line is at 
 bottom: https://hirealpha.chat/b/9efe9ed5-…"* with the custom-percentage build
 underneath it. The two failures before that were the builder's own refusals, and
 the route now mints no new artifact for either outcome.
+
+### 16 — the same-link fix, verified live (the founder's "ITS THE SAME LINK")
+
+`33ea729` deployed on HireAlpha-Web and checked the only way that settles it:
+
+- Asked for a change: *"change the v2 footer line to say tip-splitter build v3
+  instead"*.
+- The reply: *"Done, footer now reads \"tip splitter build v3\":
+  https://hirealpha.chat/b/9efe9ed5-85ad-448f-8b17-173ad17e4350"* — the **same
+  URL** the v2 footer lived at.
+- `curl` on that URL returns HTTP 200, 6061 bytes, containing
+  **"tip-splitter build v3"**.
+
+So the artifact was rewritten in place: same id, same link, new bytes, and the
+founder confirmed it from his own screen before I got there ("ITS THE SAME
+LINK"). The duplicate row that the old behaviour would have created did not
+appear.
+
+This closes the iterate half of dim 16 as far as the product's own behaviour
+goes: a change request finds the app after a container swap (`eb51657`), reaches
+the builder, and lands on the link the user already holds (`33ea729`).
