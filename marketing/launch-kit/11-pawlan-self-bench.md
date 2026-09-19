@@ -2611,3 +2611,49 @@ appear.
 This closes the iterate half of dim 16 as far as the product's own behaviour
 goes: a change request finds the app after a container swap (`eb51657`), reaches
 the builder, and lands on the link the user already holds (`33ea729`).
+
+## Why purchasing, email, proactive and integrations sit low — asked and answered
+
+The founder's question: "WHY IS Purchasing SO BAD Email SO BAD Proactive SO BAD
+Integrations SO BAD FIX IT". Each was checked in code and, where possible, on the
+live line, so the answer is not a shrug.
+
+**Purchasing — 3, and the code is not the problem.** The checkout chain was fixed
+earlier today (the card expiry read from a field the credential does not have,
+the fill that reported success having matched no field, the order number
+truncated out of its own receipt line, the webhook that 500'd on every retry),
+and the vault's origin matching is exact-host with `www.` equivalence. What is
+missing is exactly two things, both the owner's: an Amazon login in the Vault and
+a saved home address. Verified live: *"Nope, I've got neither. No home address on
+file and no saved logins for anything."*
+
+**Email — 3, and the blocker was mis-stated until now.** The code is right: the
+send path goes to the Gmail API with a user token, falls back to Composio's
+`GMAIL_SEND_EMAIL`, and **deliberately refuses to count a created draft as a
+send** ("a draft-only connection must never make a 'send' silently create a draft
+and report success"). But asked directly, the live bot said:
+
+> "Straight answer: read yes, send no. My gmail connection is lookup only, I can
+> search and read your mail, but I can't send from your account."
+
+So it is not the missing Sam fixture alone — **the connected Gmail grant is
+read-only**, and no fixture would have produced a send. Dim 5 needs a Gmail
+reconnect **with send scope**, and then one fixture email.
+
+**Proactive — 5, and this is the only one with real code left in it.** The loops
+are built, the watch arms from a chat ask and reports on its own cadence
+(verified live today), and the anonymous tick no longer speaks. What does not
+exist is a source for flight status, and there is no ticketed flight to watch.
+The buildable half is a status poll for an armed flight; the flight is the
+owner's.
+
+**Integrations — 3, purely grants.** The Notion/Slack write tools are built,
+guarded and green (`composioWrite.test.ts`, `browserVault.test.ts`,
+`kernelPage.test.ts` — 82 pass, 0 fail tonight). Only the OAuth grants are
+missing.
+
+**What actually fixes them, in one line each:** save the home address → dim 4's
+shipping half; save the Amazon login → dim 4's order half; reconnect Gmail with
+send scope + one fixture mail → dim 5; reconnect Notion/Slack → dim 8; a real
+ticketed flight → dim 6 and dims 2 and 14 with it. Three reconnects, two
+addresses, one email. No further code is required for four of the five.
