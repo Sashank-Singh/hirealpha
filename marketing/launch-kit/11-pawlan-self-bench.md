@@ -1536,27 +1536,50 @@ log, which prints every inbound and every outgoing bubble.
 
 ### Founder decisions this run is waiting on
 
-1. `SERPAPI_API_KEY` + `SERPAPI_TEST_PHONES=+12163032166` on HireAlpha-Web
-   (gates the paid second source for hotels/flights behind the tester number).
-2. An Amazon vault credential plus the home address for the bench number
-   (dim 4).
-3. One real ticketed round trip for the test number (dims 2 and 14's flight
-   half; also the only way to verify check-in).
-4. The check-in execution decision: whether Alpha may check in with the airline
-   when the window opens (capability + policy).
-5. The passport-data decision for dim 14 (where the number may read it from).
-6. An image-generation key (~$0.003/image) to upgrade dim 16's image half:
-   images now ship on a free open endpoint, so this is a quality upgrade
-   (no watermark, no garbled lettering), not a blocker.
-7. Notion and Slack reconnected (dim 8). The write tools are now built and
-   guarded on production, so this item is the reconnect alone.
-8. pgvector on the production Postgres (memory recall quality).
-9. An approve/revert for the emptied `PERSONA_DENIED.friend` list.
-10. A Sam-mail fixture in the connected mailbox and one real send (dim 5).
-11. Telephony (Twilio ≈$1.15/mo + per-minute) for dim 12 — and, separately,
-   dim 13 (groups) is no longer a decision: the vendor's SDK supports iMessage
-   groups, so the remaining work is ours (the coordination half), not a purchase
-   or a Photon confirmation.
+Ranked by what each unlocks. The first three are minutes of tapping; the rest are
+credentials or policy calls only the account owner can make.
+
+**Closed by the founder's own calls, no longer waiting:** the SerpAPI key and
+scrape.do ("also expensive", "too expensive") — the stack is free sources only
+now, and it carries hotels, flights, places, web, weather and images without a
+key. The image-generation key is optional quality (the free endpoint works), and
+pgvector + an embedder is optional (semantic recall is off deliberately rather
+than failing every call).
+
+**Taps, in order:**
+
+1. **Save Home address in Settings.** The payload carries `homeAddress` now and
+   a checkout run fills it; with none saved the assistant can only ask. This is
+   the missing half of every ordering task.
+2. **Connect Link** (Payment vault → Connect Link → approve at link.com). The
+   chain behind it is fixed end to end: the consent URL is live, the card-fill
+   step that used to fail silently after approval is corrected, and "No card
+   connected" clears once the consent completes.
+3. **Save an Amazon login in the Vault.** With 1 and 2 done, dim 4's task runs
+   for the first time: reorder → saved address → Link one-time card → approval →
+   order number. That is 3 → ~7 with no further code.
+
+**Credentials and policy:**
+
+4. **Notion + Slack reconnect** (dim 8). The write tools are built, guarded and
+   tested; only the grants are missing.
+5. **A Sam-mail fixture in the connected mailbox and permission for one real
+   send** (dim 5). The mailbox search, the verified free slots and the send leg
+   are all built; no such mail exists to reply to.
+6. **One real ticketed round trip** for the test number (dims 2, 6, 14). It is
+   also the only way to verify check-in, since nothing books tickets today.
+7. **The check-in execution decision**: may Alpha sign into the airline when the
+   window opens, or does it offer the link forever? The T-24h reminder is armed
+   either way; the login is the difference between a nudge and a boarding pass.
+8. **The passport-data decision** (dim 14): where the number may read passport
+   details from. The chained task stops on this and on the mail fixture.
+9. **Telephony** (Twilio ≈ $1.15/mo + per-minute) for dim 12.
+10. Optional: an `approve`/`revert` for the emptied `PERSONA_DENIED.friend`, a
+    keyed image provider, and pgvector + an embedder if semantic recall is wanted.
+
+**Time only, nothing to buy:** dim 7 needs five observed weekdays (Monday's
+digest is armed and deterministic) and dim 13's booking leg needs one real
+four-person thread — the consensus drive itself is already measured.
 
 ## Current official result
 
