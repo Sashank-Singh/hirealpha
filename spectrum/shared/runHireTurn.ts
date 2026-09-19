@@ -12,7 +12,7 @@ import { takeTurnImages, type TurnImage } from './imageRequest'
 import { isAffirmativeApprovalIntent, isNegativeCancellationIntent } from './conversationalApproval'
 import { skillsPromptBlock, SKILLS } from './skills'
 import { gmiChat } from './gmi'
-import { appendThread, loadMemory, setPendingSpend, setPendingVaultTask, upsertFacts, pruneExpiredFacts, setSummary, trimHistory, MAX_RAW, type ThreadMemory } from './memory'
+import { appendThread, loadMemory, setLastBuild, setPendingSpend, setPendingVaultTask, upsertFacts, pruneExpiredFacts, setSummary, trimHistory, MAX_RAW, type ThreadMemory } from './memory'
 import { captureStatedPreferences, extractFacts, summarizeOld } from './memoryMaintain'
 import { cityConflictInstruction, detectCityConflict } from './cityConflict'
 import { liveFactsToInput, localFactsToInput, mergeMemoryFacts, selectMemoryFacts } from './memoryBlock'
@@ -1767,6 +1767,9 @@ export async function runHireTurn(input: {
       : ''
     try {
       const built = await autoRunWorkshop(input.senderId, agent.id, input.userText)
+      if (built?.logged && built.url && built.artifactId) {
+        setLastBuild(input.dataDir, input.senderId, { artifactId: built.artifactId, url: built.url })
+      }
       if (built?.logged && built.url) {
         extras.push(
           `${ackNote}A FRESH build was deployed just now — even if something similar existed before, this is a new one; never say it was already built. Title: "${built.title}". Send them this exact link in your reply so they can open it: ${built.url}. Tell them to try it, then say "keep it" (stays forever) or "toss it" (deleted). Unkept builds auto-delete in 7 days. Do not restate the code. Never promise an arrival time.`,
@@ -1800,10 +1803,12 @@ export async function runHireTurn(input: {
     /\b(?:change|update|modify|tweak|iterate|revise|remake|make it|add|remove|rename|swap)\b/i.test(input.userText)
   ) {
     try {
+      const lastBuild = loadMemory(input.dataDir, input.senderId).lastBuild
       const updated = await autoIterateWorkshop({
         phone: input.senderId,
         persona: agent.id,
         instruction: input.userText,
+        ...(lastBuild?.artifactId ? { artifactId: lastBuild.artifactId } : {}),
       })
       if (updated?.ok && updated.url) {
         extras.push(
@@ -1830,7 +1835,8 @@ export async function runHireTurn(input: {
 
   if (looksLikeKeepIt(input.userText)) {
     try {
-      const kept = await autoWorkshopKeep(input.senderId, agent.id)
+      const keepTarget = loadMemory(input.dataDir, input.senderId).lastBuild
+      const kept = await autoWorkshopKeep(input.senderId, agent.id, keepTarget?.artifactId)
       if (kept?.logged) {
         extras.push('They said keep it: the last built artifact is now saved permanently. Confirm in a few words.')
       } else {
@@ -1846,7 +1852,8 @@ export async function runHireTurn(input: {
    * delivered app: the branch had no recent-build guard at all. */
   if (looksLikeTossIt(input.userText) && recentBuildDelivered) {
     try {
-      const tossed = await autoWorkshopToss(input.senderId, agent.id)
+      const tossTarget = loadMemory(input.dataDir, input.senderId).lastBuild
+      const tossed = await autoWorkshopToss(input.senderId, agent.id, tossTarget?.artifactId)
       if (tossed?.logged) {
         extras.push('They said toss it: the last built artifact was deleted. Confirm in a few words.')
       } else {

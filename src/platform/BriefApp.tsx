@@ -56,6 +56,8 @@ export type BriefPayload = {
   calendar?: string[]
   /** The calendar read did not answer — distinct from a genuinely quiet day. */
   calendarFailed?: boolean
+  /** The mailbox read did not answer — distinct from an empty inbox. */
+  mailFailed?: boolean
   emails?: string[]
   emailItems?: BriefAsk[]
   mailGroups?: BriefMailGroup[]

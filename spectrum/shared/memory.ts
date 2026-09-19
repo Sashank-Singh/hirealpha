@@ -37,6 +37,9 @@ export interface ThreadMemory {
   pendingConnection?: { connector: string; request: string; createdAt: number }
   pendingVaultTask?: { portal: string; goal: string; originalText: string; createdAt: number }
   pendingSpend?: { id: string; item: string; amount: number; url?: string; createdAt: number }
+  /** The build most recently delivered in this thread, so keep/toss/iterate act
+   * on the app the user is actually talking about. */
+  lastBuild?: { artifactId: string; url: string }
   lastCardDeliveredAt?: number
   /** Durable facts about the person, never sliced by recency. */
   facts: MemoryFact[]
@@ -85,6 +88,9 @@ function normalize(raw: unknown): ThreadMemory {
     ...(r.pendingSpend && typeof r.pendingSpend === 'object' &&
       typeof (r.pendingSpend as Record<string, unknown>).id === 'string'
       ? { pendingSpend: r.pendingSpend as ThreadMemory['pendingSpend'] } : {}),
+    ...(r.lastBuild && typeof r.lastBuild === 'object' &&
+      typeof (r.lastBuild as Record<string, unknown>).artifactId === 'string'
+      ? { lastBuild: r.lastBuild as ThreadMemory['lastBuild'] } : {}),
     ...(typeof r.lastCardDeliveredAt === 'number' ? { lastCardDeliveredAt: r.lastCardDeliveredAt } : {}),
     facts,
     summary: typeof r.summary === 'string' ? r.summary : '',
@@ -119,6 +125,17 @@ export function setPendingVaultTask(dataDir: string, senderId: string, pending?:
   const mem = { ...loadMemory(dataDir, senderId) }
   if (pending) mem.pendingVaultTask = pending
   else delete mem.pendingVaultTask
+  writeMemory(dataDir, senderId, mem)
+}
+
+/** The build Alpha most recently delivered in this thread. Keep, toss and
+ * iterate all used to act on "the newest delivered row", which is a different
+ * build the moment the user has two — "keep it" about the older app kept the
+ * newer one and the app they were using still expired. */
+export function setLastBuild(dataDir: string, senderId: string, build?: { artifactId: string; url: string }) {
+  const mem = { ...loadMemory(dataDir, senderId) }
+  if (build) mem.lastBuild = build
+  else delete mem.lastBuild
   writeMemory(dataDir, senderId, mem)
 }
 

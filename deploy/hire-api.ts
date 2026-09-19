@@ -8226,6 +8226,11 @@ async function digestPayload(
     }
   }
 
+  /* Set when every mail read failed rather than finding nothing. Without this
+   * the brief simply had no Mail section — Gmail down and an empty inbox looked
+   * identical to the user, and the card's degraded notice requires rows that do
+   * not exist in that case. */
+  let mailReadFailed = false
   if (!finalEmails.length) {
     try {
       const mailBlock = await withTimeout(
@@ -8233,6 +8238,9 @@ async function digestPayload(
         8000,
         '',
       )
+      if (/lookup failed|failed to|not connected|did not go through/i.test(mailBlock) && !digestLines(mailBlock).length) {
+        mailReadFailed = true
+      }
       const rows = digestLines(mailBlock)
         .map((line, i) => {
           const [from, , subject] = line.replace(/^-\s*/, '').split(' | ')
@@ -8552,7 +8560,12 @@ async function digestPayload(
     section('The day', todayCal),
     section('Tomorrow', tomorrowCal),
     ...workSections.map((s) => section(s.title, s.lines)),
-    section('Mail', mailTallyLine ? [mailTallyLine, ...finalEmails] : finalEmails),
+    /* A mailbox that did not answer says so, in the section it belongs to:
+     * previously the brief had no Mail section at all and the user could not
+     * tell a quiet inbox from a broken read. */
+    mailReadFailed && !finalEmails.length
+      ? section('Mail', ["Couldn't read your inbox just now. The rest of this brief is unaffected."])
+      : section('Mail', mailTallyLine ? [mailTallyLine, ...finalEmails] : finalEmails),
     section('Do not forget', reminders.map((r) => `${r.time} · ${r.text}`)),
     section('Promises', loops),
   ]
@@ -8608,6 +8621,9 @@ async function digestPayload(
       /* Three states reach the card, not two: connected-and-quiet,
        * not-connected, and the read that did not answer. */
       calendarFailed: !!calToday.calendarFailed,
+      /* Gmail was down rather than empty: the mail section says so instead of
+       * quietly not existing. */
+      mailFailed: mailReadFailed,
       weather: weather || undefined,
     },
   }
@@ -15144,6 +15160,11 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
       if (force) {
         digestCache.drop(`${user!.id}|${persona}`)
         todayMeetsCache.drop(`${user!.id}|${persona}`)
+        /* The judgment is part of what "Try again" promises to refresh. Without
+         * dropping it, mail that arrived since the last judge run can never
+         * reach Needs Reply: leads are built only from judged verdicts, and the
+         * regex supplement runs only when there are zero leads. */
+        await sql`DELETE FROM hire_judge_cache WHERE user_id = ${user!.id}`.catch(() => undefined)
       }
       const dbRow = await readBriefDb(sql, user!.id, persona, 'digest')
       const sameDayCached = !force && dbRow && briefRowSameDay(dbRow.day, day) ? dbRow : null
