@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test'
 import { sanitizeOutbound } from './runHireTurn'
-import { browserRunIsPurchase, seatPreferenceConflict, statedTravelPreferences } from './conversationalFriend'
+import { browserRunIsPurchase, seatPreferenceConflict, statedSeatPreference, statedTravelPreferences } from './conversationalFriend'
 
 describe('bench50 regression guards', () => {
   it('strips a trailing source-URL dump but keeps a single introduced link', () => {
@@ -76,5 +76,19 @@ describe('browser receipt wording', () => {
     expect(seatPreferenceConflict('find me a flight to denver friday', facts)).toBeNull()
     // No seat preference on file means nothing to contradict.
     expect(seatPreferenceConflict('flights to denver, aisle', [{ key: 'diet', value: 'no pork' }])).toBeNull()
+  })
+
+  /* Live, 2026-09-19: "two things for the record: i only ever want window seats
+   * on planes, and im allergic to shellfish" was acknowledged as "window seats
+   * from now on (the aisle thing is officially retired)" while the file still
+   * read `seat_preference: aisle` and a direct question answered "Aisle." */
+  it('reads a standing seat preference out of a sentence that states one', () => {
+    expect(statedSeatPreference('two things for the record: i only ever want window seats on planes, and im allergic to shellfish')).toBe('window seat')
+    expect(statedSeatPreference('i always want an aisle seat on flights, and i do not eat pork')).toBe('aisle seat')
+    expect(statedSeatPreference('from now on book me extra legroom when it is cheap')).toBe('extra legroom seat')
+    // A seat asked for on one flight is not a standing preference.
+    expect(statedSeatPreference('find me a window seat on the tuesday flight')).toBeNull()
+    expect(statedSeatPreference('what seat do you have on file for me - aisle or window?')).toBeNull()
+    expect(statedSeatPreference('going forward i dont want overnight flights')).toBeNull()
   })
 })

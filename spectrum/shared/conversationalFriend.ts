@@ -133,6 +133,28 @@ export function statedTravelPreferences(facts: Array<{ key?: string; value?: str
   return kept.slice(0, 2).join('; ').slice(0, 160)
 }
 
+/**
+ * A STANDING seat preference stated in this message, as the value to store, or
+ * null. Markers of permanence ("i always", "i only ever", "from now on",
+ * "i prefer") plus a seat word; a request for a seat on one flight is not a
+ * preference and returns null.
+ *
+ * Live, 2026-09-19: "two things for the record: i only ever want window seats
+ * on planes, and im allergic to shellfish" was acknowledged as "window seats
+ * from now on (the aisle thing is officially retired)" while only the diet half
+ * was written — the file still read `seat_preference: aisle` hours later, and a
+ * direct question answered "Aisle." A claimed retirement with no write is the
+ * same class as a claimed send with no draft, so the seat half is captured
+ * deterministically instead of relying on the model to call `remember` twice in
+ * one turn.
+ */
+export function statedSeatPreference(text: string): string | null {
+  const t = String(text || '')
+  if (!/\b(?:i (?:always|only ever|never)|always|only ever|from now on|going forward|i (?:prefer|'?d rather)|no more)\b/i.test(t)) return null
+  const seat = /\b(aisle|window|middle|extra[- ]legroom)\b/i.exec(t)
+  return seat ? `${seat[1]!.toLowerCase()} seat` : null
+}
+
 /** The seat a sentence names, or null. */
 function seatWordIn(text: string): string | null {
   const match = /\b(aisle|window|middle|extra[- ]legroom)\b/i.exec(String(text || ''))
@@ -872,6 +894,15 @@ export async function runConversationalFriend(input: {
     promptNotes.push(
       `Access question — the services this turn can actually reach right now are: ${available.join(', ')}. Describe the user's access from that list and from the vault state in your context, name what is NOT reachable, and give the ways out (disconnect here, revoke at the provider, delete stored copies). Never say no accounts are connected when this list is non-empty`,
     )
+  }
+  /* The seat half of a stated preference is written here, not left to the model:
+   * one message carrying two facts ("window seats … and im allergic to
+   * shellfish") had one of them written and the other merely acknowledged. */
+  const statedSeat = statedSeatPreference(input.userText)
+  if (statedSeat) {
+    upsertFacts(dataDir, senderId, [{ key: 'seat_preference', value: statedSeat, ts: Date.now(), lastSeen: Date.now() }])
+    void persistLiveFacts(senderId, persona, [{ key: 'seat_preference', value: statedSeat }]).catch(() => undefined)
+    promptNotes.push(`The seat preference is now "${statedSeat}" — it replaces any earlier seat fact. Confirm it in one short line and name what it replaces; do not ask again`)
   }
   let forcedReply: string | null = null
   const outcome = await runToolConversation({
