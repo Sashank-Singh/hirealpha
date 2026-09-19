@@ -638,25 +638,111 @@ const bursts = createMessageBursts<Incoming>({
   onError: (error) => console.error(`[${agent.id}] inbound batch failed:`, error),
 })
 
-for await (const incoming of app.messages) {
+/** One inbound message, from wherever it arrived (the live stream or the boot
+ * catch-up below). Identical body either way, so a replayed message is claimed,
+ * read and queued exactly like a live one. */
+function intakeMessage(incoming: Incoming): void {
   const [space, message] = incoming
-  if (message.direction === 'outbound') continue
+  if (message.direction === 'outbound') return
   if (message.content.type === 'read') {
     void handleIncoming(incoming).catch(() => undefined)
-    continue
+    return
   }
   const senderId = message.sender?.id ?? space.id
   const isText = message.content.type === 'text'
   if (isText) {
     const text = message.content.type === 'text' ? message.content.text.trim() : ''
-    if (!text || !claimInbound(senderId, text, message.id)) continue
+    if (!text || !claimInbound(senderId, text, message.id)) return
     // Acknowledge receipt immediately; response generation waits for the burst.
     void message.read().catch(() => undefined)
   } else if (findInboundVoice(message.content)) {
     // A voice note is a real ask: claim it so a redelivery can't be
     // transcribed and answered twice, and read it so the sender sees it land.
-    if (!claimInbound(senderId, '', message.id)) continue
+    if (!claimInbound(senderId, '', message.id)) return
     void message.read().catch(() => undefined)
   }
   bursts.enqueue(JSON.stringify([space.id, senderId]), incoming, isText)
 }
+
+for await (const incoming of app.messages) intakeMessage(incoming)
+
+/* A message that arrives while this process is booting is otherwise lost for
+ * good: the intake below is a live stream, so anything delivered during a
+ * rolling update — a deploy, a restart, an OOM kill — is never seen again and
+ * the user just gets silence. Measured 2026-09-19: a picks ask landed at the
+ * exact second a container swapped (boot 17:41:29Z, ask 17:41:29Z) and never
+ * appeared in the new container's log; the thread has no reply to this day.
+ *
+ * On boot, ask Photon for what arrived in the last few minutes and replay any
+ * inbound message with nothing after it. `claimInbound` makes this idempotent:
+ * a message the stream already handled is claimed and skipped, so the worst
+ * case of a race is one duplicate attempt, and the common case of a restart is
+ * a message that gets its answer instead of vanishing. */
+const CATCHUP_WINDOW_MS = Number(process.env.INBOUND_CATCHUP_WINDOW_MS || 20 * 60 * 1000)
+const CATCHUP_MAX = Number(process.env.INBOUND_CATCHUP_MAX || 10)
+
+type PhotonHistory = {
+  messages?: {
+    listRecent?: (options?: { after?: Date; pageSize?: number; isFromMe?: boolean }) => Promise<{
+      messages: readonly {
+        id: string
+        direction?: string
+        content?: { type?: string }
+        sender?: { id?: string }
+        timestamp?: Date | string
+      }[]
+    }>
+  }
+}
+
+/** The raw Photon client behind the Spectrum provider. The provider does not
+ * document a public accessor, so this tries the handles it has been seen to
+ * expose and says so plainly when none is there — a catch-up that silently
+ * does nothing would be the same bug it exists to fix. */
+function photonClient(): PhotonHistory | null {
+  for (const holder of [im as unknown, app as unknown]) {
+    const candidate = (holder as { client?: unknown }).client as PhotonHistory | undefined
+    if (candidate?.messages?.listRecent) return candidate
+  }
+  return null
+}
+
+async function catchUpMissedMessages(): Promise<void> {
+  const client = photonClient()
+  if (!client) {
+    console.warn(
+      `[${agent.id}] inbound catch-up unavailable: no Photon client handle on the provider; a message delivered during a restart will be lost`,
+    )
+    return
+  }
+  const after = new Date(Date.now() - CATCHUP_WINDOW_MS)
+  const page = await client.messages!.listRecent!({ after, isFromMe: false, pageSize: 50 })
+  const rows = (page.messages || []).filter((m) => m.content?.type === 'text' && m.sender?.id)
+  if (!rows.length) return
+  /* The newest message per sender decides: if the last thing in a thread is
+   * theirs, nobody answered it. Anything older than that last one was already
+   * answered or superseded. */
+  const newestAt = new Map<string, number>()
+  for (const m of rows) {
+    const at = m.timestamp ? new Date(m.timestamp).getTime() : 0
+    const key = m.sender!.id!
+    if (!newestAt.has(key) || at > newestAt.get(key)!) newestAt.set(key, at)
+  }
+  const missed = rows
+    .filter((m) => (m.timestamp ? new Date(m.timestamp).getTime() : 0) >= (newestAt.get(m.sender!.id!) || 0))
+    .slice(0, CATCHUP_MAX)
+  if (!missed.length) return
+  console.warn(`[${agent.id}] catch-up: replaying ${missed.length} inbound message(s) from the last ${Math.round(CATCHUP_WINDOW_MS / 60000)} min`)
+  for (const message of missed) {
+    try {
+      const user = await im.user(message.sender!.id!)
+      const space = await im.space.create(user)
+      intakeMessage([space, message] as unknown as Incoming)
+    } catch (err) {
+      console.warn(`[${agent.id}] catch-up replay failed for ${message.sender?.id}:`, err)
+    }
+  }
+}
+
+void catchUpMissedMessages().catch((err) => console.warn(`[${agent.id}] inbound catch-up failed:`, err))
+
