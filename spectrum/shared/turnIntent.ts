@@ -276,12 +276,14 @@ Rules for logs:
 - Only log a habit when they say a specific habit is done. "done" alone is {"kind":"chat"} unless the assistant's previous message named the habit.
 
 3. The user wants something done in the world, or asks for a fact that changes over time: book, reserve, order, buy, send, cancel, find, look up, check something, fill a form, sign up, call, research, or any question whose answer is not fixed (news, prices, scores, schedules, releases, availability, "how much is", "who won", "latest", "this week"):
-{"kind":"request","request":{"summary":"one clause describing what they want","needsBrowser":true,"site":"https://www.opentable.com","needsLookup":false}}
-- needsBrowser is true when fulfilling it means acting on a website (booking, ordering, filling a form, checking an account).
+{"kind":"request","request":{"summary":"one clause describing what they want","needsBrowser":false,"needsLookup":true}}
+- needsBrowser is true ONLY when they want something done ON a website — booked, ordered, bought, submitted, signed in to, an account checked: {"kind":"request","request":{"summary":"book a table at the Osteria for two on Friday","needsBrowser":true,"site":"https://www.opentable.com","needsLookup":false}}
+- Searching is never needsBrowser. Asking what flights, hotels, rooms, fares, rates, prices, tickets or availability exist is needsLookup true with needsBrowser false — the search tools answer that, and a browser session for a search is the exact bug the engine guards against.
 - needsLookup is true when the answer depends on current facts. "what's the latest news on X", "how much is X", "who won X", "when does X come out", and "is X available" are ALL requests with needsLookup true — never chat.
 - site is the website they named, as an https URL, when they named one. Omit it when they did not.
 - travel: when the ask is a flight or a hotel stay, read the trip as data and include it. Do not guess a field they did not give.
-  {"kind":"request","request":{"summary":"round trip flights San Francisco to Los Angeles","needsBrowser":true,"needsLookup":true,"travel":{"kind":"flight","from":"SFO","to":"LAX","checkin":"2026-09-25","checkout":"2026-09-28","maxPrice":400}}}
+  {"kind":"request","request":{"summary":"round trip flights San Francisco to Los Angeles","needsBrowser":false,"needsLookup":true,"travel":{"kind":"flight","from":"SFO","to":"LAX","checkin":"2026-09-25","checkout":"2026-09-28","maxPrice":400}}}
+  A booking ask carries the same trip data, with needsBrowser true only when they asked for the booking itself.
   * kind is "flight" for air travel and "hotel" for a stay.
   * from/to are airports — the IATA code the user typed ("lax", "sfo") or the main airports of the city they named ("New York" is JFK,EWR,LGA; "Chicago" is ORD,MDW).
   * place is the city or area for a hotel ("Chicago Loop").

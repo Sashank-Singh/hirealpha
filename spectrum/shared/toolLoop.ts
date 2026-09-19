@@ -230,13 +230,31 @@ export function draftLooksLikeImageWork(draft: { goal?: string; portal?: string 
   return imageSite || (imageWord && makeWord)
 }
 
+/** Verbs that only a run can carry out — the one shape that may stage a
+ * browser session. Deliberately narrower than `ACTION_ASK_RE`, which also
+ * fires on "how much is …" to route a *portal* price check: a question whose
+ * answer is a search. Shared so the engine's staging gate and the model-draft
+ * veto can never drift apart. */
+const RUN_ONLY_ACTION_RE =
+  /\b(?:re-?order|buy|purchase|order(?: me)?|pay for|book(?:ing)?|reserv(?:e|ing|ation)|sign me up|fill (?:out )?(?:the )?form|create an account|log ?in|sign ?in|place the order|check ?out|check ?in\s+(?:for|on)\b|cancel|check (?:my |the )?(?:account|portal|balance|bill)|add (?:it )?to (?:the )?cart)\b/i
+
+/** Nouns that name a search rather than an errand. Naming one of these asks
+ * what the market currently offers — prices, dates, availability — and the
+ * lookup tools answer that for free. Founder's rule (09-19): "for searching
+ * hotels, flights, prices, no need to launch a browser session, only when they
+ * want to book." A message that also carries an action verb is still an action;
+ * that is what `RUN_ONLY_ACTION_RE` is checked first for. */
+const SEARCH_NOUN_RE =
+  /\b(?:flights?|airfare|airlines?|fares?|hotels?|hostels?|motels?|lodging|rooms?|room rates?|rates?|prices?|tickets?|availability|trains?|buses|ferries|rental cars?|car rentals?)\b/i
+
 export function isLookupOnlyAsk(text: string): boolean {
   const ask = String(text || '')
   if (!ask) return false
-  /* Verbs that only a run can carry out. Deliberately narrower than
-   * ACTION_ASK_RE, which also fires on "how much is …" to route a *portal*
-   * price check — a question whose answer is a search. */
-  if (/\b(?:re-?order|buy|purchase|order(?: me)?|pay for|book(?:ing)?|reserv(?:e|ing|ation)|sign me up|fill (?:out )?(?:the )?form|create an account|log ?in|sign ?in|place the order|check ?out|check (?:my |the )?(?:account|portal|balance|bill)|add (?:it )?to (?:the )?cart)\b/i.test(ask)) return false
+  if (RUN_ONLY_ACTION_RE.test(ask)) return false
+  /* A bare "flights from JFK to London on October 15" carries no lookup word
+   * at all, which is how it slipped past this guard and staged a Kayak run on
+   * a plain price search. Travel and price nouns are a search by themselves. */
+  if (SEARCH_NOUN_RE.test(ask)) return true
   return /\b(?:find|search|look ?up|show|recommend|suggest|options?|choices?|compare|which|see if|check if|check whether|what|how|when|where|any good|tell me about)\b/i.test(ask)
 }
 
@@ -374,7 +392,19 @@ export async function runToolConversation(input: {
 
   const fetchLookupOnce = async (tool: LiveTool, query: string) => {
     let timer: ReturnType<typeof setTimeout> | undefined
-    const budget = travelLookup.test(query) ? 55_000 : tool === 'maps' ? 12_000 : 15_000
+    const isTravel = travelLookup.test(query)
+    /* The trip must be in hand BEFORE a fare or rate lookup leaves. The
+     * classifier resolves asynchronously and this call used to read
+     * `understoodTravel` the instant it ran, so on a plain search ("find me a
+     * flight to chicago tuesday, somewhere near the loop") the lookup could
+     * leave with no airports and no dates; the server then fell back to parsing
+     * the sentence itself, and a casually-worded ask came back "the dated
+     * sources returned nothing" — while the identical ask with the trip
+     * attached priced fine. Only travel-shaped lookups pay this wait, and it is
+     * bounded: a classifier that never settles must not hold the turn open, so
+     * after the cap the lookup leaves with whatever is known (the old shape). */
+    if (isTravel) await Promise.race([travelUnderstanding, new Promise<void>((resolve) => setTimeout(resolve, 2500))])
+    const budget = isTravel ? 55_000 : tool === 'maps' ? 12_000 : 15_000
     try {
       return await Promise.race([
         input.lookup(tool, query, understoodTravel || undefined),
@@ -709,13 +739,23 @@ Reactions are optional and usually absent. You may add "reaction":"<emoji>" to a
         /\b(?:schedule|calendar|agenda|meetings?|appointments?|what'?s (?:on|next|coming)|today|tomorrow|this (?:week|morning|afternoon))\b/i.test(userAsk) &&
         !ACTION_ASK_RE.test(userAsk) &&
         !ASK_BUY_RE.test(userAsk)
-      const needsBrowser = !isMemoryAsk && !wantsMail && !attemptedMail && !appTweakAsk && !scheduleAsk && !questionAsk && (request
+      /* A price search is answered by the lookup tools, never by a run.
+       * Founder's rule (09-19), verbatim: "for searching hotels, flights,
+       * prices, no need to launch a browser session, only when they want to
+       * book… that's when you launch the browser session." Live failure this
+       * closes: "flights from JFK to London on October 15" — a bare travel
+       * noun phrase carrying no verb at all — matched none of the guards above
+       * (no question word, no find/show shape), so the classifier's
+       * needsBrowser rode through and the reply announced a live Kayak run
+       * instead of the $209 nonstop the same turn had already priced. */
+      const searchOnlyAsk = SEARCH_NOUN_RE.test(userAsk) && !RUN_ONLY_ACTION_RE.test(userAsk)
+      const needsBrowser = !isMemoryAsk && !wantsMail && !attemptedMail && !appTweakAsk && !scheduleAsk && !questionAsk && !searchOnlyAsk && (request
         ? (request.needsBrowser || ACTION_ASK_RE.test(userAsk)) && !findOnlyAsk
         : ACTION_ASK_RE.test(userAsk) && !findOnlyAsk)
       // A booking ask that already produced search results gets a second nudge
       // carrying the concrete site: without a portal URL the model answers with
       // directory links and never sends the browser action the user asked for.
-      if (process.env.HIREALPHA_LOOP_TRACE) console.error(`[loop] step ${step} needsFresh=${needsFresh} attemptedWeb=${attemptedWeb} needsBrowser=${needsBrowser} nudgeCount=${browserNudgeCount}`)
+      if (process.env.HIREALPHA_LOOP_TRACE) console.error(`[loop] step ${step} needsFresh=${needsFresh} attemptedWeb=${attemptedWeb} needsBrowser=${needsBrowser} searchOnly=${searchOnlyAsk} nudgeCount=${browserNudgeCount}`)
       // One nudge, then the engine issues the run itself (below): a second
       // nudge round mostly produced more prose and burned the step budget.
       const browserNudgesAllowed = 1

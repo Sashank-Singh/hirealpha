@@ -67,6 +67,29 @@ describe('a lookup never stages a run', () => {
   })
 })
 
+describe('a search never stages a run, however it is phrased', () => {
+  /* Founder's rule, verbatim (09-19): "for searching hotels, flights, prices,
+   * no need to launch a browser session, only when they want to book… that's
+   * when you launch the browser session." Live failure it closes: this exact
+   * text — a bare noun phrase with no verb in it — matched none of the
+   * question/find guards, so the classifier's needsBrowser rode through and
+   * the reply announced a live Kayak run instead of the fares it had priced. */
+  it('reads a bare travel noun phrase as the search it is', () => {
+    expect(isLookupOnlyAsk('flights from JFK to London on October 15')).toBe(true)
+    expect(isLookupOnlyAsk('hotels in London October 15 to 17')).toBe(true)
+    expect(isLookupOnlyAsk('JFK to LHR fares next month')).toBe(true)
+    expect(isLookupOnlyAsk('room rates at the Palmer House this weekend')).toBe(true)
+    expect(isLookupOnlyAsk('nonstop options to Chicago')).toBe(true)
+  })
+
+  it('still hands a booking to the browser', () => {
+    expect(isLookupOnlyAsk('book the cheapest JFK to London flight on October 15')).toBe(false)
+    expect(isLookupOnlyAsk('reserve a hotel in London for those dates')).toBe(false)
+    expect(isLookupOnlyAsk('cancel my flight to Chicago')).toBe(false)
+    expect(isLookupOnlyAsk('check in for my flight tomorrow')).toBe(false)
+  })
+})
+
 describe('a price question is a search, not an action', () => {
   it('does not treat "how much is" as a booking verb', () => {
     expect(isLookupOnlyAsk('How much is the Aeropress on Amazon')).toBe(true)

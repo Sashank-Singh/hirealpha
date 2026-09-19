@@ -1028,3 +1028,44 @@ describe('dated travel booking asks (dims 1 and 2)', () => {
     expect(drafts[0]).toMatchObject({ portal: 'https://www.delta.com/checkin' })
   })
 })
+
+describe('a travel lookup waits for the classified trip', () => {
+  /* The classifier resolves asynchronously and the lookup used to read the
+   * resolved trip the instant it ran. On a casually-worded search ("gotta be in
+   * chicago tuesday morning... flying out of sf") the lookup could therefore
+   * leave with no airports and no dates, the server fell back to parsing the
+   * sentence, and the reply said the dated sources came back empty — while the
+   * same ask with the trip attached priced fine. */
+  it('carries the trip into a lookup that fires before the classifier settles', async () => {
+    const seen: unknown[] = []
+    let resolveIntent: (value: unknown) => void = () => {}
+    const intent = new Promise((resolve) => { resolveIntent = resolve })
+    // The classifier answers only after the turn has already started.
+    setTimeout(() => {
+      resolveIntent({
+        kind: 'request',
+        request: {
+          summary: 'flight SFO to Chicago Tuesday morning',
+          needsBrowser: false,
+          needsLookup: true,
+          travel: { kind: 'flight', from: 'SFO', to: 'ORD', checkin: '2026-09-22' },
+        },
+      })
+    }, 60)
+
+    await runToolConversation({
+      messages: [{ role: 'user', content: 'gotta be in chicago tuesday morning, flying out of sf. can you find me a flight?' }],
+      availableTools: ['web'],
+      canDraft: false,
+      intent: intent as never,
+      chat: async () => '{"action":"lookup","tool":"web","query":"flights from sf to chicago tuesday"}',
+      lookup: async (_tool, _query, travel) => { seen.push(travel); return ['Live fares from SFO to ORD on 2026-09-22'] },
+      propose: async () => ({ ok: false }),
+    })
+
+    expect(seen.length).toBeGreaterThan(0)
+    for (const travel of seen) {
+      expect(travel).toMatchObject({ kind: 'flight', from: 'SFO', to: 'ORD', checkin: '2026-09-22' })
+    }
+  })
+})
