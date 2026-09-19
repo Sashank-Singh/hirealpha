@@ -748,8 +748,21 @@ Reactions are optional and usually absent. You may add "reaction":"<emoji>" to a
         !isMemoryAsk &&
         /\b(?:find|recommend|suggest|looking for|where(?:'s| is| can| should)|place)\b[^.!?\n]{0,60}\b(?:restaurants?|cafes?|coffee shops?|hotels?|places? to eat|dinner|lunch|brunch|breakfast|bar|drinks|eat(?:ing)? out)\b/i.test(freshnessContext)
       const asksToBuy = !isMemoryAsk && (buyAsk || /\b(?:buy|purchase|order(?: me)?|pay for)\b/i.test(freshnessContext))
+      /* A question about Alpha's OWN access is answered from the connected list
+       * and vault state already in context — there is nothing to look up, and
+       * forcing a lookup turns it into a dropped turn. Live head-to-head,
+       * 2026-09-19: "quick check - what do you actually have access to on my
+       * accounts right now, and how do i lock any of it down?" died on "I could
+       * not verify current information because the web lookup did not run.
+       * Please try again." while the same ask answered by hand listed every
+       * connection, what is not connected, and four ways to revoke. */
+      const accessQuestion =
+        /\b(?:what|which)\b[^?]{0,60}\b(?:access|permissions?|accounts?|connected)\b/i.test(userAsk) ||
+        /\byou\b[^?]{0,40}\b(?:have )?(?:access|permission)s?\b/i.test(userAsk) ||
+        /\b(?:disconnect|revoke)\b/i.test(userAsk)
       const needsFresh =
         !isMemoryAsk &&
+        !accessQuestion &&
         !isSchedulingAsk(userAsk) &&
         (request?.needsLookup === true || (request === null && (asksForPlaces || asksToBuy || /\b(news|latest|price|prices|how much (?:is|does|do)|score|who won|release date|next .{0,40}event|this week|today|yesterday|tonight|right now)\b/i.test(freshnessContext))))
       const attemptedWeb = [...seen].some(key => key.startsWith('web:'))

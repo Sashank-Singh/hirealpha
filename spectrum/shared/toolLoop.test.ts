@@ -1196,3 +1196,26 @@ describe('a stated preference is not a booking ask', () => {
     expect(drafts[0]).toMatchObject({ type: 'browser', portal: 'https://www.kayak.com/flights' })
   })
 })
+
+describe('an access question is answered from context, never a lookup', () => {
+  /* Live head-to-head, 2026-09-19: "quick check - what do you actually have
+   * access to on my accounts right now, and how do i lock any of it down?" was
+   * forced into a fresh lookup and died on "I could not verify current
+   * information because the web lookup did not run. Please try again." — a
+   * dropped turn on a question whose whole answer is local, while the same ask
+   * answered by hand listed every connection and four ways to revoke. */
+  it('never forces a web lookup for it, and never the canned failure', async () => {
+    const lookups: string[] = []
+    const result = await runToolConversation({
+      messages: [{ role: 'user', content: 'quick check - what do you actually have access to on my accounts right now, and how do i lock any of it down?' }],
+      availableTools: ['web', 'gmail', 'calendar'],
+      canDraft: false,
+      chat: async () => 'Connected: Gmail and Calendar. Not connected: Drive, Notion, Slack. To lock it down: tell me to disconnect, or revoke at the provider.',
+      lookup: async (_tool, query) => { lookups.push(query); return ['should not run'] },
+      propose: async () => ({ ok: false }),
+    })
+    expect(lookups).toHaveLength(0)
+    expect(result.reply).not.toContain('web lookup did not run')
+    expect(result.reply).toContain('Connected')
+  })
+})
