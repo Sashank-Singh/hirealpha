@@ -2437,3 +2437,28 @@ One unrelated observation from the same log, recorded rather than dropped:
 wrong-table bug that produced this line systematically is fixed
 (`ff89282`) — the seat and diet facts now round-trip and read back — so
 this is a residual, not the same failure, and it is not yet explained.
+
+### The owed dim-16 proof, and the two upstream outages that stopped it
+
+The live end-to-end — build, restart the container, then iterate — was attempted
+twice more this pass and could not be run, for reasons that are not code:
+
+- **The builder is down.** Two different apps in a row: *"Heads up: the build
+  attempt failed on my end twice, not a you problem"* (coin flip) and *"The
+  builder's down again, same as the coin flip one. Two strikes tonight so I'm
+  calling it like it is instead of pretending"* (tip splitter). Both replies are
+  honest failures rather than fabricated successes, which is the right behaviour
+  and also means there is no delivered build to lose a reference to.
+- **The iMessage channel hit its daily cap.** `[reminders:friend] send failed …
+  RateLimitError: Daily send limit exceeded` — Photon's daily send ceiling, so
+  further live turns cannot be relied on tonight regardless.
+
+What this pass added instead is the coverage that was actually missing: the four
+existing tests exercised the *reader* with hand-made facts, so nothing failed
+when the *write* was absent — which is exactly what happened live. The new test
+runs `recordDeliveredBuild` end to end on a temp data dir and asserts both
+stores (thread reference and durable fact) and the post-swap re-hydration shape.
+`5f3cc47`, 796 tests, same five pre-existing failures.
+
+**Still owed, named plainly:** the build → restart → iterate run, once the
+builder is back. Everything else about this item is verified.
