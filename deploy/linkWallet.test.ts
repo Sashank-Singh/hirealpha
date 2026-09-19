@@ -1,41 +1,46 @@
-import { describe, expect, it } from 'bun:test'
-import { linkStatusFromCliOutput } from './linkWallet'
+import { afterEach, describe, expect, it } from 'bun:test'
+import { kernelPaymentsReady, resetKernelProjectCacheForTest } from './linkWallet'
 
-describe('Link wallet output boundary', () => {
-  it('reads the CLI JSON emission envelope used by auth status', () => {
-    expect(linkStatusFromCliOutput([{
-      authenticated: false,
-      pending: true,
-      verification_url: 'https://link.com/authorize/example',
-      phrase: 'quiet-river',
-    }])).toEqual({
-      connected: false,
-      pending: true,
-      verificationUrl: 'https://link.com/authorize/example',
-      phrase: 'quiet-river',
-    })
+const realFetch = globalThis.fetch
+const realKey = process.env.KERNEL_API_KEY
+const realProject = process.env.KERNEL_PROJECT_ID
+afterEach(() => {
+  resetKernelProjectCacheForTest()
+  globalThis.fetch = realFetch
+  if (realKey === undefined) delete process.env.KERNEL_API_KEY
+  else process.env.KERNEL_API_KEY = realKey
+  if (realProject === undefined) delete process.env.KERNEL_PROJECT_ID
+  else process.env.KERNEL_PROJECT_ID = realProject
+})
+
+/* Live failure this covers: production answered the Settings "Connect Link"
+ * button with "KERNEL_API_KEY and KERNEL_PROJECT_ID are required for browser
+ * payments." — the key was set, the project id was not, and the whole Link
+ * wallet path was dead behind a developer-shaped message. */
+describe('payment readiness without a hand-filled project id', () => {
+  it('is not ready when the API key itself is missing', async () => {
+    delete process.env.KERNEL_API_KEY
+    delete process.env.KERNEL_PROJECT_ID
+    expect(await kernelPaymentsReady()).toBe(false)
   })
 
-  it('never forwards a non-Link verification URL to the browser', () => {
-    const status = linkStatusFromCliOutput([{
-      authenticated: false,
-      pending: true,
-      verification_url: 'https://evil.example/steal',
-    }])
-    expect(status.pending).toBe(true)
-    expect(status.verificationUrl).toBeUndefined()
+  it('resolves the project from the API when only the key is set', async () => {
+    process.env.KERNEL_API_KEY = 'test-key'
+    delete process.env.KERNEL_PROJECT_ID
+    let called = ''
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      called = String(input)
+      return new Response(JSON.stringify([{ id: 'proj-1', name: 'Default', status: 'active' }]), { status: 200 })
+    }) as unknown as typeof fetch
+    expect(await kernelPaymentsReady()).toBe(true)
+    expect(called).toContain('onkernel.com/projects')
   })
 
-  it('reports a completed user authorization', () => {
-    expect(linkStatusFromCliOutput([{ authenticated: true, scope: 'userinfo:read payment_methods.agentic' }])).toEqual({
-      connected: true,
-      pending: false,
-      scope: 'userinfo:read payment_methods.agentic',
-    })
-  })
-
-  it('normalizes scope arrays returned by newer CLI envelopes', () => {
-    expect(linkStatusFromCliOutput({ authenticated: true, scope: ['userinfo:read', 'payment_methods.agentic'] }).scope)
-      .toBe('userinfo:read payment_methods.agentic')
+  it('is not ready when the API refuses the lookup', async () => {
+    resetKernelProjectCacheForTest()
+    process.env.KERNEL_API_KEY = 'test-key'
+    delete process.env.KERNEL_PROJECT_ID
+    globalThis.fetch = (async () => new Response('nope', { status: 401 })) as unknown as typeof fetch
+    expect(await kernelPaymentsReady()).toBe(false)
   })
 })

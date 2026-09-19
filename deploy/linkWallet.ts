@@ -32,10 +32,60 @@ export type LinkMethodView = {
 
 type KernelPaymentRow = { vault_id: string; wallet_key: string; selected_payment_method_id: string | null }
 
-function kernelClient(): Kernel {
+/* The project id, resolved from the API when the env var is absent.
+ *
+ * Measured live: the Settings "Connect Link" button answered
+ * "KERNEL_API_KEY and KERNEL_PROJECT_ID are required for browser payments" on
+ * production — the key was set, the project id was not, and the whole Link
+ * wallet path (connect, status, methods, spend approvals) was dead behind a
+ * developer-shaped error. `GET /projects` with the same key returns the
+ * account's projects, so the client no longer depends on a second env var
+ * being filled in by hand. Cached for the process lifetime. */
+let kernelProjectID: string | null = null
+async function resolveKernelProjectID(apiKey: string): Promise<string | null> {
+  const fromEnv = process.env.KERNEL_PROJECT_ID?.trim()
+  if (fromEnv) return fromEnv
+  if (kernelProjectID) return kernelProjectID
+  try {
+    const res = await fetch('https://api.onkernel.com/projects', {
+      headers: { Authorization: `Bearer ${apiKey}` },
+      signal: AbortSignal.timeout(8000),
+    })
+    if (!res.ok) return null
+    const projects = (await res.json()) as Array<{ id?: string; status?: string }>
+    const active = projects.find((p) => p.status === 'active' && p.id) || projects.find((p) => p.id)
+    if (active?.id) {
+      kernelProjectID = active.id
+      console.log(`[link] kernel project resolved from the API: ${active.id}`)
+      return active.id
+    }
+  } catch (err) {
+    console.warn('[link] kernel project lookup failed', err instanceof Error ? err.message : err)
+  }
+  return null
+}
+
+/** Test seam: the resolved project id is cached for the process, which is
+ * correct in production (a project id does not change) and order-dependent in
+ * a test file. */
+export function resetKernelProjectCacheForTest(): void {
+  kernelProjectID = null
+}
+
+/** True when the payment stack can run at all — the API key, and a project id
+ * either set or resolvable. Callers use this to say "payments are not set up"
+ * instead of leaking the env-var message to a user. */
+export async function kernelPaymentsReady(): Promise<boolean> {
   const apiKey = process.env.KERNEL_API_KEY?.trim()
-  const projectID = process.env.KERNEL_PROJECT_ID?.trim()
-  if (!apiKey || !projectID) throw new Error('KERNEL_API_KEY and KERNEL_PROJECT_ID are required for browser payments.')
+  if (!apiKey) return false
+  return Boolean(await resolveKernelProjectID(apiKey))
+}
+
+async function kernelClient(): Promise<Kernel> {
+  const apiKey = process.env.KERNEL_API_KEY?.trim()
+  if (!apiKey) throw new Error('Payments are not set up on this deployment yet, so nothing was charged and nothing was connected.')
+  const projectID = await resolveKernelProjectID(apiKey)
+  if (!projectID) throw new Error('Card setup did not answer just now, so nothing was connected. Try again in a moment.')
   return new Kernel({ apiKey, projectID, maxRetries: 0 })
 }
 
@@ -126,7 +176,7 @@ export async function resolveKernelPaymentAction(sql: SQL, userId: string, id: s
   ` as Array<{ vault_id: string; item_key: string; action_name: string; url_encrypted: string }>
   const row = rows[0]
   if (!row) return null
-  const item = await kernelClient().vaults.items.retrieve(row.item_key, { id_or_name: row.vault_id })
+  const item = await (await kernelClient()).vaults.items.retrieve(row.item_key, { id_or_name: row.vault_id })
   if (!item.action || item.action.name !== row.action_name || !('url' in item.action)) return null
   const broker = userKeyBrokerFromEnv()
   if (!broker) return null
@@ -143,7 +193,7 @@ export async function getKernelVaultId(sql: SQL, userId: string, create = false)
   const existing = await kernelPaymentRow(sql, userId)
   if (existing) return existing.vault_id
   if (!create) return null
-  const client = kernelClient()
+  const client = await kernelClient()
   const vault = await client.vaults.upsert({ name: `hirealpha-${userId}` })
   const items = await client.vaults.items.list(vault.id)
   const wallets = items.filter((item) => item.type === 'wallet' && item.spec.provider === 'link')
@@ -195,7 +245,7 @@ export async function startLinkConnection(sql: SQL, userId: string): Promise<Lin
   if (!vaultId) throw new Error('Kernel payment vault could not be created.')
   const row = await kernelPaymentRow(sql, userId)
   if (!row) throw new Error('Kernel payment wallet could not be found.')
-  const wallet = await kernelClient().vaults.items.retrieve(row.wallet_key, { id_or_name: vaultId })
+  const wallet = await (await kernelClient()).vaults.items.retrieve(row.wallet_key, { id_or_name: vaultId })
   if (wallet.type !== 'wallet' || wallet.spec.provider !== 'link') throw new Error('Kernel payment wallet is invalid.')
   if (wallet.state.status === 'connected') return { connected: true, pending: false }
   if (wallet.action?.name === 'link_oauth' && 'url' in wallet.action) {
@@ -210,7 +260,7 @@ export async function startLinkConnection(sql: SQL, userId: string): Promise<Lin
 export async function getLinkStatus(sql: SQL, userId: string): Promise<LinkWalletStatus> {
   const row = await kernelPaymentRow(sql, userId)
   if (!row) return { connected: false, pending: false }
-  const wallet = await kernelClient().vaults.items.retrieve(row.wallet_key, { id_or_name: row.vault_id })
+  const wallet = await (await kernelClient()).vaults.items.retrieve(row.wallet_key, { id_or_name: row.vault_id })
   if (wallet.type !== 'wallet' || wallet.spec.provider !== 'link') return { connected: false, pending: false }
   if (wallet.state.status === 'connected') return { connected: true, pending: false }
   if (wallet.action?.name === 'link_oauth' && 'url' in wallet.action) {
@@ -229,10 +279,10 @@ export async function getLinkStatus(sql: SQL, userId: string): Promise<LinkWalle
 export async function disconnectLink(sql: SQL, userId: string): Promise<void> {
   const row = await kernelPaymentRow(sql, userId)
   if (!row) return
-  const items = await kernelClient().vaults.items.list(row.vault_id)
+  const items = await (await kernelClient()).vaults.items.list(row.vault_id)
   const unresolved = items.some((item) => item.type === 'card' && ['pending_authorization', 'recovery_required'].includes(item.state.status))
   if (unresolved) throw new Error('A payment is unresolved. Reconcile it before disconnecting Link.')
-  await kernelClient().vaults.delete(row.vault_id)
+  await (await kernelClient()).vaults.delete(row.vault_id)
   await sql`DELETE FROM hire_kernel_payment_actions WHERE user_id = ${userId}`
   await sql`DELETE FROM hire_kernel_payment_vaults WHERE user_id = ${userId}`
 }
@@ -240,10 +290,10 @@ export async function disconnectLink(sql: SQL, userId: string): Promise<void> {
 export async function listLinkPaymentMethods(sql: SQL, userId: string): Promise<LinkMethodView[]> {
   const row = await kernelPaymentRow(sql, userId)
   if (!row) return []
-  let wallet = await kernelClient().vaults.items.retrieve(row.wallet_key, { id_or_name: row.vault_id })
+  let wallet = await (await kernelClient()).vaults.items.retrieve(row.wallet_key, { id_or_name: row.vault_id })
   if (wallet.type !== 'wallet' || wallet.state.status !== 'connected'
     || !wallet.available_expansions.some(({ type }) => type === 'payment_methods')) return []
-  wallet = await kernelClient().vaults.items.retrieve(row.wallet_key, { id_or_name: row.vault_id, expand: ['payment_methods'] })
+  wallet = await (await kernelClient()).vaults.items.retrieve(row.wallet_key, { id_or_name: row.vault_id, expand: ['payment_methods'] })
   if (wallet.type !== 'wallet') return []
   return (wallet.expanded?.payment_methods || []).filter((pm) => pm.capabilities.single_use_card?.eligible !== false).map((pm) => ({
     id: pm.id,
@@ -261,7 +311,7 @@ export async function createLinkSpendRequest(
 ): Promise<LinkSpend> {
   const row = await kernelPaymentRow(sql, userId)
   if (!row) throw new Error('Connect Link before approving a purchase.')
-  let wallet = await kernelClient().vaults.items.retrieve(row.wallet_key, {
+  let wallet = await (await kernelClient()).vaults.items.retrieve(row.wallet_key, {
     id_or_name: row.vault_id, expand: ['payment_methods'],
   })
   if (wallet.type !== 'wallet' || wallet.state.status !== 'connected') throw new Error('Link wallet is not connected.')
@@ -272,7 +322,7 @@ export async function createLinkSpendRequest(
   const currency = input.currency.toLowerCase()
   const context = `HireAlpha is requesting a one-use payment credential for this independently verified purchase only. Merchant: ${input.merchant}. Item: ${input.purpose}. Exact total: ${(input.amountCents / 100).toFixed(2)} ${currency.toUpperCase()} including the checkout's displayed charges. Do not allow substitutions, amount changes, or retries.`
   const cardKey = `purchase-${input.requestId}`
-  let card = await kernelClient().vaults.items.upsert(cardKey, {
+  let card = await (await kernelClient()).vaults.items.upsert(cardKey, {
     id_or_name: row.vault_id,
     type: 'card',
     spec: {
@@ -285,7 +335,7 @@ export async function createLinkSpendRequest(
     },
   })
   if (!card.available_operations.some(({ type }) => type === 'authorize')) throw new Error('Kernel payment authorization is unavailable.')
-  card = await kernelClient().vaults.items.performOperation(card.key, { id_or_name: row.vault_id, type: 'authorize' })
+  card = await (await kernelClient()).vaults.items.performOperation(card.key, { id_or_name: row.vault_id, type: 'authorize' })
   if (!card.action || !('url' in card.action)) throw new Error('Kernel did not return a payment approval action.')
   const approvalUrl = await storeKernelAction(sql, userId, {
     vaultId: row.vault_id, itemKey: card.key, actionName: card.action.name,
@@ -297,7 +347,7 @@ export async function createLinkSpendRequest(
 export async function retrieveLinkSpend(sql: SQL, userId: string, spendId: string): Promise<LinkSpend> {
   const row = await kernelPaymentRow(sql, userId)
   if (!row) throw new Error('Kernel payment vault was not found.')
-  const card = await kernelClient().vaults.items.retrieve(spendId, { id_or_name: row.vault_id })
+  const card = await (await kernelClient()).vaults.items.retrieve(spendId, { id_or_name: row.vault_id })
   if (card.type !== 'card') throw new Error('Kernel payment item is invalid.')
   const status = card.state.status === 'ready' ? 'approved' : card.state.status
   return { id: card.key, status }
@@ -306,7 +356,7 @@ export async function retrieveLinkSpend(sql: SQL, userId: string, spendId: strin
 export async function retrieveLinkCard(sql: SQL, userId: string, spendId: string): Promise<LinkCardCredential> {
   const row = await kernelPaymentRow(sql, userId)
   if (!row) throw new Error('Kernel payment vault was not found.')
-  const card = await kernelClient().vaults.items.retrieve(spendId, { id_or_name: row.vault_id, wait: 60 })
+  const card = await (await kernelClient()).vaults.items.retrieve(spendId, { id_or_name: row.vault_id, wait: 60 })
   if (card.type !== 'card' || card.state.status !== 'ready' || !card.state.aliases) {
     throw new Error(`Kernel payment item is ${card.type === 'card' ? card.state.status : 'invalid'}.`)
   }
@@ -335,5 +385,5 @@ export async function reportLinkOutcome(
   // Kernel item events are the authoritative substitution record. Fetching
   // them here also gives operators a stable reconciliation point without
   // sending browser or payment data to another reporting service.
-  await kernelClient().vaults.items.events(input.spendId, { id_or_name: row.vault_id }).catch(() => undefined)
+  await (await kernelClient()).vaults.items.events(input.spendId, { id_or_name: row.vault_id }).catch(() => undefined)
 }
