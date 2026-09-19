@@ -693,12 +693,22 @@ recorded as a floor.
   anything there”, plus the calendar read did not answer. No write tool for
   either service exists anywhere in the product.
 
-### 9. Permissions — 7 (code + behaviour audit, unchanged)
+### 9. Permissions — 8
 
-- Read-only grant links (`?connect=gmail&readonly=1`), disconnect purge, and
-  ask-before-send/spend all exist and are exercised. Granular per-provider
-  scopes beyond the Gmail/Calendar/Drive trio are not offered (the provider's
-  own consent screen decides), which is what holds this at 7.
+- Read-only grant links (`?connect=gmail&readonly=1`), ask-before-send/spend,
+  and the disconnect purge all exist — and the purge is now **verified rather
+  than read**, on the local stack: seed a Google token plus the mailbox-derived
+  rows (brief cache, sender kinds, triage feedback), call
+  `DELETE /api/connect/gmail` with a real session token, and the response names
+  its work — `purged: ["cached briefs", "sender kinds", "triage feedback"]` —
+  with the DB checked afterwards at `tokens=0, briefs=0, kinds=0, feedback=0`.
+  The same call without a session is a 401 (`session_invalid`), so an email
+  address alone cannot revoke or inspect anything. The message also names what
+  is deliberately KEPT (drafts Alpha wrote, anything saved to memory) so
+  deleting those stays the user's call.
+- Why not 10: granular scopes exist for the Google trio but not for other
+  connectors — there the provider's own consent screen decides, and the product
+  says so instead of pretending otherwise.
 
 ### 10. Memory — 7
 
@@ -710,13 +720,17 @@ recorded as a floor.
 - Why 7: verified capture and recall; the "applies it unprompted a week later"
   half needs the dated follow-up.
 
-### 12. Phone calls — 3 / N-A
+### 12. Phone calls — 3 (not N/A)
 
-- No telephony integration exists. Not attempted.
+- No telephony integration exists. The channel does not forbid it — a Twilio
+  number could place the call and report back — so this is our missing
+  capability and it is scored as such rather than filed as N/A.
 
-### 13. Groups — 3 / N-A
+### 13. Groups — 3 (not N/A)
 
-- Single-thread only; group coordination is not built. Not attempted.
+- Single-thread only; group coordination is not built. Photon has to confirm the
+  line can join a thread, but the capability is ours to build, so it is scored
+  rather than filed as N/A.
 
 ### 14. Chained — 3
 
@@ -768,8 +782,12 @@ recorded as a floor.
 
 - Scored dimensions: 15 of 15 attempted (11 unscored items above are recorded
   as reachable vs blocked).
-- Aggregate ≈ 5.8/10 on the written anchors (dim 16's image half moved from
-  0 to 7 when the image path shipped the same evening). Strongest: routine (7,
+- Aggregate ≈ **5.4/10**, computed the way the benchmark computes it: the
+  running mean over scored dimensions (13 of 16 are scored here — personality
+  is opinion-only; phone calls and groups stay at the 3 anchor because the
+  capability is missing on our side, not because the channel made them
+  impossible, so they are NOT filed as N/A). Movement since the previous run:
+  hotel 6→7, travel 5→6, picks 7→8, permissions 7→8, images 0→7. Strongest: routine (7,
   deterministic), picks (7), memory (7), permissions (7), restraint (7),
   games (7). Weakest: purchasing (3), email (3), integrations (3), chained (3),
   images (0).
