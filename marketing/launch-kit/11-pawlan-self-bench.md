@@ -521,7 +521,7 @@ recently "the founder's own failing thread" and the session log under it.
 | # | dimension | score | what holds it back |
 |---|---|---|---|
 | 1 | Online task (hotel) | 7 | staged, not booked — completion needs a payment step |
-| 2 | Travel | 6 | real fares; check-in cannot execute |
+| 2 | Travel | 7 | fares now reach the source from a casual ask and the reply carries them; check-in still cannot execute |
 | 3 | Picks | 9 | hours, prices and dietary facts now read from each venue's own page; nothing left to verify but table availability |
 | 4 | Purchasing | 3 | one Amazon credential + the home address away (plumbing verified) |
 | 5 | Email | 3 | the "Sam proposing Thursday" fixture does not exist in the mailbox |
@@ -536,8 +536,9 @@ recently "the founder's own failing thread" and the session log under it.
 | 15 | Restraint | 7 | one-nudge-per-brief observed; the three-signal scenario needs fixtures |
 | 16 | Images/games | 7.5 | both artifacts work and iterate; free-tier watermark + lettering |
 
-**Aggregate ≈ 5.7** — the running mean over the 15 scored dimensions
-(personality is opinion-only; nothing is filed N/A). Sum 83.5 ÷ 15.
+**Aggregate ≈ 5.6** — the running mean over the 15 scored dimensions
+(personality is opinion-only; nothing is filed N/A). Sum 84.5 ÷ 15. See the public
+leaderboard comparison below for where that lands among the 116 assistants.
 
 Movement this session: hotel 6→7 · travel 5→6 · picks 7→9 · permissions 7→8 ·
 images 0→8 · groups 3→7. Three dead production paths were also revived and
@@ -556,6 +557,56 @@ behavior down.
 **Everything still below 7 is blocked on a founder-supplied resource, a real
 world window, or a paid API — not on code.** The list is at the end of this
 document under "Founder decisions this run is waiting on".
+
+## PUBLIC LEADERBOARD COMPARISON — 2026-09-19
+
+Pulled from [assistantbenchmark.com](https://assistantbenchmark.com/) the same day.
+The site now measures **116 assistants on 15 dimensions** (v0.2, 193 runs, last test
+2026-09-17), 21 with at least one dimension scored.
+
+**Top of the board:** Muse 9.3 (8/15 dims) · **Instinct 8.5 (11/15)** · Pally 8.1
+(13/14) · Ollie 8.1 · szn 8.0 · Shuffle 7.8 · Tomo 7.6 · Asaply 7.5 · Grok Bot 7.3 ·
+Caddy 7.3 · Catch 6.5 · Boba 6.4 · Poke 6.3 · Asmi 6.2 · Folk 6.0 · OpenInstinct 6.0 ·
+Town 5.9 · Brea 5.0.
+
+**Where HireAlpha's 5.7 would land:** around 19th — just below Town (5.9), above Brea
+(5.0). One caveat that matters when reading this: every score above is a **partial
+mean over only the dimensions that have been tested**, while ours is a mean over
+**all 15** — ambitious dimensions cannot drag theirs down.
+
+**Head to head against Instinct — the dimension-by-dimension gap:**
+
+| # | dimension | us | Instinct | Δ | what closes it |
+|---|---|---|---|---|---|
+| 1 | Online tasks | 7 | 8 | −1 | booking completion (the payment step) |
+| 2 | Travel | 6 | **10** | **−4** | fares now grounded (this session); check-in + boarding pass missing |
+| 3 | Picks | 9 | 9 | 0 | — the one capability dimension where we match |
+| 4 | Purchasing | 3 | **9** | **−6** | Amazon credential + saved home address (resource, not code) |
+| 5 | Email | 3 | **9** | **−6** | a real fixture in the mailbox + send approval (resource) |
+| 6 | Proactive | 4 | 8 | −4 | no flight-status feed exists |
+| 7 | Routines | 7 | **10** | −3 | five observed weekdays (time, not code) |
+| 8 | Connected apps | 3 | 8 | **−5** | expired OAuth grants on the workspace (resource) |
+| 9 | Permissions | **8** | 5 | **+3** | *we lead* — granular Google scopes + approval discipline |
+| 10 | Memory | 7 | 9 | −2 | capture/recall fixed; the week-later replay has not elapsed |
+| 12 | Phone calls | 3 | — | they untested | no telephony (Twilio ≈ $1.15/mo) |
+| 13 | Group chats | 7 | — | they untested | a real four-person thread |
+| 14 | Multi-step | 3 | — | they untested | the mail fixture + passport decision |
+| 15 | Restraint | 7 | 8 | −1 | the three-signal evening scenario has no fixture |
+| 16 | Images | 7.5 | — | they untested | free-tier watermark + lettering |
+
+**The pattern, stated plainly:** our deficits concentrate in the dimensions that need
+a **credential, a live grant or a real fixture** (purchasing, email, connected apps)
+and the ones that need **calendar time** (routines, memory) — Instinct leads there
+because it has been running on real accounts longer. We lead on permissions, and picks
+is the one capability dimension already at their level. Travel is the one that moved
+this session and the cheapest to keep moving.
+
+**Re-scored with this session's evidence (sections below):** Travel **6 → 7** — a
+casual ask now reaches the fare source with its airports and dates and answers with
+real fares ("NYC → AUS Thursday 9/24: American nonstop $429, 12:29 PM → 3:24 PM" with a
+recommendation and no payment request), and a stay ask returns booking-source rates
+instead of advice. Travel cannot reach 8 until check-in and the boarding pass exist.
+Picks holds at 9; Online tasks holds at 7.
 
 ## Official dimensions
 
