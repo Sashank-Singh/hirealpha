@@ -190,6 +190,15 @@ matter, or the durable copy could be dropped.
   I'm holding a window" could never be flagged. Fixed, with the old keys as
   aliases and a test on the captured shape.
 
+**The durable write is recoverable now** (`45ceb56`), which was this audit's most
+consequential finding: the server copy is the only one that survives a container
+recreation, and it was a single 8-second POST whose failure was logged and
+dropped, on a route that answered 200 whatever happened inside it. The route
+reads its keys back and names the ones that did not land, the client retries
+once and reports, and the turn re-pushes anything the server's payload is
+missing — so the local file is a retry queue rather than the last copy of a
+preference.
+
 **Also verified:** the standing screen budget holds after the night's frontend
 edits — 8/8 screens under 1000 ms on the production bundle (login 422 ms, home
 358 ms, brief 354 ms), measured after installing the Playwright browser the
