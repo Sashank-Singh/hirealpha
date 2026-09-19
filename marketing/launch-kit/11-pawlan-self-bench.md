@@ -152,10 +152,13 @@ Needs Reply; and keep/toss/iterate pass the artifact id of the build actually
 delivered in this thread (`lastBuild` in the thread memory), instead of acting on
 the newest delivered row.
 
-Still open from the same lists, and they are the last of
-them: the hard ceiling fails a job without cancelling the browser it abandons,
-and `hire_brief_cache` serves the previous build while the rebuild completes
-with no signal the client consumes.
+A third batch (`addc8e3`) closed the
+last two: a run that hits the hard ceiling now has its browser closed for real
+(the ceiling used to release the worker slot while the abandoned run kept its
+session open for up to an hour — it could still act after the user had been told
+nothing was confirmed), and the brief now sets `pending` when it hands back a
+cached build while a rebuild runs behind it, which is the one field the client's
+retry ladder reads. **Every finding from all three audit rounds is closed.**
 
 ## CURRENT INTERNAL SCORECARD — 2026-09-19 (read this first)
 
