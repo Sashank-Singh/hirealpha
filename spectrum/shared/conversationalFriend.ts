@@ -856,6 +856,23 @@ export async function runConversationalFriend(input: {
       `Standing-preference conflict: this ask says ${conflict.asked} seats, and the preference on file is "${conflict.standing}". Name both in one line and either ask which applies for this trip or say plainly which reading you took — never search the ask's seat silently over a stated preference`,
     )
   }
+  /* An access question is answered from the tools that actually work this turn.
+   * The connection list can be empty while the connectors are usable — the
+   * founder's line reaches gmail and calendar through a Composio grant that
+   * never appears in `live.connected` — and the model read that empty list as a
+   * confirmed absence: "I don't have any authenticated connections on file
+   * right now, no email, calendar, or linked accounts are hooked up for you",
+   * in a thread where it had listed that user's real mail an hour earlier.
+   * `available` is what the turn can really reach, so it is what the answer
+   * describes. */
+  const accessQuestion = /\b(?:what|which)\b[^?]{0,60}\b(?:access|permissions?|accounts?|connected)\b/i.test(input.userText) ||
+    /\byou\b[^?]{0,40}\b(?:have )?(?:access|permission)s?\b/i.test(input.userText) ||
+    /\b(?:disconnect|revoke)\b/i.test(input.userText)
+  if (accessQuestion) {
+    promptNotes.push(
+      `Access question — the services this turn can actually reach right now are: ${available.join(', ')}. Describe the user's access from that list and from the vault state in your context, name what is NOT reachable, and give the ways out (disconnect here, revoke at the provider, delete stored copies). Never say no accounts are connected when this list is non-empty`,
+    )
+  }
   let forcedReply: string | null = null
   const outcome = await runToolConversation({
     skipFreshLookup: autoNotes.length > 0,
