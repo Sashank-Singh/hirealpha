@@ -59,3 +59,11 @@ export function groupTurnNote(ctx: GroupTurnContext): string | null {
     'Anything that needs the account (a booking, a payment, a private calendar slot) goes to the account holder in a direct message, not to the group, and say that plainly.',
   ].join(' ')
 }
+
+/** The line recorded in the thread for a group turn. The thread belongs to the
+ * account holder, so without the speaker the history reads as if one person
+ * said everything; the engine still classifies and searches the clean text. */
+export function groupTurnLine(speaker: string, text: string): string {
+  const who = String(speaker || '').trim() || 'someone in the group'
+  return `${who}: ${String(text || '').trim()}`
+}

@@ -805,6 +805,11 @@ export async function runHireTurn(input: {
   userText: string
   /** Optional note appended to context, e.g. that an image was auto-logged. */
   inboundNote?: string
+  /** What to record in the THREAD for this turn, when it differs from the ask
+   * itself. A group message is stored as "Sam: …" so the owner's history reads
+   * as a conversation with named people, while the engine still classifies and
+   * searches on the clean sentence. */
+  threadLine?: string
   /** The bot already texted "on it" when this build ask arrived, so the final
    * reply must deliver the result, not more status talk. */
   buildAckSent?: boolean
@@ -873,7 +878,7 @@ export async function runHireTurn(input: {
   if (navigation?.kind === 'apps' || navigation?.kind === 'menu' || navigation?.kind === 'home') {
     const card = await mintMiniAppCard(input.senderId, agent.id, navigation.kind, navigation.query)
     appendThread(input.dataDir, input.senderId, [
-      { role: 'user', content: input.userText },
+      { role: 'user', content: input.threadLine || input.userText },
       { role: 'assistant', content: `[Alpha ${navigation.kind} card]` },
     ])
     return { reply: '', bubbles: [], source: 'local', authoritative: [], card }
@@ -885,7 +890,7 @@ export async function runHireTurn(input: {
   const selection = await tryTaskSelection(input.senderId, agent.id, input.userText)
   if (selection) {
     appendThread(input.dataDir, input.senderId, [
-      { role: 'user', content: input.userText },
+      { role: 'user', content: input.threadLine || input.userText },
       { role: 'assistant', content: selection },
     ])
     return { reply: selection, bubbles: [selection], source: 'local', authoritative: [], card: null }
@@ -916,7 +921,7 @@ export async function runHireTurn(input: {
       ? `I see your credentials are saved! Starting the ${portalName} run now for "${pendingVault.goal}".\nWatch it live: ${sessionUrl} (I'll report back here as soon as it's done).`
       : `I see your credentials are saved! Starting the ${portalName} run now for "${pendingVault.goal}". I'll report back here as soon as it's done.`
     appendThread(input.dataDir, input.senderId, [
-      { role: 'user', content: input.userText },
+      { role: 'user', content: input.threadLine || input.userText },
       { role: 'assistant', content: reply },
     ])
     return { reply, bubbles: [reply], source: 'local' as const, authoritative: [], card: null }
@@ -946,7 +951,7 @@ export async function runHireTurn(input: {
       } catch {}
     }
     appendThread(input.dataDir, input.senderId, [
-      { role: 'user', content: input.userText },
+      { role: 'user', content: input.threadLine || input.userText },
       { role: 'assistant', content: earlyShield.overrideReply },
     ])
     return { reply: earlyShield.overrideReply, bubbles: [earlyShield.overrideReply], source: 'local', authoritative: [], card }
@@ -967,7 +972,7 @@ export async function runHireTurn(input: {
         ? 'Cancelled the paused task. The browser is closed — nothing was submitted.'
         : 'I could not cancel that task. If it is still waiting, use the session link to cancel it there.'
       appendThread(input.dataDir, input.senderId, [
-        { role: 'user', content: input.userText },
+        { role: 'user', content: input.threadLine || input.userText },
         { role: 'assistant', content: reply },
       ])
       return { reply, bubbles: [reply], source: 'local' as const, authoritative: [], card: null }
@@ -997,7 +1002,7 @@ export async function runHireTurn(input: {
       if (delivered) {
         const reply = 'Sent. The browser picks up right where it paused — I\'ll text you when the task finishes.'
         appendThread(input.dataDir, input.senderId, [
-          { role: 'user', content: input.userText },
+          { role: 'user', content: input.threadLine || input.userText },
           { role: 'assistant', content: reply },
         ])
         return { reply, bubbles: [reply], source: 'local' as const, authoritative: [], card: null }
@@ -1010,7 +1015,7 @@ export async function runHireTurn(input: {
     setPendingSpend(input.dataDir, input.senderId)
     const reply = `Cancelled the order for ${pendingSpend.item}. Let me know if you want to look for something else!`
     appendThread(input.dataDir, input.senderId, [
-      { role: 'user', content: input.userText },
+      { role: 'user', content: input.threadLine || input.userText },
       { role: 'assistant', content: reply },
     ])
     return { reply, bubbles: [reply], source: 'local' as const, authoritative: [], card: null }
@@ -1023,7 +1028,7 @@ export async function runHireTurn(input: {
       const amountStr = chargeRes.amount || `$${pendingSpend.amount ? pendingSpend.amount.toFixed(2) : ''}`
       const reply = `Payment received: ${amountStr} for ${pendingSpend.item}. I'm finalizing the merchant checkout now and will text the order confirmation number once the merchant confirms it.`
       appendThread(input.dataDir, input.senderId, [
-        { role: 'user', content: input.userText },
+        { role: 'user', content: input.threadLine || input.userText },
         { role: 'assistant', content: reply },
       ])
       return { reply, bubbles: [reply], source: 'local' as const, authoritative: [], card: null }
@@ -1031,7 +1036,7 @@ export async function runHireTurn(input: {
       const reply = `Could not complete the charge: ${chargeRes.error || 'Card charge failed'}. Tap the card below to retry or check Settings.`
       const retryCard = await mintMiniAppCard(input.senderId, agent.id, 'approve_purchase', { id: pendingSpend.id })
       appendThread(input.dataDir, input.senderId, [
-        { role: 'user', content: input.userText },
+        { role: 'user', content: input.threadLine || input.userText },
         { role: 'assistant', content: reply },
       ])
       return { reply, bubbles: [reply], source: 'local' as const, authoritative: [], card: retryCard }
@@ -1047,7 +1052,7 @@ export async function runHireTurn(input: {
       ? `Open https://hirealpha.chat/app?connect=${connector} and tap Connect next to ${connector === 'gmail' ? 'Gmail' : 'Calendar'}. If asked, sign in with the account you use for Alpha.`
       : 'Got it, you saved my contact. What would you like help with?'
     appendThread(input.dataDir, input.senderId, [
-      { role: 'user', content: input.userText },
+      { role: 'user', content: input.threadLine || input.userText },
       { role: 'assistant', content: reply },
     ])
     return { reply, bubbles: [reply], source: 'local', authoritative: [], card: null }
@@ -1087,7 +1092,7 @@ export async function runHireTurn(input: {
       const paused = /^\s*pause/i.test(input.userText)
       const ok = await setProactiveMode(input.senderId, agent.id, { proactive: resume ? 'on' : paused ? 'paused' : 'off', pausedUntil: null })
       const reply = ok ? resume ? "I'll check in when something is useful." : "Got it. I won't text first. Your scheduled reminders are unchanged." : 'I could not change that setting. Please try again.'
-      appendThread(input.dataDir, input.senderId, [{ role: 'user', content: input.userText }, { role: 'assistant', content: reply }])
+      appendThread(input.dataDir, input.senderId, [{ role: 'user', content: input.threadLine || input.userText }, { role: 'assistant', content: reply }])
       return { reply, bubbles: [reply], source: 'local', authoritative: [], card: null }
     }
     // Digest set/pause/edit is reminder management with a deterministic parser.
@@ -1103,7 +1108,7 @@ export async function runHireTurn(input: {
           : "I couldn't change the digest right now. Try again in a sec?",
       )
       appendThread(input.dataDir, input.senderId, [
-        { role: 'user', content: input.userText },
+        { role: 'user', content: input.threadLine || input.userText },
         { role: 'assistant', content: reply },
       ])
       return { reply, bubbles: splitBubbles(reply), source: 'local', authoritative: [], card: null }
@@ -1113,7 +1118,7 @@ export async function runHireTurn(input: {
   if (live.unavailable && wantsLiveData(input.userText)) {
     const reply = 'I could not load your connected account data right now. Please try again in a moment. You do not need to reconnect anything based on this error.'
     appendThread(input.dataDir, input.senderId, [
-      { role: 'user', content: input.userText },
+      { role: 'user', content: input.threadLine || input.userText },
       { role: 'assistant', content: reply },
     ])
     return { reply, bubbles: [reply], source: 'local', authoritative: [], card: null }
@@ -1160,7 +1165,7 @@ export async function runHireTurn(input: {
     if (handled) {
       const reply = stripDashes(handled)
       appendThread(input.dataDir, input.senderId, [
-        { role: 'user', content: input.userText },
+        { role: 'user', content: input.threadLine || input.userText },
         { role: 'assistant', content: reply },
       ])
       return { reply, bubbles: splitBubbles(reply), source: 'gmi', authoritative: [], card: null }
@@ -1181,7 +1186,7 @@ export async function runHireTurn(input: {
     if (handled) {
       const reply = stripDashes(handled)
       appendThread(input.dataDir, input.senderId, [
-        { role: 'user', content: input.userText },
+        { role: 'user', content: input.threadLine || input.userText },
         { role: 'assistant', content: reply },
       ])
       return { reply, bubbles: splitBubbles(reply), source: 'gmi', authoritative: [], card: null }
@@ -1232,7 +1237,7 @@ export async function runHireTurn(input: {
       if (sent.ok) {
         const reply = `Sent to ${draft.toName}.`
         appendThread(input.dataDir, input.senderId, [
-          { role: 'user', content: input.userText },
+          { role: 'user', content: input.threadLine || input.userText },
           { role: 'assistant', content: reply },
         ])
         return { reply, bubbles: [reply], source: 'local', authoritative: [], card: null }
@@ -1240,7 +1245,7 @@ export async function runHireTurn(input: {
       retainDelegateDraft(input.senderId, agent.id, draft)
       const fail = `Could not send — ${sent.error || 'unknown error'}. The draft is still here; say send it to retry.`
       appendThread(input.dataDir, input.senderId, [
-        { role: 'user', content: input.userText },
+        { role: 'user', content: input.threadLine || input.userText },
         { role: 'assistant', content: fail },
       ])
       return { reply: fail, bubbles: [fail], source: 'local', authoritative: [], card: null }
@@ -1249,7 +1254,7 @@ export async function runHireTurn(input: {
     // the delegate slot it improvised a random send target from thread noise.
     const nodraft = "Nothing's queued to send right now. Want me to draft something?"
     appendThread(input.dataDir, input.senderId, [
-      { role: 'user', content: input.userText },
+      { role: 'user', content: input.threadLine || input.userText },
       { role: 'assistant', content: nodraft },
     ])
     return { reply: nodraft, bubbles: [nodraft], source: 'local', authoritative: [], card: null }
@@ -1275,7 +1280,7 @@ export async function runHireTurn(input: {
         if (extra) handled = handled + extra
       }
       appendThread(input.dataDir, input.senderId, [
-        { role: 'user', content: input.userText },
+        { role: 'user', content: input.threadLine || input.userText },
         { role: 'assistant', content: handled },
       ])
       // Slash replies are command output: one message, never split.
@@ -2050,7 +2055,7 @@ export async function runHireTurn(input: {
       ? await onboardingCard(input.senderId, agent.id)
       : null
     appendThread(input.dataDir, input.senderId, [
-      { role: 'user', content: input.userText },
+      { role: 'user', content: input.threadLine || input.userText },
       { role: 'assistant', content: WELCOME },
     ])
     return { reply: WELCOME, bubbles: splitBubbles(WELCOME), source: 'local', authoritative: [], card: onboarding, contactCardFirst: true }
@@ -2067,7 +2072,7 @@ export async function runHireTurn(input: {
     const baseMessages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
       { role: 'system', content: system + firstHint },
       ...cleanHistory,
-      { role: 'user', content: input.userText },
+      { role: 'user', content: input.threadLine || input.userText },
     ]
     // Simple-ask short-circuit: short conversational texts with no tool, write,
     // brief, or card intent go straight to the model. The decision loop adds
@@ -2284,7 +2289,7 @@ export async function runHireTurn(input: {
   }
 
   appendThread(input.dataDir, input.senderId, [
-    { role: 'user', content: input.userText },
+    { role: 'user', content: input.threadLine || input.userText },
     { role: 'assistant', content: finalReply },
   ])
   const cardKind = confirmKind || miniApp?.kind || null

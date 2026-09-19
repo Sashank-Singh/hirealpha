@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import { groupTurnNote, isGroupSpace } from './groupChat'
+import { groupTurnLine, groupTurnNote, isGroupSpace } from './groupChat'
 
 describe('detecting a group thread', () => {
   it('trusts the provider type, never the member count', () => {
@@ -43,5 +43,13 @@ describe('what a group turn carries', () => {
     expect(byMember).toContain('Sam')
     const bare = groupTurnNote({ spaceType: 'group', speakerId: '+15550001111' })
     expect(bare).toContain('+15550001111')
+  })
+})
+
+describe('the line a group turn is stored as', () => {
+  it('names the speaker so one thread does not read as one person', () => {
+    expect(groupTurnLine('Sam', 'I can do Friday')).toBe('Sam: I can do Friday')
+    expect(groupTurnLine('', 'any night works')).toBe('someone in the group: any night works')
+    expect(groupTurnLine('  Sam  ', '  friday works  ')).toBe('Sam: friday works')
   })
 })

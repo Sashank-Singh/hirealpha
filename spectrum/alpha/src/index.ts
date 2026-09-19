@@ -3,7 +3,8 @@ import { effect, imessage } from '@spectrum-ts/imessage'
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { defaultReplyCard, getAgent, runHireTurn, runMemoryMaintenance, sanitizeOutbound } from '../../shared/runHireTurn'
-import { groupTurnNote, type SpaceParticipant } from '../../shared/groupChat'
+import { groupTurnLine, groupTurnNote, type SpaceParticipant } from '../../shared/groupChat'
+import { fetchLiveProfile } from '../../shared/liveContext'
 import { extractMessageText, fetchLiveProfile, findInboundVoice, handleInboundPhoto, resolveInboundVoiceTurn } from '../../shared/liveContext'
 import { mintMiniAppCard, onboardingCard } from '../../shared/miniApps'
 import { claimInbound } from '../../shared/inboundGuard'
@@ -396,14 +397,51 @@ async function handleIncoming([space, message]: Incoming, combinedText?: string)
   const senderId = message.sender?.id ?? space.id
   /* A group thread changes who is being answered and what may be said in it.
    * The note is null for a DM, so nothing about the ordinary path changes. */
+/* Which member of a group owns the account Alpha works for — the person who
+ * added it. Cached per space: the answer cannot change often, and every group
+ * turn would otherwise spend a lookup per member. Falls back to the speaker so
+ * a group with no account holder still gets the stranger path rather than
+ * silence. */
+const groupOwnerCache = new Map<string, string>()
+async function resolveGroupOwner(spaceId: string, members: SpaceParticipant[] | undefined, speakerId: string): Promise<string> {
+  const hit = groupOwnerCache.get(spaceId)
+  if (hit) return hit
+  const candidates = (members || [])
+    .map((m) => String(m.id || m.address || ''))
+    .filter((id) => /^\+?\d{7,}$/.test(id))
+    .slice(0, 6)
+  for (const phone of candidates) {
+    try {
+      const live = await fetchLiveProfile(phone, 'friend')
+      if (live.found && live.hired) {
+        groupOwnerCache.set(spaceId, phone)
+        return phone
+      }
+    } catch {
+      /* try the next member */
+    }
+  }
+  return speakerId
+}
+
   const groupNote = groupTurnNote({
     ...(space.type ? { spaceType: space.type } : {}),
     ...(Array.isArray(space.members) ? { members: space.members } : {}),
     speakerId: senderId,
     speakerName: (message.sender as { name?: string } | undefined)?.name || '',
   })
-  if (groupNote) console.log(`[${agent.id}] group turn from ${senderId} in ${space.id}`)
-  await runTurn(space, message, senderId, groupNote ? { text: userText, note: groupNote } : userText)
+  if (groupNote) {
+    /* The thread is the account holder's — one conversation with named people,
+     * not one thread per member — while the note explains who is speaking and
+     * what may be said in front of the others. The stored line carries the
+     * speaker so next week's history still reads as a group. */
+    const owner = await resolveGroupOwner(space.id, space.members, senderId)
+    const speaker = (message.sender as { name?: string } | undefined)?.name || senderId
+    console.log(`[${agent.id}] group turn from ${speaker} in ${space.id} (owner ${owner})`)
+    await runTurn(space, message, owner, { text: userText, note: groupNote, threadLine: groupTurnLine(speaker, userText) })
+    return
+  }
+  await runTurn(space, message, senderId, userText)
 }
 
 type SpaceLike = {
@@ -427,8 +465,8 @@ type MessageLike = {
  * block and the typing indicator covers the wait. */
 type TurnInput =
   | string
-  | { text: string; note: string }
-  | (() => Promise<{ userText: string; note?: string } | null>)
+  | { text: string; note: string; threadLine?: string }
+  | (() => Promise<{ userText: string; note?: string; threadLine?: string } | null>)
 
 /**
  * Run one inbound user turn and deliver it: tapback rhythm, retry past
@@ -452,12 +490,12 @@ async function runTurn(
   const getTurn = onceAsync(async () => {
     const resolved =
       typeof turn === 'string'
-        ? { userText: turn, note: undefined }
+        ? { userText: turn, note: undefined, threadLine: undefined }
         : typeof turn === 'function'
           ? await turn()
-          : { userText: turn.text, note: turn.note }
+          : { userText: turn.text, note: turn.note, threadLine: turn.threadLine }
     if (!resolved) return null
-    const { userText, note } = resolved
+    const { userText, note, threadLine } = resolved
     console.log(`[${agent.id}] inbound from ${senderId}: ${userText.slice(0, 120)}`)
 
     const startReaction = determineInboundReaction({ dataDir, senderId, userText })
@@ -472,7 +510,7 @@ async function runTurn(
       message.react(smartReaction).catch(err => console.warn(`[${agent.id}] initial react failed:`, err))
     }
 
-    const result = await runHireTurn({ agentId, dataDir, senderId, userText, ...(note ? { inboundNote: note } : {}), delivery: {
+    const result = await runHireTurn({ agentId, dataDir, senderId, userText, ...(note ? { inboundNote: note } : {}), ...(threadLine ? { threadLine } : {}), delivery: {
       onProgress: async text => {
         const clean = sanitizeOutbound(text)
         if (!clean) throw new Error('Progress text was filtered')
