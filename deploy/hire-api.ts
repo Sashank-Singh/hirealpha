@@ -9797,24 +9797,46 @@ async function gmailReplyMeta(
   messageId: string,
 ): Promise<{ to: string; subject: string; threadId: string; inReplyTo: string } | null> {
   const access = await googleAccessToken(sql, userId, 'gmail')
-  if (!access) return null
-  const res = await fetch(
-    `https://gmail.googleapis.com/gmail/v1/users/me/messages/${encodeURIComponent(messageId)}?format=metadata&metadataHeaders=From&metadataHeaders=Subject&metadataHeaders=Message-ID`,
-    { headers: { Authorization: `Bearer ${access}` } },
-  )
-  if (!res.ok) return null
-  const data = (await res.json()) as {
-    threadId?: string
-    payload?: { headers?: Array<{ name: string; value: string }> }
+  if (access) {
+    const res = await fetch(
+      `https://gmail.googleapis.com/gmail/v1/users/me/messages/${encodeURIComponent(messageId)}?format=metadata&metadataHeaders=From&metadataHeaders=Subject&metadataHeaders=Message-ID`,
+      { headers: { Authorization: `Bearer ${access}` } },
+    )
+    if (res.ok) {
+      const data = (await res.json()) as {
+        threadId?: string
+        payload?: { headers?: Array<{ name: string; value: string }> }
+      }
+      const headers = data.payload?.headers || []
+      const h = (n: string) => headers.find((x) => x.name.toLowerCase() === n.toLowerCase())?.value || ''
+      const to = emailFromFromHeader(h('From'))
+      if (to) {
+        const subjectRaw = h('Subject') || 'Re: '
+        return {
+          to,
+          subject: /^re:/i.test(subjectRaw) ? subjectRaw : `Re: ${subjectRaw}`,
+          threadId: data.threadId || '',
+          inReplyTo: h('Message-ID') || h('Message-Id'),
+        }
+      }
+    }
   }
-  const headers = data.payload?.headers || []
-  const h = (n: string) => headers.find((x) => x.name.toLowerCase() === n.toLowerCase())?.value || ''
-  const to = emailFromFromHeader(h('From'))
-  const subjectRaw = h('Subject') || 'Re: '
-  const subject = /^re:/i.test(subjectRaw) ? subjectRaw : `Re: ${subjectRaw}`
-  const inReplyTo = h('Message-ID') || h('Message-Id')
+  /* A mailbox that reads through Composio has no Google token here, and this
+   * function used to be Google-only — so every reply draft on such an account
+   * failed with "Could not load that mail to reply" while the SAME message
+   * opened fine in the reader (which has a Composio fallback). Measured on the
+   * founder's account: connectors/status said {"google":false,"composio":true}.
+   * The connector can supply the one header a reply needs. */
+  const fallback = await composioMailHeaders(userId, messageId)
+  const to = fallback?.from ? emailFromFromHeader(fallback.from) : ''
   if (!to) return null
-  return { to, subject, threadId: data.threadId || '', inReplyTo }
+  const subjectRaw = fallback?.subject || 'Re: '
+  return {
+    to,
+    subject: /^re:/i.test(subjectRaw) ? subjectRaw : `Re: ${subjectRaw}`,
+    threadId: '',
+    inReplyTo: '',
+  }
 }
 
 function prepNeedle(query: string): string {
