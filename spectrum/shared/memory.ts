@@ -175,6 +175,19 @@ export function appendThread(
 }
 
 /** Upsert durable facts. Re-mention drags `lastSeen` forward for expiry. */
+/** Drop facts by key — the local half of a deletion made on the server. Returns
+ * the keys actually removed. */
+export function removeFacts(dataDir: string, senderId: string, keys: string[]): string[] {
+  const wanted = new Set(keys.map((k) => String(k).toLowerCase()))
+  if (!wanted.size) return []
+  const mem = loadMemory(dataDir, senderId)
+  const kept = mem.facts.filter((f) => !wanted.has(f.key.toLowerCase()))
+  if (kept.length === mem.facts.length) return []
+  const removed = mem.facts.filter((f) => wanted.has(f.key.toLowerCase())).map((f) => f.key)
+  writeMemory(dataDir, senderId, { ...mem, facts: kept })
+  return removed
+}
+
 export function upsertFacts(
   dataDir: string,
   senderId: string,

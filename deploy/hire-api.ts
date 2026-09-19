@@ -2592,6 +2592,22 @@ export async function ensureHireSchema(sql: SQL) {
   `
   await sql`CREATE INDEX IF NOT EXISTS idx_hire_memories_user ON hire_memories (user_id, persona, durable, updated_at DESC)`
 
+  /* Deletion has to reach the bot, or a memory removed in the dashboard keeps
+   * being injected from the container-local file until the container happens to
+   * be recreated. A tombstone is how the bot can tell "never stored" (push it
+   * again) from "the user deleted it" (drop it): the live payload carries the
+   * recent keys and the turn prunes them locally. Re-stating the fact clears
+   * its tombstone. */
+  await sql`
+    CREATE TABLE IF NOT EXISTS hire_memory_tombstones (
+      user_id TEXT NOT NULL,
+      persona TEXT NOT NULL,
+      key TEXT NOT NULL,
+      deleted_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      PRIMARY KEY (user_id, persona, key)
+    )
+  `
+
   await sql`
     CREATE TABLE IF NOT EXISTS hire_loops (
       id TEXT PRIMARY KEY,
@@ -11252,6 +11268,14 @@ async function livePayload(sql: SQL, phone: string, persona: Persona, query?: st
     connected,
     vaultOrigins,
     memories,
+    /* Keys the account holder deleted, so the bot can drop them from its
+     * container-local store instead of injecting them until recreation. */
+    deletedKeys: (await sql`
+      SELECT key FROM hire_memory_tombstones
+      WHERE user_id = ${user.id} AND persona = ${persona} AND deleted_at > now() - interval '90 days'
+    `
+      .catch(() => [] as Array<{ key: string }>)
+      .then((rows) => (rows as Array<{ key: string }>).map((r) => String(r.key).toLowerCase()))),
     email: user.email,
     phone: user.phone,
     name: user.name,
@@ -13540,6 +13564,11 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
     if (!key) return json({ error: 'key required' }, 400)
     await deleteUserMemoryKey(sql, { userId: user.id, persona, key, index: getMemoryIndex() })
     await sql`DELETE FROM hire_memories WHERE user_id = ${user.id} AND persona = ${persona} AND key = ${key}`
+    await sql`
+      INSERT INTO hire_memory_tombstones (user_id, persona, key, deleted_at)
+      VALUES (${user.id}, ${persona}, ${key.toLowerCase()}, now())
+      ON CONFLICT (user_id, persona, key) DO UPDATE SET deleted_at = now()
+    `
     return json({ ok: true, memories: await loadMemories(sql, user.id, persona, 40), semanticMemory: memoryIndexStatusFromEnv() })
   }
 
@@ -15012,6 +15041,14 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
     const facts = (body.facts || [])
       .filter((f) => f && f.key && f.value)
       .map((f) => ({ key: String(f.key), value: String(f.value) }))
+    /* Re-stating a fact revives it: the tombstone must not swallow it again. */
+    if (facts.length) {
+      await sql`
+        DELETE FROM hire_memory_tombstones
+        WHERE user_id = ${user.id} AND persona = ${body.persona}
+          AND key IN ${sql(facts.map((f) => f.key.toLowerCase()))}
+      `.catch(() => undefined)
+    }
     /* Report which keys actually landed. The route used to answer 200 whatever
      * happened inside upsertMemories (a consent check can return early and a
      * per-fact write can throw), so a caller had no way to know that the one

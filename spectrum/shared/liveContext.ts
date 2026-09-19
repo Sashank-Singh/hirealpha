@@ -20,6 +20,9 @@ export type LiveProfile = {
   pro?: boolean
   /** The server hit its read budget and served the identity-only shape. */
   degraded?: boolean
+  /** Keys the user deleted on the server. The bot drops them from its
+   * container-local facts instead of re-injecting them until recreation. */
+  deletedKeys?: string[]
 }
 
 const EMPTY: LiveProfile = {
@@ -147,6 +150,7 @@ export async function fetchLiveProfile(phone: string, persona: AgentId, query?: 
       connected: data.connected || [],
       vaultOrigins: data.vaultOrigins || [],
       memories: data.memories || [],
+      deletedKeys: Array.isArray(data.deletedKeys) ? data.deletedKeys.map((k) => String(k).toLowerCase()) : [],
     }
   }
   try {

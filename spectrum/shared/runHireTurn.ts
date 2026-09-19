@@ -12,7 +12,7 @@ import { takeTurnImages, type TurnImage } from './imageRequest'
 import { isAffirmativeApprovalIntent, isNegativeCancellationIntent } from './conversationalApproval'
 import { skillsPromptBlock, SKILLS } from './skills'
 import { gmiChat } from './gmi'
-import { appendThread, loadMemory, setLastBuild, setPendingSpend, setPendingVaultTask, upsertFacts, pruneExpiredFacts, setSummary, trimHistory, MAX_RAW, type ThreadMemory } from './memory'
+import { appendThread, loadMemory, removeFacts, setLastBuild, setPendingSpend, setPendingVaultTask, upsertFacts, pruneExpiredFacts, setSummary, trimHistory, MAX_RAW, type ThreadMemory } from './memory'
 import { captureStatedPreferences, extractFacts, summarizeOld } from './memoryMaintain'
 import { cityConflictInstruction, detectCityConflict } from './cityConflict'
 import { liveFactsToInput, localFactsToInput, mergeMemoryFacts, selectMemoryFacts } from './memoryBlock'
@@ -954,10 +954,22 @@ export async function runHireTurn(input: {
    * store. Bounded and fire-and-forget; the next turn re-reads the payload and
    * tries again if it still did not land. */
   {
-    const localFacts = loadMemory(input.dataDir, input.senderId).facts
+    /* Deletion first: the server says which keys the user removed, and a
+     * local copy of one must not be injected (or re-pushed) — otherwise a
+     * memory deleted in the dashboard keeps surfacing from the container file
+     * until the container happens to be recreated. */
+    const deleted = new Set((live.deletedKeys || []).map((k) => String(k).toLowerCase()))
+    let localFacts = loadMemory(input.dataDir, input.senderId).facts
+    if (deleted.size) {
+      const removed = removeFacts(input.dataDir, input.senderId, [...deleted])
+      if (removed.length) {
+        console.log(`[memory] dropped ${removed.length} deleted ${removed.length === 1 ? 'fact' : 'facts'} from this thread: ${removed.join(', ')}`)
+        localFacts = loadMemory(input.dataDir, input.senderId).facts
+      }
+    }
     const serverKeys = new Set((live.memories || []).map((m) => String(m.key || '').toLowerCase()))
     const missing = localFacts
-      .filter((f) => f.key && f.value && !serverKeys.has(f.key.toLowerCase()))
+      .filter((f) => f.key && f.value && !serverKeys.has(f.key.toLowerCase()) && !deleted.has(f.key.toLowerCase()))
       .slice(0, 20)
       .map((f) => ({ key: f.key, value: f.value }))
     if (missing.length) {
