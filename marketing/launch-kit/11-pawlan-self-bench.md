@@ -2494,3 +2494,34 @@ and outside this code. That part is not a code claim and is not recorded as one.
 update is blocked on the builder.** When the builder settles, the same follow-up
 should produce an updated link, and that is the last unverified inch of dim 16's
 iterate half.
+
+### 10 (continued) — the unexplained memory line, explained
+
+`[live] memory store did not take: projects` appeared four times tonight and was
+logged as unexplained. It is not the wrong-table bug (that one is fixed and the
+seat/diet facts round-trip). The API's own log names it:
+
+> `[memory] store failed for key projects warn: Active consent is required for
+> this memory category and purpose. at storeConsentedMemory … at async
+> upsertMemories`
+
+`categoryForKey` maps `projects` to the **work** category, and the friend persona
+is granted only identity, preference, relationship and health — work belongs to
+the coworker and cofounder hires. So the fact was refused, and **silently**:
+`remember` fires the durable write with `void`, discards the result, and returns
+"Remembered: <value>". The user was told a preference was saved four times while
+the permanent copy never existed — the same claim-without-a-write class as the
+seat preference, one layer deeper.
+
+`791694d` stops the friend reaching for those keys: its memory directive now
+names the categories this hire can hold and forbids the work/money key
+namespaces. **Left open deliberately**: reporting a refused key back to the user
+instead of claiming the save. The honest fix there is to surface the refusal,
+not to store a work-category fact under personal consent, and half-building that
+at this hour would be worse than naming it.
+
+**On the builder's update leg** (the last unverified inch of dim 16): the web
+log for that window shows no `[live] workshop source NNN` warning, so the source
+fetch did not fail — the iterate reached the model-rewrite step and was rejected
+there, twice, which is upstream and matches the reply's own wording. Retryable,
+not a code claim.
