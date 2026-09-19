@@ -686,12 +686,27 @@ recorded as a floor.
 - Why not 10: five-for-five is a week of observation that has not happened; the
   reply path is now deterministic, the delivery cadence is unproven.
 
-### 8. Integrations — 3
+### 8. Integrations — 3 (the write half is now built; the grants are the gate)
 
 - Ask: create a Notion task, block 30 free minutes Thursday, message Sam on
-  Slack. Reply: “Notion and Slack are not connected, so I could not touch
-  anything there”, plus the calendar read did not answer. No write tool for
-  either service exists anywhere in the product.
+  Slack. Reply on the run: “Notion and Slack are not connected, so I could not
+  touch anything there”, plus the calendar read did not answer — and at that
+  moment neither service had a write tool anywhere in the product, so the
+  dimension was capped at the one-of-three anchor regardless of the reads.
+- **Shipped after the run:** the write path exists and is guarded, verified
+  live on production. `COMPOSIO_WRITE` carries one pinned spec per service
+  (Notion: parent + title, both required by its own tool schema; Slack: channel
+  + text), the bot exposes `notion_page` and `slack_message` capabilities only
+  when the service is connected, and each one has to resolve its parent or
+  channel through the read tools first. `POST /api/internal/work/write` refuses
+  an under-specified call before anything is sent and refuses an unconnected
+  account; both guards were exercised against production:
+  `{"ok":false,"error":"missing parent","message":"notion needs parent before
+  anything can be written…"}` and `{"ok":false,"error":"not connected",…}`.
+  Success is only ever reported from a real tool result.
+- Still 3 because a run cannot score what it cannot connect: both grants have
+  been expired since 09-11. The evidence that the chain works end to end arrives
+  with the first reconnect — this is now a reconnect, not a build.
 
 ### 9. Permissions — 8
 
@@ -896,8 +911,8 @@ log, which prints every inbound and every outgoing bubble.
 6. An image-generation key (~$0.003/image) to upgrade dim 16's image half:
    images now ship on a free open endpoint, so this is a quality upgrade
    (no watermark, no garbled lettering), not a blocker.
-7. Notion and Slack reconnected with write access, plus the write tools
-   themselves (dim 8).
+7. Notion and Slack reconnected (dim 8). The write tools are now built and
+   guarded on production, so this item is the reconnect alone.
 8. pgvector on the production Postgres (memory recall quality).
 9. An approve/revert for the emptied `PERSONA_DENIED.friend` list.
 10. A Sam-mail fixture in the connected mailbox and one real send (dim 5).
