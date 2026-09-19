@@ -411,6 +411,45 @@ One test encoded the pre-fix brief contract (`pending` absent on a served cache
 row); it asserts the new one, with the reason recorded in the test rather than
 quietly edited.
 
+## 2026-09-19, PART SIX — the picks dimension's last gap, and the address every order needs
+
+Two builds, both from free sources, both aimed at the dimensions that were
+closest to the next anchor rather than at new capability.
+
+**Picks now read the venue's own page** (`c82756c`, deployed as part of
+`923ba57`). The task names prices as a constraint and OpenStreetMap has none —
+but the same free Overpass response carries the venue's `website`, and the menu
+page is where prices actually live. The top three ranked places are read from
+their own sites (never an aggregator: a review-site price is not the venue's
+published price), one menu/hours link deeper when the homepage carries no prices
+— which measured as the common case — and one small model call reports only what
+the pages state. Measured on two Chicago venues: Berghoff's own page gave
+"Wiener Schnitzel $29.95" with "gluten-free friendly and vegetarian options",
+Small Cheval's gave its happy-hour hours, ~4s for both. Guard rails: blank fields
+mean the page did not say, an invented name is dropped, one dead site never
+costs the others, and the block names its source.
+
+**The saved home address now reaches the turn** (`277c562`). Every ordering task
+names "the home address"; the setup wizard has geocoded and stored Home and Work
+since onboarding; the live payload never carried either, so a checkout run had no
+address to fill even with a stored login (measured on the real account:
+`location: null`, nothing address-shaped in the context). The payload carries
+`homeAddress`/`workAddress` now and the turn is told to put the exact address in a
+run's goal, or to ask once and say where to save it when the user has none —
+never to invent one. The founder's account has neither saved, so the branch it
+takes today is the ask-once one; saving Home in the app switches it to the fill
+path.
+
+**And the deploy lesson, twice in one night.** The picks commit was made without
+its `COPY` line; the address commit was made while the `COPY` line sat
+uncommitted in the tree. Both produced the same failure —
+`Cannot find module './placeSite' from '/app/hire-api.ts'` — and Coolify rolled
+back each time, so production stayed up. The COPY-drift guard only sees the file
+on disk, never whether it is committed, which is why there is now
+`scripts/predeploy-check.sh`: it runs the guard, **fails if Dockerfile/deploy/
+spectrum/src have uncommitted changes**, and runs both typechecks. One command
+before every push.
+
 ## CURRENT INTERNAL SCORECARD — 2026-09-19 (read this first)
 
 The per-run sections below are history. This block is the single current state;
