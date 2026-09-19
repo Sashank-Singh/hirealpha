@@ -2462,3 +2462,35 @@ stores (thread reference and durable fact) and the post-swap re-hydration shape.
 
 **Still owed, named plainly:** the build → restart → iterate run, once the
 builder is back. Everything else about this item is verified.
+
+### 16 — the owed proof, run: the build reference survives a container swap
+
+The proof that was owed, executed end to end on the real line.
+
+1. **Build delivered.** "try that tip splitter build again please" → *"Tip Splitter
+   is live: https://hirealpha.chat/b/b2841f45-549e-4cd5-93f7-03a6bad8deb2 — Enter
+   the bill, pick a tip %, set the party size…"*. The artifact serves (HTTP 200,
+   5.9 KB).
+2. **Container replaced.** `HireAlpha-Friend` restarted through Coolify, and the
+   app has **no persistent storage** (`persistent_storages: []`) — so the local
+   thread file, with its `lastBuild` and its history, was genuinely gone.
+3. **The follow-up.** "add a round-up toggle to the tip splitter" →
+   *"Quick heads up: I tried to push the round up toggle to the tip splitter
+   twice and the build engine rejected both attempts, so I can't ship the change
+   right now. The spec I'm holding: toggle labeled …"*.
+
+**The thing being tested passed.** Before `f94e28e` the same shape of follow-up
+after a deploy was answered "there's no game in this thread for me to update, and
+the update tool is rejecting the request outright" — the reference was gone and
+the turn had nothing to iterate. It now finds the app and attempts the change,
+which is only possible because the durable mirror was written at delivery and
+re-hydrated into `live.memories` after the swap.
+
+What failed is the builder itself, on both attempts, with the spec held and said
+plainly — the same upstream outage that stopped the two builds an hour earlier,
+and outside this code. That part is not a code claim and is not recorded as one.
+
+**Verification state of this item: the durable reference is proven; the app
+update is blocked on the builder.** When the builder settles, the same follow-up
+should produce an updated link, and that is the last unverified inch of dim 16's
+iterate half.
