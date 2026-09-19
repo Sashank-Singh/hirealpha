@@ -1930,3 +1930,29 @@ something Alpha already built — game, quiz, app or page — is a request, with
 this string as the example. The iteration half of dim 16 stays **unverified
 until that build is live and the follow-up is re-run**; the failure is recorded
 rather than scored as a pass.
+
+### The catch-up fix, verified on the live container — and the blocker behind it
+
+`4e87468` finished on HireAlpha-Friend at 20:12Z and the boot log changed as
+intended. Before: `[friend] inbound catch-up failed: ReferenceError: Cannot
+access 'CATCHUP_WINDOW_MS' before initialization` on every restart. After:
+`[friend] inbound catch-up failed: IMessageError: HTTP 415 without a middleware
+error body ... at async listRecent ... at async catchUpMissedMessages
+(index.ts:758)`.
+
+So the ordering bug is gone — the function now runs and reaches the provider —
+and the honest next blocker is named: Photon's own `listRecent` is rejected by
+the intermediary with HTTP 415, so the restart-window history read still cannot
+complete and a message delivered during a rolling update can still be lost. The
+call shape matches the SDK's own `MessageListFilter` type (`after: Date`,
+`isFromMe: false`, `pageSize: 50`, which the type documents as 1..100), so this
+is a provider-side rejection to chase with Photon, not another local ordering
+bug. Recorded here rather than left as a log line.
+
+**Deploy state at the end of this pass:** Web is live on `43d52d7` (fare-block
+verdict, date consistency, map log fix). Friend is live on `4e87468`; the
+restraint rule (`b5f409e`) and the game-iteration intent rule (`387251b`) are
+pushed and queued behind six other builds for the shared repo — the founder
+should expect them to land without further action, and the two follow-ups they
+fix (the standing-rule turn and the game-iteration turn) are worth re-running
+once the Friend build reports that revision.
