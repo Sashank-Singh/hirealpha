@@ -613,9 +613,26 @@ export async function runConversationalFriend(input: {
         /* Dual write, like the capture path: the local file is process-local and
          * dies with the container, so a rule saved only here is gone at the
          * next deploy — and the system prompt tells the model to persist
-         * permanent rules through exactly this capability. */
-        void persistLiveFacts(senderId, persona, [{ key, value }]).catch(() => undefined)
-        return { status: 'done', message: `Remembered: ${value}.`, data: { key, value } }
+         * permanent rules through exactly this capability.
+         *
+         * The result is READ, not discarded. The account refuses keys outside
+         * this hire's consented categories (`projects` maps to the work
+         * category, which the friend persona does not hold), and the route
+         * names exactly those keys in `dropped`. Firing this with `void` meant
+         * four refusals tonight were answered "Remembered: …" — a save the user
+         * was told about and never had. Bounded so a slow store cannot hold the
+         * turn: an unanswered write is reported as unconfirmed, never as saved. */
+        const write = await Promise.race([
+          persistLiveFacts(senderId, persona, [{ key, value }]).catch(() => ({ dropped: [key] })),
+          new Promise<{ dropped: string[] } | 'slow'>((resolve) => setTimeout(() => resolve('slow'), 2500)),
+        ])
+        if (write === 'slow') {
+          return { status: 'done', message: `Saved in this conversation: ${value}. The permanent account copy is still being written, so say it is saved here and do not promise it is permanent.`, data: { key, value, durable: 'unknown' } }
+        }
+        if (write.dropped.includes(key)) {
+          return failed(`Saved for this conversation, but the account store refused the key "${key}" (it is outside what this hire may keep), so it is NOT permanent. Tell the user in one line that it holds for now; do not say it is saved forever, and do not retry the same key.`)
+        }
+        return { status: 'done', message: `Remembered: ${value}.`, data: { key, value, durable: true } }
       },
     },
     {
