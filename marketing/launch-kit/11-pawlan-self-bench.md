@@ -3272,3 +3272,42 @@ pause holds, the run reports its own failure, and the missing input now arrives
 with a link. What remains is the address and whatever stopped the run on its side
 — the provider, most likely, given the same "couldn't check" shape seen on the
 watch's first tick.
+
+### 2FA, by the founder's instruction — and the $1 purchase plan
+
+His words: *"it should ask in text for the code and if since we only have 30
+seconds until the code works we need to be fast"*, and separately: *"Amazon has
+two-factor authentication but we don't have it set up yet so you might have to do
+it manually."*
+
+**What was true:** the vault stores only `{username, password}` — no TOTP seed —
+and a code pause was answered **only through the live view** ("Open the live
+computer"), the slowest possible route to a code that expires in thirty seconds.
+That is why the Amazon sign-in needed his hand.
+
+**`1281708` changes both halves of the fast path:**
+
+- A `verification` pause now takes the chat route: the bot texts *"send me the 6
+  digits here and I will type them in the moment they land — codes expire in
+  about 30 seconds"*, the reply is stored as the handoff answer, and the run types
+  it. The live view stays available; it is no longer the only door.
+- A bare 4-8 digit message skips the classifier that Route A normally runs (a
+  paused run must not swallow a new ask, but a code is never a new ask), saving
+  one model round trip — on a thirty-second window that is the difference between
+  landing and missing.
+
+**To remove the intervention entirely** the seed has to live in the vault: a TOTP
+field (encrypted like the password), an RFC 6238 generator, and the handoff typing
+the generated code. That is a founder decision — a 2FA seed is exactly as
+sensitive as the password it protects — and it is the only path to "the run books
+the order without me".
+
+**The $1 purchase**, for testing dim 4 without a real spend: a sub-$1 digital item
+is the right shape, and the honest state is that I could not *verify* a specific
+one from this machine (Gumroad renders client-side, itch's price filter 404s,
+Etsy walls the crawler), and inventing a product URL is exactly what the hard
+rules forbid. Two workable routes, both one tap for the founder: an **Amazon
+$0.99 Kindle title** (the credential is already in the vault, and it exercises the
+2FA path this commit just built), or **any Gumroad/Ko-fi/itch link he pastes** —
+those checkout as a guest, so the run goes cart → checkout → pause with no login
+at all.
