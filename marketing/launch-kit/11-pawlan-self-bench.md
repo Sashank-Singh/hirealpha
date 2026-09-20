@@ -3491,3 +3491,36 @@ down as pending rather than assumed.
 
 The billing line remains the founder's, and it is still the highest-leverage
 unblock in the programme: dims 1, 2, 4, 6, 13 and 14 all die at launch without it.
+
+### The fallback works — verified in the worker log, one layer deeper
+
+Both providers were configured on the worker (`KERNEL_API_KEY` *and*
+`E2B_API_KEY` + `E2B_BROWSER_TEMPLATE`) but `resolveBrowserExecutorMode` chooses a
+backend from **which key exists**, never from whether the provider will launch —
+so with Kernel refusing every launch on billing, E2B sat unused and every run died
+at the door. `3d99286` falls back to the E2B sandbox for a job when the refusal is
+a provider-account one (billing, quota, plan), and only when E2B is configured.
+
+**Verified live, verbatim from the worker log:**
+
+```
+[browser-worker] job d2cb269e-… (task, agent) for friend:701b8e97-…
+[browser-worker] kernel refused the launch for job d2cb269e-… (Kernel browser
+  launch failed (403): Organization plan needs payment method …); running it on
+  e2b instead
+[browser-worker] job d2cb269e-… failed: Vision model failed: vision model The
+  operation timed out. (step budget 50s exhausted)
+```
+
+The fallback fired exactly as designed, and the failure moved one layer deeper:
+the E2B-backed session then died on the **vision model**, which timed out through
+its whole 50-second retry budget across its model list (`agentDriver.ts:420`).
+That is the same provider flakiness that has been degrading everything tonight —
+the classifier's "Empty GMI reply", the "quick snag" turn, the live-model test
+failures — so it is not a code defect the way the launch refusal was: the code
+already tries several models before giving up.
+
+**Net for the night: the browser path went from unusable to one provider timeout
+away**, and Kernel billing is no longer the only way forward — the fallback
+carries the runs. Dim 4's row is now waiting on a vision model that answers, not
+on a credit card.
