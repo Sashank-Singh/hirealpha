@@ -508,16 +508,28 @@ export async function runJob(sql: SQL, job: JobRow, launch = runBrowserSession):
       // text (routed by the bot, or the answer box on the session page) lands
       // in handoff_answer and resumes the run; the loop injects it as
       // `user answered: "..."` so the agent types it into the field.
-      if (handoffKind === 'question') {
+      /* Route A: the agent asked a question — and a one-time code is the same
+       * shape. The founder's instruction, verbatim: "it should ask in text for
+       * the code and if since we only have 30 seconds until the code works we
+       * need to be fast". A verification pause used to be answered only through
+       * the live view ("Open the live computer"), which is the slowest possible
+       * route to a code that expires in thirty seconds. Text is the channel: the
+       * bot asks here, the user's next message is the answer, and the run types
+       * it. */
+      if (handoffKind === 'question' || handoffKind === 'verification') {
+        const isCode = handoffKind === 'verification'
+        const askText = isCode
+          ? 'This one needs a one-time code. Send me the 6 digits here and I will type them in the moment they land — codes expire in about 30 seconds, so send them the second you have them.'
+          : `Alpha paused: ${message.replace(/[.!?]+$/, '')}? Reply here with your answer and I'll type it in.`
         await appendBrowserActivity(sql, job.id, `needs_${handoffKind}`, url)
-        await beginBrowserHandoff(sql, job.id, 'question', message)
+        await beginBrowserHandoff(sql, job.id, 'question', isCode ? askText : message)
         await pushBrowserResultLoop(sql, {
           userId: job.user_id,
           persona: job.persona,
           origin: url,
           jobId: job.id,
           label: job.goal || '',
-          insights: `Alpha paused: ${message.replace(/[.!?]+$/, '')}? Reply here with your answer and I'll type it in.`,
+          insights: askText,
           screenshotDataUrl: lastScreenshots.get(job.id)?.dataUrl,
           screenshotCaption: message.slice(0, 200),
         })

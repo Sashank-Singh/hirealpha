@@ -1033,16 +1033,24 @@ export async function runHireTurn(input: {
     // is plausibly the answer the run is waiting for. On classifier failure
     // keep the old behavior — losing the answer mid-run is worse than the
     // rare swallowed request.
-    let isAnswer = true
-    try {
-      const verdict = await classifyTurnStrict({
-        userText: input.userText,
-        recentTurns: [],
-        pendingQuestion: awaiting.question || undefined,
-      })
-      isAnswer = verdict.kind !== 'request'
-    } catch {
-      isAnswer = true
+    /* A bare code is never a new request, and a code expires in about thirty
+     * seconds — so it skips the classifier round trip. The founder's words: "it
+     * should ask in text for the code and if since we only have 30 seconds until
+     * the code works we need to be fast". Nothing else short-circuits: a real
+     * sentence still goes through the classifier so a paused run cannot swallow
+     * a new ask. */
+    let isAnswer = /^\s*\d{4,8}\s*$/.test(input.userText)
+    if (!isAnswer) {
+      try {
+        const verdict = await classifyTurnStrict({
+          userText: input.userText,
+          recentTurns: [],
+          pendingQuestion: awaiting.question || undefined,
+        })
+        isAnswer = verdict.kind !== 'request'
+      } catch {
+        isAnswer = true
+      }
     }
     if (!isAnswer) {
       console.warn('[routeA] paused run holds; incoming text classified as a new request')
