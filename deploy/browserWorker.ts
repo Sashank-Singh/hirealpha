@@ -141,6 +141,11 @@ export function plainReason(error: string | null | undefined): string {
   if (/target not allowed|sign in|log in|login|password|credential|vault/i.test(raw)) return 'It asked for a sign in I do not have.'
   if (/truncated at max_completion_tokens|structured output is incomplete/i.test(raw)) return 'The page was more than it could read in one pass.'
   if (/tim(?:e|ed) ?out|deadline/i.test(raw)) return 'It ran out of time.'
+  /* A run that used all its steps DID check things — it just did not finish.
+   * Live, 2026-09-20: a 36-step purchase ended with the step cap and the report
+   * read "The run stopped on my side before it could check anything", which is
+   * the opposite of what happened. */
+  if (/step cap|ran out of steps|max(?:imum)? steps|did not finish within/i.test(raw)) return 'It used all its steps without finishing.'
   if (/could not be read|invalid action|not valid JSON|unreadable/i.test(raw)) return 'It lost track of the page.'
   if (/not (?:been )?approved/i.test(raw)) return 'The payment step was never approved.'
   return 'The run stopped on my side before it could check anything.'
