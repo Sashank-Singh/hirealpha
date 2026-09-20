@@ -772,21 +772,25 @@ export type LastRun = {
   updatedAt: string
 }
 
-/** The latest run this user started. Zero claims about a run's progress may be
- * made without this: live, 2026-09-19, the founder asked "any update from the
- * amazon run you started?" and the bot narrated a run it could not see. */
-export async function fetchLastRun(phone: string, persona: AgentId): Promise<LastRun | null> {
+/** The answer to "how is my run going": the row, a definite none, or a read
+ * that did not happen. Those are three different things and collapsing them is
+ * the mistake this whole night was about — the first version returned null for
+ * both "no run" and "could not read", so an unreadable store read back as "no
+ * run exists", which is as much a fabrication as inventing one. */
+export type LastRunRead = { ok: true; run: LastRun | null } | { ok: false }
+
+export async function fetchLastRun(phone: string, persona: AgentId): Promise<LastRunRead> {
   const base = apiBase()
   const key = process.env.HIREALPHA_INTERNAL_KEY || ''
-  if (!base || !key) return null
+  if (!base || !key) return { ok: false }
   try {
     const qs = new URLSearchParams({ phone, persona })
     const res = await timedFetch(`${base}/api/internal/browser/last?${qs}`, { headers: authHeaders() }, 10000)
-    if (!res.ok) return null
+    if (!res.ok) return { ok: false }
     const data = (await res.json()) as { run?: LastRun | null }
-    return data.run ?? null
+    return { ok: true, run: data.run ?? null }
   } catch {
-    return null
+    return { ok: false }
   }
 }
 

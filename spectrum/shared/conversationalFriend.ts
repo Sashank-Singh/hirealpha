@@ -927,11 +927,13 @@ export async function runConversationalFriend(input: {
     /\byou\b[^?]{0,40}\b(?:have )?(?:access|permission)s?\b/i.test(input.userText) ||
     /\b(?:disconnect|revoke)\b/i.test(input.userText)
   if (runQuestion && !accessQuestion) {
-    const run = await fetchLastRun(senderId, persona).catch(() => null)
+    const read = await fetchLastRun(senderId, persona).catch(() => ({ ok: false as const }))
     promptNotes.push(
-      run
-        ? `Run question — the LAST run on this account is on ${run.host}, status "${run.status}", started ${run.createdAt}${run.updatedAt ? `, last moved ${run.updatedAt}` : ''}${run.outcome ? `, outcome: "${run.outcome}"` : ''}${run.waitingOn ? `, waiting on the user: ${run.waitingOn.kind} — ${run.waitingOn.message}` : ''}. Answer from those facts only: say what the status is, what it last did, and what happens next (or what it is waiting for). Do NOT say a run is "live now", do not narrate steps you cannot see, and do not start another run to have something to say.`
-        : `Run question — there is no browser run on this account at all. Say that plainly and offer to start one; do not describe a run in progress.`,
+      !read.ok
+        ? `Run question — the run list could not be read just now. Say you could not check rather than that no run exists, and offer to look again.`
+        : read.run
+          ? `Run question — the LAST run on this account is on ${read.run.host}, status "${read.run.status}", started ${read.run.createdAt}${read.run.updatedAt ? `, last moved ${read.run.updatedAt}` : ''}${read.run.outcome ? `, outcome: "${read.run.outcome}"` : ''}${read.run.waitingOn ? `, waiting on the user: ${read.run.waitingOn.kind} — ${read.run.waitingOn.message}` : ''}. Answer from those facts only: say what the status is, what it last did, and what happens next (or what it is waiting for). Do NOT say a run is "live now", do not narrate steps you cannot see, and do not start another run to have something to say.`
+          : `Run question — the run list was read and there is no browser run on this account at all. Say that plainly and offer to start one; do not describe a run in progress.`,
     )
   }
   if (accessQuestion) {
