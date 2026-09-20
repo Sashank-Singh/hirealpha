@@ -267,6 +267,20 @@ export function ApproveSendApp({ auth, draftId }: { auth: FeatureAuth; draftId?:
           Connect Gmail
         </Link>
       )}
+      {sent ? (
+        /* The send landed: the controls go away. They used to stay live, so the
+         * button could be pressed again and again and every press sent another
+         * copy — the founder's report: "I could click it multiple times, it
+         * could send multiple emails … after pressing it once, and if the email
+         * is sent, it should just remove that approve & send screen and show
+         * 'Email sent to this person'". */
+        <div className="ma-stack">
+          <p className="ma-insight" style={{ margin: 0 }}>
+            Email sent to {to.trim() || 'the recipient'}. It is in your Gmail Sent folder — nothing left to approve.
+          </p>
+        </div>
+      ) : (
+        <>
       {current && !needConnect && (
         <button className="ma-btn ma-btn--block" type="button" disabled={busy} onClick={() => void doSend()}>
           {busy ? 'Sending' : 'Approve & send'}
@@ -286,6 +300,8 @@ export function ApproveSendApp({ auth, draftId }: { auth: FeatureAuth; draftId?:
           {busy ? 'Sending' : 'Send'}
         </button>
       </form>
+        </>
+      )}
       {msg && <p className="mini__hint">{msg}</p>}
     </div>
   )

@@ -15855,11 +15855,17 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
     let inReplyTo = ''
     if (body.id) {
       const rows = await sql`
-        SELECT to_addr, subject, body, thread_id, in_reply_to FROM hire_drafts WHERE id = ${body.id} AND user_id = ${user!.id} LIMIT 1
+        SELECT to_addr, subject, body, thread_id, in_reply_to, status FROM hire_drafts WHERE id = ${body.id} AND user_id = ${user!.id} LIMIT 1
       `
       const row = rows[0] as {
-        to_addr: string; subject: string; body: string; thread_id?: string; in_reply_to?: string
+        to_addr: string; subject: string; body: string; thread_id?: string; in_reply_to?: string; status?: string
       } | undefined
+      /* A draft that has already gone is never transmitted again. The status
+       * was written but never read, so a second press — or a stale card left
+       * open behind the thread — sent the same email again. Live, 2026-09-19:
+       * the founder's own test send, where the button stayed live after
+       * "It went". */
+      if (row?.status === 'sent') return json({ ok: true, alreadySent: true })
       if (row) {
         toAddr = toAddr || row.to_addr
         subject = subject || row.subject

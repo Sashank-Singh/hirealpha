@@ -1,4 +1,5 @@
 import {afterAll, afterEach, describe, expect, it} from 'bun:test'
+import { readFileSync } from 'node:fs'
 import { handleHireApi } from './authenticatedTestApi'
 
 /* ---- Route-level harness ----
@@ -425,5 +426,19 @@ describe('free mode (payments off)', () => {
       if (prevKey === undefined) delete process.env.HIREALPHA_INTERNAL_KEY
       else process.env.HIREALPHA_INTERNAL_KEY = prevKey
     }
+  })
+})
+
+/* Live, 2026-09-19, the founder's own test send: the card's header flipped to
+ * "It went" and the Approve & send button stayed live, so "I could click it
+ * multiple times, it could send multiple emails". The route wrote
+ * status = 'sent' and never read it. */
+describe('a sent draft is never transmitted twice', () => {
+  it('the send route carries the guard', () => {
+    const src = readFileSync(new URL('./hire-api.ts', import.meta.url), 'utf8')
+    const route = src.slice(src.indexOf("path === '/api/work/send'"))
+    const head = route.slice(0, route.indexOf("path === '/api/work/draft/new'"))
+    expect(head).toContain('alreadySent')
+    expect(head).toContain("row?.status === 'sent'")
   })
 })
