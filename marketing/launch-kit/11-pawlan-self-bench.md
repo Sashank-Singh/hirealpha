@@ -3524,3 +3524,54 @@ already tries several models before giving up.
 away**, and Kernel billing is no longer the only way forward — the fallback
 carries the runs. Dim 4's row is now waiting on a vision model that answers, not
 on a credit card.
+
+## HANDOVER — the exact sequence to run next, and what each step should show
+
+Written at the end of the 2026-09-19/20 session, after ~84 commits. Every item
+below is either a founder action or a verification that needs a quiet line. The
+order is by what unblocks the most, and each step names the evidence to expect so
+the next run can tell success from a new failure.
+
+**1. Kernel billing** — add a payment method at
+`https://dashboard.onkernel.com/billing/add-payment-method`.
+*Expect:* runs stop logging `kernel refused the launch … running it on e2b
+instead` and go back to the Kernel path, which was working earlier in the day
+(the PS5 watch reported through it twice) and began refusing mid-evening. This is
+the difference between the known-good browser path and the E2B path that currently
+dies on a vision-model timeout.
+
+**2. Ask for a run status** — text *"check your run list and tell me what the last
+run on it was"*.
+*Expect:* either the run's own row (host, status, what it is waiting on) or the
+honest *"I couldn't read the run list just now"*. Both are correct behaviour now;
+what would still be a bug is a definite "there is no run" when a run exists, and
+that is what the three-way read was built to prevent. If it answers with a row,
+the read path is proven end to end and the earlier "no Amazon run ever got started"
+can be closed as a read failure.
+
+**3. The $1 itch purchase** — re-send
+`https://spacefreighterone.itch.io/piracy-on-the-new-frontier` as a purchase ask.
+*Expect:* staged → run reaches checkout → payment pause → approval card. No
+address is needed for a digital item, so this isolates the purchase chain from
+dim 4's other input. Any failure should now NAME itself (provider refusal, sign-in
+needed, vision timeout) rather than "stopped on my side".
+
+**4. The address** — `https://hirealpha.chat/app?tab=settings` → Location → **Home**.
+*Expect:* the next shipping ask stops saying *"no home address saved"* and the bot
+drops the Settings link (the deterministic append fires). Then re-run the Amazon
+reorder for dim 4's full path.
+
+**5. One "Sam proposing Thursday" email** to the connected mailbox, then the dim-5
+reply task.
+*Expect:* the draft is produced, the no-reply check runs if the sender warrants it,
+and the reply sends on approval — the send leg is already proven by the founder's
+own tap, so this only supplies the thing to reply to.
+
+**6. Confirm the city** (San Francisco or Raleigh) and the **TOTP decision**
+(seed in the vault, or keep the live handoff).
+
+**Two open threads that are NOT steps:** the E2B vision-model timeout
+(`agentDriver.ts`: 20s per attempt, 50s budget — deliberate, and not to be
+blind-tuned without measuring the gateway's latency) and the channel's
+cooling-period throttling, which blocked report delivery all evening. Neither is a
+code defect to fix by guessing; both need a quiet line or a healthy provider.
