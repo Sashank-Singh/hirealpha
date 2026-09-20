@@ -3172,3 +3172,31 @@ a dozen deploys; the first task tomorrow is one read on a quiet line, and it wil
 answer it — either "a run exists on amazon.com at status X" (staging works, and
 the address is the last field) or a read that completes and reports none (the
 purchase path has a real defect).
+
+### The staging read is blocked by the channel, and the attempts stop here
+
+Four attempts tonight, each informative, none conclusive:
+
+1. *"can you see a run of mine in your list right now?"* → the canned web-lookup
+   failure (my detector's gap; fixed in `f99779f`).
+2. Same question after the fix → *"I hit a quick snag thinking through that"* (a
+   provider hiccup on that turn).
+3. *"does your list show any run of mine right now?"* → *"I can't read my run list
+   right now"* — **the three-way read working exactly as intended** (an unread
+   store reported as unread, not as an empty one), and it named the failure
+   class: a client abort, since the route itself answers in 0.43s.
+4. *"check your run list and tell me what the last run on it was"* → no bubble at
+   all: Photon is now refusing the bot's own outbound sends — *"Recipient has not
+   replied; cooling period limits sends to 3/day"* — and the log carries read
+   receipts for the inbound message with no reply behind them.
+
+So the loop is closed by the channel rather than by the code: the question (*does
+a purchase ask create a job row?*) is answered by one read on a quiet line, the
+read has been made correct four times over, and tonight's line will not carry the
+answer.
+
+**Everything else from tonight stands as recorded**: sixty-five commits pushed
+and deployed, the scorecard at **≈ 5.9** with permissions as the one dimension
+where we lead, the two halves of the deliverable that were achievable done and
+evidenced, and two items that are the founder's — the home address (one field,
+and dim 4's completion) and one "Sam proposing Thursday" email (dim 5's fixture).
