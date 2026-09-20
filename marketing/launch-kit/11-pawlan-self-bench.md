@@ -2795,3 +2795,36 @@ a group `chat id` cannot be addressed before the chat exists. So a real group
 thread needs the founder's phone (or a `group` capability built on the provider's
 own `space.create`), and dim 13 stays on its simulation evidence rather than
 being re-scored from this machine.
+
+### 5. Email — the send leg is PROVEN, and the bot had been denying it
+
+The founder pressed Approve & send on a test draft addressed to his own mailbox
+and **the email went**. The card flipped to "SENT / It went" with the address,
+subject and body intact. That settles the biggest open question on this
+dimension: **sending works**, through the same Gmail connection the bot had just
+described as read-only.
+
+So the line quoted in this record — *"Straight answer: read yes, send no. My gmail
+connection is lookup only, I can search and read your mail, but I can't send from
+your account"* — was **wrong**, and it was wrong in the most expensive direction:
+it talked the user out of a capability the product has. A false "I cannot" is the
+same class of harm as a false "I did". `6ee4ca7` puts the truth in the prompt: a
+draft goes to the approval card and the tap sends it; an unsure answer drafts and
+lets the card speak.
+
+Two real bugs the same test exposed, both fixed in `6ee4ca7`:
+
+- **One press sent one email, but a second press sent a second copy.** The route
+  wrote `status = 'sent'` and never read it, and the button stayed live after
+  "It went". It now refuses to transmit a draft already marked sent
+  (`alreadySent: true`), with a test on the guard.
+- **The card kept its controls after sending.** His words: *"after pressing it
+  once, and if the email is sent, it should just remove that approve & send
+  screen and show 'Email sent to this person'"* — the form and both buttons are
+  now replaced by a sent panel naming the recipient.
+
+**What dim 5 is still waiting on:** the fixture. The send leg is proven, the read
+side is proven (three real items surfaced earlier tonight), the no-reply check
+and the draft selection are fixed — what does not exist is a real "Sam proposing
+Thursday" email to reply to, and the anchor's task is that reply. The founder can
+create it in one minute by emailing himself; the dimension then runs end to end.
