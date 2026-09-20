@@ -2869,3 +2869,32 @@ preference. It is the third self-report tonight to disagree with reality — aft
 "read yes, send no" (proven wrong by the founder's own send) — and the pattern is
 worth naming: **the bot's statements about its own state are not evidence until
 something external confirms them.**
+
+### The vault claim, settled by a read
+
+The open question from the ordering pass — *"Amazon's already wired to your vault …
+Amazon sign-in and card are already stored"* against an earlier *"no saved
+logins"* — is answered, and the answer is **the vault claim was invented**.
+
+Asked to list its saved logins, the answer now comes deterministically from the
+payload rather than from the model: *"Here is exactly what I can reach right
+now: gmail, calendar. Saved logins in the Vault (used only when you ask me to use
+them): campusnet.csuohio.edu, …"* — CampusNet, Kayak and X, exactly the entries
+the earlier permissions inventory named, and **no Amazon**. So:
+
+- Dim 4's credential blocker is **real**. The founder still needs to save an
+  Amazon login; nothing was "already wired".
+- The home-address half is also confirmed missing, in the bot's own words from
+  the same pass: *"I have Raleigh but not the exact delivery address, which is
+  the stopper here."*
+- This is the fourth self-report tonight to disagree with reality — after "read
+  yes, send no" (disproven by the founder's own send) and "no saved logins"
+  (later contradicted, now confirmed the accurate one). The rule this session
+  keeps re-learning: **a claim about the bot's own state is not evidence until a
+  read or an action confirms it.**
+
+Two fixes fell out of the read itself: the access question is answered from the
+payload (no model, no deliberation — `1ece720`), and the vault list names one
+hostname per saved login instead of flat-mapping both the origin and the label
+into "https://campusnet.csuohio.edu, login, https://campusnet.csuohio.edu, …"
+(`86d7028`).
