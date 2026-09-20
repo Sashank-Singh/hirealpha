@@ -2727,3 +2727,34 @@ in the user's voice, and asked "Send this version?"). The **purchasing** and
 purchasing ask was deliberately phrased as prerequisites-only ("don't place
 anything yet") so a real order could not be placed on the owner's card by a test,
 and nothing is claimed about either here.
+
+### The four low dimensions against Instinct — all four captured
+
+The two that were missing arrived, so the comparison is complete.
+
+**Purchasing — Instinct's answer is the shape ours should reach.** Asked "what do
+you need from me to reorder my usual coffee beans from amazon to my home address?
+dont place anything yet": *"Just sign in to Amazon using the secure link I sent
+earlier. Once you're in, I can verify your usual beans, quantity, current total,
+home address, and saved card. I won't place the order until you approve those
+final details."* Five named checks, one sign-in link, and the approval gate
+stated before anything moves. **Stolen into our dim-4 rule:** the checkpoint list
+(beans, quantity, total, address, card) is what a staged order should say it will
+verify, and the pause is stated in the same breath — ours already pauses, and now
+says what it will check.
+
+**Proactive — the quiet-unless-needed half.** "text me tomorrow morning if
+anything in my inbox looks urgent" → *"Already set for 8 AM tomorrow. I'll text
+only if something needs attention."* The second sentence is the rule worth
+having: a scheduled check that speaks only on a finding, which is exactly what
+our own loop now does (routine ticks say nothing) — but ours does not SAY it.
+**Stolen:** the confirmation names the quiet behaviour.
+
+**Integrations and email** were captured earlier in this pass (Notion write
+verified by the page's own history; the no-reply draft with "Send this version?").
+
+| # | dimension | paraphrase used | Alpha (was → now) | Instinct | anchor quote | what closed the gap |
+|---|---|---|---|---|---|---|
+| 4 | Purchasing | "what do you need from me to reorder my usual coffee beans from amazon to my home address? dont place anything yet" | 3 → 3 (still needs the credential; the reply now names the five things a staged order verifies) | 8-equivalent answer: sign-in link, five checks, approval before anything | "7 — needs a nudge or retry · 10 — completes from one message, with confirmation and order number" | the checkpoint list + the stated pause |
+| 8 | Integrations | "put a note in my notion that the benchmark pass is done" | 3 → 3 on the anchor (the grant is missing) but the reply is now right: connect link, no browser session | **works**: "Added it to the bottom of AlphaSphere — that's the only Notion page currently shared with me" (page history: "Last edited by Instinct") | "10 — the write lands where the user can see it" | `958a804` worker guard + `c4fa40b` engine guard + the prompt rule |
+| 6 | Proactive | "text me tomorrow morning if anything in my inbox looks urgent" | 5 → 5 | "Already set for 8 AM tomorrow. I'll text only if something needs attention." | "7 — reminder only · 10 — check-in, gate and seat handled proactively" | the quiet-behaviour line, taken into the confirmation copy |
