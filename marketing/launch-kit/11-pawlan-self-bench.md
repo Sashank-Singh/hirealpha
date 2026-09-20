@@ -3575,3 +3575,27 @@ own tap, so this only supplies the thing to reply to.
 blind-tuned without measuring the gateway's latency) and the channel's
 cooling-period throttling, which blocked report delivery all evening. Neither is a
 code defect to fix by guessing; both need a quiet line or a healthy provider.
+
+### Routing around the billing block: the fallback works, and the wall clock was next
+
+With Kernel refusing every launch on billing, the E2B fallback (`3d99286`) is what
+carries the runs — verified firing in the worker log four times. Each layer it
+exposed was then named and, where it was a setting rather than a defect, moved
+into the environment so a deployment can tune it without a code change:
+
+| failure | what it was | what changed |
+|---|---|---|
+| `kernel refused the launch … running it on e2b instead` | Kernel 403 — the organization needs a payment method | the fallback fires (code), and the founder can retire it with one billing line |
+| `Vision model failed: … step budget 50s exhausted` | the calls **aborted**, not throttled (no 429) — a 20s attempt over a 50s budget is too narrow for a slow gateway | `VISION_ATTEMPT_TIMEOUT_MS` / `VISION_CALL_BUDGET_MS`, set to 45s / 140s on the worker (`aecf301`) |
+| `Agent ran out of time before finishing the goal` | after the window widened, the calls completed and the run used its whole eight minutes — slower, not broken | `AGENT_WALL_MS` / `AGENT_MAX_STEPS`, set to 16 minutes on the worker (`a98bc21`), inside the sandbox's 20-minute cap |
+
+Two honest notes. **The vision caller's rotation has only one model**: `model` and
+`fallbackModels` default to the same id (`zai-org/GLM-5.3-Flash`), the dedupe
+leaves a list of one, and the driver's own comment — "alternating models passes
+12/12 at 2s spacing" — describes a rotation that has never had a second model to
+rotate to. That needs a second vision model id, which the repo does not contain
+and the gateway will not list without its key; recorded rather than invented.
+**And none of this makes E2B the right long-term path**: it is slow, it costs a
+sandbox per run, and the Kernel path was working earlier in the day. The billing
+line is still the real fix; these settings are what lets the product keep working
+while it is missing.
