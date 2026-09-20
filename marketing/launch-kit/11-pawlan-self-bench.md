@@ -3599,3 +3599,34 @@ and the gateway will not list without its key; recorded rather than invented.
 sandbox per run, and the Kernel path was working earlier in the day. The billing
 line is still the real fix; these settings are what lets the product keep working
 while it is missing.
+
+### Where the E2B route ends: the agent does not converge, and caps are not the fix
+
+With the vision window and the wall clock both widened, the $1 itch purchase ran
+longer and failed one layer further:
+
+> `[browser-worker] job 69028d6b-… failed: Agent hit the step cap before finishing the goal.`
+
+The three-layer progression is the whole story of the fallback:
+
+1. `Vision model failed: … step budget 50s exhausted` — calls aborting at a window
+   too narrow for the gateway. Widened → calls complete.
+2. `Agent ran out of time before finishing the goal` — completing, but slower than
+   eight minutes. Widened to sixteen → runs longer.
+3. `Agent hit the step cap before finishing the goal` — thirty-six steps on a
+   **$1 purchase on a guest-checkout page**, still not done.
+
+Each fix moved the failure to the next limit, which was worth doing once: it
+proved the fallback path *executes*. It stops being worth doing here. Raising the
+step cap as well would be tuning limits until a run happens to fit, and a task
+that needs more than thirty-six steps to put one item in a cart and reach a
+payment form is not a good run at any cap — it is a loop that is not converging,
+most likely because every step is slow and the vision model misreads enough pages
+to retry them.
+
+**So the honest state of the browser path is two-tier:** the Kernel route (fast,
+was working earlier today) is blocked by one billing line, and the E2B route now
+launches and executes but does not yet converge. The founder's billing action still
+buys back the tier that works; the E2B convergence is a real investigation for a
+session with a healthy gateway to measure against, not something to paper over
+with a bigger number tonight.
