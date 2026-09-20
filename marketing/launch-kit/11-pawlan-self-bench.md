@@ -2925,3 +2925,36 @@ live sign-in path is available; **the home address is the stopper**. Dim 5 still
 needs the fixture email. The vault list is genuinely ugly in the raw form
 (duplicated origins, `login` labels) — the dedupe/hostname fix `86d7028` stands on
 its own merits, but the inference I hung on it does not.
+
+### 4. Purchasing — re-run with the Amazon credential in place
+
+Fresh state check first, because tonight proved claims need reading:
+*"1. Home address: not saved… 2. Vault logins: yes, saved credentials for
+CampusNet (CSU Ohio), Amazon, Kayak, and X. 3. Email from Sam proposing Thursday:
+nothing."*
+
+Then the task, paraphrased: **"reorder two bags of the coffee beans i usually get
+from amazon, ship to my home address, stop before you pay"**.
+
+**Alpha, verbatim**: "Two bags of your usual beans are queued on Amazon. The run
+pauses before payment, so nothing gets charged or ordered until you approve it. /
+One gap from the earlier state check: there's no home address saved on my end, so
+the run may stall at the shipping step. If it does, send me the address and I'll
+drop it in. I'll report back here when the run finishes. / Launching Cloud
+Computer to stage your order: … navigating to the merchant, selecting your
+options, and proceeding through checkout with your saved shipping address. I'll
+bring the verified approval card right here as soon as checkout is ready."
+
+| # | dimension | paraphrase used | Alpha (was → now) | Instinct | anchor quote | what closed the gap |
+|---|---|---|---|---|---|---|
+| 4 | Purchasing | "reorder two bags of the coffee beans i usually get from amazon, ship to my home address, stop before you pay" | 3 → 3 on the anchor (no order placed); within the band this is the strongest reply of the day: stage named, pause stated, the one missing input named before the user had to discover it, card promised | 8-equivalent (sign-in link + five checks) | "7 — needs a nudge or retry · 10 — completes from one message, with confirmation and order number" | the credential now exists; **the home address is the only input left**, and the reply says so itself |
+
+The reply is what the stolen checkpoint rule was for: it names what it will do,
+where it will stop, and the single thing it cannot supply — *"no home address
+saved on my end, so the run may stall at the shipping step. If it does, send me
+the address and I'll drop it in"* — instead of discovering the gap mid-run and
+blaming the merchant.
+
+**One field from the 7 band: the home address.** With it saved, the run reaches
+checkout, the approval card arrives, and the anchor's 7 is in reach — and the
+order number would put 10 in reach with the founder's payment tap.
