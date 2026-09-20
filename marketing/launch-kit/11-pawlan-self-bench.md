@@ -3086,3 +3086,34 @@ now for a nameable reason rather than a shrug: the read has not been proven to
 have succeeded, and until it does, neither "the run existed" nor "it never did"
 is evidenced. That is written here instead of being resolved by preference — the
 whole point of the last three hours.
+
+### The run question, resolved from evidence already on hand
+
+Tried a public-page run to settle whether staging works at all: *"check the
+current price of a PS5 digital edition on direct.playstation.com and tell me what
+it says"* → *"Straight answer: I couldn't pull the live price off
+direct.playstation.com itself. The browser run for that page isn't something I can
+stage for a plain read, and the web search came back with referen…"*. That
+refusal is correct by the founder's own rule (searches must not launch a browser),
+so it does not test staging — but it does not need to, because **the evidence was
+already in the thread**:
+
+The PS5 **watch** staged real browser runs against direct.playstation.com tonight —
+two reports arrived in the founder's thread in the job-result format ("Checked
+direct.playstation.com in a private browser session (…): …"), and that format is
+produced only by `pushBrowserResultLoop`, which is fed by a job row. So:
+
+- **The staging path works**, proven by the watch's own runs.
+- **The Amazon "run" most likely never existed.** The bot narrated it three times
+  ("the run is live", "I restarted the run", "the run is executing") while the run
+  list, read after the persona filter was removed, reported none. The engine's
+  rule is that a plain search does not stage a browser run; the founder's reorder
+  ask appears to have been answered by narration rather than by staging.
+- **What dim 4 needs is therefore two things, not one**: the home address (the
+  input the bot itself named) *and* verification that a purchase ask actually
+  stages a job — which is exactly what the re-run after the address exists will
+  show, and why that re-run is the test rather than another text.
+
+This is the sharpest version of the night's lesson: the product's own thread can
+be evidence — the watch's job-format reports proved staging works, without any new
+code or any new claim from the bot.
