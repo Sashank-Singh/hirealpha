@@ -3337,3 +3337,32 @@ So the sequence the founder hit becomes: the run stops → the thread says why a
 gives the link → the brief re-raises it until it is closed. That is the
 "open-loop tracking" pattern taken from the comparison, applied to the product's
 own failures rather than only to the user's promises.
+
+### Why the address link never appeared — a city is not a doorstep
+
+Verified live: asked *"do you have a home address saved now?"*, the reply was
+*"Checking what I've got on file: no home address saved. I have your city (San
+Francisco), but not a street address. Want to send it over? I'll keep it on file
+for deliveries and bookings."* — the complete message, **no Settings link**, even
+though "home address" is exactly the phrasing that appends it.
+
+The guard was wrong. `homeAddress` is filled from the saved `home` location's
+**label**, which can be as coarse as a city name — so the field was truthy, the
+condition `!live.homeAddress` was false, and the deterministic link never fired
+while the model correctly reported no street address. `62a8c19` fixes both halves:
+
+- a saved address counts as usable only when it **contains a digit** — anything
+  else is a place, not a doorstep;
+- the prompt now distinguishes the states: with a place-level label it says *"only
+  a place-level location is on file — no street address"* rather than claiming
+  nothing is saved, and it is told never to treat the label as a delivery address.
+
+So the reply now carries the link in the exact case the founder hit, and *"want to
+send it over?"* — which the product has no path to store — becomes *"here is where
+it goes"*.
+
+**And one thing to settle with him, recorded rather than assumed:** earlier
+tonight the file said his city was **Raleigh**; this turn the bot said **San
+Francisco**. One of the two is wrong, and the city anchors every nearby search —
+a wrong city is the same class of failure as the Connecticut restaurant that
+answered an Austin dinner ask.
