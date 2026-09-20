@@ -3040,3 +3040,27 @@ session has now made from both sides. `98a8ce4` removes the filter and carries
 the row's persona into the answer, so the next read cannot produce that particular
 false negative. Re-reading it after that deploy is the next step, and it decides
 whether "no run" is the truth or a plumbing artifact.
+
+### The re-read is still pending, and that is the state of it
+
+After `98a8ce4` (persona filter removed) the status question was asked again. No
+answer had landed when this was written: the line is refusing sends repeatedly —
+*"Recipient has not replied; cooling period limits sends to 3/day"*, on loop sends
+and on the turn's own delivery — and the last thing the container log carries is
+`[friend] evals: scored 2 recent turns`, with no bubble.
+
+So the open question stands exactly where the code leaves it, and it is written
+down that way rather than guessed:
+
+- **If the next grounded answer still says no run exists**, then every "the run is
+  live on Amazon now" tonight was invented, and the run-staging path itself is
+  what needs investigating — the propose call, not the report.
+- **If it now names a run** (host, status, what it is waiting on), then the first
+  answer was the persona-filter artifact `98a8ce4` removed, and the staging path
+  is sound.
+
+Either way the next action is one question on a working line, not more code.
+Everything is pushed: fifty-eight commits, 923 tests in the deploy suite with the
+same pre-existing failures, and the two founder-gated items unchanged — the home
+address (the one field dim 4's completion needs) and one Sam fixture email for
+dim 5.
