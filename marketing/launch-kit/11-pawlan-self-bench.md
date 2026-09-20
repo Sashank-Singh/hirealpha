@@ -3311,3 +3311,29 @@ $0.99 Kindle title** (the credential is already in the vault, and it exercises t
 2FA path this commit just built), or **any Gumroad/Ko-fi/itch link he pastes** —
 those checkout as a guest, so the run goes cart → checkout → pause with no login
 at all.
+
+### The dropped ask, fixed — a fixable failure becomes an open loop
+
+The founder's complaint: a Notion run failed and the product *"never asked again
+after failure from computer browser run failure"*. The run reported honestly, and
+then the ask vanished — which is the one behaviour the benchmark's open-loop rule
+exists to catch.
+
+`1994cc0` gives the failure somewhere to live. Two things now open a loop the user
+can close, into the same `hire_loops` table the brief already surfaces as a
+Promise card:
+
+- **A missing connector** → `Connect Notion — I could not finish "<goal>"`, with
+  the connect link in its context.
+- **A sign-in with no saved login** → `Save a <host> login — I could not finish
+  "<goal>"`.
+
+Deliberately not every failure: a provider hiccup ("the run stopped on my side")
+opens nothing, because there is nothing the user can do and the loop would be
+noise. Only fixable reasons become loops, deduped the way every other loop is, and
+a loop write that fails never takes the run's report with it.
+
+So the sequence the founder hit becomes: the run stops → the thread says why and
+gives the link → the brief re-raises it until it is closed. That is the
+"open-loop tracking" pattern taken from the comparison, applied to the product's
+own failures rather than only to the user's promises.
