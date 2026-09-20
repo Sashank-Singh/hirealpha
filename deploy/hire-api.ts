@@ -1851,10 +1851,19 @@ export async function finishTaskLoop(
           updated_at = now()
         WHERE id = ${id} RETURNING id
       `,
+      /* A run result is the answer the user is waiting for, so it does not die
+       * the way a proactive ping may. Live, 2026-09-19: an Amazon run finished
+       * while the line was refusing sends — Photon rate-limits a thread whose
+       * recipient has not replied ("cooling period limits sends to 3/day") —
+       * and the old branch marked the delivery `failed` once the retry budget
+       * ran out, which loses the result for good. It stays pending now, with an
+       * exponential snooze capped at six hours, so the answer lands when the
+       * channel takes sends again. The 30-day sweep still bounds it. */
       () => sql`
         UPDATE hire_browser_result_deliveries SET
-          status = CASE WHEN attempts + 1 < ${TASK_LOOP_MAX_ATTEMPTS} THEN 'pending' ELSE 'failed' END,
+          status = 'pending',
           attempts = attempts + 1,
+          next_run = now() + (LEAST(POWER(2, LEAST(attempts + 1, 6)), 36) * interval '10 minutes'),
           last_result = ${result},
           updated_at = now()
         WHERE id = ${id}
