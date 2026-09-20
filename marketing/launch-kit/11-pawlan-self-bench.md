@@ -2657,3 +2657,39 @@ shipping half; save the Amazon login → dim 4's order half; reconnect Gmail wit
 send scope + one fixture mail → dim 5; reconnect Notion/Slack → dim 8; a real
 ticketed flight → dim 6 and dims 2 and 14 with it. Three reconnects, two
 addresses, one email. No further code is required for four of the five.
+
+### The four low dimensions, run against Instinct (what it did, what got stolen)
+
+Sent the four tasks to Instinct on the real line, same wording a person would use.
+
+**Integrations — Instinct's works, ours is a grant away.** "put a note in my
+notion that the benchmark pass is done" → *"Notion isn't connected yet. Connect
+it here and I'll add 'the benchmark pass is done'"* with a tappable connect card,
+and then, once the grant existed, *"Added it to the bottom of AlphaSphere —
+that's the only Notion page currently shared with me."* Verified independently in
+the user's own workspace: the page history reads **"Last edited by Instinct,
+Today at 5:00 PM"**. So the score gap here is not capability — theirs is one
+OAuth grant ahead of ours, and ours is written and green (82 tests).
+**Stolen:** a missing connector now carries its connect link
+(`/app/hires/<persona>?connect=<slug>`) and restates the pending action, instead
+of just saying it could not touch anything there (`93b1efb`).
+
+**Email — Instinct drafts around a no-reply, we said nothing.** "reply to the
+micro1 email and ask them to push my interview forward, send it" → *"Their email
+came from a no-reply address, so this would go from … to …"*, then a full draft
+in the user's own voice ("Hi micro1 team, I've completed the AI interview for the
+A/M L Engineer, Internal Platforms role… Best, Sashank"), then *"Send this
+version?"* — the approval gate, with the exact text shown. It did not send, which
+is correct. **Stolen:** the friend's email rules now name the automated-sender
+patterns, say in one line that a reply cannot reach a human, name where an answer
+could go, and still produce a sendable draft (`93b1efb`). The check already
+existed in the work home (`isAutomatedSender`); the friend had no such rule.
+
+**Purchasing and Proactive — no reply captured in the window that was watched**,
+so nothing is claimed about them here. What is known from their own inventory
+answer: Instinct holds a saved card and a cloud-browser profile, which is the
+same shape of resource our dim 4 is waiting on.
+
+**The through-line:** of the four, three are one grant or one saved detail away
+for us and theirs already has it; the fourth (proactive) needs a status source
+neither of us was exercised on tonight.
