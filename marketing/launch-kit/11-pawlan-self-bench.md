@@ -3409,3 +3409,38 @@ The earlier "I could not verify a specific one" was true when written and is now
 resolved: the first searches went at catalogues that render client-side (Gumroad)
 or block the crawler (Etsy); itch product pages are server-rendered and verified
 directly.
+
+## THE BLOCKER — every browser run tonight failed for one reason, and it is a payment method
+
+Chasing why the $1 itch run died, the worker's own log named it outright:
+
+> `[browser-worker] job ab9ac11a-… failed: Kernel browser launch failed (403):
+> Organization plan needs payment method - read access is available but write
+> operations are blocked. Please visit
+> https://dashboard.onkernel.com/billing/add-payment-method to add a payment
+> method.`
+
+**The browser provider's organization has no payment method, so every run is
+refused at launch.** That single fact explains:
+
+- the Amazon run: *"Couldn't check amazon.com. The run stopped on my side before
+  it could check anything."*
+- the itch run, verbatim the same: *"Couldn't check spacefreighterone.itch.io. The
+  run stopped on my side before it could check anything. Nothing was sent and
+  nothing changed on that site."*
+- the watch's first tick failing the same way earlier tonight.
+- and therefore why dims 1, 2 and 4 have been stuck at 7/7/3 all night: the runs
+  stage correctly, carry the right goal, pause correctly — and are killed by the
+  provider before they ever touch a page.
+
+**This is the single highest-value unblock in the whole programme**, and it is not
+code: add a payment method at dashboard.onkernel.com/billing. Purchase completion
+(dim 4), hotel booking (dim 1), flight booking and check-in (dim 2), the watch
+ticks (dim 6) and the booking legs of 13 and 14 all sit behind it. Nothing the
+founder can type into Settings comes close.
+
+**Also fixed from the same log** (`6dd6123`): the undelivered-result sweep ran
+`d.id = latest.id` — text = uuid — so it errored on every call and the net that
+recovers a report the user never saw had never once been cast. One cast and it
+runs. Two nets exist for a lost report (the delivery queue's retry, kept pending
+by `f667587`, and this sweep); one of them was dead code in practice.
