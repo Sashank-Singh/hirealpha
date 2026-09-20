@@ -3472,3 +3472,22 @@ user can fix must be reported as one.** The pattern ran through everything
 tonight — "read yes, send no", "no saved logins", "the run is live", "stopped on
 my side" — and each one was a true-sounding sentence that left out the part the
 person needed.
+
+### The re-run after the reporting fix — staged, and the report is queued behind the channel
+
+Re-ran the itch purchase on the build that names provider refusals ("try that
+dollar game again please"). It staged exactly as before — *"Run's live on the
+itch.io page again. It'll confirm the $1 price, stage everything, and stop before
+payment."* — and the failure report had **not been delivered** when this was
+written: the line is still refusing the loop sends (`Recipient has not replied;
+cooling period limits sends to 3/day`, on reminders and on report delivery alike).
+
+So the state is: **the runs stage, the provider still refuses them (Kernel 403,
+no payment method), and the new copy that names the cause is sitting in the
+delivery queue**, retried by both nets — the queue's own backoff (`f667587`) and
+the sweep (`6dd6123`, which had never once run). Whether the copy says what it
+should is verifiable the moment the channel takes sends again, and it is written
+down as pending rather than assumed.
+
+The billing line remains the founder's, and it is still the highest-leverage
+unblock in the programme: dims 1, 2, 4, 6, 13 and 14 all die at launch without it.
