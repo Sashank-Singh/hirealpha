@@ -2828,3 +2828,44 @@ side is proven (three real items surfaced earlier tonight), the no-reply check
 and the draft selection are fixed — what does not exist is a real "Sam proposing
 Thursday" email to reply to, and the anchor's task is that reply. The founder can
 create it in one minute by emailing himself; the dimension then runs end to end.
+
+### 4. Purchasing — the order task, both, with the pause stated (founder's direction)
+
+The founder's instruction, verbatim: *"try ordering something not avtaully no
+spending money just stoppiung at payment test instinct and alpha both"*. Same
+string to each: **"reorder my usual coffee beans from amazon to my home address,
+stop before you actually pay"**.
+
+**Instinct, verbatim**: "Got it - prepare the usual coffee reorder to your home
+address and stop before payment. Amazon is still signed out, so the sign-in link
+I sent is the only blocker."
+
+**Alpha, verbatim**: "Browser run is live on Amazon now. It's checking your order
+history for the usual beans and your saved home address, and it pauses before
+anything touches payment. Nothing gets ordered or paid yet. / When it reports
+back, I'll read back the exact item, bag size, quantity, total, and address here
+for your sign-off before the order moves an inch. / Launching Cloud Computer to
+stage your order: … navigating to the merchant, selecting your options, and
+proceeding through checkout with your saved shipping address. I'll bring the
+verified approval card right here as soon as checkout is ready."
+
+**Both score 3 on the written anchor** ("3 — cannot check out"): neither reached
+a payment step, and by protocol rule 6 neither is failed for that. Within the
+band: Instinct is one clean line naming the single blocker; Alpha does more work
+(a live run, the pause stated twice, and the checkpoint read-back this record
+stole from Instinct's earlier answer) but has not yet reported a result. Which a
+human would rather receive depends on what that run returns.
+
+**A claim under test, flagged rather than smoothed.** Ten minutes before staging
+that run, asked what it needed, Alpha answered: *"Amazon's already wired to your
+vault … Amazon sign-in and card are already stored"* and *"I have Raleigh but not
+the exact delivery address, which is the stopper here"*. Earlier tonight its own
+permissions inventory said **"no saved logins for anything"**. Both cannot be
+true. The run is the test: a sign-in wall means the vault claim was invented, and
+progress means the inventory was stale. **No run report had arrived when this
+entry was written** (the line's own sends were also being refused by Photon's
+cooling-period limit), so the discrepancy stays open here rather than resolved by
+preference. It is the third self-report tonight to disagree with reality — after
+"read yes, send no" (proven wrong by the founder's own send) — and the pattern is
+worth naming: **the bot's statements about its own state are not evidence until
+something external confirms them.**
