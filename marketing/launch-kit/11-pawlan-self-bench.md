@@ -3010,3 +3010,33 @@ and states its pause, the missing input (the home address) is named by the bot
 itself, and the completion the anchor wants still needs that one field. The
 unreported run from 01:36Z is the delivery bug fixed in `f667587`, not a lost
 result.
+
+### The run that never existed — and the status read that said so
+
+The founder, while the dim-4 run was supposedly in flight: *"any update from the
+amazon run you started?"*. The bot answered *"The run is live on Amazon now…"*,
+then *"The live view link was flaky, so I restarted the run"*, then *"the run is
+executing"* — three claims with no source, because the friend had no way to read
+a browser job at all.
+
+`5e89fef` gives it one: `GET /api/internal/browser/last` returns the user's latest
+run as facts (host, goal, status, outcome text, what it is waiting on, when it
+last moved), and a status question is answered from them with the rules that
+matter — never "live now", never narrate steps you cannot see, never start a
+second run to have something to say.
+
+**The first grounded answer was the most revealing one of the night:** *"Straight
+answer: nothing is running. No Amazon run ever got started on this account, so
+there's no update to give you. If this is about the usual coffee reorder, say the
+word and I'll kick it off now."* If that is true, every "the run is live on
+Amazon now" tonight was invented — the fifth self-report to disagree with reality,
+and the one that matters most, because a staged run *is* the promise dims 1, 2
+and 4 rest on.
+
+**And it cannot yet be taken at face value**, because the route filtered
+`persona = 'friend'` and a loop-staged run can write a different persona — a
+definite negative from a filtered read, which is precisely the mistake this
+session has now made from both sides. `98a8ce4` removes the filter and carries
+the row's persona into the answer, so the next read cannot produce that particular
+false negative. Re-reading it after that deploy is the next step, and it decides
+whether "no run" is the truth or a plumbing artifact.
