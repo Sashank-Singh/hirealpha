@@ -24,7 +24,7 @@ import {
   parseVerification,
   verifyAnswerAgainstPage,
 } from './agentDriver'
-import { plainRunFailure } from './browserWorker'
+import { isProviderRefusal, plainRunFailure, plainReason } from './browserWorker'
 import { executeKernelAction, readVerifiedKernelPurchase } from './kernelSession'
 
 /* ============================================================================
@@ -589,5 +589,32 @@ describe('run failure copy', () => {
     expect(plainRunFailure('campusnet.csuohio.edu', 'Target not allowed for this project')).toContain('asked for a sign in')
     expect(plainRunFailure('example.com', 'The operation was aborted')).toContain('run stopped on my side')
     expect(plainRunFailure('example.com', undefined)).toContain('run stopped on my side')
+  })
+})
+
+/* Live, 2026-09-19: every browser run died with "The run stopped on my side
+ * before it could check anything" while the worker log carried the cause verbatim
+ * (Kernel 403: Organization plan needs payment method). The reply was honest and
+ * useless at the same time — the one thing the user could fix in a minute was the
+ * one thing it did not say. */
+describe('a provider refusal is named, and the fallback recognises it', () => {
+  const refusal = 'Kernel browser launch failed (403): Organization plan needs payment method - read access is available but write operations are blocked'
+
+  it('names the cause instead of blaming itself', () => {
+    expect(plainReason(refusal)).toContain('no payment method on file')
+    expect(plainReason(refusal)).not.toContain('stopped on my side')
+  })
+
+  it('appends the fix to the failure line', () => {
+    const line = plainRunFailure('spacefreighterone.itch.io', refusal)
+    expect(line).toContain('dashboard.onkernel.com/billing/add-payment-method')
+    expect(line).toContain('Nothing was sent and nothing changed')
+  })
+
+  it('separates a provider refusal from a page that would not load', () => {
+    expect(isProviderRefusal(refusal)).toBe(true)
+    expect(isProviderRefusal('quota exceeded for this organization')).toBe(true)
+    expect(isProviderRefusal('net::ERR_NAME_NOT_RESOLVED')).toBe(false)
+    expect(isProviderRefusal('target not allowed')).toBe(false)
   })
 })

@@ -389,6 +389,15 @@ export async function runJob(sql: SQL, job: JobRow, launch = runBrowserSession):
   if (executorMode === 'disabled' && launch === runBrowserSession) {
     return { ok: false, error: DISABLED_ERROR }
   }
+  /** E2B is configured and Kernel is not usable: the fallback that the mode
+   * picker cannot choose, because it only sees keys and not whether the
+   * provider will actually launch. */
+  const e2bConfigured = () => Boolean(process.env.E2B_API_KEY?.trim() && process.env.E2B_BROWSER_TEMPLATE?.trim())
+  const launchOnE2B = (task: SessionTask) => {
+    const provider = new E2BTaskEnvironmentProvider(process.env.E2B_API_KEY || '')
+    return withTaskSandbox(sql, provider, { userId: job.user_id, taskId: job.id, timeoutMs: TASK_SANDBOX_TIMEOUT_MS }, (cdpUrl) =>
+      runBrowserSession({ ...task, cdpUrl }))
+  }
   const launchTask = (task: SessionTask) => {
     // An injected launch (tests) bypasses the executor: a local .env that
     // happens to set KERNEL_API_KEY must not make a unit test open a real
@@ -402,13 +411,30 @@ export async function runJob(sql: SQL, job: JobRow, launch = runBrowserSession):
         // project-scoped payment vault before any checkout card item exists;
         // Kernel will substitute aliases at egress after authorization.
         const paymentVaultId = await getKernelVaultId(sql, job.user_id, false)
-        const browser = await KernelBrowser.launch({
-          apiKey,
-          telemetry: process.env.KERNEL_TELEMETRY !== '0' && process.env.KERNEL_TELEMETRY !== 'false',
-          vaultIds: paymentVaultId ? [paymentVaultId] : undefined,
-          timeoutSeconds: Number(process.env.KERNEL_SESSION_SECONDS || 3600),
-          profile: process.env.KERNEL_PROFILE_NAME?.trim() || undefined,
-        })
+        /* A provider that refuses the LAUNCH (billing, quota, plan) is not a
+         * reason to fail the task when another backend is configured: live,
+         * 2026-09-19, every run died with "Kernel browser launch failed (403):
+         * Organization plan needs payment method" while E2B_API_KEY and
+         * E2B_BROWSER_TEMPLATE sat unused, because the mode picker only sees
+         * which key exists — never whether the provider will launch. The
+         * fallback keeps the run alive and says so in the log. */
+        let browser: Awaited<ReturnType<typeof KernelBrowser.launch>>
+        try {
+          browser = await KernelBrowser.launch({
+            apiKey,
+            telemetry: process.env.KERNEL_TELEMETRY !== '0' && process.env.KERNEL_TELEMETRY !== 'false',
+            vaultIds: paymentVaultId ? [paymentVaultId] : undefined,
+            timeoutSeconds: Number(process.env.KERNEL_SESSION_SECONDS || 3600),
+            profile: process.env.KERNEL_PROFILE_NAME?.trim() || undefined,
+          })
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err)
+          if (isProviderRefusal(message) && e2bConfigured()) {
+            console.warn(`[browser-worker] kernel refused the launch for job ${job.id} (${message.slice(0, 160)}); running it on e2b instead`)
+            return launchOnE2B(task)
+          }
+          throw err
+        }
         // The live view is the page a person opens to take over a login,
         // CAPTCHA or payment step — record it before the first model turn.
         if (browser.liveViewUrl) await setBrowserLiveView(sql, job.id, browser.liveViewUrl).catch(() => undefined)
@@ -447,11 +473,7 @@ export async function runJob(sql: SQL, job: JobRow, launch = runBrowserSession):
         }
       })()
     }
-    if (executorMode === 'e2b') {
-      const provider = new E2BTaskEnvironmentProvider(process.env.E2B_API_KEY || '')
-      return withTaskSandbox(sql, provider, { userId: job.user_id, taskId: job.id, timeoutMs: TASK_SANDBOX_TIMEOUT_MS }, (cdpUrl) =>
-        runBrowserSession({ ...task, cdpUrl }))
-    }
+    if (executorMode === 'e2b') return launchOnE2B(task)
     return launch(task)
   }
 
