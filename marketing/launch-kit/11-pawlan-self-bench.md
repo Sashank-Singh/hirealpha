@@ -3366,3 +3366,26 @@ tonight the file said his city was **Raleigh**; this turn the bot said **San
 Francisco**. One of the two is wrong, and the city anchors every nearby search —
 a wrong city is the same class of failure as the Connecticut restaurant that
 answered an Austin dinner ask.
+
+### The city disagreement — the evidence points to San Francisco
+
+Read the facts directly instead of arguing with the earlier line:
+
+> "Here's everything location related I have: city, San Francisco (from your saved
+> preferences, and again in the current thread facts); timezone, PDT /
+> America/Los_Angeles. That's it. No street address…"
+
+Three things corroborate it: the timezone is PDT (Raleigh is Eastern), every
+travel ask this session has been SFO-based (SFO→LAX, SFO→ORD, San Jose), and the
+model now names the saved preference as its source. So the "I have Raleigh"
+line from earlier tonight reads as **confabulation that then propagated** — the
+same failure class as the invented Amazon run — not as a stored fact.
+
+**Still only the founder can confirm it**, and it matters in both directions: if
+San Francisco is right, the record's earlier Raleigh line was noise; if Raleigh
+is right, then the *saved* city is wrong and every nearby search (dims 1 and 3)
+is anchored to the wrong place — which is the Connecticut-restaurant-for-an-
+Austin-ask failure with a different cause.
+
+**The address remains unsaved** and is now asked for with the link, on the
+phrasing a person actually uses (`62a8c19`).
