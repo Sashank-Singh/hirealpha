@@ -3064,3 +3064,25 @@ Everything is pushed: fifty-eight commits, 923 tests in the deploy suite with th
 same pre-existing failures, and the two founder-gated items unchanged — the home
 address (the one field dim 4's completion needs) and one Sam fixture email for
 dim 5.
+
+### The bug in my own fix — an unread list is not an empty one
+
+Re-asked, the status question answered: *"Nothing on my side, Sashank. I don't
+have any activity data in front of me right now, so I can't see runs logged today
+or otherwise."*
+
+That phrasing is the tell. `fetchLastRun` — written an hour earlier in this same
+session — returned `null` for **both** "the store says there is no run" and "the
+read did not happen", and the prompt note flattened both into *"there is no
+browser run on this account at all"*. The live answer shows a model handed an
+unreadable store and reporting an absent run: the exact false-negative class this
+night has been fixing, this time introduced by me, in the fix itself.
+
+`44811a6` makes the read three-way — the row, a definite none, or a read that did
+not happen — and only the middle one may say no run exists; the third must admit
+it could not check. So the question I set out to settle (*does the Amazon run
+exist, or was the "no run" answer the persona filter?*) is **still open**, and
+now for a nameable reason rather than a shrug: the read has not been proven to
+have succeeded, and until it does, neither "the run existed" nor "it never did"
+is evidenced. That is written here instead of being resolved by preference — the
+whole point of the last three hours.
