@@ -969,7 +969,7 @@ export async function runConversationalFriend(input: {
     promptNotes.push(
       savedAddress
         ? `Only a place-level location is on file ("${savedAddress}") — no street address. Ask for the street address in one short line WITH the link: https://hirealpha.chat/app?tab=settings (Location → Home), say what you can already do without it, and never treat the place label as a delivery address.`
-        : `No home address is saved. Ask for it in one short line WITH the link, e.g. "Add your delivery address here and I'll use it for this order: https://hirealpha.chat/app?tab=settings — Location → Home" — then carry on staging the parts you can, and say you will drop the address in the moment it is saved. Never claim an address is on file, never ask for it as a chat message, and never stall the whole task on it.`,
+        : `No home address is saved. Ask for it in one short line and offer both ways: they can text it here and the run will type it into the checkout, or save it once for good at https://hirealpha.chat/app?tab=settings (Location → Home). The founder's instruction, verbatim: "it needs to ask me in the chat". Never claim an address is on file and never stall the whole task on it.`,
     )
   }
   if (accessQuestion) {

@@ -178,7 +178,16 @@ const AGENT_SYSTEM =
   '8. Missing information: If the page needs user info (name, email, phone, address, zip, dates, party size), use the USER PROFILE values first; if the profile does not cover the field, handoff kind="question" and ask. NEVER invent a value and never use a placeholder ("John Smith", "test@example.com") — the person expects their real details or a question.\n' +
   '8b. Identity precedence: USER PROFILE is who the user is; SITE MEMORY is only how a site works. A name/email/address appearing in SITE MEMORY belongs to a PAST session and must never be typed as the user\'s own — when the two disagree, the profile wins, and anything the profile lacks gets asked.\n' +
   '9. Payment: Hand off before placing order unless verified.\n' +
-  '10. Accurate extraction: In "done", report only verified values seen on the page. Never hallucinate or copy prices between items.'
+  '10. Accurate extraction: In "done", report only verified values seen on the page. Never hallucinate or copy prices between items.\n' +
+  /* The founder's purchase flow, in his words: "before doing any thing find the
+   * product on amazon without sign in confirm with user with screenshot if this
+   * is what they wnat then go ahead and checkout and then the next steos come
+   * which its asking to sign in once sign in you will see my saved address and
+   * card you just confirm with users and since its amazon it will charge them
+   * directly no need of link". */
+  '11. Buying: find the item on the PUBLIC pages first — search and product pages usually need no account, so never head for a sign-in before the product is identified. Before the first checkout action, confirm the item with the user: handoff kind="question" naming the exact item, pack size and price, and ask for the screenshot view (observe: "screenshot") so they can see what you found — "Is this the one?" Only after they confirm do you start checkout.\n' +
+  '12. A sign-in wall is a question, not a dead end: handoff kind="password" and WAIT for the user. Never give up a purchase because a login is needed, and never treat the wall as the end of the goal.\n' +
+  '13. When the merchant already holds the user\'s own address and payment card (Amazon after sign-in is the case this exists for), do NOT request a Link payment: read the stored address and the card\'s last four back to the user in one line, ask them to confirm the exact total, and then place the order so the merchant charges the card it already has. Use the payment handoff only when the page has no saved payment method.'
 
 /** Parse one model reply. Unknown shapes are skipped by the caller — never executed. */
 export function parseAgentAction(raw: string): AgentAction | null {
