@@ -2898,3 +2898,30 @@ payload (no model, no deliberation — `1ece720`), and the vault list names one
 hostname per saved login instead of flat-mapping both the origin and the label
 into "https://campusnet.csuohio.edu, login, https://campusnet.csuohio.edu, …"
 (`86d7028`).
+
+### CORRECTION — the vault DOES hold Amazon, and my "it was invented" call was wrong
+
+The previous entry concluded, from a payload read, that Alpha's *"Amazon's already
+wired to your vault … Amazon sign-in and card are already stored"* was invented,
+because the log line I read showed `campusnet.csuohio.edu` and nothing else.
+
+**That read was truncated.** The full thread shows the list as:
+`https://campusnet.csuohio.edu, login, https://campusnet.csuohio.edu,
+https://login.csuohio.edu, login, https://www.amazon.com, https://www.amazon.com,
+login, https://www.kayak.com, …` — **Amazon is there**, alongside Kayak, X and
+CampusNet. The bot's claim was true, and my conclusion was drawn from the first
+160 characters of a bubble, which is exactly the error this session keeps
+catching in the bot: reporting a definite negative from an incomplete read.
+
+Corrected state, from the same fresh check:
+
+> "State check: 1. Home address: not saved. Nothing on file… 2. Vault logins: yes,
+> saved credentials for CampusNet (CSU Ohio), Amazon, Kayak, and X. 3. Email from
+> Sam proposing Thursday: nothing. No mail from a Sam in the last 30 days at all.
+> The only 'Thursday' hits are newsletters and event promos…"
+
+So dim 4's blocker is **one thing**, not two: the Amazon credential exists and the
+live sign-in path is available; **the home address is the stopper**. Dim 5 still
+needs the fixture email. The vault list is genuinely ugly in the raw form
+(duplicated origins, `login` labels) — the dedupe/hostname fix `86d7028` stands on
+its own merits, but the inference I hung on it does not.
