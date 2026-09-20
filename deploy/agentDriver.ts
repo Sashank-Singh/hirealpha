@@ -320,8 +320,17 @@ export function makeVisionCaller(cfg: {
   // The action reply is tiny; an audit transcription of several items is not.
   // Reasoning models (e.g. DeepSeek) emit reasoning tokens first, so provide enough headroom.
   const maxTokens = cfg.maxTokens ?? 1200
-  const attemptTimeoutMs = cfg.timeoutMs ?? VISION_ATTEMPT_TIMEOUT_MS
-  const budgetMs = cfg.totalBudgetMs ?? VISION_CALL_BUDGET_MS
+  /* Env-tunable, because the gateway's latency is not a constant. Live,
+   * 2026-09-19: with Kernel refusing every launch and the E2B fallback carrying
+   * the runs, the vision call HUNG (no 429 — the fetch aborted at its timeout)
+   * and the run died on "vision model The operation timed out. (step budget 50s
+   * exhausted)", twice in a row, with nothing the code could do about a slow
+   * provider. A deployment can now widen the window without a code change; the
+   * defaults are unchanged. */
+  const envAttempt = Number(process.env.VISION_ATTEMPT_TIMEOUT_MS || 0)
+  const envBudget = Number(process.env.VISION_CALL_BUDGET_MS || 0)
+  const attemptTimeoutMs = cfg.timeoutMs ?? (envAttempt > 0 ? envAttempt : VISION_ATTEMPT_TIMEOUT_MS)
+  const budgetMs = cfg.totalBudgetMs ?? (envBudget > 0 ? envBudget : VISION_CALL_BUDGET_MS)
   const BACKOFF_MS = [3_000, 8_000, 20_000]
   // Measured on this gateway: the same model throttles after ~2 rapid calls,
   // but alternating models passes 12/12 at 2s spacing. So rotate on every
