@@ -728,8 +728,14 @@ export async function flushUndeliveredResults(
         AND j.finished_at > now() - interval '48 hours'
       ORDER BY j.user_id, j.persona, j.finished_at DESC
     ) latest
+    /* The delivery key is TEXT (the jobId, or ad-hoc:<uuid> for pushes without
+     * one) while the job id is UUID, so d.id = latest.id was a text = uuid
+     * comparison — Postgres 42883 for every call, which the worker logged as
+     * "undelivered result sweep failed: operator does not exist: text = uuid".
+     * The sweep, whose whole job is to recover a report the user never saw, had
+     * therefore never once run. Cast the uuid side. */
     WHERE NOT EXISTS (
-      SELECT 1 FROM hire_browser_result_deliveries d WHERE d.id = latest.id
+      SELECT 1 FROM hire_browser_result_deliveries d WHERE d.id = latest.id::text
     )
     ORDER BY latest.finished_at ASC
     LIMIT 3
