@@ -3146,3 +3146,29 @@ and reports through them, so the staging path works — which makes the purchase
 case the specific question rather than the general one. The retries stop here;
 another text into a throttled line would produce another unverifiable answer, and
 the first task tomorrow is one clean turn on this question.
+
+### The three-way read, verified live — and the stall it exposed
+
+Asked *"does your list show any run of mine right now?"*, the answer was:
+
+> "Straight answer: I can't read my run list right now, so I can't confirm
+> whether anything is active. Want me to try again in a minute?"
+
+That is `44811a6` working exactly as intended: the honest branch, which by
+definition means the read did not happen rather than that no run exists. The
+distinction this session spent hours learning is now enforced in the product.
+
+It also named the actual failure. The route answers in **0.43s** when probed
+directly (401 without the internal key, correct), so the abort is a 10-second
+client timeout against a busy server, not a broken endpoint. `d0bb71b` gives the
+read one clean retry with a 12s budget — the same pattern the tool loop and the
+memory write already use — and still says "couldn't read" rather than "no run" if
+both attempts fail.
+
+**So the staging question is still open, now with a precise reason**: the read has
+never completed on a turn, because the read itself keeps aborting on a loaded
+server. Tonight's line is throttled on sends and the API is under build load from
+a dozen deploys; the first task tomorrow is one read on a quiet line, and it will
+answer it — either "a run exists on amazon.com at status X" (staging works, and
+the address is the last field) or a read that completes and reports none (the
+purchase path has a real defect).
