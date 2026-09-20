@@ -3225,3 +3225,50 @@ This also sharpens what dim 4 needs: not just "the founder must find Settings",
 but "the product asks him for it in the thread, with the link, the first time an
 order needs it" — which is Instinct's own pattern, and the one thing missing from
 our version of that exchange.
+
+### All three questions answered in one thread
+
+The reorder ask (*"reorder two bags of my usual coffee beans, ship to my home
+address, stop before paying"*), its reply, and the run's own report — all in the
+founder's thread, all verifiable:
+
+**1. The address ask works.** The full reply reads:
+
+> "On it, the Amazon run is going now. I'll pull your usual beans from order
+> history, set quantity to two bags, ship to your home address, and stop right
+> before payment so you can approve the final details first. Nothing gets charged
+> until you say go.
+>
+> Add your delivery address here and I'll use it for this one — Settings →
+> Location → Home: https://hirealpha.chat/app?tab=settings
+>
+> Launching Cloud Computer to stage your order: … I'll bring the verified
+> approval card right here as soon as checkout is ready."
+
+The middle paragraph is `7b522f9` exactly as designed: the gap named **with the
+way to close it**, in the same message, from the founder's own correction.
+
+**2. A purchase ask DOES create a job row — and it reported.** The thread's next
+bubble is the run's own result:
+
+> "Checked amazon.com in a private browser session (Find the user's usual coffee
+> beans from order history, add two bags to cart, ship to saved): Couldn't check
+> amazon.com. The run stopped on my side before it could check anything. Nothing
+> was sent and nothing changed on that site."
+
+That is the job-result format, produced only by `pushBrowserResultLoop`, fed by a
+job row. So the open question from earlier tonight — *does a purchase ask stage a
+job?* — is **yes**. The earlier "No Amazon run ever got started on this account"
+was a read-side failure, not a staging one, and the three-way read fix is what
+made that distinguishable.
+
+**3. The run failed honestly, and nothing moved.** "The run stopped on my side
+before it could check anything. Nothing was sent and nothing changed on that
+site." No fabricated order, no claimed cart, no invented total — the honest
+failure the anchors require, with the pause intact.
+
+**What dim 4 is therefore waiting on is narrower than before:** staging works, the
+pause holds, the run reports its own failure, and the missing input now arrives
+with a link. What remains is the address and whatever stopped the run on its side
+— the provider, most likely, given the same "couldn't check" shape seen on the
+watch's first tick.
