@@ -2693,3 +2693,37 @@ same shape of resource our dim 4 is waiting on.
 **The through-line:** of the four, three are one grant or one saved detail away
 for us and theirs already has it; the fourth (proactive) needs a status source
 neither of us was exercised on tonight.
+
+### The three defects the founder hit while testing, and the fourth he found
+
+**1. A connected service was treated as a password wall.** "put a note in my
+notion that the benchmark pass is done" staged a browser run, landed on
+notion.com's landing page, and answered: *"This one needs an account on
+www.notion.com before it will go further, and I do not have a login for it.
+Three ways: save the login in Vault (https://hirealpha.chat/app/vault-login?…) …"*
+with the Vault link jammed inline. His words: *"ASKING TO LOGIN BUT NOT CONNECTOR
+ITS NOT AWARE ABOUT ALL IT CONNECTOR IT CAN USE PLUS WHY DOES IT ASK FOR SIGN IN
+TO VAULT BEFORE REACHING LOGIN OF THE WEBSITE FIX IT AND VAULT LINK SHOULD BE
+SEPARATE"*. Fixed in `958a804`: the worker recognizes Notion/Slack/Linear/GitHub/
+Drive hosts, stops the run instead of asking for a password, and hands back the
+connect link ("Notion is a connected service, not a sign-in … Connect Notion and
+I will do this through Notion itself, no login needed"); the friend's prompt now
+carries the same rule so the run is never staged; and the links in a
+needs-an-account message stand on their own lines.
+
+**2. The draft card opened the wrong email.** After "reply to the micro1 email
+and ask them to push my interview forward", the card showed a Luma
+event-cancellation draft — *"WRONG EMAIL ITS SHOWING"*. Two causes, both fixed in
+`9faf73d`: the card defaulted to the **oldest** pending draft (the one a chat ask
+produces is the newest, and the rows already arrive newest-first), and
+`isAutomatedSubject` did not cover the notification class that leaked — "was
+canceled", "has been rescheduled", "starts in", "is live now", "your event".
+
+**3. What the Instinct captures did and did not give.** The comparison run
+completed for **integrations** (Instinct wrote to Notion; page history confirms
+"Last edited by Instinct") and **email** (it flagged the no-reply sender, drafted
+in the user's voice, and asked "Send this version?"). The **purchasing** and
+**proactive** asks produced no reply inside the window that was watched — the
+purchasing ask was deliberately phrased as prerequisites-only ("don't place
+anything yet") so a real order could not be placed on the owner's card by a test,
+and nothing is claimed about either here.
