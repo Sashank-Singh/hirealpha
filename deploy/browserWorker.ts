@@ -130,6 +130,14 @@ function hostOf(url: string): string {
 /** One plain sentence for why a run stopped, for the copy that carries a reason. */
 export function plainReason(error: string | null | undefined): string {
   const raw = String(error || '')
+  /* A provider refusal is not "my side" being flaky — it is a named cause the
+   * user can fix, and hiding it cost a whole evening: every browser run tonight
+   * failed with "The run stopped on my side before it could check anything"
+   * while the worker log said exactly why (Kernel 403: the organization has no
+   * payment method). */
+  if (/payment method|billing|plan needs|subscription|quota exceeded|insufficient (?:funds|credit)/i.test(raw)) {
+    return 'The browser service is refusing to launch any run on this account — it has no payment method on file.'
+  }
   if (/target not allowed|sign in|log in|login|password|credential|vault/i.test(raw)) return 'It asked for a sign in I do not have.'
   if (/truncated at max_completion_tokens|structured output is incomplete/i.test(raw)) return 'The page was more than it could read in one pass.'
   if (/tim(?:e|ed) ?out|deadline/i.test(raw)) return 'It ran out of time.'
@@ -138,8 +146,17 @@ export function plainReason(error: string | null | undefined): string {
   return 'The run stopped on my side before it could check anything.'
 }
 
+/** True when the run never started because the browser PROVIDER refused it —
+ * a cause the user can fix, unlike a page that would not load. */
+export function isProviderRefusal(error: string | null | undefined): boolean {
+  return /payment method|billing|plan needs|subscription|quota exceeded/i.test(String(error || ''))
+}
+
 export function plainRunFailure(host: string, error: string | null | undefined): string {
-  return `Couldn't check ${host}. ${plainReason(error)} Nothing was sent and nothing changed on that site.`
+  const fix = isProviderRefusal(error)
+    ? ' Add one here and I will run it again: https://dashboard.onkernel.com/billing/add-payment-method'
+    : ''
+  return `Couldn't check ${host}. ${plainReason(error)}${fix} Nothing was sent and nothing changed on that site.`
 }
 
 type JobRow = BrowserJobRow
@@ -787,6 +804,18 @@ export async function flushUndeliveredResults(
 
 async function report(sql: SQL, job: JobRow, outcome: JobOutcome): Promise<void> {
   await flushUndeliveredResults(sql).catch((err) => console.warn('[browser-worker] undelivered result sweep failed', err))
+  /* A run the PROVIDER refused never touched a page: it is a fixable cause
+   * (billing, quota), so it becomes an open loop the founder can close rather
+   * than a line in a log nobody reads. Live, 2026-09-19: every run for hours
+   * died this way while the thread said only "The run stopped on my side". */
+  if (!outcome.ok && isProviderRefusal(outcome.error)) {
+    await openUserFixableLoop(
+      sql,
+      job,
+      'The browser service needs a payment method',
+      `Every browser run is refused at launch: ${String(outcome.error).slice(0, 200)}. Add one at https://dashboard.onkernel.com/billing/add-payment-method and the runs will go.`,
+    )
+  }
   if (outcome.ok) {
     /* Only a row that is still running may be completed. If the claim sweeper
      * already failed this job during a database flap (the heartbeat below used
