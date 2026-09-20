@@ -11366,10 +11366,26 @@ async function livePayload(sql: SQL, phone: string, persona: Persona, query?: st
         `.catch(() => [])) as Promise<Array<{ portal: string; origin: string }>>
       : Promise.resolve([] as Array<{ portal: string; origin: string }>),
   ])
-  const vaultOrigins = (vaultRows as Array<{ portal: string; origin: string }>)
-    .flatMap((r) => [r.portal, r.origin])
-    .filter(Boolean)
-    .map((s) => s.toLowerCase().trim())
+  /* One readable entry per vault item. This used to flatMap BOTH the exact
+   * origin and the label, so a single saved login arrived as two strings — and
+   * three saved logins read back as "https://campusnet.csuohio.edu, login,
+   * https://campusnet.csuohio.edu, …" when the founder asked what was in his
+   * vault. The host is what a person recognises; the label is the fallback for
+   * a row whose origin is not a URL. */
+  const vaultOrigins = [
+    ...new Set(
+      (vaultRows as Array<{ portal: string; origin: string }>)
+        .map((r) => {
+          const portal = String(r.portal || '').trim()
+          try {
+            return new URL(portal).hostname.replace(/^www\./, '').toLowerCase()
+          } catch {
+            return String(r.origin || portal || '').toLowerCase().trim()
+          }
+        })
+        .filter(Boolean),
+    ),
+  ]
 
   // Merge: google IDs take precedence (already UI-named); composio slugs are aliased.
   const mergedSet = new Set<string>(googleIds)
