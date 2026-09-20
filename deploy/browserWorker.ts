@@ -46,6 +46,40 @@ import { mirrorJobReconcile } from '../services/tasks/taskLifecycle'
 import { userKeyBrokerFromEnv } from '../services/trust/userKeyBroker'
 import { validateProductionBrowserWorker } from './certification/envContract'
 
+/**
+ * Open a loop the USER can close: a run that stopped for something only they
+ * can supply (a connector grant, a saved login). The daily brief re-raises it as
+ * a Promise — the founder's complaint, verbatim: a Notion run failed and the
+ * product "never asked again after failure from computer browser run failure".
+ * A provider hiccup is not a loop (nothing the user can do); only the fixable
+ * reasons open one. Deduped like every other loop: an open loop with the same
+ * title is not created twice.
+ */
+async function openUserFixableLoop(
+  sql: SQL,
+  job: { user_id: string; persona: string | null; goal: string | null },
+  title: string,
+  context: string,
+): Promise<void> {
+  const clean = title.trim().slice(0, 200)
+  if (!clean) return
+  try {
+    const existing = (await sql`
+      SELECT id FROM hire_loops
+      WHERE user_id = ${job.user_id} AND status = 'open' AND lower(title) = lower(${clean})
+      LIMIT 1
+    `) as Array<{ id: string }>
+    if (existing.length) return
+    await sql`
+      INSERT INTO hire_loops (id, user_id, persona, title, context)
+      VALUES (${crypto.randomUUID()}, ${job.user_id}, ${job.persona || ''}, ${clean}, ${context.slice(0, 500)})
+    `
+  } catch (err) {
+    // A loop that cannot be written must never take the run's report with it.
+    console.warn('[loop] could not open a user-fixable loop', err)
+  }
+}
+
 /** Hosts that are CONNECTED SERVICES, not password walls. A run that reaches
  * one of these has gone down the wrong road: the product uses them through
  * their connector (scoped OAuth), which is also the architecture rule — a
@@ -554,6 +588,14 @@ export async function runJob(sql: SQL, job: JobRow, launch = runBrowserSession):
       // handoff message: the user sees the wall in the thread, not a claim
       // that one exists.
       const handoffShot = lastScreenshots.get(job.id)
+      if (handoffKind === 'password' && !hasCompleteCredentials) {
+        await openUserFixableLoop(
+          sql,
+          job,
+          `Save a ${origin ? new URL(origin).hostname.replace(/^www\./, '') : 'site'} login — I could not finish "${String(job.goal || '').slice(0, 80)}"`,
+          `The run stopped at the sign-in on ${origin ? new URL(origin).hostname.replace(/^www\./, '') : 'that site'}. Save the login in the Vault and the task can be re-run.`,
+        )
+      }
       /* ASK FOR A CONNECTOR, NOT A PASSWORD. Live, 2026-09-19: "put a note in my
        * notion" staged a browser run, landed on notion.com, and asked the user
        * to save a Notion password in the Vault. The founder's words: "ASKING TO
@@ -564,6 +606,12 @@ export async function runJob(sql: SQL, job: JobRow, launch = runBrowserSession):
       const connector = handoffKind === 'password' ? connectorForHost(url || origin || '') : null
       if (connector && !hasCompleteCredentials) {
         const connectUrl = `${appBase}/app/hires/${job.persona || 'friend'}?connect=${connector.service}`
+        await openUserFixableLoop(
+          sql,
+          job,
+          `Connect ${connector.label} — I could not finish "${String(job.goal || '').slice(0, 80)}"`,
+          `The run stopped because ${connector.label} is not connected. Connect it at ${connectUrl} and the task can be re-run.`,
+        )
         await pushBrowserResultLoop(sql, {
           userId: job.user_id,
           persona: job.persona,
