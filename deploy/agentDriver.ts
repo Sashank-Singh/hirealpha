@@ -109,7 +109,17 @@ export type AgentLimits = { maxSteps: number; wallMs: number }
  * TASK_SANDBOX_TIMEOUT_MS). Per-step time is bounded independently: captures
  * are raced against deadlines and a vision call cannot exceed
  * VISION_CALL_BUDGET_MS, so one slow page or model retry never eats the run. */
-export const DEFAULT_AGENT_LIMITS: AgentLimits = { maxSteps: 36, wallMs: 480_000 }
+/* The wall clock a browser task gets. Env-tunable like the vision window
+ * (`VISION_CALL_BUDGET_MS`), because a slow gateway turns the same goal into a
+ * longer run: live, 2026-09-19/20, with the vision window widened so calls
+ * completed, a purchase went from dying in a minute ("vision model The operation
+ * timed out") to using its full eight minutes and reporting "Agent ran out of
+ * time before finishing the goal". The sandbox cap is twenty minutes, so there is
+ * headroom for a deployment to allow more. */
+export const DEFAULT_AGENT_LIMITS: AgentLimits = {
+  maxSteps: Number(process.env.AGENT_MAX_STEPS || 0) || 36,
+  wallMs: Number(process.env.AGENT_WALL_MS || 0) || 480_000,
+}
 
 /** Wall for a single agent step's model interaction (all rounds, all models).
  * Without this a hot model tier x backoff rounds could burn 6 minutes of an
