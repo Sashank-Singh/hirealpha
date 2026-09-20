@@ -1297,3 +1297,30 @@ describe('a deliberation about not acting is not a reply', () => {
     expect(isDeliberationOnly('')).toBe(false)
   })
 })
+
+describe('the run-question shapes the founder actually used', () => {
+  /* "can you see a run of mine in your list right now?" missed the first
+   * pattern and fell through to a forced web lookup, which answered "I could
+   * not verify current information because the web lookup did not run." */
+  it('covers looking verbs, not just status words', () => {
+    const shapes = [
+      'any update from the amazon run you started?',
+      'can you see a run of mine in your list right now?',
+      'is there a run still going?',
+      'show me the browser run',
+      'has my booking finished?',
+    ]
+    for (const text of shapes) {
+      const isRunQuestion =
+        /\b(?:run|runs|order|booking|browser|computer)\b/i.test(text) &&
+        /\b(?:any|see|show|list|status|update|progress|there|still|going|started|done|finished|what'?s|whats|how'?s|hows)\b/i.test(text)
+      expect(isRunQuestion).toBe(true)
+    }
+    // A plain booking ask is not a status question.
+    const bookAsk = 'book me a round trip to denver friday'
+    const isRunQuestion =
+      /\b(?:run|runs|order|booking|browser|computer)\b/i.test(bookAsk) &&
+      /\b(?:any|see|show|list|status|update|progress|there|still|going|started|done|finished|what'?s|whats|how'?s|hows)\b/i.test(bookAsk)
+    expect(isRunQuestion).toBe(false)
+  })
+})

@@ -920,9 +920,17 @@ export async function runConversationalFriend(input: {
    * in a thread where it had listed that user's real mail an hour earlier.
    * `available` is what the turn can really reach, so it is what the answer
    * describes. */
-  /* A question about a run in flight is answered from the run's own row. */
-  const runQuestion = /\b(?:any|what'?s|whats|how'?s|hows|status|update|progress|done yet)\b/i.test(input.userText) &&
-    /\b(?:run|order|booking|browser|amazon|site|task|computer)\b/i.test(input.userText)
+  /* A question about a run in flight is answered from the run's own row.
+   *
+   * The first pattern matched only "any/what's/how's/status/update/progress"
+   * and missed the founder's own phrasing — "can you see a run of mine in your
+   * list right now?" — which then fell through to a forced web lookup and the
+   * canned "I could not verify current information because the web lookup did
+   * not run". The noun plus any looking verb is the signal: who is asking about
+   * a run is asking about the run, not about the web. */
+  const runQuestion =
+    /\b(?:run|runs|order|booking|browser|computer)\b/i.test(input.userText) &&
+    /\b(?:any|see|show|list|status|update|progress|there|still|going|started|done|finished|what'?s|whats|how'?s|hows)\b/i.test(input.userText)
   const accessQuestion = /\b(?:what|which|list)\b[^?]{0,60}\b(?:access|permissions?|accounts?|connected|logins?|vault|saved)\b/i.test(input.userText) ||
     /\byou\b[^?]{0,40}\b(?:have )?(?:access|permission)s?\b/i.test(input.userText) ||
     /\b(?:disconnect|revoke)\b/i.test(input.userText)
