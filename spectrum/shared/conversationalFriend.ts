@@ -944,6 +944,24 @@ export async function runConversationalFriend(input: {
           : `Run question — the run list was read and there is no browser run on this account at all. Say that plainly and offer to start one; do not describe a run in progress.`,
     )
   }
+  /* An ask that needs a delivery address, with none on file, asks for it and
+   * sends the link to where it is saved — the same shape as the Vault link for
+   * a card, and the founder's own request: "it needs to ask me to fill it in
+   * the vault: the home address same like instinct". The address is not a
+   * secret, so it goes in Settings → Location → Home rather than the Vault, and
+   * it is never typed into the chat. */
+  const needsAddress =
+    /\b(?:ship|shipping|deliver|delivery|home address|send it to|drop it at)\b/i.test(input.userText) ||
+    /\b(?:re-?order|order|buy)\b/i.test(input.userText)
+  /** The narrow case where the reply must carry the way to fix it: a shipping
+   * ask with no address on file. "order" alone is too broad to append a link to
+   * unconditionally — a pickup or a digital order needs no address. */
+  const shippingAsk = /\b(?:ship|shipping|deliver|delivery|home address|send it to|drop it at)\b/i.test(input.userText)
+  if (needsAddress && !live.homeAddress) {
+    promptNotes.push(
+      `No home address is saved. Ask for it in one short line WITH the link, e.g. "Add your delivery address here and I'll use it for this order: https://hirealpha.chat/app?tab=settings — Location → Home" — then carry on staging the parts you can, and say you will drop the address in the moment it is saved. Never claim an address is on file, never ask for it as a chat message, and never stall the whole task on it.`,
+    )
+  }
   if (accessQuestion) {
     promptNotes.push(
       `Access question — the services this turn can actually reach right now are: ${available.join(', ')}. Vault logins saved (and nothing else) are: ${(live.vaultOrigins || []).join(', ') || 'none'}. Describe the user's access from that list and from the vault state in your context, name what is NOT reachable, and give the ways out (disconnect here, revoke at the provider, delete stored copies). Never say no accounts are connected when this list is non-empty`,
@@ -1172,6 +1190,14 @@ ${JSON.stringify(context)}` },
   }
   if (forcedAccessReply) {
     outcome.reply = forcedAccessReply
+  }
+  /* The way to fix a missing address rides the reply whether or not the model
+   * remembered to offer it. A prompt rule the model can drop is exactly how the
+   * gap was reported tonight with no way to close it ("there's no home address
+   * saved on my end" and nothing else), and this is the one line the founder
+   * asked for: ask me for it, with the link, the way the Vault link works. */
+  if (shippingAsk && !live.homeAddress && !outcome.reply.includes('tab=settings')) {
+    outcome.reply = `${outcome.reply.trim()}\n\nAdd your delivery address here and I'll use it for this one — Settings → Location → Home: https://hirealpha.chat/app?tab=settings`
   }
   if (outcome.draft && outcome.draft.type !== 'purchase' && outcome.draft.type !== 'browser') {
     card = await mintMiniAppCard(senderId, persona, outcome.draft.type === 'event' ? 'pick_slot' : 'approve_send', { draft: outcome.draft.id })
