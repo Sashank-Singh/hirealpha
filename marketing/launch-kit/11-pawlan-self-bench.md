@@ -2758,3 +2758,40 @@ verified by the page's own history; the no-reply draft with "Send this version?"
 | 4 | Purchasing | "what do you need from me to reorder my usual coffee beans from amazon to my home address? dont place anything yet" | 3 → 3 (still needs the credential; the reply now names the five things a staged order verifies) | 8-equivalent answer: sign-in link, five checks, approval before anything | "7 — needs a nudge or retry · 10 — completes from one message, with confirmation and order number" | the checkpoint list + the stated pause |
 | 8 | Integrations | "put a note in my notion that the benchmark pass is done" | 3 → 3 on the anchor (the grant is missing) but the reply is now right: connect link, no browser session | **works**: "Added it to the bottom of AlphaSphere — that's the only Notion page currently shared with me" (page history: "Last edited by Instinct") | "10 — the write lands where the user can see it" | `958a804` worker guard + `c4fa40b` engine guard + the prompt rule |
 | 6 | Proactive | "text me tomorrow morning if anything in my inbox looks urgent" | 5 → 5 | "Already set for 8 AM tomorrow. I'll text only if something needs attention." | "7 — reminder only · 10 — check-in, gate and seat handled proactively" | the quiet-behaviour line, taken into the confirmation copy |
+
+### The connector fix, verified live — both layers visible in one screenshot
+
+The same ask ("put a note in my notion that the benchmark pass is done") run
+three times across the two fixes, in one thread:
+
+1. **Before:** *"Notion isn't connected yet. Connect it here and I'll add
+   \"benchmark pass is done\" to your notes: …?connect=notion"* **then** "Launching
+   Cloud Computer for this task: https://hirealpha.chat/computer/8b0c26e5-…" with a
+   browser card — the connect link and a pointless session side by side, which is
+   what the founder caught.
+2. **Worker guard (`958a804`):** the run reached notion.com and stopped itself —
+   *"Notion is a connected service, not a sign-in — I use it through its
+   connector, so a saved password is the wrong door and I have stopped the run
+   rather than ask for one. Connect Notion and I will do this through Notion
+   itself, no login needed: …?connect=notion"*. No password request, no Vault
+   link, the browser screenshot attached.
+3. **Engine guard (`c4fa40b`):** no run at all — *"Notion isn't connected for this
+   hire, so I can't write the note there directly, and I can't stage a sign in
+   for it either. I've saved the task, so the moment Notion gets connected I'll
+   add \"benchmark pass is done\" for you. If you want it noted somewhere else in
+   the meantime, say the word."*
+
+The third reply is the right shape and adds something Instinct's answer did not
+have: the intent is **queued**, so connecting the connector completes the task
+rather than requiring the ask to be repeated. One small gap, recorded rather than
+smoothed: that reply did not carry the connect link itself (the one above it in
+the thread does), so the prompt rule that asks for the link is a rule the model
+can still drop.
+
+**Channel limit found while trying to exercise dim 13 for real:** Messages
+scripting on this Mac cannot create a group chat — `make new chat with
+properties {participants:{…}}` returns "Can't make … into type participant", and
+a group `chat id` cannot be addressed before the chat exists. So a real group
+thread needs the founder's phone (or a `group` capability built on the provider's
+own `space.create`), and dim 13 stays on its simulation evidence rather than
+being re-scored from this machine.
