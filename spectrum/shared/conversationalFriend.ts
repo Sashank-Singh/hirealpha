@@ -957,9 +957,19 @@ export async function runConversationalFriend(input: {
    * ask with no address on file. "order" alone is too broad to append a link to
    * unconditionally — a pickup or a digital order needs no address. */
   const shippingAsk = /\b(?:ship|shipping|deliver|delivery|home address|send it to|drop it at)\b/i.test(input.userText)
-  if (needsAddress && !live.homeAddress) {
+  /* A city-level label is not a delivery address. `homeAddress` is filled from
+   * the saved 'home' location's label, which can be as coarse as "San Francisco"
+   * — and treating that as an address is how the reply read "I have your city
+   * (San Francisco), but not a street address" while the deterministic link
+   * never appended, because the payload field was truthy. A street address has a
+   * number in it; anything else is a place, not a doorstep. */
+  const savedAddress = String(live.homeAddress || '').trim()
+  const addressUsable = savedAddress.length > 0 && /\d/.test(savedAddress)
+  if (needsAddress && !addressUsable) {
     promptNotes.push(
-      `No home address is saved. Ask for it in one short line WITH the link, e.g. "Add your delivery address here and I'll use it for this order: https://hirealpha.chat/app?tab=settings — Location → Home" — then carry on staging the parts you can, and say you will drop the address in the moment it is saved. Never claim an address is on file, never ask for it as a chat message, and never stall the whole task on it.`,
+      savedAddress
+        ? `Only a place-level location is on file ("${savedAddress}") — no street address. Ask for the street address in one short line WITH the link: https://hirealpha.chat/app?tab=settings (Location → Home), say what you can already do without it, and never treat the place label as a delivery address.`
+        : `No home address is saved. Ask for it in one short line WITH the link, e.g. "Add your delivery address here and I'll use it for this order: https://hirealpha.chat/app?tab=settings — Location → Home" — then carry on staging the parts you can, and say you will drop the address in the moment it is saved. Never claim an address is on file, never ask for it as a chat message, and never stall the whole task on it.`,
     )
   }
   if (accessQuestion) {
@@ -1196,7 +1206,7 @@ ${JSON.stringify(context)}` },
    * gap was reported tonight with no way to close it ("there's no home address
    * saved on my end" and nothing else), and this is the one line the founder
    * asked for: ask me for it, with the link, the way the Vault link works. */
-  if (shippingAsk && !live.homeAddress && !outcome.reply.includes('tab=settings')) {
+  if (shippingAsk && !addressUsable && !outcome.reply.includes('tab=settings')) {
     outcome.reply = `${outcome.reply.trim()}\n\nAdd your delivery address here and I'll use it for this one — Settings → Location → Home: https://hirealpha.chat/app?tab=settings`
   }
   if (outcome.draft && outcome.draft.type !== 'purchase' && outcome.draft.type !== 'browser') {
