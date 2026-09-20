@@ -37,6 +37,7 @@ import {
   calendarBlockTitle,
   localWeekdayYmd,
   missingConnectorNote,
+  isDeliberationOnly,
 } from './toolLoop'
 import { stayWindowFromAsk } from './stayWindow'
 import { datesFromText } from '../../deploy/serpapi'
@@ -1282,5 +1283,17 @@ describe('an ask naming a connected service never launches a browser run', () =>
       expect(drafts).toHaveLength(0)
       expect(result.reply).not.toContain('Cloud Computer')
     }
+  })
+})
+
+describe('a deliberation about not acting is not a reply', () => {
+  /* Live, 2026-09-19, asked to list the vault logins: "nothing to run a browser
+   * against, so I'm not sending a browser action for it." — the model's own
+   * decision shipped as the answer, with nothing answered. */
+  it('recognises it, and leaves real answers alone', () => {
+    expect(isDeliberationOnly('nothing to run a browser against, so I am not sending a browser action for it.')).toBe(true)
+    expect(isDeliberationOnly('I am not sending a browser action for that, but here are your vault logins: Kayak, X.')).toBe(false)
+    expect(isDeliberationOnly('Your vault has CampusNet, Kayak and X saved. Want me to revoke one?')).toBe(false)
+    expect(isDeliberationOnly('')).toBe(false)
   })
 })

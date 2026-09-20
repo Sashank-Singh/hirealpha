@@ -87,6 +87,22 @@ const ASK_BUY_RE = /\b(?:re-?order|buy|buy me|purchase|order(?: me)?|get me|pay 
  * go the second you're signed into Amazon, I'll run: \"quick one, what home
  * address…\"" — instead of answering a question the assistant's own context
  * could answer. Mentioning a purchase is not making one. */
+/**
+ * A reply that only narrates the action the assistant decided NOT to take is
+ * not an answer. Live, 2026-09-19, asked to list the vault logins: "nothing to
+ * run a browser against, so I'm not sending a browser action for it." — the
+ * model's own deliberation shipped as the reply, with nothing answered.
+ */
+export function isDeliberationOnly(text: string): boolean {
+  const t = String(text || '').trim()
+  if (!t || t.length > 140) return false
+  // One sentence that asks nothing and names nothing after a colon: a real
+  // answer carries content ("…but here are your vault logins: Kayak, X"), a
+  // deliberation carries none.
+  if (/[.!?]\s+\S/.test(t) || t.includes(':') || /\?\s*$/.test(t)) return false
+  return /\b(?:nothing to run|not going to (?:run|send)|(?:am|i'?m) not sending|no (?:browser|action) (?:to|needed|required)|nothing for me to (?:run|do))\b/i.test(t)
+}
+
 export function isInformationalAsk(text: string): boolean {
   const t = String(text || '').trim()
   if (!t) return false
@@ -583,7 +599,12 @@ export async function runToolConversation(input: {
         : ''
     // The model's own last text beats a canned failure: it usually names the
     // honest blocker and the next step. Guards keep tool syntax out.
-    if (lastRaw && lastRaw.length > 60 && !/^\s*(?:TOOL\b|DRAFT_|```|\{\s*"action")/i.test(lastRaw)) {
+    /* A reply that only narrates the action it decided NOT to take is not an
+     * answer. Live, 2026-09-19, asked to list the vault logins: "nothing to run
+     * a browser against, so I'm not sending a browser action for it." — internal
+     * deliberation shipped as the reply, with no answer behind it. */
+    const deliberationOnly = /^[^.!?]*\b(?:nothing to run|not going to (?:run|send)|(?:am|i'm) not sending|no (?:browser|action) (?:to|needed|required)|nothing for me to (?:run|do))\b[^.!?]*[.!?]?\s*$/i.test(lastRaw || '')
+    if (lastRaw && lastRaw.length > 60 && !deliberationOnly && !/^\s*(?:TOOL\b|DRAFT_|```|\{\s*"action")/i.test(lastRaw)) {
       const isRefusal = /\b(?:cannot|can't|unable to|don't have|do not have|locked behind|cannot see inside|can't see inside)\b/i.test(lastRaw)
       if (!isRefusal || !savedDraft) {
         return draftReceipt ? `${lastRaw}\n\n${draftReceipt}` : lastRaw
@@ -633,7 +654,7 @@ export async function runToolConversation(input: {
         try { stagedPurchaseHost = new URL(opts.portal).hostname.replace(/^www\./, '') } catch { stagedPurchaseHost = '' }
         const cleanedRaw = stripToolDirectives(opts.raw).trim()
         if (cleanedRaw && cleanedRaw.length > 50 && !cleanedRaw.toLowerCase().startsWith('the browser run is starting') && !/\b(?:cannot|can't|unable to|don't have|do not have|locked behind|cannot see inside|can't see inside)\b/i.test(cleanedRaw)) {
-          return { reply: withTravelRates(cleanedRaw), draft: savedDraft }
+          return { reply: isDeliberationOnly(cleanedRaw) ? fallback() : withTravelRates(cleanedRaw), draft: savedDraft }
         }
         return { reply: fallback(), draft: savedDraft }
       }
@@ -734,7 +755,7 @@ Reactions are optional and usually absent. You may add "reaction":"<emoji>" to a
       // second job for the same request.
       if (savedDraft?.type === 'browser') {
         const cleaned = stripToolDirectives(raw).trim()
-        return { reply: cleaned ? withTravelRates(cleaned) : fallback(), draft: savedDraft }
+        return { reply: cleaned && !isDeliberationOnly(cleaned) ? withTravelRates(cleaned) : fallback(), draft: savedDraft }
       }
       // Lazy-answer guard. The classified intent decides what this turn needs;
       // the word patterns below are only the fallback when the caller had no
@@ -1055,7 +1076,7 @@ Reactions are optional and usually absent. You may add "reaction":"<emoji>" to a
        * list: "Here are the top matches I found" with three Kayak mirrors is
        * what a dead end looks like from the phone. */
       const lastChance = stripToolDirectives(raw)
-      if (lastChance) return { reply: lastChance, draft: savedDraft }
+      if (lastChance && !isDeliberationOnly(lastChance)) return { reply: lastChance, draft: savedDraft }
       const forced = await answerFromResults()
       return { reply: forced || fallback(), draft: savedDraft }
     }

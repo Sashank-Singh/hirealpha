@@ -20,6 +20,7 @@ import { buildDigestBriefing, mintMiniAppCard, type MiniAppCard, type MiniAppKin
 import { createReminder, createWatch, listReminders } from './reminders'
 import { setProactiveMode } from './judgment'
 import {
+  isDeliberationOnly,
   calendarBlockTitle, calendarBlockWhen, isTravelRunAsk, LIVE_TOOLS, looksLikeCalendarBlockAsk, missingConnectorNote,
   runToolConversation, WORK_LIVE_TOOLS, type CapabilityResult, type ConversationCapability,
 } from './toolLoop'
@@ -862,6 +863,8 @@ export async function runConversationalFriend(input: {
   // the follow-up context if they land before the turn finishes; the writes
   // themselves are durable either way, so a slow classifier can never delay or
   // lose a log.
+  /** Deterministic answer for an access question (the vault list is in the payload). */
+  let forcedAccessReply: string | null = null
   const autoNotes: string[] = []
   /** Everything the prompt is told before the conversation rules: the auto-log
    * confirmations plus the standing-preference conflict. Kept separate from
@@ -917,13 +920,27 @@ export async function runConversationalFriend(input: {
    * in a thread where it had listed that user's real mail an hour earlier.
    * `available` is what the turn can really reach, so it is what the answer
    * describes. */
-  const accessQuestion = /\b(?:what|which)\b[^?]{0,60}\b(?:access|permissions?|accounts?|connected)\b/i.test(input.userText) ||
+  const accessQuestion = /\b(?:what|which|list)\b[^?]{0,60}\b(?:access|permissions?|accounts?|connected|logins?|vault|saved)\b/i.test(input.userText) ||
     /\byou\b[^?]{0,40}\b(?:have )?(?:access|permission)s?\b/i.test(input.userText) ||
     /\b(?:disconnect|revoke)\b/i.test(input.userText)
   if (accessQuestion) {
     promptNotes.push(
-      `Access question — the services this turn can actually reach right now are: ${available.join(', ')}. Describe the user's access from that list and from the vault state in your context, name what is NOT reachable, and give the ways out (disconnect here, revoke at the provider, delete stored copies). Never say no accounts are connected when this list is non-empty`,
+      `Access question — the services this turn can actually reach right now are: ${available.join(', ')}. Vault logins saved (and nothing else) are: ${(live.vaultOrigins || []).join(', ') || 'none'}. Describe the user's access from that list and from the vault state in your context, name what is NOT reachable, and give the ways out (disconnect here, revoke at the provider, delete stored copies). Never say no accounts are connected when this list is non-empty`,
     )
+    /* The facts are in the payload, so the answer does not depend on the model
+     * getting there. Asked to list the vault logins, the model shipped its own
+     * deliberation instead: "nothing to run a browser against, so I'm not
+     * sending a browser action for it." The vault list and the reachable tools
+     * are known exactly here, so they are stated exactly here. */
+    const vaults = (live.vaultOrigins || []).filter(Boolean)
+    const readable = available.filter((tool) => tool !== 'web' && tool !== 'maps' && tool !== 'weather')
+    forcedAccessReply = [
+      `Here is exactly what I can reach right now: ${readable.length ? readable.join(', ') : 'nothing beyond web, maps and weather'}.`,
+      vaults.length
+        ? `Saved logins in the Vault (used only when you ask me to use them): ${vaults.join(', ')}.`
+        : 'The Vault has no saved logins.',
+      'To cut one off: tell me to disconnect it here, revoke it at the provider itself (that is the authoritative one), or clear the Vault entry. Anything already in the thread stays in the thread history, but no new data flows after that.',
+    ].join('\n\n')
   }
   /* The seat half of a stated preference is written here, not left to the model:
    * one message carrying two facts ("window seats … and im allergic to
@@ -1132,6 +1149,9 @@ ${JSON.stringify(context)}` },
   if (forcedReply) {
     outcome.reply = forcedReply
   }
+  if (forcedAccessReply) {
+    outcome.reply = forcedAccessReply
+  }
   if (outcome.draft && outcome.draft.type !== 'purchase' && outcome.draft.type !== 'browser') {
     card = await mintMiniAppCard(senderId, persona, outcome.draft.type === 'event' ? 'pick_slot' : 'approve_send', { draft: outcome.draft.id })
   }
@@ -1186,6 +1206,11 @@ ${JSON.stringify(context)}` },
   // Same outbound contract as the classic path: iMessage renders no
   // markdown, so strip **/*/`/## before delivery; drop empty bubbles.
   let reply = sanitizeOutbound(outcome.reply)
+  /* Nothing answered — say so plainly rather than shipping the deliberation
+   * ("nothing to run a browser against, so I'm not sending a browser action for
+   * it"). The access answer above, when there is one, is the real reply. */
+  if (isDeliberationOnly(reply)) reply = forcedAccessReply || ''
+  if (!reply.trim()) reply = 'That one did not come together on my side — ask me again and I will come at it another way.'
   if (browserQueued) reply = removeQueuedBrowserContradictions(reply)
   if (setupPaymentUrl && !reply.includes(setupPaymentUrl)) {
     reply += `\nRegister your card or Link wallet here to authorize purchases (one-time setup): ${setupPaymentUrl}\nOnce registered, reply or text me to complete the order!`
