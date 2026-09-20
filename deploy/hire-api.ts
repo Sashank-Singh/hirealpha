@@ -11794,7 +11794,7 @@ export function isAutomatedSender(addr: string): boolean {
 
 /** Subjects that are machine notifications, not conversations. */
 const AUTOMATED_SUBJECT =
-  /^(?:unread message|reminder to|assessment|your (?:receipt|assessment|application|results))|(?:submitted for|testing for|complete .{0,24} for LLM|action required|verify your|confirm your)/i
+  /^(?:unread message|reminder to|assessment|your (?:receipt|assessment|application|results))|(?:submitted for|testing for|complete .{0,24} for LLM|action required|verify your|confirm your|was (?:cancel|reschedul)|has been cancel|starts? (?:in|at) |is (?:live|starting) now|your event)/i
 
 export function isAutomatedSubject(subject: string): boolean {
   return AUTOMATED_SUBJECT.test(String(subject || '').trim())

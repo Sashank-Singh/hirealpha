@@ -161,8 +161,16 @@ function pendingDrafts(rows: WorkDraft[]) {
   return rows.filter((x) => x.status !== 'sent' && x.kind !== 'event')
 }
 
-function oldestPending(rows: WorkDraft[]) {
-  return [...pendingDrafts(rows)].sort((x, y) => (x.createdAt || '').localeCompare(y.createdAt || ''))[0]
+/** The draft to open when the card is not opened at a specific one.
+ *
+ * Newest, not oldest. The rows arrive newest-first from the API, and the draft
+ * the user just asked about in chat is the one that was just created — opening
+ * the oldest instead showed a stale auto-suggestion for a different email.
+ * Live, 2026-09-19: "reply to the micro1 email and ask them to push my
+ * interview forward" opened a Luma event-cancellation draft, and the founder's
+ * report was exactly that: "WRONG EMAIL ITS SHOWING". */
+function newestPending(rows: WorkDraft[]) {
+  return pendingDrafts(rows)[0]
 }
 
 export function ApproveSendApp({ auth, draftId }: { auth: FeatureAuth; draftId?: string }) {
@@ -184,7 +192,7 @@ export function ApproveSendApp({ auth, draftId }: { auth: FeatureAuth; draftId?:
         setNeedConnect(!!d.needConnect)
         const next =
           (draftId && rows.find((x) => x.id === draftId)) ||
-          oldestPending(rows)
+          newestPending(rows)
         if (next) {
           setTo(next.toAddr)
           setSubject(next.subject)
@@ -197,7 +205,7 @@ export function ApproveSendApp({ auth, draftId }: { auth: FeatureAuth; draftId?:
 
   const current =
     (draftId && drafts.find((d) => d.id === draftId)) ||
-    oldestPending(drafts)
+    newestPending(drafts)
   const waiting = pendingDrafts(drafts).length
 
   async function doSend() {
@@ -248,7 +256,7 @@ export function ApproveSendApp({ auth, draftId }: { auth: FeatureAuth; draftId?:
       {!needConnect && (
         <p className="ma-insight">
           {waiting > 0
-            ? `${waiting} ${waiting === 1 ? 'draft' : 'drafts'} waiting. Oldest is open.`
+            ? `${waiting} ${waiting === 1 ? 'draft' : 'drafts'} waiting. Latest is open.`
             : sent
               ? 'Inbox clear.'
               : 'Nothing waiting. Text "email Priya" and a draft lands here.'}
