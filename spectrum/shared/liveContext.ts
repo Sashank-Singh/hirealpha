@@ -783,15 +783,30 @@ export async function fetchLastRun(phone: string, persona: AgentId): Promise<Las
   const base = apiBase()
   const key = process.env.HIREALPHA_INTERNAL_KEY || ''
   if (!base || !key) return { ok: false }
-  try {
-    const qs = new URLSearchParams({ phone, persona })
-    const res = await timedFetch(`${base}/api/internal/browser/last?${qs}`, { headers: authHeaders() }, 10000)
-    if (!res.ok) return { ok: false }
-    const data = (await res.json()) as { run?: LastRun | null }
-    return { ok: true, run: data.run ?? null }
-  } catch {
-    return { ok: false }
+  /* One clean retry, like every other read in this file. Live, 2026-09-19: asked
+   * "does your list show any run of mine right now?", the answer was "I can't
+   * read my run list right now" — the honest branch, and it means the read
+   * aborted: the route itself answers in 0.4s (checked directly: 401 without the
+   * key), so a 10s abort is a busy-server stall, not a broken endpoint. */
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const qs = new URLSearchParams({ phone, persona })
+      const res = await timedFetch(`${base}/api/internal/browser/last?${qs}`, { headers: authHeaders() }, 12000)
+      if (!res.ok) {
+        if (attempt === 0) continue
+        return { ok: false }
+      }
+      const data = (await res.json()) as { run?: LastRun | null }
+      return { ok: true, run: data.run ?? null }
+    } catch {
+      if (attempt === 0) {
+        await new Promise((resolve) => setTimeout(resolve, 500))
+        continue
+      }
+      return { ok: false }
+    }
   }
+  return { ok: false }
 }
 
 export async function fetchMiniRun(
