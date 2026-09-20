@@ -14,7 +14,7 @@ import {
   autoLogNutrition, autoLogWorkout, autoLogSleep, autoLogGratitude, autoLogMood,
   autoLogHabit, autoLogSpend, autoLogDecision, autoLogLoops, autoSaveLearning,
   autoRunWorkshop, autoIterateWorkshop, autoWorkshopKeep,
-  executeSpendApproval, fetchLiveTools, fetchMiniRun, fetchPrepBundle, proposeBrowserTask, proposeLiveDraft, proposePurchase, manageTodos, scheduleTextLater, suggestCalendarSlots, type LiveProfile,
+  executeSpendApproval, fetchLastRun, fetchLiveTools, fetchMiniRun, fetchPrepBundle, proposeBrowserTask, proposeLiveDraft, proposePurchase, manageTodos, scheduleTextLater, suggestCalendarSlots, type LiveProfile,
 } from './liveContext'
 import { buildDigestBriefing, mintMiniAppCard, type MiniAppCard, type MiniAppKind } from './miniApps'
 import { createReminder, createWatch, listReminders } from './reminders'
@@ -920,9 +920,20 @@ export async function runConversationalFriend(input: {
    * in a thread where it had listed that user's real mail an hour earlier.
    * `available` is what the turn can really reach, so it is what the answer
    * describes. */
+  /* A question about a run in flight is answered from the run's own row. */
+  const runQuestion = /\b(?:any|what'?s|whats|how'?s|hows|status|update|progress|done yet)\b/i.test(input.userText) &&
+    /\b(?:run|order|booking|browser|amazon|site|task|computer)\b/i.test(input.userText)
   const accessQuestion = /\b(?:what|which|list)\b[^?]{0,60}\b(?:access|permissions?|accounts?|connected|logins?|vault|saved)\b/i.test(input.userText) ||
     /\byou\b[^?]{0,40}\b(?:have )?(?:access|permission)s?\b/i.test(input.userText) ||
     /\b(?:disconnect|revoke)\b/i.test(input.userText)
+  if (runQuestion && !accessQuestion) {
+    const run = await fetchLastRun(senderId, persona).catch(() => null)
+    promptNotes.push(
+      run
+        ? `Run question — the LAST run on this account is on ${run.host}, status "${run.status}", started ${run.createdAt}${run.updatedAt ? `, last moved ${run.updatedAt}` : ''}${run.outcome ? `, outcome: "${run.outcome}"` : ''}${run.waitingOn ? `, waiting on the user: ${run.waitingOn.kind} — ${run.waitingOn.message}` : ''}. Answer from those facts only: say what the status is, what it last did, and what happens next (or what it is waiting for). Do NOT say a run is "live now", do not narrate steps you cannot see, and do not start another run to have something to say.`
+        : `Run question — there is no browser run on this account at all. Say that plainly and offer to start one; do not describe a run in progress.`,
+    )
+  }
   if (accessQuestion) {
     promptNotes.push(
       `Access question — the services this turn can actually reach right now are: ${available.join(', ')}. Vault logins saved (and nothing else) are: ${(live.vaultOrigins || []).join(', ') || 'none'}. Describe the user's access from that list and from the vault state in your context, name what is NOT reachable, and give the ways out (disconnect here, revoke at the provider, delete stored copies). Never say no accounts are connected when this list is non-empty`,

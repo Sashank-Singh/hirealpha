@@ -15073,6 +15073,46 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
   // Route A: chat answers for paused browser runs. The bot asks whether a
   // `question` handoff is waiting for this phone before running a normal turn;
   // if one is, the user's text is delivered to the run instead of the model.
+  /* The latest run this user started, for the question the founder kept asking
+   * while a run was in flight: "any update from the amazon run you started?".
+   * The bot could not see the job at all, so it narrated progress it had no
+   * source for — twice claiming a run was "live now" after the run had finished
+   * or stalled, and once "restarting" one. A run's own row is the honest answer:
+   * status, the goal it was given, where it got to, and when it last moved. */
+  if (path === '/api/internal/browser/last' && req.method === 'GET') {
+    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
+    const phone = url.searchParams.get('phone') || ''
+    const persona = url.searchParams.get('persona') || ''
+    if (!phone || !isPersona(persona)) return json({ error: 'phone and persona required' }, 400)
+    const user = await getUserByPhone(sql, phone)
+    if (!user) return json({ error: 'User not found' }, 404)
+    const rows = (await sql`
+      SELECT id, url, goal, status, result, error, current_url, handoff_kind, handoff_message,
+             created_at, updated_at
+      FROM hire_browser_jobs
+      WHERE user_id = ${user.id} AND persona = ${persona}
+      ORDER BY created_at DESC LIMIT 1
+    `) as Array<Record<string, unknown>>
+    const row = rows[0]
+    if (!row) return json({ run: null })
+    let host = String(row.url || '')
+    try { host = new URL(host).hostname.replace(/^www\./, '') } catch { /* keep the raw url */ }
+    return json({
+      run: {
+        id: row.id,
+        host,
+        goal: row.goal ? String(row.goal).slice(0, 240) : '',
+        status: row.status,
+        // The result/error text is what a report would have carried; the reply
+        // must not restate it as fresh work.
+        outcome: row.result ? String(row.result).slice(0, 300) : row.error ? String(row.error).slice(0, 300) : null,
+        waitingOn: row.handoff_kind ? { kind: row.handoff_kind, message: row.handoff_message ? String(row.handoff_message).slice(0, 240) : '' } : null,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+      },
+    })
+  }
+
   if (path === '/api/internal/browser/awaiting' && req.method === 'GET') {
     if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
     const phone = url.searchParams.get('phone') || ''

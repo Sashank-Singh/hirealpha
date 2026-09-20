@@ -758,6 +758,35 @@ export async function touchInbound(phone: string, persona: AgentId): Promise<voi
   }
 }
 
+export type LastRun = {
+  id: string
+  host: string
+  goal: string
+  status: string
+  outcome: string | null
+  waitingOn: { kind: string; message: string } | null
+  createdAt: string
+  updatedAt: string
+}
+
+/** The latest run this user started. Zero claims about a run's progress may be
+ * made without this: live, 2026-09-19, the founder asked "any update from the
+ * amazon run you started?" and the bot narrated a run it could not see. */
+export async function fetchLastRun(phone: string, persona: AgentId): Promise<LastRun | null> {
+  const base = apiBase()
+  const key = process.env.HIREALPHA_INTERNAL_KEY || ''
+  if (!base || !key) return null
+  try {
+    const qs = new URLSearchParams({ phone, persona })
+    const res = await timedFetch(`${base}/api/internal/browser/last?${qs}`, { headers: authHeaders() }, 10000)
+    if (!res.ok) return null
+    const data = (await res.json()) as { run?: LastRun | null }
+    return data.run ?? null
+  } catch {
+    return null
+  }
+}
+
 export async function fetchMiniRun(
   phone: string,
   persona: AgentId,
