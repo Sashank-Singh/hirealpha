@@ -2981,3 +2981,32 @@ side, which is the anchor for every dimension that stages one.
 stages, the pause is stated, the missing input is named — and the completion the
 anchor wants still needs the home address, which the fresh check confirmed is not
 saved.
+
+### The live view — the I5 gate, in the founder's hands
+
+While the dim-4 run was going, the founder reported: *"The live server view doesn't
+work so can control the browser … Cannot control"*, and after Alpha restarted the
+run, *"The Same no difference"*. This is the cross-cutting gate an earlier audit
+recorded as "I5 — live view reachable by the human", now hit in production, and it
+matters for every dimension that stages a browser run: a run the user cannot take
+over is a run they cannot rescue.
+
+The routes were checked from outside first, and they answer honestly for a bogus
+id — the SPA shell 200s, the live proxy returns the plain "Live view unavailable
+or session ended." 404, the session API returns 404 JSON. So the plumbing
+reports; the page does not. **An iframe fires no `onError` for an HTTP error
+response**, so a proxy answering 403/404 — an ended session, or a view token that
+only rode the first request — rendered a blank rectangle with nothing said, while
+the component's honest unavailable state and its snapshot fallback sat unused.
+
+`c4ef8a3` probes the stream once (only when it is our own proxy — a cross-origin
+direct view fails CORS from the page even when the iframe would render, so
+probing it would hide a working stream) and raises the existing `streamError` on
+failure. A dead session now shows the snapshot, keeps the "Try Live Stream"
+button, and explains itself instead of looking broken.
+
+**Dim 4's row is unchanged and honest** — the credential exists, the run stages
+and states its pause, the missing input (the home address) is named by the bot
+itself, and the completion the anchor wants still needs that one field. The
+unreported run from 01:36Z is the delivery bug fixed in `f667587`, not a lost
+result.
