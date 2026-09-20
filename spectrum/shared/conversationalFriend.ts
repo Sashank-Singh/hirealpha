@@ -199,6 +199,8 @@ export async function stageCalendarBlock(deps: {
   ask: string
   timezone: string
   connected: readonly string[]
+  /** Which hire the connect links in a missing-connector note should point at. */
+  persona?: string
   /** The model's own answer this turn. Used only when the calendar read is
    * unavailable: an answer that claims a calendar state must not stand. */
   modelReply?: string
@@ -213,7 +215,7 @@ export async function stageCalendarBlock(deps: {
     durationMin: when.durationMin,
     limit: 3,
   })
-  const gapNote = missingConnectorNote(deps.ask, deps.connected)
+  const gapNote = missingConnectorNote(deps.ask, deps.connected, deps.persona || 'friend')
   const withNote = (text: string) => (gapNote ? `${text}\n\n${gapNote}` : text)
   /* The free-slot read did not answer. Never dress that up as a checked
    * calendar, and never leave a model line claiming the block "partly went
@@ -1004,6 +1006,7 @@ You are an intelligent, proactive executive partner in iMessage.
        - State the window you actually read ("8 in the last 2 days"), never "your inbox".
     3. Every email the lookup returned must appear exactly once: listed, or counted in the closing line. Never silently drop one, and never pad the list to look complete. If the cap cut the read short, say so.
     4. Never answer without listing the emails.
+    5. When you DRAFT a reply, check who sent it before you write the greeting. A no-reply or automated address (no-reply@, notifications@, alerts@, mailer-daemon, a newsletter sender) cannot receive a reply — say that in one line, name the address the answer could actually go to, and let the draft be a message the user can paste or send from their own mail. Live head-to-head, 2026-09-19: the same reply ask answered by hand opened "Their email came from a no-reply address, so this would go from … to …", then produced the drafted reply and asked "Send this version?" — where Alpha had drafted nothing and said nothing about the sender.
   - Memory Directives (Benchmark Dim 10):
     1. When the user gives a permanent rule or preference — a seat or diet preference, or a standing instruction such as "never send an email or spend money without asking me first" — persist it with the remember capability and acknowledge in one short line that names ONLY what they actually said. Never confirm a preference they did not state in this conversation; a sample sentence in these instructions is a format example, not something the user said.
     2. Keep keys inside what this hire can hold: identity, preference, relationship and health facts — name, city, timezone, seat and diet preferences, people, allergies. Do NOT save keys that read as work or money records (projects, company, role_title, standup_time, weekly_focus, pipeline, okr, runway, budget, salary, spend): those categories belong to the work hires, this account refuses them, and the fact is dropped while the reply still says it was saved. Live, 2026-09-19: a fact keyed projects was refused four times ("Active consent is required for this memory category and purpose") and the user was never told.

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'bun:test'
 import { sanitizeOutbound } from './runHireTurn'
 import { browserRunIsPurchase, seatPreferenceConflict, statedSeatPreference, statedTravelPreferences } from './conversationalFriend'
+import { missingConnectorNote } from './toolLoop'
 
 describe('bench50 regression guards', () => {
   it('strips a trailing source-URL dump but keeps a single introduced link', () => {
@@ -90,5 +91,26 @@ describe('browser receipt wording', () => {
     expect(statedSeatPreference('find me a window seat on the tuesday flight')).toBeNull()
     expect(statedSeatPreference('what seat do you have on file for me - aisle or window?')).toBeNull()
     expect(statedSeatPreference('going forward i dont want overnight flights')).toBeNull()
+  })
+})
+
+describe('a missing connector names its connect link', () => {
+  /* Live head-to-head, 2026-09-19: the same Notion request answered by hand
+   * said "Notion isn't connected yet. Connect it here and I'll add 'the
+   * benchmark pass is done'" with a tappable card, and the write landed the
+   * moment the grant existed (Notion's own page history: "Last edited by
+   * Instinct, Today at 5:00 PM"). Alpha said only that it could not touch
+   * anything there and left the user to find Settings. */
+  it('gives the link for the connector that is missing', () => {
+    const note = missingConnectorNote('put a note in my notion that the pass is done', ['gmail'], 'friend')
+    expect(note).toContain('Notion is not connected')
+    expect(note).toContain('https://hirealpha.chat/app/hires/friend?connect=notion')
+  })
+
+  it('lists one link per missing connector, and nothing when none is missing', () => {
+    const note = missingConnectorNote('add a notion page and a slack message', [], 'coworker')
+    expect(note).toContain('connect=notion')
+    expect(note).toContain('connect=slack')
+    expect(missingConnectorNote('put a note in my notion', ['notion'])).toBe('')
   })
 })

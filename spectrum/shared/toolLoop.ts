@@ -1505,7 +1505,14 @@ export function calendarBlockTitle(text: string): string {
 /** Connectors the ask names that are not connected, as one honest line. The
  * friend engine cannot see Notion or Slack until they are connected, and it
  * must say that instead of narrating a partial success. */
-export function missingConnectorNote(text: string, connected: readonly string[]): string {
+/** The connect link for a named connector. Same shape the product's own
+ * settings use (`/app/hires/<persona>?connect=<slug>`), so the user taps once
+ * and the grant lands where the capability reads it. */
+export function connectLinkFor(label: string, persona: string): string {
+  return `https://hirealpha.chat/app/hires/${persona}?connect=${label.toLowerCase()}`
+}
+
+export function missingConnectorNote(text: string, connected: readonly string[], persona = 'friend'): string {
   const t = String(text || '')
   const named: Array<[string, RegExp]> = [
     ['Notion', /\bnotion\b/i],
@@ -1520,9 +1527,16 @@ export function missingConnectorNote(text: string, connected: readonly string[])
     .filter(([label, re]) => re.test(t) && !connected.some((c) => c.toLowerCase() === label.toLowerCase()))
     .map(([label]) => label)
   if (!missing.length) return ''
+  /* The connect LINK rides the note, not just the fact that something is
+   * missing. Live head-to-head, 2026-09-19: the same Notion request answered by
+   * hand said "Notion isn't connected yet. Connect it here and I'll add 'the
+   * benchmark pass is done'" with a tappable connect card, and the write landed
+   * the moment the grant existed — while Alpha said only that it could not
+   * touch anything there, and left the user to find Settings themselves. */
+  const links = missing.map((label) => `${label}: ${connectLinkFor(label, persona)}`).join('\n')
   return missing.length === 1
-    ? `${missing[0]} is not connected, so I could not touch anything there. Connect it and I will finish that part.`
-    : `${missing.slice(0, -1).join(', ')} and ${missing[missing.length - 1]} are not connected, so I could not touch anything there. Connect them and I will finish those parts.`
+    ? `${missing[0]} is not connected, so I could not touch anything there. Connect it here and I will finish that part:\n${links}`
+    : `${missing.slice(0, -1).join(', ')} and ${missing[missing.length - 1]} are not connected, so I could not touch anything there. Connect them here and I will finish those parts:\n${links}`
 }
 
 export function looksLikeFollowUp(text: string) {
