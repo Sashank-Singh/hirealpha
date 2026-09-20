@@ -11827,22 +11827,29 @@ export function isAutomatedSubject(subject: string): boolean {
 
 async function suggestedMailDrafts(sql: SQL, userId: string) {
   const access = await googleAccessToken(sql, userId, 'gmail')
-  if (!access) return [] as Array<{ toAddr: string; subject: string; body: string }>
+  if (!access) return [] as Array<{ toAddr: string; subject: string; body: string; threadId: string; inReplyTo: string }>
   const listUrl = new URL('https://gmail.googleapis.com/gmail/v1/users/me/messages')
   listUrl.searchParams.set('maxResults', '5')
   listUrl.searchParams.set('q', 'is:unread newer_than:5d')
   const list = await fetch(listUrl, { headers: { Authorization: `Bearer ${access}` } })
   if (!list.ok) return []
-  const data = (await list.json()) as { messages?: Array<{ id: string }> }
-  const out: Array<{ toAddr: string; subject: string; body: string }> = []
+  const data = (await list.json()) as { messages?: Array<{ id: string; threadId?: string }> }
+  const out: Array<{ toAddr: string; subject: string; body: string; threadId: string; inReplyTo: string }> = []
   for (const m of (data.messages || []).slice(0, 3)) {
+    /* Message-ID and threadId ride along, because a suggested REPLY that carries
+     * neither starts a brand-new conversation: live, 2026-09-19, the founder
+     * pressed Send on a drafted reply and it "happens to start a new thread".
+     * The reply-draft path (`kind: 'reply'`) already threads properly through
+     * `gmailReplyMeta`; the auto-suggestions did not, and they are what the card
+     * usually shows. */
     const got = await fetch(
-      `https://gmail.googleapis.com/gmail/v1/users/me/messages/${m.id}?format=metadata&metadataHeaders=Subject&metadataHeaders=From`,
+      `https://gmail.googleapis.com/gmail/v1/users/me/messages/${m.id}?format=metadata&metadataHeaders=Subject&metadataHeaders=From&metadataHeaders=Message-ID`,
       { headers: { Authorization: `Bearer ${access}` } },
     )
     if (!got.ok) continue
     const msg = (await got.json()) as {
       snippet?: string
+      threadId?: string
       payload?: { headers?: Array<{ name: string; value: string }> }
     }
     const h = (n: string) => msg.payload?.headers?.find((x) => x.name.toLowerCase() === n.toLowerCase())?.value || ''
@@ -11858,6 +11865,8 @@ async function suggestedMailDrafts(sql: SQL, userId: string) {
       toAddr: email,
       subject: subject.startsWith('Re:') ? subject : `Re: ${subject}`,
       body: '',
+      threadId: msg.threadId || m.threadId || '',
+      inReplyTo: h('Message-ID') || h('Message-Id'),
     })
   }
   return out
@@ -15864,8 +15873,9 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
         // inside the insert or the pile grows again.
         const id = crypto.randomUUID()
         const inserted = await sql`
-          INSERT INTO hire_drafts (id, user_id, persona, kind, to_addr, subject, body)
-          SELECT ${id}, ${user!.id}, ${isPersona(persona) ? persona : ''}, 'email', ${s.toAddr}, ${s.subject}, ${s.body}
+          INSERT INTO hire_drafts (id, user_id, persona, kind, to_addr, subject, body, thread_id, in_reply_to)
+          SELECT ${id}, ${user!.id}, ${isPersona(persona) ? persona : ''}, 'email',
+            ${s.toAddr}, ${s.subject}, ${s.body}, ${s.threadId || ''}, ${s.inReplyTo || ''}
           WHERE NOT EXISTS (
             SELECT 1 FROM hire_drafts
             WHERE user_id = ${user!.id} AND status = 'pending'
