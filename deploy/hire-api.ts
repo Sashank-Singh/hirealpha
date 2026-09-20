@@ -15087,10 +15087,18 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
     const user = await getUserByPhone(sql, phone)
     if (!user) return json({ error: 'User not found' }, 404)
     const rows = (await sql`
-      SELECT id, url, goal, status, result, error, current_url, handoff_kind, handoff_message,
+      SELECT id, persona, url, goal, status, result, error, current_url, handoff_kind, handoff_message,
              created_at, updated_at
       FROM hire_browser_jobs
-      WHERE user_id = ${user.id} AND persona = ${persona}
+      /* Persona is NOT a filter. A run can be staged by a loop or a watch that
+       * writes a different persona string than the turn that later asks about
+       * it, and the answer "there is no run" must never be an artifact of that
+       * mismatch — the first live check of this route replied "No Amazon run
+       * ever got started on this account" while browser runs for this user
+       * demonstrably existed an hour earlier (a PS5 watch reported through
+       * them). The latest run for the user is the honest subject of "how is my
+       * run going", whichever hire started it. */
+      WHERE user_id = ${user.id}
       ORDER BY created_at DESC LIMIT 1
     `) as Array<Record<string, unknown>>
     const row = rows[0]
@@ -15100,6 +15108,7 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
     return json({
       run: {
         id: row.id,
+        persona: row.persona,
         host,
         goal: row.goal ? String(row.goal).slice(0, 240) : '',
         status: row.status,

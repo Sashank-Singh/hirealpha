@@ -760,6 +760,9 @@ export async function touchInbound(phone: string, persona: AgentId): Promise<voi
 
 export type LastRun = {
   id: string
+  /** Which hire started it — a run staged by a loop may name a different hire
+   * than the one answering, and the reply should not pretend otherwise. */
+  persona?: string
   host: string
   goal: string
   status: string
