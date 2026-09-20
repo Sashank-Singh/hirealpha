@@ -3117,3 +3117,32 @@ produced only by `pushBrowserResultLoop`, which is fed by a job row. So:
 This is the sharpest version of the night's lesson: the product's own thread can
 be evidence — the watch's job-format reports proved staging works, without any new
 code or any new claim from the bot.
+
+### The staging question: code fixed three times, the answer still owes one clean turn
+
+Tried to settle it on the live line. The purchase ask staged (or claimed to):
+*"The Amazon run is underway. It'll pull your usual beans from order history, set
+up two bags shipping to your home address, and stop dead before anything gets
+paid."* Then the read:
+
+- **First read attempt** — *"can you see a run of mine in your list right now?"* →
+  the canned *"I could not verify current information because the web lookup did
+  not run."* My detector matched only "any/what's/how's/status/update/progress"
+  and missed the phrasing. `f99779f` widens it to the noun plus any looking verb
+  and tests the five phrasings actually used tonight.
+- **Second read attempt** (after the deploy) → *"I hit a quick snag thinking
+  through that. Can you say that once more?"* — a provider hiccup on that turn,
+  with the container log full of the usual DOMException noise and the line still
+  refusing sends between turns.
+
+So the read has been made correct three times over (`5e89fef` built it,
+`98a8ce4` removed the persona filter, `44811a6` made unread ≠ empty, `f99779f`
+fixed the detector) and **has not yet produced a grounded answer**, which is the
+honest state: whether a purchase ask actually creates a job row is still
+unresolved, and it is the last technical question this session opened.
+
+What is settled, from the thread's own evidence: the **watch** stages real jobs
+and reports through them, so the staging path works — which makes the purchase
+case the specific question rather than the general one. The retries stop here;
+another text into a throttled line would produce another unverifiable answer, and
+the first task tomorrow is one clean turn on this question.
