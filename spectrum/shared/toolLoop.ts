@@ -782,6 +782,15 @@ Reactions are optional and usually absent. You may add "reaction":"<emoji>" to a
        * not verify current information because the web lookup did not run.
        * Please try again." while the same ask answered by hand listed every
        * connection, what is not connected, and four ways to revoke. */
+      /* An ask that names a CONNECTED SERVICE belongs to that service's
+       * connector, never to a browser run: a session inherits the whole account
+       * while a grant does not, and the run has nothing to do but hit a sign-in
+       * wall. Live, 2026-09-19: "put a note in my notion that the benchmark pass
+       * is done" launched a Cloud Computer session against notion.com and asked
+       * for a Notion password — the founder's words: "ASKING TO LOGIN BUT NOT
+       * CONNECTOR ITS NOT AWARE ABOUT ALL IT CONNECTOR IT CAN USE". The connect
+       * link is the answer when the connector is not connected. */
+      const connectorAsk = /\b(?:notion|slack|linear|github|google drive|gdrive)\b/i.test(userAsk)
       const accessQuestion =
         /\b(?:what|which)\b[^?]{0,60}\b(?:access|permissions?|accounts?|connected)\b/i.test(userAsk) ||
         /\byou\b[^?]{0,40}\b(?:have )?(?:access|permission)s?\b/i.test(userAsk) ||
@@ -842,7 +851,7 @@ Reactions are optional and usually absent. You may add "reaction":"<emoji>" to a
        * file for me right now? … about to test an amazon reorder") reached the
        * staging path through `needsBrowser` after `questionAsk` let it through
        * because it contained a buy verb. */
-      const needsBrowser = !isMemoryAsk && !wantsMail && !attemptedMail && !appTweakAsk && !scheduleAsk && !questionAsk && !searchOnlyAsk && !isInformationalAsk(userAsk) && (request
+      const needsBrowser = !isMemoryAsk && !wantsMail && !attemptedMail && !appTweakAsk && !scheduleAsk && !questionAsk && !searchOnlyAsk && !isInformationalAsk(userAsk) && !connectorAsk && (request
         ? (request.needsBrowser || ACTION_ASK_RE.test(userAsk)) && !findOnlyAsk
         : ACTION_ASK_RE.test(userAsk) && !findOnlyAsk)
       // A booking ask that already produced search results gets a second nudge

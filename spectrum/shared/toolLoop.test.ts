@@ -1259,3 +1259,28 @@ describe('a question about buying is not a purchase', () => {
     expect(drafts[0]).toMatchObject({ type: 'browser' })
   })
 })
+
+describe('an ask naming a connected service never launches a browser run', () => {
+  /* Live, 2026-09-19: "put a note in my notion" answered with the connect link
+   * AND "Launching Cloud Computer for this task" — a session against
+   * notion.com, which can only hit a sign-in wall. Notion is used through its
+   * connector; the connect link is the answer when it is not connected. */
+  it('stages nothing and sends no run for a connector ask', async () => {
+    for (const ask of [
+      'put a note in my notion that the benchmark pass is done',
+      'send a slack message to the team that i am running late',
+    ]) {
+      const drafts: unknown[] = []
+      const result = await runToolConversation({
+        messages: [{ role: 'user', content: ask }],
+        availableTools: ['web'],
+        canDraft: true,
+        chat: async () => 'Notion is not connected yet: https://hirealpha.chat/app/hires/friend?connect=notion',
+        lookup: async () => ['nothing'],
+        propose: async (draft) => { drafts.push(draft); return { ok: true, id: 'd1' } },
+      })
+      expect(drafts).toHaveLength(0)
+      expect(result.reply).not.toContain('Cloud Computer')
+    }
+  })
+})
