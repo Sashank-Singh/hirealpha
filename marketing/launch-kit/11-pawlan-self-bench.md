@@ -3389,3 +3389,23 @@ Austin-ask failure with a different cause.
 
 **The address remains unsaved** and is now asked for with the link, on the
 phrasing a person actually uses (`62a8c19`).
+
+### The $1 test item — found and verified
+
+Two real itch.io items, both fetched from this machine rather than guessed (HTTP
+200 each, $1.00 on the page):
+
+- **https://spacefreighterone.itch.io/piracy-on-the-new-frontier** — a game,
+  "pay what you want" with $1 as the ask.
+- **https://miaqc.itch.io/shirina** — also $1.00.
+
+Either one is a clean dim-4 test and better than Amazon for isolating the flow:
+**itch checkout is a guest flow** — email plus card, no account, no 2FA — so the
+run goes cart → checkout → the payment pause with nothing else in the way. Amazon
+remains the better test of the 2FA path specifically (the credential is already in
+the vault), and these are the better test of the purchase chain itself.
+
+The earlier "I could not verify a specific one" was true when written and is now
+resolved: the first searches went at catalogues that render client-side (Gumroad)
+or block the crawler (Etsy); itch product pages are server-rendered and verified
+directly.
