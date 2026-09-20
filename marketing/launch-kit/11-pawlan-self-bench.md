@@ -2958,3 +2958,26 @@ blaming the merchant.
 **One field from the 7 band: the home address.** With it saved, the run reaches
 checkout, the approval card arrives, and the anchor's 7 is in reach — and the
 order number would put 10 in reach with the founder's payment tap.
+
+### The Amazon run has not reported — and why that is now a fixed bug, not a mystery
+
+The run staged for the dim-4 re-run (01:36Z) had produced no report by 02:00Z.
+The delivery queue was behaving — `pushBrowserResultLoop` writes
+`hire_browser_result_deliveries` with `status = 'pending'` and retries — but the
+terminal branch marked a delivery **`failed`** once its retry budget ran out, and
+nothing surfaces a failed delivery. With the line refusing sends (Photon's
+*"Recipient has not replied; cooling period limits sends to 3/day"*, logged a
+dozen times tonight), that is exactly the situation this run was in: the answer
+the user is waiting for would have been dropped with the run that produced it.
+
+`f667587` keeps a run result `pending` with an exponential snooze (20 min → 6h
+cap) instead of failing it. Proactive pings keep the old give-up behaviour — a
+stale check-in is noise, while a run result is the answer. This is the "never a
+dropped turn" rule applied to the async case, and it matters beyond tonight: an
+async run whose report can be lost is a task that never completes from the user's
+side, which is the anchor for every dimension that stages one.
+
+**State of dim 4's row, unchanged and honest:** the credential exists, the run
+stages, the pause is stated, the missing input is named — and the completion the
+anchor wants still needs the home address, which the fresh check confirmed is not
+saved.
