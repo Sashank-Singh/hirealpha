@@ -46,6 +46,26 @@ import { mirrorJobReconcile } from '../services/tasks/taskLifecycle'
 import { userKeyBrokerFromEnv } from '../services/trust/userKeyBroker'
 import { validateProductionBrowserWorker } from './certification/envContract'
 
+/** Hosts that are CONNECTED SERVICES, not password walls. A run that reaches
+ * one of these has gone down the wrong road: the product uses them through
+ * their connector (scoped OAuth), which is also the architecture rule — a
+ * browser session inherits the whole account, a connector grant does not. */
+const CONNECTOR_HOSTS: Array<[RegExp, string, string]> = [
+  [/(?:^|\.)notion\.(?:so|com)$/i, 'notion', 'Notion'],
+  [/(?:^|\.)slack\.com$/i, 'slack', 'Slack'],
+  [/(?:^|\.)linear\.app$/i, 'linear', 'Linear'],
+  [/(?:^|\.)github\.com$/i, 'github', 'GitHub'],
+  [/(?:^|\.)drive\.google\.com$/i, 'drive', 'Google Drive'],
+]
+
+export function connectorForHost(input: string): { service: string; label: string } | null {
+  let host = ''
+  try { host = new URL(String(input || '')).hostname } catch { return null }
+  for (const [re, service, label] of CONNECTOR_HOSTS) if (re.test(host)) return { service, label }
+  return null
+}
+
+
 const DATABASE_URL = process.env.DATABASE_URL || ''
 // One noVNC display must never multiplex multiple customer browsers. Scale
 // with isolated worker replicas instead of increasing in-container concurrency.
@@ -522,6 +542,28 @@ export async function runJob(sql: SQL, job: JobRow, launch = runBrowserSession):
       // handoff message: the user sees the wall in the thread, not a claim
       // that one exists.
       const handoffShot = lastScreenshots.get(job.id)
+      /* ASK FOR A CONNECTOR, NOT A PASSWORD. Live, 2026-09-19: "put a note in my
+       * notion" staged a browser run, landed on notion.com, and asked the user
+       * to save a Notion password in the Vault. The founder's words: "ASKING TO
+       * LOGIN BUT NOT CONNECTOR ITS NOT AWARE ABOUT ALL IT CONNECTOR IT CAN
+       * USE … WHY DOES IT ASK FOR SIGN IN TO VAULT BEFORE REACHING LOGIN OF THE
+       * WEBSITE". A connected service is not a sign-in: end the run and hand
+       * back the connect link. */
+      const connector = handoffKind === 'password' ? connectorForHost(url || origin || '') : null
+      if (connector && !hasCompleteCredentials) {
+        const connectUrl = `${appBase}/app/hires/${job.persona || 'friend'}?connect=${connector.service}`
+        await pushBrowserResultLoop(sql, {
+          userId: job.user_id,
+          persona: job.persona,
+          origin: url,
+          jobId: job.id,
+          label: job.goal || '',
+          insights: `${connector.label} is a connected service, not a sign-in — I use it through its connector, so a saved password is the wrong door and I have stopped the run rather than ask for one. Connect ${connector.label} and I will do this through ${connector.label} itself, no login needed:\n${connectUrl}`,
+          screenshotDataUrl: handoffShot?.dataUrl,
+          screenshotCaption: handoffShot?.caption || handoffMessage,
+        })
+        return 'cancelled' as const
+      }
       await pushBrowserResultLoop(sql, {
         userId: job.user_id,
         persona: job.persona,
@@ -533,7 +575,7 @@ export async function runJob(sql: SQL, job: JobRow, launch = runBrowserSession):
           : handoffKind === 'password'
             ? (hasCompleteCredentials
                 ? `Alpha paused at the sign-in screen on ${origin ? new URL(origin).hostname.replace(/^www\./, '') : 'the portal'}. If two-factor or security verification is needed, take over here: ${sessionUrl}`
-                : `This one needs an account on ${origin ? new URL(origin).hostname.replace(/^www\./, '') : 'that site'} before it will go further, and I do not have a login for it. Three ways: save the login in Vault (${vaultUrl}), create an account there and save it, or take over the live computer and finish the sign-in yourself (${sessionUrl}).`)
+                : `This one needs an account on ${origin ? new URL(origin).hostname.replace(/^www\./, '') : 'that site'} before it will go further, and I do not have a login for it. Three ways —\nSave the login in the Vault: ${vaultUrl}\nOr create an account there and save it the same way\nOr take over the live computer and finish the sign-in yourself: ${sessionUrl}`)
             : `Alpha paused and needs you to ${message.replace(/[.!]+$/, '').toLowerCase()}. Open the live computer: ${sessionUrl}`,
         screenshotDataUrl: handoffShot?.dataUrl,
         screenshotCaption: handoffShot?.caption || handoffMessage,
