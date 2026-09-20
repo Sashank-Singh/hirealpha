@@ -3444,3 +3444,31 @@ founder can type into Settings comes close.
 recovers a report the user never saw had never once been cast. One cast and it
 runs. Two nets exist for a lost report (the delivery queue's retry, kept pending
 by `f667587`, and this sweep); one of them was dead code in practice.
+
+### The failure that hid its own fix
+
+The billing line is the founder's to add, but the way the failure *reported* was
+mine, and it cost the whole evening. Every run died with:
+
+> "Couldn't check spacefreighterone.itch.io. The run stopped on my side before it
+> could check anything. Nothing was sent and nothing changed on that site."
+
+while the worker log carried, verbatim:
+
+> `Kernel browser launch failed (403): Organization plan needs payment method`
+
+Honest, and useless at the same time: the one thing the user could fix in a
+minute was the one thing the reply did not say. `b0d8f64` fixes all three layers:
+
+- `plainReason` recognises the provider-refusal class (payment method, billing,
+  plan needs, subscription, quota) and names it: *"The browser service is refusing
+  to launch any run on this account — it has no payment method on file."*
+- `plainRunFailure` appends the fix and the link when that is the cause.
+- The refusal opens an **open loop** — the same mechanism a missing connector
+  uses — so it is re-raised in the brief instead of living in a log nobody reads.
+
+That is the night's rule applied to its most expensive example: **a failure the
+user can fix must be reported as one.** The pattern ran through everything
+tonight — "read yes, send no", "no saved logins", "the run is live", "stopped on
+my side" — and each one was a true-sounding sentence that left out the part the
+person needed.
