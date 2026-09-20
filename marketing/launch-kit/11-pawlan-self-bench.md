@@ -3200,3 +3200,28 @@ and deployed, the scorecard at **≈ 5.9** with permissions as the one dimension
 where we lead, the two halves of the deliverable that were achievable done and
 evidenced, and two items that are the founder's — the home address (one field,
 and dim 4's completion) and one "Sam proposing Thursday" email (dim 5's fixture).
+
+### The founder's correction: ask me for the address, don't just report it
+
+*"it needs to ask me to fill it in the vault: the home address same like instinct"* —
+and that is the right shape. Tonight the product reported the gap and stopped:
+*"there's no home address saved on my end, so the run may stall at the shipping
+step"*, with nothing the user could do from that message.
+
+`7b522f9` gives it both halves:
+
+- **The prompt asks, with the link**: one short line naming where it is saved —
+  Settings → Location → Home, not the Vault, because an address is not a secret
+  and the Vault exists for credentials — then carry on staging what can be
+  staged and say the address drops in the moment it exists.
+- **The link rides the reply regardless**: a shipping ask with no address on file
+  appends that line deterministically when the model did not. A prompt rule the
+  model can drop is exactly how this shipped without a way to close it.
+
+Narrow on purpose: only ship/deliver/home-address phrasing triggers the append —
+a pickup or a digital order needs no address, so "order" alone does not.
+
+This also sharpens what dim 4 needs: not just "the founder must find Settings",
+but "the product asks him for it in the thread, with the link, the first time an
+order needs it" — which is Instinct's own pattern, and the one thing missing from
+our version of that exchange.
