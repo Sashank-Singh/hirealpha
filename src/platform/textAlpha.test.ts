@@ -55,6 +55,17 @@ describe('the one link on the Text Alpha screen', () => {
     expect(alphaThreadHref()).not.toContain('body=')
   })
 
+  /* "makethe Text Alpha button have Hey, Alpha! if you cannot text first" —
+   * founder, 2026-09-21. Greeting only in that state: a first message gets
+   * written for them, a thread that already exists is opened clean. */
+  it('writes the first message only when Alpha has not texted', () => {
+    expect(alphaThreadHref(ALPHA_LINE, { greet: true })).toBe('sms:+14155951440&body=Hey%2C%20Alpha!')
+    expect(alphaThreadHref(ALPHA_LINE, { greet: false })).toBe('sms:+14155951440')
+    expect(alphaThreadHref(ALPHA_LINE, {})).toBe('sms:+14155951440')
+    // The assigned line still wins when both are in play.
+    expect(alphaThreadHref('+14155550137', { greet: true })).toBe('sms:+14155550137&body=Hey%2C%20Alpha!')
+  })
+
   it('falls back to the Alpha line rather than an empty sms: link', () => {
     expect(alphaThreadHref('')).toBe(`sms:${ALPHA_LINE}`)
   })

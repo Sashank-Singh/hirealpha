@@ -58,7 +58,7 @@ type Welcome = 'sent' | 'not-yet' | 'unknown'
 function welcomeLine(state: Welcome, line: string): string {
   const shown = formatAlphaLine(line)
   if (state === 'sent') return `Alpha already texted you from ${shown}. Pick it up there.`
-  if (state === 'not-yet') return `Alpha texts you from ${shown} — say hi and it answers in seconds.`
+  if (state === 'not-yet') return `Alpha texts you from ${shown} — tap and say hi, it answers in seconds.`
   return `Alpha replies from ${shown}. Open the thread to start.`
 }
 
@@ -101,7 +101,10 @@ export function TextAlphaPage() {
         <p className="textalpha__lead">{welcomeLine(welcome, line)}</p>
         <a
           className="textalpha__btn"
-          href={alphaThreadHref(line)}
+          // "Hey, Alpha!" rides along only when Alpha has not texted first: a
+          // thread that already exists is opened clean, and a first message gets
+          // written for them. Founder's rule, 2026-09-21, verbatim.
+          href={alphaThreadHref(line, { greet: welcome !== 'sent' })}
           onClick={() => {
             try {
               localStorage.setItem('ha_text_alpha_seen', '1')
