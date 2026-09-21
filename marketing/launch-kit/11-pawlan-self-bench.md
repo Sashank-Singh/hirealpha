@@ -3856,3 +3856,60 @@ web surface, with the mini apps staying in iMessage.
 
 
 
+
+### The address field suggests places as you type (`bdb5555`)
+
+The founder's ask, 2026-09-21, sent over the wizard's "Where's home?" field with the
+address half typed:
+
+> "make this recommend places when i type so i can easily select my address"
+
+Before this the field was free text and the address resolved through ONE `limit=1`
+lookup at Next, so the person never saw what their words were about to become. Now
+the same Nominatim endpoint is queried as they type, the list appears under the
+field, and picking a row saves that row's coordinates — the place they saw is the
+place that gets stored. Typing again clears the pick, so a chosen place can never
+outlive the words in the box. Text typed without picking still resolves through the
+one-shot lookup: the old behaviour, and still the honest one.
+
+**The live data changed the label design, and that is the part worth recording.**
+The real result for the founder's own address is:
+
+```
+Music City, 1353;1355, Bush Street, Polk Gulch, Nob Hill, San Francisco, California, 94164, United States
+```
+
+Head-truncating that to four parts — the obvious first implementation — produced
+`Music City, 1353;1355, Bush Street, Polk Gulch`: a building name he never typed,
+first, and **San Francisco gone**. So the parts kept are the ones that share a word
+with the query, house numbers are glued to the street they number, and the trailing
+country is dropped. The same address now reads:
+
+```
+1353 Bush Street, San Francisco
+```
+
+and the row underneath still shows the whole disambiguation, so nothing is lost by
+shortening the label. Verified against the live endpoint and then on production,
+driving the deployed wizard in a real browser: typing "1353 Bush Street San
+Francisco" produced that suggestion, and picking it set the field to
+`1353 Bush Street, San Francisco` with the hint reading "Home set to 1353 Bush
+Street, San Francisco."
+
+Both wizard address fields use it, and so does the settings sheet's manual place
+input — same behaviour, same save semantics, its own input styling passed in.
+
+**Nominatim's policy is part of the design, not an afterthought**: it caps automated
+traffic at one request per second, and type-ahead is exactly the shape that breaks
+it. A 450ms debounce, a 1s spacing guard on every search, and in-flight requests
+aborted on the next keystroke. A failed suggestion lookup stays silent — the typed
+text still saves, so a flaky endpoint costs suggestions, never the address.
+
+Tests: 7 new over the real jsonv2 shapes — string coordinates, coordinate-less rows,
+the live "Music City" payload, the fragment-too-short guard, both caps. `src/` 185
+pass; `tsc -b` clean; vite build clean; oxlint clean.
+
+**A cross-check that the data agrees with itself:** the address resolves to "Music
+City, 1353 Bush Street", and the mailbox triage from the night before surfaced
+"Music City Hotel — Reply on your Sep 16, 21 stay". Same building, two independent
+sources.
