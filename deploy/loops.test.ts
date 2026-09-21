@@ -411,6 +411,25 @@ describe('inbox watchtower coverage and mail window', () => {
     expect(importantMailQuery(MAIL_READ_WINDOW)).toBe('is:inbox -is:spam newer_than:2d')
   })
 
+  /* Live, 2026-09-20: the triage replied "Read the last 2 days, 30 emails" — 30
+   * being exactly MAIL_READ_CAP, so a window with more mail behind the cap was
+   * described as if it had all been read. The count was real; the completeness
+   * came from nowhere. */
+  it('says when the read hit the cap, and stays quiet when it did not', async () => {
+    const { mailResultsBlock, MAIL_READ_CAP } = await import('./gmailHelpers')
+    const row = (i: number) => ({ id: `id${i}`, from: `Sender ${i} <s${i}@x.com>`, date: '2026-09-19', subject: `Subject ${i}`, snippet: 'snippet' })
+    const full = mailResultsBlock('anything urgent', Array.from({ length: MAIL_READ_CAP }, (_, i) => row(i)))
+    expect(full).toContain('Read capped at 30 messages')
+    expect(full).toContain('do not describe these as the whole window')
+    // One row per message, each carrying the id the reply path needs.
+    expect(full.match(/- id=/g)).toHaveLength(MAIL_READ_CAP)
+    const partial = mailResultsBlock('anything urgent', [row(1), row(2)])
+    expect(partial).not.toContain('capped')
+    // A zero-match read is not an empty inbox, and the block says so.
+    const none = mailResultsBlock('from:sam', [])
+    expect(none).toContain('does not establish that the inbox is empty')
+  })
+
   it('scans a Composio inbox with no Google token, and arms the one-time notice', async () => {
     const { armInboxWatchtower } = await import('./authenticatedTestApi')
     const { sql, queries } = fakeSql((text) =>

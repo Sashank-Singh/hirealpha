@@ -26,6 +26,36 @@ export function importantMailQuery(timespan: string): string {
 export const MAIL_READ_WINDOW = '2d'
 export const MAIL_READ_CAP = 30
 
+/** One mail row as the model reads it. */
+export function mailRow(m: { id: string; from: string; date: string; subject: string; snippet: string }): string {
+  return `- id=${m.id} | ${m.from.slice(0, 100)} | ${m.date.slice(0, 50)} | ${m.subject.slice(0, 140)} | ${m.snippet.slice(0, 200)}`
+}
+
+/**
+ * The block a conversational mail read hands the model, with the cap said out
+ * loud when it was hit.
+ *
+ * Live, 2026-09-20, the triage replied "Read the last 2 days, 30 emails" — 30
+ * being exactly MAIL_READ_CAP, so a busy window with more mail behind the cap
+ * was reported as if the whole window had been read. The count was real; the
+ * completeness was never claimed by any tool. Naming the cap is what lets the
+ * model say "the newest 30" instead of "your last two days".
+ */
+export function mailResultsBlock(
+  query: string,
+  items: Array<{ id: string; from: string; date: string; subject: string; snippet: string }>,
+  cap = MAIL_READ_CAP,
+): string {
+  if (!items.length) {
+    return 'Email lookup returned no usable records. Try a different query if needed. This does not establish that the inbox is empty.'
+  }
+  const capped = items.length >= cap
+  const note = capped
+    ? `\n(Read capped at ${cap} messages, newest first. There may be more inside this window — do not describe these as the whole window; say the read was capped and offer to go further back or to narrow by sender.)`
+    : ''
+  return `Email results for ${JSON.stringify(query)}:\n${items.map(mailRow).join('\n')}${note}`
+}
+
 export type MailJudgeItem = {
   id: string
   from: string

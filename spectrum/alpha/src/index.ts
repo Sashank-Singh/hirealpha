@@ -1,4 +1,4 @@
-import { Spectrum, UnsupportedError, app as appCard, attachment, contact, fromVCard, markdown, type ContentInput } from 'spectrum-ts'
+import { Spectrum, UnsupportedError, app as appCard, attachment, contact, fromVCard, text, type ContentInput } from 'spectrum-ts'
 import { effect, imessage } from '@spectrum-ts/imessage'
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
@@ -51,7 +51,17 @@ const app = await Spectrum({
 
 const im = imessage(app)
 
-const styledText = (value: string) => markdown(value)
+/* Plain text, not `markdown`.
+ *
+ * The SDK's markdown path runs the copy through a CommonMark downgrade before
+ * it hits the wire, and that renderer keeps blank lines between PARAGRAPHS but
+ * collapses them inside a list block: a numbered triage arrived as one dense
+ * block, items on consecutive lines. Founder, verbatim, 2026-09-20: "Can you
+ * also give space between the emails?" Nothing is lost by sending text — the
+ * outbound sanitizer already strips **bold**, *italic*, `code` and ## headers,
+ * so the markdown renderer had nothing left to style, and iMessage still links
+ * the bare URLs it carries. */
+const styledText = (value: string) => text(value)
 
 async function sendIntroText(
   space: { send: (content: ContentInput) => Promise<unknown> },

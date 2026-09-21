@@ -113,6 +113,8 @@ import {
   topNeedsYou,
   MAIL_READ_CAP,
   MAIL_READ_WINDOW,
+  mailResultsBlock,
+  mailRow,
   type ComposioMailBody,
   type ComposioMailItem,
   type GmailMimePart,
@@ -6694,8 +6696,7 @@ export async function runToolsForMessage(
         return [text ? `Email body id=${messageId} (up to 12000 characters; attachments not included):\n${text.slice(0, 12000)}` : `Could not retrieve the body for id=${messageId}. Do not infer its contents from the subject.`]
       }
       const mailQuery = normalizeGmailQuery(query)
-      const row = (m: { id: string; from: string; date: string; subject: string; snippet: string }) =>
-        `- id=${m.id} | ${m.from.slice(0, 100)} | ${m.date.slice(0, 50)} | ${m.subject.slice(0, 140)} | ${m.snippet.slice(0, 200)}`
+      const row = mailRow
       const first = await withTimeout(readGmailExact(sql, input.userId, mailQuery, MAIL_READ_CAP), 12000, { items: [], failed: true })
       if (!first.items.length && !first.failed && mailQuery !== 'newer_than:7d') {
         /* A real zero-match search stays a zero-match answer. Filling the gap
@@ -6716,9 +6717,12 @@ export async function runToolsForMessage(
       if (!mail.length && mailQuery !== 'newer_than:7d') {
         mail = await withTimeout(loadGmailRich(sql, input.userId, 'newer_than:7d', MAIL_READ_CAP), 8000, [])
       }
-      return [mail.length
-        ? `Email results for ${JSON.stringify(query)}:\n${mail.map(row).join('\n')}`
-        : 'Email lookup returned no usable records. Try a different query if needed. This does not establish that the inbox is empty.']
+      /* A capped read is not a whole window. Live, 2026-09-20, the triage replied
+       * "Read the last 2 days, 30 emails" — 30 being exactly MAIL_READ_CAP, so a
+       * busy window with more mail behind the cap was reported as if it had all
+       * been read. The count is real; the completeness was not claimed by any
+       * tool. mailResultsBlock() names the cap and lets the model ask to widen. */
+      return [mailResultsBlock(query, mail)]
     }
     if (!can(input.want)) {
       asked(input.want, true)
