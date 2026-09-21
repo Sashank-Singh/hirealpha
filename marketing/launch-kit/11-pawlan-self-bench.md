@@ -3764,3 +3764,62 @@ narrow — no other dimension's behaviour changed (97 `toolLoop` tests pass, 913
 `deploy` tests pass; the two `runHireTurn` failures are pre-existing on a clean
 tree, checked by stashing the diff).
 
+### The new-user walk, taken by the founder — and the two steps it got wrong
+
+The founder walked the product as a new user and sent two corrections, verbatim:
+
+> "after signup and onbaording it take me to homepage it should show Just one
+> nutton text ALpha with imessage logo … we can just make that return to iMessages
+> or go to iMessages directly, and then open the contact that has sent the message
+> … so they can continue from there."
+>
+> "in onboarding, the last step is connecting stuff, connectors. I connected Gmail
+> and it took me to this page, which is the homepage of miniapps. It should not do
+> that. It should direct me directly to iMessages … the homepage miniapp should
+> only be visible on the iMessages … After onboarding, you must show 'return' or
+> 'go to iMessages' or 'Text Alpha.'"
+
+**What was wrong.** The wizard's last act was
+`<Navigate to='/app/mini/<persona>/home?tour=1'>`, so the first thing a brand-new
+person saw was the app grid. That is the mini apps reading as the product instead
+of the thread that had just introduced itself — and the reason the founder's
+correction is right on the merits, not just on taste.
+
+The connect loop was the sharper bug. `GET /api/setup/status` calls setup done
+once **two of four** step-writes exist — nutrition goals, mini prefs, a person, a
+saved place — and all of those are written before the last page, the connectors.
+So connecting Gmail returned the browser to `/app/mini/friend/menu?connected=gmail`
+and the gate read that auto-detect as *finished*: the founder landed on the home
+grid instead of the connect page he had just left, with no route back to the other
+connectors. The wizard's own "land back on this screen" comment describes the
+intent; the gate was overriding it.
+
+**What changed (`cf58bf8`, then `70ecb9a` for the glyph).**
+
+1. **The landing is a screen, not the app grid.** `/app/text-alpha`: the Messages
+   mark, one line, one green button. Shown once — the flag is written on tap and
+   the URL then redirects to the platform. Verified in production: the page holds
+   exactly **one** actionable element, its href is
+   `sms:+14155951440&body=Hey%2C%20Alpha!` (what opens the thread on iPhone and Mac;
+   there is no `imessage://` handler this repo can call), `?again=1` re-opens it
+   deliberately, and with the flag set the URL passes through to the platform.
+2. **A wizard in flight is not a finished setup, whatever the server says.** The
+   gate's three signals now have a fixed order: a finished wizard stays finished
+   (`ha_setup_done` mirror), a wizard in flight stays open (`ha_setup_step` is
+   written on every Next and cleared on Done and on sign-out, so its presence means
+   mid-wizard and nothing else), and only then does the server answer. Connecting
+   Gmail now returns to the connect page, where the row reads "On" and the other
+   connectors are one tap away.
+
+Extracted so both are testable without a DOM: `src/platform/setupGate.ts` (the
+ordered decision) and `src/platform/alphaLine.ts` (the number and the thread URL,
+now also used by the error boundary's "Return to iMessage" and the mini-app back
+link instead of two more copies of the number). 7 new tests; `src/` 178 pass;
+`tsc -b` clean; `vite build` clean; oxlint clean on every file touched.
+
+**One thing this knowingly gives up, recorded rather than dropped:** the home grid
+no longer receives `?tour=1`, because it is no longer the first screen. Giving the
+grid its first-run tour back — on the first open from the thread — is a separate
+change and is not pretended here.
+
+
