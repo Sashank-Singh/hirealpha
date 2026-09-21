@@ -8,7 +8,7 @@ import { getAgent, type AgentId } from '../../src/agents'
 import { runAgentLocally } from '../../src/agents/runtime'
 import { formatNowForAgent, pickUserTimezone } from '../../deploy/timezones'
 import { gmiChat, type GmiChatMessage } from './gmi'
-import { FAST_REPLY_WALL_MS } from './delivery'
+import { fastReplyBudget } from './delivery'
 import { appendThread, LAST_BUILD_KEY, recordCardDelivered, recordDeliveredBuild, setPendingConnection, setPendingSpend, setPendingVaultTask, upsertFacts, type ThreadMemory } from './memory'
 import {
   autoLogNutrition, autoLogWorkout, autoLogSleep, autoLogGratitude, autoLogMood,
@@ -19,6 +19,7 @@ import {
 import { buildDigestBriefing, mintMiniAppCard, type MiniAppCard, type MiniAppKind } from './miniApps'
 import { createReminder, createWatch, listReminders } from './reminders'
 import { setProactiveMode } from './judgment'
+import { knownFirstName } from './onboarding'
 import {
   isDeliberationOnly,
   calendarBlockTitle, calendarBlockWhen, isTravelRunAsk, LIVE_TOOLS, looksLikeCalendarBlockAsk, missingConnectorNote,
@@ -60,6 +61,21 @@ function prettyPortalName(urlStr: string): string {
 /** Keep ordinary conversation off the heavyweight capability planner. This is
  * deliberately only a routing gate: matching text still goes to the model to
  * decide what, if anything, should run. The gate itself never executes work. */
+/**
+ * A bare hello from someone Alpha has never heard from — the first message a new
+ * person sends after onboarding. It is answered by the pinned welcome in
+ * runHireTurn (fixed copy, the contact card, the Alpha Apps card), not by the
+ * model: the founder described that exact flow, 2026-09-21, verbatim — "then
+ * sends the contact card and tell what it can do example of features and explains
+ * what Alpha Apps are and then show the ALpha app card" — and the model path gave
+ * him "I hit a quick snag thinking through that. Can you say that once more?" on
+ * his first hello because the provider was slow.
+ */
+export function isFirstContactGreeting(userText: string, returning: boolean): boolean {
+  if (returning) return false
+  return /^(?:hey|hi|hello|yo|hola|sup|what'?s up|howdy)(?:[ ,]+alpha)?[!.?\s]*$/i.test(String(userText || '').trim())
+}
+
 export function needsConversationPlanner(userText: string, memory: ThreadMemory): boolean {
   const text = userText.trim()
   const lastAssistant = [...memory.history].reverse().find((message) => message.role === 'assistant')?.content || ''
@@ -418,7 +434,25 @@ export async function runConversationalFriend(input: {
     return { kind: 'chat' } as const
   })
 
-  if (!needsConversationPlanner(input.userText, memory)) {
+  /* A new account's FIRST message is the introduction, and it is not a chat to
+   * improvise.
+   *
+   * The founder described this flow exactly, 2026-09-21, verbatim: "when i press
+   * [Text Alpha] it already has a text embed which is: Hey, Alpha! and then sends
+   * the contact card and tell what it can do example of features and explains what
+   * Alpha Apps are and then show the ALpha app card". That turn already exists —
+   * the pinned welcome in runHireTurn answers a bare greeting with fixed copy,
+   * sends the contact card and rides the Alpha Apps card. The fast path was
+   * answering it with the model instead, and when the model was slow (a first
+   * message is the coldest call in the system) with the local line: "I hit a
+   * quick snag thinking through that. Can you say that once more?" — the founder's
+   * answer to that was "what the heck".
+   *
+   * So a first-contact greeting steps aside and lets the engine that owns the
+   * introduction do its job. Every other message keeps the fast path. */
+  const firstContactGreeting = isFirstContactGreeting(input.userText, returning)
+
+  if (!firstContactGreeting && !needsConversationPlanner(input.userText, memory)) {
     const fastContext = {
       now: context.now,
       name: context.name,
@@ -437,7 +471,13 @@ export async function runConversationalFriend(input: {
     // the budget; the retry only runs if enough of the wall is left to finish
     // it, so a stalled provider degrades to the local reply instead of holding
     // the thread for a second full timeout.
-    const attemptMs = Math.min(15_000, Math.max(2_500, Number(process.env.HIREALPHA_FAST_REPLY_TIMEOUT_MS) || 6_000))
+    //
+    // A first contact gets the long budget on purpose — that reply is the
+    // introduction, and the local fallback has to be its floor, never its ceiling.
+    const { attemptMs, wallMs } = fastReplyBudget({
+      firstContact: !returning && memory.history.length === 0,
+      configuredMs: Number(process.env.HIREALPHA_FAST_REPLY_TIMEOUT_MS),
+    })
     const startsAt = Date.now()
     let source: 'gmi' | 'local' = 'gmi'
     let reply: string
@@ -458,10 +498,10 @@ export async function runConversationalFriend(input: {
       // timeout/empty answer was surfacing to users as "I hit a quick snag,
       // say that once more?" on trivial messages, and the retry almost always
       // lands on the second attempt. It only runs when the wall allows it.
-      const left = FAST_REPLY_WALL_MS - (Date.now() - startsAt)
+      const left = wallMs - (Date.now() - startsAt)
       if (left < 2_500) {
         console.warn(`[${persona}] fast GMI failed with ${left}ms left, going local:`, error)
-        reply = runAgentLocally(agent, input.userText)
+        reply = runAgentLocally(agent, input.userText, { firstName: knownFirstName(live.memories) })
         source = 'local'
       } else {
         console.warn(`[${persona}] fast GMI failed, retrying once:`, error)
@@ -469,7 +509,7 @@ export async function runConversationalFriend(input: {
           reply = await ask(Math.min(attemptMs, left))
         } catch (retryError) {
           console.warn(`[${persona}] fast GMI fallback:`, retryError)
-          reply = runAgentLocally(agent, input.userText)
+          reply = runAgentLocally(agent, input.userText, { firstName: knownFirstName(live.memories) })
           source = 'local'
         }
       }

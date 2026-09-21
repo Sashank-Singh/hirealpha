@@ -29,6 +29,33 @@ export const PROACTIVE_POLL_MS = 10_000
 export const FAST_REPLY_WALL_MS = 8_500
 
 /**
+ * The attempt budget and the wall for one fast conversational reply.
+ *
+ * The default attempt (6s) against the default wall (8.5s) leaves ~2.5s — under
+ * the retry threshold, so on a slow model the retry never runs and the turn goes
+ * straight to the canned local line. Live, 2026-09-21, that is exactly what
+ * happened to a brand-new user's first message: "Hey, Alpha!" timed out, the log
+ * read `fast GMI failed with 2497ms left, going local`, and the first thing that
+ * person ever received from their new assistant was "I hit a quick snag thinking
+ * through that. Can you say that once more?".
+ *
+ * A FIRST message is the coldest call the system makes — fresh provider
+ * connection, no warm cache — and the one reply that must not be canned, so it
+ * gets a budget that can absorb a timeout and still retry. Everyone else keeps the
+ * fast path: past ten seconds a reply reads as slow, and an established thread can
+ * afford to wait for the next one.
+ */
+export function fastReplyBudget(opts: { firstContact: boolean; configuredMs?: number }): { attemptMs: number; wallMs: number } {
+  const configured = Math.min(15_000, Math.max(2_500, Number(opts.configuredMs) || 6_000))
+  if (!opts.firstContact) return { attemptMs: configured, wallMs: FAST_REPLY_WALL_MS }
+  return {
+    attemptMs: Math.max(configured, 12_000),
+    // Enough wall left for one retry at the attempt budget above.
+    wallMs: Math.max(FAST_REPLY_WALL_MS, 12_000 + 4_000),
+  }
+}
+
+/**
  * After a send fails for a reason that is not a blocked recipient, wait this
  * long before trying that same item again. Without it a fast poll turns one
  * broken RPC into an attempt every cycle — the 09-15 all-night SetTyping

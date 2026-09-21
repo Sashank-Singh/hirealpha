@@ -16,9 +16,29 @@ export interface RunAgentResult {
   agentId: AgentId
 }
 
+/** Ordinary hellos, the shapes a first message actually takes. */
+const GREETING_RE = /^(?:hey|hi|hello|yo|sup|howdy|good (?:morning|afternoon|evening)|morning|afternoon|evening|hola|what'?s up)\b/i
+
 /** Local fallback when no API key is configured. Still follows agent behavior. */
-export function runAgentLocally(agent: AgentDefinition, userText: string): string {
-  const lower = userText.toLowerCase()
+export function runAgentLocally(agent: AgentDefinition, userText: string, opts: { firstName?: string } = {}): string {
+  const lower = userText.toLowerCase().trim()
+  const first = String(opts.firstName || '').trim().split(/\s+/)[0] || ''
+  const hi = first ? `Hey ${first}` : 'Hey'
+
+  /* A greeting is the one ask this path cannot drop.
+   *
+   * This is the reply a brand-new person sees when the model call is slow — live,
+   * 2026-09-21: "Hey, Alpha!" timed out on the first attempt, the retry had no
+   * wall left, and the fallback answered a hello with "I hit a quick snag thinking
+   * through that. Can you say that once more?" A snag line for the easiest message
+   * in the product, at first contact. There is nothing to fail at in a hello, so
+   * it is answered the way a person answers one, using the name when the account
+   * knows it. */
+  if (GREETING_RE.test(lower)) {
+    if (agent.id === 'coworker') return `${hi}. What do you need moving?`
+    if (agent.id === 'cofounder') return `${hi}. What are we deciding?`
+    return `${hi}. I'm Alpha, your friend in texts. What's on your mind?`
+  }
 
   if (agent.id === 'friend') {
     if (/email|draft|stephen|interested/.test(lower)) {

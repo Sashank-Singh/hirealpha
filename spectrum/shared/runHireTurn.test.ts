@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { appendThread, loadMemory } from './memory'
 import { detectAgeOrGenZ, runHireTurn } from './runHireTurn'
-import { needsConversationPlanner, removeQueuedBrowserContradictions } from './conversationalFriend'
+import { isFirstContactGreeting, needsConversationPlanner, removeQueuedBrowserContradictions } from './conversationalFriend'
 
 describe('queued browser receipt copy', () => {
   it('removes model claims that contradict a real queued Cloud Computer session', () => {
@@ -367,5 +367,31 @@ describe('age and Gen Z detection', () => {
     expect(detectAgeOrGenZ('hello', { age: '24' }).isGenZ).toBe(true)
     expect(detectAgeOrGenZ('hello', { age: '38' }).isGenZ).toBe(false)
     expect(detectAgeOrGenZ('hello', {}, [{ key: 'birth_year', value: '2001' }]).isGenZ).toBe(true)
+  })
+})
+
+/* The founder's description of the flow he wants, 2026-09-21, verbatim: "when i
+ * press [Text Alpha] it already has a text embed which is: Hey, Alpha! and then
+ * sends the contact card and tell what it can do example of features and explains
+ * what Alpha Apps are and then show the ALpha app card". The pinned welcome in
+ * runHireTurn is that turn; the fast path must step aside for it. */
+describe('a first hello is the introduction, not a chat', () => {
+  it('routes a bare greeting from a new account to the pinned welcome', () => {
+    for (const text of ['Hey, Alpha!', 'hey', 'Hi', 'hello alpha', 'yo', 'Hey Alpha']) {
+      expect(isFirstContactGreeting(text, false)).toBe(true)
+      // Once the thread exists it is ordinary conversation again.
+      expect(isFirstContactGreeting(text, true)).toBe(false)
+    }
+  })
+
+  it('leaves everything that is not a bare hello to the fast path', () => {
+    for (const text of [
+      'hey can you check my email',
+      'what should I do about the lease',
+      'Hey, Alpha! also book me a table friday',
+      '',
+    ]) {
+      expect(isFirstContactGreeting(text, false)).toBe(false)
+    }
   })
 })

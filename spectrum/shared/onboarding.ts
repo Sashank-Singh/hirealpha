@@ -23,6 +23,13 @@ function factValue(memories: OnboardingMemory[], keys: string[]): string {
   return ''
 }
 
+/** The name to greet this person by, from whichever fact key holds it. Empty
+ * when the account has not told us yet — callers use it as a nicety, never as a
+ * requirement. */
+export function knownFirstName(memories: OnboardingMemory[] | undefined): string {
+  return factValue(memories || [], NAME_KEYS).split(/\s+/)[0] || ''
+}
+
 /** Missing name first, then city, then priority, then done. */
 export function onboardingStage(memories: OnboardingMemory[]): OnboardingStage {
   if (!factValue(memories, NAME_KEYS)) return 'name'
