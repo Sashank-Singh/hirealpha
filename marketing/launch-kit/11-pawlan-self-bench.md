@@ -4289,3 +4289,56 @@ a trap for the next toolchain rather than a live bug.
 
 Still to confirm on the device: the card bubble in the thread from the 16:24 batch.
 That is the one part of the trio this environment cannot observe for itself.
+
+### The loop, its cause, and the trio finally witnessed on the thread
+
+The founder, 9:51 AM: *"Che k iMessages why it's In a loop / Texting again and again"*. He
+was right, and the loop was **mine**.
+
+**What he saw**, from the Mac's own thread with (415) 595-1440: the intro text, the
+contact card and the Alpha Apps card arriving again and again — the same three
+bubbles over and over.
+
+**What caused it, precisely**, and this is worth reading before anyone touches that
+queue again:
+
+- I queued a one-off requeue to test the proactive path, guarded so it would only
+  re-arm when `sent_at` was older than ten minutes — which reads as safe.
+- The guard never held, because the ack that should advance `sent_at` carries
+  `WHERE id = … AND status = 'claiming'`. My minute-cron flipped the row back to
+  `pending` while the bot was mid-cycle, so **the ack matched zero rows**: no
+  `sent_at`, no `status='sent'`, and the guard satisfied again on the next tick.
+  A self-sustaining pump built out of two reasonable pieces.
+- Proof in the final row state: `status: failed, attempts: 2, sent_at:
+  2026-09-21T16:26:06.585Z` — sent_at frozen at the last cycle before my task
+  existed, while sends kept happening. No `intro ack failed` line appears anywhere:
+  the ack did not error, it matched nothing.
+
+**Stopped, in this order:** deleted the requeue task, then set the row to `failed`
+so the bot would stop claiming it, then confirmed with three consecutive reads
+(`status: failed` each time) and a clean log tail. Then the parked row was
+**deleted**, because the signup path inserts with `ON CONFLICT DO NOTHING` — a
+`failed` row would have silently blocked the intro on his next onboarding.
+
+**And the objective's third artifact is now witnessed, not inferred.** Every loop
+cycle logged `[friend] intro apps card sent to +12163032166`, and the thread itself
+shows the card bubbles: "Alpha Apps / Tap one to open it." under the HireAlpha
+sender, in the same batch as the intro text and the contact card. So all three
+parts of "welcome: intro, contact card, Alpha Apps card" now have both a log line
+and a sighting on the channel:
+
+| part | log | on the thread |
+|---|---|---|
+| intro text | `[friend] intro sent to …` | ✓ |
+| contact card | `[friend] sent vcf contact card to … with logo` | ✓ |
+| Alpha Apps card | `[friend] intro apps card sent to …` | ✓ "Alpha Apps / Tap one to open it." |
+
+**The lesson, recorded as a rule:** never drive a claimable queue from a cron that
+writes the same rows. The claim/ack protocol assumes the row it claimed is still
+`claiming` when it acks; anything that rewrites that status mid-flight turns the
+retry into a loop. My requeue should have enqueued a NEW row or used the bot's own
+path, not edited the live one.
+
+Two upstream notes from the same log, unchanged and not ours: the reminder
+scheduler keeps hitting `cooling period limits sends to 3/day`, and inbound
+catch-up reports `IMessageError: HTTP 415 without a middleware error body`.
