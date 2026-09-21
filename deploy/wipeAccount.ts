@@ -46,6 +46,45 @@ async function userColumns(): Promise<Array<{ table: string; column: string }>> 
   return rows.map((r) => ({ table: r.table_name, column: r.column_name }))
 }
 
+/**
+ * Delete order for a set of tables, children before parents, read from the
+ * database's own foreign keys.
+ *
+ * The first run of this tool died on one: `memory_records.consent_id` references
+ * `consent_records.id`, so deleting the consent row first was refused and the
+ * whole transaction rolled back — the good outcome, but it means the order cannot
+ * be guessed from table names. A table is safe to delete once nothing left in the
+ * set references it.
+ */
+async function deleteOrder(tables: string[]): Promise<string[]> {
+  const set = new Set(tables)
+  const edges = (await sql`
+    SELECT conrelid::regclass::text AS child, confrelid::regclass::text AS parent
+    FROM pg_constraint WHERE contype = 'f'
+  `) as Array<{ child: string; parent: string }>
+  const references = new Map<string, Set<string>>()
+  for (const row of edges) {
+    const child = String(row.child).replace(/^public\./, '')
+    const parent = String(row.parent).replace(/^public\./, '')
+    if (!set.has(child) || !set.has(parent) || child === parent) continue
+    if (!references.has(child)) references.set(child, new Set())
+    references.get(child)!.add(parent)
+  }
+  const remaining = new Set(tables)
+  const ordered: string[] = []
+  while (remaining.size) {
+    const ready = [...remaining].filter((table) => ![...remaining].some((other) => other !== table && references.get(other)?.has(table)))
+    // A cycle must not hang the tool: take what is left and let the transaction
+    // refuse anything genuinely out of order.
+    const batch = ready.length ? ready : [...remaining]
+    for (const table of batch) {
+      ordered.push(table)
+      remaining.delete(table)
+    }
+  }
+  return ordered
+}
+
 async function main() {
   const users = (await sql`
     SELECT id, email, phone_e164, name, assigned_phone, created_at FROM hire_users
@@ -101,8 +140,12 @@ async function main() {
     return
   }
 
+  const order = await deleteOrder(plan.map((row) => row.table))
+  console.log(`\ndelete order (children first): ${order.join(' -> ')}`)
+
   await sql.begin(async (tx) => {
-    for (const row of plan) {
+    for (const table of order) {
+      const row = plan.find((p) => p.table === table)!
       const value = row.column === 'user_id' ? user.id : (user.phone_e164 || phone)
       await tx.unsafe(`DELETE FROM "${row.table}" WHERE ${row.column} = $1`, [value])
     }
