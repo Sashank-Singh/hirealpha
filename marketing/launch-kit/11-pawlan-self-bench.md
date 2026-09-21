@@ -3630,3 +3630,137 @@ launches and executes but does not yet converge. The founder's billing action st
 buys back the tier that works; the E2B convergence is a real investigation for a
 session with a healthy gateway to measure against, not something to paper over
 with a bigger number tonight.
+
+### The count that dropped the mailbox ask, found live (dim 5, and it was never the mailbox)
+
+**The failure, 9:08 PM, from the founder's phone, Gmail connected:**
+
+> `Any important emails ?`
+> → "I could not verify current information because the web lookup did not run.
+> Please try again."
+
+**Root cause — one missing plural.** The engine's mail detector was
+`\b(inbox|email|e-?mail|gmail|mailbox|unread|replies owed)\b`, and a trailing "s"
+kills a word boundary: at "emails" the engine matches `email`, then demands a
+boundary before the "s", fails, and backtracks out of the whole alternation. Checked
+directly: `"any important emails"` → `false`, `"check my emails"` → `false`,
+`"any important e-mails"` → `false`, `"check my email"` → `true`. The ask therefore
+missed the mailbox branch, fell to the web branch of the freshness guard, the model
+never ran a web lookup for it, and the turn ended on the canned search failure. The
+server's own `wantsEmail()` in `deploy/hire-api.ts` had matched plurals all along
+(`e-?mails?`) — the engine and the tool it calls disagreed about what a mail ask
+is.
+
+Two more holes in the same guard, both closed:
+
+- **The fresh slot was freed on the web axis** (`!attemptedWeb`). A model that ran
+  one web search first — which is exactly what the wrong branch nudged it to do —
+  left the mailbox block unreachable, so the mailbox was never read even once. A
+  mail ask now frees its own slot.
+- **The failure named the wrong source.** A mailbox question answered with "the web
+  lookup did not run" is a caveat that does not match what it describes; it now
+  says the inbox.
+
+**The same singular-only shape** was fixed in `looksLikeMailWrite` ("draft replies
+to my emails" was not read as a mail write) and `looksLikeCalendarBlockAsk`.
+
+**What was deliberately NOT changed:** whether a mail ask needs a *fresh* read stays
+the classifier's call, not the word "email". Forcing every mail-shaped ask down the
+fresh path broke a passing test — "brief me on the second email" (the second email
+of the drafts already in the thread, answered from context) started returning "I
+could not check your inbox just now". A live-state ask comes back `needsLookup`
+true on its own; that is where the fix belongs.
+
+`d93b133`, deployed (webhook `rez8uafrjaimxbr3948nievv`, healthy), verified live at
+9:24 PM with a new paraphrase:
+
+> `anything urgent sitting in my mail right now?`
+> → "Read the last 2 days, 30 emails. Nothing that's on fire, but a few things worth
+> your attention tonight: / Needs you first: / 1. Music City Hotel … 2. Databricks …
+> 3. Alpha Trader Firm … / Also worth knowing: / 4. Comsable … 5. Two Google security
+> alerts … 6. Tuesday (Sep 22) is stacked … / The other 24 are event confirmations,
+> waitlists, promos and receipts (Popeyes order from earlier today included). /
+> Want me to read the hotel message or the payout email in full?"
+
+Ground truth from the service log, not from the screenshot: the engine composed and
+sent exactly one bubble starting `"Read the last 2 days, 30 emails. Nothing that's on
+fire…\n\nNeeds you first:\n\n1. Music City Hotel · …"`.
+
+### The space between the emails — the reply was spaced, the SDK ate it
+
+The founder's instruction, verbatim: *"Can you also give space between the emails?"*
+The reply arrived as one dense block: items 1/2/3 on consecutive lines, headings
+spaced. That pattern is a fingerprint. `sanitizeOutbound` had already put a blank
+line between every line (checked directly — its `dropBannedTaglines` splits on
+`/\n+/` and rejoins with `\n\n`), so the spacing existed when the engine wrote it.
+It was lost on the way out: the bot sends `markdown(...)`, and the SDK's CommonMark
+downgrade **keeps blank lines between paragraphs but collapses them inside a list
+block**. Reproduced against the installed SDK:
+
+```
+markdownToPlainText("…Needs you first:\n\n1. Music City Hotel…\n\n2. Databricks…\n\n3. Alpha Trader Firm…")
+→ ["…Needs you first:", "", "1. Music City Hotel…", "2. Databricks…", "3. Alpha Trader Firm…"]
+```
+
+So the ordered list is rendered as adjacent lines no matter how it was written. The
+fix is that the friend bot now sends `text()` instead of `markdown()` — the outbound
+sanitizer already strips `**bold**`, `*italic*`, `` `code` `` and `## headers`, so
+the markdown renderer had nothing left to style, and `text()` carries the string
+byte for byte (verified: `{"type":"text","text":"line one\n\nline two\n\n1. a\n\n2. b"}`).
+The triage prompt gains the matching rule, in the founder's words, so the model
+writes the blank line in the first place:
+
+> "- A BLANK LINE between items, and one before the closing question. A dense
+> numbered block renders as a wall in Messages. Founder's instruction on a real
+> triage, 2026-09-20, verbatim: 'Can you also give space between the emails?'"
+
+**And the count.** 30 is exactly `MAIL_READ_CAP`, so "Read the last 2 days, 30
+emails" described a capped read as a whole window. The count was real; the
+completeness came from nowhere. The mail block now says which it is —
+`(Read capped at 30 messages, newest first. There may be more inside this window —
+do not describe these as the whole window…)` — and `mailRow`/`mailResultsBlock`
+moved into `gmailHelpers.ts` so the block is testable without the HTTP handler.
+
+`379965b`, deployed (webhook `uoep46bxco8g3myc0rechooa`, healthy), verified live at
+9:39 PM with a third paraphrase:
+
+> `is anything in my email worth stopping for?`
+> → "Read the last 2 days, capped at 30 messages. Three are worth a pause:
+> / 1. Google · Security alert · tonight. Says you allowed "Composio" access to your
+> Google Account data. If that was you connecting a tool, fine. If not, that's the
+> one to open first.
+> / 2. Comcato · Planned automatic PayPal payment in 10 days. Your hosting account
+> is set to auto charge via PayPal, so if that subscription should die, you've got
+> about 10 days to cancel it.
+> / 3. Music City Hotel · Reply from the hotel about your Sep 16, 21 stay. That stay
+> is ending today, so worth a quick look in case it's a billing or checkout note.
+> / The other 27 are mostly noise with a few keepers buried in a bunch of hackathon
+> confirmations and waitlists (Stripe NY, Mozo parking approval, Supabase pending,
+> Evergreen NY on the 23rd), two LinkedIn job alerts, a Popeyes receipt, and
+> newsletters.
+> / Want me to open the Google security alert and read the full text?"
+
+Both changes are visible in that one bubble: "capped at 30 messages" is the new
+honesty line, and items 1/2/3 now have a blank line between them. 3 + 27 = 30, which
+is the capped read accounted for.
+
+**Three things this run still owes, recorded rather than smoothed over:**
+
+1. The **scored** dim-5 task stays **3, blocked** — replying to a real thread and
+   sending still has no fixture in the mailbox. The triage half is what ran tonight.
+2. `Sep 16, 21` is a date RANGE that reached the user as two numbers — the hotel's
+   "Sep 16–21" went through the dash rule, which turns an en dash into ", ". A
+   range read as a list is a small misstatement of the source and is worth a
+   targeted fix (`(\d)[–—](\d)` → " to ").
+3. `Composio` appears in the reply. It is quoting the Google alert's own text, so it
+   is grounded — but it is an internal vendor name reaching a user, and the same
+   thing happened on 09-19 when a mail item read "'Instinct' was granted access".
+   Worth a naming pass on what mail text is allowed to echo.
+
+**What the two live re-tests settle:** both paraphrases are plural ("emails", "my
+email") and the first is the exact string class that failed at 9:08 PM, so the
+triage half now survives the phrasing that broke it. The fix is load-bearing and
+narrow — no other dimension's behaviour changed (97 `toolLoop` tests pass, 913
+`deploy` tests pass; the two `runHireTurn` failures are pre-existing on a clean
+tree, checked by stashing the diff).
+
