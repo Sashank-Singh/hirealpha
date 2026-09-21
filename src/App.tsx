@@ -117,6 +117,7 @@ export default function App() {
         <Suspense fallback={<div className="route-boot" role="status" aria-label="Loading Alpha" />}>
           <Routes>
             <Route path="/" element={<Landing />} />
+            <Route path="/x" element={<Landing />} />
             <Route path="/app/login" element={<LoginPage />} />
             <Route path="/privacy" element={<TrustPage kind="privacy" />} />
             <Route path="/terms" element={<TrustPage kind="terms" />} />

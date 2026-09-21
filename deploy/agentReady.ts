@@ -14,7 +14,7 @@ export const SITE_URL = 'https://hirealpha.chat'
  * shell with a 200 for any path made agents believe every URL exists.
  */
 export function isKnownClientRoute(pathname: string): boolean {
-  if (pathname === '/') return true
+  if (pathname === '/' || pathname === '/x') return true
   return (
     pathname === '/app' ||
     pathname.startsWith('/app/') ||

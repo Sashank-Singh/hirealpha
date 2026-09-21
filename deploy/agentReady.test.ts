@@ -13,6 +13,7 @@ import {
 describe('agent readiness routing', () => {
   it('owns only the real SPA routes', () => {
     expect(isKnownClientRoute('/')).toBe(true)
+    expect(isKnownClientRoute('/x')).toBe(true)
     expect(isKnownClientRoute('/app')).toBe(true)
     expect(isKnownClientRoute('/app/mini/friend/home')).toBe(true)
     expect(isKnownClientRoute('/app/login')).toBe(true)

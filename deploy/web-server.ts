@@ -192,7 +192,7 @@ function routeChunk(pathname: string): string | null {
   if (pathname.startsWith('/app/mini/')) return 'src/platform/MiniAppPage.tsx'
   if (pathname === '/app/login') return 'src/platform/LoginPage.tsx'
   if (pathname.startsWith('/app')) return 'src/platform/PlatformShell.tsx'
-  if (pathname === '/') return 'src/Landing.tsx'
+  if (pathname === '/' || pathname === '/x') return 'src/Landing.tsx'
   return null
 }
 
@@ -496,6 +496,21 @@ async function appShell() {
  */
 async function pageHtml(pathname: string, search = '') {
   let html = await appShell()
+  // /x is a clean, dedicated share URL. Giving it its own canonical OG URL
+  // prevents X from folding the card back into its stale cache entry for `/`,
+  // while visitors still receive the normal landing page.
+  if (pathname === '/x') {
+    const shareUrl = 'https://hirealpha.chat/x'
+    html = html
+      .replace(
+        /<link\s+rel="canonical"\s+href="[^"]*"\s*\/>/,
+        `<link rel="canonical" href="${shareUrl}" />`,
+      )
+      .replace(
+        /<meta\s+property="og:url"\s+content="[^"]*"\s*\/>/,
+        `<meta property="og:url" content="${shareUrl}" />`,
+      )
+  }
   const match = pathname.match(/^\/app\/mini\/(friend|coworker|cofounder)\/([^/]+)/)
   const meta = miniMeta(pathname)
   if (meta) {
@@ -557,7 +572,7 @@ async function pageHtml(pathname: string, search = '') {
   if (head.length) html = html.replace('</head>', `${head.join('\n    ')}\n  </head>`)
   // The no-JS marketing copy only belongs on the public home; on app routes React
   // would replace it anyway, and shipping it there just adds bytes and a flash.
-  if (pathname !== '/') html = html.replace(/<main class="seo-fallback"[\s\S]*?<\/main>/, '')
+  if (pathname !== '/' && pathname !== '/x') html = html.replace(/<main class="seo-fallback"[\s\S]*?<\/main>/, '')
   return html
 }
 
