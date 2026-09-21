@@ -4,7 +4,6 @@ import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { defaultReplyCard, getAgent, runHireTurn, runMemoryMaintenance, sanitizeOutbound } from '../../shared/runHireTurn'
 import { groupTurnLine, groupTurnNote, type SpaceParticipant } from '../../shared/groupChat'
-import { fetchLiveProfile } from '../../shared/liveContext'
 import { extractMessageText, fetchLiveProfile, findInboundVoice, handleInboundPhoto, resolveInboundVoiceTurn } from '../../shared/liveContext'
 import { mintMiniAppCard, onboardingCard } from '../../shared/miniApps'
 import { claimInbound } from '../../shared/inboundGuard'
@@ -180,10 +179,23 @@ startIntroPoller({
       const cleaned = sanitizeOutbound(text)
       if (cleaned) await sendIntroText(space, cleaned)
       await shareAlphaContact(space, phone).catch((err) => console.error(`[${agent.id}] intro contact card failed`, err))
-      // Deliver the onboarding mini-app card so the user can tap to configure Alpha right away
+      /* Deliver the onboarding mini-app card so the user can tap to configure
+       * Alpha right away — and say so either way.
+       *
+       * This was silent: `onboardingCard` always returns a card (mintMiniAppUrl
+       * falls back to an unsigned URL rather than throwing), so a successful send
+       * logged nothing and the only log line was a failure, which never appeared.
+       * That made "did the Alpha Apps card go out?" impossible to answer from the
+       * logs — the founder asked exactly that on 2026-09-21 and the honest answer
+       * was "the log cannot tell you". It can now. */
       try {
         const card = await onboardingCard(phone, agent.id)
-        if (card) await sendCardSafe(space, card.url, card.live)
+        if (card) {
+          await sendCardSafe(space, card.url, card.live)
+          console.log(`[${agent.id}] intro apps card sent to ${phone}`)
+        } else {
+          console.warn(`[${agent.id}] intro apps card not minted for ${phone}`)
+        }
       } catch (cardErr) {
         console.warn(`[${agent.id}] intro onboarding card failed`, cardErr)
       }
