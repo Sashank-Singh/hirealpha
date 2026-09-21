@@ -90,3 +90,21 @@ describe('the one link on the Text Alpha screen', () => {
     expect(formatAlphaLine('+442071838750')).toBe('+442071838750')
   })
 })
+
+/* Checked live, 2026-09-21, after the number was removed from Photon:
+ * `GET /api/assigned-phone?phone=+12163032166` → `{"assignedPhone":null}`. The
+ * line is assigned asynchronously at signup, so a person who races through
+ * onboarding can arrive at the screen before it exists — and the one thing that
+ * screen must never do is show a house number as if it were theirs, which is the
+ * "generic number" the founder objected to. */
+describe('no assigned line yet', () => {
+  it('never renders a number the screen cannot confirm', async () => {
+    const { readFileSync } = await import('node:fs')
+    const page = readFileSync(new URL('./TextAlphaPage.tsx', import.meta.url), 'utf8')
+    // A null line opens Messages itself rather than a number, and the number
+    // line under the button only renders when there is one.
+    expect(page).toContain("href={line ? alphaThreadHref(line, { greet: welcome !== 'sent' }) : 'sms:'}")
+    expect(page).toContain('{line && <p className="textalpha__line">{formatAlphaLine(line)}</p>}')
+    expect(page).not.toContain('ALPHA_LINE')
+  })
+})

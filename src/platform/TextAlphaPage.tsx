@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Navigate, useSearchParams } from 'react-router-dom'
-import { ALPHA_LINE, alphaThreadHref, formatAlphaLine, useAlphaLine } from './alphaLine'
+import { alphaThreadHref, formatAlphaLine, useAlphaLine } from './alphaLine'
 import { apiSetupStatus } from './api'
 import { getSession } from './roster'
 import './textAlpha.css'
@@ -55,7 +55,13 @@ function MessagesMark({ size = 44 }: { size?: number }) {
  * true thing in both states instead of a warm thing in one. */
 type Welcome = 'sent' | 'not-yet' | 'unknown'
 
-function welcomeLine(state: Welcome, line: string): string {
+function welcomeLine(state: Welcome, line: string | null): string {
+  if (!line) {
+    // Photon has not assigned this user a line yet. Say where to go, never a
+    // number that might be somebody else's.
+    if (state === 'sent') return 'Alpha already texted you. Pick it up there.'
+    return 'Alpha texts you — tap to open the thread and say hi.'
+  }
   const shown = formatAlphaLine(line)
   if (state === 'sent') return `Alpha already texted you from ${shown}. Pick it up there.`
   if (state === 'not-yet') return `Alpha texts you from ${shown} — tap and say hi, it answers in seconds.`
@@ -104,7 +110,10 @@ export function TextAlphaPage() {
           // "Hey, Alpha!" rides along only when Alpha has not texted first: a
           // thread that already exists is opened clean, and a first message gets
           // written for them. Founder's rule, 2026-09-21, verbatim.
-          href={alphaThreadHref(line, { greet: welcome !== 'sent' })}
+          //
+          // A null line means Photon has not assigned one yet: open Messages
+          // itself (`sms:`) rather than a house number that is not this user's.
+          href={line ? alphaThreadHref(line, { greet: welcome !== 'sent' }) : 'sms:'}
           onClick={() => {
             try {
               localStorage.setItem('ha_text_alpha_seen', '1')
@@ -117,7 +126,7 @@ export function TextAlphaPage() {
           <MessagesMark size={22} />
           <span>Text Alpha</span>
         </a>
-        {line !== ALPHA_LINE && <p className="textalpha__line">{formatAlphaLine(line)}</p>}
+        {line && <p className="textalpha__line">{formatAlphaLine(line)}</p>}
       </div>
     </main>
   )

@@ -16,7 +16,7 @@ import { paymentsEnabled } from './paymentsConfig'
 import { ConnectorLogo } from './ConnectorLogo'
 import { SettingsSheet } from './SettingsSheet'
 import { TIERS, type Tier } from '../marketing/Pricing'
-import { alphaThreadHref, formatAlphaLine, useAlphaLine } from './alphaLine'
+import { ALPHA_LINE, alphaThreadHref, formatAlphaLine, useAlphaLine } from './alphaLine'
 import './dashboard.css'
 
 export type DashTab =
@@ -55,7 +55,10 @@ export function PlatformDashboard() {
   const [searchParams, setSearchParams] = useSearchParams()
   const navigate = useNavigate()
   const session = getSession()
-  const alphaLine = useAlphaLine()
+  // Signed-in surfaces keep a tappable line even before Photon answers: the
+  // shared line is a working fallback here, unlike the post-onboarding screen
+  // where a wrong number is the one thing we must not show.
+  const alphaLine = useAlphaLine() ?? ALPHA_LINE
   const alphaLineLabel = `+1 ${formatAlphaLine(alphaLine)}`
 
   const [activePersona, setActivePersona] = useState<AgentId>('friend')

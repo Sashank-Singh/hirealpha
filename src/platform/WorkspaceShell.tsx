@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, type ReactNode } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { getSession, signOut } from './roster'
-import { alphaThreadHref, formatAlphaLine, useAlphaLine } from './alphaLine'
+import { ALPHA_LINE, alphaThreadHref, formatAlphaLine, useAlphaLine } from './alphaLine'
 import { SettingsSheet, type SettingsView } from './SettingsSheet'
 import { paramsForWorkspaceView, workspaceViewFromParams } from './workspaceNavigation'
 import './workspaceShell.css'
@@ -43,7 +43,7 @@ export function WorkspaceShell() {
   const session = getSession()
   // This user's own Alpha line, shown on the button: every account is assigned a
   // different number, so a house default would be somebody else's.
-  const alphaLine = useAlphaLine()
+  const alphaLine = useAlphaLine() ?? ALPHA_LINE
   const activeView = useMemo<SettingsView>(() => workspaceViewFromParams(params), [params])
   // A stale or foreign ?tab= value must never blank the whole shell — fall back
   // to the workspace view instead of crashing on a missing lookup.

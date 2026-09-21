@@ -51,19 +51,37 @@ export function formatAlphaLine(phone: string): string {
 }
 
 /**
- * This user's own Alpha line, from Photon, with the default until it lands. One
- * request per mount; a failure leaves the default in place rather than a broken
- * link, because a tappable wrong-ish number beats no button at all.
+ * This user's own Alpha line, from Photon — `null` while Photon has not assigned
+ * one.
+ *
+ * It is assigned asynchronously at signup (the server calls into Photon when it
+ * queues the intro), so a person who races through onboarding can arrive here
+ * before the line exists. Checked live, 2026-09-21, after the number was removed
+ * from Photon: `{"assignedPhone":null}`. It retries a few times for that reason,
+ * and a caller that still gets null must NOT show a house number — that is the
+ * "generic number" the founder objected to, and it would point at somebody
+ * else's thread.
  */
-export function useAlphaLine(): string {
-  const [line, setLine] = useState(ALPHA_LINE)
+export function useAlphaLine(): string | null {
+  const [line, setLine] = useState<string | null>(null)
   useEffect(() => {
     const phone = getSession()?.phone
-    void apiAssignedPhone(phone)
-      .then((assigned) => {
-        if (assigned) setLine(assigned)
-      })
-      .catch(() => undefined)
+    let cancelled = false
+    let tries = 0
+    const read = async () => {
+      tries++
+      const assigned = await apiAssignedPhone(phone).catch(() => null)
+      if (cancelled) return
+      if (assigned) {
+        setLine(assigned)
+        return
+      }
+      if (tries < 4) setTimeout(() => void read(), 4000)
+    }
+    void read()
+    return () => {
+      cancelled = true
+    }
   }, [])
   return line
 }
