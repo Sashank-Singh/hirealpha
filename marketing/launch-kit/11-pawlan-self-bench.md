@@ -3822,4 +3822,37 @@ no longer receives `?tour=1`, because it is no longer the first screen. Giving t
 grid its first-run tour back — on the first open from the thread — is a separate
 change and is not pretended here.
 
+### The button opens the thread, it does not pre-write the message (`d7cc515`)
+
+The founder read the flow back and corrected one detail, verbatim:
+
+> "when i press done it takes me to the text ALpha on imessages button which
+> clicking on it just takes to the thread not start a new message — takes to
+> iMessage thread with Alpha since it already texted me first during onboarding …
+> then whenever using sign in to hirealpha.chat it takes them to /app the
+> dashboard side and mini app ui remain in imessages"
+
+He is right, and the difference is one query parameter. Both forms were opened on
+macOS with Messages quit:
+
+| link | what Messages does |
+|---|---|
+| `sms:+14155951440&body=Hey,%20Alpha!` | the thread opens with "Hey, Alpha!" **already typed into the compose box** |
+| `sms:+14155951440` | the same thread opens with the field **empty** |
+
+A prefilled draft is exactly what "start a new message" looks like, so the body is
+gone. Every caller of that helper is returning to a conversation Alpha opened
+first, so none of them should put words in the person's mouth — and the two
+signed-in dashboard links ("Message Alpha" in the workspace header, "Text iMessage"
+on the dashboard) now use the same helper instead of two more copies of the
+greeting, because they were composing a draft on a thread that already exists. The
+landing page keeps its prefilled first line: a prospect there has no thread yet,
+which is the one case where writing the first message for them is right.
+
+Verified in production after the deploy: `href="sms:+14155951440"`, still exactly
+one actionable element on the screen, and `/app` while signed out routes through
+`/app/login` — sign-in lands on the dashboard, which is where the founder wants the
+web surface, with the mini apps staying in iMessage.
+
+
 
