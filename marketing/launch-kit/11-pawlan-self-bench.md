@@ -4141,3 +4141,51 @@ card, and the Alpha Apps card. The one piece that cannot work for THIS number is
 Alpha initiating: the proactive welcome is refused by Photon's target allowlist, so
 until that is allowed the first move has to be the user's. That is recorded as an
 upstream blocker, not a product gap.
+
+### CORRECTION — the bot's local memory was already empty, so what did mark him "returning"?
+
+Before trusting the explanation above, the friend container's own data directory was
+listed:
+
+```
+$ ls -laR /app/spectrum/alpha/data        # inside hirealpha-friend
+/app/spectrum/alpha/data:
+total 8
+drwxr-xr-x 2 root root 4096 Sep 21 14:36 .
+drwxr-xr-x 1 root root 4096 Sep 21 14:36 ..
+```
+
+**Empty.** No thread file, no memory file, no evals: the container restart at 14:36
+took the previous layer's copy with it, and the data dir is not a volume. So the
+explanation I gave a moment ago — "our own welcome attempt and cards land in the
+thread, and that made him look returning" — is **not supported by the evidence.**
+The local thread was never there to hold anything.
+
+What is left standing, and what the fix actually rests on:
+
+- `returning` is `!!(memory.history.length || memory.summary || live.lastInboundAt)`.
+  With the local thread empty, the only signal that could have been true is
+  `live.lastInboundAt`, which comes from the **server** side of the live payload —
+  not from anything the bot wrote to disk.
+- The fix I shipped asks a different question regardless of which of those was set:
+  *has this person ever sent a message* (a user-role line in the thread). With an
+  empty thread that is false, so the first-contact greeting fires — which is the
+  behaviour that was missing, and it holds whether the old signal came from
+  `lastInboundAt` or from a stale summary.
+
+So the correction is to the STORY, not to the change: the fix is right, and the
+cause I named for it was wrong. What set `lastInboundAt` on a three-minute-old
+account is still unproven, and it is written here as unproven rather than guessed
+at a second time.
+
+**The state of the reset, all three layers, each checked rather than assumed:**
+
+| layer | what it holds | state |
+|---|---|---|
+| Photon | the number and its target allowlist | removed by the founder |
+| Postgres | account, memory_records, loops, jobs, consent | wiped — `hire_users rows left for this id: 0`, and later runs report "no account matches" |
+| bot disk (`/app/spectrum/alpha/data`) | thread, facts, summary, evals | already empty — listed above |
+
+The friend service is on `20c0419`, which carries the first-contact fix, the local
+greeting fallback and the first-message budget, so the next signup is a true first
+run against current code.
