@@ -17,6 +17,8 @@ import {
 } from './api'
 import { ConnectorLogo } from './ConnectorLogo'
 import { connectorsForHire, type ConnectorId } from './connectors'
+import { PlaceField } from './PlaceField'
+import { geocodePlace, type PlaceHit } from './placeSearch'
 import type { FeatureAuth } from './FeatureMiniApps'
 import { connectedIds, getSession, hydrateFromServer } from './roster'
 import {
@@ -93,6 +95,12 @@ export function SetupApp({ auth }: { auth: FeatureAuth }) {
   const zoneOptions = useMemo(() => (detectedTz && !COMMON_ZONES.includes(detectedTz) ? [detectedTz, ...COMMON_ZONES] : COMMON_ZONES), [detectedTz])
   const [homeQuery, setHomeQuery] = useState('')
   const [workQuery, setWorkQuery] = useState('')
+  /* The place the person actually PICKED from the suggestions. When it is set the
+   * save uses its coordinates verbatim — the address they saw is the address that
+   * gets stored. When they typed without picking, the save falls back to the
+   * one-shot geocode, which is the old behaviour and still the honest one. */
+  const [homePick, setHomePick] = useState<PlaceHit | null>(null)
+  const [workPick, setWorkPick] = useState<PlaceHit | null>(null)
   const [ids, setIds] = useState<ConnectorId[]>(() => connectedIds())
   const [connecting, setConnecting] = useState<ConnectorId | null>(null)
   const [busy, setBusy] = useState(false)
@@ -146,29 +154,21 @@ export function SetupApp({ auth }: { auth: FeatureAuth }) {
     setBusy(true)
     try {
       if (step === 'you') {
-        // Time zone rides the phone record; home and work geocode on save.
-        // Independent writes run together so the page lands in one round trip.
+        // Time zone rides the phone record; home and work save together so the
+        // page lands in one round trip.
         const jobs: Promise<unknown>[] = []
         const session = getSession()
         if (email && session?.phone) {
           jobs.push(apiSavePhone(email, session.phone, session.name, tz))
         }
-        const homeQ = homeQuery.trim()
-        if (email && homeQ) {
-          jobs.push(
-            geocodePlace(homeQ).then((hit) =>
-              apiSaveLocation({ email, kind: 'home', latitude: hit.lat, longitude: hit.lon, label: homeQ, source: 'manual' }),
-            ),
-          )
-        }
-        const workQ = workQuery.trim()
-        if (email && workQ) {
-          jobs.push(
-            geocodePlace(workQ).then((hit) =>
-              apiSaveLocation({ email, kind: 'work', latitude: hit.lat, longitude: hit.lon, label: workQ, source: 'manual' }),
-            ),
-          )
-        }
+        /* A picked suggestion saves its own coordinates and the label the person
+         * saw. Typed text with no pick still resolves through the one-shot
+         * geocode — same endpoint, one exact lookup. What must never happen is a
+         * second, different reading of an address the person already confirmed. */
+        const home = placeForSave(homeQuery, homePick)
+        if (email && home) jobs.push(home.then((hit) => apiSaveLocation({ email, kind: 'home', latitude: hit.lat, longitude: hit.lon, label: hit.label, source: 'manual' })))
+        const work = placeForSave(workQuery, workPick)
+        if (email && work) jobs.push(work.then((hit) => apiSaveLocation({ email, kind: 'work', latitude: hit.lat, longitude: hit.lon, label: hit.label, source: 'manual' })))
         await Promise.all(jobs)
       } else if (step === 'watch') {
         const f = features.length ? features : ['digest']
@@ -205,18 +205,13 @@ export function SetupApp({ auth }: { auth: FeatureAuth }) {
     goto(idx)
   }
 
-  /** Geocode free text to a lat/lon via Nominatim, like the settings sheet. */
-  async function geocodePlace(query: string): Promise<{ lat: number; lon: number }> {
-    const url = new URL('https://nominatim.openstreetmap.org/search')
-    url.searchParams.set('q', query)
-    url.searchParams.set('format', 'jsonv2')
-    url.searchParams.set('limit', '1')
-    const res = await fetch(url, { headers: { Accept: 'application/json' } })
-    if (!res.ok) throw new Error('Could not look up that address')
-    const rows = (await res.json()) as Array<{ lat?: string; lon?: string }>
-    const row = rows[0]
-    if (!row || !row.lat || !row.lon) throw new Error('No place found. Try a city or address.')
-    return { lat: Number(row.lat), lon: Number(row.lon) }
+  /** What to save for one address field: the picked place verbatim, or the typed
+   * text resolved through a single lookup. Null when the field is empty. */
+  function placeForSave(text: string, picked: PlaceHit | null): Promise<{ lat: number; lon: number; label: string }> | null {
+    const query = text.trim()
+    if (!query) return null
+    if (picked) return Promise.resolve({ lat: picked.lat, lon: picked.lon, label: picked.label })
+    return geocodePlace(query)
   }
 
   function skip() {
@@ -297,21 +292,24 @@ export function SetupApp({ auth }: { auth: FeatureAuth }) {
               ))}
             </select>
           </label>
-          <input
-            className="setup__text"
-            type="text"
-            placeholder="Where's home? (city or address)"
+          <PlaceField
             value={homeQuery}
-            onChange={(e) => setHomeQuery(e.target.value)}
+            onChange={setHomeQuery}
+            onPick={setHomePick}
+            placeholder="Where's home? (city or address)"
+            ariaLabel="Home city or address"
           />
-          <input
-            className="setup__text"
-            type="text"
-            placeholder="Where do you work? (optional)"
+          <PlaceField
             value={workQuery}
-            onChange={(e) => setWorkQuery(e.target.value)}
-          />
-          {homeQuery.trim() && <p className="setup__hint">Tap Next to save {homeQuery.trim()}. Leave blank to skip.</p>}
+            onChange={setWorkQuery}
+            onPick={setWorkPick}
+            placeholder="Where do you work? (optional)"
+            ariaLabel="Work city or address"
+          />          {homeQuery.trim() && (
+            <p className="setup__hint">
+              {homePick ? `Home set to ${homePick.label}.` : `Tap Next to save ${homeQuery.trim()}.`} Leave blank to skip.
+            </p>
+          )}
         </div>
       )}
 

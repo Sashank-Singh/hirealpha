@@ -41,6 +41,8 @@ import {
   type TrustCapability,
 } from './api'
 import { connectedIds, getSession, hydrateFromServer, setConnection, signOut } from './roster'
+import { PlaceField } from './PlaceField'
+import { geocodePlace, type PlaceHit } from './placeSearch'
 import './SettingsSheet.css'
 
 /* ---- Helpers moved from the old pages (pure, copied verbatim) ---- */
@@ -115,6 +117,8 @@ export function SettingsSheet({ view = 'workspace', embedded = false }: { view?:
   const [locNotice, setLocNotice] = useState('')
   const [capturing, setCapturing] = useState(false)
   const [manual, setManual] = useState('')
+  /** The suggestion the person picked, carried into the save. */
+  const [manualPick, setManualPick] = useState<PlaceHit | null>(null)
   const [openKind, setOpenKind] = useState<LocationKind | null>(null)
   const [toolFilter, setToolFilter] = useState<'all' | 'connected'>('all')
   const [copiedPhone, setCopiedPhone] = useState(false)
@@ -505,29 +509,25 @@ export function SettingsSheet({ view = 'workspace', embedded = false }: { view?:
     setLocNotice('')
     void (async () => {
       try {
-        const url = new URL('https://nominatim.openstreetmap.org/search')
-        url.searchParams.set('q', manual.trim())
-        url.searchParams.set('format', 'jsonv2')
-        url.searchParams.set('limit', '1')
-        const res = await fetch(url, { headers: { Accept: 'application/json' } })
-        if (!res.ok) throw new Error('Could not look up that address')
-        const rows = (await res.json()) as Array<{ lat?: string; lon?: string; display_name?: string }>
-        const row = rows[0]
-        if (!row || !row.lat || !row.lon) throw new Error('No place found. Try a city or address.')
+        /* A suggestion the person PICKED carries its own coordinates, so the
+         * place that gets saved is the one they saw in the list. Typed text with
+         * no pick resolves through the same one-shot lookup this always used. */
+        const hit = manualPick ?? (await geocodePlace(label))
         const email = getSession()?.email
         if (!email) return
         const next = await apiSaveLocation({
           email,
           kind,
-          latitude: Number(row.lat),
-          longitude: Number(row.lon),
+          latitude: hit.lat,
+          longitude: hit.lon,
           accuracy_m: null,
-          label: label || String(row.display_name || '').split(',').slice(0, 3).join(','),
+          label: manualPick ? manualPick.label : label,
           source: 'manual',
         })
         setLocations(next)
         setManual('')
-        setLocNotice(`${label || 'Location'} saved.`)
+        setManualPick(null)
+        setLocNotice(`${label} saved.`)
       } catch (err) {
         setLocError(err instanceof Error ? err.message : 'Could not save location')
       } finally {
@@ -1109,12 +1109,13 @@ export function SettingsSheet({ view = 'workspace', embedded = false }: { view?:
                         {capturing ? 'Locating…' : 'Use my current location'}
                       </button>
                       <div className="ss-input-row">
-                        <input
-                          className="bento-input"
-                          type="text"
-                          placeholder="Enter street address or city"
+                        <PlaceField
                           value={manual}
-                          onChange={(e) => setManual(e.target.value)}
+                          onChange={setManual}
+                          onPick={setManualPick}
+                          placeholder="Enter street address or city"
+                          ariaLabel={`${row.title} address`}
+                          inputClassName="bento-input"
                         />
                         <button
                           type="button"
