@@ -1444,6 +1444,27 @@ export async function autoLogLoops(
   }
 }
 
+/** Best-effort capture of a deadline-bearing promise from a normal chat turn. */
+export async function captureCommitment(
+  phone: string,
+  persona: AgentId,
+  text: string,
+): Promise<{ captured: boolean; id?: string } | null> {
+  const base = apiBase()
+  const key = process.env.HIREALPHA_INTERNAL_KEY || ''
+  if (!base || !key || !text.trim()) return null
+  try {
+    const res = await timedFetch(`${base}/api/internal/commitments`, {
+      method: 'POST', headers: authHeaders(), body: JSON.stringify({ phone, persona, text: text.slice(0, 1000) }),
+    }, 8000)
+    if (!res.ok) return null
+    return (await res.json()) as { captured: boolean; id?: string }
+  } catch (err) {
+    console.warn('[live] commitment capture failed', err)
+    return null
+  }
+}
+
 /** B3. Import an exported chat (iMessage/WhatsApp txt) into per-person context. */
 export async function importChatExport(
   phone: string,

@@ -16,7 +16,7 @@ import { appendThread, LAST_BUILD_KEY, lastBuildFor, loadMemory, recordDelivered
 import { captureStatedPreferences, extractFacts, summarizeOld } from './memoryMaintain'
 import { cityConflictInstruction, detectCityConflict } from './cityConflict'
 import { liveFactsToInput, localFactsToInput, mergeMemoryFacts, selectMemoryFacts } from './memoryBlock'
-import { autoIterateWorkshop, autoLogGratitude, autoLogHabit, autoLogMood, autoLogNutrition, autoLogSleep, autoLogSpend, autoLogWorkout, autoLogNetwork, autoLogDecision, autoLogLoops, autoLogPipeline, autoLogStandup, autoRunWorkshop, autoWorkshopKeep, autoWorkshopToss, autoSaveLearning, autoSetBudget, autoSetPrefs, executeSpendApproval, fetchLiveProfile, fetchLiveTools, fetchMiniRun, fetchPrepBundle, fetchWeekBundle, formatHireContext, persistLiveFacts, proposeLiveDraft,
+import { autoIterateWorkshop, autoLogGratitude, autoLogHabit, autoLogMood, autoLogNutrition, autoLogSleep, autoLogSpend, autoLogWorkout, autoLogNetwork, autoLogDecision, autoLogLoops, autoLogPipeline, autoLogStandup, autoRunWorkshop, autoWorkshopKeep, autoWorkshopToss, autoSaveLearning, autoSetBudget, autoSetPrefs, captureCommitment, executeSpendApproval, fetchLiveProfile, fetchLiveTools, fetchMiniRun, fetchPrepBundle, fetchWeekBundle, formatHireContext, persistLiveFacts, proposeLiveDraft,
   proposePurchase, proposeBrowserTask, publishTaskChoices, touchInbound, importChatExport, addMeeting, fetchRenewalRadar, setTravel,
   fetchAwaitingBrowserAnswer, submitBrowserAnswer } from './liveContext'
 import { captureFromChat } from './cofounderPro'
@@ -2576,6 +2576,10 @@ export async function runMemoryMaintenance(input: {
 }): Promise<void> {
   try {
     pruneExpiredFacts(input.dataDir, input.senderId)
+
+    // The server owns timezone resolution, idempotent persistence, and arming
+    // the proactive rescue. It is deliberately post-reply and best effort.
+    await captureCommitment(input.senderId, input.agentId, input.userText)
 
     const mem = loadMemory(input.dataDir, input.senderId)
     const facts = await extractFacts({

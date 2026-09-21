@@ -2,6 +2,7 @@ import type { AgentId } from '../../src/agents/types'
 import { PROACTIVE_POLL_MS } from './delivery'
 import { fetchJudgmentState, inQuietHours, isRecipientSendBlocked } from './judgment'
 import { buildApprovalText, needsApproval, pickFlavor } from './proactiveFlavors'
+import { buildCommitmentRescueText } from './commitmentRescue'
 
 /** Server owned task loops: the bot claims, acts, and reports the outcome.
  * Every claim result is posted back exactly once so a slow send can never
@@ -993,6 +994,11 @@ export const LOOP_HANDLERS: Record<string, LoopHandler> = {
   inbox_ping: inboxPingHandler,
   inbox_watch_on: inboxWatchOnHandler,
   browser_result: browserResultHandler,
+  commitment_rescue: (task) => ({
+    text: buildCommitmentRescueText(parseLoopPayload(task.payload) as { title: string; dueAt?: unknown; timezone?: unknown }),
+    outcome: 'done',
+    note: 'commitment_rescue',
+  }),
   /** Goal-conditioned watch: re-run the same visit on a schedule. The agent
    * itself judges the goal ("price under $400") because the condition is
    * language, not a number we can parse here. When it stages a checkout the
@@ -1110,7 +1116,7 @@ export function startTaskLoopPoller(opts: {
     }
     for (const task of tasks) {
       if (!task || !task.id || !task.phone) continue
-      const handler = handlers[task.kind]
+      const handler = handlers[task.kind] || (task.kind.startsWith('commitment_rescue:') ? handlers.commitment_rescue : undefined)
       if (!handler) {
         await postLoopResult(task.id, { outcome: 'failed', note: `no handler for ${task.kind}` })
         continue

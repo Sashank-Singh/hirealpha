@@ -1,6 +1,6 @@
 import { canFireDaily, captureFromChat, dayKey, defaultCapturePost } from './cofounderPro'
 import type { CapturePost, CofounderDigest } from './cofounderPro'
-import { killSwitchBlocksSend } from './taskLoops'
+import { killSwitchBlocksSend, quietHoursHoldForTask } from './taskLoops'
 
 /**
  * Alpha (Coworker) proactive capture and daily digest.
@@ -110,28 +110,70 @@ export async function coworkerCaptureFromChat(
 /* ---- Daily digest: pick the one highest signal item ---- */
 
 export interface CoworkerDigest extends CofounderDigest {
-  nextMeeting?: { title: string; startsInMin: number }
+  nextMeeting?: {
+    title: string
+    startsInMin: number
+    /** Privacy-safe preparation metadata. Never put mail subjects/snippets in
+     * the proactive digest: lock-screen copy only needs to say what is ready. */
+    prep?: { agendaCount?: number; hasLastThread?: boolean }
+  }
   draftsWaiting?: number
   /** True only once the standup is already handled; absent or false means the
    * drafted standup still wants a yes from the user. */
   standupReady?: boolean
+  changeResponses?: Array<{
+    kind: 'calendar_cancelled' | 'email_unanswered' | 'issue_slipping'
+    entityKey: string
+    title: string
+    reason: string
+    proposedAction: string
+    score: number
+  }>
 }
 
 export type CoworkerPick =
-  | { kind: 'meeting'; title: string; startsInMin: number }
+  | {
+      kind: 'meeting'
+      title: string
+      startsInMin: number
+      prep?: { agendaCount: number; hasLastThread: boolean }
+    }
   | { kind: 'drafts'; count: number; name?: string }
   | { kind: 'standup' }
   | { kind: 'promise'; title: string; dueAt: string }
+  | { kind: 'change'; title: string; reason: string; proposedAction: string; score: number; entityKey: string }
 
 /** Priority: next meeting within 90 minutes, waiting drafts, standup not yet
  * confirmed, most overdue promise. Returns null when nothing clears the bar. */
 export function pickCoworkerItem(digest: CoworkerDigest | null, now: Date = new Date()): CoworkerPick | null {
   if (!digest) return null
+  const change = (digest.changeResponses || [])
+    .filter((item) => item && Number.isFinite(Number(item.score)) && item.title && item.reason && item.proposedAction)
+    .sort((a, b) => Number(b.score) - Number(a.score) || String(a.entityKey).localeCompare(String(b.entityKey)))[0]
+  const boundedChange = change ? {
+    kind: 'change' as const,
+    title: String(change.title).trim().slice(0, 100),
+    reason: String(change.reason).trim().slice(0, 150),
+    proposedAction: String(change.proposedAction).trim().slice(0, 100),
+    score: Math.max(0, Math.min(100, Math.round(Number(change.score)))),
+    entityKey: String(change.entityKey).slice(0, 180),
+  } : null
+  if (boundedChange && boundedChange.score >= 75) return boundedChange
   const mtg = digest.nextMeeting
   const mins = Number(mtg?.startsInMin)
   if (mtg?.title && Number.isFinite(mins) && mins >= 0 && mins <= 90) {
-    return { kind: 'meeting', title: String(mtg.title).slice(0, 120), startsInMin: mins }
+    const rawAgendaCount = Number(mtg.prep?.agendaCount)
+    const agendaCount = Number.isFinite(rawAgendaCount)
+      ? Math.max(0, Math.min(9, Math.floor(rawAgendaCount)))
+      : 0
+    return {
+      kind: 'meeting',
+      title: String(mtg.title).trim().slice(0, 120),
+      startsInMin: mins,
+      ...(mtg.prep ? { prep: { agendaCount, hasLastThread: mtg.prep.hasLastThread === true } } : {}),
+    }
   }
+  if (boundedChange) return boundedChange
   const drafts = Number(digest.draftsWaiting)
   if (Number.isFinite(drafts) && drafts > 0) {
     // Best effort: name a queued draft when the promise list shows one.
@@ -156,12 +198,17 @@ export function buildCoworkerText(pick: CoworkerPick, now: Date = new Date()): s
   let text: string
   if (pick.kind === 'meeting') {
     const mins = Math.max(1, Math.round(pick.startsInMin))
-    text = `${pick.title} starts in ${mins} ${mins === 1 ? 'minute' : 'minutes'}. I put the agenda in Meeting mode.`
+    const ready = pick.prep?.agendaCount
+      ? `${pick.prep.hasLastThread ? 'I pulled the latest thread and laid out' : 'I laid out'} ${pick.prep.agendaCount} ${pick.prep.agendaCount === 1 ? 'point' : 'points'} in Meeting mode.`
+      : 'I put the agenda in Meeting mode.'
+    text = `${pick.title} starts in ${mins} ${mins === 1 ? 'minute' : 'minutes'}. ${ready}`
   } else if (pick.kind === 'drafts') {
     const n = `${pick.count} ${pick.count === 1 ? 'draft is' : 'drafts are'} waiting in Approve and send.`
     text = pick.name ? `${n} One is to ${pick.name}.` : n
   } else if (pick.kind === 'standup') {
     text = 'Standup is drafted from yesterday and today. Want it?'
+  } else if (pick.kind === 'change') {
+    text = `${pick.reason} ${pick.proposedAction}`
   } else {
     const overdueDays = Math.floor((now.getTime() - new Date(pick.dueAt).getTime()) / 86_400_000)
     text =
@@ -188,6 +235,7 @@ export function startCoworkerLoop(opts: {
   now?: () => Date
   fetchDigest?: (persona: string, phone?: string) => Promise<CoworkerDigest | null>
   checkKillSwitch?: (phone: string) => Promise<boolean>
+  checkQuietHours?: (phone: string) => Promise<boolean>
   /** Injectable user discovery, for tests. */
   fetchUsers?: () => Promise<string[]>
 }) {
@@ -195,6 +243,11 @@ export function startCoworkerLoop(opts: {
   const startHour = opts.startHour ?? 9
   const nowFn = opts.now || (() => new Date())
   const checkKillSwitch = opts.checkKillSwitch || killSwitchBlocksSend
+  const checkQuietHours = opts.checkQuietHours || ((phone: string) => quietHoursHoldForTask({
+    id: `coworker-digest:${opts.persona}:${phone}`,
+    phone,
+    kind: 'coworker_digest',
+  }, opts.persona))
   const base = (process.env.HIREALPHA_API_URL || '').replace(/\/$/, '')
   if (!base || !process.env.HIREALPHA_INTERNAL_KEY) {
     console.log(`[coworkerPro:${opts.persona}] off: HIREALPHA_API_URL or HIREALPHA_INTERNAL_KEY missing`)
@@ -259,6 +312,7 @@ export function startCoworkerLoop(opts: {
         lastFiredByPersona.set(slot, dayKey(now))
         continue
       }
+      if (await checkQuietHours(phone)) continue
       try {
         await opts.send(phone, buildCoworkerText(pick, now))
         lastFiredByPersona.set(slot, dayKey(now))

@@ -78,6 +78,8 @@ import { memoryIndexFromEnv, memoryIndexStatusFromEnv, type MemoryIndexHit } fro
 import { parseChatExport, scanSubscriptions } from '../spectrum/shared/smartFeatures'
 import { PLACE_ASK_RE } from '../spectrum/shared/toolLoop'
 import { buildAlphaVcard } from '../spectrum/shared/alphaContact'
+import { detectCommitment } from '../spectrum/shared/commitmentRescue'
+import { detectChangeResponses } from '../services/tasks/changeResponse'
 import { inQuietHours } from '../spectrum/shared/judgment'
 import {
   isValidTimeZone,
@@ -1765,6 +1767,16 @@ export async function claimDueLoops(sql: SQL, persona: Persona, limit: number) {
   await sql`
     UPDATE hire_browser_result_deliveries SET status = 'pending'
     WHERE status = 'running' AND updated_at < now() - interval '10 minutes'
+  `
+  // A promise completed from the Promises card retires its pending rescue.
+  // The open loop remains the source of truth, so stale nudges cannot fire.
+  await sql`
+    UPDATE hire_task_loops t SET status = 'done', last_result = 'commitment already closed', updated_at = now()
+    WHERE t.persona = ${persona} AND t.status = 'pending' AND t.kind LIKE 'commitment_rescue:%'
+      AND NOT EXISTS (
+        SELECT 1 FROM hire_loops l
+        WHERE l.id = t.payload->>'loopId' AND l.user_id = t.user_id AND l.status = 'open'
+      )
   `
   const deliveries = (await sql`
     UPDATE hire_browser_result_deliveries SET status = 'running', attempts = attempts + 1, updated_at = now()
@@ -11780,7 +11792,7 @@ async function calendarHold(
   return { ok: true, eventId: data.id }
 }
 
-function walkLinearIssues(data: unknown, out: Array<{ id: string; identifier: string; title: string; state?: string; team?: string }> = []) {
+function walkLinearIssues(data: unknown, out: Array<{ id: string; identifier: string; title: string; state?: string; team?: string; dueAt?: string }> = []) {
   if (out.length >= 12 || data == null) return out
   if (Array.isArray(data)) {
     for (const item of data) walkLinearIssues(item, out)
@@ -11798,7 +11810,11 @@ function walkLinearIssues(data: unknown, out: Array<{ id: string; identifier: st
     const team = typeof o.team === 'object' && o.team
       ? String((o.team as { name?: string }).name || '')
       : String(o.team || '')
-    if (!out.some((x) => x.id === id)) out.push({ id, identifier: identifier || title.slice(0, 8), title, state, team })
+    const dueAt = String(o.dueDate || o.due_at || o.dueAt || o.deadline || '')
+    if (!out.some((x) => x.id === id)) out.push({
+      id, identifier: identifier || title.slice(0, 8), title, state, team,
+      ...(Number.isFinite(Date.parse(dueAt)) ? { dueAt: new Date(dueAt).toISOString() } : {}),
+    })
     return out
   }
   for (const v of Object.values(o)) walkLinearIssues(v, out)
@@ -17466,6 +17482,41 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
     return json({ ok: true, logged: true, count: titles.length })
   }
 
+  if (path === '/api/internal/commitments' && req.method === 'POST') {
+    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
+    const body = (await req.json().catch(() => ({}))) as { phone?: string; persona?: string; text?: string }
+    if (!body.phone || !isPersona(body.persona || '') || !String(body.text || '').trim()) {
+      return json({ error: 'phone, persona, and text required' }, 400)
+    }
+    const user = await getUserByPhone(sql, body.phone)
+    if (!user) return json({ error: 'User not found' }, 404)
+    const persona = body.persona as Persona
+    const candidate = detectCommitment(String(body.text), user.timezone || 'America/Los_Angeles')
+    if (!candidate) return json({ ok: true, captured: false })
+
+    // The open loop is the source of truth. A retry of the same chat updates
+    // the existing promise rather than cloning it or arming another rescue.
+    const fingerprint = createHmac('sha256', 'hirealpha.commitment.v1')
+      .update(`${user.id}\0${persona}\0${candidate.title.toLowerCase()}`).digest('hex').slice(0, 32)
+    const id = `commitment:${fingerprint}`
+    await sql`
+      INSERT INTO hire_loops (id, user_id, persona, title, context, due_at, status)
+      VALUES (${id}, ${user.id}, ${persona}, ${candidate.title}, ${candidate.sourceText}, ${candidate.dueAt.toISOString()}, 'open')
+      ON CONFLICT (id) DO UPDATE SET title = excluded.title, context = excluded.context,
+        due_at = excluded.due_at, status = 'open', updated_at = now()
+    `
+    const kind = `commitment_rescue:${id}`
+    const payload = JSON.stringify({ title: candidate.title, dueAt: candidate.dueAt.toISOString(), timezone: user.timezone || 'America/Los_Angeles', loopId: id })
+    await sql`
+      INSERT INTO hire_task_loops (id, user_id, persona, phone_e164, kind, title, payload, status, attempts, next_run)
+      VALUES (${crypto.randomUUID()}, ${user.id}, ${persona}, ${normalizePhone(body.phone)}, ${kind}, ${candidate.title}, ${payload}::jsonb, 'pending', 0, ${candidate.rescueAt.toISOString()})
+      ON CONFLICT (user_id, persona, kind) DO UPDATE SET
+        title = excluded.title, payload = excluded.payload, status = 'pending', attempts = 0,
+        next_run = excluded.next_run, updated_at = now()
+    `
+    return json({ ok: true, captured: true, id, dueAt: candidate.dueAt.toISOString(), rescueAt: candidate.rescueAt.toISOString() })
+  }
+
   if (path === '/api/internal/chat-import' && req.method === 'POST') {
     if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
     const body = (await req.json().catch(() => ({}))) as {
@@ -17652,17 +17703,59 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
     const user = await getUserByPhone(sql, phone)
     if (!user) return json({ error: 'User not found' }, 404)
     const tz = pickUserTimezone({ userTz: user.timezone })
-    const [base, waiting, standup, prep] = await Promise.all([
+    const connected = await connectedForUser(sql, user.id)
+    const [base, waiting, standup, prep, linear] = await Promise.all([
       cofounderDigest(sql, user.id, 'coworker'),
       sql`SELECT count(*)::int AS n FROM hire_drafts WHERE user_id = ${user.id} AND status = 'pending'`,
       sql`SELECT id FROM hire_standups WHERE user_id = ${user.id} AND day = ${localDateStrInTz(new Date(), tz)} LIMIT 1`,
       buildMeetingPrep(sql, user),
+      connected.includes('linear')
+        ? listLinearIssues(user.id).catch(() => ({ issues: [], needConnect: false }))
+        : Promise.resolve({ issues: [], needConnect: true }),
     ])
+    const changeResponses = detectChangeResponses({
+      now: new Date(),
+      issues: linear.issues
+        .flatMap((issue) => {
+          const dueAt = 'dueAt' in issue ? issue.dueAt : undefined
+          return dueAt ? [{
+          id: issue.id,
+          title: issue.title,
+          dueAt,
+          state: /done|complete/i.test(issue.state || '')
+            ? 'completed' as const
+            : /cancel/i.test(issue.state || '')
+              ? 'cancelled' as const
+              : /progress|started/i.test(issue.state || '')
+                ? 'started' as const
+                : 'backlog' as const,
+          importance: /urgent/i.test(`${issue.title} ${issue.state}`) ? 1 : 0.7,
+        }] : []
+        }),
+    }).slice(0, 3).map((item) => ({
+      kind: item.kind,
+      entityKey: item.entityKey.slice(0, 180),
+      title: item.title.slice(0, 120),
+      reason: item.reason.slice(0, 180),
+      proposedAction: item.proposedAction.slice(0, 120),
+      score: item.score,
+    }))
     return json({
       ...base,
-      nextMeeting: prep.event,
+      nextMeeting: prep.event
+        ? {
+            ...prep.event,
+            // The proactive channel only needs proof that preparation exists.
+            // Keep subject/snippet/Gmail ids inside authenticated Meeting mode.
+            prep: {
+              agendaCount: Math.min(9, prep.prep.agenda.length),
+              hasLastThread: Boolean(prep.prep.lastThread),
+            },
+          }
+        : null,
       draftsWaiting: Number((waiting[0] as { n?: number } | undefined)?.n || 0),
       standupReady: !standup[0],
+      changeResponses,
     })
   }
 

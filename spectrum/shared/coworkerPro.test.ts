@@ -167,6 +167,46 @@ describe('pickCoworkerItem priority', () => {
   it('meeting within 90 minutes beats everything', () => {
     expect(pickCoworkerItem(full, NOW)?.kind).toBe('meeting')
   })
+  it('puts critical changes ahead of prep but keeps prep ahead of low score changes', () => {
+    const changeResponses: CoworkerDigest['changeResponses'] = [{
+      kind: 'issue_slipping', entityKey: 'linear:ENG-7', title: 'Launch billing',
+      reason: 'Launch billing is 2 days overdue.', proposedAction: 'Prepare an owner and deadline check-in.', score: 82,
+    }]
+    expect(pickCoworkerItem({ ...full, changeResponses }, NOW)?.kind).toBe('change')
+    expect(pickCoworkerItem({ ...full, changeResponses: [{ ...changeResponses[0]!, score: 60 }] }, NOW)?.kind).toBe('meeting')
+  })
+  it('bounds change-response lock-screen copy', () => {
+    const pick = pickCoworkerItem({ changeResponses: [{
+      kind: 'issue_slipping', entityKey: 'x'.repeat(300), title: 'T'.repeat(300),
+      reason: 'R'.repeat(300), proposedAction: 'A'.repeat(300), score: 90,
+    }] }, NOW)
+    expect(pick?.kind).toBe('change')
+    if (pick?.kind === 'change') {
+      expect(pick.title.length).toBeLessThanOrEqual(100)
+      expect(pick.reason.length).toBeLessThanOrEqual(150)
+      expect(pick.proposedAction.length).toBeLessThanOrEqual(100)
+      expect(pick).not.toHaveProperty('evidence')
+    }
+  })
+  it('carries only bounded preparation metadata into the proactive pick', () => {
+    const digest: CoworkerDigest = {
+      nextMeeting: {
+        title: `  ${'Roadmap '.repeat(30)}`,
+        startsInMin: 25,
+        prep: { agendaCount: 80, hasLastThread: true },
+      },
+    }
+    const pick = pickCoworkerItem(digest, NOW)
+    expect(pick).toMatchObject({
+      kind: 'meeting', startsInMin: 25, prep: { agendaCount: 9, hasLastThread: true },
+    })
+    expect(pick?.kind === 'meeting' ? pick.title.length : 0).toBeLessThanOrEqual(120)
+  })
+  it('normalizes partial preparation data without inventing a mail thread', () => {
+    expect(pickCoworkerItem({
+      nextMeeting: { title: 'Review', startsInMin: 30, prep: { agendaCount: Number.NaN } },
+    }, NOW)).toMatchObject({ prep: { agendaCount: 0, hasLastThread: false } })
+  })
   it('drafts beat standup, standup beats overdue promise', () => {
     const noMeeting = { ...full, nextMeeting: undefined }
     expect(pickCoworkerItem(noMeeting, NOW)?.kind).toBe('drafts')
@@ -210,6 +250,22 @@ describe('pickCoworkerItem priority', () => {
 })
 
 describe('buildCoworkerText', () => {
+  it('says what was prepared without leaking thread contents', () => {
+    const text = buildCoworkerText({
+      kind: 'meeting',
+      title: 'Design review',
+      startsInMin: 40,
+      prep: { agendaCount: 3, hasLastThread: true },
+    }, NOW)
+    expect(text).toBe('Design review starts in 40 minutes. I pulled the latest thread and laid out 3 points in Meeting mode.')
+    expect(text).not.toContain('subject')
+    expect(text).not.toContain('snippet')
+  })
+  it('describes prepared points when no mail context was available', () => {
+    expect(buildCoworkerText({
+      kind: 'meeting', title: 'Planning', startsInMin: 1, prep: { agendaCount: 1, hasLastThread: false },
+    }, NOW)).toBe('Planning starts in 1 minute. I laid out 1 point in Meeting mode.')
+  })
   it('names the item and the next action for each kind', () => {
     expect(buildCoworkerText({ kind: 'meeting', title: 'Design review', startsInMin: 40 }, NOW)).toContain(
       'Design review starts in 40 minutes',
@@ -217,6 +273,10 @@ describe('buildCoworkerText', () => {
     expect(buildCoworkerText({ kind: 'drafts', count: 2 }, NOW)).toContain('2 drafts are waiting')
     expect(buildCoworkerText({ kind: 'drafts', count: 1, name: 'Priya' }, NOW)).toContain('One is to Priya')
     expect(buildCoworkerText({ kind: 'standup' }, NOW)).toContain('Standup is drafted')
+    expect(buildCoworkerText({
+      kind: 'change', title: 'Billing', reason: 'Billing is overdue.',
+      proposedAction: 'Prepare an owner check-in.', score: 80, entityKey: 'linear:1',
+    }, NOW)).toBe('Billing is overdue. Prepare an owner check-in.')
     expect(
       buildCoworkerText({ kind: 'promise', title: 'send the deck', dueAt: new Date(NOW.getTime() - 2 * 86_400_000).toISOString() }, NOW),
     ).toContain('2 days overdue')
@@ -267,6 +327,7 @@ describe('daily fire once logic', () => {
       pollMs: 20,
       fetchDigest: async () => ({ ...digest }),
       checkKillSwitch: async () => false,
+      checkQuietHours: async () => false,
       now: () => clock.now,
     })
     await Bun.sleep(80)
@@ -284,6 +345,36 @@ describe('daily fire once logic', () => {
     clock.now = new Date('2026-08-22T08:00:00')
     await Bun.sleep(60)
     expect(sent.length).toBe(2)
+    loop.stop()
+    if (savedUrl) process.env.HIREALPHA_API_URL = savedUrl
+    else delete process.env.HIREALPHA_API_URL
+    if (savedKey) process.env.HIREALPHA_INTERNAL_KEY = savedKey
+    else delete process.env.HIREALPHA_INTERNAL_KEY
+  })
+  it('holds a change response during quiet hours without burning the daily slot', async () => {
+    resetCoworkerLoopState()
+    const savedUrl = process.env.HIREALPHA_API_URL
+    const savedKey = process.env.HIREALPHA_INTERNAL_KEY
+    process.env.HIREALPHA_API_URL = 'http://unused.local'
+    process.env.HIREALPHA_INTERNAL_KEY = 'k'
+    let quiet = true
+    const sent: string[] = []
+    const loop = startCoworkerLoop({
+      phone: '+15550008888', persona: 'coworker-quiet', pollMs: 20,
+      send: async (_phone, text) => { sent.push(text) },
+      fetchDigest: async () => ({ changeResponses: [{
+        kind: 'issue_slipping', entityKey: 'linear:quiet', title: 'Launch',
+        reason: 'Launch is overdue.', proposedAction: 'Prepare a check-in.', score: 90,
+      }] }),
+      checkKillSwitch: async () => false,
+      checkQuietHours: async () => quiet,
+      now: () => new Date('2026-08-20T10:00:00'),
+    })
+    await Bun.sleep(55)
+    expect(sent).toEqual([])
+    quiet = false
+    await Bun.sleep(55)
+    expect(sent).toEqual(['Launch is overdue. Prepare a check-in.'])
     loop.stop()
     if (savedUrl) process.env.HIREALPHA_API_URL = savedUrl
     else delete process.env.HIREALPHA_API_URL
@@ -327,6 +418,7 @@ describe('daily fire once logic', () => {
       pollMs: 20,
       fetchDigest: async () => (healthy ? { phone: '+15551234567', standupReady: false } : {}),
       checkKillSwitch: async () => false,
+      checkQuietHours: async () => false,
       now: () => clock.now,
     })
     await Bun.sleep(60)
@@ -361,12 +453,17 @@ describe('daily fire once logic', () => {
         return { phone, draftsWaiting: 1 }
       },
       checkKillSwitch: async () => false,
+      checkQuietHours: async () => false,
       now: () => new Date('2026-08-20T10:00:00'),
     })
     await Bun.sleep(80)
     loop.stop()
     expect(seen.sort()).toEqual(['+15550001111', '+15550002222'])
     expect(sent.length).toBe(2)
+    if (savedUrl) process.env.HIREALPHA_API_URL = savedUrl
+    else delete process.env.HIREALPHA_API_URL
+    if (savedKey) process.env.HIREALPHA_INTERNAL_KEY = savedKey
+    else delete process.env.HIREALPHA_INTERNAL_KEY
   })
 
   it('stays silent when the persona has no users, and the day stays unfired', async () => {
