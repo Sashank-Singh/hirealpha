@@ -3989,3 +3989,70 @@ in the sent state, one actionable element either way.
 Tests: assigned-line href, phone formatting (a non-US number is passed through
 untouched), the greeting-only-when-not-sent rule, and the gate order. `src/` 187
 pass; `tsc -b` clean; `typecheck:backend` clean; vite build clean; oxlint clean.
+
+### "what the heck" — the first hello, and the flow it was supposed to take
+
+The founder texted **"Hey, Alpha!"** — the pre-filled message from the Text Alpha
+button, so the button worked — and got back:
+
+> "I hit a quick snag thinking through that. Can you say that once more?"
+
+then texted the same thing again and got the reply he expected:
+
+> "Morning, Sashank! 6:30 on a Monday, you're up early. What's on deck today?"
+
+The friend log has the whole story in three lines:
+
+```
+[friend] inbound from +12163032166: Hey, Alpha!
+[friend] fast GMI failed with 2497ms left, going local: DOMException TimeoutError
+[friend] bubble: "I hit a quick snag thinking through that. Can you say that once more?"
+```
+
+**Three separate defects, one log line.**
+
+1. **The fast path answered the introduction.** runHireTurn already owns a pinned
+   welcome for a first hello — fixed copy, the contact card, the Alpha Apps card —
+   which is exactly the flow the founder described afterwards, verbatim: *"then
+   sends the contact card and tell what it can do example of features and explains
+   what Alpha Apps are and then show the ALpha app card"*. His hello never reached
+   it, because the friend turn's fast path answers ordinary conversation with the
+   model and the classifier had called this a chat. A first-contact bare greeting
+   now steps aside (`isFirstContactGreeting`) and lets the engine that owns the
+   introduction do its job. Everything else still goes fast.
+
+2. **The local fallback had no answer for a hello.** `runAgentLocally`'s friend
+   branch fell through every pattern to the snag line. A greeting is not a request
+   that can fail, so it is now answered the way a person answers one, by name when
+   the account knows it (`knownFirstName` reads whichever key holds it —
+   `preferred_name` or `name`). The snag line stays for asks the local path
+   genuinely cannot answer; it just never lands after "hey".
+
+3. **The first-message budget could not retry.** 6s attempt against an 8.5s wall
+   leaves 2497ms, under the 2500ms retry threshold — so the retry branch was
+   unreachable exactly when it mattered, and the turn went straight to the canned
+   line. A first contact now gets 12s inside a 16s wall (`fastReplyBudget`): the
+   coldest provider call the system makes, and the one reply that must not be
+   canned. Established threads keep the fast path, because past ten seconds a
+   reply reads as slow whatever it says.
+
+**Two answers to the founder's own questions, both tested rather than asserted.**
+
+- *"so am i able to return to connect second connector"* — **yes, and here is the
+  proof.** Driven against the deployed bundle with the network mocked to report
+  what his account reports (`setupDone: true`, returning to
+  `/app/mini/friend/menu?connected=gmail`): the page renders
+  **"5 OF 5 · CONNECT TOOLS"**, eleven connector rows, ten of them still offering
+  **Connect**, the connected one reading **On** — and no Text Alpha screen. Before
+  `85230ba` that same turn bounced to the home grid.
+- *"and when i press done it takes me to screen with a button that says text
+  alpha"* — yes: Done → `/app/text-alpha` → the button opens the thread with
+  **"Hey, Alpha!"** already embedded when Alpha has not texted, and clean when it
+  has. The first hello then takes the pinned welcome above: intro, contact card,
+  Alpha Apps card.
+
+`4ff3259` (friend) + `85230ba` (web), both deployed and healthy. Tests: the
+greeting predicate (a bare hello routes to the introduction; a hello carrying a
+real ask does not), the role-specific local openings, the name-aware greeting, and
+the budget arithmetic — including the invariant that broke, that wall minus
+attempt must exceed the retry threshold.
