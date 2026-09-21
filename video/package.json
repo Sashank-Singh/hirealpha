@@ -5,7 +5,11 @@
   "scripts": {
     "dev": "remotion studio",
     "render": "remotion render PhoneVideo out/promo.mp4 --log=verbose",
-    "still": "remotion still PhoneVideo out/still.png --frame=240"
+    "still": "remotion still PhoneVideo out/still.png --frame=240",
+    "render:launch": "remotion render HireAlphaLaunch out/hirealpha-launch-30s.mp4 --codec=h264 --crf=18 --pixel-format=yuv420p",
+    "still:launch": "remotion still HireAlphaLaunch out/hirealpha-launch-poster.png --frame=230",
+    "typecheck": "tsc --noEmit",
+    "score": "python3 scripts/score.py"
   },
   "dependencies": {
     "@remotion/cli": "^4.0.0",
