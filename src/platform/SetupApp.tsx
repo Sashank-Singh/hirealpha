@@ -248,7 +248,16 @@ export function SetupApp({ auth }: { auth: FeatureAuth }) {
     }
   }
 
-  /* Finished: mark setup complete and land on home with the one-shot tour.
+  /* Finished: mark setup complete and land on the Text Alpha screen.
+   *
+   * The founder's correction, 2026-09-20, verbatim: "after signup and onboarding
+   * it takes me to homepage … the homepage miniapp should only be visible on the
+   * iMessage … After onboarding, you must show 'return' or 'go to iMessages' or
+   * 'Text Alpha'." Landing on the app grid made the mini apps look like the
+   * product; the product is the thread. The tour flag moves with it: the home
+   * grid is no longer the first thing they see, so it no longer carries the
+   * first-run tour.
+   *
    * The POST failure path matters: a stale token used to swallow the error and
    * the wizard reappeared on every menu open. Mirror the flag locally so the
    * gate clears immediately, then re-assert the server row in the background. */
@@ -264,9 +273,7 @@ export function SetupApp({ auth }: { auth: FeatureAuth }) {
       /* private mode: server row is the only source */
     }
     window.dispatchEvent(new Event(MINI_SETTINGS_EVENT))
-    const q = window.location.search
-    const joiner = q ? '&' : '?'
-    return <Navigate to={`/app/mini/${persona}/home${q}${joiner}tour=1`} replace />
+    return <Navigate to="/app/text-alpha" replace />
   }
 
   return (

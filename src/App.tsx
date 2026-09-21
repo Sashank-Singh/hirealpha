@@ -1,6 +1,7 @@
 import { Component, lazy, Suspense, type ReactNode } from 'react'
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { NotFoundPage, TrustPage } from './TrustPage'
+import { alphaThreadHref } from './platform/alphaLine'
 
 class ErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean; error: Error | null }> {
   constructor(props: { children: ReactNode }) {
@@ -65,7 +66,7 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { hasError: boole
               Reload
             </button>
             <a
-              href="sms:+14155951440"
+              href={alphaThreadHref()}
               style={{
                 background: '#2563eb',
                 color: '#ffffff',
@@ -100,6 +101,7 @@ const RequireAuth = lazy(() => {
 const WorkspaceShell = lazy(() => import('./platform/WorkspaceShell').then((m) => ({ default: m.WorkspaceShell })))
 const VaultCapturePage = lazy(() => import('./platform/VaultCapturePage').then((m) => ({ default: m.VaultCapturePage })))
 const ComputerSessionView = lazy(() => import('./platform/ComputerSessionView').then((m) => ({ default: m.ComputerSessionView })))
+const TextAlphaPage = lazy(() => import('./platform/TextAlphaPage').then((m) => ({ default: m.TextAlphaPage })))
 
 /* Old deep-link paths that still come in from texts and chat links —
  * they all land on the workspace shell, preserving query params. */
@@ -121,6 +123,10 @@ export default function App() {
             <Route path="/computer/:sessionId" element={<ComputerSessionView />} />
             <Route path="/computer" element={<ComputerSessionView />} />
             <Route path="/app/mini/:persona/:kind" element={<MiniAppPage />} />
+            {/* Where the wizard ends: one button to the Alpha thread, then the
+             * platform. Kept outside RequireAuth so a slow session read can
+             * never leave a freshly onboarded person staring at a spinner. */}
+            <Route path="/app/text-alpha" element={<TextAlphaPage />} />
             <Route path="/app" element={<RequireAuth />}>
               <Route index element={<WorkspaceShell />} />
               <Route path="vault-login" element={<VaultCapturePage />} />

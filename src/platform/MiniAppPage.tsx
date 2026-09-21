@@ -10,6 +10,8 @@ import { readBriefCache, writeBriefCache } from './briefCache'
 import { applyMiniTheme, readMiniTheme } from './miniTheme'
 import { localYmd } from './home'
 import { apiSetupStatus } from './api'
+import { setupIsDone } from './setupGate'
+import { alphaThreadHref } from './alphaLine'
 import type { ReplyDraft } from './api'
 import { BriefLoading } from './BriefLoading'
 import { useSwipeBack } from './useSwipeBack'
@@ -429,17 +431,19 @@ export function MiniAppPage() {
       return
     }
     let cancelled = false
-    // Local mirror: a finished wizard must never reappear just because the
-    // status read failed or the done-POST raced a stale token. The server row
-    // stays the source of truth for everyone else.
+    /* One decision, three signals, in the order that matters: a finished wizard
+     * stays finished, a wizard still in flight is NOT finished however done the
+     * server thinks it is (the connect-page bug), and otherwise the server
+     * answers. See setupGate.ts. */
     try {
       const emailKey = email ? `ha_setup_done_${email.toLowerCase().trim()}` : null
-      if (emailKey && localStorage.getItem(emailKey) === 'friend') {
-        setSetupDone(true)
-        return
-      }
-      if (!email && localStorage.getItem('ha_setup_done') === 'friend') {
-        setSetupDone(true)
+      const decided = setupIsDone({
+        localDone: localStorage.getItem(emailKey || 'ha_setup_done'),
+        stepInFlight: localStorage.getItem('ha_setup_step'),
+        serverDone: null,
+      })
+      if (decided !== null) {
+        setSetupDone(decided)
         return
       }
     } catch {
@@ -569,7 +573,7 @@ export function MiniAppPage() {
           <header className="mini__head">
             <a
               className="mini__back"
-              href="sms:+14155951440"
+              href={alphaThreadHref()}
               onClick={(e) => {
                 if (window.history.length > 1) {
                   e.preventDefault()
