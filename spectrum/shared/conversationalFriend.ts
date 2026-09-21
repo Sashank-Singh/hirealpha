@@ -450,7 +450,17 @@ export async function runConversationalFriend(input: {
    *
    * So a first-contact greeting steps aside and lets the engine that owns the
    * introduction do its job. Every other message keeps the fast path. */
-  const firstContactGreeting = isFirstContactGreeting(input.userText, returning)
+  /* "Returning" counts our OWN messages, and that is the wrong question here.
+   *
+   * A new account gets a welcome attempt and a card from the intro poller before
+   * the person ever types; that is enough for `returning` to be true, and it
+   * suppressed the introduction on the first thing they actually sent. The
+   * founder hit exactly this, 2026-09-21: a brand-new account, "Hey, Alpha!", and
+   * a chat reply instead of the intro, the contact card and the Alpha Apps card —
+   * "why does it still remember me". What matters is whether THEY have ever
+   * spoken: a thread with only our lines in it is still first contact. */
+  const spokenBefore = memory.history.some((m) => m.role === 'user')
+  const firstContactGreeting = isFirstContactGreeting(input.userText, returning && spokenBefore)
 
   if (!firstContactGreeting && !needsConversationPlanner(input.userText, memory)) {
     const fastContext = {

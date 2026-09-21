@@ -58,7 +58,14 @@ async function main() {
     console.log(`no account matches ${email || phone} — nothing to do`)
     return
   }
-  if (email && phone && String(user.phone_e164 || '').replace(/\D/g, '') !== phone.replace(/\D/g, '')) {
+  // A bare 10-digit US number is the same number as its +1 form: the first run of
+  // this tool refused the founder's own hand-typed "2163032166", which is a
+  // helpful refusal in the wrong direction.
+  const digits = (value: string | null) => {
+    const d = String(value || '').replace(/\D/g, '')
+    return d.length === 10 ? `1${d}` : d
+  }
+  if (email && phone && digits(user.phone_e164) !== digits(phone)) {
     console.error(`refusing: ${email} is on ${user.phone_e164}, not ${phone}`)
     process.exit(3)
   }
