@@ -1,5 +1,5 @@
 import type { DeliveryHooks } from './progressiveDelivery'
-import { sanitizeOutbound } from './runHireTurn'
+import { firstContactCard, firstContactWelcome, sanitizeOutbound, splitBubbles } from './runHireTurn'
 import { classifyTurnStrict, ClassifierUnavailableError, logsOf } from './turnIntent'
 import { generateTurnImage, pushTurnImage } from './imageRequest'
 import { writeToWorkspace } from './workWrite'
@@ -461,6 +461,21 @@ export async function runConversationalFriend(input: {
    * spoken: a thread with only our lines in it is still first contact. */
   const spokenBefore = memory.history.some((m) => m.role === 'user')
   const firstContactGreeting = isFirstContactGreeting(input.userText, returning && spokenBefore)
+
+  /* The hello IS the introduction: answer it here, with the pinned welcome, the
+   * contact card and the Alpha Apps card. This cannot live only in runHireTurn's
+   * own branch, because a friend turn returns from this function long before that
+   * branch is reached. */
+  if (firstContactGreeting) {
+    const welcome = firstContactWelcome(live.name)
+    appendThread(dataDir, senderId, [
+      { role: 'user', content: input.threadLine || input.userText },
+      { role: 'assistant', content: welcome },
+    ])
+    const card = await firstContactCard(senderId, persona)
+    console.log(`[${persona}] first contact: pinned welcome${card ? ' + apps card' : ''}`)
+    return { reply: welcome, bubbles: splitBubbles(welcome), source: 'local' as const, authoritative: [], card, contactCardFirst: true }
+  }
 
   if (!firstContactGreeting && !needsConversationPlanner(input.userText, memory)) {
     const fastContext = {

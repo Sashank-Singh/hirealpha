@@ -110,6 +110,27 @@ export function isDegenerateRepetition(text: string): boolean {
  * a list being delivered rather than a person typing. */
 export const MAX_REPLY_BUBBLES = 3
 
+/**
+ * The pinned welcome for a first contact — fixed copy, first-name warm.
+ *
+ * Exported because the friend turn RETURNS from runConversationalFriend long
+ * before this file's own welcome branch is reached: `runConversationalFriend` is
+ * called at line ~1173 and the welcome branch sits at ~2175, so for a friend the
+ * branch below has never run at all. The founder hit exactly that on a fresh
+ * account, 2026-09-21: "Hey, Alpha!" was answered by the tool engine's model with
+ * a chat reply, no intro, no contact card, no Alpha Apps card.
+ */
+export function firstContactWelcome(name: string | null | undefined): string {
+  const greetingName = String(name || '').trim().split(/\s+/)[0] || 'there'
+  return `Hey ${greetingName}, I'm Alpha, your hired friend. I keep the day sane, save the stuff you'd lose, and check in when you need a real person. One card should show up here in a sec to pick how you want to use me.`
+}
+
+/** The Alpha Apps card that rides the first contact, rate-limited per person. */
+export async function firstContactCard(senderId: string, persona: AgentId): Promise<MiniAppCard | null> {
+  if (!allowMiniAppCard(senderId, persona, 'menu')) return null
+  return onboardingCard(senderId, persona).catch(() => null)
+}
+
 export function splitBubbles(text: string): string[] {
   const cleaned = sanitizeOutbound(text.replace(/\r/g, ''))
   if (!cleaned) return []
@@ -1226,9 +1247,7 @@ export async function runHireTurn(input: {
   const greetedBefore = history.some((m) => m.role === 'assistant')
   const bareGreeting =
     !greetedBefore && /^(?:hey|hi|hello|yo|hola|sup|what'?s up|howdy)(?:[ ,]+alpha)?[!.?\s]*$/i.test(input.userText.trim())
-  // Full name is captured at signup now; the greeting stays first-name warm.
-  const greetingName = (live.name || '').trim().split(/\s+/)[0] || 'there'
-  const WELCOME = `Hey ${greetingName}, I'm Alpha, your hired friend. I keep the day sane, save the stuff you'd lose, and check in when you need a real person. One card should show up here in a sec to pick how you want to use me.`
+  const WELCOME = firstContactWelcome(live.name)
 
   if (live.hired) {
     void touchInbound(input.senderId, agent.id)

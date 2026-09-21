@@ -395,3 +395,68 @@ describe('a first hello is the introduction, not a chat', () => {
     }
   })
 })
+
+/* Live, 2026-09-21: a fresh account (number removed from Photon, database wiped,
+   an empty thread file) texted "Hey, Alpha!" and got "Morning, Sashank! Monday,
+   8:40, anything on deck, or just saying hi?" — no intro, no contact card, no
+   Alpha Apps card. The pinned welcome existed, but it sits in runHireTurn AFTER
+   the point where a friend turn returns from runConversationalFriend, so it had
+   never run for a friend at all. */
+describe('a fresh account saying hi gets the introduction', () => {
+  let dataDir: string
+  const originalFetch = globalThis.fetch
+  const envKeys = ['HIREALPHA_API_URL', 'HIREALPHA_INTERNAL_KEY', 'GMI_API_KEY'] as const
+  let savedEnv: (string | undefined)[]
+
+  beforeEach(() => {
+    dataDir = mkdtempSync(join(tmpdir(), 'hirealpha-welcome-test-'))
+    savedEnv = envKeys.map((key) => process.env[key])
+    process.env.HIREALPHA_API_URL = 'https://hirealpha.test'
+    process.env.HIREALPHA_INTERNAL_KEY = 'test-key'
+    process.env.GMI_API_KEY = 'test-key'
+    globalThis.fetch = (async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
+      const url = String(input)
+      if (url.includes('/chat/completions')) {
+        const prompt = String(init?.body || '')
+        if (prompt.includes('You read one iMessage')) return Response.json({ choices: [{ message: { content: '{"kind":"chat"}' } }] })
+        // A model answer that must NOT be what a first hello receives.
+        return Response.json({ choices: [{ message: { content: 'Morning, Test! Monday, 8:40, anything on deck, or just saying hi?' } }] })
+      }
+      if (url.endsWith('/api/internal/mini/token')) return new Response('Unavailable', { status: 503 })
+      if (url.includes('/api/internal/live?')) {
+        // Hired, and the server's inbound stamp is ALREADY set — the case that
+        // used to make the welcome unreachable.
+        return Response.json({
+          found: true,
+          hired: true,
+          connected: [],
+          context: {},
+          lastInboundAt: new Date().toISOString(),
+          memories: [{ key: 'preferred_name', value: 'Test' }],
+        })
+      }
+      return Response.json({ found: false, hired: false })
+    }) as typeof fetch
+  })
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch
+    envKeys.forEach((key, i) => {
+      if (savedEnv[i] === undefined) delete process.env[key]
+      else process.env[key] = savedEnv[i]
+    })
+    rmSync(dataDir, { recursive: true, force: true })
+  })
+
+  it('answers the first hello with the pinned welcome and the apps card', async () => {
+    const result = await runHireTurn({ agentId: 'friend', dataDir, senderId: '+15550000001', userText: 'Hey, Alpha!' })
+    expect(result.reply).toContain("I'm Alpha, your hired friend")
+    expect(result.reply).not.toContain('anything on deck')
+    expect(result.card).not.toBeNull()
+    // The contact card rides out on the same flag the delivery layer reads.
+    expect((result as { contactCardFirst?: boolean }).contactCardFirst).toBe(true)
+    // And the exchange is in the thread, so the next hello is ordinary chat.
+    const memory = loadMemory(dataDir, '+15550000001')
+    expect(memory.history.some((m) => m.role === 'assistant' && m.content.includes('hired friend'))).toBe(true)
+  })
+})
