@@ -4189,3 +4189,68 @@ at a second time.
 The friend service is on `20c0419`, which carries the first-contact fix, the local
 greeting fallback and the first-message budget, so the next signup is a true first
 run against current code.
+
+### The welcome was in a branch a friend turn never reaches (`a874ca9`) — and the number answer
+
+**1. Why the intro never arrived, third attempt, and this time the code says so.**
+`runConversationalFriend` is called at `runHireTurn` line ~1173 and RETURNS. The
+pinned welcome — fixed copy, contact card, Alpha Apps card — sits in the same file
+at ~2175, in a branch a friend turn never reaches. So for a friend the welcome has
+never run at all, and my two earlier fixes (teaching the fast path to step aside)
+handed the hello to the tool engine's model instead, which is exactly the chat
+reply the founder kept getting:
+
+```
+[friend] inbound from +12163032166: Hey, Alpha!
+[friend] sending 1 text(s), card: false
+[friend] bubble: "Morning, Sashank! Monday, 8:40, anything on deck, or just saying hi?"
+```
+
+The welcome is now built by exported helpers (`firstContactWelcome`,
+`firstContactCard`) and answered at the top of the friend turn, before the fast
+path and before the engine. One copy of the text, used by both paths.
+
+Tested end to end through `runHireTurn` with an empty thread and `lastInboundAt`
+deliberately ALREADY set — the case that used to suppress it: the reply is the
+welcome, `card` is attached, `contactCardFirst` is true, and the thread records the
+exchange so the next hello is ordinary chat.
+
+**CORRECTION to the earlier claim.** The database shows
+`last_inbound_at = 15:50:38` for that account, i.e. it was NULL when the 8:40 AM
+message arrived — so the server stamp was NOT what suppressed the intro this time.
+The unreachable branch above is the cause. The `runHireTurn` change that keys the
+welcome on an assistant line rather than on `isFirst` still stands on its own
+merits (that branch IS reachable for the paths that use it, and the stamp is
+permanent once set), but it was not the bug behind this run.
+
+**2. The database error the founder pasted — fixed.** `column "ends_at" does not
+exist` twice a second: the busy-now guard reads `ends_at` from `hire_meetings`, and
+no row has ever had one, because `INSERT INTO hire_meetings` writes `starts_at`
+only. The column was never added. Wrapped in `catch {}`, so the guard was silently
+dead AND the log filled. The column now exists, and a meeting with no recorded end
+is assumed to run an hour, which is what makes the guard protect the interruption it
+was written for.
+
+**3. "did it show the house number or verify from photon — will all users have
+different numbers?"** Asked and answered with data. The screen has no fallback at
+all now: a number renders only when Photon answers, and the server reads it from
+`spectrum.photon.codes/projects/<pid>/users/` by matching the user's own phone and
+returning that row's `assignedPhoneNumber`. And yes — different per user, verified
+from the accounts table:
+
+| phone | assigned Alpha line |
+|---|---|
+| +15550009999 | +14155955082 |
+| +12163032167 | +16282894567 |
+| +15122217501 | +16282647648 |
+| +12166447193 | +16287895362 |
+| +8201024382566 | +16465792868 |
+| **+12163032166 (the founder)** | **+14155951440** |
+
+Five users, five different lines. His own happens to equal the shared default, which
+is exactly why image 2 looked ambiguous — but it is the line Photon assigns to his
+number, not a constant the page chose.
+
+One loose end worth flagging: `singhsashank08@gmail.co` (one `m` short) also exists,
+on +12163032167 with line +16282894567 — a typo'd signup from an earlier session.
+It is a separate account and was left alone.
