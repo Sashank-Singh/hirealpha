@@ -72,6 +72,10 @@ export function signOut() {
   try {
     localStorage.removeItem('ha_setup_done')
     localStorage.removeItem('ha_setup_step')
+    // The one-shot Text Alpha screen belongs to the account that was just signed
+    // out of: leaving it set meant the next account on this phone went straight
+    // to the dashboard and never saw its own Alpha line.
+    localStorage.removeItem('ha_text_alpha_seen')
   } catch {}
   localStorage.removeItem(SESSION_KEY)
   void fetch('/api/auth/logout', { method: 'POST' }).catch(() => undefined)

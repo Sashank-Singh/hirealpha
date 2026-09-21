@@ -37,3 +37,15 @@ describe('onboarding routing and registration aliases', () => {
     expect(localStorage.getItem('ha_setup_done_test@example.com')).toBeNull()
   })
 })
+
+/* The one-shot Text Alpha screen belongs to the account that saw it. It was left
+ * set across a sign-out, so the next account on the same phone went straight to
+ * the dashboard and never saw the screen that hands them their own Alpha line —
+ * the founder hit exactly that, 2026-09-21: "text Alpha button ddint appear after
+ * connector just took me to the dashboard". */
+it('clears the one-shot Text Alpha flag on sign out', () => {
+  localStorage.setItem('ha_text_alpha_seen', '1')
+  signIn('test@example.com', '+14155551212', 'Test')
+  signOut()
+  expect(localStorage.getItem('ha_text_alpha_seen')).toBeNull()
+})

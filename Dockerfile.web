@@ -73,6 +73,8 @@ COPY deploy/weekRun.ts ./weekRun.ts
 COPY deploy/modelJson.ts ./modelJson.ts
 COPY deploy/staleCache.ts ./staleCache.ts
 COPY deploy/httpCache.ts ./httpCache.ts
+# Account wipe tool: run inside the cluster where DATABASE_URL lives.
+COPY deploy/wipeAccount.ts ./wipeAccount.ts
 COPY deploy/browserVault.ts ./browserVault.ts
 COPY deploy/browserRunner.ts ./browserRunner.ts
 COPY deploy/vaultCrypto.ts ./vaultCrypto.ts

@@ -159,10 +159,16 @@ export function LoginPage() {
     if (mode === 'signup') {
       void apiRegisterPassword({ email: nextEmail, password, phone: nextPhone, name: nextName })
         .then(async (data) => {
-          // Clear any stale setup state left on this browser so the onboarding wizard appears cleanly
+          // Clear any stale setup state left on this browser so the onboarding
+          // wizard appears cleanly — including the one-shot Text Alpha flag, or a
+          // second account on the same phone never sees the screen that hands them
+          // their own Alpha line. Founder, 2026-09-21: "text Alpha button ddint
+          // appear after connector just took me to the dashboard" — the flag from
+          // his earlier walk was still set on that browser.
           try {
             localStorage.removeItem('ha_setup_done')
             localStorage.removeItem('ha_setup_step')
+            localStorage.removeItem('ha_text_alpha_seen')
             localStorage.removeItem(`ha_setup_done_${data.email.toLowerCase().trim()}`)
           } catch {}
           signIn(data.email, data.phone || nextPhone, data.name || nextName)
