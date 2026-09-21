@@ -4426,6 +4426,32 @@ function composioClient(): Composio | null {
  * connected account on a toolkit (a Gmail re-auth leaves the old one behind):
  * the SDK refuses to guess and every execute throws. Picking the most recent
  * ACTIVE account matches what the user just re-authorized. */
+/**
+ * Delete extra ACTIVE connections for a toolkit, keeping the newest.
+ *
+ * Two ACTIVE accounts for one toolkit is never useful here and it is actively
+ * broken: Composio answers every tool call with "Multiple connected accounts
+ * found" and `GMAIL_FETCH_EMAILS` throws, while the pin below can only choose
+ * one. Live, 2026-09-21: the founder tapped Connect, saw nothing happen, tapped
+ * again 29 seconds later, and ended up with two ACTIVE Gmail accounts —
+ * `ca_uQqVGL0FEj2Q` (17:13:51) and `ca_7R1d7-JEaWKh` (17:14:20) — which is why
+ * the wizard still offered "Connect" after he had connected it, and why every
+ * mail read of his was erroring. The newest is kept, matching the pin logic.
+ * Best effort: a failure here must never break a read.
+ */
+async function dropDuplicateConnections(ids: string[]): Promise<void> {
+  const composio = composioClient()
+  if (!composio) return
+  for (const id of ids) {
+    try {
+      await composio.connectedAccounts.delete(id)
+      console.warn(`[composio] dropped duplicate connected account ${id}`)
+    } catch (err) {
+      console.warn('[composio] duplicate cleanup failed', id, err)
+    }
+  }
+}
+
 async function composioResolveAccountId(
   userId: string,
   toolkit: string,
@@ -4450,6 +4476,7 @@ async function composioResolveAccountId(
     const forToolkit = items
       .filter((i) => !i.isDisabled && (i.toolkit?.slug || '').toLowerCase() === toolkit.toLowerCase() && !!i.id)
       .sort((a, b) => Date.parse(b.createdAt || '') - Date.parse(a.createdAt || ''))
+    if (forToolkit.length > 1) await dropDuplicateConnections(forToolkit.slice(1).map((i) => i.id!))
     if (forToolkit[0]?.id) return forToolkit[0].id
   } catch {
     // SDK list timed out or threw — fall through to the REST read below.
@@ -4476,6 +4503,7 @@ async function composioResolveAccountId(
     const forToolkit = (data.items || [])
       .filter((i) => !i.is_disabled && (i.toolkit?.slug || '').toLowerCase() === toolkit.toLowerCase() && !!i.id)
       .sort((a, b) => Date.parse(b.created_at || '') - Date.parse(a.created_at || ''))
+    if (forToolkit.length > 1) await dropDuplicateConnections(forToolkit.slice(1).map((i) => i.id!))
     return forToolkit[0]?.id || null
   } catch {
     return null
@@ -4538,7 +4566,17 @@ async function composioConnected(userId: string): Promise<string[]> {
       .filter((i) => !i.isDisabled)
       .map((i) => ((i.toolkit?.slug || (i as any).appName || (i as any).appUniqueId || (i as any).app || '') as string).toLowerCase())
       .filter(Boolean)
-    composioConnectedCache.set(userId, { items, at: Date.now() })
+    /* An EMPTY list is not cached.
+     *
+     * Live, 2026-09-21, 10:14: the founder had just connected Gmail and the
+     * wizard still offered "Connect" on every row. Composio's own log said the
+     * accounts were there ("Multiple connected accounts found for user
+     * a476fd14…"), and the app's list call caches whatever it returns — including
+     * a transient [] from a list that timed out. That empty answer then stood for
+     * the whole 3-minute TTL, so the UI kept saying Connect while the connection
+     * existed. A confirmed non-empty answer is worth caching; "nothing" is
+     * exactly the answer to re-ask. */
+    if (items.length) composioConnectedCache.set(userId, { items, at: Date.now() })
     return items
   }
   try {
