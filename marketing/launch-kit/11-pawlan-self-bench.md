@@ -4254,3 +4254,38 @@ number, not a constant the page chose.
 One loose end worth flagging: `singhsashank08@gmail.co` (one `m` short) also exists,
 on +12163032167 with line +16282894567 — a typo'd signup from an earlier session.
 It is a separate account and was left alone.
+
+### The welcome trio: what is proven, what is instrumented, and what is still assumed
+
+The founder's question — "the issue is fixed if i onboard now it will send me welcome:
+intro, contact card, Alpha Apps card?" — has three parts, and they do not have the
+same evidence behind them. Recorded honestly, as a checklist:
+
+| part | evidence | state |
+|---|---|---|
+| intro text | `[friend] intro sent to +12163032166`, queue row `status: sent, sent_at: 2026-09-21T15:40:26.879Z`, and a Photon read receipt | **proven** |
+| contact card | `[friend] sent vcf contact card to +12163032166 (+14155951440) with logo` + read receipt | **proven** |
+| Alpha Apps card | none. The poller's card block logged nothing at all | **unknown, and the log could not have said** |
+
+`onboardingCard` always returns a card — `mintMiniAppUrl` falls back to an unsigned
+URL instead of throwing — and the poller only logged the FAILURE path, so a card
+that was minted and sent left no trace, and one that was never minted left no trace
+either. Three read receipts came back for the 16:24 reintro; whether one of them was
+the card bubble is not something the receipts can be read for (they do not say what
+kind of message each one covers).
+
+**Fixed so the next onboarding is provable, `8aa99be`:**
+
+```
+[friend] intro apps card sent to +12163032166      # minted and sent
+[friend] intro apps card not minted for +12163032166  # the silent case, now named
+[friend] intro onboarding card failed …            # the case that always logged
+```
+
+Also in that commit: a duplicate `fetchLiveProfile` import in the friend bot (same
+module, same binding, declared twice, added by the groups commit). Bun tolerated it;
+oxlint reported it as an error and a strict ESM parser treats it as a syntax error —
+a trap for the next toolchain rather than a live bug.
+
+Still to confirm on the device: the card bubble in the thread from the 16:24 batch.
+That is the one part of the trio this environment cannot observe for itself.
