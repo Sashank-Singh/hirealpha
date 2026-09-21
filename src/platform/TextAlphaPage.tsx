@@ -35,10 +35,11 @@ function MessagesMark({ size = 44 }: { size?: number }) {
         </linearGradient>
       </defs>
       <rect width="64" height="64" rx="14.5" fill="url(#ha-msg-green)" />
-      <path
-        d="M32 13.5c-12.4 0-22.4 7.7-22.4 17.2 0 5.5 3.4 10.4 8.6 13.6-.4 3.3-1.8 6.3-4.3 8.8-.5.5-.1 1.4.7 1.3 5.9-.6 10.6-2.4 13.9-4.5 1.2.1 2.4.2 3.5.2 12.4 0 22.4-7.7 22.4-17.2s-10-17.4-22.4-17.4z"
-        fill="#ffffff"
-      />
+      {/* The bubble is a stadium plus a triangle. Drawn as one path the tail
+       * rounds off into a nub; two overlapping white shapes union into the
+       * pointed tail the real mark has. */}
+      <rect x="8.5" y="12.5" width="47" height="35" rx="17.5" fill="#ffffff" />
+      <path d="M15 40.5 L9.5 55 L28 45.5 Z" fill="#ffffff" />
     </svg>
   )
 }
