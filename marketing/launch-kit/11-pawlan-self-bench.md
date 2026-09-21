@@ -3913,3 +3913,79 @@ pass; `tsc -b` clean; vite build clean; oxlint clean.
 City, 1353 Bush Street", and the mailbox triage from the night before surfaced
 "Music City Hotel — Reply on your Sep 16, 21 stay". Same building, two independent
 sources.
+
+### The connector loop, the per-user line, and a welcome that cannot be sent
+
+The founder walked the flow again at 5:55 PM and hit three things in four minutes.
+All three are in his words.
+
+**1. "alpha didnt let me connect another connector after i connected gmail i got
+this screen" — my earlier fix was incomplete, and that is worth saying plainly.**
+I had stopped the GATE (`setupGate.ts`) from reading the server's auto-detect as
+finished. The wizard's own mount effect had the same line:
+
+```ts
+if (s.setupDone) setDone(true)     // ── deleted
+```
+
+`/api/setup/status` reports setup done once two of four step-writes exist (goals,
+mini prefs, a person, a saved place), and all four are written *before* the
+connectors page. So connecting Gmail remounted the wizard, its status read came
+back done, and the wizard finished ITSELF — straight to the Text Alpha screen,
+with the other connectors unreachable and no way back. The lesson is the one the
+gate comment already carried: **a heuristic may decide what to show; it must never
+decide that someone is finished.** The wizard is finished by the person pressing
+Done. That line is gone, and the reason sits where the next reader will find it.
+
+**2. "alpha number is always diffrent for users so it needs to make sure about the
+number from photon and show that number not just a generic number its different
+for every user".** The Text Alpha button was pointing at a house number. It now
+reads the account's own line from `GET /api/assigned-phone` — the same source the
+contact card uses, which refuses to serve a card without it — shows it under the
+button in phone format, and carries it into the `sms:` href. The workspace header
+and the dashboard got the same treatment: "(415) 595-1440" was hardcoded in the
+status pill, the line-telemetry box and a button href.
+
+For this account the live answer is `+14155951440`, i.e. currently the same shared
+line — the endpoint is what makes that a fact rather than an assumption, and it
+will follow Photon the moment it assigns something else.
+
+**3. "alpha hasnt texted fitst yet ... we need to chnage the text in this image but
+it should text me fist".** The screen claimed "Alpha already texted you" on an
+account Alpha had not texted. The friend log says why it could not:
+
+```
+[friend] photon user created for +12163032166
+[friend] intro to +12163032166 failed: [spectrum-imessage] Target not allowed for this project
+```
+
+**This is a blocker, not a bug in the send path.** Photon's project is not
+permitted to send to +12163032166 — inbound from that number works (every triage
+earlier tonight arrived), outbound to it is refused by the upstream allowlist. So
+"Alpha texts first" cannot be true for this test number until the Photon project
+allows that target, or until the account texts from a number that is allowed. The
+same log shows the intro being retried on every pass, and the reminder scheduler
+hitting `Recipient has not replied; cooling period limits sends to 3/day` — two
+separate upstream restrictions, neither of which any client code can fix.
+
+What the code can do, and now does:
+
+- `/api/setup/status` reports `welcomed`, true **only** when the onboard_done
+  welcome was actually sent (the loop row flipped to `done`). Queued-but-unsent,
+  failed, or never queued all read false.
+- The screen says the true thing in each state: "Alpha already texted you from
+  (415) …" / "Alpha texts you from (415) … — tap and say hi, it answers in
+  seconds." / a neutral third for unknown. It never asserts a message it cannot
+  confirm.
+- The button carries **"Hey, Alpha!"** exactly when the welcome was not sent —
+  the founder's rule, verbatim: *"makethe Text Alpha button have Hey, Alpha! if
+  you cannot text first"* — and opens clean when it was, which keeps the earlier
+  correction intact.
+
+Both behaviours were confirmed in a browser against the built bundle:
+`sms:+14155951440&body=Hey%2C%20Alpha!` in the not-sent state, `sms:+14155951440`
+in the sent state, one actionable element either way.
+
+Tests: assigned-line href, phone formatting (a non-US number is passed through
+untouched), the greeting-only-when-not-sent rule, and the gate order. `src/` 187
+pass; `tsc -b` clean; `typecheck:backend` clean; vite build clean; oxlint clean.
