@@ -4056,3 +4056,88 @@ greeting predicate (a bare hello routes to the introduction; a hello carrying a
 real ask does not), the role-specific local openings, the name-aware greeting, and
 the budget arithmetic — including the invariant that broke, that wall minus
 attempt must exceed the retry threshold.
+
+### The reset, and what the second walk proved
+
+The founder walked the flow again at 7:07 AM and reported four things in one
+breath: the connector step took too long, no intro / contact card / Alpha Apps
+card arrived, the Text Alpha screen never appeared after the connector (it went to
+the dashboard), the hello took a minute with no typing indicator — and then: *"why
+does it still remember me lets rerset the db so singhsashank08@gmail.com and
+21630332166 data is wiped and i can rejoin as a new user"*.
+
+**Why it "remembered" him — the answer is in the log, and it is not a wiped DB.**
+
+```
+[friend] inbound from +12163032166: Hey, Alpha!
+[friend] sending 1 text(s), card: false
+[friend] bubble: "Morning, Sashank! Monday, 7 AM, fresh week on the table. ..."
+```
+
+No intro, no cards, no error: the turn went down the FAST path, which is what
+happens when the engine believes this person has been here before. `returning` is
+computed from the whole thread **plus our own messages** — and a new account gets a
+welcome attempt and an onboarding card from the intro poller before the person ever
+types. So the account was "returning" by the time its owner said hello, and the
+introduction was suppressed by our own outbound lines. The greeting branch now asks
+the question that matters — has THEY ever spoken (a user-role line in the thread) —
+so a thread holding only our messages is still first contact.
+
+**The Text Alpha screen: the one-shot flag outlived its account.** It was set on
+that browser from the earlier walk, so the screen skipped itself and went to the
+dashboard. It hands each user their OWN Alpha line, so it belongs to the account
+that saw it: cleared on fresh signup and on sign-out.
+
+**The typing indicator is not missing — the target is.** Every turn runs inside
+`space.responding(...)`, which is the typing indicator. The founder's number is the
+one Photon refuses ("Target not allowed for this project", logged on every intro
+attempt), and the same gate covers the typing RPC, so nothing shows. Upstream, not
+a code gap; the note stays here rather than being papered over.
+
+**The reset itself, done and recorded.** `deploy/wipeAccount.ts` — dry run by
+default, refuses a phone mismatch, finds the user's tables from `information_schema`
+rather than a hand-written list — then run inside the cluster, because the database
+is not publicly reachable. Dry run:
+
+```
+account: 18c7739a-bd44-45e7-bb9c-6a6bcff9a267
+  email:    singhsashank08@gmail.com
+  phone:    +12163032166
+  name:     Sashank Singh
+  line:     +14155951440
+  created:  Mon Sep 21 2026 14:03:15 GMT+0000 (UTC)
+rows tied to this account (17 tables): 67 hire_browser_jobs, 62 browser result
+deliveries, 5 task loops, 4 consent records, 4 reminders, 2 network, and singles
+across context, intro queue, prefs, nutrition, roster, budget, locations, memory,
+wrapped keys, users
+```
+
+The first `--yes` run failed on a foreign key the tool had not modelled
+(`memory_records.consent_id → consent_records.id`) and **the transaction rolled
+back** — nothing was lost. The delete order is now read from `pg_constraint`:
+children before parents, with a cycle fallback. Second run:
+
+```
+delete order (children first): hire_browser_jobs -> hire_browser_result_deliveries
+-> hire_task_loops -> hire_reminders -> hire_network -> hire_context ->
+hire_intro_queue -> hire_mini_prefs -> hire_nutrition_goals -> hire_roster ->
+hire_spending_budget -> hire_user_locations -> memory_records ->
+user_wrapped_keys -> consent_records -> hire_users
+
+deleted. hire_users rows left for this id: 0
+the account can sign up again as a new user; the Photon line is untouched.
+```
+
+Subsequent runs report `no account matches singhsashank08@gmail.com — nothing to
+do`, and the every-minute task was deleted once the wipe landed. **The account is
+gone; the number can sign up again as a new user.**
+
+**What the next walk should show, and what still cannot work.** With a genuinely
+new account: signup → wizard (name, city, watch, body, people) → connectors, where
+each Connect now returns to the same page with the row reading On → Done → the Text
+Alpha screen (its own line, shown once) → the button opens the thread with "Hey,
+Alpha!" embedded → the first hello takes the pinned welcome: the intro, the contact
+card, and the Alpha Apps card. The one piece that cannot work for THIS number is
+Alpha initiating: the proactive welcome is refused by Photon's target allowlist, so
+until that is allowed the first move has to be the user's. That is recorded as an
+upstream blocker, not a product gap.
