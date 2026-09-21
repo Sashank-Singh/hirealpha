@@ -12,7 +12,19 @@
 /** Alpha's line for the friend persona. */
 export const ALPHA_LINE = '+14155951440'
 
-/** The thread composer, with a first line ready to send. */
+/**
+ * The thread with Alpha, opened CLEAN — no draft typed into the composer.
+ *
+ * The founder's correction, 2026-09-20, verbatim: the button "just takes to the
+ * thread not start a new message — takes to iMessage thread with Alpha since it
+ * already texted me first during onboarding."
+ *
+ * Verified on macOS by opening both forms with Messages quit: `sms:<line>&body=…`
+ * opens the thread with "Hey, Alpha!" already typed into the compose box — that
+ * is what starting a new message looks like — while `sms:<line>` opens the same
+ * thread with the field empty. Every caller here is returning to a conversation
+ * Alpha opened first, so none of them should pre-write the person's words.
+ */
 export function alphaThreadHref(phone: string = ALPHA_LINE): string {
-  return `sms:${phone || ALPHA_LINE}&body=Hey%2C%20Alpha!`
+  return `sms:${phone || ALPHA_LINE}`
 }

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, type ReactNode } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { getSession, signOut } from './roster'
+import { alphaThreadHref } from './alphaLine'
 import { SettingsSheet, type SettingsView } from './SettingsSheet'
 import { paramsForWorkspaceView, workspaceViewFromParams } from './workspaceNavigation'
 import './workspaceShell.css'
@@ -106,7 +107,7 @@ export function WorkspaceShell() {
             <p>HireAlpha / {active.label}</p>
             <h1 ref={headingRef} tabIndex={-1}>{active.label}</h1>
           </div>
-          <a href="sms:+14155951440&body=Hey%2C%20Alpha!">Message Alpha</a>
+          <a href={alphaThreadHref()}>Message Alpha</a>
         </header>
         <div className="workspace-content">
           <SettingsSheet view={activeView} embedded />

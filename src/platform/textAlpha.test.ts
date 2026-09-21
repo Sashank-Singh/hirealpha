@@ -45,17 +45,18 @@ describe('the post-onboarding gate', () => {
 })
 
 describe('the one link on the Text Alpha screen', () => {
-  /* "make that return to iMessages, then open the contact that has sent the
-   * message … open the Alpha's chat so they can continue from there." `sms:` is
-   * what opens the Messages thread on both iPhone and Mac; there is no
-   * imessage:// handler to call. */
-  it('opens the Alpha thread with a message ready', () => {
-    expect(alphaThreadHref()).toBe('sms:+14155951440&body=Hey%2C%20Alpha!')
+  /* "just takes to the thread not start a new message — takes to iMessage thread
+   * with Alpha since it already texted me first during onboarding." A prefilled
+   * draft IS the new-message look: verified on macOS, `sms:<line>&body=…` opens
+   * the thread with "Hey, Alpha!" typed in, `sms:<line>` opens it empty. */
+  it('opens the Alpha thread, with nothing typed into the composer', () => {
+    expect(alphaThreadHref()).toBe('sms:+14155951440')
     expect(alphaThreadHref()).toContain(ALPHA_LINE)
+    expect(alphaThreadHref()).not.toContain('body=')
   })
 
   it('falls back to the Alpha line rather than an empty sms: link', () => {
-    expect(alphaThreadHref('')).toBe(`sms:${ALPHA_LINE}&body=Hey%2C%20Alpha!`)
+    expect(alphaThreadHref('')).toBe(`sms:${ALPHA_LINE}`)
   })
 
   it('uses the same constant the workspace and the landing page use', () => {

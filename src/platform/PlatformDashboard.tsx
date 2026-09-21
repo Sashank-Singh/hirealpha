@@ -16,9 +16,12 @@ import { paymentsEnabled } from './paymentsConfig'
 import { ConnectorLogo } from './ConnectorLogo'
 import { SettingsSheet } from './SettingsSheet'
 import { TIERS, type Tier } from '../marketing/Pricing'
+import { alphaThreadHref } from './alphaLine'
 import './dashboard.css'
 
-const ALPHA_SMS = 'sms:+14155951440&body=Hey%2C%20Alpha!'
+/* Opened from the signed-in dashboard, where the thread with Alpha already
+ * exists — so this opens it clean rather than typing a greeting in. */
+const ALPHA_SMS = alphaThreadHref()
 
 export type DashTab =
   | 'overview'
