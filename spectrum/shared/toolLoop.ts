@@ -25,6 +25,21 @@ export const WORK_LIVE_TOOLS = [
 ] as const
 export type LiveTool = (typeof LIVE_TOOLS)[number] | (typeof WORK_LIVE_TOOLS)[number]
 
+/* Is this ask about the user's mailbox?
+ *
+ * Plural and hyphen forms are the whole point. The pattern here used to be
+ * singular-only (`\b(email|e-?mail|...)\b`), and a trailing "s" kills a word
+ * boundary, so "any important emails?" matched NOTHING — the ask fell through
+ * to the web branch of the freshness guard and died on "I could not verify
+ * current information because the web lookup did not run. Please try again."
+ * with Gmail connected, live, 2026-09-20. "check my emails" and "any important
+ * e-mails" were broken the same way. The server's own wantsEmail() in
+ * deploy/hire-api.ts has always matched plurals; this is that shape, so the
+ * engine and the tool it calls agree on what a mail ask is. */
+export function asksAboutMailbox(text: string): boolean {
+  return /\b(?:e-?mails?|inbox|gmail|mailbox|mail|unread|replies owed|brief me)\b/i.test(String(text || ''))
+}
+
 export type DraftCall =
   | { type: 'mail'; to: string; subject: string; body: string }
   | { type: 'reply'; id: string; body: string }
@@ -820,6 +835,16 @@ Reactions are optional and usually absent. You may add "reaction":"<emoji>" to a
         // record, and a web lookup cannot supply it ("what home address and what
         // saved logins do you have on file for me" died on the canned failure).
         /\b(?:on file|saved|stored)\b[^?]{0,40}\b(?:for me|about me|on me)?\b/i.test(userAsk)
+      /* Booking/doing asks: a plain-text "queued it" with no browser action is a
+       * lie. A "find me options" ask is a lookup — classifier overreach there
+       * must never launch a run. */
+      const wantsMail = asksAboutMailbox(userAsk)
+      /* Whether a mail ask needs a fresh mailbox read is the classifier's call,
+       * not the word "email". Forcing every mail-shaped ask down the fresh path
+       * lost "brief me on the second email" — the second email of the drafts
+       * already in this thread, answered from context — to "I could not check
+       * your inbox just now". A live-state ask ("any important emails?") comes
+       * back needsLookup true on its own, which is where the fix belongs. */
       const needsFresh =
         !isMemoryAsk &&
         !accessQuestion &&
@@ -827,10 +852,6 @@ Reactions are optional and usually absent. You may add "reaction":"<emoji>" to a
         (request?.needsLookup === true || (request === null && (asksForPlaces || asksToBuy || /\b(news|latest|price|prices|how much (?:is|does|do)|score|who won|release date|next .{0,40}event|this week|today|yesterday|tonight|right now)\b/i.test(freshnessContext))))
       const attemptedWeb = [...seen].some(key => key.startsWith('web:'))
       const attemptedMaps = [...seen].some(key => key.startsWith('maps:'))
-      // Booking/doing asks: a plain-text "queued it" with no browser action is a
-      // lie. A "find me options" ask is a lookup — classifier overreach there
-      // must never launch a run.
-      const wantsMail = /\b(inbox|email|e-?mail|gmail|mailbox|unread|replies owed)\b/i.test(userAsk)
       const attemptedMail = [...seen].some(key => key.startsWith('gmail:'))
       const findOnlyAsk = /\b(?:find|recommend|suggest|show|compare|options?|choices?|which)\b/i.test(userAsk) && !ACTION_ASK_RE.test(userAsk)
       /* A change to an app Alpha just delivered is the workshop's turn, never a
@@ -990,11 +1011,16 @@ Reactions are optional and usually absent. You may add "reaction":"<emoji>" to a
           continue
         }
       }
-      if (needsFresh && !input.skipFreshLookup && !attemptedWeb) {
+      /* A mail ask's fresh slot is freed on the MAIL axis, not the web one. The
+       * outer `!attemptedWeb` was the second half of the same live bug: a model
+       * that had already run one web search for "any important emails?" left the
+       * block unreachable, so the mailbox was never read even once. */
+      if (needsFresh && !input.skipFreshLookup && (wantsMail ? !attemptedMail : !attemptedWeb)) {
         // Mail-shaped asks must nudge the mailbox, not the web: an email
         // lookup that demands `tool:"web"` makes the model refuse and the
         // turn dies on "the web lookup did not run" for a Gmail question.
-        const wantsMail = /\b(inbox|email|e-?mail|gmail|mailbox|unread|replies owed)\b/i.test(userAsk)
+        // `wantsMail` is the shared predicate at the top of this turn — one
+        // definition, so the two guards can never drift apart again.
         // Place/dining asks belong on maps FIRST unless they want hotels or prices/rates:
         // hotel and pricing asks use LangSearch web search to get real rates and booking details.
         const wantsPlace = asksForPlaces && !wantsWebForRichPlace && input.availableTools.includes('maps') && !attemptedMaps
@@ -1019,7 +1045,11 @@ Reactions are optional and usually absent. You may add "reaction":"<emoji>" to a
           // No tool can answer a freshness ask; let the model answer honestly.
         } else if (webNudged || step === maxSteps) {
           return {
-            reply: freshTool === 'gmail'
+            /* The failure names the source the ask was about. A mailbox question
+             * answered with "the web lookup did not run" is a caveat that does
+             * not match what it describes — the user reads it as a broken search
+             * for their email. */
+            reply: freshTool === 'gmail' || wantsMail
               ? 'I could not check your inbox just now. Please try again in a moment.'
               : 'I could not verify current information because the web lookup did not run. Please try again.',
             draft: savedDraft,
@@ -1428,9 +1458,9 @@ const DIRECTIVE_RE = /^\s*(?:TOOL\s+(?:maps|web|gmail|calendar|drive)|DRAFT_(?:M
 export function looksLikeMailWrite(text: string) {
   const t = String(text || '')
   return (
-    /\b(send|draft|write|fire)\b.{0,48}\b(e-?mail|mail|gmail|note)\b/i.test(t) ||
-    /\b(e-?mail|mail)\s+(?:to|them|her|him)\b/i.test(t) ||
-    /\breply (?:to|all)\b/i.test(t) ||
+    /\b(send|draft|write|fire)\b.{0,48}\b(e-?mails?|mail|gmail|note|repl(?:y|ies))\b/i.test(t) ||
+    /\b(e-?mails?|mail)\s+(?:to|them|her|him)\b/i.test(t) ||
+    /\brepl(?:y|ies) (?:to|all)\b/i.test(t) ||
     /\b(?:send|email)\s+[A-Za-z][\w'.-]{1,40}\b/i.test(t)
   )
 }
@@ -1478,7 +1508,7 @@ export function localWeekdayYmd(now: number, timezone: string, named: string): s
 export function looksLikeCalendarBlockAsk(text: string): boolean {
   const t = String(text || '')
   if (!looksLikeEventWrite(t)) return false
-  if (/\b(?:reply|email|e-?mail|inbox|draft|send)\b/i.test(t)) return false
+  if (/\b(?:repl(?:y|ies)|e-?mails?|inbox|draft|send)\b/i.test(t)) return false
   if (/\b(?:what|which|when|where|how|do i have|any)\b[^.?!]{0,24}\b(?:calendar|agenda|schedule|events?|meetings?)\b/i.test(t)) return false
   return /\b(?:block|slot|hold|time|session|focus|event)\b/i.test(t)
 }

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'bun:test'
 import {
+  asksAboutMailbox,
   looksLikeEventWrite,
   looksLikeFollowUp,
   looksLikeMailWrite,
@@ -1322,5 +1323,100 @@ describe('the run-question shapes the founder actually used', () => {
       /\b(?:run|runs|order|booking|browser|computer)\b/i.test(bookAsk) &&
       /\b(?:any|see|show|list|status|update|progress|there|still|going|started|done|finished|what'?s|whats|how'?s|hows)\b/i.test(bookAsk)
     expect(isRunQuestion).toBe(false)
+  })
+})
+
+describe('a mailbox ask goes to the mailbox, never the web (dim 9)', () => {
+  /* Live, 2026-09-20, Gmail connected: "Any important emails ?" came back "I
+   * could not verify current information because the web lookup did not run.
+   * Please try again." The mail detector here was singular-only, and a trailing
+   * "s" kills a word boundary — so the plural ask matched NOTHING, fell through
+   * to the web branch of the freshness guard, and the turn died on a search
+   * that was never the tool for the question. The server's own wantsEmail() has
+   * matched plurals all along; the engine now matches it. */
+  it('matches the plural and hyphen forms the server already matches', () => {
+    for (const ask of [
+      'Any important emails ?',
+      'any important emails',
+      'check my emails',
+      'any important e-mails',
+      'anything important in my inbox',
+      'unread mail',
+      'what did I miss in gmail',
+    ]) {
+      expect(asksAboutMailbox(ask)).toBe(true)
+    }
+    for (const ask of ['what is the weather in chicago', 'find me a restaurant in austin', 'book me a table friday']) {
+      expect(asksAboutMailbox(ask)).toBe(false)
+    }
+  })
+
+  it('nudges the mailbox tool for a plural ask, and answers from what it returned', async () => {
+    const lookups: Array<{ tool: string; query: string }> = []
+    const answers = [
+      'Let me check your inbox.',
+      '{"action":"lookup","tool":"gmail","query":"is:unread newer_than:7d"}',
+      'Two worth your attention: CampusNet about the fall balance, and Sam asking whether Thursday still works for you.',
+    ]
+    const result = await runToolConversation({
+      messages: [{ role: 'user', content: 'Any important emails ?' }],
+      availableTools: ['web', 'gmail'],
+      canDraft: false,
+      // What the classifier returns for a live-state inbox question.
+      intent: { kind: 'request', request: { summary: 'check for important email', needsBrowser: false, needsLookup: true } },
+      chat: async () => answers.shift() || '',
+      lookup: async (tool, query) => {
+        lookups.push({ tool, query })
+        return ['- id=18f | CampusNet <billing@csuohio.edu> | 2026-09-19 | Fall balance due | payment due Sep 30']
+      },
+      propose: async () => ({ ok: false }),
+    })
+    expect(lookups.map((l) => l.tool)).toEqual(['gmail'])
+    expect(result.reply).toContain('CampusNet')
+    expect(result.reply).not.toContain('web lookup did not run')
+  })
+
+  it('still reads the mailbox when the model searched the web first', async () => {
+    // The mailbox slot belongs to the mailbox: an earlier web search must not
+    // consume it, or a mailbox question gets answered from listicles.
+    const lookups: string[] = []
+    const answers = [
+      '{"action":"lookup","tool":"web","query":"important emails"}',
+      'Looking at what is there now.',
+      '{"action":"lookup","tool":"gmail","query":"is:unread newer_than:7d"}',
+      'You have one that matters: CampusNet, the fall balance, due Sep 30.',
+    ]
+    await runToolConversation({
+      messages: [{ role: 'user', content: 'Any important emails ?' }],
+      availableTools: ['web', 'gmail'],
+      canDraft: false,
+      intent: { kind: 'request', request: { summary: 'check for important email', needsBrowser: false, needsLookup: true } },
+      chat: async () => answers.shift() || '',
+      lookup: async (tool) => {
+        lookups.push(tool)
+        return tool === 'gmail'
+          ? ['- id=18f | CampusNet <billing@csuohio.edu> | 2026-09-19 | Fall balance due | payment due Sep 30']
+          : ['Some web page about email organization']
+      },
+      propose: async () => ({ ok: false }),
+    })
+    expect(lookups).toContain('gmail')
+  })
+
+  it('fails with the mailbox named, not the web', async () => {
+    // The model never emits the lookup. The failure must describe the source
+    // the ask was about — "the web lookup did not run" under an email question
+    // reads as a broken search for their mail.
+    const result = await runToolConversation({
+      messages: [{ role: 'user', content: 'any important emails?' }],
+      availableTools: ['web', 'gmail'],
+      canDraft: false,
+      intent: { kind: 'request', request: { summary: 'check for important email', needsBrowser: false, needsLookup: true } },
+      chat: async () => 'One moment.',
+      lookup: async () => ['should not matter'],
+      propose: async () => ({ ok: false }),
+    })
+    expect(result.reply).toContain('inbox')
+    expect(result.reply).not.toContain('web lookup did not run')
   })
 })
