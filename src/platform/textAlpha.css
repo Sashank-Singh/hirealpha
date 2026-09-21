@@ -38,6 +38,16 @@
   color: #a1a1aa;
 }
 
+/* The user's own Alpha line, spelled out under the button: every account gets a
+ * different number from Photon, so showing it is how they can recognise the
+ * sender when the text arrives. */
+.textalpha__line {
+  margin: 4px 0 0;
+  font-size: 13px;
+  letter-spacing: 0.02em;
+  color: #7c7c85;
+}
+
 /* The one action. Green is the Messages colour, so the button reads as "this
  * opens Messages" without a label explaining it. */
 .textalpha__btn {

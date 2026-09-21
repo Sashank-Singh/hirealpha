@@ -5437,6 +5437,37 @@ html[data-mini-theme='light'] .hc-home .hc-day-state { color: var(--muted-fg); }
 }
 .setup__row .setup__select { flex: 1; min-width: 0; max-width: 100%; }
 
+/* ---- Spending block (weekly budget) ----
+   The budget is money, so it carries its own heading, a currency sign and a
+   period. It used to be a bare "Weekly budget -> 459" under the person's cadence
+   row, which read as a property of that person and gave the number no unit. */
+.setup__rule {
+  border: 0; height: 1px; margin: 16px 0 12px;
+  background: rgba(255,255,255,0.12);
+}
+.setup__blockhead { display: flex; flex-direction: column; gap: 2px; margin-bottom: 10px; }
+.setup__blocktitle { font-size: 14px; font-weight: 600; letter-spacing: 0.01em; }
+.setup__blocknote { font-size: 12px; opacity: 0.55; }
+.setup__money { gap: 10px; }
+.setup__moneyfield {
+  display: inline-flex; align-items: center; gap: 4px;
+  background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 10px; padding: 0 10px; min-width: 132px;
+}
+.setup__moneyfield:focus-within { border-color: var(--mini-accent, #2a6f7a); }
+.setup__moneycur, .setup__moneyper { font-size: 14px; opacity: 0.65; }
+.setup__moneyper { white-space: nowrap; }
+.setup__row .setup__moneyinput,
+.setup__moneyinput {
+  width: 66px; flex: 1 1 auto; text-align: right; border: 0; background: transparent;
+  padding: 10px 2px; color: inherit; font: inherit; box-sizing: border-box;
+}
+.setup__moneyinput:focus { outline: none; }
+/* The number spinner would sit between the digits and the "/week". */
+.setup__moneyinput::-webkit-outer-spin-button,
+.setup__moneyinput::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.setup__moneyinput { -moz-appearance: textfield; appearance: textfield; }
+
 /* ---- One-shot home tour after onboarding ---- */
 .home-tour {
   position: fixed; inset: 0; z-index: 900;

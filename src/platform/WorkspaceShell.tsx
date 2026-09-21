@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, type ReactNode } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { getSession, signOut } from './roster'
-import { alphaThreadHref } from './alphaLine'
+import { alphaThreadHref, formatAlphaLine, useAlphaLine } from './alphaLine'
 import { SettingsSheet, type SettingsView } from './SettingsSheet'
 import { paramsForWorkspaceView, workspaceViewFromParams } from './workspaceNavigation'
 import './workspaceShell.css'
@@ -41,6 +41,9 @@ const views: Array<{
 export function WorkspaceShell() {
   const [params, setParams] = useSearchParams()
   const session = getSession()
+  // This user's own Alpha line, shown on the button: every account is assigned a
+  // different number, so a house default would be somebody else's.
+  const alphaLine = useAlphaLine()
   const activeView = useMemo<SettingsView>(() => workspaceViewFromParams(params), [params])
   // A stale or foreign ?tab= value must never blank the whole shell — fall back
   // to the workspace view instead of crashing on a missing lookup.
@@ -107,7 +110,7 @@ export function WorkspaceShell() {
             <p>HireAlpha / {active.label}</p>
             <h1 ref={headingRef} tabIndex={-1}>{active.label}</h1>
           </div>
-          <a href={alphaThreadHref()}>Message Alpha</a>
+          <a href={alphaThreadHref(alphaLine)}>Message Alpha · {formatAlphaLine(alphaLine)}</a>
         </header>
         <div className="workspace-content">
           <SettingsSheet view={activeView} embedded />

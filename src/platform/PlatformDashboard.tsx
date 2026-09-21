@@ -16,12 +16,8 @@ import { paymentsEnabled } from './paymentsConfig'
 import { ConnectorLogo } from './ConnectorLogo'
 import { SettingsSheet } from './SettingsSheet'
 import { TIERS, type Tier } from '../marketing/Pricing'
-import { alphaThreadHref } from './alphaLine'
+import { alphaThreadHref, formatAlphaLine, useAlphaLine } from './alphaLine'
 import './dashboard.css'
-
-/* Opened from the signed-in dashboard, where the thread with Alpha already
- * exists — so this opens it clean rather than typing a greeting in. */
-const ALPHA_SMS = alphaThreadHref()
 
 export type DashTab =
   | 'overview'
@@ -59,6 +55,8 @@ export function PlatformDashboard() {
   const [searchParams, setSearchParams] = useSearchParams()
   const navigate = useNavigate()
   const session = getSession()
+  const alphaLine = useAlphaLine()
+  const alphaLineLabel = `+1 ${formatAlphaLine(alphaLine)}`
 
   const [activePersona, setActivePersona] = useState<AgentId>('friend')
   const [activeTab, setActiveTab] = useState<DashTab>(() => {
@@ -332,9 +330,12 @@ export function PlatformDashboard() {
           <div className="rc-header__actions">
             <div className="rc-status-pill">
               <span className="rc-status-dot" />
-              <span>(415) 595-1440</span>
+              {/* This account's own Alpha line, not a house number: every user is
+                  assigned a different one, and this pill is what they see next to
+                  the text they receive. */}
+              <span>{alphaLineLabel}</span>
             </div>
-            <a className="rc-btn-sm rc-btn-sm--primary" href={ALPHA_SMS}>
+            <a className="rc-btn-sm rc-btn-sm--primary" href={alphaThreadHref(alphaLine)}>
               <span>Text iMessage</span>
               <span className="keycap" style={{ background: 'rgba(0,0,0,0.2)', color: '#fff' }}>⌘T</span>
             </a>
@@ -429,7 +430,7 @@ export function PlatformDashboard() {
                     <a
                       className="rc-btn-sm rc-btn-sm--primary"
                       style={{ width: '100%', justifyContent: 'center' }}
-                      href={ALPHA_SMS}
+                      href={alphaThreadHref(alphaLine)}
                     >
                       Follow up on iMessage
                     </a>
@@ -525,7 +526,7 @@ export function PlatformDashboard() {
               <div className="rc-meta-grid">
                 <div className="rc-meta-box">
                   <p className="rc-meta-box__lbl">Hire Line Number</p>
-                  <p className="rc-meta-box__val">+1 (415) 595-1440</p>
+                  <p className="rc-meta-box__val">{alphaLineLabel}</p>
                 </div>
                 <div className="rc-meta-box">
                   <p className="rc-meta-box__lbl">Bound User Phone</p>

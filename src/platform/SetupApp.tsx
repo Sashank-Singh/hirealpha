@@ -4,6 +4,7 @@ import {
   apiAddRelationship,
   apiConnectUrl,
   apiGetMiniPrefs,
+  apiListSpending,
   apiNutritionToday,
   apiPutMiniPrefs,
   apiSaveLocation,
@@ -84,6 +85,10 @@ export function SetupApp({ auth }: { auth: FeatureAuth }) {
   const [personCadence, setPersonCadence] = useState(14)
   const [people, setPeople] = useState<Array<{ name: string; kind: string; cadence: number }>>([])
   const [budget, setBudget] = useState(400)
+  /* What has actually been spent this week, so the budget is a number next to a
+   * fact instead of a number on its own. Null until it is known — the copy has a
+   * version for each case rather than a zero that pretends to be data. */
+  const [weekSpent, setWeekSpent] = useState<number | null>(null)
   const detectedTz = useMemo(() => {
     try {
       return Intl.DateTimeFormat().resolvedOptions().timeZone || 'America/New_York'
@@ -116,7 +121,21 @@ export function SetupApp({ auth }: { auth: FeatureAuth }) {
     void apiSetupStatus({ persona, ...a })
       .then((s) => {
         if (s.setup?.length) setFeatures(s.setup)
-        if (s.setupDone) setDone(true)
+        /* NEVER complete the wizard from this read.
+         *
+         * `/api/setup/status` calls setup done once two of four step-writes exist
+         * (goals, mini prefs, a person, a saved place) — all true by the time
+         * someone reaches the connectors page. This line used to act on that:
+         * `if (s.setupDone) setDone(true)`, and the done branch ships the person
+         * to the Text Alpha screen. So connecting Gmail remounted the wizard, its
+         * own status read came back done, and it finished itself: the founder
+         * never got back to the connectors page, and the other tools were
+         * unreachable. Founder, 2026-09-21, verbatim: "alpha didnt let me connect
+         * another connector after i connected gmail i got this screen".
+         *
+         * The wizard is finished by the person pressing Done, or by the gate (see
+         * setupGate.ts) deciding they are not mid-wizard at all. A heuristic may
+         * decide what to SHOW; it must never decide that someone is finished. */
       })
       .catch(() => undefined)
     void hydrateFromServer().then(() => setIds(connectedIds())).catch(() => undefined)
@@ -132,6 +151,15 @@ export function SetupApp({ auth }: { auth: FeatureAuth }) {
         if (p.sleepBedtime) setBedtime(p.sleepBedtime)
         if (p.sleepWake) setWake(p.sleepWake)
         if (Array.isArray(p.workoutDays) && p.workoutDays.length) setDays(p.workoutDays as WorkoutDay[])
+      })
+      .catch(() => undefined)
+    /* The week's spend for the budget line, and the saved budget itself when the
+     * account already has one (a re-run of the wizard must not silently reset it
+     * to the default). Silent on failure: the field still works without it. */
+    void apiListSpending(a)
+      .then((s) => {
+        setWeekSpent(Number(s.weekTotal) || 0)
+        if (Number(s.weeklyBudget) > 0) setBudget(Number(s.weeklyBudget))
       })
       .catch(() => undefined)
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -455,11 +483,44 @@ export function SetupApp({ auth }: { auth: FeatureAuth }) {
               <option value={30}>month</option>
             </select>
           </label>
-          <label className="setup__row">
-            <span>Weekly budget</span>
-            <input type="number" inputMode="decimal" value={budget} onChange={(e) => setBudget(Number(e.target.value) || 0)} />
+          {/* Spending gets its own block, below a rule.
+           *
+           * It used to sit directly under "Check in every" as another
+           * `.setup__row`, which made it read as a property of the person being
+           * added — the founder's note, 2026-09-21: "this weekly budget it's very
+           * confusing". It also said "Weekly budget" over a bare `459` with no
+           * currency, so the number had no unit. Now: its own heading, a `$`
+           * inside the field, "/week" after it, and the one number that makes a
+           * budget mean something — what has actually been spent this week. */}
+          <hr className="setup__rule" />
+          <div className="setup__blockhead">
+            <span className="setup__blocktitle">Weekly spend budget</span>
+            <span className="setup__blocknote">What Alpha flags purchases against</span>
+          </div>
+          <label className="setup__row setup__money">
+            <span className="setup__moneylabel">Budget</span>
+            <span className="setup__moneyfield">
+              <span className="setup__moneycur" aria-hidden="true">$</span>
+              <input
+                className="setup__moneyinput"
+                type="number"
+                inputMode="decimal"
+                min={0}
+                step={10}
+                aria-label="Weekly spend budget in dollars"
+                value={budget}
+                onChange={(e) => setBudget(Number(e.target.value) || 0)}
+              />
+              <span className="setup__moneyper">/week</span>
+            </span>
           </label>
-          <p className="setup__hint">Alpha flags when a purchase would break your weekly budget.</p>
+          <p className="setup__hint">
+            {weekSpent === null
+              ? 'Alpha flags a purchase that would take you past this before the week is out.'
+              : weekSpent > 0
+                ? `You have spent $${Math.round(weekSpent)} of it this week, so $${Math.max(0, Math.round(budget - weekSpent))} is left. Alpha flags a purchase that would take you past it.`
+                : `Nothing logged this week yet. Alpha flags a purchase that would take you past $${Math.round(budget)} before the week is out.`}
+          </p>
         </div>
       )}
 

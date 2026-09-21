@@ -16292,7 +16292,31 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
         /* status stays not-done; the wizard is the safe default */
       }
     }
-    return json({ setup, setupDone })
+    /* Has Alpha actually texted this person yet?
+     *
+     * The Text Alpha screen tells them where to pick the conversation up, and
+     * that sentence is only true if the welcome went out. The onboard_done loop
+     * row is the record of it: queued at done:true, flipped to 'done' by the bot
+     * after a send that succeeded. Anything else — queued but never sent, failed
+     * on the way (a Photon target restriction, a cooling period), or never
+     * queued at all — reports false, and the screen says so instead of claiming a
+     * message that does not exist.
+     *
+     * Live, 2026-09-21: the founder finished onboarding and read "Alpha already
+     * texted you" on a number Alpha is not permitted to send to ("Target not
+     * allowed for this project" in the friend log). */
+    let welcomed = false
+    try {
+      const rows = (await sql`
+        SELECT 1 FROM hire_task_loops
+        WHERE user_id = ${user!.id} AND persona = ${persona} AND kind = 'onboard_done' AND status = 'done'
+        LIMIT 1
+      `) as Array<unknown>
+      welcomed = rows.length > 0
+    } catch {
+      /* Unknown reads as not-yet: the screen must not assert a text it cannot confirm. */
+    }
+    return json({ setup, setupDone, welcomed })
   }
 
   if (path === '/api/setup' && req.method === 'POST') {

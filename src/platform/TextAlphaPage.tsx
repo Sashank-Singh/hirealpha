@@ -1,6 +1,8 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Navigate, useSearchParams } from 'react-router-dom'
-import { alphaThreadHref } from './alphaLine'
+import { ALPHA_LINE, alphaThreadHref, formatAlphaLine, useAlphaLine } from './alphaLine'
+import { apiSetupStatus } from './api'
+import { getSession } from './roster'
 import './textAlpha.css'
 
 /* The one screen after onboarding: Text Alpha.
@@ -12,14 +14,12 @@ import './textAlpha.css'
  * can continue from there."
  *
  * So this screen is deliberately one thing. No dashboard chrome, no app grid,
- * no second call to action: the wizard is done, the person's Alpha has already
- * texted them, and the only next step is the thread. Messages is where the
- * product actually lives, and the mini apps are reachable from there.
+ * no second call to action: the wizard is done and the only next step is the
+ * thread. The line under the button is the user's OWN Alpha number, read from
+ * Photon — never a house number, because every account gets its own.
  *
  * Shown ONCE: the flag is written when they tap, and anyone who comes back to
- * this URL afterwards goes straight to the platform. That is the founder's
- * second instruction — "it only shows once. After that, they can access the
- * platform."
+ * this URL afterwards goes straight to the platform.
  */
 
 /** The Messages mark: the green app icon with the white speech bubble. Drawn
@@ -44,9 +44,44 @@ function MessagesMark({ size = 44 }: { size?: number }) {
   )
 }
 
+/* The sentence above the button is a claim about a message that may not exist,
+ * so it is read from the server rather than assumed. `/api/setup/status` reports
+ * `welcomed` — true only when the onboard_done welcome was actually sent.
+ *
+ * Live, 2026-09-21: the founder finished onboarding and read "Alpha already
+ * texted you" while Alpha had not texted at all. The friend log says why —
+ * "[friend] intro to +12163032166 failed: [spectrum-imessage] Target not allowed
+ * for this project" — and the screen had no idea. It does now, and it says the
+ * true thing in both states instead of a warm thing in one. */
+type Welcome = 'sent' | 'not-yet' | 'unknown'
+
+function welcomeLine(state: Welcome, line: string): string {
+  const shown = formatAlphaLine(line)
+  if (state === 'sent') return `Alpha already texted you from ${shown}. Pick it up there.`
+  if (state === 'not-yet') return `Alpha texts you from ${shown} — say hi and it answers in seconds.`
+  return `Alpha replies from ${shown}. Open the thread to start.`
+}
+
 export function TextAlphaPage() {
   const [params] = useSearchParams()
   const [done, setDone] = useState(false)
+  const [welcome, setWelcome] = useState<Welcome>('unknown')
+  const line = useAlphaLine()
+
+  useEffect(() => {
+    const email = getSession()?.email
+    if (!email) return
+    let cancelled = false
+    void apiSetupStatus({ persona: 'friend', email })
+      .then((s) => {
+        if (!cancelled) setWelcome(s.welcomed ? 'sent' : 'not-yet')
+      })
+      .catch(() => undefined)
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
   let seen = false
   try {
     seen = localStorage.getItem('ha_text_alpha_seen') === '1'
@@ -63,10 +98,10 @@ export function TextAlphaPage() {
         {/* One action, and the mark states the destination: the Messages icon is
          * the title, so the page needs no heading above the button. */}
         <MessagesMark size={56} />
-        <p className="textalpha__lead">Alpha already texted you. Pick it up there.</p>
+        <p className="textalpha__lead">{welcomeLine(welcome, line)}</p>
         <a
           className="textalpha__btn"
-          href={alphaThreadHref()}
+          href={alphaThreadHref(line)}
           onClick={() => {
             try {
               localStorage.setItem('ha_text_alpha_seen', '1')
@@ -79,6 +114,7 @@ export function TextAlphaPage() {
           <MessagesMark size={22} />
           <span>Text Alpha</span>
         </a>
+        {line !== ALPHA_LINE && <p className="textalpha__line">{formatAlphaLine(line)}</p>}
       </div>
     </main>
   )

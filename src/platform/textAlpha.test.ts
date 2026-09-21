@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'bun:test'
 import { setupIsDone } from './setupGate'
-import { ALPHA_LINE, alphaThreadHref } from './alphaLine'
+import { ALPHA_LINE, alphaThreadHref, formatAlphaLine } from './alphaLine'
 
 function createMockStorage() {
   const store = new Map<string, string>()
@@ -61,5 +61,21 @@ describe('the one link on the Text Alpha screen', () => {
 
   it('uses the same constant the workspace and the landing page use', () => {
     expect(ALPHA_LINE).toBe('+14155951440')
+  })
+
+  /* "alpha number is always diffrent for users so it needs to make sure about the
+   * number from photon and show that number not just a generic number its
+   * different for every user" — founder, 2026-09-21. The href must carry whatever
+   * line the account was assigned, and the screen shows it in the phone format
+   * people recognise their sender by. */
+  it('carries the assigned line, and shows it the way a phone does', () => {
+    const assigned = '+14155550137'
+    expect(alphaThreadHref(assigned)).toBe(`sms:${assigned}`)
+    expect(alphaThreadHref(assigned)).not.toContain('14155951440')
+    expect(formatAlphaLine(assigned)).toBe('(415) 555-0137')
+    expect(formatAlphaLine(ALPHA_LINE)).toBe('(415) 595-1440')
+    // Anything that is not a 10/11-digit US number is passed through untouched
+    // rather than mangled into a wrong-looking one.
+    expect(formatAlphaLine('+442071838750')).toBe('+442071838750')
   })
 })

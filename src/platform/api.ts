@@ -311,9 +311,9 @@ export async function apiSetupStatus(input: { persona: AgentId; email?: string; 
   if (input.token) qs.set('t', input.token)
   else if (input.email) qs.set('email', input.email)
   const res = await fetch(`${API}/api/setup/status?${qs}`)
-  const data = await parseJson<{ setup?: string[]; setupDone?: boolean; error?: string; code?: string }>(res)
+  const data = await parseJson<{ setup?: string[]; setupDone?: boolean; welcomed?: boolean; error?: string; code?: string }>(res)
   if (!res.ok) throw new Error(data.error || 'Could not load setup')
-  return { setup: data.setup || [], setupDone: !!data.setupDone }
+  return { setup: data.setup || [], setupDone: !!data.setupDone, welcomed: !!data.welcomed }
 }
 
 /** Set the daily brief hour (server re-arms the [digest] reminder). */
