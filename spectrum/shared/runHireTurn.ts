@@ -1207,11 +1207,25 @@ export async function runHireTurn(input: {
     looksLikeDigestIntent(input.userText) || looksLikeAffirmedBrief(input.userText, lastAssistant)
   const eveningBriefIntent = looksLikeEveningBriefIntent(input.userText)
 
-  // A first text that is just a greeting ("Hey, Alpha!", "hi", "yo") gets the
-  // pinned welcome verbatim — fast, deterministic, always on copy. Anything
-  // with a real question still goes to the model.
+  /* A first text that is just a greeting ("Hey, Alpha!", "hi", "yo") gets the
+   * pinned welcome verbatim — fast, deterministic, always on copy. Anything with
+   * a real question still goes to the model.
+   *
+   * The question this needs answered is "have WE ever said anything to them", and
+   * `isFirst` is not that question: it also counts `live.lastInboundAt`, a server
+   * stamp that ANY inbound sets and nothing ever clears. Once it is set, the
+   * introduction can never fire again — which is exactly what happened to a user
+   * who had removed their number from Photon and signed up fresh: he texted
+   * "Hey, Alpha!" and got "Morning, Sashank! Monday, 8:40, anything on deck, or
+   * just saying hi?" with no intro, no contact card and no Alpha Apps card
+   * (live, 2026-09-21 15:40, thread file holding that one exchange and nothing
+   * else).
+   *
+   * An assistant line in the thread is the honest signal: if we have never spoken
+   * to this person, a bare hello is an introduction, whatever the stamps say. */
+  const greetedBefore = history.some((m) => m.role === 'assistant')
   const bareGreeting =
-    isFirst && /^(?:hey|hi|hello|yo|hola|sup|what'?s up|howdy)(?:[ ,]+alpha)?[!.?\s]*$/i.test(input.userText.trim())
+    !greetedBefore && /^(?:hey|hi|hello|yo|hola|sup|what'?s up|howdy)(?:[ ,]+alpha)?[!.?\s]*$/i.test(input.userText.trim())
   // Full name is captured at signup now; the greeting stays first-name warm.
   const greetingName = (live.name || '').trim().split(/\s+/)[0] || 'there'
   const WELCOME = `Hey ${greetingName}, I'm Alpha, your hired friend. I keep the day sane, save the stuff you'd lose, and check in when you need a real person. One card should show up here in a sec to pick how you want to use me.`

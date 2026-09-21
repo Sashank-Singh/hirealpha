@@ -2782,6 +2782,12 @@ export async function ensureHireSchema(sql: SQL) {
   `
   await sql`CREATE INDEX IF NOT EXISTS idx_hire_meetings_user ON hire_meetings (user_id, created_at DESC)`
   await sql`ALTER TABLE hire_meetings ADD COLUMN IF NOT EXISTS notes TEXT`
+  /* The busy-now guard reads ends_at (below), and the column was never added:
+   * `INSERT INTO hire_meetings` writes starts_at only, so the query threw
+   * `column "ends_at" does not exist` every poll — caught, so the guard was
+   * silently dead and the database log filled with the same error every ten
+   * seconds (founder's paste, 2026-09-21 15:43). */
+  await sql`ALTER TABLE hire_meetings ADD COLUMN IF NOT EXISTS ends_at TIMESTAMPTZ`
 
   await sql`
     CREATE TABLE IF NOT EXISTS hire_drafts (
@@ -9791,7 +9797,7 @@ async function collectEventNudgesForUser(
         SELECT id FROM hire_meetings
         WHERE user_id = ${user.id}
           AND starts_at <= now()
-          AND ends_at >= now()
+          AND COALESCE(ends_at, starts_at + interval '60 minutes') >= now()
           AND phase <> 'done'
         LIMIT 1
       `
