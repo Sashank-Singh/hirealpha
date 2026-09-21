@@ -4342,3 +4342,46 @@ path, not edited the live one.
 Two upstream notes from the same log, unchanged and not ours: the reminder
 scheduler keeps hitting `cooling period limits sends to 3/day`, and inbound
 catch-up reports `IMessageError: HTTP 415 without a middleware error body`.
+
+### "still says connect after i connected it" — the label was right and the connection was doubled
+
+Founder, 10:14 AM, wizard step 5 of 5: Gmail still offering **Connect** with
+"1/11 on" after he had connected it.
+
+Composio's own state is the whole story:
+
+```
+ca_7R1d7-JEaWKh  gmail           ACTIVE  2026-09-21T17:14:20.129Z   ← kept (newest)
+ca_uQqVGL0FEj2Q  gmail           ACTIVE  2026-09-21T17:13:51.743Z   ← duplicate, deleted
+ca_x7hMNFSGHMrL  googlecalendar  ACTIVE  2026-09-21T17:14:06.551Z
+```
+
+**Two ACTIVE Gmail accounts, 29 seconds apart.** He tapped Connect, the page gave
+him nothing to look at, he tapped again. And that state is not merely untidy — it
+is broken: the app's log shows Composio answering
+`[Warn:AllowMultiple] Multiple connected accounts found for user a476fd14…` and
+`[composio] GMAIL_FETCH_EMAILS threw … TOOL_EXECUTION_ERROR` on every read. So a
+Gmail that is genuinely connected answers nothing, which is also the shape of the
+earlier "gmail is connected but that error".
+
+Two fixes, `caf3452`:
+
+1. **Duplicates are impossible now.** The account resolver keeps the NEWEST ACTIVE
+   account for a toolkit and deletes the extras as it finds them — in both the SDK
+   path and the management-key REST fallback. The newest is what the pin already
+   chose, so no behaviour changes except that the broken state cannot persist. Best
+   effort: a cleanup failure never breaks a read.
+2. **An empty connected-list answer is no longer cached.** `composioConnected`
+   cached whatever it got, including a transient `[]` from a list that timed out —
+   and that empty answer then stood for the full 3-minute TTL, which is exactly how
+   the wizard can keep offering "Connect" on a connection that exists. A confirmed
+   non-empty answer is worth caching; "nothing" is the answer to re-ask.
+
+The live duplicate was deleted by hand as well, so his account is now one Gmail and
+one Calendar, both ACTIVE, and the resolver's pin is unambiguous.
+
+**The UX lesson, recorded:** a Connect button that returns a person to the same
+page with no change is indistinguishable from a broken button, and the honest fix
+is not a spinner — it is state the page can read back. The wizard returns to the
+step correctly now; what it could not do was tell him whether the connection had
+landed. On failure the app should say so.
