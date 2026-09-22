@@ -187,13 +187,15 @@ describe('claimDueLoops', () => {
     expect(queries[0].text).toContain("status = 'running' AND updated_at < now()")
     expect(queries[0].text).toContain('hire_task_loops')
     expect(queries[1].text).toContain('hire_browser_result_deliveries')
-    expect(queries[2].text).toContain('FROM hire_browser_result_deliveries')
-    expect(queries[2].text).toContain('FOR UPDATE SKIP LOCKED')
-    expect(queries[2].text).toContain(`attempts < ?`)
-    expect(queries[2].values).toContain(TASK_LOOP_MAX_ATTEMPTS)
-    expect(queries[2].text).toContain('next_run <= now()')
-    expect(queries[3].text).toContain('FROM hire_task_loops')
-    expect(queries[3].text).toContain('FOR UPDATE SKIP LOCKED')
+    // Maintenance queries may precede claims (e.g. closing resolved promises).
+    // Assert the two actual claims and their ordering, not fixed array slots.
+    const claims = queries.filter(q => q.text.includes('FOR UPDATE SKIP LOCKED'))
+    expect(claims).toHaveLength(2)
+    expect(claims[0].text).toContain('FROM hire_browser_result_deliveries')
+    expect(claims[0].text).toContain(`attempts < ?`)
+    expect(claims[0].values).toContain(TASK_LOOP_MAX_ATTEMPTS)
+    expect(claims[0].text).toContain('next_run <= now()')
+    expect(claims[1].text).toContain('FROM hire_task_loops')
   })
 
   it('leaves the loop queue alone when due results already fill the claim', async () => {

@@ -32,7 +32,9 @@ describe('gmi 429 backoff', () => {
     let calls = 0
     globalThis.fetch = (async () => { calls++; return new Response('{}', { status: 429 }) }) as unknown as typeof fetch
     try {
-      await expect(gmiChat({ messages: [{ role: 'user', content: 'hi' }], timeoutMs: 700, apiKey: 'k' }))
+      // Isolate this refusal from the previous test's live throttle state.
+      // An already-queued request now correctly expires before being sent.
+      await expect(gmiChat({ messages: [{ role: 'user', content: 'hi' }], timeoutMs: 700, apiKey: 'k', baseUrl: 'https://short-rate-limit.test/v1' }))
         .rejects.toThrow('429')
       expect(calls).toBe(1)
     } finally {

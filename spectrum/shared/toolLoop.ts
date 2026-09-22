@@ -524,8 +524,12 @@ export async function runToolConversation(input: {
     (/\b(?:i (?:prefer|always|never)|i'?d rather|i don'?t want|i do not want|no red-?eyes?)\b/i.test(lastUserAsk) &&
       /\b(?:when (?:you|we)\b|from now on|going forward|on (?:my|any|all) (?:flights|trips))\b/i.test(lastUserAsk) &&
       !/^\s*(?:please\s+)?(?:book|reserve|find|get|search|look|pick)\b/i.test(lastUserAsk))
+  // Finding an existing confirmation is a private-record lookup, not a fare
+  // search. The model can still explicitly search for a new trip in a mixed
+  // request; the engine must not force the original private ask onto the web.
+  const existingTravelRecord = /\b(?:confirmations?|itinerar(?:y|ies)|boarding pass(?:es)?|booking references?|reservation (?:codes?|numbers?))\b/i.test(lastUserAsk)
   const bookTravelAsk =
-    !preferenceStatement &&
+    !preferenceStatement && !existingTravelRecord &&
     /\b(?:book|booking|reserve|reservation|stay|round ?trip|flight|flights|hotel|hotels|hostel|hostels|lodging|airfare)\b/i.test(lastUserAsk) &&
     /\b(?:book|booking|reserve|reservation|stay|round ?trip)\b/i.test(lastUserAsk)
   /* A dated travel ASK — booking or not — must be answered from the live
@@ -535,7 +539,7 @@ export async function runToolConversation(input: {
    * named hotels from memory with no price at all, because the engine only
    * fetched and appended the dated block for booking asks. The founder's bar is
    * the reply he can act on, so a travel-shaped ask is grounded the same way. */
-  const datedTravelAsk = bookTravelAsk || (travelLookup.test(lastUserAsk) && !preferenceStatement)
+  const datedTravelAsk = bookTravelAsk || (travelLookup.test(lastUserAsk) && !preferenceStatement && !existingTravelRecord)
   /** The verified dated block, or null when the reply is not one: the
    * "LIVE FARE/RATE SOURCE UNAVAILABLE" notice and a general web listicle both
    * carry dollar signs and must never ride along as live options. Only a block
@@ -848,6 +852,9 @@ Reactions are optional and usually absent. You may add "reaction":"<emoji>" to a
       const needsFresh =
         !isMemoryAsk &&
         !accessQuestion &&
+        // A current private record still cannot be verified by public search.
+        // Explicit mailbox asks retain their Gmail freshness check.
+        (!existingTravelRecord || wantsMail) &&
         !isSchedulingAsk(userAsk) &&
         (request?.needsLookup === true || (request === null && (asksForPlaces || asksToBuy || /\b(news|latest|price|prices|how much (?:is|does|do)|score|who won|release date|next .{0,40}event|this week|today|yesterday|tonight|right now)\b/i.test(freshnessContext))))
       const attemptedWeb = [...seen].some(key => key.startsWith('web:'))

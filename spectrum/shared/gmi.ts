@@ -45,7 +45,29 @@ function noteRefusal(state: ProviderThrottle): void {
   state.refusedUntil = Date.now() + REFUSAL_COOLDOWN_MS
 }
 
-function withProviderSlot<T>(state: ProviderThrottle, run: () => Promise<T>): Promise<T> {
+function withinSignal<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const aborted = () => reject(signal.reason)
+    if (signal.aborted) aborted()
+    else signal.addEventListener('abort', aborted, { once: true })
+    promise.then(resolve, reject).finally(() => signal.removeEventListener('abort', aborted))
+  })
+}
+
+function abortableDelay(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal.aborted) { reject(signal.reason); return }
+    const aborted = () => { clearTimeout(timer); reject(signal.reason) }
+    const timer = setTimeout(() => {
+      signal.removeEventListener('abort', aborted)
+      resolve()
+    }, ms)
+    signal.addEventListener('abort', aborted, { once: true })
+  })
+}
+
+function withProviderSlot<T>(state: ProviderThrottle, signal: AbortSignal, run: () => Promise<T>): Promise<T> {
+  signal.throwIfAborted()
   const throttled = Date.now() < state.refusedUntil
   if (!throttled) {
     // No known pressure: go now, but keep the queue honest so two in-flight
@@ -53,15 +75,19 @@ function withProviderSlot<T>(state: ProviderThrottle, run: () => Promise<T>): Pr
     return run()
   }
   const scheduled = state.queue.then(async () => {
+    signal.throwIfAborted()
     const wait = SPACING_AFTER_REFUSAL_MS - (Date.now() - state.lastCallAt)
-    if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait))
+    if (wait > 0) await abortableDelay(wait, signal)
+    signal.throwIfAborted()
     state.lastCallAt = Date.now()
     return run()
   })
   // Keep the chain alive even when a call rejects, so one failure cannot wedge
   // every later request.
   state.queue = scheduled.catch(() => undefined)
-  return scheduled
+  // Expire while waiting behind another request, then skip the stale slot
+  // when the queue reaches it. Never issue a fetch after its deadline.
+  return withinSignal(scheduled, signal)
 }
 
 export interface GmiChatOptions {
@@ -214,7 +240,7 @@ async function gmiChatOnce(options: GmiChatOptions): Promise<string> {
     return JSON.stringify(body)
   }
 
-  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+  const sleep = (ms: number) => abortableDelay(ms, signal)
 
   // Some endpoints accept 'low' | 'medium' | 'high', some accept 'none', and
   // standard OpenAI-compatible endpoints reject reasoning_effort completely.
@@ -239,7 +265,7 @@ async function gmiChatOnce(options: GmiChatOptions): Promise<string> {
     const body = await response.clone().text().catch(() => '')
     return /rate.?limit|too many requests|overloaded|try again/i.test(body)
   }
-  const call = (effort: string) => withProviderSlot(throttle, () =>
+  const call = (effort: string) => withProviderSlot(throttle, signal, () =>
     fetch(url, { method: 'POST', headers, body: payload(effort), signal }))
   const primaryEffort = options.reasoningEffort ?? 'omit'
   let res = await call(primaryEffort)
@@ -301,7 +327,7 @@ async function gmiChatOnce(options: GmiChatOptions): Promise<string> {
   if (!reply) {
     for (const effort of ['low', 'omit', 'none']) {
       await sleep(600)
-      res = await withProviderSlot(throttle, () => fetch(url, { method: 'POST', headers, body: payload(effort), signal }))
+      res = await call(effort)
       if (!res.ok) continue
       const retry = (await res.json()) as { choices?: Array<{ message?: { content?: string } }> }
       reply = (retry.choices?.[0]?.message?.content ?? '').trim()
@@ -331,7 +357,7 @@ async function gmiChatOnce(options: GmiChatOptions): Promise<string> {
     !conversational
   if (looksLikeEcho) {
     await sleep(800)
-    res = await fetch(url, { method: 'POST', headers, body: payload('none'), signal })
+    res = await call('none')
     if (res.ok) {
       const retry = (await res.json()) as { choices?: Array<{ message?: { content?: string } }> }
       const second = (retry.choices?.[0]?.message?.content ?? '').trim()

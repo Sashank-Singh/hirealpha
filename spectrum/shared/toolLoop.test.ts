@@ -1420,3 +1420,21 @@ describe('a mailbox ask goes to the mailbox, never the web (dim 9)', () => {
     expect(result.reply).not.toContain('web lookup did not run')
   })
 })
+
+it('answers from an existing flight confirmation without demanding a public fare search', async () => {
+  const tools: string[] = []
+  let calls = 0
+  const result = await runToolConversation({
+    messages: [{ role: 'user', content: 'Find my flight confirmation' }],
+    availableTools: ['gmail', 'web'],
+    intent: { kind: 'request', request: { summary: 'Find the existing flight confirmation', needsBrowser: false, needsLookup: true } },
+    chat: async () => ++calls === 1
+      ? JSON.stringify({ action: 'lookup', tool: 'gmail', query: 'subject:flight' })
+      : 'Your flight departs September 8 at 3 PM PDT.',
+    lookup: async tool => { tools.push(tool); return ['Flight confirmation: September 8 at 3 PM PDT.'] },
+    draft: async () => ({ ok: false }),
+  })
+  expect(tools).toEqual(['gmail'])
+  expect(result.reply).toContain('September 8')
+  expect(calls).toBe(2)
+})
