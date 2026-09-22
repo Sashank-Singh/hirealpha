@@ -62,3 +62,24 @@ export function fastReplyBudget(opts: { firstContact: boolean; configuredMs?: nu
  * storm, at whatever the poll interval happens to be.
  */
 export const SEND_FAILURE_BACKOFF_MS = 10 * 60_000
+
+/** Retry only reply generation, never a turn that may have executed tools.
+ * A fast-path deadline is a latency target, not permission to drop the ask.
+ * Keep the same context and give one recovery attempt a useful budget. */
+export async function recoverChatReply(
+  ask: (timeoutMs: number) => Promise<string>,
+  attemptMs: number,
+): Promise<string> {
+  const attempt = async (timeoutMs: number) => {
+    const reply = (await ask(timeoutMs)).trim()
+    if (!reply) throw new Error('Empty conversational reply')
+    return reply
+  }
+  try {
+    return await attempt(attemptMs)
+  } catch {
+    return await attempt(20_000)
+  }
+}
+
+export const CHAT_UNAVAILABLE_REPLY = "I'm unable to answer right now because my response service is unavailable. Your question is still in this conversation."

@@ -5,10 +5,9 @@ import { generateTurnImage, pushTurnImage } from './imageRequest'
 import { writeToWorkspace } from './workWrite'
 import { persistLiveFacts } from './liveContext'
 import { getAgent, type AgentId } from '../../src/agents'
-import { runAgentLocally } from '../../src/agents/runtime'
 import { formatNowForAgent, pickUserTimezone } from '../../deploy/timezones'
 import { gmiChat, type GmiChatMessage } from './gmi'
-import { fastReplyBudget } from './delivery'
+import { CHAT_UNAVAILABLE_REPLY, fastReplyBudget, recoverChatReply } from './delivery'
 import { appendThread, LAST_BUILD_KEY, recordCardDelivered, recordDeliveredBuild, setPendingConnection, setPendingSpend, setPendingVaultTask, upsertFacts, type ThreadMemory } from './memory'
 import {
   autoLogNutrition, autoLogWorkout, autoLogSleep, autoLogGratitude, autoLogMood,
@@ -19,7 +18,6 @@ import {
 import { buildDigestBriefing, mintMiniAppCard, type MiniAppCard, type MiniAppKind } from './miniApps'
 import { createReminder, createWatch, listReminders } from './reminders'
 import { setProactiveMode } from './judgment'
-import { knownFirstName } from './onboarding'
 import {
   isDeliberationOnly,
   calendarBlockTitle, calendarBlockWhen, isTravelRunAsk, LIVE_TOOLS, looksLikeCalendarBlockAsk, missingConnectorNote,
@@ -491,19 +489,12 @@ export async function runConversationalFriend(input: {
       summary: memory.summary,
       inboundResult: input.inboundNote,
     }
-    // The reply has a wall-clock bar, not just a per-attempt timeout: a user
-    // reading a text does not care which leg was slow. Attempt one gets most of
-    // the budget; the retry only runs if enough of the wall is left to finish
-    // it, so a stalled provider degrades to the local reply instead of holding
-    // the thread for a second full timeout.
-    //
-    // A first contact gets the long budget on purpose — that reply is the
-    // introduction, and the local fallback has to be its floor, never its ceiling.
-    const { attemptMs, wallMs } = fastReplyBudget({
+    // Keep the normal fast attempt, but do not abandon the original question
+    // when that latency target expires. Recovery retries generation only.
+    const { attemptMs } = fastReplyBudget({
       firstContact: !returning && memory.history.length === 0,
       configuredMs: Number(process.env.HIREALPHA_FAST_REPLY_TIMEOUT_MS),
     })
-    const startsAt = Date.now()
     let source: 'gmi' | 'local' = 'gmi'
     let reply: string
     const fastMessages: GmiChatMessage[] = [
@@ -514,34 +505,18 @@ export async function runConversationalFriend(input: {
     // Low thinking budget: measured 3.3-3.5s against 10.4-12.3s on the provider
     // default, and the default twice burned its whole budget on hidden
     // reasoning, once returning nothing visible at all.
-    const ask = (timeoutMs: number) =>
-      gmiChat({ messages: fastMessages, temperature: 0.6, maxTokens: 220, timeoutMs, reasoningEffort: 'low' })
-    try {
-      reply = await ask(attemptMs)
-    } catch (error) {
-      // One clean retry before the canned local fallback: a transient GMI
-      // timeout/empty answer was surfacing to users as "I hit a quick snag,
-      // say that once more?" on trivial messages, and the retry almost always
-      // lands on the second attempt. It only runs when the wall allows it.
-      const left = wallMs - (Date.now() - startsAt)
-      if (left < 2_500) {
-        console.warn(`[${persona}] fast GMI failed with ${left}ms left, going local:`, error)
-        reply = runAgentLocally(agent, input.userText, { firstName: knownFirstName(live.memories) })
-        source = 'local'
-      } else {
-        console.warn(`[${persona}] fast GMI failed, retrying once:`, error)
-        try {
-          reply = await ask(Math.min(attemptMs, left))
-        } catch (retryError) {
-          console.warn(`[${persona}] fast GMI fallback:`, retryError)
-          reply = runAgentLocally(agent, input.userText, { firstName: knownFirstName(live.memories) })
-          source = 'local'
-        }
-      }
+    const ask = async (timeoutMs: number) => {
+      let answer = sanitizeOutbound(await gmiChat({ messages: fastMessages, temperature: 0.6, maxTokens: 220, timeoutMs, reasoningEffort: 'low' }))
+      if (returning) answer = answer.replace(/^(?:(?:hey|hi|hello)[,!]?\s*)?(?:i'm|i am|this is)\s+Alpha(?:\s*,\s*your\s+[^.!?]+)?[.!?]\s*/i, '').trim()
+      return answer
     }
-    reply = sanitizeOutbound(reply)
-    if (returning) reply = reply.replace(/^(?:(?:hey|hi|hello)[,!]?\s*)?(?:i'm|i am|this is)\s+Alpha(?:\s*,\s*your\s+[^.!?]+)?[.!?]\s*/i, '').trim()
-    if (!reply) reply = 'I lost that response. Could you try again?'
+    try {
+      reply = await recoverChatReply(ask, attemptMs)
+    } catch (error) {
+      console.warn(`[${persona}] conversational recovery exhausted:`, error)
+      reply = CHAT_UNAVAILABLE_REPLY
+      source = 'local'
+    }
     // The gate regex is a cheap accelerator, never the verdict. When it misses,
     // the classifier still holds a veto: "any important emails today?" contains
     // no singular form the pattern lists ("emails" breaks every \b…\b

@@ -62,7 +62,7 @@ Sashank`
     if (/advice|should i|what do i/.test(lower)) {
       return 'Honest take. Peace, growth, or not regretting it?'
     }
-    return "I hit a quick snag thinking through that. Can you say that once more?"
+    return "I'm unable to answer right now because my response service is unavailable."
   }
 
   if (agent.id === 'coworker') {

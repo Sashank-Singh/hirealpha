@@ -15,7 +15,7 @@ describe('the local fallback answers a hello like a hello', () => {
   it('never answers a greeting with the snag line', () => {
     for (const text of ['Hey, Alpha!', 'hey', 'Hi', 'Hello!', 'yo', 'morning', 'good morning']) {
       const reply = runAgentLocally(friend, text)
-      expect(reply).not.toContain('quick snag')
+      expect(reply).not.toContain('service is unavailable')
       expect(reply).not.toContain('once more')
       expect(reply.length).toBeGreaterThan(12)
     }
@@ -34,8 +34,6 @@ describe('the local fallback answers a hello like a hello', () => {
   })
 
   it('still refuses to invent an answer for a real request', () => {
-    // The snag line stays for the case it was written for: an ask the local path
-    // cannot answer.
-    expect(runAgentLocally(friend, 'what did the SEC filing say about the merger')).toContain('quick snag')
+    expect(runAgentLocally(friend, 'what did the SEC filing say about the merger')).toContain('service is unavailable')
   })
 })
