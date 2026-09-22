@@ -84,6 +84,8 @@ export interface GmiChatOptions {
  * key — no new provider needed.
  */
 export async function gmiChat(options: GmiChatOptions): Promise<string> {
+  const originalBudget = options.timeoutMs ?? 30_000
+  const startedAt = Date.now()
   try {
     return await gmiChatOnce(options)
   } catch (err) {
@@ -92,12 +94,14 @@ export async function gmiChat(options: GmiChatOptions): Promise<string> {
       /timed out|aborted|GMI error 5\d\d|GMI error 429|Rate limit exceeded|Empty GMI reply|echoed instructions/i.test(msg)
     const primary = options.model || process.env.GMI_MODEL || process.env.HIREALPHA_MODEL || 'zai-org/GLM-5.3-Flash'
     const fallback = process.env.GMI_MODEL_FALLBACK || 'zai-org/GLM-5.3-Flash'
-    const originalBudget = options.timeoutMs ?? 30_000
+    const remainingMs = originalBudget - (Date.now() - startedAt)
     // Only real turn-sized budgets fail over: a tiny probe deadline (tests,
     // health checks) must stay a fast rejection, never a second attempt.
-    if (!worthFailover || fallback === primary || originalBudget < 6_000) throw err
+    if (!worthFailover || fallback === primary || originalBudget < 6_000 || remainingMs < MIN_REQUEST_MS) throw err
     console.warn(`[gmi] ${primary} failed (${msg.slice(0, 80)}); failing over to ${fallback}`)
-    return await gmiChatOnce({ ...options, model: fallback, timeoutMs: originalBudget })
+    // The caller owns recovery after this deadline. Resetting it here stacks
+    // model failover beneath chat recovery and can double the user's wait.
+    return await gmiChatOnce({ ...options, model: fallback, timeoutMs: remainingMs })
   }
 }
 

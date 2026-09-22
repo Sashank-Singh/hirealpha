@@ -84,3 +84,46 @@ it('does not start overlapping task claims while a poll is still running', async
     await new Promise((resolve) => setTimeout(resolve, 0))
   }
 })
+
+it('does not restart an exhausted deadline for model failover', async () => {
+  const originalNow = Date.now
+  const originalFallback = process.env.GMI_MODEL_FALLBACK
+  let elapsed = 0
+  let calls = 0
+  try {
+    process.env.GMI_MODEL_FALLBACK = 'recovery-model'
+    Date.now = () => originalNow() + elapsed
+    globalThis.fetch = (async () => {
+      calls++
+      elapsed += 6001
+      throw new DOMException('The operation timed out.', 'TimeoutError')
+    }) as typeof fetch
+    await expect(gmiChat({ apiKey: 'test', model: 'primary-model', timeoutMs: 6000,
+      messages: [{ role: 'user', content: 'What does Copeland do?' }] })).rejects.toThrow()
+    expect(calls).toBe(1)
+  } finally {
+    Date.now = originalNow
+    if (originalFallback === undefined) delete process.env.GMI_MODEL_FALLBACK
+    else process.env.GMI_MODEL_FALLBACK = originalFallback
+  }
+})
+
+it('still fails over an immediate provider failure when time remains', async () => {
+  const originalFallback = process.env.GMI_MODEL_FALLBACK
+  const models: string[] = []
+  try {
+    process.env.GMI_MODEL_FALLBACK = 'recovery-model'
+    globalThis.fetch = (async (_url, init) => {
+      const { model } = JSON.parse(String(init?.body))
+      models.push(model)
+      if (model === 'primary-model') throw new Error('GMI error 503: unavailable')
+      return Response.json({ choices: [{ message: { content: 'Recovered answer.' } }] })
+    }) as typeof fetch
+    expect(await gmiChat({ apiKey: 'test', model: 'primary-model', timeoutMs: 6000,
+      messages: [{ role: 'user', content: 'What does Copeland do?' }] })).toBe('Recovered answer.')
+    expect(models).toEqual(['primary-model', 'recovery-model'])
+  } finally {
+    if (originalFallback === undefined) delete process.env.GMI_MODEL_FALLBACK
+    else process.env.GMI_MODEL_FALLBACK = originalFallback
+  }
+})
