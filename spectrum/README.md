@@ -59,3 +59,41 @@ GMI_MODEL=deepseek-ai/DeepSeek-V4-Flash-0731
 ```
 
 Without `GMI_API_KEY`, bots use the local personality fallback in `src/agents/runtime.ts`.
+
+## GLM 5.3 Flash provider recovery
+
+Keep the model fixed while moving text inference off GMI. The shared client
+supports OpenRouter's `z-ai/glm-5.3-flash` identifier, prioritizes latency, permits
+provider failover, and excludes `gmicloud`. It does not request another model.
+OpenRouter reasoning settings are translated to its `reasoning` object.
+
+To prepare a primary OpenRouter route, configure these runtime secrets/settings
+in the deployment secret manager (the `GMI_` names remain for compatibility):
+
+```text
+GMI_BASE_URL=https://openrouter.ai/api/v1
+GMI_MODEL=z-ai/glm-5.3-flash
+GMI_MODEL_FALLBACK=z-ai/glm-5.3-flash
+GMI_API_KEY=<OpenRouter API key>
+```
+
+Alternatively, keep the current primary and enable an independent backup with
+all three settings below. No backup is enabled by default:
+
+```text
+HIREALPHA_MODEL_FALLBACK_BASE_URL=https://openrouter.ai/api/v1
+HIREALPHA_MODEL_FALLBACK_MODEL=z-ai/glm-5.3-flash
+HIREALPHA_MODEL_FALLBACK_API_KEY=<OpenRouter API key>
+```
+
+The shared client reserves part of the existing deadline for the backup,
+retains the original messages, and isolates rate-limit queues by provider.
+Explicit endpoint/credential callers keep their own route. This covers shared
+text inference; browser vision and nutrition integrations use separate request
+builders and must be validated separately before changing their environment.
+
+Validation: `bun test spectrum/shared/providerFallback.test.ts
+spectrum/shared/delivery.test.ts spectrum/shared/reliability.test.ts
+deploy/gmiBackoff.test.ts`. Before production rollout, benchmark actual Alpha
+turns with the chosen account, then verify the running deployment revision.
+Published provider latency and uptime figures are not an application SLA.

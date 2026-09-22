@@ -27,31 +27,40 @@ const MIN_REQUEST_MS = 3_000
 const SPACING_AFTER_REFUSAL_MS = 1_000
 /** How long a refusal keeps the throttle engaged. */
 const REFUSAL_COOLDOWN_MS = 8_000
-let providerQueue: Promise<unknown> = Promise.resolve()
-let lastProviderCallAt = 0
-let refusedUntil = 0
+type ProviderThrottle = { queue: Promise<unknown>; lastCallAt: number; refusedUntil: number }
+const providerThrottles = new Map<string, ProviderThrottle>()
 
-/** Called when the provider refuses a request, arming the throttle. */
-function noteRefusal(): void {
-  refusedUntil = Date.now() + REFUSAL_COOLDOWN_MS
+function providerThrottle(baseUrl: string): ProviderThrottle {
+  const origin = new URL(baseUrl).origin
+  let state = providerThrottles.get(origin)
+  if (!state) {
+    state = { queue: Promise.resolve(), lastCallAt: 0, refusedUntil: 0 }
+    providerThrottles.set(origin, state)
+  }
+  return state
 }
 
-function withProviderSlot<T>(run: () => Promise<T>): Promise<T> {
-  const throttled = Date.now() < refusedUntil
+/** Called when the provider refuses a request, arming the throttle. */
+function noteRefusal(state: ProviderThrottle): void {
+  state.refusedUntil = Date.now() + REFUSAL_COOLDOWN_MS
+}
+
+function withProviderSlot<T>(state: ProviderThrottle, run: () => Promise<T>): Promise<T> {
+  const throttled = Date.now() < state.refusedUntil
   if (!throttled) {
     // No known pressure: go now, but keep the queue honest so two in-flight
     // calls cannot stampede after a refusal.
     return run()
   }
-  const scheduled = providerQueue.then(async () => {
-    const wait = SPACING_AFTER_REFUSAL_MS - (Date.now() - lastProviderCallAt)
+  const scheduled = state.queue.then(async () => {
+    const wait = SPACING_AFTER_REFUSAL_MS - (Date.now() - state.lastCallAt)
     if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait))
-    lastProviderCallAt = Date.now()
+    state.lastCallAt = Date.now()
     return run()
   })
   // Keep the chain alive even when a call rejects, so one failure cannot wedge
   // every later request.
-  providerQueue = scheduled.catch(() => undefined)
+  state.queue = scheduled.catch(() => undefined)
   return scheduled
 }
 
@@ -85,24 +94,47 @@ export interface GmiChatOptions {
  */
 export async function gmiChat(options: GmiChatOptions): Promise<string> {
   const originalBudget = options.timeoutMs ?? 30_000
+  // Opt-in independent service, with its own credentials and model. Explicit
+  // endpoint callers (probes, image/workshop integrations) retain their route.
+  const backup = !options.apiKey && !options.baseUrl ? configuredBackup() : undefined
+  const useBackup = backup && originalBudget >= 2 * MIN_REQUEST_MS
+  // Reserve useful time for the independent service; a timeout that consumes
+  // the entire caller deadline cannot fail over within that deadline.
+  const primaryBudget = useBackup ? Math.min(6_000, Math.floor(originalBudget / 2)) : originalBudget
   const startedAt = Date.now()
   try {
-    return await gmiChatOnce(options)
+    return await gmiChatOnce({ ...options, timeoutMs: primaryBudget })
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
     const worthFailover =
-      /timed out|aborted|GMI error 5\d\d|GMI error 429|Rate limit exceeded|Empty GMI reply|echoed instructions/i.test(msg)
+      /timed out|timeout|aborted|fetch failed|failed to fetch|connection|socket|network|ECONNRESET|GMI error 5\d\d|GMI error 429|Rate limit exceeded|Empty GMI reply|echoed instructions/i.test(msg)
     const primary = options.model || process.env.GMI_MODEL || process.env.HIREALPHA_MODEL || 'zai-org/GLM-5.3-Flash'
     const fallback = process.env.GMI_MODEL_FALLBACK || 'zai-org/GLM-5.3-Flash'
+    const endpoint = options.baseUrl || process.env.GMI_BASE_URL || process.env.OPENAI_BASE_URL || 'https://api.gmi-serving.com/v1'
     const remainingMs = originalBudget - (Date.now() - startedAt)
+    if (useBackup && worthFailover && remainingMs > 0) {
+      console.warn(`[model] primary failed; recovering through ${new URL(backup.baseUrl).hostname}`)
+      return await gmiChatOnce({ ...options, ...backup, timeoutMs: remainingMs })
+    }
     // Only real turn-sized budgets fail over: a tiny probe deadline (tests,
     // health checks) must stay a fast rejection, never a second attempt.
-    if (!worthFailover || fallback === primary || originalBudget < 6_000 || remainingMs < MIN_REQUEST_MS) throw err
+    if (new URL(endpoint).hostname === 'openrouter.ai' || !worthFailover || fallback === primary || originalBudget < 6_000 || remainingMs < MIN_REQUEST_MS) throw err
     console.warn(`[gmi] ${primary} failed (${msg.slice(0, 80)}); failing over to ${fallback}`)
     // The caller owns recovery after this deadline. Resetting it here stacks
     // model failover beneath chat recovery and can double the user's wait.
     return await gmiChatOnce({ ...options, model: fallback, timeoutMs: remainingMs })
   }
+}
+
+function configuredBackup(): { apiKey: string; baseUrl: string; model: string } | undefined {
+  const apiKey = process.env.HIREALPHA_MODEL_FALLBACK_API_KEY?.trim()
+  const baseUrl = process.env.HIREALPHA_MODEL_FALLBACK_BASE_URL?.trim()
+  const model = process.env.HIREALPHA_MODEL_FALLBACK_MODEL?.trim()
+  if (!apiKey && !baseUrl && !model) return undefined
+  if (!apiKey || !baseUrl || !model) throw new Error('Independent model fallback requires API_KEY, BASE_URL and MODEL')
+  const url = new URL(baseUrl)
+  if (url.protocol !== 'https:' || url.username || url.password) throw new Error('Independent model fallback requires an HTTPS endpoint without URL credentials')
+  return { apiKey, baseUrl, model }
 }
 
 async function gmiChatOnce(options: GmiChatOptions): Promise<string> {
@@ -130,6 +162,8 @@ async function gmiChatOnce(options: GmiChatOptions): Promise<string> {
     'zai-org/GLM-5.3-Flash'
 
   const url = `${baseUrl}/chat/completions`
+  const openRouter = new URL(baseUrl).hostname === 'openrouter.ai'
+  const throttle = providerThrottle(baseUrl)
   const signal = AbortSignal.timeout(options.timeoutMs ?? 30_000)
   // A long-lived process reuses keep-alive sockets; when the provider closes an
   // idle one, the next request can hang on the dead socket until the abort
@@ -154,9 +188,16 @@ async function gmiChatOnce(options: GmiChatOptions): Promise<string> {
       : options.messages
   const payload = (reasoningEffort?: string) => {
     const body: Record<string, unknown> = {
-      model,
+      // Same exact model, using the host's model identifier. Existing callers
+      // pin the GMI/Hugging Face identifier, including workshop generation.
+      model: openRouter && model === 'zai-org/GLM-5.3-Flash' ? 'z-ai/glm-5.3-flash' : model,
       temperature: options.temperature ?? 0.7,
       messages,
+    }
+    if (openRouter) {
+      // Keep GLM fixed while allowing healthy hosts to replace a failed host.
+      // A recovery request must not route straight back to GMI's outage.
+      body.provider = { sort: 'latency', allow_fallbacks: true, ignore: ['gmicloud'] }
     }
     if (options.maxTokens) {
       // Reasoning models (gemini-3.7-flash and thinking modes generally) spend
@@ -167,7 +208,8 @@ async function gmiChatOnce(options: GmiChatOptions): Promise<string> {
       body.max_tokens = options.maxTokens + REASONING_TOKEN_HEADROOM
     }
     if (reasoningEffort && reasoningEffort !== 'omit') {
-      body.reasoning_effort = reasoningEffort
+      if (openRouter) body.reasoning = { effort: reasoningEffort }
+      else body.reasoning_effort = reasoningEffort
     }
     return JSON.stringify(body)
   }
@@ -197,7 +239,7 @@ async function gmiChatOnce(options: GmiChatOptions): Promise<string> {
     const body = await response.clone().text().catch(() => '')
     return /rate.?limit|too many requests|overloaded|try again/i.test(body)
   }
-  const call = (effort: string) => withProviderSlot(() =>
+  const call = (effort: string) => withProviderSlot(throttle, () =>
     fetch(url, { method: 'POST', headers, body: payload(effort), signal }))
   const primaryEffort = options.reasoningEffort ?? 'omit'
   let res = await call(primaryEffort)
@@ -205,7 +247,7 @@ async function gmiChatOnce(options: GmiChatOptions): Promise<string> {
   // the provider's next window; the throttle it arms keeps every later call in
   // this turn spaced until the pressure clears.
   if (await retryable(res)) {
-    noteRefusal()
+    noteRefusal(throttle)
     if (Date.now() - startedAt + 1_100 + MIN_REQUEST_MS <= attemptBudgetMs) {
       await sleep(1_100)
       res = await call(primaryEffort)
@@ -259,7 +301,7 @@ async function gmiChatOnce(options: GmiChatOptions): Promise<string> {
   if (!reply) {
     for (const effort of ['low', 'omit', 'none']) {
       await sleep(600)
-      res = await withProviderSlot(() => fetch(url, { method: 'POST', headers, body: payload(effort), signal }))
+      res = await withProviderSlot(throttle, () => fetch(url, { method: 'POST', headers, body: payload(effort), signal }))
       if (!res.ok) continue
       const retry = (await res.json()) as { choices?: Array<{ message?: { content?: string } }> }
       reply = (retry.choices?.[0]?.message?.content ?? '').trim()
