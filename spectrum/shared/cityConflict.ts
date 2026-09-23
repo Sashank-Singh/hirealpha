@@ -35,6 +35,9 @@ const TRIP_PLAN =
 const REPLAN =
   /\b(?:instead|change of plans|changed plans|no longer|scratch that|rather than|switched to|we(?:'| a)re going to|actually (?:it'?s|we))|not [^.!?\n]{2,30} anymore\b/i
 
+/** Explicit scenarios have their own location, not the user's real trip. */
+const HYPOTHETICAL_PLAN = /\b(?:(?:benchmark|test|hypothetical|fictional) scenario|hypothetical (?:trip|plan))\b/i
+
 const TIME_WORDS = new Set([
   'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday',
   'january', 'february', 'march', 'april', 'may', 'june', 'july', 'august',
@@ -154,6 +157,7 @@ export function findActiveTrip(input: {
   for (let i = input.history.length - 1; i >= 0; i--) {
     const message = input.history[i]!
     if (message.role !== 'user') continue
+    if (HYPOTHETICAL_PLAN.test(message.content)) continue
     if (!recentEnough(message.ts, now, windowDays)) continue
     if (!TRIP_PLAN.test(message.content)) continue
     const city = lastCity(message.content)
@@ -182,7 +186,7 @@ export function detectCityConflict(input: {
   now?: number
 }): CityConflict | null {
   const text = input.userText.trim()
-  if (!text || !PLACE_ASK.test(text) || REPLAN.test(text)) return null
+  if (!text || !PLACE_ASK.test(text) || REPLAN.test(text) || HYPOTHETICAL_PLAN.test(text)) return null
   const askCity = lastCity(text)
   if (!askCity) return null
   const trip = findActiveTrip({

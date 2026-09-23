@@ -23,6 +23,12 @@ describe('city extraction', () => {
 })
 
 describe('findActiveTrip', () => {
+  it('does not turn an explicitly hypothetical scenario into a real trip', () => {
+    expect(findActiveTrip({ history: [
+      user('Book a hotel in San Francisco.'),
+      user('Benchmark scenario in Chicago, not my current location: find dinner near the hotel.'),
+    ], now })?.city).toBe('san francisco')
+  })
   it('finds the most recent lodging/trip plan', () => {
     const history = [
       user('Book a hotel stay in Chicago, Friday to Saturday next week.'),
@@ -53,6 +59,15 @@ describe('findActiveTrip', () => {
 
 describe('detectCityConflict', () => {
   const chicagoPlan = [user('Book a hotel stay in Chicago, Friday to Saturday next week, near the Loop.')]
+
+  it('honors an explicitly separate hypothetical location', () => {
+    for (const userText of [
+      'Benchmark scenario in Chicago, not my current location: find dinner near the hotel.',
+      'Hypothetical trip to Chicago: find a hotel and dinner.',
+    ]) {
+      expect(detectCityConflict({ userText, history: [user('Book a hotel in San Francisco.')], now })).toBeNull()
+    }
+  })
 
   it('catches a New York place ask after a Chicago plan', () => {
     const conflict = detectCityConflict({

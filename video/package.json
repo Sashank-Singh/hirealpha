@@ -9,7 +9,10 @@
     "render:launch": "remotion render HireAlphaLaunch out/hirealpha-launch-30s.mp4 --codec=h264 --crf=18 --pixel-format=yuv420p",
     "still:launch": "remotion still HireAlphaLaunch out/hirealpha-launch-poster.png --frame=230",
     "typecheck": "tsc --noEmit",
-    "score": "python3 scripts/score.py"
+    "score": "python3 scripts/score.py",
+    "score:versions": "python3 scripts/more_scores.py",
+    "render:midnight": "remotion render HireAlphaMidnight out/hirealpha-midnight-30s.mp4 --codec=h264 --crf=18",
+    "render:conversation": "remotion render HireAlphaConversation out/hirealpha-conversation-30s.mp4 --codec=h264 --crf=18"
   },
   "dependencies": {
     "@remotion/cli": "^4.0.0",

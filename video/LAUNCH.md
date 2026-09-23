@@ -68,3 +68,12 @@ from all six scenes were inspected for framing and layout; the nutrition headlin
 was widened after review. Audio was checked for clipping. AAC packet padding may
 make the container report approximately 30.06 seconds even though the video is
 exactly 30 seconds.
+
+## Additional versions
+
+- **Midnight** — `out/hirealpha-midnight-30s.mp4`. 1920 × 1080, 30 seconds. Dark mint palette, bold kinetic typography, notification-to-brief sequence and a driving synthesized score. Composition: HireAlphaMidnight.
+- **Conversation** — `out/hirealpha-conversation-30s.mp4`. 1080 × 1080, 30 seconds. Warm square composition, oversized message bubbles, morning and nutrition examples, and a lighter original score. Composition: HireAlphaConversation.
+
+Both use labeled illustrative product examples, with no live customer data. Edit
+`src/MoreFilms.tsx`; regenerate sound with `npm run score:versions`; export with
+`npm run render:midnight` and `npm run render:conversation` from the video folder.

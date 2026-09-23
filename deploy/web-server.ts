@@ -547,6 +547,7 @@ async function pageHtml(pathname: string, search = '') {
      * thread look like a template. Unknown kinds fall back to the brand card. */
     const ogKind = MINI_META[match?.[2] || ''] ? (match![2] as string) : 'default'
     const ogImage = `https://hirealpha.chat/images/og/${ogKind === 'pick_night' ? 'evening_brief' : ogKind}.png`
+    const ogAlt = `${meta.title} — ${meta.description}`
     html = html
       .replace(/<title>[^<]*<\/title>/, `<title>${safeTitle}</title>`)
       .replace(
@@ -556,6 +557,22 @@ async function pageHtml(pathname: string, search = '') {
       .replace(
         /<meta\s+property="og:image"\s+content="[^"]*"\s*\/>/,
         `<meta property="og:image" content="${escapeAttr(ogImage)}" />`,
+      )
+      .replace(
+        /<meta\s+property="og:image:secure_url"\s+content="[^"]*"\s*\/>/,
+        `<meta property="og:image:secure_url" content="${escapeAttr(ogImage)}" />`,
+      )
+      .replace(
+        /<meta\s+property="og:image:alt"\s+content="[^"]*"\s*\/>/,
+        `<meta property="og:image:alt" content="${escapeAttr(ogAlt)}" />`,
+      )
+      .replace(
+        /<meta\s+name="twitter:image"\s+content="[^"]*"\s*\/>/,
+        `<meta name="twitter:image" content="${escapeAttr(ogImage)}" />`,
+      )
+      .replace(
+        /<meta\s+name="twitter:image:alt"\s+content="[^"]*"\s*\/>/,
+        `<meta name="twitter:image:alt" content="${escapeAttr(ogAlt)}" />`,
       )
       .replace(
         '</head>',
