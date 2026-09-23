@@ -8,18 +8,18 @@ import type { ServerWebSocket } from 'bun'
 import { brotliCompressSync, constants as zlibConstants } from 'node:zlib'
 import { join } from 'node:path'
 import {
-  attachPasswordToAccount,
   claimInvite,
   ensureHireSchema,
   ensurePhoneUser,
-  getUserByEmail,
   handleHireApi,
   hireIsLive,
-  isPersona,
   miniCardOgDescription,
-  normalizePhone,
-  verifySessionToken,
 } from './hire-api'
+import { attachPasswordToAccount } from './auth/passwords'
+import { verifySessionToken } from './auth/session'
+import { getUserByEmail } from './db/users'
+import { isPersona } from './personas'
+import { normalizePhone } from './utils/phone'
 import {
   isKnownClientRoute,
   isKnownPage,

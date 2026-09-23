@@ -1,4 +1,4 @@
-import {afterAll, afterEach, beforeEach, describe, expect, it} from 'bun:test'
+import { afterAll, beforeEach, describe, expect, it } from 'bun:test'
 import { ackIntro, claimIntros, enqueueIntro, ensurePhoneUser, handleHireApi } from './hire-api'
 
 /* The intro queue is the signup-to-first-text pipeline: the waitlist enqueues

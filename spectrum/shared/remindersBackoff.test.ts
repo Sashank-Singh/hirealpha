@@ -37,7 +37,7 @@ describe('a failing reminder send does not hammer the send budget', () => {
     const now = new Date().toISOString()
     globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input)
-      const method = init?.method || 'GET'
+      const _method = init?.method || 'GET'
       if (url.includes('/api/internal/event-nudges')) {
         return new Response(JSON.stringify({ nudges: [] }), { status: 200 })
       }

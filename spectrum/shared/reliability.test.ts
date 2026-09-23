@@ -70,9 +70,13 @@ describe('bounded model requests', () => {
 it('does not start overlapping task claims while a poll is still running', async () => {
   let calls = 0
   let finish!: (response: Response) => void
-  globalThis.fetch = (() => {
-    calls++
-    return new Promise<Response>((resolve) => { finish = resolve })
+  globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+    const urlStr = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
+    if (urlStr.includes('/api/internal/loops/claim')) {
+      calls++
+      return new Promise<Response>((resolve) => { finish = resolve })
+    }
+    return savedFetch(input as any, init)
   }) as typeof fetch
   const stop = startTaskLoopPoller({ persona: 'friend', pollMs: 5, send: async () => {} })
   try {
@@ -80,7 +84,7 @@ it('does not start overlapping task claims while a poll is still running', async
     expect(calls).toBe(1)
   } finally {
     stop?.()
-    finish(Response.json({ loops: [] }))
+    finish?.(Response.json({ loops: [] }))
     await new Promise((resolve) => setTimeout(resolve, 0))
   }
 })

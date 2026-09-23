@@ -267,7 +267,7 @@ describe('user payments API routes', () => {
   })
 
   it('GET /api/payments/methods returns empty before connect', async () => {
-    const { sql } = fakeSql(() => [{ stripe_payment_customer: null }])
+    const { sql } = fakeSql((text) => /FROM hire_users/i.test(text) ? [{ stripe_payment_customer: null }] : [])
     const res = await handleUserPaymentsApi(req('/api/payments/methods'), sql, authedDeps)
     expect(res?.status).toBe(200)
     const body = (await res!.json()) as { methods: unknown[] }
@@ -275,7 +275,7 @@ describe('user payments API routes', () => {
   })
 
   it('DELETE /api/payments/methods fences on ownership (pm id must be yours)', async () => {
-    const { sql } = fakeSql(() => [{ stripe_payment_customer: 'cus_owned' }])
+    const { sql } = fakeSql((text) => /FROM hire_users/i.test(text) ? [{ stripe_payment_customer: 'cus_owned' }] : [])
     const res = await handleUserPaymentsApi(req('/api/payments/methods?id=pm_evil', undefined, 'DELETE'), sql, authedDeps)
     // pm_evil is not in cus_owned's method list (Stripe call fails unmocked,
     // list comes back empty) — the route must never 200.

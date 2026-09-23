@@ -10,7 +10,7 @@ import Kernel from '@onkernel/sdk'
 
 /** Kernel serves CDP over wss, which Bun's Playwright handshake drops before
  * 1.4.2 — the same reason the sandbox path carries a transport shim. */
-async function connect(url: string) {
+async function _connect(url: string) {
   if (!/^wss:\/\//i.test(url)) return chromium.connectOverCDP(url)
   const { bunWsTransport } = await import('../deploy/browserSession')
   return (chromium.connectOverCDP as unknown as (

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test'
 import { createHmac } from 'node:crypto'
-import { subscriptionActive, verifyStripeSignature } from './hire-api'
+import { subscriptionActive, verifyStripeSignature } from './billing/stripe'
 
 /* Billing runs unattended against real money events, so the two things that
  * can silently corrupt state — a forged webhook and a wrong active-status

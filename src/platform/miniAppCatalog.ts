@@ -41,7 +41,6 @@ export const APP_ALIASES: Record<string, string> = {
   setup: 'menu',
   onboarding: 'menu',
 }
-export const FRIEND_APP_ALIASES = APP_ALIASES
 
 export const MENU_FEATURES: Record<string, MenuFeature[]> = {
   friend: [

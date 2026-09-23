@@ -81,9 +81,6 @@ export function signOut() {
   void fetch('/api/auth/logout', { method: 'POST' }).catch(() => undefined)
 }
 
-export const clearSession = signOut
-
-
 export function getRoster(): HireEntitlement[] {
   return readJson<HireEntitlement[]>(ROSTER_KEY, [])
 }

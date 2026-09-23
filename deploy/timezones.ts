@@ -210,3 +210,289 @@ export function formatZoneAbbrev(d: Date, timezone: string): string {
   if (timezone === 'Europe/London' && (raw === 'GMT' || raw === 'GMT+0')) return 'GMT'
   return raw || timezone
 }
+
+/** UTC offset in ms for an IANA zone at a given instant. */
+export function tzOffsetMs(utcMs: number, timezone: string): number {
+  try {
+    const dtf = new Intl.DateTimeFormat('en-US', {
+      timeZone: timezone,
+      timeZoneName: 'longOffset',
+      hour12: false,
+    })
+    const part = dtf
+      .formatToParts(new Date(utcMs))
+      .find((p) => p.type === 'timeZoneName')?.value
+    const m = part?.match(/GMT([+-])(\d{2}):(\d{2})/)
+    if (!m) return 0
+    const sign = m[1] === '-' ? -1 : 1
+    return sign * (Number(m[2]) * 60 + Number(m[3])) * 60 * 1000
+  } catch {
+    return 0
+  }
+}
+
+/** Day window in the user's timezone as UTC [start,end] for "today". */
+export function todayWindowUtc(timezone: string, now = new Date()): { start: Date; end: Date } {
+  const tz = timezone || 'America/Los_Angeles'
+  const dtf = new Intl.DateTimeFormat('en-CA', {
+    timeZone: tz,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  })
+  const [y, mo, d] = dtf.format(now).split('-').map(Number)
+  const wallStart = Date.UTC(y!, mo! - 1, d!)
+  const offset = tzOffsetMs(wallStart, tz)
+  return { start: new Date(wallStart - offset), end: new Date(wallStart - offset + 86_400_000) }
+}
+
+/** Week window (the Monday `weekStart` in the user's timezone) as UTC [start,end]. */
+export function weekWindowUtc(weekStart: string, timezone: string): { start: Date; end: Date } {
+  const tz = timezone || 'America/Los_Angeles'
+  const [y, m, d] = String(weekStart).split('-').map(Number)
+  const wallStart = Date.UTC(y || 1970, (m || 1) - 1, d || 1)
+  const offset = tzOffsetMs(wallStart, tz)
+  const start = new Date(wallStart - offset)
+  return { start, end: new Date(start.getTime() + 7 * 86_400_000) }
+}
+
+export function localDateStrInTz(d = new Date(), timezone?: string | null): string {
+  const tz = timezone || 'America/Los_Angeles'
+  try {
+    return new Intl.DateTimeFormat('en-CA', {
+      timeZone: tz,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(d)
+  } catch {
+    return new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'America/Los_Angeles',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(d)
+  }
+}
+
+/** Next local HH:MM (today or tomorrow) as a UTC ISO string for the given zone. */
+export function nextLocalTimeUtc(timezone: string, hour: number, minute = 0): string {
+  const dtf = new Intl.DateTimeFormat('en-CA', {
+    timeZone: timezone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  })
+  const parts = dtf.formatToParts(new Date())
+  const get = (t: Intl.DateTimeFormatPartTypes) => parts.find((p) => p.type === t)?.value || '0'
+  const wallNow = Date.UTC(
+    Number(get('year')),
+    Number(get('month')) - 1,
+    Number(get('day')),
+    Number(get('hour')),
+    Number(get('minute')),
+    Number(get('second')),
+  )
+  let wall = Date.UTC(
+    Number(get('year')),
+    Number(get('month')) - 1,
+    Number(get('day')),
+    hour,
+    minute,
+    0,
+  )
+  if (wall <= wallNow) wall += 86_400_000
+  return new Date(wall - tzOffsetMs(wall, timezone)).toISOString()
+}
+
+export function loopTimezone(tz: string | null | undefined): string {
+  return tz && isValidTimeZone(tz) ? tz : 'America/Los_Angeles'
+}
+
+/** Local calendar day and weekday (0=Sunday) for an instant in a zone. */
+export function localWall(tz: string, at: Date): { ymd: string; weekday: number } {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: tz,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    weekday: 'short',
+  }).formatToParts(at)
+  const get = (t: string) => parts.find((p) => p.type === t)?.value || ''
+  const ymd = `${get('year')}-${get('month')}-${get('day')}`
+  const weekday = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(get('weekday').slice(0, 3))
+  return { ymd, weekday }
+}
+
+/** The next `hour`:00 local time in `tz` as a UTC ISO string. */
+export function nextDailyUtc(tz: string | null | undefined, hour: number, from = new Date()): string {
+  const zone = loopTimezone(tz)
+  let when = wallTimeToUtc(localWall(zone, from).ymd, hour, 0, zone)
+  if (when.getTime() <= from.getTime()) {
+    const tomorrow = localWall(zone, new Date(from.getTime() + 24 * 60 * 60 * 1000)).ymd
+    when = wallTimeToUtc(tomorrow, hour, 0, zone)
+  }
+  return when.toISOString()
+}
+
+/** The next `weekday` at `hour`:00 local time in `tz` as a UTC ISO string. */
+export function nextWeeklyUtc(
+  tz: string | null | undefined,
+  hour: number,
+  weekday: number,
+  from = new Date(),
+): string {
+  const zone = loopTimezone(tz)
+  const wall = localWall(zone, from)
+  const add = (weekday - wall.weekday + 7) % 7
+  let target = localWall(zone, new Date(from.getTime() + add * 24 * 60 * 60 * 1000)).ymd
+  let when = wallTimeToUtc(target, hour, 0, zone)
+  if (when.getTime() <= from.getTime()) {
+    target = localWall(zone, new Date(from.getTime() + (add + 7) * 24 * 60 * 60 * 1000)).ymd
+    when = wallTimeToUtc(target, hour, 0, zone)
+  }
+  return when.toISOString()
+}
+
+/** The next `intervalDays`-out run at `hour`:00 local time in `tz`, as a UTC ISO string. */
+export function nextEveryDaysUtc(
+  tz: string | null | undefined,
+  hour: number,
+  intervalDays: number,
+  from = new Date(),
+): string {
+  const zone = loopTimezone(tz)
+  let when = wallTimeToUtc(localWall(zone, from).ymd, hour, 0, zone)
+  if (when.getTime() <= from.getTime()) {
+    const later = localWall(zone, new Date(from.getTime() + intervalDays * 24 * 60 * 60 * 1000)).ymd
+    when = wallTimeToUtc(later, hour, 0, zone)
+  }
+  return when.toISOString()
+}
+
+/** weekday: 0 = Sunday ... 6 = Saturday */
+export function nextWeekdayLocalUtc(timezone: string, weekday: number, hour: number, minute = 0): string {
+  const dtf = new Intl.DateTimeFormat('en-US', {
+    timeZone: timezone,
+    weekday: 'short',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  })
+  const parts = dtf.formatToParts(new Date())
+  const get = (t: Intl.DateTimeFormatPartTypes) => parts.find((p) => p.type === t)?.value || '0'
+  const dayMap: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 }
+  const today = dayMap[get('weekday')] ?? 0
+  const wallNow = Date.UTC(
+    Number(get('year')),
+    Number(get('month')) - 1,
+    Number(get('day')),
+    Number(get('hour')),
+    Number(get('minute')),
+    Number(get('second')),
+  )
+  let add = (weekday - today + 7) % 7
+  let wall = Date.UTC(
+    Number(get('year')),
+    Number(get('month')) - 1,
+    Number(get('day')),
+    hour,
+    minute,
+    0,
+  )
+  if (add === 0 && wall <= wallNow) add = 7
+  wall += add * 86_400_000
+  return new Date(wall - tzOffsetMs(wall, timezone)).toISOString()
+}
+
+/** Date-only inputs become 9am in the user's timezone so "Thursday" stays Thursday. */
+export function parseFlexibleWhen(raw: string | undefined, timezone: string): string | null {
+  const s = String(raw || '').trim()
+  if (!s) return null
+  const day = s.match(/^(\d{4}-\d{2}-\d{2})$/)
+  if (day) {
+    const [y, m, d] = day[1]!.split('-').map(Number)
+    const wall = Date.UTC(y || 1970, (m || 1) - 1, d || 1, 9, 0, 0)
+    return new Date(wall - tzOffsetMs(wall, timezone || 'America/Los_Angeles')).toISOString()
+  }
+  const at = new Date(s)
+  if (Number.isNaN(at.getTime())) return null
+  return at.toISOString()
+}
+
+/** Same wall-clock (in the user's zone) one day/week later, as a UTC ISO string. */
+export function nextReminderAt(utcIso: string, recurrence: string, timezone: string): string {
+  const tz = timezone || 'America/Los_Angeles'
+  const dtf = new Intl.DateTimeFormat('en-CA', {
+    timeZone: tz,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  })
+  const at = new Date(utcIso)
+  const parts = dtf.formatToParts(at)
+  const get = (t: Intl.DateTimeFormatPartTypes) => parts.find((p) => p.type === t)?.value || ''
+  const wall = Date.UTC(
+    Number(get('year')),
+    Number(get('month')) - 1,
+    Number(get('day')),
+    Number(get('hour')),
+    Number(get('minute')),
+    Number(get('second')),
+  )
+  // Weekday recurrence: step a day at a time until the wall date is Mon-Fri
+  // (getUTCDay on the reconstructed wall clock gives the local weekday).
+  if (recurrence === 'weekdays') {
+    let next = wall + 86_400_000
+    while (next > wall) {
+      const dow = new Date(next).getUTCDay()
+      if (dow >= 1 && dow <= 5) break
+      next += 86_400_000
+    }
+    return new Date(next - tzOffsetMs(next, tz)).toISOString()
+  }
+  const nextWall = wall + (recurrence === 'weekly' ? 7 : 1) * 86_400_000
+  return new Date(nextWall - tzOffsetMs(nextWall, tz)).toISOString()
+}
+
+export function shiftDateStr(dateStr: string, days: number): string {
+  const [y, m, d] = dateStr.split('-').map(Number)
+  return new Date(Date.UTC(y || 1970, (m || 1) - 1, (d || 1) + days)).toISOString().slice(0, 10)
+}
+
+export function ymdOf(value: unknown): string {
+  if (!value) return ''
+  if (value instanceof Date && !Number.isNaN(value.getTime())) return value.toISOString().slice(0, 10)
+  const m = String(value).match(/(\d{4}-\d{2}-\d{2})/)
+  return m?.[1] || ''
+}
+
+export function mondayOfDateStr(dateStr: string): string {
+  const [y, m, d] = dateStr.split('-').map(Number)
+  const day = new Date(Date.UTC(y || 1970, (m || 1) - 1, d || 1)).getUTCDay()
+  const diff = day === 0 ? 6 : day - 1
+  return shiftDateStr(dateStr, -diff)
+}
+
+export function weekDaysFromMonday(weekStart: string): string[] {
+  return Array.from({ length: 7 }, (_, i) => shiftDateStr(weekStart, i))
+}
+
+export function userMonday(user: { timezone?: string | null }, d = new Date()): string {
+  return mondayOfDateStr(localDateStrInTz(d, user.timezone))
+}
+
+
+

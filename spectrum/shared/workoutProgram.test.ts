@@ -9,7 +9,6 @@ import {
   isWorkoutCategory,
   isWorkoutMoveCount,
   jsDayToWeekday,
-  movePrescription,
   programFor,
   restLabel,
   workoutSession,

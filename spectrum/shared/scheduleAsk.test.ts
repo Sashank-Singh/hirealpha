@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test'
 import { draftLooksLikeImageWork, isLookupOnlyAsk, isSchedulingAsk, runSitePhrase } from './toolLoop'
-import { mentionsDigest, digestControlIntent } from './reminders'
+import { mentionsDigest } from './reminders'
 
 /* The guard is inside runToolConversation; this pins the shape it must reject
  * and the shapes it must still allow, using the same patterns. */

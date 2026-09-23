@@ -1,5 +1,6 @@
-import {afterAll, afterEach, beforeEach, describe, expect, it} from 'bun:test'
-import { handleHireApi, resetLoginFailures } from './hire-api'
+import { afterAll, beforeEach, describe, expect, it } from 'bun:test'
+import { handleHireApi } from './hire-api'
+import { resetLoginFailures } from './auth/passwords'
 import { handleWaitlist } from './web-server'
 
 /* Password auth: register, login, and the waitlist path that arms an account

@@ -69,7 +69,7 @@ describe('intent normalization', () => {
   })
 })
 
-const live = Boolean(process.env.GMI_API_KEY)
+const live = (process.env.GMI_ALLOW_LIVE === '1' || process.env.CERT_ALLOW_LIVE === '1') && Boolean(process.env.GMI_API_KEY)
 
 /** Classify for a test, retrying only when the PROVIDER was unavailable.
  *

@@ -1,6 +1,4 @@
 import { chromium } from 'playwright'
-import { writeFileSync, mkdirSync } from 'node:fs'
-import { join } from 'node:path'
 
 export interface StepRecord {
   step: number

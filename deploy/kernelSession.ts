@@ -223,7 +223,7 @@ export async function attemptKernelLogin(
       await browser.settle(15_000).catch(() => undefined)
     }
     return result
-  } catch (err) {
+  } catch {
     return { ok: false, filled: false }
   }
 }
@@ -663,7 +663,7 @@ export async function inspectTakeoverState(
 
       return { resumed, reason, triggers, currentUrl, currentTitle };
     `, 20_000)
-  } catch (err) {
+  } catch {
     return {
       resumed: false,
       triggers: [],

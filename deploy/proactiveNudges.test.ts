@@ -1,11 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
 import {
   NUDGE_SKIP_LOG_INTERVAL_MS,
-  extractFlightEvent,
   outboundNudgeBlock,
-  pickWatchtowerCandidates,
   shouldEmitNudgeSkip,
-} from './hire-api'
+} from './nudges/gating'
+import {
+  extractFlightEvent,
+  pickWatchtowerCandidates,
+} from './nudges/watchtower'
 import { classifyBriefMail, scoreMail } from './gmailHelpers'
 
 const savedFetch = globalThis.fetch

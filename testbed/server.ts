@@ -17,7 +17,7 @@
  * Run:  bun run testbed   →  http://localhost:5178
  * Reset memory with the button in the header (wipes testbed/data).
  */
-import { searchWeb } from '../services/tools/search'
+import { searchWeb } from '../deploy/webSearch'
 import { runHireTurn } from '../spectrum/shared/runHireTurn'
 import type { MiniAppKind } from '../spectrum/shared/miniApps'
 import { mkdirSync, readFileSync, writeFileSync, existsSync, rmSync } from 'node:fs'

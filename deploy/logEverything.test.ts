@@ -1,4 +1,4 @@
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'bun:test'
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test'
 import { handleHireApi } from './hire-api'
 import { detectMiniAppRequest } from '../spectrum/shared/miniApps'
 import { parseNetworkContact } from '../spectrum/shared/liveContext'

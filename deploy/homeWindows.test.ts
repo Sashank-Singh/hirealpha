@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import { todayWindowUtc, weekWindowUtc } from './hire-api'
+import { todayWindowUtc, weekWindowUtc } from './timezones'
 
 /* A meal logged at 11:22 PM Saturday in LA lands at 06:22 UTC Sunday. The old
  * queries compared TIMESTAMPTZ columns to a bare `::date`, which Postgres reads

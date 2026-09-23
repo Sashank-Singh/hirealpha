@@ -1,15 +1,14 @@
-import {afterAll, afterEach, beforeEach, describe, expect, it} from 'bun:test'
+import { afterAll, beforeEach, describe, expect, it } from 'bun:test'
 import {
   TASK_LOOP_MAX_ATTEMPTS,
   armTrialEndingLoops,
   claimDueLoops,
-  ensurePhoneUser,
   finishTaskLoop,
-  nextDailyUtc,
-  nextWeeklyUtc,
   scheduleDay1Checkin,
   seedDefaultLoops,
-} from './authenticatedTestApi'
+} from './loops/engine'
+import { nextDailyUtc, nextWeeklyUtc } from './timezones'
+import { ensurePhoneUser } from './authenticatedTestApi'
 
 /* Task loops are the proactive side of a hire: seeded jobs arm when a phone
  * joins a roster, a bot claims what is due, and each run reports back through

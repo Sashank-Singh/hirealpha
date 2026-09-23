@@ -4,7 +4,7 @@ import { getSession } from '../platform/roster'
 
 export type Tier = 'free' | 'single' | 'bundle' | 'ultra'
 
-export const TIERS: { id: Tier; name: string; price: number; promo?: number; per: string; blurb: string; badge?: string; cta: string; soon?: boolean }[] = [
+const TIERS: { id: Tier; name: string; price: number; promo?: number; per: string; blurb: string; badge?: string; cta: string; soon?: boolean }[] = [
   {
     id: 'free',
     name: 'Free',

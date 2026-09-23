@@ -275,7 +275,7 @@ describe('syncVerifiedReservation', () => {
     expect(result.action).toBe('created')
     expect(calls[0]?.key).toBe('sync:calendar:cal:reservation:CONF-111:2026-09-18:claim')
     expect(calendarArtifacts(db)).toHaveLength(1)
-    expect((calendarArtifacts(db)[0]?.payload as Row).ref).toBe('cal:reservation:CONF-111:2026-09-18')
+    expect((calendarArtifacts(db)[0]!.payload as Row).ref).toBe('cal:reservation:CONF-111:2026-09-18')
     expect(syncRows(db, 'delivered')).toHaveLength(1)
     const projection = await loadProjection(db.sql, { userId, taskId })
     expect(projection?.sync_state.calendar?.status).toBe('delivered')
@@ -305,7 +305,7 @@ describe('syncVerifiedReservation', () => {
     expect(projection?.sync_state.calendar?.status).toBe('needs_reconciliation')
     const failures = eventsOfType(db, 'failure_recorded')
     expect(failures).toHaveLength(1)
-    expect((failures[0]?.payload as Row).reason_code).toBe('sync_retryable')
+    expect((failures[0]!.payload as Row).reason_code).toBe('sync_retryable')
     // Booking is done and stays done: no new state moves, calendar never claims otherwise.
     expect(eventsOfType(db, 'state_changed')).toHaveLength(stateChangedBefore)
     const task = await getTask(db.sql, { userId, taskId })

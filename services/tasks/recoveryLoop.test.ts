@@ -149,7 +149,7 @@ async function driveToExecuting(db: ReturnType<typeof fakeTaskDb>, taskId: strin
   })
 }
 
-async function driveToFailedVerification(db: ReturnType<typeof fakeTaskDb>, taskId: string, userId = 'user-1') {
+async function _driveToFailedVerification(db: ReturnType<typeof fakeTaskDb>, taskId: string, userId = 'user-1') {
   await driveToExecuting(db, taskId, userId)
   await appendEvent(db.sql, { userId, taskId, type: 'state_changed', payload: { to: 'VERIFYING' }, actor: 'alpha' })
   await appendEvent(db.sql, {

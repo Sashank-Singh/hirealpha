@@ -334,14 +334,13 @@ export async function createLinkSpendRequest(
       metadata: { hirealpha_request_id: input.requestId },
     },
   })
-  if (!card.available_operations.some(({ type }) => type === 'authorize')) throw new Error('Kernel payment authorization is unavailable.')
-  card = await (await kernelClient()).vaults.items.performOperation(card.key, { id_or_name: row.vault_id, type: 'authorize' })
-  if (!card.action || !('url' in card.action)) throw new Error('Kernel did not return a payment approval action.')
+  const authCard = (await (await kernelClient()).vaults.items.performOperation(card.key, { id_or_name: row.vault_id, type: 'authorize' })) as typeof card
+  if (!authCard.action || !('url' in authCard.action)) throw new Error('Kernel did not return a payment approval action.')
   const approvalUrl = await storeKernelAction(sql, userId, {
-    vaultId: row.vault_id, itemKey: card.key, actionName: card.action.name,
-    url: card.action.url, expiresAt: card.expires_at,
+    vaultId: row.vault_id, itemKey: authCard.key, actionName: authCard.action.name,
+    url: authCard.action.url, expiresAt: 'expires_at' in authCard ? (authCard as { expires_at?: string }).expires_at : undefined,
   })
-  return { id: card.key, status: card.state.status, approvalUrl }
+  return { id: authCard.key, status: authCard.state.status, approvalUrl }
 }
 
 export async function retrieveLinkSpend(sql: SQL, userId: string, spendId: string): Promise<LinkSpend> {

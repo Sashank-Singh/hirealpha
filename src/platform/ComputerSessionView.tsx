@@ -194,6 +194,35 @@ export function ComputerSessionView() {
     })
   }
 
+  const liveSrc = session?.proxyStreamUrl || session?.streamUrl || session?.directStreamUrl || ''
+  const hasLiveView = Boolean(liveSrc)
+
+  /* An iframe fires no `onError` for an HTTP error response — a proxy that
+   * answers 403/404 (an ended session, or a token that only rode the first
+   * request) rendered a blank rectangle with nothing said. The founder's report
+   * while testing the Amazon run: "The live server view doesn't work so can
+   * control the browser … Cannot control". Probe the stream once; a failed
+   * probe shows the honest unavailable state with the snapshot behind it
+   * instead of a blank pane. */
+  useEffect(() => {
+    if (!liveSrc) return
+    // Only our own proxy is probeable: a cross-origin direct view fails CORS
+    // from the page even when the iframe itself would render, so probing it
+    // would hide a working stream behind the snapshot fallback.
+    const sameOrigin = liveSrc.startsWith('/') || liveSrc.startsWith(window.location.origin)
+    if (!sameOrigin) return
+    let cancelled = false
+    void (async () => {
+      try {
+        const res = await fetch(liveSrc, { credentials: 'include' })
+        if (!cancelled && !res.ok) setStreamError(true)
+      } catch {
+        if (!cancelled) setStreamError(true)
+      }
+    })()
+    return () => { cancelled = true }
+  }, [liveSrc])
+
   if (!sessionId) {
     return (
       <main className="cs-shell cs-empty-shell">
@@ -236,36 +265,6 @@ export function ComputerSessionView() {
 
   const copy = statusCopy(session.status)
   const currentHost = hostname(session.currentUrl || session.url)
-  // Embed through our own proxy first: it is same-origin over 443, so it works
-  // on networks that block the provider's :8443 host. The raw provider URL
-  // stays for the explicit "Open direct view" escape hatch.
-  const liveSrc = session.proxyStreamUrl || session.streamUrl || session.directStreamUrl || ''
-  const hasLiveView = Boolean(liveSrc)
-  /* An iframe fires no `onError` for an HTTP error response — a proxy that
-   * answers 403/404 (an ended session, or a token that only rode the first
-   * request) rendered a blank rectangle with nothing said. The founder's report
-   * while testing the Amazon run: "The live server view doesn't work so can
-   * control the browser … Cannot control". Probe the stream once; a failed
-   * probe shows the honest unavailable state with the snapshot behind it
-   * instead of a blank pane. */
-  useEffect(() => {
-    if (!liveSrc) return
-    // Only our own proxy is probeable: a cross-origin direct view fails CORS
-    // from the page even when the iframe itself would render, so probing it
-    // would hide a working stream behind the snapshot fallback.
-    const sameOrigin = liveSrc.startsWith('/') || liveSrc.startsWith(window.location.origin)
-    if (!sameOrigin) return
-    let cancelled = false
-    void (async () => {
-      try {
-        const res = await fetch(liveSrc, { credentials: 'include' })
-        if (!cancelled && !res.ok) setStreamError(true)
-      } catch {
-        if (!cancelled) setStreamError(true)
-      }
-    })()
-    return () => { cancelled = true }
-  }, [liveSrc])
   const recentSteps = (session.steps || [])
     .filter((step): step is SessionStep => !!step && typeof step === 'object')
     .slice(-5)

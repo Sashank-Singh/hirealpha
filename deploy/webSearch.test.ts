@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import { fetchPageText, parseBingRss, parseBraveResults, parseDuckDuckGoResults, parseLangSearchResults, parseYahooResults, relevantResults, searchLangSearch, searchWeb, webSearchContext } from './webSearch'
+import { fetchPageText, parseBingRss, parseBraveResults, parseDuckDuckGoResults, parseLangSearchResults, parseYahooResults, relevantResults, searchWeb } from './webSearch'
 
 describe('web search evidence', () => {
   it('does not let fast off-topic results cancel a relevant provider', async () => {

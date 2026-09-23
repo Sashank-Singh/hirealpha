@@ -148,3 +148,13 @@ export async function sweepExpiredArtifacts(
   }
   return removed
 }
+
+/** Where built artifacts live on disk. Override with ARTIFACTS_DIR when the
+ * runner moves to its own sandbox box. */
+export function artifactsRoot(): string {
+  return process.env.ARTIFACTS_DIR || join(process.cwd(), 'artifacts')
+}
+
+export function artifactDirFor(userId: string, artifactId: string): string {
+  return join(artifactsRoot(), userId, artifactId)
+}

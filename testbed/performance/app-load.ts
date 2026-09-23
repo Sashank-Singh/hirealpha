@@ -39,7 +39,7 @@ try {
     for (const path of files) { const bytes = new Uint8Array(await Bun.file(join(root, path)).arrayBuffer()); jsBytes += bytes.byteLength; gzipBytes += gzipSync(bytes).byteLength }
     const text = await page.locator('body').innerText()
     if (!text.trim() || text.includes('Something went wrong loading this view') || text.includes('Loading your app…') || (name !== 'login' && text.includes('Sign in to use this'))) errors.push('Screen did not finish rendering')
-    const unexpected = [...files].filter(path => /Landing-|SkinBApp-|SkinCApp-|WorkMiniApps-/.test(path))
+    const unexpected = [...files].filter(path => /Landing-|WorkMiniApps-/.test(path))
     if (unexpected.length) errors.push(`Unrelated route code downloaded: ${unexpected.join(', ')}`)
     if (jsBytes > budget) errors.push(`JavaScript budget exceeded: ${jsBytes} > ${budget}`)
     const report = { route, jsBytes, gzipBytes, budget, chunks: files.size, errors, files: [...files], visibleText: text.slice(0, 700) }

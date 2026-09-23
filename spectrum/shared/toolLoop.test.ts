@@ -890,7 +890,7 @@ describe('dated travel booking asks (dims 1 and 2)', () => {
       availableTools: ['web', 'maps'],
       canDraft: true,
       chat: async () => answers.shift() || 'Done.',
-      lookup: async (tool, query) => { order.push(`lookup:${tool}`); return [HOTEL_BLOCK] },
+      lookup: async (tool, _query) => { order.push(`lookup:${tool}`); return [HOTEL_BLOCK] },
       propose: async (draft) => { order.push('propose'); drafts.push(draft as Record<string, unknown>); return { ok: true, id: 'job-hotel' } },
     })
     // The lookup must run before the run is staged, and it carries the ask
@@ -916,7 +916,7 @@ describe('dated travel booking asks (dims 1 and 2)', () => {
       availableTools: ['web', 'maps'],
       canDraft: true,
       chat: async () => answers.shift() || 'Done.',
-      lookup: async (tool, query) => { order.push(`lookup:${tool}`); return [FARE_BLOCK] },
+      lookup: async (tool, _query) => { order.push(`lookup:${tool}`); return [FARE_BLOCK] },
       propose: async (draft) => { order.push('propose'); drafts.push(draft as Record<string, unknown>); return { ok: true, id: 'job-flight' } },
     })
     expect(drafts).toHaveLength(1)

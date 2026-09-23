@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
-import { slackMentionText, linearAssignedText } from './hire-api'
+import { slackMentionText, linearAssignedText } from './nudges/formatters'
 
 const savedFetch = globalThis.fetch
 beforeEach(() => {

@@ -279,7 +279,7 @@ describe('sweepTasks', () => {
     const stalled = await makeTask(db, 'user-1', 'order flowers')
     await driveToExecuting(db, stalled.id)
     ageRow(db, stalled.id, '2026-09-14T08:00:00Z')
-    const healthy = await makeTask(db, 'user-1', 'fresh draft')
+    const _healthy = await makeTask(db, 'user-1', 'fresh draft')
     const held = await makeTask(db, 'user-2', 'paused thing')
     await appendEvent(db.sql, { userId: 'user-2', taskId: held.id, type: 'state_changed', payload: { to: 'PAUSED_BY_USER' }, actor: 'alpha' })
 

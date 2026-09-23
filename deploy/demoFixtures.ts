@@ -495,7 +495,7 @@ export function demoHubspotDeals(now: Date) {
   }
 }
 
-export function demoSalesforce(now: Date) {
+export function demoSalesforce(_now: Date) {
   return {
     results: [
       { title: 'Acme Corp — platform', status: 'Contract sent', amount: 48000, url: 'https://salesforce.com/nw/acme' },

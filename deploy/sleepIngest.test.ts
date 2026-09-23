@@ -1,25 +1,9 @@
 import { describe, expect, it } from 'bun:test'
+import { isClock, sleepHoursBetween } from './habits/parsers'
 
 /**
  * Pure unit tests for sleep ingest payload parsing.
- * Mirrors the logic in hire-api.ts so we can test it without a DB.
  */
-
-function isClock(v: string): boolean {
-  return /^\d{1,2}:\d{2}$/.test(v.trim()) && (() => {
-    const [h, m] = v.trim().split(':').map(Number)
-    return (h || 0) <= 23 && (m || 0) <= 59
-  })()
-}
-
-function sleepHoursBetween(bedtime: string, wake: string): number {
-  const [bh, bm] = bedtime.split(':').map(Number)
-  const [wh, wm] = wake.split(':').map(Number)
-  if ([bh, bm, wh, wm].some((n) => Number.isNaN(n))) return 0
-  let mins = (wh || 0) * 60 + (wm || 0) - ((bh || 0) * 60 + (bm || 0))
-  if (mins <= 0) mins += 24 * 60
-  return Math.round((mins / 60) * 10) / 10
-}
 
 function parseSleepIngestPayload(body: {
   bedtime?: unknown

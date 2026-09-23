@@ -32,7 +32,7 @@ export function RequireAuth() {
             timezone?: string
           }
           if (data.email) {
-            const s = signIn(data.email, data.phone || session?.phone || '', data.name, data.timezone)
+            const s = signIn(data.email, data.phone || getSession()?.phone || '', data.name, data.timezone)
             setSession(s)
           }
           setVerified(true)
