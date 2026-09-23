@@ -1,6 +1,0 @@
-{
-  "private": true,
-  "dependencies": {
-    "@stripe/link-cli": "0.18.0"
-  }
-}
