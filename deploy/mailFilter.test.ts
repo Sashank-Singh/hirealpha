@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import { isAutomatedSender, isAutomatedSubject } from './hire-api'
+import { isAutomatedSender, isAutomatedSubject } from './work/stack'
 
 describe('junk draft filter', () => {
   it('flags automated senders', () => {

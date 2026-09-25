@@ -16,7 +16,19 @@
  */
 import { randomBytes, randomUUID, createHmac, timingSafeEqual } from 'node:crypto'
 import type { SQL } from 'bun'
-import type { PortalStep, BrowserTaskKind } from './browserVault'
+export type BrowserTaskKind = 'newsletter' | 'ticker' | 'task'
+
+/**
+ * One scripted action inside a 'task' run. A step carries at most one action;
+ * `fill` values may reference the vault credential as `{{username}}` /
+ * `{{password}}` — the token is substituted at launch, never stored.
+ */
+export type PortalStep = {
+  action: 'goto' | 'fill' | 'click' | 'wait' | 'press' | 'extract'
+  selector?: string
+  value?: string
+  ms?: number
+}
 import { assertPublicHttpsUrl, type HostResolver } from './browserNetworkPolicy'
 import { mirrorJobClaimed, mirrorJobEnqueued, mirrorJobFinished, mirrorJobHandoff, mirrorJobHandoffResumed, mirrorJobReconcile } from '../services/tasks/taskLifecycle'
 

@@ -595,12 +595,33 @@ function formatMoney(amountCents: number, currency = 'USD'): string {
 
 export type UserPaymentsDeps = {
   resolveUser: (sql: SQL, req: Request) => Promise<{ id: string } | null>
+  internalOk?: (req: Request) => boolean
+  livePayload?: (sql: SQL, phone: string, persona: 'friend' | 'coworker' | 'cofounder') => Promise<any>
 }
 
 /** Returns null for paths it does not own. All routes require a signed-in user. */
 export async function handleUserPaymentsApi(req: Request, sql: SQL, deps: UserPaymentsDeps): Promise<Response | null> {
   const url = new URL(req.url)
   const path = url.pathname
+
+  if (path === '/api/internal/spend/decide' && req.method === 'POST') {
+    if (!deps.internalOk?.(req)) return json({ error: 'Unauthorized' }, 401)
+    const body = (await req.json().catch(() => ({}))) as { phone?: string; requestId?: string; decision?: string }
+    if (!body.phone || !body.requestId) return json({ error: 'phone and requestId required' }, 400)
+    if (!deps.livePayload) return json({ error: 'livePayload unavailable' }, 500)
+    const live = await deps.livePayload(sql, body.phone, 'friend')
+    if (!live.found || !live.userId) return json({ error: 'User not found' }, 404)
+    const decision = body.decision === 'deny' ? 'deny' : 'approve'
+    const approved = await decideSpendApproval(sql, live.userId, body.requestId, decision)
+    if (!approved) return json({ ok: false, error: 'No pending request with that id.' }, 400)
+    if (decision === 'approve') {
+      const chargeRes = await chargeApprovedSpend(sql, live.userId, body.requestId)
+      if (!chargeRes.ok) return json({ ok: false, error: chargeRes.error || 'Charge failed' }, 402)
+      return json({ ok: true, charged: true, paymentIntentId: chargeRes.paymentIntentId })
+    }
+    return json({ ok: true, decision: 'denied' })
+  }
+
   if (!path.startsWith('/api/payments')) return null
 
   // Every payment surface, including provider-action redirects, is bound to

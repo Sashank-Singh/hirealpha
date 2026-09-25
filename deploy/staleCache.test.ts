@@ -306,4 +306,21 @@ describe('createStaleCache', () => {
     // screens with different patience worth doing.
     expect(calls).toHaveLength(1)
   })
+
+  it('prune sweeps entries past double TTL', async () => {
+    const clock = fakeClock()
+    const { load, calls } = deferredLoader<string>()
+    const cache = createStaleCache<string>({ ttlMs: 1000, maxWaitMs: 100, now: clock.now, sleep: clock.sleep })
+
+    const read = cache.read('k1', () => load('k1'))
+    await settle()
+    calls[0]!.resolve('val1')
+    await read
+
+    expect(cache.size()).toBe(1)
+    clock.advance(2500) // past ttlMs * 2
+    cache.prune()
+    expect(cache.size()).toBe(0)
+    expect(cache.peek('k1')).toBeNull()
+  })
 })

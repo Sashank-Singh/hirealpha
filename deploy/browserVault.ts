@@ -18,7 +18,14 @@ import { randomUUID } from 'node:crypto'
 import type { SQL } from 'bun'
 import { decryptSecret, encryptSecret, maskSecret, vaultKey, type VaultKey } from './vaultCrypto'
 import { isOpRef, onePasswordConfigured, opGetItemFields, opSaveItem } from './onePassword'
-import { enqueueBrowserJob, generateSessionViewToken, resumeBrowserHandoff, appendBrowserActivity } from './browserJobs'
+import {
+  enqueueBrowserJob,
+  generateSessionViewToken,
+  resumeBrowserHandoff,
+  appendBrowserActivity,
+  type BrowserTaskKind,
+  type PortalStep,
+} from './browserJobs'
 import type { HostResolver } from './browserNetworkPolicy'
 import { listVaultItems, revokeVaultItem, saveVaultItem } from '../services/trust/vaultV2'
 import { userKeyBrokerFromEnv, type UserKeyBroker } from '../services/trust/userKeyBroker'
@@ -26,19 +33,7 @@ import { createCapabilityGrant, decideCapabilityGrant } from '../services/trust/
 
 /* ------------------------------- types ---------------------------------- */
 
-export type BrowserTaskKind = 'newsletter' | 'ticker' | 'task'
-
-/**
- * One scripted action inside a 'task' run. A step carries at most one action;
- * `fill` values may reference the vault credential as `{{username}}` /
- * `{{password}}` — the token is substituted at launch, never stored.
- */
-export type PortalStep = {
-  action: 'goto' | 'fill' | 'click' | 'wait' | 'press' | 'extract'
-  selector?: string
-  value?: string
-  ms?: number
-}
+export type { BrowserTaskKind, PortalStep }
 
 export type PortalTask = {
   url: string

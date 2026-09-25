@@ -10,10 +10,47 @@ import {
   stripeSecret,
   subscriptionActive,
 } from '../billing/stripe'
+import { buildPrepBundle } from '../work/prep'
+import { scanSubscriptions } from '../../spectrum/shared/smartFeatures'
 
-export async function handleBillingRoutes(req: Request, sql: SQL): Promise<Response | null> {
+export async function handleBillingRoutes(
+  req: Request,
+  sql: SQL,
+  options?: {
+    internalOk?: (r: Request) => boolean
+    livePayload?: (sql: SQL, phone: string, persona: Persona) => Promise<any>
+    ensureMemoryConsent?: (sql: SQL, input: { userId: string; persona: Persona; source: string }) => Promise<any>
+  },
+): Promise<Response | null> {
   const url = new URL(req.url)
   const path = url.pathname
+
+  if (path === '/api/admin/grant-premium' && req.method === 'POST') {
+    if (!options?.internalOk?.(req)) return json({ error: 'Unauthorized' }, 401)
+    const body = (await req.json().catch(() => ({}))) as { email?: string }
+    const email = String(body.email || '').trim().toLowerCase()
+    if (!email || !email.includes('@')) return json({ error: 'valid email required' }, 400)
+    let user = await getUserByEmail(sql, email)
+    if (!user) {
+      const userId = crypto.randomUUID()
+      await sql`INSERT INTO hire_users (id, email, created_at, updated_at) VALUES (${userId}, ${email}, now(), now())`
+      user = { id: userId, email, name: null, timezone: null, phone: null }
+    }
+    await sql`
+      INSERT INTO hire_subscriptions (id, user_id, persona, status, price_id, current_period_end, created_at, updated_at)
+      VALUES (${crypto.randomUUID()}, ${user.id}, 'all', 'active', 'grant_admin', now() + interval '100 years', now(), now())
+      ON CONFLICT (user_id, persona) DO UPDATE SET status = 'active', price_id = 'grant_admin', current_period_end = now() + interval '100 years', updated_at = now()
+    `
+    for (const p of ['friend', 'coworker', 'cofounder'] as const) {
+      await sql`INSERT INTO hire_roster (user_id, persona, hired_at) VALUES (${user.id}, ${p}, now()) ON CONFLICT (user_id, persona) DO NOTHING`
+      if (options?.ensureMemoryConsent) {
+        await options.ensureMemoryConsent(sql, { userId: user.id, persona: p, source: 'admin_grant' }).catch((err) => {
+          console.warn('[memory] consent grant on admin grant failed', err)
+        })
+      }
+    }
+    return json({ ok: true, email, userId: user.id })
+  }
 
   if (path === '/api/billing/status' && req.method === 'GET') {
     const email = String(url.searchParams.get('email') || '')
@@ -232,6 +269,28 @@ export async function handleBillingRoutes(req: Request, sql: SQL): Promise<Respo
       console.error('[billing] checkout session failed', err)
       return json({ error: 'Could not start checkout' }, 502)
     }
+  }
+
+  if (path === '/api/internal/subscriptions' && req.method === 'POST') {
+    if (!options?.internalOk?.(req)) return json({ error: 'Unauthorized' }, 401)
+    const body = (await req.json().catch(() => ({}))) as {
+      phone?: string
+      persona?: string
+      query?: string
+    }
+    if (!body.phone || !isPersona(body.persona || '')) return json({ error: 'phone and persona required' }, 400)
+    if (!options?.livePayload) return json({ error: 'livePayload unavailable' }, 500)
+    const live = await options.livePayload(sql, body.phone, body.persona as Persona)
+    if (!live.found || !live.hired || !live.userId) return json({ ok: false, hits: [], error: 'not hired' }, 404)
+    const bundle = await buildPrepBundle(
+      sql,
+      { id: live.userId, name: live.name, timezone: live.timezone },
+      String(body.query || 'recurring charges'),
+    )
+    const kw = String(body.query || '').toLowerCase().trim()
+    const hits = scanSubscriptions(bundle?.text || '')
+      .filter((h) => !kw || `${h.merchant} ${h.period}`.toLowerCase().includes(kw))
+    return json({ ok: true, hits })
   }
 
   return null

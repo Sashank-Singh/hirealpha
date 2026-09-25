@@ -1,9 +1,11 @@
 import { afterAll, beforeEach, describe, expect, it } from 'bun:test'
 import {
   captureCofounderItem,
+  type CofounderCaptureKind,
+} from './routes/cofounder'
+import {
   cofounderDigest,
   handleHireApi,
-  type CofounderCaptureKind,
 } from './authenticatedTestApi'
 
 /* The cofounder tools promise a partner who already did the work: capture

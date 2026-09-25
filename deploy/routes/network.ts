@@ -2,7 +2,8 @@ import type { SQL } from 'bun'
 import { json } from '../utils/http'
 import { resolveAuthedUser } from '../auth/session'
 import { getUserByPhone, type AuthedUser } from '../db/users'
-import { isPersona } from '../personas'
+import { isPersona, type Persona } from '../personas'
+import { clampNum } from '../habits/parsers'
 
 export interface TodayResult {
   meets: unknown[]
@@ -16,6 +17,7 @@ export interface NetworkRouteOptions {
   internalOk: (r: Request) => boolean
   loadTodayMeets?: (user: AuthedUser, persona: string) => Promise<TodayResult>
   connectedForUser: (sql: SQL, userId: string) => Promise<string[]>
+  touchInbound?: (sql: SQL, phone: string, persona: Persona) => Promise<any>
 }
 
 export async function handleNetworkRoutes(
@@ -25,6 +27,16 @@ export async function handleNetworkRoutes(
 ): Promise<Response | null> {
   const url = new URL(req.url)
   const path = url.pathname
+
+  if (path === '/api/internal/touch' && req.method === 'POST') {
+    if (!options.internalOk(req)) return json({ error: 'Unauthorized' }, 401)
+    const body = (await req.json().catch(() => ({}))) as { phone?: string; persona?: string }
+    if (!body.phone || !body.persona || !isPersona(body.persona)) {
+      return json({ error: 'phone and persona required' }, 400)
+    }
+    if (!options.touchInbound) return json({ error: 'touchInbound unavailable' }, 500)
+    return json(await options.touchInbound(sql, body.phone, body.persona))
+  }
 
   if (path === '/api/internal/network' && req.method === 'POST') {
     if (!options.internalOk(req)) return json({ error: 'Unauthorized' }, 401)
@@ -174,6 +186,63 @@ export async function handleNetworkRoutes(
       await sql`UPDATE hire_network SET last_touch = now(), context = ${context} WHERE id = ${id} AND user_id = ${user!.id}`
     } else {
       await sql`UPDATE hire_network SET last_touch = now() WHERE id = ${id} AND user_id = ${user!.id}`
+    }
+    return json({ ok: true })
+  }
+
+  if (path === '/api/relationships' && req.method === 'GET') {
+    const { user, error } = await resolveAuthedUser(sql, {
+      token: url.searchParams.get('t') || undefined,
+      session: url.searchParams.get('s') || undefined,
+      email: url.searchParams.get('email') || undefined,
+    })
+    if (error) return error
+    const rows = await sql`
+      SELECT id, name, where_met AS kind, context AS notes, cadence_days AS "cadenceDays",
+             last_touch AS "lastTouchAt", created_at AS "updatedAt"
+      FROM hire_network WHERE user_id = ${user!.id}
+      ORDER BY last_touch ASC NULLS FIRST LIMIT 60
+    `
+    return json({ relationships: rows })
+  }
+
+  if (path === '/api/relationships' && req.method === 'POST') {
+    const body = (await req.json().catch(() => ({}))) as {
+      token?: string; email?: string
+      name?: string; kind?: string; notes?: string; cadenceDays?: number
+      birthday?: string
+    }
+    const name = String(body.name || '').trim().slice(0, 120)
+    if (!name) return json({ error: 'name required' }, 400)
+    const kind = ['personal', 'work', 'investor', 'candidate', 'partner', 'other'].includes(body.kind || '')
+      ? body.kind!
+      : 'other'
+    const { user, error } = await resolveAuthedUser(sql, { token: body.token, session: (body as { session?: string }).session, email: body.email })
+    if (error) return error
+    const id = crypto.randomUUID()
+    /* Backlog #33: an optional birthday (YYYY-MM-DD) feeds the friend hire's
+     * yearly reminder. The string is regex-checked so a garbage value never
+     * reaches the DATE column. Empty / missing stays NULL. */
+    const bdayRaw = String(body.birthday || '').trim()
+    const bday = /^\d{4}-\d{2}-\d{2}$/.test(bdayRaw) ? bdayRaw : null
+    await sql`
+      INSERT INTO hire_network (id, user_id, name, where_met, context, cadence_days, birthday)
+      VALUES (${id}, ${user!.id}, ${name}, ${kind}, ${String(body.notes || '').slice(0, 500)},
+        ${Math.min(Math.max(clampNum(body.cadenceDays, 30), 1), 365)}, ${bday})
+    `
+    return json({ ok: true, id })
+  }
+
+  if (path.startsWith('/api/relationships/') && req.method === 'PATCH') {
+    const id = path.slice('/api/relationships/'.length)
+    const body = (await req.json().catch(() => ({}))) as { token?: string; email?: string; touch?: boolean }
+    const { user, error } = await resolveAuthedUser(sql, { token: body.token, session: (body as { session?: string }).session, email: body.email })
+    if (error) return error
+    if (body.touch) {
+      await sql`
+        UPDATE hire_network SET last_touch = now()
+        WHERE id = ${id} AND user_id = ${user!.id}
+      `
     }
     return json({ ok: true })
   }

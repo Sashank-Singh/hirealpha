@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from 'bun:test'
-import { claimInvite, handleHireApi } from './authenticatedTestApi'
+import { handleHireApi } from './authenticatedTestApi'
+import { claimInvite } from './db/invites'
 
 /* Referral rewards: a redeemed invite code earns the referrer one free month
  * (a hire_referral_credits row), and the next checkout spends it as a 100% off

@@ -7,8 +7,8 @@ import { SQL } from 'bun'
 import type { ServerWebSocket } from 'bun'
 import { brotliCompressSync, constants as zlibConstants } from 'node:zlib'
 import { join } from 'node:path'
+import { claimInvite } from './db/invites'
 import {
-  claimInvite,
   ensureHireSchema,
   ensurePhoneUser,
   handleHireApi,

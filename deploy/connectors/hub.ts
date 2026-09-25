@@ -326,11 +326,18 @@ export async function composioAuthorize(sql: SQL, userId: string, toolkit: strin
   return request.redirectUrl || null
 }
 
-export async function googleAccessToken(
+export type ConnectorFailureReason = 'auth_expired' | 'timeout' | 'provider_error' | 'not_connected'
+export type ConnectorStatus = ConnectorFailureReason | 'ok'
+
+export type GoogleTokenStatus =
+  | { ok: true; accessToken: string }
+  | { ok: false; reason: ConnectorFailureReason; status?: number; error?: string }
+
+export async function googleTokenWithStatus(
   sql: SQL,
   userId: string,
   need?: 'gmail' | 'calendar' | 'drive',
-): Promise<string | null> {
+): Promise<GoogleTokenStatus> {
   const creds = googleCreds()
   const rows = await sql`
     SELECT access_token, refresh_token, expires_at, scopes FROM hire_google_tokens WHERE user_id = ${userId} LIMIT 1
@@ -338,30 +345,55 @@ export async function googleAccessToken(
   const row = rows[0] as
     | { access_token: string; refresh_token: string | null; expires_at: Date | null; scopes: string | null }
     | undefined
-  if (!row) return null
-  if (need && !googleTokenHasScope(String(row.scopes || ''), need)) return null
+  if (!row) return { ok: false, reason: 'not_connected' }
+  if (need && !googleTokenHasScope(String(row.scopes || ''), need)) {
+    return { ok: false, reason: 'not_connected' }
+  }
   const exp = row.expires_at ? new Date(row.expires_at).getTime() : 0
-  if (exp > Date.now() + 60_000) return row.access_token
-  if (!creds || !row.refresh_token) return null
-  const res = await fetch('https://oauth2.googleapis.com/token', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      client_id: creds.clientId,
-      client_secret: creds.clientSecret,
-      refresh_token: row.refresh_token,
-      grant_type: 'refresh_token',
-    }),
-  })
-  if (!res.ok) return null
-  const tok = (await res.json()) as { access_token: string; expires_in?: number }
-  const expiresAt = new Date(Date.now() + (tok.expires_in || 3600) * 1000).toISOString()
-  await sql`
-    UPDATE hire_google_tokens
-    SET access_token = ${tok.access_token}, expires_at = ${expiresAt}, updated_at = now()
-    WHERE user_id = ${userId}
-  `
-  return tok.access_token
+  if (exp > Date.now() + 60_000) return { ok: true, accessToken: row.access_token }
+  if (!creds || !row.refresh_token) return { ok: false, reason: 'auth_expired' }
+
+  try {
+    const res = await fetch('https://oauth2.googleapis.com/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        client_id: creds.clientId,
+        client_secret: creds.clientSecret,
+        refresh_token: row.refresh_token,
+        grant_type: 'refresh_token',
+      }),
+      signal: AbortSignal.timeout(8000),
+    })
+    if (!res.ok) {
+      if (res.status === 400 || res.status === 401) {
+        return { ok: false, reason: 'auth_expired', status: res.status }
+      }
+      return { ok: false, reason: 'provider_error', status: res.status }
+    }
+    const tok = (await res.json()) as { access_token: string; expires_in?: number }
+    const expiresAt = new Date(Date.now() + (tok.expires_in || 3600) * 1000).toISOString()
+    await sql`
+      UPDATE hire_google_tokens
+      SET access_token = ${tok.access_token}, expires_at = ${expiresAt}, updated_at = now()
+      WHERE user_id = ${userId}
+    `
+    return { ok: true, accessToken: tok.access_token }
+  } catch (err: any) {
+    if (err?.name === 'AbortError' || /timeout/i.test(err?.message)) {
+      return { ok: false, reason: 'timeout' }
+    }
+    return { ok: false, reason: 'provider_error', error: err?.message }
+  }
+}
+
+export async function googleAccessToken(
+  sql: SQL,
+  userId: string,
+  need?: 'gmail' | 'calendar' | 'drive',
+): Promise<string | null> {
+  const res = await googleTokenWithStatus(sql, userId, need)
+  return res.ok ? res.accessToken : null
 }
 
 export async function fetchGmail(access: string, query: string, maxResults = 8): Promise<string> {
@@ -422,12 +454,13 @@ export function startOfLocalDay(timezone: string, dayOffset = 0): Date {
 export async function fetchCalendarItems(
   access: string,
   opts?: { timeMin?: Date; timeMax?: Date; maxResults?: number; checkSecondary?: boolean },
-): Promise<{ ok: true; items: CalItem[] } | { ok: false; status: number }> {
+): Promise<{ ok: true; items: CalItem[] } | { ok: false; status: number; reason?: ConnectorFailureReason }> {
   const now = opts?.timeMin || new Date()
   const end = opts?.timeMax || new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000)
   const maxResults = opts?.maxResults || 50
 
-  async function fetchEventsForCal(calId: string): Promise<CalItem[]> {
+  let primaryStatus = 200
+  async function fetchEventsForCal(calId: string): Promise<CalItem[] | null> {
     const url = new URL(`https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calId)}/events`)
     url.searchParams.set('timeMin', now.toISOString())
     url.searchParams.set('timeMax', end.toISOString())
@@ -435,27 +468,45 @@ export async function fetchCalendarItems(
     url.searchParams.set('orderBy', 'startTime')
     url.searchParams.set('conferenceDataVersion', '1')
     url.searchParams.set('maxResults', String(maxResults))
-    const res = await fetch(url, { headers: { Authorization: `Bearer ${access}` } })
-    if (!res.ok) return []
-    const data = (await res.json()) as {
-      items?: Array<{
-        summary?: string
-        description?: string
-        location?: string
-        hangoutLink?: string
-        start?: { dateTime?: string; date?: string }
-        conferenceData?: { entryPoints?: Array<{ entryPointType?: string; uri?: string }> }
-      }>
+    try {
+      const res = await fetch(url, {
+        headers: { Authorization: `Bearer ${access}` },
+        signal: AbortSignal.timeout(7000),
+      })
+      if (!res.ok) {
+        primaryStatus = res.status
+        return null
+      }
+      const data = (await res.json()) as {
+        items?: Array<{
+          summary?: string
+          description?: string
+          location?: string
+          hangoutLink?: string
+          start?: { dateTime?: string; date?: string }
+          conferenceData?: { entryPoints?: Array<{ entryPointType?: string; uri?: string }> }
+        }>
+      }
+      return parseGoogleCalendarItems(data.items || [])
+    } catch (err: any) {
+      const isTimeout = err?.name === 'AbortError' || /timeout/i.test(err?.message)
+      primaryStatus = isTimeout ? 504 : 502
+      return null
     }
-    return parseGoogleCalendarItems(data.items || [])
   }
 
   const primaryItems = await fetchEventsForCal('primary')
+  if (primaryItems === null) {
+    const reason: ConnectorFailureReason =
+      primaryStatus === 401 ? 'auth_expired' : primaryStatus === 504 || primaryStatus === 408 ? 'timeout' : 'provider_error'
+    return { ok: false, status: primaryStatus, reason }
+  }
 
   if (opts?.checkSecondary) {
     try {
       const listRes = await fetch('https://www.googleapis.com/calendar/v3/users/me/calendarList', {
         headers: { Authorization: `Bearer ${access}` },
+        signal: AbortSignal.timeout(4000),
       })
       if (listRes.ok) {
         const listData = (await listRes.json()) as { items?: Array<{ id: string; selected?: boolean; primary?: boolean }> }
@@ -464,7 +515,7 @@ export async function fetchCalendarItems(
           .slice(0, 4)
         if (secondaryCals.length > 0) {
           const extraItemsArrays = await Promise.all(secondaryCals.map((c) => fetchEventsForCal(c.id)))
-          const allItems = [...primaryItems, ...extraItemsArrays.flat()]
+          const allItems = [...primaryItems, ...extraItemsArrays.filter((x): x is CalItem[] => x !== null).flat()]
           const seen = new Set<string>()
           const deduped: CalItem[] = []
           for (const it of allItems) {
@@ -734,41 +785,59 @@ export async function runComposioPlugin(userId: string, id: string, message: str
  * `null` means Google refused the list — distinct from an empty inbox, which is
  * `[]`. The caller needs the difference to know whether to try Composio.
  */
+export async function fetchGmailRichWithStatus(
+  access: string,
+  query: string,
+  maxResults = 8,
+): Promise<{ ok: true; items: Array<{ id: string; from: string; date: string; subject: string; snippet: string }> } | { ok: false; status: number; reason: ConnectorFailureReason }> {
+  const cap = Math.max(1, Math.min(40, maxResults))
+  const listUrl = new URL('https://gmail.googleapis.com/gmail/v1/users/me/messages')
+  listUrl.searchParams.set('maxResults', String(cap))
+  listUrl.searchParams.set('q', query)
+  try {
+    const list = await fetchPublic(listUrl, { headers: { Authorization: `Bearer ${access}` } }, 4000)
+    if (!list.ok) {
+      const reason: ConnectorFailureReason =
+        list.status === 401 ? 'auth_expired' : list.status === 504 || list.status === 408 ? 'timeout' : 'provider_error'
+      return { ok: false, status: list.status, reason }
+    }
+    const data = (await list.json()) as { messages?: Array<{ id: string }> }
+    const ids = (data.messages || []).slice(0, cap)
+    const results = (
+      await Promise.all(
+        ids.map(async (m) => {
+          const got = await fetchPublic(
+            new URL(
+              `https://gmail.googleapis.com/gmail/v1/users/me/messages/${m.id}?format=metadata&metadataHeaders=Subject&metadataHeaders=From&metadataHeaders=Date`,
+            ),
+            { headers: { Authorization: `Bearer ${access}` } },
+            3000,
+          )
+          if (!got.ok) return null
+          const msg = (await got.json()) as {
+            snippet?: string
+            payload?: { headers?: Array<{ name: string; value: string }> }
+          }
+          const headers = msg.payload?.headers || []
+          const h = (n: string) => headers.find((x) => x.name.toLowerCase() === n.toLowerCase())?.value || ''
+          return { id: m.id, from: h('From'), date: h('Date'), subject: h('Subject'), snippet: msg.snippet || '' }
+        }),
+      )
+    ).filter((item): item is NonNullable<typeof item> => !!item)
+    return { ok: true, items: results }
+  } catch (err: any) {
+    const isTimeout = err?.name === 'AbortError' || /timeout/i.test(err?.message)
+    return { ok: false, status: isTimeout ? 504 : 502, reason: isTimeout ? 'timeout' : 'provider_error' }
+  }
+}
+
 export async function fetchGmailRich(
   access: string,
   query: string,
   maxResults = 8,
 ): Promise<Array<{ id: string; from: string; date: string; subject: string; snippet: string }> | null> {
-  const cap = Math.max(1, Math.min(40, maxResults))
-  const listUrl = new URL('https://gmail.googleapis.com/gmail/v1/users/me/messages')
-  listUrl.searchParams.set('maxResults', String(cap))
-  listUrl.searchParams.set('q', query)
-  const list = await fetchPublic(listUrl, { headers: { Authorization: `Bearer ${access}` } }, 4000)
-  if (!list.ok) return null
-  const data = (await list.json()) as { messages?: Array<{ id: string }> }
-  const ids = (data.messages || []).slice(0, cap)
-  const results = (
-    await Promise.all(
-      ids.map(async (m) => {
-        const got = await fetchPublic(
-          new URL(
-            `https://gmail.googleapis.com/gmail/v1/users/me/messages/${m.id}?format=metadata&metadataHeaders=Subject&metadataHeaders=From&metadataHeaders=Date`,
-          ),
-          { headers: { Authorization: `Bearer ${access}` } },
-          3000,
-        )
-        if (!got.ok) return null
-        const msg = (await got.json()) as {
-          snippet?: string
-          payload?: { headers?: Array<{ name: string; value: string }> }
-        }
-        const headers = msg.payload?.headers || []
-        const h = (n: string) => headers.find((x) => x.name.toLowerCase() === n.toLowerCase())?.value || ''
-        return { id: m.id, from: h('From'), date: h('Date'), subject: h('Subject'), snippet: msg.snippet || '' }
-      }),
-    )
-  ).filter((item): item is NonNullable<typeof item> => !!item)
-  return results
+  const res = await fetchGmailRichWithStatus(access, query, maxResults)
+  return res.ok ? res.items : null
 }
 
 /** The Gmail read slugs from the plugin spec; the first slug with a payload
@@ -925,22 +994,42 @@ export async function readGmailExact(
   userId: string,
   query: string,
   maxResults = 8,
-): Promise<{ items: Array<{ id: string; from: string; date: string; subject: string; snippet: string }>; failed: boolean }> {
+): Promise<{
+  items: Array<{ id: string; from: string; date: string; subject: string; snippet: string }>
+  failed: boolean
+  status?: ConnectorStatus
+}> {
+  let knownReason: ConnectorFailureReason = 'provider_error'
   try {
-    const access = await gmailAccess(sql, userId)
-    if (access) {
+    const tokenStatus = await googleTokenWithStatus(sql, userId, 'gmail')
+    if (tokenStatus.ok) {
       const budget = maxResults > 10 ? 6500 : 5000
-      const rich = await withTimeout(fetchGmailRich(access, query, maxResults), budget, null)
-      if (rich) return { items: rich, failed: false }
+      const richRes = await withTimeout(
+        fetchGmailRichWithStatus(tokenStatus.accessToken, query, maxResults),
+        budget,
+        { ok: false as const, status: 504, reason: 'timeout' as const },
+      )
+      if (richRes.ok) {
+        return { items: richRes.items, failed: false, status: 'ok' }
+      }
+      knownReason = richRes.reason
+    } else {
+      knownReason = tokenStatus.reason
     }
-  } catch {
-    // fall through to the connector
+  } catch (err: any) {
+    const isTimeout = err?.name === 'AbortError' || /timeout/i.test(err?.message)
+    knownReason = isTimeout ? 'timeout' : 'provider_error'
   }
+
   try {
     const items = await composioGmailRich(userId, query, maxResults, 8000)
-    return { items: items || [], failed: items === null }
-  } catch {
-    return { items: [], failed: true }
+    if (items !== null) {
+      return { items, failed: false, status: 'ok' }
+    }
+    return { items: [], failed: true, status: knownReason }
+  } catch (err: any) {
+    const isTimeout = err?.name === 'AbortError' || /timeout/i.test(err?.message)
+    return { items: [], failed: true, status: isTimeout ? 'timeout' : knownReason }
   }
 }
 

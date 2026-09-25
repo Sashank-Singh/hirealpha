@@ -1,10 +1,19 @@
 import type { SQL } from 'bun'
+import { isPersona, type Persona } from '../personas'
 import { json } from '../utils/http'
 import { resolveAuthedUser } from '../auth/session'
 import { userMonday, shiftDateStr, weekWindowUtc } from '../timezones'
 import { sleepHoursBetween } from '../habits/parsers'
 
-export async function handleReviewRoutes(req: Request, sql: SQL): Promise<Response | null> {
+export async function handleReviewRoutes(
+  req: Request,
+  sql: SQL,
+  options?: {
+    internalOk?: (r: Request) => boolean
+    livePayload?: (sql: SQL, phone: string, persona: Persona) => Promise<any>
+    buildWeekBundle?: (sql: SQL, user: { id: string; name?: string | null; timezone: string | null }) => Promise<any>
+  },
+): Promise<Response | null> {
   const url = new URL(req.url)
   const path = url.pathname
 
@@ -102,6 +111,28 @@ export async function handleReviewRoutes(req: Request, sql: SQL): Promise<Respon
         focus_text = excluded.focus_text
     `
     return json({ ok: true })
+  }
+
+  if (path === '/api/internal/week' && req.method === 'POST') {
+    if (!options?.internalOk?.(req)) return json({ error: 'Unauthorized' }, 401)
+    const body = (await req.json().catch(() => ({}))) as {
+      phone?: string
+      persona?: string
+    }
+    if (!body.phone || !body.persona || !isPersona(body.persona)) {
+      return json({ error: 'phone and persona required' }, 400)
+    }
+    if (!options?.livePayload || !options?.buildWeekBundle) {
+      return json({ error: 'Service unavailable' }, 500)
+    }
+    const live = await options.livePayload(sql, body.phone, body.persona as Persona)
+    if (!live.found || !live.hired || !live.userId) return json({ ok: false, error: 'not hired' }, 404)
+    const bundle = await options.buildWeekBundle(sql, {
+      id: live.userId,
+      name: live.name,
+      timezone: live.timezone,
+    })
+    return json({ ok: true, ...bundle })
   }
 
   return null

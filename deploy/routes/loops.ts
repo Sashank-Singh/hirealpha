@@ -1,5 +1,6 @@
 import type { SQL } from 'bun'
-import { isPersona } from '../personas'
+import { createHmac } from 'node:crypto'
+import { isPersona, type Persona } from '../personas'
 import { normalizePhone, phonesMatch } from '../utils/phone'
 import {
   loopTimezone,
@@ -12,6 +13,7 @@ import { json } from '../utils/http'
 import { getUserByPhone } from '../db/users'
 import { resolveAuthedUser } from '../auth/session'
 import { claimDueLoops, finishTaskLoop } from '../loops/engine'
+import { detectCommitment } from '../../spectrum/shared/commitmentRescue'
 
 export async function handleLoopRoutes(
   req: Request,
@@ -347,6 +349,41 @@ export async function handleLoopRoutes(
       `
     }
     return json({ ok: true })
+  }
+
+  if (path === '/api/internal/commitments' && req.method === 'POST') {
+    if (!options.internalOk(req)) return json({ error: 'Unauthorized' }, 401)
+    const body = (await req.json().catch(() => ({}))) as { phone?: string; persona?: string; text?: string }
+    if (!body.phone || !isPersona(body.persona || '') || !String(body.text || '').trim()) {
+      return json({ error: 'phone, persona, and text required' }, 400)
+    }
+    const user = await getUserByPhone(sql, body.phone)
+    if (!user) return json({ error: 'User not found' }, 404)
+    const persona = body.persona as Persona
+    const candidate = detectCommitment(String(body.text), user.timezone || 'America/Los_Angeles')
+    if (!candidate) return json({ ok: true, captured: false })
+
+    // The open loop is the source of truth. A retry of the same chat updates
+    // the existing promise rather than cloning it or arming another rescue.
+    const fingerprint = createHmac('sha256', 'hirealpha.commitment.v1')
+      .update(`${user.id}\0${persona}\0${candidate.title.toLowerCase()}`).digest('hex').slice(0, 32)
+    const id = `commitment:${fingerprint}`
+    await sql`
+      INSERT INTO hire_loops (id, user_id, persona, title, context, due_at, status)
+      VALUES (${id}, ${user.id}, ${persona}, ${candidate.title}, ${candidate.sourceText}, ${candidate.dueAt.toISOString()}, 'open')
+      ON CONFLICT (id) DO UPDATE SET title = excluded.title, context = excluded.context,
+        due_at = excluded.due_at, status = 'open', updated_at = now()
+    `
+    const kind = `commitment_rescue:${id}`
+    const payload = JSON.stringify({ title: candidate.title, dueAt: candidate.dueAt.toISOString(), timezone: user.timezone || 'America/Los_Angeles', loopId: id })
+    await sql`
+      INSERT INTO hire_task_loops (id, user_id, persona, phone_e164, kind, title, payload, status, attempts, next_run)
+      VALUES (${crypto.randomUUID()}, ${user.id}, ${persona}, ${normalizePhone(body.phone)}, ${kind}, ${candidate.title}, ${payload}::jsonb, 'pending', 0, ${candidate.rescueAt.toISOString()})
+      ON CONFLICT (user_id, persona, kind) DO UPDATE SET
+        title = excluded.title, payload = excluded.payload, status = 'pending', attempts = 0,
+        next_run = excluded.next_run, updated_at = now()
+    `
+    return json({ ok: true, captured: true, id, dueAt: candidate.dueAt.toISOString(), rescueAt: candidate.rescueAt.toISOString() })
   }
 
   return null

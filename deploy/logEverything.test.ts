@@ -366,7 +366,7 @@ describe('workshop: build → keep → toss', () => {
 
 describe('junk draft filter', () => {
   it('flags automated senders and subjects', () => {
-    const { isAutomatedSender, isAutomatedSubject } = require('./hire-api') as typeof import('./hire-api')
+    const { isAutomatedSender, isAutomatedSubject } = require('./work/stack') as typeof import('./work/stack')
     expect(isAutomatedSender('do-not-reply@coderbyte.com')).toBe(true)
     expect(isAutomatedSender('no-reply@turing.com')).toBe(true)
     expect(isAutomatedSender('notifications@linkedin.com')).toBe(true)

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import { appendSessionTokenToProxyAssets } from './hire-api'
+import { appendSessionTokenToProxyAssets } from './routes/browser'
 
 const JOB = '0f7a82cb-98b8-4efe-82b2-348a1965befb'
 const PREFIX = `/api/computer/live-proxy/${JOB}`

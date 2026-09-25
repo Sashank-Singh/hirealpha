@@ -242,7 +242,7 @@ export async function fetchLiveTools(
   if (!base || !key) {
     if (want === 'maps' || (!want && /\b(?:hotel|hotels|hostel|hostels|restaurant|restaurants|cafe|cafes|bar|bars|dinner|lunch|breakfast|food|stay)\b/i.test(message))) {
       try {
-        const { fetchMapSearch } = await import('../../deploy/hire-api')
+        const { fetchMapSearch } = await import('../../deploy/maps')
         const mapOut = await fetchMapSearch(message)
         if (mapOut && !/unavailable/i.test(mapOut)) return [mapOut]
       } catch {
@@ -301,7 +301,7 @@ export async function fetchLiveTools(
   // If remote returned empty or is unreachable, use local maps / web engines
   if (want === 'maps' || (!want && /\b(?:hotel|hotels|hostel|hostels|restaurant|restaurants|cafe|cafes|bar|bars|dinner|lunch|breakfast|food|stay)\b/i.test(message))) {
     try {
-      const { fetchMapSearch } = await import('../../deploy/hire-api')
+      const { fetchMapSearch } = await import('../../deploy/maps')
       const mapOut = await fetchMapSearch(message)
       if (mapOut && !/unavailable/i.test(mapOut)) return [mapOut]
     } catch {

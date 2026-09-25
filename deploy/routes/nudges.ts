@@ -2,9 +2,10 @@ import type { SQL } from 'bun'
 import { isPersona, type Persona } from '../personas'
 import { json } from '../utils/http'
 import { getUserByPhone, getUserByEmail } from '../db/users'
-import { upsertContext } from '../db/context'
-import { nextLocalTimeUtc } from '../timezones'
+import { upsertContext, loadContext } from '../db/context'
+import { nextLocalTimeUtc, localDateStrInTz } from '../timezones'
 import { stripNudgeDashes } from '../nudges/formatters'
+import { minutesAgo } from '../nudges/gating'
 import type { EventNudge } from '../nudges/types'
 
 export type NudgeRouteDeps = {
@@ -149,6 +150,57 @@ export async function handleNudgeRoutes(
       quietHours: fields.quiet_hours || '22:00-08:00',
       pausedUntil: fields.paused_until || null,
     })
+  }
+
+  if (path === '/api/internal/last-proactive' && req.method === 'GET') {
+    if (!deps.internalOk(req)) return json({ error: 'Unauthorized' }, 401)
+    const phone = url.searchParams.get('phone') || ''
+    const persona = url.searchParams.get('persona') || ''
+    if (!phone || !isPersona(persona)) return json({ error: 'phone and persona required' }, 400)
+    const user = await getUserByPhone(sql, phone)
+    if (!user) return json({ error: 'User not found' }, 404)
+    const fields = await loadContext(sql, user.id, persona)
+    return json({
+      topic: fields.last_proactive_topic || null,
+      minutesAgo: minutesAgo(fields.last_proactive_at),
+    })
+  }
+
+  if (path === '/api/internal/proactive/sent' && req.method === 'POST') {
+    if (!deps.internalOk(req)) return json({ error: 'Unauthorized' }, 401)
+    const body = (await req.json().catch(() => ({}))) as {
+      phone?: string
+      persona?: string
+      topic?: string
+      freeze?: boolean
+    }
+    const persona = body.persona || ''
+    if (!body.phone || !isPersona(persona)) {
+      return json({ error: 'phone and persona required' }, 400)
+    }
+    const user = await getUserByPhone(sql, body.phone)
+    if (!user) return json({ error: 'User not found' }, 404)
+    const tz = user.timezone || 'America/Los_Angeles'
+    const today = localDateStrInTz(new Date(), tz)
+    const fields = await loadContext(sql, user.id, persona)
+    if (body.freeze) {
+      await upsertContext(sql, user.id, persona, {
+        unanswered_proactive: '2',
+        last_proactive_topic: 'blocked',
+      })
+      return json({ ok: true, frozen: true })
+    }
+    const prevUnanswered = Math.max(0, Number(fields.unanswered_proactive) || 0)
+    const sameDay = String(fields.last_proactive_day || '') === today
+    const dayCount = sameDay ? Math.max(0, Number(fields.unanswered_day_count) || 0) : 0
+    await upsertContext(sql, user.id, persona, {
+      last_proactive_at: new Date().toISOString(),
+      last_proactive_topic: String(body.topic || 'check_in').slice(0, 40),
+      last_proactive_day: today,
+      unanswered_proactive: String(prevUnanswered + 1),
+      unanswered_day_count: String(dayCount + 1),
+    })
+    return json({ ok: true })
   }
 
   return null

@@ -1,5 +1,6 @@
 import { afterAll, beforeEach, describe, expect, it } from 'bun:test'
-import { ackIntro, claimIntros, enqueueIntro, ensurePhoneUser, handleHireApi } from './hire-api'
+import { ackIntro, claimIntros, enqueueIntro } from './db/intros'
+import { ensurePhoneUser, handleHireApi } from './hire-api'
 
 /* The intro queue is the signup-to-first-text pipeline: the waitlist enqueues
  * a phone, a bot claims it, sends the intro, and acks. These tests pin the

@@ -1,5 +1,7 @@
 import { afterAll, beforeEach, describe, expect, it } from 'bun:test'
-import { generateInviteCode, handleHireApi, PERSONAS } from './authenticatedTestApi'
+import { handleHireApi } from './authenticatedTestApi'
+import { generateInviteCode } from './db/invites'
+import { PERSONAS } from './personas'
 
 /* The trust surface: invite codes people read aloud over iMessage, a kill
  * switch a person can arm before a hire texts them, the public status page,

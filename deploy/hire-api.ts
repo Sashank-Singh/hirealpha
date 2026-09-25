@@ -1,17 +1,10 @@
-/* Speech to text lives in its own module: one place that owns STT_URL, the
- * model, the fallback for when the configured model cannot be loaded, and the
- * hotword bias that carries the user's own names and places. */
-import { hotwordsFromMemories, transcribeAudio } from './stt'
 /**
  * HireAlpha live config + connectors API (Postgres).
  * Dashboard writes here. iMessage bots read here.
  */
-import { createHmac } from 'node:crypto'
 import { sweepExpiredArtifacts, artifactsRoot } from './workshop'
 import { handleWorkshopRoutes } from './routes/workshop'
-import { appendSessionTokenToProxyAssets, handleBrowserRoutes } from './routes/browser'
-export { appendSessionTokenToProxyAssets }
-import { generateImage } from './imageGen'
+import { handleBrowserRoutes } from './routes/browser'
 import type { SQL } from 'bun'
 import {
   extractOtherPerson,
@@ -25,7 +18,6 @@ import {
 import { COMPOSIO_READ, composioLooksFailed } from './composioPlugins'
 // The canonical persona capability matrix. deploy/ has no prior src/ import;
 // this one is deliberate — the skill lists must have exactly one home.
-import { SKILLS } from '../src/agents/skills'
 import {
   DEMO_PHONE,
   demoModeEnabled,
@@ -35,10 +27,7 @@ import { handleVaultApi } from './browserVault'
 import { runPortalTask } from './browserRunner'
 import {
   handleUserPaymentsApi,
-  decideSpendApproval,
-  chargeApprovedSpend,
 } from './userPayments'
-import { getLinkStatus } from './linkWallet'
 import { openBaoBrokerFromEnv, userKeyBrokerFromEnv } from '../services/trust/userKeyBroker'
 import { handleTrustApi } from '../services/trust/trustApi'
 import {
@@ -47,42 +36,19 @@ import {
 import {
   type MemoryRow,
   getMemoryIndex,
-  isDurableKey,
-  loadMemories,
   recallMemories,
-  selectMemoriesForRecall,
-  rankMemories,
-  upsertMemories,
-  syncContextMemories,
 } from './memory/store'
-export {
-  type MemoryRow,
-  getMemoryIndex,
-  isDurableKey,
-  loadMemories,
-  recallMemories,
-  selectMemoriesForRecall,
-  rankMemories,
-  upsertMemories,
-  syncContextMemories,
-}
-import { parseChatExport, scanSubscriptions } from '../spectrum/shared/smartFeatures'
+import { scanSubscriptions } from '../spectrum/shared/smartFeatures'
 import { PLACE_ASK_RE } from '../spectrum/shared/toolLoop'
-import { detectCommitment } from '../spectrum/shared/commitmentRescue'
 import { inQuietHours } from '../spectrum/shared/judgment'
 import {
   isValidTimeZone,
   localDateStrInTz,
   nextLocalTimeUtc,
   nextWeekdayLocalUtc,
-  parseSpokenWhen,
-  pickUserTimezone,
   resolveIanaTimezone,
-  timezoneFromText,
   todayWindowUtc,
   weekWindowUtc,
-  parseFlexibleWhen,
-  nextReminderAt,
   shiftDateStr,
   ymdOf,
   mondayOfDateStr,
@@ -90,7 +56,7 @@ import {
 } from './timezones'
 import { PERSONAS, isPersona, PERSONA_DENIED, type Persona } from './personas'
 import { normalizePhone } from './utils/phone'
-import { json, CORS, appBase } from './utils/http'
+import { json, appBase } from './utils/http'
 import {
   type AuthedUser,
   getUserByEmail,
@@ -101,22 +67,6 @@ import {
   purgeExpiredChatData,
 } from './db/schema'
 export { ensureHireSchema, purgeExpiredChatData }
-import {
-  type ClaimResult,
-  generateInviteCode,
-  ensureInvites,
-  claimInvite,
-  referralProgress,
-  referralFreeMonths,
-} from './db/invites'
-export {
-  type ClaimResult,
-  generateInviteCode,
-  ensureInvites,
-  claimInvite,
-  referralProgress,
-  referralFreeMonths,
-}
 import {
   mintMiniToken,
   verifyMiniToken,
@@ -136,7 +86,6 @@ import {
   verifyStripeSignature,
   upgradePromoSubscriptions,
   paymentsOn,
-  appBaseFromEnv,
 } from './billing/stripe'
 import { handleBillingRoutes } from './routes/billing'
 import {
@@ -153,18 +102,18 @@ import {
   finishTaskLoop,
 } from './loops/engine'
 import { handleLoopRoutes } from './routes/loops'
-import {
-  sleepHoursBetween,
-  parseDecisionText,
-  PIPELINE_STAGES,
-  clampNum,
-} from './habits/parsers'
+import { sleepHoursBetween } from './habits/parsers'
 import {
   loadMiniPrefs,
   saveMiniPrefs,
   type MiniPrefs,
 } from './habits/prefs'
 import { handleHabitRoutes } from './routes/habits'
+import { handleMemoryRoutes } from './routes/memory'
+import { handleMediaRoutes } from './routes/media'
+import { handleCofounderRoutes } from './routes/cofounder'
+import { handleCorpusRoutes } from './routes/corpus'
+import { handleMiniRoutes } from './routes/mini'
 import { loadContext, upsertContext, parseSetupField } from './db/context'
 import {
   stripNudgeDashes,
@@ -208,7 +157,15 @@ import { handleWorkRoutes } from './routes/work'
 import { handleMailRoutes } from './routes/mail'
 import { handleDigestRoutes } from './routes/digest'
 import { handleHomeRoutes } from './routes/home'
+import { handleSetupRoutes } from './routes/setup'
+import { handleLearningRoutes } from './routes/learning'
+import { handleDecisionRoutes } from './routes/decisions'
+import { handleDropzoneRoutes } from './routes/dropzone'
+import { handleMeetingRoutes } from './routes/meetings'
+import { handleReminderRoutes } from './routes/reminders'
 import { handleMeRoutes } from './routes/me'
+import { handleLiveRoutes, WORK_READ_TOOLS, type LiveToolWant } from './routes/live'
+import { handleProposalRoutes } from './routes/proposals'
 
 export {
   loadContext,
@@ -323,8 +280,9 @@ export {
   readBriefDb,
   writeBriefDb,
 }
-import { notModified, revalidateCacheControl, weakEtag } from './httpCache'
 import { createStaleCache } from './staleCache'
+import { createBoundedMap } from './utils/boundedMap'
+import { withIdempotency } from './utils/idempotency'
 import { composeWeekReview, type WeekSnap } from './weekRun'
 
 export { PERSONAS, isPersona, PERSONA_DENIED, type Persona } from './personas'
@@ -362,8 +320,6 @@ import {
   scoreLinearIssues,
   walkLinearIssues,
   listLinearIssues,
-  isAutomatedSender,
-  isAutomatedSubject,
   type NextRow,
   buildNextStack,
 } from './work/stack'
@@ -376,8 +332,6 @@ export {
   suggestSlotsFromBusy,
   parseLinearIssues,
   scoreLinearIssues,
-  isAutomatedSender,
-  isAutomatedSubject,
   buildNextStack,
   type StandupFacts,
   type SlotRange,
@@ -443,6 +397,9 @@ import {
   composioMailHeaders,
   normalizeGmailQuery,
   relaxedGmailQuery,
+  googleTokenWithStatus,
+  type ConnectorFailureReason,
+  type ConnectorStatus,
 } from './connectors/hub'
 export {
   UI_TO_COMPOSIO,
@@ -527,36 +484,8 @@ export {
 
 export { artifactsRoot, sweepExpiredArtifacts }
 
-/**
- * A read the client is allowed to revalidate instead of re-fetching. Reopening
- * an app usually means the same bytes, and an `If-None-Match` that matches ends
- * as a 304 with no body — the payload here is ~20 kB. `stale-while-revalidate`
- * then lets the browser paint the copy it already has and refresh behind it.
- *
- * `swr` is passed 0 when the answer is knowingly incomplete: the client refetches
- * within two seconds in that case, and a stale hit would defeat it.
- */
-function jsonRevalidated(req: Request, swrSeconds: number, data: unknown) {
-  const body = JSON.stringify(data)
-  const etag = weakEtag(body)
-  const cache = revalidateCacheControl(swrSeconds)
-  if (notModified(req.headers.get('if-none-match'), etag)) {
-    return new Response(null, { status: 304, headers: { ETag: etag, 'Cache-Control': cache, ...CORS } })
-  }
-  return new Response(body, {
-    headers: { 'Content-Type': 'application/json', ETag: etag, 'Cache-Control': cache, ...CORS },
-  })
-}
 
-/** Open to-do rows for the todos endpoint; newest first, capped. */
-async function openTodos(sql: SQL, userId: string): Promise<Array<{ id: string; text: string }>> {
-  const rows = await sql`
-    SELECT id::text AS id, text FROM hire_todos
-    WHERE user_id = ${userId} AND done = false
-    ORDER BY created_at DESC LIMIT 20
-  `
-  return rows as Array<{ id: string; text: string }>
-}
+
 
 function internalOk(req: Request) {  const key = process.env.HIREALPHA_INTERNAL_KEY || ''
   if (!key) return false
@@ -564,81 +493,9 @@ function internalOk(req: Request) {  const key = process.env.HIREALPHA_INTERNAL_
   return auth === `Bearer ${key}`
 }
 
-/** A bot stops retrying an intro after this many failed attempts; the signup
- * screen covers the rest by telling the person to text first. */
-export const INTRO_MAX_ATTEMPTS = 5
-
-/** Queue a first text: the bot for this persona picks the number up and says
- * hi before the person ever has to text first. No-op if already queued or
- * already greeted — a duplicate signup must not re-open the intro. */
-export async function enqueueIntro(sql: SQL, phone: string, persona: Persona) {
-  const e164 = normalizePhone(phone)
-  if (!e164) throw new Error('invalid phone')
-  if (!isPersona(persona)) throw new Error('invalid persona')
-  await sql`
-    INSERT INTO hire_intro_queue (id, phone_e164, persona)
-    VALUES (${crypto.randomUUID()}, ${e164}, ${persona})
-    ON CONFLICT (phone_e164, persona) DO NOTHING
-  `
-}
-
-/** Hand pending intros for one persona to the bot that owns the line. A claim
- * bumps attempts immediately so a crashed bot cannot hold a row forever; rows
- * stuck in 'claiming' past the reset window go back to pending on the next
- * claim pass. */export async function claimIntros(sql: SQL, persona: Persona, limit: number) {
-  await sql`
-    UPDATE hire_intro_queue SET status = 'pending'
-    WHERE status = 'claiming' AND created_at < now() - interval '10 minutes'
-  `
-  const rows = (await sql`
-    UPDATE hire_intro_queue SET status = 'claiming', attempts = attempts + 1
-    WHERE id IN (
-      SELECT id FROM hire_intro_queue
-      WHERE persona = ${persona} AND status = 'pending' AND attempts < ${INTRO_MAX_ATTEMPTS}
-      ORDER BY created_at
-      LIMIT ${limit}
-      FOR UPDATE SKIP LOCKED
-    )
-    RETURNING id, phone_e164 AS phone
-  `) as Array<{ id: string; phone: string }>
-  return rows
-}
-
-export async function ackIntro(sql: SQL, id: string, ok: boolean, error?: string) {
-  if (ok) {
-    const rows = (await sql`
-      UPDATE hire_intro_queue SET status = 'sent', sent_at = now(), last_error = NULL
-      WHERE id = ${id} AND status = 'claiming'
-      RETURNING phone_e164, persona
-    `) as Array<{ phone_e164: string; persona: string }>
-    const sent = rows[0]
-    if (sent && isPersona(sent.persona)) {
-      // The intro landed, so day 1 has started: arm the follow-up check-in.
-      // A pre-migration database must not fail the ack over a missing table.
-      try {
-        await scheduleDay1Checkin(sql, sent.phone_e164, sent.persona)
-      } catch (err) {
-        console.warn('[hire] day1 checkin schedule failed', err)
-      }
-      // The intro carries Photon's native contact card; queue one later nudge
-      // using the same native-first delivery path.
-      try {
-        await scheduleSaveContactLoop(sql, sent.phone_e164, sent.persona)
-      } catch (err) {
-        console.warn('[hire] save_contact schedule failed', err)
-      }
-    }
-    return
-  }
-  // Failed claims with attempts left go back to pending for the next poll;
-  // spent ones park as terminal failures.
-  await sql`
-    UPDATE hire_intro_queue SET
-      status = CASE WHEN attempts < ${INTRO_MAX_ATTEMPTS} THEN 'pending' ELSE 'failed' END,
-      last_error = ${String(error || '').slice(0, 500)}
-    WHERE id = ${id} AND status = 'claiming'
-  `
-}
+import {
+  enqueueIntro,
+} from './db/intros'
 
 /**
  * A phone-only signup gets an account before it has an email, so the intro is
@@ -732,6 +589,7 @@ async function registerPhotonUser(phone: string, name: string | null, email: str
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({ type: 'shared', phoneNumber: phone, firstName: name, email }),
+      signal: AbortSignal.timeout(8000),
     })
     if (!res.ok) {
       const body = (await res.json().catch(() => ({}))) as { message?: string }
@@ -758,6 +616,7 @@ async function photonAssignedNumber(phone: string): Promise<string | null> {
   try {
     const res = await fetch(`https://spectrum.photon.codes/projects/${pid}/users/`, {
       headers: { Authorization: `Basic ${Buffer.from(`${pid}:${secret}`).toString('base64')}` },
+      signal: AbortSignal.timeout(6000),
     })
     if (!res.ok) return null
     const body = (await res.json().catch(() => ({}))) as { data?: { users?: Array<{ phoneNumber?: string; assignedPhoneNumber?: string }> } }
@@ -1036,7 +895,8 @@ async function readInboxPingState(sql: SQL, userId: string): Promise<{ status: s
         lastPingAt: typeof p.lastPingAt === 'string' ? p.lastPingAt : null,
       },
     }
-  } catch {
+  } catch (err) {
+    console.warn('[watchtower] readInboxPing failed', { error: (err as any)?.message })
     return { status: null, state: { pingedIds: [], lastPingAt: null } }
   }
 }
@@ -1197,27 +1057,7 @@ export async function armInboxWatchtower(sql: SQL): Promise<number> {
   return armed
 }
 
-/** Queue the save-contact nudge shortly after the intro lands: this follow-up
- * repeats the native card plus the "tap Add" copy. One row per (user, persona)
- * ever — the unique index dedupes
- * re-arms, so nobody gets nagged twice. next_run is ~15 min out so the two
- * messages don't land back-to-back. */
-export async function scheduleSaveContactLoop(sql: SQL, phone: string, persona: Persona) {
-  const e164 = normalizePhone(phone)
-  if (!e164 || !isPersona(persona)) return
-  const rows = (await sql`
-    SELECT id FROM hire_users WHERE phone_e164 = ${e164} LIMIT 1
-  `) as Array<{ id: string }>
-  const userId = rows[0]?.id
-  if (!userId) return
-  await sql`
-    INSERT INTO hire_task_loops (id, user_id, persona, phone_e164, kind, title, payload, status, next_run)
-    VALUES (${crypto.randomUUID()}, ${userId}, ${persona}, ${e164}, 'save_contact',
-      'Save this number to contacts', '{}'::jsonb, 'pending',
-      ${new Date(Date.now() + 15 * 60 * 1000).toISOString()})
-    ON CONFLICT (user_id, persona, kind) DO NOTHING
-  `
-}
+
 
 /** Backfill: anyone whose intro already went out (or who was hired before this
  * shipped) but never got a save_contact row gets one now. Idempotent — the
@@ -1342,7 +1182,6 @@ async function triagedMailIds(sql: SQL, userId: string): Promise<Set<string>> {
 import {
   type LocationRow,
   getLocation,
-  CURRENT_LOCATION_HOURS,
   pickActiveLocation,
   locationLabel,
   coordsUsable,
@@ -1476,7 +1315,6 @@ export {
 }
 
 import {
-  fetchRowsForUnderstoodTrip,
   webSearchWithSerpFallback,
 } from "./travel/service"
 function notConnectedNote(tool: string, persona: Persona = 'friend') {
@@ -1544,8 +1382,10 @@ export async function runToolsForMessage(
     /** Who is asking. Only used to decide whether a metered SerpAPI call is
      * allowed for this number (see deploy/serpapi.ts). */
     phone?: string
+    idempotencyKey?: string
   },
 ): Promise<string[]> {
+  const execute = async (): Promise<string[]> => {
   const results: string[] = []
   const denied = PERSONA_DENIED[input.persona]
   const can = (id: string) => input.connected.includes(id) && !denied.has(id)
@@ -1848,6 +1688,13 @@ export async function runToolsForMessage(
   }
 
   return results
+  }
+
+  if (input.idempotencyKey) {
+    const { result } = await withIdempotency(input.idempotencyKey, execute)
+    return result
+  }
+  return execute()
 }
 
 const PERSONA_LABEL: Record<Persona, string> = {
@@ -1949,14 +1796,12 @@ type TodayResult = {
   meets: TodayMeet[]
   stay: { title: string; place: string } | null
   calendarConnected: boolean
-  /** The read itself did not answer. Distinct from an empty calendar: the
-   * brief said "A quiet day so far" for a FAILED read (and, on the Composio
-   * path, asked a connected user to "Connect Calendar in Settings") — both
-   * claims the data did not support. */
   calendarFailed?: boolean
+  calendarStatus?: ConnectorStatus
+  calendarErrorReason?: string
 }
 
-async function todayCalendarMeets(
+export async function todayCalendarMeets(
   sql: SQL,
   user: { id: string; timezone: string | null; name?: string | null },
   persona: Persona,
@@ -1992,19 +1837,28 @@ async function todayCalendarMeets(
       }
       meets.push(row)
     }
-    return { meets, stay, calendarConnected: true }
+    return { meets, stay, calendarConnected: true, calendarStatus: 'ok' }
   }
 
-  const access = await googleAccessToken(sql, user.id, 'calendar')
-  if (access) {
-    const got = await fetchCalendarItems(access, {
+  if (!connected.includes('calendar')) {
+    return { meets: [], stay: null, calendarConnected: false, calendarStatus: 'not_connected' }
+  }
+
+  let knownStatus: ConnectorFailureReason = 'provider_error'
+  const tokenStatus = await googleTokenWithStatus(sql, user.id, 'calendar')
+  if (tokenStatus.ok) {
+    const got = await fetchCalendarItems(tokenStatus.accessToken, {
       timeMin: startOfLocalDay(tz),
       timeMax: startOfLocalDay(tz, 1),
       maxResults: 100,
       checkSecondary: true,
     })
     if (got.ok) return itemsToResult(got.items)
+    knownStatus = got.reason || 'provider_error'
+  } else {
+    knownStatus = tokenStatus.reason
   }
+
   /* A read that did not answer must not read as an empty day. The sink is set
    * when the connector refused or the budget ran out. */
   const failureSink = { failed: false }
@@ -2012,8 +1866,6 @@ async function todayCalendarMeets(
     timeMin: startOfLocalDay(tz),
     timeMax: startOfLocalDay(tz, 1),
     maxResults: 100,
-    // The digest waits 8s for this whole function; leave room for the
-    // connector pass below rather than spending it all on one provider.
     budgetMs: 6000,
     failureSink,
   }).catch(() => [])
@@ -2029,11 +1881,7 @@ async function todayCalendarMeets(
       })),
     )
   }
-  if (!connected.includes('calendar')) {
-    return failureSink.failed
-      ? { meets: [], stay: null, calendarConnected: true, calendarFailed: true }
-      : { meets: [], stay: null, calendarConnected: false }
-  }
+
   const results = await withTimeout(
     runToolsForMessage(sql, {
       userId: user.id,
@@ -2046,22 +1894,32 @@ async function todayCalendarMeets(
     [] as string[],
   )
   const calendarBlock = results.find((t) => isCalendarToolResult(t))
-  // A connector result carrying the failure prose means the read did not
-  // answer — that is the third state, not an empty day.
-  if (!calendarBlock && results.some((t) => /lookup failed|failed to|not connected/i.test(t))) failureSink.failed = true
-  const calMeets = parseCalendarMeets(calendarBlock, tz).filter((e) => e.day === 'today')
-  let stay: { title: string; place: string } | null = null
-  const meets: TodayMeet[] = []
-  for (const e of calMeets) {
-    const who = extractOtherPerson(e.title, myName) || e.who || e.title
-    const row = { time: e.time, title: e.title, who, place: e.place, kind: 'Meeting' }
-    if (isTravelOrStayTitle(e.title, e.place) || isTravelOrStayTitle(who, e.place) || /^all day$/i.test(e.time)) {
-      if (!stay && isTravelOrStayTitle(e.title, e.place)) stay = stayWhere(e.title, e.place)
-      continue
+  if (calendarBlock) {
+    const calMeets = parseCalendarMeets(calendarBlock, tz).filter((e) => e.day === 'today')
+    let stay: { title: string; place: string } | null = null
+    const meets: TodayMeet[] = []
+    for (const e of calMeets) {
+      const who = extractOtherPerson(e.title, myName) || e.who || e.title
+      const row = { time: e.time, title: e.title, who, place: e.place, kind: 'Meeting' }
+      if (isTravelOrStayTitle(e.title, e.place) || isTravelOrStayTitle(who, e.place) || /^all day$/i.test(e.time)) {
+        if (!stay && isTravelOrStayTitle(e.title, e.place)) stay = stayWhere(e.title, e.place)
+        continue
+      }
+      meets.push(row)
     }
-    meets.push(row)
+    return { meets, stay, calendarConnected: true, calendarStatus: 'ok' }
   }
-  return { meets, stay, calendarConnected: true, ...(failureSink.failed ? { calendarFailed: true } : {}) }
+
+  if (results.some((t) => /lookup failed|failed to|not connected/i.test(t))) failureSink.failed = true
+  if (results.length === 0 && knownStatus !== 'auth_expired') knownStatus = 'timeout'
+
+  return {
+    meets: [],
+    stay: null,
+    calendarConnected: true,
+    calendarFailed: true,
+    calendarStatus: knownStatus,
+  }
 }
 
 /**
@@ -2073,6 +1931,7 @@ async function todayCalendarMeets(
  */
 export async function prewarmJudgeCaches(sql: SQL) {
   try {
+    pruneBriefCaches()
     const rows = (await sql`
       SELECT DISTINCT user_id AS "userId" FROM hire_brief_cache
       WHERE built_at > now() - interval '6 hours'
@@ -2151,7 +2010,7 @@ type HomeWorld = {
   attention: AttentionPick | null
 }
 
-const EMPTY_TODAY_RESULT: TodayResult = { meets: [], stay: null, calendarConnected: false }
+export const EMPTY_TODAY_RESULT: TodayResult = { meets: [], stay: null, calendarConnected: false, calendarStatus: 'not_connected' }
 
 /* Today's meetings, read by home and by every screen that lists who you are
  * seeing. One calendar fetch per user per minute and a half is plenty — an event
@@ -2698,7 +2557,7 @@ async function fetchWeatherLookup(place: string, tz: string, countryHint: string
   }
   try {
     const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,weather_code&daily=temperature_2m_max,temperature_2m_min,weather_code&temperature_unit=fahrenheit&timezone=auto&forecast_days=4`
-    const res = await withTimeout(fetch(url), 6000, null)
+    const res = await withTimeout(fetch(url, { signal: AbortSignal.timeout(6000) }), 6000, null)
     if (!res || !res.ok) return 'Weather could not be loaded right now. Do not guess numbers.'
     const data = (await res.json()) as {
       current?: { temperature_2m?: number; weather_code?: number }
@@ -2792,7 +2651,7 @@ export async function fetchWeatherForUser(
 
   try {
     const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,weather_code&daily=temperature_2m_max,temperature_2m_min,weather_code&temperature_unit=fahrenheit&timezone=auto`
-    const res = await withTimeout(fetch(url), 2500, null)
+    const res = await withTimeout(fetch(url, { signal: AbortSignal.timeout(2500) }), 2500, null)
     if (!res || !res.ok) return null
     const data = (await res.json()) as {
       current?: { temperature_2m?: number; weather_code?: number }
@@ -2828,7 +2687,7 @@ export async function fetchWeatherForUser(
   }
 }
 
-async function digestPayload(
+export async function digestPayload(
   sql: SQL,
   user: { id: string; timezone: string | null; name?: string | null },
   persona: Persona,
@@ -2882,21 +2741,24 @@ async function digestPayload(
       let groups: GroupT[] = []
       let tallyLine = ''
       let judgeOut: JudgeAll | null = null
+      let mailStatus: ConnectorStatus = 'ok'
       try {
         // The judge decides keep-or-drop, the pile, needs-you, urgency, and
         // promises in one pass — from cache when it is fresh. A run where the
         // model is unavailable falls back to the regex kinds inside
         // groupMailByKind. The full batch is still shown either way.
-        const [vocab, doneIds, signals, richItems] = await Promise.all([
+        const [vocab, doneIds, signals, mailResult] = await Promise.all([
           loadMailKindVocab(sql, user.id),
           triagedMailIds(sql, user.id),
           loadMailSenderSignals(sql, user.id),
           withTimeout(
-            loadGmailRich(sql, user.id, importantMailQuery('3d'), JUDGE_MAIL_CAP),
+            readGmailExact(sql, user.id, importantMailQuery('3d'), JUDGE_MAIL_CAP),
             9000,
-            [] as Array<{ id: string; from: string; date: string; subject: string; snippet: string }>,
+            { items: [] as Array<{ id: string; from: string; date: string; subject: string; snippet: string }>, failed: true, status: 'timeout' as const },
           ),
         ])
+        const richItems = mailResult.items
+        mailStatus = mailResult.status || 'ok'
         // Today's meetings ride in the same single model call. The extra
         // todayMeetsCache read is deduped with the calendar job racing in
         // parallel above, so this costs a fetch only in the cold case.
@@ -3000,6 +2862,7 @@ async function digestPayload(
         needsYou: ny,
         groups,
         tally: tallyLine,
+        mailStatus,
         verdicts: judgeOut
           ? { mails: [...judgeOut.mails.values()], meets: [...judgeOut.meets.values()] }
           : null,
@@ -3010,9 +2873,18 @@ async function digestPayload(
 
   const beats = calToday.meets
     .map((m) => ({ time: m.time, name: m.who || m.title, kind: m.kind }))
-  const todayCal = beats.map((b) =>
+  let todayCal = beats.map((b) =>
     b.kind && b.kind !== 'Meeting' ? `${b.time} · ${b.name} · ${b.kind}` : `${b.time} · ${b.name}`,
   )
+  if (!todayCal.length && calToday.calendarConnected) {
+    if (calToday.calendarStatus === 'auth_expired') {
+      todayCal = ['Calendar authorization expired. Reconnect in Settings.']
+    } else if (calToday.calendarStatus === 'timeout') {
+      todayCal = ['Calendar check timed out.']
+    } else if (calToday.calendarFailed || calToday.calendarStatus === 'provider_error') {
+      todayCal = ['Could not check your calendar just now.']
+    }
+  }
 
   const myName = user.name || null
   const tomorrowCal = tomorrowCalItems.map((e) => formatDigestEventLabel(e, tz, myName))
@@ -3033,7 +2905,14 @@ async function digestPayload(
   finalEmailItems = mailGroups.flatMap((g) => g.items)
   finalEmails = finalEmailItems.map((e) => e.label)
 
-  if (!finalEmails.length) {
+  let mailReadFailed = mail.mailStatus === 'auth_expired' || mail.mailStatus === 'timeout' || mail.mailStatus === 'provider_error'
+  if (mail.mailStatus === 'auth_expired' && !finalEmails.length) {
+    mailTallyLine = 'Gmail authorization expired. Reconnect in Settings.'
+  } else if (mail.mailStatus === 'timeout' && !finalEmails.length) {
+    mailTallyLine = 'Gmail check timed out.'
+  }
+
+  if (!finalEmails.length && !mailReadFailed) {
     // A first read that comes back empty is usually a lost race, not an empty
     // inbox: the token refresh it started keeps running, so seconds later the
     // same read lands. Retry that before falling to the text-only scan below —
@@ -3041,13 +2920,13 @@ async function digestPayload(
     // row openable and its Draft reply button real.
     try {
       const retry = await withTimeout(
-        loadGmailRich(sql, user.id, importantMailQuery('3d'), JUDGE_MAIL_CAP),
+        readGmailExact(sql, user.id, importantMailQuery('3d'), JUDGE_MAIL_CAP),
         9000,
-        [] as Array<{ id: string; from: string; date: string; subject: string; snippet: string }>,
+        { items: [] as Array<{ id: string; from: string; date: string; subject: string; snippet: string }>, failed: true, status: 'timeout' as const },
       )
-      if (retry.length) {
+      if (retry.items.length) {
         const done = await triagedMailIds(sql, user.id).catch(() => new Set<string>())
-        const grouped = groupBriefMail(retry.filter((m) => !done.has(m.id)))
+        const grouped = groupBriefMail(retry.items.filter((m) => !done.has(m.id)))
         mailGroups = grouped.map((g) => ({
           kind: g.kind,
           label: g.label,
@@ -3071,8 +2950,7 @@ async function digestPayload(
    * the brief simply had no Mail section — Gmail down and an empty inbox looked
    * identical to the user, and the card's degraded notice requires rows that do
    * not exist in that case. */
-  let mailReadFailed = false
-  if (!finalEmails.length) {
+  if (!finalEmails.length && !mailReadFailed) {
     try {
       const mailBlock = await withTimeout(
         loadGmail(sql, user.id, importantMailQuery('3d'), JUDGE_MAIL_CAP),
@@ -3274,15 +3152,19 @@ async function digestPayload(
   // a weather report that pretends last night never happened.
   const lead = nextBeat
     ? `${nextBeat.name} at ${nextBeat.time}`
-    : !lastNightLogged && hour < 14
-      ? "I didn't see your sleep last night. How many hours did you get?"
-      : lastNightLogged
-        ? `Last night ${Math.round(lastNightHours * 10) / 10}h`
-        : calToday.calendarFailed
-          ? 'Could not check your calendar just now'
-          : calToday.calendarConnected
-            ? 'A quiet day so far'
-            : 'Connect Calendar in Settings'
+    : calToday.calendarStatus === 'auth_expired'
+      ? 'Calendar authorization expired. Reconnect in Settings.'
+      : !lastNightLogged && hour < 14
+        ? "I didn't see your sleep last night. How many hours did you get?"
+        : lastNightLogged
+          ? `Last night ${Math.round(lastNightHours * 10) / 10}h`
+          : calToday.calendarStatus === 'timeout'
+            ? 'Calendar check timed out.'
+            : calToday.calendarFailed
+              ? 'Could not check your calendar just now'
+              : calToday.calendarConnected
+                ? 'A quiet day so far'
+                : 'Connect Calendar in Settings'
   const leadReason = (reasons: string[]): string => {
     if (reasons.includes('waiting_on_you')) return 'They are waiting on you.'
     if (reasons.includes('deadline')) return 'There is a deadline on this.'
@@ -3405,7 +3287,7 @@ async function digestPayload(
      * previously the brief had no Mail section at all and the user could not
      * tell a quiet inbox from a broken read. */
     mailReadFailed && !finalEmails.length
-      ? section('Mail', ["Couldn't read your inbox just now. The rest of this brief is unaffected."])
+      ? section('Mail', [mailTallyLine || "Couldn't read your inbox just now. The rest of this brief is unaffected."])
       : section('Mail', mailTallyLine ? [mailTallyLine, ...finalEmails] : finalEmails),
     section('Do not forget', reminders.map((r) => `${r.time} · ${r.text}`)),
     section('Promises', loops),
@@ -3462,24 +3344,16 @@ async function digestPayload(
       /* Three states reach the card, not two: connected-and-quiet,
        * not-connected, and the read that did not answer. */
       calendarFailed: !!calToday.calendarFailed,
+      calendarStatus: calToday.calendarStatus || (calToday.calendarFailed ? 'provider_error' : calToday.calendarConnected ? 'ok' : 'not_connected'),
       /* Gmail was down rather than empty: the mail section says so instead of
        * quietly not existing. */
       mailFailed: mailReadFailed,
+      mailStatus: mail.mailStatus !== 'ok' && !finalEmails.length ? mail.mailStatus : (mailReadFailed ? 'provider_error' : 'ok'),
       weather: weather || undefined,
     },
   }
 }
 
-/** Mini apps each hire can offer, mirroring src/agents/skills.ts. */
-/* Server-side mini-app allowlist, derived from the canonical SKILLS matrix in
- * src/agents/skills.ts instead of a fourth hand-maintained copy (the old
- * literal had already drifted). The API adds `digest` (an API-native card the
- * matrix does not list) and excludes `artifact` (served by /b/ routes). */
-const PERSONA_MINI_APPS: Record<Persona, string[]> = {
-  friend: [...SKILLS.friend.miniApps, 'digest'].filter((k) => k !== 'artifact'),
-  coworker: [...SKILLS.coworker.miniApps, 'digest'].filter((k) => k !== 'artifact'),
-  cofounder: [...SKILLS.cofounder.miniApps, 'digest'].filter((k) => k !== 'artifact'),
-}
 
 
 function parseStandupClock(raw: string | undefined): { hour: number; minute: number } {
@@ -3716,7 +3590,15 @@ async function claimNudge(sql: SQL, userId: string, persona: Persona, key: strin
  * key (channel+ts / issue id) makes dedupe honest even across restarts. */
 
 const TRIGGER_SCAN_THROTTLE_MS = 10 * 60_000
-const triggerScanMemory = new Map<string, number>()
+const triggerScanMemory = createBoundedMap<string, number>({ maxEntries: 2000, ttlMs: 24 * 60 * 60_000 })
+
+export function pruneBriefCaches(): void {
+  todayMeetsCache.prune()
+  homeWorldCache.prune()
+  digestCache.prune()
+  eveningCache.prune()
+  triggerScanMemory.prune()
+}
 
 async function scanSlackMentions(userId: string, displayName: string): Promise<Array<{ channel: string; ts: string; text: string; permalink?: string }>> {
   // Slack search indexes rendered mentions, so the user's display name is the
@@ -3805,7 +3687,8 @@ async function scanImportantEmail(
       }),
     )
     return out
-  } catch {
+  } catch (err) {
+    console.warn('[triggers] scanNewEmails failed', { error: (err as any)?.message })
     return []
   }
 }
@@ -3859,7 +3742,8 @@ async function scanNewCalendarEvents(
       out.push({ id: it.id, title: it.summary.trim(), formattedStart })
     }
     return out
-  } catch {
+  } catch (err) {
+    console.warn('[triggers] scanNewCalendarEvents failed', { error: (err as any)?.message })
     return []
   }
 }
@@ -4149,7 +4033,9 @@ async function collectEventNudgesForUser(
         }
       }
     }
-  } catch {}
+  } catch (err) {
+    console.warn('[nudges] calendar check failed', { error: (err as any)?.message })
+  }
   if (!isBusyNow) {
     try {
       const busyMeeting = await sql`
@@ -4412,9 +4298,9 @@ async function gmailReplyMeta(
   if (access) {
     const res = await fetch(
       `https://gmail.googleapis.com/gmail/v1/users/me/messages/${encodeURIComponent(messageId)}?format=metadata&metadataHeaders=From&metadataHeaders=Subject&metadataHeaders=Message-ID`,
-      { headers: { Authorization: `Bearer ${access}` } },
-    )
-    if (res.ok) {
+      { headers: { Authorization: `Bearer ${access}` }, signal: AbortSignal.timeout(5000) },
+    ).catch(() => null)
+    if (res && res.ok) {
       const data = (await res.json()) as {
         threadId?: string
         payload?: { headers?: Array<{ name: string; value: string }> }
@@ -4927,7 +4813,7 @@ async function touchInbound(sql: SQL, phone: string, persona: Persona) {
   return { armed: true, first }
 }
 
-async function miniPayload(
+export async function miniPayload(
   sql: SQL,
   user: { id: string; timezone: string | null; name?: string | null },
   persona: Persona,
@@ -5018,17 +4904,25 @@ async function miniPayload(
     /* The three things this brief is made of — the calendar, the inbox, and the
      * day's own logs — never read each other. Serially they were three waits
      * stacked end to end; started together the brief costs only the slowest. */
-    const calJob = (async () => {
-      if (!connected.includes('calendar')) return
+    const calJob = async (): Promise<ConnectorStatus> => {
+      if (!connected.includes('calendar')) return 'not_connected'
+      let status: ConnectorStatus = 'ok'
       // Try direct Google Calendar first: fetch today + tomorrow together
-      const access = await googleAccessToken(sql, user.id, 'calendar')
-      if (access) {
-        const got = await fetchCalendarItems(access, {
+      const tokenStatus = await googleTokenWithStatus(sql, user.id, 'calendar')
+      if (tokenStatus.ok) {
+        const got = await fetchCalendarItems(tokenStatus.accessToken, {
           timeMin: todayStart,
           timeMax: dayAfterStart,
           maxResults: 20,
         })
-        if (got.ok) pushCalItems(got.items)
+        if (got.ok) {
+          pushCalItems(got.items)
+          return 'ok'
+        } else {
+          status = got.reason || 'provider_error'
+        }
+      } else {
+        status = tokenStatus.reason
       }
       // Fallback via composio/runTools if direct fetch returned nothing
       if (!allEvents.length) {
@@ -5062,26 +4956,43 @@ async function miniPayload(
             dayYmd: ymd,
           })
         }
+        if (allEvents.length) return 'ok'
+        if (calResults.length === 0) return 'timeout'
       }
-    })()
+      return status
+    }
 
     // Mail since morning: recent inbox minus spam, then a model judges.
     // Keep enough to break into sub-category piles like the morning brief.
-    let mailItems: Array<{ id: string; label: string; snippet?: string }> = []
-    let mailGroups: Array<{
-      kind: string
-      label: string
-      count: number
-      items: Array<{ id: string; label: string; snippet?: string }>
-    }> = []
-    const mailJob = (async () => {
-      if (!connected.includes('gmail')) return
+    const mailJob = async (): Promise<{
+      mailStatus: ConnectorStatus
+      mailItems: Array<{ id: string; label: string; snippet?: string }>
+      mailGroups: Array<{
+        kind: string
+        label: string
+        count: number
+        items: Array<{ id: string; label: string; snippet?: string }>
+      }>
+    }> => {
+      if (!connected.includes('gmail')) {
+        return { mailStatus: 'not_connected', mailItems: [], mailGroups: [] }
+      }
+      let mailStatus: ConnectorStatus = 'ok'
+      let mailItems: Array<{ id: string; label: string; snippet?: string }> = []
+      let mailGroups: Array<{
+        kind: string
+        label: string
+        count: number
+        items: Array<{ id: string; label: string; snippet?: string }>
+      }> = []
       try {
-        const richMail = await withTimeout(
-          loadGmailRich(sql, user.id, importantMailQuery('2d'), JUDGE_MAIL_CAP),
+        const exact = await withTimeout(
+          readGmailExact(sql, user.id, importantMailQuery('2d'), JUDGE_MAIL_CAP),
           6000,
-          [] as Array<{ id: string; from: string; date: string; subject: string; snippet: string }>,
+          { items: [] as Array<{ id: string; from: string; date: string; subject: string; snippet: string }>, failed: true, status: 'timeout' as const },
         )
+        mailStatus = exact.status || 'ok'
+        const richMail = exact.items
         const doneIdsE = await triagedMailIds(sql, user.id)
         const kept = (await judgeBriefMail(richMail, JUDGE_MAIL_CAP)).filter((m) => !doneIdsE.has(m.id))
         // A few lead the flat "Mail since this morning"; the rest become the
@@ -5106,7 +5017,8 @@ async function miniPayload(
       } catch {
         // best-effort
       }
-    })()
+      return { mailStatus, mailItems, mailGroups }
+    }
 
     // The day, closed: every fact below comes from a log table, never invented.
     // The checklist and score let the evening brief answer "how did today go"
@@ -5285,7 +5197,7 @@ async function miniPayload(
       }
     })()
 
-    await Promise.all([calJob, mailJob, factsJob])
+    const [calStatus, { mailStatus, mailItems, mailGroups }] = await Promise.all([calJob(), mailJob(), factsJob])
 
     const todayEvents = allEvents.filter((e) => e.dayYmd === todayYmd)
     const tomorrowEvents = allEvents.filter((e) => e.dayYmd === tomorrowYmd && !e.allDay)
@@ -5365,17 +5277,53 @@ async function miniPayload(
         items: mailItems.map((m) => m.label),
         emailMeta: mailItems.map((m) => ({ id: m.id, snippet: m.snippet })),
       })
+    } else if (connected.includes('gmail')) {
+      if (mailStatus === 'auth_expired') {
+        sections.push({
+          heading: 'Mail since this morning',
+          items: ['Gmail authorization expired. Reconnect in Settings.'],
+        })
+      } else if (mailStatus === 'timeout') {
+        sections.push({
+          heading: 'Mail since this morning',
+          items: ['Mail check timed out.'],
+        })
+      } else if (mailStatus === 'provider_error') {
+        sections.push({
+          heading: 'Mail since this morning',
+          items: ['Could not check Gmail just now.'],
+        })
+      }
     }
-    // No "No important mail" placeholder row: plain strings render as fake
-    // actionable mail rows (from: "No", Done/Skip buttons) in the client.
 
     if (tomorrowEvents.length) {
       sections.push({ heading: 'Tomorrow', items: tomorrowEvents.slice(0, 5).map(formatEvent) })
     } else if (connected.includes('calendar')) {
-      sections.push({ heading: 'Tomorrow', items: ['Nothing on the calendar.'] })
+      if (calStatus === 'auth_expired') {
+        sections.push({ heading: 'Tomorrow', items: ['Calendar authorization expired. Reconnect in Settings.'] })
+      } else if (calStatus === 'timeout') {
+        sections.push({ heading: 'Tomorrow', items: ['Calendar check timed out.'] })
+      } else if (calStatus === 'provider_error') {
+        sections.push({ heading: 'Tomorrow', items: ['Could not check calendar.'] })
+      } else {
+        sections.push({ heading: 'Tomorrow', items: ['Nothing on the calendar.'] })
+      }
     }
 
-    return { kind, title: 'Evening brief', date: dateLabel, sections, text: '', dayScore, dayFacts, habitsToday, carryOver, mailGroups }
+    return {
+      kind,
+      title: 'Evening brief',
+      date: dateLabel,
+      sections,
+      text: '',
+      dayScore,
+      dayFacts,
+      habitsToday,
+      carryOver,
+      mailGroups,
+      calendarStatus: calStatus,
+      mailStatus,
+    }
   }
 
   if (kind === 'standup_paste') {
@@ -5591,171 +5539,13 @@ async function livePayload(sql: SQL, phone: string, persona: Persona, query?: st
 }
 
 
-/** Work connectors the model may select as a single targeted read (want=slack, want=linear, ...). */
-const WORK_READ_TOOLS: Record<string, string> = {
-  slack: 'slack',
-  linear: 'linear',
-  github: 'github',
-  notion: 'notion',
-  stripe: 'stripe',
-  hubspot: 'hubspot',
-  plaid: 'plaid',
-  quickbooks: 'quickbooks',
-  intercom: 'intercom',
-  salesforce: 'salesforce',
-  jira: 'jira',
-  sentry: 'sentry',
-}
-
-type LiveToolWant = 'maps' | 'web' | 'gmail' | 'calendar' | 'drive' | keyof typeof WORK_READ_TOOLS
 
 
 
 
 
 
-/** Cofounder capture kinds. Each maps chat noise to one existing table. */
-export type CofounderCaptureKind = 'decision' | 'promise' | 'person' | 'opportunity'
 
-const COFOUNDER_KINDS: CofounderCaptureKind[] = ['decision', 'promise', 'person', 'opportunity']
-
-function cofounderWhen(v: unknown): Date | null {
-  if (!v) return null
-  const d = v instanceof Date ? v : new Date(String(v))
-  return Number.isNaN(d.getTime()) ? null : d
-}
-
-/** Capture one item the cofounder overheard in chat. Idempotent per user and
- * text inside 24 hours: a bot that retries or a story told twice updates the
- * row instead of cloning it. People and opportunities upsert by name, so a
- * second mention refreshes the row it already owns. */
-export async function captureCofounderItem(
-  sql: SQL,
-  userId: string,
-  persona: string,
-  kind: CofounderCaptureKind,
-  fields: Record<string, unknown>,
-): Promise<{ created: boolean; id: string }> {
-  const personaSafe = isPersona(persona) ? persona : 'cofounder'
-  const raw = String(fields.raw || '').trim().slice(0, 500)
-
-  if (kind === 'decision') {
-    const decision = String(fields.decision || '').trim().slice(0, 300)
-    if (!decision) throw new Error('decision required')
-    const reason = String(fields.reason || '').trim().slice(0, 500) || raw
-    const reviewAt = cofounderWhen(fields.reviewAt)
-    const recent = (await sql`
-      SELECT id FROM hire_decisions
-      WHERE user_id = ${userId} AND lower(decision) = lower(${decision})
-        AND created_at >= now() - interval '24 hours'
-      ORDER BY created_at DESC LIMIT 1
-    `) as Array<{ id: string }>
-    if (recent[0]) {
-      await sql`
-        UPDATE hire_decisions SET reason = ${reason},
-          review_at = COALESCE(${reviewAt}, review_at), updated_at = now()
-        WHERE id = ${recent[0].id}
-      `
-      return { created: false, id: recent[0].id }
-    }
-    const id = crypto.randomUUID()
-    await sql`
-      INSERT INTO hire_decisions (id, user_id, persona, decision, reason, evidence, review_at)
-      VALUES (${id}, ${userId}, ${personaSafe}, ${decision}, ${reason}, ${reason ? 'overheard in chat' : ''}, ${reviewAt})
-    `
-    return { created: true, id }
-  }
-
-  if (kind === 'promise') {
-    const title = String(fields.title || '').trim().slice(0, 200)
-    if (!title) throw new Error('title required')
-    const dueAt = cofounderWhen(fields.dueAt)
-    const recent = (await sql`
-      SELECT id FROM hire_loops
-      WHERE user_id = ${userId} AND lower(title) = lower(${title})
-        AND created_at >= now() - interval '24 hours'
-      ORDER BY created_at DESC LIMIT 1
-    `) as Array<{ id: string }>
-    if (recent[0]) {
-      await sql`
-        UPDATE hire_loops SET context = COALESCE(nullif(${raw}, ''), context),
-          due_at = COALESCE(${dueAt}, due_at), updated_at = now()
-        WHERE id = ${recent[0].id}
-      `
-      return { created: false, id: recent[0].id }
-    }
-    const id = crypto.randomUUID()
-    await sql`
-      INSERT INTO hire_loops (id, user_id, persona, title, context, due_at, status)
-      VALUES (${id}, ${userId}, ${personaSafe}, ${title}, ${raw}, ${dueAt}, 'open')
-    `
-    return { created: true, id }
-  }
-
-  if (kind === 'person') {
-    const name = String(fields.name || '').trim().slice(0, 120)
-    if (!name) throw new Error('name required')
-    const relKind = String(fields.kind || 'other').trim().slice(0, 40) || 'other'
-    const notes = String(fields.notes || '').trim().slice(0, 500) || raw
-    const existing = (await sql`
-      SELECT id FROM hire_relationships
-      WHERE user_id = ${userId} AND lower(name) = lower(${name})
-      ORDER BY created_at LIMIT 1
-    `) as Array<{ id: string }>
-    if (existing[0]) {
-      // A fresh mention is a touch: the cadence clock restarts.
-      await sql`
-        UPDATE hire_relationships SET kind = ${relKind},
-          notes = COALESCE(nullif(${notes}, ''), notes),
-          last_touch_at = now(), updated_at = now()
-        WHERE id = ${existing[0].id}
-      `
-      return { created: false, id: existing[0].id }
-    }
-    const id = crypto.randomUUID()
-    await sql`
-      INSERT INTO hire_relationships (id, user_id, name, kind, notes, last_touch_at)
-      VALUES (${id}, ${userId}, ${name}, ${relKind}, ${notes}, now())
-    `
-    return { created: true, id }
-  }
-
-  if (kind === 'opportunity') {
-    const title = String(fields.title || '').trim().slice(0, 120)
-    if (!title) throw new Error('title required')
-    const company = String(fields.company || '').trim().slice(0, 80)
-    const stage = PIPELINE_STAGES.includes(String(fields.stage) as (typeof PIPELINE_STAGES)[number])
-      ? String(fields.stage)
-      : 'lead'
-    const value = Math.max(0, clampNum(fields.value))
-    const oppKind = ['deal', 'job', 'fundraising', 'lead'].includes(String(fields.kind || ''))
-      ? String(fields.kind)
-      : 'deal'
-    const notes = raw
-    const existing = (await sql`
-      SELECT id FROM hire_pipeline
-      WHERE user_id = ${userId} AND lower(title) = lower(${title}) AND lower(company) = lower(${company})
-      ORDER BY created_at LIMIT 1
-    `) as Array<{ id: string }>
-    if (existing[0]) {
-      await sql`
-        UPDATE hire_pipeline SET stage = ${stage}, kind = ${oppKind},
-          value = CASE WHEN ${value} > 0 THEN ${value} ELSE value END,
-          notes = COALESCE(nullif(${notes}, ''), notes), updated_at = now()
-        WHERE id = ${existing[0].id}
-      `
-      return { created: false, id: existing[0].id }
-    }
-    const id = crypto.randomUUID()
-    await sql`
-      INSERT INTO hire_pipeline (id, user_id, title, company, stage, notes, value, kind)
-      VALUES (${id}, ${userId}, ${title}, ${company}, ${stage}, ${notes}, ${value}, ${oppKind})
-    `
-    return { created: true, id }
-  }
-
-  throw new Error(`unknown capture kind: use ${COFOUNDER_KINDS.join(', ')}`)
-}
 
 /** The cofounder morning brief: everything already in the tables that needs a
  * human eye this week. Empty sections are fine; silence means healthy. */
@@ -5968,38 +5758,12 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
 
   if (!sql) return json({ error: 'Database unavailable' }, 503)
 
-  // TEMPORARY ADMIN — grant premium bundle access to an email. Remove after use.
-  if (path === '/api/admin/grant-premium' && req.method === 'POST') {
-    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
-    const body = (await req.json().catch(() => ({}))) as { email?: string }
-    const email = String(body.email || '').trim().toLowerCase()
-    if (!email || !email.includes('@')) return json({ error: 'valid email required' }, 400)
-    let user = await getUserByEmail(sql, email)
-    if (!user) {
-      const userId = crypto.randomUUID()
-      await sql`INSERT INTO hire_users (id, email, created_at, updated_at) VALUES (${userId}, ${email}, now(), now())`
-      user = { id: userId, email, name: null, timezone: null, phone: null }
-    }
-    await sql`
-      INSERT INTO hire_subscriptions (id, user_id, persona, status, price_id, current_period_end, created_at, updated_at)
-      VALUES (${crypto.randomUUID()}, ${user.id}, 'all', 'active', 'grant_admin', now() + interval '100 years', now(), now())
-      ON CONFLICT (user_id, persona) DO UPDATE SET status = 'active', price_id = 'grant_admin', current_period_end = now() + interval '100 years', updated_at = now()
-    `
-    for (const p of ['friend', 'coworker', 'cofounder'] as const) {
-      await sql`INSERT INTO hire_roster (user_id, persona, hired_at) VALUES (${user.id}, ${p}, now()) ON CONFLICT (user_id, persona) DO NOTHING`
-      await ensureMemoryConsent(sql, { userId: user.id, persona: p, source: 'admin_grant' }).catch((err) => {
-        console.warn('[memory] consent grant on admin grant failed', err)
-      })
-    }
-    return json({ ok: true, email, userId: user.id })
-  }
-
-  if (path.startsWith('/api/billing/')) {
-    const res = await handleBillingRoutes(req, sql)
+  if (path.startsWith('/api/billing/') || path === '/api/internal/subscriptions' || path === '/api/admin/grant-premium') {
+    const res = await handleBillingRoutes(req, sql, { internalOk, livePayload, ensureMemoryConsent })
     if (res) return res
   }
 
-  if (path.startsWith('/api/internal/loops') || path.startsWith('/api/loops')) {
+  if (path.startsWith('/api/internal/loops') || path.startsWith('/api/loops') || path === '/api/internal/commitments') {
     const res = await handleLoopRoutes(req, sql, { internalOk })
     if (res) return res
   }
@@ -6017,10 +5781,10 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
   const workshopRes = await handleWorkshopRoutes(req, sql, { internalOk })
   if (workshopRes) return workshopRes
 
-  const inviteRes = await handleInviteRoutes(req, sql)
+  const inviteRes = await handleInviteRoutes(req, sql, { internalOk })
   if (inviteRes) return inviteRes
 
-  const reviewRes = await handleReviewRoutes(req, sql)
+  const reviewRes = await handleReviewRoutes(req, sql, { internalOk, livePayload, buildWeekBundle })
   if (reviewRes) return reviewRes
 
   const pipelineRes = await handlePipelineRoutes(req, sql, { internalOk })
@@ -6033,6 +5797,7 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
         .read(`${u.id}|${p}`, () => todayCalendarMeets(sql, u, p as Persona))
         .then((r) => r.value ?? EMPTY_TODAY_RESULT),
     connectedForUser,
+    touchInbound,
   })
   if (networkRes) return networkRes
 
@@ -6072,6 +5837,39 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
     workoutTodayLabel,
   })
   if (homeRes) return homeRes
+
+  const setupRes = await handleSetupRoutes(req, sql)
+  if (setupRes) return setupRes
+
+  const learningRes = await handleLearningRoutes(req, sql, { internalOk })
+  if (learningRes) return learningRes
+
+  const decisionRes = await handleDecisionRoutes(req, sql, { internalOk })
+  if (decisionRes) return decisionRes
+
+  const dropzoneRes = await handleDropzoneRoutes(req, sql)
+  if (dropzoneRes) return dropzoneRes
+
+  const meetingRes = await handleMeetingRoutes(req, sql, { internalOk })
+  if (meetingRes) return meetingRes
+
+  const reminderRes = await handleReminderRoutes(req, sql, { internalOk })
+  if (reminderRes) return reminderRes
+
+  const memoryRes = await handleMemoryRoutes(req, sql, { internalOk, rememberUserTimezone })
+  if (memoryRes) return memoryRes
+
+  const mediaRes = await handleMediaRoutes(req, sql, { internalOk })
+  if (mediaRes) return mediaRes
+
+  const cofounderRes = await handleCofounderRoutes(req, sql, { internalOk })
+  if (cofounderRes) return cofounderRes
+
+  const corpusRes = await handleCorpusRoutes(req, sql, { internalOk })
+  if (corpusRes) return corpusRes
+
+  const miniRes = await handleMiniRoutes(req, sql, { internalOk, miniPayload, eveningCache, briefLoader })
+  if (miniRes) return miniRes
 
   const trustRes = await handleTrustApi(req, sql, {
     resolveUser: async (db, r) => {
@@ -6136,6 +5934,8 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
       })
       return user ? { id: user.id } : null
     },
+    internalOk,
+    livePayload,
   })
   if (paymentsRes) return paymentsRes
 
@@ -6174,1923 +5974,22 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
   })
   if (connectorRes) return connectorRes
 
-  if (path === '/api/internal/live' && req.method === 'GET') {
-    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
-    const phone = url.searchParams.get('phone') || ''
-    const persona = url.searchParams.get('persona') || ''
-    if (!isPersona(persona)) return json({ error: 'persona required' }, 400)
-    // `q` is the user's message, used only to rank recall. Absent, the payload
-    // degrades to identity facts plus recency.
-    const query = url.searchParams.get('q') || undefined
-    // Hard budget. The payload now includes Vault-decrypted memory and live
-    // connector state, either of which can stall for minutes; a hung read used
-    // to hang the whole bot turn (its 12s abort turned every reply into "data
-    // unavailable"). On timeout serve the identity-only shape so the turn
-    // still works without memory or connector detail.
-    const live = await Promise.race([
-      livePayload(sql, phone, persona, query).catch(() => null),
-      new Promise<null>((resolve) => setTimeout(() => resolve(null), 8_000)),
-    ])
-    if (live) return json(live)
-    const user = await getUserByPhone(sql, phone).catch(() => null)
-    const roster = user ? await loadRoster(sql, user.id).catch(() => [] as Persona[]) : []
-    // Connector truth still matters in the degraded shape: saying "nothing
-    // is connected" about a connected user is worse than a slow answer.
-    const fallbackConnected = user
-      ? await Promise.race([
-          connectedForUser(sql, user.id).catch(() => []),
-          new Promise<string[]>((resolve) => setTimeout(() => resolve([]), 2_500)),
-        ])
-      : []
-    return json({
-      found: !!user,
-      hired: !!user && roster.includes(persona),
-      context: {},
-      connected: fallbackConnected.filter((id) => !PERSONA_DENIED[persona].has(id)),
-      memories: [],
-      email: user?.email ?? null,
-      name: user?.name ?? null,
-      timezone: user?.timezone ?? null,
-      userId: user?.id ?? null,
-      lastInboundAt: null,
-      pro: false,
-      location: null,
-      degraded: true,
-    })
-  }
-
-  if (path === '/api/internal/intros/claim' && req.method === 'GET') {
-    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
-    const persona = url.searchParams.get('persona') || ''
-    if (!isPersona(persona)) return json({ error: 'persona required' }, 400)
-    const limit = Math.min(Math.max(Number(url.searchParams.get('limit')) || 3, 1), 10)
-    const intros = await claimIntros(sql, persona, limit)
-    return json({ intros })
-  }
-
-  if (path === '/api/internal/intros/ack' && req.method === 'POST') {
-    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
-    const body = (await req.json().catch(() => ({}))) as { id?: string; ok?: boolean; error?: string }
-    if (!body.id) return json({ error: 'id required' }, 400)
-    await ackIntro(sql, body.id, body.ok !== false, body.error)
-    return json({ ok: true })
-  }
-
-
-
-
-  if (path === '/api/internal/heartbeat' && req.method === 'POST') {
-    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
-    const body = (await req.json().catch(() => ({}))) as { persona?: string; replyMs?: number }
-    if (!isPersona(body.persona || '')) return json({ error: 'persona required' }, 400)
-    const replyMs = Number.isFinite(Number(body.replyMs)) && Number(body.replyMs) >= 0
-      ? Math.round(Number(body.replyMs))
-      : null
-    await sql`
-      INSERT INTO hire_heartbeat (persona, last_beat, reply_ms)
-      VALUES (${body.persona!}, now(), ${replyMs})
-      ON CONFLICT (persona) DO UPDATE SET last_beat = now(), reply_ms = excluded.reply_ms
-    `
-    return json({ ok: true })
-  }
-
-
-
-
-
-
-
-
-  if (path === '/api/internal/live/tools' && req.method === 'POST') {
-    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
-    const body = (await req.json().catch(() => ({}))) as {
-      phone?: string
-      persona?: string
-      message?: string
-      want?: string
-      /** What the classifier understood: airports and dates as data. The model
-       * read the ask; nothing here re-guesses it from the sentence. */
-      travel?: { kind?: string; from?: string; to?: string; place?: string; checkin?: string; checkout?: string; maxPrice?: number }
-    }
-    if (!body.phone || !body.persona || !isPersona(body.persona)) {
-      return json({ error: 'phone and persona required' }, 400)
-    }
-    const live = await livePayload(sql, body.phone, body.persona)
-    if (!live.found || !live.hired || !live.userId) return json({ results: [] })
-    let message = body.message || ''
-    if (
-      body.want === 'maps' &&
-      /near(?: me| us|by)?|around|where (?:should|can) we|tonight|dinner|lunch|breakfast|eat|food|restaurant|cafe|bar|coffee/i.test(message)
-    ) {
-      const city = live.memories.find((m) => m.key === 'city' && m.value)?.value
-      if (city && !message.toLowerCase().includes(city.toLowerCase())) {
-        // Preserve cuisine, budget, and explicit destinations. Only resolve
-        // relative location words; never replace the entire request with a city.
-        message = message.replace(/\b(?:near (?:me|us)|nearby|around (?:me|us|here))\b/gi, `in ${city}`)
-      }
-    }
-    const loc = live.location ? await getLocation(sql, live.userId, live.location.kind) : null
-    const locFresh = !!(
-      loc &&
-      loc.kind === 'current' &&
-      Date.now() - new Date(loc.updated_at).getTime() < CURRENT_LOCATION_HOURS * 60 * 60 * 1000
-    )
-    const tz = pickUserTimezone({
-      message,
-      userTz: live.timezone,
-      contextTz: typeof (live.context as Record<string, unknown>)?.timezone === 'string'
-        ? String((live.context as Record<string, unknown>).timezone)
-        : '',
-      memoryTz: live.memories.find((m) => m.key === 'timezone')?.value,
-      latitude: loc?.latitude,
-      longitude: loc?.longitude,
-      locationFresh: locFresh,
-    })
-    const spokenTz = timezoneFromText(message)
-    if (spokenTz) await rememberUserTimezone(sql, live.userId, spokenTz, body.persona)
-    const want = (
-      [
-        'maps',
-        'web',
-        'gmail',
-        'calendar',
-        'drive',
-        ...Object.keys(WORK_READ_TOOLS),
-      ] as string[]
-    ).includes(body.want || '')
-      ? (body.want as LiveToolWant)
-      : undefined
-    const understoodTrip =
-      body.travel && (body.travel.kind === 'flight' || body.travel.kind === 'hotel') && (body.travel.from || body.travel.place)
-        ? {
-            kind: body.travel.kind as 'flight' | 'hotel',
-            ...(body.travel.from ? { from: String(body.travel.from) } : {}),
-            ...(body.travel.to ? { to: String(body.travel.to) } : {}),
-            ...(body.travel.place ? { place: String(body.travel.place) } : {}),
-            ...(body.travel.checkin ? { checkin: String(body.travel.checkin) } : {}),
-            ...(body.travel.checkout ? { checkout: String(body.travel.checkout) } : {}),
-            ...(Number(body.travel.maxPrice) > 0 ? { maxPrice: Number(body.travel.maxPrice) } : {}),
-          }
-        : null
-    // The understood trip answers first; the text-driven path is the fallback,
-    // for a classifier outage or a trip it did not carry.
-    if (understoodTrip && (want === 'web' || want === 'maps' || want === undefined)) {
-      const rows = await fetchRowsForUnderstoodTrip(sql, live.userId, understoodTrip).catch(() => [])
-      if (rows.length) return json({ results: rows })
-    }
-    const results = await runToolsForMessage(sql, {
-      userId: live.userId,
-      persona: body.persona,
-      phone: body.phone,
-      message,
-      connected: live.connected,
-      want,
-      timezone: tz,
-      location: loc,
-    })
-    return json({ results })
-  }
-
-  if (path === '/api/internal/propose' && req.method === 'POST') {
-    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
-    const body = (await req.json().catch(() => ({}))) as {
-      phone?: string
-      persona?: string
-      kind?: string
-      to?: string
-      subject?: string
-      body?: string
-      messageId?: string
-      title?: string
-      start?: string
-      end?: string
-      url?: string
-      amount?: number
-    }
-    if (!body.phone || !body.persona || !isPersona(body.persona)) {
-      return json({ error: 'phone and persona required' }, 400)
-    }
-    const live = await livePayload(sql, body.phone, body.persona)
-    if (!live.found || !live.hired || !live.userId) return json({ ok: false, error: 'not hired' }, 404)
-    const tz = live.timezone || 'America/Los_Angeles'
-    // Purchase draft: mint a real Stripe Checkout link the user taps to pay.
-    // Ask-first by construction — nothing charges until THEY tap. Capped.
-    // Browser task: auto-launch. The origin-scoped single-use approval is
-    // minted and approved immediately so the worker claims the job at once;
-    // payment stays gated by Link and passwords by the vault handoff. The
-    // result lands in-thread via the browser_result loop kind the bots
-    // already deliver.
-    if (body.kind === 'browser') {
-      const portal = String(body.url || '').trim()
-      const goal = String(body.body || '').trim()
-      if (!/^https:\/\//i.test(portal)) return json({ ok: false, error: 'Browser task needs an https site URL.' }, 400)
-      if (goal.length < 8) return json({ ok: false, error: 'Browser task needs a real goal.' }, 400)
-
-      let hostname = ''
-      try {
-        hostname = new URL(portal).hostname.replace(/^www\./, '').toLowerCase()
-      } catch {}
-
-      // Protected = needs a LOGIN, judged by the portal, not by goal
-      // vocabulary: "pizza order form" on a test site is not a vault case
-      // (it blocked a real demo on the word "order"). Buying is gated
-      // separately by Link; only credential walls need the vault.
-      const isProtectedPortal =
-        /\b(?:log ?in|sign ?in|signin|password|credentials|portal|student|grades?|tuition|banking|bank account|subscription)\b/i.test(goal) ||
-        /\b(?:campusnet|csuohio|blackboard|canvas|amazon|netflix|chase|wellsfargo|bankofamerica|fidelity|vanguard|linkedin|github)\b/i.test(portal) ||
-        /\.edu\b/i.test(portal) ||
-        /\/login|\/signin|\/auth|\/account|\/portal/i.test(portal)
-
-      let hostedVaultItem: { id: string; exact_origin: string; label: string } | null = null
-      if (isProtectedPortal && hostname) {
-        const parts = hostname.split('.')
-        const rootDomain = parts.length >= 2 ? parts.slice(-2).join('.') : hostname
-
-        const existingEntries = await sql`
-          SELECT id, portal, origin FROM hire_vault_entries
-          WHERE user_id = ${live.userId!}
-        `.then((r) => r as Array<{ id: string; portal: string; origin: string }>).catch(() => [])
-
-        const hasVault = existingEntries.some((e) => {
-          const p = (e.portal || e.origin || '').toLowerCase()
-          let entryHost = ''
-          try {
-            entryHost = new URL(p.startsWith('http') ? p : `https://${p}`).hostname.replace(/^www\./, '').toLowerCase()
-          } catch {}
-          return (
-            p.includes(hostname) ||
-            p.includes(rootDomain) ||
-            (entryHost && (hostname.includes(entryHost) || entryHost.includes(hostname) || entryHost.includes(rootDomain) || rootDomain.includes(entryHost))) ||
-            (hostname.includes('campusnet') && (p.includes('campusnet') || p.includes('csuohio')))
-          )
-        })
-
-        const requestedOrigin = new URL(portal).origin.toLowerCase()
-        const hostedItems = await sql`
-          SELECT id, exact_origin, label FROM vault_items_v2
-          WHERE user_id = ${live.userId!} AND revoked_at IS NULL AND ciphertext IS NOT NULL
-        `.then((r) => r as Array<{ id: string; exact_origin: string; label: string }>).catch(() => [])
-        hostedVaultItem = hostedItems.find((row) => row.exact_origin.toLowerCase() === requestedOrigin) ?? null
-        const hasVaultItem = hasVault || Boolean(hostedVaultItem)
-
-        if (!hasVault && !hasVaultItem) {
-          return json({
-            ok: true,
-            needsVault: true,
-            portal,
-            hostname,
-          })
-        }
-      }
-      const phoneE164 = live.phone || ''
-      const { requestBrowserApproval } = await import('./browserVault')
-      const { enqueueBrowserJob, generateSessionViewToken } = await import('./browserJobs')
-      let approvalId: string | null = null
-      let credential: {
-        vaultItemId: string
-        credentialCapabilityId: string
-        credentialCapabilityDigest: string
-        credentialTaskId: string
-      } | null = null
-      if (hostedVaultItem) {
-        const { createCapabilityGrant, decideCapabilityGrant } = await import('../services/trust/capabilityGrants')
-        const created = await createCapabilityGrant(sql, {
-          userId: live.userId!,
-          taskId: crypto.randomUUID(),
-          resourceType: 'credential',
-          resourceId: hostedVaultItem.id,
-          action: 'autofill',
-          exactOrigin: hostedVaultItem.exact_origin,
-          requestingAgent: 'alpha',
-          purpose: goal.slice(0, 200),
-          expiresAt: new Date(Date.now() + 10 * 60 * 1000),
-        })
-        const approved = await decideCapabilityGrant(sql, {
-          id: created.id,
-          userId: live.userId!,
-          taskId: created.request.task_id,
-          digest: created.digest,
-          decision: 'approved',
-        })
-        if (!approved) return json({ ok: false, error: 'Could not authorize this login task.' }, 409)
-        credential = {
-          vaultItemId: hostedVaultItem.id,
-          credentialCapabilityId: created.id,
-          credentialCapabilityDigest: created.digest,
-          credentialTaskId: created.request.task_id,
-        }
-      } else {
-        const approval = await requestBrowserApproval(sql, {
-          userId: live.userId!, persona: body.persona, portal,
-          purpose: goal.slice(0, 200),
-        })
-        if ('error' in approval) return json({ ok: false, error: approval.error }, 400)
-        const { decideBrowserApproval } = await import('./browserVault')
-        const approved = await decideBrowserApproval(sql, live.userId!, approval.requestId, 'approve')
-        if (!approved) return json({ ok: false, error: 'Could not authorize this login task.' }, 409)
-        approvalId = approval.requestId
-      }
-      const jobId = await enqueueBrowserJob(sql, {
-        userId: live.userId!, persona: body.persona, phone: phoneE164,
-        kind: 'task', url: portal, goal: goal.slice(0, 400),
-        approvalId,
-        ...(credential ?? {}),
-      })
-      const viewToken = generateSessionViewToken(jobId, live.userId!)
-      const sessionUrl = `https://hirealpha.chat/computer/${jobId}?token=${viewToken}`
-      return json({
-        ok: true,
-        id: jobId,
-        kind: 'browser',
-        requestId: approvalId,
-        origin: new URL(portal).origin,
-        token: viewToken,
-        sessionUrl,
-      })
-    }
-    if (body.kind === 'purchase') {
-      const item = String(body.title || body.subject || 'Item').slice(0, 140)
-      const amount = Number(body.amount)
-      const url = String(body.url || '')
-      const cap = Number(process.env.PURCHASE_MAX_DOLLARS || 200)
-      if (!Number.isFinite(amount) || amount < 1) return json({ ok: false, error: 'Purchase needs a real price.' }, 400)
-      if (amount > cap) return json({ ok: false, error: `Above the ${cap}-dollar self-serve cap.` }, 400)
-      let productUrl: URL
-      try { productUrl = new URL(url) } catch { return json({ ok: false, error: 'Purchase needs a real product URL.' }, 400) }
-      if (productUrl.protocol !== 'https:' || productUrl.username || productUrl.password) {
-        return json({ ok: false, error: 'Purchase needs a secure product URL.' }, 400)
-      }
-
-      // The dashboard and iMessage both resolve to the same per-user Link
-      // wallet row. The operator's Link account is never a fallback.
-      const link = await getLinkStatus(sql, live.userId!).catch(() => ({ connected: false, pending: false }))
-      if (!link.connected) {
-        const setupUrl = `${appBaseFromEnv()}/app?tab=settings&connect=payments`
-        const pid = crypto.randomUUID()
-        await sql`
-          INSERT INTO hire_drafts (id, user_id, persona, kind, to_addr, subject, body, status)
-          VALUES (${pid}, ${live.userId}, ${body.persona}, 'purchase', ${url}, ${item},
-            ${JSON.stringify({ amount, setupUrl, needsSetup: true })}, 'pending')
-        `
-        return json({ ok: true, id: pid, kind: 'purchase', needsSetup: true, setupUrl, paymentUrl: setupUrl, amount, item })
-      }
-
-      // User-entered draft values are a proposal, not payment authorization.
-      // The browser checkout must independently read structured merchant,
-      // amount, currency, and item data before creating a Kernel card item.
-      return json({
-        ok: false,
-        error: 'Open this as a browser checkout so Alpha can independently verify the live cart before requesting payment approval.',
-      }, 409)
-    }
-    const id = crypto.randomUUID()
-    const kind = body.kind === 'event' || body.kind === 'reply' ? body.kind : 'email'
-    let toAddr = String(body.to || '').slice(0, 200)
-    let subject = String(body.subject || body.title || '').slice(0, 200)
-    let text = String(body.body || '').slice(0, 8000)
-    let threadId = ''
-    let inReplyTo = ''
-    let startAt = ''
-    let endAt = ''
-    if (kind === 'reply') {
-      const meta = await gmailReplyMeta(sql, live.userId, String(body.messageId || '').trim())
-      if (!meta) return json({ ok: false, error: 'Could not load that mail to reply.' }, 400)
-      toAddr = meta.to
-      subject = meta.subject
-      threadId = meta.threadId
-      inReplyTo = meta.inReplyTo
-      if (!text) return json({ ok: false, error: 'Reply body required' }, 400)
-    } else if (kind === 'event') {
-      const start = parseSpokenWhen(String(body.start || ''), tz) || new Date(Date.now() + 60 * 60 * 1000)
-      const endParsed = parseSpokenWhen(String(body.end || ''), tz)
-      const end = endParsed && endParsed.getTime() > start.getTime()
-        ? endParsed
-        : new Date(start.getTime() + 30 * 60 * 1000)
-      startAt = start.toISOString()
-      endAt = end.toISOString()
-      subject = String(body.title || subject || 'Hold').slice(0, 160)
-    } else if (!toAddr || !subject) {
-      return json({ ok: false, error: 'to and subject required' }, 400)
-    }
-    await sql`
-      INSERT INTO hire_drafts (
-        id, user_id, persona, kind, to_addr, subject, body, thread_id, in_reply_to, start_at, end_at
-      )
-      VALUES (
-        ${id}, ${live.userId}, ${body.persona}, ${kind},
-        ${toAddr}, ${subject}, ${text}, ${threadId}, ${inReplyTo}, ${startAt}, ${endAt}
-      )
-    `
-    return json({ ok: true, id, kind: kind === 'event' ? 'event' : 'email' })
-  }
-
-  if (path === '/api/internal/spend/decide' && req.method === 'POST') {
-    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
-    const body = (await req.json().catch(() => ({}))) as { phone?: string; requestId?: string; decision?: string }
-    if (!body.phone || !body.requestId) return json({ error: 'phone and requestId required' }, 400)
-    const live = await livePayload(sql, body.phone, 'friend')
-    if (!live.found || !live.userId) return json({ error: 'User not found' }, 404)
-    const decision = body.decision === 'deny' ? 'deny' : 'approve'
-    const approved = await decideSpendApproval(sql, live.userId, body.requestId, decision)
-    if (!approved) return json({ ok: false, error: 'No pending request with that id.' }, 400)
-    if (decision === 'approve') {
-      const chargeRes = await chargeApprovedSpend(sql, live.userId, body.requestId)
-      if (!chargeRes.ok) return json({ ok: false, error: chargeRes.error || 'Charge failed' }, 402)
-      return json({ ok: true, charged: true, paymentIntentId: chargeRes.paymentIntentId })
-    }
-    return json({ ok: true, decision: 'denied' })
-  }
-
-
-
-
-
-  if (path === '/api/internal/week' && req.method === 'POST') {
-    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
-    const body = (await req.json().catch(() => ({}))) as {
-      phone?: string
-      persona?: string
-    }
-    if (!body.phone || !body.persona || !isPersona(body.persona)) {
-      return json({ error: 'phone and persona required' }, 400)
-    }
-    const live = await livePayload(sql, body.phone, body.persona)
-    if (!live.found || !live.hired || !live.userId) return json({ ok: false, error: 'not hired' }, 404)
-    const bundle = await buildWeekBundle(sql, {
-      id: live.userId,
-      name: live.name,
-      timezone: live.timezone,
-    })
-    return json({ ok: true, ...bundle })
-  }
-
-  if (path === '/api/internal/touch' && req.method === 'POST') {
-    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
-    const body = (await req.json().catch(() => ({}))) as { phone?: string; persona?: string }
-    if (!body.phone || !body.persona || !isPersona(body.persona)) {
-      return json({ error: 'phone and persona required' }, 400)
-    }
-    return json(await touchInbound(sql, body.phone, body.persona))
-  }
-
-  /* The corpus. One row per text the user sent and one per reply, written by
-   * the turn path after delivery — so the material for improving the model
-   * lives in Postgres instead of dying with a container volume. Best effort by
-   * design: a logging failure must never cost a turn its answer. */
-  if (path === '/api/internal/message-log' && req.method === 'POST') {
-    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
-    const body = (await req.json().catch(() => ({}))) as {
-      phone?: string
-      persona?: string
-      turnId?: string
-      replyMs?: number
-      rows?: Array<{ role?: string; text?: string; source?: string }>
-    }
-    const rows = (body.rows || []).filter((r) => (r.role === 'user' || r.role === 'alpha') && String(r.text || '').trim())
-    if (!body.phone || !isPersona(body.persona || '') || !rows.length) {
-      return json({ error: 'phone, persona, and rows required' }, 400)
-    }
-    try {
-      const user = await getUserByPhone(sql, body.phone)
-      const turnId = String(body.turnId || crypto.randomUUID()).slice(0, 64)
-      for (const row of rows) {
-        await sql`
-          INSERT INTO hire_message_log (user_id, phone, persona, role, text, source, turn_id, reply_ms)
-          VALUES (${user?.id ?? null}, ${body.phone}, ${body.persona}, ${row.role},
-            ${String(row.text).slice(0, 8000)}, ${row.source ? String(row.source).slice(0, 40) : null},
-            ${turnId}, ${Number.isFinite(body.replyMs) ? Math.round(Number(body.replyMs)) : null})
-        `
-      }
-      return json({ ok: true, logged: rows.length })
-    } catch (err) {
-      console.warn('[message-log] write failed', err)
-      return json({ ok: false, logged: 0 }, 200)
-    }
-  }
-
-  // Speech to text for the bots: an inbound iMessage voice note is transcribed
-  // here rather than in each bot process, so the whisper endpoint and model are
-  // configured in exactly one place (see transcribeAudio).
-  if (path === '/api/internal/transcribe' && req.method === 'POST') {
-    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
-    const body = (await req.json().catch(() => ({}))) as {
-      audioBase64?: string
-      mimeType?: string
-      phone?: string
-      persona?: string
-    }
-    const audio = body.audioBase64 ? Buffer.from(body.audioBase64, 'base64') : null
-    if (!audio || audio.length < 256) return json({ error: 'audio is required' }, 400)
-    // Bias the decoder with the words this user actually says: their name,
-    // city, and the people they talk about. A 4-second "how's the weather in
-    // SF?" came back as "in itself" until the city was in the prompt. Memory
-    // is an optimization here — never a reason to fail the transcription.
-    let hotwords = ''
-    if (body.phone) {
-      try {
-        const user = await getUserByPhone(sql, body.phone)
-        const persona: Persona = isPersona(body.persona || '') ? (body.persona as Persona) : 'friend'
-        if (user) hotwords = hotwordsFromMemories(await loadMemories(sql, user.id, persona, 24))
-      } catch (err) {
-        console.warn('[stt] memory bias unavailable', err)
-      }
-    }
-    const started = Date.now()
-    try {
-      const { text, model } = await transcribeAudio(body.mimeType || 'audio/mp4', audio, { hotwords })
-      const ms = Date.now() - started
-      console.log(`[stt] transcribed ${audio.length} bytes in ${ms}ms (${model}${hotwords ? ', biased' : ''})`)
-      return json({ ok: true, text, ms })
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err)
-      console.error(`[stt] transcribe failed after ${Date.now() - started}ms: ${msg}`)
-      return json({ ok: false, error: msg.slice(0, 200) }, 502)
-    }
-  }
-
-  if (path === '/api/internal/memory' && req.method === 'POST') {
-    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
-    const body = (await req.json().catch(() => ({}))) as {
-      phone?: string
-      persona?: string
-      facts?: Array<{ key?: string; value?: string }>
-    }
-    if (!body.phone || !body.persona || !isPersona(body.persona)) {
-      return json({ error: 'phone and persona required' }, 400)
-    }
-    const user = await getUserByPhone(sql, body.phone)
-    if (!user) return json({ error: 'User not found' }, 404)
-    const facts = (body.facts || [])
-      .filter((f) => f && f.key && f.value)
-      .map((f) => ({ key: String(f.key), value: String(f.value) }))
-    /* Re-stating a fact revives it: the tombstone must not swallow it again. */
-    if (facts.length) {
-      await sql`
-        DELETE FROM hire_memory_tombstones
-        WHERE user_id = ${user.id} AND persona = ${body.persona}
-          AND key IN ${sql(facts.map((f) => f.key.toLowerCase()))}
-      `.catch(() => undefined)
-    }
-    /* Report which keys actually landed. The route used to answer 200 whatever
-     * happened inside upsertMemories (a consent check can return early and a
-     * per-fact write can throw), so a caller had no way to know that the one
-     * durable copy of a stated preference had been dropped — and nothing ever
-     * re-pushed the local store. */
-    const stored: string[] = []
-    /* Which table the write will land in. With a vault key broker configured,
-     * `upsertMemories` stores every fact through `storeConsentedMemory`, which
-     * writes `memory_records` (encrypted, key column `memory_key`); the
-     * plaintext `hire_memories` row is only written on the un-migrated path. */
-    const brokered = !!userKeyBrokerFromEnv()
-    try {
-      await upsertMemories(sql, user.id, body.persona, facts)
-      stored.push(...facts.map((f) => f.key))
-    } catch (err) {
-      console.warn('[memory] upsert before tz failed', err)
-    }
-    /* Read back from the table the write actually targets. The first version
-     * checked the mem0 store `memory_records` while the write targeted
-     * `hire_memories` and reported every key dropped; the fix made it read
-     * `hire_memories` unconditionally, which is wrong the other way on any
-     * deployment where the broker is configured — every freshly written key
-     * came back missing and the bot re-pushed facts that had in fact landed.
-     * Reproduced live 2026-09-19: "[live] memory store did not take:
-     * boston_trip, seat_preference, flight_budget" in the same turn the reply
-     * told the user the preference was saved. */
-    const readBack = brokered
-      ? await sql`
-          SELECT memory_key AS key FROM memory_records
-          WHERE user_id = ${user.id} AND persona = ${body.persona} AND deleted_at IS NULL
-        `.catch(() => [] as Array<{ key: string }>)
-      : await sql`
-          SELECT key FROM hire_memories WHERE user_id = ${user.id} AND persona = ${body.persona}
-        `.catch(() => [] as Array<{ key: string }>)
-    const present = new Set((readBack as Array<{ key: string }>).map((r) => String(r.key || '').toLowerCase()))
-    const dropped = facts.map((f) => f.key).filter((k) => !present.has(k.toLowerCase()))
-    const tzFact = facts.find((f) => f.key.toLowerCase() === 'timezone')
-    if (tzFact) await rememberUserTimezone(sql, user.id, tzFact.value, body.persona)
-    const genFact = facts.find((f) => ['generation', 'age', 'birth_year', 'tone'].includes(f.key.toLowerCase()))
-    if (genFact) {
-      await sql`
-        INSERT INTO hire_context (user_id, persona, fields, updated_at)
-        VALUES (${user.id}, ${body.persona}, ${JSON.stringify({ [genFact.key.toLowerCase()]: genFact.value })}::jsonb, now())
-        ON CONFLICT (user_id, persona)
-        DO UPDATE SET fields = hire_context.fields || ${JSON.stringify({ [genFact.key.toLowerCase()]: genFact.value })}::jsonb, updated_at = now()
-      `
-    }
-    return json({
-      ok: true,
-      // `dropped` is the caller's retry list: the keys that did not come back
-      // from the store after the write.
-      stored,
-      dropped,
-      memories: await loadMemories(sql, user.id, body.persona, 12),
-    })
-  }
-
-  if (path === '/api/internal/mini/run' && req.method === 'GET') {
-    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
-    const phone = url.searchParams.get('phone') || ''
-    const persona = url.searchParams.get('persona') || ''
-    const kind = url.searchParams.get('kind') || ''
-    if (!phone || !isPersona(persona) || !kind) {
-      return json({ error: 'phone, persona, and kind required' }, 400)
-    }
-    const user = await getUserByPhone(sql, phone)
-    if (!user) return json({ error: 'User not found' }, 404)
-    return json(await miniPayload(sql, user, persona, kind))
-  }
-
-  if (path === '/api/internal/mini/token' && req.method === 'GET') {
-    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
-    const phone = url.searchParams.get('phone') || ''
-    const persona = url.searchParams.get('persona') || ''
-    const kind = url.searchParams.get('kind') || ''
-    if (!phone || !isPersona(persona) || !kind) {
-      return json({ error: 'phone, persona, and kind required' }, 400)
-    }
-    const user = await getUserByPhone(sql, phone)
-    if (!user) return json({ error: 'User not found' }, 404)
-    const token = mintMiniToken(phone, persona, kind)
-    if (!token) return json({ error: 'Mini tokens not configured' }, 503)
-    return json({ token, url: `${appBase(req)}/app/mini/${persona}/${kind}?t=${token}` })
-  }
-
-
-
-
-
-
-
-
-
-  if (path === '/api/reminders/action' && req.method === 'POST') {
-    const body = (await req.json().catch(() => ({}))) as {
-      token?: string; session?: string; email?: string; id?: string; action?: string; hours?: number
-    }
-    const remId = String(body.id || '').slice(0, 80)
-    if (!remId) return json({ error: 'id required' }, 400)
-    const { user, error } = await resolveAuthedUser(sql, { token: body.token, session: (body as { session?: string }).session, email: body.email })
-    if (error) return error
-    if (body.action === 'done') {
-      await sql`
-        UPDATE hire_reminders SET status = 'sent', updated_at = now()
-        WHERE id = ${remId} AND user_id = ${user!.id}
-      `
-      return json({ ok: true })
-    }
-    if (body.action === 'snooze') {
-      const hours = Number(body.hours) > 0 ? Number(body.hours) : 1
-      await sql`
-        UPDATE hire_reminders SET scheduled_at = now() + (${hours} * interval '1 hour'), updated_at = now()
-        WHERE id = ${remId} AND user_id = ${user!.id}
-      `
-      return json({ ok: true })
-    }
-    return json({ error: 'action must be done or snooze' }, 400)
-  }
-
-
-
-  if (path === '/api/mini' && req.method === 'GET') {
-    const t = url.searchParams.get('t') || ''
-    const email = String(url.searchParams.get('email') || '')
-      .trim()
-      .toLowerCase()
-    const persona = url.searchParams.get('persona') || ''
-    const kind = url.searchParams.get('kind') || ''
-    if (!isPersona(persona) || !kind) return json({ error: 'persona and kind required' }, 400)
-    let user: { id: string; email: string; name: string | null; timezone: string | null; phone: string | null } | null =
-      null
-    if (t) {
-      const tok = verifyMiniToken(t)
-      if (!tok || tok.persona !== persona) {
-        return json({ error: 'This link expired. Sign in to keep using it.', code: 'token_invalid' }, 401)
-      }
-      user = await getUserByPhone(sql, tok.phone)
-    } else if (email.includes('@')) {
-      user = await getUserByEmail(sql, email)
-    } else {
-      return json({ error: 'email required' }, 400)
-    }
-    if (!user) return json({ error: 'No account found for that phone/email' }, 404)
-    /* The evening brief is the one mini heavy enough to be worth caching: a
-     * two-day calendar range, an inbox pull, and a model pass. The rest are a
-     * query or two and are cheaper to just run. */
-    if (kind === 'pick_night') {
-      const day = localDateStrInTz(new Date(), user!.timezone || 'America/Los_Angeles')
-      const force = url.searchParams.has('_t')
-      if (force) eveningCache.drop(`${user!.id}|${persona}`)
-      /* Same-day persisted row = the brief already exists (built when the text
-       * was sent, or on an earlier open). Serve it the instant the tap lands and
-       * rebuild behind the response — the morning brief has worked this way, the
-       * evening one rebuilt in the foreground and made the user watch. */
-      const dbRow = force ? null : await readBriefDb(sql, user!.id, persona, 'pick_night')
-      const sameDayCached = dbRow && briefRowSameDay(dbRow.day, day) ? dbRow : null
-      const brief = await eveningCache.read(
-        `${user!.id}|${persona}`,
-        () =>
-          briefLoader(
-            sql,
-            user!.id,
-            persona,
-            'pick_night',
-            () => miniPayload(sql, user!, persona, 'pick_night'),
-            day,
-            { force },
-          ),
-        force ? 0 : sameDayCached ? 0 : undefined,
-      )
-      if (!brief.value && brief.pending) {
-        // Still loading behind this response. Never cached, or the retry reads it.
-        if (sameDayCached) {
-          return jsonRevalidated(req, 0, { ...sameDayCached.payload, revalidating: true })
-        }
-        return json({ pending: true, note: 'Closing out your day.' }, 200)
-      }
-      /* Nothing cached and nothing running: the build failed, or is inside the
-       * failure cooldown. Only `pending` earns a retry — the ladder is shorter
-       * than the cooldown, so promising one here would just stall and then lie. */
-      if (!brief.value) {
-        if (sameDayCached) {
-          return jsonRevalidated(req, 0, { ...sameDayCached.payload })
-        }
-        return json({ error: 'Your evening brief did not build. Open again in a minute.' }, 200)
-      }
-      const load = brief.value
-      // A stale hit refreshing behind the response must not come from the browser
-      // cache next open, or that refresh would never be seen.
-      return jsonRevalidated(req, brief.pending ? 0 : 60, {
-        ...load.payload,
-        limited: load.throttled || undefined,
-        used: load.used,
-        limit: load.limit,
-      })
-    }
-    return json(await miniPayload(sql, user, persona, kind))
-  }
-
-  if (path === '/api/setup/status' && req.method === 'GET') {
-    const persona = url.searchParams.get('persona') || ''
-    if (!isPersona(persona)) return json({ error: 'persona required' }, 400)
-    const { user, error } = await resolveAuthedUser(sql, {
-      token: url.searchParams.get('t') || undefined,
-      session: url.searchParams.get('s') || undefined,
-      email: url.searchParams.get('email') || undefined,
-    })
-    if (error) return error
-    const fields = await loadContext(sql, user!.id, persona)
-    const setup = parseSetupField(fields.setup)
-    let setupDone = fields.setup_done === 'true'
-    // Auto-detect: the wizard's per-step writes land in their own tables even
-    // when the final done-POST is lost (stale token, closed tab). When the
-    // account carries nutrition goals + mini prefs + a person + a saved place,
-    // the wizard ran — report done instead of re-trapping the user in it.
-    if (!setupDone && persona === 'friend') {
-      try {
-        const proof = (await sql`
-          SELECT
-            (SELECT 1 FROM hire_nutrition_goals WHERE user_id = ${user!.id} LIMIT 1) AS goals,
-            (SELECT 1 FROM hire_mini_prefs WHERE user_id = ${user!.id} LIMIT 1) AS prefs,
-            (SELECT 1 FROM hire_network WHERE user_id = ${user!.id} LIMIT 1) AS people,
-            (SELECT 1 FROM hire_user_locations WHERE user_id = ${user!.id} AND kind IN ('home','work') LIMIT 1) AS places
-        `) as Array<{ goals?: unknown; prefs?: unknown; people?: unknown; places?: unknown }>
-        const p = proof[0]
-        // Two of four signals is enough proof the wizard ran: skipping a page
-        // (home/work blank, no people added) must not re-trap an onboarded user.
-        const signals = [p?.goals, p?.prefs, p?.people, p?.places].filter(Boolean).length
-        if (p && signals >= 2) setupDone = true
-      } catch {
-        /* status stays not-done; the wizard is the safe default */
-      }
-    }
-    /* Has Alpha actually texted this person yet?
-     *
-     * The Text Alpha screen tells them where to pick the conversation up, and
-     * that sentence is only true if the welcome went out. The onboard_done loop
-     * row is the record of it: queued at done:true, flipped to 'done' by the bot
-     * after a send that succeeded. Anything else — queued but never sent, failed
-     * on the way (a Photon target restriction, a cooling period), or never
-     * queued at all — reports false, and the screen says so instead of claiming a
-     * message that does not exist.
-     *
-     * Live, 2026-09-21: the founder finished onboarding and read "Alpha already
-     * texted you" on a number Alpha is not permitted to send to ("Target not
-     * allowed for this project" in the friend log). */
-    let welcomed = false
-    try {
-      const rows = (await sql`
-        SELECT 1 FROM hire_task_loops
-        WHERE user_id = ${user!.id} AND persona = ${persona} AND kind = 'onboard_done' AND status = 'done'
-        LIMIT 1
-      `) as Array<unknown>
-      welcomed = rows.length > 0
-    } catch {
-      /* Unknown reads as not-yet: the screen must not assert a text it cannot confirm. */
-    }
-    return json({ setup, setupDone, welcomed })
-  }
-
-  if (path === '/api/setup' && req.method === 'POST') {
-    const body = (await req.json().catch(() => ({}))) as {
-      email?: string
-      token?: string
-      persona?: string
-      feature?: string
-      features?: unknown
-      done?: boolean
-    }
-    const persona = body.persona || ''
-    if (!isPersona(persona)) return json({ error: 'persona required' }, 400)
-
-    const requested = Array.isArray(body.features)
-      ? body.features.map(String)
-      : body.feature
-        ? [body.feature]
-        : []
-    if (body.done !== true && requested.length === 0) {
-      return json({ error: 'feature or features required' }, 400)
-    }
-    for (const f of requested) {
-      if (!PERSONA_MINI_APPS[persona].includes(f)) {
-        return json({ error: `Unknown feature for this hire: ${f}` }, 400)
-      }
-    }
-
-    const { user, error } = await resolveAuthedUser(sql, { token: body.token, session: (body as { session?: string }).session, email: body.email })
-    if (error) return error
-
-    const fields = await loadContext(sql, user!.id, persona)
-    const existing = parseSetupField(fields.setup)
-    const next =
-      body.done === true && requested.length > 0
-        ? [...new Set(requested)]
-        : body.done === true && requested.length === 0
-          ? existing
-          : [...new Set([...existing, ...requested])]
-    const setupDone = body.done === true || fields.setup_done === 'true'
-    const nextFields = { ...fields, setup: next, setup_done: setupDone }
-    await sql`
-      INSERT INTO hire_context (user_id, persona, fields, updated_at)
-      VALUES (${user!.id}, ${persona}, ${nextFields}, now())
-      ON CONFLICT (user_id, persona)
-      DO UPDATE SET fields = ${nextFields}, updated_at = now()
-    `
-
-    if (next.includes('digest')) {
-      const tz = user!.timezone || 'America/Los_Angeles'
-      const existingReminder = await sql`
-        SELECT id FROM hire_reminders
-        WHERE user_id = ${user!.id} AND persona = ${persona} AND recurrence = 'daily'
-          AND text LIKE '[digest]%' LIMIT 1
-      `
-      if (!existingReminder[0]) {
-        await sql`
-          INSERT INTO hire_reminders (id, user_id, persona, text, scheduled_at, recurrence, timezone, status)
-          VALUES (${crypto.randomUUID()}, ${user!.id}, ${persona}, ${DIGEST_BRIEF_TEXT},
-            ${nextLocalTimeUtc(tz, 8, 0)}, 'daily', ${tz}, 'pending')
-        `
-      }
-      await sql`
-        DELETE FROM hire_reminders
-        WHERE user_id = ${user!.id} AND persona = ${persona} AND text = ${JUDGE_MARKER + 'morning'}
-      `
-    }
-
-    // Setup finished: the friend bot texts one onboarding-complete welcome
-    // (connected tools + Alpha Apps). Only fires once per (user, persona): the
-    // unique index plus the WHERE NOT EXISTS guard means re-submitting done can
-    // never queue a second row. next_run = now() so the bot sends it on its
-    // very next claim pass, once the row exists under an account with a phone.
-    if (body.done === true && persona === 'friend' && user!.phone) {
-      await sql`
-        INSERT INTO hire_task_loops (id, user_id, persona, phone_e164, kind, title, payload, status, next_run)
-        VALUES (${crypto.randomUUID()}, ${user!.id}, ${persona}, ${user!.phone}, 'onboard_done',
-          'Welcome Alpha to the connected setup', '{}'::jsonb, 'pending', now())
-        WHERE NOT EXISTS (
-          SELECT 1 FROM hire_task_loops
-          WHERE user_id = ${user!.id} AND persona = ${persona} AND kind = 'onboard_done'
-        )
-      `
-    }
-
-    return json({ ok: true, features: requested, setup: next, setupDone })
-  }
-
-
-
-  /* Public mini-prefs write for the onboarding wizard: workout days and sleep
-   * baseline. The bot-side path is /api/internal/prefs (text-parsed); this one
-   * takes structured values straight from the setup card. */
-  if (path === '/api/mini-prefs' && req.method === 'PUT') {
-    const body = (await req.json().catch(() => ({}))) as {
-      email?: string
-      token?: string
-      session?: string
-      workoutPlace?: string
-      workoutMoveCount?: number
-      workoutDays?: number[]
-      sleepBedtime?: string
-      sleepWake?: string
-      currentWeightLb?: number
-      targetWeightLb?: number
-      weightGoal?: string
-    }
-    const cookieSession = (req.headers.get('cookie') || '')
-      .split(';')
-      .map((v) => v.trim())
-      .find((v) => v.startsWith('hirealpha_session='))
-      ?.slice('hirealpha_session='.length)
-    const { user, error } = await resolveAuthedUser(sql, {
-      token: body.token,
-      session: (body as { session?: string }).session || cookieSession || undefined,
-      email: body.email,
-    })
-    if (error) return error
-    const patch: Partial<MiniPrefs> = {}
-    if (body.workoutPlace === 'home' || body.workoutPlace === 'gym') patch.workoutPlace = body.workoutPlace
-    if (body.workoutMoveCount === 4 || body.workoutMoveCount === 5 || body.workoutMoveCount === 6) {
-      patch.workoutMoveCount = body.workoutMoveCount
-    }
-    if (Array.isArray(body.workoutDays)) patch.workoutDays = body.workoutDays
-    if (typeof body.sleepBedtime === 'string' && body.sleepBedtime.trim()) {
-      patch.sleepBedtime = body.sleepBedtime.trim().slice(0, 5)
-    }
-    if (typeof body.sleepWake === 'string' && body.sleepWake.trim()) {
-      patch.sleepWake = body.sleepWake.trim().slice(0, 5)
-    }
-    if (typeof (body as { currentWeightLb?: number }).currentWeightLb === 'number' && (body as { currentWeightLb?: number }).currentWeightLb! > 0) {
-      patch.currentWeightLb = (body as { currentWeightLb?: number }).currentWeightLb
-    }
-    if (typeof (body as { targetWeightLb?: number }).targetWeightLb === 'number' && (body as { targetWeightLb?: number }).targetWeightLb! > 0) {
-      patch.targetWeightLb = (body as { targetWeightLb?: number }).targetWeightLb
-    }
-    const wg = (body as { weightGoal?: string }).weightGoal
-    if (wg === 'loss' || wg === 'gain' || wg === 'muscle') patch.weightGoal = wg
-    if (!Object.keys(patch).length) {
-      return json({ error: 'Nothing to update' }, 400)
-    }
-    const prefs = await saveMiniPrefs(sql, user!.id, patch)
-    return json({ ok: true, workoutDays: prefs.workoutDays, sleepBedtime: prefs.sleepBedtime, sleepWake: prefs.sleepWake })
-  }
-
-
-  if (path === '/api/decisions' && req.method === 'GET') {
-    const { user, error } = await resolveAuthedUser(sql, {
-      token: url.searchParams.get('t') || undefined,
-      session: url.searchParams.get('s') || undefined,
-      email: url.searchParams.get('email') || undefined,
-    })
-    if (error) return error
-    const rows = await sql`
-      SELECT id, persona, decision, reason, evidence, owner, review_at AS "reviewAt",
-             outcome, status, created_at AS "createdAt"
-      FROM hire_decisions WHERE user_id = ${user!.id}
-      ORDER BY created_at DESC LIMIT 50
-    `
-    return json({ decisions: rows })
-  }
-
-  if (path === '/api/decisions' && req.method === 'POST') {
-    const body = (await req.json().catch(() => ({}))) as {
-      token?: string; email?: string; persona?: string
-      decision?: string; reason?: string; evidence?: string; owner?: string; reviewAt?: string
-    }
-    const decision = String(body.decision || '').trim().slice(0, 300)
-    if (!decision) return json({ error: 'decision required' }, 400)
-    const { user, error } = await resolveAuthedUser(sql, { token: body.token, session: (body as { session?: string }).session, email: body.email })
-    if (error) return error
-    const id = crypto.randomUUID()
-    const reviewAt = parseFlexibleWhen(body.reviewAt, user!.timezone || 'America/Los_Angeles')
-    await sql`
-      INSERT INTO hire_decisions (id, user_id, persona, decision, reason, evidence, owner, review_at)
-      VALUES (${id}, ${user!.id}, ${isPersona(body.persona || '') ? body.persona! : 'cofounder'},
-        ${decision}, ${String(body.reason || '').slice(0, 500)}, ${String(body.evidence || '').slice(0, 500)},
-        ${String(body.owner || '').slice(0, 120)}, ${reviewAt})
-    `
-    return json({ ok: true, id })
-  }
-
-  if (path.startsWith('/api/decisions/') && req.method === 'PATCH') {
-    const id = path.slice('/api/decisions/'.length)
-    const body = (await req.json().catch(() => ({}))) as { token?: string; email?: string; outcome?: string }
-    const { user, error } = await resolveAuthedUser(sql, { token: body.token, session: (body as { session?: string }).session, email: body.email })
-    if (error) return error
-    await sql`
-      UPDATE hire_decisions
-      SET outcome = ${String(body.outcome || '').slice(0, 500)},
-          status = 'reviewed', updated_at = now()
-      WHERE id = ${id} AND user_id = ${user!.id}
-    `
-    return json({ ok: true })
-  }
-
-  if (path === '/api/relationships' && req.method === 'GET') {
-    const { user, error } = await resolveAuthedUser(sql, {
-      token: url.searchParams.get('t') || undefined,
-      session: url.searchParams.get('s') || undefined,
-      email: url.searchParams.get('email') || undefined,
-    })
-    if (error) return error
-    const rows = await sql`
-      SELECT id, name, where_met AS kind, context AS notes, cadence_days AS "cadenceDays",
-             last_touch AS "lastTouchAt", created_at AS "updatedAt"
-      FROM hire_network WHERE user_id = ${user!.id}
-      ORDER BY last_touch ASC NULLS FIRST LIMIT 60
-    `
-    return json({ relationships: rows })
-  }
-
-  if (path === '/api/relationships' && req.method === 'POST') {
-    const body = (await req.json().catch(() => ({}))) as {
-      token?: string; email?: string
-      name?: string; kind?: string; notes?: string; cadenceDays?: number
-      birthday?: string
-    }
-    const name = String(body.name || '').trim().slice(0, 120)
-    if (!name) return json({ error: 'name required' }, 400)
-    const kind = ['personal', 'work', 'investor', 'candidate', 'partner', 'other'].includes(body.kind || '')
-      ? body.kind!
-      : 'other'
-    const { user, error } = await resolveAuthedUser(sql, { token: body.token, session: (body as { session?: string }).session, email: body.email })
-    if (error) return error
-    const id = crypto.randomUUID()
-    /* Backlog #33: an optional birthday (YYYY-MM-DD) feeds the friend hire's
-     * yearly reminder. The string is regex-checked so a garbage value never
-     * reaches the DATE column. Empty / missing stays NULL. */
-    const bdayRaw = String(body.birthday || '').trim()
-    const bday = /^\d{4}-\d{2}-\d{2}$/.test(bdayRaw) ? bdayRaw : null
-    await sql`
-      INSERT INTO hire_network (id, user_id, name, where_met, context, cadence_days, birthday)
-      VALUES (${id}, ${user!.id}, ${name}, ${kind}, ${String(body.notes || '').slice(0, 500)},
-        ${Math.min(Math.max(clampNum(body.cadenceDays, 30), 1), 365)}, ${bday})
-    `
-    return json({ ok: true, id })
-  }
-
-  if (path.startsWith('/api/relationships/') && req.method === 'PATCH') {
-    const id = path.slice('/api/relationships/'.length)
-    const body = (await req.json().catch(() => ({}))) as { token?: string; email?: string; touch?: boolean }
-    const { user, error } = await resolveAuthedUser(sql, { token: body.token, session: (body as { session?: string }).session, email: body.email })
-    if (error) return error
-    if (body.touch) {
-      await sql`
-        UPDATE hire_network SET last_touch = now()
-        WHERE id = ${id} AND user_id = ${user!.id}
-      `
-    }
-    return json({ ok: true })
-  }
-
-  if (path === '/api/dropzone' && req.method === 'GET') {
-    const { user, error } = await resolveAuthedUser(sql, {
-      token: url.searchParams.get('t') || undefined,
-      session: url.searchParams.get('s') || undefined,
-      email: url.searchParams.get('email') || undefined,
-    })
-    if (error) return error
-    const rows = await sql`
-      SELECT id, persona, content, media_kind AS "mediaKind", summary, status,
-             created_at AS "createdAt"
-      FROM hire_dropzone WHERE user_id = ${user!.id}
-      ORDER BY created_at DESC LIMIT 50
-    `
-    return json({ drops: rows })
-  }
-
-  if (path === '/api/dropzone' && req.method === 'POST') {
-    const body = (await req.json().catch(() => ({}))) as {
-      token?: string; email?: string; content?: string; mediaKind?: string
-    }
-    const content = String(body.content || '').trim().slice(0, 2000)
-    if (!content) return json({ error: 'content required' }, 400)
-    const { user, error } = await resolveAuthedUser(sql, { token: body.token, session: (body as { session?: string }).session, email: body.email })
-    if (error) return error
-    const id = crypto.randomUUID()
-    const mediaKind = ['image', 'voice', 'link', 'text'].includes(body.mediaKind || '') ? body.mediaKind! : null
-    await sql`
-      INSERT INTO hire_dropzone (id, user_id, persona, content, media_kind)
-      VALUES (${id}, ${user!.id}, '', ${content}, ${mediaKind})
-    `
-    return json({ ok: true, id })
-  }
-
-  if (path.startsWith('/api/dropzone/') && req.method === 'PATCH') {
-    const id = path.slice('/api/dropzone/'.length)
-    const body = (await req.json().catch(() => ({}))) as {
-      token?: string; email?: string; persona?: string; summary?: string; status?: string
-    }
-    const { user, error } = await resolveAuthedUser(sql, { token: body.token, session: (body as { session?: string }).session, email: body.email })
-    if (error) return error
-    const status = ['new', 'routed', 'done'].includes(body.status || '') ? body.status! : undefined
-    await sql`
-      UPDATE hire_dropzone
-      SET persona = COALESCE(${isPersona(body.persona || '') ? body.persona! : null}, persona),
-          summary = COALESCE(${body.summary ? String(body.summary).slice(0, 500) : null}, summary),
-          status = COALESCE(${status || null}, status)
-      WHERE id = ${id} AND user_id = ${user!.id}
-    `
-    return json({ ok: true })
-  }
-
-  if (path === '/api/meetings' && req.method === 'GET') {
-    const { user, error } = await resolveAuthedUser(sql, {
-      token: url.searchParams.get('t') || undefined,
-      session: url.searchParams.get('s') || undefined,
-      email: url.searchParams.get('email') || undefined,
-    })
-    if (error) return error
-    const rows = await sql`
-      SELECT id, title, starts_at AS "startsAt", phase, briefing, notes, followups,
-             created_at AS "createdAt"
-      FROM hire_meetings WHERE user_id = ${user!.id}
-      ORDER BY created_at DESC LIMIT 30
-    `
-    return json({ meetings: rows })
-  }
-
-  if (path === '/api/meetings' && req.method === 'POST') {
-    const body = (await req.json().catch(() => ({}))) as {
-      token?: string; email?: string; title?: string; startsAt?: string
-    }
-    const title = String(body.title || '').trim().slice(0, 200)
-    if (!title) return json({ error: 'title required' }, 400)
-    const { user, error } = await resolveAuthedUser(sql, { token: body.token, session: (body as { session?: string }).session, email: body.email })
-    if (error) return error
-    const id = crypto.randomUUID()
-    const startsAt = parseFlexibleWhen(body.startsAt, user!.timezone || 'America/Los_Angeles')
-    await sql`
-      INSERT INTO hire_meetings (id, user_id, title, starts_at)
-      VALUES (${id}, ${user!.id}, ${title}, ${startsAt})
-    `
-    return json({ ok: true, id })
-  }
-
-  if (path.startsWith('/api/meetings/') && req.method === 'PATCH') {
-    const id = path.slice('/api/meetings/'.length)
-    const body = (await req.json().catch(() => ({}))) as {
-      token?: string; email?: string; briefing?: string
-      followups?: unknown; phase?: string
-    }
-    const { user, error } = await resolveAuthedUser(sql, { token: body.token, session: (body as { session?: string }).session, email: body.email })
-    if (error) return error
-    const phase = body.phase === 'done' ? 'done' : body.phase === 'prep' ? 'prep' : undefined
-    await sql`
-      UPDATE hire_meetings
-      SET briefing = COALESCE(${body.briefing ? String(body.briefing).slice(0, 2000) : null}, briefing),
-          followups = COALESCE(${Array.isArray(body.followups) ? JSON.stringify(body.followups).slice(0, 4000) : null}::jsonb, followups),
-          phase = COALESCE(${phase || null}, phase),
-          updated_at = now()
-      WHERE id = ${id} AND user_id = ${user!.id}
-    `
-    return json({ ok: true })
-  }
-
-  if (path.startsWith('/api/meetings/') && req.method === 'DELETE') {
-    const id = path.slice('/api/meetings/'.length)
-    const body = (await req.json().catch(() => ({}))) as { token?: string; email?: string }
-    const { user, error } = await resolveAuthedUser(sql, { token: body.token, session: (body as { session?: string }).session, email: body.email })
-    if (error) return error
-    await sql`DELETE FROM hire_meetings WHERE id = ${id} AND user_id = ${user!.id}`
-    return json({ ok: true })
-  }
-
-  if (path.startsWith('/api/meetings/') && path.endsWith('/transcribe') && req.method === 'POST') {
-    const id = path.slice('/api/meetings/'.length, -'/transcribe'.length)
-    const body = (await req.json().catch(() => ({}))) as {
-      token?: string; email?: string; audioBase64?: string; mimeType?: string
-    }
-    const audio = body.audioBase64 ? Buffer.from(body.audioBase64, 'base64') : null
-    if (!audio || audio.length < 512) return json({ error: 'voice memo is required' }, 400)
-    const { user, error } = await resolveAuthedUser(sql, { token: body.token, session: (body as { session?: string }).session, email: body.email })
-    if (error) return error
-    const meets = await sql`SELECT id FROM hire_meetings WHERE id = ${id} AND user_id = ${user!.id} LIMIT 1`
-    if (!meets[0]) return json({ error: 'Meeting not found' }, 404)
-    let transcript: string
-    try {
-      const { text } = await transcribeAudio(body.mimeType || 'audio/m4a', audio)
-      transcript = text
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err)
-      return json({ ok: false, error: msg.slice(0, 200) }, 502)
-    }
-    const cur = await sql`SELECT notes FROM hire_meetings WHERE id = ${id} LIMIT 1`
-    const prev = String((cur[0] as { notes?: string } | undefined)?.notes || '').trim()
-    const notes = prev ? `${prev}\n\n${transcript}` : transcript
-    await sql`
-      UPDATE hire_meetings
-      SET notes = ${notes.slice(0, 6000)}, updated_at = now()
-      WHERE id = ${id} AND user_id = ${user!.id}
-    `
-    return json({ ok: true, transcript })
-  }
-
-
-  // Shared to-do list (bench50 gap: "add a grocery run to my to-do list" got
-  // "I don't have a to-do list I can edit"). add | list | complete by id or
-  // fuzzy text; the bot renders the result.
-  if (path === '/api/internal/todos' && req.method === 'POST') {
-    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
-    const body = (await req.json().catch(() => ({}))) as { phone?: string; action?: string; text?: string; id?: string }
-    const action = body.action === 'list' || body.action === 'complete' ? body.action : 'add'
-    if (!body.phone) return json({ error: 'phone required' }, 400)
-    const user = await getUserByPhone(sql, body.phone)
-    if (!user) return json({ error: 'User not found' }, 404)
-    if (action === 'add') {
-      const text = String(body.text || '').trim().slice(0, 300)
-      if (!text) return json({ error: 'text required' }, 400)
-      const row = (await sql`
-        INSERT INTO hire_todos (user_id, text) VALUES (${user.id}, ${text})
-        RETURNING id::text AS id, text, done
-      `)[0]
-      return json({ ok: true, todo: row, open: await openTodos(sql, user.id) })
-    }
-    if (action === 'complete') {
-      const wanted = String(body.text || '').trim().toLowerCase()
-      const id = /^[0-9a-f-]{36}$/i.test(String(body.id || '')) ? body.id : null
-      if (!id && !wanted) return json({ error: 'id or text required' }, 400)
-      const rows = await sql`
-        SELECT id::text AS id, text FROM hire_todos
-        WHERE user_id = ${user.id} AND done = false
-          AND ((${id}::uuid IS NOT NULL AND id = ${id}::uuid)
-               OR (${id}::uuid IS NULL AND lower(text) LIKE ${'%' + wanted + '%'}))
-        ORDER BY created_at DESC LIMIT 1
-      `
-      if (!rows[0]) return json({ ok: false, error: wanted || 'no match' })
-      await sql`UPDATE hire_todos SET done = true, completed_at = now() WHERE id = ${rows[0].id}::uuid`
-      return json({ ok: true, completed: rows[0], open: await openTodos(sql, user.id) })
-    }
-    return json({ ok: true, open: await openTodos(sql, user.id) })
-  }
-
-  // Scheduled send-on-behalf (bench50 gap: "wish mom happy birthday at
-  // midnight" could only be drafted). The bot's poller claims due rows,
-  // registers the target with Photon if needed, sends, and acks.
-  if (path === '/api/internal/scheduled_texts' && req.method === 'POST') {
-    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
-    const body = (await req.json().catch(() => ({}))) as { phone?: string; to?: string; text?: string; at?: string; persona?: string }
-    const at = new Date(String(body.at || ''))
-    if (!body.phone || !/^\+?\d{7,15}$/.test(String(body.to || '')) || !String(body.text || '').trim()
-      || !Number.isFinite(at.getTime()) || at.getTime() <= Date.now()) {
-      return json({ error: 'phone, to, text and a future ISO at are required' }, 400)
-    }
-    const user = await getUserByPhone(sql, body.phone)
-    if (!user) return json({ error: 'User not found' }, 404)
-    const row = (await sql`
-      INSERT INTO hire_scheduled_texts (user_id, persona, to_phone, body, send_at)
-      VALUES (${user.id}, ${body.persona === 'coworker' || body.persona === 'cofounder' ? body.persona : 'friend'},
-              ${String(body.to)}, ${String(body.text).trim().slice(0, 1500)}, ${at.toISOString()})
-      RETURNING id::text AS id, send_at
-    `)[0]
-    return json({ ok: true, id: row.id, sendAt: row.send_at })
-  }
-
-  if (path === '/api/internal/scheduled_texts/claim' && req.method === 'GET') {
-    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
-    const persona = url.searchParams.get('persona') || 'friend'
-    const rows = await sql`
-      UPDATE hire_scheduled_texts SET status = 'sending'
-      WHERE id IN (
-        SELECT id FROM hire_scheduled_texts
-        WHERE status = 'pending' AND send_at <= now() AND persona = ${persona}
-        ORDER BY send_at LIMIT 3
-        FOR UPDATE SKIP LOCKED
-      )
-      RETURNING id::text AS id, to_phone AS "toPhone", body
-    `
-    return json({ due: rows })
-  }
-
-  if (path === '/api/internal/scheduled_texts/ack' && req.method === 'POST') {
-    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
-    const body = (await req.json().catch(() => ({}))) as { id?: string; ok?: boolean; error?: string }
-    if (!/^[0-9a-f-]{36}$/i.test(String(body.id || ''))) return json({ error: 'id required' }, 400)
-    await sql`
-      UPDATE hire_scheduled_texts
-      SET status = ${body.ok ? 'sent' : 'failed'}, sent_at = now(), error = ${body.ok ? null : String(body.error || 'send failed').slice(0, 300)}
-      WHERE id = ${body.id}::uuid
-    `
-    return json({ ok: true })
-  }
-
-
-  if (path === '/api/internal/decisions' && req.method === 'POST') {
-    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
-    const body = (await req.json().catch(() => ({}))) as {
-      phone?: string; persona?: string; text?: string
-    }
-    if (!body.phone || !isPersona(body.persona || '') || !String(body.text || '').trim()) {
-      return json({ error: 'phone, persona, and text required' }, 400)
-    }
-    const user = await getUserByPhone(sql, body.phone)
-    if (!user) return json({ error: 'User not found' }, 404)
-    const parsed = parseDecisionText(String(body.text))
-    if (!parsed) return json({ ok: false, logged: false, error: 'Could not parse a decision' })
-    const reviewAt = parsed.review ? parseFlexibleWhen(parsed.review, user.timezone || 'America/Los_Angeles') : null
-    const id = crypto.randomUUID()
-    await sql`
-      INSERT INTO hire_decisions (id, user_id, persona, decision, reason, owner, review_at, status)
-      VALUES (${id}, ${user.id}, ${isPersona(body.persona || '') ? body.persona! : 'cofounder'}, ${parsed.decision.slice(0, 300)},
-        ${(parsed.reason || '').slice(0, 500)}, ${(parsed.owner || '').slice(0, 120)}, ${reviewAt}, 'open')
-    `
-    return json({ ok: true, logged: true, id, decision: parsed.decision.slice(0, 300), reason: (parsed.reason || '').slice(0, 500), owner: (parsed.owner || '').slice(0, 120) })
-  }
-
-
-  if (path === '/api/internal/commitments' && req.method === 'POST') {
-    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
-    const body = (await req.json().catch(() => ({}))) as { phone?: string; persona?: string; text?: string }
-    if (!body.phone || !isPersona(body.persona || '') || !String(body.text || '').trim()) {
-      return json({ error: 'phone, persona, and text required' }, 400)
-    }
-    const user = await getUserByPhone(sql, body.phone)
-    if (!user) return json({ error: 'User not found' }, 404)
-    const persona = body.persona as Persona
-    const candidate = detectCommitment(String(body.text), user.timezone || 'America/Los_Angeles')
-    if (!candidate) return json({ ok: true, captured: false })
-
-    // The open loop is the source of truth. A retry of the same chat updates
-    // the existing promise rather than cloning it or arming another rescue.
-    const fingerprint = createHmac('sha256', 'hirealpha.commitment.v1')
-      .update(`${user.id}\0${persona}\0${candidate.title.toLowerCase()}`).digest('hex').slice(0, 32)
-    const id = `commitment:${fingerprint}`
-    await sql`
-      INSERT INTO hire_loops (id, user_id, persona, title, context, due_at, status)
-      VALUES (${id}, ${user.id}, ${persona}, ${candidate.title}, ${candidate.sourceText}, ${candidate.dueAt.toISOString()}, 'open')
-      ON CONFLICT (id) DO UPDATE SET title = excluded.title, context = excluded.context,
-        due_at = excluded.due_at, status = 'open', updated_at = now()
-    `
-    const kind = `commitment_rescue:${id}`
-    const payload = JSON.stringify({ title: candidate.title, dueAt: candidate.dueAt.toISOString(), timezone: user.timezone || 'America/Los_Angeles', loopId: id })
-    await sql`
-      INSERT INTO hire_task_loops (id, user_id, persona, phone_e164, kind, title, payload, status, attempts, next_run)
-      VALUES (${crypto.randomUUID()}, ${user.id}, ${persona}, ${normalizePhone(body.phone)}, ${kind}, ${candidate.title}, ${payload}::jsonb, 'pending', 0, ${candidate.rescueAt.toISOString()})
-      ON CONFLICT (user_id, persona, kind) DO UPDATE SET
-        title = excluded.title, payload = excluded.payload, status = 'pending', attempts = 0,
-        next_run = excluded.next_run, updated_at = now()
-    `
-    return json({ ok: true, captured: true, id, dueAt: candidate.dueAt.toISOString(), rescueAt: candidate.rescueAt.toISOString() })
-  }
-
-  if (path === '/api/internal/chat-import' && req.method === 'POST') {
-    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
-    const body = (await req.json().catch(() => ({}))) as {
-      phone?: string
-      persona?: string
-      text?: string
-    }
-    if (!body.phone || !isPersona(body.persona || '')) return json({ error: 'phone and persona required' }, 400)
-    const user = await getUserByPhone(sql, body.phone)
-    if (!user) return json({ error: 'User not found' }, 404)
-    const people = parseChatExport(String(body.text || ''))
-    let lines = 0
-    for (const p of people) {
-      // Per-person durable context, keyed chat:<name>, capped so recall/prep can
-      // pull the thread back verbatim.
-      const payload = p.lines.slice(0, 30).join('\n').slice(0, 3000)
-      if (!payload.trim()) continue
-      lines += p.lines.length
-      const key = `chat:${p.name}`
-      await upsertMemories(sql, user.id, body.persona as Persona, [
-        { key, value: payload, durable: true },
-      ])
-    }
-    return json({ ok: true, people: people.length, lines })
-  }
-
-  if (path === '/api/internal/meetings' && req.method === 'POST') {
-    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
-    const body = (await req.json().catch(() => ({}))) as {
-      phone?: string
-      persona?: string
-      title?: string
-    }
-    if (!body.phone || !isPersona(body.persona || '') || !String(body.title || '').trim()) {
-      return json({ error: 'phone, persona, and title required' }, 400)
-    }
-    const user = await getUserByPhone(sql, body.phone)
-    if (!user) return json({ error: 'User not found' }, 404)
-    const id = crypto.randomUUID()
-    await sql`
-      INSERT INTO hire_meetings (id, user_id, title, phase, followups)
-      VALUES (${id}, ${user.id}, ${String(body.title).trim().slice(0, 200)}, 'debrief',
-        '[]'::jsonb)
-    `
-    return json({ ok: true, id })
-  }
-
-  if (path === '/api/internal/subscriptions' && req.method === 'POST') {
-    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
-    const body = (await req.json().catch(() => ({}))) as {
-      phone?: string
-      persona?: string
-      query?: string
-    }
-    if (!body.phone || !isPersona(body.persona || '')) return json({ error: 'phone and persona required' }, 400)
-    const live = await livePayload(sql, body.phone, body.persona as Persona)
-    if (!live.found || !live.hired || !live.userId) return json({ ok: false, hits: [], error: 'not hired' }, 404)
-    const bundle = await buildPrepBundle(
-      sql,
-      { id: live.userId, name: live.name, timezone: live.timezone },
-      String(body.query || 'recurring charges'),
-    )
-    const kw = String(body.query || '').toLowerCase().trim()
-    const hits = scanSubscriptions(bundle?.text || '')
-      .filter((h) => !kw || `${h.merchant} ${h.period}`.toLowerCase().includes(kw))
-    return json({ ok: true, hits })
-  }
-
-  if (path === '/api/internal/travel' && req.method === 'POST') {
-    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
-    const body = (await req.json().catch(() => ({}))) as {
-      phone?: string
-      persona?: string
-      dest?: string
-      tz?: string
-    }
-    if (!body.phone || !isPersona(body.persona || '') || !String(body.dest || '').trim()) {
-      return json({ error: 'phone, persona, and dest required' }, 400)
-    }
-    const user = await getUserByPhone(sql, body.phone)
-    if (!user) return json({ error: 'User not found' }, 404)
-    const dest = String(body.dest).trim().slice(0, 80)
-    const tz = String(body.tz || '').slice(0, 60)
-    await upsertMemories(sql, user.id, body.persona as Persona, [
-      { key: 'travel_dest', value: dest, durable: true },
-      ...(tz ? [{ key: 'travel_tz', value: tz, durable: true }] : []),
-    ])
-    return json({ ok: true, dest, tz })
-  }
-
-
-  /* Cofounder capture: one structured item overheard in chat, deduped inside
-   * 24 hours. The bot does the parsing; this endpoint only files the row. */
-  if (path === '/api/internal/cofounder/capture' && req.method === 'POST') {
-    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
-    const body = (await req.json().catch(() => ({}))) as {
-      phone?: string
-      persona?: string
-      kind?: string
-      fields?: Record<string, unknown>
-      raw?: string
-    }
-    if (!body.phone || !isPersona(body.persona || '')) return json({ error: 'phone and persona required' }, 400)
-    const kind = String(body.kind || '') as CofounderCaptureKind
-    if (!COFOUNDER_KINDS.includes(kind)) {
-      return json({ error: 'kind must be decision, promise, person, or opportunity' }, 400)
-    }
-    const user = await getUserByPhone(sql, body.phone)
-    if (!user) return json({ error: 'User not found' }, 404)
-    try {
-      const result = await captureCofounderItem(sql, user.id, body.persona!, kind, {
-        ...(body.fields || {}),
-        raw: String(body.raw || (body.fields as { raw?: string } | undefined)?.raw || ''),
-      })
-      return json({ ok: true, ...result })
-    } catch (err) {
-      return json({ error: err instanceof Error ? err.message : 'capture failed' }, 400)
-    }
-  }
-
-
-
-
-
-  /* Image generation for a picture ask. The bot's classifier decides that an
-   * image is what was asked for (no pattern matching in the conversation path);
-   * this route owns the provider, so a keyed provider replaces one function
-   * call and the bot never learns which one ran. */
-  if (path === '/api/internal/image' && req.method === 'POST') {
-    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
-    const body = (await req.json().catch(() => ({}))) as { phone?: string; prompt?: string; width?: number; height?: number }
-    const prompt = String(body.prompt || '').trim()
-    if (!prompt) return json({ error: 'prompt required' }, 400)
-    if (prompt.length > 500) return json({ error: 'prompt too long' }, 400)
-    const image = await generateImage(prompt, { width: body.width, height: body.height })
-    if (!image) return json({ error: 'image generation unavailable' }, 502)
-    console.log(`[image] generated for ${body.phone || 'unknown'} (${image.mimeType}, prompt ${image.prompt.length} chars)`)
-    return json({ ok: true, dataUrl: image.dataUrl, mimeType: image.mimeType, model: image.model })
-  }
-
-  /* Dedup lookup: has anyone already built this? Returns the newest verified
-   * build with this template key from a DIFFERENT user (same-user re-asks get
-   * a fresh build). */
-
-
-  if (path === '/api/internal/budget' && req.method === 'POST') {
-    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
-    const body = (await req.json().catch(() => ({}))) as { phone?: string; persona?: string; text?: string }
-    if (!body.phone || !isPersona(body.persona || '') || !String(body.text || '').trim()) {
-      return json({ error: 'phone, persona, and text required' }, 400)
-    }
-    const user = await getUserByPhone(sql, body.phone)
-    if (!user) return json({ error: 'User not found' }, 404)
-    const m = String(body.text).match(/\$?\s*(\d{2,6})/)
-    if (!m) return json({ ok: false, logged: false, error: 'Could not read a budget amount' })
-    const amount = Math.min(50000, Math.max(50, Number(m[1])))
-    await sql`
-      INSERT INTO hire_spending_budget (user_id, weekly_budget, updated_at)
-      VALUES (${user.id}, ${amount}, now())
-      ON CONFLICT (user_id) DO UPDATE SET weekly_budget = ${amount}, updated_at = now()
-    `
-    return json({ ok: true, logged: true, weeklyBudget: amount })
-  }
-
-  if (path === '/api/internal/prefs' && req.method === 'POST') {
-    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
-    const body = (await req.json().catch(() => ({}))) as { phone?: string; persona?: string; text?: string }
-    if (!body.phone || !isPersona(body.persona || '') || !String(body.text || '').trim()) {
-      return json({ error: 'phone, persona, and text required' }, 400)
-    }
-    const user = await getUserByPhone(sql, body.phone)
-    if (!user) return json({ error: 'User not found' }, 404)
-    const text = String(body.text)
-    const patch: Partial<MiniPrefs> = {}
-
-    const place = text.match(/\b(?:workout|train)\w*[\s\S]{0,24}?\b(home|gym)\b/i)
-    if (place) patch.workoutPlace = place[1]!.toLowerCase() as 'home' | 'gym'
-    const moves = text.match(/moves?\s*(?:per\s+day)?\s*(?:to|at)?\s*(4|5|6)\b/i) || text.match(/\b(4|5|6)\s+moves?\b/i)
-    if (moves) patch.workoutMoveCount = Number(moves[1]) as 4 | 5 | 6
-
-    const DAY_NUM: Record<string, number> = { sunday: 0, monday: 1, tuesday: 2, wednesday: 3, thursday: 4, friday: 5, saturday: 6 }
-    if (/\bevery\s+day\b/i.test(text)) {
-      patch.workoutDays = [0, 1, 2, 3, 4, 5, 6]
-    } else {
-      const named = Object.keys(DAY_NUM).filter((n) => new RegExp(`\\b${n}\\b`, 'i').test(text))
-      if (named.length) patch.workoutDays = named.map((n) => DAY_NUM[n]!)
-    }
-
-    const clockAt = (label: string) => {
-      const m = text.match(new RegExp(`${label}\\s*(?:at)?\\s*(\\d{1,2})(?::(\\d{2}))?\\s*(am|pm)?`, 'i'))
-      if (!m) return ''
-      let h = Number(m[1])
-      const min = m[2] ? Number(m[2]) : 0
-      const ap = (m[3] || '').toLowerCase()
-      if (ap === 'pm' && h < 12) h += 12
-      if (ap === 'am' && h === 12) h = 0
-      if (h > 23 || min > 59) return ''
-      return `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}`
-    }
-    const bedtime = clockAt('bedtime') || clockAt('sleep')
-    const wake = clockAt('wake')
-    if (bedtime) patch.sleepBedtime = bedtime
-    if (wake) patch.sleepWake = wake
-
-    if (!Object.keys(patch).length) {
-      return json({ ok: false, changed: false, error: 'Could not read a setting to change' })
-    }
-    const prefs = await saveMiniPrefs(sql, user.id, patch)
-    return json({ ok: true, changed: true, ...prefs })
-  }
-
-  if (path === '/api/internal/learning' && req.method === 'POST') {
-    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
-    const body = (await req.json().catch(() => ({}))) as {
-      phone?: string; persona?: string; url?: string; title?: string; text?: string
-    }
-    const itemUrl = String(body.url || '').trim().slice(0, 500)
-    if (!body.phone || !isPersona(body.persona || '') || !itemUrl) {
-      return json({ error: 'phone, persona, and url required' }, 400)
-    }
-    const user = await getUserByPhone(sql, body.phone)
-    if (!user) return json({ error: 'User not found' }, 404)
-    let title = String(body.title || '').replace(/https?:\/\/\S+/gi, '').trim().slice(0, 160)
-    if (!title) {
-      try {
-        title = new URL(itemUrl).hostname.replace(/^www\./, '') || 'Saved link'
-      } catch {
-        title = 'Saved link'
-      }
-    }
-    const kind = /\b(youtube|vimeo|watch)\b/i.test(itemUrl) ? 'video' : /\b(spotify|podcast|anchor)\b/i.test(itemUrl) ? 'podcast' : 'article'
-    const id = crypto.randomUUID()
-    await sql`
-      INSERT INTO hire_learning (id, user_id, title, url, kind, minutes)
-      VALUES (${id}, ${user.id}, ${title}, ${itemUrl}, ${kind}, 10)
-    `
-    return json({ ok: true, logged: true, id, title, url: itemUrl, kind })
-  }
-
-
-
-
-  /* Recent spending logs for the bot's billguard: category, amount, note. */
-  if (path === '/api/internal/spending' && req.method === 'GET') {
-    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
-    const phone = url.searchParams.get('phone') || ''
-    if (!phone) return json({ error: 'phone required' }, 400)
-    const user = await getUserByPhone(sql, phone)
-    if (!user) return json({ logs: [], weekly: 0, budget: 0 })
-    const rows = await sql`
-      SELECT amount, category, description, spent_at AS "spentAt" FROM hire_spending
-      WHERE user_id = ${user.id} AND spent_at >= now() - interval '60 days'
-      ORDER BY spent_at DESC LIMIT 60
-    `
-    const week = await sql`
-      SELECT coalesce(sum(amount), 0)::float AS total FROM hire_spending
-      WHERE user_id = ${user.id} AND spent_at >= now() - interval '7 days'
-    `
-    const budgetRow = await sql`
-      SELECT weekly_budget AS "weeklyBudget" FROM hire_spending_budget WHERE user_id = ${user.id} LIMIT 1
-    `
-    return json({
-      logs: rows,
-      weekly: Number((week[0] as { total?: number })?.total) || 0,
-      budget: Number((budgetRow[0] as { weeklyBudget?: number })?.weeklyBudget) || 0,
-    })
-  }
-
-
-
-
-
-
-  if (path === '/api/internal/last-proactive' && req.method === 'GET') {
-    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
-    const phone = url.searchParams.get('phone') || ''
-    const persona = url.searchParams.get('persona') || ''
-    if (!phone || !isPersona(persona)) return json({ error: 'phone and persona required' }, 400)
-    const user = await getUserByPhone(sql, phone)
-    if (!user) return json({ error: 'User not found' }, 404)
-    const fields = await loadContext(sql, user.id, persona)
-    return json({
-      topic: fields.last_proactive_topic || null,
-      minutesAgo: minutesAgo(fields.last_proactive_at),
-    })
-  }
-
-  if (path === '/api/internal/proactive/sent' && req.method === 'POST') {
-    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
-    const body = (await req.json().catch(() => ({}))) as {
-      phone?: string
-      persona?: string
-      topic?: string
-      freeze?: boolean
-    }
-    const persona = body.persona || ''
-    if (!body.phone || !isPersona(persona)) {
-      return json({ error: 'phone and persona required' }, 400)
-    }
-    const user = await getUserByPhone(sql, body.phone)
-    if (!user) return json({ error: 'User not found' }, 404)
-    const tz = user.timezone || 'America/Los_Angeles'
-    const today = localDateStrInTz(new Date(), tz)
-    const fields = await loadContext(sql, user.id, persona)
-    if (body.freeze) {
-      await upsertContext(sql, user.id, persona, {
-        unanswered_proactive: '2',
-        last_proactive_topic: 'blocked',
-      })
-      return json({ ok: true, frozen: true })
-    }
-    const prevUnanswered = Math.max(0, Number(fields.unanswered_proactive) || 0)
-    const sameDay = String(fields.last_proactive_day || '') === today
-    const dayCount = sameDay ? Math.max(0, Number(fields.unanswered_day_count) || 0) : 0
-    await upsertContext(sql, user.id, persona, {
-      last_proactive_at: new Date().toISOString(),
-      last_proactive_topic: String(body.topic || 'check_in').slice(0, 40),
-      last_proactive_day: today,
-      unanswered_proactive: String(prevUnanswered + 1),
-      unanswered_day_count: String(dayCount + 1),
-    })
-    return json({ ok: true })
-  }
-
-  if (path === '/api/internal/reminders' && req.method === 'POST') {
-    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
-    const body = (await req.json().catch(() => ({}))) as {
-      phone?: string
-      persona?: string
-      text?: string
-      scheduledAt?: string
-      recurrence?: string
-      timezone?: string
-    }
-    if (!body.phone || !body.persona || !isPersona(body.persona) || !body.text?.trim()) {
-      return json({ error: 'phone, persona, and text required' }, 400)
-    }
-    const at = new Date(body.scheduledAt || '')
-    if (Number.isNaN(at.getTime())) return json({ error: 'scheduledAt required' }, 400)
-    const user = await getUserByPhone(sql, body.phone)
-    if (!user) return json({ error: 'User not found' }, 404)
-    const recurrence = body.recurrence === 'daily' || body.recurrence === 'weekly' || body.recurrence === 'weekdays' ? body.recurrence : 'once'
-    const id = crypto.randomUUID()
-    await sql`
-      INSERT INTO hire_reminders (id, user_id, persona, text, scheduled_at, recurrence, timezone, status)
-      VALUES (${id}, ${user.id}, ${body.persona}, ${body.text.trim()}, ${at.toISOString()}, ${recurrence}, ${body.timezone || null}, 'pending')
-    `
-    return json({ ok: true, reminder: { id, scheduledAt: at.toISOString(), recurrence, text: body.text.trim() } })
-  }
-
-  if (path === '/api/internal/reminders/due' && req.method === 'GET') {
-    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
-    const persona = url.searchParams.get('persona') || ''
-    if (!isPersona(persona)) return json({ error: 'persona required' }, 400)
-    const rows = await sql`
-      SELECT r.id, r.user_id AS "userId", u.phone_e164 AS phone, r.text, r.scheduled_at AS "scheduledAt", r.recurrence, r.timezone
-      FROM hire_reminders r
-      JOIN hire_users u ON u.id = r.user_id
-      WHERE r.persona = ${persona} AND r.status = 'pending' AND r.scheduled_at <= now()
-      ORDER BY r.scheduled_at ASC
-      LIMIT 25
-    `
-    const reminders = rows.map((r: { id: string; userId: string; phone: string; text: string; scheduledAt: Date; recurrence: string; timezone: string | null }) => ({
-      id: r.id,
-      userId: r.userId,
-      phone: r.phone,
-      text: r.text,
-      scheduledAt: new Date(r.scheduledAt).toISOString(),
-      recurrence: r.recurrence,
-      timezone: r.timezone,
-    }))
-    return json({ reminders })
-  }
-
-  if (path === '/api/internal/reminders/list' && req.method === 'GET') {
-    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
-    const phone = url.searchParams.get('phone') || ''
-    const persona = url.searchParams.get('persona') || ''
-    if (!phone || !isPersona(persona)) return json({ error: 'phone and persona required' }, 400)
-    const user = await getUserByPhone(sql, phone)
-    if (!user) return json({ reminders: [] })
-    const rows = await sql`
-      SELECT id, text, scheduled_at AS "scheduledAt", recurrence, status, timezone
-      FROM hire_reminders
-      WHERE user_id = ${user.id} AND persona = ${persona}
-      ORDER BY scheduled_at ASC
-      LIMIT 50
-    `
-    return json({
-      reminders: rows.map((r: { id: string; text: string; scheduledAt: Date; recurrence: string; status: string; timezone: string | null }) => ({
-        id: r.id,
-        text: r.text,
-        scheduledAt: new Date(r.scheduledAt).toISOString(),
-        recurrence: r.recurrence,
-        status: r.status,
-        timezone: r.timezone,
-      })),
-    })
-  }
-
-  const reminderDone = path.match(/^\/api\/internal\/reminders\/([^/]+)\/done$/)
-  if (reminderDone && req.method === 'POST') {
-    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
-    const body = (await req.json().catch(() => ({}))) as { nextAt?: string; revert?: boolean }
-    // Atomic claim: only a poll that updates a still-pending row wins, so an
-    // overlapping poll cycle can never double-fire the same reminder.
-    const rows = await sql`
-      SELECT id, recurrence, timezone, scheduled_at AS "scheduledAt" FROM hire_reminders WHERE id = ${reminderDone[1]} LIMIT 1
-    `
-    const row = rows[0] as
-      | { id: string; recurrence: string; timezone: string | null; scheduledAt: Date }
-      | undefined
-    if (!row) return json({ error: 'Reminder not found' }, 404)
-    if (body.revert) {
-      /* Send failed after the claim. The claim already advanced a recurring
-       * row's scheduled_at, so returning only the status deferred the attempt a
-       * whole period — a failed 8am digest came back at 8am tomorrow, and the
-       * comment here claimed otherwise. A retry window of ten minutes puts the
-       * occurrence back on the next poll; the send path's own backoff bounds
-       * how often that can happen. */
-      await sql`
-        UPDATE hire_reminders
-        SET status = 'pending', scheduled_at = now() + interval '10 minutes', updated_at = now()
-        WHERE id = ${row.id}
-      `
-      return json({ ok: true, claimed: true, reverted: true })
-    }
-    if (row.recurrence !== 'once') {
-      const ts = new Date(row.scheduledAt).toISOString()
-      const tz = row.timezone || 'America/Los_Angeles'
-      let nextAt =
-        body.nextAt && !Number.isNaN(new Date(body.nextAt).getTime())
-          ? body.nextAt
-          : nextReminderAt(ts, row.recurrence, tz)
-      /* Step past NOW, not past the old scheduled time. A daily digest that was
-       * due three days ago (a redeploy, a stalled poll) used to advance one
-       * period per claim, so the next polls each found it due again and sent
-       * three copies in half a minute. */
-      for (let guard = 0; guard < 400 && new Date(nextAt).getTime() <= Date.now(); guard++) {
-        nextAt = nextReminderAt(nextAt, row.recurrence, tz)
-      }
-      const upd = await sql`
-        UPDATE hire_reminders
-        SET scheduled_at = ${nextAt}, updated_at = now()
-        WHERE id = ${row.id} AND status = 'pending'
-      `
-      if (upd && (upd as { count?: number }).count === 0) {
-        return json({ ok: true, claimed: false, rescheduled: false })
-      }
-      return json({ ok: true, claimed: true, rescheduled: true, nextAt })
-    }
-    const upd = await sql`
-      UPDATE hire_reminders SET status = 'sent' WHERE id = ${row.id} AND status = 'pending'
-    `
-    if (upd && (upd as { count?: number }).count === 0) {
-      return json({ ok: true, claimed: false, rescheduled: false })
-    }
-    return json({ ok: true, claimed: true, rescheduled: false })
-  }
-
-  if (path === '/api/internal/reminders' && req.method === 'DELETE') {
-    if (!internalOk(req)) return json({ error: 'Unauthorized' }, 401)
-    const id = url.searchParams.get('id') || ''
-    if (!id) return json({ error: 'id required' }, 400)
-    await sql`DELETE FROM hire_reminders WHERE id = ${id}`
-    return json({ ok: true })
-  }
-
-
-
-
-  /* ---- Learning queue ---- */
-  if (path === '/api/learning' && req.method === 'GET') {
-    const { user, error } = await resolveAuthedUser(sql, {
-      token: url.searchParams.get('t') || undefined,
-      session: url.searchParams.get('s') || undefined,
-      email: url.searchParams.get('email') || undefined,
-    })
-    if (error) return error
-    const items = await sql`
-      SELECT id, title, url, kind, minutes, notes, status, created_at AS "createdAt"
-      FROM hire_learning WHERE user_id = ${user!.id}
-      ORDER BY CASE WHEN status = 'queued' THEN 0 ELSE 1 END, created_at DESC
-    `
-    return json({ items })
-  }
-
-  if (path === '/api/learning' && req.method === 'POST') {
-    const body = (await req.json().catch(() => ({}))) as {
-      token?: string; email?: string; title?: string; url?: string; kind?: string; minutes?: number; notes?: string
-    }
-    const title = String(body.title || '').trim().slice(0, 240)
-    if (!title) return json({ error: 'title required' }, 400)
-    const { user, error } = await resolveAuthedUser(sql, { token: body.token, session: (body as { session?: string }).session, email: body.email })
-    if (error) return error
-    const allowedKinds = ['article', 'video', 'podcast', 'book', 'paper', 'thread']
-    const kind = allowedKinds.includes(String(body.kind)) ? String(body.kind) : 'article'
-    const minutes = Math.max(1, Math.min(360, Math.round(Number(body.minutes) || 10)))
-    const itemUrl = String(body.url || '').trim().slice(0, 500) || null
-    const notes = String(body.notes || '').trim().slice(0, 2000) || null
-    const id = crypto.randomUUID()
-    await sql`
-      INSERT INTO hire_learning (id, user_id, title, url, kind, minutes, notes)
-      VALUES (${id}, ${user!.id}, ${title}, ${itemUrl}, ${kind}, ${minutes}, ${notes})
-    `
-    return json({ ok: true, id })
-  }
-
-  if (path.startsWith('/api/learning/') && req.method === 'POST') {
-    const body = (await req.json().catch(() => ({}))) as {
-      token?: string; email?: string; _delete?: boolean; status?: string;
-      title?: string; url?: string | null; kind?: string; minutes?: number; notes?: string | null;
-      bumpTop?: boolean
-    }
-    const id = path.split('/')[3]
-    if (!id) return json({ error: 'id required' }, 400)
-    const { user, error } = await resolveAuthedUser(sql, { token: body.token, session: (body as { session?: string }).session, email: body.email })
-    if (error) return error
-    if (body._delete) {
-      await sql`DELETE FROM hire_learning WHERE id = ${id} AND user_id = ${user!.id}`
-      return json({ ok: true })
-    }
-    if (body.status !== undefined) {
-      const status = body.status === 'done' ? 'done' : 'queued'
-      await sql`UPDATE hire_learning SET status = ${status} WHERE id = ${id} AND user_id = ${user!.id}`
-    }
-    if (body.title !== undefined) {
-      const title = String(body.title).trim().slice(0, 240)
-      if (title) await sql`UPDATE hire_learning SET title = ${title} WHERE id = ${id} AND user_id = ${user!.id}`
-    }
-    if (body.url !== undefined) {
-      const itemUrl = body.url ? String(body.url).trim().slice(0, 500) : null
-      await sql`UPDATE hire_learning SET url = ${itemUrl} WHERE id = ${id} AND user_id = ${user!.id}`
-    }
-    if (body.kind !== undefined) {
-      const kind = ['article', 'video', 'podcast', 'book', 'paper', 'thread'].includes(String(body.kind)) ? String(body.kind) : 'article'
-      await sql`UPDATE hire_learning SET kind = ${kind} WHERE id = ${id} AND user_id = ${user!.id}`
-    }
-    if (body.minutes !== undefined) {
-      const minutes = Math.max(1, Math.min(360, Math.round(Number(body.minutes) || 10)))
-      await sql`UPDATE hire_learning SET minutes = ${minutes} WHERE id = ${id} AND user_id = ${user!.id}`
-    }
-    if (body.notes !== undefined) {
-      const notes = body.notes ? String(body.notes).trim().slice(0, 2000) : null
-      await sql`UPDATE hire_learning SET notes = ${notes} WHERE id = ${id} AND user_id = ${user!.id}`
-    }
-    if (body.bumpTop) {
-      await sql`UPDATE hire_learning SET created_at = now() WHERE id = ${id} AND user_id = ${user!.id}`
-    }
-    return json({ ok: true })
-  }
-
-
-
-
-
-
-
-
+  const liveRes = await handleLiveRoutes(req, sql, {
+    internalOk,
+    livePayload,
+    loadRoster,
+    connectedForUser,
+    rememberUserTimezone,
+    runToolsForMessage,
+  })
+  if (liveRes) return liveRes
+
+  const proposalRes = await handleProposalRoutes(req, sql, {
+    internalOk,
+    livePayload,
+    gmailReplyMeta,
+  })
+  if (proposalRes) return proposalRes
 
   if (path.startsWith('/api/')) return json({ error: 'Not found' }, 404)
   return null

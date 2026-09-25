@@ -52,7 +52,22 @@ export function createStaleCache<T>(opts: StaleCacheOptions) {
   const inflight = new Map<string, Promise<T | typeof TIMED_OUT | null>>()
   const failedAt = new Map<string, number>()
 
+  function prune(): void {
+    const current = now()
+    for (const [key, entry] of entries) {
+      if (current - entry.at > opts.ttlMs * 2) {
+        entries.delete(key)
+      }
+    }
+    for (const [key, at] of failedAt) {
+      if (current - at > cooldownMs) {
+        failedAt.delete(key)
+      }
+    }
+  }
+
   function evict() {
+    prune()
     while (entries.size > maxEntries) {
       let oldestKey: string | null = null
       let oldestAt = Number.POSITIVE_INFINITY
@@ -64,6 +79,11 @@ export function createStaleCache<T>(opts: StaleCacheOptions) {
       }
       if (oldestKey === null) return
       entries.delete(oldestKey)
+    }
+    while (failedAt.size > maxEntries) {
+      const first = failedAt.keys().next().value
+      if (first === undefined) break
+      failedAt.delete(first)
     }
   }
 
@@ -129,6 +149,16 @@ export function createStaleCache<T>(opts: StaleCacheOptions) {
     drop(key: string): void {
       entries.delete(key)
       failedAt.delete(key)
+    },
+
+    /** Clean up expired entries and failed cooldowns. */
+    prune(): void {
+      prune()
+    },
+
+    /** Current count of entries held. */
+    size(): number {
+      return entries.size
     },
   }
 }

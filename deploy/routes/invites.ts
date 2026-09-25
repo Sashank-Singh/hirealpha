@@ -1,4 +1,5 @@
 import type { SQL } from 'bun'
+import { isPersona, type Persona } from '../personas'
 import { json } from '../utils/http'
 import { normalizePhone } from '../utils/phone'
 import {
@@ -7,8 +8,13 @@ import {
   claimInvite,
   referralFreeMonths,
 } from '../db/invites'
+import { claimIntros, ackIntro } from '../db/intros'
 
-export async function handleInviteRoutes(req: Request, sql: SQL): Promise<Response | null> {
+export async function handleInviteRoutes(
+  req: Request,
+  sql: SQL,
+  options?: { internalOk?: (r: Request) => boolean },
+): Promise<Response | null> {
   const url = new URL(req.url)
   const path = url.pathname
 
@@ -68,6 +74,23 @@ export async function handleInviteRoutes(req: Request, sql: SQL): Promise<Respon
     const ahead = Number(rows[0]?.ahead ?? 0)
     const waiting = Number(rows[0]?.waiting ?? 0)
     return json({ position: ahead + waiting })
+  }
+
+  if (path === '/api/internal/intros/claim' && req.method === 'GET') {
+    if (!options?.internalOk?.(req)) return json({ error: 'Unauthorized' }, 401)
+    const persona = url.searchParams.get('persona') || ''
+    if (!isPersona(persona)) return json({ error: 'persona required' }, 400)
+    const limit = Math.min(Math.max(Number(url.searchParams.get('limit')) || 3, 1), 10)
+    const intros = await claimIntros(sql, persona as Persona, limit)
+    return json({ intros })
+  }
+
+  if (path === '/api/internal/intros/ack' && req.method === 'POST') {
+    if (!options?.internalOk?.(req)) return json({ error: 'Unauthorized' }, 401)
+    const body = (await req.json().catch(() => ({}))) as { id?: string; ok?: boolean; error?: string }
+    if (!body.id) return json({ error: 'id required' }, 400)
+    await ackIntro(sql, body.id, body.ok !== false, body.error)
+    return json({ ok: true })
   }
 
   return null

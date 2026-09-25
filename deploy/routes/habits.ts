@@ -26,8 +26,9 @@ import {
   nutritionModelConfig,
   imageMimeFromBase64,
 } from '../habits/parsers'
-import { loadMiniPrefs, saveMiniPrefs } from '../habits/prefs'
+import { loadMiniPrefs, saveMiniPrefs, type MiniPrefs } from '../habits/prefs'
 import { spendWouldBreakCap } from '../weekRun'
+import { computeIdempotencyKey, withIdempotency } from '../utils/idempotency'
 
 export async function handleHabitRoutes(
   req: Request,
@@ -485,7 +486,7 @@ export async function handleHabitRoutes(
   if (path === '/api/internal/nutrition' && req.method === 'POST') {
     if (!options.internalOk(req)) return json({ error: 'Unauthorized' }, 401)
     const body = (await req.json().catch(() => ({}))) as {
-      phone?: string; persona?: string; description?: string
+      phone?: string; persona?: string; description?: string; idempotencyKey?: string
     }
     const description = String(body.description || '').trim().slice(0, 500)
     if (!body.phone || !isPersona(body.persona || '') || !description) {
@@ -493,22 +494,53 @@ export async function handleHabitRoutes(
     }
     const user = await getUserByPhone(sql, body.phone || '')
     if (!user) return json({ error: 'User not found' }, 404)
-    let estimate: Awaited<ReturnType<typeof estimateNutrition>> = { ok: false, needsKey: true }
-    if (nutritionModelConfig()) {
-      try {
-        estimate = await estimateNutrition(description, '')
-      } catch {
-        estimate = { ok: false, error: 'Estimator unavailable' }
+
+    const idempotencyKey =
+      body.idempotencyKey ||
+      req.headers.get('idempotency-key') ||
+      req.headers.get('x-idempotency-key') ||
+      computeIdempotencyKey('nutrition', {
+        userId: user.id,
+        description,
+      })
+
+    const { result } = await withIdempotency(idempotencyKey, async () => {
+      const existing = (await sql`
+        SELECT id, description, calories FROM hire_nutrition_logs
+        WHERE user_id = ${user.id} AND description LIKE ${`${description.slice(0, 50)}%`}
+          AND eaten_at > now() - interval '10 minutes'
+        ORDER BY eaten_at DESC LIMIT 1
+      `) as Array<{ id: string; description: string; calories: number | null }>
+
+      if (existing[0]) {
+        return {
+          ok: true,
+          logged: true,
+          deduplicated: true,
+          id: existing[0].id,
+          guess: existing[0].description,
+        }
       }
-    }
-    const id = crypto.randomUUID()
-    const saved = estimate.ok ? (estimate.guess || description).slice(0, 300) : `${description.slice(0, 300)} (estimate pending)`
-    await sql`
-      INSERT INTO hire_nutrition_logs (id, user_id, description, image_url, calories, protein, carbs, fat, eaten_at)
-      VALUES (${id}, ${user.id}, ${saved}, NULL,
-        ${clampNum(estimate.calories)}, ${clampNum(estimate.protein)}, ${clampNum(estimate.carbs)}, ${clampNum(estimate.fat)}, now())
-    `
-    return json({ ok: true, logged: true, id, estimated: estimate.ok, needsKey: estimate.needsKey === true, guess: estimate.guess || undefined })
+
+      let estimate: Awaited<ReturnType<typeof estimateNutrition>> = { ok: false, needsKey: true }
+      if (nutritionModelConfig()) {
+        try {
+          estimate = await estimateNutrition(description, '')
+        } catch {
+          estimate = { ok: false, error: 'Estimator unavailable' }
+        }
+      }
+      const id = crypto.randomUUID()
+      const saved = estimate.ok ? (estimate.guess || description).slice(0, 300) : `${description.slice(0, 300)} (estimate pending)`
+      await sql`
+        INSERT INTO hire_nutrition_logs (id, user_id, description, image_url, calories, protein, carbs, fat, eaten_at)
+        VALUES (${id}, ${user.id}, ${saved}, NULL,
+          ${clampNum(estimate.calories)}, ${clampNum(estimate.protein)}, ${clampNum(estimate.carbs)}, ${clampNum(estimate.fat)}, now())
+      `
+      return { ok: true, logged: true, id, estimated: estimate.ok, needsKey: estimate.needsKey === true, guess: estimate.guess || undefined }
+    })
+
+    return json(result)
   }
 
   if (path === '/api/internal/nutrition/photo' && req.method === 'POST') {
@@ -825,6 +857,96 @@ export async function handleHabitRoutes(
       weightGoal: body.weightGoal === 'loss' || body.weightGoal === 'gain' || body.weightGoal === 'muscle' ? body.weightGoal : undefined,
     })
     return json({ ok: true, ...prefs })
+  }
+
+  if (path === '/api/internal/budget' && req.method === 'POST') {
+    if (!options.internalOk(req)) return json({ error: 'Unauthorized' }, 401)
+    const body = (await req.json().catch(() => ({}))) as { phone?: string; persona?: string; text?: string }
+    if (!body.phone || !isPersona(body.persona || '') || !String(body.text || '').trim()) {
+      return json({ error: 'phone, persona, and text required' }, 400)
+    }
+    const user = await getUserByPhone(sql, body.phone)
+    if (!user) return json({ error: 'User not found' }, 404)
+    const m = String(body.text).match(/\$?\s*(\d{2,6})/)
+    if (!m) return json({ ok: false, logged: false, error: 'Could not read a budget amount' })
+    const amount = Math.min(50000, Math.max(50, Number(m[1])))
+    await sql`
+      INSERT INTO hire_spending_budget (user_id, weekly_budget, updated_at)
+      VALUES (${user.id}, ${amount}, now())
+      ON CONFLICT (user_id) DO UPDATE SET weekly_budget = ${amount}, updated_at = now()
+    `
+    return json({ ok: true, logged: true, weeklyBudget: amount })
+  }
+
+  if (path === '/api/internal/prefs' && req.method === 'POST') {
+    if (!options.internalOk(req)) return json({ error: 'Unauthorized' }, 401)
+    const body = (await req.json().catch(() => ({}))) as { phone?: string; persona?: string; text?: string }
+    if (!body.phone || !isPersona(body.persona || '') || !String(body.text || '').trim()) {
+      return json({ error: 'phone, persona, and text required' }, 400)
+    }
+    const user = await getUserByPhone(sql, body.phone)
+    if (!user) return json({ error: 'User not found' }, 404)
+    const text = String(body.text)
+    const patch: Partial<MiniPrefs> = {}
+
+    const place = text.match(/\b(?:workout|train)\w*[\s\S]{0,24}?\b(home|gym)\b/i)
+    if (place) patch.workoutPlace = place[1]!.toLowerCase() as 'home' | 'gym'
+    const moves = text.match(/moves?\s*(?:per\s+day)?\s*(?:to|at)?\s*(4|5|6)\b/i) || text.match(/\b(4|5|6)\s+moves?\b/i)
+    if (moves) patch.workoutMoveCount = Number(moves[1]) as 4 | 5 | 6
+
+    const DAY_NUM: Record<string, number> = { sunday: 0, monday: 1, tuesday: 2, wednesday: 3, thursday: 4, friday: 5, saturday: 6 }
+    if (/\bevery\s+day\b/i.test(text)) {
+      patch.workoutDays = [0, 1, 2, 3, 4, 5, 6]
+    } else {
+      const named = Object.keys(DAY_NUM).filter((n) => new RegExp(`\\b${n}\\b`, 'i').test(text))
+      if (named.length) patch.workoutDays = named.map((n) => DAY_NUM[n]!)
+    }
+
+    const clockAt = (label: string) => {
+      const m = text.match(new RegExp(`${label}\\s*(?:at)?\\s*(\\d{1,2})(?::(\\d{2}))?\\s*(am|pm)?`, 'i'))
+      if (!m) return ''
+      let h = Number(m[1])
+      const min = m[2] ? Number(m[2]) : 0
+      const ap = (m[3] || '').toLowerCase()
+      if (ap === 'pm' && h < 12) h += 12
+      if (ap === 'am' && h === 12) h = 0
+      if (h > 23 || min > 59) return ''
+      return `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}`
+    }
+    const bedtime = clockAt('bedtime') || clockAt('sleep')
+    const wake = clockAt('wake')
+    if (bedtime) patch.sleepBedtime = bedtime
+    if (wake) patch.sleepWake = wake
+
+    if (!Object.keys(patch).length) {
+      return json({ ok: false, changed: false, error: 'Could not read a setting to change' })
+    }
+    const prefs = await saveMiniPrefs(sql, user.id, patch)
+    return json({ ok: true, changed: true, ...prefs })
+  }
+
+  /* Recent spending logs for the bot's billguard: category, amount, note. */
+  if (path === '/api/internal/spending' && req.method === 'GET') {
+    if (!options.internalOk(req)) return json({ error: 'Unauthorized' }, 401)
+    const phone = url.searchParams.get('phone') || ''
+    if (!phone) return json({ error: 'phone required' }, 400)
+    const user = await getUserByPhone(sql, phone)
+    if (!user) return json({ logs: [], weekly: 0, budget: 0 })
+    const rows = await sql`
+      SELECT amount, category, description, spent_at AS "spentAt" FROM hire_spending
+      WHERE user_id = ${user.id} AND spent_at >= now() - interval '60 days'
+      ORDER BY spent_at DESC LIMIT 60
+    `
+    const week = await sql`
+      SELECT coalesce(sum(amount), 0)::float AS total FROM hire_spending
+      WHERE user_id = ${user.id} AND spent_at >= now() - interval '7 days'
+    `
+    const weekly = Number((week[0] as { total?: number } | undefined)?.total || 0)
+    const budgetRows = await sql`
+      SELECT weekly_budget AS "weeklyBudget" FROM hire_spending_budget WHERE user_id = ${user.id} LIMIT 1
+    `
+    const budget = Number((budgetRows[0] as { weeklyBudget?: number } | undefined)?.weeklyBudget || 0)
+    return json({ logs: rows, weekly, budget })
   }
 
   return null

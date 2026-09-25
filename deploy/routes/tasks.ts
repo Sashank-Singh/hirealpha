@@ -5,6 +5,15 @@ import { getUserByPhone } from '../db/users'
 import { isPersona } from '../personas'
 import { resolveAuthedUser } from '../auth/session'
 
+async function openTodos(sql: SQL, userId: string): Promise<Array<{ id: string; text: string }>> {
+  const rows = await sql`
+    SELECT id::text AS id, text FROM hire_todos
+    WHERE user_id = ${userId} AND done = false
+    ORDER BY created_at DESC LIMIT 20
+  `
+  return rows as Array<{ id: string; text: string }>
+}
+
 export async function handleTaskRoutes(
   req: Request,
   sql: SQL,
@@ -261,6 +270,41 @@ export async function handleTaskRoutes(
       GROUP BY vote ORDER BY count DESC, vote
     `) as Array<{ vote: string; count: string | number }>
     return json({ ideas: rows.map((r) => ({ vote: r.vote, count: Number(r.count) })) })
+  }
+
+  // Shared to-do list: add | list | complete by id or fuzzy text
+  if (path === '/api/internal/todos' && req.method === 'POST') {
+    if (!options.internalOk(req)) return json({ error: 'Unauthorized' }, 401)
+    const body = (await req.json().catch(() => ({}))) as { phone?: string; action?: string; text?: string; id?: string }
+    const action = body.action === 'list' || body.action === 'complete' ? body.action : 'add'
+    if (!body.phone) return json({ error: 'phone required' }, 400)
+    const user = await getUserByPhone(sql, body.phone)
+    if (!user) return json({ error: 'User not found' }, 404)
+    if (action === 'add') {
+      const text = String(body.text || '').trim().slice(0, 300)
+      if (!text) return json({ error: 'text required' }, 400)
+      const row = (await sql`
+        INSERT INTO hire_todos (user_id, text) VALUES (${user.id}, ${text})
+        RETURNING id::text AS id, text, done
+      `)[0]
+      return json({ ok: true, todo: row, open: await openTodos(sql, user.id) })
+    }
+    if (action === 'complete') {
+      const wanted = String(body.text || '').trim().toLowerCase()
+      const id = /^[0-9a-f-]{36}$/i.test(String(body.id || '')) ? body.id : null
+      if (!id && !wanted) return json({ error: 'id or text required' }, 400)
+      const rows = await sql`
+        SELECT id::text AS id, text FROM hire_todos
+        WHERE user_id = ${user.id} AND done = false
+          AND ((${id}::uuid IS NOT NULL AND id = ${id}::uuid)
+               OR (${id}::uuid IS NULL AND lower(text) LIKE ${'%' + wanted + '%'}))
+        ORDER BY created_at DESC LIMIT 1
+      `
+      if (!rows[0]) return json({ ok: false, error: wanted || 'no match' })
+      await sql`UPDATE hire_todos SET done = true, completed_at = now() WHERE id = ${rows[0].id}::uuid`
+      return json({ ok: true, completed: rows[0], open: await openTodos(sql, user.id) })
+    }
+    return json({ ok: true, open: await openTodos(sql, user.id) })
   }
 
   return null
