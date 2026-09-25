@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import { briefRowFresh, briefRowSameDay } from './hire-api'
+import { briefRowFresh, briefRowSameDay } from './briefs/judgment'
 
 describe('briefRowFresh', () => {
   it('serves a row built today within the last-minute window', () => {

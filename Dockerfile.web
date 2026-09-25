@@ -106,6 +106,13 @@ COPY deploy/billing ./billing
 COPY deploy/loops ./loops
 COPY deploy/habits ./habits
 COPY deploy/nudges ./nudges
+COPY deploy/maps ./maps
+COPY deploy/travel ./travel
+COPY deploy/memory ./memory
+COPY deploy/connectors ./connectors
+COPY deploy/google ./google
+COPY deploy/briefs ./briefs
+COPY deploy/work ./work
 COPY deploy/routes ./routes
 COPY deploy/migrate.ts ./migrate.ts
 COPY deploy/migrations ./migrations

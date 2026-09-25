@@ -34,3 +34,14 @@ export function jsonRevalidated(req: Request, swrSeconds: number, data: unknown)
   })
 }
 
+export async function fetchPublic(url: URL, init: RequestInit, timeoutMs = 8000) {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), timeoutMs)
+  try {
+    return await fetch(url, { ...init, signal: controller.signal })
+  } catch {
+    return new Response(null, { status: 504 })
+  } finally {
+    clearTimeout(timer)
+  }
+}

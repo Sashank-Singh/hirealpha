@@ -12,7 +12,7 @@ import {
   mapPlaceWords,
   PLACE_ASK_RE,
   geocodeRowUsableForTest,
-} from './hire-api'
+} from './maps'
 
 /* Maps has two paths: Overpass for category asks ("good coffee") around known
  * or geocoded coords, Nominatim for named places. These tests pin the

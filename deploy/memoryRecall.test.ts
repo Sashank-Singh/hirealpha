@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import { selectMemoriesForRecall, type MemoryRow } from './hire-api'
+import { selectMemoriesForRecall, type MemoryRow } from './memory/store'
 
 describe('semantic memory candidate selection', () => {
   it('can select a relevant fact beyond the former 200-row recency window', () => {

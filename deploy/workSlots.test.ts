@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'bun:test'
-import { partOfDayWindow, suggestSlotRanges, suggestSlotsFromBusy, googleScopesFor } from './hire-api'
+import { partOfDayWindow, suggestSlotRanges, suggestSlotsFromBusy } from './work/stack'
+import { googleScopesFor } from './connectors/hub'
 
 /* Free calendar time the chat engine can actually book: the same walk the
  * pick-slot card uses, now with ISO ranges and a single-day window so
