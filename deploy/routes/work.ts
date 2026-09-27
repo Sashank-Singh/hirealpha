@@ -16,7 +16,7 @@ import {
   linearWrite,
 } from '../work/stack'
 import { buildPrepBundle, buildMeetingPrep } from '../work/prep'
-import { googleAccessToken, startOfLocalDay, composioFirst } from '../connectors/hub'
+import { googleAccessToken, startOfLocalDay, composioFirst, findDriveFiles } from '../connectors/hub'
 import {
   googleEventsRaw,
   findFreeSlots,
@@ -24,6 +24,8 @@ import {
   gmailSendMessage,
   gmailCreateDraft,
   localHourParts,
+  mutateCalendarEvent,
+  sendDriveFile,
 } from '../google/actions'
 import {
   COMPOSIO_READ,
@@ -33,6 +35,7 @@ import {
 } from '../composioPlugins'
 import { investorNoteBody } from './pipeline'
 import { pickUserTimezone, localDateStrInTz } from '../timezones'
+import { computeIdempotencyKey } from '../utils/idempotency'
 import { clampNum } from '../habits/parsers'
 import { extractJsonObject } from '../modelJson'
 
@@ -96,6 +99,40 @@ export async function handleWorkRoutes(
 ): Promise<Response | null> {
   const url = new URL(req.url)
   const path = url.pathname
+
+  if (path === '/api/internal/files/search' && req.method === 'POST') {
+    if (!options.internalOk(req)) return json({ error: 'Unauthorized' }, 401)
+    const body = await req.json().catch(() => ({})) as { phone?: string; query?: string }
+    const user = await getUserByPhone(sql, String(body.phone || '')); if (!user) return json({ error: 'User not found' }, 404)
+    return json(await findDriveFiles(sql, user.id, String(body.query || '').trim()))
+  }
+
+  if (path === '/api/internal/files/send' && req.method === 'POST') {
+    if (!options.internalOk(req)) return json({ error: 'Unauthorized' }, 401)
+    const body = await req.json().catch(() => ({})) as { phone?: string; persona?: string; recipient?: string; fileId?: string; mode?: 'attachment' | 'link'; subject?: string; text?: string; sourceThreadId?: string; draftVersion?: number }
+    if (!body.phone || !isPersona(body.persona || '') || !body.recipient || !body.fileId || !['attachment', 'link'].includes(String(body.mode))) return json({ error: 'phone, persona, recipient, fileId and mode required' }, 400)
+    const user = await getUserByPhone(sql, body.phone); if (!user) return json({ error: 'User not found' }, 404)
+    const operationKey = computeIdempotencyKey('file_send', { userId: user.id, recipient: body.recipient, fileId: body.fileId, mode: body.mode, sourceThreadId: body.sourceThreadId || '', draftVersion: body.draftVersion || 1 })
+    const existing = await sql`SELECT id,status,provider_id AS "providerId",error FROM hire_file_sends WHERE user_id=${user.id} AND operation_key=${operationKey} LIMIT 1`
+    if (existing[0]?.status === 'sent') return json({ ok: true, receipt: existing[0] })
+    if (existing[0]?.status === 'sending' || existing[0]?.status === 'outcome_unknown') return json({ ok: false, outcomeUnknown: true, error: 'A prior send may have committed; inspect Gmail before retrying.', receipt: existing[0] }, 409)
+    const id = existing[0]?.id || crypto.randomUUID()
+    await sql`INSERT INTO hire_file_sends (id,user_id,persona,recipient,drive_file_id,source_thread_id,draft_version,mode,status,operation_key) VALUES (${id},${user.id},${body.persona},${body.recipient},${body.fileId},${body.sourceThreadId || null},${body.draftVersion || 1},${body.mode},'sending',${operationKey}) ON CONFLICT (user_id,operation_key) DO UPDATE SET status='sending',updated_at=now()`
+    const sent = await sendDriveFile(sql, user.id, { recipient: body.recipient, fileId: body.fileId, mode: body.mode!, subject: String(body.subject || 'Shared file'), body: String(body.text || ''), operationId: id })
+    await sql`UPDATE hire_file_sends SET status=${sent.ok ? 'sent' : sent.outcomeUnknown ? 'outcome_unknown' : 'failed'},provider_id=${sent.providerId || null},error=${sent.error || null},updated_at=now() WHERE id=${id}`
+    const receipt = (await sql`SELECT id,recipient,drive_file_id AS "fileId",source_thread_id AS "sourceThreadId",draft_version AS "draftVersion",mode,status,provider_id AS "providerId",error FROM hire_file_sends WHERE id=${id}`)[0]
+    return json({ ...sent, receipt }, sent.ok ? 200 : sent.outcomeUnknown ? 409 : 400)
+  }
+
+  if (path === '/api/internal/calendar/event' && req.method === 'POST') {
+    if (!options.internalOk(req)) return json({ error: 'Unauthorized' }, 401)
+    const body = (await req.json().catch(() => ({}))) as { phone?: string; persona?: string; eventId?: string; action?: 'inspect' | 'update' | 'cancel' | 'rsvp'; start?: string; end?: string; response?: 'accepted' | 'declined' | 'tentative'; scope?: 'occurrence' | 'series' }
+    if (!body.phone || !isPersona(body.persona || '') || !body.eventId || !body.action) return json({ error: 'phone, persona, eventId and action required' }, 400)
+    const user = await getUserByPhone(sql, body.phone)
+    if (!user) return json({ error: 'User not found' }, 404)
+    const result = await mutateCalendarEvent(sql, user.id, { eventId: body.eventId, action: body.action, start: body.start, end: body.end, response: body.response, scope: body.scope, userEmail: user.email })
+    return json(result, result.ok ? 200 : result.outcomeUnknown ? 409 : 400)
+  }
 
   if (path === '/api/internal/prep' && req.method === 'POST') {
     if (!options.internalOk(req)) return json({ error: 'Unauthorized' }, 401)
@@ -252,32 +289,26 @@ export async function handleWorkRoutes(
     }
     const { user, error } = await resolveAuthedUser(sql, { token: body.token, session: (body as { session?: string }).session, email: body.email })
     if (error) return error
-    let toAddr = String(body.toAddr || '').trim()
-    let subject = String(body.subject || '').trim()
-    let text = String(body.body || '')
-    let threadId = ''
-    let inReplyTo = ''
-    if (body.id) {
-      const rows = await sql`
-        SELECT to_addr, subject, body, thread_id, in_reply_to, status FROM hire_drafts WHERE id = ${body.id} AND user_id = ${user!.id} LIMIT 1
-      `
-      const row = rows[0] as {
-        to_addr: string; subject: string; body: string; thread_id?: string; in_reply_to?: string; status?: string
-      } | undefined
-      /* A draft that has already gone is never transmitted again. The status
-       * was written but never read, so a second press — or a stale card left
-       * open behind the thread — sent the same email again. Live, 2026-09-19:
-       * the founder's own test send, where the button stayed live after
-       * "It went". */
-      if (row?.status === 'sent') return json({ ok: true, alreadySent: true })
-      if (row) {
-        toAddr = toAddr || row.to_addr
-        subject = subject || row.subject
-        text = text || row.body
-        threadId = row.thread_id || ''
-        inReplyTo = row.in_reply_to || ''
-      }
+    if (!body.id) return json({ ok: false, error: 'Draft id required' }, 400)
+    const claimed = await sql`
+      UPDATE hire_drafts SET status = 'sending', updated_at = now()
+      WHERE id = ${body.id} AND user_id = ${user!.id} AND status = 'pending'
+      RETURNING to_addr, subject, body, thread_id, in_reply_to, version
+    `
+    const row = claimed[0] as { to_addr: string; subject: string; body: string; thread_id?: string; in_reply_to?: string } | undefined
+    if (!row) {
+      const current = (await sql`
+        SELECT status, provider_id FROM hire_drafts WHERE id = ${body.id} AND user_id = ${user!.id} LIMIT 1
+      `)[0] as { status?: string; provider_id?: string } | undefined
+      if (!current) return json({ ok: false, error: 'Draft not found' }, 404)
+      if (current.status === 'sent') return json({ ok: true, alreadySent: true, providerId: current.provider_id, state: 'sent' })
+      return json({ ok: false, state: current.status, error: current.status === 'outcome_unknown' ? 'The earlier send has an unknown outcome and will not be repeated.' : 'This draft is already being sent.' }, 409)
     }
+    const toAddr = String(body.toAddr || row.to_addr || '').trim()
+    const subject = String(body.subject || row.subject || '').trim()
+    const text = body.body === undefined ? row.body : String(body.body)
+    const threadId = row.thread_id || ''
+    const inReplyTo = row.in_reply_to || ''
     if (!toAddr || !subject) return json({ ok: false, error: 'To and subject required' }, 400)
     const sent = await gmailSendMessage(sql, user!.id, {
       to: toAddr,
@@ -285,12 +316,15 @@ export async function handleWorkRoutes(
       body: text,
       threadId: threadId || undefined,
       inReplyTo: inReplyTo || undefined,
+      operationId: body.id,
     })
-    if (!sent.ok) return json({ ok: false, error: sent.error }, 400)
-    if (body.id) {
-      await sql`UPDATE hire_drafts SET status = 'sent', updated_at = now() WHERE id = ${body.id} AND user_id = ${user!.id}`
+    if (!sent.ok) {
+      const state = sent.outcomeUnknown ? 'outcome_unknown' : 'pending'
+      await sql`UPDATE hire_drafts SET status = ${state}, updated_at = now() WHERE id = ${body.id} AND user_id = ${user!.id} AND status = 'sending'`
+      return json({ ok: false, state, error: sent.error }, sent.outcomeUnknown ? 409 : 400)
     }
-    return json({ ok: true })
+    await sql`UPDATE hire_drafts SET status = ${'sent'}, provider_id = ${sent.providerId!}, updated_at = now() WHERE id = ${body.id} AND user_id = ${user!.id} AND status = 'sending'`
+    return json({ ok: true, providerId: sent.providerId, state: 'sent' })
   }
 
   /* Save the draft into Gmail's Drafts folder. Deliberately a different path
@@ -402,26 +436,33 @@ export async function handleWorkRoutes(
     }
     const { user, error } = await resolveAuthedUser(sql, { token: body.token, session: (body as { session?: string }).session, email: body.email })
     if (error) return error
-    let title = String(body.title || 'Hold').slice(0, 160)
-    let start = String(body.start || '')
-    let end = String(body.end || '')
-    if (body.id) {
-      const rows = await sql`
-        SELECT subject, start_at, end_at FROM hire_drafts WHERE id = ${body.id} AND user_id = ${user!.id} LIMIT 1
-      `
-      const row = rows[0] as { subject?: string; start_at?: string; end_at?: string } | undefined
-      if (row) {
-        title = title === 'Hold' ? String(row.subject || title) : title
-        start = start || String(row.start_at || '')
-        end = end || String(row.end_at || '')
-      }
+    if (!body.id) return json({ ok: false, error: 'Draft id required' }, 400)
+    const claimed = await sql`
+      UPDATE hire_drafts SET status = 'booking', updated_at = now()
+      WHERE id = ${body.id} AND user_id = ${user!.id} AND status = 'pending'
+      RETURNING subject, start_at, end_at, version
+    `
+    const row = claimed[0] as { subject?: string; start_at?: string; end_at?: string } | undefined
+    if (!row) {
+      const current = (await sql`
+        SELECT status, provider_id FROM hire_drafts WHERE id = ${body.id} AND user_id = ${user!.id} LIMIT 1
+      `)[0] as { status?: string; provider_id?: string } | undefined
+      if (!current) return json({ ok: false, error: 'Draft not found' }, 404)
+      if (current.status === 'booked') return json({ ok: true, alreadyBooked: true, eventId: current.provider_id, state: 'booked' })
+      return json({ ok: false, state: current.status, error: current.status === 'outcome_unknown' ? 'The earlier booking has an unknown outcome and will not be repeated.' : 'This event is already being booked.' }, 409)
     }
+    const title = String(body.title || row.subject || 'Hold').slice(0, 160)
+    const start = String(body.start || row.start_at || '')
+    const end = String(body.end || row.end_at || '')
     if (!start || !end) return json({ ok: false, error: 'start and end required' }, 400)
-    const held = await calendarHold(sql, user!.id, { title, start, end })
-    if (held.ok && body.id) {
-      await sql`UPDATE hire_drafts SET status = 'sent', updated_at = now() WHERE id = ${body.id} AND user_id = ${user!.id}`
+    const held = await calendarHold(sql, user!.id, { title, start, end, operationId: body.id })
+    if (!held.ok) {
+      const state = held.outcomeUnknown ? 'outcome_unknown' : 'pending'
+      await sql`UPDATE hire_drafts SET status = ${state}, updated_at = now() WHERE id = ${body.id} AND user_id = ${user!.id} AND status = 'booking'`
+      return json({ ...held, state }, held.outcomeUnknown ? 409 : 400)
     }
-    return json(held, held.ok ? 200 : 400)
+    await sql`UPDATE hire_drafts SET status = ${'booked'}, provider_id = ${held.eventId!}, updated_at = now() WHERE id = ${body.id} AND user_id = ${user!.id} AND status = 'booking'`
+    return json({ ...held, state: 'booked' })
   }
 
   if (path === '/api/work/linear' && req.method === 'GET') {

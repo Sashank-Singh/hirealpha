@@ -1,0 +1,1456 @@
+/* The brief. Phone first, in the product skin (tokens and recipes: lab.css). */
+
+/* Inside the mini app shell: the shell leads, so the brief is a translucent
+ * column with no chrome of its own. Light theme follows the shell. */
+.lb-embedded {
+  background: transparent;
+  min-height: 0;
+}
+
+.lb-embedded .lab-shell {
+  max-width: none;
+  padding: 0 0 12px;
+}
+
+.lb-embedded .lab-topbar {
+  display: none;
+}
+
+.lb-embedded .lb-lead {
+  padding-top: 2px;
+}
+
+.lb-embedded .lb-side {
+  padding-top: 16px;
+}
+
+.lb-embedded .lb-toast {
+  bottom: calc(64px + env(safe-area-inset-bottom));
+}
+
+html[data-mini-theme='light'] .lb-embedded {
+  --lab-bg: transparent;
+  --lab-surface: #ffffff;
+  --lab-raised: #ffffff;
+  --lab-sunken: #ecebe5;
+  --lab-card-bg: linear-gradient(180deg, #ffffff 0%, #fbfaf7 100%);
+  --lab-card-line: rgb(26 25 23 / 0.09);
+  --lab-line: rgb(26 25 23 / 0.1);
+  --lab-line-strong: rgb(26 25 23 / 0.18);
+  --lab-fg: #1a1917;
+  --lab-muted: #6d675e;
+  --lab-faint: #948d82;
+  --lab-accent: #1f6b5f;
+  --lab-accent-ink: #f5fbf9;
+  --lab-now: #9c5a22;
+  --lab-wait: #35507e;
+  --lab-quiet: #8b857b;
+  --lab-risk: #a8322b;
+  color-scheme: light;
+}
+
+html[data-mini-theme='light'] .lb-embedded .lb-mail__body p {
+  color: #3a3833;
+  opacity: 1;
+}
+
+.lb .lab-shell {
+  padding-bottom: calc(44px + env(safe-area-inset-bottom));
+}
+
+/* ── Topbar ─────────────────────────────────────────────────────────────── */
+
+.lb-gear {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  margin-right: -6px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--lab-muted);
+  cursor: pointer;
+  transition: background 0.15s var(--lab-ease), color 0.15s var(--lab-ease);
+}
+
+.lb-gear:hover {
+  background: rgb(255 255 255 / 0.06);
+  color: var(--lab-fg);
+}
+
+/* ── Lead: one line ─────────────────────────────────────────────────────── */
+
+.lb-lead {
+  padding: 20px 0 16px;
+}
+
+.lb-lead__title {
+  font-size: 28px;
+  line-height: 1.1;
+  text-wrap: pretty;
+}
+
+.lb-lead__soft {
+  color: var(--lab-muted);
+}
+
+.lb-lead__para {
+  margin-top: 12px;
+  max-width: 46ch;
+  font-size: 15px;
+  line-height: 1.5;
+  color: var(--lab-muted);
+}
+
+/* ── Order of the page: brief, today, email, then everything else ──────── */
+
+.lb-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 0 9px;
+}
+
+.lb-head__meta {
+  font-size: 11.5px;
+  color: var(--lab-muted);
+  white-space: nowrap;
+}
+
+.lb-head--section {
+  margin-top: 22px;
+  padding-top: 18px;
+  border-top: 1px solid var(--lab-line);
+}
+
+.lb-head--side {
+  padding: 0 0 9px;
+}
+
+/* ── Today ──────────────────────────────────────────────────────────────── */
+
+.lb-schedule {
+  padding-bottom: 4px;
+}
+
+.lb-beats {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  border: 1px solid var(--lab-card-line);
+  border-radius: var(--lab-r);
+  background: var(--lab-card-bg);
+  box-shadow: var(--lab-card-shadow);
+  overflow: hidden;
+}
+
+.lb-beat {
+  border-top: 1px solid var(--lab-card-line);
+}
+
+.lb-beat:first-child {
+  border-top: 0;
+}
+
+.lb-beat__head {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  width: 100%;
+  min-height: 48px;
+  padding: 11px 13px;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.lb-beat__time {
+  flex: none;
+  width: 52px;
+  padding-top: 1px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--lab-muted);
+}
+
+.lb-beat.is-meet .lb-beat__time {
+  color: var(--lab-accent);
+}
+
+.lb-beat__id {
+  flex: 1;
+  min-width: 0;
+}
+
+.lb-beat__title {
+  display: block;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.32;
+  letter-spacing: -0.018em;
+}
+
+.lb-beat.is-focus .lb-beat__title,
+.lb-beat.is-personal .lb-beat__title {
+  font-weight: 550;
+  color: var(--lab-fg);
+  opacity: 0.82;
+}
+
+.lb-beat__meta {
+  display: block;
+  margin-top: 2px;
+  font-size: 12px;
+  line-height: 1.35;
+  color: var(--lab-faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lb-beat__head .lab-chip {
+  flex: none;
+  margin-top: 2px;
+}
+
+.lb-beat__body {
+  padding: 0 13px 12px;
+}
+
+.lb-beat__note {
+  padding-top: 10px;
+  border-top: 1px solid var(--lab-card-line);
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--lab-muted);
+}
+
+.lb-beat__body .lb-actions {
+  margin: 11px 0 0;
+  padding: 0;
+  position: static;
+  border-top: 0;
+  background: transparent;
+  backdrop-filter: none;
+  border-radius: 0;
+}
+
+/* ── Tally doubles as the filter ────────────────────────────────────────── */
+
+.lb-tally {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1px;
+  margin: 0 0 16px;
+  border: 1px solid var(--lab-card-line);
+  border-radius: var(--lab-r);
+  background: var(--lab-line);
+  overflow: hidden;
+}
+
+.lb-tally__btn {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 11px 12px;
+  border: 0;
+  background: var(--lab-card-bg);
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s var(--lab-ease);
+}
+
+.lb-tally__btn.is-active {
+  background: linear-gradient(180deg, rgb(40 42 48 / 0.9), rgb(26 27 31 / 0.94));
+  box-shadow: inset 0 0 0 1px rgb(127 227 196 / 0.28);
+}
+
+.lb-tally__n {
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.03em;
+  line-height: 1.1;
+}
+
+.lb-tally__btn.is-active .lb-tally__n {
+  color: var(--lab-accent);
+}
+
+.lb-tally__label {
+  font-size: 11.5px;
+  line-height: 1.3;
+  color: var(--lab-muted);
+}
+
+.lb-body {
+  display: flex;
+  flex-direction: column;
+}
+
+.lb-main {
+  min-width: 0;
+}
+
+.lb-list {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+
+/* ── Item ───────────────────────────────────────────────────────────────── */
+
+.lb-item {
+  border: 1px solid var(--lab-card-line);
+  border-radius: var(--lab-r);
+  background: var(--lab-card-bg);
+  box-shadow: var(--lab-card-shadow);
+  scroll-margin-top: 68px;
+  transition: border-color 0.2s var(--lab-ease), box-shadow 0.2s var(--lab-ease);
+}
+
+.lb-item.is-open {
+  border-color: rgb(127 227 196 / 0.22);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.09), 0 14px 32px rgb(0 0 0 / 0.35);
+}
+
+.lb-item__head {
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
+  width: 100%;
+  padding: 12px 13px;
+  border: 0;
+  border-radius: var(--lab-r);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.lb-item__id {
+  flex: 1;
+  min-width: 0;
+}
+
+.lb-item__who {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--lab-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lb-item__time {
+  margin-left: auto;
+  flex: none;
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--lab-faint);
+}
+
+.lb-item__ask {
+  display: block;
+  margin-top: 3px;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.34;
+  letter-spacing: -0.018em;
+  color: var(--lab-fg);
+}
+
+.lb-item__flag {
+  flex: none;
+  padding-top: 1px;
+}
+
+.lb-item__body {
+  padding: 12px 13px 13px;
+  border-top: 1px solid var(--lab-card-line);
+}
+
+/* ── The mail ───────────────────────────────────────────────────────────── */
+
+.lb-mail {
+  min-width: 0;
+}
+
+.lb-mail__meta {
+  padding-bottom: 9px;
+  border-bottom: 1px solid var(--lab-card-line);
+}
+
+.lb-mail__subj {
+  font-size: 14px;
+  font-weight: 650;
+  letter-spacing: -0.015em;
+}
+
+.lb-mail__body {
+  padding-top: 10px;
+}
+
+.lb-mail__body p {
+  font-size: 14px;
+  line-height: 1.58;
+  color: #e8eae7;
+}
+
+.lb-mail__body p + p {
+  margin-top: 8px;
+}
+
+.lb-files {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 11px;
+}
+
+.lb-files li {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 11px;
+  border: 1px solid var(--lab-card-line);
+  border-radius: var(--lab-r-sm);
+  background: rgb(255 255 255 / 0.035);
+}
+
+.lb-files__name {
+  flex: 1;
+  min-width: 0;
+  font-size: 12.5px;
+  font-weight: 550;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── Read: chips and the promise, then one line of why ──────────────────── */
+
+.lb-read {
+  margin-top: 12px;
+}
+
+.lb-read__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 7px;
+}
+
+.lb-read__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.lb-read__auto {
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--lab-muted);
+}
+
+.lb-read__auto::before {
+  content: 'If you do nothing: ';
+  color: var(--lab-faint);
+}
+
+.lb-read__why {
+  margin-top: 7px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--lab-fg);
+  opacity: 0.86;
+}
+
+/* ── Draft ──────────────────────────────────────────────────────────────── */
+
+.lb-draft {
+  margin-top: 12px;
+}
+
+.lb-draft__to {
+  font-size: 11.5px;
+  color: var(--lab-faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lb-draft__text {
+  display: block;
+  width: 100%;
+  margin-top: 7px;
+  padding: 12px;
+  border: 1px solid var(--lab-card-line);
+  border-radius: var(--lab-r-sm);
+  background: var(--lab-bg);
+  color: var(--lab-fg);
+  font-size: 14px;
+  line-height: 1.58;
+  resize: vertical;
+}
+
+.lb-draft__text:focus {
+  outline: none;
+  border-color: rgb(127 227 196 / 0.5);
+}
+
+/* ── Adjust: one button on the draft, everything else inside it ─────────── */
+
+.lb-adjust {
+  margin-top: 9px;
+}
+
+.lb-adjust__toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 32px;
+  padding: 0 11px 0 12px;
+  border: 1px solid var(--lab-card-line);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--lab-muted);
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: color 0.15s var(--lab-ease), border-color 0.15s var(--lab-ease);
+}
+
+.lb-adjust__toggle:hover,
+.lb-adjust__toggle[aria-expanded='true'] {
+  color: var(--lab-fg);
+  border-color: var(--lab-line-strong);
+}
+
+.lb-adjust__voice {
+  color: var(--lab-accent);
+  font-weight: 650;
+}
+
+.lb-adjust__chev {
+  opacity: 0.7;
+  transition: transform 0.2s var(--lab-ease);
+}
+
+.lb-adjust__toggle[aria-expanded='true'] .lb-adjust__chev {
+  transform: rotate(180deg);
+}
+
+.lb-adjust__panel {
+  margin-top: 9px;
+  padding: 11px;
+  border: 1px solid var(--lab-card-line);
+  border-radius: var(--lab-r-sm);
+  background: var(--lab-sunken);
+}
+
+.lb-adjust__voices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.lb-adjust__ask {
+  display: flex;
+  gap: 6px;
+  margin-top: 9px;
+}
+
+.lb-adjust__input {
+  flex: 1;
+  min-width: 0;
+  height: 34px;
+  padding: 0 12px;
+  border: 1px solid var(--lab-card-line);
+  border-radius: 999px;
+  background: var(--lab-bg);
+  font-size: 12.5px;
+}
+
+.lb-adjust__input::placeholder {
+  color: var(--lab-faint);
+}
+
+.lb-adjust__input:focus {
+  outline: none;
+  border-color: rgb(127 227 196 / 0.5);
+}
+
+/* Small pill: the voices, Apply, and the jump links on schedule events. */
+.lb-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 34px;
+  padding: 0 13px;
+  border: 1px solid var(--lab-card-line);
+  border-radius: 999px;
+  background: rgb(255 255 255 / 0.05);
+  color: var(--lab-fg);
+  font-size: 12.5px;
+  font-weight: 550;
+  cursor: pointer;
+  transition: background 0.15s var(--lab-ease), border-color 0.15s var(--lab-ease);
+}
+
+.lb-chip:hover:not(:disabled) {
+  background: rgb(255 255 255 / 0.09);
+  border-color: var(--lab-line-strong);
+}
+
+.lb-chip:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.lb-chip--tone {
+  min-height: 32px;
+  padding: 0 12px;
+  font-size: 12px;
+  background: transparent;
+  color: var(--lab-muted);
+}
+
+.lb-chip--tone.is-active {
+  background: color-mix(in srgb, var(--lab-accent) 16%, transparent);
+  border-color: color-mix(in srgb, var(--lab-accent) 45%, transparent);
+  color: var(--lab-accent);
+  font-weight: 650;
+}
+
+.lb-draft__tone {
+  color: var(--lab-muted);
+}
+
+.lb-default-tone {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 12px;
+}
+
+.lb-default-tone__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+/* ── One primary, one overflow ──────────────────────────────────────────── */
+
+.lb-actions {
+  position: sticky;
+  bottom: 0;
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 13px -13px -13px;
+  padding: 10px 13px calc(10px + env(safe-area-inset-bottom));
+  border-top: 1px solid var(--lab-card-line);
+  border-radius: 0 0 var(--lab-r) var(--lab-r);
+  background: color-mix(in srgb, #1c1d21 94%, transparent);
+  backdrop-filter: blur(14px);
+}
+
+.lb-actions .lab-btn--full {
+  flex: 1;
+}
+
+.lb-more {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 42px;
+  min-height: 40px;
+  border: 1px solid var(--lab-card-line);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--lab-muted);
+  cursor: pointer;
+  transition: color 0.15s var(--lab-ease), border-color 0.15s var(--lab-ease), background 0.15s var(--lab-ease);
+}
+
+.lb-more:hover,
+.lb-more[aria-expanded='true'] {
+  color: var(--lab-fg);
+  border-color: var(--lab-line-strong);
+  background: rgb(255 255 255 / 0.05);
+}
+
+.lb-menu {
+  margin-top: 9px;
+  border: 1px solid var(--lab-card-line);
+  border-radius: var(--lab-r-sm);
+  background: var(--lab-sunken);
+  overflow: hidden;
+}
+
+.lb-menu__item {
+  display: block;
+  width: 100%;
+  min-height: 44px;
+  padding: 0 14px;
+  border: 0;
+  border-top: 1px solid var(--lab-card-line);
+  background: transparent;
+  color: var(--lab-fg);
+  font-size: 14px;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+}
+
+.lb-menu__item:first-child {
+  border-top: 0;
+}
+
+.lb-menu__item:hover {
+  background: rgb(255 255 255 / 0.05);
+}
+
+/* ── Side: two folded rows ──────────────────────────────────────────────── */
+
+.lb-side {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 20px;
+}
+
+.lb-fold {
+  border: 1px solid var(--lab-card-line);
+  border-radius: var(--lab-r);
+  background: var(--lab-card-bg);
+  box-shadow: var(--lab-card-shadow);
+  overflow: hidden;
+  scroll-margin-top: 68px;
+}
+
+.lb-fold__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  min-height: 48px;
+  padding: 12px 13px;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+}
+
+.lb-fold__sum {
+  font-size: 12px;
+  color: var(--lab-muted);
+  white-space: nowrap;
+}
+
+.lb-fold__body {
+  padding: 0 13px 13px;
+  border-top: 1px solid var(--lab-card-line);
+}
+
+/* The week */
+.lb-week {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  padding: 12px 13px 13px;
+  border-top: 1px solid var(--lab-card-line);
+}
+
+.lb-week li {
+  display: grid;
+  grid-template-columns: 58px minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+}
+
+.lb-week__day {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--lab-faint);
+  padding-top: 8px;
+}
+
+.lb-week li.is-today .lb-week__day {
+  color: var(--lab-accent);
+}
+
+.lb-week__pips {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+
+.lb-pip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 36px;
+  padding: 7px 10px;
+  border: 1px solid var(--lab-card-line);
+  border-radius: var(--lab-r-sm);
+  background: rgb(255 255 255 / 0.04);
+  text-align: left;
+  cursor: pointer;
+}
+
+.lb-pip:active {
+  transform: scale(0.99);
+}
+
+.lb-pip__dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--lab-quiet);
+}
+
+.lb-pip.is-deadline .lb-pip__dot { background: var(--lab-now); }
+.lb-pip.is-chase .lb-pip__dot { background: var(--lab-risk); }
+.lb-pip.is-waiting .lb-pip__dot { background: var(--lab-wait); }
+
+.lb-pip__text {
+  flex: 1;
+  min-width: 0;
+  font-size: 12.5px;
+  line-height: 1.35;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Settings */
+.lb-switches {
+  display: flex;
+  flex-direction: column;
+  padding-top: 4px;
+}
+
+.lb-switches--sub {
+  margin-top: 6px;
+  padding-top: 10px;
+  border-top: 1px solid var(--lab-card-line);
+}
+
+.lb-switches li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 44px;
+}
+
+.lb-switch__label {
+  flex: 1;
+  min-width: 0;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.35;
+}
+
+.lb-switch__label.is-locked {
+  color: var(--lab-muted);
+}
+
+.lb-ledger-row {
+  margin-top: 12px;
+  padding-top: 11px;
+  border-top: 1px solid var(--lab-card-line);
+  font-size: 12.5px;
+  color: var(--lab-muted);
+}
+
+.lb-honest-line {
+  margin-top: 6px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--lab-faint);
+}
+
+/* ── Desktop ────────────────────────────────────────────────────────────── */
+
+@media (min-width: 900px) {
+  .lb-lead,
+  .lb-list,
+  .lb-side,
+  .lb-head,
+  .lb-beats {
+    padding-left: 0;
+    padding-right: 0;
+  }
+
+  .lb-beats {
+    margin: 0;
+  }
+
+  .lb-head--section {
+    margin-top: 26px;
+  }
+
+  .lb-lead {
+    padding: 26px 0 18px;
+  }
+
+  .lb-lead__title {
+    font-size: clamp(30px, 3.2vw, 36px);
+    max-width: 26ch;
+  }
+
+  .lb-lead__para {
+    max-width: 60ch;
+  }
+
+  .lb-tally {
+    margin: 0 0 18px;
+  }
+
+  /* The order stays literal at every width: brief, today, email, then the rest
+   * stack underneath rather than moving into a side rail. */
+  .lb-side {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px;
+    padding-top: 0;
+  }
+
+  .lb-head--side {
+    grid-column: 1 / -1;
+  }
+
+  .lb-actions {
+    position: static;
+    margin: 13px 0 0;
+    padding: 0;
+    border-top: 0;
+    background: transparent;
+    backdrop-filter: none;
+  }
+
+  .lb-actions .lab-btn--full {
+    /* .lab-btn--full is width:100%; here the button shares the row. */
+    width: auto;
+    flex: 0 0 auto;
+    min-height: 40px;
+    padding: 0 22px;
+  }
+
+  .lb-more {
+    width: 40px;
+    min-height: 40px;
+  }
+}
+
+/* ── Person grouping: one card holds every mail from one sender ─────────── */
+
+.lb-item__org {
+  font-weight: 550;
+  color: var(--lab-accent);
+  font-size: 11px;
+}
+
+.lb-mailblock {
+  border-top: 1px solid var(--lab-card-line);
+}
+
+.lb-item__body > .lb-mailblock:first-child {
+  border-top: 0;
+}
+
+.lb-mailblock__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  min-height: 40px;
+  padding: 10px 0;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.lb-mailblock__subj {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--lab-fg);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lb-mailblock.is-open .lb-mailblock__subj {
+  color: var(--lab-muted);
+  font-weight: 550;
+}
+
+.lb-mailblock > div {
+  padding-bottom: 4px;
+}
+
+/* ── Evening review: how the day went ───────────────────────────────────── */
+
+.lb-review {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  border: 1px solid var(--lab-card-line);
+  border-radius: var(--lab-r);
+  background: var(--lab-card-bg);
+  box-shadow: var(--lab-card-shadow);
+  overflow: hidden;
+}
+
+.lb-fact {
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
+  min-height: 44px;
+  padding: 11px 13px;
+  border-top: 1px solid var(--lab-card-line);
+}
+
+.lb-fact:first-child {
+  border-top: 0;
+}
+
+.lb-fact__mark {
+  flex: none;
+  min-width: 34px;
+  padding: 2px 0;
+  border-radius: 999px;
+  background: color-mix(in srgb, currentColor 12%, transparent);
+  font-size: 10.5px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.lb-fact.is-done { color: var(--lab-accent); }
+.lb-fact.is-miss { color: var(--lab-risk); }
+.lb-fact.is-partial { color: var(--lab-now); }
+
+.lb-fact__id {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.lb-fact__label {
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  color: var(--lab-fg);
+}
+
+.lb-fact__detail {
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--lab-muted);
+}
+
+.lb-habits {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 11px 13px;
+  border-top: 1px solid var(--lab-card-line);
+}
+
+/* ── Promos and ads: their own collapsed pile ───────────────────────────── */
+
+.lb-promos {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 11px 13px;
+  border-top: 1px solid var(--lab-card-line);
+}
+
+.lb-promo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.lb-promo__who {
+  flex: none;
+  width: 84px;
+  font-size: 12px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lb-promo__mails {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+}
+
+.lb-promo__mails li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.lb-promo__subj {
+  flex: 1;
+  min-width: 0;
+  font-size: 12.5px;
+  color: var(--lab-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lb-promo__mails .lb-chip {
+  min-height: 30px;
+  padding: 0 11px;
+  font-size: 12px;
+}
+
+/* ── Small things the rewrite needs ─────────────────────────────────────── */
+
+.lb-mail__from {
+  font-size: 12px;
+  color: var(--lab-muted);
+}
+
+.lb-item__org {
+  font-weight: 550;
+  color: var(--lab-accent);
+  font-size: 11px;
+}
+
+.lb-note {
+  margin: 12px 0 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--lab-faint);
+}
+
+.lb-tones {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.lb-adjust__word {
+  font-weight: 650;
+}
+
+.lb-fold__foot {
+  margin: 10px 13px 12px;
+}
+
+/* ── Mail readability: formatted mail keeps its shape, plain mail reads like
+   prose, and both are safe to tap ───────────────────────────────────────── */
+
+.lb-mail__body p {
+  font-size: 15px;
+  line-height: 1.62;
+}
+
+.lb-mail__html {
+  font-size: 15px;
+  line-height: 1.62;
+  overflow-x: auto;
+  word-break: break-word;
+  color: var(--lab-fg);
+}
+
+.lb-mail__html p {
+  margin: 0 0 12px;
+}
+
+.lb-mail__html h1,
+.lb-mail__html h2,
+.lb-mail__html h3,
+.lb-mail__html h4,
+.lb-mail__html h5 {
+  margin: 16px 0 8px;
+  line-height: 1.3;
+  font-weight: 700;
+  color: var(--lab-fg);
+}
+
+.lb-mail__html img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 10px;
+  display: block;
+  margin: 10px 0;
+}
+
+.lb-mail__html a {
+  color: var(--lab-accent);
+  word-break: break-word;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.lb-mail__html ul,
+.lb-mail__html ol {
+  margin: 0 0 12px;
+  padding-left: 22px;
+}
+
+.lb-mail__html li {
+  margin-bottom: 5px;
+}
+
+.lb-mail__html blockquote {
+  margin: 10px 0;
+  padding: 6px 12px;
+  border-left: 3px solid var(--lab-line-strong);
+  color: var(--lab-muted);
+}
+
+.lb-mail__html table {
+  border-collapse: collapse;
+  max-width: 100%;
+}
+
+.lb-mail__html td,
+.lb-mail__html th {
+  border: 1px solid var(--lab-line-strong);
+  padding: 6px 9px;
+  font-size: 13px;
+}
+
+.lb-mail__html pre,
+.lb-mail__html code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12.5px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.lb-mail__html hr {
+  border: 0;
+  border-top: 1px solid var(--lab-line);
+  margin: 16px 0;
+}
+
+/* Plain mail, lifted into links and paragraphs by the shipped renderer. */
+.lb-mail__html--text .emq {
+  margin: 2px 0;
+  padding-left: 12px;
+  border-left: 2px solid var(--lab-line-strong);
+  color: var(--lab-muted);
+  font-size: 13px;
+}
+
+.lb-mail__html--text .rt-list {
+  list-style: disc;
+  padding-left: 20px;
+}
+
+.lb-mail__meta {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding-bottom: 9px;
+  border-bottom: 1px solid var(--lab-card-line);
+}
+
+.lb-mail__subj {
+  font-size: 14px;
+  font-weight: 650;
+  letter-spacing: -0.015em;
+}
+
+.lb-mail__from {
+  font-size: 12px;
+  color: var(--lab-muted);
+}
+
+/* ── Lead and empty-day spacing ─────────────────────────────────────────── */
+
+.lb-lead {
+  padding: 18px 0 16px;
+}
+
+.lb-lead__para {
+  margin-top: 9px;
+}
+
+.lb-beat__empty {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 14px 13px;
+}
+
+.lb-beat__empty .lb-beat__title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--lab-fg);
+}
+
+.lb-beat__empty .lb-beat__meta {
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--lab-muted);
+}
+
+/* ── Refresh: always fresh, never a spinner wall ────────────────────────── */
+
+.lb-head__right {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+}
+
+.lb-refresh {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--lab-card-line);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--lab-muted);
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color 0.15s var(--lab-ease), border-color 0.15s var(--lab-ease), background 0.15s var(--lab-ease);
+}
+
+.lb-refresh:hover:not(:disabled) {
+  color: var(--lab-fg);
+  border-color: var(--lab-line-strong);
+  background: rgb(255 255 255 / 0.05);
+}
+
+.lb-refresh:disabled {
+  cursor: default;
+  color: var(--lab-faint);
+}
+
+.lb-refresh__icon.is-spinning {
+  animation: lb-spin 0.9s linear infinite;
+}
+
+@keyframes lb-spin {
+  to { transform: rotate(360deg); }
+}
+
+.lb-head--section .lb-head__meta {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── The body of the brief: sleep, weather, lifts, spend ────────────────── */
+
+.lb-lead__line {
+  margin-bottom: 8px;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--lab-accent);
+}
+
+.lb-factline {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 12px;
+}
+
+.lb-factchip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 28px;
+  padding: 0 11px;
+  border-radius: 999px;
+  border: 1px solid var(--lab-card-line);
+  background: var(--lab-sunken);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--lab-fg);
+}
+
+.lb-factchip--weather {
+  background: color-mix(in srgb, var(--lab-alpha) 20%, var(--lab-sunken));
+}
+
+.lb-factchip__cond {
+  color: var(--lab-muted);
+  font-weight: 500;
+}
+
+.lb-factchip.is-gap {
+  border-color: color-mix(in srgb, var(--lab-now) 40%, transparent);
+  color: var(--lab-now);
+}
+
+.lb-do {
+  margin: 0 0 18px;
+  padding: 13px 14px;
+  border: 1px solid rgb(127 227 196 / 0.24);
+  border-radius: var(--lab-r);
+  background:
+    radial-gradient(130% 120% at 0% 0%, color-mix(in srgb, var(--lab-accent) 10%, transparent), transparent 58%),
+    var(--lab-card-bg);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.08), 0 10px 26px rgb(0 0 0 / 0.3);
+}
+
+.lb-do__row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 7px;
+}
+
+.lb-do__id {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.lb-do__title {
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+}
+
+.lb-do__hint {
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--lab-muted);
+}
+
+.lb-do .lab-btn {
+  flex: none;
+}

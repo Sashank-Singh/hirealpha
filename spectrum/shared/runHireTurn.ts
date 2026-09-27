@@ -1,3 +1,4 @@
+import { pendingSpendReply } from './spendTurn'
 import type { DeliveryHooks } from './progressiveDelivery'
 import {
   getAgent,
@@ -9,14 +10,14 @@ import { runConversationalFriend } from './conversationalFriend'
 import { previousUserAsk, rewriteWithCorrection, rewriteWithRefinement } from './followUpCorrection'
 import { classifyTurnStrict } from './turnIntent'
 import { takeTurnImages, type TurnImage } from './imageRequest'
-import { isAffirmativeApprovalIntent, isNegativeCancellationIntent } from './conversationalApproval'
 import { skillsPromptBlock, SKILLS } from './skills'
 import { gmiChat } from './gmi'
 import { appendThread, LAST_BUILD_KEY, lastBuildFor, loadMemory, recordDeliveredBuild, removeFacts, setPendingSpend, setPendingVaultTask, upsertFacts, pruneExpiredFacts, setSummary, trimHistory, MAX_RAW, type ThreadMemory } from './memory'
+import { enqueuePendingVaultTask } from './pendingVaultTask'
 import { captureStatedPreferences, extractFacts, summarizeOld } from './memoryMaintain'
 import { cityConflictInstruction, detectCityConflict } from './cityConflict'
 import { liveFactsToInput, localFactsToInput, mergeMemoryFacts, selectMemoryFacts } from './memoryBlock'
-import { autoIterateWorkshop, autoLogGratitude, autoLogHabit, autoLogMood, autoLogNutrition, autoLogSleep, autoLogSpend, autoLogWorkout, autoLogNetwork, autoLogDecision, autoLogLoops, autoLogPipeline, autoLogStandup, autoRunWorkshop, autoWorkshopKeep, autoWorkshopToss, autoSaveLearning, autoSetBudget, autoSetPrefs, captureCommitment, executeSpendApproval, fetchLiveProfile, fetchLiveTools, fetchMiniRun, fetchPrepBundle, fetchWeekBundle, formatHireContext, persistLiveFacts, proposeLiveDraft,
+import { autoIterateWorkshop, autoLogGratitude, autoLogHabit, autoLogMood, autoLogNutrition, autoLogSleep, autoLogSpend, autoLogWorkout, autoLogNetwork, autoLogDecision, autoLogLoops, autoLogPipeline, autoLogStandup, autoRunWorkshop, autoWorkshopKeep, autoWorkshopToss, autoSaveLearning, autoSetBudget, autoSetPrefs, captureCommitment, fetchLiveProfile, fetchLiveTools, fetchMiniRun, fetchPrepBundle, fetchWeekBundle, formatHireContext, persistLiveFacts, proposeLiveDraft,
   proposePurchase, proposeBrowserTask, publishTaskChoices, touchInbound, importChatExport, addMeeting, fetchRenewalRadar, setTravel,
   fetchAwaitingBrowserAnswer, submitBrowserAnswer } from './liveContext'
 import { captureFromChat } from './cofounderPro'
@@ -192,7 +193,7 @@ async function applySmartEffects(
         const hh = String(plan.hour).padStart(2, '0')
         const mm = String(plan.minute).padStart(2, '0')
         const today = formatLocalNow(ctx.timezone).slice(0, 10)
-        const ok = await createReminder({
+        const created = await createReminder({
           phone: input.senderId,
           persona: agent.id,
           text: n,
@@ -200,7 +201,7 @@ async function applySmartEffects(
           recurrence: 'once',
           timezone: ctx.timezone,
         })
-        if (ok) reminders++
+        if (created.ok) reminders++
       }
       if (reminders) saved.push(`${reminders} reminder${reminders === 1 ? '' : 's'}`)
       if (saved.length) extra.push(`Saved ${saved.join(', ')} — tracked for real.`)
@@ -213,7 +214,7 @@ async function applySmartEffects(
         const hh = String(plan.hour).padStart(2, '0')
         const mm = String(plan.minute).padStart(2, '0')
         const today = formatLocalNow(ctx.timezone).slice(0, 10)
-        const ok = await createReminder({
+        const created = await createReminder({
           phone: input.senderId,
           persona: agent.id,
           text: `Keep me honest: ${plan.what}`,
@@ -222,7 +223,7 @@ async function applySmartEffects(
           timezone: ctx.timezone,
         })
         extra.push(
-          ok
+          created.ok
             ? `I will text you at ${hh}:${mm} each day. Text me it happened and I will skip that one.`
             : 'Could not set the reminder — check your connection and try again.',
         )
@@ -660,7 +661,7 @@ async function handleReminderMessage(input: {
     const text = looksLikeDigestIntent(intent.text)
       ? `${DIGEST_MARKER}${intent.text}`
       : intent.text
-    const ok = await createReminder({
+    const created = await createReminder({
       phone: input.phone,
       persona: input.persona,
       text,
@@ -668,10 +669,12 @@ async function handleReminderMessage(input: {
       recurrence: intent.recurrence,
       timezone: input.timezone,
     })
-    if (!ok) return "I couldn't save that reminder right now. Try again in a sec?"
+    if (!created.ok) return "I couldn't save that reminder right now. Try again in a sec?"
+    const saved = created.reminder
+    const savedLocal = formatLocalAtSafe(saved.scheduledAt, input.timezone)
     const when =
-      intent.recurrence === 'once' ? '' : intent.recurrence === 'weekdays' ? ' every weekday' : ` ${intent.recurrence}`
-    return `Got it. I'll remind you${when} at ${intent.localTime.slice(0, 16).replace('T', ' ')} (${input.timezone}): "${intent.text}".`
+      saved.recurrence === 'once' ? '' : saved.recurrence === 'weekdays' ? ' every weekday' : ` ${saved.recurrence}`
+    return `Got it. I'll remind you${when} at ${savedLocal} (${input.timezone}): "${saved.text.replace(/^\[(?:digest)\]\s*/i, '')}".`
   }
   if (intent.action === 'list') {
     const items = await listReminders(input.phone, input.persona)
@@ -835,6 +838,9 @@ export async function runHireTurn(input: {
    * reply must deliver the result, not more status talk. */
   buildAckSent?: boolean
   delivery?: DeliveryHooks
+  /** Invalidated synchronously when a later inbound message interrupts this turn. */
+  signal?: AbortSignal
+  markProviderCall?: () => void
 }): Promise<{
   reply: string
   bubbles: string[]
@@ -849,6 +855,7 @@ export async function runHireTurn(input: {
   images?: TurnImage[]
 }> {
   const agent = getAgent(input.agentId)
+  input.signal?.throwIfAborted()
   /* The turn clock, for the message log: how long the user waited between
    * texting and getting the reply. */
   const startedAt = Date.now()
@@ -924,18 +931,20 @@ export async function runHireTurn(input: {
         const lastUser = [...mem.history].reverse().find((m) => m.role === 'user')
         const portalMatch = lastAssistant.content.match(/csuohio\.edu|campusnet/i) ? 'https://campusnet.csuohio.edu' : ''
         if (portalMatch && lastUser) {
-          return { portal: portalMatch, goal: lastUser.content, originalText: lastUser.content, createdAt: Date.now() }
+          return { id: crypto.randomUUID(), portal: portalMatch, goal: lastUser.content, originalText: lastUser.content, createdAt: Date.now(), state: 'pending' as const }
         }
       }
       return null
     })()
   )
 
-  const isSavedIntent = /^\s*(?:i\s+)?(?:did\s+)?(?:already\s+)?(?:saved?|done|ready|connected|all\s+set)(?:\s+(?:it|them|in\s+vault|to\s+vault|credentials?|password))?\s*[.!]?\s*$/i.test(input.userText)
+  const isSavedIntent = /^\s*(?:(?:i\s+)?(?:did\s+)?(?:already\s+)?(?:saved?|done|ready|connected|all\s+set)(?:\s+(?:it|them|in\s+vault|to\s+vault|credentials?|password))?|retry(?:\s+it)?)\s*[.!]?\s*$/i.test(input.userText)
 
   if (isSavedIntent && pendingVault) {
-    setPendingVaultTask(input.dataDir, input.senderId)
-    const queued = await proposeBrowserTask(input.senderId, agent.id, { portal: pendingVault.portal, goal: pendingVault.goal })
+    input.signal?.throwIfAborted()
+    input.markProviderCall?.()
+    const queued = await enqueuePendingVaultTask(input.dataDir, input.senderId, pendingVault,
+      () => proposeBrowserTask(input.senderId, agent.id, { portal: pendingVault.portal, goal: pendingVault.goal }))
     const portalName = prettyPortalName(pendingVault.portal)
     /* This branch used to promise "Starting the run now" whatever the propose
      * answered — including the vault branch that creates NO job and the
@@ -1011,10 +1020,12 @@ export async function runHireTurn(input: {
     let card: MiniAppCard | null = null
     if (earlyShield.vaultLink) {
       setPendingVaultTask(input.dataDir, input.senderId, {
+        id: crypto.randomUUID(),
         portal: earlyShield.vaultLink,
         goal: input.userText,
         originalText: input.userText,
         createdAt: Date.now(),
+        state: 'pending',
       })
       try {
         card = await mintMiniAppCard(input.senderId, agent.id, 'vault', { portal: earlyShield.vaultLink })
@@ -1089,36 +1100,13 @@ export async function runHireTurn(input: {
     // Delivery failed: fall through so the user's message is never swallowed.
   }
 
-  if (pendingSpend && isNegativeCancellationIntent(input.userText)) {
-    setPendingSpend(input.dataDir, input.senderId)
-    const reply = `Cancelled the order for ${pendingSpend.item}. Let me know if you want to look for something else!`
+  if (pendingSpend) {
+    const reply = await pendingSpendReply({ ...input, pending: pendingSpend })
     appendThread(input.dataDir, input.senderId, [
       { role: 'user', content: input.threadLine || input.userText },
       { role: 'assistant', content: reply },
     ])
     return { reply, bubbles: [reply], source: 'local' as const, authoritative: [], card: null }
-  }
-
-  if (pendingSpend && isAffirmativeApprovalIntent(input.userText)) {
-    const chargeRes = await executeSpendApproval(input.senderId, pendingSpend.id, 'approve')
-    setPendingSpend(input.dataDir, input.senderId)
-    if (chargeRes.ok) {
-      const amountStr = chargeRes.amount || `$${pendingSpend.amount ? pendingSpend.amount.toFixed(2) : ''}`
-      const reply = `Payment received: ${amountStr} for ${pendingSpend.item}. I'm finalizing the merchant checkout now and will text the order confirmation number once the merchant confirms it.`
-      appendThread(input.dataDir, input.senderId, [
-        { role: 'user', content: input.threadLine || input.userText },
-        { role: 'assistant', content: reply },
-      ])
-      return { reply, bubbles: [reply], source: 'local' as const, authoritative: [], card: null }
-    } else {
-      const reply = `Could not complete the charge: ${chargeRes.error || 'Card charge failed'}. Tap the card below to retry or check Settings.`
-      const retryCard = await mintMiniAppCard(input.senderId, agent.id, 'approve_purchase', { id: pendingSpend.id })
-      appendThread(input.dataDir, input.senderId, [
-        { role: 'user', content: input.threadLine || input.userText },
-        { role: 'assistant', content: reply },
-      ])
-      return { reply, bubbles: [reply], source: 'local' as const, authoritative: [], card: retryCard }
-    }
   }
 
   const connection = /^\s*(?:(?:please|can you|could you|help me)\s+)?(?:connect|link|hook up)\s+(?:to\s+)?(?:my\s+|the\s+)?(calendar|google calendar|gmail)\s*[.!?]?\s*$/i.exec(input.userText)
@@ -2291,21 +2279,26 @@ export async function runHireTurn(input: {
       let groundedChoices: GroundedChoiceCandidate[] = []
       const wantsCanonicalChoices = /\b(?:options?|choices?|compare|recommend|suggest|show me|find me|find)\b/i.test(input.userText)
         && !/\b(?:news|score|who won|weather)\b/i.test(input.userText)
+      input.signal?.throwIfAborted()
       const outcome = await runToolConversation({
         messages: baseMessages,
         delivery: input.delivery,
         chat: (messages, timeoutMs) => gmiChat({ temperature: Math.min(agent.temperature, 0.3), messages, reasoningEffort: 'low', timeoutMs }),
         lookup: (tool, query) => fetchLiveTools(input.senderId, agent.id, query, tool as any),
-          propose: (draft) =>
-            saveFriendDraft(input.senderId, agent.id, draft).then((r: any) => {
+          propose: (draft) => {
+            input.signal?.throwIfAborted()
+            input.markProviderCall?.()
+            return saveFriendDraft(input.senderId, agent.id, draft).then((r: any) => {
               if (draft.type === 'browser' && r?.ok) {
                 if (r.needsVault) {
                   browserNeedsVault = true
                   setPendingVaultTask(input.dataDir, input.senderId, {
+                    id: crypto.randomUUID(),
                     portal: draft.portal,
                     goal: draft.goal || input.userText,
                     originalText: input.userText,
                     createdAt: Date.now(),
+                    state: 'pending',
                   })
                   confirmKind = 'vault'
                   confirmQuery = { portal: draft.portal }
@@ -2328,8 +2321,9 @@ export async function runHireTurn(input: {
                 })
               }
             }
-            return r
-          }),
+              return r
+            })
+          },
         availableTools: LIVE_TOOLS.filter((tool) => tool === 'maps' || tool === 'web' || (live.connected as string[]).includes(tool)),
         canDraft: !hardStop && humanLimit !== 'grief' && humanLimit !== 'negotiation' && !confirmKind,
         existingDraft: confirmQuery?.draft ? { id: confirmQuery.draft, type: 'mail' } : undefined,
@@ -2337,6 +2331,7 @@ export async function runHireTurn(input: {
           ? (results) => { groundedChoices = results }
           : undefined,
       })
+      input.signal?.throwIfAborted()
       reply = outcome.reply
       if (!outcome.draft && groundedChoices.length >= 2) {
         const offered = await publishTaskChoices(input.senderId, agent.id, input.userText, groundedChoices)
@@ -2379,6 +2374,7 @@ export async function runHireTurn(input: {
       })
     }
   } catch (err) {
+    if (input.signal?.aborted) throw input.signal.reason
     console.warn(`[${agent.id}] GMI fallback:`, err)
     if (miniApp) {
       reply = miniAppFallbackText(miniApp.kind)

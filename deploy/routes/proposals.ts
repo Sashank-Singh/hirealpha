@@ -76,19 +76,17 @@ export async function handleProposalRoutes(
     })
 
   const { result } = await withIdempotency(idempotencyKey, async () => {
-    // DB-level conflict guard: if an identical pending draft was created in the last 15 minutes, return it
+    // Only the exact proposed operation is a duplicate. Subject-only matching
+    // silently discarded distinct recipients and revisions with the same title.
     if (body.kind !== 'browser' && body.kind !== 'purchase') {
       const existing = (await sql`
-        SELECT id, kind FROM hire_drafts
-        WHERE user_id = ${live.userId} AND persona = ${persona}
-          AND kind = ${body.kind === 'event' || body.kind === 'reply' ? body.kind : 'email'}
-          AND subject = ${String(body.subject || body.title || '').slice(0, 200)}
-          AND status = 'pending'
-          AND created_at > now() - interval '15 minutes'
-        ORDER BY created_at DESC LIMIT 1
-      `) as Array<{ id: string; kind: string }>
+        SELECT id, kind, version FROM hire_drafts
+        WHERE user_id = ${live.userId} AND operation_key = ${idempotencyKey}
+          AND status IN ('pending', 'sending', 'booking', 'outcome_unknown')
+        LIMIT 1
+      `) as Array<{ id: string; kind: string; version: number }>
       if (existing[0]) {
-        return respond({ ok: true, id: existing[0].id, kind: existing[0].kind, deduplicated: true }, 200)
+        return respond({ ok: true, id: existing[0].id, kind: existing[0].kind, version: existing[0].version, deduplicated: true }, 200)
       }
     }
 
@@ -277,14 +275,16 @@ export async function handleProposalRoutes(
 
     await sql`
       INSERT INTO hire_drafts (
-        id, user_id, persona, kind, to_addr, subject, body, thread_id, in_reply_to, start_at, end_at
+        id, user_id, persona, kind, to_addr, subject, body, thread_id, in_reply_to,
+        start_at, end_at, operation_key, source_message_id, version
       )
       VALUES (
         ${id}, ${live.userId}, ${persona}, ${kind},
-        ${toAddr}, ${subject}, ${text}, ${threadId}, ${inReplyTo}, ${startAt}, ${endAt}
+        ${toAddr}, ${subject}, ${text}, ${threadId}, ${inReplyTo}, ${startAt}, ${endAt},
+        ${idempotencyKey}, ${String(body.messageId || '').slice(0, 200)}, 1
       )
     `
-    return respond({ ok: true, id, kind: kind === 'event' ? 'event' : 'email' }, 200)
+    return respond({ ok: true, id, version: 1, kind: kind === 'event' ? 'event' : 'email' }, 200)
   })
 
   return json(result.data, result.status)

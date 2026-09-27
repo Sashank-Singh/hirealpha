@@ -14,6 +14,7 @@ import { getUserByPhone } from '../db/users'
 import { resolveAuthedUser } from '../auth/session'
 import { claimDueLoops, finishTaskLoop } from '../loops/engine'
 import { detectCommitment } from '../../spectrum/shared/commitmentRescue'
+import { parseWatchInterval } from '../../spectrum/shared/watchInterval'
 
 export async function handleLoopRoutes(
   req: Request,
@@ -43,13 +44,17 @@ export async function handleLoopRoutes(
     }
     const user = await getUserByPhone(sql, body.phone)
     if (!user) return json({ error: 'User not found' }, 404)
-    const hours = Math.max(1, Math.min(168, Math.floor(Number(body.intervalHours) || 6)))
+    const interval = parseWatchInterval(body.intervalHours)
+    if (!interval.ok) return json({ error: interval.error }, 400)
+    const hours = interval.hours
     const id = crypto.randomUUID()
     const payload = JSON.stringify({
       url: portal,
       goal: goal.slice(0, 400),
       intervalHours: hours,
       budgetDollars: Number(body.budgetDollars) || null,
+      runs: 28,
+      totalRuns: 28,
     })
     await sql`
       INSERT INTO hire_task_loops (id, user_id, persona, phone_e164, kind, title, payload, status, next_run)
@@ -76,6 +81,7 @@ export async function handleLoopRoutes(
       outcome?: string
       note?: string
       next_run?: string
+      payload?: Record<string, unknown>
     }
     const outcome =
       body.outcome === 'done' || body.outcome === 'failed' || body.outcome === 'snoozed'
@@ -84,7 +90,7 @@ export async function handleLoopRoutes(
     if (!body.id || !outcome) {
       return json({ error: 'id and outcome (done, failed, or snoozed) required' }, 400)
     }
-    await finishTaskLoop(sql, body.id, outcome, body.note, body.next_run)
+    await finishTaskLoop(sql, body.id, outcome, body.note, body.next_run, body.payload)
     return json({ ok: true })
   }
 

@@ -1096,3 +1096,39 @@ export async function loadDrive(sql: SQL, userId: string, query: string): Promis
   return runComposioPlugin(userId, 'drive', query)
 }
 
+export type DriveFileRecord = { id: string; name: string; mimeType: string; size: number | null; webViewLink?: string }
+export async function findDriveFiles(sql: SQL, userId: string, query: string): Promise<{ status: 'success_with_data' | 'success_empty' | 'not_connected' | 'auth_expired' | 'timeout' | 'provider_error' | 'malformed_response'; files: DriveFileRecord[] }> {
+  const token = await googleTokenWithStatus(sql, userId, 'drive')
+  if (!token.ok) return { status: token.reason, files: [] }
+  const url = new URL('https://www.googleapis.com/drive/v3/files')
+  url.searchParams.set('pageSize', '20'); url.searchParams.set('fields', 'files(id,name,mimeType,size,webViewLink)')
+  url.searchParams.set('q', `trashed = false and name contains '${query.replace(/['\\]/g, '').slice(0, 80)}'`)
+  try {
+    const res = await fetch(url, { headers: { Authorization: `Bearer ${token.accessToken}` }, signal: AbortSignal.timeout(10_000) })
+    if (res.status === 401) return { status: 'auth_expired', files: [] }
+    if (!res.ok) return { status: 'provider_error', files: [] }
+    const data = await res.json().catch(() => null) as { files?: Array<Record<string, unknown>> } | null
+    if (!data || !Array.isArray(data.files)) return { status: 'malformed_response', files: [] }
+    const files = data.files.flatMap((f): DriveFileRecord[] => typeof f.id === 'string' && typeof f.name === 'string' && typeof f.mimeType === 'string' ? [{ id: f.id, name: f.name, mimeType: f.mimeType, size: f.size == null ? null : Number(f.size), ...(typeof f.webViewLink === 'string' ? { webViewLink: f.webViewLink } : {}) }] : [])
+    return { status: files.length ? 'success_with_data' : 'success_empty', files }
+  } catch (error) { return { status: error instanceof DOMException && error.name === 'TimeoutError' ? 'timeout' : 'provider_error', files: [] } }
+}
+
+export async function readGmailThreadExact(sql: SQL, userId: string, threadId: string): Promise<{ status: 'success_with_data' | 'success_empty' | 'not_connected' | 'auth_expired' | 'timeout' | 'provider_error' | 'malformed_response'; messages: Array<{ id: string; from: string; date: string; subject: string }> }> {
+  const token = await googleTokenWithStatus(sql, userId, 'gmail')
+  if (!token.ok) return { status: token.reason, messages: [] }
+  try {
+    const res = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/threads/${encodeURIComponent(threadId)}?format=metadata&metadataHeaders=From&metadataHeaders=Date&metadataHeaders=Subject`, { headers: { Authorization: `Bearer ${token.accessToken}` }, signal: AbortSignal.timeout(10_000) })
+    if (res.status === 401) return { status: 'auth_expired', messages: [] }
+    if (res.status === 404) return { status: 'success_empty', messages: [] }
+    if (!res.ok) return { status: 'provider_error', messages: [] }
+    const data = await res.json().catch(() => null) as { messages?: Array<{ id?: string; payload?: { headers?: Array<{ name?: string; value?: string }> } }> } | null
+    if (!data || !Array.isArray(data.messages)) return { status: 'malformed_response', messages: [] }
+    const messages = data.messages.flatMap((m) => {
+      if (!m.id) return []
+      const headers = m.payload?.headers || []; const h = (name: string) => headers.find(x => x.name?.toLowerCase() === name)?.value || ''
+      return [{ id: m.id, from: h('from'), date: h('date'), subject: h('subject') }]
+    })
+    return { status: messages.length ? 'success_with_data' : 'success_empty', messages }
+  } catch (error) { return { status: error instanceof DOMException && error.name === 'TimeoutError' ? 'timeout' : 'provider_error', messages: [] } }
+}

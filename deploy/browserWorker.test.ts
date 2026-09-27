@@ -16,8 +16,8 @@ import { LocalUserKeyBroker, OpenBaoTransitClient } from '../services/trust/user
 const job: BrowserJobRow = { id: 'test-job', user_id: 'test-user', persona: 'friend', phone_e164: null, kind: 'task', url: 'https://example.com/', steps: null, goal: 'Read the page heading', status: 'running', attempts: 1, result: null, error: null, approval_id: 'test-approval', spend_request_id: null }
 
 it('requires explicit merchant confirmation evidence for purchase completion', () => {
-  expect(hasMerchantOrderConfirmation('Order number: 113-1234567-1234567')).toBe(true)
-  expect(hasMerchantOrderConfirmation('Confirmation # AB12-CD34')).toBe(true)
+  expect(hasMerchantOrderConfirmation('Order number: 113-1234567-1234567')).toBe(false)
+  expect(hasMerchantOrderConfirmation('Confirmation # AB12-CD34')).toBe(false)
   expect(hasMerchantOrderConfirmation('Checkout finished')).toBe(false)
 })
 
@@ -146,3 +146,16 @@ describe('a run that hits the hard ceiling is actually stopped', () => {
     expect(await closeAbandonedBrowser('never-launched')).toBe(false)
   })
 })
+
+for (const text of [
+  'payment failed', 'order number unavailable', 'Order number: unknown',
+  'No order number: unavailable. Payment failed.',
+  'I did not see thank you for your order.',
+  'Previous order number: 113-1234567-1234567',
+  'The help page says "Order number: 113-1234567-1234567"',
+  'Thank you for your order',
+]) {
+  it(`UX03 never treats model prose as merchant evidence: ${text}`, () => {
+    expect(hasMerchantOrderConfirmation(text)).toBe(false)
+  })
+}

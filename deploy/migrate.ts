@@ -7,6 +7,8 @@ import { SQL } from 'bun'
 // mismatch here silently skips every migration and still reports
 // "schema current" — deploy/migrate.test.ts guards the real directory.
 const MIGRATION_NAME = /^\d{12,}[-_][a-z0-9][a-z0-9_-]*\.sql$/
+const NO_TRANSACTION_DIRECTIVE = '-- migrate: no-transaction'
+const STATEMENT_BREAK = '-- migrate: statement-break'
 
 export function migrationChecksum(body: string): string {
   return createHash('sha256').update(body, 'utf8').digest('hex')
@@ -30,6 +32,30 @@ export function buildMigrationBatch(name: string, checksum: string, body: string
   ].join('\n')
 }
 
+/** Concurrent PostgreSQL index builds cannot run inside a transaction. These
+ * migrations must opt in explicitly and separate statements with a marker so
+ * the runner never attempts to parse arbitrary SQL on semicolons. The ledger
+ * insert runs last; every preceding statement must therefore be idempotent and
+ * safe to repeat after an interrupted deploy. */
+export function buildNonTransactionalMigrationStatements(name: string, checksum: string, body: string): string[] | null {
+  if (!body.trimStart().startsWith(NO_TRANSACTION_DIRECTIVE)) return null
+  if (!MIGRATION_NAME.test(name)) throw new Error(`Invalid migration filename: ${name}`)
+  if (!/^[a-f0-9]{64}$/.test(checksum)) throw new Error(`Invalid migration checksum: ${name}`)
+  if (/\b(?:BEGIN|COMMIT|ROLLBACK)\s*;/i.test(body)) throw new Error(`Migration ${name} must not manage its own transaction.`)
+  const statements = body
+    .replace(NO_TRANSACTION_DIRECTIVE, '')
+    .split(STATEMENT_BREAK)
+    .map((statement) => statement.trim())
+    .filter(Boolean)
+  if (!statements.length) throw new Error(`Non-transactional migration ${name} has no statements.`)
+  return [
+    "SET lock_timeout = '5s';",
+    "SET statement_timeout = '10min';",
+    ...statements,
+    `INSERT INTO hire_schema_migrations (name, checksum) VALUES (${sqlLiteral(name)}, ${sqlLiteral(checksum)});`,
+  ]
+}
+
 type UnsafeSql = SQL & { unsafe: (query: string) => Promise<unknown> }
 
 /** A migration and its ledger row share one transaction, which requires a
@@ -48,6 +74,20 @@ async function applyMigrationBatch(sql: SQL, batch: string): Promise<void> {
   } catch (error) {
     if (process.env.MIGRATE_DEBUG === '1') console.error('[migrate] batch failed:', error instanceof Error ? error.message.slice(0, 300) : error)
     throw error
+  } finally {
+    handle.release()
+  }
+}
+
+async function applyNonTransactionalMigration(sql: SQL, statements: string[]): Promise<void> {
+  const reserved = (sql as SQL & { reserve: () => Promise<SQL & { release: () => void }> }).reserve
+  if (typeof reserved !== 'function') {
+    for (const statement of statements) await (sql as UnsafeSql).unsafe(statement)
+    return
+  }
+  const handle = await reserved.call(sql)
+  try {
+    for (const statement of statements) await (handle as UnsafeSql).unsafe(statement)
   } finally {
     handle.release()
   }
@@ -90,7 +130,9 @@ export async function runMigrations(sql: SQL, migrationsDir = join(import.meta.d
         if (existing[0].checksum !== checksum) throw new Error(`Applied migration was modified: ${name}`)
         continue
       }
-      await applyMigrationBatch(sql, buildMigrationBatch(name, checksum, body))
+      const nonTransactional = buildNonTransactionalMigrationStatements(name, checksum, body)
+      if (nonTransactional) await applyNonTransactionalMigration(sql, nonTransactional)
+      else await applyMigrationBatch(sql, buildMigrationBatch(name, checksum, body))
       applied.push(name)
     }
   } finally {

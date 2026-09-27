@@ -634,6 +634,7 @@ export async function finishTaskLoop(
   outcome: 'done' | 'failed' | 'snoozed',
   note?: string,
   nextRun?: string | null,
+  payload?: Record<string, unknown>,
 ): Promise<void> {
   const result = String(note || '').slice(0, 500)
   const target = async (
@@ -646,7 +647,8 @@ export async function finishTaskLoop(
   if (outcome === 'done') {
     await target(
       () => sql`
-        UPDATE hire_task_loops SET status = 'done', last_result = ${result}, updated_at = now()
+        UPDATE hire_task_loops SET status = 'done', last_result = ${result},
+          payload = COALESCE(${payload ? JSON.stringify(payload) : null}::jsonb, payload), updated_at = now()
         WHERE id = ${id} RETURNING id
       `,
       () => sql`
@@ -684,7 +686,8 @@ export async function finishTaskLoop(
     : when.toISOString()
   await target(
     () => sql`
-      UPDATE hire_task_loops SET status = 'pending', next_run = ${snoozedTo}, last_result = ${result}, updated_at = now()
+      UPDATE hire_task_loops SET status = 'pending', next_run = ${snoozedTo}, last_result = ${result},
+        payload = COALESCE(${payload ? JSON.stringify(payload) : null}::jsonb, payload), updated_at = now()
       WHERE id = ${id} RETURNING id
     `,
     () => sql`

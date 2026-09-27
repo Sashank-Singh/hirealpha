@@ -134,19 +134,6 @@ export function wallTimeToUtc(ymd: string, hour: number, minute: number, timezon
   const pad = (n: number) => String(n).padStart(2, '0')
   const naive = `${ymd}T${pad(hour)}:${pad(minute)}:00`
   const utcGuess = new Date(`${naive}Z`)
-  const parts = new Intl.DateTimeFormat('en-US', {
-    timeZone: timezone,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-  }).formatToParts(utcGuess)
-  const get = (t: string) => Number(parts.find((p) => p.type === t)?.value || 0)
-  let h = get('hour')
-  if (h === 24) h = 0
-  const asLocal = Date.UTC(get('year'), get('month') - 1, get('day'), h, get('minute'))
   const wanted = Date.UTC(
     Number(ymd.slice(0, 4)),
     Number(ymd.slice(5, 7)) - 1,
@@ -154,7 +141,24 @@ export function wallTimeToUtc(ymd: string, hour: number, minute: number, timezon
     hour,
     minute,
   )
-  return new Date(utcGuess.getTime() + (wanted - asLocal))
+  let candidate = utcGuess
+  // The first correction can cross a DST boundary and therefore change the
+  // applicable offset. Re-evaluate until the requested wall clock is stable.
+  for (let i = 0; i < 3; i++) {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: timezone,
+      year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', hour12: false,
+    }).formatToParts(candidate)
+    const get = (t: string) => Number(parts.find((p) => p.type === t)?.value || 0)
+    let h = get('hour')
+    if (h === 24) h = 0
+    const asLocal = Date.UTC(get('year'), get('month') - 1, get('day'), h, get('minute'))
+    const delta = wanted - asLocal
+    if (delta === 0) break
+    candidate = new Date(candidate.getTime() + delta)
+  }
+  return candidate
 }
 
 /** Parse ISO or spoken "tomorrow 3pm" into a UTC instant in the user's zone. */
@@ -493,6 +497,5 @@ export function weekDaysFromMonday(weekStart: string): string[] {
 export function userMonday(user: { timezone?: string | null }, d = new Date()): string {
   return mondayOfDateStr(localDateStrInTz(d, user.timezone))
 }
-
 
 

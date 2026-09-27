@@ -5,6 +5,8 @@ import { getUserByPhone } from '../db/users'
 import { loadMemories, upsertMemories } from '../memory/store'
 import { userKeyBrokerFromEnv } from '../../services/trust/userKeyBroker'
 import { parseChatExport } from '../../spectrum/shared/smartFeatures'
+import { getMemoryIndex } from '../memory/store'
+import { deleteUserMemoryKey } from '../../services/trust/memoryLifecycle'
 
 export async function handleMemoryRoutes(
   req: Request,
@@ -78,6 +80,25 @@ export async function handleMemoryRoutes(
       dropped,
       memories: await loadMemories(sql, user.id, body.persona as Persona, 12),
     })
+  }
+
+  if (path === '/api/internal/memory' && req.method === 'DELETE') {
+    if (!options.internalOk(req)) return json({ error: 'Unauthorized' }, 401)
+    const body = (await req.json().catch(() => ({}))) as { phone?: string; persona?: string; key?: string }
+    if (!body.phone || !isPersona(body.persona || '') || !String(body.key || '').trim()) return json({ error: 'phone, persona and key required' }, 400)
+    const user = await getUserByPhone(sql, body.phone)
+    if (!user) return json({ error: 'User not found' }, 404)
+    const key = String(body.key).trim()
+    await deleteUserMemoryKey(sql, { userId: user.id, persona: body.persona as Persona, key, index: getMemoryIndex() })
+    await sql`DELETE FROM hire_memories WHERE user_id = ${user.id} AND persona = ${body.persona} AND lower(key) = ${key.toLowerCase()}`
+    await sql`
+      INSERT INTO hire_memory_tombstones (user_id, persona, key, deleted_at)
+      VALUES (${user.id}, ${body.persona}, ${key.toLowerCase()}, now())
+      ON CONFLICT (user_id, persona, key) DO UPDATE SET deleted_at = now()
+    `
+    const remaining = await loadMemories(sql, user.id, body.persona as Persona, 100)
+    if (remaining.some((m) => m.key.toLowerCase() === key.toLowerCase())) return json({ error: 'Memory deletion could not be verified' }, 500)
+    return json({ ok: true, key, memories: remaining })
   }
 
   if (path === '/api/internal/chat-import' && req.method === 'POST') {

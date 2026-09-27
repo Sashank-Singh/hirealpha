@@ -17,6 +17,9 @@ export function createMessageBursts<T>(options: {
   now?: () => number
   schedule?: (fn: () => void, ms: number) => unknown
   cancel?: (timer: unknown) => void
+  isInterrupt?: (item: T) => boolean
+  /** Runs synchronously at ingestion so cancellation does not wait behind work. */
+  onInterrupt?: (key: string, item: T) => void
 }) {
   const quietMs = options.quietMs ?? BURST_QUIET_MS
   const maxWaitMs = options.maxWaitMs ?? BURST_MAX_WAIT_MS
@@ -56,6 +59,7 @@ export function createMessageBursts<T>(options: {
     enqueue(key: string, item: T, batchable = true) {
       let state = states.get(key)
       if (!state) { state = { pending: [], running: false }; states.set(key, state) }
+      if (state.running && options.isInterrupt?.(item)) options.onInterrupt?.(key, item)
       state.pending.push({ item, at: now(), batchable })
       pump(key, state)
     },

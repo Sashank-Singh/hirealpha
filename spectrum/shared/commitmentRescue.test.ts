@@ -18,11 +18,26 @@ describe('commitment rescue', () => {
     expect(got?.rescueAt.toISOString()).toBe('2026-09-21T16:01:00.000Z')
   })
 
+  it('keeps an explicit clock time across the spring DST boundary', () => {
+    const beforeSpringForward = new Date('2026-03-07T17:00:00Z')
+    const got = detectCommitment('I’ll send Alex the deck by tomorrow at 9am', 'America/Los_Angeles', beforeSpringForward)
+    expect(got?.title).toBe('Send Alex the deck')
+    expect(got?.dueAt.toISOString()).toBe('2026-03-08T16:00:00.000Z')
+  })
+
+  it('keeps an explicit clock time across the fall DST boundary', () => {
+    const beforeFallBack = new Date('2026-10-31T17:00:00Z')
+    const got = detectCommitment("I'll send Alex the deck by tomorrow at 9am", 'America/Los_Angeles', beforeFallBack)
+    expect(got?.dueAt.toISOString()).toBe('2026-11-01T17:00:00.000Z')
+  })
+
   it('rejects vague intentions, non-user promises, and promises without deadlines', () => {
     expect(detectCommitment("I'll maybe send it by Friday", 'UTC', now)).toBeNull()
     expect(detectCommitment('Priya will send it by Friday', 'UTC', now)).toBeNull()
     expect(detectCommitment("I'll send it", 'UTC', now)).toBeNull()
     expect(detectCommitment("I'll see you Friday", 'UTC', now)).toBeNull()
+    expect(detectCommitment('Alex said “I’ll send the deck by tomorrow at 9am”', 'UTC', now)).toBeNull()
+    expect(detectCommitment('“I’ll send the deck by tomorrow at 9am” — Alex', 'UTC', now)).toBeNull()
   })
 
   it('produces an evidence-based intervention with a concrete deadline', () => {

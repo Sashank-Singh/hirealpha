@@ -606,20 +606,64 @@ export async function handleUserPaymentsApi(req: Request, sql: SQL, deps: UserPa
 
   if (path === '/api/internal/spend/decide' && req.method === 'POST') {
     if (!deps.internalOk?.(req)) return json({ error: 'Unauthorized' }, 401)
-    const body = (await req.json().catch(() => ({}))) as { phone?: string; requestId?: string; decision?: string }
-    if (!body.phone || !body.requestId) return json({ error: 'phone and requestId required' }, 400)
-    if (!deps.livePayload) return json({ error: 'livePayload unavailable' }, 500)
-    const live = await deps.livePayload(sql, body.phone, 'friend')
-    if (!live.found || !live.userId) return json({ error: 'User not found' }, 404)
-    const decision = body.decision === 'deny' ? 'deny' : 'approve'
-    const approved = await decideSpendApproval(sql, live.userId, body.requestId, decision)
-    if (!approved) return json({ ok: false, error: 'No pending request with that id.' }, 400)
-    if (decision === 'approve') {
-      const chargeRes = await chargeApprovedSpend(sql, live.userId, body.requestId)
-      if (!chargeRes.ok) return json({ ok: false, error: chargeRes.error || 'Charge failed' }, 402)
-      return json({ ok: true, charged: true, paymentIntentId: chargeRes.paymentIntentId })
+    const body = (await req.json().catch(() => ({}))) as {
+      phone?: string; requestId?: string; decision?: string
+      terms?: { amountCents?: number; purpose?: string; url?: string }
     }
-    return json({ ok: true, decision: 'denied' })
+    if (!body.phone || !body.requestId || !['approve', 'deny'].includes(body.decision || '')) return json({ ok: false, state: 'failed', error: 'phone, requestId and decision required' }, 400)
+    if (!deps.livePayload) return json({ ok: false, state: 'failed', error: 'Payment service unavailable' }, 503)
+    const live = await deps.livePayload(sql, body.phone, 'friend')
+    if (!live.found || !live.userId) return json({ ok: false, state: 'failed', error: 'User not found' }, 404)
+    const rows = await sql`
+      SELECT status, amount_cents, purpose, merchant_url, created_at, consumed_at,
+        finalization_status, order_confirmation, payment_intent_id, link_spend_request_id
+      FROM hire_spend_approvals WHERE id = ${body.requestId} AND user_id = ${live.userId} LIMIT 1
+    `
+    const row = rows[0]
+    if (!row) return json({ ok: false, state: 'failed', error: 'Pending purchase not found.' }, 404)
+    const state = row.finalization_status === 'completed' ? 'succeeded'
+      : row.finalization_status === 'outcome_unknown' || row.finalization_status === 'needs_attention' ? 'outcome_unknown'
+      : row.consumed_at || ['running', 'retrieving_credential', 'executing'].includes(row.finalization_status) ? 'executing'
+      : row.status === 'denied' ? 'cancelled' : 'pending_approval'
+    if (body.decision === 'deny') {
+      if (state !== 'pending_approval' && state !== 'cancelled') return json({ ok: false, state, error: 'This operation is no longer a pending approval; cancellation is not confirmed.' }, 409)
+      if (state !== 'cancelled') {
+        const changed = await sql`
+          UPDATE hire_spend_approvals SET status = ${'denied'}, decided_at = now(), finalization_status = 'cancelled'
+          WHERE id = ${body.requestId} AND user_id = ${live.userId}
+            AND status IN ('pending', 'approved') AND consumed_at IS NULL
+            AND finalization_status IN ('pending', 'awaiting_link', 'waiting_in_browser')
+          RETURNING id
+        `
+        if (!changed.length) return json({ ok: false, state: 'outcome_unknown', error: 'The operation changed while cancelling. Check its status.' }, 409)
+      }
+      // A worker waiting on Link must not consume a credential from an old card.
+      await sql`
+        UPDATE hire_browser_jobs SET status = 'failed', error = 'Pending approval cancelled', finished_at = now()
+        WHERE spend_request_id = ${body.requestId} AND user_id = ${live.userId} AND status IN ('queued', 'running')
+      `
+      return json({ ok: true, state: 'cancelled', decision: 'denied' })
+    }
+    const terms = body.terms
+    if (!terms || !Number.isSafeInteger(terms.amountCents) || terms.amountCents !== row.amount_cents || terms.purpose !== row.purpose
+      || (row.merchant_url && terms.url !== row.merchant_url)
+      || !row.created_at || Date.now() - new Date(row.created_at).getTime() > 10 * 60_000) {
+      return json({ ok: false, state: 'pending_approval', error: 'Purchase terms changed or expired. Review the current checkout.' }, 409)
+    }
+    // Link consent stays with Link's exact-cart approval surface.
+    if (row.link_spend_request_id) return json({ ok: false, state, error: 'Approve the verified checkout in Link; a text cannot replace that consent.' }, 409)
+    if (state !== 'pending_approval') return json({ ok: false, state, error: 'This request cannot be approved again.' }, 409)
+    const changed = await sql`
+      UPDATE hire_spend_approvals SET status = 'approved', decided_at = now()
+      WHERE id = ${body.requestId} AND user_id = ${live.userId} AND status = 'pending'
+        AND amount_cents = ${terms.amountCents} AND purpose = ${terms.purpose}
+        AND consumed_at IS NULL AND created_at > now() - interval '10 minutes'
+      RETURNING id
+    `
+    if (!changed.length) return json({ ok: false, state: 'outcome_unknown', error: 'Approval changed; check before retrying.' }, 409)
+    const charge = await chargeApprovedSpend(sql, live.userId, body.requestId)
+    if (!charge.ok) return json({ ok: false, state: 'outcome_unknown', error: charge.error }, 409)
+    return json({ ok: true, state: 'succeeded', charged: true, paymentIntentId: charge.paymentIntentId })
   }
 
   if (!path.startsWith('/api/payments')) return null

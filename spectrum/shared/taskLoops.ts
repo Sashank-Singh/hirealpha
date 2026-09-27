@@ -3,6 +3,7 @@ import { PROACTIVE_POLL_MS } from './delivery'
 import { fetchJudgmentState, inQuietHours, isRecipientSendBlocked } from './judgment'
 import { buildApprovalText, needsApproval, pickFlavor } from './proactiveFlavors'
 import { buildCommitmentRescueText } from './commitmentRescue'
+import { parseWatchInterval } from './watchInterval'
 
 /** Server owned task loops: the bot claims, acts, and reports the outcome.
  * Every claim result is posted back exactly once so a slow send can never
@@ -999,15 +1000,28 @@ export const LOOP_HANDLERS: Record<string, LoopHandler> = {
     outcome: 'done',
     note: 'commitment_rescue',
   }),
+  email_followup: async (task) => {
+    const followupId = String((task.payload || {}).followupId || '')
+    const base = apiBase()
+    if (!followupId || !base) return { outcome: 'failed', note: 'email_followup missing durable identity' }
+    try {
+      const res = await fetch(`${base}/api/internal/email_followups/evaluate`, { method: 'POST', headers: authHeaders(), body: JSON.stringify({ id: followupId }), signal: AbortSignal.timeout(15_000) })
+      const data = await res.json().catch(() => ({})) as { state?: string; text?: string; error?: string }
+      if (!res.ok) return { outcome: 'failed', note: data.error || `email_followup ${res.status}` }
+      return { outcome: 'done', ...(data.text ? { text: data.text } : {}), note: `email_followup ${data.state || 'evaluated'}` }
+    } catch (error) { return { outcome: 'failed', note: error instanceof Error ? error.message : String(error) } }
+  },
   /** Goal-conditioned watch: re-run the same visit on a schedule. The agent
    * itself judges the goal ("price under $400") because the condition is
    * language, not a number we can parse here. When it stages a checkout the
    * user gets the approval card; until then the loop re-arms. */
   browser_watch: async (task) => {
     const payload = (task.payload || {}) as {
-      url?: unknown; goal?: unknown; intervalHours?: unknown; runs?: unknown
+      url?: unknown; goal?: unknown; intervalHours?: unknown; runs?: unknown; totalRuns?: unknown
     }
-    const intervalHours = Number(payload.intervalHours) || 6
+    const interval = parseWatchInterval(payload.intervalHours)
+    if (!interval.ok) return { text: `Watch stopped: ${interval.error}.`, outcome: 'failed', note: interval.error }
+    const intervalHours = interval.hours
     const runsLeft = Number(payload.runs)
     if (Number.isFinite(runsLeft) && runsLeft <= 0) {
       return { text: 'Watch ended: check limit reached.', outcome: 'done', note: 'browser_watch exhausted' }
@@ -1020,7 +1034,8 @@ export const LOOP_HANDLERS: Record<string, LoopHandler> = {
     // the watch itself never spends.
     const base = apiBase()
     const key = process.env.HIREALPHA_INTERNAL_KEY || ''
-    let note = 'browser_watch enqueued'
+    let note = 'browser_watch configuration unavailable'
+    let queued = false
     // No text for a routine tick: the watch's finding arrives through the run's
     // own report, so "the check ran" is pure noise — and it was six-hourly.
     let text = ''
@@ -1049,6 +1064,7 @@ export const LOOP_HANDLERS: Record<string, LoopHandler> = {
         })
         const data = (await res.json().catch(() => ({}))) as { ok?: boolean; sessionUrl?: string; error?: string }
         if (res.ok && data.ok) {
+          queued = true
           note = 'browser_watch run queued'
           text = ''
         } else {
@@ -1066,17 +1082,19 @@ export const LOOP_HANDLERS: Record<string, LoopHandler> = {
     const DEFAULT_WATCH_RUNS = 28
     const hadCap = Number.isFinite(runsLeft)
     const cap = hadCap ? Number(runsLeft) : DEFAULT_WATCH_RUNS
-    const nextRuns = Math.max(0, cap - 1)
+    const configuredRuns = Number.isInteger(Number(payload.totalRuns)) && Number(payload.totalRuns) > 0
+      ? Number(payload.totalRuns) : cap
+    const nextRuns = queued ? Math.max(0, cap - 1) : cap
     if (nextRuns === 0) {
-      text = `That watch has run its course (${hadCap ? Number(runsLeft) : DEFAULT_WATCH_RUNS} checks). Say keep watching if you want it to keep going.`
+      text = `That watch has completed its configured ${configuredRuns} checks and is now stopped. Say keep watching if you want it to keep going.`
     }
     return {
       text,
       // 'done' retires the loop when the cap is spent; anything else re-arms.
-      outcome: nextRuns === 0 ? 'done' : 'snoozed',
+      outcome: queued && nextRuns === 0 ? 'done' : 'snoozed',
       note,
       next_run: new Date(Date.now() + intervalHours * 3600_000).toISOString(),
-      nextPayload: { ...payload, runs: nextRuns },
+      nextPayload: { ...payload, runs: nextRuns, totalRuns: configuredRuns },
     }
   },
 }

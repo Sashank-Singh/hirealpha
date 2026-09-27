@@ -1,6 +1,7 @@
 import { formatZoneAbbrev } from './timezones'
 
 export type CalItem = {
+  providerId?: string
   start: Date
   title: string
   description: string
@@ -68,6 +69,7 @@ export function inferEventKind(e: {
 
 export function parseGoogleCalendarItems(
   items: Array<{
+    id?: string
     summary?: string
     title?: string
     description?: string
@@ -93,6 +95,7 @@ export function parseGoogleCalendarItems(
       ? e.attendees.filter((a) => !a?.self).length
       : undefined
     out.push({
+      ...(e.id ? { providerId: e.id } : {}),
       start: parsed.start,
       allDay: parsed.allDay,
       rawStart: parsed.rawStart,
@@ -167,6 +170,7 @@ function eventFromUnknown(raw: unknown): CalItem | null {
   if (!parsed) return null
   const title = String(e.summary || e.title || e.name || 'Meeting').slice(0, 120)
   return {
+    ...(typeof e.id === 'string' ? { providerId: e.id } : {}),
     start: parsed.start,
     allDay: parsed.allDay,
     rawStart: parsed.rawStart,
@@ -203,12 +207,13 @@ export function parseComposioCalendarData(data: unknown, depth = 0): CalItem[] {
 }
 
 export function hydrateCalItems(
-  rows: Array<{ start: string; title: string; allDay?: boolean; kind?: string; rawStart?: string; description?: string }>,
+  rows: Array<{ id?: string; providerId?: string; start: string; title: string; allDay?: boolean; kind?: string; rawStart?: string; description?: string }>,
 ): CalItem[] {
   return rows.flatMap((r): CalItem[] => {
       const start = new Date(r.start)
       if (Number.isNaN(start.getTime())) return []
       return [{
+        ...((r.providerId || r.id) ? { providerId: r.providerId || r.id } : {}),
         start,
         title: r.title,
         allDay: !!r.allDay,
@@ -221,6 +226,7 @@ export function hydrateCalItems(
 
 export function serializeCalItems(items: CalItem[]) {
   return items.map((e) => ({
+    providerId: e.providerId,
     start: e.start.toISOString(),
     title: e.title,
     allDay: e.allDay,

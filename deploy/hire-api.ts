@@ -1473,6 +1473,12 @@ export async function runToolsForMessage(
       const mailQuery = normalizeGmailQuery(query)
       const row = mailRow
       const first = await withTimeout(readGmailExact(sql, input.userId, mailQuery, MAIL_READ_CAP), 12000, { items: [], failed: true })
+      if (first.failed) {
+        const status = 'status' in first ? first.status : 'timeout'
+        const reconnect = status === 'auth_expired' || status === 'not_connected'
+          ? ' Reconnect Gmail at /app/hires/friend?connect=gmail, then retry the same question.' : ' Preserve the original question and offer to retry.'
+        return [`Gmail read failed: ${status}.${reconnect} Do not say there were no matches and do not suggest changing the search.`]
+      }
       if (!first.items.length && !first.failed && mailQuery !== 'newer_than:7d') {
         /* A real zero-match search stays a zero-match answer. Filling the gap
          * with the last 7 days' mail under the query's name is how "from:sam
@@ -5994,6 +6000,5 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
   if (path.startsWith('/api/')) return json({ error: 'Not found' }, 404)
   return null
 }
-
 
 

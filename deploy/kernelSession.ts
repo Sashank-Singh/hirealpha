@@ -1,3 +1,4 @@
+import { merchantReceiptFromPage, receiptPageSnapshot, type BrowserResult } from './merchantReceipt'
 /** A page that is mid-navigation tears down the JS context under an evaluate.
  * That is a timing fact about real sites, not a failure of the step, so the
  * capture retries instead of spending the step's budget on a race. */
@@ -57,6 +58,7 @@ import type { SQL } from 'bun'
 
 export type KernelTask = {
   url: string
+  receiptNotBefore?: number
   username?: string
   password?: string
   goal?: string
@@ -281,7 +283,7 @@ type Target = {
 export async function runKernelTask(
   task: KernelTask,
   browser: KernelBrowser,
-): Promise<{ ok: true; content: string } | { ok: false; error: string }> {
+): Promise<BrowserResult> {
   const call = agentEnvCaller()
   if (!call) return { ok: false, error: 'Agent mode not configured (GMI_API_KEY missing).' }
   const auditCall = agentEnvCaller('audit') || call
@@ -460,7 +462,9 @@ export async function runKernelTask(
           const finalTitle = await browser.title().catch(() => '')
           await task.onScreenshot?.({ dataUrl: `data:image/jpeg;base64,${finalShot}`, caption: finalTitle ? `Final: ${finalTitle}` : 'Final page' })
         } catch { /* receipt falls back to the last step image */ }
-        return { ok: true, content: answer }
+        const snapshot = task.receiptNotBefore ? await browser.run<{ url: string; jsonLd: string[] }>(`return await page.evaluate(${receiptPageSnapshot.toString()});`, 10_000).catch(() => null) : null
+        const receipt = snapshot && task.receiptNotBefore ? merchantReceiptFromPage(snapshot, task.url, task.receiptNotBefore) : undefined
+        return { ok: true, content: answer, ...(receipt ? { receipt } : {}) }
       }
 
       if (action.type === 'handoff') {

@@ -1,3 +1,4 @@
+import { isVerifiedMerchantReceipt, type MerchantReceipt } from './merchantReceipt'
 /**
  * The browser-worker entry: a dedicated container that owns Chromium.
  *
@@ -166,7 +167,7 @@ export function plainRunFailure(host: string, error: string | null | undefined):
 
 type JobRow = BrowserJobRow
 
-type JobOutcome = { ok: true; result: string } | { ok: false; error: string }
+type JobOutcome = { ok: true; result: string; receipt?: MerchantReceipt } | { ok: false; error: string; outcomeUnknown?: boolean }
 
 /** Keep the worker's Vault backend selection aligned with the web app and
  * production-readiness checks: prefer OpenBao, then use the encrypted local
@@ -226,9 +227,8 @@ async function retrieveCapabilityBoundLinkCard(
 /** Purchase jobs only count as successful when the merchant response carries
  * an explicit order/confirmation reference. This prevents a model's generic
  * "done" from becoming a false order-confirmation message. */
-export function hasMerchantOrderConfirmation(text: string): boolean {
-  return /(?:order|confirmation)\s*(?:number|no\.?|id|#)\s*[:#-]?\s*[a-z0-9-]{4,}/i.test(text)
-    || /thank you for your order/i.test(text)
+export function hasMerchantOrderConfirmation(evidence: unknown, merchantUrl?: string, notBefore = 0): boolean {
+  return isVerifiedMerchantReceipt(evidence, merchantUrl, notBefore)
 }
 
 async function stageLinkPaymentHandoff(
@@ -308,11 +308,12 @@ async function waitForLinkCredential(
   const started = Date.now()
   while (Date.now() - started < timeoutMs) {
     const state = (await sql`
-      SELECT j.status AS job_status
+      SELECT j.status AS job_status, a.status AS approval_status
       FROM hire_browser_jobs j
+      LEFT JOIN hire_spend_approvals a ON a.id = j.spend_request_id
       WHERE j.id = ${job.id} AND j.user_id = ${job.user_id} LIMIT 1
-    `) as Array<{ job_status: string }>
-    if (!state[0] || state[0].job_status === 'failed') return 'cancelled'
+    `) as Array<{ job_status: string; approval_status?: string }>
+    if (!state[0] || state[0].job_status === 'failed' || state[0].approval_status === 'denied') return 'cancelled'
 
     let remote
     try { remote = await retrieveLinkSpend(sql, job.user_id, payment.linkSpendId) }
@@ -403,6 +404,7 @@ export async function runJob(sql: SQL, job: JobRow, launch = runBrowserSession):
     return withTaskSandbox(sql, provider, { userId: job.user_id, taskId: job.id, timeoutMs: TASK_SANDBOX_TIMEOUT_MS }, (cdpUrl) =>
       runBrowserSession({ ...task, cdpUrl }))
   }
+  const receiptNotBefore = Date.now()
   const launchTask = (task: SessionTask) => {
     // An injected launch (tests) bypasses the executor: a local .env that
     // happens to set KERNEL_API_KEY must not make a unit test open a real
@@ -449,6 +451,7 @@ export async function runJob(sql: SQL, job: JobRow, launch = runBrowserSession):
           return await (useBrowserUse ? runBrowserUseTask : runKernelTask)(
             {
           url: task.url,
+          receiptNotBefore: task.receiptNotBefore,
           username: task.username,
           password: task.password,
           goal: task.goal,
@@ -557,6 +560,7 @@ export async function runJob(sql: SQL, job: JobRow, launch = runBrowserSession):
     // session loop re-reads username/password every step, so a password
     // handoff completed with "Saved" feeds the run without a restart.
     const sessionTask: SessionTask = {
+      receiptNotBefore,
     url: job.url,
     username: creds?.username || '',
     password: creds?.password || '',
@@ -707,10 +711,10 @@ export async function runJob(sql: SQL, job: JobRow, launch = runBrowserSession):
   }
   clearInterval(heartbeat)
   if (!run.ok) return { ok: false, error: run.error }
-  if (job.spend_request_id && !hasMerchantOrderConfirmation(run.content)) {
-    return { ok: false, error: 'Merchant did not return an order confirmation number.' }
+  if (job.spend_request_id && !hasMerchantOrderConfirmation(run.receipt, job.url, receiptNotBefore)) {
+    return { ok: false, outcomeUnknown: true, error: 'Merchant checkout outcome is unknown: no verified current order receipt. Check the merchant before retrying.' }
   }
-  return { ok: true, result: run.content }
+  return { ok: true, result: run.content, ...(run.receipt ? { receipt: run.receipt } : {}) }
 }
 
 /* The live browser for each running job. The hard ceiling releases the worker
@@ -860,7 +864,7 @@ async function report(sql: SQL, job: JobRow, outcome: JobOutcome): Promise<void>
       await sql`
         UPDATE hire_spend_approvals
         SET status = 'consumed', paid_at = COALESCE(paid_at, now()),
-          finalization_status = 'completed', order_confirmation = ${outcome.result}, last_error = NULL
+          finalization_status = 'completed', order_confirmation = ${JSON.stringify(outcome.receipt)}, last_error = NULL
         WHERE id = ${job.spend_request_id} AND finalization_job_id = ${job.id}
       `
       const link = (await sql`
@@ -907,7 +911,7 @@ async function report(sql: SQL, job: JobRow, outcome: JobOutcome): Promise<void>
     paymentWasApproved = Boolean(spend[0]?.consumed_at) || ['approved', 'consumed'].includes(spend[0]?.status || '')
     await sql`
       UPDATE hire_spend_approvals
-      SET finalization_status = CASE WHEN finalization_status = 'cancelled' THEN finalization_status ELSE 'needs_attention' END,
+      SET finalization_status = CASE WHEN finalization_status = 'cancelled' THEN finalization_status ELSE ${outcome.outcomeUnknown ? 'outcome_unknown' : 'needs_attention'} END,
         last_error = ${outcome.error.slice(0, 500)}
       WHERE id = ${job.spend_request_id} AND finalization_job_id = ${job.id}
     `
@@ -915,7 +919,10 @@ async function report(sql: SQL, job: JobRow, outcome: JobOutcome): Promise<void>
       await reportLinkOutcome(sql, job.user_id, {
         spendId: spend[0].link_spend_request_id,
         domain: hostOf(job.url),
-        outcome: paymentWasApproved ? 'blocked' : 'abandoned',
+        // Link's reporting vocabulary has no unknown state. Keep the durable
+        // HireAlpha state as outcome_unknown and report the checkout as blocked
+        // rather than lying that it succeeded or was safely abandoned.
+        outcome: outcome.outcomeUnknown ? 'blocked' : paymentWasApproved ? 'blocked' : 'abandoned',
         step: paymentWasApproved ? 'merchant_confirmation' : 'approval',
         context: outcome.error,
       }).catch(() => undefined)

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'bun:test'
 import { readdir } from 'node:fs/promises'
 import { join } from 'node:path'
-import { buildMigrationBatch, migrationChecksum } from './migrate'
+import { buildMigrationBatch, buildNonTransactionalMigrationStatements, migrationChecksum } from './migrate'
 
 describe('versioned migration runner', () => {
   it('uses stable sha256 checksums', () => {
@@ -21,6 +21,30 @@ describe('versioned migration runner', () => {
     for (const name of ['202609090001-example.sql', '202609090001_example.sql', '202609090001_trust_capabilities.sql']) {
       expect(() => buildMigrationBatch(name, 'a'.repeat(64), 'SELECT 1;')).not.toThrow()
     }
+  })
+
+  it('runs explicitly separated concurrent-index migrations outside a transaction and records them last', () => {
+    const body = `-- migrate: no-transaction
+ALTER TABLE example ADD COLUMN IF NOT EXISTS operation_key TEXT;
+-- migrate: statement-break
+CREATE INDEX CONCURRENTLY IF NOT EXISTS example_operation_idx ON example (operation_key);`
+    const statements = buildNonTransactionalMigrationStatements('202609250001_example.sql', migrationChecksum(body), body)!
+    expect(statements.some((statement) => statement.includes('BEGIN;'))).toBe(false)
+    expect(statements).toContain("SET lock_timeout = '5s';")
+    expect(statements.some((statement) => statement.includes('CREATE INDEX CONCURRENTLY'))).toBe(true)
+    expect(statements.at(-1)).toContain('INSERT INTO hire_schema_migrations')
+  })
+
+  it('keeps the trust write-receipt migration resumable and non-blocking', async () => {
+    const name = '202609250001_trust_write_receipts.sql'
+    const body = await Bun.file(join(import.meta.dir, 'migrations', name)).text()
+    const statements = buildNonTransactionalMigrationStatements(name, migrationChecksum(body), body)!
+    expect(statements.join('\n')).toContain('CREATE TABLE IF NOT EXISTS hire_drafts')
+    expect(statements.join('\n')).toContain("source_message_id TEXT NOT NULL DEFAULT ''")
+    expect(statements.join('\n')).toContain('version INTEGER NOT NULL DEFAULT 1')
+    expect(statements.some((statement) => statement.includes('DROP INDEX CONCURRENTLY IF EXISTS hire_drafts_pending_operation_idx'))).toBe(true)
+    expect(statements.some((statement) => statement.includes('CREATE UNIQUE INDEX CONCURRENTLY hire_drafts_pending_operation_idx'))).toBe(true)
+    expect(statements.at(-1)).toContain('INSERT INTO hire_schema_migrations')
   })
 
   /** The prod incident this guards: the runner's filename pattern used a hyphen

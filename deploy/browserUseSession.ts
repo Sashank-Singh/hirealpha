@@ -1,3 +1,4 @@
+import { merchantReceiptFromPage, receiptPageSnapshot, type BrowserResult } from './merchantReceipt'
 import {
   agentEnvCaller,
   verifyAnswerAgainstPage,
@@ -70,7 +71,7 @@ function describeActions(actions?: Array<Record<string, unknown>>): string {
 export async function runBrowserUseTask(
   task: KernelTask,
   browser: KernelBrowser,
-): Promise<{ ok: true; content: string } | { ok: false; error: string }> {
+): Promise<BrowserResult> {
   if (!browser.cdpUrl) return { ok: false, error: 'Kernel did not return a CDP URL for Browser Use.' }
   if (!task.goal?.trim()) return { ok: false, error: 'Browser Use requires an agent goal.' }
 
@@ -351,5 +352,7 @@ export async function runBrowserUseTask(
     }
   }
   if (screenshot) await task.onScreenshot?.({ dataUrl: `data:image/jpeg;base64,${screenshot}`, caption: 'Final Browser Use result' })
-  return { ok: true, content: result.content }
+  const snapshot = task.receiptNotBefore ? await browser.run<{ url: string; jsonLd: string[] }>(`return await page.evaluate(${receiptPageSnapshot.toString()});`, 10_000).catch(() => null) : null
+  const receipt = snapshot && task.receiptNotBefore ? merchantReceiptFromPage(snapshot, task.url, task.receiptNotBefore) : undefined
+  return { ok: true, content: result.content, ...(receipt ? { receipt } : {}) }
 }

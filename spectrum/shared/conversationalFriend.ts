@@ -1,3 +1,4 @@
+import { pendingSpendReply } from './spendTurn'
 import type { DeliveryHooks } from './progressiveDelivery'
 import { firstContactCard, firstContactWelcome, sanitizeOutbound, splitBubbles } from './runHireTurn'
 import { classifyTurnStrict, ClassifierUnavailableError, logsOf } from './turnIntent'
@@ -8,15 +9,15 @@ import { getAgent, type AgentId } from '../../src/agents'
 import { formatNowForAgent, pickUserTimezone } from '../../deploy/timezones'
 import { gmiChat, type GmiChatMessage } from './gmi'
 import { CHAT_UNAVAILABLE_REPLY, fastReplyBudget, recoverChatReply } from './delivery'
-import { appendThread, LAST_BUILD_KEY, recordCardDelivered, recordDeliveredBuild, setPendingConnection, setPendingSpend, setPendingVaultTask, upsertFacts, type ThreadMemory } from './memory'
+import { appendThread, LAST_BUILD_KEY, recordCardDelivered, recordDeliveredBuild, removeFacts, setPendingConnection, setPendingSpend, setPendingVaultTask, upsertFacts, type ThreadMemory } from './memory'
 import {
   autoLogNutrition, autoLogWorkout, autoLogSleep, autoLogGratitude, autoLogMood,
   autoLogHabit, autoLogSpend, autoLogDecision, autoLogLoops, autoSaveLearning,
   autoRunWorkshop, autoIterateWorkshop, autoWorkshopKeep,
-  executeSpendApproval, fetchLastRun, fetchLiveTools, fetchMiniRun, fetchPrepBundle, proposeBrowserTask, proposeLiveDraft, proposePurchase, manageTodos, scheduleTextLater, suggestCalendarSlots, type LiveProfile,
+  fetchLastRun, fetchLiveTools, fetchMiniRun, fetchPrepBundle, proposeBrowserTask, proposeLiveDraft, proposePurchase, manageTodos, scheduleTextLater, suggestCalendarSlots, deleteLiveFact, mutateCalendarEventLive, manageEmailFollowup, findFilesLive, sendFileLive, type LiveProfile,
 } from './liveContext'
 import { buildDigestBriefing, mintMiniAppCard, type MiniAppCard, type MiniAppKind } from './miniApps'
-import { createReminder, createWatch, listReminders } from './reminders'
+import { createReminder, createWatch, listReminders, mutateReminder } from './reminders'
 import { setProactiveMode } from './judgment'
 import {
   isDeliberationOnly,
@@ -25,6 +26,8 @@ import {
 } from './toolLoop'
 import { isAffirmativeApprovalIntent, isCasualChitChat, isNegativeCancellationIntent } from './conversationalApproval'
 import { cityConflictReply, type CityConflict } from './cityConflict'
+import { parseWatchInterval } from './watchInterval'
+import { enqueuePendingVaultTask } from './pendingVaultTask'
 
 const PERSONA_READ_APPS: Record<AgentId, readonly string[]> = {
   friend: ['home', 'nutrition', 'sleep_tracker', 'workout_log', 'spending_snapshot', 'habit_streak', 'networking_crm', 'open_loops', 'learning_queue', 'weekly_review'],
@@ -316,18 +319,18 @@ export async function runConversationalFriend(input: {
         const lastUser = [...memory.history].reverse().find((m) => m.role === 'user')
         const portalMatch = lastAssistant.content.match(/csuohio\.edu|campusnet/i) ? 'https://campusnet.csuohio.edu' : ''
         if (portalMatch && lastUser) {
-          return { portal: portalMatch, goal: lastUser.content, originalText: lastUser.content, createdAt: Date.now() }
+          return { id: crypto.randomUUID(), portal: portalMatch, goal: lastUser.content, originalText: lastUser.content, createdAt: Date.now(), state: 'pending' as const }
         }
       }
       return null
     })()
   )
 
-  const isSavedIntent = /^\s*(?:i\s+)?(?:did\s+)?(?:already\s+)?(?:saved?|done|ready|connected|all\s+set)(?:\s+(?:it|them|in\s+vault|to\s+vault|credentials?|password))?\s*[.!]?\s*$/i.test(input.userText)
+  const isSavedIntent = /^\s*(?:(?:i\s+)?(?:did\s+)?(?:already\s+)?(?:saved?|done|ready|connected|all\s+set)(?:\s+(?:it|them|in\s+vault|to\s+vault|credentials?|password))?|retry(?:\s+it)?)\s*[.!]?\s*$/i.test(input.userText)
 
   if (isSavedIntent && pendingVault) {
-    setPendingVaultTask(dataDir, senderId)
-    const queued = await proposeBrowserTask(senderId, persona, { portal: pendingVault.portal, goal: pendingVault.goal })
+    const queued = await enqueuePendingVaultTask(dataDir, senderId, pendingVault,
+      () => proposeBrowserTask(senderId, persona, { portal: pendingVault.portal, goal: pendingVault.goal }))
     const portalName = prettyPortalName(pendingVault.portal)
     const sessionUrl = queued.sessionUrl || (queued.id ? `https://hirealpha.chat/computer/${queued.id}` : null)
     const reply = sessionUrl
@@ -340,43 +343,15 @@ export async function runConversationalFriend(input: {
     return { reply, bubbles: [reply], source: 'local' as const, authoritative: [], card: null }
   }
 
-  if (pendingSpend && isNegativeCancellationIntent(input.userText)) {
-    setPendingSpend(dataDir, senderId)
-    const reply = `Cancelled the order for ${pendingSpend.item}. Let me know if you want to look for something else!`
-    appendThread(dataDir, senderId, [
+  if (pendingSpend) {
+    const reply = await pendingSpendReply({ ...{ dataDir, senderId, userText: input.userText }, pending: pendingSpend })
+    appendThread(input.dataDir, input.senderId, [
       { role: 'user', content: input.threadLine || input.userText },
       { role: 'assistant', content: reply },
     ])
     return { reply, bubbles: [reply], source: 'local' as const, authoritative: [], card: null }
   }
 
-  if (pendingSpend && isAffirmativeApprovalIntent(input.userText)) {
-    const chargeRes = await executeSpendApproval(senderId, pendingSpend.id, 'approve')
-    setPendingSpend(dataDir, senderId)
-    if (chargeRes.ok) {
-      const amountStr = chargeRes.amount || `$${pendingSpend.amount ? pendingSpend.amount.toFixed(2) : ''}`
-      const reply = `Payment received: ${amountStr} for ${pendingSpend.item}. I'm finalizing the merchant checkout now and will text the order confirmation number once the merchant confirms it.`
-      appendThread(dataDir, senderId, [
-        { role: 'user', content: input.threadLine || input.userText },
-        { role: 'assistant', content: reply },
-      ])
-      return { reply, bubbles: [reply], source: 'local' as const, authoritative: [], card: null }
-    } else {
-      const reply = `Could not complete the charge: ${chargeRes.error || 'Card charge failed'}. Tap the card below to retry or check Settings.`
-      const retryCard = await mintMiniAppCard(senderId, persona, 'approve_purchase', {
-        id: pendingSpend.id,
-        item: pendingSpend.item,
-        amount: pendingSpend.amount ? pendingSpend.amount.toFixed(2) : '',
-        url: pendingSpend.url || '',
-      })
-      if (retryCard) recordCardDelivered(dataDir, senderId)
-      appendThread(dataDir, senderId, [
-        { role: 'user', content: input.threadLine || input.userText },
-        { role: 'assistant', content: reply },
-      ])
-      return { reply, bubbles: [reply], source: 'local' as const, authoritative: [], card: retryCard }
-    }
-  }
   /* City conflict: a place ask that contradicts the trip already planned in
    * this thread. Confirmed deterministically before the engine runs, answered
    * here without tools — no search, no booking, and not another instruction a
@@ -679,6 +654,18 @@ export async function runConversationalFriend(input: {
       },
     },
     {
+      name: 'forget', description: 'input {key:"exact stable key from the saved preferences context"}. Durably delete one fact when the user says forget/remove/that is wrong. If more than one fact could match, ask which one and do not call this capability.', mutates: true,
+      execute: async (args) => {
+        const factKey = text(args, 'key', 100)
+        const candidates = [...live.memories, ...memory.facts].filter((f) => f.key.toLowerCase() === factKey.toLowerCase())
+        if (!factKey || candidates.length !== 1) return failed(candidates.length > 1 ? 'More than one saved fact matches; ask one focused clarification.' : 'No exact saved fact with that key was found; do not claim anything was deleted.')
+        const result = await deleteLiveFact(senderId, persona, candidates[0]!.key)
+        if (!result.ok) return failed(`${result.error} Do not claim the fact was forgotten.`)
+        removeFacts(dataDir, senderId, [candidates[0]!.key])
+        return { status: 'done', message: `Forgot ${candidates[0]!.key}. The durable store, tombstone, recall index, and local cache were updated.`, data: { key: candidates[0]!.key } }
+      },
+    },
+    {
       name: 'reminder', description: 'input {text:"what to remind them about",at:"future ISO datetime including timezone offset",recurrence:"once"|"daily"|"weekdays"|"weekly"}. Create a real scheduled text. Resolve "same time tomorrow" from the thread. Weekday-only (Monday-Friday) schedules use recurrence "weekdays"; a recurring morning digest is recurrence "weekdays" or "daily". Ask only if the time or task is missing. This schedules a notification, not arbitrary future tool execution; do not use it to pretend to monitor prices or send emails later — anything that has to KEEP CHECKING a page (a price, a listing, availability) is the watch capability does that job, not this one.', mutates: true,
       execute: async (args) => {
         const label = text(args, 'text', 500)
@@ -686,20 +673,43 @@ export async function runConversationalFriend(input: {
         const recurrence = text(args, 'recurrence') || 'once'
         const when = new Date(at)
         if (!label || !/T.*(?:Z|[+-]\d{2}:\d{2})$/.test(at) || !Number.isFinite(when.getTime()) || when.getTime() <= Date.now() || !['once', 'daily', 'weekdays', 'weekly'].includes(recurrence)) return failed('Use a future ISO datetime with timezone offset, a reminder text, and once/daily/weekdays/weekly recurrence. Ask for missing details instead of guessing.')
-        const ok = await createReminder({ phone: senderId, persona: 'friend', text: label, scheduledAt: when.toISOString(), recurrence, timezone })
-        return ok ? { status: 'done', message: `Reminder saved for ${when.toLocaleString('en-US', { timeZone: timezone })} (${timezone}), ${recurrence}: ${label}.`, data: { at: when.toISOString(), recurrence } } : failed('The reminder could not be saved. No reminder is confirmed.')
+        const created = await createReminder({ phone: senderId, persona: 'friend', text: label, scheduledAt: when.toISOString(), recurrence, timezone })
+        if (!created.ok) return failed('The reminder could not be saved. No reminder is confirmed.')
+        const saved = created.reminder
+        return { status: 'done', message: `Reminder saved for ${new Date(saved.scheduledAt).toLocaleString('en-US', { timeZone: timezone })} (${timezone}), ${saved.recurrence}: ${saved.text}.`, data: { id: saved.id, at: saved.scheduledAt, recurrence: saved.recurrence, text: saved.text } }
       },
     },
     {
       name: 'list_reminders', description: 'input {}. Read scheduled reminders before referring to, changing, or explaining them.',
-      execute: async () => ({ status: 'returned', message: 'Reminder listing returned.', data: await listReminders(senderId, 'friend') }),
+      execute: async () => {
+        const result = await listReminders(senderId, 'friend')
+        if (result.status === 'success_empty') return { status: 'returned', message: 'The reminder list was read successfully and is empty.', data: result }
+        if (result.status !== 'success_with_data') return failed(`The reminder list could not be read (${result.status}). Do not say there are no reminders; preserve the user's request and offer to retry.`)
+        return { status: 'returned', message: 'Reminder listing returned with stable IDs.', data: result }
+      },
+    },
+    {
+      name: 'change_reminder', description: 'input {id:"stable reminder id from list_reminders",action:"update"|"cancel",scheduledAt?:"future ISO datetime with offset",scope?:"occurrence"|"series"}. List reminders first and use the exact id. If two reminders match, ask one clarification. For recurring reminders, distinguish this occurrence from the whole series.', mutates: true,
+      execute: async (args) => {
+        const id = text(args, 'id', 100)
+        const action = text(args, 'action') as 'update' | 'cancel'
+        const scheduledAt = text(args, 'scheduledAt', 50)
+        const scope = text(args, 'scope') as 'occurrence' | 'series'
+        if (!id || !['update', 'cancel'].includes(action)) return failed('List reminders and select one stable reminder ID first.')
+        if (action === 'update' && (!scheduledAt || Number.isNaN(new Date(scheduledAt).getTime()))) return failed('A reminder update needs a valid future ISO time with an offset.')
+        const result = await mutateReminder({ phone: senderId, persona, id, action, ...(scheduledAt ? { scheduledAt } : {}), ...(scope ? { scope } : {}) })
+        if (!result.ok) return failed(`${result.error} Do not claim the reminder changed.`)
+        return { status: 'done', message: action === 'cancel' ? `Cancelled reminder ${result.reminder.id}; persisted status is ${result.reminder.status}.` : `Moved reminder ${result.reminder.id} to ${result.reminder.scheduledAt}.`, data: result.reminder }
+      },
     },
     {
       name: 'watch', description: 'input {url:"https://<exact page to check>",goal:"the condition to report on",intervalHours?:number}. Arm a real recurring check of one page: Alpha re-visits it on the interval and texts the user when the goal\'s condition is met (a price under a threshold, a listing back in stock, an availability change), pausing for approval before acting. Use it whenever the user asks to WATCH, TRACK or KEEP AN EYE ON something over time ("watch the price", "tell me if it goes on sale", "let me know when it\'s available") — this is the only capability that actually monitors, and the reminder capability is explicitly not a substitute for it. Find the exact product/listing page in the results you already have before arming; if no real URL is in hand, say which page you need instead of inventing one. State the site and the condition back to the user with the cadence you armed.', mutates: true,
       execute: async (args) => {
         const url = text(args, 'url', 500)
         const goal = text(args, 'goal', 400)
-        const hours = Math.max(1, Math.min(168, Math.floor(Number(text(args, 'intervalHours')) || 6)))
+        const interval = parseWatchInterval(args.intervalHours)
+        if (!interval.ok) return failed(interval.error)
+        const hours = interval.hours
         if (!/^https:\/\//i.test(url)) return failed('A watch needs the exact https page to check. Find the product or listing page first, or ask which site to watch.')
         if (goal.length < 8) return failed('A watch needs the condition to report on.')
         const saved = await createWatch({ phone: senderId, persona, url, goal, intervalHours: hours, title: `Watch: ${goal.slice(0, 60)}` })
@@ -728,6 +738,16 @@ export async function runConversationalFriend(input: {
           message: `Verified free slots from the real calendar: ${result.slots.map((slot) => `${slot.label} (${slot.start} to ${slot.end})`).join('; ')}. Offer only these times.`,
           data: result.slots,
         }
+      },
+    },
+    {
+      name: 'calendar_event', description: 'input {eventId:"stable provider event ID from calendar lookup",action:"inspect"|"update"|"cancel"|"rsvp",start?,end?,response?:"accepted"|"declined"|"tentative",scope?:"occurrence"|"series"}. Resolve one exact event first; ask which event if ambiguous. Updating requires a conflict check and exact new ISO start/end. Preserve provider identity and choose occurrence versus series explicitly.', mutates: true,
+      execute: async (args) => {
+        const eventId = text(args, 'eventId', 300); const action = text(args, 'action', 20)
+        if (!eventId || !['inspect', 'update', 'cancel', 'rsvp'].includes(action)) return failed('Select one calendar event by its provider ID first.')
+        const result = await mutateCalendarEventLive(senderId, persona, { eventId, action, start: text(args, 'start', 50), end: text(args, 'end', 50), response: text(args, 'response', 20), scope: text(args, 'scope', 20) })
+        if (!result.ok) return failed(`${result.error || 'Calendar change failed.'}${result.outcomeUnknown ? ' The outcome is unknown; inspect the event before retrying.' : ''}`)
+        return { status: action === 'inspect' ? 'returned' : 'done', message: `Calendar ${action} confirmed by provider readback for event ${eventId}.`, data: result.event }
       },
     },
     ...workWriteCapabilities,
@@ -764,6 +784,35 @@ export async function runConversationalFriend(input: {
         return result.ok
           ? { status: 'done', message: `Scheduled: Alpha will text "${body.slice(0, 120)}" to ${text(args, 'name') || to} at ${when.toLocaleString('en-US', { timeZone: timezone })}.` }
           : failed(`The message could not be scheduled (${result.error}). Do not claim it will be sent.`)
+      },
+    },
+    {
+      name: 'email_followup', description: 'input {action:"create"|"update"|"cancel",id?,threadId?,expectedParticipant?,deadline?}. Create only from an exact Gmail thread ID and expected sender. Update/cancel uses the stable follow-up ID. This checks that same thread at the deadline and ignores acknowledgements, the user\'s own mail, and same-subject mail in other threads.', mutates: true,
+      execute: async (args) => {
+        const action = text(args, 'action') as 'create' | 'update' | 'cancel'
+        if (!['create', 'update', 'cancel'].includes(action)) return failed('Use create, update, or cancel.')
+        const result = await manageEmailFollowup(senderId, persona, { action, id: text(args, 'id', 100), threadId: text(args, 'threadId', 200), expectedParticipant: text(args, 'expectedParticipant', 200), deadline: text(args, 'deadline', 50) })
+        if (!result.ok || !result.followup) return failed(`${result.error || 'The email follow-up was not saved.'} Do not claim it is active.`)
+        return { status: 'done', message: `Email follow-up ${action} persisted.`, data: result.followup }
+      },
+    },
+    {
+      name: 'find_file', description: 'input {query:"exact filename words"}. Search Drive and return stable file IDs. If duplicate filenames match, show the choices and ask which one; never choose by filename alone.',
+      execute: async (args) => {
+        const result = await findFilesLive(senderId, persona, text(args, 'query', 200))
+        if (result.status === 'success_empty') return { status: 'returned', message: 'Drive was read successfully and no file matched.', data: result }
+        if (result.status !== 'success_with_data') return failed(`Drive could not be read (${result.status}). Do not claim the file is missing.`)
+        return { status: 'returned', message: 'Drive files returned with stable IDs. Resolve duplicates before sending.', data: result }
+      },
+    },
+    {
+      name: 'send_file', description: 'input {recipient:"verified email",fileId:"stable Drive file ID",mode:"attachment"|"link",subject,text,sourceThreadId?,draftVersion:number}. Use only after recipient, exact file, and attachment versus share-link intent are resolved. A correction requires a new recipient-bound draft version.', mutates: true,
+      execute: async (args) => {
+        const recipient = text(args, 'recipient', 300); const fileId = text(args, 'fileId', 300); const mode = text(args, 'mode', 20)
+        if (!/^\S+@\S+\.\S+$/.test(recipient) || !fileId || !['attachment', 'link'].includes(mode)) return failed('Resolve the recipient, exact Drive file ID, and attachment versus link before sending.')
+        const result = await sendFileLive(senderId, persona, { recipient, fileId, mode, subject: text(args, 'subject', 300), text: text(args, 'text', 3000), sourceThreadId: text(args, 'sourceThreadId', 300), draftVersion: Number(args.draftVersion) || 1 })
+        if (!result.ok) return failed(`${result.error || 'The file was not sent.'}${result.outcomeUnknown ? ' The outcome is unknown; inspect Gmail before retrying.' : ''}`)
+        return { status: 'done', message: `File delivery confirmed for ${recipient}.`, data: result.receipt }
       },
     },
     {
@@ -1202,10 +1251,12 @@ ${JSON.stringify(context)}` },
         if (queued.ok) {
           if (queued.needsVault) {
             setPendingVaultTask(dataDir, senderId, {
+              id: crypto.randomUUID(),
               portal: draft.portal,
               goal: goal || input.userText,
               originalText: input.userText,
               createdAt: Date.now(),
+              state: 'pending',
             })
             const portalName = prettyPortalName(draft.portal)
             // The gate names the task, not just the merchant: after sign-in the

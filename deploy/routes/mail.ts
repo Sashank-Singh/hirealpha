@@ -300,8 +300,12 @@ export async function handleMailRoutes(
       return json({ ok: false, error: 'Alpha could not rewrite that right now. Try again.' }, 502)
     }
     const signed = fillDraftName(rewritten.trim(), firstName)
-    await sql`UPDATE hire_drafts SET body = ${signed}, updated_at = now() WHERE id = ${draftId} AND user_id = ${user!.id}`
-    return json({ ok: true, body: signed })
+    const updated = await sql`
+      UPDATE hire_drafts SET body = ${signed}, version = version + 1, updated_at = now()
+      WHERE id = ${draftId} AND user_id = ${user!.id}
+      RETURNING version
+    `
+    return json({ ok: true, body: signed, version: Number(updated[0]?.version || 1) })
   }
 
   /* Delegate fire: the bot retained an outreach draft for this user and the

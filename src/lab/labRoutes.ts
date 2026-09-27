@@ -1,14 +1,10 @@
-/* Route table for the concept prototypes.
+/* Route table for the email prototype.
  *
- * These live under `/lab/concept-*` rather than `/lab/email-v*` on purpose: a
- * second prototype set was authored in this same folder in parallel (see
- * `emailData.ts` / `LabNav.tsx` / `EmailV1NowWaitingLater.tsx`), and those paths
- * were already wired in src/App.tsx. Keeping a distinct prefix means both sets
- * render side by side and neither one silently replaces the other.
+ * One module so the brief and the router cannot drift apart. The older paths
+ * are kept as redirects because they were shared while the other two concepts
+ * were still under review.
  */
 export const LAB_ROUTES = {
-  v1: '/lab/concept-1-now-waiting-later',
-  v2: '/lab/concept-2-reply-queue',
-  v3: '/lab/concept-3-brief-radar',
-  compare: '/lab/concept-compare',
+  brief: '/lab/brief',
+  legacy: ['/lab', '/lab/email', '/lab/email-v1', '/lab/email-v2', '/lab/email-v3', '/lab/email-compare'],
 } as const

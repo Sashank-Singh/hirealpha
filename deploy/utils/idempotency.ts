@@ -26,13 +26,29 @@ export function computeIdempotencyKey(scope: string, params: unknown): string {
 }
 
 function normalizeParams(value: unknown): string {
-  if (value === null || value === undefined) return ''
-  if (typeof value !== 'object') return String(value)
-  if (Array.isArray(value)) return `[${value.map(normalizeParams).join(',')}]`
+  return JSON.stringify(canonicalize(value))
+}
 
-  const keys = Object.keys(value as Record<string, unknown>).sort()
-  const pairs = keys.map((k) => `${k}:${normalizeParams((value as Record<string, unknown>)[k])}`)
-  return `{${pairs.join(',')}}`
+function canonicalize(value: unknown): unknown {
+  if (value === null) return ['null']
+  if (value === undefined) return ['undefined']
+  if (typeof value === 'string') return ['string', value]
+  if (typeof value === 'boolean') return ['boolean', value]
+  if (typeof value === 'number') {
+    const encoded = Number.isNaN(value) ? 'NaN'
+      : value === Infinity ? 'Infinity'
+        : value === -Infinity ? '-Infinity'
+          : Object.is(value, -0) ? '-0' : value
+    return ['number', encoded]
+  }
+  if (typeof value === 'bigint') return ['bigint', value.toString()]
+  if (Array.isArray(value)) return ['array', value.map(canonicalize)]
+  if (value instanceof Date) return ['date', value.toISOString()]
+  if (typeof value === 'object') {
+    return ['object', Object.keys(value as Record<string, unknown>).sort()
+      .map((key) => [key, canonicalize((value as Record<string, unknown>)[key])])]
+  }
+  return [typeof value, String(value)]
 }
 
 /**

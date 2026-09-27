@@ -464,9 +464,9 @@ export async function createReminder(input: {
   scheduledAt: string
   recurrence: string
   timezone: string
-}): Promise<boolean> {
+}): Promise<{ ok: true; reminder: { id: string; text: string; scheduledAt: string; recurrence: string } } | { ok: false }> {
   const base = apiBase()
-  if (!base) return false
+  if (!base) return { ok: false }
   try {
     const res = await fetch(`${base}/api/internal/reminders`, {
       signal: AbortSignal.timeout(10000),
@@ -474,9 +474,19 @@ export async function createReminder(input: {
       headers: authHeaders(),
       body: JSON.stringify(input),
     })
-    return res.ok
+    if (!res.ok) return { ok: false }
+    const data = (await res.json().catch(() => null)) as {
+      ok?: boolean
+      reminder?: { id?: string; text?: string; scheduledAt?: string; recurrence?: string }
+    } | null
+    const reminder = data?.reminder
+    if (!data?.ok || !reminder?.id || !reminder.text || !reminder.scheduledAt || !reminder.recurrence) return { ok: false }
+    return {
+      ok: true,
+      reminder: { id: reminder.id, text: reminder.text, scheduledAt: reminder.scheduledAt, recurrence: reminder.recurrence },
+    }
   } catch {
-    return false
+    return { ok: false }
   }
 }
 
@@ -515,18 +525,46 @@ export async function createWatch(input: {
   }
 }
 
-export async function listReminders(phone: string, persona: string): Promise<Array<{ text: string; scheduledAt: string; recurrence: string; status: string }>> {  const base = apiBase()
-  if (!base) return []
+export type ReminderRecord = { id: string; text: string; scheduledAt: string; recurrence: string; status: string; timezone?: string | null }
+export type ReminderReadResult =
+  | { status: 'success_with_data'; reminders: ReminderRecord[] }
+  | { status: 'success_empty'; reminders: [] }
+  | { status: 'not_connected' | 'auth_expired' | 'timeout' | 'provider_error' | 'malformed_response'; reminders: [] }
+
+export async function listReminders(phone: string, persona: string): Promise<ReminderReadResult> {
+  const base = apiBase()
+  if (!base) return { status: 'not_connected', reminders: [] }
   try {
     const res = await fetch(
       `${base}/api/internal/reminders/list?phone=${encodeURIComponent(phone)}&persona=${encodeURIComponent(persona)}`,
       { headers: authHeaders(), signal: AbortSignal.timeout(10000) },
     )
-    if (!res.ok) return []
-    const data = (await res.json()) as { reminders?: Array<{ text: string; scheduledAt: string; recurrence: string; status: string }> }
-    return data.reminders || []
-  } catch {
-    return []
+    if (!res.ok) return { status: res.status === 401 ? 'auth_expired' : 'provider_error', reminders: [] }
+    const data = (await res.json().catch(() => null)) as { reminders?: ReminderRecord[] } | null
+    if (!data || !Array.isArray(data.reminders)) return { status: 'malformed_response', reminders: [] }
+    return data.reminders.length
+      ? { status: 'success_with_data', reminders: data.reminders }
+      : { status: 'success_empty', reminders: [] }
+  } catch (error) {
+    return { status: error instanceof DOMException && error.name === 'TimeoutError' ? 'timeout' : 'provider_error', reminders: [] }
+  }
+}
+
+export async function mutateReminder(input: {
+  phone: string; persona: string; id: string; action: 'update' | 'cancel'; scheduledAt?: string; scope?: 'occurrence' | 'series'
+}): Promise<{ ok: true; reminder: ReminderRecord } | { ok: false; status: string; error: string }> {
+  const base = apiBase()
+  if (!base) return { ok: false, status: 'not_connected', error: 'Reminder service is unavailable.' }
+  try {
+    const res = await fetch(`${base}/api/internal/reminders/${encodeURIComponent(input.id)}`, {
+      method: input.action === 'cancel' ? 'DELETE' : 'PATCH', headers: authHeaders(), signal: AbortSignal.timeout(10_000),
+      body: JSON.stringify(input),
+    })
+    const data = (await res.json().catch(() => null)) as { reminder?: ReminderRecord; error?: string } | null
+    if (!res.ok || !data?.reminder) return { ok: false, status: res.status === 404 ? 'stale_selection' : 'provider_error', error: data?.error || 'Reminder update failed.' }
+    return { ok: true, reminder: data.reminder }
+  } catch (error) {
+    return { ok: false, status: error instanceof DOMException && error.name === 'TimeoutError' ? 'timeout' : 'provider_error', error: 'Reminder service did not confirm the change.' }
   }
 }
 

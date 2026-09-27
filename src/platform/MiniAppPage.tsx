@@ -43,6 +43,10 @@ const ArtifactApp = lazy(() => import('./WorkHomes').then(m => ({ default: m.Art
 const CofounderHomeApp = lazy(() => import('./WorkHomes').then(m => ({ default: m.CofounderHomeApp })))
 const CoworkerHomeApp = lazy(() => import('./WorkHomes').then(m => ({ default: m.CoworkerHomeApp })))
 const BriefApp = lazy(() => import('./BriefApp').then(m => ({ default: m.BriefApp })))
+/* The next morning brief, prototyped in src/lab. Mock data for now; `?brief=classic`
+ * puts the shipped brief back while the two are compared. */
+const NextBriefEmbedded = lazy(() => import('../lab/EmailBrief').then((m) => ({ default: m.NextBriefEmbedded })))
+const NextBriefEvening = lazy(() => import('../lab/EmailBrief').then((m) => ({ default: m.NextBriefEvening })))
 const BodyHubApp = lazy(() => import('./FriendHubApps').then(m => ({ default: m.BodyHubApp })))
 const LaterHubApp = lazy(() => import('./FriendHubApps').then(m => ({ default: m.LaterHubApp })))
 const ApproveSendApp = lazy(() => import('./WorkMiniApps').then(m => ({ default: m.ApproveSendApp })))
@@ -120,20 +124,23 @@ type BriefPayload = DigestData & MiniPayload
 
 /** This device's last copy of one brief, or null. Module-level so the first-frame
  * seed and a kind change on an already-mounted page read it the same way. */
-function cachedBrief(persona: string, kind: string, token: string): BriefPayload | null {
+function cachedBrief(persona: string, kind: string, token: string): { brief: BriefPayload; at: number } | null {
   if (!BRIEF_CACHE_KINDS.has(kind)) return null
-  const b = readBriefCache<BriefPayload>(
+  const env = readBriefCache<{ brief: BriefPayload; at: number }>(
     { email: getSession()?.email, token, persona },
     kind,
     localYmd(),
     Date.now(),
   )
+  const b = env && typeof env === 'object' && 'brief' in (env as Record<string, unknown>) ? (env as { brief: BriefPayload; at: number }).brief : (env as unknown as BriefPayload)
+  const at = env && typeof env === 'object' && 'at' in (env as Record<string, unknown>) ? Number((env as Record<string, unknown>).at) || 0 : 0
+  if (!b) return null
   if (b && Array.isArray((b as any).dayFacts)) {
     (b as any).dayFacts = (b as any).dayFacts.filter(
       (f: any) => f?.key !== 'gratitude' && !/gratitude/i.test(f?.label || '') && !/gratitude/i.test(f?.key || '')
     )
   }
-  return b
+  return { brief: b, at }
 }
 
 function saveBrief(persona: string, kind: string, token: string, brief: BriefPayload) {
@@ -214,6 +221,7 @@ export function MiniAppPage() {
   const persona = (AGENTS.some((a) => a.id === params.persona) ? params.persona : 'friend') as AgentId
   const kind = params.kind
   const [searchParams] = useSearchParams()
+  const classicBrief = searchParams.get('brief') === 'classic'
   const navigate = useNavigate()
   const token = searchParams.get('t') || ''
   const agent = getAgent(persona)
@@ -229,8 +237,12 @@ export function MiniAppPage() {
    * this. Read once at mount — a kind change on a mounted page re-reads it in the
    * fetch effect. */
   const [seed] = useState(() => cachedBrief(persona || '', kind || '', token))
-  const [data, setData] = useState<DigestData | null>(() => (kind === 'digest' ? seed : null))
-  const [mini, setMini] = useState<MiniPayload | null>(() => (kind === 'digest' ? null : seed))
+  const [data, setData] = useState<DigestData | null>(() => (kind === 'digest' ? seed?.brief ?? null : null))
+  /** When the model on screen was built. The cache envelope knows for the seed,
+   *  and every fetch that lands a real payload updates it. */
+  const [updatedAt, setUpdatedAt] = useState<number>(() => seed?.at ?? 0)
+  const [fetching, setFetching] = useState(false)
+  const [mini, setMini] = useState<MiniPayload | null>(() => (kind === 'digest' ? null : seed?.brief ?? null))
   const [loading, setLoading] = useState(!seed)
   const [briefTries, setBriefTries] = useState(0)
   const [expired, setExpired] = useState(false)
@@ -311,8 +323,9 @@ export function MiniAppPage() {
      * spinner instead. */
     const held = opts?.force ? null : cachedBrief(persona || '', kind || '', token)
     if (held) {
-      if (isDigest) setData(held)
-      else setMini(held)
+      if (isDigest) setData(held.brief)
+      else setMini(held.brief)
+      setUpdatedAt(held.at)
       setLoading(false)
     } else {
       // If we already have content on screen, do not show a blank loading spinner on background refresh
@@ -344,6 +357,7 @@ export function MiniAppPage() {
      * and the SWR covers it). */
     if (opts?.force) qs.set('_t', Date.now().toString())
     const url = isDigest ? `/api/digest?${qs}` : `/api/mini?${qs}&kind=${encodeURIComponent(kind || '')}`
+    setFetching(true)
     return fetch(url)
       .then((res) =>
         res.ok ? (res.json() as Promise<BriefPayload>) : Promise.reject({ status: res.status }),
@@ -356,7 +370,9 @@ export function MiniAppPage() {
         }
         if (!d.pending) {
           saveBrief(persona || '', kind || '', token, d)
+          setUpdatedAt(Date.now())
         }
+        setFetching(false)
       })
       .catch((err) => {
         if (err && err.status === 401) {
@@ -753,7 +769,20 @@ export function MiniAppPage() {
           </div>
         )}
 
-        {authed && !expired && !settingsOpen && isDigest && loading && (
+        {authed && !expired && !settingsOpen && isDigest && !classicBrief && !loading && !data?.error && (!data?.pending || !!(data?.calendar?.length || data?.story || data?.meetings?.length || data?.emails?.length)) && (
+          <div className="mini__body">
+            <Suspense fallback={<BriefLoading attempt={briefTries} />}>
+              <NextBriefEmbedded
+                data={data}
+                updatedAt={updatedAt}
+                refreshing={fetching || !!data?.pending}
+                onRefresh={() => refresh({ force: true })}
+              />
+            </Suspense>
+          </div>
+        )}
+
+        {authed && !expired && !settingsOpen && isDigest && loading && !data && (
           <div className="mini__body">
             <BriefLoading attempt={briefTries} />
           </div>
@@ -790,7 +819,7 @@ export function MiniAppPage() {
           </div>
         )}
 
-        {authed && !expired && !settingsOpen && isDigest && !loading && !data?.error && (!data?.pending || !!(data?.calendar?.length || data?.story || data?.meetings?.length || data?.emails?.length)) && (
+        {authed && !expired && !settingsOpen && isDigest && classicBrief && !loading && !data?.error && (!data?.pending || !!(data?.calendar?.length || data?.story || data?.meetings?.length || data?.emails?.length)) && (
           <div className="mini__body">
             <BriefApp
               auth={{
@@ -830,7 +859,15 @@ export function MiniAppPage() {
           </div>
         )}
 
-        {authed && !expired && !settingsOpen && isLiveMini && !isDigest && kind === 'pick_night' && !loading && !mini?.error && (!mini?.pending || !!(mini?.sections?.length || mini?.mailGroups?.length)) && (
+        {authed && !expired && !settingsOpen && isLiveMini && !isDigest && kind === 'pick_night' && !classicBrief && !loading && !mini?.error && (!mini?.pending || !!(mini?.sections?.length || mini?.mailGroups?.length)) && (
+          <div className="mini__body">
+            <Suspense fallback={<BriefLoading evening attempt={briefTries} />}>
+              <NextBriefEvening evening={mini} />
+            </Suspense>
+          </div>
+        )}
+
+        {authed && !expired && !settingsOpen && isLiveMini && !isDigest && kind === 'pick_night' && classicBrief && !loading && !mini?.error && (!mini?.pending || !!(mini?.sections?.length || mini?.mailGroups?.length)) && (
           <div className="mini__body">
             <BriefApp
               auth={{

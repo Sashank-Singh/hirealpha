@@ -35,7 +35,15 @@ export interface MemoryFact {
 
 export interface ThreadMemory {
   pendingConnection?: { connector: string; request: string; createdAt: number }
-  pendingVaultTask?: { portal: string; goal: string; originalText: string; createdAt: number }
+  pendingVaultTask?: {
+    id: string
+    portal: string
+    goal: string
+    originalText: string
+    createdAt: number
+    state: 'pending' | 'preparing' | 'retryable_failure'
+    lastError?: string
+  }
   pendingSpend?: { id: string; item: string; amount: number; url?: string; createdAt: number }
   /** The build most recently delivered in this thread, so keep/toss/iterate act
    * on the app the user is actually talking about. */
@@ -84,7 +92,13 @@ function normalize(raw: unknown): ThreadMemory {
       typeof (r.pendingVaultTask as Record<string, unknown>).portal === 'string' &&
       typeof (r.pendingVaultTask as Record<string, unknown>).goal === 'string' &&
       typeof (r.pendingVaultTask as Record<string, unknown>).createdAt === 'number'
-      ? { pendingVaultTask: r.pendingVaultTask as ThreadMemory['pendingVaultTask'] } : {}),
+      ? { pendingVaultTask: {
+          ...(r.pendingVaultTask as Omit<NonNullable<ThreadMemory['pendingVaultTask']>, 'id' | 'state'>),
+          id: typeof (r.pendingVaultTask as Record<string, unknown>).id === 'string'
+            ? String((r.pendingVaultTask as Record<string, unknown>).id) : crypto.randomUUID(),
+          state: ['pending', 'preparing', 'retryable_failure'].includes(String((r.pendingVaultTask as Record<string, unknown>).state))
+            ? (r.pendingVaultTask as NonNullable<ThreadMemory['pendingVaultTask']>).state : 'pending',
+        } } : {}),
     ...(r.pendingSpend && typeof r.pendingSpend === 'object' &&
       typeof (r.pendingSpend as Record<string, unknown>).id === 'string'
       ? { pendingSpend: r.pendingSpend as ThreadMemory['pendingSpend'] } : {}),

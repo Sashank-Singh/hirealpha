@@ -1,85 +1,62 @@
 /* Shared foundation for the Alpha email prototypes.
  *
- * Tokens are lifted from the live product language (`.mini` in src/index.css,
- * src/platform/homeA.css) so the prototypes read as Alpha rather than as a
- * generic mail client: charcoal matte canvas, Inter Variable, hairline
- * separators, 999px pills, inset light caps, one accent at a time.
+ * Phone first: everything below lays out for a 390pt viewport, with the wider
+ * two-column treatments added at the bottom under @media (min-width: 900px).
+ *
+ * The language is the live product's (`.mini` in src/index.css, homeA.css), held
+ * to a tighter discipline: flat charcoal, hairline separators, grouped lists
+ * instead of a card per item, one accent colour used once per screen.
  *
  * Every class is namespaced (`.lab`, `.l1-`, `.l2-`, `.l3-`, `.lc-`) and every
  * token is scoped to `.lab`, so nothing here can leak into the shipping UI.
  */
 
 .lab {
-  --lab-bg: #101113;
-  --lab-surface: #17191b;
-  --lab-raised: #1d2023;
-  --lab-sunken: #131517;
-  --lab-line: rgb(255 255 255 / 0.07);
+  /* Values taken from the surface this has to sit beside: .mini in
+   * src/index.css (bg #141414, fg #f4f4f4, border #3a3a3a) and the live skin in
+   * src/platform/homeA.css (glass, mint, cyan, amber, rose). */
+  --lab-bg: #141414;
+  --lab-surface: #1a1a1e;
+  --lab-raised: #1e1e23;
+  --lab-sunken: #101013;
+  --lab-line: rgb(255 255 255 / 0.075);
   --lab-line-strong: rgb(255 255 255 / 0.13);
-  --lab-fg: #f1f3f2;
-  --lab-muted: #99a1a3;
-  --lab-faint: #6b7275;
+  --lab-fg: #f4f4f4;
+  --lab-muted: #9aa0a6;
+  --lab-faint: #6f757d;
 
-  /* Alpha's own colour — the Friend/Alpha persona teal from agents/definitions. */
+  /* Alpha's hue for the Friend persona, and the skin's mint for action. */
   --lab-alpha: #2a6f7a;
   --lab-accent: #7fe3c4;
-  --lab-accent-ink: #07130f;
+  --lab-accent-ink: #08201b;
 
-  /* One signal per state. Warm = yours to move, cool = theirs, grey = done. */
-  --lab-now: #ffc98a;
-  --lab-wait: #8fb8ff;
-  --lab-quiet: #7c8488;
+  /* The skin's own signals: warm hour, cool hour, readable over-text. */
+  --lab-now: #f4c46c;
+  --lab-wait: #3fd9f5;
+  --lab-quiet: #9aa0a6;
   --lab-risk: #ff9f9f;
 
+  --lab-r: 16px;
   --lab-r-sm: 12px;
-  --lab-r-md: 16px;
-  --lab-r-lg: 20px;
-  --lab-r-xl: 24px;
-
-  --lab-shadow: inset 0 1px 0 rgb(255 255 255 / 0.055), 0 10px 26px rgb(0 0 0 / 0.34);
-  --lab-shadow-lg: inset 0 1px 0 rgb(255 255 255 / 0.07), 0 22px 54px rgb(0 0 0 / 0.44);
+  --lab-r-lg: 22px;
+  /* The queue-row recipe from .hA-queue .ma-row. */
+  --lab-card-bg: linear-gradient(180deg, rgb(28 28 33 / 0.85), rgb(22 22 26 / 0.9));
+  --lab-card-line: rgb(255 255 255 / 0.055);
+  --lab-card-shadow: inset 0 1px 0 rgb(255 255 255 / 0.055), 0 1px 0 rgb(255 255 255 / 0.015), 0 8px 20px rgb(0 0 0 / 0.14);
+  --lab-shadow: inset 0 1px 0 rgb(255 255 255 / 0.09), 0 14px 32px rgb(0 0 0 / 0.35);
   --lab-ease: cubic-bezier(0.32, 0.72, 0, 1);
 
   min-height: 100dvh;
-  background:
-    radial-gradient(1100px 520px at 50% -12%, rgb(255 255 255 / 0.045), transparent 62%),
-    radial-gradient(760px 420px at 88% 4%, color-mix(in srgb, var(--lab-alpha) 16%, transparent), transparent 66%),
-    var(--lab-bg);
+  background: var(--lab-bg);
   color: var(--lab-fg);
   font-family: 'Inter Variable', ui-sans-serif, system-ui, -apple-system, sans-serif;
-  font-size: 14px;
-  line-height: 1.5;
-  letter-spacing: -0.005em;
+  font-size: 16px;
+  line-height: 1.45;
+  letter-spacing: -0.006em;
   -webkit-font-smoothing: antialiased;
   font-variant-numeric: tabular-nums;
   color-scheme: dark;
-}
-
-/* The morning-paper variant: the product's own light theme (index.css:4807),
- * warmed toward the brand paper so the brief reads like something printed. */
-.lab--paper {
-  --lab-bg: #f4f2ec;
-  --lab-surface: #fffefb;
-  --lab-raised: #ffffff;
-  --lab-sunken: #ece9e1;
-  --lab-line: rgb(26 25 23 / 0.09);
-  --lab-line-strong: rgb(26 25 23 / 0.17);
-  --lab-fg: #1a1917;
-  --lab-muted: #6d675e;
-  --lab-faint: #948d82;
-  --lab-accent: #1f6b5f;
-  --lab-accent-ink: #f4fbf8;
-  --lab-now: #a05a1c;
-  --lab-wait: #34558c;
-  --lab-quiet: #8b857b;
-  --lab-risk: #a8322b;
-  --lab-shadow: inset 0 1px 0 rgb(255 255 255 / 0.7), 0 1px 2px rgb(26 25 23 / 0.05), 0 12px 30px rgb(26 25 23 / 0.07);
-  --lab-shadow-lg: inset 0 1px 0 rgb(255 255 255 / 0.8), 0 2px 4px rgb(26 25 23 / 0.06), 0 26px 60px rgb(26 25 23 / 0.12);
-  background:
-    radial-gradient(900px 420px at 50% -14%, rgb(255 255 255 / 0.85), transparent 60%),
-    radial-gradient(680px 380px at 92% 2%, color-mix(in srgb, var(--lab-alpha) 9%, transparent), transparent 64%),
-    var(--lab-bg);
-  color-scheme: light;
+  overflow-x: hidden;
 }
 
 .lab *,
@@ -89,10 +66,12 @@
 }
 
 .lab ::selection {
-  background: color-mix(in srgb, var(--lab-accent) 34%, transparent);
+  background: color-mix(in srgb, var(--lab-accent) 30%, transparent);
 }
 
-.lab button {
+.lab button,
+.lab input,
+.lab textarea {
   font: inherit;
   color: inherit;
   letter-spacing: inherit;
@@ -102,115 +81,234 @@
 .lab h2,
 .lab h3,
 .lab h4,
-.lab p {
+.lab p,
+.lab ul,
+.lab ol {
   margin: 0;
+}
+
+.lab ul,
+.lab ol {
+  padding: 0;
+  list-style: none;
 }
 
 /* ── Frame ──────────────────────────────────────────────────────────────── */
 
 .lab-shell {
-  max-width: 1240px;
-  margin: 0 auto;
-  padding: 22px 26px 72px;
+  width: 100%;
+  max-width: 100%;
+  /* The only place side spacing is set: sections add none, so a bordered box
+   * always has room and its outline can never sit against the screen edge. */
+  padding-top: 0;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-bottom: calc(40px + env(safe-area-inset-bottom, 0px));
 }
 
+/* Sticky page header: identity on the left, one quiet action on the right. */
 .lab-topbar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
   display: flex;
   align-items: center;
-  gap: 14px;
-  padding: 10px 0 22px;
+  gap: 10px;
+  min-height: 54px;
+  padding: 9px 0;
+  padding-top: calc(9px + env(safe-area-inset-top));
+  background: color-mix(in srgb, var(--lab-bg) 88%, transparent);
+  backdrop-filter: saturate(1.4) blur(14px);
+  border-bottom: 1px solid var(--lab-line);
 }
 
 .lab-brand {
   display: flex;
-  align-items: center;
-  gap: 11px;
+  flex-direction: column;
+  gap: 1px;
   min-width: 0;
+  flex: 1;
 }
 
 .lab-brand__name {
   font-size: 15px;
-  font-weight: 680;
-  letter-spacing: -0.015em;
-  line-height: 1.15;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .lab-brand__role {
-  font-size: 11.5px;
+  font-size: 12px;
   color: var(--lab-muted);
-  line-height: 1.2;
+  line-height: 1.25;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .lab-topbar__spacer {
   flex: 1;
 }
 
+.lab-navlink {
+  flex: none;
+  padding: 7px 10px;
+  margin-right: -4px;
+  border-radius: 8px;
+  color: var(--lab-muted);
+  font-size: 13px;
+  font-weight: 500;
+  text-decoration: none;
+  transition: color 0.15s var(--lab-ease), background 0.15s var(--lab-ease);
+}
+
+.lab-navlink:hover {
+  color: var(--lab-fg);
+  background: rgb(255 255 255 / 0.05);
+}
+
+
 /* ── Type ───────────────────────────────────────────────────────────────── */
 
+/* Section labels are the only uppercase in the system, and they stay quiet. */
 .lab-kicker {
   font-size: 10px;
-  font-weight: 720;
-  letter-spacing: 0.22em;
+  font-weight: 700;
+  letter-spacing: 0.16em;
   text-transform: uppercase;
-  color: var(--lab-faint);
+  color: var(--lab-muted);
 }
 
 .lab-display {
   font-family: 'Fraunces', Georgia, serif;
   font-weight: 500;
-  letter-spacing: -0.02em;
-  line-height: 1.12;
+  letter-spacing: -0.022em;
+  line-height: 1.14;
 }
 
 .lab-title {
-  font-size: 20px;
-  font-weight: 660;
-  letter-spacing: -0.025em;
-  line-height: 1.25;
+  font-size: 21px;
+  font-weight: 600;
+  letter-spacing: -0.028em;
+  line-height: 1.22;
 }
 
 .lab-body {
   font-size: 13.5px;
-  line-height: 1.58;
+  line-height: 1.55;
   color: var(--lab-muted);
 }
 
-.lab-quote {
-  font-size: 13px;
-  line-height: 1.6;
-  color: var(--lab-fg);
-  white-space: pre-wrap;
+.lab-note {
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--lab-faint);
 }
 
 .lab-num {
   font-variant-numeric: tabular-nums;
-  font-feature-settings: 'tnum' 1;
 }
 
-/* ── Surfaces ───────────────────────────────────────────────────────────── */
+/* ── Grouped list: the primary container on a phone ─────────────────────── */
 
+.lab-group {
+  margin: 0 14px 22px;
+}
+
+.lab-group__label {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 0 2px 10px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: var(--lab-muted);
+}
+
+.lab-group__label::before {
+  content: '';
+  flex: none;
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: rgb(127 227 196 / 0.7);
+  box-shadow: 0 0 6px rgb(127 227 196 / 0.6);
+}
+
+.lab-group__body {
+  border: 1px solid var(--lab-card-line);
+  border-radius: var(--lab-r);
+  background: var(--lab-card-bg);
+  box-shadow: var(--lab-card-shadow);
+  overflow: hidden;
+}
+
+/* A row inside a group: 44pt minimum, hairline above every row but the first. */
+.lab-row {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  width: 100%;
+  min-height: 44px;
+  padding: 11px 13px;
+  border-top: 1px solid var(--lab-line);
+  background: transparent;
+  text-align: left;
+}
+
+.lab-group__body > .lab-row:first-child,
+.lab-group__body > *:first-child > .lab-row:first-child {
+  border-top: 0;
+}
+
+.lab-row--tap {
+  cursor: pointer;
+  transition: background 0.15s var(--lab-ease);
+}
+
+.lab-row--tap:active {
+  background: rgb(255 255 255 / 0.04);
+}
+
+
+.lab-row__main {
+  flex: 1;
+  min-width: 0;
+}
+
+.lab-row__title {
+  font-size: 14px;
+  font-weight: 550;
+  letter-spacing: -0.012em;
+  line-height: 1.35;
+}
+
+.lab-row__sub {
+  margin-top: 2px;
+  font-size: 12.5px;
+  line-height: 1.4;
+  color: var(--lab-muted);
+}
+
+.lab-row__value {
+  flex: none;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--lab-fg);
+}
+
+/* Standalone surface, for the one or two things that deserve to float. */
 .lab-card {
-  background: linear-gradient(180deg, rgb(255 255 255 / 0.028), rgb(255 255 255 / 0.008)), var(--lab-surface);
-  border: 1px solid var(--lab-line);
-  border-radius: var(--lab-r-lg);
-  box-shadow: var(--lab-shadow);
-}
-
-.lab--paper .lab-card {
-  background: var(--lab-surface);
-}
-
-.lab-panel {
-  background: var(--lab-sunken);
-  border: 1px solid var(--lab-line);
-  border-radius: var(--lab-r-md);
-}
-
-.lab-rule {
-  height: 1px;
-  background: var(--lab-line);
-  border: 0;
-  margin: 0;
+  margin: 0 14px 16px;
+  border: 1px solid var(--lab-card-line);
+  border-radius: var(--lab-r);
+  background: var(--lab-card-bg);
+  box-shadow: var(--lab-card-shadow);
 }
 
 /* ── Chips ──────────────────────────────────────────────────────────────── */
@@ -218,14 +316,11 @@
 .lab-chip {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  padding: 3px 9px;
+  padding: 2px 8px;
   border-radius: 999px;
-  border: 1px solid var(--lab-line);
-  background: color-mix(in srgb, currentColor 9%, transparent);
-  font-size: 10.5px;
-  font-weight: 640;
-  letter-spacing: 0.015em;
+  background: color-mix(in srgb, currentColor 11%, transparent);
+  font-size: 11px;
+  font-weight: 550;
   white-space: nowrap;
 }
 
@@ -234,6 +329,7 @@
 .lab-chip--quiet { color: var(--lab-quiet); }
 .lab-chip--risk { color: var(--lab-risk); }
 .lab-chip--accent { color: var(--lab-accent); }
+.lab-chip--plain { color: var(--lab-muted); }
 
 /* ── Buttons ────────────────────────────────────────────────────────────── */
 
@@ -241,85 +337,112 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 7px;
-  padding: 8px 15px;
+  gap: 6px;
+  min-height: 40px;
+  padding: 0 15px;
+  border: 0;
   border-radius: 999px;
-  border: 1px solid var(--lab-line-strong);
-  background: transparent;
-  color: var(--lab-fg);
-  font-size: 12.5px;
-  font-weight: 640;
+  background: linear-gradient(180deg, rgb(255 255 255 / 0.16), rgb(255 255 255 / 0.03));
+  color: #f2f4f0;
+  font-size: 13px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
   cursor: pointer;
-  transition: background 0.18s var(--lab-ease), border-color 0.18s var(--lab-ease),
-    transform 0.18s var(--lab-ease), box-shadow 0.18s var(--lab-ease), color 0.18s var(--lab-ease);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.22),
+    inset 0 0 0 1px rgb(255 255 255 / 0.07),
+    0 6px 16px rgb(0 0 0 / 0.3);
+  transition: transform 0.15s var(--lab-ease), background 0.2s var(--lab-ease), box-shadow 0.2s var(--lab-ease),
+    opacity 0.15s var(--lab-ease);
 }
 
+
 .lab-btn:hover:not(:disabled) {
-  background: rgb(255 255 255 / 0.05);
-  border-color: var(--lab-line-strong);
+  background: linear-gradient(180deg, rgb(255 255 255 / 0.22), rgb(255 255 255 / 0.06));
   transform: translateY(-1px);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.26),
+    inset 0 0 0 1px rgb(255 255 255 / 0.09),
+    0 9px 20px rgb(0 0 0 / 0.35);
 }
 
 .lab-btn:active:not(:disabled) {
-  transform: scale(0.982) translateY(0);
+  transform: translateY(0) scale(0.985);
 }
 
 .lab-btn:disabled {
-  opacity: 0.42;
-  cursor: not-allowed;
+  opacity: 0.45;
+  cursor: default;
 }
 
+/* One primary per screen: the persona hue, filled. */
+/* Filled with the persona hue at full strength and deepened towards the base,
+ * so it reads as a button rather than a pale slab. No white is mixed in. */
 .lab-btn--primary {
-  background: linear-gradient(180deg, color-mix(in srgb, var(--lab-accent) 94%, #fff), var(--lab-accent));
-  border-color: transparent;
-  color: var(--lab-accent-ink);
+  background: linear-gradient(180deg, #86e8ca 0%, #4ec9a4 100%);
+  color: #04211a;
   font-weight: 700;
-  box-shadow: 0 6px 18px color-mix(in srgb, var(--lab-accent) 20%, transparent);
+  text-shadow: 0 1px 0 rgb(255 255 255 / 0.16);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.3),
+    inset 0 -1px 0 rgb(0 0 0 / 0.16),
+    0 6px 16px rgb(78 201 164 / 0.2);
 }
 
 .lab-btn--primary:hover:not(:disabled) {
-  background: linear-gradient(180deg, color-mix(in srgb, var(--lab-accent) 88%, #fff), color-mix(in srgb, var(--lab-accent) 94%, #000));
-  border-color: transparent;
+  background: linear-gradient(180deg, #97efd4 0%, #57d2ad 100%);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.34),
+    inset 0 -1px 0 rgb(0 0 0 / 0.16),
+    0 8px 20px rgb(78 201 164 / 0.26);
 }
 
-.lab-btn--quiet {
-  border-color: transparent;
-  color: var(--lab-muted);
-  padding: 7px 11px;
-}
-
-.lab-btn--quiet:hover:not(:disabled) {
-  color: var(--lab-fg);
-  background: rgb(255 255 255 / 0.05);
+.lab-btn--primary:active:not(:disabled) {
+  background: linear-gradient(180deg, #6fdcbb 0%, #43b894 100%);
 }
 
 .lab-btn--danger {
-  border-color: color-mix(in srgb, var(--lab-risk) 34%, transparent);
+  background: transparent;
+  box-shadow: none;
   color: var(--lab-risk);
 }
 
-.lab-btn--sm {
-  padding: 6px 12px;
-  font-size: 12px;
+.lab-btn--plain {
+  background: transparent;
+  box-shadow: none;
+  color: var(--lab-muted);
+  padding: 0 10px;
 }
 
-.lab--paper .lab-btn:hover:not(:disabled) {
-  background: rgb(26 25 23 / 0.045);
+.lab-btn--plain:hover:not(:disabled) {
+  background: rgb(255 255 255 / 0.06);
+  color: var(--lab-fg);
+  transform: none;
+  box-shadow: none;
+}
+
+.lab-btn--plain:active:not(:disabled) {
+  color: var(--lab-fg);
+}
+
+.lab-btn--full {
+  width: 100%;
 }
 
 /* ── Switch ─────────────────────────────────────────────────────────────── */
 
 .lab-switch {
   position: relative;
-  width: 36px;
-  height: 21px;
+  width: 46px;
+  height: 28px;
   flex: none;
   border-radius: 999px;
-  border: 1px solid var(--lab-line-strong);
-  background: var(--lab-sunken);
+  border: 0;
+  background: rgb(255 255 255 / 0.16);
   cursor: pointer;
   padding: 0;
-  transition: background 0.2s var(--lab-ease), border-color 0.2s var(--lab-ease);
+  transition: background 0.2s var(--lab-ease);
 }
 
 .lab-switch::after {
@@ -327,27 +450,27 @@
   position: absolute;
   top: 2px;
   left: 2px;
-  width: 15px;
-  height: 15px;
+  width: 24px;
+  height: 24px;
   border-radius: 50%;
-  background: var(--lab-muted);
-  transition: transform 0.22s var(--lab-ease), background 0.22s var(--lab-ease);
+  background: #f2f4f0;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.35);
+  transition: transform 0.2s var(--lab-ease);
 }
 
 .lab-switch[aria-checked='true'] {
-  background: color-mix(in srgb, var(--lab-accent) 26%, transparent);
-  border-color: color-mix(in srgb, var(--lab-accent) 46%, transparent);
+  background: var(--lab-accent);
 }
 
 .lab-switch[aria-checked='true']::after {
-  transform: translateX(15px);
-  background: var(--lab-accent);
+  transform: translateX(18px);
 }
 
 .lab-switch:disabled {
   opacity: 0.5;
-  cursor: not-allowed;
 }
+
+
 
 /* ── Avatar ─────────────────────────────────────────────────────────────── */
 
@@ -355,86 +478,72 @@
   display: grid;
   place-items: center;
   flex: none;
-  width: 34px;
-  height: 34px;
-  border-radius: 10px;
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.01em;
-  border: 1px solid var(--lab-line);
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  font-size: 13px;
+  font-weight: 600;
 }
 
 .lab-avatar--sm {
-  width: 26px;
-  height: 26px;
-  border-radius: 8px;
-  font-size: 10.5px;
-}
-
-/* ── Prototype marker ───────────────────────────────────────────────────── */
-
-.lab-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 10px;
-  border-radius: 999px;
-  border: 1px dashed var(--lab-line-strong);
-  color: var(--lab-faint);
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-}
-
-.lab-badge::before {
-  content: '';
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  background: var(--lab-now);
-}
-
-.lab-note {
+  width: 32px;
+  height: 32px;
   font-size: 11.5px;
-  line-height: 1.5;
-  color: var(--lab-faint);
 }
 
-/* ── Shared behaviours ──────────────────────────────────────────────────── */
+/* ── Sheet: full-bleed panel that slides over the page on a phone ────────── */
+
+.lab-sheet {
+  border-top: 1px solid var(--lab-line);
+  background: var(--lab-sunken);
+}
+
+/* ── Toast / undo ───────────────────────────────────────────────────────── */
 
 .lab-toast {
   position: fixed;
-  left: 50%;
-  bottom: 26px;
-  z-index: 40;
-  transform: translateX(-50%);
+  left: 10px;
+  right: 10px;
+  bottom: calc(10px + env(safe-area-inset-bottom));
+  z-index: 60;
   display: flex;
   align-items: center;
-  gap: 14px;
-  padding: 11px 12px 11px 16px;
-  border-radius: 999px;
-  border: 1px solid var(--lab-line-strong);
-  background: color-mix(in srgb, var(--lab-raised) 92%, transparent);
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: var(--lab-r);
+  border: 1px solid rgb(255 255 255 / 0.1);
+  background: linear-gradient(180deg, rgb(30 30 36 / 0.94), rgb(21 21 25 / 0.96));
   backdrop-filter: blur(16px);
-  box-shadow: var(--lab-shadow-lg);
-  font-size: 12.5px;
-  font-weight: 560;
-  animation: lab-rise 0.28s var(--lab-ease) both;
+  box-shadow: var(--lab-shadow);
+  font-size: 13px;
+  line-height: 1.4;
+  animation: lab-rise 0.24s var(--lab-ease) both;
+}
+
+.lab-toast > span {
+  flex: 1;
+  min-width: 0;
 }
 
 @keyframes lab-rise {
-  from { opacity: 0; transform: translateX(-50%) translateY(10px); }
-  to { opacity: 1; transform: translateX(-50%) translateY(0); }
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: none; }
 }
 
 .lab-fade-in {
-  animation: lab-fade 0.32s var(--lab-ease) both;
+  animation: lab-fade 0.22s var(--lab-ease) both;
 }
 
 @keyframes lab-fade {
-  from { opacity: 0; transform: translateY(6px); }
-  to { opacity: 1; transform: none; }
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* Draft boxes grow to fit the draft instead of scrolling inside a fixed box. */
+.lab textarea {
+  field-sizing: content;
+  min-height: 132px;
+  max-height: 340px;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -446,8 +555,39 @@
   }
 }
 
-@media (max-width: 860px) {
+/* ── Larger screens: add the second column, relax the gutters ───────────── */
+
+@media (min-width: 900px) {
   .lab-shell {
-    padding: 16px 16px 64px;
+    max-width: 1080px;
+    margin: 0 auto;
+    padding: 0 28px 72px;
+  }
+
+  .lab-topbar {
+    min-height: 60px;
+    padding: 12px 0;
+    background: transparent;
+    backdrop-filter: none;
+    border-bottom-color: var(--lab-line);
+  }
+
+  .lab-group,
+  .lab-card {
+    margin-left: 0;
+    margin-right: 0;
+  }
+
+  .lab-toast {
+    left: 50%;
+    right: auto;
+    transform: translateX(-50%);
+    min-width: 320px;
+    max-width: 480px;
+  }
+
+  @keyframes lab-rise {
+    from { opacity: 0; transform: translate(-50%, 12px); }
+    to { opacity: 1; transform: translate(-50%, 0); }
   }
 }

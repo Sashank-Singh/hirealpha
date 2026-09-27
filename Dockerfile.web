@@ -85,6 +85,7 @@ COPY deploy/browserJobs.ts ./browserJobs.ts
 COPY deploy/browserNetworkPolicy.ts ./browserNetworkPolicy.ts
 COPY deploy/browserSession.ts ./browserSession.ts
 COPY deploy/browserWorker.ts ./browserWorker.ts
+COPY deploy/merchantReceipt.ts ./merchantReceipt.ts
 COPY deploy/certification/envContract.ts ./certification/envContract.ts
 COPY deploy/e2bExecutor.ts ./e2bExecutor.ts
 COPY deploy/kernelPage.ts ./kernelPage.ts

@@ -86,43 +86,16 @@ function normalize(text: string): string {
  * Checks if the user's message expresses affirmative agreement to proceed with a purchase/spend.
  */
 export function isAffirmativeApprovalIntent(text: string): boolean {
-  const norm = normalize(text)
-  if (!norm) return false
+  // Approval is a closed grammar, never a substring in advice or a condition.
+  // The server separately binds this intent to the immutable pending terms.
+  if (/[?？]/.test(text) || NEGATION_PATTERNS.some((pattern) => pattern.test(text))) return false
+  const norm = normalize(text).replace(/^(?:please )|(?: please| to me| for me)$/, '').trim()
+  if (AFFIRMATIVE_TOKENS.has(norm) || AFFIRMATIVE_PHRASES.includes(norm)) return true
+  if (AFFIRMATIVE_PHRASES.some((left) => AFFIRMATIVE_PHRASES.some((right) => norm === `${left} ${right}`))) return true
+  const clauses = norm.split(/\s+/)
+  const first = clauses.shift() || ''
+  return AFFIRMATIVE_TOKENS.has(first) && AFFIRMATIVE_PHRASES.includes(clauses.join(' '))
 
-  // 1. Direct single-word or short token match
-  if (AFFIRMATIVE_TOKENS.has(norm)) return true
-
-  // 2. Exact match against common conversational confirmation phrases
-  for (const phrase of AFFIRMATIVE_PHRASES) {
-    if (norm === phrase) return true
-  }
-
-  // 3. If there is clear negation or hesitation, it is NOT an approval
-  for (const neg of NEGATION_PATTERNS) {
-    if (neg.test(text)) return false
-  }
-
-  // If the user is asking to find, search, or look up something new, it's not an approval of the old item
-  if (/\b(?:can you (?:find|search|look)|find (?:me|a|some)|search for|look up|show me)\b/i.test(text)) {
-    return false
-  }
-
-  // 4. Substring phrase match when not negated
-  for (const phrase of AFFIRMATIVE_PHRASES) {
-    if (norm.includes(phrase)) return true
-  }
-
-  // 5. Short sentences starting or ending with affirmative tokens
-  const words = norm.split(' ')
-  if (words.length <= 4) {
-    if (words.some((w) => AFFIRMATIVE_TOKENS.has(w))) {
-      // Must not be a question
-      if (text.includes('?')) return false
-      return true
-    }
-  }
-
-  return false
 }
 
 /**

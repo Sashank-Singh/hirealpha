@@ -509,11 +509,7 @@ export async function proposePurchase(
 ): Promise<{ ok: boolean; id?: string; requestId?: string; url?: string; error?: string; needsSetup?: boolean; setupUrl?: string; approvalUrl?: string }> {
   const base = apiBase()
   const key = process.env.HIREALPHA_INTERNAL_KEY || ''
-  if (!base || !key) {
-    const id = 'req_' + Math.random().toString(36).slice(2, 10)
-    const url = `https://hirealpha.chat/spend/${id}`
-    return { ok: true, id, requestId: id, url, needsSetup: false, approvalUrl: url }
-  }
+  if (!base || !key) return { ok: false, error: 'Payment approval is not configured.' }
   try {
     const res = await timedFetch(
       `${base}/api/internal/propose`,
@@ -589,37 +585,41 @@ export async function submitBrowserAnswer(phone: string, text: string, cancel = 
   }
 }
 
+export type SpendResult = {
+  ok: boolean
+  state: 'pending_approval' | 'executing' | 'succeeded' | 'cancelled' | 'failed' | 'outcome_unknown'
+  charged?: boolean
+  error?: string
+  paymentIntentId?: string
+}
+
 export async function executeSpendApproval(
   phone: string,
   requestId: string,
   decision: 'approve' | 'deny' = 'approve',
-): Promise<{ ok: boolean; charged?: boolean; error?: string; amount?: string; merchant?: string; paymentIntentId?: string }> {  const base = apiBase()
-  const key = process.env.HIREALPHA_INTERNAL_KEY || ''
-  if (!base || !key) {
-    return { ok: true, charged: true, merchant: 'Merchant' }
+  terms?: { amountCents: number; purpose: string; url?: string },
+): Promise<SpendResult> {
+  const base = apiBase()
+  if (!base || !process.env.HIREALPHA_INTERNAL_KEY) {
+    return { ok: false, state: 'failed', error: 'Payment approval is not configured. No charge is confirmed.' }
   }
   try {
-    const res = await timedFetch(
-      `${base}/api/internal/spend/decide`,
-      {
-        method: 'POST',
-        headers: authHeaders(),
-        body: JSON.stringify({ phone, requestId, decision }),
-      },
-      15000,
-    )
-    const data = (await res.json().catch(() => ({}))) as {
-      ok?: boolean
-      charged?: boolean
-      error?: string
-      amount?: string
-      merchant?: string
-      paymentIntentId?: string
+    const res = await timedFetch(`${base}/api/internal/spend/decide`, {
+      method: 'POST', headers: authHeaders(), body: JSON.stringify({ phone, requestId, decision, terms }),
+    }, 15000)
+    const data = await res.json() as Record<string, unknown>
+    const state = ['pending_approval', 'executing', 'succeeded', 'cancelled', 'failed', 'outcome_unknown'].includes(String(data.state))
+      ? data.state as SpendResult['state'] : 'outcome_unknown'
+    const verified = decision === 'deny'
+      ? state === 'cancelled' && data.decision === 'denied'
+      : state === 'succeeded' && data.charged === true && typeof data.paymentIntentId === 'string' && !!data.paymentIntentId
+    return {
+      ok: res.ok && data.ok === true && verified, state,
+      ...(verified && decision === 'approve' ? { charged: true, paymentIntentId: String(data.paymentIntentId) } : {}),
+      ...(!verified || !res.ok ? { error: typeof data.error === 'string' ? data.error : 'The payment outcome could not be verified.' } : {}),
     }
-    return { ok: res.ok && !!data.ok, ...data }
-  } catch (err) {
-    console.warn('[live] spend decide failed', err)
-    return { ok: false, error: 'Could not approve payment.' }
+  } catch {
+    return { ok: false, state: 'outcome_unknown', error: 'The payment service did not confirm the outcome. Check before retrying.' }
   }
 }
 
@@ -737,6 +737,55 @@ export async function persistLiveFacts(
     }
   }
   return { dropped: [] }
+}
+
+export async function deleteLiveFact(phone: string, persona: AgentId, factKey: string): Promise<{ ok: boolean; key?: string; error?: string }> {
+  const base = apiBase()
+  const internal = process.env.HIREALPHA_INTERNAL_KEY || ''
+  if (!base || !internal) return { ok: false, error: 'Memory service is unavailable.' }
+  try {
+    const res = await timedFetch(`${base}/api/internal/memory`, {
+      method: 'DELETE', headers: authHeaders(), body: JSON.stringify({ phone, persona, key: factKey }),
+    }, 10_000)
+    const data = (await res.json().catch(() => ({}))) as { ok?: boolean; key?: string; error?: string }
+    return res.ok && data.ok ? { ok: true, key: data.key } : { ok: false, error: data.error || 'Memory deletion failed.' }
+  } catch {
+    return { ok: false, error: 'Memory deletion was not confirmed.' }
+  }
+}
+
+export async function mutateCalendarEventLive(phone: string, persona: AgentId, input: Record<string, unknown>): Promise<{ ok: boolean; event?: Record<string, unknown>; error?: string; outcomeUnknown?: boolean }> {
+  const base = apiBase()
+  if (!base) return { ok: false, error: 'Calendar service is unavailable.' }
+  try {
+    const res = await timedFetch(`${base}/api/internal/calendar/event`, { method: 'POST', headers: authHeaders(), body: JSON.stringify({ phone, persona, ...input }) }, 12_000)
+    return await res.json() as { ok: boolean; event?: Record<string, unknown>; error?: string; outcomeUnknown?: boolean }
+  } catch { return { ok: false, outcomeUnknown: true, error: 'Calendar did not confirm the outcome.' } }
+}
+
+export async function manageEmailFollowup(phone: string, persona: AgentId, input: { action: 'create' | 'update' | 'cancel'; id?: string; threadId?: string; expectedParticipant?: string; deadline?: string }) {
+  const base = apiBase(); if (!base) return { ok: false, error: 'Follow-up service is unavailable.' }
+  const path = input.action === 'create' ? '/api/internal/email_followups' : `/api/internal/email_followups/${encodeURIComponent(input.id || '')}`
+  try {
+    const res = await timedFetch(`${base}${path}`, { method: input.action === 'cancel' ? 'DELETE' : input.action === 'update' ? 'PATCH' : 'POST', headers: authHeaders(), body: JSON.stringify({ phone, persona, ...input }) }, 10_000)
+    return await res.json() as { ok?: boolean; followup?: Record<string, unknown>; error?: string }
+  } catch { return { ok: false, error: 'Follow-up change was not confirmed.' } }
+}
+
+export async function findFilesLive(phone: string, persona: AgentId, query: string) {
+  const base = apiBase(); if (!base) return { status: 'not_connected', files: [] as Array<Record<string, unknown>> }
+  try {
+    const res = await timedFetch(`${base}/api/internal/files/search`, { method: 'POST', headers: authHeaders(), body: JSON.stringify({ phone, persona, query }) }, 10_000)
+    return await res.json() as { status: string; files: Array<{ id: string; name: string; mimeType: string; size: number | null; webViewLink?: string }> }
+  } catch { return { status: 'timeout', files: [] as Array<{ id: string; name: string; mimeType: string; size: number | null; webViewLink?: string }> } }
+}
+
+export async function sendFileLive(phone: string, persona: AgentId, input: Record<string, unknown>) {
+  const base = apiBase(); if (!base) return { ok: false, error: 'File send service is unavailable.' }
+  try {
+    const res = await timedFetch(`${base}/api/internal/files/send`, { method: 'POST', headers: authHeaders(), body: JSON.stringify({ phone, persona, ...input }) }, 30_000)
+    return await res.json() as { ok?: boolean; error?: string; outcomeUnknown?: boolean; receipt?: Record<string, unknown> }
+  } catch { return { ok: false, outcomeUnknown: true, error: 'The file send outcome is unknown.' } }
 }
 
 export async function touchInbound(phone: string, persona: AgentId): Promise<void> {

@@ -230,6 +230,14 @@ describe('finishTaskLoop', () => {
     expect(queries[0].values).toContain(later)
   })
 
+  it('persists the replacement payload in the same scheduling update', async () => {
+    const { sql, queries } = fakeSql()
+    const payload = { intervalHours: 6, runs: 7 }
+    await finishTaskLoop(sql, 't1', 'snoozed', 'watch queued', new Date().toISOString(), payload)
+    expect(queries[0].text).toContain('payload = COALESCE(?::jsonb, payload)')
+    expect(queries[0].values).toContain(JSON.stringify(payload))
+  })
+
   it('snoozed without a valid next run defaults to one hour out', async () => {
     const { sql, queries } = fakeSql()
     await finishTaskLoop(sql, 't1', 'snoozed')

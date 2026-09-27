@@ -2,6 +2,7 @@ import { Component, lazy, Suspense, type ReactNode } from 'react'
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { NotFoundPage, TrustPage } from './TrustPage'
 import { alphaThreadHref } from './platform/alphaLine'
+import { LAB_ROUTES } from './lab/labRoutes'
 
 class ErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean; error: Error | null }> {
   constructor(props: { children: ReactNode }) {
@@ -103,6 +104,10 @@ const VaultCapturePage = lazy(() => import('./platform/VaultCapturePage').then((
 const ComputerSessionView = lazy(() => import('./platform/ComputerSessionView').then((m) => ({ default: m.ComputerSessionView })))
 const TextAlphaPage = lazy(() => import('./platform/TextAlphaPage').then((m) => ({ default: m.TextAlphaPage })))
 
+/* Alpha email prototype: the morning brief. Mock data only — it never calls the
+ * API and nothing in the product UI links here. */
+const LabEmailBrief = lazy(() => import('./lab/EmailBrief').then((m) => ({ default: m.EmailBriefPage })))
+
 /* Old deep-link paths that still come in from texts and chat links —
  * they all land on the workspace shell, preserving query params. */
 function AppRedirect() {
@@ -124,6 +129,11 @@ export default function App() {
             <Route path="/computer/:sessionId" element={<ComputerSessionView />} />
             <Route path="/computer" element={<ComputerSessionView />} />
             <Route path="/app/mini/:persona/:kind" element={<MiniAppPage />} />
+            {/* Alpha email prototype (mock data). Old concept paths redirect. */}
+            <Route path={LAB_ROUTES.brief} element={<LabEmailBrief />} />
+            {LAB_ROUTES.legacy.map((p) => (
+              <Route key={p} path={p} element={<Navigate to={LAB_ROUTES.brief} replace />} />
+            ))}
             {/* Where the wizard ends: one button to the Alpha thread, then the
              * platform. Kept outside RequireAuth so a slow session read can
              * never leave a freshly onboarded person staring at a spinner. */}

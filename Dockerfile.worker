@@ -30,6 +30,7 @@ RUN python3 -m venv /opt/browser-use \
 
 # ---- source (the only layers a normal change invalidates) ----
 COPY deploy/browserWorker.ts ./browserWorker.ts
+COPY deploy/merchantReceipt.ts ./merchantReceipt.ts
 # b01b27b made browserWorker import this at boot without a COPY line: the next
 # rebuild would crash-loop the worker on "Cannot find module" (the 09-10 class).
 COPY deploy/certification/envContract.ts ./certification/envContract.ts

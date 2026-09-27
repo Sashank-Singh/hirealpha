@@ -9,7 +9,7 @@ import type { AgentId } from '../../src/agents/types'
 import { PROACTIVE_POLL_MS } from './delivery'
 import { ensurePhotonUser } from './introQueue'
 
-type ScheduledClaim = { id: string; toPhone: string; body: string }
+type ScheduledClaim = { id: string; claimToken: string; toPhone: string; ownerPhone?: string; body: string }
 
 function apiBase(): string {
   return (process.env.HIREALPHA_API_URL || '').replace(/\/$/, '')
@@ -24,7 +24,7 @@ function authHeaders(): Record<string, string> {
 
 export function startScheduledTextPoller(
   persona: AgentId,
-  send: (phone: string, text: string) => Promise<void>,
+  send: (phone: string, text: string) => Promise<void | string | { providerId?: string }>,
   intervalMs = PROACTIVE_POLL_MS,
 ): void {
   const base = apiBase()
@@ -34,16 +34,18 @@ export function startScheduledTextPoller(
     return
   }
 
-  const ack = async (id: string, ok: boolean, error?: string) => {
+  const post = async (path: string, body: Record<string, unknown>): Promise<boolean> => {
     try {
-      await fetch(`${base}/api/internal/scheduled_texts/ack`, {
+      const response = await fetch(`${base}/api/internal/scheduled_texts/${path}`, {
         signal: AbortSignal.timeout(10_000),
         method: 'POST',
         headers: { ...authHeaders(), 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id, ok, error }),
+        body: JSON.stringify(body),
       })
+      return response.ok
     } catch (err) {
       console.error(`[${persona}] scheduled-text ack failed`, err)
+      return false
     }
   }
 
@@ -64,13 +66,18 @@ export function startScheduledTextPoller(
     for (const claim of due) {
       try {
         await ensurePhotonUser(claim.toPhone, persona)
-        await send(claim.toPhone, claim.body)
+        if (!await post('begin', { id: claim.id, claimToken: claim.claimToken })) continue
+        const delivery = await send(claim.toPhone, claim.body)
+        const providerId = typeof delivery === 'string' ? delivery : delivery?.providerId
         console.log(`[${persona}] scheduled text sent to ${claim.toPhone}`)
-        await ack(claim.id, true)
+        await post('ack', { id: claim.id, claimToken: claim.claimToken, ok: true, providerId })
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err)
         console.error(`[${persona}] scheduled text to ${claim.toPhone} failed: ${message}`)
-        await ack(claim.id, false, message)
+        await post('ack', { id: claim.id, claimToken: claim.claimToken, ok: false, error: message })
+        if (claim.ownerPhone) {
+          try { await send(claim.ownerPhone, `Your scheduled message to ${claim.toPhone} failed: ${message.slice(0, 160)}. It was not marked sent.`) } catch {}
+        }
       }
     }
   }

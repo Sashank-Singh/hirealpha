@@ -9,6 +9,15 @@ describe('Idempotency utilities', () => {
     expect(key1.startsWith('test_')).toBe(true)
   })
 
+  it('preserves type and structure boundaries in idempotency inputs', () => {
+    const values = [null, undefined, '', 1, '1', true, 'true', false, 0, -0]
+    const keys = values.map((value) => computeIdempotencyKey('typed', { value }))
+    expect(new Set(keys).size).toBe(values.length)
+    expect(computeIdempotencyKey('typed', { a: 'x,b:y' })).not.toBe(computeIdempotencyKey('typed', { a: 'x', b: 'y' }))
+    expect(computeIdempotencyKey('typed', [1, 2])).not.toBe(computeIdempotencyKey('typed', [2, 1]))
+    expect(computeIdempotencyKey('typed', { nested: { a: 1, b: 2 } })).toBe(computeIdempotencyKey('typed', { nested: { b: 2, a: 1 } }))
+  })
+
   it('withIdempotency caches completed execution and prevents duplicate execution', async () => {
     let executions = 0
     const key = `test_key_${Date.now()}_1`

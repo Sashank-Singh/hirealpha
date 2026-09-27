@@ -1,3 +1,4 @@
+import { merchantReceiptFromPage, receiptPageSnapshot, type BrowserResult } from './merchantReceipt'
 /**
  * One browser session, three modes: scripted steps, agent-driven goal, or the
  * classic login+scrape. Fresh context per call, closed in finally — the same
@@ -15,6 +16,7 @@ import { challengeFailureMessage, challengeHandoffMessage, detectChallenge, type
 
 export type SessionTask = {
   url: string
+  receiptNotBefore?: number
   username: string
   password: string
   kind: 'newsletter' | 'ticker' | 'task'
@@ -337,7 +339,7 @@ async function settleScriptedChallenge(
   return null
 }
 
-export async function runBrowserSession(task: SessionTask): Promise<{ ok: true; content: string } | { ok: false; error: string }> {
+export async function runBrowserSession(task: SessionTask): Promise<BrowserResult> {
   let browser: Browser | null = null
   let ownedBrowser = false
   let profileDir: string | undefined
@@ -546,7 +548,7 @@ async function captureAgentPage(page: import('playwright').Page): Promise<{ page
 async function agentLoop(
   page: import('playwright').Page,
   task: SessionTask,
-): Promise<{ ok: true; content: string } | { ok: false; error: string }> {
+): Promise<BrowserResult> {
   const call = agentEnvCaller()
   if (!call) return { ok: false, error: 'Agent mode not configured (GMI_API_KEY missing).' }
   const auditCall = agentEnvCaller('audit') || call
@@ -813,7 +815,9 @@ async function agentLoop(
           await task.onProgress?.({ action: 'answer_check_failed', url: activePage.url() })
           continue
         }
-        return { ok: true, content: action.answer }
+        const snapshot = await activePage.evaluate(receiptPageSnapshot).catch(() => null)
+        const receipt = snapshot && task.receiptNotBefore ? merchantReceiptFromPage(snapshot, task.url, task.receiptNotBefore) : undefined
+        return { ok: true, content: action.answer, ...(receipt ? { receipt } : {}) }
       }
       return { ok: false, error: `Agent gave up: ${action.reason}` }
     }

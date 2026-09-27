@@ -357,6 +357,11 @@ export async function ensureHireSchema(sql: SQL) {
   await sql`ALTER TABLE hire_drafts ADD COLUMN IF NOT EXISTS in_reply_to TEXT NOT NULL DEFAULT ''`
   await sql`ALTER TABLE hire_drafts ADD COLUMN IF NOT EXISTS start_at TEXT NOT NULL DEFAULT ''`
   await sql`ALTER TABLE hire_drafts ADD COLUMN IF NOT EXISTS end_at TEXT NOT NULL DEFAULT ''`
+  await sql`ALTER TABLE hire_drafts ADD COLUMN IF NOT EXISTS provider_id TEXT`
+  await sql`ALTER TABLE hire_drafts ADD COLUMN IF NOT EXISTS operation_key TEXT`
+  await sql`ALTER TABLE hire_drafts ADD COLUMN IF NOT EXISTS source_message_id TEXT NOT NULL DEFAULT ''`
+  await sql`ALTER TABLE hire_drafts ADD COLUMN IF NOT EXISTS version INTEGER NOT NULL DEFAULT 1`
+  await sql`CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS hire_drafts_pending_operation_idx ON hire_drafts (user_id, operation_key) WHERE operation_key IS NOT NULL AND status IN ('pending', 'sending', 'booking', 'outcome_unknown')`
   await sql`CREATE INDEX IF NOT EXISTS idx_hire_drafts_user ON hire_drafts (user_id, status, created_at DESC)`
 
   await sql`

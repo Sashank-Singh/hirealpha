@@ -11,6 +11,7 @@ import { onceAsync } from '../../shared/delivery'
 import { createReactionGate, bubbleGapMs } from '../../shared/progressiveDelivery'
 import { createTapbackRhythm, determineInboundReaction } from '../../shared/smartReactions'
 import { createMessageBursts } from '../../shared/messageBursts'
+import { beginExecution, cancelExecution, finishExecution, markProviderCall } from '../../shared/executionState'
 import { startReminderScheduler } from '../../shared/reminders'
 import { buildSaveContactText, startTaskLoopPoller } from '../../shared/taskLoops'
 import { INTRO_TEXTS, startIntroPoller } from '../../shared/introQueue'
@@ -312,7 +313,7 @@ startReminderScheduler({
 })
 
 type Incoming = typeof app.messages extends AsyncIterable<infer T> ? T : never
-async function handleIncoming([space, message]: Incoming, combinedText?: string) {
+async function handleIncoming([space, message]: Incoming, combinedText?: string, turnSignal?: AbortSignal, markProvider?: () => void) {
   if (message.direction === 'outbound') return
 
   if (message.content.type === 'read') {
@@ -348,7 +349,7 @@ async function handleIncoming([space, message]: Incoming, combinedText?: string)
     }
     // Voice note: transcribe it and run it as the user's own turn.
     if (findInboundVoice(message.content)) {
-      await runTurn(space, message, senderId, () => resolveInboundVoiceTurn(senderId, agent.id, message.content))
+      await runTurn(space, message, senderId, () => resolveInboundVoiceTurn(senderId, agent.id, message.content), turnSignal, markProvider)
       return
     }
     try {
@@ -460,10 +461,10 @@ async function resolveGroupOwner(spaceId: string, members: SpaceParticipant[] | 
     const owner = await resolveGroupOwner(space.id, space.members, senderId)
     const speaker = (message.sender as { name?: string } | undefined)?.name || senderId
     console.log(`[${agent.id}] group turn from ${speaker} in ${space.id} (owner ${owner})`)
-    await runTurn(space, message, owner, { text: userText, note: groupNote, threadLine: groupTurnLine(speaker, userText) })
+    await runTurn(space, message, owner, { text: userText, note: groupNote, threadLine: groupTurnLine(speaker, userText) }, turnSignal, markProvider)
     return
   }
-  await runTurn(space, message, senderId, userText)
+  await runTurn(space, message, senderId, userText, turnSignal, markProvider)
 }
 
 type SpaceLike = {
@@ -501,6 +502,8 @@ async function runTurn(
   message: MessageLike,
   senderId: string,
   turn: TurnInput,
+  turnSignal?: AbortSignal,
+  markProvider?: () => void,
 ): Promise<void> {
   let sentAnything = false
   let progressTexts = 0
@@ -532,7 +535,7 @@ async function runTurn(
       message.react(smartReaction).catch(err => console.warn(`[${agent.id}] initial react failed:`, err))
     }
 
-    const result = await runHireTurn({ agentId, dataDir, senderId, userText, ...(note ? { inboundNote: note } : {}), ...(threadLine ? { threadLine } : {}), delivery: {
+    const result = await runHireTurn({ agentId, dataDir, senderId, userText, signal: turnSignal, markProviderCall: markProvider, ...(note ? { inboundNote: note } : {}), ...(threadLine ? { threadLine } : {}), delivery: {
       onProgress: async text => {
         const clean = sanitizeOutbound(text)
         if (!clean) throw new Error('Progress text was filtered')
@@ -640,6 +643,7 @@ async function runTurn(
       }
     })
   } catch (err) {
+    if (turnSignal?.aborted) return
     console.error(`[${agent.id}] turn failed:`, err)
     try {
       await space.send(styledText('Got tripped up for a sec. Try me again?'))
@@ -649,13 +653,27 @@ async function runTurn(
   }
 }
 
+const activeTurnControllers = new Map<string, AbortController>()
 const bursts = createMessageBursts<Incoming>({
   run: async (items) => {
     const last = items[items.length - 1]!
     const combined = items.every(([, message]) => message.content.type === 'text')
       ? items.map(([, message]) => message.content.type === 'text' ? message.content.text.trim() : '').join('\n')
       : undefined
-    await handleIncoming(last, combined)
+    const key = JSON.stringify([last[0].id, last[1].sender?.id ?? last[0].id])
+    const controller = new AbortController()
+    activeTurnControllers.set(key, controller)
+    const senderId = last[1].sender?.id ?? last[0].id
+    const execution = beginExecution(dataDir, senderId)
+    try { await handleIncoming(last, combined, controller.signal, () => markProviderCall(dataDir, senderId, execution.version)) } finally {
+      finishExecution(dataDir, senderId, execution.version)
+      if (activeTurnControllers.get(key) === controller) activeTurnControllers.delete(key)
+    }
+  },
+  isInterrupt: ([, message]) => message.content.type === 'text' && /^(?:wait|stop|cancel(?:\s+that)?|not\s+that\s+one)\b/i.test(message.content.text.trim()),
+  onInterrupt: (key, [, message]) => {
+    cancelExecution(dataDir, message.sender?.id ?? JSON.parse(key)[1])
+    activeTurnControllers.get(key)?.abort(new Error('User interrupted the active turn'))
   },
   onError: (error) => console.error(`[${agent.id}] inbound batch failed:`, error),
 })
@@ -804,5 +822,3 @@ async function catchUpMissedMessages(): Promise<void> {
     }
   }
 }
-
-

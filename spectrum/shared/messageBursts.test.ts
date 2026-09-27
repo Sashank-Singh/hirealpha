@@ -81,3 +81,25 @@ it('preserves media boundaries and recovers after a failed turn without retrying
   expect(f.batches).toEqual([['text'], ['photo'], ['caption follow-up']])
   expect(f.errors).toHaveLength(1)
 })
+
+it('delivers an interrupt immediately while the current turn is still running', async () => {
+  let release!: () => void
+  const blocked = new Promise<void>(resolve => { release = resolve })
+  const interrupts: string[] = []
+  let time = 0
+  const queue = createMessageBursts<string>({
+    now: () => time,
+    quietMs: 0,
+    schedule: fn => { fn(); return 1 },
+    cancel: () => undefined,
+    run: async items => { if (items[0] === 'buy that one') await blocked },
+    onError: () => undefined,
+    isInterrupt: text => /^(?:wait|stop|cancel that|not that one)$/i.test(text),
+    onInterrupt: (_key, text) => interrupts.push(text),
+  })
+  queue.enqueue('alice', 'buy that one')
+  await Promise.resolve()
+  queue.enqueue('alice', 'cancel that')
+  expect(interrupts).toEqual(['cancel that'])
+  release()
+})

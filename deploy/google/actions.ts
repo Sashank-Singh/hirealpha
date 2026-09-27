@@ -7,9 +7,10 @@ export function rfc822Raw(
   to: string,
   subject: string,
   body: string,
-  extra?: { inReplyTo?: string },
+  extra?: { inReplyTo?: string; messageId?: string },
 ): string {
   const headers = [`To: ${to}`, `Subject: ${subject}`, 'MIME-Version: 1.0', 'Content-Type: text/plain; charset=utf-8']
+  if (extra?.messageId) headers.push(`Message-ID: <${extra.messageId}@hirealpha.local>`)
   const replyTo = extra?.inReplyTo?.trim()
   if (replyTo) {
     headers.push(`In-Reply-To: ${replyTo}`, `References: ${replyTo}`)
@@ -18,24 +19,80 @@ export function rfc822Raw(
   return Buffer.from(raw).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
 }
 
+function rfc822WithAttachment(to: string, subject: string, body: string, file: { name: string; mimeType: string; bytes: Uint8Array }, messageId?: string): string {
+  const boundary = `alpha_${crypto.randomUUID().replaceAll('-', '')}`
+  const headers = [`To: ${to}`, `Subject: ${subject}`, 'MIME-Version: 1.0', `Content-Type: multipart/mixed; boundary="${boundary}"`]
+  if (messageId) headers.push(`Message-ID: <${messageId}@hirealpha.local>`)
+  const encoded = Buffer.from(file.bytes).toString('base64').match(/.{1,76}/g)?.join('\r\n') || ''
+  const raw = [...headers, '', `--${boundary}`, 'Content-Type: text/plain; charset=utf-8', '', body, `--${boundary}`, `Content-Type: ${file.mimeType}; name="${file.name.replace(/["\r\n]/g, '')}"`, 'Content-Transfer-Encoding: base64', `Content-Disposition: attachment; filename="${file.name.replace(/["\r\n]/g, '')}"`, '', encoded, `--${boundary}--`, ''].join('\r\n')
+  return Buffer.from(raw).toString('base64url')
+}
+
+export async function sendDriveFile(
+  sql: SQL, userId: string,
+  input: { recipient: string; fileId: string; mode: 'attachment' | 'link'; subject: string; body: string; operationId: string },
+): Promise<{ ok: boolean; providerId?: string; fileName?: string; error?: string; outcomeUnknown?: boolean }> {
+  const drive = await googleAccessToken(sql, userId, 'drive'); const gmail = await googleAccessToken(sql, userId, 'gmail')
+  if (!drive) return { ok: false, error: 'Drive is not connected.' }
+  if (!gmail) return { ok: false, error: 'Gmail is not connected.' }
+  const metaRes = await fetch(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(input.fileId)}?fields=id,name,mimeType,size,webViewLink`, { headers: { Authorization: `Bearer ${drive}` } })
+  if (!metaRes.ok) return { ok: false, error: `The selected Drive file is unavailable (${metaRes.status}).` }
+  const meta = await metaRes.json() as { name?: string; mimeType?: string; size?: string; webViewLink?: string }
+  if (!meta.name || !meta.mimeType) return { ok: false, error: 'Drive returned malformed file metadata.' }
+  if (input.mode === 'link') {
+    const permission = await fetch(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(input.fileId)}/permissions?sendNotificationEmail=false`, { method: 'POST', headers: { Authorization: `Bearer ${drive}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ type: 'user', role: 'reader', emailAddress: input.recipient }) })
+    if (!permission.ok) return { ok: false, error: `Drive could not grant ${input.recipient} access (${permission.status}); no email was sent.` }
+    if (!meta.webViewLink) return { ok: false, error: 'Drive granted access but returned no share link.' }
+    const sent = await gmailSendMessage(sql, userId, { to: input.recipient, subject: input.subject, body: `${input.body}\n\n${meta.webViewLink}`, operationId: input.operationId })
+    return { ...sent, fileName: meta.name }
+  }
+  const size = Number(meta.size || 0)
+  if (size > 25 * 1024 * 1024) return { ok: false, error: `${meta.name} is larger than Gmail's 25 MB attachment limit; choose a share link instead.` }
+  const native = meta.mimeType.startsWith('application/vnd.google-apps.')
+  const downloadUrl = native
+    ? `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(input.fileId)}/export?mimeType=application/pdf`
+    : `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(input.fileId)}?alt=media`
+  const download = await fetch(downloadUrl, { headers: { Authorization: `Bearer ${drive}` } })
+  if (!download.ok) return { ok: false, error: `Drive attachment download failed (${download.status}); no email was sent.` }
+  const bytes = new Uint8Array(await download.arrayBuffer())
+  if (bytes.byteLength > 25 * 1024 * 1024) return { ok: false, error: `${meta.name} exceeds Gmail's attachment limit after export; no email was sent.` }
+  let res: Response
+  try {
+    res = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', { method: 'POST', headers: { Authorization: `Bearer ${gmail}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ raw: rfc822WithAttachment(input.recipient, input.subject, input.body, { name: native ? `${meta.name}.pdf` : meta.name, mimeType: native ? 'application/pdf' : meta.mimeType, bytes }, input.operationId) }) })
+  } catch { return { ok: false, outcomeUnknown: true, error: 'Gmail did not confirm whether the attachment was sent.' } }
+  if (!res.ok) return { ok: false, error: `Gmail attachment upload failed (${res.status}); no success was recorded.` }
+  const receipt = await res.json().catch(() => ({})) as { id?: string }
+  return receipt.id ? { ok: true, providerId: receipt.id, fileName: meta.name } : { ok: false, outcomeUnknown: true, error: 'Gmail accepted the attachment but returned no message ID.' }
+}
+
 export async function gmailSendMessage(
   sql: SQL,
   userId: string,
-  draft: { to: string; subject: string; body: string; threadId?: string; inReplyTo?: string },
-): Promise<{ ok: boolean; error?: string }> {
+  draft: { to: string; subject: string; body: string; threadId?: string; inReplyTo?: string; operationId?: string },
+): Promise<{ ok: boolean; providerId?: string; error?: string; outcomeUnknown?: boolean }> {
   if (isDemoUserId(userId)) return { ok: false, error: 'Demo account. Nothing was actually sent.' }
   const access = await googleAccessToken(sql, userId, 'gmail')
   if (access) {
     const payload: { raw: string; threadId?: string } = {
-      raw: rfc822Raw(draft.to, draft.subject, draft.body, { inReplyTo: draft.inReplyTo }),
+      raw: rfc822Raw(draft.to, draft.subject, draft.body, { inReplyTo: draft.inReplyTo, messageId: draft.operationId }),
     }
     if (draft.threadId) payload.threadId = draft.threadId
-    const res = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${access}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    })
-    if (res.ok) return { ok: true }
+    let res: Response
+    try {
+      res = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${access}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+    } catch {
+      return { ok: false, outcomeUnknown: true, error: 'Gmail did not confirm whether the message was sent.' }
+    }
+    if (res.ok) {
+      const receipt = (await res.json().catch(() => ({}))) as { id?: string }
+      return receipt.id
+        ? { ok: true, providerId: receipt.id }
+        : { ok: false, outcomeUnknown: true, error: 'Gmail accepted the send but returned no message receipt.' }
+    }
     const err = await res.text().catch(() => '')
     if (res.status !== 403 && res.status !== 401) {
       return { ok: false, error: `Gmail send failed (${res.status}). ${err.slice(0, 120)}` }
@@ -54,7 +111,12 @@ export async function gmailSendMessage(
       threadId: draft.threadId,
     },
   )
-  if (out && !/failed/i.test(out)) return { ok: true }
+  if (out && !/failed/i.test(out)) {
+    const providerId = /\b(?:message[_ ]?id|id)["':=\s]+([a-z0-9_-]{4,})/i.exec(out)?.[1]
+    return providerId
+      ? { ok: true, providerId }
+      : { ok: false, outcomeUnknown: true, error: 'The mail provider returned no durable message receipt.' }
+  }
   return {
     ok: false,
     error: 'Could not send. Reconnect Gmail and allow send (not just draft), or Connect Gmail in Settings.',
@@ -105,7 +167,7 @@ export async function gmailCreateDraft(
 
 export function calItemsToNextRows(items: CalItem[], prefix: string): Array<{ id: string; title: string; start: string; end: string; allDay: boolean }> {
   return items.map((e, i) => ({
-    id: `${prefix}-${e.rawStart || e.start.toISOString()}-${i}`,
+    id: e.providerId || `${prefix}-${e.rawStart || e.start.toISOString()}-${i}`,
     title: e.title,
     start: e.allDay ? e.rawStart || e.start.toISOString().slice(0, 10) : e.rawStart || e.start.toISOString(),
     end: '',
@@ -221,8 +283,8 @@ export async function findFreeSlots(
 export async function calendarHold(
   sql: SQL,
   userId: string,
-  input: { title: string; start: string; end: string },
-): Promise<{ ok: boolean; error?: string; eventId?: string }> {
+  input: { title: string; start: string; end: string; operationId?: string },
+): Promise<{ ok: boolean; error?: string; eventId?: string; outcomeUnknown?: boolean }> {
   const access = await googleAccessToken(sql, userId, 'calendar')
   if (!access) {
     const out = await composioFirst(
@@ -236,20 +298,81 @@ export async function calendarHold(
         end: { dateTime: input.end },
       },
     )
-    if (out && !/failed/i.test(out)) return { ok: true }
+    if (out && !/failed/i.test(out)) {
+      const eventId = /\b(?:event[_ ]?id|id)["':=\s]+([a-z0-9_-]{4,})/i.exec(out)?.[1]
+      return eventId ? { ok: true, eventId } : { ok: false, outcomeUnknown: true, error: 'Calendar returned no durable event receipt.' }
+    }
     return { ok: false, error: 'Calendar is not connected.' }
   }
-  const res = await fetch('https://www.googleapis.com/calendar/v3/calendars/primary/events', {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${access}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      summary: input.title,
-      start: { dateTime: input.start },
-      end: { dateTime: input.end },
-      status: 'tentative',
-    }),
-  })
+  const stableId = input.operationId?.replace(/[^a-f0-9]/gi, '').toLowerCase().slice(0, 52)
+  let res: Response
+  try {
+    res = await fetch('https://www.googleapis.com/calendar/v3/calendars/primary/events', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${access}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ...(stableId && stableId.length >= 5 ? { id: stableId } : {}),
+        summary: input.title,
+        start: { dateTime: input.start },
+        end: { dateTime: input.end },
+        status: 'tentative',
+      }),
+    })
+  } catch {
+    if (stableId && stableId.length >= 5) {
+      const check = await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events/${stableId}`, { headers: { Authorization: `Bearer ${access}` } }).catch(() => null)
+      if (check?.ok) return { ok: true, eventId: stableId }
+    }
+    return { ok: false, outcomeUnknown: true, error: 'Calendar did not confirm whether the event was created.' }
+  }
   if (!res.ok) return { ok: false, error: `Calendar hold failed (${res.status}).` }
   const data = (await res.json()) as { id?: string }
-  return { ok: true, eventId: data.id }
+  return data.id
+    ? { ok: true, eventId: data.id }
+    : { ok: false, outcomeUnknown: true, error: 'Calendar accepted the event but returned no durable receipt.' }
+}
+
+export async function mutateCalendarEvent(
+  sql: SQL,
+  userId: string,
+  input: { eventId: string; action: 'inspect' | 'update' | 'cancel' | 'rsvp'; start?: string; end?: string; response?: 'accepted' | 'declined' | 'tentative'; scope?: 'occurrence' | 'series'; userEmail?: string },
+): Promise<{ ok: boolean; event?: Record<string, unknown>; error?: string; outcomeUnknown?: boolean }> {
+  const access = await googleAccessToken(sql, userId, 'calendar')
+  if (!access) return { ok: false, error: 'Calendar is not connected.' }
+  const root = 'https://www.googleapis.com/calendar/v3/calendars/primary/events/'
+  const read = async (id: string) => {
+    const res = await fetch(`${root}${encodeURIComponent(id)}`, { headers: { Authorization: `Bearer ${access}` } })
+    return res.ok ? await res.json() as Record<string, unknown> : null
+  }
+  const existing = await read(input.eventId)
+  if (!existing) return { ok: false, error: 'The selected calendar event is stale or unavailable.' }
+  const targetId = input.scope === 'series' && typeof existing.recurringEventId === 'string' ? existing.recurringEventId : input.eventId
+  if (input.action === 'inspect') return { ok: true, event: existing }
+  try {
+    if (input.action === 'cancel') {
+      const res = await fetch(`${root}${encodeURIComponent(targetId)}?sendUpdates=all`, { method: 'DELETE', headers: { Authorization: `Bearer ${access}` } })
+      if (!res.ok && res.status !== 410) return { ok: false, error: `Calendar cancellation failed (${res.status}).` }
+      return { ok: true, event: { ...existing, id: targetId, status: 'cancelled' } }
+    }
+    const patch: Record<string, unknown> = {}
+    if (input.action === 'update') {
+      if (!input.start || !input.end) return { ok: false, error: 'A new start and end are required.' }
+      patch.start = { ...(existing.start as object || {}), dateTime: input.start }
+      patch.end = { ...(existing.end as object || {}), dateTime: input.end }
+    } else {
+      const attendees = Array.isArray(existing.attendees) ? existing.attendees.map((a) => ({ ...(a as object) })) as Array<Record<string, unknown>> : []
+      const self = attendees.find((a) => a.self === true || (input.userEmail && a.email === input.userEmail))
+      if (!self) return { ok: false, error: 'The provider did not identify this user as an attendee.' }
+      self.responseStatus = input.response || 'accepted'
+      patch.attendees = attendees
+    }
+    const res = await fetch(`${root}${encodeURIComponent(targetId)}?sendUpdates=all`, {
+      method: 'PATCH', headers: { Authorization: `Bearer ${access}`, 'Content-Type': 'application/json' }, body: JSON.stringify(patch),
+    })
+    if (!res.ok) return { ok: false, error: `Calendar update failed (${res.status}).` }
+    const readBack = await read(targetId)
+    return readBack ? { ok: true, event: readBack } : { ok: false, outcomeUnknown: true, error: 'Calendar accepted the change but readback failed.' }
+  } catch {
+    return { ok: false, outcomeUnknown: true, error: 'Calendar did not confirm the final event state.' }
+  }
 }

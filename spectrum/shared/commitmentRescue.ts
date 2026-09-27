@@ -7,8 +7,7 @@ export type CommitmentCandidate = {
   sourceText: string
 }
 
-const COMMITMENT_RE = /\bI\s*(?:'ll|will|am going to|plan to|promise to|committed to)\s+(.+?)(?=(?:\s+(?:by|before|on)\s+)|[.!?]|$)/i
-const DEADLINE_RE = /\b(?:by|before|on)\s+((?:today|tomorrow|tonight|end of (?:the )?day|eod|this\s+)?(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)|today|tomorrow|tonight|end of (?:the )?day|eod|(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+\d{1,2}(?:,?\s+\d{4})?|\d{4}-\d{2}-\d{2})(?:\s+(?:at\s+)?\d{1,2}(?::\d{2})?\s*(?:am|pm)?)?/i
+const COMMITMENT_RE = /^\s*I\s*(?:'ll|will|am going to|plan to|promise to|committed to)\s+(.+?)\s+(?:by|before|on)\s+(.+?)(?:[.!?]|$)/i
 const ACTION_RE = /^(?:send|email|share|submit|deliver|finish|complete|review|reply|follow up|call|text|pay|file|book|schedule|introduce|connect|prepare|draft|publish|ship|sign|return|upload|update)\b/i
 const WEEKDAYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday']
 
@@ -68,12 +67,12 @@ export function resolveCommitmentDeadline(raw: string, timezone: string, now = n
 
 /** High precision by design: only explicit first-person, actionable promises with deadlines. */
 export function detectCommitment(text: string, timezone: string, now = new Date()): CommitmentCandidate | null {
-  const commitment = text.match(COMMITMENT_RE)
-  const deadline = text.match(DEADLINE_RE)
-  if (!commitment || !deadline) return null
+  const normalized = text.replace(/[\u2018\u2019]/g, "'")
+  const commitment = normalized.match(COMMITMENT_RE)
+  if (!commitment) return null
   const action = commitment[1]!.trim().replace(/\s+/g, ' ')
   if (!ACTION_RE.test(action) || /\b(?:maybe|might|try to|hopefully)\b/i.test(text)) return null
-  const dueAt = resolveCommitmentDeadline(deadline[1]!, timezone, now)
+  const dueAt = resolveCommitmentDeadline(commitment[2]!, timezone, now)
   if (!dueAt) return null
   const title = action.charAt(0).toUpperCase() + action.slice(1)
   const leadMs = 24 * 60 * 60 * 1000
