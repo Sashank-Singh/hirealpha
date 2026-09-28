@@ -86,3 +86,7 @@ spectrum/alpha/bench-runtime.env
 .dev-bin/
 docs/strategy/thebridge-application.md
 docs/strategy/mercor-apex-pitch.md
+# evaluation artifacts (captured transcripts; regenerate with testbed/audit/scenarios.ts)
+testbed/audit/out/
+testbed/audit/out-*/
+testbed/audit/history/
