@@ -29,6 +29,7 @@ import { ClaimLedger, enforceClaimEvidence } from './claimEvidence'
 import { assessOffline, assessmentHedge, evidencePlanNote, evidenceSufficiency, moneyReadRequired, replyAdmitsGap, type AssessmentDomain } from './assessment'
 import { constraintConflictNote, standingConstraints } from './memoryBlock'
 import { cancelWork } from './cancelWork'
+import { detectCompletionIntent, runCompletionFlow, completionStatusReply, completionStatusGate, type CompletionKind } from './completionFlows'
 import { fetchActivePlan, patchPlan, planPromptBlock, detectMultiStepPlan, upsertPlan } from './plans'
 import { sendDraftById } from './liveContext'
 import { cityConflictReply, type CityConflict } from './cityConflict'
@@ -293,6 +294,17 @@ export async function stageCalendarBlock(deps: {
 
 /** Conversational agent turn engine: the model sees the conversation before choosing any
  * capability. No topic detector can log data, open a card, or replace the ask. */
+
+/** Harness/test hook: the observed provider state for a completion flow. In
+ * production this is the browser read-back; the audit harness scripts it. */
+let flowObservedOverride: ((text: string, kind: CompletionKind) => string) | null = null
+export function setCompletionObserver(fn: ((text: string, kind: CompletionKind) => string) | null) {
+  flowObservedOverride = fn
+}
+function flowObservedResult(text: string, kind: CompletionKind): string {
+  return flowObservedOverride ? flowObservedOverride(text, kind) : ''
+}
+
 export async function runConversationalFriend(input: {
   dataDir: string
   senderId: string
@@ -595,7 +607,11 @@ export async function runConversationalFriend(input: {
       new Promise<null>((resolve) => setTimeout(() => resolve(null), 8000)),
     ])
     if (!gateIntent || gateIntent.kind === 'chat') {
-      if (assessmentPlan.assessment) {
+      if (detectCompletionIntent(input.userText) || completionStatusGate(input.userText)) {
+        /* Verified-completion intents never take the chat fast path — the
+         * durable flow owns them (evidence-gated ✓ only). */
+        console.warn(`[${persona}] completion intent — routing to the completion flow`)
+      } else if (assessmentPlan.assessment) {
         /* Evidence-first: a state-evaluation ask leaves the fast path and
          * runs the tool engine with an explicit evidence plan. The audit's
          * four routing misses (afford, forgetting, busy-week, week-review)
@@ -1436,6 +1452,32 @@ export async function runConversationalFriend(input: {
   }
   const planNote = planPromptBlock(activePlan)
   if (planNote) promptNotes.push(planNote)
+
+  /* Verified completion flows: delegated external jobs (subscription cancels,
+   * reservations, flight check-ins) run as durable operations with evidence-
+   * gated completion. Detection is deterministic; execution goes through the
+   * browser pipeline; the ✓ only appears when provider state was verified. */
+  const statusReply = await completionStatusReply({ senderId, persona, userText: input.userText, evidence })
+  if (statusReply) {
+    appendThread(dataDir, senderId, [
+      { role: 'user', content: input.threadLine || input.userText },
+      { role: 'assistant', content: statusReply },
+    ])
+    return { reply: statusReply, bubbles: [statusReply], source: 'local' as const, authoritative: [], card: null }
+  }
+
+  const completionIntent = detectCompletionIntent(input.userText)
+  if (completionIntent && !assessmentPlan.assessment) {
+    const flow = await runCompletionFlow({
+      dataDir, senderId, persona, intent: completionIntent, userText: input.userText,
+      evidence, observed: flowObservedResult(input.userText, completionIntent.kind),
+    })
+    appendThread(dataDir, senderId, [
+      { role: 'user', content: input.threadLine || input.userText },
+      { role: 'assistant', content: flow.reply },
+    ])
+    return { reply: flow.reply, bubbles: [flow.reply], source: 'local' as const, authoritative: [], card: null }
+  }
 
   if (assessmentTurn || assessmentPlan.assessment) {
     assessmentTurn = true

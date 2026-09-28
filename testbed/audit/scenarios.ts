@@ -771,7 +771,93 @@ S.push({
   requiredSources: ['calendar', 'mail'],
 })
 
+/* ================= C24 Verified completion battery ================= */
+/* Delegated external jobs must produce EVIDENCE-gated ✓ replies. The scripted
+ * world supplies the observed provider state via setCompletionObserver. */
+
+const OBSERVED: Record<string, string> = {
+  ok: 'Subscription cancelled. Renewal is off. Access through October 31.',
+  confirm: 'Cancellation complete. Confirmation #SP9911.',
+  retention: 'Wait — get 50% off your next 3 months if you stay!',
+  pause: 'Pause instead of cancelling — keep your playlists.',
+  captcha: 'Complete the captcha to verify you\'re human.',
+  loggedout: 'Session expired — sign in again to manage your subscription.',
+  unknown: 'The form was submitted (HTTP 200). No account state was readable.',
+  already: 'Your subscription is already cancelled — no active subscription on this account.',
+  booked: 'Reservation confirmed at Niku Steakhouse. Confirmation #A8F21. Friday 7:30 PM for two.',
+  noavail: 'No tables available Friday at 7:30 — fully booked.',
+  login: 'Sign in to complete this booking — create an account to continue.',
+  boardpass: 'You\'re checked in. Your boarding pass is ready.',
+  windownot: 'Check-in isn\'t open yet — it opens 24 hours before departure.',
+  upsell: 'Upgrade to extra legroom for $49 — add priority boarding now.',
+  passport: 'Passport verification is required before check-in.',
+  alreadyin: 'You are already checked in for this flight.',
+  phone: 'Memberships must be cancelled by phone. Call (800) 555-0199.',
+  support: 'To cancel, contact support by email.',
+}
+
+const C24: Array<[string, string, string]> = [
+  // subscription
+  ['cmpl_sub_ok', 'cancel my Spotify', 'ok'],
+  ['cmpl_sub_confirm', 'cancel Audible', 'confirm'],
+  ['cmpl_sub_retention', 'cancel my Canva subscription', 'retention'],
+  ['cmpl_sub_pause', "don't let this renew — actually pause it", 'pause'],
+  ['cmpl_sub_captcha', 'cancel Netflix', 'captcha'],
+  ['cmpl_sub_logout', 'cancel my Adobe subscription', 'loggedout'],
+  ['cmpl_sub_unknown', 'cancel Hulu', 'unknown'],
+  ['cmpl_sub_already', 'cancel my Spotify', 'already'],
+  ['cmpl_sub_mindchange', 'cancel Spotify then actually never mind', 'ok'],
+  ['cmpl_sub_duplicate', 'cancel Spotify — cancel it again right now', 'ok'],
+  ['cmpl_sub_phone', 'cancel my gym membership', 'phone'],
+  ['cmpl_sub_support', 'cancel this membership', 'support'],
+  // booking
+  ['cmpl_bk_ok', 'Book dinner Friday — reserve a table at 7:30 for two', 'booked'],
+  ['cmpl_bk_noavail', 'Reserve a table tomorrow night', 'noavail'],
+  ['cmpl_bk_login', 'Book a reservation Friday', 'login'],
+  ['cmpl_bk_dup', 'Book dinner Friday — book it again', 'booked'],
+  // check-in
+  ['cmpl_ci_ok', 'Check me into my flight', 'boardpass'],
+  ['cmpl_ci_window', 'Check me into my flight', 'windownot'],
+  ['cmpl_ci_upsell', 'Check me into my flight', 'upsell'],
+  ['cmpl_ci_passport', 'Check me into my flight', 'passport'],
+  ['cmpl_ci_already', 'Check me into my flight', 'alreadyin'],
+  // status readbacks
+  ['cmpl_status_unknown', 'did it actually cancel?', 'unknown'],
+  ['cmpl_status_done', 'did you actually book it?', 'booked'],
+  ['cmpl_status_working', 'what are you still working on?', 'captcha'],
+  ['cmpl_status_nevermind', 'actually never mind', 'ok'],
+  // messy phrasing
+  ['cmpl_messy_renew', "don't let this renew", 'ok'],
+  ['cmpl_messy_membership', 'cancel this membership', 'support'],
+  ['cmpl_messy_flight', 'check in to my flight', 'boardpass'],
+]
+
+const PRESEED: Record<string, Json> = {
+  cmpl_status_unknown: { id: 'seed_1', kind: 'subscription_cancel', target: 'spotify', targetKey: 'spotify', state: 'outcome_unknown', result_summary: null, blocker: null, receipt: null },
+  cmpl_status_done: { id: 'seed_1', kind: 'reservation', target: 'niku steakhouse', targetKey: 'niku steakhouse', state: 'completed', result_summary: 'confirmed', blocker: null, receipt: { evidence: { summary: 'Friday 7:30 PM, two people, confirmation #A8F21' } } },
+  cmpl_status_working: { id: 'seed_1', kind: 'subscription_cancel', target: 'audible', targetKey: 'audible', state: 'executing', blocker: { type: 'captcha', message: 'CAPTCHA' }, result_summary: null, receipt: null },
+}
+
+for (const [id, text, observed] of C24) {
+  S.push({
+    id, cat: 'C24', title: text.slice(0, 60),
+    world: () => {
+      const w = base()
+      if (PRESEED[id]) (w as unknown as { completions: Json[] }).completions = [PRESEED[id]]
+      return w
+    },
+    turns: [{
+      text,
+      w: (world) => {
+        (world as unknown as { observed: string }).observed = OBSERVED[observed] || OBSERVED.ok
+      },
+    }],
+    requiredSources: ['completion'],
+  })
+}
+
 /* ================= runner ================= */
+
 
 
 

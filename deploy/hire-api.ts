@@ -7,6 +7,7 @@ import { handleWorkshopRoutes } from './routes/workshop'
 import { handleBrowserRoutes } from './routes/browser'
 import { handleCancelWorkRoutes } from './routes/cancelWork'
 import { handlePlanRoutes } from './routes/plans'
+import { handleCompletionRoutes } from './routes/completions'
 import type { SQL } from 'bun'
 import {
   extractOtherPerson,
@@ -5909,6 +5910,8 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
   if (cancelWorkRes) return cancelWorkRes
   const planRes = await handlePlanRoutes(req, sql, { internalOk })
   if (planRes) return planRes
+  const completionRes = await handleCompletionRoutes(req, sql, { internalOk })
+  if (completionRes) return completionRes
 
   if (!path.startsWith('/api/') || publicPaths.has(path) || req.method === 'OPTIONS') {
     return handleAuthorizedHireApi(req, sql)

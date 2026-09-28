@@ -12,6 +12,8 @@
 import { mkdirSync, writeFileSync, readFileSync, existsSync, rmSync, mkdtempSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { runHireTurn } from '../../spectrum/shared/runHireTurn'
+import { parseCompletionEvidence } from '../../spectrum/shared/completion'
+import { setCompletionObserver } from '../../spectrum/shared/conversationalFriend'
 import { claimViolationCount } from '../../spectrum/shared/claimEvidence'
 
 /* Route the engine at this process BEFORE any scenario runs. Without this the
@@ -203,6 +205,39 @@ function handleInternal(w: World, method: string, url: string, body: Json): Resp
   if (p === '/api/internal/mail/send-draft') {
     bucket<Json>(w, 'drafts').push({ kind: 'send_draft', ...body })
     return jres({ ok: true, state: 'sent', providerId: 'smtp_audit_1', toAddr: 'dana@bigco.com', version: 1 })
+  }
+
+  /* verified-completion ledger fixture */
+  if (p === '/api/internal/completions') {
+    ;(w as unknown as { completions?: Json[] }).completions ||= []
+    const store = (w as unknown as { completions: Json[] }).completions
+    if (method === 'POST' && !body.id && !body.action) {
+      const targetKey = String(body.target || '').toLowerCase()
+      const dup = store.find((c) => c.kind === body.kind && c.targetKey === targetKey && c.state !== 'completed' && c.state !== 'failed' && c.state !== 'cancelled')
+      if (dup) return jres({ ok: true, completion: dup, duplicate: true })
+      const row = { id: `cmpl_${store.length + 1}`, kind: body.kind, target: body.target, targetKey, state: 'pending', receipt: null, evidence: null, blocker: null, result_summary: null }
+      store.push(row)
+      return jres({ ok: true, completion: row })
+    }
+    if (method === 'POST' && body.id && body.action === 'verify') {
+      const row = store.find((c) => c.id === body.id)
+      const observed = String(body.observed || '')
+      const kind = (row?.kind || 'subscription_cancel') as Parameters<typeof parseCompletionEvidence>[0]
+      const evidence = parseCompletionEvidence(kind, observed, String(body.target || row?.target || ''))
+      if (!evidence || evidence.type === 'none' || evidence.type === 'retention_offer') {
+        if (row) row.state = evidence?.type === 'retention_offer' ? 'needs_authorization' : 'outcome_unknown'
+        if (row && evidence) row.blocker = { type: evidence.type === 'retention_offer' ? 'retention_offer' : 'observed', message: evidence.summary }
+        return jres({ ok: true, state: row?.state || 'outcome_unknown', verified: false, ...(evidence?.type === 'retention_offer' ? { retentionOffer: evidence.retentionOffer } : {}), ...(evidence?.type === 'none' ? { blocker: evidence.summary } : {}) })
+      }
+      if (row) {
+        row.state = 'completed'
+        row.receipt = { operation: kind, status: 'completed', provider: evidence.provider || String(body.target || 'unknown'), verified_at: new Date().toISOString(), evidence, result_summary: evidence.summary }
+      }
+      return jres({ ok: true, state: 'completed', verified: true, receipt: row?.receipt })
+    }
+    if (method === 'GET') {
+      return jres({ ok: true, completions: (w as unknown as { completions: Json[] }).completions })
+    }
   }
 
   /* durable turn anchors (the "send it" memory) */
@@ -479,6 +514,14 @@ export async function runScenario(sc: Scenario): Promise<ScenarioResult> {
   rmSync(dataDir, { recursive: true, force: true })
   mkdirSync(dataDir, { recursive: true })
   CURRENT = w
+  /* Verified-completion fixture: the observed provider state for this
+   * scenario feeds the engine's evidence parser exactly like a real
+   * browser read-back would. */
+  const worldWithObserved = w as unknown as { observed?: string }
+  setCompletionObserver((text, kind) => {
+    void text
+    return worldWithObserved.observed || ''
+  })
   const t0 = Date.now()
   let revision = 'unknown'
   try {

@@ -713,6 +713,58 @@ export async function ensureHireSchema(sql: SQL) {
   // queue so a flapping job stops after TASK_LOOP_MAX_ATTEMPTS. One row per
   // (user, persona, kind) keeps seeded defaults and handoffs from piling up.
   await sql`
+    CREATE TABLE IF NOT EXISTS hire_operations (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      user_id UUID NOT NULL REFERENCES hire_users(id) ON DELETE CASCADE,
+      persona TEXT NOT NULL DEFAULT 'friend',
+      kind TEXT NOT NULL CHECK (kind IN ('subscription_cancel','reservation','flight_check_in')),
+      target TEXT NOT NULL,
+      target_key TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','needs_authorization','executing','verification_pending','completed','failed','outcome_unknown','cancellation_requested','cancelled')),
+      provider TEXT,
+      requested_terms JSONB NOT NULL DEFAULT '{}'::jsonb,
+      approved_terms JSONB,
+      browser_job_id UUID,
+      verification_method TEXT,
+      external_receipt JSONB,
+      external_object_id TEXT,
+      result_summary TEXT,
+      failure_reason TEXT,
+      blocker JSONB,
+      attempt_count INT NOT NULL DEFAULT 0,
+      verified_at TIMESTAMPTZ,
+      next_verify_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_hire_operations_active
+      ON hire_operations (user_id, persona, kind, target_key)
+      WHERE status NOT IN ('failed','cancelled');
+    CREATE INDEX IF NOT EXISTS idx_hire_operations_user ON hire_operations (user_id, persona, updated_at DESC);
+    CREATE TABLE IF NOT EXISTS hire_completions (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      user_id UUID NOT NULL REFERENCES hire_users(id) ON DELETE CASCADE,
+      persona TEXT NOT NULL DEFAULT 'friend',
+      kind TEXT NOT NULL,
+      target TEXT NOT NULL,
+      target_key TEXT NOT NULL,
+      state TEXT NOT NULL DEFAULT 'pending',
+      requested_terms JSONB NOT NULL DEFAULT '{}'::jsonb,
+      approved_terms JSONB,
+      executor TEXT,
+      executor_id TEXT,
+      attempt_count INTEGER NOT NULL DEFAULT 0,
+      verification JSONB,
+      external_object_id TEXT,
+      result_summary TEXT,
+      failure_reason TEXT,
+      blocker JSONB,
+      receipt JSONB,
+      started_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+
     CREATE TABLE IF NOT EXISTS hire_plans (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       user_id UUID NOT NULL REFERENCES hire_users(id) ON DELETE CASCADE,
@@ -727,6 +779,7 @@ export async function ensureHireSchema(sql: SQL) {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       UNIQUE (user_id, persona, goal)
     )
+    CREATE INDEX IF NOT EXISTS idx_hire_completions_active ON hire_completions (user_id, persona, state) WHERE state NOT IN ('completed','failed','cancelled');
     CREATE TABLE IF NOT EXISTS hire_task_loops (
       id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL REFERENCES hire_users(id) ON DELETE CASCADE,
