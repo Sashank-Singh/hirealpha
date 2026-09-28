@@ -162,3 +162,25 @@ describe('claim provenance — capability and policy language', () => {
     expect(out.violations).toEqual([])
   })
 })
+
+describe('claim provenance — file sends (mi1 regression)', () => {
+  test('a file-send success claim without a receipt is rewritten', () => {
+    const l = new ClaimLedger()
+    const out = enforceClaimEvidence('The deck was sent to Sam.', l)
+    expect(out.violations.length).toBeGreaterThanOrEqual(1)
+    expect(out.reply).toMatch(/drafted for your review|No file send/)
+  })
+
+  test('an unconfirmed file-send claim passes with a real receipt', () => {
+    const l = new ClaimLedger()
+    l.record('file_send', 'verified_success', { receipt: true, providerId: 'msg_1' })
+    expect(enforceClaimEvidence('The deck was sent to Sam.', l).violations).toEqual([])
+  })
+
+  test('"the send didn\'t go through" needs a failed-send record', () => {
+    const l = new ClaimLedger()
+    const out = enforceClaimEvidence("My attempt to send the file didn't go through.", l)
+    expect(out.violations.length).toBeGreaterThanOrEqual(1)
+    expect(out.reply).toMatch(/no failed-send record/)
+  })
+})

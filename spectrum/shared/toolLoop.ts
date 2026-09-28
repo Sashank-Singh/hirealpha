@@ -1177,6 +1177,13 @@ Reactions are optional and usually absent. You may add "reaction":"<emoji>" to a
       const args = json.input
       if (!capability || !args || typeof args !== 'object' || Array.isArray(args)) {
         result = { status: 'invalid_action', message: 'Choose a listed capability and provide an input object, or answer naturally.' }
+      } else if (SEND_CAPABILITIES.has(capability.name) && !hasExplicitSendIntent(lastUserAsk)) {
+        /* Draft-vs-send, enforced. Live failure this blocks: "get the series a
+         * deck ready to send to sam" issued a REAL file send in turn one, and
+         * the correction "not to sam to sarah" then had to untangle a send
+         * that should never have left. A send capability requires an explicit
+         * send verb in the ask; "get it ready" stages a draft instead. */
+        result = { status: 'blocked', message: 'This ask asks to PREPARE, not to send. Do not send anything: stage the draft and tell the user to review it. Call this capability again only if they explicitly say send.' }
       } else {
         const key = capability.mutates ? capability.name : `${capability.name}:${JSON.stringify(args)}`
         if (attemptedCapabilities.has(key)) {
@@ -1469,6 +1476,20 @@ Reactions are optional and usually absent. You may add "reaction":"<emoji>" to a
 
 /** Interim "what I'm doing" line per tool: the iMessage version of a visible
  * activity panel. Generic tools fall back to the sources line. */
+/** Capabilities that put something in front of another human and cannot be
+ * taken back. Each requires an explicit send verb in the user's ask. */
+const SEND_CAPABILITIES = new Set(['send_file', 'forward_email', 'send_text_later', 'reply_email'])
+
+/** True when the ask itself says SEND/SHIP/forward/deliver — "get it ready",
+ * "prepare", or "draft" alone do NOT authorize a send. */
+export function hasExplicitSendIntent(text: string): boolean {
+  const t = text.toLowerCase()
+  if (/\b(?:get|have|keep|make)\b[^.!?]{0,30}\b(?:ready|prepared?|draft(?:ed)?)\b/i.test(t)) {
+    return /\b(?:and|then)\s+(?:send|ship|forward|email|deliver)\b/i.test(t)
+  }
+  return /\b(?:send|sent|ship|forward|deliver|email it|mail it|fire it off)\b/i.test(t)
+}
+
 const STAGE_LINE: Record<string, string> = {
   gmail: 'I’m checking your email for this.',
   calendar: 'I’m checking your calendar.',

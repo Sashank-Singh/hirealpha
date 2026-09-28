@@ -143,7 +143,7 @@ const RULES: ClaimRule[] = [
     re: /\b(sent|sending|emailed|forward(?:ed|ing)|fired off|went out|on its way (?:to|out)|is out|confirmed the send)\b/i,
     domain: 'mail_send',
     allowed: ['verified_success'],
-    check: (l) => l.hasReceipt('mail_send'),
+    check: (l) => l.hasReceipt('mail_send') || l.hasReceipt('file_send'),
     replacement: () => 'The email is drafted for your review — nothing has been sent yet.',
   },
   {
@@ -153,6 +153,13 @@ const RULES: ClaimRule[] = [
     allowed: ['verified_success'],
     check: (l) => l.hasReceipt('calendar_write'),
     replacement: () => 'That is staged as a draft for your confirmation — the calendar has not been changed yet.',
+  },
+  {
+    kind: 'negative',
+    re: /\b(?:file|deck|doc(?:ument)?|attachment|send)\b[^.]{0,50}\b(?:didn'?t go through|did not go through|failed to send|wasn'?t sent|did not send)\b/i,
+    domain: 'file_send',
+    allowed: ['verified_failure', 'provider_unavailable', 'timeout', 'outcome_unknown'],
+    replacement: () => 'I have no failed-send record for that — check the send state before assuming it did or did not go out.',
   },
   {
     kind: 'positive',
