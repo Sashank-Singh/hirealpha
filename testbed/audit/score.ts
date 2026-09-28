@@ -75,12 +75,21 @@ function main() {
       classification: h.class,
       /** ACTIONS/MUTATIONS come straight from the transcript — machine truth. */
       actions: summarizeActions(r),
+      sourceMetrics: sourceMetrics(r),
       justification: h.justification,
       override: h.override ?? null,
       defect_class: h.defectClass ?? null,
     })
   }
 
+  const assessmentRows = rows.filter((r2) => (r2.sourceMetrics as unknown) !== null)
+  const recallMean = assessmentRows.length
+    ? assessmentRows.reduce((a, r2) => a + ((r2.sourceMetrics as { recall: number }).recall), 0) / assessmentRows.length : null
+  const precisionMean = assessmentRows.length
+    ? assessmentRows.reduce((a, r2) => a + ((r2.sourceMetrics as { precision: number }).precision), 0) / assessmentRows.length : null
+  const violationsTotal = rows.reduce((a, r2) => a + Number((r2.sourceMetrics as { violations?: number } | null)?.violations || 0), 0)
+  const callsPerTurnMean = assessmentRows.length
+    ? assessmentRows.reduce((a, r2) => a + ((r2.sourceMetrics as { callsPerTurn: number }).callsPerTurn), 0) / assessmentRows.length : null
   const revisionList = [...revisions]
   const report = {
     generatedAt: new Date().toISOString(),
@@ -94,6 +103,13 @@ function main() {
       classCounts,
       overrideCount: overrides,
       defectCounts,
+      assessment: {
+        scenariosWithRequiredSources: assessmentRows.length,
+        sourceRecall: recallMean === null ? null : Number(recallMean.toFixed(3)),
+        sourcePrecision: precisionMean === null ? null : Number(precisionMean.toFixed(3)),
+        unsupportedClaimCount: violationsTotal,
+        callsPerTurn: callsPerTurnMean === null ? null : Number(callsPerTurnMean.toFixed(1)),
+      },
     },
     scenarios: rows.sort((a, b) => String(a.category).localeCompare(String(b.category)) || String(a.scenario_id).localeCompare(String(b.scenario_id))),
   }
@@ -110,6 +126,51 @@ function main() {
   for (const row of report.scenarios) {
     const d = row.dimensions as Record<string, number>
     console.log(`${String(row.scenario_id).padEnd(30)} ${String(row.category).padEnd(4)} ${String(row.total).padStart(5)}  ${row.classification}      ${DIMENSIONS.map((k) => d[k]).join('/')}`)
+  }
+}
+
+/** Map an internal call path to an evidence source name (assessment metrics). */
+function callSources(call: { path: string; body: Record<string, unknown> }): string[] {
+  const p = call.path.replace(/\?.*/, '')
+  if (p === '/api/internal/live/tools') {
+    const want = String((call.body || {}).want || '')
+    if (want) return [want === 'gmail' ? 'gmail' : want]
+    return ['web'] // travel/default lookups
+  }
+  if (p === '/api/internal/work/slots') return ['calendar']
+  if (p.startsWith('/api/internal/spending')) return ['spending']
+  if (p === '/api/internal/plans') return ['plans']
+  if (p.startsWith('/api/internal/reminders')) return ['reminders']
+  if (p.startsWith('/api/internal/email_followups')) return ['gmail']
+  if (p === '/api/internal/network') return ['contacts']
+  if (p.startsWith('/api/internal/files/')) return ['drive']
+  if (p.startsWith('/api/internal/calendar/')) return ['calendar']
+  return []
+}
+
+function sourceMetrics(r: Record<string, unknown>) {
+  const required: string[] = Array.isArray(r.requiredSources) ? (r.requiredSources as string[]) : []
+  if (!required.length) return null
+  const turns = (r.turns || []) as Array<{ calls?: Array<{ path: string; body: Record<string, unknown> }>; claimViolations?: number }>
+  const calledSet = new Set<string>()
+  let violations = 0
+  for (const t of turns) {
+    for (const c of t.calls || []) for (const s of callSources(c)) calledSet.add(s)
+    violations += t.claimViolations || 0
+  }
+  const called = [...calledSet]
+  const missing = required.filter((s) => !calledSet.has(s))
+  /* Housekeeping reads are not counted as unnecessary traffic: the plans row
+   * and the live profile are read on every turn by design. */
+  const housekeeping = new Set(['plans', 'contacts'])
+  const unnecessary = called.filter((s) => !required.includes(s) && !housekeeping.has(s))
+  const hits = required.filter((s) => calledSet.has(s)).length
+  return {
+    required, called, missing, unnecessary,
+    recall: required.length ? hits / required.length : 1,
+    precision: called.length ? hits / called.length : 1,
+    violations,
+    callsPerTurn: turns.length ? turns.reduce((a, t) => a + (t.calls?.length || 0), 0) / turns.length : 0,
   }
 }
 

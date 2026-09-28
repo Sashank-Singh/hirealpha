@@ -12,6 +12,7 @@
 import { mkdirSync, writeFileSync, readFileSync, existsSync, rmSync, mkdtempSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { runHireTurn } from '../../spectrum/shared/runHireTurn'
+import { claimViolationCount } from '../../spectrum/shared/claimEvidence'
 
 /* Route the engine at this process BEFORE any scenario runs. Without this the
  * engine falls into its no-API fallback: reads return empty and browser
@@ -77,6 +78,8 @@ export interface Scenario {
   agent?: 'friend' | 'coworker' | 'cofounder'
   world: () => Omit<World, 'id' | 'calls' | 'created' | 'fx'>
   turns: TurnDef[]
+  /** Assessment metrics: which evidence sources a correct answer needs. */
+  requiredSources?: string[]
 }
 
 const OUT = join(import.meta.dir, 'out')
@@ -436,6 +439,7 @@ export interface TurnResult {
   card: string | null
   calls: Array<{ method: string; path: string; body: Json }>
   llmCallsInTurn: number
+  claimViolations: number
   thread: Json
 }
 
@@ -453,6 +457,7 @@ export interface ScenarioResult {
   llmCalls: number
   wallMs: number
   error?: string
+  requiredSources?: string[]
 }
 
 export async function runScenario(sc: Scenario): Promise<ScenarioResult> {
@@ -484,6 +489,7 @@ export async function runScenario(sc: Scenario): Promise<ScenarioResult> {
     for (const t of sc.turns) {
       if (t.w) t.w(w)
       const llmBefore = LLM_CALLS
+      const violationsBefore = claimViolationCount()
       const callMark = w.calls.length
       let res: Awaited<ReturnType<typeof runHireTurn>>
       try {
@@ -508,6 +514,7 @@ export async function runScenario(sc: Scenario): Promise<ScenarioResult> {
         card: typeof res.card === 'string' ? res.card : res.card ? String((res.card as Json).url || JSON.stringify(res.card).slice(0, 120)) : null,
         calls: w.calls.slice(callMark).map((c) => ({ method: c.method, path: c.path, body: c.body })),
         llmCallsInTurn: LLM_CALLS - llmBefore,
+        claimViolations: claimViolationCount() - violationsBefore,
         thread: readThreadFacts(dataDir, w.profile.phone),
       })
       if (t.ageDays) ageThread(dataDir, w.profile.phone, t.ageDays)
@@ -515,6 +522,7 @@ export async function runScenario(sc: Scenario): Promise<ScenarioResult> {
   } finally {
     result.llmCalls = LLM_CALLS
     result.wallMs = Date.now() - t0
+    if (sc.requiredSources) result.requiredSources = sc.requiredSources
     CURRENT = null
   }
   mkdirSync(OUT, { recursive: true })

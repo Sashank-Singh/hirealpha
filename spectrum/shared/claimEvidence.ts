@@ -42,6 +42,7 @@ export type ClaimKind =
 
 export type EvidenceDomain =
   | 'memory'
+  | 'plans'
   | 'mail_send'
   | 'mail_read'
   | 'calendar_read'
@@ -193,6 +194,13 @@ const RULES: ClaimRule[] = [
     allowed: ['verified_success'],
     replacement: () => 'The watch did not arm — nothing is monitoring that yet.',
   },
+  {
+    kind: 'positive',
+    re: /\b(?:you can afford|that'?s affordable|fits (?:in|within) your budget|you'?re (?:fine|good) (?:to|on) (?:spend|this)|within your budget|you have room (?:for|to))\b/i,
+    domain: 'spend',
+    allowed: ['verified_success'],
+    replacement: () => 'Based on what you have logged with me — and only that — I cannot give a confident yes. What I can say is stated against your logged spend and standing budget, and a real affordability answer needs what I do not have (bank balances, upcoming bills).',
+  },
   /* Completion claims about async browser runs — staging is not completion. */
   {
     kind: 'positive',
@@ -258,6 +266,13 @@ export interface ClaimAudit {
   violations: string[]
 }
 
+/** Test/metric surface: every rewrite, newest last, capped. The harness reads
+ * this to compute the unsupported-claim rate per turn. */
+export const claimViolationLog: Array<{ at: number; sentence: string }> = []
+export function claimViolationCount(): number {
+  return claimViolationLog.length
+}
+
 /**
  * Enforce the claims-to-evidence invariant on a finished reply. Deterministic:
  * sentence split → rule scan → ledger check → rewrite. Policy-limit sentences
@@ -288,6 +303,8 @@ export function enforceClaimEvidence(reply: string, ledger: ClaimLedger): ClaimA
         !(ledger.hasKind(rule.domain, ['verified_success']) && !rule.allowed.includes('verified_success'))
       if (ok || negativeRescue) return sentence
       violations.push(sentence.trim().slice(0, 160))
+      claimViolationLog.push({ at: Date.now(), sentence: sentence.trim().slice(0, 200) })
+      if (claimViolationLog.length > 500) claimViolationLog.splice(0, claimViolationLog.length - 500)
       return rule.replacement(ledger)
     }
     return sentence

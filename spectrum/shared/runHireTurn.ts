@@ -1,5 +1,6 @@
 import { pendingSpendReply } from './spendTurn'
 import { ClaimLedger, enforceClaimEvidence } from './claimEvidence'
+import { assessOffline, evidencePlanNote } from './assessment'
 import { fetchTurnAnchors, setTurnAnchorRemote, clearTurnAnchorRemote, fetchMailState, fetchPendingDraft } from './assistantOps'
 import { isAffirmativeApprovalIntent, isNegativeCancellationIntent } from './conversationalApproval'
 import { nextFridayAt5 } from '../../deploy/followupDeadline'
@@ -2468,6 +2469,15 @@ export async function runHireTurn(input: {
       ...cleanHistory,
       { role: 'user', content: input.threadLine || input.userText },
     ]
+    /* Assessment routing (engine path): an evidence plan rides the messages so
+     * state-evaluation asks gather their sources before any verdict. */
+    {
+      const assessment = assessOffline(input.userText)
+      const note = assessment.assessment
+        ? evidencePlanNote(assessment, { available: [...(live.connected || []), 'web', 'maps'] })
+        : null
+      if (note) baseMessages.splice(1, 0, { role: 'system', content: note })
+    }
     // Simple-ask short-circuit: short conversational texts with no tool, write,
     // brief, or card intent go straight to the model. The decision loop adds
     // latency and a second failure surface to the most common messages ("ok

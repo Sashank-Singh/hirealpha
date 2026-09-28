@@ -26,6 +26,7 @@ import {
 } from './toolLoop'
 import { isAffirmativeApprovalIntent, isCasualChitChat, isNegativeCancellationIntent } from './conversationalApproval'
 import { ClaimLedger, enforceClaimEvidence } from './claimEvidence'
+import { assessOffline, assessmentHedge, evidencePlanNote, minimumEvidenceCheck, replyAdmitsGap, type AssessmentDomain } from './assessment'
 import { constraintConflictNote, standingConstraints } from './memoryBlock'
 import { cancelWork } from './cancelWork'
 import { fetchActivePlan, patchPlan, planPromptBlock, detectMultiStepPlan, upsertPlan } from './plans'
@@ -314,6 +315,10 @@ export async function runConversationalFriend(input: {
 }) {
   const { live, memory, senderId, dataDir } = input
   const evidence = input.evidence ?? new ClaimLedger()
+  /* Assessment routing: state-evaluation asks must not take the chat fast
+   * path. Detection is deterministic (assessment.ts) and runs every turn. */
+  const assessmentPlan = assessOffline(input.userText)
+  let assessmentTurn = false
   const persona: AgentId = input.agentId || 'friend'
   const agent = getAgent(persona)
   const timezone = pickUserTimezone({ userTz: live.timezone, contextTz: live.context.timezone, memoryTz: [...live.memories, ...memory.facts].find((f) => f.key === 'timezone')?.value })
@@ -590,10 +595,19 @@ export async function runConversationalFriend(input: {
       new Promise<null>((resolve) => setTimeout(() => resolve(null), 8000)),
     ])
     if (!gateIntent || gateIntent.kind === 'chat') {
-      appendThread(dataDir, senderId, [{ role: 'user', content: input.threadLine || input.userText }, { role: 'assistant', content: reply }])
-      return { reply, bubbles: [reply], source, authoritative: live.found ? Object.keys(live.context) : [], card: null }
+      if (assessmentPlan.assessment) {
+        /* Evidence-first: a state-evaluation ask leaves the fast path and
+         * runs the tool engine with an explicit evidence plan. The audit's
+         * four routing misses (afford, forgetting, busy-week, week-review)
+         * all died exactly here. */
+        assessmentTurn = true
+        console.warn(`[${persona}] assessment ask — routing to the tool engine (domains: ${assessmentPlan.domains.join(", ")})`)
+      } else {
+        appendThread(dataDir, senderId, [{ role: 'user', content: input.threadLine || input.userText }, { role: 'assistant', content: reply }])
+        return { reply, bubbles: [reply], source, authoritative: live.found ? Object.keys(live.context) : [], card: null }
+      }
     }
-    console.warn(`[${persona}] fast-path gate missed a "${gateIntent.kind}" turn; running the tool engine on the classifier's answer`)
+    console.warn(`[${persona}] fast-path gate missed a "${gateIntent?.kind ?? 'assessment'}" turn; running the tool engine on the classifier's answer`)
   }
   /* A picture ask gets a picture. The classifier decides that the turn is an
    * image request (nothing in this path pattern-matches user language); the
@@ -1418,6 +1432,15 @@ export async function runConversationalFriend(input: {
   const planNote = planPromptBlock(activePlan)
   if (planNote) promptNotes.push(planNote)
 
+  if (assessmentTurn || assessmentPlan.assessment) {
+    assessmentTurn = true
+    const note = evidencePlanNote(assessmentPlan, {
+      available: [...(live.connected || []), 'web', 'maps'],
+      constraints,
+      planBlock: planNote,
+    })
+    if (note) promptNotes.push(note)
+  }
   let forcedReply: string | null = null
   const outcome = await runToolConversation({
     evidence,
@@ -1737,6 +1760,23 @@ ${JSON.stringify(context)}` },
    * tracks what actually ran (lookups, capabilities, drafts, cancels, spend
    * decisions); a claim without a receipt is rewritten to what the engine
    * verified, positive or negative. */
+  /* Minimum-evidence rule: an assessment that never read its critical
+   * domains may not ship a confident answer. The hedge names exactly what
+   * was not checked; it is skipped when the reply already admits the gap. */
+  if (assessmentTurn) {
+    const ran: AssessmentDomain[] = []
+    if (evidence.hasAny('calendar_read') || evidence.hasAny('calendar_write')) ran.push('calendar')
+    if (evidence.hasAny('mail_read') || evidence.hasAny('mail_send')) ran.push('mail')
+    if (evidence.hasAny('spend')) ran.push('money')
+    if (evidence.hasAny('plans')) ran.push('plans')
+    if (evidence.hasAny('drive')) ran.push('drive')
+    if (evidence.hasAny('reminder') || evidence.hasAny('followup') || evidence.hasAny('watch')) ran.push('commitments')
+    const check = minimumEvidenceCheck(assessmentPlan, ran)
+    if (check.missing.length && !replyAdmitsGap(reply)) {
+      const hedge = assessmentHedge(assessmentPlan, check.missing)
+      if (hedge) reply = `${reply}\n\n${hedge}`
+    }
+  }
   const claimAudit = enforceClaimEvidence(reply, evidence)
   if (claimAudit.violations.length) {
     console.warn('[claims] rewrote', claimAudit.violations.length, 'unevidenced claim(s):', claimAudit.violations[0])

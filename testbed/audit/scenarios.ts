@@ -666,7 +666,73 @@ S.push({ id: 'xdf13_realistic', cat: 'C21', title: 'Is my schedule realistic tom
 S.push({ id: 'xdf14_owe_anyone', cat: 'C21', title: 'Do I owe anyone anything', world: () => xdWorld(), turns: [{ text: 'Do I owe anyone anything?' }] })
 S.push({ id: 'xdf15_attention', cat: 'C21', title: 'What needs my attention today', world: () => xdWorld(), turns: [{ text: 'What needs my attention today?' }] })
 
+/* ================= C22 Assessment routing battery (evidence-first) ================= */
+/* Assessment-shaped asks with NO source names; requiredSources is the metric
+ * ground truth for source recall/precision. World is the rich xdWorld. */
+
+const moneyWorld = (over: Partial<W> = {}): W => xdWorld({
+  profile: {
+    name: 'Alex Rivera', phone: '+15552100001', timezone: 'America/New_York', email: 'alex@rivera.dev',
+    hired: true, connected: ['gmail', 'calendar', 'drive'],
+    memories: [
+      { key: 'preferred_name', value: 'Alex' },
+      { key: 'constraint:spend_cap', value: 'Never spend more than $500 without asking first.', durable: true },
+    ],
+  },
+  spending: {
+    logs: [
+      { amount: 275, category: 'food', description: 'Logged dining', spentAt: '2026-09-25' },
+      { amount: 120, category: 'shopping', description: 'Amazon', spentAt: '2026-09-22' },
+    ],
+    weekly: 395, budget: 400,
+  },
+  ...over,
+})
+
+const ASSESS: Array<[string, string, string[], Partial<W>?]> = [
+  // cross-domain readiness / review
+  ['af_interview_ready', 'Am I ready for my interview tomorrow?', ['calendar', 'gmail']],
+  ['af_trip_ready', 'Am I ready for my Denver trip?', ['calendar', 'gmail']],
+  ['af_launch_ready', 'Am I ready for launch Friday?', ['plans', 'calendar']],
+  ['af_weekly_review', 'What did I actually accomplish this week?', ['calendar', 'plans']],
+  ['af_forgetting', 'What am I forgetting before I leave?', ['gmail', 'calendar']],
+  ['af_handle_before_tomorrow', 'Anything I need to handle before tomorrow?', ['calendar', 'gmail']],
+  ['af_anything_else', 'Did I miss anything?', ['gmail', 'calendar']],
+  ['af_focus', 'What should I focus on?', ['calendar', 'plans']],
+  // money
+  ['af_afford_hotel', 'Can I afford a $180 hotel for the Denver trip?', ['spending'], {}],
+  ['af_afford_trip400', 'Can I afford a $400 trip to Austin next weekend?', ['spending'], {}],
+  ['af_spending_room', 'How much room do I have this week?', ['spending'], {}],
+  ['af_too_expensive', 'Is a $600 flight too expensive for me right now?', ['spending'], {}],
+  ['af_enough_set_aside', 'Do I have enough set aside for this?', ['spending'], {}],
+  // calendar
+  ['af_collide', 'Is anything going to collide next week?', ['calendar']],
+  ['af_realistic', 'Is my schedule realistic tomorrow?', ['calendar']],
+  ['af_busy_week', 'How busy is my week looking?', ['calendar']],
+  // communication / obligations
+  ['af_who_owes_me', 'Who still owes me a reply?', ['gmail']],
+  ['af_who_i_owe', 'Who am I ignoring?', ['gmail']],
+  ['af_followup_yesterday', 'Do I need to follow up with anyone from yesterday?', ['gmail']],
+  ['af_waiting_on', 'What am I waiting on?', ['gmail']],
+  // plan state
+  ['af_on_track', 'Am I on track this week?', ['plans', 'calendar']],
+  ['af_blocking', 'What is blocking me right now?', ['plans']],
+  ['af_still_to_do', 'What do I still need to do?', ['plans', 'calendar']],
+  // worry / attention (generalization phrasings)
+  ['af_worry_friday', 'Should I be worried about anything before Friday?', ['calendar', 'gmail']],
+  ['af_changed', 'What changed since yesterday?', ['calendar', 'gmail']],
+]
+for (const [id, text, required, over] of ASSESS) {
+  S.push({
+    id, cat: 'C22', title: text.slice(0, 60),
+    world: () => (required.includes('spending') ? moneyWorld(over as Partial<W>) : xdWorld((over || {}) as Partial<W>)),
+    turns: [{ text }],
+    requiredSources: required,
+  })
+}
+
 /* ================= runner ================= */
+
 
 
 const want = process.argv.slice(2)

@@ -621,6 +621,7 @@ export async function runToolConversation(input: {
     send_text_later: 'scheduled_text', email_followup: 'followup', watch: 'watch',
     find_file: 'drive', send_file: 'file_send',
     forward_email: 'mail_send', inbox_action: 'work_write',
+    spending_overview: 'spend', move_event: 'calendar_write', plan: 'plans',
     mail_attachment: 'mail_read', mail_state: 'mail_read',
     check_conflicts: 'calendar_read', reply_email: 'mail_send',
     notion_page: 'work_write', slack_message: 'work_write',
