@@ -1,0 +1,16 @@
+{
+  "facts": [],
+  "summary": "",
+  "history": [
+    {
+      "role": "user",
+      "content": "Email Dana confirming our Friday call at 4pm.",
+      "ts": 1790533808798
+    },
+    {
+      "role": "assistant",
+      "content": "Heads up, the draft didn't save on my end, so nothing went out to Dana yet.\n\nWant me to try again? Otherwise you can send it yourself from your mail.",
+      "ts": 1790533808798
+    }
+  ]
+}

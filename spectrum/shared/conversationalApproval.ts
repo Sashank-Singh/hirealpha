@@ -105,11 +105,70 @@ export function isNegativeCancellationIntent(text: string): boolean {
   const norm = normalize(text)
   if (!norm) return false
 
-  if (/^(?:no|nope|nah|cancel|cancel it|cancel that|don t|do not|nevermind|never mind|stop|wait|hold on|pass)$/.test(norm)) {
+  if (/^(?:no|nope|nah|cancel|cancel it|cancel that|don t|do not|nevermind|never mind|nvm|stop|wait|hold on|pass|forget it|forget that)$/.test(norm)) {
     return true
   }
 
-  return /\b(?:cancel (?:it|that|the order|order)|don t (?:buy|order|charge|get)|never ?mind|not that one|forget it)\b/.test(norm)
+  return /\b(?:cancel (?:it|that|the order|order|this)|don t (?:buy|order|charge|get|do (?:it|that))|never ?mind|nvm|not that one|forget it|forget that|call (?:it|that) off|leave it|scrap (?:it|that))\b/.test(norm)
+}
+
+/* ---- Typed pending-operation reply routing ----
+ *
+ * The deterministic gate previously collapsed every non-affirmative reply into
+ * one "questions or conditions do not approve it" message. A status question
+ * ("did it go through?") and a cancellation ("actually nvm") are different
+ * intents with different durable effects, and the typed pending-operation
+ * state (we KNOW what is pending) is what makes this classification safe
+ * without an LLM call: the possible intents are bounded by what is on the
+ * table. */
+
+export type PendingReplyKind =
+  | 'approve'
+  | 'deny'
+  | 'cancel'
+  | 'question'
+  | 'conditional'
+  | 'correction'
+  | 'status_query'
+  | 'other'
+
+const CONDITIONAL_RE =
+  /\b(?:but|only if|unless|as long as|provided that|if the |if it |if shipping|after you|first (?:check|confirm))\b/i
+
+const CORRECTION_RE =
+  /\b(?:no[,.]?\s+(?:get|use|take|do|go|try)|get the other|use the other|the other one|not that one|wrong one|different one|change (?:it|that) to|swap (?:it|that)(?: for| to))\b/i
+
+const STATUS_QUERY_RE =
+  /\b(?:did (?:it|that|the (?:payment|order|purchase|charge)) (?:go through|go thru|work|land)|did (?:my )?(?:payment|card|order) (?:get charged|go through|work)|(?:is|was) (?:it|that) (?:charged|paid|ordered|done)|has (?:it|that) (?:gone through|been charged|landed)|what(?:'s| is) (?:the )?(?:status|update)|went through\??$|charged yet|did you (?:charge|buy|order))\b/i
+
+/** Classify a reply that arrives while a typed pending operation exists.
+ * Deterministic on purpose: the pending row defines the whole action space,
+ * so a bounded recognizer beats a model call that could hallucinate an
+ * approval. Order matters: status → question → conditional → correction →
+ * cancel → approve. */
+export function classifyPendingReply(text: string): PendingReplyKind {
+  const norm = normalize(text)
+  if (!norm) return 'other'
+  const hasQuestionMark = /[?？]/.test(text)
+
+  if (STATUS_QUERY_RE.test(norm)) return 'status_query'
+
+  if (CORRECTION_RE.test(norm)) return 'correction'
+  if (isNegativeCancellationIntent(text)) return 'cancel'
+
+  // A question with no approval grammar in it is a question, never a "no".
+  if (hasQuestionMark && !isAffirmativeApprovalIntent(text)) return 'question'
+
+  if (isAffirmativeApprovalIntent(text)) {
+    // "yes but only if shipping is free" is a condition, not unconditional
+    // approval: the terms on the card are immutable, so a condition can never
+    // approve them silently.
+    if (CONDITIONAL_RE.test(text)) return 'conditional'
+    return 'approve'
+  }
+  if (hasQuestionMark) return 'question'
+  if (CONDITIONAL_RE.test(norm)) return 'conditional'
+  return 'other'
 }
 
 const CASUAL_TOKENS = new Set([

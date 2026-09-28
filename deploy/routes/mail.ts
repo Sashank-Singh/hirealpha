@@ -24,7 +24,10 @@ import {
   loadGmailRich,
 } from '../connectors/hub'
 import { gmiBriefChat } from '../briefs/judgment'
-import { gmailSendMessage } from '../google/actions'
+import { gmailSendMessage, gmailForwardMessage, modifyGmailMessages, trashGmailMessages } from '../google/actions'
+import { readGmailAttachment, attachmentResponseNote, formatBytes } from '../google/attachments'
+import { listThreadState, refreshThreadState, upsertThreadState } from '../mailState'
+import { withIdempotency } from '../utils/idempotency'
 
 export interface MailRouteOptions {
   internalOk: (req: Request) => boolean
@@ -57,6 +60,42 @@ export async function handleMailRoutes(
       receivedAt: m.date,
     }))
     return json({ mail })
+  }
+
+  /* Attachment read: metadata always rides on the message; the extracted text
+   * is fetched on demand. Authed for the web reader, internal for the bot. */
+  const attachmentRead = path.match(/^\/api\/mail\/([A-Za-z0-9_-]+)\/attachment\/([A-Za-z0-9_-]+)$/)
+  if (attachmentRead && req.method === 'GET') {
+    const { user, error: authErr } = await resolveAuthedUser(sql, {
+      token: url.searchParams.get('t') || undefined,
+      session: url.searchParams.get('s') || undefined,
+      email: url.searchParams.get('email') || undefined,
+    })
+    if (authErr) return authErr
+    const read = await readGmailAttachment(sql, user!.id, attachmentRead[1]!, attachmentRead[2]!)
+    if (!read.ok) return json({ ok: false, error: `Attachment could not be read (${read.status}).` }, read.status === 'not_found' ? 404 : 400)
+    const ex = read.extraction || { status: 'unsupported' as const }
+    // Status-labeled extraction: the client (and the model) must never read a
+    // partial result as complete. Encrypted / scanned / unsupported say so.
+    const noteByStatus: Record<string, string> = {
+      extracted: '',
+      partial: `${read.meta!.filename}: ${ex.note || 'partially extracted'} Summarize only what is here and say it is partial.`,
+      unsupported: `${read.meta!.filename} is a ${read.meta!.mimeType} file; its text cannot be extracted safely. Describe it by name and type; offer to forward it as-is.`,
+      image_only: `${read.meta!.filename} looks like a scanned document (images, no text layer). It needs eyes on the page, not a text parse; offer to forward it or describe what the user already knows.`,
+      encrypted: `${read.meta!.filename} is password-protected, so it cannot be read here. Say so plainly; never guess at the contents.`,
+      malformed: `${read.meta!.filename} could not be parsed as a document. Say so; do not summarize.`,
+      too_large: `${read.meta!.filename} is too large to read here (${read.meta!.size} bytes). Say so; offer to forward it.`,
+      empty: `${read.meta!.filename} is a zero-byte file.`,
+    }
+    return json({
+      ok: true,
+      source: read.source,
+      meta: read.meta,
+      status: ex.status,
+      text: ex.text || '',
+      textAvailable: !!ex.text,
+      note: noteByStatus[ex.status] || undefined,
+    })
   }
 
   if (path.startsWith('/api/mail/') && req.method === 'GET') {
@@ -119,20 +158,32 @@ export async function handleMailRoutes(
     }
     const gmailMsg = (await gmailRes.json()) as {
       snippet?: string
+      threadId?: string
       payload?: GmailMimePart & { headers?: Array<{ name: string; value: string }> }
     }
     const headers = gmailMsg.payload?.headers || []
     const h = (n: string) => headers.find((x) => x.name.toLowerCase() === n.toLowerCase())?.value || ''
     const { text: bodyText, html: bodyHtml } = extractGmailBody(gmailMsg.payload)
+    const { collectAttachments } = await import('../google/attachments')
+    const attachments = collectAttachments(gmailMsg.payload).map((a) => ({
+      attachmentId: a.attachmentId,
+      filename: a.filename || '(unnamed)',
+      mimeType: a.mimeType,
+      size: a.size || 0,
+      sizeLabel: formatBytes(a.size || 0),
+      textReadable: true,
+    }))
     return json({
       ok: true,
       messageId: msgId,
+      threadId: gmailMsg.threadId || undefined,
       subject: h('subject'),
       from: h('from'),
       date: h('date'),
       bodyText,
       bodyHtml,
       snippet: gmailMsg.snippet || '',
+      attachments,
     })
   }
 
@@ -310,10 +361,66 @@ export async function handleMailRoutes(
 
   /* Delegate fire: the bot retained an outreach draft for this user and the
    * user said "send it". Same send machinery the app's Send button uses. */
+  /* Send an EXISTING draft by id — object identity, not prose reconstruction.
+   * "send it" must operate on the canonical hire_drafts row: load its latest
+   * version (recipient corrections included), refuse on any status that is not
+   * sendable, send once with the draft id as the provider idempotency
+   * operation, then persist the send receipt. Typed states so the engine can
+   * never collapse already_sent / outcome_unknown into "sent". */
+  if (path === '/api/internal/mail/send-draft' && req.method === 'POST') {
+    if (!options.internalOk(req)) return json({ error: 'Unauthorized' }, 401)
+    const body = (await req.json().catch(() => ({}))) as { phone?: string; persona?: string; draftId?: string }
+    if (!body.phone || !body.draftId) return json({ ok: false, state: 'not_cancellable', error: 'phone and draftId required' }, 400)
+    const user = await getUserByPhone(sql, body.phone)
+    if (!user) return json({ ok: false, state: 'outcome_unknown', error: 'User not found' }, 404)
+    const rows = await sql`
+      SELECT id, kind, to_addr, subject, body, status, provider_id, version, thread_id
+      FROM hire_drafts WHERE id = ${body.draftId} AND user_id = ${user.id} LIMIT 1
+    `
+    const draft = rows[0] as {
+      id: string; kind: string; to_addr: string; subject: string; body: string
+      status: string; provider_id: string | null; version: number; thread_id: string | null
+    } | undefined
+    if (!draft) return json({ ok: false, state: 'not_cancellable', error: 'Draft not found.' }, 404)
+    if (draft.status === 'sent') {
+      return json({ ok: true, state: 'already_sent', providerId: draft.provider_id, toAddr: draft.to_addr })
+    }
+    if (draft.status === 'outcome_unknown') {
+      return json({ ok: false, state: 'outcome_unknown', error: 'The earlier send has an unknown outcome and will not be repeated. Check the provider before retrying.' }, 409)
+    }
+    if (['canceled', 'cancelled'].includes(draft.status)) {
+      return json({ ok: false, state: 'not_cancellable', error: 'That draft was cancelled.' }, 409)
+    }
+    if (draft.kind !== 'mail' && draft.kind !== 'reply') {
+      return json({ ok: false, state: 'not_cancellable', error: `Draft kind ${draft.kind} is not sendable as mail.` }, 400)
+    }
+    const claimed = await sql`
+      UPDATE hire_drafts SET status = 'sending', updated_at = now()
+      WHERE id = ${draft.id} AND user_id = ${user.id} AND status IN ('pending', 'saved')
+      RETURNING id`
+    if (!claimed.length) {
+      return json({ ok: false, state: 'outcome_unknown', error: 'The draft changed state while claiming. Check before retrying.' }, 409)
+    }
+    const sent = await gmailSendMessage(sql, user.id, {
+      to: draft.to_addr,
+      subject: draft.subject,
+      body: draft.body,
+      threadId: draft.thread_id || undefined,
+      operationId: draft.id,
+    })
+    if (sent.ok && sent.providerId) {
+      await sql`UPDATE hire_drafts SET status = 'sent', provider_id = ${sent.providerId}, updated_at = now() WHERE id = ${draft.id} AND user_id = ${user.id}`
+      return json({ ok: true, state: 'sent', providerId: sent.providerId, toAddr: draft.to_addr, version: draft.version })
+    }
+    const unknown = (sent as { outcomeUnknown?: boolean }).outcomeUnknown === true
+    await sql`UPDATE hire_drafts SET status = ${unknown ? 'outcome_unknown' : 'pending'}, updated_at = now() WHERE id = ${draft.id} AND user_id = ${user.id}`
+    return json({ ok: false, state: unknown ? 'outcome_unknown' : 'send_failed', error: sent.error || 'Send failed.' }, unknown ? 409 : 400)
+  }
+
   if (path === '/api/internal/mail/send' && req.method === 'POST') {
     if (!options.internalOk(req)) return json({ error: 'Unauthorized' }, 401)
     const body = (await req.json().catch(() => ({}))) as {
-      phone?: string; to?: string; subject?: string; body?: string
+      phone?: string; persona?: string; to?: string; subject?: string; body?: string; threadId?: string
     }
     if (!body.phone || !body.to || !body.subject) return json({ error: 'phone, to, and subject required' }, 400)
     const user = await getUserByPhone(sql, body.phone || '')
@@ -322,10 +429,157 @@ export async function handleMailRoutes(
       to: String(body.to).trim(),
       subject: String(body.subject).trim().slice(0, 200),
       body: String(body.body || '').slice(0, 8000),
+      threadId: body.threadId || undefined,
     })
     if (!sent.ok) return json({ ok: false, error: sent.error }, 400)
-    return json({ ok: true })
+    // Outbound send = durable "they owe the reply" state for waiting-on queries.
+    await upsertThreadState(sql, user.id, String(body.persona || ''), {
+      threadId: body.threadId || '',
+      participant: String(body.to).trim(),
+      subject: String(body.subject).trim(),
+      direction: 'outbound',
+      awaiting: 'them',
+    }).catch(() => undefined)
+    return json({ ok: true, providerId: sent.providerId || null })
+  }
+
+  /* Bot attachment read: binds the attachment back to its thread in the reply
+   * so a summary can never float free of the email it came from. */
+  if (path === '/api/internal/mail/attachment' && req.method === 'POST') {
+    if (!options.internalOk(req)) return json({ error: 'Unauthorized' }, 401)
+    const body = (await req.json().catch(() => ({}))) as { phone?: string; messageId?: string; attachmentId?: string }
+    if (!body.phone || !body.messageId || !body.attachmentId) return json({ error: 'phone, messageId, attachmentId required' }, 400)
+    const user = await getUserByPhone(sql, body.phone)
+    if (!user) return json({ error: 'User not found' }, 404)
+    const read = await readGmailAttachment(sql, user.id, body.messageId, body.attachmentId)
+    if (!read.ok) return json({ ok: false, status: read.status, error: `Attachment could not be read (${read.status}).` }, read.status === 'not_found' ? 404 : 400)
+    const ex = read.extraction || { status: 'unsupported' as const }
+    return json({
+      ok: true,
+      source: read.source,
+      meta: read.meta,
+      status: ex.status,
+      text: ex.text || '',
+      textAvailable: !!ex.text,
+      note: attachmentResponseNote(ex, read.meta!),
+    })
+  }
+
+  /* Forward: a real forwarded message with attachments and the original header
+   * block — never a "Re:" with pasted text. */
+  if (path === '/api/internal/mail/forward' && req.method === 'POST') {
+    if (!options.internalOk(req)) return json({ error: 'Unauthorized' }, 401)
+    const body = (await req.json().catch(() => ({}))) as { phone?: string; persona?: string; messageId?: string; to?: string; comment?: string }
+    if (!body.phone || !isPersona(body.persona || '') || !body.messageId || !body.to) {
+      return json({ error: 'phone, persona, messageId, and recipient required' }, 400)
+    }
+    const user = await getUserByPhone(sql, body.phone)
+    if (!user) return json({ error: 'User not found' }, 404)
+    const operationId = computeForwardOperationId(user.id, body.messageId, String(body.to))
+    // In-process idempotency: the operation id (Message-ID) makes the send
+    // itself stable, and this wrapper collapses double-taps within the TTL.
+    const idem = await withIdempotency(`mail_forward:${computeForwardOperationId(user.id, body.messageId, String(body.to))}`, async () =>
+      gmailForwardMessage(sql, user.id, { messageId: body.messageId!, to: String(body.to).trim(), comment: body.comment, operationId }),
+    )
+    const result = idem.result as { ok: boolean; providerId?: string; error?: string; outcomeUnknown?: boolean; subject?: string; attachedCount?: number; skippedAttachments?: number }
+    if (result.ok) {
+      await upsertThreadState(sql, user.id, body.persona!, {
+        participant: String(body.to).trim(),
+        subject: result.subject || '',
+        direction: 'outbound',
+        awaiting: 'them',
+        threadId: '',
+      }).catch(() => undefined)
+    }
+    return json(result, result.ok ? 200 : result.outcomeUnknown ? 409 : 400)
+  }
+
+  /* Inbox filing: mark read/unread, archive, labels, trash. Per-id outcomes;
+   * trash is only ever executed on ids the user confirmed. */
+  const runMailActions = async (userId: string, persona: string, ids: string[], action: string, label?: string) => {
+    const labelIds = label ? [String(label).replace(/^#/, '').trim()].filter(Boolean) : []
+    let result: { ok: boolean; results: Array<{ id: string; ok: boolean; error?: string }>; error?: string }
+    if (action === 'mark_read') result = await modifyGmailMessages(sql, userId, { ids, removeLabels: ['UNREAD'] })
+    else if (action === 'mark_unread') result = await modifyGmailMessages(sql, userId, { ids, addLabels: ['UNREAD'] })
+    else if (action === 'archive') result = await modifyGmailMessages(sql, userId, { ids, removeLabels: ['INBOX'] })
+    else if (action === 'unarchive') result = await modifyGmailMessages(sql, userId, { ids, addLabels: ['INBOX'] })
+    else if (action === 'label') result = labelIds.length
+      ? await modifyGmailMessages(sql, userId, { ids, addLabels: labelIds })
+      : { ok: false, results: [], error: 'A label name is required.' }
+    else if (action === 'trash') result = await trashGmailMessages(sql, userId, ids)
+    else return { ok: false, error: 'action must be mark_read, mark_unread, archive, unarchive, label, or trash' }
+    if (action === 'archive' || action === 'trash') {
+      for (const r of result.results) {
+        if (r.ok) await sql`UPDATE hire_thread_state SET awaiting = 'none', updated_at = now() WHERE user_id = ${userId} AND persona = ${persona} AND (thread_id = ${r.id} OR last_message_id = ${r.id})`.catch(() => undefined)
+      }
+    }
+    return result
+  }
+
+  if (path === '/api/internal/mail/actions' && req.method === 'POST') {
+    if (!options.internalOk(req)) return json({ error: 'Unauthorized' }, 401)
+    const body = (await req.json().catch(() => ({}))) as { phone?: string; persona?: string; ids?: string[]; action?: string; label?: string }
+    const ids = (body.ids || []).map((i) => String(i).replace(/[^a-zA-Z0-9_-]/g, '')).filter(Boolean)
+    if (!body.phone || !isPersona(body.persona || '') || !ids.length || !body.action) {
+      return json({ error: 'phone, persona, ids, and action required' }, 400)
+    }
+    const user = await getUserByPhone(sql, body.phone)
+    if (!user) return json({ error: 'User not found' }, 404)
+    return json(await runMailActions(user.id, body.persona!, ids, String(body.action), body.label))
+  }
+
+  if (path === '/api/mail/actions' && req.method === 'POST') {
+    const body = (await req.json().catch(() => ({}))) as { token?: string; session?: string; email?: string; persona?: string; ids?: string[]; action?: string; label?: string }
+    const { user, error } = await resolveAuthedUser(sql, { token: body.token, session: body.session, email: body.email })
+    if (error) return error
+    const ids = (body.ids || []).map((i) => String(i).replace(/[^a-zA-Z0-9_-]/g, '')).filter(Boolean)
+    if (!ids.length || !body.action) return json({ error: 'ids and action required' }, 400)
+    return json(await runMailActions(user!.id, String(body.persona || ''), ids, String(body.action), body.label))
+  }
+
+  /* Canonical draft read for the bot's durable draft anchor. Anchors carry the
+   * draft ID only; the body/version/recipient always come from hire_drafts at
+   * send time, so a rewrite ("make it warmer") or a recipient correction before
+   * a restart is what actually goes out. Only a still-pending draft resolves. */
+  const draftRead = path.match(/^\/api\/internal\/mail\/draft\/([A-Za-z0-9_-]+)$/)
+  if (draftRead && req.method === 'GET') {
+    if (!options.internalOk(req)) return json({ error: 'Unauthorized' }, 401)
+    const user = await getUserByPhone(sql, url.searchParams.get('phone') || '')
+    if (!user) return json({ error: 'User not found' }, 404)
+    const rows = await sql`
+      SELECT id, kind, to_addr AS "toAddr", subject, body,
+        thread_id AS "threadId", in_reply_to AS "inReplyTo", status, version
+      FROM hire_drafts WHERE id = ${draftRead[1]} AND user_id = ${user.id}
+      ORDER BY created_at DESC LIMIT 1
+    `
+    const row = rows[0] as { id: string; kind: string; toAddr: string; subject: string; body: string; threadId?: string; inReplyTo?: string; status: string; version: number } | undefined
+    if (!row) return json({ ok: false, status: 'not_found' })
+    if (row.status !== 'pending') return json({ ok: false, status: row.status, version: row.version })
+    return json({ ok: true, draft: row })
+  }
+
+  /* Waiting-on state: durable per-thread reply state, optionally re-verified
+   * against the live thread before it is stated. */
+  if (path === '/api/internal/mail/state' && req.method === 'GET') {
+    if (!options.internalOk(req)) return json({ error: 'Unauthorized' }, 401)
+    const user = await getUserByPhone(sql, url.searchParams.get('phone') || '')
+    if (!user) return json({ error: 'User not found' }, 404)
+    const persona = url.searchParams.get('persona') || ''
+    const kindParam = url.searchParams.get('kind') || 'all'
+    const kind = kindParam === 'waiting_on_them' || kindParam === 'waiting_on_me' ? kindParam : 'all'
+    const rows = await listThreadState(sql, user.id, persona, kind)
+    const refreshThreadId = url.searchParams.get('refreshThreadId') || ''
+    let refresh: Awaited<ReturnType<typeof refreshThreadState>> | null = null
+    if (refreshThreadId) {
+      const match = rows.find((r) => r.threadId === refreshThreadId)
+      refresh = await refreshThreadState(sql, user.id, persona, user.email, refreshThreadId, match?.participant || '')
+    }
+    return json({ ok: true, kind, rows, refresh })
   }
 
   return null
+}
+
+function computeForwardOperationId(userId: string, messageId: string, to: string): string {
+  return `fwd-${userId.slice(0, 8)}-${messageId.slice(0, 16)}-${to.replace(/[^a-z0-9]/gi, '').slice(0, 12)}`
 }

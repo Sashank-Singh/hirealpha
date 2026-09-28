@@ -1,0 +1,94 @@
+{
+  "id": "sc2_two_sams",
+  "cat": "C6",
+  "title": "Duplicate ambiguous contact",
+  "agent": "friend",
+  "turns": [
+    {
+      "text": "Send the deck to Sam.",
+      "bubbles": [
+        "Found it: Series A Deck v4.pdf in Drive.\n\nOne check before I send, you've got two Sams saved: Sam Cohen (acme.com) and Sam Iyer (northwind.com). Which one? And do you want it as an attachment or a Drive link?"
+      ],
+      "reply": "Found it: Series A Deck v4.pdf in Drive.\n\nOne check before I send, you've got two Sams saved: Sam Cohen (acme.com) and Sam Iyer (northwind.com). Which one? And do you want it as an attachment or a Drive link?",
+      "source": "gmi",
+      "card": null,
+      "calls": [
+        {
+          "method": "GET",
+          "path": "/api/internal/live?phone=%2B15552100001&persona=friend&q=Send%20the%20deck%20to%20Sam.",
+          "body": {}
+        },
+        {
+          "method": "GET",
+          "path": "/api/internal/anchors?phone=%2B15552100001&persona=friend",
+          "body": {}
+        },
+        {
+          "method": "GET",
+          "path": "/api/internal/browser/awaiting?phone=%2B15552100001",
+          "body": {}
+        },
+        {
+          "method": "GET",
+          "path": "/api/internal/network?phone=%2B15552100001",
+          "body": {}
+        },
+        {
+          "method": "POST",
+          "path": "/api/internal/touch",
+          "body": {
+            "phone": "+15552100001",
+            "persona": "friend"
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/internal/live/tools",
+          "body": {
+            "phone": "+15552100001",
+            "persona": "friend",
+            "message": "deck",
+            "want": "drive"
+          }
+        }
+      ],
+      "llmCallsInTurn": 4,
+      "thread": {
+        "facts": [],
+        "summary": "",
+        "historyCount": 2
+      }
+    }
+  ],
+  "created": {
+    "drafts": [],
+    "reminders": [],
+    "scheduledTexts": [],
+    "commitments": [],
+    "memoryWrites": [],
+    "memoryDeletes": [],
+    "spendDecisions": [],
+    "browserTasks": [],
+    "followups": [],
+    "calendarMutations": [],
+    "fileSends": [],
+    "workWrites": [],
+    "taskChoices": [],
+    "watches": [],
+    "todos": [],
+    "loops": [],
+    "otherWrites": [
+      {
+        "path": "/api/internal/anchors"
+      }
+    ]
+  },
+  "finalMemories": [
+    {
+      "key": "preferred_name",
+      "value": "Alex"
+    }
+  ],
+  "llmCalls": 4,
+  "wallMs": 17065
+}

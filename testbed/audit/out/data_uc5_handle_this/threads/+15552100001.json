@@ -1,0 +1,16 @@
+{
+  "facts": [],
+  "summary": "",
+  "history": [
+    {
+      "role": "user",
+      "content": "ugh the dentist moved me to next Tuesday 9am. handle it",
+      "ts": 1790534044588
+    },
+    {
+      "role": "assistant",
+      "content": "Ugh, 9am Tuesday is a rough trade. I can't reach your calendar from here to move it myself, so make sure the new slot is actually locked with their front desk (sometimes they \"move\" you and it's just a maybe).\n\nWant me to draft a quick confirmation text to them, or set anything up around it, like a reminder the night before?",
+      "ts": 1790534044588
+    }
+  ]
+}

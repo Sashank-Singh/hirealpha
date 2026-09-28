@@ -1,0 +1,96 @@
+{
+  "id": "td2_api",
+  "cat": "C4",
+  "title": "Unknown API task",
+  "agent": "friend",
+  "turns": [
+    {
+      "text": "Pull my last 10 invoices from https://api.acme.dev/v1/invoices and put them in a doc.",
+      "bubbles": [
+        "On it, the run is launching on api.acme.dev now to pull your last 10 invoices. It'll pause before any password or payment step, and I'll bring the numbers back here. Once I have them, I'll drop everything into a doc for you.\n\nLaunching Cloud Computer for this task: https://audit.internal/computer/job_1 — the session is active now, pauses automatically before any sensitive steps, and I'll report back here with the verified results."
+      ],
+      "reply": "On it, the run is launching on api.acme.dev now to pull your last 10 invoices. It'll pause before any password or payment step, and I'll bring the numbers back here. Once I have them, I'll drop everything into a doc for you.\n\nLaunching Cloud Computer for this task: https://audit.internal/computer/job_1 — the session is active now, pauses automatically before any sensitive steps, and I'll report back here with the verified results.",
+      "source": "gmi",
+      "card": null,
+      "calls": [
+        {
+          "method": "GET",
+          "path": "/api/internal/live?phone=%2B15552100001&persona=friend&q=Pull%20my%20last%2010%20invoices%20from%20https%3A%2F%2Fapi.acme.dev%2Fv1%2Finvoices%20and%20put%20them%20in%20a%20doc.",
+          "body": {}
+        },
+        {
+          "method": "GET",
+          "path": "/api/internal/browser/awaiting?phone=%2B15552100001",
+          "body": {}
+        },
+        {
+          "method": "GET",
+          "path": "/api/internal/network?phone=%2B15552100001",
+          "body": {}
+        },
+        {
+          "method": "POST",
+          "path": "/api/internal/touch",
+          "body": {
+            "phone": "+15552100001",
+            "persona": "friend"
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/internal/propose",
+          "body": {
+            "phone": "+15552100001",
+            "persona": "friend",
+            "kind": "browser",
+            "url": "https://api.acme.dev/v1/invoices",
+            "body": "pull the last 10 invoices with their numbers, dates, amounts, and status",
+            "autoApprove": true
+          }
+        }
+      ],
+      "llmCallsInTurn": 3,
+      "thread": {
+        "facts": [],
+        "summary": "",
+        "historyCount": 2
+      }
+    }
+  ],
+  "created": {
+    "drafts": [],
+    "reminders": [],
+    "scheduledTexts": [],
+    "commitments": [],
+    "memoryWrites": [],
+    "memoryDeletes": [],
+    "spendDecisions": [],
+    "browserTasks": [
+      {
+        "phone": "+15552100001",
+        "persona": "friend",
+        "kind": "browser",
+        "url": "https://api.acme.dev/v1/invoices",
+        "body": "pull the last 10 invoices with their numbers, dates, amounts, and status",
+        "autoApprove": true
+      }
+    ],
+    "followups": [],
+    "calendarMutations": [],
+    "fileSends": [],
+    "workWrites": [],
+    "taskChoices": [],
+    "watches": [],
+    "todos": [],
+    "loops": [],
+    "otherWrites": []
+  },
+  "finalMemories": [
+    {
+      "key": "preferred_name",
+      "value": "Alex"
+    }
+  ],
+  "llmCalls": 3,
+  "wallMs": 18943
+}

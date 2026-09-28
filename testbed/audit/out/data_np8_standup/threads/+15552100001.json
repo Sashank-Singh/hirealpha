@@ -1,0 +1,17 @@
+{
+  "lastCardDeliveredAt": 1790534913523,
+  "facts": [],
+  "summary": "",
+  "history": [
+    {
+      "role": "user",
+      "content": "Set up a 15-min standup every weekday at 9:15am for me and Jules (he is in Berlin).",
+      "ts": 1790534913523
+    },
+    {
+      "role": "assistant",
+      "content": "Draft's ready for review, 15 minutes, weekdays at 9:15am your time, which is 3:15pm for Jules in Berlin. Tap Book on the card and it's on your calendar.\n\nOne note: the draft covers the series as a repeating weekday hold, and I can send Jules an invite at jules@weber.de once you've booked it, want me to?",
+      "ts": 1790534913523
+    }
+  ]
+}

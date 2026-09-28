@@ -1,0 +1,85 @@
+{
+  "id": "g6_renewals",
+  "cat": "C1",
+  "title": "Renew everything expiring next month",
+  "agent": "friend",
+  "turns": [
+    {
+      "text": "I need to renew everything that expires next month. Get it organized.",
+      "bubbles": [
+        "I could not verify current information because the web lookup did not run. Please try again."
+      ],
+      "reply": "I could not verify current information because the web lookup did not run. Please try again.",
+      "source": "gmi",
+      "card": null,
+      "calls": [
+        {
+          "method": "GET",
+          "path": "/api/internal/live?phone=%2B15552100001&persona=friend&q=I%20need%20to%20renew%20everything%20that%20expires%20next%20month.%20Get%20it%20organized.",
+          "body": {}
+        },
+        {
+          "method": "GET",
+          "path": "/api/internal/browser/awaiting?phone=%2B15552100001",
+          "body": {}
+        },
+        {
+          "method": "GET",
+          "path": "/api/internal/network?phone=%2B15552100001",
+          "body": {}
+        },
+        {
+          "method": "POST",
+          "path": "/api/internal/touch",
+          "body": {
+            "phone": "+15552100001",
+            "persona": "friend"
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/internal/live/tools",
+          "body": {
+            "phone": "+15552100001",
+            "persona": "friend",
+            "message": "subject:(renewal OR expiring OR expires OR renewal notice) newer_than:60d",
+            "want": "gmail"
+          }
+        }
+      ],
+      "llmCallsInTurn": 5,
+      "thread": {
+        "facts": [],
+        "summary": "",
+        "historyCount": 2
+      }
+    }
+  ],
+  "created": {
+    "drafts": [],
+    "reminders": [],
+    "scheduledTexts": [],
+    "commitments": [],
+    "memoryWrites": [],
+    "memoryDeletes": [],
+    "spendDecisions": [],
+    "browserTasks": [],
+    "followups": [],
+    "calendarMutations": [],
+    "fileSends": [],
+    "workWrites": [],
+    "taskChoices": [],
+    "watches": [],
+    "todos": [],
+    "loops": [],
+    "otherWrites": []
+  },
+  "finalMemories": [
+    {
+      "key": "preferred_name",
+      "value": "Alex"
+    }
+  ],
+  "llmCalls": 5,
+  "wallMs": 40982
+}

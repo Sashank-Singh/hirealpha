@@ -1,0 +1,16 @@
+{
+  "facts": [],
+  "summary": "",
+  "history": [
+    {
+      "role": "user",
+      "content": "Draft a note telling our landlord the heater is broken again. Firm but friendly.",
+      "ts": 1790534828505
+    },
+    {
+      "role": "assistant",
+      "content": "Here's a draft:\n\n\"Hi [Landlord's name],\n\nHope you're doing well. I want to flag that the heater has stopped working again, this is a repeat issue, and with the weather cooling off it's becoming a real problem.\n\nCould you get someone out to fix it this week? If it helps, I'm flexible on timing as long as it's soon. Please confirm when a repair is scheduled.\n\nThanks,\n\nAlex\"\n\nWant me to send it as an email? I don't have your landlord's address on file, drop it here and I'll stage it for your approval.",
+      "ts": 1790534828505
+    }
+  ]
+}

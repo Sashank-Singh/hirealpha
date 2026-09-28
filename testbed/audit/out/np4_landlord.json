@@ -1,0 +1,75 @@
+{
+  "id": "np4_landlord",
+  "cat": "C16",
+  "title": "Draft a note telling our landlord the heater is broken again",
+  "agent": "friend",
+  "turns": [
+    {
+      "text": "Draft a note telling our landlord the heater is broken again. Firm but friendly.",
+      "bubbles": [
+        "Here's a draft:\n\n\"Hi [Landlord's name],\n\nHope you're doing well. I want to flag that the heater has stopped working again, this is a repeat issue, and with the weather cooling off it's becoming a real problem.\n\nCould you get someone out to fix it this week? If it helps, I'm flexible on timing as long as it's soon. Please confirm when a repair is scheduled.\n\nThanks,\n\nAlex\"\n\nWant me to send it as an email? I don't have your landlord's address on file, drop it here and I'll stage it for your approval."
+      ],
+      "reply": "Here's a draft:\n\n\"Hi [Landlord's name],\n\nHope you're doing well. I want to flag that the heater has stopped working again, this is a repeat issue, and with the weather cooling off it's becoming a real problem.\n\nCould you get someone out to fix it this week? If it helps, I'm flexible on timing as long as it's soon. Please confirm when a repair is scheduled.\n\nThanks,\n\nAlex\"\n\nWant me to send it as an email? I don't have your landlord's address on file, drop it here and I'll stage it for your approval.",
+      "source": "gmi",
+      "card": null,
+      "calls": [
+        {
+          "method": "GET",
+          "path": "/api/internal/live?phone=%2B15552100001&persona=friend&q=Draft%20a%20note%20telling%20our%20landlord%20the%20heater%20is%20broken%20again.%20Firm%20but%20friendly.",
+          "body": {}
+        },
+        {
+          "method": "GET",
+          "path": "/api/internal/browser/awaiting?phone=%2B15552100001",
+          "body": {}
+        },
+        {
+          "method": "GET",
+          "path": "/api/internal/network?phone=%2B15552100001",
+          "body": {}
+        },
+        {
+          "method": "POST",
+          "path": "/api/internal/touch",
+          "body": {
+            "phone": "+15552100001",
+            "persona": "friend"
+          }
+        }
+      ],
+      "llmCallsInTurn": 2,
+      "thread": {
+        "facts": [],
+        "summary": "",
+        "historyCount": 2
+      }
+    }
+  ],
+  "created": {
+    "drafts": [],
+    "reminders": [],
+    "scheduledTexts": [],
+    "commitments": [],
+    "memoryWrites": [],
+    "memoryDeletes": [],
+    "spendDecisions": [],
+    "browserTasks": [],
+    "followups": [],
+    "calendarMutations": [],
+    "fileSends": [],
+    "workWrites": [],
+    "taskChoices": [],
+    "watches": [],
+    "todos": [],
+    "loops": [],
+    "otherWrites": []
+  },
+  "finalMemories": [
+    {
+      "key": "preferred_name",
+      "value": "Alex"
+    }
+  ],
+  "llmCalls": 2,
+  "wallMs": 14164
+}

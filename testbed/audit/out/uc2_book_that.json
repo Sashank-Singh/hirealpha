@@ -1,0 +1,80 @@
+{
+  "id": "uc2_book_that",
+  "cat": "C8",
+  "title": "\"book that\" with no antecedent",
+  "agent": "friend",
+  "turns": [
+    {
+      "text": "book that",
+      "bubbles": [
+        "I can't send that object honestly, no site was named and there's no booking target in this thread. Tell me what to book and where, and I'll run it for real."
+      ],
+      "reply": "I can't send that object honestly, no site was named and there's no booking target in this thread. Tell me what to book and where, and I'll run it for real.",
+      "source": "gmi",
+      "card": null,
+      "calls": [
+        {
+          "method": "GET",
+          "path": "/api/internal/live?phone=%2B15552100001&persona=friend&q=book%20that",
+          "body": {}
+        },
+        {
+          "method": "GET",
+          "path": "/api/internal/browser/awaiting?phone=%2B15552100001",
+          "body": {}
+        },
+        {
+          "method": "GET",
+          "path": "/api/internal/network?phone=%2B15552100001",
+          "body": {}
+        },
+        {
+          "method": "POST",
+          "path": "/api/internal/touch",
+          "body": {
+            "phone": "+15552100001",
+            "persona": "friend"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/search",
+          "body": {}
+        }
+      ],
+      "llmCallsInTurn": 4,
+      "thread": {
+        "facts": [],
+        "summary": "",
+        "historyCount": 2
+      }
+    }
+  ],
+  "created": {
+    "drafts": [],
+    "reminders": [],
+    "scheduledTexts": [],
+    "commitments": [],
+    "memoryWrites": [],
+    "memoryDeletes": [],
+    "spendDecisions": [],
+    "browserTasks": [],
+    "followups": [],
+    "calendarMutations": [],
+    "fileSends": [],
+    "workWrites": [],
+    "taskChoices": [],
+    "watches": [],
+    "todos": [],
+    "loops": [],
+    "otherWrites": []
+  },
+  "finalMemories": [
+    {
+      "key": "preferred_name",
+      "value": "Alex"
+    }
+  ],
+  "llmCalls": 4,
+  "wallMs": 29836
+}

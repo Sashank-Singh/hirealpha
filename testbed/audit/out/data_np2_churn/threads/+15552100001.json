@@ -1,0 +1,16 @@
+{
+  "facts": [],
+  "summary": "",
+  "history": [
+    {
+      "role": "user",
+      "content": "Three customers churned this month — help me figure out why and what to do about it.",
+      "ts": 1790534782312
+    },
+    {
+      "role": "assistant",
+      "content": "That search came back empty, nothing useful in the results, so I won't pretend I found a framework. And honestly, generic churn articles are less useful than your actual data anyway.\n\nThe fastest path: give me the names of the three customers who left, and I'll pull your recent email threads with each from Gmail. The story is usually in the last 30 60 days of contact, did they go quiet, complain about something specific, push back on pricing, or just never onboard properly?\n\nOnce I see the threads, we can sort the three into buckets (product gap, price, support, bad fit) and I'll help you draft a save or win back play for whichever ones are actually winnable.\n\nhttps://audit-none.example/search",
+      "ts": 1790534782312
+    }
+  ]
+}

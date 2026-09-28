@@ -1,0 +1,75 @@
+{
+  "id": "xd2_afford_trip",
+  "cat": "C12",
+  "title": "Can I afford this trip",
+  "agent": "friend",
+  "turns": [
+    {
+      "text": "Can I afford a $900 trip to Austin next weekend?",
+      "bubbles": [
+        "Honestly, I don't have visibility into your accounts or budget, so I can't give you a real yes or no. What I can say: $900 for a weekend trip is very doable if flights are booked early in the week.\n\nIf you tell me roughly what you've got set aside for travel this month, I'll sanity check it with you. Or if you want, I can hunt down actual flight and hotel numbers for next weekend so we're working with real math instead of vibes."
+      ],
+      "reply": "Honestly, I don't have visibility into your accounts or budget, so I can't give you a real yes or no. What I can say: $900 for a weekend trip is very doable if flights are booked early in the week.\n\nIf you tell me roughly what you've got set aside for travel this month, I'll sanity check it with you. Or if you want, I can hunt down actual flight and hotel numbers for next weekend so we're working with real math instead of vibes.",
+      "source": "gmi",
+      "card": null,
+      "calls": [
+        {
+          "method": "GET",
+          "path": "/api/internal/live?phone=%2B15552100001&persona=friend&q=Can%20I%20afford%20a%20%24900%20trip%20to%20Austin%20next%20weekend%3F",
+          "body": {}
+        },
+        {
+          "method": "GET",
+          "path": "/api/internal/browser/awaiting?phone=%2B15552100001",
+          "body": {}
+        },
+        {
+          "method": "GET",
+          "path": "/api/internal/network?phone=%2B15552100001",
+          "body": {}
+        },
+        {
+          "method": "POST",
+          "path": "/api/internal/touch",
+          "body": {
+            "phone": "+15552100001",
+            "persona": "friend"
+          }
+        }
+      ],
+      "llmCallsInTurn": 2,
+      "thread": {
+        "facts": [],
+        "summary": "",
+        "historyCount": 2
+      }
+    }
+  ],
+  "created": {
+    "drafts": [],
+    "reminders": [],
+    "scheduledTexts": [],
+    "commitments": [],
+    "memoryWrites": [],
+    "memoryDeletes": [],
+    "spendDecisions": [],
+    "browserTasks": [],
+    "followups": [],
+    "calendarMutations": [],
+    "fileSends": [],
+    "workWrites": [],
+    "taskChoices": [],
+    "watches": [],
+    "todos": [],
+    "loops": [],
+    "otherWrites": []
+  },
+  "finalMemories": [
+    {
+      "key": "preferred_name",
+      "value": "Alex"
+    }
+  ],
+  "llmCalls": 2,
+  "wallMs": 15313
+}

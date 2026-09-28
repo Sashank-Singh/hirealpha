@@ -1,0 +1,186 @@
+{
+  "id": "vf1_purchase_ok",
+  "cat": "C7",
+  "title": "Purchase approved and verified",
+  "agent": "friend",
+  "turns": [
+    {
+      "text": "Order the standard whey protein from Amazon — $42.",
+      "bubbles": [
+        "Found it: Optimum Nutrition Standard Whey, $42.00, in stock on Amazon. Nothing's charged yet, tap Pay on the card to approve it, and I'll need your delivery address if one isn't saved (you can text it here or save it at https://hirealpha.chat/app?tab=settings).\n\nLaunching Cloud Computer to stage your order: https://audit.internal/computer/job_1 — navigating to the merchant, selecting your options, and proceeding through checkout with your saved shipping address. I'll bring the verified approval card right here as soon as checkout is ready."
+      ],
+      "reply": "Found it: Optimum Nutrition Standard Whey, $42.00, in stock on Amazon. Nothing's charged yet, tap Pay on the card to approve it, and I'll need your delivery address if one isn't saved (you can text it here or save it at https://hirealpha.chat/app?tab=settings).\n\nLaunching Cloud Computer to stage your order: https://audit.internal/computer/job_1 — navigating to the merchant, selecting your options, and proceeding through checkout with your saved shipping address. I'll bring the verified approval card right here as soon as checkout is ready.",
+      "source": "gmi",
+      "card": "https://audit.internal/card/x?id=req_1&item=Optimum+Nutrition+Standard+Whey&amount=42.00&merchant=amazon.com&url=https%3A%2F%2Fwww.amazon.com%2Fdp%2FB000QSNYGI",
+      "calls": [
+        {
+          "method": "GET",
+          "path": "/api/internal/live?phone=%2B15552100001&persona=friend&q=Order%20the%20standard%20whey%20protein%20from%20Amazon%20%E2%80%94%20%2442.",
+          "body": {}
+        },
+        {
+          "method": "GET",
+          "path": "/api/internal/browser/awaiting?phone=%2B15552100001",
+          "body": {}
+        },
+        {
+          "method": "GET",
+          "path": "/api/internal/network?phone=%2B15552100001",
+          "body": {}
+        },
+        {
+          "method": "POST",
+          "path": "/api/internal/touch",
+          "body": {
+            "phone": "+15552100001",
+            "persona": "friend"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/page",
+          "body": {}
+        },
+        {
+          "method": "POST",
+          "path": "/api/internal/propose",
+          "body": {
+            "phone": "+15552100001",
+            "persona": "friend",
+            "kind": "purchase",
+            "title": "Optimum Nutrition Standard Whey",
+            "amount": 42,
+            "url": "https://www.amazon.com/dp/B000QSNYGI"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/api/internal/mini/token?phone=%2B15552100001&persona=friend&kind=approve_purchase",
+          "body": {}
+        },
+        {
+          "method": "POST",
+          "path": "/api/internal/propose",
+          "body": {
+            "phone": "+15552100001",
+            "persona": "friend",
+            "kind": "browser",
+            "url": "https://www.amazon.com",
+            "body": "Order the standard whey protein from Amazon — $42.",
+            "autoApprove": true
+          }
+        }
+      ],
+      "llmCallsInTurn": 4,
+      "thread": {
+        "facts": [],
+        "summary": "",
+        "historyCount": 2,
+        "pendingSpend": {
+          "id": "req_1",
+          "item": "Optimum Nutrition Standard Whey",
+          "amount": 42,
+          "url": "https://www.amazon.com/dp/B000QSNYGI",
+          "createdAt": 1790533823331
+        }
+      }
+    },
+    {
+      "text": "approve",
+      "bubbles": [
+        "Payment received: $42.00 for Optimum Nutrition Standard Whey. Merchant checkout is not yet confirmed; the order needs its own receipt."
+      ],
+      "reply": "Payment received: $42.00 for Optimum Nutrition Standard Whey. Merchant checkout is not yet confirmed; the order needs its own receipt.",
+      "source": "local",
+      "card": null,
+      "calls": [
+        {
+          "method": "GET",
+          "path": "/api/internal/live?phone=%2B15552100001&persona=friend&q=approve",
+          "body": {}
+        },
+        {
+          "method": "GET",
+          "path": "/api/internal/browser/awaiting?phone=%2B15552100001",
+          "body": {}
+        },
+        {
+          "method": "POST",
+          "path": "/api/internal/spend/decide",
+          "body": {
+            "phone": "+15552100001",
+            "requestId": "req_1",
+            "decision": "approve",
+            "terms": {
+              "amountCents": 4200,
+              "purpose": "Optimum Nutrition Standard Whey",
+              "url": "https://www.amazon.com/dp/B000QSNYGI"
+            }
+          }
+        }
+      ],
+      "llmCallsInTurn": 0,
+      "thread": {
+        "facts": [],
+        "summary": "",
+        "historyCount": 4
+      }
+    }
+  ],
+  "created": {
+    "drafts": [
+      {
+        "kind": "purchase",
+        "phone": "+15552100001",
+        "persona": "friend",
+        "title": "Optimum Nutrition Standard Whey",
+        "amount": 42,
+        "url": "https://www.amazon.com/dp/B000QSNYGI"
+      }
+    ],
+    "reminders": [],
+    "scheduledTexts": [],
+    "commitments": [],
+    "memoryWrites": [],
+    "memoryDeletes": [],
+    "spendDecisions": [
+      {
+        "phone": "+15552100001",
+        "requestId": "req_1",
+        "decision": "approve",
+        "terms": {
+          "amountCents": 4200,
+          "purpose": "Optimum Nutrition Standard Whey",
+          "url": "https://www.amazon.com/dp/B000QSNYGI"
+        }
+      }
+    ],
+    "browserTasks": [
+      {
+        "phone": "+15552100001",
+        "persona": "friend",
+        "kind": "browser",
+        "url": "https://www.amazon.com",
+        "body": "Order the standard whey protein from Amazon — $42.",
+        "autoApprove": true
+      }
+    ],
+    "followups": [],
+    "calendarMutations": [],
+    "fileSends": [],
+    "workWrites": [],
+    "taskChoices": [],
+    "watches": [],
+    "todos": [],
+    "loops": [],
+    "otherWrites": []
+  },
+  "finalMemories": [
+    {
+      "key": "preferred_name",
+      "value": "Alex"
+    }
+  ],
+  "llmCalls": 4,
+  "wallMs": 18730
+}

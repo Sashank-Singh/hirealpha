@@ -1,0 +1,115 @@
+{
+  "id": "cr1_cheap_vs_pref",
+  "cat": "C11",
+  "title": "Cheapest vs preferred airline",
+  "agent": "friend",
+  "turns": [
+    {
+      "text": "Book me a flight to Denver Thursday. Cheapest is fine — you decide.",
+      "bubbles": [
+        "The Delta run is live for Thursday, Oct 1 to Denver, it'll pause before payment, so nothing gets charged without your sign off. I'll text you the flight options and exact totals as soon as it finishes.\n\nLaunching Cloud Computer for this task: https://audit.internal/computer/job_1 — the session is active now, pauses automatically before any sensitive steps, and I'll report back here with the verified results."
+      ],
+      "reply": "The Delta run is live for Thursday, Oct 1 to Denver, it'll pause before payment, so nothing gets charged without your sign off. I'll text you the flight options and exact totals as soon as it finishes.\n\nLaunching Cloud Computer for this task: https://audit.internal/computer/job_1 — the session is active now, pauses automatically before any sensitive steps, and I'll report back here with the verified results.",
+      "source": "gmi",
+      "card": null,
+      "calls": [
+        {
+          "method": "GET",
+          "path": "/api/internal/live?phone=%2B15552100001&persona=friend&q=Book%20me%20a%20flight%20to%20Denver%20Thursday.%20Cheapest%20is%20fine%20%E2%80%94%20you%20decide.",
+          "body": {}
+        },
+        {
+          "method": "GET",
+          "path": "/api/internal/browser/awaiting?phone=%2B15552100001",
+          "body": {}
+        },
+        {
+          "method": "GET",
+          "path": "/api/internal/network?phone=%2B15552100001",
+          "body": {}
+        },
+        {
+          "method": "POST",
+          "path": "/api/internal/touch",
+          "body": {
+            "phone": "+15552100001",
+            "persona": "friend"
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/internal/live/tools",
+          "body": {
+            "phone": "+15552100001",
+            "persona": "friend",
+            "message": "Book me a flight to Denver Thursday. Cheapest is fine — you decide.",
+            "want": "web",
+            "travel": {
+              "kind": "flight",
+              "to": "DEN",
+              "checkin": "2026-10-01"
+            }
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/internal/propose",
+          "body": {
+            "phone": "+15552100001",
+            "persona": "friend",
+            "kind": "browser",
+            "url": "https://www.delta.com",
+            "body": "Search and stage the cheapest Delta flight to Denver on Thursday, October 1, 2026, pausing before payment for user approval",
+            "autoApprove": true
+          }
+        }
+      ],
+      "llmCallsInTurn": 5,
+      "thread": {
+        "facts": [],
+        "summary": "",
+        "historyCount": 2
+      }
+    }
+  ],
+  "created": {
+    "drafts": [],
+    "reminders": [],
+    "scheduledTexts": [],
+    "commitments": [],
+    "memoryWrites": [],
+    "memoryDeletes": [],
+    "spendDecisions": [],
+    "browserTasks": [
+      {
+        "phone": "+15552100001",
+        "persona": "friend",
+        "kind": "browser",
+        "url": "https://www.delta.com",
+        "body": "Search and stage the cheapest Delta flight to Denver on Thursday, October 1, 2026, pausing before payment for user approval",
+        "autoApprove": true
+      }
+    ],
+    "followups": [],
+    "calendarMutations": [],
+    "fileSends": [],
+    "workWrites": [],
+    "taskChoices": [],
+    "watches": [],
+    "todos": [],
+    "loops": [],
+    "otherWrites": []
+  },
+  "finalMemories": [
+    {
+      "key": "preferred_name",
+      "value": "Alex"
+    },
+    {
+      "key": "flight_preference",
+      "value": "Delta"
+    }
+  ],
+  "llmCalls": 5,
+  "wallMs": 38117
+}

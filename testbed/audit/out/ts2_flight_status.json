@@ -1,0 +1,75 @@
+{
+  "id": "ts2_flight_status",
+  "cat": "C3",
+  "title": "Is my flight on time",
+  "agent": "friend",
+  "turns": [
+    {
+      "text": "Is my flight to Denver still on time Thursday?",
+      "bubbles": [
+        "I don't have a flight on file for you, so I can't check it directly. If you send me the airline and flight number (or the confirmation code), I can look up the current status. Just a heads up that Thursday is a few days out, so status might not be fully live until closer to departure."
+      ],
+      "reply": "I don't have a flight on file for you, so I can't check it directly. If you send me the airline and flight number (or the confirmation code), I can look up the current status. Just a heads up that Thursday is a few days out, so status might not be fully live until closer to departure.",
+      "source": "gmi",
+      "card": null,
+      "calls": [
+        {
+          "method": "GET",
+          "path": "/api/internal/live?phone=%2B15552100001&persona=friend&q=Is%20my%20flight%20to%20Denver%20still%20on%20time%20Thursday%3F",
+          "body": {}
+        },
+        {
+          "method": "GET",
+          "path": "/api/internal/browser/awaiting?phone=%2B15552100001",
+          "body": {}
+        },
+        {
+          "method": "GET",
+          "path": "/api/internal/network?phone=%2B15552100001",
+          "body": {}
+        },
+        {
+          "method": "POST",
+          "path": "/api/internal/touch",
+          "body": {
+            "phone": "+15552100001",
+            "persona": "friend"
+          }
+        }
+      ],
+      "llmCallsInTurn": 2,
+      "thread": {
+        "facts": [],
+        "summary": "",
+        "historyCount": 2
+      }
+    }
+  ],
+  "created": {
+    "drafts": [],
+    "reminders": [],
+    "scheduledTexts": [],
+    "commitments": [],
+    "memoryWrites": [],
+    "memoryDeletes": [],
+    "spendDecisions": [],
+    "browserTasks": [],
+    "followups": [],
+    "calendarMutations": [],
+    "fileSends": [],
+    "workWrites": [],
+    "taskChoices": [],
+    "watches": [],
+    "todos": [],
+    "loops": [],
+    "otherWrites": []
+  },
+  "finalMemories": [
+    {
+      "key": "preferred_name",
+      "value": "Alex"
+    }
+  ],
+  "llmCalls": 2,
+  "wallMs": 13043
+}

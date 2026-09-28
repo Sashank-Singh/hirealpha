@@ -1,0 +1,16 @@
+{
+  "facts": [],
+  "summary": "",
+  "history": [
+    {
+      "role": "user",
+      "content": "Find my 2025 tax documents and put them all in one place.",
+      "ts": 1790536102159
+    },
+    {
+      "role": "assistant",
+      "content": "I’m checking your email for this.\n\nI could not verify current information because the web lookup did not run. Please try again.",
+      "ts": 1790536102159
+    }
+  ]
+}

@@ -56,6 +56,22 @@ import { validateProductionBrowserWorker } from './certification/envContract'
  * reasons open one. Deduped like every other loop: an open loop with the same
  * title is not created twice.
  */
+/** Contextual teach, shown once per account (nudge-log deduped). Returns the
+ * line to append, or '' when this user has already been taught. */
+async function teachOnce(sql: SQL, userId: string, persona: string | null, kind: string, line: string): Promise<string> {
+  try {
+    const inserted = await sql`
+      INSERT INTO hire_nudge_log (id, user_id, persona, nudge_key)
+      VALUES (${crypto.randomUUID()}, ${userId}, ${persona || 'friend'}, ${`teach:${kind}`})
+      ON CONFLICT (user_id, nudge_key) DO NOTHING
+      RETURNING id
+    `
+    return inserted.length ? line : ''
+  } catch {
+    return ''
+  }
+}
+
 async function openUserFixableLoop(
   sql: SQL,
   job: { user_id: string; persona: string | null; goal: string | null },
@@ -682,7 +698,7 @@ export async function runJob(sql: SQL, job: JobRow, launch = runBrowserSession):
           ? `Checkout is staged at a verified total of $${((amountCents || 0) / 100).toFixed(2)}. Approve the one-time payment in Link: ${payment.paymentUrl} — watch the live checkout here: ${sessionUrl}`
           : handoffKind === 'password'
             ? (hasCompleteCredentials
-                ? `Alpha paused at the sign-in screen on ${origin ? new URL(origin).hostname.replace(/^www\./, '') : 'the portal'}. If two-factor or security verification is needed, take over here: ${sessionUrl}`
+                ? `Alpha paused at the sign-in screen on ${origin ? new URL(origin).hostname.replace(/^www\./, '') : 'the portal'}. If two-factor or security verification is needed, take over here: ${sessionUrl}${await teachOnce(sql, job.user_id, job.persona, 'twofa_relay', " Tip: when a 2FA code arrives, just text me the code here and I'll type it in for you.")}`
                 : `This one needs an account on ${origin ? new URL(origin).hostname.replace(/^www\./, '') : 'that site'} before it will go further, and I do not have a login for it. Three ways —\nSave the login in the Vault: ${vaultUrl}\nOr create an account there and save it the same way\nOr take over the live computer and finish the sign-in yourself: ${sessionUrl}`)
             : `Alpha paused and needs you to ${message.replace(/[.!]+$/, '').toLowerCase()}. Open the live computer: ${sessionUrl}`,
         screenshotDataUrl: handoffShot?.dataUrl,

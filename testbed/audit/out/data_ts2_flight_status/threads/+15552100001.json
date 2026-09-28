@@ -1,0 +1,16 @@
+{
+  "facts": [],
+  "summary": "",
+  "history": [
+    {
+      "role": "user",
+      "content": "Is my flight to Denver still on time Thursday?",
+      "ts": 1790533505231
+    },
+    {
+      "role": "assistant",
+      "content": "I don't have a flight on file for you, so I can't check it directly. If you send me the airline and flight number (or the confirmation code), I can look up the current status. Just a heads up that Thursday is a few days out, so status might not be fully live until closer to departure.",
+      "ts": 1790533505231
+    }
+  ]
+}

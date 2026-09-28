@@ -1,0 +1,75 @@
+{
+  "id": "np5_pm_tool",
+  "cat": "C16",
+  "title": "Linear vs Shortcut for a 6-person eng team — pick one and te",
+  "agent": "friend",
+  "turns": [
+    {
+      "text": "Linear vs Shortcut for a 6-person eng team — pick one and tell me why.",
+      "bubbles": [
+        "Linear, and it's not close for a 6 person team.\n\nWhy:\n\nSpeed and polish. Linear is fast in a way Shortcut isn't, and your team will actually enjoy opening it. Tooling friction matters more at small scale, not less.\n\nOpinionated workflows. Cycles, triage, and roadmaps are built in and sensible by default. Shortcut gives you more flexibility, which at 6 people mostly means more time arguing about board configuration.\n\nGitHub integration is first class, issues and PRs stay in sync, and the keyboard driven UX keeps engineers in flow.\n\nPricing is comparable (Linear ~$8 14/user/mo, Shortcut ~$8.50 13.50), so cost isn't the differentiator.\n\nThe case for Shortcut would be if you wanted heavy customization or a more Kanban everything setup. For a small, fast team that wants to ship, Linear is the pick."
+      ],
+      "reply": "Linear, and it's not close for a 6 person team.\n\nWhy:\n\nSpeed and polish. Linear is fast in a way Shortcut isn't, and your team will actually enjoy opening it. Tooling friction matters more at small scale, not less.\n\nOpinionated workflows. Cycles, triage, and roadmaps are built in and sensible by default. Shortcut gives you more flexibility, which at 6 people mostly means more time arguing about board configuration.\n\nGitHub integration is first class, issues and PRs stay in sync, and the keyboard driven UX keeps engineers in flow.\n\nPricing is comparable (Linear ~$8 14/user/mo, Shortcut ~$8.50 13.50), so cost isn't the differentiator.\n\nThe case for Shortcut would be if you wanted heavy customization or a more Kanban everything setup. For a small, fast team that wants to ship, Linear is the pick.",
+      "source": "gmi",
+      "card": null,
+      "calls": [
+        {
+          "method": "GET",
+          "path": "/api/internal/live?phone=%2B15552100001&persona=friend&q=Linear%20vs%20Shortcut%20for%20a%206-person%20eng%20team%20%E2%80%94%20pick%20one%20and%20tell%20me%20why.",
+          "body": {}
+        },
+        {
+          "method": "GET",
+          "path": "/api/internal/browser/awaiting?phone=%2B15552100001",
+          "body": {}
+        },
+        {
+          "method": "GET",
+          "path": "/api/internal/network?phone=%2B15552100001",
+          "body": {}
+        },
+        {
+          "method": "POST",
+          "path": "/api/internal/touch",
+          "body": {
+            "phone": "+15552100001",
+            "persona": "friend"
+          }
+        }
+      ],
+      "llmCallsInTurn": 2,
+      "thread": {
+        "facts": [],
+        "summary": "",
+        "historyCount": 2
+      }
+    }
+  ],
+  "created": {
+    "drafts": [],
+    "reminders": [],
+    "scheduledTexts": [],
+    "commitments": [],
+    "memoryWrites": [],
+    "memoryDeletes": [],
+    "spendDecisions": [],
+    "browserTasks": [],
+    "followups": [],
+    "calendarMutations": [],
+    "fileSends": [],
+    "workWrites": [],
+    "taskChoices": [],
+    "watches": [],
+    "todos": [],
+    "loops": [],
+    "otherWrites": []
+  },
+  "finalMemories": [
+    {
+      "key": "preferred_name",
+      "value": "Alex"
+    }
+  ],
+  "llmCalls": 2,
+  "wallMs": 18817
+}

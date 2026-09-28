@@ -210,9 +210,15 @@ describe('End-to-End Worst-Case Turn Execution', () => {
         senderId: 'test-saved-user',
         userText: 'Saved',
       })
-      expect(step2.reply).toContain('Starting the CampusNet (csuohio.edu) run')
+      // Fail-closed execution backend (commit b01b27b): with no execution
+      // infrastructure configured, the run must NOT start and the reply must
+      // say so plainly. Silently launching a local browser was the
+      // "provider failure becomes success" class this contract exists to
+      // prevent — the honest not-queued reply is the pinned behavior.
+      expect(step2.reply).toContain('did not queue')
+      expect(step2.reply).toContain('execution_backend_unavailable')
+      expect(step2.reply).toContain("Nothing is running yet")
       expect(step2.reply).toContain('How much did I pay in fall 2024 check campusnet')
-      expect(step2.reply).not.toMatch(/head to CampusNet when you get a chance|check your fall 2024 account activity/i)
     } finally {
       rmSync(dataDir, { recursive: true, force: true })
     }

@@ -1,0 +1,140 @@
+{
+  "id": "rp1_slot_taken",
+  "cat": "C5",
+  "title": "Slot disappears mid-flow",
+  "agent": "friend",
+  "turns": [
+    {
+      "text": "Find me 45 minutes with Sam on Tuesday and set it up.",
+      "bubbles": [
+        "I could not verify current information because the web lookup did not run. Please try again."
+      ],
+      "reply": "I could not verify current information because the web lookup did not run. Please try again.",
+      "source": "gmi",
+      "card": null,
+      "calls": [
+        {
+          "method": "GET",
+          "path": "/api/internal/live?phone=%2B15552100001&persona=friend&q=Find%20me%2045%20minutes%20with%20Sam%20on%20Tuesday%20and%20set%20it%20up.",
+          "body": {}
+        },
+        {
+          "method": "GET",
+          "path": "/api/internal/browser/awaiting?phone=%2B15552100001",
+          "body": {}
+        },
+        {
+          "method": "GET",
+          "path": "/api/internal/network?phone=%2B15552100001",
+          "body": {}
+        },
+        {
+          "method": "POST",
+          "path": "/api/internal/touch",
+          "body": {
+            "phone": "+15552100001",
+            "persona": "friend"
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/internal/work/slots",
+          "body": {
+            "phone": "+15552100001",
+            "persona": "friend",
+            "day": "2026-09-29",
+            "durationMin": 45,
+            "windowDays": 3,
+            "limit": 5
+          }
+        }
+      ],
+      "llmCallsInTurn": 4,
+      "thread": {
+        "facts": [],
+        "summary": "",
+        "historyCount": 2
+      }
+    },
+    {
+      "text": "Go with the Tuesday afternoon slot.",
+      "bubbles": [
+        "I could not verify current information because the web lookup did not run. Please try again."
+      ],
+      "reply": "I could not verify current information because the web lookup did not run. Please try again.",
+      "source": "gmi",
+      "card": null,
+      "calls": [
+        {
+          "method": "GET",
+          "path": "/api/internal/live?phone=%2B15552100001&persona=friend&q=Go%20with%20the%20Tuesday%20afternoon%20slot.",
+          "body": {}
+        },
+        {
+          "method": "GET",
+          "path": "/api/internal/browser/awaiting?phone=%2B15552100001",
+          "body": {}
+        },
+        {
+          "method": "GET",
+          "path": "/api/internal/network?phone=%2B15552100001",
+          "body": {}
+        },
+        {
+          "method": "POST",
+          "path": "/api/internal/touch",
+          "body": {
+            "phone": "+15552100001",
+            "persona": "friend"
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/internal/work/slots",
+          "body": {
+            "phone": "+15552100001",
+            "persona": "friend",
+            "day": "2026-09-29",
+            "partOfDay": "afternoon",
+            "durationMin": 45,
+            "windowDays": 3,
+            "limit": 5
+          }
+        }
+      ],
+      "llmCallsInTurn": 6,
+      "thread": {
+        "facts": [],
+        "summary": "",
+        "historyCount": 4
+      }
+    }
+  ],
+  "created": {
+    "drafts": [],
+    "reminders": [],
+    "scheduledTexts": [],
+    "commitments": [],
+    "memoryWrites": [],
+    "memoryDeletes": [],
+    "spendDecisions": [],
+    "browserTasks": [],
+    "followups": [],
+    "calendarMutations": [],
+    "fileSends": [],
+    "workWrites": [],
+    "taskChoices": [],
+    "watches": [],
+    "todos": [],
+    "loops": [],
+    "otherWrites": []
+  },
+  "finalMemories": [
+    {
+      "key": "preferred_name",
+      "value": "Alex"
+    }
+  ],
+  "llmCalls": 10,
+  "wallMs": 67313
+}

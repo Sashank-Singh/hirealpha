@@ -1,0 +1,16 @@
+{
+  "facts": [],
+  "summary": "",
+  "history": [
+    {
+      "role": "user",
+      "content": "Find the Series A deck Sarah sent and get it to our investor list.",
+      "ts": 1790535816813
+    },
+    {
+      "role": "assistant",
+      "content": "Found it: \"Series A Deck v4,\" attached to an email from partner@vcfirm.com (\"Fwd: Series A deck\"). It's a deck file, so I can't read the slides, but I can forward the email with the attachment intact.\n\nOne thing before I send anything: who's on the investor list? I don't have a saved list, so give me the names or emails (Sarah's already expecting the deck, for what it's worth, her \"Re: catch up\" asks for the updated one).\n\nTell me who gets it and I'll queue the forwards for your approval.",
+      "ts": 1790535816813
+    }
+  ]
+}

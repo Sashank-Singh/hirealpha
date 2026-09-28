@@ -1,0 +1,16 @@
+{
+  "facts": [],
+  "summary": "",
+  "history": [
+    {
+      "role": "user",
+      "content": "Help me get my Orion launch project unstuck.",
+      "ts": 1790535785786
+    },
+    {
+      "role": "assistant",
+      "content": "Happy to. What's the sticking point exactly, scope, a person who's gone quiet, timeline slipping, or just decision fatigue on your end?\n\nGive me the two minute version and I'll help you cut it down to the next concrete move.",
+      "ts": 1790535785786
+    }
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "facts": [],
+  "summary": "",
+  "history": [
+    {
+      "role": "user",
+      "content": "Stripe's CEO can only do Tuesday 9:30am this week. Take the meeting?",
+      "ts": 1790534338224
+    },
+    {
+      "role": "assistant",
+      "content": "Tuesday 9:30 is inside your protected 9 to noon block, so I'd pass on that slot.\n\nHe's only free Tuesday, but your calendar shows Tue 1:00, 3:00 PM open, I'd counter with 1:30 PM Tuesday. Want me to send that counter to his office?",
+      "ts": 1790534338224
+    }
+  ]
+}

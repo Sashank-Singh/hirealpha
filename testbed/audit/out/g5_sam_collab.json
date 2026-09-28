@@ -1,0 +1,97 @@
+{
+  "id": "g5_sam_collab",
+  "cat": "C1",
+  "title": "Find time with Sam next week + do not forget",
+  "agent": "friend",
+  "turns": [
+    {
+      "text": "Find a good time for me and Sam to work on this next week and make sure we don't forget.",
+      "bubbles": [
+        "Sam's email this morning says he's eager to find time next week for the collab project, so timing is good.\n\nYour open windows:\n\nMon Sep 28, 10:00, 11:30 AM\n\nTue Sep 29, 1:00, 3:00 PM\n\nThu Oct 1, 11:00 AM, 12:00 PM\n\nFri Oct 2, 4:00, 5:30 PM\n\nWhich one should I propose to Sam? I'll draft the email for your quick approval, and once it's booked I'll set a reminder so it doesn't slip."
+      ],
+      "reply": "Sam's email this morning says he's eager to find time next week for the collab project, so timing is good.\n\nYour open windows:\n\nMon Sep 28, 10:00, 11:30 AM\n\nTue Sep 29, 1:00, 3:00 PM\n\nThu Oct 1, 11:00 AM, 12:00 PM\n\nFri Oct 2, 4:00, 5:30 PM\n\nWhich one should I propose to Sam? I'll draft the email for your quick approval, and once it's booked I'll set a reminder so it doesn't slip.",
+      "source": "gmi",
+      "card": null,
+      "calls": [
+        {
+          "method": "GET",
+          "path": "/api/internal/live?phone=%2B15552100001&persona=friend&q=Find%20a%20good%20time%20for%20me%20and%20Sam%20to%20work%20on%20this%20next%20week%20and%20make%20sure%20we%20don't%20forget.",
+          "body": {}
+        },
+        {
+          "method": "GET",
+          "path": "/api/internal/browser/awaiting?phone=%2B15552100001",
+          "body": {}
+        },
+        {
+          "method": "GET",
+          "path": "/api/internal/network?phone=%2B15552100001",
+          "body": {}
+        },
+        {
+          "method": "POST",
+          "path": "/api/internal/touch",
+          "body": {
+            "phone": "+15552100001",
+            "persona": "friend"
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/internal/live/tools",
+          "body": {
+            "phone": "+15552100001",
+            "persona": "friend",
+            "message": "from:sam.cohen@acme.com newer_than:14d",
+            "want": "gmail"
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/internal/work/slots",
+          "body": {
+            "phone": "+15552100001",
+            "persona": "friend",
+            "day": "2026-09-28",
+            "durationMin": 60,
+            "windowDays": 7,
+            "limit": 5
+          }
+        }
+      ],
+      "llmCallsInTurn": 4,
+      "thread": {
+        "facts": [],
+        "summary": "",
+        "historyCount": 2
+      }
+    }
+  ],
+  "created": {
+    "drafts": [],
+    "reminders": [],
+    "scheduledTexts": [],
+    "commitments": [],
+    "memoryWrites": [],
+    "memoryDeletes": [],
+    "spendDecisions": [],
+    "browserTasks": [],
+    "followups": [],
+    "calendarMutations": [],
+    "fileSends": [],
+    "workWrites": [],
+    "taskChoices": [],
+    "watches": [],
+    "todos": [],
+    "loops": [],
+    "otherWrites": []
+  },
+  "finalMemories": [
+    {
+      "key": "preferred_name",
+      "value": "Alex"
+    }
+  ],
+  "llmCalls": 4,
+  "wallMs": 35745
+}

@@ -1,0 +1,319 @@
+{
+  "id": "sk1_prep_skill",
+  "cat": "C14",
+  "title": "Teach prep-customer-call procedure",
+  "agent": "friend",
+  "turns": [
+    {
+      "text": "When I say 'prep customer call', I want: their latest emails, our last meeting notes, open issues, recent company news, and three questions I should ask. Got it?",
+      "bubbles": [
+        "I could not check your inbox just now. Please try again in a moment."
+      ],
+      "reply": "I could not check your inbox just now. Please try again in a moment.",
+      "source": "gmi",
+      "card": null,
+      "calls": [
+        {
+          "method": "GET",
+          "path": "/api/internal/live?phone=%2B15552100001&persona=friend&q=When%20I%20say%20'prep%20customer%20call'%2C%20I%20want%3A%20their%20latest%20emails%2C%20our%20last%20meeting%20notes%2C%20open%20issues%2C%20",
+          "body": {}
+        },
+        {
+          "method": "GET",
+          "path": "/api/internal/anchors?phone=%2B15552100001&persona=friend",
+          "body": {}
+        },
+        {
+          "method": "GET",
+          "path": "/api/internal/browser/awaiting?phone=%2B15552100001",
+          "body": {}
+        },
+        {
+          "method": "GET",
+          "path": "/api/internal/network?phone=%2B15552100001",
+          "body": {}
+        },
+        {
+          "method": "POST",
+          "path": "/api/internal/touch",
+          "body": {
+            "phone": "+15552100001",
+            "persona": "friend"
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/internal/memory",
+          "body": {
+            "phone": "+15552100001",
+            "persona": "friend",
+            "facts": [
+              {
+                "key": "customer_call_prep_routine",
+                "value": "When Alex says 'prep customer call', deliver: their latest emails, last meeting notes, open issues, recent company news, and three suggested questions to ask."
+              }
+            ]
+          }
+        }
+      ],
+      "llmCallsInTurn": 4,
+      "thread": {
+        "facts": [
+          {
+            "key": "customer_call_prep_routine",
+            "value": "When Alex says 'prep customer call', deliver: their latest emails, last meeting notes, open issues, recent company news, and three suggested questions to ask.",
+            "ts": 1790535968961,
+            "lastSeen": 1790535968961
+          }
+        ],
+        "summary": "",
+        "historyCount": 2
+      }
+    },
+    {
+      "text": "prep customer call with Northwind",
+      "bubbles": [
+        "Here's your Northwind prep:\n\nLatest emails (last 30 days)\n\n1. Their CTO · Pricing follow up, team loved the demo, but worried about per seat pricing at 200 seats.\n\n2. Their CTO · Re: kickoff, integration with their SAP flow is the make or break.\n\nLast meeting notes, nothing in your calendar or mail surfaced notes from a prior Northwind meeting. If you have a doc in Drive, tell me the filename and I'll pull it up.\n\nOpen issues, no tracked issues came back. The two threads above are effectively your open items: pricing at 200 seats, and the SAP integration.\n\nRecent company news\n\nNorthwind Traders announced a $30M Series B and is expanding into EU retail. New CTO started in June, likely the person you're talking to, so worth knowing they're early in the seat.\n\nThree questions to ask\n\n1. \"What does your SAP integration timeline look like, and who owns it on your side?\" (their stated make or break)\n\n2. \"At 200 seats, what budget range were you modeling, and is per seat or tiered pricing easier to get approved internally?\"\n\n3. \"With the EU expansion, do you need the rollout to work across regions from day one?\"\n\nWant me to draft a follow up email to their CTO addressing the pricing concern before the call?\n\nhttps://source0.auditnews.example/page"
+      ],
+      "reply": "Here's your Northwind prep:\n\nLatest emails (last 30 days)\n\n1. Their CTO · Pricing follow up, team loved the demo, but worried about per seat pricing at 200 seats.\n\n2. Their CTO · Re: kickoff, integration with their SAP flow is the make or break.\n\nLast meeting notes, nothing in your calendar or mail surfaced notes from a prior Northwind meeting. If you have a doc in Drive, tell me the filename and I'll pull it up.\n\nOpen issues, no tracked issues came back. The two threads above are effectively your open items: pricing at 200 seats, and the SAP integration.\n\nRecent company news\n\nNorthwind Traders announced a $30M Series B and is expanding into EU retail. New CTO started in June, likely the person you're talking to, so worth knowing they're early in the seat.\n\nThree questions to ask\n\n1. \"What does your SAP integration timeline look like, and who owns it on your side?\" (their stated make or break)\n\n2. \"At 200 seats, what budget range were you modeling, and is per seat or tiered pricing easier to get approved internally?\"\n\n3. \"With the EU expansion, do you need the rollout to work across regions from day one?\"\n\nWant me to draft a follow up email to their CTO addressing the pricing concern before the call?\n\nhttps://source0.auditnews.example/page",
+      "source": "gmi",
+      "card": null,
+      "calls": [
+        {
+          "method": "GET",
+          "path": "/api/internal/live?phone=%2B15552100001&persona=friend&q=prep%20customer%20call%20with%20Northwind",
+          "body": {}
+        },
+        {
+          "method": "POST",
+          "path": "/api/internal/memory",
+          "body": {
+            "phone": "+15552100001",
+            "persona": "friend",
+            "facts": [
+              {
+                "key": "customer_call_prep_routine",
+                "value": "When Alex says 'prep customer call', deliver: their latest emails, last meeting notes, open issues, recent company news, and three suggested questions to ask."
+              }
+            ]
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/api/internal/anchors?phone=%2B15552100001&persona=friend",
+          "body": {}
+        },
+        {
+          "method": "GET",
+          "path": "/api/internal/browser/awaiting?phone=%2B15552100001",
+          "body": {}
+        },
+        {
+          "method": "GET",
+          "path": "/api/internal/network?phone=%2B15552100001",
+          "body": {}
+        },
+        {
+          "method": "POST",
+          "path": "/api/internal/touch",
+          "body": {
+            "phone": "+15552100001",
+            "persona": "friend"
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/internal/prep",
+          "body": {
+            "phone": "+15552100001",
+            "persona": "friend",
+            "query": "Northwind customer call"
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/internal/live/tools",
+          "body": {
+            "phone": "+15552100001",
+            "persona": "friend",
+            "message": "Northwind newer_than:30d",
+            "want": "gmail"
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/internal/live/tools",
+          "body": {
+            "phone": "+15552100001",
+            "persona": "friend",
+            "message": "start=2026-09-27T00:00:00-04:00 end=2026-10-04T23:59:00-04:00",
+            "want": "calendar"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/page",
+          "body": {}
+        }
+      ],
+      "llmCallsInTurn": 8,
+      "thread": {
+        "facts": [
+          {
+            "key": "customer_call_prep_routine",
+            "value": "When Alex says 'prep customer call', deliver: their latest emails, last meeting notes, open issues, recent company news, and three suggested questions to ask.",
+            "ts": 1790535968961,
+            "lastSeen": 1790535968961
+          }
+        ],
+        "summary": "",
+        "historyCount": 4
+      }
+    },
+    {
+      "text": "do Globex too, but skip the news part",
+      "bubbles": [
+        "I could not verify current information because the web lookup did not run. Please try again."
+      ],
+      "reply": "I could not verify current information because the web lookup did not run. Please try again.",
+      "source": "gmi",
+      "card": null,
+      "calls": [
+        {
+          "method": "GET",
+          "path": "/api/internal/live?phone=%2B15552100001&persona=friend&q=do%20Globex%20too%2C%20but%20skip%20the%20news%20part",
+          "body": {}
+        },
+        {
+          "method": "POST",
+          "path": "/api/internal/memory",
+          "body": {
+            "phone": "+15552100001",
+            "persona": "friend",
+            "facts": [
+              {
+                "key": "customer_call_prep_routine",
+                "value": "When Alex says 'prep customer call', deliver: their latest emails, last meeting notes, open issues, recent company news, and three suggested questions to ask."
+              }
+            ]
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/api/internal/anchors?phone=%2B15552100001&persona=friend",
+          "body": {}
+        },
+        {
+          "method": "GET",
+          "path": "/api/internal/browser/awaiting?phone=%2B15552100001",
+          "body": {}
+        },
+        {
+          "method": "GET",
+          "path": "/api/internal/network?phone=%2B15552100001",
+          "body": {}
+        },
+        {
+          "method": "POST",
+          "path": "/api/internal/touch",
+          "body": {
+            "phone": "+15552100001",
+            "persona": "friend"
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/internal/prep",
+          "body": {
+            "phone": "+15552100001",
+            "persona": "friend",
+            "query": "Globex"
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/internal/live/tools",
+          "body": {
+            "phone": "+15552100001",
+            "persona": "friend",
+            "message": "Globex newer_than:30d",
+            "want": "gmail"
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/internal/live/tools",
+          "body": {
+            "phone": "+15552100001",
+            "persona": "friend",
+            "message": "start=2026-09-27T00:00:00-04:00 end=2026-10-27T23:59:59-04:00",
+            "want": "calendar"
+          }
+        }
+      ],
+      "llmCallsInTurn": 6,
+      "thread": {
+        "facts": [
+          {
+            "key": "customer_call_prep_routine",
+            "value": "When Alex says 'prep customer call', deliver: their latest emails, last meeting notes, open issues, recent company news, and three suggested questions to ask.",
+            "ts": 1789326368961,
+            "lastSeen": 1789326368961
+          }
+        ],
+        "summary": "",
+        "historyCount": 6
+      }
+    }
+  ],
+  "created": {
+    "drafts": [],
+    "reminders": [],
+    "scheduledTexts": [],
+    "commitments": [],
+    "memoryWrites": [
+      {
+        "key": "customer_call_prep_routine",
+        "value": "When Alex says 'prep customer call', deliver: their latest emails, last meeting notes, open issues, recent company news, and three suggested questions to ask."
+      },
+      {
+        "key": "customer_call_prep_routine",
+        "value": "When Alex says 'prep customer call', deliver: their latest emails, last meeting notes, open issues, recent company news, and three suggested questions to ask."
+      },
+      {
+        "key": "customer_call_prep_routine",
+        "value": "When Alex says 'prep customer call', deliver: their latest emails, last meeting notes, open issues, recent company news, and three suggested questions to ask."
+      }
+    ],
+    "memoryDeletes": [],
+    "spendDecisions": [],
+    "browserTasks": [],
+    "followups": [],
+    "calendarMutations": [],
+    "fileSends": [],
+    "workWrites": [],
+    "taskChoices": [],
+    "watches": [],
+    "todos": [],
+    "loops": [],
+    "otherWrites": [
+      {
+        "path": "/api/internal/anchors"
+      },
+      {
+        "path": "/api/internal/anchors"
+      },
+      {
+        "path": "/api/internal/anchors"
+      }
+    ]
+  },
+  "finalMemories": [
+    {
+      "key": "preferred_name",
+      "value": "Alex"
+    }
+  ],
+  "llmCalls": 18,
+  "wallMs": 108178
+}

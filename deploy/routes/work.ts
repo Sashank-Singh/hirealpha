@@ -10,6 +10,8 @@ import {
   assembleAutoStandup,
   loadBusyBlocks,
   suggestSlotsFromBusy,
+  suggestSlotRanges,
+  partOfDayWindow,
   parseLinearIssues,
   scoreLinearIssues,
   listLinearIssues,
@@ -27,6 +29,10 @@ import {
   mutateCalendarEvent,
   sendDriveFile,
 } from '../google/actions'
+import { intersectGuestAvailability, describeMutualAvailability, describeDayConflicts, type GuestAvailability } from '../calendarConflicts'
+import { setTurnAnchor } from './anchors'
+import { upsertThreadState } from '../mailState'
+import { nextFridayAt5 } from '../followupDeadline'
 import {
   COMPOSIO_READ,
   COMPOSIO_WRITE,
@@ -34,7 +40,7 @@ import {
   composioLooksFailed,
 } from '../composioPlugins'
 import { investorNoteBody } from './pipeline'
-import { pickUserTimezone, localDateStrInTz } from '../timezones'
+import { pickUserTimezone, localDateStrInTz, wallTimeToUtc } from '../timezones'
 import { computeIdempotencyKey } from '../utils/idempotency'
 import { clampNum } from '../habits/parsers'
 import { extractJsonObject } from '../modelJson'
@@ -92,6 +98,74 @@ export interface WorkRouteOptions {
   livePayload?: (sql: SQL, phone: string, persona: Persona) => Promise<{ found: boolean; hired: boolean; userId?: string; name?: string | null; timezone?: string | null }>
 }
 
+/**
+ * Free slots for the chat engine — the production path the bot's free_slots
+ * capability posts to. Guest availability is read through Google freeBusy
+ * when the guest's calendar can be resolved; guests that cannot be read come
+ * back as `unknown`, never folded into "mutually free".
+ */
+async function computeFreeSlots(
+  sql: SQL,
+  userId: string,
+  opts: { day?: string; partOfDay?: string; durationMin?: number; windowDays?: number; limit?: number; guests?: string[]; timezone?: string },
+): Promise<{ slots: Array<{ start: string; end: string; label: string }>; connect: boolean; guests?: { readable: string[]; unknown: string[] }; text?: string }> {
+  const tz = opts.timezone || 'America/Los_Angeles'
+  const now = new Date()
+  const windowDays = Math.min(7, Math.max(1, Math.round(opts.windowDays || 3)))
+  const end = new Date(now.getTime() + windowDays * 24 * 60 * 60 * 1000)
+  const access = await googleAccessToken(sql, userId, 'calendar')
+  if (!access) return { slots: [], connect: true }
+  const busy = await loadBusyBlocks(sql, userId, now, end)
+  const durationMin = Math.min(240, Math.max(15, Math.round(opts.durationMin || 30)))
+  const part = partOfDayWindow(opts.partOfDay)
+  let slots = suggestSlotRanges(busy, {
+    timezone: tz,
+    windowDays,
+    durationMin,
+    day: opts.day || undefined,
+    limit: Math.min(8, Math.max(1, Math.round(opts.limit || 4))),
+    workStartHour: part ? part.start : 9,
+    workEndHour: part ? part.end : 18,
+  })
+  const guestEmails = (opts.guests || []).map((g) => String(g).trim().toLowerCase()).filter((g) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(g)).slice(0, 6)
+  if (guestEmails.length) {
+    let guestOut: GuestAvailability[] = []
+    try {
+      const res = await fetch('https://www.googleapis.com/calendar/v3/freeBusy', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${access}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ timeMin: now.toISOString(), timeMax: end.toISOString(), items: guestEmails.map((id) => ({ id })) }),
+        signal: AbortSignal.timeout(8000),
+      })
+      const data = res.ok ? (await res.json()) as { calendars?: Record<string, { busy?: Array<{ start: string; end: string }>; errors?: Array<{ reason?: string }> }> } : null
+      guestOut = guestEmails.map((email) => {
+        const cal = data?.calendars?.[email]
+        if (!cal || (cal.errors && cal.errors.length)) return { email, state: 'unknown' as const }
+        return {
+          email,
+          state: 'read' as const,
+          busy: (cal.busy || []).map((b) => ({ start: new Date(b.start).getTime(), end: new Date(b.end).getTime() })),
+        }
+      })
+    } catch {
+      guestOut = guestEmails.map((email) => ({ email, state: 'unknown' as const }))
+    }
+    const joined = intersectGuestAvailability(slots, guestOut)
+    slots = joined.slots
+    return {
+      slots,
+      connect: false,
+      guests: { readable: joined.readableGuests, unknown: joined.unknownGuests },
+      text: describeMutualAvailability({ slots, readableGuests: joined.readableGuests, unknownGuests: joined.unknownGuests, askedGuests: true }),
+    }
+  }
+  return {
+    slots,
+    connect: false,
+    text: describeMutualAvailability({ slots, readableGuests: [], unknownGuests: [], askedGuests: false }),
+  }
+}
+
 export async function handleWorkRoutes(
   req: Request,
   sql: SQL,
@@ -126,11 +200,11 @@ export async function handleWorkRoutes(
 
   if (path === '/api/internal/calendar/event' && req.method === 'POST') {
     if (!options.internalOk(req)) return json({ error: 'Unauthorized' }, 401)
-    const body = (await req.json().catch(() => ({}))) as { phone?: string; persona?: string; eventId?: string; action?: 'inspect' | 'update' | 'cancel' | 'rsvp'; start?: string; end?: string; response?: 'accepted' | 'declined' | 'tentative'; scope?: 'occurrence' | 'series' }
+    const body = (await req.json().catch(() => ({}))) as { phone?: string; persona?: string; eventId?: string; action?: 'inspect' | 'update' | 'cancel' | 'rsvp'; start?: string; end?: string; response?: 'accepted' | 'declined' | 'tentative'; scope?: 'occurrence' | 'series'; addAttendees?: string[] }
     if (!body.phone || !isPersona(body.persona || '') || !body.eventId || !body.action) return json({ error: 'phone, persona, eventId and action required' }, 400)
     const user = await getUserByPhone(sql, body.phone)
     if (!user) return json({ error: 'User not found' }, 404)
-    const result = await mutateCalendarEvent(sql, user.id, { eventId: body.eventId, action: body.action, start: body.start, end: body.end, response: body.response, scope: body.scope, userEmail: user.email })
+    const result = await mutateCalendarEvent(sql, user.id, { eventId: body.eventId, action: body.action, start: body.start, end: body.end, response: body.response, scope: body.scope, userEmail: user.email, addAttendees: Array.isArray(body.addAttendees) ? body.addAttendees : undefined })
     return json(result, result.ok ? 200 : result.outcomeUnknown ? 409 : 400)
   }
 
@@ -293,9 +367,9 @@ export async function handleWorkRoutes(
     const claimed = await sql`
       UPDATE hire_drafts SET status = 'sending', updated_at = now()
       WHERE id = ${body.id} AND user_id = ${user!.id} AND status = 'pending'
-      RETURNING to_addr, subject, body, thread_id, in_reply_to, version
+      RETURNING to_addr, subject, body, thread_id, in_reply_to, version, persona
     `
-    const row = claimed[0] as { to_addr: string; subject: string; body: string; thread_id?: string; in_reply_to?: string } | undefined
+    const row = claimed[0] as { to_addr: string; subject: string; body: string; thread_id?: string; in_reply_to?: string; persona?: string } | undefined
     if (!row) {
       const current = (await sql`
         SELECT status, provider_id FROM hire_drafts WHERE id = ${body.id} AND user_id = ${user!.id} LIMIT 1
@@ -324,6 +398,51 @@ export async function handleWorkRoutes(
       return json({ ok: false, state, error: sent.error }, sent.outcomeUnknown ? 409 : 400)
     }
     await sql`UPDATE hire_drafts SET status = ${'sent'}, provider_id = ${sent.providerId!}, updated_at = now() WHERE id = ${body.id} AND user_id = ${user!.id} AND status = 'sending'`
+    // Durable waiting-on-them state + the one-time follow-up offer, so the
+    // next "did they reply?" is answerable and watching is offered, never
+    // assumed. Both are best-effort; a failed side effect cannot unsend.
+    try {
+      if (threadId) {
+        await upsertThreadState(sql, user!.id, String(row.persona || ''), {
+          threadId, participant: toAddr, subject, direction: 'outbound', awaiting: 'them',
+        })
+      }
+      await setTurnAnchor(sql, user!.id, String(row.persona || ''), 'thread', {
+        threadId, participant: toAddr, subject, direction: 'outbound',
+      })
+    } catch (err) {
+      console.warn('[work/send] thread-state side effect failed', err)
+    }
+    try {
+      const offered = await sql`
+        SELECT 1 FROM hire_nudge_log WHERE user_id = ${user!.id} AND nudge_key = ${`followup_offer:${body.id}`} LIMIT 1
+      `
+      const recentOffers = await sql`
+        SELECT count(*)::int AS n FROM hire_nudge_log
+        WHERE user_id = ${user!.id} AND nudge_key LIKE 'followup_offer:%' AND sent_at > now() - interval '30 days'
+      `
+      const openFollowups = await sql`
+        SELECT count(*)::int AS n FROM hire_email_followups
+        WHERE user_id = ${user!.id} AND status = 'pending'
+      `
+      if (!offered.length && Number((recentOffers[0] as { n: number } | undefined)?.n || 0) < 3 && Number((openFollowups[0] as { n: number } | undefined)?.n || 0) < 2) {
+        const deadline = nextFridayAt5(new Date(), user!.timezone || undefined)
+        await sql`
+          INSERT INTO hire_task_loops (id, user_id, persona, phone_e164, kind, title, payload, status, next_run)
+          VALUES (${crypto.randomUUID()}, ${user!.id}, ${String(row.persona || 'friend')}, ${user!.phone},
+            'followup_offer', ${'Watch this thread for a reply?'},
+            ${JSON.stringify({ draftId: body.id, threadId, participant: toAddr, subject, deadline })}::jsonb,
+            'pending', ${new Date(Date.now() + 2 * 60_000).toISOString()})
+        `
+        await sql`
+          INSERT INTO hire_nudge_log (id, user_id, persona, nudge_key)
+          VALUES (${crypto.randomUUID()}, ${user!.id}, ${String(row.persona || 'friend')}, ${`followup_offer:${body.id}`})
+          ON CONFLICT (user_id, nudge_key) DO NOTHING
+        `
+      }
+    } catch (err) {
+      console.warn('[work/send] followup offer enqueue failed', err)
+    }
     return json({ ok: true, providerId: sent.providerId, state: 'sent' })
   }
 
@@ -416,6 +535,53 @@ export async function handleWorkRoutes(
     return json({ ok: true })
   }
 
+  if (path === '/api/internal/work/slots' && req.method === 'POST') {
+    if (!options.internalOk(req)) return json({ error: 'Unauthorized' }, 401)
+    const body = (await req.json().catch(() => ({}))) as {
+      phone?: string; persona?: string; day?: string; partOfDay?: string
+      durationMin?: number; windowDays?: number; limit?: number; guests?: string[]
+    }
+    if (!body.phone) return json({ error: 'phone required' }, 400)
+    const user = await getUserByPhone(sql, body.phone)
+    if (!user) return json({ error: 'User not found' }, 404)
+    const connected = (await options.connectedForUser(sql, user.id)).includes('calendar')
+    if (!connected) return json({ slots: [], connect: true })
+    const out = await computeFreeSlots(sql, user.id, {
+      day: body.day,
+      partOfDay: body.partOfDay,
+      durationMin: Number(body.durationMin) || 30,
+      windowDays: Number(body.windowDays) || 3,
+      limit: Number(body.limit) || 4,
+      guests: Array.isArray(body.guests) ? body.guests : [],
+      timezone: user.timezone || undefined,
+    })
+    return json(out)
+  }
+
+  /* On-demand conflict check for a single day ("can I make the 3pm?"). */
+  if (path === '/api/internal/calendar/conflicts' && req.method === 'POST') {
+    if (!options.internalOk(req)) return json({ error: 'Unauthorized' }, 401)
+    const body = (await req.json().catch(() => ({}))) as { phone?: string; persona?: string; day?: string }
+    if (!body.phone) return json({ error: 'phone required' }, 400)
+    const user = await getUserByPhone(sql, body.phone)
+    if (!user) return json({ error: 'User not found' }, 404)
+    const tz = user.timezone || 'America/Los_Angeles'
+    const day = /^\d{4}-\d{2}-\d{2}$/.test(String(body.day || '')) ? String(body.day) : new Intl.DateTimeFormat('en-CA', { timeZone: tz }).format(new Date())
+    const [y, m, d] = day.split('-').map(Number) as [number, number, number]
+    const next = new Date(Date.UTC(y, m - 1, d + 1))
+    const nextDay = `${next.getUTCFullYear()}-${String(next.getUTCMonth() + 1).padStart(2, '0')}-${String(next.getUTCDate()).padStart(2, '0')}`
+    const events = await googleEventsRaw(sql, user.id, {
+      timeMin: wallTimeToUtc(day, 0, 0, tz),
+      timeMax: wallTimeToUtc(nextDay, 0, 0, tz),
+      maxResults: 30,
+    })
+    const timed = events
+      .filter((e) => !e.allDay)
+      .map((e) => ({ title: e.title || '(untitled)', start: Date.parse(e.start), end: e.end ? Date.parse(e.end) : Date.parse(e.start) + 3_600_000 }))
+      .filter((e) => Number.isFinite(e.start) && Number.isFinite(e.end) && e.end > e.start)
+    return json({ ok: true, day, count: timed.length, text: describeDayConflicts({ timezone: tz, events: timed }) })
+  }
+
   if (path === '/api/work/slots' && req.method === 'GET') {
     const { user, error } = await resolveAuthedUser(sql, {
       token: url.searchParams.get('t') || undefined,
@@ -432,7 +598,7 @@ export async function handleWorkRoutes(
 
   if (path === '/api/work/hold' && req.method === 'POST') {
     const body = (await req.json().catch(() => ({}))) as {
-      token?: string; email?: string; session?: string; title?: string; start?: string; end?: string; id?: string
+      token?: string; email?: string; session?: string; title?: string; start?: string; end?: string; id?: string; attendees?: string[]
     }
     const { user, error } = await resolveAuthedUser(sql, { token: body.token, session: (body as { session?: string }).session, email: body.email })
     if (error) return error
@@ -455,13 +621,22 @@ export async function handleWorkRoutes(
     const start = String(body.start || row.start_at || '')
     const end = String(body.end || row.end_at || '')
     if (!start || !end) return json({ ok: false, error: 'start and end required' }, 400)
-    const held = await calendarHold(sql, user!.id, { title, start, end, operationId: body.id })
+    const held = await calendarHold(sql, user!.id, { title, start, end, operationId: body.id, attendees: Array.isArray((body as { attendees?: string[] }).attendees) ? (body as { attendees?: string[] }).attendees : undefined })
     if (!held.ok) {
       const state = held.outcomeUnknown ? 'outcome_unknown' : 'pending'
       await sql`UPDATE hire_drafts SET status = ${state}, updated_at = now() WHERE id = ${body.id} AND user_id = ${user!.id} AND status = 'booking'`
       return json({ ...held, state }, held.outcomeUnknown ? 409 : 400)
     }
     await sql`UPDATE hire_drafts SET status = ${'booked'}, provider_id = ${held.eventId!}, updated_at = now() WHERE id = ${body.id} AND user_id = ${user!.id} AND status = 'booking'`
+    // The booked hold becomes the conversation's event anchor, so "move that"
+    // and "cancel that" resolve after a restart too.
+    try {
+      await setTurnAnchor(sql, user!.id, 'friend', 'event', {
+        eventId: held.eventId, title, start, end, source: 'hold', draftId: body.id,
+      })
+    } catch (err) {
+      console.warn('[work/hold] event anchor failed', err)
+    }
     return json({ ...held, state: 'booked' })
   }
 

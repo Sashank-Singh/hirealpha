@@ -1,0 +1,262 @@
+{
+  "id": "uc1_send_it",
+  "cat": "C8",
+  "title": "\"send it\" with clear antecedent",
+  "agent": "friend",
+  "turns": [
+    {
+      "text": "Draft an email to Dana confirming Friday 4pm works for the call.",
+      "bubbles": [
+        "Draft's saved and on its way to your review card, tap Send when it looks good and it goes to Dana. Want me to also block Friday 4pm on your calendar?"
+      ],
+      "reply": "Draft's saved and on its way to your review card, tap Send when it looks good and it goes to Dana. Want me to also block Friday 4pm on your calendar?",
+      "source": "gmi",
+      "card": "https://audit.internal/card/x?draft=draft_1",
+      "calls": [
+        {
+          "method": "GET",
+          "path": "/api/internal/live?phone=%2B15552100001&persona=friend&q=Draft%20an%20email%20to%20Dana%20confirming%20Friday%204pm%20works%20for%20the%20call.",
+          "body": {}
+        },
+        {
+          "method": "GET",
+          "path": "/api/internal/anchors?phone=%2B15552100001&persona=friend",
+          "body": {}
+        },
+        {
+          "method": "GET",
+          "path": "/api/internal/browser/awaiting?phone=%2B15552100001",
+          "body": {}
+        },
+        {
+          "method": "GET",
+          "path": "/api/internal/network?phone=%2B15552100001",
+          "body": {}
+        },
+        {
+          "method": "POST",
+          "path": "/api/internal/touch",
+          "body": {
+            "phone": "+15552100001",
+            "persona": "friend"
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/internal/propose",
+          "body": {
+            "phone": "+15552100001",
+            "persona": "friend",
+            "kind": "mail",
+            "to": "dana@bigco.com",
+            "subject": "Call this Friday at 4pm",
+            "body": "Hi Dana,\n\nJust confirming that Friday at 4pm works for our call. I'll send a calendar invite with the details.\n\nTalk soon,\nAlex"
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/internal/anchors",
+          "body": {
+            "phone": "+15552100001",
+            "persona": "friend",
+            "kind": "draft",
+            "ref": {
+              "draftId": "draft_1",
+              "to": "dana@bigco.com",
+              "subject": "Call this Friday at 4pm",
+              "body": "Hi Dana,\n\nJust confirming that Friday at 4pm works for our call. I'll send a calendar invite with the details.\n\nTalk soon,\nAlex",
+              "kind": "mail"
+            }
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/api/internal/mini/token?phone=%2B15552100001&persona=friend&kind=approve_send",
+          "body": {}
+        }
+      ],
+      "llmCallsInTurn": 3,
+      "thread": {
+        "facts": [],
+        "summary": "",
+        "historyCount": 2
+      }
+    },
+    {
+      "text": "send it",
+      "bubbles": [
+        "Draft's ready in your review card, tap Send and it goes to Dana."
+      ],
+      "reply": "Draft's ready in your review card, tap Send and it goes to Dana.",
+      "source": "gmi",
+      "card": "https://audit.internal/card/x?draft=draft_2",
+      "calls": [
+        {
+          "method": "GET",
+          "path": "/api/internal/live?phone=%2B15552100001&persona=friend&q=send%20it",
+          "body": {}
+        },
+        {
+          "method": "GET",
+          "path": "/api/internal/anchors?phone=%2B15552100001&persona=friend",
+          "body": {}
+        },
+        {
+          "method": "GET",
+          "path": "/api/internal/browser/awaiting?phone=%2B15552100001",
+          "body": {}
+        },
+        {
+          "method": "GET",
+          "path": "/api/internal/network?phone=%2B15552100001",
+          "body": {}
+        },
+        {
+          "method": "POST",
+          "path": "/api/internal/touch",
+          "body": {
+            "phone": "+15552100001",
+            "persona": "friend"
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/internal/propose",
+          "body": {
+            "phone": "+15552100001",
+            "persona": "friend",
+            "kind": "mail",
+            "to": "dana@bigco.com",
+            "subject": "Call on Friday",
+            "body": "Hi Dana,\n\nConfirming that Friday at 4pm works for our call. Looking forward to it.\n\nBest,\nAlex"
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/internal/anchors",
+          "body": {
+            "phone": "+15552100001",
+            "persona": "friend",
+            "kind": "draft",
+            "ref": {
+              "draftId": "draft_2",
+              "to": "dana@bigco.com",
+              "subject": "Call on Friday",
+              "body": "Hi Dana,\n\nConfirming that Friday at 4pm works for our call. Looking forward to it.\n\nBest,\nAlex",
+              "kind": "mail"
+            }
+          }
+        }
+      ],
+      "llmCallsInTurn": 3,
+      "thread": {
+        "facts": [],
+        "summary": "",
+        "historyCount": 4
+      }
+    }
+  ],
+  "created": {
+    "drafts": [
+      {
+        "kind": "mail",
+        "phone": "+15552100001",
+        "persona": "friend",
+        "to": "dana@bigco.com",
+        "subject": "Call this Friday at 4pm",
+        "body": "Hi Dana,\n\nJust confirming that Friday at 4pm works for our call. I'll send a calendar invite with the details.\n\nTalk soon,\nAlex"
+      },
+      {
+        "kind": "mail",
+        "phone": "+15552100001",
+        "persona": "friend",
+        "to": "dana@bigco.com",
+        "subject": "Call on Friday",
+        "body": "Hi Dana,\n\nConfirming that Friday at 4pm works for our call. Looking forward to it.\n\nBest,\nAlex"
+      }
+    ],
+    "reminders": [],
+    "scheduledTexts": [],
+    "commitments": [],
+    "memoryWrites": [],
+    "memoryDeletes": [],
+    "spendDecisions": [],
+    "browserTasks": [],
+    "followups": [],
+    "calendarMutations": [],
+    "fileSends": [],
+    "workWrites": [],
+    "taskChoices": [],
+    "watches": [],
+    "anchors": [
+      {
+        "kind": "draft",
+        "ref": {
+          "draftId": "draft_1",
+          "to": "dana@bigco.com",
+          "subject": "Call this Friday at 4pm",
+          "body": "Hi Dana,\n\nJust confirming that Friday at 4pm works for our call. I'll send a calendar invite with the details.\n\nTalk soon,\nAlex",
+          "kind": "mail"
+        },
+        "createdAt": "2026-09-27T19:10:35.116Z",
+        "expiresAt": "2026-09-28T19:10:35.116Z"
+      },
+      {
+        "kind": "draft",
+        "ref": {
+          "draftId": "draft_2",
+          "to": "dana@bigco.com",
+          "subject": "Call on Friday",
+          "body": "Hi Dana,\n\nConfirming that Friday at 4pm works for our call. Looking forward to it.\n\nBest,\nAlex",
+          "kind": "mail"
+        },
+        "createdAt": "2026-09-27T19:11:04.783Z",
+        "expiresAt": "2026-09-28T19:11:04.783Z"
+      }
+    ],
+    "todos": [],
+    "loops": [],
+    "otherWrites": [
+      {
+        "path": "/api/internal/anchors:GET"
+      },
+      {
+        "path": "/api/internal/anchors:POST",
+        "phone": "+15552100001",
+        "persona": "friend",
+        "kind": "draft",
+        "ref": {
+          "draftId": "draft_1",
+          "to": "dana@bigco.com",
+          "subject": "Call this Friday at 4pm",
+          "body": "Hi Dana,\n\nJust confirming that Friday at 4pm works for our call. I'll send a calendar invite with the details.\n\nTalk soon,\nAlex",
+          "kind": "mail"
+        }
+      },
+      {
+        "path": "/api/internal/anchors:GET"
+      },
+      {
+        "path": "/api/internal/anchors:POST",
+        "phone": "+15552100001",
+        "persona": "friend",
+        "kind": "draft",
+        "ref": {
+          "draftId": "draft_2",
+          "to": "dana@bigco.com",
+          "subject": "Call on Friday",
+          "body": "Hi Dana,\n\nConfirming that Friday at 4pm works for our call. Looking forward to it.\n\nBest,\nAlex",
+          "kind": "mail"
+        }
+      }
+    ]
+  },
+  "finalMemories": [
+    {
+      "key": "preferred_name",
+      "value": "Alex"
+    }
+  ],
+  "llmCalls": 6,
+  "wallMs": 45601
+}

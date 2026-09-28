@@ -1,0 +1,26 @@
+{
+  "facts": [],
+  "summary": "",
+  "history": [
+    {
+      "role": "user",
+      "content": "Find the invoice Figma sent last month and forward it to accounting@rivera.dev.",
+      "ts": 1790533688917
+    },
+    {
+      "role": "assistant",
+      "content": "I’m checking your email for this.\n\nStraight status: I couldn't find the invoice yet. The Gmail searches came back empty (tried Figma invoice, receipt, and billing terms), nothing in Drive matches, and a web check on where Figma sends invoices didn't turn up anything useful either.\n\nTwo quick ways to unblock this:\n\n1. Tell me the sender or subject line if you remember it differently (Figma sometimes bills under \"noreply@mail.figma.com\" or as \"Figma, Inc. receipt\") and I'll re run the search.\n\n2. If you can grab the PDF from Figma's billing page in your account, drop it here and I'll draft the forward to accounting@rivera.dev for your one tap approval.\n\nI won't forward anything until we've got the actual file in hand.\n\nhttps://audit-none.example/search",
+      "ts": 1790533688917
+    },
+    {
+      "role": "user",
+      "content": "Any luck with that invoice?",
+      "ts": 1790533695768
+    },
+    {
+      "role": "assistant",
+      "content": "Nothing new has come in since we last looked, so the searches are coming up just as empty.\n\nThe most likely fix is the sender address. If you can check your Figma account's billing page (Settings → Billing → Invoices), the PDF is usually right there to download. Send it over and I'll have the forward to accounting@rivera.dev drafted before you can blink.\n\nOr if you remember roughly what it was for (seats, org plan, that kind of thing) I can try a couple more targeted search terms.",
+      "ts": 1790533695768
+    }
+  ]
+}

@@ -1,0 +1,96 @@
+{
+  "id": "ts1_aws",
+  "cat": "C3",
+  "title": "Why did my AWS cost jump",
+  "agent": "friend",
+  "turns": [
+    {
+      "text": "My AWS bill jumped from $90 to $400 this month. Figure out why.",
+      "bubbles": [
+        "On it, I'm in your AWS billing console now pulling the month over month breakdown by service. I'll text you the culprit as soon as the run finishes.\n\nLaunching Cloud Computer for this task: https://audit.internal/computer/job_1 — the session is active now, pauses automatically before any sensitive steps, and I'll report back here with the verified results."
+      ],
+      "reply": "On it, I'm in your AWS billing console now pulling the month over month breakdown by service. I'll text you the culprit as soon as the run finishes.\n\nLaunching Cloud Computer for this task: https://audit.internal/computer/job_1 — the session is active now, pauses automatically before any sensitive steps, and I'll report back here with the verified results.",
+      "source": "gmi",
+      "card": null,
+      "calls": [
+        {
+          "method": "GET",
+          "path": "/api/internal/live?phone=%2B15552100001&persona=friend&q=My%20AWS%20bill%20jumped%20from%20%2490%20to%20%24400%20this%20month.%20Figure%20out%20why.",
+          "body": {}
+        },
+        {
+          "method": "GET",
+          "path": "/api/internal/browser/awaiting?phone=%2B15552100001",
+          "body": {}
+        },
+        {
+          "method": "GET",
+          "path": "/api/internal/network?phone=%2B15552100001",
+          "body": {}
+        },
+        {
+          "method": "POST",
+          "path": "/api/internal/touch",
+          "body": {
+            "phone": "+15552100001",
+            "persona": "friend"
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/internal/propose",
+          "body": {
+            "phone": "+15552100001",
+            "persona": "friend",
+            "kind": "browser",
+            "url": "https://console.aws.amazon.com/billing/home#/bills",
+            "body": "Compare this month's AWS bill to last month by service to find what caused the jump from ~$90 to ~$400",
+            "autoApprove": true
+          }
+        }
+      ],
+      "llmCallsInTurn": 4,
+      "thread": {
+        "facts": [],
+        "summary": "",
+        "historyCount": 2
+      }
+    }
+  ],
+  "created": {
+    "drafts": [],
+    "reminders": [],
+    "scheduledTexts": [],
+    "commitments": [],
+    "memoryWrites": [],
+    "memoryDeletes": [],
+    "spendDecisions": [],
+    "browserTasks": [
+      {
+        "phone": "+15552100001",
+        "persona": "friend",
+        "kind": "browser",
+        "url": "https://console.aws.amazon.com/billing/home#/bills",
+        "body": "Compare this month's AWS bill to last month by service to find what caused the jump from ~$90 to ~$400",
+        "autoApprove": true
+      }
+    ],
+    "followups": [],
+    "calendarMutations": [],
+    "fileSends": [],
+    "workWrites": [],
+    "taskChoices": [],
+    "watches": [],
+    "todos": [],
+    "loops": [],
+    "otherWrites": []
+  },
+  "finalMemories": [
+    {
+      "key": "preferred_name",
+      "value": "Alex"
+    }
+  ],
+  "llmCalls": 4,
+  "wallMs": 35200
+}

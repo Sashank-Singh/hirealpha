@@ -1,0 +1,115 @@
+{
+  "id": "uc3_use_other",
+  "cat": "C8",
+  "title": "\"use the other one\" needs referent",
+  "agent": "friend",
+  "turns": [
+    {
+      "text": "Toscana or Nopa for the team dinner Friday 8pm — which would you pick?",
+      "bubbles": [
+        "Nopa, if you can get the table. Bigger room, better energy for a group, and the menu has enough range that nobody's stuck picking at bread. Toscana's great but reads more date night than team night.\n\nOne catch: Nopa at 8pm on a Friday usually needs a reservation well ahead. Want me to check availability and try to lock one in for Friday Oct 2?"
+      ],
+      "reply": "Nopa, if you can get the table. Bigger room, better energy for a group, and the menu has enough range that nobody's stuck picking at bread. Toscana's great but reads more date night than team night.\n\nOne catch: Nopa at 8pm on a Friday usually needs a reservation well ahead. Want me to check availability and try to lock one in for Friday Oct 2?",
+      "source": "gmi",
+      "card": null,
+      "calls": [
+        {
+          "method": "GET",
+          "path": "/api/internal/live?phone=%2B15552100001&persona=friend&q=Toscana%20or%20Nopa%20for%20the%20team%20dinner%20Friday%208pm%20%E2%80%94%20which%20would%20you%20pick%3F",
+          "body": {}
+        },
+        {
+          "method": "GET",
+          "path": "/api/internal/browser/awaiting?phone=%2B15552100001",
+          "body": {}
+        },
+        {
+          "method": "GET",
+          "path": "/api/internal/network?phone=%2B15552100001",
+          "body": {}
+        },
+        {
+          "method": "POST",
+          "path": "/api/internal/touch",
+          "body": {
+            "phone": "+15552100001",
+            "persona": "friend"
+          }
+        }
+      ],
+      "llmCallsInTurn": 2,
+      "thread": {
+        "facts": [],
+        "summary": "",
+        "historyCount": 2
+      }
+    },
+    {
+      "text": "ok use the other one then",
+      "bubbles": [
+        "Toscana it is. Friday Oct 2, 8pm, team dinner, want me to try booking that? Just need a headcount so I request the right size table."
+      ],
+      "reply": "Toscana it is. Friday Oct 2, 8pm, team dinner, want me to try booking that? Just need a headcount so I request the right size table.",
+      "source": "gmi",
+      "card": null,
+      "calls": [
+        {
+          "method": "GET",
+          "path": "/api/internal/live?phone=%2B15552100001&persona=friend&q=ok%20use%20the%20other%20one%20then",
+          "body": {}
+        },
+        {
+          "method": "GET",
+          "path": "/api/internal/browser/awaiting?phone=%2B15552100001",
+          "body": {}
+        },
+        {
+          "method": "GET",
+          "path": "/api/internal/network?phone=%2B15552100001",
+          "body": {}
+        },
+        {
+          "method": "POST",
+          "path": "/api/internal/touch",
+          "body": {
+            "phone": "+15552100001",
+            "persona": "friend"
+          }
+        }
+      ],
+      "llmCallsInTurn": 5,
+      "thread": {
+        "facts": [],
+        "summary": "",
+        "historyCount": 4
+      }
+    }
+  ],
+  "created": {
+    "drafts": [],
+    "reminders": [],
+    "scheduledTexts": [],
+    "commitments": [],
+    "memoryWrites": [],
+    "memoryDeletes": [],
+    "spendDecisions": [],
+    "browserTasks": [],
+    "followups": [],
+    "calendarMutations": [],
+    "fileSends": [],
+    "workWrites": [],
+    "taskChoices": [],
+    "watches": [],
+    "todos": [],
+    "loops": [],
+    "otherWrites": []
+  },
+  "finalMemories": [
+    {
+      "key": "preferred_name",
+      "value": "Alex"
+    }
+  ],
+  "llmCalls": 7,
+  "wallMs": 31059
+}

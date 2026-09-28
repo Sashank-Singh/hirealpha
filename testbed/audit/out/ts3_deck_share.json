@@ -1,0 +1,119 @@
+{
+  "id": "ts3_deck_share",
+  "cat": "C3",
+  "title": "Find deck Sarah sent and share",
+  "agent": "friend",
+  "turns": [
+    {
+      "text": "Find the Series A deck Sarah sent and get it to our investor list.",
+      "bubbles": [
+        "Found it: \"Series A Deck v4,\" attached to an email from partner@vcfirm.com (\"Fwd: Series A deck\"). It's a deck file, so I can't read the slides, but I can forward the email with the attachment intact.\n\nOne thing before I send anything: who's on the investor list? I don't have a saved list, so give me the names or emails (Sarah's already expecting the deck, for what it's worth, her \"Re: catch up\" asks for the updated one).\n\nTell me who gets it and I'll queue the forwards for your approval."
+      ],
+      "reply": "Found it: \"Series A Deck v4,\" attached to an email from partner@vcfirm.com (\"Fwd: Series A deck\"). It's a deck file, so I can't read the slides, but I can forward the email with the attachment intact.\n\nOne thing before I send anything: who's on the investor list? I don't have a saved list, so give me the names or emails (Sarah's already expecting the deck, for what it's worth, her \"Re: catch up\" asks for the updated one).\n\nTell me who gets it and I'll queue the forwards for your approval.",
+      "source": "gmi",
+      "card": null,
+      "calls": [
+        {
+          "method": "GET",
+          "path": "/api/internal/live?phone=%2B15552100001&persona=friend&q=Find%20the%20Series%20A%20deck%20Sarah%20sent%20and%20get%20it%20to%20our%20investor%20list.",
+          "body": {}
+        },
+        {
+          "method": "GET",
+          "path": "/api/internal/anchors?phone=%2B15552100001&persona=friend",
+          "body": {}
+        },
+        {
+          "method": "GET",
+          "path": "/api/internal/browser/awaiting?phone=%2B15552100001",
+          "body": {}
+        },
+        {
+          "method": "GET",
+          "path": "/api/internal/network?phone=%2B15552100001",
+          "body": {}
+        },
+        {
+          "method": "POST",
+          "path": "/api/internal/touch",
+          "body": {
+            "phone": "+15552100001",
+            "persona": "friend"
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/internal/live/tools",
+          "body": {
+            "phone": "+15552100001",
+            "persona": "friend",
+            "message": "from:sarah@vcfirm.com deck",
+            "want": "gmail"
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/internal/live/tools",
+          "body": {
+            "phone": "+15552100001",
+            "persona": "friend",
+            "message": "id=sa0",
+            "want": "gmail"
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/internal/mail/attachment",
+          "body": {
+            "phone": "+15552100001",
+            "messageId": "sa0",
+            "attachmentId": "Series A Deck v4"
+          }
+        }
+      ],
+      "llmCallsInTurn": 5,
+      "thread": {
+        "facts": [],
+        "summary": "",
+        "historyCount": 2
+      }
+    }
+  ],
+  "created": {
+    "drafts": [],
+    "reminders": [],
+    "scheduledTexts": [],
+    "commitments": [],
+    "memoryWrites": [],
+    "memoryDeletes": [],
+    "spendDecisions": [],
+    "browserTasks": [],
+    "followups": [],
+    "calendarMutations": [],
+    "fileSends": [],
+    "workWrites": [],
+    "taskChoices": [],
+    "watches": [],
+    "todos": [],
+    "loops": [],
+    "otherWrites": [
+      {
+        "path": "/api/internal/anchors"
+      },
+      {
+        "path": "/api/internal/mail/attachment",
+        "phone": "+15552100001",
+        "messageId": "sa0",
+        "attachmentId": "Series A Deck v4"
+      }
+    ]
+  },
+  "finalMemories": [
+    {
+      "key": "preferred_name",
+      "value": "Alex"
+    }
+  ],
+  "llmCalls": 5,
+  "wallMs": 31025
+}

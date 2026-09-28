@@ -1,0 +1,85 @@
+{
+  "id": "mi2_move_call",
+  "cat": "C17",
+  "title": "move tomorow call later like after lunch",
+  "agent": "friend",
+  "turns": [
+    {
+      "text": "move tomorow call later like after lunch",
+      "bubbles": [
+        "Checked your Monday, I don't see a call on the calendar. You've got the BigCo interview at 2:00 PM and the gym at 6:30 PM.\n\nWhich call do you want moved, and to roughly what time?"
+      ],
+      "reply": "Checked your Monday, I don't see a call on the calendar. You've got the BigCo interview at 2:00 PM and the gym at 6:30 PM.\n\nWhich call do you want moved, and to roughly what time?",
+      "source": "gmi",
+      "card": null,
+      "calls": [
+        {
+          "method": "GET",
+          "path": "/api/internal/live?phone=%2B15552100001&persona=friend&q=move%20tomorow%20call%20later%20like%20after%20lunch",
+          "body": {}
+        },
+        {
+          "method": "GET",
+          "path": "/api/internal/browser/awaiting?phone=%2B15552100001",
+          "body": {}
+        },
+        {
+          "method": "GET",
+          "path": "/api/internal/network?phone=%2B15552100001",
+          "body": {}
+        },
+        {
+          "method": "POST",
+          "path": "/api/internal/touch",
+          "body": {
+            "phone": "+15552100001",
+            "persona": "friend"
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/internal/live/tools",
+          "body": {
+            "phone": "+15552100001",
+            "persona": "friend",
+            "message": "start=2026-09-28T00:00:00-04:00 end=2026-09-29T00:00:00-04:00",
+            "want": "calendar"
+          }
+        }
+      ],
+      "llmCallsInTurn": 4,
+      "thread": {
+        "facts": [],
+        "summary": "",
+        "historyCount": 2
+      }
+    }
+  ],
+  "created": {
+    "drafts": [],
+    "reminders": [],
+    "scheduledTexts": [],
+    "commitments": [],
+    "memoryWrites": [],
+    "memoryDeletes": [],
+    "spendDecisions": [],
+    "browserTasks": [],
+    "followups": [],
+    "calendarMutations": [],
+    "fileSends": [],
+    "workWrites": [],
+    "taskChoices": [],
+    "watches": [],
+    "todos": [],
+    "loops": [],
+    "otherWrites": []
+  },
+  "finalMemories": [
+    {
+      "key": "preferred_name",
+      "value": "Alex"
+    }
+  ],
+  "llmCalls": 4,
+  "wallMs": 14938
+}

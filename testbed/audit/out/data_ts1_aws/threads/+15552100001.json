@@ -1,0 +1,16 @@
+{
+  "facts": [],
+  "summary": "",
+  "history": [
+    {
+      "role": "user",
+      "content": "My AWS bill jumped from $90 to $400 this month. Figure out why.",
+      "ts": 1790533492187
+    },
+    {
+      "role": "assistant",
+      "content": "On it, I'm in your AWS billing console now pulling the month over month breakdown by service. I'll text you the culprit as soon as the run finishes.\n\nLaunching Cloud Computer for this task: https://audit.internal/computer/job_1 — the session is active now, pauses automatically before any sensitive steps, and I'll report back here with the verified results.",
+      "ts": 1790533492187
+    }
+  ]
+}

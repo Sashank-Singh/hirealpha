@@ -1,0 +1,47 @@
+{
+  "lastCardDeliveredAt": 1790533429682,
+  "facts": [],
+  "summary": "",
+  "history": [
+    {
+      "role": "user",
+      "content": "Organize a dinner with Dana, Priya, Marcus and Tom sometime next week.",
+      "ts": 1790533349685
+    },
+    {
+      "role": "assistant",
+      "content": "Your evenings next week are basically clear (just a gym session Monday at 6:30), so dinner any night works on your end. The real question is the other four.\n\nHere's a draft I can send to Dana, Priya, Marcus, and Tom:\n\n\"Hi all, Alex's assistant here. Alex wants to get everyone together for dinner sometime next week (Sep 28, Oct 4). Could each of you reply with the evenings that work for you? Once we have a night that fits, I'll send a calendar invite with the spot. Thanks!\"\n\nWant me to send that to all four, or do you already know a night that works so I can skip the round trip?",
+      "ts": 1790533349685
+    },
+    {
+      "role": "user",
+      "content": "Dana says she can't do Thursday or Friday.",
+      "ts": 1790533362250
+    },
+    {
+      "role": "assistant",
+      "content": "Noted, Dana's out Thursday and Friday. That leaves Monday through Wednesday plus the weekend as options so far.\n\nAny word from Priya, Marcus, or Tom yet, or should I nudge them?",
+      "ts": 1790533362250
+    },
+    {
+      "role": "user",
+      "content": "Everyone else is good with Wednesday 7:30. Let's do it.",
+      "ts": 1790533392772
+    },
+    {
+      "role": "assistant",
+      "content": "Both are staged, nothing sent yet.\n\nYou'll see a review card for the calendar invite and the email to the four of them. Tap approve on each and they go out.\n\nWhile that's pending: want me to line up a restaurant for Wednesday 7:30? Just say the vibe or neighborhood.",
+      "ts": 1790533392772
+    },
+    {
+      "role": "user",
+      "content": "Yes send the invite to everyone.",
+      "ts": 1790533429683
+    },
+    {
+      "role": "assistant",
+      "content": "The calendar invite for Wednesday 9/30, 7:30 is staged as a review card. Tap approve on it and it goes to your calendar.\n\nThe email to the four of them didn't go through on my end just now. Easiest fix: once the invite is approved, it'll land in their inboxes as an invite anyway, or I can retry the email if you want the note too.\n\nWant me to retry the email, and do you have a neighborhood or vibe for the restaurant?",
+      "ts": 1790533429683
+    }
+  ]
+}

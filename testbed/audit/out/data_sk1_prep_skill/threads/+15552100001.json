@@ -1,0 +1,43 @@
+{
+  "facts": [
+    {
+      "key": "customer_call_prep_routine",
+      "value": "When Alex says 'prep customer call', deliver: their latest emails, last meeting notes, open issues, recent company news, and three suggested questions to ask.",
+      "ts": 1789326368961,
+      "lastSeen": 1789326368961
+    }
+  ],
+  "summary": "",
+  "history": [
+    {
+      "role": "user",
+      "content": "When I say 'prep customer call', I want: their latest emails, our last meeting notes, open issues, recent company news, and three questions I should ask. Got it?",
+      "ts": 1789326378337
+    },
+    {
+      "role": "assistant",
+      "content": "I could not check your inbox just now. Please try again in a moment.",
+      "ts": 1789326378337
+    },
+    {
+      "role": "user",
+      "content": "prep customer call with Northwind",
+      "ts": 1789326423756
+    },
+    {
+      "role": "assistant",
+      "content": "Here's your Northwind prep:\n\nLatest emails (last 30 days)\n\n1. Their CTO · Pricing follow up, team loved the demo, but worried about per seat pricing at 200 seats.\n\n2. Their CTO · Re: kickoff, integration with their SAP flow is the make or break.\n\nLast meeting notes, nothing in your calendar or mail surfaced notes from a prior Northwind meeting. If you have a doc in Drive, tell me the filename and I'll pull it up.\n\nOpen issues, no tracked issues came back. The two threads above are effectively your open items: pricing at 200 seats, and the SAP integration.\n\nRecent company news\n\nNorthwind Traders announced a $30M Series B and is expanding into EU retail. New CTO started in June, likely the person you're talking to, so worth knowing they're early in the seat.\n\nThree questions to ask\n\n1. \"What does your SAP integration timeline look like, and who owns it on your side?\" (their stated make or break)\n\n2. \"At 200 seats, what budget range were you modeling, and is per seat or tiered pricing easier to get approved internally?\"\n\n3. \"With the EU expansion, do you need the rollout to work across regions from day one?\"\n\nWant me to draft a follow up email to their CTO addressing the pricing concern before the call?\n\nhttps://source0.auditnews.example/page",
+      "ts": 1789326423756
+    },
+    {
+      "role": "user",
+      "content": "do Globex too, but skip the news part",
+      "ts": 1790536065338
+    },
+    {
+      "role": "assistant",
+      "content": "I could not verify current information because the web lookup did not run. Please try again.",
+      "ts": 1790536065338
+    }
+  ]
+}

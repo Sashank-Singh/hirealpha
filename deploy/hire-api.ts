@@ -5,6 +5,7 @@
 import { sweepExpiredArtifacts, artifactsRoot } from './workshop'
 import { handleWorkshopRoutes } from './routes/workshop'
 import { handleBrowserRoutes } from './routes/browser'
+import { handleCancelWorkRoutes } from './routes/cancelWork'
 import type { SQL } from 'bun'
 import {
   extractOtherPerson,
@@ -166,6 +167,10 @@ import { handleReminderRoutes } from './routes/reminders'
 import { handleMeRoutes } from './routes/me'
 import { handleLiveRoutes, WORK_READ_TOOLS, type LiveToolWant } from './routes/live'
 import { handleProposalRoutes } from './routes/proposals'
+import { handleAnchorRoutes } from './routes/anchors'
+import { loadGmailFullMessage } from './google/attachments'
+import { upsertThreadState } from './mailState'
+import { mailWaitingOnYou } from './gmailHelpers'
 
 export {
   loadContext,
@@ -1458,6 +1463,28 @@ export async function runToolsForMessage(
       const byId = /^id=([A-Za-z0-9_-]+)$/.exec(query)
       if (byId) {
         const messageId = byId[1]!
+        // One full fetch carries the body AND the attachment list, so "what did
+        // they attach" is answerable and each attachment stays bound to this
+        // thread (attachmentId + filename ride along for the read/forward verbs).
+        const full = await withTimeout(loadGmailFullMessage(sql, input.userId, messageId), 8000, { ok: false as const })
+        if (full.ok && full.message) {
+          const atts = full.message.attachments
+          const attLine = atts.length
+            ? `\nAttachments (${atts.length}): ${atts.map((a) => `${a.filename || '(unnamed)'} [${a.mimeType}] ${a.size} bytes attachmentId=${a.attachmentId}`).join('; ')}\nUse the mail_attachment capability to read or summarize one; use forward_email to pass the message (attachments included) on.`
+            : ''
+          if (full.message.threadId) {
+            void upsertThreadState(sql, input.userId, '', {
+              threadId: full.message.threadId,
+              participant: full.message.from,
+              subject: full.message.subject,
+              direction: 'inbound',
+              awaiting: 'none',
+              lastMessageId: messageId,
+            }).catch(() => undefined)
+          }
+          const bodyText = full.message.bodyText || full.message.snippet || ''
+          return [bodyText ? `Email body id=${messageId}, subject "${full.message.subject}", from ${full.message.from} (up to 12000 characters):\n${bodyText.slice(0, 12000)}${attLine}` : `The message opened but produced no readable text.${attLine}`]
+        }
         const text = await withTimeout(
           (async () => {
             const direct = await withTimeout(loadGmailMessageBody(sql, input.userId, messageId, 12000), 6000, '')
@@ -1468,7 +1495,7 @@ export async function runToolsForMessage(
           12000,
           '',
         )
-        return [text ? `Email body id=${messageId} (up to 12000 characters; attachments not included):\n${text.slice(0, 12000)}` : `Could not retrieve the body for id=${messageId}. Do not infer its contents from the subject.`]
+        return [text ? `Email body id=${messageId} (up to 12000 characters; attachment list unavailable on this read):\n${text.slice(0, 12000)}` : `Could not retrieve the body for id=${messageId}. Do not infer its contents from the subject.`]
       }
       const mailQuery = normalizeGmailQuery(query)
       const row = mailRow
@@ -1497,6 +1524,20 @@ export async function runToolsForMessage(
       let mail = first.items
       if (!mail.length && mailQuery !== 'newer_than:7d') {
         mail = await withTimeout(loadGmailRich(sql, input.userId, 'newer_than:7d', MAIL_READ_CAP), 8000, [])
+      }
+      // Self-healing reply-state: every conversational read seeds per-thread
+      // waiting-on rows (an ask-language mail means the user owes the reply),
+      // so "who am I ignoring?" works past the read window.
+      for (const item of mail.slice(0, 10)) {
+        if (!item.threadId) continue
+        void upsertThreadState(sql, input.userId, '', {
+          threadId: item.threadId,
+          participant: item.from,
+          subject: item.subject,
+          direction: 'inbound',
+          awaiting: mailWaitingOnYou(item) ? 'me' : 'none',
+          lastMessageId: item.id,
+        }).catch(() => undefined)
       }
       /* A capped read is not a whole window. Live, 2026-09-20, the triage replied
        * "Read the last 2 days, 30 emails" — 30 being exactly MAIL_READ_CAP, so a
@@ -2760,7 +2801,7 @@ export async function digestPayload(
           withTimeout(
             readGmailExact(sql, user.id, importantMailQuery('3d'), JUDGE_MAIL_CAP),
             9000,
-            { items: [] as Array<{ id: string; from: string; date: string; subject: string; snippet: string }>, failed: true, status: 'timeout' as const },
+            { items: [] as Array<{ id: string; threadId: string; from: string; date: string; subject: string; snippet: string }>, failed: true, status: 'timeout' as const },
           ),
         ])
         const richItems = mailResult.items
@@ -2928,7 +2969,7 @@ export async function digestPayload(
       const retry = await withTimeout(
         readGmailExact(sql, user.id, importantMailQuery('3d'), JUDGE_MAIL_CAP),
         9000,
-        { items: [] as Array<{ id: string; from: string; date: string; subject: string; snippet: string }>, failed: true, status: 'timeout' as const },
+        { items: [] as Array<{ id: string; threadId: string; from: string; date: string; subject: string; snippet: string }>, failed: true, status: 'timeout' as const },
       )
       if (retry.items.length) {
         const done = await triagedMailIds(sql, user.id).catch(() => new Set<string>())
@@ -3437,12 +3478,22 @@ async function armPokes(
           DELETE FROM hire_reminders
           WHERE user_id = ${user.id} AND persona = ${persona} AND status = 'pending' AND text LIKE '[renewal]%'
         `
+        // First renewal text ever carries the naming teach (P4): what this is
+        // and that it scans daily. Gated by the nudge log so it shows once.
+        let renewalTeach = ''
+        const teachInsert = await sql`
+          INSERT INTO hire_nudge_log (id, user_id, persona, nudge_key)
+          VALUES (${crypto.randomUUID()}, ${user.id}, ${persona}, 'teach:renewal_radar')
+          ON CONFLICT (user_id, nudge_key) DO NOTHING
+          RETURNING id
+        `
+        if (teachInsert.length) renewalTeach = ' (This is your renewal radar: I scan your mail daily and flag charges before they hit.)'
         for (const h of dueSoon) {
           const amount = h.amount ? ` — $${h.amount}` : ''
           await sql`
             INSERT INTO hire_reminders (id, user_id, persona, text, scheduled_at, recurrence, timezone, status)
             VALUES (${crypto.randomUUID()}, ${user.id}, ${persona},
-              ${(`[renewal] ${h.merchant} renews ${h.date}${amount}`).slice(0, 200)},
+              ${(`[renewal] ${h.merchant} renews ${h.date}${amount}${renewalTeach}`).slice(0, 200)},
               ${nextLocalTimeUtc(tz, 8, 0)}, 'once', ${tz}, 'pending')
           `
         }
@@ -4995,7 +5046,7 @@ export async function miniPayload(
         const exact = await withTimeout(
           readGmailExact(sql, user.id, importantMailQuery('2d'), JUDGE_MAIL_CAP),
           6000,
-          { items: [] as Array<{ id: string; from: string; date: string; subject: string; snippet: string }>, failed: true, status: 'timeout' as const },
+          { items: [] as Array<{ id: string; threadId: string; from: string; date: string; subject: string; snippet: string }>, failed: true, status: 'timeout' as const },
         )
         mailStatus = exact.status || 'ok'
         const richMail = exact.items
@@ -5685,6 +5736,8 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
   }
   const browserRes = await handleBrowserRoutes(req, sql, { internalOk })
   if (browserRes) return browserRes
+  const cancelWorkRes = await handleCancelWorkRoutes(req, sql, { internalOk })
+  if (cancelWorkRes) return cancelWorkRes
 
   if (!path.startsWith('/api/') || publicPaths.has(path) || req.method === 'OPTIONS') {
     return handleAuthorizedHireApi(req, sql)
@@ -5809,6 +5862,9 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
 
   const taskRes = await handleTaskRoutes(req, sql, { internalOk })
   if (taskRes) return taskRes
+
+  const anchorRes = await handleAnchorRoutes(req, sql, { internalOk })
+  if (anchorRes) return anchorRes
 
   const workRes = await handleWorkRoutes(req, sql, {
     internalOk,

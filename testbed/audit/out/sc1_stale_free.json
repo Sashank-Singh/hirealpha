@@ -1,0 +1,141 @@
+{
+  "id": "sc1_stale_free",
+  "cat": "C6",
+  "title": "User contradicts cached availability",
+  "agent": "friend",
+  "turns": [
+    {
+      "text": "When am I free tomorrow morning?",
+      "bubbles": [
+        "I could not verify current information because the web lookup did not run. Please try again."
+      ],
+      "reply": "I could not verify current information because the web lookup did not run. Please try again.",
+      "source": "gmi",
+      "card": null,
+      "calls": [
+        {
+          "method": "GET",
+          "path": "/api/internal/live?phone=%2B15552100001&persona=friend&q=When%20am%20I%20free%20tomorrow%20morning%3F",
+          "body": {}
+        },
+        {
+          "method": "GET",
+          "path": "/api/internal/browser/awaiting?phone=%2B15552100001",
+          "body": {}
+        },
+        {
+          "method": "GET",
+          "path": "/api/internal/network?phone=%2B15552100001",
+          "body": {}
+        },
+        {
+          "method": "POST",
+          "path": "/api/internal/touch",
+          "body": {
+            "phone": "+15552100001",
+            "persona": "friend"
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/internal/work/slots",
+          "body": {
+            "phone": "+15552100001",
+            "persona": "friend",
+            "day": "2026-09-28",
+            "partOfDay": "morning",
+            "durationMin": 30,
+            "windowDays": 3,
+            "limit": 5
+          }
+        }
+      ],
+      "llmCallsInTurn": 5,
+      "thread": {
+        "facts": [],
+        "summary": "",
+        "historyCount": 2
+      }
+    },
+    {
+      "text": "Hmm, I think I actually have a dentist thing at 10. Can you double check what's really free?",
+      "bubbles": [
+        "I could not verify current information because the web lookup did not run. Please try again."
+      ],
+      "reply": "I could not verify current information because the web lookup did not run. Please try again.",
+      "source": "gmi",
+      "card": null,
+      "calls": [
+        {
+          "method": "GET",
+          "path": "/api/internal/live?phone=%2B15552100001&persona=friend&q=When%20am%20I%20free%20tomorrow%20morning%3F%0A%0AThe%20user%20then%20refined%20that%20request%3A%20%22Hmm%2C%20I%20think%20I%20actually%20have",
+          "body": {}
+        },
+        {
+          "method": "GET",
+          "path": "/api/internal/browser/awaiting?phone=%2B15552100001",
+          "body": {}
+        },
+        {
+          "method": "GET",
+          "path": "/api/internal/network?phone=%2B15552100001",
+          "body": {}
+        },
+        {
+          "method": "POST",
+          "path": "/api/internal/touch",
+          "body": {
+            "phone": "+15552100001",
+            "persona": "friend"
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/internal/work/slots",
+          "body": {
+            "phone": "+15552100001",
+            "persona": "friend",
+            "day": "2026-09-28",
+            "partOfDay": "morning",
+            "durationMin": 30,
+            "windowDays": 3,
+            "limit": 5
+          }
+        }
+      ],
+      "llmCallsInTurn": 4,
+      "thread": {
+        "facts": [],
+        "summary": "",
+        "historyCount": 4
+      }
+    }
+  ],
+  "created": {
+    "drafts": [],
+    "reminders": [],
+    "scheduledTexts": [],
+    "commitments": [],
+    "memoryWrites": [],
+    "memoryDeletes": [],
+    "spendDecisions": [],
+    "browserTasks": [],
+    "followups": [],
+    "calendarMutations": [],
+    "fileSends": [],
+    "workWrites": [],
+    "taskChoices": [],
+    "watches": [],
+    "todos": [],
+    "loops": [],
+    "otherWrites": []
+  },
+  "finalMemories": [
+    {
+      "key": "preferred_name",
+      "value": "Alex"
+    }
+  ],
+  "llmCalls": 9,
+  "wallMs": 47608
+}

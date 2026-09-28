@@ -4,6 +4,7 @@ import { fetchJudgmentState, inQuietHours, isRecipientSendBlocked } from './judg
 import { buildApprovalText, needsApproval, pickFlavor } from './proactiveFlavors'
 import { buildCommitmentRescueText } from './commitmentRescue'
 import { parseWatchInterval } from './watchInterval'
+import { setTurnAnchorRemote } from './assistantOps'
 
 /** Server owned task loops: the bot claims, acts, and reports the outcome.
  * Every claim result is posted back exactly once so a slow send can never
@@ -420,9 +421,12 @@ export function buildFlightCheckinTexts(payload: FlightPayload, now: Date): Flig
     }
   }
   const checkinUrl = payload.confirmation_url || airlineCheckinUrl(payload)
+  // Named for what it is: Alpha cannot complete airline check-in yet, so the
+  // text is the direct link plus that limit, never a pretense that checking
+  // in happened.
   const base = checkinUrl
-    ? `Check in now: ${checkinUrl}`
-    : `Check in now on the ${payload.airline || 'airline'} site, the window is open.`
+    ? `Check-in is open. I can't complete airline check-in for you yet, so here's the direct page: ${checkinUrl}`
+    : `Check-in is open on the ${payload.airline || 'airline'} site - I can't complete it for you yet.`
   const retime = flightLandingRetimeNote(payload, windowAt)
   let checkin = base
   if (retime) {
@@ -1000,6 +1004,24 @@ export const LOOP_HANDLERS: Record<string, LoopHandler> = {
     outcome: 'done',
     note: 'commitment_rescue',
   }),
+  /** Post-send contextual teach + offer (P1.5/P4): the ONE place follow-up
+   * watching is advertised, right after the user's own send. The offer asks;
+   * the user's yes arms it through the pending_followup_ask anchor gate. It
+   * never arms by itself. */
+  followup_offer: async (task) => {
+    const payload = (task.payload || {}) as { threadId?: unknown; participant?: unknown; subject?: unknown; deadline?: unknown }
+    const threadId = String(payload.threadId || '')
+    const participant = String(payload.participant || '')
+    if (!threadId || !participant) return { outcome: 'failed', note: 'followup_offer missing thread identity' }
+    const deadline = String(payload.deadline || '')
+    const anchorOk = await setTurnAnchorRemote(task.phone, task.persona || 'friend', 'pending_followup_ask', {
+      threadId, participant, subject: String(payload.subject || ''), deadline,
+    })
+    if (!anchorOk) return { outcome: 'failed', note: 'followup_offer anchor unavailable' }
+    const when = deadline ? new Date(deadline).toLocaleDateString('en-US', { weekday: 'long' }) : 'Friday'
+    const text = `Sent to ${participant}. Want me to watch this thread and remind you ${when} if they don't reply? Reply yes and it's armed - I check the live thread and draft the nudge, nothing sends without you.`
+    return { text, outcome: 'done', note: 'followup_offer' }
+  },
   email_followup: async (task) => {
     const followupId = String((task.payload || {}).followupId || '')
     const base = apiBase()

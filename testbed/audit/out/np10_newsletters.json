@@ -1,0 +1,85 @@
+{
+  "id": "np10_newsletters",
+  "cat": "C16",
+  "title": "I'm on way too many newsletters. Fix it.",
+  "agent": "friend",
+  "turns": [
+    {
+      "text": "I'm on way too many newsletters. Fix it.",
+      "bubbles": [
+        "Here's the lay of the land from the last two weeks of promo mail:\n\n1. Morning Brew · \"Daily brew\" · daily newsletter\n\n2. Substack · \"12 newsletters waiting\" · you're subscribed to 12 Substacks\n\nSo it's really one daily brew plus a dozen Substacks. Two ways to cut this down:\n\n1. Tell me which ones to keep and I'll unsubscribe you from the rest (I'll need to go into each one's site to do it).\n\n2. Or the low effort move: keep the Substacks but kill Morning Brew, since Substack already bundles everything into one digest.\n\nWhich ones are you actually reading? Name the keepers and I'll start cutting."
+      ],
+      "reply": "Here's the lay of the land from the last two weeks of promo mail:\n\n1. Morning Brew · \"Daily brew\" · daily newsletter\n\n2. Substack · \"12 newsletters waiting\" · you're subscribed to 12 Substacks\n\nSo it's really one daily brew plus a dozen Substacks. Two ways to cut this down:\n\n1. Tell me which ones to keep and I'll unsubscribe you from the rest (I'll need to go into each one's site to do it).\n\n2. Or the low effort move: keep the Substacks but kill Morning Brew, since Substack already bundles everything into one digest.\n\nWhich ones are you actually reading? Name the keepers and I'll start cutting.",
+      "source": "gmi",
+      "card": null,
+      "calls": [
+        {
+          "method": "GET",
+          "path": "/api/internal/live?phone=%2B15552100001&persona=friend&q=I'm%20on%20way%20too%20many%20newsletters.%20Fix%20it.",
+          "body": {}
+        },
+        {
+          "method": "GET",
+          "path": "/api/internal/browser/awaiting?phone=%2B15552100001",
+          "body": {}
+        },
+        {
+          "method": "GET",
+          "path": "/api/internal/network?phone=%2B15552100001",
+          "body": {}
+        },
+        {
+          "method": "POST",
+          "path": "/api/internal/touch",
+          "body": {
+            "phone": "+15552100001",
+            "persona": "friend"
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/internal/live/tools",
+          "body": {
+            "phone": "+15552100001",
+            "persona": "friend",
+            "message": "category:promotions newer_than:14d",
+            "want": "gmail"
+          }
+        }
+      ],
+      "llmCallsInTurn": 4,
+      "thread": {
+        "facts": [],
+        "summary": "",
+        "historyCount": 2
+      }
+    }
+  ],
+  "created": {
+    "drafts": [],
+    "reminders": [],
+    "scheduledTexts": [],
+    "commitments": [],
+    "memoryWrites": [],
+    "memoryDeletes": [],
+    "spendDecisions": [],
+    "browserTasks": [],
+    "followups": [],
+    "calendarMutations": [],
+    "fileSends": [],
+    "workWrites": [],
+    "taskChoices": [],
+    "watches": [],
+    "todos": [],
+    "loops": [],
+    "otherWrites": []
+  },
+  "finalMemories": [
+    {
+      "key": "preferred_name",
+      "value": "Alex"
+    }
+  ],
+  "llmCalls": 4,
+  "wallMs": 19397
+}

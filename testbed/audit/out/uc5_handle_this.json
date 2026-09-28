@@ -1,0 +1,75 @@
+{
+  "id": "uc5_handle_this",
+  "cat": "C8",
+  "title": "\"handle this\" (dentist moved)",
+  "agent": "friend",
+  "turns": [
+    {
+      "text": "ugh the dentist moved me to next Tuesday 9am. handle it",
+      "bubbles": [
+        "Ugh, 9am Tuesday is a rough trade. I can't reach your calendar from here to move it myself, so make sure the new slot is actually locked with their front desk (sometimes they \"move\" you and it's just a maybe).\n\nWant me to draft a quick confirmation text to them, or set anything up around it, like a reminder the night before?"
+      ],
+      "reply": "Ugh, 9am Tuesday is a rough trade. I can't reach your calendar from here to move it myself, so make sure the new slot is actually locked with their front desk (sometimes they \"move\" you and it's just a maybe).\n\nWant me to draft a quick confirmation text to them, or set anything up around it, like a reminder the night before?",
+      "source": "gmi",
+      "card": null,
+      "calls": [
+        {
+          "method": "GET",
+          "path": "/api/internal/live?phone=%2B15552100001&persona=friend&q=ugh%20the%20dentist%20moved%20me%20to%20next%20Tuesday%209am.%20handle%20it",
+          "body": {}
+        },
+        {
+          "method": "GET",
+          "path": "/api/internal/browser/awaiting?phone=%2B15552100001",
+          "body": {}
+        },
+        {
+          "method": "GET",
+          "path": "/api/internal/network?phone=%2B15552100001",
+          "body": {}
+        },
+        {
+          "method": "POST",
+          "path": "/api/internal/touch",
+          "body": {
+            "phone": "+15552100001",
+            "persona": "friend"
+          }
+        }
+      ],
+      "llmCallsInTurn": 2,
+      "thread": {
+        "facts": [],
+        "summary": "",
+        "historyCount": 2
+      }
+    }
+  ],
+  "created": {
+    "drafts": [],
+    "reminders": [],
+    "scheduledTexts": [],
+    "commitments": [],
+    "memoryWrites": [],
+    "memoryDeletes": [],
+    "spendDecisions": [],
+    "browserTasks": [],
+    "followups": [],
+    "calendarMutations": [],
+    "fileSends": [],
+    "workWrites": [],
+    "taskChoices": [],
+    "watches": [],
+    "todos": [],
+    "loops": [],
+    "otherWrites": []
+  },
+  "finalMemories": [
+    {
+      "key": "preferred_name",
+      "value": "Alex"
+    }
+  ],
+  "llmCalls": 2,
+  "wallMs": 13770
+}

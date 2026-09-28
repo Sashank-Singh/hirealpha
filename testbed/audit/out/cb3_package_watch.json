@@ -1,0 +1,80 @@
+{
+  "id": "cb3_package_watch",
+  "cat": "C20",
+  "title": "Watch UPS package",
+  "agent": "friend",
+  "turns": [
+    {
+      "text": "Watch my UPS package 1Z999AA10123456784 and tell me when it arrives.",
+      "bubbles": [
+        "Couldn't pull anything up on that tracking number, the search came back empty, so it may be too new to show in the system or the number might be off by a digit.\n\nCan you double check the number, or tell me the carrier's tracking page you usually use? Once I have a live page I can set up a recurring check and text you the moment it's delivered.\n\nhttps://audit-none.example/search"
+      ],
+      "reply": "Couldn't pull anything up on that tracking number, the search came back empty, so it may be too new to show in the system or the number might be off by a digit.\n\nCan you double check the number, or tell me the carrier's tracking page you usually use? Once I have a live page I can set up a recurring check and text you the moment it's delivered.\n\nhttps://audit-none.example/search",
+      "source": "gmi",
+      "card": null,
+      "calls": [
+        {
+          "method": "GET",
+          "path": "/api/internal/live?phone=%2B15552100001&persona=friend&q=Watch%20my%20UPS%20package%201Z999AA10123456784%20and%20tell%20me%20when%20it%20arrives.",
+          "body": {}
+        },
+        {
+          "method": "GET",
+          "path": "/api/internal/browser/awaiting?phone=%2B15552100001",
+          "body": {}
+        },
+        {
+          "method": "GET",
+          "path": "/api/internal/network?phone=%2B15552100001",
+          "body": {}
+        },
+        {
+          "method": "POST",
+          "path": "/api/internal/touch",
+          "body": {
+            "phone": "+15552100001",
+            "persona": "friend"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/search",
+          "body": {}
+        }
+      ],
+      "llmCallsInTurn": 4,
+      "thread": {
+        "facts": [],
+        "summary": "",
+        "historyCount": 2
+      }
+    }
+  ],
+  "created": {
+    "drafts": [],
+    "reminders": [],
+    "scheduledTexts": [],
+    "commitments": [],
+    "memoryWrites": [],
+    "memoryDeletes": [],
+    "spendDecisions": [],
+    "browserTasks": [],
+    "followups": [],
+    "calendarMutations": [],
+    "fileSends": [],
+    "workWrites": [],
+    "taskChoices": [],
+    "watches": [],
+    "todos": [],
+    "loops": [],
+    "otherWrites": []
+  },
+  "finalMemories": [
+    {
+      "key": "preferred_name",
+      "value": "Alex"
+    }
+  ],
+  "llmCalls": 4,
+  "wallMs": 31460
+}

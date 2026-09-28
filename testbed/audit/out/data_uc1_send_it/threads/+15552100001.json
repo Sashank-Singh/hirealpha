@@ -1,0 +1,27 @@
+{
+  "lastCardDeliveredAt": 1790536268280,
+  "facts": [],
+  "summary": "",
+  "history": [
+    {
+      "role": "user",
+      "content": "Draft an email to Dana confirming Friday 4pm works for the call.",
+      "ts": 1790536239558
+    },
+    {
+      "role": "assistant",
+      "content": "Draft's saved and on its way to your review card, tap Send when it looks good and it goes to Dana. Want me to also block Friday 4pm on your calendar?",
+      "ts": 1790536239558
+    },
+    {
+      "role": "user",
+      "content": "send it",
+      "ts": 1790536268282
+    },
+    {
+      "role": "assistant",
+      "content": "Draft's ready in your review card, tap Send and it goes to Dana.",
+      "ts": 1790536268282
+    }
+  ]
+}

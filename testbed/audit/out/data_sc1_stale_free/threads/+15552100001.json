@@ -1,0 +1,26 @@
+{
+  "facts": [],
+  "summary": "",
+  "history": [
+    {
+      "role": "user",
+      "content": "When am I free tomorrow morning?",
+      "ts": 1790533752149
+    },
+    {
+      "role": "assistant",
+      "content": "I could not verify current information because the web lookup did not run. Please try again.",
+      "ts": 1790533752149
+    },
+    {
+      "role": "user",
+      "content": "When am I free tomorrow morning?\n\nThe user then refined that request: \"Hmm, I think I actually have a dentist thing at 10. Can you double check what's really free?\". Everything not named in the refinement still stands, so keep the place, the kind of search, and the constraints from the original request and apply only this change.",
+      "ts": 1790533782102
+    },
+    {
+      "role": "assistant",
+      "content": "I could not verify current information because the web lookup did not run. Please try again.",
+      "ts": 1790533782102
+    }
+  ]
+}

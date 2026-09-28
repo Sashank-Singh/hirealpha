@@ -1,0 +1,16 @@
+{
+  "facts": [],
+  "summary": "",
+  "history": [
+    {
+      "role": "user",
+      "content": "Book dinner with Priya somewhere good Friday 8pm. Do what you think is best.",
+      "ts": 1790534087476
+    },
+    {
+      "role": "assistant",
+      "content": "The search is running on OpenTable now for a Friday Oct 2, 8pm table for two. It'll pause before anything is confirmed or paid, and I'll bring you the pick (with a backup or two) once it lands.\n\nLaunching Cloud Computer for this task: https://audit.internal/computer/job_1 — the session is active now, pauses automatically before any sensitive steps, and I'll report back here with the verified results.",
+      "ts": 1790534087476
+    }
+  ]
+}

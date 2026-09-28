@@ -1,0 +1,16 @@
+{
+  "facts": [],
+  "summary": "",
+  "history": [
+    {
+      "role": "user",
+      "content": "I'm going to SaaStr Annual next week. Make sure I'm prepared.",
+      "ts": 1790533127801
+    },
+    {
+      "role": "assistant",
+      "content": "On it. Two things I checked so far:\n\n1. Calendar is clear, next week you've only got the BigCo interview Tue 9/29 at 2 PM and the gym Monday evening. No SaaStr sessions, flights, or hotel blocks on there yet, so nothing conflicts but nothing's booked either.\n\n2. Web search came up thin, I couldn't pull confirmed 2026 dates, venue, or agenda for SaaStr Annual from the search just now. I don't want to guess at dates or sessions, so if you have the event app, registration confirmation email, or the site handy, point me at it. Or if it's in your inbox, I can search your Gmail for the registration confirmation and work from that.\n\nOnce I know the exact days and city, here's the prep I'd run for you:\n\nFlights + hotel near the venue, with cancellation deadlines\n\nCalendar block for travel days so the BigCo interview stays protected\n\nWeather check for packing\n\nMeeting prep, you've got Sam Cohen, Dana Lee, and Sarah Kim in your contacts; SaaStr is exactly the place one of those turns into a hallway meeting. Want me to pull recent email context on any of them so you walk in warm?\n\nWhere do you want to start, the registration email hunt, or travel first?\n\nhttps://audit-none.example/search",
+      "ts": 1790533127801
+    }
+  ]
+}

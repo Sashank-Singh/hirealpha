@@ -1,0 +1,90 @@
+{
+  "id": "np1_wedding",
+  "cat": "C16",
+  "title": "I have a wedding in Austin on Oct 10. What do I need to sort",
+  "agent": "friend",
+  "turns": [
+    {
+      "text": "I have a wedding in Austin on Oct 10. What do I need to sort out this week?",
+      "bubbles": [
+        "No usable forecast that far out yet, I'll check again closer to the date; mid October in Austin is typically warm days and cooler evenings, so pack layers, but don't take that as a forecast.\n\nThis week's list stands:\n\n1. Flights to Austin for Oct 10, book this week before fares climb. Tell me your departure city and I'll pull real options.\n\n2. Hotel near the venue, free cancellation preferred.\n\n3. Gift, off the registry now so it ships in time.\n\n4. Outfit, anything needing alterations should go out this week.\n\n5. Flag: your BigCo interview is Tuesday 2 PM, so keep wedding errands off that day.\n\nWhere are you flying from, and is it just you?\n\nhttps://audit-none.example/search"
+      ],
+      "reply": "No usable forecast that far out yet, I'll check again closer to the date; mid October in Austin is typically warm days and cooler evenings, so pack layers, but don't take that as a forecast.\n\nThis week's list stands:\n\n1. Flights to Austin for Oct 10, book this week before fares climb. Tell me your departure city and I'll pull real options.\n\n2. Hotel near the venue, free cancellation preferred.\n\n3. Gift, off the registry now so it ships in time.\n\n4. Outfit, anything needing alterations should go out this week.\n\n5. Flag: your BigCo interview is Tuesday 2 PM, so keep wedding errands off that day.\n\nWhere are you flying from, and is it just you?\n\nhttps://audit-none.example/search",
+      "source": "gmi",
+      "card": null,
+      "calls": [
+        {
+          "method": "GET",
+          "path": "/api/internal/live?phone=%2B15552100001&persona=friend&q=I%20have%20a%20wedding%20in%20Austin%20on%20Oct%2010.%20What%20do%20I%20need%20to%20sort%20out%20this%20week%3F",
+          "body": {}
+        },
+        {
+          "method": "GET",
+          "path": "/api/internal/browser/awaiting?phone=%2B15552100001",
+          "body": {}
+        },
+        {
+          "method": "GET",
+          "path": "/api/internal/network?phone=%2B15552100001",
+          "body": {}
+        },
+        {
+          "method": "POST",
+          "path": "/api/internal/touch",
+          "body": {
+            "phone": "+15552100001",
+            "persona": "friend"
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/internal/live/tools",
+          "body": {
+            "phone": "+15552100001",
+            "persona": "friend",
+            "message": "start=2026-10-09T00:00:00-04:00 end=2026-10-12T00:00:00-04:00",
+            "want": "calendar"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/search",
+          "body": {}
+        }
+      ],
+      "llmCallsInTurn": 6,
+      "thread": {
+        "facts": [],
+        "summary": "",
+        "historyCount": 2
+      }
+    }
+  ],
+  "created": {
+    "drafts": [],
+    "reminders": [],
+    "scheduledTexts": [],
+    "commitments": [],
+    "memoryWrites": [],
+    "memoryDeletes": [],
+    "spendDecisions": [],
+    "browserTasks": [],
+    "followups": [],
+    "calendarMutations": [],
+    "fileSends": [],
+    "workWrites": [],
+    "taskChoices": [],
+    "watches": [],
+    "todos": [],
+    "loops": [],
+    "otherWrites": []
+  },
+  "finalMemories": [
+    {
+      "key": "preferred_name",
+      "value": "Alex"
+    }
+  ],
+  "llmCalls": 6,
+  "wallMs": 40611
+}

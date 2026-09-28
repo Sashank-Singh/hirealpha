@@ -1,0 +1,134 @@
+{
+  "id": "np9_taxes",
+  "cat": "C16",
+  "title": "Find my 2025 tax documents and put them all in one place.",
+  "agent": "friend",
+  "turns": [
+    {
+      "text": "Find my 2025 tax documents and put them all in one place.",
+      "bubbles": [
+        "I could not verify current information because the web lookup did not run. Please try again."
+      ],
+      "reply": "I could not verify current information because the web lookup did not run. Please try again.",
+      "source": "gmi",
+      "card": null,
+      "calls": [
+        {
+          "method": "GET",
+          "path": "/api/internal/live?phone=%2B15552100001&persona=friend&q=Find%20my%202025%20tax%20documents%20and%20put%20them%20all%20in%20one%20place.",
+          "body": {}
+        },
+        {
+          "method": "GET",
+          "path": "/api/internal/anchors?phone=%2B15552100001&persona=friend",
+          "body": {}
+        },
+        {
+          "method": "GET",
+          "path": "/api/internal/browser/awaiting?phone=%2B15552100001",
+          "body": {}
+        },
+        {
+          "method": "GET",
+          "path": "/api/internal/network?phone=%2B15552100001",
+          "body": {}
+        },
+        {
+          "method": "POST",
+          "path": "/api/internal/touch",
+          "body": {
+            "phone": "+15552100001",
+            "persona": "friend"
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/internal/live/tools",
+          "body": {
+            "phone": "+15552100001",
+            "persona": "friend",
+            "message": "subject:(W-2 OR 1099 OR tax) older_than:1y",
+            "want": "gmail"
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/internal/live/tools",
+          "body": {
+            "phone": "+15552100001",
+            "persona": "friend",
+            "message": "subject:(W-2 OR 1099 OR tax) older_than:1y",
+            "want": "gmail"
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/internal/live/tools",
+          "body": {
+            "phone": "+15552100001",
+            "persona": "friend",
+            "message": "from:(hr OR payroll OR adp OR gusto) W-2",
+            "want": "gmail"
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/internal/live/tools",
+          "body": {
+            "phone": "+15552100001",
+            "persona": "friend",
+            "message": "from:(hr OR payroll OR adp OR gusto) W-2",
+            "want": "gmail"
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/internal/live/tools",
+          "body": {
+            "phone": "+15552100001",
+            "persona": "friend",
+            "message": "W-2",
+            "want": "drive"
+          }
+        }
+      ],
+      "llmCallsInTurn": 6,
+      "thread": {
+        "facts": [],
+        "summary": "",
+        "historyCount": 2
+      }
+    }
+  ],
+  "created": {
+    "drafts": [],
+    "reminders": [],
+    "scheduledTexts": [],
+    "commitments": [],
+    "memoryWrites": [],
+    "memoryDeletes": [],
+    "spendDecisions": [],
+    "browserTasks": [],
+    "followups": [],
+    "calendarMutations": [],
+    "fileSends": [],
+    "workWrites": [],
+    "taskChoices": [],
+    "watches": [],
+    "todos": [],
+    "loops": [],
+    "otherWrites": [
+      {
+        "path": "/api/internal/anchors"
+      }
+    ]
+  },
+  "finalMemories": [
+    {
+      "key": "preferred_name",
+      "value": "Alex"
+    }
+  ],
+  "llmCalls": 6,
+  "wallMs": 36818
+}

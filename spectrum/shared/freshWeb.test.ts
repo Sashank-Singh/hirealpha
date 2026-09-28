@@ -21,7 +21,10 @@ it('does not release an unsupported current answer after the model ignores the s
     chat: async () => 'I just checked: there is no event.', lookup: async () => [], propose: async () => ({ ok: false }),
   })
   expect(result.reply).not.toContain('I just checked')
-  expect(result.reply).toContain('verify')
+  // The release-safe copy names the state honestly ("unverified") instead of
+  // the old "could not verify" phrasing; the contract is that the reply never
+  // carries the fabricated claim.
+  expect(result.reply).toContain('unverified')
 })
 
 it('does not let a calendar lookup stand in for web evidence', async () => {

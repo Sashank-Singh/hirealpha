@@ -1,0 +1,16 @@
+{
+  "facts": [],
+  "summary": "",
+  "history": [
+    {
+      "role": "user",
+      "content": "Remind me at 6pm today to call the vet.",
+      "ts": 1790533878384
+    },
+    {
+      "role": "assistant",
+      "content": "Heads up, Alex, the 6pm vet reminder didn't save on my end, so I can't confirm it's set. I don't want to tell you it's scheduled when it isn't.\n\nIt's 2:30 now, so worst case you've got runway. Want me to try once more, or just plan to ping you here if you see this around 5:45?",
+      "ts": 1790533878384
+    }
+  ]
+}

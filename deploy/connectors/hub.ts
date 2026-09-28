@@ -754,6 +754,7 @@ export const GOOGLE_SCOPES = [
   'https://www.googleapis.com/auth/gmail.readonly',
   'https://www.googleapis.com/auth/gmail.send',
   'https://www.googleapis.com/auth/gmail.compose',
+  'https://www.googleapis.com/auth/gmail.modify',
   'https://www.googleapis.com/auth/calendar.events',
   'https://www.googleapis.com/auth/drive.readonly',
 ].join(' ')
@@ -789,7 +790,7 @@ export async function fetchGmailRichWithStatus(
   access: string,
   query: string,
   maxResults = 8,
-): Promise<{ ok: true; items: Array<{ id: string; from: string; date: string; subject: string; snippet: string }> } | { ok: false; status: number; reason: ConnectorFailureReason }> {
+): Promise<{ ok: true; items: Array<{ id: string; threadId: string; from: string; date: string; subject: string; snippet: string }> } | { ok: false; status: number; reason: ConnectorFailureReason }> {
   const cap = Math.max(1, Math.min(40, maxResults))
   const listUrl = new URL('https://gmail.googleapis.com/gmail/v1/users/me/messages')
   listUrl.searchParams.set('maxResults', String(cap))
@@ -801,7 +802,7 @@ export async function fetchGmailRichWithStatus(
         list.status === 401 ? 'auth_expired' : list.status === 504 || list.status === 408 ? 'timeout' : 'provider_error'
       return { ok: false, status: list.status, reason }
     }
-    const data = (await list.json()) as { messages?: Array<{ id: string }> }
+    const data = (await list.json()) as { messages?: Array<{ id: string; threadId?: string }> }
     const ids = (data.messages || []).slice(0, cap)
     const results = (
       await Promise.all(
@@ -820,7 +821,7 @@ export async function fetchGmailRichWithStatus(
           }
           const headers = msg.payload?.headers || []
           const h = (n: string) => headers.find((x) => x.name.toLowerCase() === n.toLowerCase())?.value || ''
-          return { id: m.id, from: h('From'), date: h('Date'), subject: h('Subject'), snippet: msg.snippet || '' }
+          return { id: m.id, threadId: m.threadId || '', from: h('From'), date: h('Date'), subject: h('Subject'), snippet: msg.snippet || '' }
         }),
       )
     ).filter((item): item is NonNullable<typeof item> => !!item)
@@ -835,7 +836,7 @@ export async function fetchGmailRich(
   access: string,
   query: string,
   maxResults = 8,
-): Promise<Array<{ id: string; from: string; date: string; subject: string; snippet: string }> | null> {
+): Promise<Array<{ id: string; threadId: string; from: string; date: string; subject: string; snippet: string }> | null> {
   const res = await fetchGmailRichWithStatus(access, query, maxResults)
   return res.ok ? res.items : null
 }
@@ -995,7 +996,7 @@ export async function readGmailExact(
   query: string,
   maxResults = 8,
 ): Promise<{
-  items: Array<{ id: string; from: string; date: string; subject: string; snippet: string }>
+  items: Array<{ id: string; threadId: string; from: string; date: string; subject: string; snippet: string }>
   failed: boolean
   status?: ConnectorStatus
 }> {
@@ -1024,7 +1025,9 @@ export async function readGmailExact(
   try {
     const items = await composioGmailRich(userId, query, maxResults, 8000)
     if (items !== null) {
-      return { items, failed: false, status: 'ok' }
+      // Connector rows carry no Gmail thread id; the empty string keeps the
+      // thread-state writers honest instead of inventing an id.
+      return { items: items.map((m) => ({ ...m, threadId: '' })), failed: false, status: 'ok' }
     }
     return { items: [], failed: true, status: knownReason }
   } catch (err: any) {
@@ -1038,7 +1041,7 @@ export async function loadGmailRich(
   userId: string,
   query: string,
   maxResults = 8,
-): Promise<Array<{ id: string; from: string; date: string; subject: string; snippet: string }>> {
+): Promise<Array<{ id: string; threadId: string; from: string; date: string; subject: string; snippet: string }>> {
   return (await readGmailExact(sql, userId, query, maxResults)).items
 }
 

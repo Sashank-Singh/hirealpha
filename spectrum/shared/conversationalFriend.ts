@@ -25,9 +25,16 @@ import {
   runToolConversation, WORK_LIVE_TOOLS, type CapabilityResult, type ConversationCapability,
 } from './toolLoop'
 import { isAffirmativeApprovalIntent, isCasualChitChat, isNegativeCancellationIntent } from './conversationalApproval'
+import { ClaimLedger, enforceClaimEvidence } from './claimEvidence'
+import { cancelWork } from './cancelWork'
 import { cityConflictReply, type CityConflict } from './cityConflict'
 import { parseWatchInterval } from './watchInterval'
 import { enqueuePendingVaultTask } from './pendingVaultTask'
+import { teachLine, recordTeach } from './teaches'
+import {
+  fetchMailState, mailInboxAction, forwardEmailLive, fetchMailAttachmentLive,
+  fetchDayConflicts, upsertContactLive, setTurnAnchorRemote, clearTurnAnchorRemote,
+} from './assistantOps'
 
 const PERSONA_READ_APPS: Record<AgentId, readonly string[]> = {
   friend: ['home', 'nutrition', 'sleep_tracker', 'workout_log', 'spending_snapshot', 'habit_streak', 'networking_crm', 'open_loops', 'learning_queue', 'weekly_review'],
@@ -298,8 +305,12 @@ export async function runConversationalFriend(input: {
   /** Deterministic trip-city conflict from runHireTurn; when set, the turn
    * confirms the city before any lookup or booking. */
   cityConflict?: CityConflict | null
+  /** Claim-provenance ledger owned by the turn. Every deterministic path here
+   * records what actually happened so the outbound layer can verify claims. */
+  evidence?: ClaimLedger
 }) {
   const { live, memory, senderId, dataDir } = input
+  const evidence = input.evidence ?? new ClaimLedger()
   const persona: AgentId = input.agentId || 'friend'
   const agent = getAgent(persona)
   const timezone = pickUserTimezone({ userTz: live.timezone, contextTz: live.context.timezone, memoryTz: [...live.memories, ...memory.facts].find((f) => f.key === 'timezone')?.value })
@@ -344,12 +355,38 @@ export async function runConversationalFriend(input: {
   }
 
   if (pendingSpend) {
-    const reply = await pendingSpendReply({ ...{ dataDir, senderId, userText: input.userText }, pending: pendingSpend })
+    const reply = await pendingSpendReply({ ...{ dataDir, senderId, userText: input.userText }, pending: pendingSpend, evidence })
     appendThread(input.dataDir, input.senderId, [
       { role: 'user', content: input.threadLine || input.userText },
       { role: 'assistant', content: reply },
     ])
     return { reply, bubbles: [reply], source: 'local' as const, authoritative: [], card: null }
+  }
+
+  /* Deterministic cancellation of durable work. A cancel-shaped ask must act
+   * on the operation that actually exists — a browser job, a watch, a
+   * follow-up, a scheduled text — not be re-interpreted by the model into a
+   * fresh draft. Only fires when durable state says something is live; with
+   * nothing active, the model answers from the (typed) empty result. */
+  const cancelShaped =
+    /\b(?:cancel|call (?:it|that) off|never ?mind|nvm|forget (?:it|that)|stop (?:the |that |watching)|don'?t (?:do|buy|order|send|book) (?:it|that))\b/i.test(input.userText)
+  if (cancelShaped) {
+    const { fetchTurnAnchors } = await import('./assistantOps')
+    const anchors = await fetchTurnAnchors(senderId, persona).catch(() => [])
+    const hasWork =
+      memory.pendingVaultTask || memory.pendingConnection ||
+      anchors.some((a) => ['browser_job', 'watch', 'followup', 'scheduled_text', 'event', 'draft'].includes(a.kind))
+    if (hasWork) {
+      const outcome = await cancelWork({ dataDir, senderId, userText: input.userText, evidence })
+      if (outcome.results.length) {
+        const reply = outcome.reply
+        appendThread(input.dataDir, input.senderId, [
+          { role: 'user', content: input.threadLine || input.userText },
+          { role: 'assistant', content: reply },
+        ])
+        return { reply, bubbles: [reply], source: 'local' as const, authoritative: [], card: null }
+      }
+    }
   }
 
   /* City conflict: a place ask that contradicts the trip already planned in
@@ -597,6 +634,15 @@ export async function runConversationalFriend(input: {
 
   const capabilities: ConversationCapability[] = [
     {
+      name: 'cancel_work',
+      description: 'input {target:"purchase"|"watch"|"followup"|"browser"|"scheduled_text"|"all", id?:string}. Cancel durable work the user no longer wants: a pending purchase approval, an armed watch, a reply follow-up watch, a queued or running browser job, a scheduled text. Resolves the operation from durable state by id, never from memory of the conversation. The result is typed: cancelled-before-execution, cancellation-requested (already in flight — confirm later, never claim a plain cancel), already-completed, or nothing-found. Report exactly those words; never upgrade cancellation-requested to cancelled.',
+      mutates: true,
+      execute: async (args) => {
+        const outcome = await cancelWork({ dataDir, senderId, userText: `${String(args.target || 'all')} ${String(args.id || '')}`, evidence })
+        return { status: 'done', message: outcome.reply, data: { results: outcome.results, anythingStillActive: outcome.anythingStillActive } }
+      },
+    },
+    {
       name: 'connect',
       description: 'input {connector:"gmail"|"calendar"|"drive", readOnly:true|false, request:"the original user task to resume"}. Give the actual setup link when a necessary connector is missing. Set readOnly:true when the user wants read access without send/write rights (Gmail read, Calendar read, Drive read) — say plainly that the read-only grant cannot send mail or add events, and that a full grant is their choice. Save the task for the next message. This does not connect an account or authorize access by itself.',
       mutates: true,
@@ -719,35 +765,85 @@ export async function runConversationalFriend(input: {
       },
     },
     {
-      name: 'free_slots', description: 'input {durationMin:30,day:"YYYY-MM-DD or empty",partOfDay:"morning"|"afternoon"|"evening"|empty,windowDays:3}. Read the user\'s REAL free calendar slots before offering any time to anyone (offering two slots in a reply, proposing a meeting) or before drafting a calendar block. Returns verified labels and ISO start/end. Offer only times this returned; if it returns none, say the window is full instead of inventing a time.',
+      name: 'free_slots', description: 'input {durationMin:30,day:"YYYY-MM-DD or empty",partOfDay:"morning"|"afternoon"|"evening"|empty,windowDays:3,guests?:["email addresses of other attendees"]}. Read the user\'s REAL free calendar slots before offering any time to anyone (offering two slots in a reply, proposing a meeting) or before drafting a calendar block. IMPORTANT: this reads ONLY the user\'s calendar. When the ask involves another person ("when can Sarah and I meet?"), either pass their email in guests (if their address is known from the contacts context or the thread) or say plainly that you can see the user\'s calendar but not the other person\'s, and offer to draft the ask. Never present user-only availability as mutual availability. Returns verified labels and ISO start/end. Offer only times this returned; if it returns none, say the window is full instead of inventing a time.',
       execute: async (args) => {
         const duration = Number(args.durationMin)
         const durationMin = Number.isFinite(duration) && duration >= 15 ? Math.min(240, Math.round(duration)) : 30
+        const guestsRaw = Array.isArray(args.guests) ? args.guests.map((g) => String(g)) : []
         const result = await suggestCalendarSlots(senderId, persona, {
           day: text(args, 'day', 10),
           partOfDay: text(args, 'partOfDay', 12),
           durationMin,
           windowDays: Number(args.windowDays) > 0 ? Number(args.windowDays) : 3,
           limit: 5,
+          guests: guestsRaw,
         })
         if (result.unavailable) return failed('The calendar read did not answer, so no free time could be verified. Do not offer or book any time; say the calendar check did not go through and offer to retry.')
         if (result.connect) return failed('Calendar is not connected, so no free time could be read. Do not offer or book any time; say the calendar has to be connected first.')
-        if (!result.slots.length) return { status: 'returned', message: `The calendar is connected and has no free ${durationMin}-minute slot in that window. Do not offer a time in it.`, data: [] }
+        const guestNote = result.guests && result.guests.unknown.length
+          ? ` I can see the user's calendar, not ${result.guests.unknown.join(' or ')}'s — their availability is unknown here. Say that plainly and offer to draft the ask instead of presenting these times as mutual.`
+          : ''
+        if (!result.slots.length) return { status: 'returned', message: `The calendar is connected and has no free ${durationMin}-minute slot in that window.${guestNote} Do not offer a time in it.`, data: [] }
         return {
           status: 'returned',
-          message: `Verified free slots from the real calendar: ${result.slots.map((slot) => `${slot.label} (${slot.start} to ${slot.end})`).join('; ')}. Offer only these times.`,
+          message: `Verified free slots from the real calendar: ${result.slots.map((slot) => `${slot.label} (${slot.start} to ${slot.end})`).join('; ')}.${guestNote} Offer only these times, labelled as user-only when guests were requested but unreadable.`,
           data: result.slots,
         }
       },
     },
     {
-      name: 'calendar_event', description: 'input {eventId:"stable provider event ID from calendar lookup",action:"inspect"|"update"|"cancel"|"rsvp",start?,end?,response?:"accepted"|"declined"|"tentative",scope?:"occurrence"|"series"}. Resolve one exact event first; ask which event if ambiguous. Updating requires a conflict check and exact new ISO start/end. Preserve provider identity and choose occurrence versus series explicitly.', mutates: true,
+      name: 'calendar_event', description: 'input {eventId:"stable provider event ID from calendar lookup",action:"inspect"|"update"|"cancel"|"rsvp"|"invite",start?,end?,response?:"accepted"|"declined"|"tentative",scope?:"occurrence"|"series",attendees?:["emails to invite"],confirm?:boolean}. Resolve one exact event first; ask which event if ambiguous. Updating requires a conflict check and exact new ISO start/end. Cancel and update need confirm:true on a SECOND call after the user said yes — the first call returns the confirmation question and must not mutate. "invite" adds attendees (emails required) and the provider emails them. Preserve provider identity and choose occurrence versus series explicitly.', mutates: true,
       execute: async (args) => {
         const eventId = text(args, 'eventId', 300); const action = text(args, 'action', 20)
-        if (!eventId || !['inspect', 'update', 'cancel', 'rsvp'].includes(action)) return failed('Select one calendar event by its provider ID first.')
-        const result = await mutateCalendarEventLive(senderId, persona, { eventId, action, start: text(args, 'start', 50), end: text(args, 'end', 50), response: text(args, 'response', 20), scope: text(args, 'scope', 20) })
+        if (!eventId || !['inspect', 'update', 'cancel', 'rsvp', 'invite'].includes(action)) return failed('Select one calendar event by its provider ID first.')
+        // Destructive and scheduling writes confirm first: the first call
+        // stages a pending_event_action anchor and asks; the user's yes is
+        // executed by the deterministic gate on the next turn.
+        if (action === 'cancel' || action === 'update') {
+          const confirmed = args.confirm === true || String(args.confirm || '').toLowerCase() === 'true'
+          if (!confirmed) {
+            const when = text(args, 'start', 50)
+            // Inspect first: the pending anchor carries the event's CURRENT
+            // times so a later "undo" can restore exactly what was there.
+            const current = await mutateCalendarEventLive(senderId, persona, { eventId, action: 'inspect' })
+            const ev0 = (current.event || {}) as { summary?: string; start?: { dateTime?: string }; end?: { dateTime?: string } }
+            await setTurnAnchorRemote(senderId, persona, 'pending_event_action', {
+              action, eventId, start: when, end: text(args, 'end', 50), scope: text(args, 'scope', 20),
+              title: ev0.summary || '', priorStart: ev0.start?.dateTime || '', priorEnd: ev0.end?.dateTime || '',
+            })
+            const what = action === 'cancel'
+              ? `Cancel "${ev0.summary || 'that event'}"?`
+              : `Move "${ev0.summary || 'that event'}" to ${when || 'the new time'}?`
+            return { status: 'returned', message: `${what} Reply yes to confirm, or no to leave it.` }
+          }
+        }
+        const addAttendees = action === 'invite'
+          ? (Array.isArray(args.attendees) ? args.attendees.map((a) => String(a)) : [])
+          : undefined
+        if (action === 'invite' && !(addAttendees && addAttendees.length)) {
+          return failed('An invite needs at least one attendee email. Resolve the address from contacts or the thread first.')
+        }
+        const result = await mutateCalendarEventLive(senderId, persona, {
+          eventId,
+          action: action === 'invite' ? 'update' : action,
+          start: text(args, 'start', 50),
+          end: text(args, 'end', 50),
+          response: text(args, 'response', 20),
+          scope: text(args, 'scope', 20),
+          addAttendees,
+        })
         if (!result.ok) return failed(`${result.error || 'Calendar change failed.'}${result.outcomeUnknown ? ' The outcome is unknown; inspect the event before retrying.' : ''}`)
-        return { status: action === 'inspect' ? 'returned' : 'done', message: `Calendar ${action} confirmed by provider readback for event ${eventId}.`, data: result.event }
+        await clearTurnAnchorRemote(senderId, persona, 'pending_event_action')
+        const ev = (result.event || {}) as { summary?: string; start?: { dateTime?: string }; end?: { dateTime?: string }; attendees?: Array<{ email?: string }> }
+        if (action === 'update' && ev.start?.dateTime) {
+          await setTurnAnchorRemote(senderId, persona, 'event', {
+            eventId, title: ev.summary || '', start: ev.start.dateTime, end: ev.end?.dateTime || '',
+          })
+        } else if (action === 'invite') {
+          await setTurnAnchorRemote(senderId, persona, 'event', { eventId, title: ev.summary || '', start: ev.start?.dateTime || '', end: ev.end?.dateTime || '' })
+        }
+        const attendeeCount = Array.isArray(ev.attendees) ? ev.attendees.length : 0
+        return { status: action === 'inspect' ? 'returned' : 'done', message: `Calendar ${action} confirmed by provider readback for event ${eventId}.${attendeeCount ? ` ${attendeeCount} attendees on the event; invitations were emailed.` : ''} Say the change back to the user with the new time.`, data: result.event }
       },
     },
     ...workWriteCapabilities,
@@ -794,6 +890,115 @@ export async function runConversationalFriend(input: {
         const result = await manageEmailFollowup(senderId, persona, { action, id: text(args, 'id', 100), threadId: text(args, 'threadId', 200), expectedParticipant: text(args, 'expectedParticipant', 200), deadline: text(args, 'deadline', 50) })
         if (!result.ok || !result.followup) return failed(`${result.error || 'The email follow-up was not saved.'} Do not claim it is active.`)
         return { status: 'done', message: `Email follow-up ${action} persisted.`, data: result.followup }
+      },
+    },
+    {
+      name: 'mail_state', description: 'input {kind:"waiting_on"|"ignored"|"thread",q?:"person name or email",threadId?}. Answer who-owes-what questions from durable per-thread state: "waiting_on" lists threads where the other person owes the user a reply ("what am I waiting on?", "who owes me a reply?"); "ignored" lists threads where the USER owes a reply ("who am I ignoring?"); "thread" with q or threadId checks one person ("did Sam ever reply?"). Threads named by q are re-read live before answering. Report counts and names, never invent a thread. If the read fails, say so instead of claiming nobody owes anything.',
+      execute: async (args) => {
+        const kind = text(args, 'kind', 20) || 'waiting_on'
+        const stateKind = kind === 'ignored' ? 'waiting_on_me' : kind === 'thread' ? 'all' : 'waiting_on_them'
+        const threadId = text(args, 'threadId', 200)
+        const q = text(args, 'q', 120)
+        const result = await fetchMailState(senderId, persona, { kind: stateKind, refreshThreadId: threadId || undefined })
+        if (!result) return failed('The reply-state read did not answer. Do not claim nobody owes anything; offer to retry.')
+        let rows = result.rows
+        if (stateKind === 'all' && (threadId || q)) {
+          const needle = (threadId || q).toLowerCase()
+          const named = rows.filter((r) => r.threadId === needle || r.participant.toLowerCase().includes(needle))
+          rows = named.length ? named : []
+          if (!named.length) return { status: 'returned', message: `No tracked thread matches ${JSON.stringify(threadId || q)}. Say that no tracked thread was found for them and offer to search the mailbox for the exact thread instead.`, data: [] }
+        }
+        if (result.refresh) {
+          const r = result.refresh
+          if (r.awaiting === 'them') return { status: 'returned', message: `Live re-read: the last message in that thread is from the user, so the other side still owes the reply (last activity ${r.lastDate}).`, data: { refresh: r } }
+          if (r.awaiting === 'me') return { status: 'returned', message: `Live re-read: ${r.lastFrom} replied most recently (${r.lastDate}) — the user owes the next move. Say so plainly.`, data: { refresh: r } }
+          return { status: 'returned', message: `Live re-read returned the thread but the last sender was automated or unclear (last activity ${r.lastDate}). Describe the latest message instead of a yes/no.`, data: { refresh: r } }
+        }
+        if (!rows.length) {
+          const label = stateKind === 'waiting_on_me' ? 'You are not ignoring anyone in the tracked threads.' : 'No tracked thread is waiting on someone else right now. This covers threads Alpha has sent into or read; offer a mailbox search for anything older.'
+          return { status: 'returned', message: label, data: [] }
+        }
+        const lines = rows.slice(0, 8).map((r) => `${r.participant || '(unknown)'} · ${r.subject || '(no subject)'} · ${r.lastActivityAt.slice(0, 10)}`)
+        return { status: 'returned', message: `Tracked threads (${stateKind === 'waiting_on_me' ? 'user owes the reply' : 'they owe the reply'}):\n${lines.join('\n')}\nState the window honestly: this is Alpha's per-thread tracking, not the whole mailbox.`, data: rows }
+      },
+    },
+    {
+      name: 'mail_attachment', description: 'input {messageId:"gmail message id from a gmail lookup",attachmentId:"attachmentId from that lookup"}. Read one email attachment and get a STATUS-LABELED extraction: extracted (summarize freely), partial (summarize only what is present and say it is partial), image_only (a scan; no text layer; do not summarize), encrypted (say so; never guess), malformed, too_large, unsupported (binary; name and type only), empty. Always name the source email (subject + sender) with any summary. Never fill gaps in a partial extraction and never summarize an unreadable file.',
+      execute: async (args) => {
+        const messageId = text(args, 'messageId', 200)
+        const attachmentId = text(args, 'attachmentId', 200)
+        if (!messageId || !attachmentId) return failed('A gmail lookup with the message id must come first; it lists attachmentIds.')
+        const read = await fetchMailAttachmentLive(senderId, messageId, attachmentId)
+        if (!read.ok) return failed(read.error || 'The attachment could not be read. Do not guess its contents.')
+        if (!read.text) {
+          const reason: Record<string, string> = {
+            image_only: 'It is a scan or image-only document with no text layer, so there is nothing to summarize without seeing it.',
+            encrypted: 'It is password-protected, so it cannot be read here.',
+            malformed: 'It could not be parsed as a document.',
+            too_large: 'It is too large to read here.',
+            unsupported: 'Its file type has no safe text extraction.',
+            empty: 'It is a zero-byte file.',
+          }
+          const why = reason[read.status || 'unsupported'] || 'Its text cannot be extracted safely.'
+          return { status: 'returned', message: `${read.filename} (${read.mimeType}, ${read.size || 0} bytes) from "${read.subject}": ${why} Describe it by name and type, and offer to forward it as-is. Do not summarize.`, data: read }
+        }
+        const partialPrefix = read.status === 'partial' ? `PARTIAL extraction (${read.note || 'incomplete'}). Summarize only what is here and say it is partial:\n` : ''
+        return { status: 'returned', message: `${partialPrefix}Text from ${read.filename} (attached to "${read.subject}" from ${read.from}):\n${(read.text || '').slice(0, 2500)}\nSummarize this for the user and name the source email.`, data: read }
+      },
+    },
+    {
+      name: 'inbox_action', description: 'input {ids:["gmail message ids from a lookup"],action:"mark_read"|"mark_unread"|"archive"|"unarchive"|"label"|"trash",label?:"label name"}. File mail for real: archive removes from the inbox (reversible), mark_read clears unread, trash deletes (TRASH ONLY when the user explicitly named that message and said delete/trash). Resolve ids with a gmail lookup first. Report exactly how many were changed; a refusal means the Google grant needs reconnecting, not that the mail was already handled.',
+      mutates: true,
+      execute: async (args) => {
+        const ids = Array.isArray(args.ids) ? args.ids.map((i) => String(i)).filter(Boolean) : []
+        const action = text(args, 'action', 20)
+        if (!ids.length || !['mark_read', 'mark_unread', 'archive', 'unarchive', 'label', 'trash'].includes(action)) {
+          return failed('inbox_action needs real message ids from a gmail lookup and one action.')
+        }
+        if (action === 'trash' && ids.length > 1 && args.confirmed !== true) {
+          return failed('Trashing more than one message needs the user to confirm the exact list first. Show the messages, ask, then run with confirmed:true.')
+        }
+        const result = await mailInboxAction(senderId, persona, ids, action as 'archive', text(args, 'label', 60) || undefined)
+        if (!result.ok && !result.applied.length) return failed(result.error || 'The inbox action was refused. Nothing was changed; say so.')
+        const partial = result.failed.length ? ` ${result.failed.length} of ${ids.length} failed (${result.failed.map((f) => f.error || 'refused').join('; ')}).` : ''
+        return { status: result.applied.length ? 'done' : 'failed', message: `${action.replaceAll('_', ' ')} applied to ${result.applied.length} of ${ids.length} messages.${partial}${result.ok ? '' : ' Say exactly what changed and what did not.'}`, data: result }
+      },
+    },
+    {
+      name: 'forward_email', description: 'input {messageId:"gmail message id from a lookup",to:"verified recipient email",comment?:"a short note above the forwarded text"}. Forward a real email with its attachments and the original sender/date/subject block. Resolve the recipient first (contacts or thread). This SENDS an email: draft-vs-send still applies, so confirm the recipient with the user when they did not name it explicitly.',
+      mutates: true,
+      execute: async (args) => {
+        const messageId = text(args, 'messageId', 200)
+        const to = text(args, 'to', 200)
+        if (!messageId || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) return failed('Forward needs a message id from a gmail lookup and a valid recipient address.')
+        const result = await forwardEmailLive(senderId, persona, { messageId, to, comment: text(args, 'comment', 800) || undefined })
+        if (!result.ok) return failed(`${result.error || 'The forward failed.'}${result.outcomeUnknown ? ' The outcome is unknown; check Gmail before retrying.' : ' Nothing was sent.'}`)
+        return { status: 'done', message: `Forwarded to ${to} with ${result.attachedCount ?? 0} attachment(s)${result.skippedAttachments ? `, ${result.skippedAttachments} attachment(s) skipped` : ''}. Receipt confirmed by Gmail.`, data: result }
+      },
+    },
+    {
+      name: 'check_conflicts', description: 'input {day?:"YYYY-MM-DD, empty for today"}. On-demand calendar conflict check for one day: overlaps and back-to-back gaps, named event by event. Use when the user asks "can I make this work?", "any conflicts?", or before committing a reschedule.',
+      execute: async (args) => {
+        const result = await fetchDayConflicts(senderId, persona, text(args, 'day', 10) || undefined)
+        if (!result.ok) return failed(result.error || 'The calendar check did not go through.')
+        return { status: 'returned', message: `${result.text}${result.count === 0 ? ' (no timed events that day)' : ''}`, data: result }
+      },
+    },
+    {
+      name: 'add_contact', description: 'input {name:"person name",phone?:"E.164",email?:"address",note?:"who they are"}. Add or fill in a person on the user\'s people list from chat — the missing piece that lets later "text Sam" or "email Sam" asks resolve. Use when the user shares a new contact or corrects one.',
+      mutates: true,
+      execute: async (args) => {
+        const name = text(args, 'name', 80)
+        if (!name) return failed('A contact needs at least a name.')
+        const result = await upsertContactLive(senderId, persona, {
+          name,
+          phone: text(args, 'phone', 40) || undefined,
+          email: text(args, 'email', 200) || undefined,
+          note: text(args, 'note', 300) || undefined,
+        })
+        if (!result.ok) return failed(result.error || 'The contact was not saved. Do not claim it was.')
+        await setTurnAnchorRemote(senderId, persona, 'person', { name, phone: text(args, 'phone', 40), email: text(args, 'email', 200) })
+        return { status: 'done', message: `${result.merged ? 'Updated' : 'Added'} ${name} on your people list${text(args, 'phone', 40) || text(args, 'email', 200) ? ' with the details you gave' : ''}.`, data: result }
       },
     },
     {
@@ -1091,6 +1296,7 @@ export async function runConversationalFriend(input: {
   }
   let forcedReply: string | null = null
   const outcome = await runToolConversation({
+    evidence,
     skipFreshLookup: autoNotes.length > 0,
     intent: intentPromise,
     delivery: input.delivery ? {
@@ -1104,6 +1310,13 @@ You are an intelligent, proactive executive partner in iMessage.
 - CURRENT ASK ONLY: answer the latest user message. Earlier thread topics are context, never the task — a new question about email must not end with hotel rates from the previous ask.
 - LOCATION: "near me" / "near home" means the user's saved city and home location in the profile context. Never infer the city from what the thread was last about (a Chicago hotel search does not move the user to Chicago).
 - CITY CONFLICTS ARE ASKED, NEVER PICKED: the profile's city is the only city you may state as the user's own. If a saved fact or an earlier line names a different city, do not repeat either one — ask in one line and let them settle it ("Quick check before I search — is it San Francisco or Raleigh?"). Live, 2026-09-19: one reply said "I have your city (San Francisco)" and another said "I have Raleigh", and a wrong city anchors every nearby search. The founder's instruction, verbatim: "it needs to ask me: Confirm the city: San Francisco or Raleigh".
+- TRUTH ABOUT PARTIAL DATA (never present partial as complete):
+  1. Money and spend numbers cover ONLY what the user logged or approved with Alpha (self-logged spend, purchase receipts). Alpha cannot see bank transactions. Any spend or affordability answer is framed as such: "Of what you've logged, you're at $120 for food" — never "you spent $120 on food" as if it were the bank's number. "Did I pay X?" answers from mail evidence or logs, named as such.
+  2. Mail reads state their real window ("in the last 2 days, the newest 30"). "Who am I ignoring?" answered from tracked threads says that is per-thread tracking, not the whole mailbox.
+  3. Availability read from the user's calendar only is USER-ONLY availability. Never phrase it as mutual free time; the free_slots tool names unknown guests for you.
+  4. Suggestion is not execution: a draft is not sent, a hold is not booked, a watch is not armed, a reminder is not a monitor. Each verb gets the word it earned. A browser task reports verified outcomes only (receipt, order number, screenshot); otherwise it is "outcome unknown".
+  5. Airline check-in, subscription cancellation, and phone calls cannot be executed today. Decline in one line, hand the direct link or the drafted script, and offer the closest real capability (a check-in reminder, a watch, a draft).
+  6. Flight changes, gate changes, and package status are not monitored automatically. Do not promise them; offer a page watch (browser_watch) where a real URL exists.
 - SOURCES: name sources in words ("per Kayak", "American's flight status page"); never paste search-result URLs into your reply. hirealpha.chat session/vault links you generate yourself are the only URLs allowed.
 - Deep intent understanding: Read the whole conversation and understand the user's true goals and intentions, not just literal keywords. Mentioning food, sleep, or money in casual conversation is never a command to log data or open a card.
 - Mini-app Cards: You can attach rich interactive mini-app cards using open_app when discussing workouts, food/nutrition, spending/budget, habits, or day schedule, or when the user wants to see an app. Never send cards for casual banter or simple affirmations ("thanks", "ok", "got it").
@@ -1380,6 +1593,28 @@ ${JSON.stringify(context)}` },
   }
   if (returning) reply = reply.replace(/^(?:(?:hey|hi|hello)[,!]?\s*)?(?:i'm|i am|this is)\s+Alpha(?:\s*,\s*your\s+[^.!?]+)?[.!?]\s*/i, '').trim()
   if (!reply) reply = 'I lost that response. Could you try again?'
-  appendThread(dataDir, senderId, [{ role: 'user', content: input.threadLine || input.userText }, { role: 'assistant', content: [...delivered, reply].join('\n\n') }])
-  return { reply, bubbles: [reply], source: 'gmi' as const, authoritative: live.found ? Object.keys(live.context) : [], card }
+  // Contextual teach (P4): right after a travel/price answer, offer the watch
+  // once — the capability people never think to ask for. Gated to at most two
+  // shows per account with a cooldown, so it teaches and then goes quiet.
+  try {
+    const intent = await intentPromise
+    if (intent.kind === 'request' && intent.request?.needsLookup && /\b(?:price|fare|hotel|flight|rate|deal|drop|sale|restock|back in stock)\b/i.test(input.userText) && !/\bwatch\b/i.test(outcome.reply)) {
+      const teach = teachLine('price_watch', memory)
+      if (teach) {
+        recordTeach('price_watch', dataDir, senderId, memory)
+        reply = `${reply}\n\n${teach}`
+      }
+    }
+  } catch { /* classifier miss: no teach, no harm */ }
+  /* Claims-to-evidence invariant, friend path: every sentence that asserts an
+   * outcome must be backed by this turn's ledger before it leaves. The audit
+   * tracks what actually ran (lookups, capabilities, drafts, cancels, spend
+   * decisions); a claim without a receipt is rewritten to what the engine
+   * verified, positive or negative. */
+  const claimAudit = enforceClaimEvidence(reply, evidence)
+  if (claimAudit.violations.length) {
+    console.warn('[claims] rewrote', claimAudit.violations.length, 'unevidenced claim(s):', claimAudit.violations[0])
+  }
+  appendThread(dataDir, senderId, [{ role: 'user', content: input.threadLine || input.userText }, { role: 'assistant', content: [...delivered, claimAudit.reply].join('\n\n') }])
+  return { reply: claimAudit.reply, bubbles: [claimAudit.reply], source: 'gmi' as const, authoritative: live.found ? Object.keys(live.context) : [], card }
 }

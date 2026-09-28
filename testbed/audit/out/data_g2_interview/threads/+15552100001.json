@@ -1,0 +1,16 @@
+{
+  "facts": [],
+  "summary": "",
+  "history": [
+    {
+      "role": "user",
+      "content": "Figure out what I need to do before my BigCo interview Wednesday and handle whatever you can.",
+      "ts": 1790533089452
+    },
+    {
+      "role": "assistant",
+      "content": "Quick update: I tried a news sweep on BigCo and nothing useful came back, no recent coverage I can point to, so don't quote me on any \"latest news\" talking points. Better to lean on the product case and questions for the panel.\n\nSo the to do list stands:\n\nPick and rehearse one product case (Jules's explicit ask)\n\nPlan the route to 100 Main St for a ~1:45 arrival\n\nPrep questions for the product and engineering leads\n\nWant me to draft the quick confirmation note to Dana, and set a Tuesday evening reminder for a final case run through?\n\nhttps://audit-none.example/search",
+      "ts": 1790533089452
+    }
+  ]
+}

@@ -17,6 +17,7 @@ import { BriefLoading } from './BriefLoading'
 import { useSwipeBack } from './useSwipeBack'
 import { swipeBackTarget } from './swipeBack'
 import './homeA.css'
+import './friendBrief.css'
 
 
 // Download only the screen being opened; keep the surrounding navigation visible.
@@ -42,6 +43,7 @@ const HomeApp = lazy(() => import('./HomeApp').then(m => ({ default: m.HomeApp }
 const ArtifactApp = lazy(() => import('./WorkHomes').then(m => ({ default: m.ArtifactApp })))
 const CofounderHomeApp = lazy(() => import('./WorkHomes').then(m => ({ default: m.CofounderHomeApp })))
 const CoworkerHomeApp = lazy(() => import('./WorkHomes').then(m => ({ default: m.CoworkerHomeApp })))
+const FriendBrief = lazy(() => import('./FriendBrief').then(m => ({ default: m.FriendBrief })))
 const BriefApp = lazy(() => import('./BriefApp').then(m => ({ default: m.BriefApp })))
 /* The next morning brief, prototyped in src/lab. Mock data for now; `?brief=classic`
  * puts the shipped brief back while the two are compared. */
@@ -222,6 +224,7 @@ export function MiniAppPage() {
   const kind = params.kind
   const [searchParams] = useSearchParams()
   const classicBrief = searchParams.get('brief') === 'classic'
+  const friendBrief = persona === 'friend' && (kind === 'digest' || kind === 'pick_night') && !classicBrief
   const navigate = useNavigate()
   const token = searchParams.get('t') || ''
   const agent = getAgent(persona)
@@ -385,6 +388,7 @@ export function MiniAppPage() {
         else setMini({ error: "Couldn't load this right now." })
       })
       .finally(() => {
+        setFetching(false)
         setLoading(false)
       })
   }, [kind, persona, token, isDigest, isLiveMini])
@@ -633,7 +637,7 @@ export function MiniAppPage() {
   }
 
   return (
-    <div className="mini hA-screen" style={{ '--mini-accent': miniAccent, '--mini-accent-fg': miniAccentFg } as CSSProperties}>
+    <div className={`mini hA-screen${friendBrief ? ' fb-screen' : ''}`} style={{ '--mini-accent': miniAccent, '--mini-accent-fg': miniAccentFg } as CSSProperties}>
       <div className="mini__card">
         <header className="mini__head">
           {!isApps && (
@@ -730,7 +734,7 @@ export function MiniAppPage() {
         {authed && !expired && isApps && !settingsOpen && (
           <div className="mini__body mini__body--home-screen">
             {isMenuCard && setupDone === null ? (
-              <BriefLoading />
+              <BriefLoading calm={friendBrief} />
             ) : isMenuCard && setupDone === false ? (
               <SetupApp
                 auth={{
@@ -771,20 +775,31 @@ export function MiniAppPage() {
 
         {authed && !expired && !settingsOpen && isDigest && !classicBrief && !loading && !data?.error && (!data?.pending || !!(data?.calendar?.length || data?.story || data?.meetings?.length || data?.emails?.length)) && (
           <div className="mini__body">
-            <Suspense fallback={<BriefLoading attempt={briefTries} />}>
-              <NextBriefEmbedded
+            <Suspense fallback={<BriefLoading calm={friendBrief} attempt={briefTries} />}>
+              {friendBrief ? <FriendBrief
+                key="morning"
+                data={data}
+                auth={{ persona: 'friend', email: email || undefined, token: token || undefined }}
+                updatedAt={updatedAt}
+                refreshing={fetching || !!data?.pending}
+                onRefresh={() => refresh({ force: true })}
+                href={openHref}
+                onSettings={() => setSettingsOpen(true)}
+                onOpenMail={openMail}
+                onOpenDraft={openReplyDraft}
+              /> : <NextBriefEmbedded
                 data={data}
                 updatedAt={updatedAt}
                 refreshing={fetching || !!data?.pending}
                 onRefresh={() => refresh({ force: true })}
-              />
+              />}
             </Suspense>
           </div>
         )}
 
         {authed && !expired && !settingsOpen && isDigest && loading && !data && (
           <div className="mini__body">
-            <BriefLoading attempt={briefTries} />
+            <BriefLoading calm={friendBrief} attempt={briefTries} />
           </div>
         )}
 
@@ -810,7 +825,7 @@ export function MiniAppPage() {
         {/* If pending with no data yet, show loading progress */}
         {authed && !expired && !settingsOpen && isDigest && !loading && !data?.error && data?.pending && (!data?.calendar?.length && !data?.story && !data?.meetings?.length && !data?.emails?.length) && (
           <div className="mini__body">
-            <BriefLoading attempt={briefTries} />
+            <BriefLoading calm={friendBrief} attempt={briefTries} />
             {briefTries >= BRIEF_RETRY_MS.length + 30 && (
               <button className="mini__btn" type="button" onClick={() => setBriefTries(0)}>
                 Try again
@@ -837,20 +852,21 @@ export function MiniAppPage() {
 
         {authed && !expired && !settingsOpen && isLiveMini && !isDigest && loading && (
           <div className="mini__body">
-            {isEveningBrief ? <BriefLoading evening attempt={briefTries} /> : <p className="mini__blurb">Working it out…</p>}
+            {isEveningBrief ? <BriefLoading calm={friendBrief} evening attempt={briefTries} /> : <p className="mini__blurb">Working it out…</p>}
           </div>
         )}
 
         {authed && !expired && !settingsOpen && isLiveMini && !isDigest && !loading && mini?.error && (
           <div className="mini__body">
-            <p className="mini__blurb">{mini.error}</p>
+            <p className="mini__blurb" role="alert">{mini.error}</p>
+            <button className="mini__btn" type="button" onClick={() => void refresh({ force: true })}>Try again</button>
           </div>
         )}
 
         {/* Same shape as morning: show loading only when cold with no data */}
         {authed && !expired && !settingsOpen && isEveningBrief && !loading && !mini?.error && mini?.pending && (!mini?.sections?.length && !mini?.mailGroups?.length) && (
           <div className="mini__body">
-            <BriefLoading evening attempt={briefTries} />
+            <BriefLoading calm={friendBrief} evening attempt={briefTries} />
             {briefTries >= BRIEF_RETRY_MS.length + 30 && (
               <button className="mini__btn" type="button" onClick={() => setBriefTries(0)}>
                 Try again
@@ -861,8 +877,20 @@ export function MiniAppPage() {
 
         {authed && !expired && !settingsOpen && isLiveMini && !isDigest && kind === 'pick_night' && !classicBrief && !loading && !mini?.error && (!mini?.pending || !!(mini?.sections?.length || mini?.mailGroups?.length)) && (
           <div className="mini__body">
-            <Suspense fallback={<BriefLoading evening attempt={briefTries} />}>
-              <NextBriefEvening evening={mini} />
+            <Suspense fallback={<BriefLoading calm={friendBrief} evening attempt={briefTries} />}>
+              {friendBrief ? <FriendBrief
+                key="evening"
+                evening
+                data={mini}
+                auth={{ persona: 'friend', email: email || undefined, token: token || undefined }}
+                updatedAt={updatedAt}
+                refreshing={fetching || !!mini?.pending}
+                onRefresh={() => refresh({ force: true })}
+                href={openHref}
+                onSettings={() => setSettingsOpen(true)}
+                onOpenMail={openMail}
+                onOpenDraft={openReplyDraft}
+              /> : <NextBriefEvening evening={mini} />}
             </Suspense>
           </div>
         )}

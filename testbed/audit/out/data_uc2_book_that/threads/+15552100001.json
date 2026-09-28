@@ -1,0 +1,16 @@
+{
+  "facts": [],
+  "summary": "",
+  "history": [
+    {
+      "role": "user",
+      "content": "book that",
+      "ts": 1790533943630
+    },
+    {
+      "role": "assistant",
+      "content": "I can't send that object honestly, no site was named and there's no booking target in this thread. Tell me what to book and where, and I'll run it for real.",
+      "ts": 1790533943630
+    }
+  ]
+}

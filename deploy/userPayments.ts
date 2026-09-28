@@ -666,6 +666,39 @@ export async function handleUserPaymentsApi(req: Request, sql: SQL, deps: UserPa
     return json({ ok: true, state: 'succeeded', charged: true, paymentIntentId: charge.paymentIntentId })
   }
 
+  /* Read-only spend state for status questions. The approval gate must be able
+   * to answer "did it go through?" from the durable row instead of from chat
+   * memory, and a status read must never mutate anything. */
+  if (path === '/api/internal/spend/state' && req.method === 'GET') {
+    if (!deps.internalOk?.(req)) return json({ error: 'Unauthorized' }, 401)
+    const phone = url.searchParams.get('phone') || ''
+    const requestId = url.searchParams.get('requestId') || ''
+    if (!phone || !requestId) return json({ ok: false, error: 'phone and requestId are required' }, 400)
+    if (!deps.livePayload) return json({ ok: false, error: 'Payment service unavailable' }, 503)
+    const live = await deps.livePayload(sql, phone, 'friend')
+    if (!live.found || !live.userId) return json({ ok: false, error: 'User not found' }, 404)
+    const rows = await sql`
+      SELECT status, amount_cents, purpose, merchant_url, consumed_at, decided_at,
+        finalization_status, payment_intent_id
+      FROM hire_spend_approvals WHERE id = ${requestId} AND user_id = ${live.userId} LIMIT 1
+    `
+    const row = rows[0]
+    if (!row) return json({ ok: false, error: 'Spend request not found' }, 404)
+    const state = row.finalization_status === 'completed' ? 'succeeded'
+      : row.finalization_status === 'outcome_unknown' || row.finalization_status === 'needs_attention' ? 'outcome_unknown'
+      : row.consumed_at || ['running', 'retrieving_credential', 'executing'].includes(row.finalization_status) ? 'executing'
+      : row.status === 'denied' ? 'cancelled' : 'pending_approval'
+    return json({
+      ok: true,
+      state,
+      amountCents: row.amount_cents,
+      purpose: row.purpose,
+      url: row.merchant_url,
+      paymentIntentId: row.payment_intent_id ?? null,
+      charged: state === 'succeeded',
+    })
+  }
+
   if (!path.startsWith('/api/payments')) return null
 
   // Every payment surface, including provider-action redirects, is bound to

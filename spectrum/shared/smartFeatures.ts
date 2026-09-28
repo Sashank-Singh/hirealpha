@@ -276,7 +276,9 @@ export function handleDebrief(meetingTitle: string): string {
  * the turn surfaces the count and each pending draft. */
 export function handleSweep(count: number, pending: string[]): string {
   if (!count) return 'Nothing waiting on you. Inbox zero.'
-  return `Sweep: ${count} waiting on you.\n${pending.map((p, i) => `${i + 1}. ${p}`).join('\n')}\nReply with the numbers to approve (e.g. "1,3"), "edit #" to rework one, or "skip".`
+  // "Handle my inbox" honesty: sending still needs the user's tap, and filing
+  // is a separate ask. The sweep names both so a draft never reads as done.
+  return `Sweep: ${count} waiting on you.\n${pending.map((p, i) => `${i + 1}. ${p}`).join('\n')}\nReply with the numbers to approve (e.g. "1,3"), "edit #" to rework one, or "skip". Sending happens on your tap; say "archive the rest" if you want the noise filed.`
 }
 
 /** 4. Brain Dump: turn a free-text dump into loops/reminders/decisions. */

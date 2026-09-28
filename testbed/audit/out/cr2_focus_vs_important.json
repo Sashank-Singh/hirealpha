@@ -1,0 +1,92 @@
+{
+  "id": "cr2_focus_vs_important",
+  "cat": "C11",
+  "title": "Focus block vs important meeting",
+  "agent": "friend",
+  "turns": [
+    {
+      "text": "Stripe's CEO can only do Tuesday 9:30am this week. Take the meeting?",
+      "bubbles": [
+        "Tuesday 9:30 is inside your protected 9 to noon block, so I'd pass on that slot.\n\nHe's only free Tuesday, but your calendar shows Tue 1:00, 3:00 PM open, I'd counter with 1:30 PM Tuesday. Want me to send that counter to his office?"
+      ],
+      "reply": "Tuesday 9:30 is inside your protected 9 to noon block, so I'd pass on that slot.\n\nHe's only free Tuesday, but your calendar shows Tue 1:00, 3:00 PM open, I'd counter with 1:30 PM Tuesday. Want me to send that counter to his office?",
+      "source": "gmi",
+      "card": null,
+      "calls": [
+        {
+          "method": "GET",
+          "path": "/api/internal/live?phone=%2B15552100001&persona=friend&q=Stripe's%20CEO%20can%20only%20do%20Tuesday%209%3A30am%20this%20week.%20Take%20the%20meeting%3F",
+          "body": {}
+        },
+        {
+          "method": "GET",
+          "path": "/api/internal/browser/awaiting?phone=%2B15552100001",
+          "body": {}
+        },
+        {
+          "method": "GET",
+          "path": "/api/internal/network?phone=%2B15552100001",
+          "body": {}
+        },
+        {
+          "method": "POST",
+          "path": "/api/internal/touch",
+          "body": {
+            "phone": "+15552100001",
+            "persona": "friend"
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/internal/work/slots",
+          "body": {
+            "phone": "+15552100001",
+            "persona": "friend",
+            "day": "2026-09-29",
+            "partOfDay": "afternoon",
+            "durationMin": 30,
+            "windowDays": 3,
+            "limit": 5
+          }
+        }
+      ],
+      "llmCallsInTurn": 4,
+      "thread": {
+        "facts": [],
+        "summary": "",
+        "historyCount": 2
+      }
+    }
+  ],
+  "created": {
+    "drafts": [],
+    "reminders": [],
+    "scheduledTexts": [],
+    "commitments": [],
+    "memoryWrites": [],
+    "memoryDeletes": [],
+    "spendDecisions": [],
+    "browserTasks": [],
+    "followups": [],
+    "calendarMutations": [],
+    "fileSends": [],
+    "workWrites": [],
+    "taskChoices": [],
+    "watches": [],
+    "todos": [],
+    "loops": [],
+    "otherWrites": []
+  },
+  "finalMemories": [
+    {
+      "key": "preferred_name",
+      "value": "Alex"
+    },
+    {
+      "key": "hard_nos",
+      "value": "protect 9am-noon focus block, never book anything in it"
+    }
+  ],
+  "llmCalls": 4,
+  "wallMs": 45375
+}

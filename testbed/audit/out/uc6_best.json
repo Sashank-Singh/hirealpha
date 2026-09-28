@@ -1,0 +1,111 @@
+{
+  "id": "uc6_best",
+  "cat": "C8",
+  "title": "\"do what you think is best\"",
+  "agent": "friend",
+  "turns": [
+    {
+      "text": "Book dinner with Priya somewhere good Friday 8pm. Do what you think is best.",
+      "bubbles": [
+        "The search is running on OpenTable now for a Friday Oct 2, 8pm table for two. It'll pause before anything is confirmed or paid, and I'll bring you the pick (with a backup or two) once it lands.\n\nLaunching Cloud Computer for this task: https://audit.internal/computer/job_1 — the session is active now, pauses automatically before any sensitive steps, and I'll report back here with the verified results."
+      ],
+      "reply": "The search is running on OpenTable now for a Friday Oct 2, 8pm table for two. It'll pause before anything is confirmed or paid, and I'll bring you the pick (with a backup or two) once it lands.\n\nLaunching Cloud Computer for this task: https://audit.internal/computer/job_1 — the session is active now, pauses automatically before any sensitive steps, and I'll report back here with the verified results.",
+      "source": "gmi",
+      "card": null,
+      "calls": [
+        {
+          "method": "GET",
+          "path": "/api/internal/live?phone=%2B15552100001&persona=friend&q=Book%20dinner%20with%20Priya%20somewhere%20good%20Friday%208pm.%20Do%20what%20you%20think%20is%20best.",
+          "body": {}
+        },
+        {
+          "method": "GET",
+          "path": "/api/internal/browser/awaiting?phone=%2B15552100001",
+          "body": {}
+        },
+        {
+          "method": "GET",
+          "path": "/api/internal/network?phone=%2B15552100001",
+          "body": {}
+        },
+        {
+          "method": "POST",
+          "path": "/api/internal/touch",
+          "body": {
+            "phone": "+15552100001",
+            "persona": "friend"
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/internal/live/tools",
+          "body": {
+            "phone": "+15552100001",
+            "persona": "friend",
+            "message": "start=2026-10-02T00:00:00-04:00 end=2026-10-03T00:00:00-04:00",
+            "want": "calendar"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/search",
+          "body": {}
+        },
+        {
+          "method": "POST",
+          "path": "/api/internal/propose",
+          "body": {
+            "phone": "+15552100001",
+            "persona": "friend",
+            "kind": "browser",
+            "url": "https://www.opentable.com",
+            "body": "Find and stage a dinner reservation for 2 at a well-rated restaurant on Friday, October 2 at 8:00 PM, pausing before confirmation for the user's approval",
+            "autoApprove": true
+          }
+        }
+      ],
+      "llmCallsInTurn": 7,
+      "thread": {
+        "facts": [],
+        "summary": "",
+        "historyCount": 2
+      }
+    }
+  ],
+  "created": {
+    "drafts": [],
+    "reminders": [],
+    "scheduledTexts": [],
+    "commitments": [],
+    "memoryWrites": [],
+    "memoryDeletes": [],
+    "spendDecisions": [],
+    "browserTasks": [
+      {
+        "phone": "+15552100001",
+        "persona": "friend",
+        "kind": "browser",
+        "url": "https://www.opentable.com",
+        "body": "Find and stage a dinner reservation for 2 at a well-rated restaurant on Friday, October 2 at 8:00 PM, pausing before confirmation for the user's approval",
+        "autoApprove": true
+      }
+    ],
+    "followups": [],
+    "calendarMutations": [],
+    "fileSends": [],
+    "workWrites": [],
+    "taskChoices": [],
+    "watches": [],
+    "todos": [],
+    "loops": [],
+    "otherWrites": []
+  },
+  "finalMemories": [
+    {
+      "key": "preferred_name",
+      "value": "Alex"
+    }
+  ],
+  "llmCalls": 7,
+  "wallMs": 42888
+}

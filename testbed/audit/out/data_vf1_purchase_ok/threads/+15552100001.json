@@ -1,0 +1,27 @@
+{
+  "lastCardDeliveredAt": 1790533827527,
+  "facts": [],
+  "summary": "",
+  "history": [
+    {
+      "role": "user",
+      "content": "Order the standard whey protein from Amazon — $42.",
+      "ts": 1790533827528
+    },
+    {
+      "role": "assistant",
+      "content": "Found it: Optimum Nutrition Standard Whey, $42.00, in stock on Amazon. Nothing's charged yet, tap Pay on the card to approve it, and I'll need your delivery address if one isn't saved (you can text it here or save it at https://hirealpha.chat/app?tab=settings).\n\nLaunching Cloud Computer to stage your order: https://audit.internal/computer/job_1 — navigating to the merchant, selecting your options, and proceeding through checkout with your saved shipping address. I'll bring the verified approval card right here as soon as checkout is ready.",
+      "ts": 1790533827528
+    },
+    {
+      "role": "user",
+      "content": "approve",
+      "ts": 1790533827529
+    },
+    {
+      "role": "assistant",
+      "content": "Payment received: $42.00 for Optimum Nutrition Standard Whey. Merchant checkout is not yet confirmed; the order needs its own receipt.",
+      "ts": 1790533827529
+    }
+  ]
+}

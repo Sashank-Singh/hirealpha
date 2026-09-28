@@ -1,0 +1,26 @@
+{
+  "facts": [],
+  "summary": "",
+  "history": [
+    {
+      "role": "user",
+      "content": "Get dinner booked with Dana, Priya and Tom next week.",
+      "ts": 1790533444302
+    },
+    {
+      "role": "assistant",
+      "content": "Happy to set that up. Two quick things:\n\n1. Any day next week that works best, or should I float a couple options to the group?\n\n2. Same spot as usual, or somewhere new? If new, any vibe or budget in mind?\n\nOnce I know, I'll get it locked in and send everyone the details.",
+      "ts": 1790533444302
+    },
+    {
+      "role": "user",
+      "content": "Actually Tom's out, and it needs to be somewhere quieter than the last place.",
+      "ts": 1790533456987
+    },
+    {
+      "role": "assistant",
+      "content": "Got it, Tom's out and we're going quieter. Noted.\n\nSo it's you, Dana, and Priya. What day next week works, and do you have a spot in mind or want me to suggest a few quiet options near you?",
+      "ts": 1790533456987
+    }
+  ]
+}

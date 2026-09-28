@@ -1,0 +1,87 @@
+{
+  "id": "vf4_reminder_fail",
+  "cat": "C7",
+  "title": "Reminder provider fails",
+  "agent": "friend",
+  "turns": [
+    {
+      "text": "Remind me at 6pm today to call the vet.",
+      "bubbles": [
+        "Heads up, Alex, the 6pm vet reminder didn't save on my end, so I can't confirm it's set. I don't want to tell you it's scheduled when it isn't.\n\nIt's 2:30 now, so worst case you've got runway. Want me to try once more, or just plan to ping you here if you see this around 5:45?"
+      ],
+      "reply": "Heads up, Alex, the 6pm vet reminder didn't save on my end, so I can't confirm it's set. I don't want to tell you it's scheduled when it isn't.\n\nIt's 2:30 now, so worst case you've got runway. Want me to try once more, or just plan to ping you here if you see this around 5:45?",
+      "source": "gmi",
+      "card": null,
+      "calls": [
+        {
+          "method": "GET",
+          "path": "/api/internal/live?phone=%2B15552100001&persona=friend&q=Remind%20me%20at%206pm%20today%20to%20call%20the%20vet.",
+          "body": {}
+        },
+        {
+          "method": "GET",
+          "path": "/api/internal/browser/awaiting?phone=%2B15552100001",
+          "body": {}
+        },
+        {
+          "method": "GET",
+          "path": "/api/internal/network?phone=%2B15552100001",
+          "body": {}
+        },
+        {
+          "method": "POST",
+          "path": "/api/internal/touch",
+          "body": {
+            "phone": "+15552100001",
+            "persona": "friend"
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/internal/reminders",
+          "body": {
+            "phone": "+15552100001",
+            "persona": "friend",
+            "text": "Call the vet",
+            "scheduledAt": "2026-09-27T22:00:00.000Z",
+            "recurrence": "once",
+            "timezone": "America/New_York"
+          }
+        }
+      ],
+      "llmCallsInTurn": 4,
+      "thread": {
+        "facts": [],
+        "summary": "",
+        "historyCount": 2
+      }
+    }
+  ],
+  "created": {
+    "drafts": [],
+    "reminders": [],
+    "scheduledTexts": [],
+    "commitments": [],
+    "memoryWrites": [],
+    "memoryDeletes": [],
+    "spendDecisions": [],
+    "browserTasks": [],
+    "followups": [],
+    "calendarMutations": [],
+    "fileSends": [],
+    "workWrites": [],
+    "taskChoices": [],
+    "watches": [],
+    "todos": [],
+    "loops": [],
+    "otherWrites": []
+  },
+  "finalMemories": [
+    {
+      "key": "preferred_name",
+      "value": "Alex"
+    }
+  ],
+  "llmCalls": 4,
+  "wallMs": 18461
+}

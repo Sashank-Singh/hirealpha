@@ -1,0 +1,115 @@
+{
+  "id": "lh2_dinner_change",
+  "cat": "C2",
+  "title": "Dinner replanning mid-flow",
+  "agent": "friend",
+  "turns": [
+    {
+      "text": "Get dinner booked with Dana, Priya and Tom next week.",
+      "bubbles": [
+        "Happy to set that up. Two quick things:\n\n1. Any day next week that works best, or should I float a couple options to the group?\n\n2. Same spot as usual, or somewhere new? If new, any vibe or budget in mind?\n\nOnce I know, I'll get it locked in and send everyone the details."
+      ],
+      "reply": "Happy to set that up. Two quick things:\n\n1. Any day next week that works best, or should I float a couple options to the group?\n\n2. Same spot as usual, or somewhere new? If new, any vibe or budget in mind?\n\nOnce I know, I'll get it locked in and send everyone the details.",
+      "source": "gmi",
+      "card": null,
+      "calls": [
+        {
+          "method": "GET",
+          "path": "/api/internal/live?phone=%2B15552100001&persona=friend&q=Get%20dinner%20booked%20with%20Dana%2C%20Priya%20and%20Tom%20next%20week.",
+          "body": {}
+        },
+        {
+          "method": "GET",
+          "path": "/api/internal/browser/awaiting?phone=%2B15552100001",
+          "body": {}
+        },
+        {
+          "method": "GET",
+          "path": "/api/internal/network?phone=%2B15552100001",
+          "body": {}
+        },
+        {
+          "method": "POST",
+          "path": "/api/internal/touch",
+          "body": {
+            "phone": "+15552100001",
+            "persona": "friend"
+          }
+        }
+      ],
+      "llmCallsInTurn": 2,
+      "thread": {
+        "facts": [],
+        "summary": "",
+        "historyCount": 2
+      }
+    },
+    {
+      "text": "Actually Tom's out, and it needs to be somewhere quieter than the last place.",
+      "bubbles": [
+        "Got it, Tom's out and we're going quieter. Noted.\n\nSo it's you, Dana, and Priya. What day next week works, and do you have a spot in mind or want me to suggest a few quiet options near you?"
+      ],
+      "reply": "Got it, Tom's out and we're going quieter. Noted.\n\nSo it's you, Dana, and Priya. What day next week works, and do you have a spot in mind or want me to suggest a few quiet options near you?",
+      "source": "gmi",
+      "card": null,
+      "calls": [
+        {
+          "method": "GET",
+          "path": "/api/internal/live?phone=%2B15552100001&persona=friend&q=Actually%20Tom's%20out%2C%20and%20it%20needs%20to%20be%20somewhere%20quieter%20than%20the%20last%20place.",
+          "body": {}
+        },
+        {
+          "method": "GET",
+          "path": "/api/internal/browser/awaiting?phone=%2B15552100001",
+          "body": {}
+        },
+        {
+          "method": "GET",
+          "path": "/api/internal/network?phone=%2B15552100001",
+          "body": {}
+        },
+        {
+          "method": "POST",
+          "path": "/api/internal/touch",
+          "body": {
+            "phone": "+15552100001",
+            "persona": "friend"
+          }
+        }
+      ],
+      "llmCallsInTurn": 3,
+      "thread": {
+        "facts": [],
+        "summary": "",
+        "historyCount": 4
+      }
+    }
+  ],
+  "created": {
+    "drafts": [],
+    "reminders": [],
+    "scheduledTexts": [],
+    "commitments": [],
+    "memoryWrites": [],
+    "memoryDeletes": [],
+    "spendDecisions": [],
+    "browserTasks": [],
+    "followups": [],
+    "calendarMutations": [],
+    "fileSends": [],
+    "workWrites": [],
+    "taskChoices": [],
+    "watches": [],
+    "todos": [],
+    "loops": [],
+    "otherWrites": []
+  },
+  "finalMemories": [
+    {
+      "key": "preferred_name",
+      "value": "Alex"
+    }
+  ],
+  "llmCalls": 5,
+  "wallMs": 27302
+}

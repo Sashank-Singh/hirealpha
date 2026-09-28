@@ -1,0 +1,85 @@
+{
+  "id": "g7_trip_stress",
+  "cat": "C1",
+  "title": "Make this trip less stressful (vague)",
+  "agent": "friend",
+  "turns": [
+    {
+      "text": "Make this trip less stressful.",
+      "bubbles": [
+        "Quick check, Alex, I don't see a trip on your calendar. What's on there for the next month is the BigCo interview Tuesday at 2 PM and the gym tomorrow at 6:30.\n\nWhich trip do you mean? If you've got dates and a destination, I'll take it from there, flights, a hotel, the whole run."
+      ],
+      "reply": "Quick check, Alex, I don't see a trip on your calendar. What's on there for the next month is the BigCo interview Tuesday at 2 PM and the gym tomorrow at 6:30.\n\nWhich trip do you mean? If you've got dates and a destination, I'll take it from there, flights, a hotel, the whole run.",
+      "source": "gmi",
+      "card": null,
+      "calls": [
+        {
+          "method": "GET",
+          "path": "/api/internal/live?phone=%2B15552100001&persona=friend&q=Make%20this%20trip%20less%20stressful.",
+          "body": {}
+        },
+        {
+          "method": "GET",
+          "path": "/api/internal/browser/awaiting?phone=%2B15552100001",
+          "body": {}
+        },
+        {
+          "method": "GET",
+          "path": "/api/internal/network?phone=%2B15552100001",
+          "body": {}
+        },
+        {
+          "method": "POST",
+          "path": "/api/internal/touch",
+          "body": {
+            "phone": "+15552100001",
+            "persona": "friend"
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/internal/live/tools",
+          "body": {
+            "phone": "+15552100001",
+            "persona": "friend",
+            "message": "start=2026-09-27T14:20:00-04:00 end=2026-10-27T14:20:00-04:00",
+            "want": "calendar"
+          }
+        }
+      ],
+      "llmCallsInTurn": 4,
+      "thread": {
+        "facts": [],
+        "summary": "",
+        "historyCount": 2
+      }
+    }
+  ],
+  "created": {
+    "drafts": [],
+    "reminders": [],
+    "scheduledTexts": [],
+    "commitments": [],
+    "memoryWrites": [],
+    "memoryDeletes": [],
+    "spendDecisions": [],
+    "browserTasks": [],
+    "followups": [],
+    "calendarMutations": [],
+    "fileSends": [],
+    "workWrites": [],
+    "taskChoices": [],
+    "watches": [],
+    "todos": [],
+    "loops": [],
+    "otherWrites": []
+  },
+  "finalMemories": [
+    {
+      "key": "preferred_name",
+      "value": "Alex"
+    }
+  ],
+  "llmCalls": 4,
+  "wallMs": 29137
+}

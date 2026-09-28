@@ -1,0 +1,26 @@
+{
+  "facts": [],
+  "summary": "",
+  "history": [
+    {
+      "role": "user",
+      "content": "Find me 45 minutes with Sam on Tuesday and set it up.",
+      "ts": 1790533612045
+    },
+    {
+      "role": "assistant",
+      "content": "I could not verify current information because the web lookup did not run. Please try again.",
+      "ts": 1790533612045
+    },
+    {
+      "role": "user",
+      "content": "Go with the Tuesday afternoon slot.",
+      "ts": 1790533646525
+    },
+    {
+      "role": "assistant",
+      "content": "I could not verify current information because the web lookup did not run. Please try again.",
+      "ts": 1790533646525
+    }
+  ]
+}

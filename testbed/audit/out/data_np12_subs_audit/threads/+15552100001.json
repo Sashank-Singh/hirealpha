@@ -1,0 +1,16 @@
+{
+  "facts": [],
+  "summary": "",
+  "history": [
+    {
+      "role": "user",
+      "content": "Audit my subscriptions and kill the ones I do not use.",
+      "ts": 1790535012472
+    },
+    {
+      "role": "assistant",
+      "content": "Found two active subscriptions from your receipts:\n\n1. Netflix, $15.49/mo (recent activity, looks used)\n\n2. Audible, $14.95/mo, but your last login was 5 months ago. That's $14.95/mo for silence.\n\nAudible's the clear kill. Want me to go ahead and cancel it through audible.com? Netflix I'd leave alone unless you say otherwise.",
+      "ts": 1790535012472
+    }
+  ]
+}

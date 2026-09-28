@@ -17,9 +17,11 @@ const EVENING_STEPS = [
 export function BriefLoading({
   evening = false,
   attempt = 0,
+  calm = false,
 }: {
   evening?: boolean
   attempt?: number
+  calm?: boolean
 }) {
   const reduceMotion = useRef(
     typeof window !== 'undefined' &&
@@ -39,6 +41,16 @@ export function BriefLoading({
     }, 1200)
     return () => window.clearInterval(id)
   }, [evening, reduceMotion, steps.length])
+
+  if (calm) return (
+    <div className="fb-loading" role="status" aria-live="polite">
+      <p>{evening ? 'A moment to wrap up.' : 'A little clarity is on its way.'}</p>
+      <h2>{evening ? 'Gathering your day…' : 'Getting your day together…'}</h2>
+      <span>Your calendar and mail will appear here.</span>
+      <div className="fb-loading-shape" aria-hidden="true"><i /><i /><i /></div>
+      {attempt >= 8 && <span>This is taking a little longer. You can leave and come back.</span>}
+    </div>
+  )
 
   return (
     <div className="brief-loading" role="status" aria-live="polite">

@@ -1,0 +1,26 @@
+{
+  "facts": [],
+  "summary": "",
+  "history": [
+    {
+      "role": "user",
+      "content": "Plan my team offsite: find a venue, set a budget, draft the agenda, and invite the team.",
+      "ts": 1790535193348
+    },
+    {
+      "role": "assistant",
+      "content": "That search came back empty, so no real numbers to lean on yet, and honestly the search can't be useful until I know what we're planning.\n\nGive me these four and I'll do the rest:\n\n1. City (or travel destination)\n\n2. Dates or a target week\n\n3. Headcount\n\n4. Budget, total or per person\n\nThen I'll pull live venue options with rates, set a budget, draft the agenda, and stage the team invite for your sign off before anything sends.\n\nhttps://audit-none.example/search",
+      "ts": 1790535193348
+    },
+    {
+      "role": "user",
+      "content": "wait — forget the agenda for now, just get the venue sorted first.",
+      "ts": 1790535218175
+    },
+    {
+      "role": "assistant",
+      "content": "The search came back empty again, so I've got nothing real to quote on venues yet.\n\nI'm not going to guess at rates, so here's what actually unblocks this: city, dates or target week, headcount, and a budget. Send those and I'll pull live venue options with real numbers.\n\nhttps://audit-none.example/search",
+      "ts": 1790535218175
+    }
+  ]
+}

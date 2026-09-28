@@ -47,7 +47,7 @@ describe('flight check in texts', () => {
       NOW,
     )
     expect(out.announce).toBeNull()
-    expect(out.checkin).toBe('Check in now: https://united.example/checkin')
+    expect(out.checkin).toBe("Check-in is open. I can't complete airline check-in for you yet, so here's the direct page: https://united.example/checkin")
   })
   it('honors an explicit checkin_at and handles missing payload', () => {
     const out = buildFlightCheckinTexts({ checkin_at: '2026-08-20T09:00:00Z' }, NOW)
@@ -63,7 +63,7 @@ describe('flight check in texts', () => {
     expect(byCode.checkin).toContain('https://www.aa.com/checkin')
     // An unknown carrier keeps the honest text.
     const unknown = buildFlightCheckinTexts({ airline: 'Boutique Air', date: '2026-08-20T18:00:00Z' }, NOW)
-    expect(unknown.checkin).toContain('on the Boutique Air site')
+    expect(unknown.checkin).toContain("I can't complete it for you yet")
   })
   it('handler announces then checks in', async () => {
     const soon = new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString()
@@ -77,7 +77,7 @@ describe('flight check in texts', () => {
       payload: { airline: 'Delta', date: past },
     }))
     expect(late.outcome).toBe('done')
-    expect(late.text).toContain('Check in now')
+    expect(late.text).toContain('Check-in is open')
   })
 })
 
@@ -94,7 +94,7 @@ describe('flight landing re-time note', () => {
       },
       NOW,
     )
-    expect(out.checkin).toContain('Check in now')
+    expect(out.checkin).toContain('Check-in is open')
     expect(out.checkin).toContain('After you land, I will move briefs and reminders to Tokyo time.')
     expect(flightCrossesTimezones(
       { home_tz: 'America/Los_Angeles', destination_tz: 'Asia/Tokyo' },
@@ -115,7 +115,7 @@ describe('flight landing re-time note', () => {
     )
     // The carrier's own check-in page is linked (see the test below); the
     // point here is that no re-time note is appended for a same-zone flight.
-    expect(out.checkin).toBe('Check in now: https://www.united.com/en/us/checkin')
+    expect(out.checkin).toBe("Check-in is open. I can't complete airline check-in for you yet, so here's the direct page: https://www.united.com/en/us/checkin")
     expect(flightLandingRetimeNote(
       { home_tz: 'America/New_York', destination_tz: 'America/New_York' },
       NOW,
@@ -134,7 +134,7 @@ describe('flight landing re-time note', () => {
       },
       NOW,
     )
-    expect(out.checkin).toContain('Check in now: https://united.example/checkin')
+    expect(out.checkin).toContain('https://united.example/checkin')
     expect(out.checkin).toContain('. After you land, I will move briefs and reminders to London time.')
   })
 
@@ -149,7 +149,7 @@ describe('flight landing re-time note', () => {
   it('no-ops when the zone cannot be resolved', () => {
     expect(flightLandingRetimeNote({ home_tz: 'America/Los_Angeles', destination: 'Mars' }, NOW)).toBe('')
     expect(buildFlightCheckinTexts({ airline: 'Delta', date: '2026-08-20T18:00:00Z' }, NOW).checkin).toBe(
-      'Check in now: https://www.delta.com/checkin',
+      "Check-in is open. I can't complete airline check-in for you yet, so here's the direct page: https://www.delta.com/checkin",
     )
   })
 })

@@ -65,6 +65,219 @@ export async function sendDriveFile(
   return receipt.id ? { ok: true, providerId: receipt.id, fileName: meta.name } : { ok: false, outcomeUnknown: true, error: 'Gmail accepted the attachment but returned no message ID.' }
 }
 
+/** MIME for a forward: the user's comment, the forwarded-header block, the
+ * original text, and the original attachments re-attached. A forward is its
+ * own message — never a "Re:" with pasted text. */
+export function rfc822Forward(
+  to: string,
+  subject: string,
+  comment: string,
+  original: { from: string; date: string; to?: string; subject: string; body: string },
+  atts: Array<{ name: string; mimeType: string; bytes: Uint8Array }>,
+  extra?: { messageId?: string; threadId?: string },
+): string {
+  const forwardedBlock = [
+    '---------- Forwarded message ---------',
+    `From: ${original.from}`,
+    `Date: ${original.date}`,
+    original.to ? `To: ${original.to}` : '',
+    `Subject: ${original.subject}`,
+    '',
+    original.body,
+  ].filter((l) => l !== '').join('\r\n')
+  const textBody = `${comment ? `${comment}\r\n\r\n` : ''}${forwardedBlock}`
+  if (!atts.length) {
+    const raw = [`To: ${to}`, `Subject: ${subject}`, 'MIME-Version: 1.0', 'Content-Type: text/plain; charset=utf-8']
+    if (extra?.messageId) raw.push(`Message-ID: <${extra.messageId}@hirealpha.local>`)
+    raw.push('', textBody, '')
+    return Buffer.from(raw.join('\r\n')).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+  }
+  const boundary = `alpha_fwd_${crypto.randomUUID().replaceAll('-', '')}`
+  const headers = [`To: ${to}`, `Subject: ${subject}`, 'MIME-Version: 1.0', `Content-Type: multipart/mixed; boundary="${boundary}"`]
+  if (extra?.messageId) headers.push(`Message-ID: <${extra.messageId}@hirealpha.local>`)
+  const parts = [
+    `--${boundary}`,
+    'Content-Type: text/plain; charset=utf-8',
+    '',
+    textBody,
+  ]
+  let total = 0
+  for (const file of atts) {
+    total += file.bytes.byteLength
+    if (total > 18 * 1024 * 1024) break
+    const encoded = Buffer.from(file.bytes).toString('base64').match(/.{1,76}/g)?.join('\r\n') || ''
+    const safeName = file.name.replace(/["\r\n]/g, '')
+    parts.push(
+      `--${boundary}`,
+      `Content-Type: ${file.mimeType}; name="${safeName}"`,
+      'Content-Transfer-Encoding: base64',
+      `Content-Disposition: attachment; filename="${safeName}"`,
+      '',
+      encoded,
+    )
+  }
+  parts.push(`--${boundary}--`, '')
+  return Buffer.from([...headers, '', ...parts].join('\r\n')).toString('base64url')
+}
+
+/**
+ * Forward a real message, attachments included, preserving the original
+ * From/Date/Subject in the forwarded block and the thread identity when the
+ * original thread is known. Success only on a Gmail message receipt; an
+ * unknown outcome is reported as unknown, never as sent.
+ */
+export async function gmailForwardMessage(
+  sql: SQL,
+  userId: string,
+  input: { messageId: string; to: string; comment?: string; operationId?: string },
+): Promise<{ ok: boolean; providerId?: string; error?: string; outcomeUnknown?: boolean; subject?: string; attachedCount?: number; skippedAttachments?: number }> {
+  if (isDemoUserId(userId)) return { ok: false, error: 'Demo account. Nothing was actually sent.' }
+  const access = await googleAccessToken(sql, userId, 'gmail')
+  if (!access) return { ok: false, error: 'Gmail is not connected.' }
+  const { loadGmailFullMessage, fetchGmailAttachmentBytes } = await import('./attachments')
+  const full = await loadGmailFullMessage(sql, userId, input.messageId)
+  if (!full.ok || !full.message) {
+    return { ok: false, error: full.status === 'auth_expired'
+      ? 'Gmail authorization expired. Reconnect Gmail in Settings, then retry the forward.'
+      : 'Gmail did not return that message, so there is nothing to forward.' }
+  }
+  const subject = full.message.subject
+    ? /^fwd\s*:/i.test(full.message.subject) ? full.message.subject.slice(0, 200) : `Fwd: ${full.message.subject.slice(0, 190)}`
+    : 'Fwd: (no subject)'
+  const atts: Array<{ name: string; mimeType: string; bytes: Uint8Array }> = []
+  let skipped = 0
+  for (const meta of full.message.attachments.slice(0, 8)) {
+    const got = await fetchGmailAttachmentBytes(sql, userId, input.messageId, meta.attachmentId)
+    if (!got.ok || !got.bytes) { skipped++; continue }
+    atts.push({ name: meta.filename || 'attachment', mimeType: meta.mimeType, bytes: got.bytes })
+  }
+  const raw = rfc822Forward(
+    input.to,
+    subject,
+    String(input.comment || '').slice(0, 1500),
+    { from: full.message.from, date: full.message.date, to: full.message.to, subject: full.message.subject, body: full.message.bodyText || full.message.snippet || '(no readable body)' },
+    atts,
+    { messageId: input.operationId, threadId: full.message.threadId || undefined },
+  )
+  let res: Response
+  try {
+    res = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${access}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ raw, ...(full.message.threadId ? { threadId: full.message.threadId } : {}) }),
+    })
+  } catch {
+    return { ok: false, outcomeUnknown: true, error: 'Gmail did not confirm whether the forward was sent.' }
+  }
+  if (!res.ok) {
+    const err = await res.text().catch(() => '')
+    if (res.status === 403 || res.status === 401) {
+      return { ok: false, error: 'Gmail needs the send permission to forward. Reconnect Gmail in Settings and allow send.' }
+    }
+    return { ok: false, error: `Gmail forward failed (${res.status}). ${err.slice(0, 120)}` }
+  }
+  const receipt = (await res.json().catch(() => ({}))) as { id?: string }
+  if (!receipt.id) return { ok: false, outcomeUnknown: true, error: 'Gmail accepted the forward but returned no message receipt.' }
+  return { ok: true, providerId: receipt.id, subject, attachedCount: atts.length, skippedAttachments: skipped }
+}
+
+/**
+ * Label-level inbox actions on real message ids: mark read/unread, archive
+ * (remove from INBOX), and labels via messages.modify. Trash is a separate
+ * call because it is the one destructive step. Every id reports its own
+ * outcome; a partial failure is reported as partial, never as done.
+ */
+export async function modifyGmailMessages(
+  sql: SQL,
+  userId: string,
+  input: { ids: string[]; addLabels?: string[]; removeLabels?: string[] },
+): Promise<{ ok: boolean; results: Array<{ id: string; ok: boolean; error?: string }>; error?: string }> {
+  const access = await googleAccessToken(sql, userId, 'gmail')
+  if (!access) return { ok: false, results: [], error: 'Gmail is not connected.' }
+  const results: Array<{ id: string; ok: boolean; gone?: boolean; error?: string }> = []
+  let fatal: string | undefined
+  for (const id of input.ids.slice(0, 25)) {
+    if (fatal) {
+      // Expired/forbidden auth affects every remaining id identically; record
+      // each one precisely instead of losing the tail of the batch.
+      results.push({ id, ok: false, error: fatal })
+      continue
+    }
+    try {
+      const res = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${encodeURIComponent(id)}/modify`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${access}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...(input.addLabels?.length ? { addLabelIds: input.addLabels } : {}),
+          ...(input.removeLabels?.length ? { removeLabelIds: input.removeLabels } : {}),
+        }),
+      })
+      if (res.status === 401) {
+        fatal = 'Gmail authorization expired mid-batch.'
+        results.push({ id, ok: false, error: fatal })
+        continue
+      }
+      if (res.status === 403) {
+        fatal = 'This Google grant is read/send only and cannot file mail (missing gmail.modify).'
+        results.push({ id, ok: false, error: fatal })
+        continue
+      }
+      if (res.status === 404) {
+        // The message is already gone: the goal (out of the inbox / not unread)
+        // is satisfied, so record it as applied-with-note, never as a failure.
+        results.push({ id, ok: true, gone: true })
+        continue
+      }
+      if (!res.ok) results.push({ id, ok: false, error: `Gmail refused (${res.status})` })
+      else results.push({ id, ok: true })
+    } catch {
+      results.push({ id, ok: false, error: 'Gmail did not answer' })
+    }
+  }
+  const ok = results.length > 0 && results.every((r) => r.ok)
+  return { ok, results, ...(fatal ? { error: fatal } : {}) }
+}
+
+export async function trashGmailMessages(
+  sql: SQL,
+  userId: string,
+  ids: string[],
+): Promise<{ ok: boolean; results: Array<{ id: string; ok: boolean; error?: string }>; error?: string }> {
+  const access = await googleAccessToken(sql, userId, 'gmail')
+  if (!access) return { ok: false, results: [], error: 'Gmail is not connected.' }
+  const results: Array<{ id: string; ok: boolean; gone?: boolean; error?: string }> = []
+  let fatal: string | undefined
+  for (const id of ids.slice(0, 25)) {
+    if (fatal) {
+      results.push({ id, ok: false, error: fatal })
+      continue
+    }
+    try {
+      const res = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${encodeURIComponent(id)}/trash`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${access}` },
+      })
+      if (res.status === 401) {
+        fatal = 'Gmail authorization expired mid-batch.'
+        results.push({ id, ok: false, error: fatal })
+        continue
+      }
+      if (res.status === 403) {
+        fatal = 'This Google grant cannot trash mail (missing gmail.modify).'
+        results.push({ id, ok: false, error: fatal })
+        continue
+      }
+      // 404: already deleted — the user's goal is met, not an error.
+      if (!res.ok && res.status !== 404) results.push({ id, ok: false, error: `Gmail refused (${res.status})` })
+      else results.push({ id, ok: true })
+    } catch {
+      results.push({ id, ok: false, error: 'Gmail did not answer' })
+    }
+  }
+  const ok = results.length > 0 && results.every((r) => r.ok)
+  return { ok, results, ...(fatal ? { error: fatal } : {}) }
+}
+
 export async function gmailSendMessage(
   sql: SQL,
   userId: string,
@@ -283,8 +496,8 @@ export async function findFreeSlots(
 export async function calendarHold(
   sql: SQL,
   userId: string,
-  input: { title: string; start: string; end: string; operationId?: string },
-): Promise<{ ok: boolean; error?: string; eventId?: string; outcomeUnknown?: boolean }> {
+  input: { title: string; start: string; end: string; operationId?: string; attendees?: string[] },
+): Promise<{ ok: boolean; error?: string; eventId?: string; outcomeUnknown?: boolean; attendees?: string[] }> {
   const access = await googleAccessToken(sql, userId, 'calendar')
   if (!access) {
     const out = await composioFirst(
@@ -296,6 +509,7 @@ export async function calendarHold(
         end_datetime: input.end,
         start: { dateTime: input.start },
         end: { dateTime: input.end },
+        ...(input.attendees?.length ? { attendees: input.attendees.join(',') } : {}),
       },
     )
     if (out && !/failed/i.test(out)) {
@@ -305,6 +519,7 @@ export async function calendarHold(
     return { ok: false, error: 'Calendar is not connected.' }
   }
   const stableId = input.operationId?.replace(/[^a-f0-9]/gi, '').toLowerCase().slice(0, 52)
+  const attendees = (input.attendees || []).map((a) => a.trim()).filter((a) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(a)).slice(0, 20)
   let res: Response
   try {
     res = await fetch('https://www.googleapis.com/calendar/v3/calendars/primary/events', {
@@ -316,6 +531,7 @@ export async function calendarHold(
         start: { dateTime: input.start },
         end: { dateTime: input.end },
         status: 'tentative',
+        ...(attendees.length ? { attendees: attendees.map((email) => ({ email })) } : {}),
       }),
     })
   } catch {
@@ -335,7 +551,7 @@ export async function calendarHold(
 export async function mutateCalendarEvent(
   sql: SQL,
   userId: string,
-  input: { eventId: string; action: 'inspect' | 'update' | 'cancel' | 'rsvp'; start?: string; end?: string; response?: 'accepted' | 'declined' | 'tentative'; scope?: 'occurrence' | 'series'; userEmail?: string },
+  input: { eventId: string; action: 'inspect' | 'update' | 'cancel' | 'rsvp'; start?: string; end?: string; response?: 'accepted' | 'declined' | 'tentative'; scope?: 'occurrence' | 'series'; userEmail?: string; addAttendees?: string[] },
 ): Promise<{ ok: boolean; event?: Record<string, unknown>; error?: string; outcomeUnknown?: boolean }> {
   const access = await googleAccessToken(sql, userId, 'calendar')
   if (!access) return { ok: false, error: 'Calendar is not connected.' }
@@ -364,6 +580,25 @@ export async function mutateCalendarEvent(
       const self = attendees.find((a) => a.self === true || (input.userEmail && a.email === input.userEmail))
       if (!self) return { ok: false, error: 'The provider did not identify this user as an attendee.' }
       self.responseStatus = input.response || 'accepted'
+      patch.attendees = attendees
+    }
+    // Invite guests: merged into the attendee list; the provider emails the
+    // invitation because sendUpdates=all rides on the patch below.
+    if (input.addAttendees?.length) {
+      const attendees = Array.isArray(patch.attendees)
+        ? (patch.attendees as Array<Record<string, unknown>>)
+        : Array.isArray(existing.attendees)
+          ? existing.attendees.map((a) => ({ ...(a as object) })) as Array<Record<string, unknown>>
+          : []
+      const known = new Set(attendees.map((a) => String(a.email || '').toLowerCase()))
+      const added: string[] = []
+      for (const raw of input.addAttendees.slice(0, 20)) {
+        const email = raw.trim().toLowerCase()
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || known.has(email)) continue
+        attendees.push({ email })
+        added.push(email)
+      }
+      if (!added.length) return { ok: false, error: 'No new valid attendee emails to invite.' }
       patch.attendees = attendees
     }
     const res = await fetch(`${root}${encodeURIComponent(targetId)}?sendUpdates=all`, {

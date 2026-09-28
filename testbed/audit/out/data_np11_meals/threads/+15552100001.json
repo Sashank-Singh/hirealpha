@@ -1,0 +1,16 @@
+{
+  "facts": [],
+  "summary": "",
+  "history": [
+    {
+      "role": "user",
+      "content": "Plan my meals for the week around 120g protein a day.",
+      "ts": 1790534991795
+    },
+    {
+      "role": "assistant",
+      "content": "Here's a week built around ~120g protein a day. Simple repeats on breakfast/lunch so shopping stays easy, variety at dinner.\n\nDaily backbone (~70g before dinner)\n\nBreakfast: 3 eggs + 2 slices toast (~22g), or Greek yogurt cup + granola (~25g)\n\nLunch: chicken or turkey wrap, or a big tuna/chickpea salad (~35, 40g)\n\nSnack: protein shake or cottage cheese (~25, 30g)\n\nDinners (~40, 50g each)\n\nMon: Chicken thighs, rice, roasted broccoli\n\nTue: Salmon, potatoes, green beans\n\nWed: Ground beef tacos (lean 90/10)\n\nThu: Stir fry with tofu + edamame over noodles\n\nFri: Steak night, side salad\n\nSat: Shrimp pasta (a pound of shrimp splits across 2 nights easily)\n\nSun: Roast chicken, save leftovers for Monday's lunch\n\nThat lands you at 115, 130g most days. Sunday's roast chicken doubles as Monday lunch protein, so one cook covers two meals.\n\nTwo quick things so I can tighten it: any foods you won't eat, and do you want a grocery list out of this?",
+      "ts": 1790534991795
+    }
+  ]
+}

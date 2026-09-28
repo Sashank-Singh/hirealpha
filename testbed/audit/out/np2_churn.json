@@ -1,0 +1,80 @@
+{
+  "id": "np2_churn",
+  "cat": "C16",
+  "title": "Three customers churned this month — help me figure out why ",
+  "agent": "friend",
+  "turns": [
+    {
+      "text": "Three customers churned this month — help me figure out why and what to do about it.",
+      "bubbles": [
+        "That search came back empty, nothing useful in the results, so I won't pretend I found a framework. And honestly, generic churn articles are less useful than your actual data anyway.\n\nThe fastest path: give me the names of the three customers who left, and I'll pull your recent email threads with each from Gmail. The story is usually in the last 30 60 days of contact, did they go quiet, complain about something specific, push back on pricing, or just never onboard properly?\n\nOnce I see the threads, we can sort the three into buckets (product gap, price, support, bad fit) and I'll help you draft a save or win back play for whichever ones are actually winnable.\n\nhttps://audit-none.example/search"
+      ],
+      "reply": "That search came back empty, nothing useful in the results, so I won't pretend I found a framework. And honestly, generic churn articles are less useful than your actual data anyway.\n\nThe fastest path: give me the names of the three customers who left, and I'll pull your recent email threads with each from Gmail. The story is usually in the last 30 60 days of contact, did they go quiet, complain about something specific, push back on pricing, or just never onboard properly?\n\nOnce I see the threads, we can sort the three into buckets (product gap, price, support, bad fit) and I'll help you draft a save or win back play for whichever ones are actually winnable.\n\nhttps://audit-none.example/search",
+      "source": "gmi",
+      "card": null,
+      "calls": [
+        {
+          "method": "GET",
+          "path": "/api/internal/live?phone=%2B15552100001&persona=friend&q=Three%20customers%20churned%20this%20month%20%E2%80%94%20help%20me%20figure%20out%20why%20and%20what%20to%20do%20about%20it.",
+          "body": {}
+        },
+        {
+          "method": "GET",
+          "path": "/api/internal/browser/awaiting?phone=%2B15552100001",
+          "body": {}
+        },
+        {
+          "method": "GET",
+          "path": "/api/internal/network?phone=%2B15552100001",
+          "body": {}
+        },
+        {
+          "method": "POST",
+          "path": "/api/internal/touch",
+          "body": {
+            "phone": "+15552100001",
+            "persona": "friend"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/search",
+          "body": {}
+        }
+      ],
+      "llmCallsInTurn": 5,
+      "thread": {
+        "facts": [],
+        "summary": "",
+        "historyCount": 2
+      }
+    }
+  ],
+  "created": {
+    "drafts": [],
+    "reminders": [],
+    "scheduledTexts": [],
+    "commitments": [],
+    "memoryWrites": [],
+    "memoryDeletes": [],
+    "spendDecisions": [],
+    "browserTasks": [],
+    "followups": [],
+    "calendarMutations": [],
+    "fileSends": [],
+    "workWrites": [],
+    "taskChoices": [],
+    "watches": [],
+    "todos": [],
+    "loops": [],
+    "otherWrites": []
+  },
+  "finalMemories": [
+    {
+      "key": "preferred_name",
+      "value": "Alex"
+    }
+  ],
+  "llmCalls": 5,
+  "wallMs": 35888
+}

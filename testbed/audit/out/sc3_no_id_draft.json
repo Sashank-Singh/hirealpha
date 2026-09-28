@@ -1,0 +1,87 @@
+{
+  "id": "sc3_no_id_draft",
+  "cat": "C6",
+  "title": "Draft stage returns success but no id",
+  "agent": "friend",
+  "turns": [
+    {
+      "text": "Email Dana confirming our Friday call at 4pm.",
+      "bubbles": [
+        "Heads up, the draft didn't save on my end, so nothing went out to Dana yet.\n\nWant me to try again? Otherwise you can send it yourself from your mail."
+      ],
+      "reply": "Heads up, the draft didn't save on my end, so nothing went out to Dana yet.\n\nWant me to try again? Otherwise you can send it yourself from your mail.",
+      "source": "gmi",
+      "card": null,
+      "calls": [
+        {
+          "method": "GET",
+          "path": "/api/internal/live?phone=%2B15552100001&persona=friend&q=Email%20Dana%20confirming%20our%20Friday%20call%20at%204pm.",
+          "body": {}
+        },
+        {
+          "method": "GET",
+          "path": "/api/internal/browser/awaiting?phone=%2B15552100001",
+          "body": {}
+        },
+        {
+          "method": "GET",
+          "path": "/api/internal/network?phone=%2B15552100001",
+          "body": {}
+        },
+        {
+          "method": "POST",
+          "path": "/api/internal/touch",
+          "body": {
+            "phone": "+15552100001",
+            "persona": "friend"
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/internal/propose",
+          "body": {
+            "phone": "+15552100001",
+            "persona": "friend",
+            "kind": "mail",
+            "to": "dana@bigco.com",
+            "subject": "Confirming our Friday call - 4pm ET",
+            "body": "Hi Dana,\n\nQuick note to confirm our call this Friday, October 2 at 4:00 PM ET.\n\nLooking forward to it.\n\nBest,\nAlex"
+          }
+        }
+      ],
+      "llmCallsInTurn": 3,
+      "thread": {
+        "facts": [],
+        "summary": "",
+        "historyCount": 2
+      }
+    }
+  ],
+  "created": {
+    "drafts": [],
+    "reminders": [],
+    "scheduledTexts": [],
+    "commitments": [],
+    "memoryWrites": [],
+    "memoryDeletes": [],
+    "spendDecisions": [],
+    "browserTasks": [],
+    "followups": [],
+    "calendarMutations": [],
+    "fileSends": [],
+    "workWrites": [],
+    "taskChoices": [],
+    "watches": [],
+    "todos": [],
+    "loops": [],
+    "otherWrites": []
+  },
+  "finalMemories": [
+    {
+      "key": "preferred_name",
+      "value": "Alex"
+    }
+  ],
+  "llmCalls": 3,
+  "wallMs": 14772
+}

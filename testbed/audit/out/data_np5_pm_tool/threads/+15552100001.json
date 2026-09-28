@@ -1,0 +1,16 @@
+{
+  "facts": [],
+  "summary": "",
+  "history": [
+    {
+      "role": "user",
+      "content": "Linear vs Shortcut for a 6-person eng team — pick one and tell me why.",
+      "ts": 1790534847325
+    },
+    {
+      "role": "assistant",
+      "content": "Linear, and it's not close for a 6 person team.\n\nWhy:\n\nSpeed and polish. Linear is fast in a way Shortcut isn't, and your team will actually enjoy opening it. Tooling friction matters more at small scale, not less.\n\nOpinionated workflows. Cycles, triage, and roadmaps are built in and sensible by default. Shortcut gives you more flexibility, which at 6 people mostly means more time arguing about board configuration.\n\nGitHub integration is first class, issues and PRs stay in sync, and the keyboard driven UX keeps engineers in flow.\n\nPricing is comparable (Linear ~$8 14/user/mo, Shortcut ~$8.50 13.50), so cost isn't the differentiator.\n\nThe case for Shortcut would be if you wanted heavy customization or a more Kanban everything setup. For a small, fast team that wants to ship, Linear is the pick.",
+      "ts": 1790534847325
+    }
+  ]
+}

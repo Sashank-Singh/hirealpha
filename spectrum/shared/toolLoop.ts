@@ -1,6 +1,7 @@
 import { stayWindowFromAsk } from './stayWindow'
 import { createProgressiveDelivery, type DeliveryHooks } from './progressiveDelivery'
 import type { TurnIntent } from './turnIntent'
+import { ClaimLedger, type EvidenceDomain } from './claimEvidence'
 
 /** A month word anywhere in a query means the ask named its own date; only then
  * is the engine's resolved window kept out of the lookup. */
@@ -366,6 +367,9 @@ export async function runToolConversation(input: {
   /** Read-only observation hook. It never performs the write inside the tool
    * loop, preventing retries or a second lookup from creating duplicate tasks. */
   onResearchResults?: (results: GroundedChoiceCandidate[]) => void
+  /** Claim-provenance ledger for this turn. The loop records what actually ran
+   * here; the outbound layer then verifies the reply's claims against it. */
+  evidence?: ClaimLedger
 }): Promise<{ reply: string; draft?: SavedDraft }> {
   const messages = [...input.messages]
   const progress = createProgressiveDelivery(input.delivery || {})
@@ -599,6 +603,21 @@ export async function runToolConversation(input: {
   }
   const withTravelRates = (text: string) =>
     travelBlock && datedTravelAsk && !verifiedRateIn(text) ? `${text}\n\nLive options for the dates:\n${travelBlock.slice(0, 1800)}` : text
+  const LOOKUP_DOMAIN: Record<string, EvidenceDomain> = {
+    gmail: 'mail_read', calendar: 'calendar_read', drive: 'drive',
+    web: 'web', maps: 'maps', weather: 'web',
+    slack: 'work_write', linear: 'work_write', github: 'work_write',
+    notion: 'work_write', stripe: 'work_write', hubspot: 'work_write',
+  }
+  /* Capability name -> evidence domain. mutates:true capabilities arm durable
+   * work, so a verified outcome there also counts as active work. */
+  const CAPABILITY_DOMAIN: Record<string, EvidenceDomain> = {
+    reminder: 'reminder', change_reminder: 'reminder', list_reminders: 'reminder',
+    calendar_event: 'calendar_write', free_slots: 'calendar_read',
+    send_text_later: 'scheduled_text', email_followup: 'followup', watch: 'watch',
+    find_file: 'drive', send_file: 'file_send',
+    notion_page: 'work_write', slack_message: 'work_write',
+  }
   const fallback = () => {
     // A staged purchase receipt is explicit: we found the real item, checked
     // the saved address, and paused for payment.
@@ -669,6 +688,7 @@ export async function runToolConversation(input: {
       const queued = await input.propose({ type: 'browser', portal: opts.portal, goal: goalText })
       if (queued && (queued as { ok?: boolean }).ok !== false) {
         savedDraft = { id: (queued as { id?: string }).id || 'browser-draft', type: 'browser' }
+        input.evidence?.record('browser', 'verified_success', { active: true, staged: true, label: opts.portal })
         stagedPurchase = opts.buy
         try { stagedPurchaseHost = new URL(opts.portal).hostname.replace(/^www\./, '') } catch { stagedPurchaseHost = '' }
         const cleanedRaw = stripToolDirectives(opts.raw).trim()
@@ -1051,16 +1071,37 @@ Reactions are optional and usually absent. You may add "reaction":"<emoji>" to a
         if (!freshTool) {
           // No tool can answer a freshness ask; let the model answer honestly.
         } else if (webNudged || step === maxSteps) {
-          return {
-            /* The failure names the source the ask was about. A mailbox question
-             * answered with "the web lookup did not run" is a caveat that does
-             * not match what it describes — the user reads it as a broken search
-             * for their email. */
-            reply: freshTool === 'gmail' || wantsMail
-              ? 'I could not check your inbox just now. Please try again in a moment.'
-              : 'I could not verify current information because the web lookup did not run. Please try again.',
-            draft: savedDraft,
-          }
+          /* The old guard REPLACED the whole turn with a canned failure here.
+           * That destroyed grounded answers — a calendar result already in
+           * context was thrown away because one other mandated source had not
+           * run — and it conflated three different states: the loop running
+           * out of steps, the model ignoring the nudge, and a provider
+           * failure. The semantic fix: keep the grounded answer, name only
+           * what remains unverified, and never report a source failure that
+           * did not happen. Nothing here claims a lookup failed; nothing ran. */
+          const reason = step === maxSteps ? 'loop_step_cap' : 'nudge_ignored'
+          const domain: EvidenceDomain = freshTool === 'gmail' ? 'mail_read' : freshTool === 'maps' ? 'maps' : 'web'
+          input.evidence?.record(domain, 'not_attempted', { reason })
+          const cleanedRaw = stripToolDirectives(raw).trim()
+          const candidate = cleanedRaw && !isDeliberationOnly(cleanedRaw) ? cleanedRaw : await answerFromResults()
+          /* A grounded answer is releasable; a fabricated freshness claim is
+           * not. When the mandated source never ran, model text that asserts a
+           * first-person check ("I just checked...") is exactly the false
+           * success this guard exists for — it must not ship, appended
+           * disclaimer or not. */
+          const claimsFreshCheck = /\bi\s+(?:just\s+|already\s+)?(?:checked|verified|looked|searched|confirmed|double[- ]checked)\b/i.test(candidate || '')
+          const grounded = candidate && !claimsFreshCheck ? candidate : ''
+          const sourceName = freshTool === 'gmail' ? 'your inbox' : freshTool === 'maps' ? 'the map search' : 'a fresh web check'
+          const note =
+            reason === 'loop_step_cap'
+              ? `I ran out of steps before checking ${sourceName} this turn, so anything depending on ${sourceName} is still unverified.`
+              : `I have not checked ${sourceName} this turn, so I can't confirm anything that depends on it.`
+          const reply = grounded
+            ? `${grounded}\n\n${note}`
+            : freshTool === 'gmail' || wantsMail
+              ? 'I ran out of room this turn before checking your inbox, so I can\'t tell you what is there yet. Ask me again in a moment.'
+              : 'I ran out of room this turn before the fresh check, so treat specifics as unverified. Ask me again in a moment.'
+          return { reply, draft: savedDraft }
         } else {
           webNudged = true
           messages.push({ role: 'assistant', content: raw })
@@ -1139,6 +1180,23 @@ Reactions are optional and usually absent. You may add "reaction":"<emoji>" to a
             const outcome = await progress.stage(capability.name === 'build' || capability.name === 'update_build' ? 'I’m working on your app. I’ll send the result here when this build finishes.' : 'I’m working through your request.', () => capability.execute(args as Record<string, unknown>))
             result = outcome
             if (outcome.status === 'done') receipts.push(outcome.message)
+            /* Claim provenance: a capability's verified outcome lands in the
+             * turn's evidence ledger (cancel_work records its own typed
+             * cancellation states instead). */
+            if (capability.name !== 'cancel_work') {
+              const capDomain = CAPABILITY_DOMAIN[capability.name]
+              if (capDomain) {
+                const kind = outcome.status === 'done' ? 'verified_success'
+                  : outcome.status === 'returned' ? 'verified_empty'
+                  : outcome.status === 'failed' ? 'verified_failure'
+                  : 'outcome_unknown'
+                input.evidence?.record(capDomain, kind, {
+                  label: capability.name,
+                  ...(kind === 'verified_success' && capability.mutates ? { active: true } : {}),
+                  ...(kind === 'verified_success' ? { receipt: capability.name !== 'calendar_event' } : {}),
+                })
+              }
+            }
           } catch {
             result = { status: 'failed', message: 'The operation did not return a confirmed result. Do not claim success or retry an uncertain write.' }
           }
@@ -1264,6 +1322,11 @@ Reactions are optional and usually absent. You may add "reaction":"<emoji>" to a
           if (mapBlock && lookup.tool !== 'maps' && !data.includes(mapBlock)) data = [...data, mapBlock]
           if (data.some((row) => /\$\s*\d/.test(row))) sawPriceData = true
           const usable = !noResults(data)
+          input.evidence?.record(
+            LOOKUP_DOMAIN[sourceTool] || 'web',
+            usable ? 'verified_success' : 'verified_empty',
+            { query: lookup.query.slice(0, 120) },
+          )
           /* A model-issued travel lookup is as good as the engine's: keep the
            * dated block so a staged-run receipt can carry the real figures even
            * when the model's final prose omits them. */
@@ -1272,7 +1335,9 @@ Reactions are optional and usually absent. You may add "reaction":"<emoji>" to a
             if (block) travelBlock = block
           }
           result = { status: usable ? 'returned' : 'unavailable', tool: sourceTool, query: lookup.query, data: data.map((s) => s.slice(0, 16000)), message: usable ? 'Use only facts supported by these results.' : 'Lookup returned no usable data. This does not prove there are no matching records.' }
-        } catch {
+        } catch (error) {
+          const deadlineHit = error instanceof Error && /deadline/i.test(error.message)
+          input.evidence?.record(LOOKUP_DOMAIN[lookup.tool] || 'web', deadlineHit ? 'timeout' : 'provider_unavailable', { tool: lookup.tool })
           result = { status: 'failed', tool: lookup.tool, query: lookup.query, message: 'Lookup failed. Do not invent results. Try another available source or explain the blocker.' }
         }
       }
@@ -1341,12 +1406,21 @@ Reactions are optional and usually absent. You may add "reaction":"<emoji>" to a
         try {
           const proposed = await input.propose(draft)
           if (proposed.ok && proposed.id) {
+            /* Claim provenance: a confirmed draft staging is a real, verified state —
+             * but it is NOT a send/booking. The outbound invariant uses receipt:false
+             * here so "sent"/"booked" claims still fail while "staged" claims pass. */
+            input.evidence?.record(
+              draft.type === 'event' ? 'calendar_write' : draft.type === 'browser' ? 'browser' : draft.type === 'purchase' ? 'purchase' : 'mail_send',
+              'verified_success',
+              { active: true, staged: true, receipt: false, label: draft.type },
+            )
             savedDraft = { id: proposed.id, type: draft.type, ...(draft.type === 'browser' && draft.portal ? { portal: draft.portal } : {}) }
             result = { status: 'draft_saved', ...savedDraft, message: draft.type === 'browser'
             ? `The browser run is launching now${runSitePhrase(draft.portal)} for this one task and pauses before payment or any password. The result will arrive in this thread when it finishes. Do not claim anything was booked or completed.`
             : draft.type === 'purchase' ? 'A payment link is queued for the user to tap and pay. NOTHING has been purchased yet; do not claim it was. Tell them to tap Pay on the card if they want it, and in the same reply name exactly what they are paying for — carrier, date, departure and arrival times, stops and total for a flight; the property and nights for a stay — so the card is never the only description of the purchase.' : `A review card will be delivered. Tell the user to review it and tap ${draft.type === 'event' ? 'Book' : 'Send'}. Nothing has been sent or booked.` }
-          } else result = { status: 'failed', message: 'Draft save was not confirmed. Do not claim success or retry this write.' }
+          } else { input.evidence?.record('mail_send', 'verified_failure', { staged: false }); result = { status: 'failed', message: 'Draft save was not confirmed. Do not claim success or retry this write.' } }
         } catch {
+          input.evidence?.record('mail_send', 'outcome_unknown', { staged: true });
           result = { status: 'unknown', message: 'Draft save status is unknown. Do not retry or claim success. Ask the user to check drafts.' }
         }
       }

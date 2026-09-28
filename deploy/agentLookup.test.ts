@@ -41,7 +41,10 @@ describe('agent-directed lookups', () => {
     expect(urls[0].pathname).toEndWith('/messages/booking-123')
     expect(urls[0].searchParams.get('format')).toBe('full')
     expect(result[0]).toContain('return flight departs at 7 PM')
-    expect(result[0]).toContain('attachments not included')
+    // The by-id read now names the source and lists attachments when they exist;
+    // the old "attachments not included" cop-out is gone.
+    expect(result[0]).toContain('Email body id=booking-123')
+    expect(result[0]).not.toContain('attachments not included')
   })
 
   it('checks the requested calendar window, not the default next seven days', async () => {
@@ -113,7 +116,12 @@ describe('a zero-match Gmail search is not backfilled with unrelated mail', () =
     expect(text).not.toContain('newer_than:7d')
   })
 
-  it('still fills in the recent window when the read itself failed', async () => {
+  it('a failed read stays a failed read: it never backfills with unverified mail', async () => {
+    // The current contract (hub.ts: "read refused" stays distinct from a real
+    // zero-match): a refused read returns the failure line and PRESERVES the
+    // question. Filling the gap with recent mail after a refusal presented
+    // unverified rows as the answer, so the fill only ever runs after a real
+    // zero-match read, never after a failed one.
     let listCalls = 0
     globalThis.fetch = (async (input: RequestInfo | URL) => {
       const url = new URL(String(input))
@@ -132,7 +140,9 @@ describe('a zero-match Gmail search is not backfilled with unrelated mail', () =
       message: 'from:sam Thursday',
     })
     const text = result.join('\n')
-    expect(listCalls).toBeGreaterThan(1)
-    expect(text).toContain('id=recent-1')
+    expect(listCalls).toBe(1)
+    expect(text).toContain('Gmail read failed')
+    expect(text).toContain('Preserve the original question')
+    expect(text).not.toContain('id=recent-1')
   })
 })

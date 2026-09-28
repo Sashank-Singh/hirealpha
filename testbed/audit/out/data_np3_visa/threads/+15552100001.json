@@ -1,0 +1,16 @@
+{
+  "facts": [],
+  "summary": "",
+  "history": [
+    {
+      "role": "user",
+      "content": "Do I need a visa for a 5-day layover in China on the way to Tokyo?",
+      "ts": 1790534814342
+    },
+    {
+      "role": "assistant",
+      "content": "Short answer: likely no visa needed, but it hinges on your itinerary.\n\nChina's visa free transit policy (now up to 240 hours / 10 days at major airports like Shanghai PVG) lets US passport holders stay without a visa if you're transiting to a third country, US → China → Japan counts, since China and Japan are different countries. You'll need your onward ticket to Tokyo booked before you land, and you stay within the approved transit area/region.\n\nSource: https://source0.auditnews.example/page\n\nTwo things to confirm before you fly:\n\n1. Which city is the layover in? The 240 hour policy applies at specific ports of entry, tell me the airport and I'll verify it's covered.\n\n2. Your ticket must show China as a stopover, not a round trip back to the US (returning to your origin doesn't qualify).\n\nWant me to check the specific airport and any airline check in requirements?",
+      "ts": 1790534814342
+    }
+  ]
+}

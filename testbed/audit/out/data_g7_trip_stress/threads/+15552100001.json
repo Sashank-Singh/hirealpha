@@ -1,0 +1,16 @@
+{
+  "facts": [],
+  "summary": "",
+  "history": [
+    {
+      "role": "user",
+      "content": "Make this trip less stressful.",
+      "ts": 1790533279640
+    },
+    {
+      "role": "assistant",
+      "content": "Quick check, Alex, I don't see a trip on your calendar. What's on there for the next month is the BigCo interview Tuesday at 2 PM and the gym tomorrow at 6:30.\n\nWhich trip do you mean? If you've got dates and a destination, I'll take it from there, flights, a hotel, the whole run.",
+      "ts": 1790533279640
+    }
+  ]
+}

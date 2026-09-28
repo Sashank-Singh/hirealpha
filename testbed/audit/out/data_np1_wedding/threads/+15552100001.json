@@ -1,0 +1,16 @@
+{
+  "facts": [],
+  "summary": "",
+  "history": [
+    {
+      "role": "user",
+      "content": "I have a wedding in Austin on Oct 10. What do I need to sort out this week?",
+      "ts": 1790534746423
+    },
+    {
+      "role": "assistant",
+      "content": "No usable forecast that far out yet, I'll check again closer to the date; mid October in Austin is typically warm days and cooler evenings, so pack layers, but don't take that as a forecast.\n\nThis week's list stands:\n\n1. Flights to Austin for Oct 10, book this week before fares climb. Tell me your departure city and I'll pull real options.\n\n2. Hotel near the venue, free cancellation preferred.\n\n3. Gift, off the registry now so it ships in time.\n\n4. Outfit, anything needing alterations should go out this week.\n\n5. Flag: your BigCo interview is Tuesday 2 PM, so keep wedding errands off that day.\n\nWhere are you flying from, and is it just you?\n\nhttps://audit-none.example/search",
+      "ts": 1790534746423
+    }
+  ]
+}

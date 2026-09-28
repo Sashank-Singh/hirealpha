@@ -1,0 +1,84 @@
+{
+  "id": "g8_project_unstuck",
+  "cat": "C1",
+  "title": "Get project unstuck (no context)",
+  "agent": "friend",
+  "turns": [
+    {
+      "text": "Help me get my Orion launch project unstuck.",
+      "bubbles": [
+        "Happy to. What's the sticking point exactly, scope, a person who's gone quiet, timeline slipping, or just decision fatigue on your end?\n\nGive me the two minute version and I'll help you cut it down to the next concrete move."
+      ],
+      "reply": "Happy to. What's the sticking point exactly, scope, a person who's gone quiet, timeline slipping, or just decision fatigue on your end?\n\nGive me the two minute version and I'll help you cut it down to the next concrete move.",
+      "source": "gmi",
+      "card": null,
+      "calls": [
+        {
+          "method": "GET",
+          "path": "/api/internal/live?phone=%2B15552100001&persona=friend&q=Help%20me%20get%20my%20Orion%20launch%20project%20unstuck.",
+          "body": {}
+        },
+        {
+          "method": "GET",
+          "path": "/api/internal/anchors?phone=%2B15552100001&persona=friend",
+          "body": {}
+        },
+        {
+          "method": "GET",
+          "path": "/api/internal/browser/awaiting?phone=%2B15552100001",
+          "body": {}
+        },
+        {
+          "method": "GET",
+          "path": "/api/internal/network?phone=%2B15552100001",
+          "body": {}
+        },
+        {
+          "method": "POST",
+          "path": "/api/internal/touch",
+          "body": {
+            "phone": "+15552100001",
+            "persona": "friend"
+          }
+        }
+      ],
+      "llmCallsInTurn": 2,
+      "thread": {
+        "facts": [],
+        "summary": "",
+        "historyCount": 2
+      }
+    }
+  ],
+  "created": {
+    "drafts": [],
+    "reminders": [],
+    "scheduledTexts": [],
+    "commitments": [],
+    "memoryWrites": [],
+    "memoryDeletes": [],
+    "spendDecisions": [],
+    "browserTasks": [],
+    "followups": [],
+    "calendarMutations": [],
+    "fileSends": [],
+    "workWrites": [],
+    "taskChoices": [],
+    "watches": [],
+    "todos": [],
+    "loops": [],
+    "otherWrites": [
+      {
+        "path": "/api/internal/anchors"
+      }
+    ]
+  },
+  "finalMemories": [
+    {
+      "key": "preferred_name",
+      "value": "Alex"
+    }
+  ],
+  "llmCalls": 2,
+  "wallMs": 12111
+}

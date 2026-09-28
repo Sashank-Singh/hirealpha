@@ -1,0 +1,16 @@
+{
+  "facts": [],
+  "summary": "",
+  "history": [
+    {
+      "role": "user",
+      "content": "Am I ready for my interview tomorrow?",
+      "ts": 1790534348781
+    },
+    {
+      "role": "assistant",
+      "content": "Depends on a couple things I don't have yet, Alex. What's the role, and have you prepped answers for the usual suspects (why this company, a conflict story, where you see yourself)?\n\nIf you tell me the job and company, I can fire likely questions at you tonight and we do a quick mock round. Better than me guessing \"yes\" blind.",
+      "ts": 1790534348781
+    }
+  ]
+}

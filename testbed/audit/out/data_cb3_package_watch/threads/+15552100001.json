@@ -1,0 +1,16 @@
+{
+  "facts": [],
+  "summary": "",
+  "history": [
+    {
+      "role": "user",
+      "content": "Watch my UPS package 1Z999AA10123456784 and tell me when it arrives.",
+      "ts": 1790535364259
+    },
+    {
+      "role": "assistant",
+      "content": "Couldn't pull anything up on that tracking number, the search came back empty, so it may be too new to show in the system or the number might be off by a digit.\n\nCan you double check the number, or tell me the carrier's tracking page you usually use? Once I have a live page I can set up a recurring check and text you the moment it's delivered.\n\nhttps://audit-none.example/search",
+      "ts": 1790535364259
+    }
+  ]
+}

@@ -1,0 +1,80 @@
+{
+  "id": "np3_visa",
+  "cat": "C16",
+  "title": "Do I need a visa for a 5-day layover in China on the way to ",
+  "agent": "friend",
+  "turns": [
+    {
+      "text": "Do I need a visa for a 5-day layover in China on the way to Tokyo?",
+      "bubbles": [
+        "Short answer: likely no visa needed, but it hinges on your itinerary.\n\nChina's visa free transit policy (now up to 240 hours / 10 days at major airports like Shanghai PVG) lets US passport holders stay without a visa if you're transiting to a third country, US → China → Japan counts, since China and Japan are different countries. You'll need your onward ticket to Tokyo booked before you land, and you stay within the approved transit area/region.\n\nSource: https://source0.auditnews.example/page\n\nTwo things to confirm before you fly:\n\n1. Which city is the layover in? The 240 hour policy applies at specific ports of entry, tell me the airport and I'll verify it's covered.\n\n2. Your ticket must show China as a stopover, not a round trip back to the US (returning to your origin doesn't qualify).\n\nWant me to check the specific airport and any airline check in requirements?"
+      ],
+      "reply": "Short answer: likely no visa needed, but it hinges on your itinerary.\n\nChina's visa free transit policy (now up to 240 hours / 10 days at major airports like Shanghai PVG) lets US passport holders stay without a visa if you're transiting to a third country, US → China → Japan counts, since China and Japan are different countries. You'll need your onward ticket to Tokyo booked before you land, and you stay within the approved transit area/region.\n\nSource: https://source0.auditnews.example/page\n\nTwo things to confirm before you fly:\n\n1. Which city is the layover in? The 240 hour policy applies at specific ports of entry, tell me the airport and I'll verify it's covered.\n\n2. Your ticket must show China as a stopover, not a round trip back to the US (returning to your origin doesn't qualify).\n\nWant me to check the specific airport and any airline check in requirements?",
+      "source": "gmi",
+      "card": null,
+      "calls": [
+        {
+          "method": "GET",
+          "path": "/api/internal/live?phone=%2B15552100001&persona=friend&q=Do%20I%20need%20a%20visa%20for%20a%205-day%20layover%20in%20China%20on%20the%20way%20to%20Tokyo%3F",
+          "body": {}
+        },
+        {
+          "method": "GET",
+          "path": "/api/internal/browser/awaiting?phone=%2B15552100001",
+          "body": {}
+        },
+        {
+          "method": "GET",
+          "path": "/api/internal/network?phone=%2B15552100001",
+          "body": {}
+        },
+        {
+          "method": "POST",
+          "path": "/api/internal/touch",
+          "body": {
+            "phone": "+15552100001",
+            "persona": "friend"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/page",
+          "body": {}
+        }
+      ],
+      "llmCallsInTurn": 5,
+      "thread": {
+        "facts": [],
+        "summary": "",
+        "historyCount": 2
+      }
+    }
+  ],
+  "created": {
+    "drafts": [],
+    "reminders": [],
+    "scheduledTexts": [],
+    "commitments": [],
+    "memoryWrites": [],
+    "memoryDeletes": [],
+    "spendDecisions": [],
+    "browserTasks": [],
+    "followups": [],
+    "calendarMutations": [],
+    "fileSends": [],
+    "workWrites": [],
+    "taskChoices": [],
+    "watches": [],
+    "todos": [],
+    "loops": [],
+    "otherWrites": []
+  },
+  "finalMemories": [
+    {
+      "key": "preferred_name",
+      "value": "Alex"
+    }
+  ],
+  "llmCalls": 5,
+  "wallMs": 32029
+}

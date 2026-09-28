@@ -44,11 +44,11 @@ const EMPTY: LiveProfile = {
   pro: false,
 }
 
-function apiBase() {
+export function apiBase() {
   return (process.env.HIREALPHA_API_URL || '').replace(/\/$/, '')
 }
 
-function authHeaders() {
+export function authHeaders() {
   const key = process.env.HIREALPHA_INTERNAL_KEY || ''
   return {
     Authorization: `Bearer ${key}`,
@@ -57,7 +57,7 @@ function authHeaders() {
   }
 }
 
-async function timedFetch(url: string, init: RequestInit, ms: number) {
+export async function timedFetch(url: string, init: RequestInit, ms: number) {
   const ctrl = new AbortController()
   const t = setTimeout(() => ctrl.abort(), ms)
   try {
@@ -441,8 +441,8 @@ export type FreeSlot = { start: string; end: string; label: string }
 export async function suggestCalendarSlots(
   phone: string,
   persona: AgentId,
-  opts: { day?: string; partOfDay?: string; durationMin?: number; windowDays?: number; limit?: number } = {},
-): Promise<{ slots: FreeSlot[]; connect: boolean; unavailable: boolean }> {
+  opts: { day?: string; partOfDay?: string; durationMin?: number; windowDays?: number; limit?: number; guests?: string[] } = {},
+): Promise<{ slots: FreeSlot[]; connect: boolean; unavailable: boolean; guests?: { readable: string[]; unknown: string[] } }> {
   const base = apiBase()
   const key = process.env.HIREALPHA_INTERNAL_KEY || ''
   if (!base || !key) return { slots: [], connect: false, unavailable: true }
@@ -452,19 +452,21 @@ export async function suggestCalendarSlots(
   if (opts.durationMin) payload.durationMin = opts.durationMin
   if (opts.windowDays) payload.windowDays = opts.windowDays
   if (opts.limit) payload.limit = opts.limit
+  if (opts.guests?.length) payload.guests = opts.guests
   try {
     const res = await timedFetch(
       `${base}/api/internal/work/slots`,
       { method: 'POST', headers: authHeaders(), body: JSON.stringify(payload) },
-      9000,
+      12000,
     )
-    const data = (await res.json().catch(() => ({}))) as { slots?: FreeSlot[]; connect?: boolean }
+    const data = (await res.json().catch(() => ({}))) as { slots?: FreeSlot[]; connect?: boolean; guests?: { readable: string[]; unknown: string[] } }
     if (!res.ok) return { slots: [], connect: false, unavailable: true }
     if (!Array.isArray(data.slots)) return { slots: [], connect: !!data.connect, unavailable: true }
     return {
       slots: data.slots.filter((slot) => slot && typeof slot.start === 'string' && typeof slot.label === 'string'),
       connect: !!data.connect,
       unavailable: false,
+      guests: data.guests,
     }
   } catch (err) {
     console.warn('[live] slot suggest failed', err)
@@ -495,6 +497,23 @@ export async function proposeLiveDraft(
     )
     const data = (await res.json().catch(() => ({}))) as { ok?: boolean; id?: string; kind?: string; error?: string }
     if (!res.ok) return { ok: false, error: data.error || `propose failed (${res.status})` }
+    if (data.ok && data.id) {
+      // Durable anchors: the staged draft (and for replies, its thread) stay
+      // resolvable after a restart, so "send it" and "did they reply?" work
+      // beyond the in-memory delegate slot. Best-effort by design.
+      try {
+        const { setTurnAnchorRemote } = await import('./assistantOps')
+        if (draft.kind === 'event') {
+          await setTurnAnchorRemote(phone, persona, 'event', { draftId: data.id, title: draft.title, start: draft.start, end: draft.end, source: 'draft' })
+        } else {
+          // Reference-only anchor: no body in the anchor. Content lives in the
+          // canonical hire_drafts row and is fetched at send time, so a rewrite
+          // or recipient correction before a restart is what actually sends.
+          const to = draft.kind === 'mail' ? draft.to : ''
+          await setTurnAnchorRemote(phone, persona, 'draft', { draftId: data.id, to, subject: 'subject' in draft ? draft.subject : '', kind: draft.kind })
+        }
+      } catch { /* anchor miss degrades gracefully */ }
+    }
     return { ok: !!data.ok, id: data.id, kind: data.kind, error: data.error }
   } catch (err) {
     console.warn('[live] propose failed', err)
@@ -593,6 +612,35 @@ export type SpendResult = {
   paymentIntentId?: string
 }
 
+/** Read-only spend-state read for status questions. A status answer must come
+ * from the durable row, never from conversation memory. */
+export async function fetchSpendState(
+  phone: string,
+  requestId: string,
+): Promise<{ ok: boolean; state?: SpendResult['state']; amountCents?: number; purpose?: string; paymentIntentId?: string | null; error?: string }> {
+  const base = apiBase()
+  if (!base || !process.env.HIREALPHA_INTERNAL_KEY || !requestId) return { ok: false, error: 'Payment state service unavailable.' }
+  try {
+    const res = await timedFetch(
+      `${base}/api/internal/spend/state?phone=${encodeURIComponent(phone)}&requestId=${encodeURIComponent(requestId)}`,
+      { headers: authHeaders() },
+      10_000,
+    )
+    const data = await res.json().catch(() => ({})) as Record<string, unknown>
+    if (!res.ok || data.ok !== true) return { ok: false, error: typeof data.error === 'string' ? data.error : 'state read failed' }
+    const states: SpendResult['state'][] = ['pending_approval', 'executing', 'succeeded', 'cancelled', 'failed', 'outcome_unknown']
+    const state = states.includes(String(data.state) as SpendResult['state']) ? String(data.state) as SpendResult['state'] : 'outcome_unknown'
+    return {
+      ok: true, state,
+      amountCents: typeof data.amountCents === 'number' ? data.amountCents : undefined,
+      purpose: typeof data.purpose === 'string' ? data.purpose : undefined,
+      paymentIntentId: typeof data.paymentIntentId === 'string' ? data.paymentIntentId : null,
+    }
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : 'state read failed' }
+  }
+}
+
 export async function executeSpendApproval(
   phone: string,
   requestId: string,
@@ -631,28 +679,37 @@ export async function proposeBrowserTask(
   const base = apiBase()
   const key = process.env.HIREALPHA_INTERNAL_KEY || ''
   if (!base || !key) {
-    /* Local/dev fallback: no API to stage against, so a session runs on this
-     * machine and the link below is a LABEL, not a server session — the route
-     * only accepts job UUIDs, so it 404s. Say so, because a fabricated-looking
-     * "the run is live" line is exactly the failure this shape produced once. */
-    console.warn('[browserTask] no API base/internal key: running a LOCAL session; the session link will not resolve on the server')
-    const id = 'task_' + Math.random().toString(36).slice(2, 10)
-    void (async () => {
-      try {
-        const { runBrowserSession } = await import('../../deploy/browserSession')
-        const outcome = await runBrowserSession({
-          url: task.portal,
-          username: '',
-          password: '',
-          kind: 'task',
-          goal: task.goal,
-        })
-        console.log(`[browserTask:${persona}] local run finished:`, outcome.ok ? 'success' : outcome.error)
-      } catch (err) {
-        console.warn(`[browserTask:${persona}] local run failed:`, err)
-      }
-    })()
-    return { ok: true, id, requestId: id, origin: task.portal, sessionUrl: `https://hirealpha.chat/computer/${id}` }
+    /* Fail closed. With no configured execution backend there is NO browsing:
+     * the previous fallback launched a real local Playwright session against
+     * the public web from whatever unconfigured process happened to call this,
+     * and handed the user a fabricated "session" link. Real execution happens
+     * only through explicitly configured infrastructure. Local browser
+     * execution stays available for development behind an explicit flag that
+     * defaults OFF, and even then the reply labels the session as local. */
+    if (process.env.ALLOW_LOCAL_BROWSER_EXECUTION === '1') {
+      console.warn('[browserTask] DEVELOPMENT fallback: running a LOCAL browser session; the session link will not resolve on the server')
+      const devId = 'local_' + Math.random().toString(36).slice(2, 10)
+      void (async () => {
+        try {
+          const { runBrowserSession } = await import('../../deploy/browserSession')
+          const outcome = await runBrowserSession({
+            url: task.portal,
+            username: '',
+            password: '',
+            kind: 'task',
+            goal: task.goal,
+          })
+          console.log(`[browserTask:${persona}] local run finished:`, outcome.ok ? 'success' : outcome.error)
+        } catch (err) {
+          console.warn(`[browserTask:${persona}] local run failed:`, err)
+        }
+      })()
+      return { ok: true, id: devId, requestId: devId, origin: task.portal, sessionUrl: `local://browser/${devId}`, error: undefined }
+    }
+    return {
+      ok: false,
+      error: 'execution_backend_unavailable: no execution infrastructure is configured, so the browser run was NOT started. Nothing is queued; ask an operator to configure the execution backend before retrying.',
+    }
   }
   try {
     const res = await timedFetch(
@@ -666,6 +723,14 @@ export async function proposeBrowserTask(
     )
     const data = (await res.json().catch(() => ({}))) as { ok?: boolean; needsVault?: boolean; id?: string; requestId?: string; origin?: string; sessionUrl?: string; error?: string }
     if (!res.ok || !data.ok) return { ok: false, error: data.error || `browser propose failed (${res.status})` }
+    if (data.ok && data.id) {
+      // Durable job anchor: "what's the status of that thing?" and "cancel
+      // that" resolve after a restart. Best-effort.
+      try {
+        const { setTurnAnchorRemote } = await import('./assistantOps')
+        await setTurnAnchorRemote(phone, persona, 'browser_job', { jobId: data.id, goal: task.goal, url: task.portal, sessionUrl: data.sessionUrl || '' })
+      } catch { /* anchor miss degrades gracefully */ }
+    }
     /* No id means no job was created (the vault branch answers
      * `{ok:true, needsVault:true}` with neither id nor sessionUrl). Building a
      * `/computer/` link from an absent id handed the user a URL for a run that
@@ -1724,7 +1789,8 @@ export async function sendMailDirect(
   to: string,
   subject: string,
   body: string,
-): Promise<{ ok: boolean; error?: string }> {
+  threadId?: string,
+): Promise<{ ok: boolean; error?: string; providerId?: string | null }> {
   const base = apiBase()
   const key = process.env.HIREALPHA_INTERNAL_KEY || ''
   if (!base || !key) return { ok: false, error: 'not configured' }
@@ -1734,7 +1800,7 @@ export async function sendMailDirect(
       {
         method: 'POST',
         headers: authHeaders(),
-        body: JSON.stringify({ phone, to, subject, body }),
+        body: JSON.stringify({ phone, to, subject, body, threadId }),
       },
       20000,
     )

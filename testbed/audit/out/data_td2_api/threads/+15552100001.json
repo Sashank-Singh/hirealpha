@@ -1,0 +1,16 @@
+{
+  "facts": [],
+  "summary": "",
+  "history": [
+    {
+      "role": "user",
+      "content": "Pull my last 10 invoices from https://api.acme.dev/v1/invoices and put them in a doc.",
+      "ts": 1790533579212
+    },
+    {
+      "role": "assistant",
+      "content": "On it, the run is launching on api.acme.dev now to pull your last 10 invoices. It'll pause before any password or payment step, and I'll bring the numbers back here. Once I have them, I'll drop everything into a doc for you.\n\nLaunching Cloud Computer for this task: https://audit.internal/computer/job_1 — the session is active now, pauses automatically before any sensitive steps, and I'll report back here with the verified results.",
+      "ts": 1790533579212
+    }
+  ]
+}

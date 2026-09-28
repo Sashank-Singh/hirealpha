@@ -1,4 +1,8 @@
 import { pendingSpendReply } from './spendTurn'
+import { ClaimLedger, enforceClaimEvidence } from './claimEvidence'
+import { fetchTurnAnchors, setTurnAnchorRemote, clearTurnAnchorRemote, fetchMailState, fetchPendingDraft } from './assistantOps'
+import { isAffirmativeApprovalIntent, isNegativeCancellationIntent } from './conversationalApproval'
+import { nextFridayAt5 } from '../../deploy/followupDeadline'
 import type { DeliveryHooks } from './progressiveDelivery'
 import {
   getAgent,
@@ -55,7 +59,7 @@ import {
 import { foldQuotes, isBannedTagline, dropBannedTaglines } from './outboundFilter'
 import { formatNowForAgent, pickUserTimezone, timezoneFromText } from '../../deploy/timezones'
 import { dispatch as dispatchSmart, type DispatchContext, matchedCapability } from './dispatcher'
-import { fetchContacts, fetchSpending, peekDelegateDraft, retainDelegateDraft, sendMailDirect, takeDelegateDraft } from './liveContext'
+import { fetchContacts, fetchSpending, manageEmailFollowup, mutateCalendarEventLive, peekDelegateDraft, retainDelegateDraft, sendMailDirect, takeDelegateDraft } from './liveContext'
 import {
   looksLikeFollowUp,
   looksLikeMailWrite,
@@ -640,6 +644,7 @@ async function handleReminderMessage(input: {
   persona: string
   userText: string
   timezone: string
+  evidence?: ClaimLedger
 }): Promise<string | null> {
   // A digest ask ("weekday 7am digest", "pause my morning digest") is reminder
   // management, not a generic reminder. Handled first and deterministically:
@@ -669,7 +674,11 @@ async function handleReminderMessage(input: {
       recurrence: intent.recurrence,
       timezone: input.timezone,
     })
-    if (!created.ok) return "I couldn't save that reminder right now. Try again in a sec?"
+    if (!created.ok) {
+      input.evidence?.record('reminder', 'verified_failure', { op: 'create' })
+      return "I couldn't save that reminder right now. Try again in a sec?"
+    }
+    input.evidence?.record('reminder', 'verified_success', { op: 'create', receipt: true, providerId: created.reminder.id })
     const saved = created.reminder
     const savedLocal = formatLocalAtSafe(saved.scheduledAt, input.timezone)
     const when =
@@ -678,7 +687,9 @@ async function handleReminderMessage(input: {
   }
   if (intent.action === 'list') {
     const items = await listReminders(input.phone, input.persona)
-    const pending = items.filter((r) => r.status === 'pending' && !/^\[(judge|poke)\]/i.test(r.text))
+    input.evidence?.record('reminder', items.status === 'success_with_data' ? 'verified_success' : items.status === 'success_empty' ? 'verified_empty' : 'provider_unavailable', { op: 'list' })
+    const all = items.status === 'success_with_data' ? items.reminders : []
+    const pending = all.filter((r) => r.status === 'pending' && !/^\[(judge|poke)\]/i.test(r.text))
     if (!pending.length) return "You don't have any reminders lined up right now."
     const lines = pending.map((r) => {
       const when = formatLocalAtSafe(r.scheduledAt, input.timezone)
@@ -951,7 +962,11 @@ export async function runHireTurn(input: {
      * transport failures — so the most common message after saving a password
      * said a run had started when none had. */
     if (!queued.ok) {
-      const reply = `I have your login saved, but the ${portalName} run did not queue${queued.error ? ` (${String(queued.error).slice(0, 80)})` : ''}. Nothing is running yet. Say retry and I'll try again.`
+      /* Name the typed reason without pasting an error blob, and repeat the
+       * task so "nothing is running yet" never leaves the user holding an
+       * unnamed promise. */
+      const reason = String(queued.error || '').split(':')[0].slice(0, 60)
+      const reply = `I have your login saved, but the ${portalName} run did not queue${reason ? ` (${reason} — no execution backend is configured)` : ''}. Nothing is running yet. Your task "${String(pendingVault.goal).slice(0, 120)}" is still pending — say retry once the backend is set up and I'll run it.`
       appendThread(input.dataDir, input.senderId, [
         { role: 'user', content: input.threadLine || input.userText },
         { role: 'assistant', content: reply },
@@ -977,6 +992,7 @@ export async function runHireTurn(input: {
     return { reply, bubbles: [reply], source: 'local' as const, authoritative: [], card: null }
   }
 
+  const evidence = new ClaimLedger()
   const live = await fetchLiveProfile(input.senderId, agent.id, input.userText)
   /* Reconciliation: anything this thread holds that the server does not is a
    * preference whose only copy dies with this container — a failed POST used to
@@ -1037,6 +1053,13 @@ export async function runHireTurn(input: {
     ])
     return { reply: earlyShield.overrideReply, bubbles: [earlyShield.overrideReply], source: 'local', authoritative: [], card }
   }
+
+  /* ---- Durable turn anchors (restart-safe "that"): what this conversation is
+   * currently about, mirrored server-side so a container swap does not orphan
+   * "send it", "move that", or "did they reply". Fail-open: an unreachable
+   * server degrades to the pre-anchor behaviour. ---- */
+  const anchors = live.found && live.hired ? await fetchTurnAnchors(input.senderId, agent.id) : []
+  const anchorOf = (kind: string) => anchors.find((a) => a.kind === kind)
 
   const pendingSpend = mem.pendingSpend
 
@@ -1109,6 +1132,211 @@ export async function runHireTurn(input: {
     return { reply, bubbles: [reply], source: 'local' as const, authoritative: [], card: null }
   }
 
+  /* ---- Anchor-driven continuations. Each one resolves a natural follow-up
+   * against a durable typed reference instead of asking the user to repeat
+   * context the assistant already had. ---- */
+  const affirmative = isAffirmativeApprovalIntent(input.userText)
+  const negative = isNegativeCancellationIntent(input.userText)
+
+  // 1. Confirmed calendar cancel/move (staged by the calendar_event capability
+  //    or a bare "cancel that"/"move that" below).
+  const pendingEvent = anchorOf('pending_event_action')
+  if (live.hired && pendingEvent && (affirmative || negative)) {
+    const ref = pendingEvent.ref as { action?: string; eventId?: string; start?: string; end?: string; scope?: string; title?: string; priorStart?: string; priorEnd?: string }
+    if (negative || !ref.eventId) {
+      await clearTurnAnchorRemote(input.senderId, agent.id, 'pending_event_action')
+      const reply = negative ? 'Left it as is.' : 'I lost the reference to that event - name it again and I will pull it up.'
+      appendThread(input.dataDir, input.senderId, [
+        { role: 'user', content: input.threadLine || input.userText },
+        { role: 'assistant', content: reply },
+      ])
+      return { reply, bubbles: [reply], source: 'local', authoritative: [], card: null }
+    }
+    const result = ref.action === 'cancel'
+      ? await mutateCalendarEventLive(input.senderId, agent.id, { eventId: ref.eventId, action: 'cancel', scope: ref.scope })
+      : await mutateCalendarEventLive(input.senderId, agent.id, { eventId: ref.eventId, action: 'update', start: ref.start, end: ref.end, scope: ref.scope })
+    await clearTurnAnchorRemote(input.senderId, agent.id, 'pending_event_action')
+    if (!result.ok) {
+      const reply = `The calendar change did not go through${result.error ? ` (${result.error})` : ''}. Nothing was changed${result.outcomeUnknown ? ', or the outcome is unknown - check the calendar before retrying' : ''}.`
+      appendThread(input.dataDir, input.senderId, [
+        { role: 'user', content: input.threadLine || input.userText },
+        { role: 'assistant', content: reply },
+      ])
+      return { reply, bubbles: [reply], source: 'local', authoritative: [], card: null }
+    }
+    if (ref.action === 'update' && ref.priorStart) {
+      await setTurnAnchorRemote(input.senderId, agent.id, 'event', {
+        eventId: ref.eventId, title: ref.title || '', start: ref.start || '', end: ref.end || '',
+        priorStart: ref.priorStart, priorEnd: ref.priorEnd || '', revertUntil: new Date(Date.now() + 60 * 60_000).toISOString(),
+      })
+    }
+    const reply = ref.action === 'cancel'
+      ? `Cancelled "${ref.title || 'the event'}" and attendees were notified. That delete is not auto-reversible - say undo and I will recreate the hold at its old time.`
+      : `Moved "${ref.title || 'the event'}" to ${ref.start || 'the new time'}. Attendees were notified.${ref.priorStart ? " Say 'undo' within the hour and I'll put it back." : ''}`
+    appendThread(input.dataDir, input.senderId, [
+      { role: 'user', content: input.threadLine || input.userText },
+      { role: 'assistant', content: reply },
+    ])
+    return { reply, bubbles: [reply], source: 'local', authoritative: [], card: null }
+  }
+
+  // 2. Undo of a confirmed move: restore the prior times captured at confirm.
+  const eventAnchor = anchorOf('event')?.ref as { eventId?: string; title?: string; priorStart?: string; priorEnd?: string; revertUntil?: string } | undefined
+  if (live.hired && eventAnchor?.eventId && /^\s*(?:undo|revert)(?:\s+that| it)?\s*[.!]?\s*$/i.test(input.userText)) {
+    const until = eventAnchor.revertUntil ? Date.parse(eventAnchor.revertUntil) : NaN
+    if (!eventAnchor.priorStart || !(Number.isFinite(until) && until > Date.now())) {
+      const reply = "The revert window closed (an hour) or the change predates it. Tell me the time you want and I'll move it there."
+      appendThread(input.dataDir, input.senderId, [
+        { role: 'user', content: input.threadLine || input.userText },
+        { role: 'assistant', content: reply },
+      ])
+      return { reply, bubbles: [reply], source: 'local', authoritative: [], card: null }
+    }
+    const result = await mutateCalendarEventLive(input.senderId, agent.id, {
+      eventId: eventAnchor.eventId, action: 'update', start: eventAnchor.priorStart, end: eventAnchor.priorEnd || eventAnchor.priorStart,
+    })
+    const reply = result.ok
+      ? `Put "${eventAnchor.title || 'the event'}" back to ${eventAnchor.priorStart}. Attendees were notified.`
+      : `The revert did not go through${result.error ? ` (${result.error})` : ''}. Check the calendar before trying again.`
+    appendThread(input.dataDir, input.senderId, [
+      { role: 'user', content: input.threadLine || input.userText },
+      { role: 'assistant', content: reply },
+    ])
+    return { reply, bubbles: [reply], source: 'local', authoritative: [], card: null }
+  }
+
+  // 3. Confirmed follow-up watch after a send ("yes" to "want me to watch
+  //    this thread?"). Authority stays with the user: the offer never arms
+  //    itself.
+  const followupAsk = anchorOf('pending_followup_ask')
+  if (live.hired && followupAsk && (affirmative || negative)) {
+    const ref = followupAsk.ref as { threadId?: string; participant?: string; subject?: string; deadline?: string }
+    await clearTurnAnchorRemote(input.senderId, agent.id, 'pending_followup_ask')
+    if (negative || !ref.threadId || !ref.participant) {
+      const reply = negative ? 'Okay, no watch on that thread.' : 'I lost the thread reference for that watch - tell me who to watch and I will set it up.'
+      appendThread(input.dataDir, input.senderId, [
+        { role: 'user', content: input.threadLine || input.userText },
+        { role: 'assistant', content: reply },
+      ])
+      return { reply, bubbles: [reply], source: 'local', authoritative: [], card: null }
+    }
+    const deadlineIso = ref.deadline || nextFridayAt5(new Date(), live.timezone || undefined)
+    const created = await manageEmailFollowup(input.senderId, agent.id, {
+      action: 'create',
+      threadId: ref.threadId,
+      expectedParticipant: ref.participant,
+      deadline: deadlineIso,
+    })
+    const reply = created.ok
+      ? `Watching the thread with ${ref.participant}. If they haven't replied by ${new Date(deadlineIso).toLocaleDateString('en-US', { weekday: 'long' })}, I'll check it and draft the nudge - nothing gets sent without you.`
+      : `The watch did not save (${created.error || 'unknown error'}), so nothing is armed. Say "watch that thread" and I'll retry.`
+    appendThread(input.dataDir, input.senderId, [
+      { role: 'user', content: input.threadLine || input.userText },
+      { role: 'assistant', content: reply },
+    ])
+    return { reply, bubbles: [reply], source: 'local', authoritative: [], card: null }
+  }
+
+  // 4. Bare "the other one": the conversation's stored selection advances.
+  if (live.hired && /^\s*(?:the\s+)?other\s+one\s*[.!]?\s*$/i.test(input.userText)) {
+    const selection = anchorOf('selection')?.ref as { items?: Array<{ label?: string; url?: string; goal?: string }>; lastPicked?: number; goal?: string } | undefined
+    const items = selection?.items || []
+    if (items.length >= 2) {
+      const nextIdx = ((selection!.lastPicked ?? -1) + 1) % items.length
+      const item = items[nextIdx]!
+      await setTurnAnchorRemote(input.senderId, agent.id, 'selection', { ...selection!, lastPicked: nextIdx })
+      if (item.url && item.goal) {
+        const staged = await proposeBrowserTask(input.senderId, agent.id, { portal: item.url, goal: item.goal })
+        const reply = staged.ok
+          ? `On it - ${item.label || item.url}. I'll pause before any password or payment.`
+          : `I picked ${item.label || 'the other option'} but the run didn't queue - say try again.`
+        appendThread(input.dataDir, input.senderId, [
+          { role: 'user', content: input.threadLine || input.userText },
+          { role: 'assistant', content: reply },
+        ])
+        return { reply, bubbles: [reply], source: 'local', authoritative: [], card: null }
+      }
+      const reply = `The other one is ${item.label || 'the next option'}. Want that one?`
+      appendThread(input.dataDir, input.senderId, [
+        { role: 'user', content: input.threadLine || input.userText },
+        { role: 'assistant', content: reply },
+      ])
+      return { reply, bubbles: [reply], source: 'local', authoritative: [], card: null }
+    }
+  }
+
+  // 5. Bare "did they/he/she reply?" against the conversation's thread anchor,
+  //    re-verified live before answering.
+  if (live.hired && /^\s*did\s+(?:they|he|she)\s+(?:ever\s+)?(?:get\s+back\s+to\s+me|reply|respond|answer)(?:\s+yet)?\s*[?.!]?\s*$/i.test(input.userText)) {
+    const thread = anchorOf('thread')?.ref as { threadId?: string; participant?: string; subject?: string } | undefined
+    if (thread?.threadId) {
+      const state = await fetchMailState(input.senderId, agent.id, { kind: 'all', refreshThreadId: thread.threadId })
+      const r = state?.refresh
+      let reply: string
+      if (!state || !r || !r.lastDate) {
+        reply = 'I could not re-read that thread just now. Ask again in a moment and I will check the live mailbox instead of guessing.'
+      } else if (r.awaiting === 'them') {
+        reply = `Not yet - the last message in "${thread.subject || 'that thread'}" is still yours (${r.lastDate}). Want me to watch it and nudge you if nothing lands by Friday?`
+      } else if (r.awaiting === 'me' && r.lastFromMatchesParticipant) {
+        reply = `Yes - ${r.lastFrom.replace(/<[^>]+>/g, '').trim() || 'they'} replied (${r.lastDate}) and the ball is back with you. Want me to open their message?`
+      } else if (r.awaiting === 'me') {
+        // A DIFFERENT person replied in that thread. "Did Sam reply?" must
+        // never read a Maya reply as a yes.
+        const who = r.lastFrom.replace(/<[^>]+>/g, '').trim() || 'someone else'
+        reply = `Not Sam - ${who} replied (${r.lastDate}) in that thread, and the ball is back with you. Want me to open it?`
+      } else {
+        reply = `The thread's latest message is automated or unclear (last activity ${r.lastDate}). Want me to open the latest message so you can judge?`
+      }
+      appendThread(input.dataDir, input.senderId, [
+        { role: 'user', content: input.threadLine || input.userText },
+        { role: 'assistant', content: reply },
+      ])
+      return { reply, bubbles: [reply], source: 'local', authoritative: [], card: null }
+    }
+    // No thread anchor: fall through to the model with the mail_state tool.
+  }
+
+  // 6. Bare "move that" / "cancel that" against the event anchor: stage the
+  //    same confirmation flow the capability uses. "Move that" without a new
+  //    time asks for one instead of guessing.
+  if (live.hired && !pendingEvent) {
+    const bareMove = /^\s*(?:move|reschedule)\s+that\s*[.!]?\s*$/i.test(input.userText)
+    const bareCancel = /^\s*cancel\s+that\s*[.!]?\s*$/i.test(input.userText)
+    if (bareMove || bareCancel) {
+      const ev = anchorOf('event')?.ref as { eventId?: string; title?: string; start?: string; end?: string } | undefined
+      if (!ev?.eventId) {
+        const reply = bareCancel
+          ? 'Which event should I cancel? Name it and I will pull it up.'
+          : 'Which event should I move, and to when?'
+        appendThread(input.dataDir, input.senderId, [
+          { role: 'user', content: input.threadLine || input.userText },
+          { role: 'assistant', content: reply },
+        ])
+        return { reply, bubbles: [reply], source: 'local', authoritative: [], card: null }
+      }
+      if (bareMove) {
+        const reply = `Move "${ev.title || 'that event'}" to when?`
+        appendThread(input.dataDir, input.senderId, [
+          { role: 'user', content: input.threadLine || input.userText },
+          { role: 'assistant', content: reply },
+        ])
+        return { reply, bubbles: [reply], source: 'local', authoritative: [], card: null }
+      }
+      const current = await mutateCalendarEventLive(input.senderId, agent.id, { eventId: ev.eventId, action: 'inspect' })
+      const ev0 = (current.event || {}) as { summary?: string; start?: { dateTime?: string }; end?: { dateTime?: string } }
+      await setTurnAnchorRemote(input.senderId, agent.id, 'pending_event_action', {
+        action: 'cancel', eventId: ev.eventId, title: ev0.summary || ev.title || '',
+        priorStart: ev0.start?.dateTime || ev.start || '', priorEnd: ev0.end?.dateTime || ev.end || '',
+      })
+      const reply = `Cancel "${ev0.summary || ev.title || 'that event'}"? Reply yes to confirm, or no to leave it.`
+      appendThread(input.dataDir, input.senderId, [
+        { role: 'user', content: input.threadLine || input.userText },
+        { role: 'assistant', content: reply },
+      ])
+      return { reply, bubbles: [reply], source: 'local', authoritative: [], card: null }
+    }
+  }
+
   const connection = /^\s*(?:(?:please|can you|could you|help me)\s+)?(?:connect|link|hook up)\s+(?:to\s+)?(?:my\s+|the\s+)?(calendar|google calendar|gmail)\s*[.!?]?\s*$/i.exec(input.userText)
   const savedContact = /^\s*(?:i\s+)?(?:did\s+)?(?:already\s+)?saved?\s+(?:(?:your|the)\s+(?:contact|number)\s*)?(?:already)?\s*[.!]?\s*$/i.test(input.userText)
     && (/\b(?:contact|number)\b/i.test(input.userText) || (history.length === 0 && /\balready\b/i.test(input.userText)))
@@ -1179,7 +1407,7 @@ export async function runHireTurn(input: {
       ])
       return { reply, bubbles: splitBubbles(reply), source: 'local', authoritative: [], card: null }
     }
-    const conversational = await runConversationalFriend({ ...input, agentId: agent.id, live, memory: mem, contacts, cityConflict })
+    const conversational = await runConversationalFriend({ ...input, agentId: agent.id, live, memory: mem, contacts, cityConflict, evidence })
     /* A picture made through the `image` capability is collected here: the
      * capability hands the bytes to the registry because a tool result is text,
      * and the turn carries them out on the same field the fast path uses. */
@@ -1263,6 +1491,7 @@ export async function runHireTurn(input: {
   const reminderAsk = digestAsk || looksLikeReminder(input.userText)
   if (live.hired && reminderAsk) {
     const handled = await handleReminderMessage({
+      evidence,
       phone: input.senderId,
       persona: agent.id,
       userText: input.userText,
@@ -1335,8 +1564,45 @@ export async function runHireTurn(input: {
       ])
       return { reply: fail, bubbles: [fail], source: 'local', authoritative: [], card: null }
     }
-    // No retained draft: "send it" must never reach the model — with nothing in
-    // the delegate slot it improvised a random send target from thread noise.
+    // No retained draft in memory: the durable draft anchor still knows what
+    // "it" is across restarts and deploys. Without ANY reference the refusal
+    // stands — "send it" must never reach the model, which once improvised a
+    // random send target from thread noise.
+    const draftAnchor = anchorOf('draft')?.ref as { draftId?: string; to?: string; subject?: string; kind?: string } | undefined
+    if (live.hired && draftAnchor?.draftId) {
+      // Canonical read: the anchor names the draft; hire_drafts holds the
+      // content. A rewrite or recipient correction before this send is what
+      // goes out — the anchor never carries a stale body.
+      const canonical = await fetchPendingDraft(input.senderId, draftAnchor.draftId)
+      if (canonical && 'status' in canonical && canonical.status !== 'pending') {
+        // The draft already went out (or was cancelled) through the card: never
+        // re-send on a stale anchor.
+        await clearTurnAnchorRemote(input.senderId, agent.id, 'draft')
+        const reply = "That draft already went out — I won't send it twice. Say forward if you want it sent again to someone else."
+        appendThread(input.dataDir, input.senderId, [
+          { role: 'user', content: input.threadLine || input.userText },
+          { role: 'assistant', content: reply },
+        ])
+        return { reply, bubbles: [reply], source: 'local', authoritative: [], card: null }
+      }
+      const draft = canonical && 'toAddr' in canonical ? canonical : null
+      if (draft && draft.toAddr && draft.subject && draft.body) {
+        const sent = await sendMailDirect(input.senderId, draft.toAddr, draft.subject, draft.body, draft.threadId)
+        if (sent.ok) {
+          await clearTurnAnchorRemote(input.senderId, agent.id, 'draft')
+          const deadlineIso = nextFridayAt5(new Date(), live.timezone || undefined)
+          await setTurnAnchorRemote(input.senderId, agent.id, 'pending_followup_ask', {
+            threadId: draft.threadId || '', participant: draft.toAddr, subject: draft.subject, deadline: deadlineIso,
+          })
+          const reply = `Sent to ${draft.toAddr} (the current draft, v${draft.version}). Want me to watch this thread and remind you Friday if they don't reply? (yes / no)`
+          appendThread(input.dataDir, input.senderId, [
+            { role: 'user', content: input.threadLine || input.userText },
+            { role: 'assistant', content: reply },
+          ])
+          return { reply, bubbles: [reply], source: 'local', authoritative: [], card: null }
+        }
+      }
+    }
     const nodraft = "Nothing's queued to send right now. Want me to draft something?"
     appendThread(input.dataDir, input.senderId, [
       { role: 'user', content: input.threadLine || input.userText },
@@ -2281,6 +2547,7 @@ export async function runHireTurn(input: {
         && !/\b(?:news|score|who won|weather)\b/i.test(input.userText)
       input.signal?.throwIfAborted()
       const outcome = await runToolConversation({
+        evidence,
         messages: baseMessages,
         delivery: input.delivery,
         chat: (messages, timeoutMs) => gmiChat({ temperature: Math.min(agent.temperature, 0.3), messages, reasoningEffort: 'low', timeoutMs }),
@@ -2461,7 +2728,14 @@ export async function runHireTurn(input: {
     startedAt,
   }).catch(() => undefined)
 
-  return { reply: finalReply, bubbles: splitBubbles(finalReply), source, authoritative, card }
+  /* Claims-to-evidence invariant, engine path: the same receipt rule the friend
+   * path applies — a sentence that asserts an outcome must be backed by this
+   * turn's ledger, positive or negative. */
+  const claimAudit = enforceClaimEvidence(finalReply, evidence)
+  if (claimAudit.violations.length) {
+    console.warn('[claims] rewrote', claimAudit.violations.length, 'unevidenced claim(s):', claimAudit.violations[0])
+  }
+  return { reply: claimAudit.reply, bubbles: splitBubbles(claimAudit.reply), source, authoritative, card }
 }
 
 /** One POST carrying the user's text and Alpha's reply for this turn. */
