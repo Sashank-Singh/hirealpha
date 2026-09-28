@@ -78,7 +78,7 @@ describe('claim provenance — negative claims', () => {
     l.record('reminder', 'verified_success', { id: 'r1' })
     const out = enforceClaimEvidence('The reminder failed to save twice, so it is not set.', l)
     expect(out.violations.length).toBe(1)
-    expect(out.reply).toMatch(/have not attempted|did not save/)
+    expect(out.reply).toMatch(/recorded state|not set|have not attempted|did not save/)
     expect(out.reply).not.toMatch(/failed to save twice/)
   })
 })
@@ -200,5 +200,38 @@ describe('claim provenance — post-battery rewrite wording and nouns', () => {
     const out = enforceClaimEvidence("The forward to accounting didn't go through.", l)
     expect(out.violations.length).toBe(1)
     expect(out.reply).toMatch(/no failed-send record/i)
+  })
+})
+
+describe('claim provenance — post-battery rule-domain fixes (vf4, sc3)', () => {
+  test('a reminder failure claim is judged against reminder evidence (vf4)', () => {
+    const l = new ClaimLedger()
+    l.record('reminder', 'verified_failure', { op: 'create' })
+    const out = enforceClaimEvidence('The reminder failed to save twice, so it is not set.', l)
+    expect(out.violations).toEqual([])
+  })
+
+  test('a reminder failure claim with only success evidence is rewritten against reminder evidence', () => {
+    const l = new ClaimLedger()
+    l.record('reminder', 'verified_success', { receipt: true })
+    const out = enforceClaimEvidence('The reminder failed to save.', l)
+    expect(out.violations.length).toBe(1)
+    expect(out.reply).toMatch(/recorded state|not set/)
+  })
+
+  test('a DRAFT save failure is not treated as a memory-save claim (sc3)', () => {
+    const l = new ClaimLedger()
+    l.record('mail_send', 'verified_failure', { staged: false })
+    const out = enforceClaimEvidence("The draft save failed on my end, so nothing went out.", l)
+    expect(out.violations).toEqual([])
+    expect(out.reply).not.toMatch(/memory writes went through/)
+  })
+
+  test('the genuine memory-save false failure is still caught (gm1)', () => {
+    const l = new ClaimLedger()
+    l.record('memory', 'verified_success', { key: 'goal:launch' })
+    const out = enforceClaimEvidence('I tried to save these as durable memories and the save keeps getting rejected.', l)
+    expect(out.violations.length).toBe(1)
+    expect(out.reply).toMatch(/went through|stored/)
   })
 })

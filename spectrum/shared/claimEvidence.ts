@@ -110,6 +110,14 @@ export class ClaimLedger {
 
 /* ---- Sentence rewriting ---- */
 
+
+/** A negated outcome is not a success claim: "nothing went out", "wasn't
+ * sent", "didn't book". Without this guard the positive rules rewrote honest
+ * negative sentences into "nothing has been sent yet" mid-reply — the
+ * recurring rewrite noise seen across the batteries. */
+const NEGATED_OUTCOME_RE =
+  /\b(?:nothing|not|never|no longer|didn'?t|did not|hasn'?t|haven'?t|wasn'?t|isn'?t|won'?t|couldn'?t|can'?t|unable to|failed to)\b[^.]{0,25}\b(?:sent|sending|emailed|forwarded|went out|is out|booked|reserved|scheduled|created|charged|purchased|ordered|registered|completed|armed|set up|on its way)\b|\b(?:sent|emailed|forwarded|booked|reserved|charged|purchased)\b[^.]{0,12}\b(?:never|not|no)\b/i
+
 const POLICY_LIMIT_RE =
   /\b(?:i will never|i'm not able to move|cannot move money|never initiate|i'm not allowed|against my rules|for (?:your )?security)\b/i
 
@@ -122,6 +130,9 @@ interface ClaimRule {
   allowed: ClaimKind[]
   /** Overrides the kind check when set (e.g. receipt-gated rules). */
   check?: (ledger: ClaimLedger) => boolean
+  /** Sentence-level negation guard: when set and it matches, this rule does
+   * not fire (a negative sentence is judged by the negative rules). */
+  unless?: RegExp
   /** The grounded replacement when evidence is missing. */
   replacement: (ledger: ClaimLedger) => string
 }
@@ -142,6 +153,7 @@ const RULES: ClaimRule[] = [
   {
     kind: 'positive',
     re: /\b(sent|sending|emailed|forward(?:ed|ing)|fired off|went out|on its way (?:to|out)|is out|confirmed the send)\b/i,
+    unless: NEGATED_OUTCOME_RE,
     domain: 'mail_send',
     allowed: ['verified_success'],
     check: (l) => l.hasReceipt('mail_send') || l.hasReceipt('file_send'),
@@ -150,6 +162,7 @@ const RULES: ClaimRule[] = [
   {
     kind: 'positive',
     re: /\b(?:booked|reserved|scheduled it|put (?:it|that) on (?:your|the) calendar|calendar invite (?:is )?(?:sent|out)|event created|moved it|rescheduled)\b/i,
+    unless: NEGATED_OUTCOME_RE,
     domain: 'calendar_write',
     allowed: ['verified_success'],
     check: (l) => l.hasReceipt('calendar_write'),
@@ -182,6 +195,7 @@ const RULES: ClaimRule[] = [
   {
     kind: 'positive',
     re: /\b(?:purchased|ordered it|order(?:ed)? (?:is )?placed|payment (?:went through|received|confirmed)|charged)\b/i,
+    unless: NEGATED_OUTCOME_RE,
     domain: 'purchase',
     allowed: ['verified_success'],
     check: (l) => l.hasReceipt('purchase'),
@@ -190,6 +204,7 @@ const RULES: ClaimRule[] = [
   {
     kind: 'positive',
     re: /\b(?:watch is (?:armed|set|running)|i(?:'ll| will)? (?:keep an eye|monitor)|tracking (?:it|that) (?:for you|now))\b/i,
+    unless: NEGATED_OUTCOME_RE,
     domain: 'watch',
     allowed: ['verified_success'],
     replacement: () => 'The watch did not arm — nothing is monitoring that yet.',
@@ -205,6 +220,7 @@ const RULES: ClaimRule[] = [
   {
     kind: 'positive',
     re: /\b(?:registered|signed up|booked (?:you|us)|completed|finished|checkout (?:is )?(?:complete|done)|order (?:is )?placed)\b/i,
+    unless: NEGATED_OUTCOME_RE,
     domain: 'browser',
     allowed: [],
     check: (l) => l.entries.some((e) => e.domain === 'browser' && e.detail?.receipt === true),
@@ -238,17 +254,31 @@ const RULES: ClaimRule[] = [
   },
   {
     kind: 'negative',
-    re: /\b(?:sav\w+|stor\w+|memor\w+)\b[^.]{0,50}\b(?:rejected|failed|did not save|didn'?t save|wouldn'?t save|keeps? (?:getting )?(?:rejected|failing))/i,
+    re: /\b(?:memor(?:y|ies)|notes?|facts?|preferences?)\b[^.]{0,60}\b(?:rejected|failed|did not save|didn'?t save|wouldn'?t save|keeps? (?:getting )?(?:rejected|failing))\b|\b(?:sav\w+)\b[^.]{0,40}\b(?:as|to)\b[^.]{0,20}\b(?:memor(?:y|ies)|notes?|facts?)\b[^.]{0,40}\b(?:rejected|failed|didn'?t|did not)/i,
     domain: 'memory',
     allowed: ['verified_failure', 'provider_unavailable', 'timeout', 'outcome_unknown', 'permission_denied'],
     replacement: () => 'The memory writes went through on my side, so those notes are stored — ask me to read any of them back and I will.',
   },
   {
     kind: 'negative',
-    re: /\b(?:the |your )?(?:email|mail|send|forward(?:ed|ing)?|file|attachment|reminder|draft)\b[^.]{0,30}\b(?:failed|did not go through|didn'?t go through|bounced|did not save|didn'?t save)\b/i,
+    re: /\b(?:the |your )?(?:email|mail|send|forward(?:ed|ing)?|file|attachment|draft)\b[^.]{0,30}\b(?:failed|did not go through|didn'?t go through|bounced|did not save|didn'?t save)\b/i,
     domain: 'mail_send',
     allowed: ['verified_failure', 'provider_unavailable', 'timeout', 'outcome_unknown'],
     replacement: () => 'I have not attempted that yet, so I cannot report a failure.',
+  },
+  {
+    /* A reminder write is judged against REMINDER evidence, not mail evidence.
+     * Fresh battery (vf4): the rule lived on mail_send, so a real 500 on the
+     * reminder route was rewritten to "I have not attempted that yet" in the
+     * same reply that said "I tried twice and got errors" — a self-
+     * contradiction produced by the wrong evidence domain. */
+    kind: 'negative',
+    re: /\b(?:the |your )?reminders?\b[^.]{0,40}\b(?:failed|did not save|didn'?t save|wasn'?t set|was not set|rejected|wouldn'?t save)\b|\bremind\w*\b[^.]{0,30}\b(?:failed|didn'?t save|did not save)\b/i,
+    domain: 'reminder',
+    allowed: ['verified_failure', 'provider_unavailable', 'timeout', 'outcome_unknown'],
+    replacement: (l) => l.hasKind('reminder', ['verified_success'])
+      ? 'The reminder write above is the recorded state; nothing else about it is confirmed.'
+      : 'I could not confirm the reminder, so treat it as not set.',
   },
   {
     kind: 'negative',
@@ -291,6 +321,7 @@ export function enforceClaimEvidence(reply: string, ledger: ClaimLedger): ClaimA
     if (!isAssertive(sentence) || POLICY_LIMIT_RE.test(sentence)) return sentence
     for (const rule of RULES) {
       if (!rule.re.test(sentence)) continue
+      if (rule.unless?.test(sentence)) continue
       const ok = rule.check ? rule.check(ledger) : ledger.hasKind(rule.domain, rule.allowed)
       /* A negative claim is also fine when the domain was genuinely attempted
        * and returned something (verified_empty counts as evidence). This
