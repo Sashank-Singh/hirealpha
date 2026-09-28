@@ -5,12 +5,12 @@
     {
       "role": "user",
       "content": "Stripe's CEO can only do Tuesday 9:30am this week. Take the meeting?",
-      "ts": 1790534338224
+      "ts": 1790579508730
     },
     {
       "role": "assistant",
-      "content": "Tuesday 9:30 is inside your protected 9 to noon block, so I'd pass on that slot.\n\nHe's only free Tuesday, but your calendar shows Tue 1:00, 3:00 PM open, I'd counter with 1:30 PM Tuesday. Want me to send that counter to his office?",
-      "ts": 1790534338224
+      "content": "One snag: 9:30am Tuesday sits inside your protected 9, noon focus block, and your standing rule is never to book anything in it. The rest of the day is clear, you've got the BigCo interview at 2pm, and 9:30 doesn't touch it. So it's purely a question of whether the Stripe CEO earns a one time exception to the block. That is staged as a draft for your confirmation — the calendar has not been changed yet.",
+      "ts": 1790579508730
     }
   ]
 }

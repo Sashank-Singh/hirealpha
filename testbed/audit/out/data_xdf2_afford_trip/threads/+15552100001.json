@@ -1,0 +1,16 @@
+{
+  "facts": [],
+  "summary": "",
+  "history": [
+    {
+      "role": "user",
+      "content": "Can I afford a $400 trip to Austin next weekend?",
+      "ts": 1790580741617
+    },
+    {
+      "role": "assistant",
+      "content": "Depends on what's in the tank, Alex, I don't have visibility into your accounts, so I can't give a real yes or no.\n\nQuick gut check though: if $400 (plus whatever you'll actually spend there, probably more like $600 all in) wouldn't touch your rent or emergency fund, it's usually fine. What's your rough monthly cushion looking like?",
+      "ts": 1790580741617
+    }
+  ]
+}

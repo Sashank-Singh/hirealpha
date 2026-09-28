@@ -1,0 +1,16 @@
+{
+  "facts": [],
+  "summary": "",
+  "history": [
+    {
+      "role": "user",
+      "content": "Where did my week go?",
+      "ts": 1790580971364
+    },
+    {
+      "role": "assistant",
+      "content": "It's 3:36 AM Monday, Alex, so technically your week just started, and you're already awake for it.\n\nIf you mean last week, I don't have your calendar or logs in front of me to reconstruct it. Tell me what you were juggling and I can help you figure out where it went, or plan this one so it doesn't vanish the same way.",
+      "ts": 1790580971364
+    }
+  ]
+}

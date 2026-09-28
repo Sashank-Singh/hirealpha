@@ -41,6 +41,7 @@ export type ClaimKind =
   | 'already_completed'
 
 export type EvidenceDomain =
+  | 'memory'
   | 'mail_send'
   | 'mail_read'
   | 'calendar_read'
@@ -139,7 +140,7 @@ const RULES: ClaimRule[] = [
   /* Positive execution claims */
   {
     kind: 'positive',
-    re: /\b(sent|sending|emailed|fired off|went out|on its way (?:to|out)|is out)\b/i,
+    re: /\b(sent|sending|emailed|forward(?:ed|ing)|fired off|went out|on its way (?:to|out)|is out|confirmed the send)\b/i,
     domain: 'mail_send',
     allowed: ['verified_success'],
     check: (l) => l.hasReceipt('mail_send'),
@@ -218,6 +219,13 @@ const RULES: ClaimRule[] = [
   },
   {
     kind: 'negative',
+    re: /\b(?:sav\w+|stor\w+|memor\w+)\b[^.]{0,50}\b(?:rejected|failed|did not save|didn'?t save|wouldn'?t save|keeps? (?:getting )?(?:rejected|failing))/i,
+    domain: 'memory',
+    allowed: ['verified_failure', 'provider_unavailable', 'timeout', 'outcome_unknown', 'permission_denied'],
+    replacement: () => 'The memory writes went through on my side, so those notes are stored — ask me to read any of them back and I will.',
+  },
+  {
+    kind: 'negative',
     re: /\b(?:the |your )?(?:email|mail|send|reminder|draft) (?:failed|did not go through|didn'?t go through|bounced|did not save|didn'?t save)\b/i,
     domain: 'mail_send',
     allowed: ['verified_failure', 'provider_unavailable', 'timeout', 'outcome_unknown'],
@@ -264,8 +272,14 @@ export function enforceClaimEvidence(reply: string, ledger: ClaimLedger): ClaimA
        * success receipt on record is still a contradiction the next rule
        * version should catch, so failure-vs-success mismatches stay flagged
        * for the positive rules only. */
-      const evidenceOfAttempt = ledger.hasAny(rule.domain)
-      if (ok || (rule.kind === 'negative' && evidenceOfAttempt)) return sentence
+      /* A negative claim may be rescued by attempt evidence ONLY when that
+       * evidence is not a success: "the save failed" with a success receipt on
+       * record is a contradiction, not a caveat, and must be rewritten. */
+      const negativeRescue =
+        rule.kind === 'negative' &&
+        ledger.hasAny(rule.domain) &&
+        !(ledger.hasKind(rule.domain, ['verified_success']) && !rule.allowed.includes('verified_success'))
+      if (ok || negativeRescue) return sentence
       violations.push(sentence.trim().slice(0, 160))
       return rule.replacement(ledger)
     }

@@ -1166,8 +1166,8 @@ async function loadMailSenderSignals(
 }
 
 /**
- * Gmail ids the user already triaged out of the brief. Done, skip, and drafted
- * all mean the same thing for ranking: this mail had its chance. Kept for 21
+ * Gmail ids the user finished handling. A draft is still awaiting review and
+ * send, so it must remain in the brief. Kept for 21
  * days so a newsletter skipped once stays gone without growing forever.
  */
 async function triagedMailIds(sql: SQL, userId: string): Promise<Set<string>> {
@@ -1175,7 +1175,7 @@ async function triagedMailIds(sql: SQL, userId: string): Promise<Set<string>> {
     const rows = await sql`
       SELECT DISTINCT gmail_id FROM hire_mail_feedback
       WHERE user_id = ${userId}
-        AND action IN ('done', 'skip', 'drafted')
+        AND action IN ('done', 'skip', 'replied')
         AND created_at > now() - interval '21 days'
     `
     return new Set((rows as Array<{ gmail_id: string }>).map((r) => r.gmail_id).filter(Boolean))
@@ -3348,6 +3348,7 @@ export async function digestPayload(
 
   return {
     date: dateLabel,
+    generatedAt: Date.now(),
     calendar: todayCal,
     meetings,
     attention,
@@ -5024,7 +5025,7 @@ export async function miniPayload(
     // Keep enough to break into sub-category piles like the morning brief.
     const mailJob = async (): Promise<{
       mailStatus: ConnectorStatus
-      mailItems: Array<{ id: string; label: string; snippet?: string }>
+      mailItems: Array<{ id: string; label: string; snippet?: string; kind?: string }>
       mailGroups: Array<{
         kind: string
         label: string
@@ -5036,7 +5037,7 @@ export async function miniPayload(
         return { mailStatus: 'not_connected', mailItems: [], mailGroups: [] }
       }
       let mailStatus: ConnectorStatus = 'ok'
-      let mailItems: Array<{ id: string; label: string; snippet?: string }> = []
+      let mailItems: Array<{ id: string; label: string; snippet?: string; kind?: string }> = []
       let mailGroups: Array<{
         kind: string
         label: string
@@ -5045,7 +5046,12 @@ export async function miniPayload(
       }> = []
       try {
         const exact = await withTimeout(
-          readGmailExact(sql, user.id, importantMailQuery('2d'), JUDGE_MAIL_CAP),
+          readGmailExact(
+            sql,
+            user.id,
+            `${importantMailQuery('2d')} after:${Math.floor(todayStart.getTime() / 1000)}`,
+            JUDGE_MAIL_CAP,
+          ),
           6000,
           { items: [] as Array<{ id: string; threadId: string; from: string; date: string; subject: string; snippet: string }>, failed: true, status: 'timeout' as const },
         )
@@ -5053,7 +5059,7 @@ export async function miniPayload(
         const richMail = exact.items
         const doneIdsE = await triagedMailIds(sql, user.id)
         const kept = (await judgeBriefMail(richMail, JUDGE_MAIL_CAP)).filter((m) => !doneIdsE.has(m.id))
-        // A few lead the flat "Mail since this morning"; the rest become the
+        // A few lead the flat "Mail today"; the rest become the
         // sub-category piles. Morning keeps these separate, and so does this —
         // otherwise every mail renders twice (flat + grouped).
         const leadIds = new Set(kept.slice(0, 3).map((m) => m.id))
@@ -5061,6 +5067,7 @@ export async function miniPayload(
           id: m.id,
           label: formatMailLineFromParts(m.from, m.subject),
           snippet: cleanMailSnippet(m.snippet),
+          kind: m.kind,
         }))
         mailGroups = groupMailByKind(kept.filter((m) => !leadIds.has(m.id))).map((g) => ({
           kind: g.kind,
@@ -5275,7 +5282,7 @@ export async function miniPayload(
 
     const formatEvent = (e: EveningEvent) => `${e.time}  ${e.who || e.title}  ${e.meetKind}`
 
-    const sections: Array<{ heading: string; items: string[]; emailMeta?: Array<{ id: string; snippet?: string }> }> = []
+    const sections: Array<{ heading: string; items: string[]; emailMeta?: Array<{ id: string; snippet?: string; kind?: string }> }> = []
 
     if (locationEvents.length) {
       const locs = locationEvents.map((e) =>
@@ -5331,24 +5338,24 @@ export async function miniPayload(
 
     if (mailItems.length) {
       sections.push({
-        heading: 'Mail since this morning',
+        heading: 'Mail today',
         items: mailItems.map((m) => m.label),
-        emailMeta: mailItems.map((m) => ({ id: m.id, snippet: m.snippet })),
+        emailMeta: mailItems.map((m) => ({ id: m.id, snippet: m.snippet, kind: m.kind })),
       })
     } else if (connected.includes('gmail')) {
       if (mailStatus === 'auth_expired') {
         sections.push({
-          heading: 'Mail since this morning',
+          heading: 'Mail today',
           items: ['Gmail authorization expired. Reconnect in Settings.'],
         })
       } else if (mailStatus === 'timeout') {
         sections.push({
-          heading: 'Mail since this morning',
+          heading: 'Mail today',
           items: ['Mail check timed out.'],
         })
       } else if (mailStatus === 'provider_error') {
         sections.push({
-          heading: 'Mail since this morning',
+          heading: 'Mail today',
           items: ['Could not check Gmail just now.'],
         })
       }
@@ -5715,6 +5722,167 @@ export async function miniCardOgDescription(
     if (kind === 'vault') {
       return 'Encrypted credential access. Credentials are encrypted with your per-user key in OpenBao and restricted to the exact website you approve.'
     }
+    /* Everything below previews the thing itself, not the app that holds it:
+     * the draft, the promise, the charge. Each branch is one indexed read; a
+     * user with no data yet falls through to the static app description. */
+    const tz = user.timezone || 'America/Los_Angeles'
+    const squish = (text: string, max: number) => text.replace(/\s+/g, ' ').trim().slice(0, max)
+    if (kind === 'approve_send' || kind === 'approve_investor_note') {
+      const draftKind = kind === 'approve_investor_note' ? 'investor' : 'email'
+      const rows = (await sql`
+        SELECT subject, to_addr AS "toAddr", body FROM hire_drafts
+        WHERE user_id = ${user.id} AND status = 'pending' AND kind = ${draftKind}
+        ORDER BY created_at DESC LIMIT 1
+      `) as Array<{ subject: string; toAddr: string; body: string }>
+      const draft = rows[0]
+      if (!draft) return null
+      const to = draft.toAddr ? ` to ${draft.toAddr}` : ''
+      const line = squish(draft.body || '', 80)
+      const head = draft.subject ? `“${draft.subject}”${to}` : `Draft${to}`
+      return squish(`${head}${line ? ` — ${line}` : ''}`, 240)
+    }
+    if (kind === 'pick_slot') {
+      const rows = (await sql`
+        SELECT subject, start_at AS "startAt" FROM hire_drafts
+        WHERE user_id = ${user.id} AND status = 'pending' AND kind = 'event' AND start_at <> ''
+        ORDER BY created_at DESC LIMIT 1
+      `) as Array<{ subject: string; startAt: string }>
+      const hold = rows[0]
+      if (!hold) return null
+      const when = new Date(hold.startAt)
+      if (Number.isNaN(when.getTime())) return null
+      const label = when.toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: tz })
+      return `${hold.subject}: ${label}. Tap to confirm the hold.`
+    }
+    if (kind === 'open_loops') {
+      const rows = (await sql`
+        SELECT title, due_at AS "dueAt" FROM hire_loops
+        WHERE user_id = ${user.id} AND status = 'open'
+        ORDER BY due_at ASC NULLS LAST, created_at ASC LIMIT 3
+      `) as Array<{ title: string; dueAt: Date | string | null }>
+      const first = rows[0]
+      if (!first) return 'Nothing owed right now.'
+      const due = first.dueAt
+        ? ` · due ${new Date(first.dueAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: tz })}`
+        : ''
+      const count = rows.length === 1 ? 'One promise open' : `${rows.length} promises open`
+      return squish(`${count}: ${first.title}${due}`, 200)
+    }
+    if (kind === 'networking_crm') {
+      const rows = (await sql`
+        SELECT name, last_touch AS "lastTouch", cadence_days AS "cadenceDays" FROM hire_network
+        WHERE user_id = ${user.id}
+        ORDER BY last_touch ASC NULLS FIRST LIMIT 1
+      `) as Array<{ name: string; lastTouch: Date | string | null; cadenceDays: number }>
+      const person = rows[0]
+      if (!person) return null
+      if (!person.lastTouch) return `${person.name}: no touch logged yet. Cadence is every ${person.cadenceDays} days.`
+      const days = Math.max(0, Math.floor((Date.now() - new Date(person.lastTouch).getTime()) / 86_400_000))
+      const lead = days >= person.cadenceDays ? 'Overdue' : 'Next up'
+      return `${lead}: ${person.name} · last touch ${days}d ago.`
+    }
+    if (kind === 'spending_snapshot') {
+      const rows = (await sql`
+        SELECT description, amount FROM hire_spending
+        WHERE user_id = ${user.id} AND spent_at >= now() - interval '7 days'
+        ORDER BY spent_at DESC LIMIT 20
+      `) as Array<{ description: string; amount: number }>
+      if (!rows.length) return 'No charges logged this week.'
+      const total = rows.reduce((sum, row) => sum + Number(row.amount || 0), 0)
+      const latest = squish(rows[0]!.description || 'latest charge', 40)
+      return `${rows.length} ${rows.length === 1 ? 'charge' : 'charges'} this week · $${Math.round(total)}. Last: ${latest}.`
+    }
+    if (kind === 'decision_ledger') {
+      const rows = (await sql`
+        SELECT decision, review_at AS "reviewAt" FROM hire_decisions
+        WHERE user_id = ${user.id} AND status = 'open'
+        ORDER BY created_at DESC LIMIT 1
+      `) as Array<{ decision: string; reviewAt: Date | string | null }>
+      const call = rows[0]
+      if (!call) return null
+      const review = call.reviewAt
+        ? ` · revisit ${new Date(call.reviewAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: tz })}`
+        : ''
+      return squish(`${call.decision}${review}`, 200)
+    }
+    if (kind === 'pipeline_board') {
+      const rows = (await sql`
+        SELECT stage, count(*)::int AS n FROM hire_pipeline
+        WHERE user_id = ${user.id} GROUP BY stage
+      `) as Array<{ stage: string; n: number }>
+      const byStage = Object.fromEntries(rows.map((row) => [row.stage, Number(row.n)]))
+      const active = rows
+        .filter((row) => row.stage !== 'won' && row.stage !== 'lost')
+        .reduce((sum, row) => sum + Number(row.n), 0)
+      if (!active) return 'Pipeline is clear.'
+      const parts = [`${active} active`]
+      if (byStage.interview) parts.push(`${byStage.interview} interviewing`)
+      if (byStage.offer) parts.push(`${byStage.offer} at offer`)
+      if (byStage.won) parts.push(`${byStage.won} won`)
+      return `${parts.join(' · ')}.`
+    }
+    if (kind === 'meeting_mode') {
+      const rows = (await sql`
+        SELECT title, starts_at AS "startsAt" FROM hire_meetings
+        WHERE user_id = ${user.id} AND phase <> 'done' AND starts_at >= now() - interval '30 minutes'
+        ORDER BY starts_at ASC LIMIT 1
+      `) as Array<{ title: string; startsAt: Date | string }>
+      const next = rows[0]
+      if (!next) return null
+      const mins = Math.round((new Date(next.startsAt).getTime() - Date.now()) / 60_000)
+      const inLabel = mins <= 0 ? 'now' : mins < 60 ? `in ${mins} min` : `in ${Math.round(mins / 60)}h`
+      return squish(`${next.title}, ${inLabel}. Agenda and the last thread are ready.`, 200)
+    }
+    if (kind === 'drop_zone' || kind === 'later') {
+      if (kind === 'drop_zone') {
+        const rows = (await sql`
+          SELECT content FROM hire_dropzone
+          WHERE user_id = ${user.id} AND status = 'new'
+          ORDER BY created_at DESC LIMIT 1
+        `) as Array<{ content: string }>
+        const drop = rows[0]
+        if (!drop) return null
+        return squish(`Waiting: ${drop.content}`, 180)
+      }
+      const rows = (await sql`
+        SELECT status, count(*)::int AS n FROM hire_dropzone WHERE user_id = ${user.id} GROUP BY status
+      `) as Array<{ status: string; n: number }>
+      const unsorted = Number(rows.find((row) => row.status === 'new')?.n || 0)
+      const filed = rows.filter((row) => row.status !== 'new').reduce((sum, row) => sum + Number(row.n), 0)
+      if (!unsorted && !filed) return null
+      return `${unsorted} waiting to sort · ${filed} filed.`
+    }
+    if (kind === 'learning_queue') {
+      const rows = (await sql`
+        SELECT title FROM hire_learning
+        WHERE user_id = ${user.id} AND status = 'queued'
+        ORDER BY created_at DESC LIMIT 1
+      `) as Array<{ title: string }>
+      const queued = rows[0]
+      if (!queued) return null
+      return squish(`Next up: ${queued.title}`, 180)
+    }
+    if (kind === 'weekly_review') {
+      const rows = (await sql`
+        SELECT done_text AS "doneText", slipped_text AS "slippedText", focus_text AS "focusText"
+        FROM hire_weekly_reviews WHERE user_id = ${user.id}
+        ORDER BY week_start DESC LIMIT 1
+      `) as Array<{ doneText: string; slippedText: string; focusText: string }>
+      const week = rows[0]
+      if (!week) return null
+      const line = squish(week.focusText || week.doneText || week.slippedText || '', 180)
+      return line || null
+    }
+    if (kind === 'hire_decision') {
+      const rows = (await sql`
+        SELECT title, stage FROM hire_pipeline
+        WHERE user_id = ${user.id} AND kind = 'candidate' AND stage NOT IN ('won', 'lost')
+        ORDER BY updated_at DESC LIMIT 1
+      `) as Array<{ title: string; stage: string }>
+      const candidate = rows[0]
+      if (!candidate) return null
+      return `${candidate.title} sits at ${candidate.stage}. The case for and against is in here.`
+    }
   } catch (err) {
     console.warn('[mini] og preview failed', err)
   }
@@ -6059,5 +6227,3 @@ async function handleAuthorizedHireApi(req: Request, sql: SQL | null): Promise<R
   if (path.startsWith('/api/')) return json({ error: 'Not found' }, 404)
   return null
 }
-
-

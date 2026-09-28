@@ -115,6 +115,31 @@ describe('claim provenance — cancellation and active work', () => {
   })
 })
 
+describe('claim provenance — memory saves and forwards', () => {
+  test('"the save keeps getting rejected" is rewritten when memory writes succeeded', () => {
+    const l = new ClaimLedger()
+    l.record('memory', 'verified_success', { key: 'goal:launch' })
+    const out = enforceClaimEvidence('I tried to save these as durable memories and the save keeps getting rejected on my end, so I won\'t claim they\'re stored.', l)
+    expect(out.violations.length).toBe(1)
+    expect(out.reply).toMatch(/went through|stored/)
+  })
+
+  test('a real memory failure claim passes when the write actually failed', () => {
+    const l = new ClaimLedger()
+    l.record('memory', 'verified_failure', { key: 'goal:launch' })
+    const out = enforceClaimEvidence('Saving those memories failed on my end.', l)
+    expect(out.violations).toEqual([])
+  })
+
+  test('"forwarded" is treated as a send claim and needs a receipt', () => {
+    const l = new ClaimLedger()
+    const out = enforceClaimEvidence('Done, the invoice is forwarded to accounting.', l)
+    expect(out.violations.length).toBe(1)
+    l.record('mail_send', 'verified_success', { receipt: true, providerId: 'msg_9' })
+    expect(enforceClaimEvidence('Done, the invoice is forwarded to accounting.', l).violations).toEqual([])
+  })
+})
+
 describe('claim provenance — capability and policy language', () => {
   test('policy refusals are never rewritten', () => {
     const l = new ClaimLedger()

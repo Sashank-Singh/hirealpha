@@ -1,4 +1,147 @@
 {
+  "revision": "7133b5e1aeeabf21e4f513628fe0e8deb82ec3a8",
+  "model": "zai-org/GLM-5.3-Flash",
+  "worldDefinition": {
+    "profile": {
+      "name": "Alex Rivera",
+      "phone": "+15552100001",
+      "timezone": "America/New_York",
+      "email": "alex@rivera.dev",
+      "hired": true,
+      "connected": [
+        "gmail",
+        "calendar",
+        "drive"
+      ],
+      "memories": [
+        {
+          "key": "preferred_name",
+          "value": "Alex"
+        }
+      ]
+    },
+    "mail": [],
+    "events": [
+      {
+        "title": "BigCo interview",
+        "when": "Tue Sep 29, 2:00–3:00 PM"
+      },
+      {
+        "title": "Gym",
+        "when": "Mon Sep 28, 6:30 PM"
+      }
+    ],
+    "freeSlots": [
+      {
+        "start": "2026-09-28T10:00:00-04:00",
+        "end": "2026-09-28T11:30:00-04:00",
+        "label": "Mon Sep 28, 10:00–11:30 AM"
+      },
+      {
+        "start": "2026-09-29T13:00:00-04:00",
+        "end": "2026-09-29T15:00:00-04:00",
+        "label": "Tue Sep 29, 1:00–3:00 PM"
+      },
+      {
+        "start": "2026-10-01T11:00:00-04:00",
+        "end": "2026-10-01T12:00:00-04:00",
+        "label": "Thu Oct 1, 11:00 AM–12:00 PM"
+      },
+      {
+        "start": "2026-10-02T16:00:00-04:00",
+        "end": "2026-10-02T17:30:00-04:00",
+        "label": "Fri Oct 2, 4:00–5:30 PM"
+      }
+    ],
+    "webResults": [],
+    "mapsResults": [
+      "Nearby picks:",
+      "- Toscana — 240 Mulberry St, New York. Quiet back room, good for groups. https://www.openstreetmap.org/way/416051348",
+      "- Nopa — 1199 Valencia St, New York. Louder, great cocktails, walk-in friendly. https://www.openstreetmap.org/way/370534180"
+    ],
+    "drive": [
+      {
+        "id": "f_resume",
+        "name": "Alex Rivera Resume 2026.pdf",
+        "mimeType": "application/pdf",
+        "size": 91000,
+        "webViewLink": "https://drive.example/resume"
+      },
+      {
+        "id": "f_deck",
+        "name": "Series A Deck v4.pdf",
+        "mimeType": "application/pdf",
+        "size": 4200000,
+        "webViewLink": "https://drive.example/deck"
+      },
+      {
+        "id": "f_notes",
+        "name": "Northwind last meeting notes.docx",
+        "mimeType": "document",
+        "size": 30000,
+        "webViewLink": "https://drive.example/nw_notes"
+      },
+      {
+        "id": "f_tax",
+        "name": "2025 W-2.pdf",
+        "mimeType": "application/pdf",
+        "size": 80000,
+        "webViewLink": "https://drive.example/w2"
+      },
+      {
+        "id": "f_1099",
+        "name": "2025 1099-NEC.pdf",
+        "mimeType": "application/pdf",
+        "size": 60000,
+        "webViewLink": "https://drive.example/1099"
+      }
+    ],
+    "contacts": [
+      {
+        "name": "Dana Lee",
+        "email": "dana@bigco.com"
+      }
+    ],
+    "spending": {
+      "logs": [
+        {
+          "amount": 48,
+          "category": "food",
+          "description": "Dinner out",
+          "spentAt": "2026-09-25"
+        },
+        {
+          "amount": 15,
+          "category": "subscriptions",
+          "description": "Spotify",
+          "spentAt": "2026-09-24"
+        },
+        {
+          "amount": 120,
+          "category": "shopping",
+          "description": "Amazon order",
+          "spentAt": "2026-09-22"
+        },
+        {
+          "amount": 32,
+          "category": "food",
+          "description": "Lunch, 3x this week",
+          "spentAt": "2026-09-21"
+        },
+        {
+          "amount": 60,
+          "category": "rides",
+          "description": "Uber rides",
+          "spentAt": "2026-09-20"
+        }
+      ],
+      "weekly": 275,
+      "budget": 400
+    },
+    "slackChannels": [
+      "general"
+    ]
+  },
   "id": "uc1_send_it",
   "cat": "C8",
   "title": "\"send it\" with clear antecedent",
@@ -7,9 +150,9 @@
     {
       "text": "Draft an email to Dana confirming Friday 4pm works for the call.",
       "bubbles": [
-        "Draft's saved and on its way to your review card, tap Send when it looks good and it goes to Dana. Want me to also block Friday 4pm on your calendar?"
+        "Draft's ready for Dana (dana@bigco.com): \"Friday at 4pm works for the call, looking forward to it.\" It's on the review card, give it a look and tap Send when it reads right."
       ],
-      "reply": "Draft's saved and on its way to your review card, tap Send when it looks good and it goes to Dana. Want me to also block Friday 4pm on your calendar?",
+      "reply": "Draft's ready for Dana (dana@bigco.com): \"Friday at 4pm works for the call, looking forward to it.\" It's on the review card, give it a look and tap Send when it reads right.",
       "source": "gmi",
       "card": "https://audit.internal/card/x?draft=draft_1",
       "calls": [
@@ -42,6 +185,14 @@
           }
         },
         {
+          "method": "GET",
+          "path": "/api/internal/plans",
+          "body": {
+            "phone": "+15552100001",
+            "persona": "friend"
+          }
+        },
+        {
           "method": "POST",
           "path": "/api/internal/propose",
           "body": {
@@ -49,8 +200,8 @@
             "persona": "friend",
             "kind": "mail",
             "to": "dana@bigco.com",
-            "subject": "Call this Friday at 4pm",
-            "body": "Hi Dana,\n\nJust confirming that Friday at 4pm works for our call. I'll send a calendar invite with the details.\n\nTalk soon,\nAlex"
+            "subject": "Re: Call this Friday",
+            "body": "Hi Dana,\n\nQuick confirmation that Friday at 4pm works for the call. Looking forward to it.\n\nBest,\nAlex"
           }
         },
         {
@@ -63,16 +214,10 @@
             "ref": {
               "draftId": "draft_1",
               "to": "dana@bigco.com",
-              "subject": "Call this Friday at 4pm",
-              "body": "Hi Dana,\n\nJust confirming that Friday at 4pm works for our call. I'll send a calendar invite with the details.\n\nTalk soon,\nAlex",
+              "subject": "Re: Call this Friday",
               "kind": "mail"
             }
           }
-        },
-        {
-          "method": "GET",
-          "path": "/api/internal/mini/token?phone=%2B15552100001&persona=friend&kind=approve_send",
-          "body": {}
         }
       ],
       "llmCallsInTurn": 3,
@@ -85,11 +230,11 @@
     {
       "text": "send it",
       "bubbles": [
-        "Draft's ready in your review card, tap Send and it goes to Dana."
+        "Sent to dana@bigco.com — receipt smtp_audit_1."
       ],
-      "reply": "Draft's ready in your review card, tap Send and it goes to Dana.",
-      "source": "gmi",
-      "card": "https://audit.internal/card/x?draft=draft_2",
+      "reply": "Sent to dana@bigco.com — receipt smtp_audit_1.",
+      "source": "local",
+      "card": null,
       "calls": [
         {
           "method": "GET",
@@ -120,35 +265,21 @@
           }
         },
         {
-          "method": "POST",
-          "path": "/api/internal/propose",
-          "body": {
-            "phone": "+15552100001",
-            "persona": "friend",
-            "kind": "mail",
-            "to": "dana@bigco.com",
-            "subject": "Call on Friday",
-            "body": "Hi Dana,\n\nConfirming that Friday at 4pm works for our call. Looking forward to it.\n\nBest,\nAlex"
-          }
+          "method": "GET",
+          "path": "/api/internal/anchors?phone=%2B15552100001&persona=friend",
+          "body": {}
         },
         {
           "method": "POST",
-          "path": "/api/internal/anchors",
+          "path": "/api/internal/mail/send-draft",
           "body": {
             "phone": "+15552100001",
             "persona": "friend",
-            "kind": "draft",
-            "ref": {
-              "draftId": "draft_2",
-              "to": "dana@bigco.com",
-              "subject": "Call on Friday",
-              "body": "Hi Dana,\n\nConfirming that Friday at 4pm works for our call. Looking forward to it.\n\nBest,\nAlex",
-              "kind": "mail"
-            }
+            "draftId": "draft_1"
           }
         }
       ],
-      "llmCallsInTurn": 3,
+      "llmCallsInTurn": 0,
       "thread": {
         "facts": [],
         "summary": "",
@@ -163,16 +294,14 @@
         "phone": "+15552100001",
         "persona": "friend",
         "to": "dana@bigco.com",
-        "subject": "Call this Friday at 4pm",
-        "body": "Hi Dana,\n\nJust confirming that Friday at 4pm works for our call. I'll send a calendar invite with the details.\n\nTalk soon,\nAlex"
+        "subject": "Re: Call this Friday",
+        "body": "Hi Dana,\n\nQuick confirmation that Friday at 4pm works for the call. Looking forward to it.\n\nBest,\nAlex"
       },
       {
-        "kind": "mail",
+        "kind": "send_draft",
         "phone": "+15552100001",
         "persona": "friend",
-        "to": "dana@bigco.com",
-        "subject": "Call on Friday",
-        "body": "Hi Dana,\n\nConfirming that Friday at 4pm works for our call. Looking forward to it.\n\nBest,\nAlex"
+        "draftId": "draft_1"
       }
     ],
     "reminders": [],
@@ -194,26 +323,16 @@
         "ref": {
           "draftId": "draft_1",
           "to": "dana@bigco.com",
-          "subject": "Call this Friday at 4pm",
-          "body": "Hi Dana,\n\nJust confirming that Friday at 4pm works for our call. I'll send a calendar invite with the details.\n\nTalk soon,\nAlex",
+          "subject": "Re: Call this Friday",
           "kind": "mail"
         },
-        "createdAt": "2026-09-27T19:10:35.116Z",
-        "expiresAt": "2026-09-28T19:10:35.116Z"
-      },
-      {
-        "kind": "draft",
-        "ref": {
-          "draftId": "draft_2",
-          "to": "dana@bigco.com",
-          "subject": "Call on Friday",
-          "body": "Hi Dana,\n\nConfirming that Friday at 4pm works for our call. Looking forward to it.\n\nBest,\nAlex",
-          "kind": "mail"
-        },
-        "createdAt": "2026-09-27T19:11:04.783Z",
-        "expiresAt": "2026-09-28T19:11:04.783Z"
+        "createdAt": "2026-09-28T07:02:06.921Z",
+        "expiresAt": "2026-09-29T07:02:06.921Z"
       }
     ],
+    "plans": [],
+    "cancels": [],
+    "spendApprovals": [],
     "todos": [],
     "loops": [],
     "otherWrites": [
@@ -228,8 +347,7 @@
         "ref": {
           "draftId": "draft_1",
           "to": "dana@bigco.com",
-          "subject": "Call this Friday at 4pm",
-          "body": "Hi Dana,\n\nJust confirming that Friday at 4pm works for our call. I'll send a calendar invite with the details.\n\nTalk soon,\nAlex",
+          "subject": "Re: Call this Friday",
           "kind": "mail"
         }
       },
@@ -237,17 +355,7 @@
         "path": "/api/internal/anchors:GET"
       },
       {
-        "path": "/api/internal/anchors:POST",
-        "phone": "+15552100001",
-        "persona": "friend",
-        "kind": "draft",
-        "ref": {
-          "draftId": "draft_2",
-          "to": "dana@bigco.com",
-          "subject": "Call on Friday",
-          "body": "Hi Dana,\n\nConfirming that Friday at 4pm works for our call. Looking forward to it.\n\nBest,\nAlex",
-          "kind": "mail"
-        }
+        "path": "/api/internal/anchors:GET"
       }
     ]
   },
@@ -257,6 +365,6 @@
       "value": "Alex"
     }
   ],
-  "llmCalls": 6,
-  "wallMs": 45601
+  "llmCalls": 3,
+  "wallMs": 20937
 }

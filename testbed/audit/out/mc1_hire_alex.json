@@ -1,4 +1,160 @@
 {
+  "revision": "7133b5e1aeeabf21e4f513628fe0e8deb82ec3a8",
+  "model": "zai-org/GLM-5.3-Flash",
+  "worldDefinition": {
+    "profile": {
+      "name": "Alex Rivera",
+      "phone": "+15552100001",
+      "timezone": "America/New_York",
+      "email": "alex@rivera.dev",
+      "hired": true,
+      "connected": [
+        "gmail",
+        "calendar",
+        "drive"
+      ],
+      "memories": [
+        {
+          "key": "preferred_name",
+          "value": "Alex"
+        }
+      ]
+    },
+    "mail": [
+      {
+        "id": "ac1",
+        "from": "alex.chen@mail.com",
+        "subject": "Backend role — excited",
+        "snippet": "Thanks for the chat. Very interested in the backend role. Happy to do a panel next week."
+      },
+      {
+        "id": "sa1",
+        "from": "sarah@vcfirm.com",
+        "subject": "Panel timing",
+        "snippet": "Thursday 3pm works best for me if you want me in the room. — Sarah"
+      }
+    ],
+    "events": [
+      {
+        "title": "BigCo interview",
+        "when": "Tue Sep 29, 2:00–3:00 PM"
+      },
+      {
+        "title": "Gym",
+        "when": "Mon Sep 28, 6:30 PM"
+      }
+    ],
+    "freeSlots": [
+      {
+        "start": "2026-09-28T10:00:00-04:00",
+        "end": "2026-09-28T11:30:00-04:00",
+        "label": "Mon Sep 28, 10:00–11:30 AM"
+      },
+      {
+        "start": "2026-09-29T13:00:00-04:00",
+        "end": "2026-09-29T15:00:00-04:00",
+        "label": "Tue Sep 29, 1:00–3:00 PM"
+      },
+      {
+        "start": "2026-10-01T11:00:00-04:00",
+        "end": "2026-10-01T12:00:00-04:00",
+        "label": "Thu Oct 1, 11:00 AM–12:00 PM"
+      },
+      {
+        "start": "2026-10-02T16:00:00-04:00",
+        "end": "2026-10-02T17:30:00-04:00",
+        "label": "Fri Oct 2, 4:00–5:30 PM"
+      }
+    ],
+    "webResults": [],
+    "mapsResults": [
+      "Nearby picks:",
+      "- Toscana — 240 Mulberry St, New York. Quiet back room, good for groups. https://www.openstreetmap.org/way/416051348",
+      "- Nopa — 1199 Valencia St, New York. Louder, great cocktails, walk-in friendly. https://www.openstreetmap.org/way/370534180"
+    ],
+    "drive": [
+      {
+        "id": "f_resume",
+        "name": "Alex Rivera Resume 2026.pdf",
+        "mimeType": "application/pdf",
+        "size": 91000,
+        "webViewLink": "https://drive.example/resume"
+      },
+      {
+        "id": "f_deck",
+        "name": "Series A Deck v4.pdf",
+        "mimeType": "application/pdf",
+        "size": 4200000,
+        "webViewLink": "https://drive.example/deck"
+      },
+      {
+        "id": "f_notes",
+        "name": "Northwind last meeting notes.docx",
+        "mimeType": "document",
+        "size": 30000,
+        "webViewLink": "https://drive.example/nw_notes"
+      },
+      {
+        "id": "f_tax",
+        "name": "2025 W-2.pdf",
+        "mimeType": "application/pdf",
+        "size": 80000,
+        "webViewLink": "https://drive.example/w2"
+      },
+      {
+        "id": "f_1099",
+        "name": "2025 1099-NEC.pdf",
+        "mimeType": "application/pdf",
+        "size": 60000,
+        "webViewLink": "https://drive.example/1099"
+      }
+    ],
+    "contacts": [
+      {
+        "name": "Sarah Kim",
+        "email": "sarah@vcfirm.com"
+      }
+    ],
+    "spending": {
+      "logs": [
+        {
+          "amount": 48,
+          "category": "food",
+          "description": "Dinner out",
+          "spentAt": "2026-09-25"
+        },
+        {
+          "amount": 15,
+          "category": "subscriptions",
+          "description": "Spotify",
+          "spentAt": "2026-09-24"
+        },
+        {
+          "amount": 120,
+          "category": "shopping",
+          "description": "Amazon order",
+          "spentAt": "2026-09-22"
+        },
+        {
+          "amount": 32,
+          "category": "food",
+          "description": "Lunch, 3x this week",
+          "spentAt": "2026-09-21"
+        },
+        {
+          "amount": 60,
+          "category": "rides",
+          "description": "Uber rides",
+          "spentAt": "2026-09-20"
+        }
+      ],
+      "weekly": 275,
+      "budget": 400
+    },
+    "slackChannels": [
+      "general"
+    ]
+  },
   "id": "mc1_hire_alex",
   "cat": "C9",
   "title": "Hiring Alex Chen across days",
@@ -7,15 +163,20 @@
     {
       "text": "I'm trying to hire Alex Chen for the backend role.",
       "bubbles": [
-        "Nice, want me to help with the outreach? I can draft a message or email to Alex Chen with the offer details, or help you prep talking points for a call. What stage is this at, and do you have their contact info handy?"
+        "Nice, going after Alex Chen for backend is a solid move. What do you need from me: drafting the outreach message, prepping interview questions, or something else like an offer letter?"
       ],
-      "reply": "Nice, want me to help with the outreach? I can draft a message or email to Alex Chen with the offer details, or help you prep talking points for a call. What stage is this at, and do you have their contact info handy?",
+      "reply": "Nice, going after Alex Chen for backend is a solid move. What do you need from me: drafting the outreach message, prepping interview questions, or something else like an offer letter?",
       "source": "gmi",
       "card": null,
       "calls": [
         {
           "method": "GET",
           "path": "/api/internal/live?phone=%2B15552100001&persona=friend&q=I'm%20trying%20to%20hire%20Alex%20Chen%20for%20the%20backend%20role.",
+          "body": {}
+        },
+        {
+          "method": "GET",
+          "path": "/api/internal/anchors?phone=%2B15552100001&persona=friend",
           "body": {}
         },
         {
@@ -47,15 +208,20 @@
     {
       "text": "Did he ever reply?",
       "bubbles": [
-        "I could not verify current information because the web lookup did not run. Please try again."
+        "He did, that came from your Gmail, not memory. One email from Alex Chen, subject \"Backend role, excited,\" saying thanks for the chat, he's very interested in the backend role, and happy to do a panel next week. Want me to draft a reply proposing panel times? I can also check your calendar for open slots first. I have not checked a fresh web check this turn, so I can't confirm anything that depends on it."
       ],
-      "reply": "I could not verify current information because the web lookup did not run. Please try again.",
+      "reply": "He did, that came from your Gmail, not memory. One email from Alex Chen, subject \"Backend role, excited,\" saying thanks for the chat, he's very interested in the backend role, and happy to do a panel next week. Want me to draft a reply proposing panel times? I can also check your calendar for open slots first. I have not checked a fresh web check this turn, so I can't confirm anything that depends on it.",
       "source": "gmi",
       "card": null,
       "calls": [
         {
           "method": "GET",
           "path": "/api/internal/live?phone=%2B15552100001&persona=friend&q=Did%20he%20ever%20reply%3F",
+          "body": {}
+        },
+        {
+          "method": "GET",
+          "path": "/api/internal/anchors?phone=%2B15552100001&persona=friend",
           "body": {}
         },
         {
@@ -71,6 +237,14 @@
         {
           "method": "POST",
           "path": "/api/internal/touch",
+          "body": {
+            "phone": "+15552100001",
+            "persona": "friend"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/api/internal/plans",
           "body": {
             "phone": "+15552100001",
             "persona": "friend"
@@ -82,12 +256,12 @@
           "body": {
             "phone": "+15552100001",
             "persona": "friend",
-            "message": "from:chen OR subject:backend newer_than:30d",
+            "message": "from:alex OR subject:backend",
             "want": "gmail"
           }
         }
       ],
-      "llmCallsInTurn": 5,
+      "llmCallsInTurn": 6,
       "thread": {
         "facts": [],
         "summary": "",
@@ -97,15 +271,20 @@
     {
       "text": "Schedule him next week for a panel.",
       "bubbles": [
-        "Happy to set that up. Two things first: which day next week works for the panel (and rough time), and do you have Alex Chen's email? I'll check your calendar for openings and draft the invite for your review."
+        "Here's what your calendar shows free, Alex. One catch: today is Monday the 28th, so \"next week\" for Alex would be Oct 5, 9, and my read only covered the next 7 days. The open slots I can verify right now are: Tue Sep 29, 1:00, 3:00 PM Thu Oct 1, 11:00 AM, 12:00 PM Fri Oct 2, 4:00, 5:30 PM Two ways to go: pick one of those and I'll book it and draft the invite to Alex, or tell me a day that works the week of Oct 5 and I'll check that window and set it up. Which do you want?"
       ],
-      "reply": "Happy to set that up. Two things first: which day next week works for the panel (and rough time), and do you have Alex Chen's email? I'll check your calendar for openings and draft the invite for your review.",
+      "reply": "Here's what your calendar shows free, Alex. One catch: today is Monday the 28th, so \"next week\" for Alex would be Oct 5, 9, and my read only covered the next 7 days. The open slots I can verify right now are: Tue Sep 29, 1:00, 3:00 PM Thu Oct 1, 11:00 AM, 12:00 PM Fri Oct 2, 4:00, 5:30 PM Two ways to go: pick one of those and I'll book it and draft the invite to Alex, or tell me a day that works the week of Oct 5 and I'll check that window and set it up. Which do you want?",
       "source": "gmi",
       "card": null,
       "calls": [
         {
           "method": "GET",
           "path": "/api/internal/live?phone=%2B15552100001&persona=friend&q=Schedule%20him%20next%20week%20for%20a%20panel.",
+          "body": {}
+        },
+        {
+          "method": "GET",
+          "path": "/api/internal/anchors?phone=%2B15552100001&persona=friend",
           "body": {}
         },
         {
@@ -125,9 +304,28 @@
             "phone": "+15552100001",
             "persona": "friend"
           }
+        },
+        {
+          "method": "GET",
+          "path": "/api/internal/plans",
+          "body": {
+            "phone": "+15552100001",
+            "persona": "friend"
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/internal/work/slots",
+          "body": {
+            "phone": "+15552100001",
+            "persona": "friend",
+            "durationMin": 60,
+            "windowDays": 7,
+            "limit": 5
+          }
         }
       ],
-      "llmCallsInTurn": 2,
+      "llmCallsInTurn": 3,
       "thread": {
         "facts": [],
         "summary": "",
@@ -137,15 +335,20 @@
     {
       "text": "Actually use the time Sarah suggested instead.",
       "bubbles": [
-        "Found it, Sarah suggested Thursday 3pm for the panel. I've put a hold on your calendar for Thursday, Oct 1, 3:00, 4:00 PM ET with Alex Chen for the backend panel. It's waiting on your review card, tap Book to confirm.\n\nOne note: Alex's email came in from alex.chen@mail.com, so once you book it I can draft the invite to him with the panel details. Want me to have that ready?"
+        "Sarah's pick was Thursday 3 PM, and your calendar that day is clear, so I've set up a \"Backend panel, Alex Chen\" hold for Thu Oct 1, 3:00, 4:00 PM ET. It's on a review card now, tap Book to confirm. Once it's booked, want me to draft the invite email to Alex Chen proposing that time?"
       ],
-      "reply": "Found it, Sarah suggested Thursday 3pm for the panel. I've put a hold on your calendar for Thursday, Oct 1, 3:00, 4:00 PM ET with Alex Chen for the backend panel. It's waiting on your review card, tap Book to confirm.\n\nOne note: Alex's email came in from alex.chen@mail.com, so once you book it I can draft the invite to him with the panel details. Want me to have that ready?",
+      "reply": "Sarah's pick was Thursday 3 PM, and your calendar that day is clear, so I've set up a \"Backend panel, Alex Chen\" hold for Thu Oct 1, 3:00, 4:00 PM ET. It's on a review card now, tap Book to confirm. Once it's booked, want me to draft the invite email to Alex Chen proposing that time?",
       "source": "gmi",
       "card": "https://audit.internal/card/x?draft=draft_1",
       "calls": [
         {
           "method": "GET",
           "path": "/api/internal/live?phone=%2B15552100001&persona=friend&q=Actually%20use%20the%20time%20Sarah%20suggested%20instead.",
+          "body": {}
+        },
+        {
+          "method": "GET",
+          "path": "/api/internal/anchors?phone=%2B15552100001&persona=friend",
           "body": {}
         },
         {
@@ -161,6 +364,14 @@
         {
           "method": "POST",
           "path": "/api/internal/touch",
+          "body": {
+            "phone": "+15552100001",
+            "persona": "friend"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/api/internal/plans",
           "body": {
             "phone": "+15552100001",
             "persona": "friend"
@@ -178,18 +389,44 @@
         },
         {
           "method": "POST",
+          "path": "/api/internal/live/tools",
+          "body": {
+            "phone": "+15552100001",
+            "persona": "friend",
+            "message": "start=2026-10-01T00:00:00-04:00 end=2026-10-02T00:00:00-04:00",
+            "want": "calendar"
+          }
+        },
+        {
+          "method": "POST",
           "path": "/api/internal/propose",
           "body": {
             "phone": "+15552100001",
             "persona": "friend",
             "kind": "event",
-            "title": "Panel — Alex Chen (Backend role)",
+            "title": "Backend panel — Alex Chen",
             "start": "2026-10-01T15:00:00-04:00",
             "end": "2026-10-01T16:00:00-04:00"
           }
+        },
+        {
+          "method": "POST",
+          "path": "/api/internal/anchors",
+          "body": {
+            "phone": "+15552100001",
+            "persona": "friend",
+            "kind": "event",
+            "ref": {
+              "draftId": "draft_1",
+              "title": "Backend panel — Alex Chen",
+              "start": "2026-10-01T15:00:00-04:00",
+              "end": "2026-10-01T16:00:00-04:00",
+              "source": "draft"
+            }
+          }
         }
       ],
-      "llmCallsInTurn": 5,
+      "llmCallsInTurn": 6,
       "thread": {
         "facts": [],
         "summary": "",
@@ -203,7 +440,7 @@
         "kind": "event",
         "phone": "+15552100001",
         "persona": "friend",
-        "title": "Panel — Alex Chen (Backend role)",
+        "title": "Backend panel — Alex Chen",
         "start": "2026-10-01T15:00:00-04:00",
         "end": "2026-10-01T16:00:00-04:00"
       }
@@ -221,9 +458,52 @@
     "workWrites": [],
     "taskChoices": [],
     "watches": [],
+    "anchors": [
+      {
+        "kind": "event",
+        "ref": {
+          "draftId": "draft_1",
+          "title": "Backend panel — Alex Chen",
+          "start": "2026-10-01T15:00:00-04:00",
+          "end": "2026-10-01T16:00:00-04:00",
+          "source": "draft"
+        },
+        "createdAt": "2026-09-28T07:07:45.072Z",
+        "expiresAt": "2026-09-29T07:07:45.072Z"
+      }
+    ],
+    "plans": [],
+    "cancels": [],
+    "spendApprovals": [],
     "todos": [],
     "loops": [],
-    "otherWrites": []
+    "otherWrites": [
+      {
+        "path": "/api/internal/anchors:GET"
+      },
+      {
+        "path": "/api/internal/anchors:GET"
+      },
+      {
+        "path": "/api/internal/anchors:GET"
+      },
+      {
+        "path": "/api/internal/anchors:GET"
+      },
+      {
+        "path": "/api/internal/anchors:POST",
+        "phone": "+15552100001",
+        "persona": "friend",
+        "kind": "event",
+        "ref": {
+          "draftId": "draft_1",
+          "title": "Backend panel — Alex Chen",
+          "start": "2026-10-01T15:00:00-04:00",
+          "end": "2026-10-01T16:00:00-04:00",
+          "source": "draft"
+        }
+      }
+    ]
   },
   "finalMemories": [
     {
@@ -231,6 +511,6 @@
       "value": "Alex"
     }
   ],
-  "llmCalls": 14,
-  "wallMs": 75841
+  "llmCalls": 17,
+  "wallMs": 123631
 }

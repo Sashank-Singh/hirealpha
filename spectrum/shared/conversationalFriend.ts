@@ -795,11 +795,13 @@ export async function runConversationalFriend(input: {
           new Promise<{ dropped: string[] } | 'slow'>((resolve) => setTimeout(() => resolve('slow'), 2500)),
         ])
         if (write === 'slow') {
+          evidence.record('memory', 'outcome_unknown', { key })
           return { status: 'done', message: `Saved in this conversation: ${value}. The permanent account copy is still being written, so say it is saved here and do not promise it is permanent.`, data: { key, value, durable: 'unknown' } }
         }
         if (write.dropped.includes(key)) {
           return failed(`Saved for this conversation, but the account store refused the key "${key}" (it is outside what this hire may keep), so it is NOT permanent. Tell the user in one line that it holds for now; do not say it is saved forever, and do not retry the same key.`)
         }
+        evidence.record('memory', 'verified_success', { key, receipt: true })
         return { status: 'done', message: `Remembered: ${value}.`, data: { key, value, durable: true } }
       },
     },

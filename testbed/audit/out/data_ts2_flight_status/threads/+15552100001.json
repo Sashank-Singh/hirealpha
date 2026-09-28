@@ -5,12 +5,12 @@
     {
       "role": "user",
       "content": "Is my flight to Denver still on time Thursday?",
-      "ts": 1790533505231
+      "ts": 1790578432329
     },
     {
       "role": "assistant",
-      "content": "I don't have a flight on file for you, so I can't check it directly. If you send me the airline and flight number (or the confirmation code), I can look up the current status. Just a heads up that Thursday is a few days out, so status might not be fully live until closer to departure.",
-      "ts": 1790533505231
+      "content": "Quick correction: I couldn't verify the live status just now, so I can't confirm Thursday's flight is on time as of this minute. What I do have from your confirmation email: Southwest WN 2214, JFK → Denver, Thursday Oct 1, 3:40pm departure, conf #ABC123. For the real time status, check southwest.com's flight status page with that confirmation number. Want me to arm a watch on that page so you get a text if anything changes before Thursday?",
+      "ts": 1790578432329
     }
   ]
 }

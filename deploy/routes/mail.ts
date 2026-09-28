@@ -223,6 +223,8 @@ export async function handleMailRoutes(
      * full body read and refused to draft when a connector handed back headers
      * alone, which is the common Composio shape. */
     const reads: ReplyRead[] = []
+    let replyThreadId = ''
+    let inReplyTo = ''
     const access = await googleAccessToken(sql, user!.id, 'gmail')
     if (access) {
       const res = await fetch(
@@ -232,10 +234,13 @@ export async function handleMailRoutes(
       if (res?.ok) {
         const data = (await res.json().catch(() => null)) as {
           snippet?: string
+          threadId?: string
           payload?: GmailMimePart & { headers?: Array<{ name: string; value: string }> }
         } | null
         const h = (n: string) =>
           data?.payload?.headers?.find((x) => x.name.toLowerCase() === n.toLowerCase())?.value || ''
+        replyThreadId = data?.threadId || ''
+        inReplyTo = h('Message-ID') || h('Message-Id')
         reads.push({
           from: h('From'),
           subject: h('Subject'),
@@ -254,7 +259,9 @@ export async function handleMailRoutes(
      * way the brief did and find the row again. */
     if (!pickReplyTarget(reads)) {
       const recent = await loadGmailRich(sql, user!.id, 'newer_than:14d', 25)
-      reads.push(recent.find((m) => m.id === msgId))
+      const found = recent.find((m) => m.id === msgId)
+      if (found) replyThreadId ||= found.threadId || ''
+      reads.push(found)
     }
     const target = pickReplyTarget(reads)
     if (!target) {
@@ -305,15 +312,11 @@ export async function handleMailRoutes(
     }
     const replyBody = fillDraftName(written, firstName).slice(0, 4000)
     await sql`
-      INSERT INTO hire_drafts (id, user_id, persona, kind, to_addr, subject, body)
+      INSERT INTO hire_drafts (id, user_id, persona, kind, to_addr, subject, body, thread_id, in_reply_to, source_message_id)
       VALUES (
         ${draftId}, ${user!.id}, ${isPersona(body.persona || '') ? body.persona! : ''},
-        'reply', ${target.toAddr}, ${target.subject}, ${replyBody}
+        'reply', ${target.toAddr}, ${target.subject}, ${replyBody}, ${replyThreadId}, ${inReplyTo}, ${msgId}
       )
-    `
-    await sql`
-      INSERT INTO hire_mail_feedback (user_id, gmail_id, sender, action, kind)
-      VALUES (${user!.id}, ${msgId}, ${target.toAddr}, 'drafted', '')
     `
     return json({ ok: true, id: draftId, toAddr: target.toAddr, subject: target.subject, body: replyBody })
   }

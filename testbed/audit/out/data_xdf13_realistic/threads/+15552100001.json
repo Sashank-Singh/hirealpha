@@ -1,0 +1,16 @@
+{
+  "facts": [],
+  "summary": "",
+  "history": [
+    {
+      "role": "user",
+      "content": "Is my schedule realistic tomorrow?",
+      "ts": 1790581106517
+    },
+    {
+      "role": "assistant",
+      "content": "Quick correction to my last message, since I mislabeled the days: per your calendar, tomorrow (Tuesday the 29th) has just the dentist at 9:00 AM, that's it. Monday the 28th (today) carries the BigCo interview at 2:00 PM and the gym at 6:30 PM, and Wednesday is the heavier one with standup at 9:15 AM and dinner with Dana at 7:30 PM. So yes, tomorrow's realistic, one morning appointment and the rest open. The tighter day is actually today: it's 3:37 AM now, and the interview is at 2 PM. Want a reminder set for it? I have not checked a fresh web check this turn, so I can't confirm anything that depends on it.",
+      "ts": 1790581106517
+    }
+  ]
+}

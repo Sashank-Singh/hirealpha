@@ -254,7 +254,7 @@ describe('Connector failure semantics', () => {
     const evening = await miniPayload(mockSql, user, 'friend', 'pick_night')
     expect(evening.calendarStatus).toBe('auth_expired')
     expect(evening.mailStatus).toBe('auth_expired')
-    const mailSec = evening.sections.find((s) => s.heading === 'Mail since this morning')
+    const mailSec = evening.sections.find((s) => s.heading === 'Mail today')
     expect(mailSec?.items).toContain('Gmail authorization expired. Reconnect in Settings.')
     const tomSec = evening.sections.find((s) => s.heading === 'Tomorrow')
     expect(tomSec?.items).toContain('Calendar authorization expired. Reconnect in Settings.')

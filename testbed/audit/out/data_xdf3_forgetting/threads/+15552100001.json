@@ -1,0 +1,16 @@
+{
+  "facts": [],
+  "summary": "",
+  "history": [
+    {
+      "role": "user",
+      "content": "What am I forgetting before I leave for Denver Thursday?",
+      "ts": 1790580756299
+    },
+    {
+      "role": "assistant",
+      "content": "Alex, it's 3:32 AM, so my first guess is sleep, but for Denver itself: the usual suspects are chargers, meds, and checking whether your flight's out of your home airport or you're driving somewhere first.\n\nWhat's the trip for, and how long are you staying? I can help you build an actual list so Thursday you isn't doing this from memory. Also, Denver in late September can swing from 80° to snow, so layers are not optional.",
+      "ts": 1790580756299
+    }
+  ]
+}

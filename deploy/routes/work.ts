@@ -367,9 +367,9 @@ export async function handleWorkRoutes(
     const claimed = await sql`
       UPDATE hire_drafts SET status = 'sending', updated_at = now()
       WHERE id = ${body.id} AND user_id = ${user!.id} AND status = 'pending'
-      RETURNING to_addr, subject, body, thread_id, in_reply_to, version, persona
+      RETURNING to_addr, subject, body, thread_id, in_reply_to, source_message_id, version, persona
     `
-    const row = claimed[0] as { to_addr: string; subject: string; body: string; thread_id?: string; in_reply_to?: string; persona?: string } | undefined
+    const row = claimed[0] as { to_addr: string; subject: string; body: string; thread_id?: string; in_reply_to?: string; source_message_id?: string; persona?: string } | undefined
     if (!row) {
       const current = (await sql`
         SELECT status, provider_id FROM hire_drafts WHERE id = ${body.id} AND user_id = ${user!.id} LIMIT 1
@@ -398,6 +398,16 @@ export async function handleWorkRoutes(
       return json({ ok: false, state, error: sent.error }, sent.outcomeUnknown ? 409 : 400)
     }
     await sql`UPDATE hire_drafts SET status = ${'sent'}, provider_id = ${sent.providerId!}, updated_at = now() WHERE id = ${body.id} AND user_id = ${user!.id} AND status = 'sending'`
+    if (row.source_message_id) {
+      try {
+        await sql`
+          INSERT INTO hire_mail_feedback (user_id, gmail_id, sender, action, kind)
+          VALUES (${user!.id}, ${row.source_message_id}, ${toAddr}, 'replied', 'reply')
+        `
+      } catch (err) {
+        console.warn('[work/send] mail feedback failed', err)
+      }
+    }
     // Durable waiting-on-them state + the one-time follow-up offer, so the
     // next "did they reply?" is answerable and watching is offered, never
     // assumed. Both are best-effort; a failed side effect cannot unsend.

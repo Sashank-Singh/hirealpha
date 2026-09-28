@@ -1,4 +1,169 @@
 {
+  "revision": "7133b5e1aeeabf21e4f513628fe0e8deb82ec3a8",
+  "model": "zai-org/GLM-5.3-Flash",
+  "worldDefinition": {
+    "profile": {
+      "name": "Alex Rivera",
+      "phone": "+15552100001",
+      "timezone": "America/New_York",
+      "email": "alex@rivera.dev",
+      "hired": true,
+      "connected": [
+        "gmail",
+        "calendar",
+        "drive"
+      ],
+      "memories": [
+        {
+          "key": "preferred_name",
+          "value": "Alex"
+        }
+      ]
+    },
+    "mail": [
+      {
+        "id": "sub1",
+        "from": "netflix.com",
+        "subject": "Receipt",
+        "snippet": "Netflix $15.49 monthly."
+      },
+      {
+        "id": "sub2",
+        "from": "audible.com",
+        "subject": "Receipt",
+        "snippet": "Audible $14.95 monthly. Last login 5 months ago."
+      }
+    ],
+    "events": [
+      {
+        "title": "BigCo interview",
+        "when": "Tue Sep 29, 2:00–3:00 PM"
+      },
+      {
+        "title": "Gym",
+        "when": "Mon Sep 28, 6:30 PM"
+      }
+    ],
+    "freeSlots": [
+      {
+        "start": "2026-09-28T10:00:00-04:00",
+        "end": "2026-09-28T11:30:00-04:00",
+        "label": "Mon Sep 28, 10:00–11:30 AM"
+      },
+      {
+        "start": "2026-09-29T13:00:00-04:00",
+        "end": "2026-09-29T15:00:00-04:00",
+        "label": "Tue Sep 29, 1:00–3:00 PM"
+      },
+      {
+        "start": "2026-10-01T11:00:00-04:00",
+        "end": "2026-10-01T12:00:00-04:00",
+        "label": "Thu Oct 1, 11:00 AM–12:00 PM"
+      },
+      {
+        "start": "2026-10-02T16:00:00-04:00",
+        "end": "2026-10-02T17:30:00-04:00",
+        "label": "Fri Oct 2, 4:00–5:30 PM"
+      }
+    ],
+    "webResults": [],
+    "mapsResults": [
+      "Nearby picks:",
+      "- Toscana — 240 Mulberry St, New York. Quiet back room, good for groups. https://www.openstreetmap.org/way/416051348",
+      "- Nopa — 1199 Valencia St, New York. Louder, great cocktails, walk-in friendly. https://www.openstreetmap.org/way/370534180"
+    ],
+    "drive": [
+      {
+        "id": "f_resume",
+        "name": "Alex Rivera Resume 2026.pdf",
+        "mimeType": "application/pdf",
+        "size": 91000,
+        "webViewLink": "https://drive.example/resume"
+      },
+      {
+        "id": "f_deck",
+        "name": "Series A Deck v4.pdf",
+        "mimeType": "application/pdf",
+        "size": 4200000,
+        "webViewLink": "https://drive.example/deck"
+      },
+      {
+        "id": "f_notes",
+        "name": "Northwind last meeting notes.docx",
+        "mimeType": "document",
+        "size": 30000,
+        "webViewLink": "https://drive.example/nw_notes"
+      },
+      {
+        "id": "f_tax",
+        "name": "2025 W-2.pdf",
+        "mimeType": "application/pdf",
+        "size": 80000,
+        "webViewLink": "https://drive.example/w2"
+      },
+      {
+        "id": "f_1099",
+        "name": "2025 1099-NEC.pdf",
+        "mimeType": "application/pdf",
+        "size": 60000,
+        "webViewLink": "https://drive.example/1099"
+      }
+    ],
+    "contacts": [
+      {
+        "name": "Sam Cohen",
+        "email": "sam.cohen@acme.com",
+        "last_touch": "2026-09-20"
+      },
+      {
+        "name": "Dana Lee",
+        "email": "dana@bigco.com"
+      },
+      {
+        "name": "Sarah Kim",
+        "email": "sarah@vcfirm.com"
+      }
+    ],
+    "spending": {
+      "logs": [
+        {
+          "amount": 48,
+          "category": "food",
+          "description": "Dinner out",
+          "spentAt": "2026-09-25"
+        },
+        {
+          "amount": 15,
+          "category": "subscriptions",
+          "description": "Spotify",
+          "spentAt": "2026-09-24"
+        },
+        {
+          "amount": 120,
+          "category": "shopping",
+          "description": "Amazon order",
+          "spentAt": "2026-09-22"
+        },
+        {
+          "amount": 32,
+          "category": "food",
+          "description": "Lunch, 3x this week",
+          "spentAt": "2026-09-21"
+        },
+        {
+          "amount": 60,
+          "category": "rides",
+          "description": "Uber rides",
+          "spentAt": "2026-09-20"
+        }
+      ],
+      "weekly": 275,
+      "budget": 400
+    },
+    "slackChannels": [
+      "general"
+    ]
+  },
   "id": "np12_subs_audit",
   "cat": "C16",
   "title": "Audit my subscriptions and kill the ones I do not use.",
@@ -7,15 +172,20 @@
     {
       "text": "Audit my subscriptions and kill the ones I do not use.",
       "bubbles": [
-        "Found two active subscriptions from your receipts:\n\n1. Netflix, $15.49/mo (recent activity, looks used)\n\n2. Audible, $14.95/mo, but your last login was 5 months ago. That's $14.95/mo for silence.\n\nAudible's the clear kill. Want me to go ahead and cancel it through audible.com? Netflix I'd leave alone unless you say otherwise."
+        "Found two active subscriptions in your mail from the last 60 days: 1. Netflix · $15.49/mo 2. Audible · $14.95/mo · last login 5 months ago Audible is the clear kill candidate, you haven't touched it since roughly April, so that's ~$15/mo for nothing. One honest limit: I can't cancel subscriptions directly, and your spending log doesn't show either charge, so this is from your receipts, not your bank. If Audible's the one, cancel at audible.com/account (Cancel membership), or I can draft the cancellation request email to their support for your approval. Want that?"
       ],
-      "reply": "Found two active subscriptions from your receipts:\n\n1. Netflix, $15.49/mo (recent activity, looks used)\n\n2. Audible, $14.95/mo, but your last login was 5 months ago. That's $14.95/mo for silence.\n\nAudible's the clear kill. Want me to go ahead and cancel it through audible.com? Netflix I'd leave alone unless you say otherwise.",
+      "reply": "Found two active subscriptions in your mail from the last 60 days: 1. Netflix · $15.49/mo 2. Audible · $14.95/mo · last login 5 months ago Audible is the clear kill candidate, you haven't touched it since roughly April, so that's ~$15/mo for nothing. One honest limit: I can't cancel subscriptions directly, and your spending log doesn't show either charge, so this is from your receipts, not your bank. If Audible's the one, cancel at audible.com/account (Cancel membership), or I can draft the cancellation request email to their support for your approval. Want that?",
       "source": "gmi",
       "card": null,
       "calls": [
         {
           "method": "GET",
           "path": "/api/internal/live?phone=%2B15552100001&persona=friend&q=Audit%20my%20subscriptions%20and%20kill%20the%20ones%20I%20do%20not%20use.",
+          "body": {}
+        },
+        {
+          "method": "GET",
+          "path": "/api/internal/anchors?phone=%2B15552100001&persona=friend",
           "body": {}
         },
         {
@@ -37,12 +207,20 @@
           }
         },
         {
+          "method": "GET",
+          "path": "/api/internal/plans",
+          "body": {
+            "phone": "+15552100001",
+            "persona": "friend"
+          }
+        },
+        {
           "method": "POST",
           "path": "/api/internal/live/tools",
           "body": {
             "phone": "+15552100001",
             "persona": "friend",
-            "message": "subject:(receipt OR invoice OR subscription OR renewal) newer_than:60d",
+            "message": "subject:(subscription OR receipt OR invoice OR renewal) newer_than:60d",
             "want": "gmail"
           }
         }
@@ -70,9 +248,17 @@
     "workWrites": [],
     "taskChoices": [],
     "watches": [],
+    "anchors": [],
+    "plans": [],
+    "cancels": [],
+    "spendApprovals": [],
     "todos": [],
     "loops": [],
-    "otherWrites": []
+    "otherWrites": [
+      {
+        "path": "/api/internal/anchors:GET"
+      }
+    ]
   },
   "finalMemories": [
     {
@@ -81,5 +267,5 @@
     }
   ],
   "llmCalls": 4,
-  "wallMs": 20676
+  "wallMs": 22625
 }

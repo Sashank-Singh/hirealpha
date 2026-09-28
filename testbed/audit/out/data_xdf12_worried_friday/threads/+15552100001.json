@@ -1,0 +1,16 @@
+{
+  "facts": [],
+  "summary": "",
+  "history": [
+    {
+      "role": "user",
+      "content": "Should I be worried about anything before Friday?",
+      "ts": 1790581078156
+    },
+    {
+      "role": "assistant",
+      "content": "Here's what I found from your calendar and mail: 1. Denver trip isn't on your calendar. Southwest confirmation says WN 2214 JFK→DEN, 3:40pm Thu Oct 1, Zephyr Lodge check in 3pm, but nothing Thursday or Friday is blocked off. Easy to double book around it. 2. Sam's contract, due Friday. He said he'd review by Friday and nothing new has come in since, worth a nudge Thursday if it's still quiet. 3. Sarah's still waiting on the deck. Her \"Deck?\" nudge is 3 days old with no reply from you. 4. Panel logistics from Dana, 45 min product case, 100 Main St, 9th floor, bring questions. That's today at 2pm, so it's a \"go\" not a \"worry.\" Calendar itself is clean this week: interview today, dentist Tue 9am, standup + dinner with Dana Wed. No collisions. Want me to draft the nudge to Sam or a reply to Sarah? I have not checked a fresh web check this turn, so I can't confirm anything that depends on it.",
+      "ts": 1790581078156
+    }
+  ]
+}

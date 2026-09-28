@@ -5,12 +5,12 @@
     {
       "role": "user",
       "content": "Help me prepare for moving to Seattle next month.",
-      "ts": 1790533039557
+      "ts": 1790577893289
     },
     {
       "role": "assistant",
-      "content": "I’m checking the sources for this.\n\nStraight answer: my searches for live Seattle rent numbers came back empty twice, so I can't quote you real prices right now. I'd rather tell you that than invent figures.\n\nWhat I can do in the meantime is get your prep moving. The plan:\n\n1. Housing: pick a neighborhood, then start listings 4 6 weeks out, which is basically now for a next month move\n\n2. Movers vs. PODS, and a target move date\n\n3. Admin: address change, license transfer, utilities\n\n4. Settling in: ORCA transit card, new doctors, rain gear\n\nSo I can do the real work: where are you moving from, do you have a place yet or are we hunting, and what's the rent budget? Once you give me the neighborhood vibe and budget, I'll re run the search for live listings and prices.\n\nhttps://audit-none.example/search",
-      "ts": 1790533039557
+      "content": "I’m checking the sources for this.\n\nThe search came back empty, no useful pages on Seattle moving costs or neighborhoods, so I'm not going to quote you numbers I can't back up. Let's build the plan from what you actually know instead. Three quick things: 1. When's the move, and are you driving or shipping? 2. Place lined up yet, or is hunting part of this? 3. Rough budget for the move? With that I can run targeted searches, real neighborhood options, mover quotes, utility setup, and turn it into a week by week checklist with reminders so nothing slips. https://audit-none.example/search",
+      "ts": 1790577893289
     }
   ]
 }

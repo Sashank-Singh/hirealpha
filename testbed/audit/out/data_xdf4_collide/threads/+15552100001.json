@@ -1,0 +1,16 @@
+{
+  "facts": [],
+  "summary": "",
+  "history": [
+    {
+      "role": "user",
+      "content": "Is anything going to collide next week?",
+      "ts": 1790580799828
+    },
+    {
+      "role": "assistant",
+      "content": "Here's what your calendar shows for next week (Oct 5, 11): it's completely empty. No events, so nothing can collide. The events on file are all this week instead, BigCo interview today at 2 PM, dentist Tue 9 AM, standup Wed 9:15 AM, and dinner with Dana Wed 7:30 PM. Standup and dinner don't overlap, just a packed Wednesday. Want me to re check next week later in the week, or add anything to it? I have not checked a fresh web check this turn, so I can't confirm anything that depends on it.",
+      "ts": 1790580799828
+    }
+  ]
+}

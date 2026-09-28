@@ -532,7 +532,10 @@ async function pageHtml(pathname: string, search = '') {
         }
       }
     }
-    if (sql && match && token && (match[2] === 'digest' || match[2] === 'pick_night')) {
+    /* The card's subcaption previews the thing behind the link — the draft, the
+     * promise, the charge — whenever a signed token can name the user. Kinds
+     * without data keep their static app description. */
+    if (sql && match && token && MINI_META[match[2] || '']) {
       try {
         const live = await miniCardOgDescription(sql, token, match[1]!, match[2]!)
         if (live) meta.description = live

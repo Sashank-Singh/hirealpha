@@ -1,0 +1,16 @@
+{
+  "facts": [],
+  "summary": "",
+  "history": [
+    {
+      "role": "user",
+      "content": "Am I ready for my interview tomorrow?",
+      "ts": 1790580727441
+    },
+    {
+      "role": "assistant",
+      "content": "Straight read, from your calendar and the last week of mail: The one real issue: your calendar says \"BigCo interview, Mon Sep 28, 2:00 PM\" (that's today at 2), while Dana's email is titled \"Tomorrow, panel details.\" Those disagree. Confirm the day with Dana before anything else, that's the biggest readiness risk, not the prep. What you've got covered (per Dana's email): Panel: product + engineering leads 45 min product case 100 Main St, 9th floor She asked you to bring questions, if you don't have a set drafted yet, that's tonight's homework Loose ends nearby: Sarah at the VC firm is still waiting on the updated deck The email is drafted for your review — nothing has been sent yet. Denver trip Thursday: WN 2214 out of JFK at 3:40 PM, Zephyr Lodge check in 3 PM, no clash with the interview either way Want me to draft the one liner to Dana confirming Monday vs. Tuesday? I have not checked a fresh web check this turn, so I can't confirm anything that depends on it.",
+      "ts": 1790580727441
+    }
+  ]
+}

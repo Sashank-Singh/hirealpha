@@ -5,12 +5,12 @@
     {
       "role": "user",
       "content": "Send the deck to Sam.",
-      "ts": 1790535833878
+      "ts": 1790578775105
     },
     {
       "role": "assistant",
-      "content": "Found it: Series A Deck v4.pdf in Drive.\n\nOne check before I send, you've got two Sams saved: Sam Cohen (acme.com) and Sam Iyer (northwind.com). Which one? And do you want it as an attachment or a Drive link?",
-      "ts": 1790535833878
+      "content": "Found one deck on your Drive: \"Series A Deck v4.pdf\". Quick check before I send, there are two Sams in your contacts: Sam Cohen (acme.com) and Sam Iyer (northwind.com). Which one?",
+      "ts": 1790578775105
     }
   ]
 }

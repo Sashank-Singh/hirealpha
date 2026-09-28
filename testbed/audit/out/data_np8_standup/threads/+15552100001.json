@@ -1,17 +1,17 @@
 {
-  "lastCardDeliveredAt": 1790534913523,
+  "lastCardDeliveredAt": 1790580128413,
   "facts": [],
   "summary": "",
   "history": [
     {
       "role": "user",
       "content": "Set up a 15-min standup every weekday at 9:15am for me and Jules (he is in Berlin).",
-      "ts": 1790534913523
+      "ts": 1790580128414
     },
     {
       "role": "assistant",
-      "content": "Draft's ready for review, 15 minutes, weekdays at 9:15am your time, which is 3:15pm for Jules in Berlin. Tap Book on the card and it's on your calendar.\n\nOne note: the draft covers the series as a repeating weekday hold, and I can send Jules an invite at jules@weber.de once you've booked it, want me to?",
-      "ts": 1790534913523
+      "content": "Draft's ready for review, a recurring 15 min standup, weekdays 9:15, 9:30am your time. That's 3:15pm for Jules in Berlin, so no one's taking this call at midnight. Tap the card to review and Book it. One thing: the draft is on your calendar only, want me to add Jules (jules@weber.de) as an attendee so it lands on his too?",
+      "ts": 1790580128414
     }
   ]
 }

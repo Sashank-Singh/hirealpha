@@ -1,27 +1,27 @@
 {
-  "lastCardDeliveredAt": 1790536268280,
+  "lastCardDeliveredAt": 1790578931738,
   "facts": [],
   "summary": "",
   "history": [
     {
       "role": "user",
       "content": "Draft an email to Dana confirming Friday 4pm works for the call.",
-      "ts": 1790536239558
+      "ts": 1790578931739
     },
     {
       "role": "assistant",
-      "content": "Draft's saved and on its way to your review card, tap Send when it looks good and it goes to Dana. Want me to also block Friday 4pm on your calendar?",
-      "ts": 1790536239558
+      "content": "Draft's ready for Dana (dana@bigco.com): \"Friday at 4pm works for the call, looking forward to it.\" It's on the review card, give it a look and tap Send when it reads right.",
+      "ts": 1790578931739
     },
     {
       "role": "user",
       "content": "send it",
-      "ts": 1790536268282
+      "ts": 1790578931742
     },
     {
       "role": "assistant",
-      "content": "Draft's ready in your review card, tap Send and it goes to Dana.",
-      "ts": 1790536268282
+      "content": "Sent to dana@bigco.com — receipt smtp_audit_1.",
+      "ts": 1790578931742
     }
   ]
 }

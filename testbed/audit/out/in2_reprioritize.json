@@ -1,4 +1,156 @@
 {
+  "revision": "7133b5e1aeeabf21e4f513628fe0e8deb82ec3a8",
+  "model": "zai-org/GLM-5.3-Flash",
+  "worldDefinition": {
+    "profile": {
+      "name": "Alex Rivera",
+      "phone": "+15552100001",
+      "timezone": "America/New_York",
+      "email": "alex@rivera.dev",
+      "hired": true,
+      "connected": [
+        "gmail",
+        "calendar",
+        "drive"
+      ],
+      "memories": [
+        {
+          "key": "preferred_name",
+          "value": "Alex"
+        }
+      ]
+    },
+    "mail": [],
+    "events": [
+      {
+        "title": "BigCo interview",
+        "when": "Tue Sep 29, 2:00–3:00 PM"
+      },
+      {
+        "title": "Gym",
+        "when": "Mon Sep 28, 6:30 PM"
+      }
+    ],
+    "freeSlots": [
+      {
+        "start": "2026-09-28T10:00:00-04:00",
+        "end": "2026-09-28T11:30:00-04:00",
+        "label": "Mon Sep 28, 10:00–11:30 AM"
+      },
+      {
+        "start": "2026-09-29T13:00:00-04:00",
+        "end": "2026-09-29T15:00:00-04:00",
+        "label": "Tue Sep 29, 1:00–3:00 PM"
+      },
+      {
+        "start": "2026-10-01T11:00:00-04:00",
+        "end": "2026-10-01T12:00:00-04:00",
+        "label": "Thu Oct 1, 11:00 AM–12:00 PM"
+      },
+      {
+        "start": "2026-10-02T16:00:00-04:00",
+        "end": "2026-10-02T17:30:00-04:00",
+        "label": "Fri Oct 2, 4:00–5:30 PM"
+      }
+    ],
+    "webResults": [],
+    "mapsResults": [
+      "Nearby picks:",
+      "- Toscana — 240 Mulberry St, New York. Quiet back room, good for groups. https://www.openstreetmap.org/way/416051348",
+      "- Nopa — 1199 Valencia St, New York. Louder, great cocktails, walk-in friendly. https://www.openstreetmap.org/way/370534180"
+    ],
+    "drive": [
+      {
+        "id": "f_resume",
+        "name": "Alex Rivera Resume 2026.pdf",
+        "mimeType": "application/pdf",
+        "size": 91000,
+        "webViewLink": "https://drive.example/resume"
+      },
+      {
+        "id": "f_deck",
+        "name": "Series A Deck v4.pdf",
+        "mimeType": "application/pdf",
+        "size": 4200000,
+        "webViewLink": "https://drive.example/deck"
+      },
+      {
+        "id": "f_notes",
+        "name": "Northwind last meeting notes.docx",
+        "mimeType": "document",
+        "size": 30000,
+        "webViewLink": "https://drive.example/nw_notes"
+      },
+      {
+        "id": "f_tax",
+        "name": "2025 W-2.pdf",
+        "mimeType": "application/pdf",
+        "size": 80000,
+        "webViewLink": "https://drive.example/w2"
+      },
+      {
+        "id": "f_1099",
+        "name": "2025 1099-NEC.pdf",
+        "mimeType": "application/pdf",
+        "size": 60000,
+        "webViewLink": "https://drive.example/1099"
+      }
+    ],
+    "contacts": [
+      {
+        "name": "Sam Cohen",
+        "email": "sam.cohen@acme.com",
+        "last_touch": "2026-09-20"
+      },
+      {
+        "name": "Dana Lee",
+        "email": "dana@bigco.com"
+      },
+      {
+        "name": "Sarah Kim",
+        "email": "sarah@vcfirm.com"
+      }
+    ],
+    "spending": {
+      "logs": [
+        {
+          "amount": 48,
+          "category": "food",
+          "description": "Dinner out",
+          "spentAt": "2026-09-25"
+        },
+        {
+          "amount": 15,
+          "category": "subscriptions",
+          "description": "Spotify",
+          "spentAt": "2026-09-24"
+        },
+        {
+          "amount": 120,
+          "category": "shopping",
+          "description": "Amazon order",
+          "spentAt": "2026-09-22"
+        },
+        {
+          "amount": 32,
+          "category": "food",
+          "description": "Lunch, 3x this week",
+          "spentAt": "2026-09-21"
+        },
+        {
+          "amount": 60,
+          "category": "rides",
+          "description": "Uber rides",
+          "spentAt": "2026-09-20"
+        }
+      ],
+      "weekly": 275,
+      "budget": 400
+    },
+    "slackChannels": [
+      "general"
+    ]
+  },
   "id": "in2_reprioritize",
   "cat": "C18",
   "title": "forget that part, do this first",
@@ -7,9 +159,9 @@
     {
       "text": "Plan my team offsite: find a venue, set a budget, draft the agenda, and invite the team.",
       "bubbles": [
-        "That search came back empty, so no real numbers to lean on yet, and honestly the search can't be useful until I know what we're planning.\n\nGive me these four and I'll do the rest:\n\n1. City (or travel destination)\n\n2. Dates or a target week\n\n3. Headcount\n\n4. Budget, total or per person\n\nThen I'll pull live venue options with rates, set a budget, draft the agenda, and stage the team invite for your sign off before anything sends.\n\nhttps://audit-none.example/search"
+        "Happy to run point on this. Before I start searching venues, I need a few basics so I don't quote you places in the wrong city: 1. Which city (or is this virtual/hybrid)? 2. Dates, a specific day, or a window I should work around? 3. How many people, and rough budget per person or all in? 4. One day or overnight? Give me those and I'll pull real venue options with rates, draft the agenda around your goals, and prep the invites."
       ],
-      "reply": "That search came back empty, so no real numbers to lean on yet, and honestly the search can't be useful until I know what we're planning.\n\nGive me these four and I'll do the rest:\n\n1. City (or travel destination)\n\n2. Dates or a target week\n\n3. Headcount\n\n4. Budget, total or per person\n\nThen I'll pull live venue options with rates, set a budget, draft the agenda, and stage the team invite for your sign off before anything sends.\n\nhttps://audit-none.example/search",
+      "reply": "Happy to run point on this. Before I start searching venues, I need a few basics so I don't quote you places in the wrong city: 1. Which city (or is this virtual/hybrid)? 2. Dates, a specific day, or a window I should work around? 3. How many people, and rough budget per person or all in? 4. One day or overnight? Give me those and I'll pull real venue options with rates, draft the agenda around your goals, and prep the invites.",
       "source": "gmi",
       "card": null,
       "calls": [
@@ -20,6 +172,11 @@
         },
         {
           "method": "GET",
+          "path": "/api/internal/anchors?phone=%2B15552100001&persona=friend",
+          "body": {}
+        },
+        {
+          "method": "GET",
           "path": "/api/internal/browser/awaiting?phone=%2B15552100001",
           "body": {}
         },
@@ -38,11 +195,37 @@
         },
         {
           "method": "GET",
-          "path": "/search",
-          "body": {}
+          "path": "/api/internal/plans",
+          "body": {
+            "phone": "+15552100001",
+            "persona": "friend"
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/internal/plans",
+          "body": {
+            "phone": "+15552100001",
+            "persona": "friend",
+            "goal": "Plan my team offsite: find a venue, set a budget, draft the agenda, and invite the team.",
+            "steps": [
+              {
+                "text": "Plan my team offsite: find a venue",
+                "state": "pending"
+              },
+              {
+                "text": "draft the agenda",
+                "state": "pending"
+              },
+              {
+                "text": "invite the team.",
+                "state": "pending"
+              }
+            ]
+          }
         }
       ],
-      "llmCallsInTurn": 4,
+      "llmCallsInTurn": 2,
       "thread": {
         "facts": [],
         "summary": "",
@@ -52,9 +235,9 @@
     {
       "text": "wait — forget the agenda for now, just get the venue sorted first.",
       "bubbles": [
-        "The search came back empty again, so I've got nothing real to quote on venues yet.\n\nI'm not going to guess at rates, so here's what actually unblocks this: city, dates or target week, headcount, and a budget. Send those and I'll pull live venue options with real numbers.\n\nhttps://audit-none.example/search"
+        "Venue it is. To pull real options I still need the basics from my last message: which city, what dates (or a window), how many people, and one day or overnight. Give me those and I'll come back with 2 3 venues with rates and availability."
       ],
-      "reply": "The search came back empty again, so I've got nothing real to quote on venues yet.\n\nI'm not going to guess at rates, so here's what actually unblocks this: city, dates or target week, headcount, and a budget. Send those and I'll pull live venue options with real numbers.\n\nhttps://audit-none.example/search",
+      "reply": "Venue it is. To pull real options I still need the basics from my last message: which city, what dates (or a window), how many people, and one day or overnight. Give me those and I'll come back with 2 3 venues with rates and availability.",
       "source": "gmi",
       "card": null,
       "calls": [
@@ -65,6 +248,11 @@
         },
         {
           "method": "GET",
+          "path": "/api/internal/anchors?phone=%2B15552100001&persona=friend",
+          "body": {}
+        },
+        {
+          "method": "GET",
           "path": "/api/internal/browser/awaiting?phone=%2B15552100001",
           "body": {}
         },
@@ -83,11 +271,40 @@
         },
         {
           "method": "GET",
-          "path": "/search",
-          "body": {}
+          "path": "/api/internal/plans",
+          "body": {
+            "phone": "+15552100001",
+            "persona": "friend"
+          }
+        },
+        {
+          "method": "PATCH",
+          "path": "/api/internal/plans",
+          "body": {
+            "phone": "+15552100001",
+            "persona": "friend",
+            "id": "plan_1",
+            "steps": [
+              {
+                "text": "Plan my team offsite: find a venue",
+                "state": "pending"
+              },
+              {
+                "text": "draft the agenda",
+                "state": "blocked"
+              },
+              {
+                "text": "invite the team.",
+                "state": "pending"
+              }
+            ],
+            "nextAction": "Plan my team offsite: find a venue",
+            "blocker": "blocked",
+            "status": "active"
+          }
         }
       ],
-      "llmCallsInTurn": 5,
+      "llmCallsInTurn": 4,
       "thread": {
         "facts": [],
         "summary": "",
@@ -110,9 +327,45 @@
     "workWrites": [],
     "taskChoices": [],
     "watches": [],
+    "anchors": [],
+    "plans": [
+      {
+        "id": "plan_1",
+        "goal": "Plan my team offsite: find a venue, set a budget, draft the agenda, and invite the team.",
+        "persona": "friend",
+        "status": "active",
+        "blocker": "blocked",
+        "nextAction": "Plan my team offsite: find a venue",
+        "steps": [
+          {
+            "text": "Plan my team offsite: find a venue",
+            "state": "pending"
+          },
+          {
+            "text": "draft the agenda",
+            "state": "blocked"
+          },
+          {
+            "text": "invite the team.",
+            "state": "pending"
+          }
+        ],
+        "operationIds": {},
+        "updatedAt": "2026-09-28T07:28:22.695Z"
+      }
+    ],
+    "cancels": [],
+    "spendApprovals": [],
     "todos": [],
     "loops": [],
-    "otherWrites": []
+    "otherWrites": [
+      {
+        "path": "/api/internal/anchors:GET"
+      },
+      {
+        "path": "/api/internal/anchors:GET"
+      }
+    ]
   },
   "finalMemories": [
     {
@@ -120,6 +373,6 @@
       "value": "Alex"
     }
   ],
-  "llmCalls": 9,
-  "wallMs": 53138
+  "llmCalls": 6,
+  "wallMs": 47557
 }
