@@ -1,4 +1,4 @@
-import { isBitFactKey, isDurableFactKey, isToneFactKey, type MemoryFact } from './memory'
+import { isBitFactKey, isDurableFactKey, isToneFactKey, constraintDollarCap, kindOfFact, type MemoryFact, type MemoryFactKind } from './memory'
 
 /**
  * Identity facts that must survive every cutoff. These are the facts a
@@ -185,4 +185,37 @@ export function liveFactsToInput(
     durable: fact.durable,
     at: fact.updatedAt ? Date.parse(fact.updatedAt) || undefined : undefined,
   }))
+}
+
+/* ---- Typed memory: standing rules with precedence ----
+ *
+ * Constraints, goals, and commitments are not ordinary facts: they out-rank
+ * stylistic preferences, and a standing spend cap must reach the purchase
+ * gate, not just the prompt. */
+
+export function standingConstraints(facts: MemoryFactInput[]): Array<{ key: string; value: string; capDollars: number | null }> {
+  return facts
+    .filter((f) => kindOfFact(String(f.key || ''), (f as { kind?: MemoryFactKind }).kind) === 'constraint')
+    .map((f) => ({ key: String(f.key), value: String(f.value || ''), capDollars: constraintDollarCap(String(f.value || '')) }))
+}
+
+export function standingGoals(facts: MemoryFactInput[]): Array<{ key: string; value: string }> {
+  return facts
+    .filter((f) => ['goal', 'commitment'].includes(kindOfFact(String(f.key || ''), (f as { kind?: MemoryFactKind }).kind)))
+    .map((f) => ({ key: String(f.key), value: String(f.value || '') }))
+}
+
+/** One line for the system prompt when today's ask intersects a standing
+ * constraint domain (money, timing, contact). Precedence: a direct current
+ * instruction generally wins over a PREFERENCE; a CONSTRAINT (authorization /
+ * safety) is surfaced, never silently overridden — if the ask conflicts, the
+ * engine says both and asks. */
+export function constraintConflictNote(ask: string, facts: MemoryFactInput[]): string | null {
+  const constraints = standingConstraints(facts)
+  if (!constraints.length) return null
+  const money = /\b(?:buy|order|purchase|price|pay|cost|spend|budget|\$)/i.test(ask)
+  const timing = /\b(?:book|schedule|reschedule|meeting|flight|call)\b/i.test(ask)
+  if (!money && !timing) return null
+  const named = constraints.map((c) => `"${c.value}"`).join('; ')
+  return `STANDING RULES (user set these earlier): ${named}. Precedence: these constraints are NOT silently overridden by today's instruction — if the current ask conflicts with one, name the conflict in one line and ask which wins. A preference (not a constraint) may be set aside when the user explicitly says so.`
 }

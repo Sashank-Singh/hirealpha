@@ -56,7 +56,7 @@ export interface World {
     drafts: Json[]; reminders: Json[]; scheduledTexts: Json[]; commitments: Json[]
     memoryWrites: Json[]; memoryDeletes: Json[]; spendDecisions: Json[]
     browserTasks: Json[]; followups: Json[]; calendarMutations: Json[]
-    fileSends: Json[]; workWrites: Json[]; taskChoices: Json[]; watches: Json[]; anchors?: Json[]
+    fileSends: Json[]; workWrites: Json[]; taskChoices: Json[]; watches: Json[]; anchors?: Json[]; plans?: Json[]; cancels?: Json[]; spendApprovals?: Json[]
     todos: Json[]; loops: Json[]; otherWrites: Json[]
   }
 }
@@ -148,6 +148,60 @@ function handleInternal(w: World, method: string, url: string, body: Json): Resp
   const u = new URL(url)
   const p = u.pathname
 
+  /* plans */
+  if (p === '/api/internal/plans') {
+    if (method === 'GET') {
+      const plan = (w.created.plans || []).find((pl: Json) => pl.status === 'active') || (w.created.plans || [])[0] || null
+      return jres({ ok: true, plan })
+    }
+    if (method === 'POST') {
+      const existing = (w.created.plans || []).find((pl: Json) => pl.goal === body.goal)
+      const plan = {
+        id: existing?.id || `plan_${(w.created.plans || []).length + 1}`,
+        goal: body.goal, persona: body.persona || 'friend', status: 'active',
+        blocker: null, nextAction: body.nextAction ?? null,
+        steps: body.steps || [], operationIds: body.operationIds || {},
+        updatedAt: new Date().toISOString(),
+      }
+      if (existing) Object.assign(existing, plan)
+      else (w.created.plans ||= []).push(plan)
+      return jres({ ok: true, plan })
+    }
+    if (method === 'PATCH') {
+      const plan = (w.created.plans || []).find((pl: Json) => pl.id === body.id)
+      if (!plan) return jres({ ok: false, error: 'Plan not found' }, 404)
+      for (const k of ['steps', 'blocker', 'nextAction', 'status', 'operationIds'] as const) {
+        if (body[k] !== undefined) plan[k] = body[k]
+      }
+      return jres({ ok: true, plan })
+    }
+  }
+
+  /* spend state read */
+  if (p === '/api/internal/spend/state') {
+    const req = w.created.spendApprovals?.[0]
+    return jres({ ok: true, state: req?.state || 'pending_approval', amountCents: (req?.amount || 42) * 100, purpose: req?.item || 'item' })
+  }
+
+  /* cancel work */
+  if (p === '/api/internal/work/cancel') {
+    const kinds: string[] = body.kinds || ['browser', 'watch', 'followup', 'scheduled_text']
+    const results = kinds.map((kind) => {
+      if (kind === 'browser' && w.created.browserTasks.length) {
+        return { target: 'browser', id: 'job_1', state: 'cancellation_requested', priorStatus: 'running' }
+      }
+      return { target: kind, id: null, state: 'not_cancellable' }
+    })
+    bucket<Json>(w, 'cancels').push({ kinds, results })
+    return jres({ ok: true, results })
+  }
+
+  /* send an existing draft */
+  if (p === '/api/internal/mail/send-draft') {
+    bucket<Json>(w, 'drafts').push({ kind: 'send_draft', ...body })
+    return jres({ ok: true, state: 'sent', providerId: 'smtp_audit_1', toAddr: 'dana@bigco.com', version: 1 })
+  }
+
   /* durable turn anchors (the "send it" memory) */
   if (p === '/api/internal/anchors') {
     w.created.otherWrites.push({ path: p + ':' + method, ...body })
@@ -203,6 +257,7 @@ function handleInternal(w: World, method: string, url: string, body: Json): Resp
     if (w.fx.proposeResponse) return jres(w.fx.proposeResponse)
     if (kind === 'purchase') {
       bucket<Json>(w, 'drafts').push({ kind, ...body })
+      bucket<Json>(w, 'spendApprovals').push({ id: 'req_1', item: body.title, amount: body.amount, state: 'pending_approval' })
       return jres({ ok: true, id: 'spend_1', requestId: 'req_1', approvalUrl: 'https://audit.internal/approve/req_1' })
     }
     if (kind === 'browser') {
@@ -219,6 +274,9 @@ function handleInternal(w: World, method: string, url: string, body: Json): Resp
   if (p === '/api/internal/spend/decide') {
     const fx = w.fx.spendDecide || 'succeed'
     bucket<Json>(w, 'spendDecisions').push({ ...body })
+    if (w.created.spendApprovals?.[0]) {
+      w.created.spendApprovals[0].state = fx === 'succeed' ? 'succeeded' : fx === 'charged_false' ? 'succeeded' : 'outcome_unknown'
+    }
     if (fx === 'throw') throw new Error('spend provider timeout after commit')
     if (fx === 'fail500') return jres({ ok: false, error: 'payment service down' }, 500)
     if (fx === 'charged_false') return jres({ ok: true, state: 'succeeded', charged: false })
@@ -382,6 +440,9 @@ export interface TurnResult {
 }
 
 export interface ScenarioResult {
+  revision: string
+  model: string
+  worldDefinition: unknown
   id: string
   cat: string
   title: string
@@ -399,7 +460,7 @@ export async function runScenario(sc: Scenario): Promise<ScenarioResult> {
   LLM_CALLS = 0
   const w: World = {
     id: sc.id, fx: {}, calls: [],
-    created: { drafts: [], reminders: [], scheduledTexts: [], commitments: [], memoryWrites: [], memoryDeletes: [], spendDecisions: [], browserTasks: [], followups: [], calendarMutations: [], fileSends: [], workWrites: [], taskChoices: [], watches: [], anchors: [], todos: [], loops: [], otherWrites: [] },
+    created: { drafts: [], reminders: [], scheduledTexts: [], commitments: [], memoryWrites: [], memoryDeletes: [], spendDecisions: [], browserTasks: [], followups: [], calendarMutations: [], fileSends: [], workWrites: [], taskChoices: [], watches: [], anchors: [], plans: [], cancels: [], spendApprovals: [], todos: [], loops: [], otherWrites: [] },
     ...sc.world(),
   } as World
   const dataDir = join(OUT, 'data_' + sc.id)
@@ -407,7 +468,18 @@ export async function runScenario(sc: Scenario): Promise<ScenarioResult> {
   mkdirSync(dataDir, { recursive: true })
   CURRENT = w
   const t0 = Date.now()
-  const result: ScenarioResult = { id: sc.id, cat: sc.cat, title: sc.title, agent: sc.agent || 'friend', turns: [], created: w.created, finalMemories: w.profile.memories, llmCalls: 0, wallMs: 0 }
+  let revision = 'unknown'
+  try {
+    revision = new TextDecoder().decode(
+      Bun.spawnSync({ cmd: ['git', 'rev-parse', 'HEAD'], cwd: join(import.meta.dir, '../..') }).stdout,
+    ).trim() || 'unknown'
+  } catch { /* not a git tree */ }
+  const result: ScenarioResult = {
+    revision,
+    model: process.env.GMI_MODEL || process.env.HIREALPHA_MODEL || 'unknown',
+    worldDefinition: sc.world ? sc.world() : {},
+    id: sc.id, cat: sc.cat, title: sc.title, agent: sc.agent || 'friend', turns: [], created: w.created, finalMemories: w.profile.memories, llmCalls: 0, wallMs: 0,
+  }
   try {
     for (const t of sc.turns) {
       if (t.w) t.w(w)

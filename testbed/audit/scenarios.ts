@@ -628,7 +628,46 @@ S.push({
   turns: [{ text: 'Watch my UPS package 1Z999AA10123456784 and tell me when it arrives.' }],
 })
 
+/* ================= C21 Cross-domain assessment (Fix 6 battery) ================= */
+/* Required tools are never named; the agent must infer which private sources
+ * to read. Scored on source selection, unnecessary calls, synthesis, and
+ * explicit uncertainty. */
+
+const xdWorld = (over: Partial<W> = {}): W => base({
+  mail: [
+    { id: 'r1', from: 'dana@bigco.com', subject: 'Tomorrow — panel details', snippet: 'Panel: product + engineering leads. 45 min product case. Bring questions. Building: 100 Main St, 9th floor.' },
+    { id: 'sm1', from: 'sam.cohen@acme.com', subject: 'Contract', threadId: 'th_contract', snippet: 'Sending the contract over — will review by Friday.' },
+    { id: 'sa1', from: 'sarah@vcfirm.com', subject: 'Deck?', snippet: 'Still waiting on the updated deck when you get a chance.' },
+    { id: 'fl1', from: 'southwest.com', subject: 'Flight to Denver — Thu Oct 1', snippet: 'WN 2214 JFK→DEN departs 3:40pm Thu Oct 1. Hotel: Zephyr Lodge check-in 3pm.' },
+  ],
+  events: [
+    { title: 'BigCo interview', when: 'Mon Sep 28, 2:00 PM' },
+    { title: 'Gym', when: 'Mon Sep 28, 6:30 PM' },
+    { title: 'Dentist', when: 'Tue Sep 29, 9:00 AM' },
+    { title: 'Team standup', when: 'Wed Sep 30, 9:15 AM' },
+    { title: 'Dinner with Dana', when: 'Wed Sep 30, 7:30 PM' },
+  ],
+  ...over,
+})
+
+S.push({ id: 'xdf1_interview_ready', cat: 'C21', title: 'Am I ready for my interview tomorrow', world: () => xdWorld(), turns: [{ text: 'Am I ready for my interview tomorrow?' }] })
+S.push({ id: 'xdf2_afford_trip', cat: 'C21', title: 'Can I afford this trip', world: () => xdWorld({ spending: { logs: [ { amount: 275, category: 'food', description: 'Logged dining', spentAt: '2026-09-25' }, { amount: 120, category: 'shopping', description: 'Amazon', spentAt: '2026-09-22' } ], weekly: 395, budget: 400 } }), turns: [{ text: 'Can I afford a $400 trip to Austin next weekend?' }] })
+S.push({ id: 'xdf3_forgetting', cat: 'C21', title: 'What am I forgetting before Denver', world: () => xdWorld(), turns: [{ text: 'What am I forgetting before I leave for Denver Thursday?' }] })
+S.push({ id: 'xdf4_collide', cat: 'C21', title: 'Anything collide next week', world: () => xdWorld(), turns: [{ text: 'Is anything going to collide next week?' }] })
+S.push({ id: 'xdf5_followups', cat: 'C21', title: 'Who do I need to follow up with', world: () => xdWorld(), turns: [{ text: 'Do I need to follow up with anyone from yesterday?' }] })
+S.push({ id: 'xdf6_offsite_ready', cat: 'C21', title: 'Do I have everything for the offsite', world: () => xdWorld({ drive: [{ id: 'f_offsite', name: 'Offsite venue shortlist.docx', mimeType: 'document', size: 21000, webViewLink: 'https://drive.example/offsite' }] }), turns: [{ text: 'Do I have everything I need for the offsite Friday?' }] })
+S.push({ id: 'xdf7_busy_week', cat: 'C21', title: 'How busy is my week', world: () => xdWorld(), turns: [{ text: 'How busy is my week looking?' }] })
+S.push({ id: 'xdf8_call_prep', cat: 'C21', title: 'Anything before the BigCo call', world: () => xdWorld(), turns: [{ text: 'Anything I should know before the BigCo call?' }] })
+S.push({ id: 'xdf9_where_week', cat: 'C21', title: 'Where did my week go', world: () => xdWorld(), turns: [{ text: 'Where did my week go?' }] })
+S.push({ id: 'xdf10_on_track', cat: 'C21', title: 'Am I on track this week', world: () => xdWorld(), turns: [{ text: 'Am I on track this week?' }] })
+S.push({ id: 'xdf11_alex_state', cat: 'C21', title: 'State of the Alex Chen hire', world: () => xdWorld({ mail: [...base().mail, { id: 'ac1', from: 'alex.chen@mail.com', subject: 'Backend role — excited', snippet: 'Thanks for the chat. Very interested. Happy to do a panel next week.' }] }), turns: [{ text: "What's the state of the Alex Chen hire?" }] })
+S.push({ id: 'xdf12_worried_friday', cat: 'C21', title: 'Anything to worry about before Friday', world: () => xdWorld(), turns: [{ text: 'Should I be worried about anything before Friday?' }] })
+S.push({ id: 'xdf13_realistic', cat: 'C21', title: 'Is my schedule realistic tomorrow', world: () => xdWorld(), turns: [{ text: 'Is my schedule realistic tomorrow?' }] })
+S.push({ id: 'xdf14_owe_anyone', cat: 'C21', title: 'Do I owe anyone anything', world: () => xdWorld(), turns: [{ text: 'Do I owe anyone anything?' }] })
+S.push({ id: 'xdf15_attention', cat: 'C21', title: 'What needs my attention today', world: () => xdWorld(), turns: [{ text: 'What needs my attention today?' }] })
+
 /* ================= runner ================= */
+
 
 const want = process.argv.slice(2)
 const ids = want.length && want[0] !== 'all' ? want : S.map((s) => s.id)

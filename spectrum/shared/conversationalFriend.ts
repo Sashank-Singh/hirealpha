@@ -4,7 +4,7 @@ import { firstContactCard, firstContactWelcome, sanitizeOutbound, splitBubbles }
 import { classifyTurnStrict, ClassifierUnavailableError, logsOf } from './turnIntent'
 import { generateTurnImage, pushTurnImage } from './imageRequest'
 import { writeToWorkspace } from './workWrite'
-import { persistLiveFacts } from './liveContext'
+import { fetchSpending, persistLiveFacts } from './liveContext'
 import { getAgent, type AgentId } from '../../src/agents'
 import { formatNowForAgent, pickUserTimezone } from '../../deploy/timezones'
 import { gmiChat, type GmiChatMessage } from './gmi'
@@ -26,7 +26,10 @@ import {
 } from './toolLoop'
 import { isAffirmativeApprovalIntent, isCasualChitChat, isNegativeCancellationIntent } from './conversationalApproval'
 import { ClaimLedger, enforceClaimEvidence } from './claimEvidence'
+import { constraintConflictNote, standingConstraints } from './memoryBlock'
 import { cancelWork } from './cancelWork'
+import { fetchActivePlan, patchPlan, planPromptBlock, detectMultiStepPlan, upsertPlan } from './plans'
+import { sendDraftById } from './liveContext'
 import { cityConflictReply, type CityConflict } from './cityConflict'
 import { parseWatchInterval } from './watchInterval'
 import { enqueuePendingVaultTask } from './pendingVaultTask'
@@ -363,6 +366,49 @@ export async function runConversationalFriend(input: {
     return { reply, bubbles: [reply], source: 'local' as const, authoritative: [], card: null }
   }
 
+  /* Deterministic send-it on the ANCHORED draft: object identity beats prose
+   * reconstruction. When a mail draft anchor exists, "send it" dispatches the
+   * canonical row (latest version, corrected recipient) exactly once and
+   * reports the typed provider state — it never mints a second draft. */
+  if (/^\s*(?:send|ship)\s+(?:it|that|the draft)\b[\s!.]*$/i.test(input.userText)) {
+    const { fetchTurnAnchors } = await import('./assistantOps')
+    const anchors = await fetchTurnAnchors(senderId, persona).catch(() => [])
+    const draftAnchor = anchors.find((a) => a.kind === 'draft' && a.ref?.draftId)
+    if (draftAnchor) {
+      const draftId = String(draftAnchor.ref.draftId)
+      const sent = await sendDraftById(senderId, persona, draftId)
+      if (sent.ok && sent.state === 'sent') {
+        evidence.record('mail_send', 'verified_success', { receipt: true, providerId: sent.providerId })
+        const reply = `Sent to ${sent.toAddr || 'the recipient'} — receipt ${sent.providerId}.`
+        appendThread(dataDir, senderId, [
+          { role: 'user', content: input.threadLine || input.userText },
+          { role: 'assistant', content: reply },
+        ])
+        return { reply, bubbles: [reply], source: 'local' as const, authoritative: [], card: null }
+      }
+      if (sent.state === 'already_sent') {
+        evidence.record('mail_send', 'verified_success', { receipt: true, providerId: sent.providerId ?? 'earlier-send' })
+        const reply = `That one already went out to ${sent.toAddr || 'the recipient'} — I checked the send record rather than sending twice.`
+        appendThread(dataDir, senderId, [
+          { role: 'user', content: input.threadLine || input.userText },
+          { role: 'assistant', content: reply },
+        ])
+        return { reply, bubbles: [reply], source: 'local' as const, authoritative: [], card: null }
+      }
+      if (sent.state === 'outcome_unknown') {
+        evidence.record('mail_send', 'outcome_unknown', { draftId })
+        const reply = `The earlier send of that draft has an unknown outcome — I won't repeat it blind. Check the provider, then say retry and I'll pick it up.`
+        appendThread(dataDir, senderId, [
+          { role: 'user', content: input.threadLine || input.userText },
+          { role: 'assistant', content: reply },
+        ])
+        return { reply, bubbles: [reply], source: 'local' as const, authoritative: [], card: null }
+      }
+      // not_cancellable / send_failed: fall through so the model can explain
+      // with the row's content in front of it.
+    }
+  }
+
   /* Deterministic cancellation of durable work. A cancel-shaped ask must act
    * on the operation that actually exists — a browser job, a watch, a
    * follow-up, a scheduled text — not be re-interpreted by the model into a
@@ -640,6 +686,64 @@ export async function runConversationalFriend(input: {
       execute: async (args) => {
         const outcome = await cancelWork({ dataDir, senderId, userText: `${String(args.target || 'all')} ${String(args.id || '')}`, evidence })
         return { status: 'done', message: outcome.reply, data: { results: outcome.results, anythingStillActive: outcome.anythingStillActive } }
+      },
+    },
+    {
+      name: 'plan',
+      description: 'input {action:"progress"|"block"|"done"|"note", stepIndex?:number, note?:string}. Update the ACTIVE durable plan as verified receipts land: mark a step done only when its operation actually succeeded (provider id, provider confirmation, or a real read-back); block with a typed reason when something failed; "done" only when every step is verified. Never mark a step done because the prose sounded finished.',
+      mutates: true,
+      execute: async (args) => {
+        if (!activePlan) return failed('No active plan to update.')
+        const steps = [...activePlan.steps]
+        const idx = Number(args.stepIndex)
+        const action = String(args.action || '')
+        if (action === 'progress' || action === 'fail' || action === 'block') {
+          if (!Number.isInteger(idx) || idx < 0 || idx >= steps.length) return failed('Name a valid stepIndex to update.')
+          steps[idx] = {
+            text: steps[idx].text,
+            state: action === 'progress' ? 'done' : action === 'fail' ? 'failed' : 'blocked',
+          }
+        }
+        const nextAction = steps.find((st) => st.state === 'pending' || st.state === 'blocked')?.text || null
+        const status = action === 'done' || steps.every((st) => st.state === 'done') ? 'done' : 'active'
+        const updated = await patchPlan(senderId, persona, activePlan.id, {
+          steps,
+          nextAction: nextAction ?? undefined,
+          blocker: action === 'block' ? String(args.note || 'blocked').slice(0, 300) : undefined,
+          status,
+        })
+        if (!updated) return failed('The plan could not be saved.')
+        activePlan = updated
+        return { status: 'done', message: `Plan updated: ${steps.map((st, i) => `${i + 1}[${st.state}]`).join(' ')} — next: ${updated.nextAction || 'complete'}.` }
+      },
+    },
+    {
+      name: 'spending_overview',
+      description: 'Read-only. input {} . The user\'s logged spending for the current period: recent entries, weekly total, and weekly budget, from what they logged or approved with Alpha (never bank data). Use it for affordability and "where is my money going" asks, and say the numbers are of what they logged.',
+      execute: async () => {
+        const spending = await fetchSpending(senderId)
+        const note = spending.logs.length
+          ? `Logged this week: $${spending.weekly} of a $${spending.budget} budget. Recent: ${spending.logs.slice(0, 5).map((l: { description: string; amount: number }) => `${l.description} $${l.amount}`).join('; ')}`
+          : spending.budget > 0 ? `No entries logged this week. Weekly budget $${spending.budget}.` : 'No spending logged yet. Nothing is known about their real balances.'
+        return { status: 'returned', message: note, data: spending }
+      },
+    },
+    {
+      name: 'move_event',
+      description: 'input {eventId:"id from a calendar read", start:"new ISO start", end:"new ISO end", title?}. Move or update an EXISTING calendar event the user named. Requires the real event id from a calendar read — never guess one. Reports the read-back state; an unconfirmed change is reported as outcome unknown, never as done.',
+      mutates: true,
+      execute: async (args) => {
+        const eventId = text(args, 'eventId', 120)
+        const start = text(args, 'start', 60)
+        const end = text(args, 'end', 60)
+        if (!eventId) return failed('I need the event id from a calendar read before I can move anything.')
+        const out = await mutateCalendarEventLive(senderId, persona, {
+          action: 'update', eventId, start: start || undefined, end: end || undefined, title: text(args, 'title', 200) || undefined,
+        })
+        if (out.ok) return { status: 'done', message: `Calendar updated and read back: ${out.event ? JSON.stringify(out.event).slice(0, 200) : 'change confirmed'}.`, data: out.event }
+        return out.outcomeUnknown
+          ? { status: 'failed', message: 'The calendar accepted the change but the read-back failed — outcome unknown. Do not claim it moved; offer to re-check.' }
+          : failed(out.error || 'The calendar change did not go through.')
       },
     },
     {
@@ -1294,9 +1398,28 @@ export async function runConversationalFriend(input: {
     void persistLiveFacts(senderId, persona, [{ key: 'seat_preference', value: statedSeat }]).catch(() => undefined)
     promptNotes.push(`The seat preference is now "${statedSeat}" — it replaces any earlier seat fact. Confirm it in one short line and name what it replaces; do not ask again`)
   }
+  /* Standing rules from typed memory: constraints ride the purchase gate, and
+   * a conflict note reaches the prompt when today's ask touches their domain. */
+  const allFacts = [...(input.memory.facts || []), ...(input.live.memories || [])]
+  const constraints = standingConstraints(allFacts as never)
+  const conflictNote = constraintConflictNote(input.userText, allFacts as never)
+  if (conflictNote) promptNotes.push(conflictNote)
+
+  /* Durable plans: rehydrate the server-side plan (restart-safe), auto-create
+   * one for a genuine multi-step ask, and inject its state so progress is
+   * reported from the row, not reconstructed from chat history. */
+  let activePlan = await fetchActivePlan(senderId, persona).catch(() => null)
+  if (!activePlan || activePlan.status !== 'active') {
+    const detected = detectMultiStepPlan(input.userText)
+    if (detected) activePlan = await upsertPlan(senderId, persona, detected.goal, detected.steps).catch(() => null)
+  }
+  const planNote = planPromptBlock(activePlan)
+  if (planNote) promptNotes.push(planNote)
+
   let forcedReply: string | null = null
   const outcome = await runToolConversation({
     evidence,
+    constraints,
     skipFreshLookup: autoNotes.length > 0,
     intent: intentPromise,
     delivery: input.delivery ? {
@@ -1314,6 +1437,7 @@ You are an intelligent, proactive executive partner in iMessage.
   1. Money and spend numbers cover ONLY what the user logged or approved with Alpha (self-logged spend, purchase receipts). Alpha cannot see bank transactions. Any spend or affordability answer is framed as such: "Of what you've logged, you're at $120 for food" — never "you spent $120 on food" as if it were the bank's number. "Did I pay X?" answers from mail evidence or logs, named as such.
   2. Mail reads state their real window ("in the last 2 days, the newest 30"). "Who am I ignoring?" answered from tracked threads says that is per-thread tracking, not the whole mailbox.
   3. Availability read from the user's calendar only is USER-ONLY availability. Never phrase it as mutual free time; the free_slots tool names unknown guests for you.
+  3b. EVIDENCE-FIRST ASSESSMENTS: readiness, affordability, "what am I forgetting", "is anything going to collide", "do I need to follow up with anyone" are answerable ONLY from private data. Before answering, run the lookups the question needs (calendar for timing, gmail for threads, drive for documents, spending_overview for money) — do not answer from prose when the sources are connected. When a source is not connected or a read came back empty, say WHICH source answered and which did not: "Calendar: interview Tue 2pm. I could not read your mail, so I have not checked for new instructions." A confident-sounding answer with zero lookups is a fabrication even when it reads as advice.
   4. Suggestion is not execution: a draft is not sent, a hold is not booked, a watch is not armed, a reminder is not a monitor. Each verb gets the word it earned. A browser task reports verified outcomes only (receipt, order number, screenshot); otherwise it is "outcome unknown".
   5. Airline check-in, subscription cancellation, and phone calls cannot be executed today. Decline in one line, hand the direct link or the drafted script, and offer the closest real capability (a check-in reminder, a watch, a draft).
   6. Flight changes, gate changes, and package status are not monitored automatically. Do not promise them; offer a page watch (browser_watch) where a real URL exists.

@@ -1,6 +1,6 @@
 import type { ChatMessage } from '../../src/agents/types'
 import { gmiChat } from './gmi'
-import { MAX_RAW, type MemoryFact } from './memory'
+import { MAX_RAW, type MemoryFact, type MemoryFactKind } from './memory'
 
 /**
  * Durable preferences stated in passing, captured without the model.
@@ -16,8 +16,35 @@ export function captureStatedPreferences(userText: string, now = Date.now()): Me
   const text = userText.trim()
   if (!text) return []
   const facts: MemoryFact[] = []
-  const push = (key: string, value: string) => {
-    if (value && !facts.some((f) => f.key === key)) facts.push({ key, value, ts: now, lastSeen: now })
+  const push = (key: string, value: string, kind?: MemoryFactKind) => {
+    if (value && !facts.some((f) => f.key === key)) facts.push({ key, value, ts: now, lastSeen: now, kind })
+  }
+
+  /* Typed memory, captured deterministically so constraints and goals survive
+   * even when the extractor model is down:
+   *  - constraint:spend_cap  — "never spend more than $500 (without asking)"
+   *  - goal:<slug>           — "I want to launch by Friday"
+   *  - commitment:<slug>     — "I told Sarah I'd send the deck tonight" */
+  const spendCap = text.match(/\b(?:never|don'?t|do not)\s+(?:spend|go)\s+(?:more than|above|over|beyond)\s+\$\s?([0-9][0-9,]*(?:\.[0-9]{1,2})?)/i)
+    || text.match(/\b(?:keep|stay)\s+(?:it\s+)?(?:at|under|below|within)\s+\$\s?([0-9][0-9,]*(?:\.[0-9]{1,2})?)/i)
+    || text.match(/\b(?:cap|limit|budget)\b[^.?!]{0,24}\$\s?([0-9][0-9,]*(?:\.[0-9]{1,2})?)/i)
+    || text.match(/\$\s?([0-9][0-9,]*(?:\.[0-9]{1,2})?)\s+(?:cap|limit|max(?:imum)?)\b/i)
+  if (spendCap) {
+    const amount = Number(spendCap[1].replace(/,/g, ''))
+    if (Number.isFinite(amount) && amount > 0) push('constraint:spend_cap', `Never spend more than $${amount} without asking first.`, 'constraint')
+  }
+  const goal = text.match(/\bI\s+(?:want|plan|need|intend)\s+to\s+([^.?!]{3,80}?)(?:\s+by\s+(\w+day|tomorrow|tonight|next week|the end of (?:the )?\w+)|[.?!]|$)/i)
+  if (goal) {
+    const verb = goal[1].trim().replace(/\s+/g, ' ')
+    const by = goal[2] ? ` by ${goal[2]}` : ''
+    const slug = verb.toLowerCase().replace(/[^a-z0-9]+/g, '_').slice(0, 24)
+    push(`goal:${slug}`, `${verb[0].toUpperCase()}${verb.slice(1)}${by}`, 'goal')
+  }
+  const commitment = text.match(/\bI\s+(?:told|promised|said I.?d (?:send|call|deliver|reply))\b[^.?!]{3,90}/i)
+  if (commitment) {
+    const value = commitment[0].trim()
+    const slug = value.toLowerCase().replace(/[^a-z0-9]+/g, '_').slice(0, 24)
+    push(`commitment:${slug}`, value, 'commitment')
   }
 
   const seat = text.match(/\b(aisle|window)\s+seats?\b/i)

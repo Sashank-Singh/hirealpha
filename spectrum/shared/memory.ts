@@ -12,6 +12,13 @@ export const FACT_TTL_DAYS = 30
 const DURABLE_KEY =
   /^(preferred_name|people|timezone|check_ins|company|role_title|projects|standup_time|company_name|stage|weekly_focus|hard_nos|diet|seat_preference|flight_preference|name|sister|partner|city|this_weeks_decision|tone_playfulness)|^bit[-_]|^(people|name|sister|partner|family|company|weekly|timezone|diet|seat)/i
 
+/** Typed memory kinds are durable by definition: a goal, constraint, or
+ * commitment evaporating after 30 days is exactly the failure the audit
+ * named. */
+export function isTypedFactKey(key: string) {
+  return KIND_PREFIX_RE.test(key.trim())
+}
+
 export function isDurableFactKey(key: string) {
   return DURABLE_KEY.test(key)
 }
@@ -25,12 +32,38 @@ export function isToneFactKey(key: string) {
   return /^tone_playfulness$/i.test(key.trim())
 }
 
+export type MemoryFactKind = 'fact' | 'preference' | 'goal' | 'constraint' | 'commitment'
+
 export interface MemoryFact {
   key: string
   value: string
   ts: number
   /** epoch ms the fact was last re-confirmed; drives expiry. */
   lastSeen: number
+  /** Typed memory kind. Defaults to 'fact'. Typed kinds are durable and get
+   * precedence semantics in the prompt + purchase gate. */
+  kind?: MemoryFactKind
+}
+
+const KIND_PREFIX_RE = /^(goal|constraint|commitment|pref(?:erence)?|fact):/i
+
+/** Typed memory kind from a fact key prefix ("constraint:spend_cap") or an
+ * explicit kind field. 'fact' is the fallback. */
+export function kindOfFact(key: string, kind?: MemoryFactKind): MemoryFactKind {
+  if (kind) return kind
+  const m = KIND_PREFIX_RE.exec(key.trim())
+  if (!m) return 'fact'
+  const tag = m[1].toLowerCase()
+  return tag === 'pref' ? 'preference' : tag === 'preference' ? 'preference' : (tag as MemoryFactKind)
+}
+
+/** Budget-style cap inside a constraint value ("never spend more than $500
+ * without asking") — null when the constraint carries no number. */
+export function constraintDollarCap(value: string): number | null {
+  const m = /\$\s?([0-9][0-9,]*(?:\.[0-9]{1,2})?)/.exec(value)
+  if (!m) return null
+  const n = Number(m[1].replace(/,/g, ''))
+  return Number.isFinite(n) && n > 0 ? n : null
 }
 
 export interface ThreadMemory {
@@ -71,9 +104,9 @@ function normalize(raw: unknown): ThreadMemory {
   if (Array.isArray(r.facts)) {
     for (const f of r.facts as unknown[]) {
       if (f && typeof (f as { key?: unknown }).key === 'string' && typeof (f as { value?: unknown }).value === 'string') {
-        const k = f as { key: string; value: string; ts?: number; lastSeen?: number }
+        const k = f as { key: string; value: string; ts?: number; lastSeen?: number; kind?: MemoryFactKind }
         const ts = k.ts ?? Date.now()
-        facts.push({ key: k.key, value: k.value, ts, lastSeen: k.lastSeen ?? ts })
+        facts.push({ key: k.key, value: k.value, ts, lastSeen: k.lastSeen ?? ts, kind: k.kind })
       }
     }
   }
@@ -273,7 +306,7 @@ export function pruneExpiredFacts(
   const mem = loadMemory(dataDir, senderId)
   const cutoff = Date.now() - FACT_TTL_DAYS * 24 * 60 * 60 * 1000
   const facts = mem.facts.filter(
-    (f) => isDurableFactKey(f.key) || (f.lastSeen ?? f.ts) > cutoff,
+    (f) => isDurableFactKey(f.key) || isTypedFactKey(f.key) || (f.lastSeen ?? f.ts) > cutoff,
   )
   if (facts.length === mem.facts.length) return mem
   const next: ThreadMemory = { ...mem, facts }

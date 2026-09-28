@@ -364,6 +364,10 @@ export async function runToolConversation(input: {
    * them even when this turn's phrasing or the classifier's summary dropped
    * them. */
   preferences?: string
+  /** Standing CONSTRAINTS (typed memory). A spend cap here is enforced at the
+   * purchase gate: the cap is authorization, not a suggestion, so it is not
+   * silently overridden by this turn's instruction. */
+  constraints?: Array<{ value: string; capDollars: number | null }>
   /** Read-only observation hook. It never performs the write inside the tool
    * loop, preventing retries or a second lookup from creating duplicate tasks. */
   onResearchResults?: (results: GroundedChoiceCandidate[]) => void
@@ -1402,6 +1406,18 @@ Reactions are optional and usually absent. You may add "reaction":"<emoji>" to a
       } else if (draftAttempted) {
         result = { status: 'blocked', message: savedDraft ? 'A draft is already saved. Tell the user to review the card; do not create another.' : 'A draft save was already attempted. Do not retry an uncertain write or claim it succeeded.' }
       } else {
+        const askedAmount = draft?.type === 'purchase' ? draft.amount : NaN
+        const capHit = Number.isFinite(askedAmount)
+          ? (input.constraints || []).find((c) => c.capDollars !== null && askedAmount > (c.capDollars as number))
+          : undefined
+        if (capHit && draft) {
+          input.evidence?.record('purchase', 'permission_denied', { capDollars: capHit.capDollars, asked: askedAmount })
+          result = { status: 'blocked', message: `Standing constraint from the user: "${capHit.value}". The staged amount $${askedAmount} is above the $${capHit.capDollars} cap, so the purchase was NOT staged. Nothing was bought. Name the conflict and ask the user to either raise the cap or approve a cheaper option.` }
+          /* A constraint refusal is terminal for this turn: returning the
+           * typed refusal as the reply is the honest outcome — anything the
+           * model narrates after it can only muddy a hard rule. */
+          return { reply: `That is above your standing rule — "${capHit.value}" — so I have NOT staged the purchase. Nothing was bought. Raise the cap or pick something under $${capHit.capDollars} and I'll stage that instead.`, draft: savedDraft }
+        } else {
         draftAttempted = true
         try {
           const proposed = await input.propose(draft)
@@ -1422,6 +1438,7 @@ Reactions are optional and usually absent. You may add "reaction":"<emoji>" to a
         } catch {
           input.evidence?.record('mail_send', 'outcome_unknown', { staged: true });
           result = { status: 'unknown', message: 'Draft save status is unknown. Do not retry or claim success. Ask the user to check drafts.' }
+        }
         }
       }
     } else result = { status: 'invalid_action', message: 'Return one valid action object or a plain-text answer. Do not invent tools.' }

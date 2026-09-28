@@ -6,6 +6,7 @@ import { sweepExpiredArtifacts, artifactsRoot } from './workshop'
 import { handleWorkshopRoutes } from './routes/workshop'
 import { handleBrowserRoutes } from './routes/browser'
 import { handleCancelWorkRoutes } from './routes/cancelWork'
+import { handlePlanRoutes } from './routes/plans'
 import type { SQL } from 'bun'
 import {
   extractOtherPerson,
@@ -5738,6 +5739,8 @@ export async function handleHireApi(req: Request, sql: SQL | null): Promise<Resp
   if (browserRes) return browserRes
   const cancelWorkRes = await handleCancelWorkRoutes(req, sql, { internalOk })
   if (cancelWorkRes) return cancelWorkRes
+  const planRes = await handlePlanRoutes(req, sql, { internalOk })
+  if (planRes) return planRes
 
   if (!path.startsWith('/api/') || publicPaths.has(path) || req.method === 'OPTIONS') {
     return handleAuthorizedHireApi(req, sql)

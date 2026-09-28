@@ -671,6 +671,42 @@ export async function executeSpendApproval(
   }
 }
 
+export type SendDraftResult = {
+  ok: boolean
+  state: 'sent' | 'already_sent' | 'outcome_unknown' | 'send_failed' | 'not_cancellable'
+  providerId?: string | null
+  toAddr?: string
+  version?: number
+  error?: string
+}
+
+/** Send the canonical draft row by id. Object identity: whatever is in that
+ * row now (latest version, corrected recipient) is what goes out, exactly
+ * once, and the receipt lands back on the row. */
+export async function sendDraftById(phone: string, persona: AgentId, draftId: string): Promise<SendDraftResult> {
+  const base = apiBase()
+  if (!base || !process.env.HIREALPHA_INTERNAL_KEY) return { ok: false, state: 'outcome_unknown', error: 'Mail service not configured.' }
+  try {
+    const res = await timedFetch(`${base}/api/internal/mail/send-draft`, {
+      method: 'POST', headers: authHeaders(), body: JSON.stringify({ phone, persona, draftId }),
+    }, 20000)
+    const data = await res.json().catch(() => ({})) as Record<string, unknown>
+    const states: SendDraftResult['state'][] = ['sent', 'already_sent', 'outcome_unknown', 'send_failed', 'not_cancellable']
+    const state = states.includes(String(data.state) as SendDraftResult['state'])
+      ? String(data.state) as SendDraftResult['state'] : 'outcome_unknown'
+    return {
+      ok: res.ok && data.ok === true && state === 'sent',
+      state,
+      providerId: typeof data.providerId === 'string' ? data.providerId : null,
+      toAddr: typeof data.toAddr === 'string' ? data.toAddr : undefined,
+      version: typeof data.version === 'number' ? data.version : undefined,
+      error: typeof data.error === 'string' ? data.error : undefined,
+    }
+  } catch (err) {
+    return { ok: false, state: 'outcome_unknown', error: err instanceof Error ? err.message : 'send failed' }
+  }
+}
+
 export async function proposeBrowserTask(
   phone: string,
   persona: AgentId,

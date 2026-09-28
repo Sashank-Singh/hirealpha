@@ -1,0 +1,128 @@
+#!/usr/bin/env bun
+/**
+ * Deterministic scorer/aggregator for the AGI-capability audit.
+ *
+ * Reads machine transcripts (out/<id>.json, written by harness.ts) and joins
+ * them with the human dimension scores (scores.json). The human part stays
+ * subjective — the ARITHMETIC and the aggregation do not. Refuses to combine
+ * outputs from different revisions without labelling them.
+ *
+ * Usage: bun testbed/audit/score.ts
+ * Writes: testbed/audit/out/report.json + prints the scenario table.
+ */
+import { readdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs'
+import { join } from 'node:path'
+
+const OUT = join(import.meta.dir, 'out')
+const SCORES = join(import.meta.dir, 'scores.json')
+
+type DimensionKey = 'u' | 'p' | 't' | 'e' | 'v' | 'r' | 'm' | 'x' | 'g' | 'f'
+const DIMENSIONS: DimensionKey[] = ['u', 'p', 't', 'e', 'v', 'r', 'm', 'x', 'g', 'f']
+const DIM_NAMES: Record<DimensionKey, string> = {
+  u: 'understanding', p: 'planning', t: 'tool_selection', e: 'execution', v: 'verification',
+  r: 'recovery', m: 'memory', x: 'uncertainty', g: 'generalization', f: 'user_effort',
+}
+
+interface HumanScore {
+  u: number; p: number; t: number; e: number; v: number; r: number; m: number; x: number; g: number; f: number
+  class: 'A' | 'B' | 'C' | 'D' | 'N' | 'FAIL'
+  justification: string
+  override?: 'false_success' | 'unauthorized_action' | 'duplicate_irreversible' | 'lost_commitment' | 'hidden_provider_failure' | 'unrecoverable_partial' | 'constraint_violation' | null
+  defectClass?: 'ENGINE' | 'MODEL' | 'CAPABILITY' | 'PERSONA_POLICY' | 'HARNESS' | 'EXTERNAL'
+}
+
+function main() {
+  if (!existsSync(SCORES)) {
+    console.error(`scores.json missing at ${SCORES}`)
+    process.exit(1)
+  }
+  const human = JSON.parse(readFileSync(SCORES, 'utf8')) as Record<string, HumanScore>
+  const files = readdirSync(OUT).filter((f) => f.endsWith('.json') && !f.startsWith('data_') && f !== 'report.json').sort()
+  const revisions = new Set<string>()
+  const rows: Array<Record<string, unknown>> = []
+  const dimTotals = Object.fromEntries(DIMENSIONS.map((d) => [d, 0])) as Record<DimensionKey, number>
+  const classCounts: Record<string, number> = { A: 0, B: 0, C: 0, D: 0, N: 0, FAIL: 0 }
+  const defectCounts: Record<string, number> = {}
+  let total = 0
+  let scored = 0
+  let overrides = 0
+  const missing: string[] = []
+
+  for (const file of files) {
+    const r = JSON.parse(readFileSync(join(OUT, file), 'utf8')) as Record<string, unknown>
+    const id = String(r.id)
+    revisions.add(String(r.revision || 'unknown'))
+    const h = human[id]
+    if (!h) { missing.push(id); continue }
+    const sum = DIMENSIONS.reduce((acc, d) => acc + (h[d] || 0), 0)
+    for (const d of DIMENSIONS) dimTotals[d] += h[d] || 0
+    total += sum
+    scored++
+    classCounts[h.class] = (classCounts[h.class] || 0) + 1
+    if (h.override) overrides++
+    if (h.defectClass) defectCounts[h.defectClass] = (defectCounts[h.defectClass] || 0) + 1
+    rows.push({
+      scenario_id: id,
+      category: r.cat,
+      title: r.title,
+      revision: r.revision,
+      model: r.model,
+      llm_calls: r.llmCalls,
+      wall_ms: r.wallMs,
+      error: r.error ?? null,
+      dimensions: Object.fromEntries(DIMENSIONS.map((d) => [d, h[d]])),
+      total: sum,
+      classification: h.class,
+      /** ACTIONS/MUTATIONS come straight from the transcript — machine truth. */
+      actions: summarizeActions(r),
+      justification: h.justification,
+      override: h.override ?? null,
+      defect_class: h.defectClass ?? null,
+    })
+  }
+
+  const revisionList = [...revisions]
+  const report = {
+    generatedAt: new Date().toISOString(),
+    revisions: revisionList,
+    mixedRevision: revisionList.length > 1,
+    scoring: {
+      scenariosScored: scored,
+      missingScores: missing,
+      meanTotal: scored ? Number((total / scored).toFixed(2)) : null,
+      dimensionMeans: Object.fromEntries(DIMENSIONS.map((d) => [DIM_NAMES[d], scored ? Number((dimTotals[d] / scored).toFixed(2)) : null])),
+      classCounts,
+      overrideCount: overrides,
+      defectCounts,
+    },
+    scenarios: rows.sort((a, b) => String(a.category).localeCompare(String(b.category)) || String(a.scenario_id).localeCompare(String(b.scenario_id))),
+  }
+  writeFileSync(join(OUT, 'report.json'), JSON.stringify(report, null, 2))
+  if (report.mixedRevision) {
+    console.warn(`WARNING: outputs span ${revisionList.length} revisions — label results per revision before comparing: ${revisionList.join(', ')}`)
+  }
+  if (missing.length) console.warn(`WARNING: ${missing.length} transcript(s) have no human score: ${missing.join(', ')}`)
+  console.log(`revision(s): ${revisionList.join(', ')}  model: ${rows[0]?.model ?? '?'}`)
+  console.log(`scenarios: ${scored}  mean: ${report.scoring.meanTotal}/50  classes: ${JSON.stringify(classCounts)}  overrides: ${overrides}`)
+  console.log(`dimension means: ${JSON.stringify(report.scoring.dimensionMeans)}`)
+  console.log(`defect classes: ${JSON.stringify(defectCounts)}`)
+  console.log('id                              cat  total  class  dims(u/p/t/e/v/r/m/x/g/f)')
+  for (const row of report.scenarios) {
+    const d = row.dimensions as Record<string, number>
+    console.log(`${String(row.scenario_id).padEnd(30)} ${String(row.category).padEnd(4)} ${String(row.total).padStart(5)}  ${row.classification}      ${DIMENSIONS.map((k) => d[k]).join('/')}`)
+  }
+}
+
+/** Machine-truth action summary: what the turn actually did to the world. */
+function summarizeActions(r: Record<string, unknown>): Record<string, number> {
+  const created = (r.created || {}) as Record<string, unknown[]>
+  const turns = (r.turns || []) as Array<{ calls?: Array<{ path: string }> }>
+  const callCount = turns.reduce((acc, t) => acc + (t.calls?.length || 0), 0)
+  const out: Record<string, number> = { internalCalls: callCount }
+  for (const [k, v] of Object.entries(created)) {
+    if (Array.isArray(v) && v.length) out[k] = v.length
+  }
+  return out
+}
+
+main()

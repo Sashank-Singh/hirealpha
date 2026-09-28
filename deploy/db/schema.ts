@@ -713,6 +713,20 @@ export async function ensureHireSchema(sql: SQL) {
   // queue so a flapping job stops after TASK_LOOP_MAX_ATTEMPTS. One row per
   // (user, persona, kind) keeps seeded defaults and handoffs from piling up.
   await sql`
+    CREATE TABLE IF NOT EXISTS hire_plans (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      user_id UUID NOT NULL REFERENCES hire_users(id) ON DELETE CASCADE,
+      persona TEXT NOT NULL DEFAULT 'friend',
+      goal TEXT NOT NULL,
+      steps JSONB NOT NULL DEFAULT '[]'::jsonb,
+      status TEXT NOT NULL DEFAULT 'active',
+      blocker TEXT,
+      operation_ids JSONB NOT NULL DEFAULT '{}'::jsonb,
+      next_action TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      UNIQUE (user_id, persona, goal)
+    )
     CREATE TABLE IF NOT EXISTS hire_task_loops (
       id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL REFERENCES hire_users(id) ON DELETE CASCADE,
