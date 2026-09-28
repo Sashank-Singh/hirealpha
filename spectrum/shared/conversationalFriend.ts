@@ -1425,6 +1425,11 @@ export async function runConversationalFriend(input: {
    * one for a genuine multi-step ask, and inject its state so progress is
    * reported from the row, not reconstructed from chat history. */
   let activePlan = await fetchActivePlan(senderId, persona).catch(() => null)
+  /* The plan read is evidence: an empty plan file is a verified empty, not an
+   * unchecked source — otherwise the assessment hedge names plan state as
+   * unknown on every turn for accounts that simply have no plan. */
+  if (activePlan) evidence.record('plans', 'verified_success', { planId: activePlan.id })
+  else evidence.record('plans', 'verified_empty', {})
   if (!activePlan || activePlan.status !== 'active') {
     const detected = detectMultiStepPlan(input.userText)
     if (detected) activePlan = await upsertPlan(senderId, persona, detected.goal, detected.steps).catch(() => null)
