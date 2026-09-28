@@ -184,3 +184,21 @@ describe('claim provenance — file sends (mi1 regression)', () => {
     expect(out.reply).toMatch(/no failed-send record/)
   })
 })
+
+describe('claim provenance — post-battery rewrite wording and nouns', () => {
+  test('a calendar-incapacity claim after a SUCCESSFUL read does not say "have not checked"', () => {
+    const l = new ClaimLedger()
+    l.record('calendar_read', 'verified_success', { engineRead: true })
+    const out = enforceClaimEvidence("I couldn't reach your calendar.", l)
+    expect(out.violations.length).toBe(1)
+    expect(out.reply).toMatch(/calendar read above is what I have/)
+    expect(out.reply).not.toMatch(/have not actually checked your calendar/)
+  })
+
+  test('"the forward didn\'t go through" is a send claim and needs attempt evidence', () => {
+    const l = new ClaimLedger()
+    const out = enforceClaimEvidence("The forward to accounting didn't go through.", l)
+    expect(out.violations.length).toBe(1)
+    expect(out.reply).toMatch(/no failed-send record/i)
+  })
+})

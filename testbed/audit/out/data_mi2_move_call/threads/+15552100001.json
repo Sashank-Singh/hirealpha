@@ -5,12 +5,12 @@
     {
       "role": "user",
       "content": "move tomorow call later like after lunch",
-      "ts": 1790580337540
+      "ts": 1790608060200
     },
     {
       "role": "assistant",
-      "content": "Quick check, I pulled tomorrow (Tue Sep 29) and there's no call on the calendar that day. The closest thing I see is the BigCo interview today (Mon) at 2:00 PM. Is that the one you want pushed to after lunch, or is the call somewhere else (maybe an invite that hasn't hit your calendar)? If it's the interview, what time after lunch works, 1:30? 2:30?",
-      "ts": 1790580337540
+      "content": "Quick check: your calendar shows nothing scheduled tomorrow (Tuesday), no call on it. The only call ish thing I see is the BigCo interview, but that's today at 2 PM. Which call did you mean? If it's one I can't see (maybe it lives on another calendar), tell me the time and who it's with and I'll get it moved to after lunch.",
+      "ts": 1790608060200
     }
   ]
 }

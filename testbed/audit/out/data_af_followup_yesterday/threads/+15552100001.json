@@ -1,0 +1,23 @@
+{
+  "facts": [
+    {
+      "key": "goal:follow_up_with_anyone_fr",
+      "value": "Follow up with anyone from yesterday",
+      "ts": 1790609051219,
+      "lastSeen": 1790609051219
+    }
+  ],
+  "summary": "",
+  "history": [
+    {
+      "role": "user",
+      "content": "Do I need to follow up with anyone from yesterday?",
+      "ts": 1790609073345
+    },
+    {
+      "role": "assistant",
+      "content": "Yes, one person. Sarah Kim is still waiting on the updated deck (\"Deck?\", her words, no date yet). That's the clearest follow up. The rest: 1. Dana Lee · \"Tomorrow, panel details\" · panel is tomorrow, 100 Main St, 9th floor, 45 min product case. No reply needed unless you have questions. 2. Sam Cohen · \"Contract\" · he said he'll review by Friday, so the ball's in his court. 3. Southwest · flight confirmation, Thu Oct 1, WN 2214 JFK→DEN 3:40pm, Zephyr Lodge check in 3pm. FYI only. Want me to draft a quick note to Sarah with the deck or a timeline for it? What I have not checked: commitments — so treat the above as partial until that is read.",
+      "ts": 1790609073345
+    }
+  ]
+}

@@ -1,6 +1,6 @@
 {
-  "revision": "7133b5e1aeeabf21e4f513628fe0e8deb82ec3a8",
-  "model": "zai-org/GLM-5.3-Flash",
+  "revision": "1c213301cad79dea12dcdbdd3aabb9dd02d62202",
+  "model": "zai-org/glm-5.3-flash",
   "worldDefinition": {
     "profile": {
       "name": "Alex Rivera",
@@ -159,9 +159,9 @@
     {
       "text": "Pull my last 10 invoices from https://api.acme.dev/v1/invoices and put them in a doc.",
       "bubbles": [
-        "On it, the run's queued against that invoices endpoint and will pause before any sensitive step. Once it pulls the 10 invoices I'll drop them into a Drive doc and send it your way here. Launching Cloud Computer for this task: https://audit.internal/computer/job_1 — the session is active now, pauses automatically before any sensitive steps, and I'll report back here with the verified results."
+        "On it, the browser run just launched against api.acme.dev to pull your last 10 invoices. It pauses before any payment or password step. Once the data lands, I'll drop it into a Drive doc and send it your way. Launching Cloud Computer for this task: https://audit.internal/computer/job_1 — the session is active now, pauses automatically before any sensitive steps, and I'll report back here with the verified results."
       ],
-      "reply": "On it, the run's queued against that invoices endpoint and will pause before any sensitive step. Once it pulls the 10 invoices I'll drop them into a Drive doc and send it your way here. Launching Cloud Computer for this task: https://audit.internal/computer/job_1 — the session is active now, pauses automatically before any sensitive steps, and I'll report back here with the verified results.",
+      "reply": "On it, the browser run just launched against api.acme.dev to pull your last 10 invoices. It pauses before any payment or password step. Once the data lands, I'll drop it into a Drive doc and send it your way. Launching Cloud Computer for this task: https://audit.internal/computer/job_1 — the session is active now, pauses automatically before any sensitive steps, and I'll report back here with the verified results.",
       "source": "gmi",
       "card": null,
       "calls": [
@@ -209,7 +209,7 @@
             "persona": "friend",
             "kind": "browser",
             "url": "https://api.acme.dev/v1/invoices",
-            "body": "Fetch the last 10 invoices from the invoices API endpoint",
+            "body": "Fetch the user's last 10 invoices",
             "autoApprove": true
           }
         },
@@ -222,7 +222,7 @@
             "kind": "browser_job",
             "ref": {
               "jobId": "job_1",
-              "goal": "Fetch the last 10 invoices from the invoices API endpoint",
+              "goal": "Fetch the user's last 10 invoices",
               "url": "https://api.acme.dev/v1/invoices",
               "sessionUrl": "https://audit.internal/computer/job_1"
             }
@@ -230,6 +230,7 @@
         }
       ],
       "llmCallsInTurn": 3,
+      "claimViolations": 0,
       "thread": {
         "facts": [],
         "summary": "",
@@ -251,7 +252,7 @@
         "persona": "friend",
         "kind": "browser",
         "url": "https://api.acme.dev/v1/invoices",
-        "body": "Fetch the last 10 invoices from the invoices API endpoint",
+        "body": "Fetch the user's last 10 invoices",
         "autoApprove": true
       }
     ],
@@ -266,12 +267,12 @@
         "kind": "browser_job",
         "ref": {
           "jobId": "job_1",
-          "goal": "Fetch the last 10 invoices from the invoices API endpoint",
+          "goal": "Fetch the user's last 10 invoices",
           "url": "https://api.acme.dev/v1/invoices",
           "sessionUrl": "https://audit.internal/computer/job_1"
         },
-        "createdAt": "2026-09-28T06:55:00.863Z",
-        "expiresAt": "2026-09-29T06:55:00.863Z"
+        "createdAt": "2026-09-28T14:42:19.368Z",
+        "expiresAt": "2026-09-29T14:42:19.368Z"
       }
     ],
     "plans": [],
@@ -290,7 +291,7 @@
         "kind": "browser_job",
         "ref": {
           "jobId": "job_1",
-          "goal": "Fetch the last 10 invoices from the invoices API endpoint",
+          "goal": "Fetch the user's last 10 invoices",
           "url": "https://api.acme.dev/v1/invoices",
           "sessionUrl": "https://audit.internal/computer/job_1"
         }
@@ -304,5 +305,5 @@
     }
   ],
   "llmCalls": 3,
-  "wallMs": 22105
+  "wallMs": 19317
 }

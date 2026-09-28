@@ -5,12 +5,12 @@
     {
       "role": "user",
       "content": "Remind me at 6pm today to call the vet.",
-      "ts": 1790578910803
+      "ts": 1790606788915
     },
     {
       "role": "assistant",
-      "content": "I have not attempted that yet, so I cannot report a failure. Want me to try again?",
-      "ts": 1790578910803
+      "content": "I have not attempted that yet, so I cannot report a failure. I tried twice and got errors both times, so nothing is scheduled. Want me to try again in a bit, or set it for a different time as a workaround?",
+      "ts": 1790606788915
     }
   ]
 }

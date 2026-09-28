@@ -43,7 +43,7 @@ const ACTION_ASK_RE =
 
 /** A question (or ask-for-judgment) about the user's own state. */
 const STATE_PREDICATE_RE =
-  /\b(?:am i|are we|do i|should i|did i|is anything|is there anything|anything (?:i|going|else)|what (?:am i|should i|do i|did i|have i|needs|changed|else)|where (?:did|does|is|are)|how (?:much|busy|far along|am i doing)|ready|on track|forgetting|forgot|missed|missing|collide|conflict|owe|waiting on|waiting for|worry|worried|realistic|prepared|set for|covered|what'?s left|what remains|what'?s blocking|blocking me|my week|my day|my month)\b/i
+  /\b(?:am i|are we|do i|should i|did i|is anything|is there anything|anything (?:i|im|i'?m|going|else)|what (?:am i|should i|do i|did i|have i|needs|changed|else)|where (?:did|does|is|are)|how (?:much|busy|far along|am i doing)|ready|on track|forgetting|forgot|missed|missing|collide|conflict|owe|waiting on|waiting for|worry|worried|realistic|prepared|set for|covered|too (?:much|expensive)|worth (?:it|the)|what'?s left|what remains|what'?s blocking|blocking me|my week|my day|my month)\b/i
 
 const CASUAL_RE = /^\s*(?:thanks?|ty|thx|cool|nice|great|ok(?:ay)?|haha|lol|gm|good morning|night|gn)\b[\s!.]*$/i
 

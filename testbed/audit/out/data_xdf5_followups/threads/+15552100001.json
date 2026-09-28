@@ -1,0 +1,23 @@
+{
+  "facts": [
+    {
+      "key": "goal:follow_up_with_anyone_fr",
+      "value": "Follow up with anyone from yesterday",
+      "ts": 1790608362936,
+      "lastSeen": 1790608362936
+    }
+  ],
+  "summary": "",
+  "history": [
+    {
+      "role": "user",
+      "content": "Do I need to follow up with anyone from yesterday?",
+      "ts": 1790608380257
+    },
+    {
+      "role": "assistant",
+      "content": "Checked your mail from the last 2 days (newest 4). Two look like they're waiting on you: 1. Sarah Kim · \"Deck?\" · She's still waiting on the updated deck. This is the clearest follow up owed. 2. Sam Cohen · \"Contract\" · He said he'll review by Friday, so nothing owed yet unless you want to confirm receipt. Dana's panel details (tomorrow, 100 Main St, 9th floor) and the Southwest Denver flight confirmation are informational, no reply needed. I haven't checked your reminders or any other tracking, so if something's owed outside email, that's still unknown. Want me to draft a reply to Sarah with the deck?",
+      "ts": 1790608380257
+    }
+  ]
+}

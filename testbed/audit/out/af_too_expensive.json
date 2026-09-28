@@ -1,0 +1,274 @@
+{
+  "revision": "1c213301cad79dea12dcdbdd3aabb9dd02d62202",
+  "model": "zai-org/glm-5.3-flash",
+  "worldDefinition": {
+    "profile": {
+      "name": "Alex Rivera",
+      "phone": "+15552100001",
+      "timezone": "America/New_York",
+      "email": "alex@rivera.dev",
+      "hired": true,
+      "connected": [
+        "gmail",
+        "calendar",
+        "drive"
+      ],
+      "memories": [
+        {
+          "key": "preferred_name",
+          "value": "Alex"
+        },
+        {
+          "key": "constraint:spend_cap",
+          "value": "Never spend more than $500 without asking first.",
+          "durable": true
+        }
+      ]
+    },
+    "mail": [
+      {
+        "id": "r1",
+        "from": "dana@bigco.com",
+        "subject": "Tomorrow — panel details",
+        "snippet": "Panel: product + engineering leads. 45 min product case. Bring questions. Building: 100 Main St, 9th floor."
+      },
+      {
+        "id": "sm1",
+        "from": "sam.cohen@acme.com",
+        "subject": "Contract",
+        "threadId": "th_contract",
+        "snippet": "Sending the contract over — will review by Friday."
+      },
+      {
+        "id": "sa1",
+        "from": "sarah@vcfirm.com",
+        "subject": "Deck?",
+        "snippet": "Still waiting on the updated deck when you get a chance."
+      },
+      {
+        "id": "fl1",
+        "from": "southwest.com",
+        "subject": "Flight to Denver — Thu Oct 1",
+        "snippet": "WN 2214 JFK→DEN departs 3:40pm Thu Oct 1. Hotel: Zephyr Lodge check-in 3pm."
+      }
+    ],
+    "events": [
+      {
+        "title": "BigCo interview",
+        "when": "Mon Sep 28, 2:00 PM"
+      },
+      {
+        "title": "Gym",
+        "when": "Mon Sep 28, 6:30 PM"
+      },
+      {
+        "title": "Dentist",
+        "when": "Tue Sep 29, 9:00 AM"
+      },
+      {
+        "title": "Team standup",
+        "when": "Wed Sep 30, 9:15 AM"
+      },
+      {
+        "title": "Dinner with Dana",
+        "when": "Wed Sep 30, 7:30 PM"
+      }
+    ],
+    "freeSlots": [
+      {
+        "start": "2026-09-28T10:00:00-04:00",
+        "end": "2026-09-28T11:30:00-04:00",
+        "label": "Mon Sep 28, 10:00–11:30 AM"
+      },
+      {
+        "start": "2026-09-29T13:00:00-04:00",
+        "end": "2026-09-29T15:00:00-04:00",
+        "label": "Tue Sep 29, 1:00–3:00 PM"
+      },
+      {
+        "start": "2026-10-01T11:00:00-04:00",
+        "end": "2026-10-01T12:00:00-04:00",
+        "label": "Thu Oct 1, 11:00 AM–12:00 PM"
+      },
+      {
+        "start": "2026-10-02T16:00:00-04:00",
+        "end": "2026-10-02T17:30:00-04:00",
+        "label": "Fri Oct 2, 4:00–5:30 PM"
+      }
+    ],
+    "webResults": [],
+    "mapsResults": [
+      "Nearby picks:",
+      "- Toscana — 240 Mulberry St, New York. Quiet back room, good for groups. https://www.openstreetmap.org/way/416051348",
+      "- Nopa — 1199 Valencia St, New York. Louder, great cocktails, walk-in friendly. https://www.openstreetmap.org/way/370534180"
+    ],
+    "drive": [
+      {
+        "id": "f_resume",
+        "name": "Alex Rivera Resume 2026.pdf",
+        "mimeType": "application/pdf",
+        "size": 91000,
+        "webViewLink": "https://drive.example/resume"
+      },
+      {
+        "id": "f_deck",
+        "name": "Series A Deck v4.pdf",
+        "mimeType": "application/pdf",
+        "size": 4200000,
+        "webViewLink": "https://drive.example/deck"
+      },
+      {
+        "id": "f_notes",
+        "name": "Northwind last meeting notes.docx",
+        "mimeType": "document",
+        "size": 30000,
+        "webViewLink": "https://drive.example/nw_notes"
+      },
+      {
+        "id": "f_tax",
+        "name": "2025 W-2.pdf",
+        "mimeType": "application/pdf",
+        "size": 80000,
+        "webViewLink": "https://drive.example/w2"
+      },
+      {
+        "id": "f_1099",
+        "name": "2025 1099-NEC.pdf",
+        "mimeType": "application/pdf",
+        "size": 60000,
+        "webViewLink": "https://drive.example/1099"
+      }
+    ],
+    "contacts": [
+      {
+        "name": "Sam Cohen",
+        "email": "sam.cohen@acme.com",
+        "last_touch": "2026-09-20"
+      },
+      {
+        "name": "Dana Lee",
+        "email": "dana@bigco.com"
+      },
+      {
+        "name": "Sarah Kim",
+        "email": "sarah@vcfirm.com"
+      }
+    ],
+    "spending": {
+      "logs": [
+        {
+          "amount": 275,
+          "category": "food",
+          "description": "Logged dining",
+          "spentAt": "2026-09-25"
+        },
+        {
+          "amount": 120,
+          "category": "shopping",
+          "description": "Amazon",
+          "spentAt": "2026-09-22"
+        }
+      ],
+      "weekly": 395,
+      "budget": 400
+    },
+    "slackChannels": [
+      "general"
+    ]
+  },
+  "id": "af_too_expensive",
+  "cat": "C22",
+  "title": "Is a $600 flight too expensive for me right now?",
+  "agent": "friend",
+  "turns": [
+    {
+      "text": "Is a $600 flight too expensive for me right now?",
+      "bubbles": [
+        "Depends on the trip, but quick flag: your standing rule is I never spend over $500 without asking you first, so $600 would need your explicit sign off either way.\n\nWhat's the flight for and when? If it's a trip you actually care about, I'd say tell me the dates and I'll help you decide if it's worth stretching or worth waiting for a fare drop."
+      ],
+      "reply": "Depends on the trip, but quick flag: your standing rule is I never spend over $500 without asking you first, so $600 would need your explicit sign off either way.\n\nWhat's the flight for and when? If it's a trip you actually care about, I'd say tell me the dates and I'll help you decide if it's worth stretching or worth waiting for a fare drop.",
+      "source": "gmi",
+      "card": null,
+      "calls": [
+        {
+          "method": "GET",
+          "path": "/api/internal/live?phone=%2B15552100001&persona=friend&q=Is%20a%20%24600%20flight%20too%20expensive%20for%20me%20right%20now%3F",
+          "body": {}
+        },
+        {
+          "method": "GET",
+          "path": "/api/internal/anchors?phone=%2B15552100001&persona=friend",
+          "body": {}
+        },
+        {
+          "method": "GET",
+          "path": "/api/internal/browser/awaiting?phone=%2B15552100001",
+          "body": {}
+        },
+        {
+          "method": "GET",
+          "path": "/api/internal/network?phone=%2B15552100001",
+          "body": {}
+        },
+        {
+          "method": "POST",
+          "path": "/api/internal/touch",
+          "body": {
+            "phone": "+15552100001",
+            "persona": "friend"
+          }
+        }
+      ],
+      "llmCallsInTurn": 2,
+      "claimViolations": 0,
+      "thread": {
+        "facts": [],
+        "summary": "",
+        "historyCount": 2
+      }
+    }
+  ],
+  "created": {
+    "drafts": [],
+    "reminders": [],
+    "scheduledTexts": [],
+    "commitments": [],
+    "memoryWrites": [],
+    "memoryDeletes": [],
+    "spendDecisions": [],
+    "browserTasks": [],
+    "followups": [],
+    "calendarMutations": [],
+    "fileSends": [],
+    "workWrites": [],
+    "taskChoices": [],
+    "watches": [],
+    "anchors": [],
+    "plans": [],
+    "cancels": [],
+    "spendApprovals": [],
+    "todos": [],
+    "loops": [],
+    "otherWrites": [
+      {
+        "path": "/api/internal/anchors:GET"
+      }
+    ]
+  },
+  "finalMemories": [
+    {
+      "key": "preferred_name",
+      "value": "Alex"
+    },
+    {
+      "key": "constraint:spend_cap",
+      "value": "Never spend more than $500 without asking first.",
+      "durable": true
+    }
+  ],
+  "llmCalls": 2,
+  "wallMs": 10553,
+  "requiredSources": [
+    "spending"
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "facts": [],
+  "summary": "",
+  "history": [
+    {
+      "role": "user",
+      "content": "What do I still need to do?",
+      "ts": 1790609162478
+    },
+    {
+      "role": "assistant",
+      "content": "Here's what I checked: your calendar for the next week, and your plans, no active plan is on file with me, so nothing is mid flight there. Calendar says: Today, 2:00 PM, BigCo interview (the big one) Today, 6:30 PM, Gym Tomorrow 9:00 AM, Dentist Wed 9:15 AM, Team standup Wed 7:30 PM, Dinner with Dana So the immediate to do is just being ready for the interview in ~2.5 hours. What I haven't checked: your mail for anything owed or unanswered, and any scheduled reminders. Want me to run a quick \"who am I ignoring\" pass on email to round this out?",
+      "ts": 1790609162478
+    }
+  ]
+}

@@ -1,6 +1,6 @@
 {
-  "revision": "7133b5e1aeeabf21e4f513628fe0e8deb82ec3a8",
-  "model": "zai-org/GLM-5.3-Flash",
+  "revision": "1c213301cad79dea12dcdbdd3aabb9dd02d62202",
+  "model": "zai-org/glm-5.3-flash",
   "worldDefinition": {
     "profile": {
       "name": "Alex Rivera",
@@ -166,11 +166,11 @@
     {
       "text": "Order the standard whey protein from Amazon — $42.",
       "bubbles": [
-        "Found it: Optimum Nutrition Gold Standard Whey, $42.00, in stock on Amazon. No payment is confirmed. The pending request is unchanged; review the approval card. Tap Pay on the card to approve it and I'll finish the order. Launching Cloud Computer to stage your order: https://audit.internal/computer/job_1 — navigating to the merchant, selecting your options, and proceeding through checkout with your saved shipping address. I'll bring the verified approval card right here as soon as checkout is ready."
+        "Found it: Optimum Nutrition Standard Whey, $42.00, in stock on Amazon. Nothing's ordered yet, tap Pay on the card to approve it and I'll finish the order. Launching Cloud Computer to stage your order: https://audit.internal/computer/job_1 — navigating to the merchant, selecting your options, and proceeding through checkout with your saved shipping address. I'll bring the verified approval card right here as soon as checkout is ready."
       ],
-      "reply": "Found it: Optimum Nutrition Gold Standard Whey, $42.00, in stock on Amazon. No payment is confirmed. The pending request is unchanged; review the approval card. Tap Pay on the card to approve it and I'll finish the order. Launching Cloud Computer to stage your order: https://audit.internal/computer/job_1 — navigating to the merchant, selecting your options, and proceeding through checkout with your saved shipping address. I'll bring the verified approval card right here as soon as checkout is ready.",
+      "reply": "Found it: Optimum Nutrition Standard Whey, $42.00, in stock on Amazon. Nothing's ordered yet, tap Pay on the card to approve it and I'll finish the order. Launching Cloud Computer to stage your order: https://audit.internal/computer/job_1 — navigating to the merchant, selecting your options, and proceeding through checkout with your saved shipping address. I'll bring the verified approval card right here as soon as checkout is ready.",
       "source": "gmi",
-      "card": "https://audit.internal/card/x?id=req_1&item=Optimum+Nutrition+Standard+Whey+Protein&amount=42.00&merchant=amazon.com&url=https%3A%2F%2Fwww.amazon.com%2Fdp%2FB000QSNYGI",
+      "card": "https://audit.internal/card/x?id=req_1&item=Optimum+Nutrition+Standard+Whey&amount=42.00&merchant=amazon.com&url=https%3A%2F%2Fwww.amazon.com%2Fdp%2FB000QSNYGI",
       "calls": [
         {
           "method": "GET",
@@ -220,7 +220,7 @@
             "phone": "+15552100001",
             "persona": "friend",
             "kind": "purchase",
-            "title": "Optimum Nutrition Standard Whey Protein",
+            "title": "Optimum Nutrition Standard Whey",
             "amount": 42,
             "url": "https://www.amazon.com/dp/B000QSNYGI"
           }
@@ -254,16 +254,17 @@
         }
       ],
       "llmCallsInTurn": 4,
+      "claimViolations": 0,
       "thread": {
         "facts": [],
         "summary": "",
         "historyCount": 2,
         "pendingSpend": {
           "id": "req_1",
-          "item": "Optimum Nutrition Standard Whey Protein",
+          "item": "Optimum Nutrition Standard Whey",
           "amount": 42,
           "url": "https://www.amazon.com/dp/B000QSNYGI",
-          "createdAt": 1790578843890
+          "createdAt": 1790606757334
         }
       }
     },
@@ -300,23 +301,24 @@
             "decision": "approve",
             "terms": {
               "amountCents": 4200,
-              "purpose": "Optimum Nutrition Standard Whey Protein",
+              "purpose": "Optimum Nutrition Standard Whey",
               "url": "https://www.amazon.com/dp/B000QSNYGI"
             }
           }
         }
       ],
       "llmCallsInTurn": 0,
+      "claimViolations": 0,
       "thread": {
         "facts": [],
         "summary": "",
         "historyCount": 4,
         "pendingSpend": {
           "id": "req_1",
-          "item": "Optimum Nutrition Standard Whey Protein",
+          "item": "Optimum Nutrition Standard Whey",
           "amount": 42,
           "url": "https://www.amazon.com/dp/B000QSNYGI",
-          "createdAt": 1790578843890
+          "createdAt": 1790606757334
         }
       }
     }
@@ -327,7 +329,7 @@
         "kind": "purchase",
         "phone": "+15552100001",
         "persona": "friend",
-        "title": "Optimum Nutrition Standard Whey Protein",
+        "title": "Optimum Nutrition Standard Whey",
         "amount": 42,
         "url": "https://www.amazon.com/dp/B000QSNYGI"
       }
@@ -344,7 +346,7 @@
         "decision": "approve",
         "terms": {
           "amountCents": 4200,
-          "purpose": "Optimum Nutrition Standard Whey Protein",
+          "purpose": "Optimum Nutrition Standard Whey",
           "url": "https://www.amazon.com/dp/B000QSNYGI"
         }
       }
@@ -374,8 +376,8 @@
           "url": "https://www.amazon.com",
           "sessionUrl": "https://audit.internal/computer/job_1"
         },
-        "createdAt": "2026-09-28T07:00:48.767Z",
-        "expiresAt": "2026-09-29T07:00:48.767Z"
+        "createdAt": "2026-09-28T14:46:00.304Z",
+        "expiresAt": "2026-09-29T14:46:00.304Z"
       }
     ],
     "plans": [],
@@ -383,7 +385,7 @@
     "spendApprovals": [
       {
         "id": "req_1",
-        "item": "Optimum Nutrition Standard Whey Protein",
+        "item": "Optimum Nutrition Standard Whey",
         "amount": 42,
         "state": "succeeded"
       }
@@ -418,5 +420,5 @@
     }
   ],
   "llmCalls": 4,
-  "wallMs": 18489
+  "wallMs": 15286
 }

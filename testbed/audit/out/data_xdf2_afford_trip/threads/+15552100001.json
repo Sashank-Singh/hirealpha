@@ -1,0 +1,16 @@
+{
+  "facts": [],
+  "summary": "",
+  "history": [
+    {
+      "role": "user",
+      "content": "Can I afford a $400 trip to Austin next weekend?",
+      "ts": 1790608325886
+    },
+    {
+      "role": "assistant",
+      "content": "Based on what you've logged, here's the honest picture: this week you're at $395 of your $400 budget (dining $275, Amazon $120), so there's $5 of room left in this week. The good news is the trip is next weekend, which would be a fresh week, so it wouldn't compete with this week's spend. I have not actually checked your calendar yet, so I cannot say whether it is reachable. If the $400 covers everything for Austin, next week would need to be almost entirely the trip, with no room for regular spending on top. Want me to check flights and hotels for next weekend so you can see if $400 is realistic for Austin all in?",
+      "ts": 1790608325886
+    }
+  ]
+}

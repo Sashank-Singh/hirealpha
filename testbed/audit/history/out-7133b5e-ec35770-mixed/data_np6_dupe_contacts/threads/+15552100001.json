@@ -1,0 +1,16 @@
+{
+  "facts": [],
+  "summary": "",
+  "history": [
+    {
+      "role": "user",
+      "content": "My contacts are a mess — find duplicates and clean them up.",
+      "ts": 1790580054637
+    },
+    {
+      "role": "assistant",
+      "content": "I can see the duplicates from here, at least in the people list I work from: Sam Cohen is in there three times, \"Sam Cohen\", \"Sam Cohen (acme)\", and \"sam cohen (acme)\", all pointing at scohen@acme.com / sam.cohen@acme.com. Dana Lee looks clean. One honest caveat: I can add or fill in contacts, but I don't have a merge or delete capability for your address book itself. So the cleanup on my side is adding one canonical Sam Cohen entry (name, single email, note \"Acme\") so future \"text Sam\" or \"email Sam\" asks resolve cleanly. Want me to do that? And if your phone's actual Contacts app is the mess, that part I can't touch directly, but I can walk you through the fastest dedupe path (Google Contacts has a built in \"Merge & fix\" tool if your contacts sync through Gmail).",
+      "ts": 1790580054637
+    }
+  ]
+}

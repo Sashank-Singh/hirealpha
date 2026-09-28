@@ -1,0 +1,26 @@
+{
+  "facts": [],
+  "summary": "",
+  "history": [
+    {
+      "role": "user",
+      "content": "Plan my team offsite: find a venue, set a budget, draft the agenda, and invite the team.",
+      "ts": 1790580510948
+    },
+    {
+      "role": "assistant",
+      "content": "Happy to run point on this. Before I start searching venues, I need a few basics so I don't quote you places in the wrong city: 1. Which city (or is this virtual/hybrid)? 2. Dates, a specific day, or a window I should work around? 3. How many people, and rough budget per person or all in? 4. One day or overnight? Give me those and I'll pull real venue options with rates, draft the agenda around your goals, and prep the invites.",
+      "ts": 1790580510948
+    },
+    {
+      "role": "user",
+      "content": "wait — forget the agenda for now, just get the venue sorted first.",
+      "ts": 1790580543139
+    },
+    {
+      "role": "assistant",
+      "content": "Venue it is. To pull real options I still need the basics from my last message: which city, what dates (or a window), how many people, and one day or overnight. Give me those and I'll come back with 2 3 venues with rates and availability.",
+      "ts": 1790580543139
+    }
+  ]
+}

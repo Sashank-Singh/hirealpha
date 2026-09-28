@@ -1,0 +1,240 @@
+{
+  "revision": "7133b5e1aeeabf21e4f513628fe0e8deb82ec3a8",
+  "model": "zai-org/GLM-5.3-Flash",
+  "worldDefinition": {
+    "profile": {
+      "name": "Alex Rivera",
+      "phone": "+15552100001",
+      "timezone": "America/New_York",
+      "email": "alex@rivera.dev",
+      "hired": true,
+      "connected": [
+        "gmail",
+        "calendar",
+        "drive"
+      ],
+      "memories": [
+        {
+          "key": "preferred_name",
+          "value": "Alex"
+        }
+      ]
+    },
+    "mail": [],
+    "events": [
+      {
+        "title": "BigCo interview",
+        "when": "Tue Sep 29, 2:00–3:00 PM"
+      },
+      {
+        "title": "Gym",
+        "when": "Mon Sep 28, 6:30 PM"
+      }
+    ],
+    "freeSlots": [
+      {
+        "start": "2026-09-28T10:00:00-04:00",
+        "end": "2026-09-28T11:30:00-04:00",
+        "label": "Mon Sep 28, 10:00–11:30 AM"
+      },
+      {
+        "start": "2026-09-29T13:00:00-04:00",
+        "end": "2026-09-29T15:00:00-04:00",
+        "label": "Tue Sep 29, 1:00–3:00 PM"
+      },
+      {
+        "start": "2026-10-01T11:00:00-04:00",
+        "end": "2026-10-01T12:00:00-04:00",
+        "label": "Thu Oct 1, 11:00 AM–12:00 PM"
+      },
+      {
+        "start": "2026-10-02T16:00:00-04:00",
+        "end": "2026-10-02T17:30:00-04:00",
+        "label": "Fri Oct 2, 4:00–5:30 PM"
+      }
+    ],
+    "webResults": [],
+    "mapsResults": [
+      "Nearby picks:",
+      "- Toscana — 240 Mulberry St, New York. Quiet back room, good for groups. https://www.openstreetmap.org/way/416051348",
+      "- Nopa — 1199 Valencia St, New York. Louder, great cocktails, walk-in friendly. https://www.openstreetmap.org/way/370534180"
+    ],
+    "drive": [
+      {
+        "id": "f_resume",
+        "name": "Alex Rivera Resume 2026.pdf",
+        "mimeType": "application/pdf",
+        "size": 91000,
+        "webViewLink": "https://drive.example/resume"
+      },
+      {
+        "id": "f_deck",
+        "name": "Series A Deck v4.pdf",
+        "mimeType": "application/pdf",
+        "size": 4200000,
+        "webViewLink": "https://drive.example/deck"
+      },
+      {
+        "id": "f_notes",
+        "name": "Northwind last meeting notes.docx",
+        "mimeType": "document",
+        "size": 30000,
+        "webViewLink": "https://drive.example/nw_notes"
+      },
+      {
+        "id": "f_tax",
+        "name": "2025 W-2.pdf",
+        "mimeType": "application/pdf",
+        "size": 80000,
+        "webViewLink": "https://drive.example/w2"
+      },
+      {
+        "id": "f_1099",
+        "name": "2025 1099-NEC.pdf",
+        "mimeType": "application/pdf",
+        "size": 60000,
+        "webViewLink": "https://drive.example/1099"
+      }
+    ],
+    "contacts": [
+      {
+        "name": "Sam Cohen",
+        "email": "sam.cohen@acme.com",
+        "last_touch": "2026-09-20"
+      },
+      {
+        "name": "Dana Lee",
+        "email": "dana@bigco.com"
+      },
+      {
+        "name": "Sarah Kim",
+        "email": "sarah@vcfirm.com"
+      }
+    ],
+    "spending": {
+      "logs": [
+        {
+          "amount": 48,
+          "category": "food",
+          "description": "Dinner out",
+          "spentAt": "2026-09-25"
+        },
+        {
+          "amount": 15,
+          "category": "subscriptions",
+          "description": "Spotify",
+          "spentAt": "2026-09-24"
+        },
+        {
+          "amount": 120,
+          "category": "shopping",
+          "description": "Amazon order",
+          "spentAt": "2026-09-22"
+        },
+        {
+          "amount": 32,
+          "category": "food",
+          "description": "Lunch, 3x this week",
+          "spentAt": "2026-09-21"
+        },
+        {
+          "amount": 60,
+          "category": "rides",
+          "description": "Uber rides",
+          "spentAt": "2026-09-20"
+        }
+      ],
+      "weekly": 275,
+      "budget": 400
+    },
+    "slackChannels": [
+      "general"
+    ]
+  },
+  "id": "np2_churn",
+  "cat": "C16",
+  "title": "Three customers churned this month — help me figure out why ",
+  "agent": "friend",
+  "turns": [
+    {
+      "text": "Three customers churned this month — help me figure out why and what to do about it.",
+      "bubbles": [
+        "Rough month, sorry. Let's figure it out properly instead of guessing.\n\nThe fastest way in: for each of the three, do we know (1) when they last used the product before churning, (2) what they said at cancellation, and (3) how long they'd been customers? Those three answers usually separate \"we dropped the ball\" churn from \"they were never the right fit\" churn.\n\nIf you can paste in whatever notes or exit survey answers you have, I'll help you spot the pattern and draft a plan, win back outreach, fixes to the leak, whatever fits. What do the cancellations actually say?"
+      ],
+      "reply": "Rough month, sorry. Let's figure it out properly instead of guessing.\n\nThe fastest way in: for each of the three, do we know (1) when they last used the product before churning, (2) what they said at cancellation, and (3) how long they'd been customers? Those three answers usually separate \"we dropped the ball\" churn from \"they were never the right fit\" churn.\n\nIf you can paste in whatever notes or exit survey answers you have, I'll help you spot the pattern and draft a plan, win back outreach, fixes to the leak, whatever fits. What do the cancellations actually say?",
+      "source": "gmi",
+      "card": null,
+      "calls": [
+        {
+          "method": "GET",
+          "path": "/api/internal/live?phone=%2B15552100001&persona=friend&q=Three%20customers%20churned%20this%20month%20%E2%80%94%20help%20me%20figure%20out%20why%20and%20what%20to%20do%20about%20it.",
+          "body": {}
+        },
+        {
+          "method": "GET",
+          "path": "/api/internal/anchors?phone=%2B15552100001&persona=friend",
+          "body": {}
+        },
+        {
+          "method": "GET",
+          "path": "/api/internal/browser/awaiting?phone=%2B15552100001",
+          "body": {}
+        },
+        {
+          "method": "GET",
+          "path": "/api/internal/network?phone=%2B15552100001",
+          "body": {}
+        },
+        {
+          "method": "POST",
+          "path": "/api/internal/touch",
+          "body": {
+            "phone": "+15552100001",
+            "persona": "friend"
+          }
+        }
+      ],
+      "llmCallsInTurn": 3,
+      "thread": {
+        "facts": [],
+        "summary": "",
+        "historyCount": 2
+      }
+    }
+  ],
+  "created": {
+    "drafts": [],
+    "reminders": [],
+    "scheduledTexts": [],
+    "commitments": [],
+    "memoryWrites": [],
+    "memoryDeletes": [],
+    "spendDecisions": [],
+    "browserTasks": [],
+    "followups": [],
+    "calendarMutations": [],
+    "fileSends": [],
+    "workWrites": [],
+    "taskChoices": [],
+    "watches": [],
+    "anchors": [],
+    "plans": [],
+    "cancels": [],
+    "spendApprovals": [],
+    "todos": [],
+    "loops": [],
+    "otherWrites": [
+      {
+        "path": "/api/internal/anchors:GET"
+      }
+    ]
+  },
+  "finalMemories": [
+    {
+      "key": "preferred_name",
+      "value": "Alex"
+    }
+  ],
+  "llmCalls": 3,
+  "wallMs": 16609
+}

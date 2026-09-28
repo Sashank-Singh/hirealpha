@@ -1,6 +1,6 @@
 {
-  "revision": "7133b5e1aeeabf21e4f513628fe0e8deb82ec3a8",
-  "model": "zai-org/GLM-5.3-Flash",
+  "revision": "1c213301cad79dea12dcdbdd3aabb9dd02d62202",
+  "model": "zai-org/glm-5.3-flash",
   "worldDefinition": {
     "profile": {
       "name": "Alex Rivera",
@@ -159,9 +159,9 @@
     {
       "text": "Plan my team offsite: find a venue, set a budget, draft the agenda, and invite the team.",
       "bubbles": [
-        "Happy to run point on this. Before I start searching venues, I need a few basics so I don't quote you places in the wrong city: 1. Which city (or is this virtual/hybrid)? 2. Dates, a specific day, or a window I should work around? 3. How many people, and rough budget per person or all in? 4. One day or overnight? Give me those and I'll pull real venue options with rates, draft the agenda around your goals, and prep the invites."
+        "Happy to run this one, Alex. Before I start searching venues, I need a few anchors so I don't guess: 1. City, where should the offsite be? 2. Dates (or a rough window) and how many people? 3. Budget per person or all in? Give me those and I'll pull real venue options, sketch a budget, draft the agenda, and prep the invite in one pass."
       ],
-      "reply": "Happy to run point on this. Before I start searching venues, I need a few basics so I don't quote you places in the wrong city: 1. Which city (or is this virtual/hybrid)? 2. Dates, a specific day, or a window I should work around? 3. How many people, and rough budget per person or all in? 4. One day or overnight? Give me those and I'll pull real venue options with rates, draft the agenda around your goals, and prep the invites.",
+      "reply": "Happy to run this one, Alex. Before I start searching venues, I need a few anchors so I don't guess: 1. City, where should the offsite be? 2. Dates (or a rough window) and how many people? 3. Budget per person or all in? Give me those and I'll pull real venue options, sketch a budget, draft the agenda, and prep the invite in one pass.",
       "source": "gmi",
       "card": null,
       "calls": [
@@ -226,6 +226,7 @@
         }
       ],
       "llmCallsInTurn": 2,
+      "claimViolations": 0,
       "thread": {
         "facts": [],
         "summary": "",
@@ -235,9 +236,9 @@
     {
       "text": "wait — forget the agenda for now, just get the venue sorted first.",
       "bubbles": [
-        "Venue it is. To pull real options I still need the basics from my last message: which city, what dates (or a window), how many people, and one day or overnight. Give me those and I'll come back with 2 3 venues with rates and availability."
+        "Got it, venue first. I still need the anchors before I can search anything real: which city, what dates (or a rough window), and how many people. Give me those three and I'll pull actual venue options with rates instead of guessing."
       ],
-      "reply": "Venue it is. To pull real options I still need the basics from my last message: which city, what dates (or a window), how many people, and one day or overnight. Give me those and I'll come back with 2 3 venues with rates and availability.",
+      "reply": "Got it, venue first. I still need the anchors before I can search anything real: which city, what dates (or a rough window), and how many people. Give me those three and I'll pull actual venue options with rates instead of guessing.",
       "source": "gmi",
       "card": null,
       "calls": [
@@ -276,35 +277,10 @@
             "phone": "+15552100001",
             "persona": "friend"
           }
-        },
-        {
-          "method": "PATCH",
-          "path": "/api/internal/plans",
-          "body": {
-            "phone": "+15552100001",
-            "persona": "friend",
-            "id": "plan_1",
-            "steps": [
-              {
-                "text": "Plan my team offsite: find a venue",
-                "state": "pending"
-              },
-              {
-                "text": "draft the agenda",
-                "state": "blocked"
-              },
-              {
-                "text": "invite the team.",
-                "state": "pending"
-              }
-            ],
-            "nextAction": "Plan my team offsite: find a venue",
-            "blocker": "blocked",
-            "status": "active"
-          }
         }
       ],
-      "llmCallsInTurn": 4,
+      "llmCallsInTurn": 3,
+      "claimViolations": 0,
       "thread": {
         "facts": [],
         "summary": "",
@@ -334,8 +310,8 @@
         "goal": "Plan my team offsite: find a venue, set a budget, draft the agenda, and invite the team.",
         "persona": "friend",
         "status": "active",
-        "blocker": "blocked",
-        "nextAction": "Plan my team offsite: find a venue",
+        "blocker": null,
+        "nextAction": null,
         "steps": [
           {
             "text": "Plan my team offsite: find a venue",
@@ -343,7 +319,7 @@
           },
           {
             "text": "draft the agenda",
-            "state": "blocked"
+            "state": "pending"
           },
           {
             "text": "invite the team.",
@@ -351,7 +327,7 @@
           }
         ],
         "operationIds": {},
-        "updatedAt": "2026-09-28T07:28:22.695Z"
+        "updatedAt": "2026-09-28T15:09:28.725Z"
       }
     ],
     "cancels": [],
@@ -373,6 +349,6 @@
       "value": "Alex"
     }
   ],
-  "llmCalls": 6,
-  "wallMs": 47557
+  "llmCalls": 5,
+  "wallMs": 19467
 }

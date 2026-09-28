@@ -1,0 +1,16 @@
+{
+  "facts": [],
+  "summary": "",
+  "history": [
+    {
+      "role": "user",
+      "content": "I'm going to SaaStr Annual next week. Make sure I'm prepared.",
+      "ts": 1790577975835
+    },
+    {
+      "role": "assistant",
+      "content": "I’m checking your email for this.\n\nI have not actually checked your calendar yet, so I cannot say whether it is reachable. So let's do this the reliable way. A few quick things from you and I'll build out the prep: 1. Which days are you attending, and is it in the Bay Area again (San Jose)? 2. Do you have your registration confirmation handy, or want me to try your email again with a different search? 3. What's your goal there, fundraising, sales meetings, hiring? That changes the prep a lot. Once I know the dates, I can check your calendar for conflicts, block travel time, and pull background on the people you want to meet. https://audit-none.example/search",
+      "ts": 1790577975835
+    }
+  ]
+}

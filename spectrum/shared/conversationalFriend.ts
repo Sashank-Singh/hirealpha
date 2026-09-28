@@ -1445,6 +1445,41 @@ export async function runConversationalFriend(input: {
       planBlock: planNote,
     })
     if (note) promptNotes.push(note)
+    /* Engine-performed primary reads. The audit's remaining recall misses were
+     * model inaction inside a CORRECT plan ("is my schedule realistic?" read
+     * nothing; readiness asks skipped mail). For assessment turns the engine
+     * now reads the inferred domains itself — calendar and mail first — so the
+     * evidence floor does not depend on the model choosing to look. Money has
+     * its own read below. Reads are capped to the inferred domains (no
+     * fan-out) and each is recorded in the ledger. */
+    for (const domain of (['calendar', 'mail'] as const)) {
+      if (!assessmentPlan.domains.includes(domain)) continue
+      const tool = domain === 'calendar' ? 'calendar' : 'gmail'
+      if (tool === 'gmail' && !(live.connected || []).includes('gmail')) continue
+      if (tool === 'calendar' && !(live.connected || []).includes('calendar')) continue
+      /* Read-specific queries, not the raw question: a Gmail search for "am i
+       * good for tomorrow" matches nothing and would read as an empty inbox. */
+      const readQuery = tool === 'gmail'
+        ? 'newer_than:3d'
+        : (() => {
+            const today = new Date().toISOString().slice(0, 10)
+            const week = new Date(Date.now() + 7 * 86400_000).toISOString().slice(0, 10)
+            return `start=${today}T00:00:00 end=${week}T23:59:59`
+          })()
+      try {
+        const rows = await fetchLiveTools(senderId, persona, readQuery, tool as 'gmail' | 'calendar')
+        const usable = rows.length > 0
+        evidence.record(domain === 'calendar' ? 'calendar_read' : 'mail_read', usable ? 'verified_success' : 'verified_empty', { engineRead: true })
+        promptNotes.push(
+          usable
+            ? `Engine ${domain} read (authoritative for this turn — you do NOT need to repeat this lookup): ${rows.slice(0, 6).join(' | ').slice(0, 1200)}`
+            : `Engine ${domain} read returned nothing usable; say plainly that ${domain === 'calendar' ? 'the calendar' : 'the inbox'} came back empty rather than implying it holds nothing.`,
+        )
+      } catch {
+        evidence.record(domain === 'calendar' ? 'calendar_read' : 'mail_read', 'provider_unavailable', { engineRead: true })
+        promptNotes.push(`Engine ${domain} read FAILED this turn. Do not claim anything about it; name it as unread.`)
+      }
+    }
     /* Mandatory money evidence: the engine performs the spend read itself for
      * money assessments, so "can I afford this?" can never be answered from a
      * model choice not to look. The result rides the prompt like the maps

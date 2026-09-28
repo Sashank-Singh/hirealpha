@@ -1,6 +1,6 @@
 {
-  "revision": "7133b5e1aeeabf21e4f513628fe0e8deb82ec3a8",
-  "model": "zai-org/GLM-5.3-Flash",
+  "revision": "1c213301cad79dea12dcdbdd3aabb9dd02d62202",
+  "model": "zai-org/glm-5.3-flash",
   "worldDefinition": {
     "profile": {
       "name": "Alex Rivera",
@@ -166,9 +166,9 @@
     {
       "text": "Make this trip less stressful.",
       "bubbles": [
-        "Happy to, Alex. Which trip are we talking about, and what's stressing you most about it, flights, lodging, packing, the whole pile? Give me the dates and I'll start untangling."
+        "Happy to, but I need to find the trip first. Your calendar for the next two weeks shows a BigCo interview tomorrow (Tue, 2, 3 PM) and gym tonight, no travel on it. Which trip do you mean? Give me the dates or the destination and I'll pull together the stressful parts: weather, logistics, and anything on your calendar that collides with it."
       ],
-      "reply": "Happy to, Alex. Which trip are we talking about, and what's stressing you most about it, flights, lodging, packing, the whole pile? Give me the dates and I'll start untangling.",
+      "reply": "Happy to, but I need to find the trip first. Your calendar for the next two weeks shows a BigCo interview tomorrow (Tue, 2, 3 PM) and gym tonight, no travel on it. Which trip do you mean? Give me the dates or the destination and I'll pull together the stressful parts: weather, logistics, and anything on your calendar that collides with it.",
       "source": "gmi",
       "card": null,
       "calls": [
@@ -199,9 +199,28 @@
             "phone": "+15552100001",
             "persona": "friend"
           }
+        },
+        {
+          "method": "GET",
+          "path": "/api/internal/plans",
+          "body": {
+            "phone": "+15552100001",
+            "persona": "friend"
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/internal/live/tools",
+          "body": {
+            "phone": "+15552100001",
+            "persona": "friend",
+            "message": "start=2026-09-28T00:00:00-04:00 end=2026-10-12T00:00:00-04:00",
+            "want": "calendar"
+          }
         }
       ],
-      "llmCallsInTurn": 2,
+      "llmCallsInTurn": 4,
+      "claimViolations": 0,
       "thread": {
         "facts": [],
         "summary": "",
@@ -242,6 +261,6 @@
       "value": "Alex"
     }
   ],
-  "llmCalls": 2,
-  "wallMs": 11995
+  "llmCalls": 4,
+  "wallMs": 16234
 }

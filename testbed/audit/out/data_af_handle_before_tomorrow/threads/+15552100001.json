@@ -1,0 +1,23 @@
+{
+  "facts": [
+    {
+      "key": "goal:handle_before_tomorrow",
+      "value": "Handle before tomorrow",
+      "ts": 1790608736869,
+      "lastSeen": 1790608736869
+    }
+  ],
+  "summary": "",
+  "history": [
+    {
+      "role": "user",
+      "content": "Anything I need to handle before tomorrow?",
+      "ts": 1790608764631
+    },
+    {
+      "role": "assistant",
+      "content": "Checked your calendar through tomorrow. Two things: Today, in the next few hours: BigCo interview at 2:00 PM, that's about 2.5 hours out Gym at 6:30 PM Tomorrow: Dentist at 9:00 AM, so an early start Nothing on the calendar needs rescheduling or action, it's all just showing up. One gap: I haven't read your email, so I can't say whether anything there needs a reply before tomorrow. Want me to check?",
+      "ts": 1790608764631
+    }
+  ]
+}

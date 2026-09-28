@@ -1,6 +1,6 @@
 {
-  "revision": "7133b5e1aeeabf21e4f513628fe0e8deb82ec3a8",
-  "model": "zai-org/GLM-5.3-Flash",
+  "revision": "1c213301cad79dea12dcdbdd3aabb9dd02d62202",
+  "model": "zai-org/glm-5.3-flash",
   "worldDefinition": {
     "profile": {
       "name": "Alex Rivera",
@@ -172,6 +172,7 @@
         }
       ],
       "llmCallsInTurn": 0,
+      "claimViolations": 0,
       "thread": {
         "facts": [],
         "summary": "",
@@ -209,5 +210,5 @@
     }
   ],
   "llmCalls": 0,
-  "wallMs": 26
+  "wallMs": 13
 }

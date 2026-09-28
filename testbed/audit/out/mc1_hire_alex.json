@@ -1,6 +1,6 @@
 {
-  "revision": "7133b5e1aeeabf21e4f513628fe0e8deb82ec3a8",
-  "model": "zai-org/GLM-5.3-Flash",
+  "revision": "1c213301cad79dea12dcdbdd3aabb9dd02d62202",
+  "model": "zai-org/glm-5.3-flash",
   "worldDefinition": {
     "profile": {
       "name": "Alex Rivera",
@@ -163,9 +163,9 @@
     {
       "text": "I'm trying to hire Alex Chen for the backend role.",
       "bubbles": [
-        "Nice, going after Alex Chen for backend is a solid move. What do you need from me: drafting the outreach message, prepping interview questions, or something else like an offer letter?"
+        "Nice, congrats on getting to that stage. What do you need from me on this, drafting the offer email, reaching out to schedule a call, or something else? And is Alex Chen someone you've already interviewed, or are they coming in cold?"
       ],
-      "reply": "Nice, going after Alex Chen for backend is a solid move. What do you need from me: drafting the outreach message, prepping interview questions, or something else like an offer letter?",
+      "reply": "Nice, congrats on getting to that stage. What do you need from me on this, drafting the offer email, reaching out to schedule a call, or something else? And is Alex Chen someone you've already interviewed, or are they coming in cold?",
       "source": "gmi",
       "card": null,
       "calls": [
@@ -199,6 +199,7 @@
         }
       ],
       "llmCallsInTurn": 2,
+      "claimViolations": 0,
       "thread": {
         "facts": [],
         "summary": "",
@@ -208,9 +209,9 @@
     {
       "text": "Did he ever reply?",
       "bubbles": [
-        "He did, that came from your Gmail, not memory. One email from Alex Chen, subject \"Backend role, excited,\" saying thanks for the chat, he's very interested in the backend role, and happy to do a panel next week. Want me to draft a reply proposing panel times? I can also check your calendar for open slots first. I have not checked a fresh web check this turn, so I can't confirm anything that depends on it."
+        "He did. Alex Chen's reply came in with the subject \"Backend role, excited\": thanks for the chat, very interested in the backend role, and happy to do a panel next week. Sarah also weighed in separately, Thursday 3pm works best for her if you want her on the panel. Want me to draft the note to Alex proposing that slot? I have not checked a fresh web check this turn, so I can't confirm anything that depends on it."
       ],
-      "reply": "He did, that came from your Gmail, not memory. One email from Alex Chen, subject \"Backend role, excited,\" saying thanks for the chat, he's very interested in the backend role, and happy to do a panel next week. Want me to draft a reply proposing panel times? I can also check your calendar for open slots first. I have not checked a fresh web check this turn, so I can't confirm anything that depends on it.",
+      "reply": "He did. Alex Chen's reply came in with the subject \"Backend role, excited\": thanks for the chat, very interested in the backend role, and happy to do a panel next week. Sarah also weighed in separately, Thursday 3pm works best for her if you want her on the panel. Want me to draft the note to Alex proposing that slot? I have not checked a fresh web check this turn, so I can't confirm anything that depends on it.",
       "source": "gmi",
       "card": null,
       "calls": [
@@ -256,12 +257,13 @@
           "body": {
             "phone": "+15552100001",
             "persona": "friend",
-            "message": "from:alex OR subject:backend",
+            "message": "from:alex OR subject:backend newer_than:30d",
             "want": "gmail"
           }
         }
       ],
-      "llmCallsInTurn": 6,
+      "llmCallsInTurn": 5,
+      "claimViolations": 0,
       "thread": {
         "facts": [],
         "summary": "",
@@ -271,9 +273,9 @@
     {
       "text": "Schedule him next week for a panel.",
       "bubbles": [
-        "Here's what your calendar shows free, Alex. One catch: today is Monday the 28th, so \"next week\" for Alex would be Oct 5, 9, and my read only covered the next 7 days. The open slots I can verify right now are: Tue Sep 29, 1:00, 3:00 PM Thu Oct 1, 11:00 AM, 12:00 PM Fri Oct 2, 4:00, 5:30 PM Two ways to go: pick one of those and I'll book it and draft the invite to Alex, or tell me a day that works the week of Oct 5 and I'll check that window and set it up. Which do you want?"
+        "Thursday works, with one wrinkle: Sarah wants 3pm, but your only open Thursday slot is 11 AM, 12 PM on Oct 1. I can't see Sarah's calendar, so I don't know if 11 works for her. Want me to propose Thu Oct 1, 11 AM ET to Alex and check with Sarah, or skip Sarah and just book Alex for that slot?"
       ],
-      "reply": "Here's what your calendar shows free, Alex. One catch: today is Monday the 28th, so \"next week\" for Alex would be Oct 5, 9, and my read only covered the next 7 days. The open slots I can verify right now are: Tue Sep 29, 1:00, 3:00 PM Thu Oct 1, 11:00 AM, 12:00 PM Fri Oct 2, 4:00, 5:30 PM Two ways to go: pick one of those and I'll book it and draft the invite to Alex, or tell me a day that works the week of Oct 5 and I'll check that window and set it up. Which do you want?",
+      "reply": "Thursday works, with one wrinkle: Sarah wants 3pm, but your only open Thursday slot is 11 AM, 12 PM on Oct 1. I can't see Sarah's calendar, so I don't know if 11 works for her. Want me to propose Thu Oct 1, 11 AM ET to Alex and check with Sarah, or skip Sarah and just book Alex for that slot?",
       "source": "gmi",
       "card": null,
       "calls": [
@@ -315,17 +317,30 @@
         },
         {
           "method": "POST",
+          "path": "/api/internal/live/tools",
+          "body": {
+            "phone": "+15552100001",
+            "persona": "friend",
+            "message": "from:chen subject:(backend role)",
+            "want": "gmail"
+          }
+        },
+        {
+          "method": "POST",
           "path": "/api/internal/work/slots",
           "body": {
             "phone": "+15552100001",
             "persona": "friend",
+            "day": "2026-10-08",
+            "partOfDay": "afternoon",
             "durationMin": 60,
-            "windowDays": 7,
+            "windowDays": 3,
             "limit": 5
           }
         }
       ],
-      "llmCallsInTurn": 3,
+      "llmCallsInTurn": 4,
+      "claimViolations": 0,
       "thread": {
         "facts": [],
         "summary": "",
@@ -335,9 +350,9 @@
     {
       "text": "Actually use the time Sarah suggested instead.",
       "bubbles": [
-        "Sarah's pick was Thursday 3 PM, and your calendar that day is clear, so I've set up a \"Backend panel, Alex Chen\" hold for Thu Oct 1, 3:00, 4:00 PM ET. It's on a review card now, tap Book to confirm. Once it's booked, want me to draft the invite email to Alex Chen proposing that time?"
+        "Draft's ready for your review, it proposes Thursday, Oct 1 at 3:00 PM ET to Alex, per Sarah's preference. The email is drafted for your review — nothing has been sent yet. One heads up: 3pm Thursday wasn't showing as free on your calendar earlier, so once Alex confirms I'd suggest we put the hold on and sort any conflict then. Want me to draft a quick note to Sarah too so she can lock the slot from her side?"
       ],
-      "reply": "Sarah's pick was Thursday 3 PM, and your calendar that day is clear, so I've set up a \"Backend panel, Alex Chen\" hold for Thu Oct 1, 3:00, 4:00 PM ET. It's on a review card now, tap Book to confirm. Once it's booked, want me to draft the invite email to Alex Chen proposing that time?",
+      "reply": "Draft's ready for your review, it proposes Thursday, Oct 1 at 3:00 PM ET to Alex, per Sarah's preference. The email is drafted for your review — nothing has been sent yet. One heads up: 3pm Thursday wasn't showing as free on your calendar earlier, so once Alex confirms I'd suggest we put the hold on and sort any conflict then. Want me to draft a quick note to Sarah too so she can lock the slot from her side?",
       "source": "gmi",
       "card": "https://audit.internal/card/x?draft=draft_1",
       "calls": [
@@ -383,18 +398,8 @@
           "body": {
             "phone": "+15552100001",
             "persona": "friend",
-            "message": "from:sarah@vcfirm.com newer_than:14d",
+            "message": "from:alex subject:(backend role)",
             "want": "gmail"
-          }
-        },
-        {
-          "method": "POST",
-          "path": "/api/internal/live/tools",
-          "body": {
-            "phone": "+15552100001",
-            "persona": "friend",
-            "message": "start=2026-10-01T00:00:00-04:00 end=2026-10-02T00:00:00-04:00",
-            "want": "calendar"
           }
         },
         {
@@ -403,10 +408,10 @@
           "body": {
             "phone": "+15552100001",
             "persona": "friend",
-            "kind": "event",
-            "title": "Backend panel — Alex Chen",
-            "start": "2026-10-01T15:00:00-04:00",
-            "end": "2026-10-01T16:00:00-04:00"
+            "kind": "mail",
+            "to": "alex.chen@mail.com",
+            "subject": "Re: Backend role — excited",
+            "body": "Hi Alex,\n\nGreat to hear you're interested. We'd like to schedule your panel for Thursday, October 1 at 3:00 PM ET. Does that work on your end?\n\nOnce you confirm, I'll send over the full details and panelist names.\n\nBest,\nAlex Rivera"
           }
         },
         {
@@ -415,18 +420,18 @@
           "body": {
             "phone": "+15552100001",
             "persona": "friend",
-            "kind": "event",
+            "kind": "draft",
             "ref": {
               "draftId": "draft_1",
-              "title": "Backend panel — Alex Chen",
-              "start": "2026-10-01T15:00:00-04:00",
-              "end": "2026-10-01T16:00:00-04:00",
-              "source": "draft"
+              "to": "alex.chen@mail.com",
+              "subject": "Re: Backend role — excited",
+              "kind": "mail"
             }
           }
         }
       ],
-      "llmCallsInTurn": 6,
+      "llmCallsInTurn": 5,
+      "claimViolations": 1,
       "thread": {
         "facts": [],
         "summary": "",
@@ -437,12 +442,12 @@
   "created": {
     "drafts": [
       {
-        "kind": "event",
+        "kind": "mail",
         "phone": "+15552100001",
         "persona": "friend",
-        "title": "Backend panel — Alex Chen",
-        "start": "2026-10-01T15:00:00-04:00",
-        "end": "2026-10-01T16:00:00-04:00"
+        "to": "alex.chen@mail.com",
+        "subject": "Re: Backend role — excited",
+        "body": "Hi Alex,\n\nGreat to hear you're interested. We'd like to schedule your panel for Thursday, October 1 at 3:00 PM ET. Does that work on your end?\n\nOnce you confirm, I'll send over the full details and panelist names.\n\nBest,\nAlex Rivera"
       }
     ],
     "reminders": [],
@@ -460,16 +465,15 @@
     "watches": [],
     "anchors": [
       {
-        "kind": "event",
+        "kind": "draft",
         "ref": {
           "draftId": "draft_1",
-          "title": "Backend panel — Alex Chen",
-          "start": "2026-10-01T15:00:00-04:00",
-          "end": "2026-10-01T16:00:00-04:00",
-          "source": "draft"
+          "to": "alex.chen@mail.com",
+          "subject": "Re: Backend role — excited",
+          "kind": "mail"
         },
-        "createdAt": "2026-09-28T07:07:45.072Z",
-        "expiresAt": "2026-09-29T07:07:45.072Z"
+        "createdAt": "2026-09-28T14:50:58.434Z",
+        "expiresAt": "2026-09-29T14:50:58.434Z"
       }
     ],
     "plans": [],
@@ -494,13 +498,12 @@
         "path": "/api/internal/anchors:POST",
         "phone": "+15552100001",
         "persona": "friend",
-        "kind": "event",
+        "kind": "draft",
         "ref": {
           "draftId": "draft_1",
-          "title": "Backend panel — Alex Chen",
-          "start": "2026-10-01T15:00:00-04:00",
-          "end": "2026-10-01T16:00:00-04:00",
-          "source": "draft"
+          "to": "alex.chen@mail.com",
+          "subject": "Re: Backend role — excited",
+          "kind": "mail"
         }
       }
     ]
@@ -511,6 +514,6 @@
       "value": "Alex"
     }
   ],
-  "llmCalls": 17,
-  "wallMs": 123631
+  "llmCalls": 16,
+  "wallMs": 96767
 }

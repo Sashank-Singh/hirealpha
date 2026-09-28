@@ -1,0 +1,248 @@
+{
+  "revision": "7133b5e1aeeabf21e4f513628fe0e8deb82ec3a8",
+  "model": "zai-org/GLM-5.3-Flash",
+  "worldDefinition": {
+    "profile": {
+      "name": "Alex Rivera",
+      "phone": "+15552100001",
+      "timezone": "America/New_York",
+      "email": "alex@rivera.dev",
+      "hired": true,
+      "connected": [
+        "gmail",
+        "calendar",
+        "drive"
+      ],
+      "memories": [
+        {
+          "key": "preferred_name",
+          "value": "Alex"
+        }
+      ]
+    },
+    "mail": [],
+    "events": [
+      {
+        "title": "BigCo interview",
+        "when": "Tue Sep 29, 2:00–3:00 PM"
+      },
+      {
+        "title": "Gym",
+        "when": "Mon Sep 28, 6:30 PM"
+      }
+    ],
+    "freeSlots": [
+      {
+        "start": "2026-09-28T10:00:00-04:00",
+        "end": "2026-09-28T11:30:00-04:00",
+        "label": "Mon Sep 28, 10:00–11:30 AM"
+      },
+      {
+        "start": "2026-09-29T13:00:00-04:00",
+        "end": "2026-09-29T15:00:00-04:00",
+        "label": "Tue Sep 29, 1:00–3:00 PM"
+      },
+      {
+        "start": "2026-10-01T11:00:00-04:00",
+        "end": "2026-10-01T12:00:00-04:00",
+        "label": "Thu Oct 1, 11:00 AM–12:00 PM"
+      },
+      {
+        "start": "2026-10-02T16:00:00-04:00",
+        "end": "2026-10-02T17:30:00-04:00",
+        "label": "Fri Oct 2, 4:00–5:30 PM"
+      }
+    ],
+    "webResults": [],
+    "mapsResults": [
+      "Nearby picks:",
+      "- Toscana — 240 Mulberry St, New York. Quiet back room, good for groups. https://www.openstreetmap.org/way/416051348",
+      "- Nopa — 1199 Valencia St, New York. Louder, great cocktails, walk-in friendly. https://www.openstreetmap.org/way/370534180"
+    ],
+    "drive": [
+      {
+        "id": "f_resume",
+        "name": "Alex Rivera Resume 2026.pdf",
+        "mimeType": "application/pdf",
+        "size": 91000,
+        "webViewLink": "https://drive.example/resume"
+      },
+      {
+        "id": "f_deck",
+        "name": "Series A Deck v4.pdf",
+        "mimeType": "application/pdf",
+        "size": 4200000,
+        "webViewLink": "https://drive.example/deck"
+      },
+      {
+        "id": "f_notes",
+        "name": "Northwind last meeting notes.docx",
+        "mimeType": "document",
+        "size": 30000,
+        "webViewLink": "https://drive.example/nw_notes"
+      },
+      {
+        "id": "f_tax",
+        "name": "2025 W-2.pdf",
+        "mimeType": "application/pdf",
+        "size": 80000,
+        "webViewLink": "https://drive.example/w2"
+      },
+      {
+        "id": "f_1099",
+        "name": "2025 1099-NEC.pdf",
+        "mimeType": "application/pdf",
+        "size": 60000,
+        "webViewLink": "https://drive.example/1099"
+      }
+    ],
+    "contacts": [
+      {
+        "name": "Sam Cohen",
+        "email": "sam.cohen@acme.com",
+        "last_touch": "2026-09-20"
+      },
+      {
+        "name": "Dana Lee",
+        "email": "dana@bigco.com"
+      },
+      {
+        "name": "Sarah Kim",
+        "email": "sarah@vcfirm.com"
+      }
+    ],
+    "spending": {
+      "logs": [
+        {
+          "amount": 48,
+          "category": "food",
+          "description": "Dinner out",
+          "spentAt": "2026-09-25"
+        },
+        {
+          "amount": 15,
+          "category": "subscriptions",
+          "description": "Spotify",
+          "spentAt": "2026-09-24"
+        },
+        {
+          "amount": 120,
+          "category": "shopping",
+          "description": "Amazon order",
+          "spentAt": "2026-09-22"
+        },
+        {
+          "amount": 32,
+          "category": "food",
+          "description": "Lunch, 3x this week",
+          "spentAt": "2026-09-21"
+        },
+        {
+          "amount": 60,
+          "category": "rides",
+          "description": "Uber rides",
+          "spentAt": "2026-09-20"
+        }
+      ],
+      "weekly": 275,
+      "budget": 400
+    },
+    "slackChannels": [
+      "general"
+    ]
+  },
+  "id": "np11_meals",
+  "cat": "C16",
+  "title": "Plan my meals for the week around 120g protein a day.",
+  "agent": "friend",
+  "turns": [
+    {
+      "text": "Plan my meals for the week around 120g protein a day.",
+      "bubbles": [
+        "Here's your week, built around ~120g protein a day. Each day is a template so you can swap proteins without doing math. Daily skeleton (~120g): Breakfast: 3 eggs + 2 slices toast (20g), or Greek yogurt cup + granola (25g) Lunch: 5, 6 oz chicken, turkey, or tuna (35, 40g) Snack: protein shake or cottage cheese (25, 30g) Dinner: 5, 6 oz salmon, steak, or tofu + veg + rice/pasta (35, 40g) The week: Mon: Greek yogurt breakfast · chicken Caesar wrap lunch · salmon, rice, broccoli dinner Tue: Eggs + toast · turkey chili · steak, potatoes, green beans Wed: Yogurt + granola · tuna sandwich · chicken stir fry with tofu mixed in Thu: Protein shake + banana · chicken burrito bowl · baked cod, quinoa, asparagus Fri: Eggs · turkey burger (no bun is optional, not mandatory) · shrimp pasta Sat: Omelet with cheese · leftover buffet · pork chops, veg Sun: Greek yogurt pancakes · rotisserie chicken (easiest 40g ever) · whatever's left Shopping list core: eggs (18), Greek yogurt (7 cups), chicken breast ~2.5 lbs, salmon + cod, ground turkey, steak, shrimp, tuna cans, cottage cheese or protein powder, frozen veg. Want me to attach the nutrition card so you can log meals against this, or adjust for anything (no seafood, vegetarian days, budget cap)?"
+      ],
+      "reply": "Here's your week, built around ~120g protein a day. Each day is a template so you can swap proteins without doing math. Daily skeleton (~120g): Breakfast: 3 eggs + 2 slices toast (20g), or Greek yogurt cup + granola (25g) Lunch: 5, 6 oz chicken, turkey, or tuna (35, 40g) Snack: protein shake or cottage cheese (25, 30g) Dinner: 5, 6 oz salmon, steak, or tofu + veg + rice/pasta (35, 40g) The week: Mon: Greek yogurt breakfast · chicken Caesar wrap lunch · salmon, rice, broccoli dinner Tue: Eggs + toast · turkey chili · steak, potatoes, green beans Wed: Yogurt + granola · tuna sandwich · chicken stir fry with tofu mixed in Thu: Protein shake + banana · chicken burrito bowl · baked cod, quinoa, asparagus Fri: Eggs · turkey burger (no bun is optional, not mandatory) · shrimp pasta Sat: Omelet with cheese · leftover buffet · pork chops, veg Sun: Greek yogurt pancakes · rotisserie chicken (easiest 40g ever) · whatever's left Shopping list core: eggs (18), Greek yogurt (7 cups), chicken breast ~2.5 lbs, salmon + cod, ground turkey, steak, shrimp, tuna cans, cottage cheese or protein powder, frozen veg. Want me to attach the nutrition card so you can log meals against this, or adjust for anything (no seafood, vegetarian days, budget cap)?",
+      "source": "gmi",
+      "card": null,
+      "calls": [
+        {
+          "method": "GET",
+          "path": "/api/internal/live?phone=%2B15552100001&persona=friend&q=Plan%20my%20meals%20for%20the%20week%20around%20120g%20protein%20a%20day.",
+          "body": {}
+        },
+        {
+          "method": "GET",
+          "path": "/api/internal/anchors?phone=%2B15552100001&persona=friend",
+          "body": {}
+        },
+        {
+          "method": "GET",
+          "path": "/api/internal/browser/awaiting?phone=%2B15552100001",
+          "body": {}
+        },
+        {
+          "method": "GET",
+          "path": "/api/internal/network?phone=%2B15552100001",
+          "body": {}
+        },
+        {
+          "method": "POST",
+          "path": "/api/internal/touch",
+          "body": {
+            "phone": "+15552100001",
+            "persona": "friend"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/api/internal/plans",
+          "body": {
+            "phone": "+15552100001",
+            "persona": "friend"
+          }
+        }
+      ],
+      "llmCallsInTurn": 3,
+      "thread": {
+        "facts": [],
+        "summary": "",
+        "historyCount": 2
+      }
+    }
+  ],
+  "created": {
+    "drafts": [],
+    "reminders": [],
+    "scheduledTexts": [],
+    "commitments": [],
+    "memoryWrites": [],
+    "memoryDeletes": [],
+    "spendDecisions": [],
+    "browserTasks": [],
+    "followups": [],
+    "calendarMutations": [],
+    "fileSends": [],
+    "workWrites": [],
+    "taskChoices": [],
+    "watches": [],
+    "anchors": [],
+    "plans": [],
+    "cancels": [],
+    "spendApprovals": [],
+    "todos": [],
+    "loops": [],
+    "otherWrites": [
+      {
+        "path": "/api/internal/anchors:GET"
+      }
+    ]
+  },
+  "finalMemories": [
+    {
+      "key": "preferred_name",
+      "value": "Alex"
+    }
+  ],
+  "llmCalls": 3,
+  "wallMs": 27571
+}

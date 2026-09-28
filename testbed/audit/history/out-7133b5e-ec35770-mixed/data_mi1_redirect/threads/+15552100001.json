@@ -1,0 +1,26 @@
+{
+  "facts": [],
+  "summary": "",
+  "history": [
+    {
+      "role": "user",
+      "content": "get the series a deck ready to send to sam",
+      "ts": 1790580271823
+    },
+    {
+      "role": "assistant",
+      "content": "The email is drafted for your review — nothing has been sent yet. Want me to keep an eye out for his reply?",
+      "ts": 1790580271823
+    },
+    {
+      "role": "user",
+      "content": "yea send tht but not to sam to sarah",
+      "ts": 1790580316901
+    },
+    {
+      "role": "assistant",
+      "content": "Found it in Drive: Series A Deck v4.pdf. Heads up though, my attempt to send it to Sarah didn't go through on my end, so nothing has left your outbox yet. Want me to retry the send to sarah@vcfirm.com, or would you rather I set it up as a draft you approve first?",
+      "ts": 1790580316901
+    }
+  ]
+}

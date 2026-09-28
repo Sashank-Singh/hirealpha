@@ -1,0 +1,26 @@
+{
+  "facts": [],
+  "summary": "",
+  "history": [
+    {
+      "role": "user",
+      "content": "Toscana or Nopa for the team dinner Friday 8pm — which would you pick?",
+      "ts": 1790578980105
+    },
+    {
+      "role": "assistant",
+      "content": "Nopa, easy call. Big communal table energy, food that pleases basically everyone, and it holds up late if the dinner runs long. Toscana's lovely but it's more of a date night vibe.\n\nOne heads up: 8pm Friday at Nopa means you'll want to book basically now. Want me to get a reservation started for the team?",
+      "ts": 1790578980105
+    },
+    {
+      "role": "user",
+      "content": "ok use the other one then",
+      "ts": 1790578993187
+    },
+    {
+      "role": "assistant",
+      "content": "Toscana it is. How many people am I booking for Friday at 8?",
+      "ts": 1790578993187
+    }
+  ]
+}

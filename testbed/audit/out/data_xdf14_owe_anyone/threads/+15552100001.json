@@ -1,0 +1,16 @@
+{
+  "facts": [],
+  "summary": "",
+  "history": [
+    {
+      "role": "user",
+      "content": "Do I owe anyone anything?",
+      "ts": 1790608576303
+    },
+    {
+      "role": "assistant",
+      "content": "Mostly one thing, per your mail (last 14 days): 1. Sarah Kim · \"Deck?\" · she's still waiting on the updated deck from you. That's the open one. The other three don't need anything from you: Sam Cohen said he'd review the contract by Friday (his side, not yours), Dana's panel email was about the panel details, and the Southwest note is just your Denver trip confirmation. One caveat: the per thread reply tracker didn't answer when I checked it, so this is from a direct read of recent mail from your contacts, not the full mailbox. Want me to draft a quick note to Sarah with the deck status? What I have not checked: commitments — so treat the above as partial until that is read.",
+      "ts": 1790608576303
+    }
+  ]
+}

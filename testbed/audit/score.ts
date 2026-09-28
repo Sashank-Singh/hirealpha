@@ -160,14 +160,20 @@ function callSources(call: { path: string; body: Record<string, unknown> }): str
   return []
 }
 
+/* Alias normalization: scenario definitions use both "mail" and "gmail" for
+ * the same source (C22 vs C23), and call derivation yields "gmail". Without
+ * this, recall was undercounted by a naming artifact, not behavior. */
+const SOURCE_ALIASES: Record<string, string> = { mail: 'gmail', email: 'gmail', spend: 'spending', plan: 'plans', reminder: 'reminders' }
+const canon = (s: string) => SOURCE_ALIASES[s] || s
+
 function sourceMetrics(r: Record<string, unknown>) {
-  const required: string[] = Array.isArray(r.requiredSources) ? (r.requiredSources as string[]) : []
+  const required: string[] = (Array.isArray(r.requiredSources) ? (r.requiredSources as string[]) : []).map(canon)
   if (!required.length) return null
   const turns = (r.turns || []) as Array<{ calls?: Array<{ path: string; body: Record<string, unknown> }>; claimViolations?: number }>
   const calledSet = new Set<string>()
   let violations = 0
   for (const t of turns) {
-    for (const c of t.calls || []) for (const s of callSources(c)) calledSet.add(s)
+    for (const c of t.calls || []) for (const s of callSources(c)) calledSet.add(canon(s))
     violations += t.claimViolations || 0
   }
   const called = [...calledSet]

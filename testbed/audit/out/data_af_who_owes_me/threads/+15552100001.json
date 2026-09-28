@@ -1,0 +1,16 @@
+{
+  "facts": [],
+  "summary": "",
+  "history": [
+    {
+      "role": "user",
+      "content": "Who still owes me a reply?",
+      "ts": 1790609029925
+    },
+    {
+      "role": "assistant",
+      "content": "From the mail I pulled (last 2 weeks): 1. Sam Cohen · \"Contract\" · he said he'd review by Friday, today's Monday, so if nothing's landed, that's the one to nudge. Sarah Kim is the reverse case: her \"Deck?\" note means she's waiting on you for the updated deck, not the other way around. Dana's panel email was logistics only, nothing owed there. One caveat: my per thread reply tracker failed twice, so this is from recent mail, not a full sweep of every thread. Want me to draft a short nudge to Sam? I have not checked a fresh web check this turn, so I can't confirm anything that depends on it.",
+      "ts": 1790609029925
+    }
+  ]
+}

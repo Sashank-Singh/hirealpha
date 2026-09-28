@@ -1,0 +1,16 @@
+{
+  "facts": [],
+  "summary": "",
+  "history": [
+    {
+      "role": "user",
+      "content": "Find the Series A deck Sarah sent and get it to our investor list.",
+      "ts": 1790578468820
+    },
+    {
+      "role": "assistant",
+      "content": "Quick correction on my last message: the deck came from Sarah's thread itself, not a web search, \"Fwd: Series A deck\" from partner@vcfirm.com, with Series A Deck v4 attached, replying to Sarah's \"send the updated deck when you can.\" Still holding on the same question: who gets it? Dana Lee (dana@bigco.com), Sam Cohen (sam.cohen@acme.com), both, or a different investor list? I have not checked a fresh web check this turn, so I can't confirm anything that depends on it.",
+      "ts": 1790578468820
+    }
+  ]
+}

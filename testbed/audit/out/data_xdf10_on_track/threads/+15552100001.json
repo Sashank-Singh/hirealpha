@@ -1,0 +1,16 @@
+{
+  "facts": [],
+  "summary": "",
+  "history": [
+    {
+      "role": "user",
+      "content": "Am I on track this week?",
+      "ts": 1790608492084
+    },
+    {
+      "role": "assistant",
+      "content": "Here's what I checked: Calendar (Sep 28, Oct 4): 5 things on the books, BigCo interview today at 2 PM, gym tonight at 6:30, dentist Tue 9 AM, standup Wed 9:15, dinner with Dana Wed 7:30. No conflicts or back to back crunches visible; the week looks manageable. Weekly review record: I wasn't able to pull it just now, so I can't confirm habits, sleep, or logged progress against any goals. Not checked: your mail and to dos, so I can't say if anything is waiting on you before the interview. Want me to pull your owed replies and open to dos to complete the picture?",
+      "ts": 1790608492084
+    }
+  ]
+}

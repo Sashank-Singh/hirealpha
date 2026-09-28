@@ -1,6 +1,6 @@
 {
-  "revision": "7133b5e1aeeabf21e4f513628fe0e8deb82ec3a8",
-  "model": "zai-org/GLM-5.3-Flash",
+  "revision": "1c213301cad79dea12dcdbdd3aabb9dd02d62202",
+  "model": "zai-org/glm-5.3-flash",
   "worldDefinition": {
     "profile": {
       "name": "Alex Rivera",
@@ -150,9 +150,9 @@
     {
       "text": "Draft an email to Dana confirming Friday 4pm works for the call.",
       "bubbles": [
-        "Draft's ready for Dana (dana@bigco.com): \"Friday at 4pm works for the call, looking forward to it.\" It's on the review card, give it a look and tap Send when it reads right."
+        "Draft's ready to Dana (dana@bigco.com) confirming Friday 4pm. Review the card and tap Send when it looks good, nothing goes out until you do."
       ],
-      "reply": "Draft's ready for Dana (dana@bigco.com): \"Friday at 4pm works for the call, looking forward to it.\" It's on the review card, give it a look and tap Send when it reads right.",
+      "reply": "Draft's ready to Dana (dana@bigco.com) confirming Friday 4pm. Review the card and tap Send when it looks good, nothing goes out until you do.",
       "source": "gmi",
       "card": "https://audit.internal/card/x?draft=draft_1",
       "calls": [
@@ -200,8 +200,8 @@
             "persona": "friend",
             "kind": "mail",
             "to": "dana@bigco.com",
-            "subject": "Re: Call this Friday",
-            "body": "Hi Dana,\n\nQuick confirmation that Friday at 4pm works for the call. Looking forward to it.\n\nBest,\nAlex"
+            "subject": "Friday 4pm call",
+            "body": "Hi Dana,\n\nJust confirming that Friday at 4pm works for the call. Looking forward to it.\n\nBest,\nAlex"
           }
         },
         {
@@ -214,13 +214,19 @@
             "ref": {
               "draftId": "draft_1",
               "to": "dana@bigco.com",
-              "subject": "Re: Call this Friday",
+              "subject": "Friday 4pm call",
               "kind": "mail"
             }
           }
+        },
+        {
+          "method": "GET",
+          "path": "/api/internal/mini/token?phone=%2B15552100001&persona=friend&kind=approve_send",
+          "body": {}
         }
       ],
       "llmCallsInTurn": 3,
+      "claimViolations": 0,
       "thread": {
         "facts": [],
         "summary": "",
@@ -280,6 +286,7 @@
         }
       ],
       "llmCallsInTurn": 0,
+      "claimViolations": 0,
       "thread": {
         "facts": [],
         "summary": "",
@@ -294,8 +301,8 @@
         "phone": "+15552100001",
         "persona": "friend",
         "to": "dana@bigco.com",
-        "subject": "Re: Call this Friday",
-        "body": "Hi Dana,\n\nQuick confirmation that Friday at 4pm works for the call. Looking forward to it.\n\nBest,\nAlex"
+        "subject": "Friday 4pm call",
+        "body": "Hi Dana,\n\nJust confirming that Friday at 4pm works for the call. Looking forward to it.\n\nBest,\nAlex"
       },
       {
         "kind": "send_draft",
@@ -323,11 +330,11 @@
         "ref": {
           "draftId": "draft_1",
           "to": "dana@bigco.com",
-          "subject": "Re: Call this Friday",
+          "subject": "Friday 4pm call",
           "kind": "mail"
         },
-        "createdAt": "2026-09-28T07:02:06.921Z",
-        "expiresAt": "2026-09-29T07:02:06.921Z"
+        "createdAt": "2026-09-28T14:46:38.495Z",
+        "expiresAt": "2026-09-29T14:46:38.495Z"
       }
     ],
     "plans": [],
@@ -347,7 +354,7 @@
         "ref": {
           "draftId": "draft_1",
           "to": "dana@bigco.com",
-          "subject": "Re: Call this Friday",
+          "subject": "Friday 4pm call",
           "kind": "mail"
         }
       },
@@ -366,5 +373,5 @@
     }
   ],
   "llmCalls": 3,
-  "wallMs": 20937
+  "wallMs": 12612
 }

@@ -1,6 +1,6 @@
 {
-  "revision": "7133b5e1aeeabf21e4f513628fe0e8deb82ec3a8",
-  "model": "zai-org/GLM-5.3-Flash",
+  "revision": "1c213301cad79dea12dcdbdd3aabb9dd02d62202",
+  "model": "zai-org/glm-5.3-flash",
   "worldDefinition": {
     "profile": {
       "name": "Alex Rivera",
@@ -150,9 +150,9 @@
     {
       "text": "Set up a 15-min standup every weekday at 9:15am for me and Jules (he is in Berlin).",
       "bubbles": [
-        "Draft's ready for review, a recurring 15 min standup, weekdays 9:15, 9:30am your time. That's 3:15pm for Jules in Berlin, so no one's taking this call at midnight. Tap the card to review and Book it. One thing: the draft is on your calendar only, want me to add Jules (jules@weber.de) as an attendee so it lands on his too?"
+        "Draft is ready on a review card, tap Book and it lands on your calendar weekdays at 9:15am ET (that's 3:15pm for Jules in Berlin). One thing: right now it's just on your calendar. Want me to add Jules (jules@weber.de) as an attendee so he gets the invite too?"
       ],
-      "reply": "Draft's ready for review, a recurring 15 min standup, weekdays 9:15, 9:30am your time. That's 3:15pm for Jules in Berlin, so no one's taking this call at midnight. Tap the card to review and Book it. One thing: the draft is on your calendar only, want me to add Jules (jules@weber.de) as an attendee so it lands on his too?",
+      "reply": "Draft is ready on a review card, tap Book and it lands on your calendar weekdays at 9:15am ET (that's 3:15pm for Jules in Berlin). One thing: right now it's just on your calendar. Want me to add Jules (jules@weber.de) as an attendee so he gets the invite too?",
       "source": "gmi",
       "card": "https://audit.internal/card/x?draft=draft_1",
       "calls": [
@@ -199,9 +199,9 @@
             "phone": "+15552100001",
             "persona": "friend",
             "kind": "event",
-            "title": "Standup: Alex + Jules",
-            "start": "2026-09-28T09:15:00-04:00",
-            "end": "2026-09-28T09:30:00-04:00"
+            "title": "Standup — Alex & Jules",
+            "start": "2026-09-29T09:15:00-04:00",
+            "end": "2026-09-29T09:30:00-04:00"
           }
         },
         {
@@ -213,9 +213,9 @@
             "kind": "event",
             "ref": {
               "draftId": "draft_1",
-              "title": "Standup: Alex + Jules",
-              "start": "2026-09-28T09:15:00-04:00",
-              "end": "2026-09-28T09:30:00-04:00",
+              "title": "Standup — Alex & Jules",
+              "start": "2026-09-29T09:15:00-04:00",
+              "end": "2026-09-29T09:30:00-04:00",
               "source": "draft"
             }
           }
@@ -227,6 +227,7 @@
         }
       ],
       "llmCallsInTurn": 4,
+      "claimViolations": 0,
       "thread": {
         "facts": [],
         "summary": "",
@@ -240,9 +241,9 @@
         "kind": "event",
         "phone": "+15552100001",
         "persona": "friend",
-        "title": "Standup: Alex + Jules",
-        "start": "2026-09-28T09:15:00-04:00",
-        "end": "2026-09-28T09:30:00-04:00"
+        "title": "Standup — Alex & Jules",
+        "start": "2026-09-29T09:15:00-04:00",
+        "end": "2026-09-29T09:30:00-04:00"
       }
     ],
     "reminders": [],
@@ -263,13 +264,13 @@
         "kind": "event",
         "ref": {
           "draftId": "draft_1",
-          "title": "Standup: Alex + Jules",
-          "start": "2026-09-28T09:15:00-04:00",
-          "end": "2026-09-28T09:30:00-04:00",
+          "title": "Standup — Alex & Jules",
+          "start": "2026-09-29T09:15:00-04:00",
+          "end": "2026-09-29T09:30:00-04:00",
           "source": "draft"
         },
-        "createdAt": "2026-09-28T07:22:00.371Z",
-        "expiresAt": "2026-09-29T07:22:00.371Z"
+        "createdAt": "2026-09-28T15:03:39.428Z",
+        "expiresAt": "2026-09-29T15:03:39.428Z"
       }
     ],
     "plans": [],
@@ -288,9 +289,9 @@
         "kind": "event",
         "ref": {
           "draftId": "draft_1",
-          "title": "Standup: Alex + Jules",
-          "start": "2026-09-28T09:15:00-04:00",
-          "end": "2026-09-28T09:30:00-04:00",
+          "title": "Standup — Alex & Jules",
+          "start": "2026-09-29T09:15:00-04:00",
+          "end": "2026-09-29T09:30:00-04:00",
           "source": "draft"
         }
       }
@@ -303,5 +304,5 @@
     }
   ],
   "llmCalls": 4,
-  "wallMs": 45465
+  "wallMs": 19590
 }

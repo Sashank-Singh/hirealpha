@@ -5,22 +5,22 @@
     {
       "role": "user",
       "content": "Toscana or Nopa for the team dinner Friday 8pm — which would you pick?",
-      "ts": 1790578980105
+      "ts": 1790606837297
     },
     {
       "role": "assistant",
-      "content": "Nopa, easy call. Big communal table energy, food that pleases basically everyone, and it holds up late if the dinner runs long. Toscana's lovely but it's more of a date night vibe.\n\nOne heads up: 8pm Friday at Nopa means you'll want to book basically now. Want me to get a reservation started for the team?",
-      "ts": 1790578980105
+      "content": "Nopa, no contest. Bigger communal tables, the vibe holds up for a group that size, and the menu's got enough range that nobody's stuck picking at sides. Toscana's lovely but reads more date night than team night.\n\nWant me to try to lock in a table for Friday 8pm? If so, how many heads?",
+      "ts": 1790606837297
     },
     {
       "role": "user",
       "content": "ok use the other one then",
-      "ts": 1790578993187
+      "ts": 1790606849901
     },
     {
       "role": "assistant",
-      "content": "Toscana it is. How many people am I booking for Friday at 8?",
-      "ts": 1790578993187
+      "content": "Toscana it is, then. How many people are we seating? I'll get the details lined up for the reservation request.",
+      "ts": 1790606849901
     }
   ]
 }

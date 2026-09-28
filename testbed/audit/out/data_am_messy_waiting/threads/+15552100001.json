@@ -1,0 +1,16 @@
+{
+  "facts": [],
+  "summary": "",
+  "history": [
+    {
+      "role": "user",
+      "content": "who am i waiting on",
+      "ts": 1790609358637
+    },
+    {
+      "role": "assistant",
+      "content": "Checked your tracked reply threads and the last 5 days of mail. Two people come up: 1. Sarah Kim · \"Deck?\" · she's still waiting on the updated deck from you, this one's on you, not her. 2. Sam Cohen · \"Contract\" · he said he'd review by Friday, so the ball's in his court until then. Dana's panel email and your Southwest confirmation don't need replies. One caveat: the reply tracking read failed, so this is from recent mail, not your full thread state, there could be older threads I'm not seeing. Want me to retry that, or draft the deck note to Sarah? What I have not checked: commitments — so treat the above as partial until that is read.",
+      "ts": 1790609358637
+    }
+  ]
+}

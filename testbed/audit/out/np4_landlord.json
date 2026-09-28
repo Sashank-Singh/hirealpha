@@ -1,6 +1,6 @@
 {
-  "revision": "7133b5e1aeeabf21e4f513628fe0e8deb82ec3a8",
-  "model": "zai-org/GLM-5.3-Flash",
+  "revision": "1c213301cad79dea12dcdbdd3aabb9dd02d62202",
+  "model": "zai-org/glm-5.3-flash",
   "worldDefinition": {
     "profile": {
       "name": "Alex Rivera",
@@ -159,9 +159,9 @@
     {
       "text": "Draft a note telling our landlord the heater is broken again. Firm but friendly.",
       "bubbles": [
-        "Here's the draft: \"Hi [Landlord's name], The heater has stopped working again, this is a repeat issue, and with the weather cooling off it's not something we can wait on. Could you get someone out to fix it in the next day or two? If it's easier, send me the repair contact directly and we'll coordinate. We've appreciated how responsive you've been in the past, so hoping we can get this sorted quickly. Thanks, Alex\" Two things before I stage it as an email: who's it addressed to (name and email), and is \"again\" twice or more? If it's the third time, I'd add a line noting the pattern, firmer, still friendly."
+        "Here's the draft: \"Hi [Landlord's name], hope you're doing well. I want to flag that the heater has stopped working again at [address/unit]. This is a repeat issue, and with cooler weather settling in, I'd like to get it repaired properly this time rather than patched. Could you let me know when a technician can come by? I'm flexible on timing but would appreciate a concrete date within the next few days. Thanks for your help, Alex\" Two things to fill in: the landlord's name and the address/unit. Want me to send it as an email once you give me their address, or are you texting it?"
       ],
-      "reply": "Here's the draft: \"Hi [Landlord's name], The heater has stopped working again, this is a repeat issue, and with the weather cooling off it's not something we can wait on. Could you get someone out to fix it in the next day or two? If it's easier, send me the repair contact directly and we'll coordinate. We've appreciated how responsive you've been in the past, so hoping we can get this sorted quickly. Thanks, Alex\" Two things before I stage it as an email: who's it addressed to (name and email), and is \"again\" twice or more? If it's the third time, I'd add a line noting the pattern, firmer, still friendly.",
+      "reply": "Here's the draft: \"Hi [Landlord's name], hope you're doing well. I want to flag that the heater has stopped working again at [address/unit]. This is a repeat issue, and with cooler weather settling in, I'd like to get it repaired properly this time rather than patched. Could you let me know when a technician can come by? I'm flexible on timing but would appreciate a concrete date within the next few days. Thanks for your help, Alex\" Two things to fill in: the landlord's name and the address/unit. Want me to send it as an email once you give me their address, or are you texting it?",
       "source": "gmi",
       "card": null,
       "calls": [
@@ -203,6 +203,7 @@
         }
       ],
       "llmCallsInTurn": 2,
+      "claimViolations": 0,
       "thread": {
         "facts": [],
         "summary": "",
@@ -244,5 +245,5 @@
     }
   ],
   "llmCalls": 2,
-  "wallMs": 18777
+  "wallMs": 16661
 }

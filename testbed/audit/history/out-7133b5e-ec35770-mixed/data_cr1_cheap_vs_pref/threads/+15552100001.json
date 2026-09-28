@@ -1,0 +1,16 @@
+{
+  "facts": [],
+  "summary": "",
+  "history": [
+    {
+      "role": "user",
+      "content": "Book me a flight to Denver Thursday. Cheapest is fine — you decide.",
+      "ts": 1790579470859
+    },
+    {
+      "role": "assistant",
+      "content": "On it, the run is live on Delta's site for Thursday, Oct 1, New York to Denver, one way, cheapest fare. No payment is confirmed. The pending request is unchanged; review the approval card. I'll text you the options when it finishes. Launching Cloud Computer for this task: https://audit.internal/computer/job_1 — the session is active now, pauses automatically before any sensitive steps, and I'll report back here with the verified results.",
+      "ts": 1790579470859
+    }
+  ]
+}

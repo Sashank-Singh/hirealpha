@@ -1,0 +1,16 @@
+{
+  "facts": [],
+  "summary": "",
+  "history": [
+    {
+      "role": "user",
+      "content": "Where did my week go?",
+      "ts": 1790608461259
+    },
+    {
+      "role": "assistant",
+      "content": "Checked your calendar for Sep 21, 28. Honest answer: your past week was nearly empty on the books, the only things showing are today's BigCo interview at 2:00 PM and the gym at 6:30 PM, then dentist Tuesday, standup Wednesday, dinner with Dana Wednesday. So either it was genuinely a light calendar week, or the week lived in email and untracked work, which I haven't dug through. Want me to scan last week's mail to reconstruct where the time actually went?",
+      "ts": 1790608461259
+    }
+  ]
+}

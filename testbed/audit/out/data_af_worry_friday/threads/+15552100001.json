@@ -1,0 +1,16 @@
+{
+  "facts": [],
+  "summary": "",
+  "history": [
+    {
+      "role": "user",
+      "content": "Should I be worried about anything before Friday?",
+      "ts": 1790609190685
+    },
+    {
+      "role": "assistant",
+      "content": "Checked your calendar through Friday and the last 5 days of mail. Here's what stands out: 1. Dana · Panel details · 2d Today at 2pm, 100 Main St, 9th floor, 45 min product case, bring questions. That's the big one. 2. Sarah Kim · Deck? · 3d She's still waiting on your updated deck. This is the thing most likely to slip. 3. Sam Cohen · Contract · 1d The email is drafted for your review — nothing has been sent yet. Nothing needed from you yet, but worth a skim when it lands. 4. Southwest · Denver flight · 1d WN 2214, JFK→DEN, 3:40pm Thu Oct 1, Zephyr Lodge check in 3pm. One flag: your calendar shows nothing for the trip, no travel block, and nothing on Friday in Denver either. Might just be unlogged. The rest is routine: gym today 6:30, dentist tomorrow 9am, standup and dinner with Dana Wednesday. Short answer: nothing alarming, but the deck for Sarah and prepping today's panel are the two live items. Want me to draft a quick note to Sarah about the deck?",
+      "ts": 1790609190685
+    }
+  ]
+}

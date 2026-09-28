@@ -1,0 +1,23 @@
+{
+  "facts": [
+    {
+      "key": "goal:cut_my_monthly_spending_",
+      "value": "Cut my monthly spending by 20% without touching rent",
+      "ts": 1790577975860,
+      "lastSeen": 1790577975860
+    }
+  ],
+  "summary": "",
+  "history": [
+    {
+      "role": "user",
+      "content": "I want to cut my monthly spending by 20% without touching rent. Make it happen or tell me what to change.",
+      "ts": 1790578023745
+    },
+    {
+      "role": "assistant",
+      "content": "Quick follow up on Spotify: I tried to pull current plan pricing to see if there's a cheaper tier for you, and the search came back empty, so I won't quote numbers I can't verify. If you want, I can check spotify.com's plans page directly. The plan stands regardless: pause Amazon impulse orders, halve the Uber spend, and one fewer dinner out covers the 20% without touching rent. Want that weekly check in set up? https://audit-none.example/search",
+      "ts": 1790578023745
+    }
+  ]
+}

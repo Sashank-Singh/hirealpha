@@ -1,0 +1,16 @@
+{
+  "facts": [],
+  "summary": "",
+  "history": [
+    {
+      "role": "user",
+      "content": "Do I have everything I need for the offsite Friday?",
+      "ts": 1790608410140
+    },
+    {
+      "role": "assistant",
+      "content": "Here's what I checked and what it shows: Travel: covered. Per the Southwest confirmation in your mail, WN 2214 JFK→DEN departs Thursday Oct 1 at 3:40pm, and Zephyr Lodge check in is 3pm that day. The offsite itself: Dana's email has the details, panel with product + engineering leads, 45 minute product case, bring questions, 100 Main St, 9th floor. But your calendar for Friday Oct 2 is completely empty, so the offsite isn't blocked on your schedule. Worth adding so nothing double books it. Two loose ends that touch Friday: 1. Sarah at the VC firm is still waiting on the updated deck, that's the biggest gap. 2. Sam's contract, which he said he'd review by Friday. Also a heads up: you have the BigCo interview today at 2pm, so the deck ask may want to wait until after that. Want me to add the offsite to your calendar and draft a quick note to Sarah with the deck?",
+      "ts": 1790608410140
+    }
+  ]
+}

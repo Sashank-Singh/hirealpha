@@ -1,6 +1,6 @@
 {
-  "revision": "7133b5e1aeeabf21e4f513628fe0e8deb82ec3a8",
-  "model": "zai-org/GLM-5.3-Flash",
+  "revision": "1c213301cad79dea12dcdbdd3aabb9dd02d62202",
+  "model": "zai-org/glm-5.3-flash",
   "worldDefinition": {
     "profile": {
       "name": "Alex Rivera",
@@ -166,9 +166,9 @@
     {
       "text": "Help me prepare for moving to Seattle next month.",
       "bubbles": [
-        "The search came back empty, no useful pages on Seattle moving costs or neighborhoods, so I'm not going to quote you numbers I can't back up. Let's build the plan from what you actually know instead. Three quick things: 1. When's the move, and are you driving or shipping? 2. Place lined up yet, or is hunting part of this? 3. Rough budget for the move? With that I can run targeted searches, real neighborhood options, mover quotes, utility setup, and turn it into a week by week checklist with reminders so nothing slips. https://audit-none.example/search"
+        "The search came back empty, so I won't quote numbers I can't back up. Here's what I can do without guessing, and it's honestly the more useful path anyway: A move checklist, tailored to you: 1. Housing, I can search live rentals for your dates and budget (neighborhoods like Capitol Hill, Ballard, Fremont, South Lake Union depending on vibe and commute) 2. Calendar, I can read your October schedule and flag anything that collides with moving week 3. Mail, check for lease, mover quotes, or utility emails already sitting in your inbox 4. Reminders, set real deadlines for notice to your current landlord, movers, address change, etc. What's your budget for rent, and are you moving solo? Then I'll pull real listings instead of averages. https://audit-none.example/search"
       ],
-      "reply": "The search came back empty, no useful pages on Seattle moving costs or neighborhoods, so I'm not going to quote you numbers I can't back up. Let's build the plan from what you actually know instead. Three quick things: 1. When's the move, and are you driving or shipping? 2. Place lined up yet, or is hunting part of this? 3. Rough budget for the move? With that I can run targeted searches, real neighborhood options, mover quotes, utility setup, and turn it into a week by week checklist with reminders so nothing slips. https://audit-none.example/search",
+      "reply": "The search came back empty, so I won't quote numbers I can't back up. Here's what I can do without guessing, and it's honestly the more useful path anyway: A move checklist, tailored to you: 1. Housing, I can search live rentals for your dates and budget (neighborhoods like Capitol Hill, Ballard, Fremont, South Lake Union depending on vibe and commute) 2. Calendar, I can read your October schedule and flag anything that collides with moving week 3. Mail, check for lease, mover quotes, or utility emails already sitting in your inbox 4. Reminders, set real deadlines for notice to your current landlord, movers, address change, etc. What's your budget for rent, and are you moving solo? Then I'll pull real listings instead of averages. https://audit-none.example/search",
       "source": "gmi",
       "card": null,
       "calls": [
@@ -209,7 +209,8 @@
           }
         }
       ],
-      "llmCallsInTurn": 5,
+      "llmCallsInTurn": 4,
+      "claimViolations": 0,
       "thread": {
         "facts": [],
         "summary": "",
@@ -250,6 +251,6 @@
       "value": "Alex"
     }
   ],
-  "llmCalls": 5,
-  "wallMs": 31719
+  "llmCalls": 4,
+  "wallMs": 33078
 }

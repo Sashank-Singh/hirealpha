@@ -1,0 +1,16 @@
+{
+  "facts": [],
+  "summary": "",
+  "history": [
+    {
+      "role": "user",
+      "content": "Book dinner with Priya somewhere good Friday 8pm. Do what you think is best.",
+      "ts": 1790579147106
+    },
+    {
+      "role": "assistant",
+      "content": "I don't have a site to point at yet, no portal was named in this thread, and I'm not going to invent one. Still waiting on your city and vibe for the Friday 8pm dinner with Priya, then I'll search real listings and stage the booking.",
+      "ts": 1790579147106
+    }
+  ]
+}

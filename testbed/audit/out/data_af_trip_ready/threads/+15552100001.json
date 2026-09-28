@@ -1,0 +1,16 @@
+{
+  "facts": [],
+  "summary": "",
+  "history": [
+    {
+      "role": "user",
+      "content": "Am I ready for my Denver trip?",
+      "ts": 1790608667248
+    },
+    {
+      "role": "assistant",
+      "content": "I’m checking the sources for this.\n\nHere's what I can see for the Denver trip: That is staged as a draft for your confirmation — the calendar has not been changed yet. Nothing on your calendar collides that day, and the BigCo panel and dentist appointment wrap before you leave. What I haven't verified: Denver weather that weekend. My weather read came back empty, so I can't tell you conditions or what to pack. Worth a quick check before Thursday. A return flight. I only see the outbound in your mail. If it's booked under a separate confirmation, I don't have it. Check in for the flight, that's something Southwest requires you to do yourself (24 hours before, so Wednesday 3:40 PM). I can set a reminder if you want. One small thing: Sam expects the contract reviewed by Friday and Sarah's still waiting on the deck, and both deadlines land while you're away or right after. Worth clearing before you fly. Want the check in reminder, and should I hunt for that return flight confirmation? What I have not checked: commitments — so treat the above as partial until that is read.",
+      "ts": 1790608667248
+    }
+  ]
+}

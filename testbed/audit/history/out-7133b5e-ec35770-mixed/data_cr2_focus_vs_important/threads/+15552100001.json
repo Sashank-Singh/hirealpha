@@ -1,0 +1,16 @@
+{
+  "facts": [],
+  "summary": "",
+  "history": [
+    {
+      "role": "user",
+      "content": "Stripe's CEO can only do Tuesday 9:30am this week. Take the meeting?",
+      "ts": 1790579508730
+    },
+    {
+      "role": "assistant",
+      "content": "One snag: 9:30am Tuesday sits inside your protected 9, noon focus block, and your standing rule is never to book anything in it. The rest of the day is clear, you've got the BigCo interview at 2pm, and 9:30 doesn't touch it. So it's purely a question of whether the Stripe CEO earns a one time exception to the block. That is staged as a draft for your confirmation — the calendar has not been changed yet.",
+      "ts": 1790579508730
+    }
+  ]
+}

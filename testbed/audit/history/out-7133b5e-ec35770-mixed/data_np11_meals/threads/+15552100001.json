@@ -1,0 +1,16 @@
+{
+  "facts": [],
+  "summary": "",
+  "history": [
+    {
+      "role": "user",
+      "content": "Plan my meals for the week around 120g protein a day.",
+      "ts": 1790580222522
+    },
+    {
+      "role": "assistant",
+      "content": "Here's your week, built around ~120g protein a day. Each day is a template so you can swap proteins without doing math. Daily skeleton (~120g): Breakfast: 3 eggs + 2 slices toast (20g), or Greek yogurt cup + granola (25g) Lunch: 5, 6 oz chicken, turkey, or tuna (35, 40g) Snack: protein shake or cottage cheese (25, 30g) Dinner: 5, 6 oz salmon, steak, or tofu + veg + rice/pasta (35, 40g) The week: Mon: Greek yogurt breakfast · chicken Caesar wrap lunch · salmon, rice, broccoli dinner Tue: Eggs + toast · turkey chili · steak, potatoes, green beans Wed: Yogurt + granola · tuna sandwich · chicken stir fry with tofu mixed in Thu: Protein shake + banana · chicken burrito bowl · baked cod, quinoa, asparagus Fri: Eggs · turkey burger (no bun is optional, not mandatory) · shrimp pasta Sat: Omelet with cheese · leftover buffet · pork chops, veg Sun: Greek yogurt pancakes · rotisserie chicken (easiest 40g ever) · whatever's left Shopping list core: eggs (18), Greek yogurt (7 cups), chicken breast ~2.5 lbs, salmon + cod, ground turkey, steak, shrimp, tuna cans, cottage cheese or protein powder, frozen veg. Want me to attach the nutrition card so you can log meals against this, or adjust for anything (no seafood, vegetarian days, budget cap)?",
+      "ts": 1790580222522
+    }
+  ]
+}

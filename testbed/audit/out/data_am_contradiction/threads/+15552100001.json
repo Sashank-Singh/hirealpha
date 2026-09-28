@@ -1,0 +1,16 @@
+{
+  "facts": [],
+  "summary": "",
+  "history": [
+    {
+      "role": "user",
+      "content": "Am I ready for my interview?",
+      "ts": 1790609470360
+    },
+    {
+      "role": "assistant",
+      "content": "Almost, but there's a date conflict you need to fix first. Your calendar still shows the BigCo interview tomorrow, Tuesday Sep 29 at 2:00 PM. The email is drafted for your review — nothing has been sent yet. So trust the email: it's Wednesday, not tomorrow. What I checked: your calendar (one event this week, the interview) and your mail (Dana's reschedule note). I have not checked your reminders or any prep materials, so I can't speak to those. Want me to move the calendar event to Wednesday Sep 30 at 2 PM so it matches?",
+      "ts": 1790609470360
+    }
+  ]
+}

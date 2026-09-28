@@ -1,0 +1,16 @@
+{
+  "facts": [],
+  "summary": "",
+  "history": [
+    {
+      "role": "user",
+      "content": "Can I afford a $400 trip to Austin next weekend?",
+      "ts": 1790608866787
+    },
+    {
+      "role": "assistant",
+      "content": "Short answer: based on what you've logged, no, not without blowing this week's budget. You're at $395 of your $400 for this week (dining $275, Amazon $120), so a $400 trip puts you roughly $395 over what's logged against the budget. I have not actually checked your calendar yet, so I cannot say whether it is reachable. And $400 is under your $500 standing cap, so I wouldn't need to ask twice, but the budget math says to pause first. If you want it to work: I can help hunt cheaper flights/lodging for next weekend, or we treat this as next week's spend. Want me to check real Austin prices?",
+      "ts": 1790608866787
+    }
+  ]
+}

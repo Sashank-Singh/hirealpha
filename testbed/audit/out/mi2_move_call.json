@@ -1,6 +1,6 @@
 {
-  "revision": "7133b5e1aeeabf21e4f513628fe0e8deb82ec3a8",
-  "model": "zai-org/GLM-5.3-Flash",
+  "revision": "1c213301cad79dea12dcdbdd3aabb9dd02d62202",
+  "model": "zai-org/glm-5.3-flash",
   "worldDefinition": {
     "profile": {
       "name": "Alex Rivera",
@@ -159,9 +159,9 @@
     {
       "text": "move tomorow call later like after lunch",
       "bubbles": [
-        "Quick check, I pulled tomorrow (Tue Sep 29) and there's no call on the calendar that day. The closest thing I see is the BigCo interview today (Mon) at 2:00 PM. Is that the one you want pushed to after lunch, or is the call somewhere else (maybe an invite that hasn't hit your calendar)? If it's the interview, what time after lunch works, 1:30? 2:30?"
+        "Quick check: your calendar shows nothing scheduled tomorrow (Tuesday), no call on it. The only call ish thing I see is the BigCo interview, but that's today at 2 PM. Which call did you mean? If it's one I can't see (maybe it lives on another calendar), tell me the time and who it's with and I'll get it moved to after lunch."
       ],
-      "reply": "Quick check, I pulled tomorrow (Tue Sep 29) and there's no call on the calendar that day. The closest thing I see is the BigCo interview today (Mon) at 2:00 PM. Is that the one you want pushed to after lunch, or is the call somewhere else (maybe an invite that hasn't hit your calendar)? If it's the interview, what time after lunch works, 1:30? 2:30?",
+      "reply": "Quick check: your calendar shows nothing scheduled tomorrow (Tuesday), no call on it. The only call ish thing I see is the BigCo interview, but that's today at 2 PM. Which call did you mean? If it's one I can't see (maybe it lives on another calendar), tell me the time and who it's with and I'll get it moved to after lunch.",
       "source": "gmi",
       "card": null,
       "calls": [
@@ -213,6 +213,7 @@
         }
       ],
       "llmCallsInTurn": 4,
+      "claimViolations": 0,
       "thread": {
         "facts": [],
         "summary": "",
@@ -254,5 +255,5 @@
     }
   ],
   "llmCalls": 4,
-  "wallMs": 20637
+  "wallMs": 16887
 }

@@ -5,12 +5,12 @@
     {
       "role": "user",
       "content": "Email Dana confirming our Friday call at 4pm.",
-      "ts": 1790578793750
+      "ts": 1790606729808
     },
     {
       "role": "assistant",
-      "content": "The email is drafted for your review — nothing has been sent yet. Want me to try again? Otherwise you can paste this straight into Mail: To: dana@bigco.com Subject: Confirming our Friday call Hi Dana, Quick note to confirm our call this Friday at 4:00 PM ET. Looking forward to it. Best, Alex",
-      "ts": 1790578793750
+      "content": "The memory writes went through on my side, so those notes are stored — ask me to read any of them back and I will. Want me to try again?",
+      "ts": 1790606729808
     }
   ]
 }

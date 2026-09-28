@@ -1,6 +1,6 @@
 {
-  "revision": "7133b5e1aeeabf21e4f513628fe0e8deb82ec3a8",
-  "model": "zai-org/GLM-5.3-Flash",
+  "revision": "1c213301cad79dea12dcdbdd3aabb9dd02d62202",
+  "model": "zai-org/glm-5.3-flash",
   "worldDefinition": {
     "profile": {
       "name": "Alex Rivera",
@@ -159,9 +159,9 @@
     {
       "text": "Three customers churned this month — help me figure out why and what to do about it.",
       "bubbles": [
-        "Rough month, sorry. Let's figure it out properly instead of guessing.\n\nThe fastest way in: for each of the three, do we know (1) when they last used the product before churning, (2) what they said at cancellation, and (3) how long they'd been customers? Those three answers usually separate \"we dropped the ball\" churn from \"they were never the right fit\" churn.\n\nIf you can paste in whatever notes or exit survey answers you have, I'll help you spot the pattern and draft a plan, win back outreach, fixes to the leak, whatever fits. What do the cancellations actually say?"
+        "Straight answer: the web search came up empty, and the mail read earlier returned nothing usable, so I don't have data on these three yet. What I can offer is the standard playbook, and it starts with names. The usual causes, in order of how often they're the real reason: 1. Price/value mismatch, they still need the product but the math stopped working 2. Champion left, your internal advocate changed jobs and nobody replaced them 3. Product gap or poor fit, it never fully solved their problem 4. Onboarding failure, they never got to value in the first place For each of the three, the fastest diagnostic is a 15 minute exit call, not a survey. Ask: \"What triggered the decision?\" then \"What would have had to be true for you to stay?\" The first answer is usually a symptom; the second tells you if they're win backable. Then the plan splits: price driven → offer a right sized plan; champion gone → re onboard the successor; product gap → log it and decide if it's a pattern; onboarding → fix the first 30 days before you sell another seat. Give me the three names and any context you have (tenure, plan size, last touchpoint) and I'll sort them into buckets and draft the exit call or win back emails. If their goodbye emails are in your inbox, forward them here and I'll read the actual language for tells. https://audit-none.example/search"
       ],
-      "reply": "Rough month, sorry. Let's figure it out properly instead of guessing.\n\nThe fastest way in: for each of the three, do we know (1) when they last used the product before churning, (2) what they said at cancellation, and (3) how long they'd been customers? Those three answers usually separate \"we dropped the ball\" churn from \"they were never the right fit\" churn.\n\nIf you can paste in whatever notes or exit survey answers you have, I'll help you spot the pattern and draft a plan, win back outreach, fixes to the leak, whatever fits. What do the cancellations actually say?",
+      "reply": "Straight answer: the web search came up empty, and the mail read earlier returned nothing usable, so I don't have data on these three yet. What I can offer is the standard playbook, and it starts with names. The usual causes, in order of how often they're the real reason: 1. Price/value mismatch, they still need the product but the math stopped working 2. Champion left, your internal advocate changed jobs and nobody replaced them 3. Product gap or poor fit, it never fully solved their problem 4. Onboarding failure, they never got to value in the first place For each of the three, the fastest diagnostic is a 15 minute exit call, not a survey. Ask: \"What triggered the decision?\" then \"What would have had to be true for you to stay?\" The first answer is usually a symptom; the second tells you if they're win backable. Then the plan splits: price driven → offer a right sized plan; champion gone → re onboard the successor; product gap → log it and decide if it's a pattern; onboarding → fix the first 30 days before you sell another seat. Give me the three names and any context you have (tenure, plan size, last touchpoint) and I'll sort them into buckets and draft the exit call or win back emails. If their goodbye emails are in your inbox, forward them here and I'll read the actual language for tells. https://audit-none.example/search",
       "source": "gmi",
       "card": null,
       "calls": [
@@ -192,9 +192,43 @@
             "phone": "+15552100001",
             "persona": "friend"
           }
+        },
+        {
+          "method": "GET",
+          "path": "/api/internal/plans",
+          "body": {
+            "phone": "+15552100001",
+            "persona": "friend"
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/internal/live/tools",
+          "body": {
+            "phone": "+15552100001",
+            "persona": "friend",
+            "message": "subject:(churn OR cancelled OR cancellation OR unsubscribed) newer_than:60d",
+            "want": "gmail"
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/internal/live/tools",
+          "body": {
+            "phone": "+15552100001",
+            "persona": "friend",
+            "message": "subject:(churn OR cancelled OR cancellation OR unsubscribed) newer_than:60d",
+            "want": "gmail"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/search",
+          "body": {}
         }
       ],
-      "llmCallsInTurn": 3,
+      "llmCallsInTurn": 6,
+      "claimViolations": 0,
       "thread": {
         "facts": [],
         "summary": "",
@@ -235,6 +269,6 @@
       "value": "Alex"
     }
   ],
-  "llmCalls": 3,
-  "wallMs": 16609
+  "llmCalls": 6,
+  "wallMs": 42615
 }

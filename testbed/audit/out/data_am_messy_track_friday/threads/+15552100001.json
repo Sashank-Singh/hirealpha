@@ -1,0 +1,16 @@
+{
+  "facts": [],
+  "summary": "",
+  "history": [
+    {
+      "role": "user",
+      "content": "we still on track for friday?",
+      "ts": 1790609313050
+    },
+    {
+      "role": "assistant",
+      "content": "Checked your calendar through Friday: nothing at all is scheduled for Friday Oct 2, the week's items are today's BigCo interview at 2, dentist Tue 9am, standup and dinner with Dana on Wed. So calendar wise Friday is wide open. I haven't checked your mail or reminders for anything Friday related, and there's no active plan I can read progress on, if \"Friday\" is a deadline someone set, tell me what it is and I'll verify it properly.",
+      "ts": 1790609313050
+    }
+  ]
+}

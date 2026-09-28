@@ -1,6 +1,6 @@
 {
-  "revision": "7133b5e1aeeabf21e4f513628fe0e8deb82ec3a8",
-  "model": "zai-org/GLM-5.3-Flash",
+  "revision": "1c213301cad79dea12dcdbdd3aabb9dd02d62202",
+  "model": "zai-org/glm-5.3-flash",
   "worldDefinition": {
     "profile": {
       "name": "Alex Rivera",
@@ -159,9 +159,9 @@
     {
       "text": "ugh the dentist moved me to next Tuesday 9am. handle it",
       "bubbles": [
-        "Got it, dentist moved to Tuesday Oct 6 at 9am. I'll treat that as the standing appointment.\n\nAlso Alex... it's 3am. Shouldn't you be asleep before a dental visit makes you feel even more guilty?"
+        "Got it, Alex. Dentist appointment moved to Tuesday, October 6 at 9:00 AM.\n\nOne thing: I can't actually add it to your calendar from here, so toss it in your phone or tell me to remind you closer to the date and I'll flag it. Also worth confirming they actually booked the new slot on their end and didn't just leave you hanging."
       ],
-      "reply": "Got it, dentist moved to Tuesday Oct 6 at 9am. I'll treat that as the standing appointment.\n\nAlso Alex... it's 3am. Shouldn't you be asleep before a dental visit makes you feel even more guilty?",
+      "reply": "Got it, Alex. Dentist appointment moved to Tuesday, October 6 at 9:00 AM.\n\nOne thing: I can't actually add it to your calendar from here, so toss it in your phone or tell me to remind you closer to the date and I'll flag it. Also worth confirming they actually booked the new slot on their end and didn't just leave you hanging.",
       "source": "gmi",
       "card": null,
       "calls": [
@@ -195,6 +195,7 @@
         }
       ],
       "llmCallsInTurn": 2,
+      "claimViolations": 0,
       "thread": {
         "facts": [],
         "summary": "",
@@ -236,5 +237,5 @@
     }
   ],
   "llmCalls": 2,
-  "wallMs": 12816
+  "wallMs": 12911
 }

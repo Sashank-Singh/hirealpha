@@ -1,0 +1,16 @@
+{
+  "facts": [],
+  "summary": "",
+  "history": [
+    {
+      "role": "user",
+      "content": "week looking cooked?",
+      "ts": 1790609267507
+    },
+    {
+      "role": "assistant",
+      "content": "Cooked but survivable. The big one is today: BigCo interview at 2 PM. Then dentist Tue 9 AM, standup Wed 9:15, and dinner with Dana Wed 7:30. Rest of the week's clear. Want a conflict check on Wednesday since standup and dinner stack the same day? I have not checked a fresh web check this turn, so I can't confirm anything that depends on it.",
+      "ts": 1790609267507
+    }
+  ]
+}

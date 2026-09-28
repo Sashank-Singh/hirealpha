@@ -1,0 +1,16 @@
+{
+  "facts": [],
+  "summary": "",
+  "history": [
+    {
+      "role": "user",
+      "content": "anything im dropping",
+      "ts": 1790609227765
+    },
+    {
+      "role": "assistant",
+      "content": "Not that I can see, Alex, nothing on your plate from me. Anything specific you're worried slipped, or just doing a Monday audit?",
+      "ts": 1790609227765
+    }
+  ]
+}

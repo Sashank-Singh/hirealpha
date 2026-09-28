@@ -1,6 +1,6 @@
 {
-  "revision": "7133b5e1aeeabf21e4f513628fe0e8deb82ec3a8",
-  "model": "zai-org/GLM-5.3-Flash",
+  "revision": "1c213301cad79dea12dcdbdd3aabb9dd02d62202",
+  "model": "zai-org/glm-5.3-flash",
   "worldDefinition": {
     "profile": {
       "name": "Alex Rivera",
@@ -159,9 +159,9 @@
     {
       "text": "When am I free tomorrow morning?",
       "bubbles": [
-        "That is staged as a draft for your confirmation — the calendar has not been changed yet. If you actually meant today, Monday, you're free 10:00, 11:30 AM this morning. No web search needed here, this came straight off your calendar. Want me to block either slot? I have not checked a fresh web check this turn, so I can't confirm anything that depends on it."
+        "Checked your calendar for tomorrow (Tuesday, Sep 29) morning: no free blocks. That is staged as a draft for your confirmation — the calendar has not been changed yet. If you need a morning slot, the closest ones are Mon Sep 28, 10:00, 11:30 AM (today) and Thu Oct 1, 11:00 AM, 12:00 PM. Want me to hold or move anything?"
       ],
-      "reply": "That is staged as a draft for your confirmation — the calendar has not been changed yet. If you actually meant today, Monday, you're free 10:00, 11:30 AM this morning. No web search needed here, this came straight off your calendar. Want me to block either slot? I have not checked a fresh web check this turn, so I can't confirm anything that depends on it.",
+      "reply": "Checked your calendar for tomorrow (Tuesday, Sep 29) morning: no free blocks. That is staged as a draft for your confirmation — the calendar has not been changed yet. If you need a morning slot, the closest ones are Mon Sep 28, 10:00, 11:30 AM (today) and Thu Oct 1, 11:00 AM, 12:00 PM. Want me to hold or move anything?",
       "source": "gmi",
       "card": null,
       "calls": [
@@ -215,7 +215,8 @@
           }
         }
       ],
-      "llmCallsInTurn": 5,
+      "llmCallsInTurn": 4,
+      "claimViolations": 1,
       "thread": {
         "facts": [],
         "summary": "",
@@ -225,9 +226,9 @@
     {
       "text": "Hmm, I think I actually have a dentist thing at 10. Can you double check what's really free?",
       "bubbles": [
-        "A web search can't answer this one, your availability lives on your calendar, and I did read it directly (that's where the slots came from). Nothing time sensitive on the open web applies here. So, standing by the real result: Tuesday morning is blocked, your opening tomorrow is 1:00, 3:00 PM, and the next free morning is Thursday Oct 1, 11 AM, 12 PM. Want me to dig into what's on your Tuesday morning calendar? I have not checked a fresh web check this turn, so I can't confirm anything that depends on it."
+        "Good news, and a correction to my last reply: tomorrow (Tuesday, Sep 29) your calendar shows nothing in the morning at all. Your first event is the BigCo interview at 2:00 PM, so you're free from wake up until early afternoon. The dentist thing at 10 isn't on your calendar, if it's real, want me to add it so tomorrow stays accurate?"
       ],
-      "reply": "A web search can't answer this one, your availability lives on your calendar, and I did read it directly (that's where the slots came from). Nothing time sensitive on the open web applies here. So, standing by the real result: Tuesday morning is blocked, your opening tomorrow is 1:00, 3:00 PM, and the next free morning is Thursday Oct 1, 11 AM, 12 PM. Want me to dig into what's on your Tuesday morning calendar? I have not checked a fresh web check this turn, so I can't confirm anything that depends on it.",
+      "reply": "Good news, and a correction to my last reply: tomorrow (Tuesday, Sep 29) your calendar shows nothing in the morning at all. Your first event is the BigCo interview at 2:00 PM, so you're free from wake up until early afternoon. The dentist thing at 10 isn't on your calendar, if it's real, want me to add it so tomorrow stays accurate?",
       "source": "gmi",
       "card": null,
       "calls": [
@@ -269,19 +270,17 @@
         },
         {
           "method": "POST",
-          "path": "/api/internal/work/slots",
+          "path": "/api/internal/live/tools",
           "body": {
             "phone": "+15552100001",
             "persona": "friend",
-            "day": "2026-09-29",
-            "partOfDay": "morning",
-            "durationMin": 30,
-            "windowDays": 3,
-            "limit": 5
+            "message": "start=2026-09-29T00:00:00-04:00 end=2026-09-29T12:00:00-04:00",
+            "want": "calendar"
           }
         }
       ],
-      "llmCallsInTurn": 4,
+      "llmCallsInTurn": 3,
+      "claimViolations": 0,
       "thread": {
         "facts": [],
         "summary": "",
@@ -325,6 +324,6 @@
       "value": "Alex"
     }
   ],
-  "llmCalls": 9,
-  "wallMs": 51792
+  "llmCalls": 7,
+  "wallMs": 27598
 }

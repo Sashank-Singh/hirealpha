@@ -1,6 +1,6 @@
 {
-  "revision": "7133b5e1aeeabf21e4f513628fe0e8deb82ec3a8",
-  "model": "zai-org/GLM-5.3-Flash",
+  "revision": "1c213301cad79dea12dcdbdd3aabb9dd02d62202",
+  "model": "zai-org/glm-5.3-flash",
   "worldDefinition": {
     "profile": {
       "name": "Alex Rivera",
@@ -150,9 +150,9 @@
     {
       "text": "Text my mom on WhatsApp that I am running late.",
       "bubbles": [
-        "I can't send WhatsApp messages from here, no connection to it on my end. But here's a draft you can copy paste:\n\n\"Hi Mom, running late today. Will explain when I get there, see you soon!\"\n\nWant me to tweak the tone or add an ETA?"
+        "I can't send WhatsApp messages, that's not one of my channels. What I can do is text her number directly (+1 555 777 8888) or draft the message for you to paste into WhatsApp yourself. Want me to send it as a regular text, or draft it for WhatsApp?"
       ],
-      "reply": "I can't send WhatsApp messages from here, no connection to it on my end. But here's a draft you can copy paste:\n\n\"Hi Mom, running late today. Will explain when I get there, see you soon!\"\n\nWant me to tweak the tone or add an ETA?",
+      "reply": "I can't send WhatsApp messages, that's not one of my channels. What I can do is text her number directly (+1 555 777 8888) or draft the message for you to paste into WhatsApp yourself. Want me to send it as a regular text, or draft it for WhatsApp?",
       "source": "gmi",
       "card": null,
       "calls": [
@@ -183,9 +183,18 @@
             "phone": "+15552100001",
             "persona": "friend"
           }
+        },
+        {
+          "method": "GET",
+          "path": "/api/internal/plans",
+          "body": {
+            "phone": "+15552100001",
+            "persona": "friend"
+          }
         }
       ],
-      "llmCallsInTurn": 2,
+      "llmCallsInTurn": 3,
+      "claimViolations": 0,
       "thread": {
         "facts": [],
         "summary": "",
@@ -226,6 +235,6 @@
       "value": "Alex"
     }
   ],
-  "llmCalls": 2,
-  "wallMs": 12837
+  "llmCalls": 3,
+  "wallMs": 17715
 }

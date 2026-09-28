@@ -157,7 +157,7 @@ const RULES: ClaimRule[] = [
   },
   {
     kind: 'negative',
-    re: /\b(?:file|deck|doc(?:ument)?|attachment|send)\b[^.]{0,50}\b(?:didn'?t go through|did not go through|failed to send|wasn'?t sent|did not send)\b/i,
+    re: /\b(?:file|deck|doc(?:ument)?|attachment|send|forward(?:ed|ing)?)\b[^.]{0,50}\b(?:didn'?t go through|did not go through|failed to send|wasn'?t sent|did not send)\b/i,
     domain: 'file_send',
     allowed: ['verified_failure', 'provider_unavailable', 'timeout', 'outcome_unknown'],
     replacement: () => 'I have no failed-send record for that — check the send state before assuming it did or did not go out.',
@@ -216,7 +216,11 @@ const RULES: ClaimRule[] = [
     re: /\b(?:couldn'?t|can'?t|was unable to|failed to|did not|didn'?t) (?:reach|check|read|see|pull|load|access|connect to)\b/i,
     domain: 'calendar_read',
     allowed: ['verified_failure', 'auth_expired', 'provider_unavailable', 'timeout', 'permission_denied', 'outcome_unknown'],
-    replacement: () => 'I have not actually checked your calendar yet, so I cannot say whether it is reachable.',
+    replacement: (l) => l.hasKind('calendar_read', ['verified_success'])
+      ? 'The calendar read above is what I have; nothing beyond it is confirmed.'
+      : l.hasAny('calendar_read')
+        ? 'The calendar read did not complete cleanly this turn.'
+        : 'I have not actually checked your calendar yet, so I cannot say whether it is reachable.',
   },
   {
     kind: 'negative',
@@ -241,7 +245,7 @@ const RULES: ClaimRule[] = [
   },
   {
     kind: 'negative',
-    re: /\b(?:the |your )?(?:email|mail|send|reminder|draft) (?:failed|did not go through|didn'?t go through|bounced|did not save|didn'?t save)\b/i,
+    re: /\b(?:the |your )?(?:email|mail|send|forward(?:ed|ing)?|file|attachment|reminder|draft)\b[^.]{0,30}\b(?:failed|did not go through|didn'?t go through|bounced|did not save|didn'?t save)\b/i,
     domain: 'mail_send',
     allowed: ['verified_failure', 'provider_unavailable', 'timeout', 'outcome_unknown'],
     replacement: () => 'I have not attempted that yet, so I cannot report a failure.',

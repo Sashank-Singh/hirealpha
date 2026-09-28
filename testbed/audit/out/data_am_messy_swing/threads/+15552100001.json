@@ -1,0 +1,16 @@
+{
+  "facts": [],
+  "summary": "",
+  "history": [
+    {
+      "role": "user",
+      "content": "can i swing this",
+      "ts": 1790609241380
+    },
+    {
+      "role": "assistant",
+      "content": "Quick check before I answer: \"this\" isn't landing for me, the thread doesn't say what you're trying to swing. An interview, a trip, a purchase? Here's what your week looks like in the meantime, per your calendar: Today 2 PM, BigCo interview Today 6:30 PM, Gym Tue 9 AM, Dentist Wed 9:15 AM, Standup, then dinner with Dana at 7:30 If it's about money, I can only see what you've logged with me, not your bank, say the word and I'll pull that. What's \"this\"? What I have not checked: your inbox — so treat the above as partial until that is read.",
+      "ts": 1790609241380
+    }
+  ]
+}

@@ -5,12 +5,12 @@
     {
       "role": "user",
       "content": "ugh the dentist moved me to next Tuesday 9am. handle it",
-      "ts": 1790579096903
+      "ts": 1790606932413
     },
     {
       "role": "assistant",
-      "content": "Got it, dentist moved to Tuesday Oct 6 at 9am. I'll treat that as the standing appointment.\n\nAlso Alex... it's 3am. Shouldn't you be asleep before a dental visit makes you feel even more guilty?",
-      "ts": 1790579096903
+      "content": "Got it, Alex. Dentist appointment moved to Tuesday, October 6 at 9:00 AM.\n\nOne thing: I can't actually add it to your calendar from here, so toss it in your phone or tell me to remind you closer to the date and I'll flag it. Also worth confirming they actually booked the new slot on their end and didn't just leave you hanging.",
+      "ts": 1790606932413
     }
   ]
 }

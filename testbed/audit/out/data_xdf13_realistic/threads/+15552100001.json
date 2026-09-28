@@ -1,0 +1,16 @@
+{
+  "facts": [],
+  "summary": "",
+  "history": [
+    {
+      "role": "user",
+      "content": "Is my schedule realistic tomorrow?",
+      "ts": 1790608562338
+    },
+    {
+      "role": "assistant",
+      "content": "Pulled up your calendar for tomorrow (Tuesday, Sep 29): the only thing on it is the dentist at 9:00 AM. That's it, so yes, very realistic. You've got the whole day open after that. Two things worth knowing from the surrounding days: today (Mon) is actually your heavy one, BigCo interview at 2 PM plus gym at 6:30, and Wednesday has standup at 9:15 and dinner with Dana at 7:30. I only checked your calendar, so I can't speak to deadlines hiding in email or Drive. Want me to scan those too?",
+      "ts": 1790608562338
+    }
+  ]
+}

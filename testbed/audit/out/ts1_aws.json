@@ -1,6 +1,6 @@
 {
-  "revision": "7133b5e1aeeabf21e4f513628fe0e8deb82ec3a8",
-  "model": "zai-org/GLM-5.3-Flash",
+  "revision": "1c213301cad79dea12dcdbdd3aabb9dd02d62202",
+  "model": "zai-org/glm-5.3-flash",
   "worldDefinition": {
     "profile": {
       "name": "Alex Rivera",
@@ -166,9 +166,9 @@
     {
       "text": "My AWS bill jumped from $90 to $400 this month. Figure out why.",
       "bubbles": [
-        "Found it. AWS's own alert says the estimate is $402.11, and the jump is almost all EC2: $310, driven by data transfer out of us east 1. That pattern usually means something's shipping a lot of traffic out of AWS (large downloads, media serving, or a backup/sync job gone loud) rather than a compute spike. The alert email doesn't say which instance or how many GB, so the exact culprit is in the full billing console. Want me to pull up the AWS billing console to pinpoint the instance and the transfer volume?"
+        "Found it, per AWS's own billing email from this month: Your estimated bill is $402.11, and the top line item is Amazon EC2 at about $310, driven by data transfer out of us east 1. That's the jump, roughly $300 of data egress you weren't paying before. Common culprits for a sudden egress spike: a new public facing workload (downloads, video, backups syncing off cloud), a misconfigured bucket or instance serving large files publicly, or something hammering your endpoints from outside. Two things I can do next: 1. Check your Drive or mail for any recent deploys or project changes that might explain new traffic. 2. Draft a note to AWS support (or whoever manages the account) asking for a per service, per resource breakdown of the us east 1 transfer charges. Want either?"
       ],
-      "reply": "Found it. AWS's own alert says the estimate is $402.11, and the jump is almost all EC2: $310, driven by data transfer out of us east 1. That pattern usually means something's shipping a lot of traffic out of AWS (large downloads, media serving, or a backup/sync job gone loud) rather than a compute spike. The alert email doesn't say which instance or how many GB, so the exact culprit is in the full billing console. Want me to pull up the AWS billing console to pinpoint the instance and the transfer volume?",
+      "reply": "Found it, per AWS's own billing email from this month: Your estimated bill is $402.11, and the top line item is Amazon EC2 at about $310, driven by data transfer out of us east 1. That's the jump, roughly $300 of data egress you weren't paying before. Common culprits for a sudden egress spike: a new public facing workload (downloads, video, backups syncing off cloud), a misconfigured bucket or instance serving large files publicly, or something hammering your endpoints from outside. Two things I can do next: 1. Check your Drive or mail for any recent deploys or project changes that might explain new traffic. 2. Draft a note to AWS support (or whoever manages the account) asking for a per service, per resource breakdown of the us east 1 transfer charges. Want either?",
       "source": "gmi",
       "card": null,
       "calls": [
@@ -214,12 +214,13 @@
           "body": {
             "phone": "+15552100001",
             "persona": "friend",
-            "message": "from:aws.amazon.com newer_than:30d (billing OR invoice OR \"cost report\")",
+            "message": "from:aws subject:(billing OR invoice OR \"cost\" OR \"usage\") newer_than:35d",
             "want": "gmail"
           }
         }
       ],
       "llmCallsInTurn": 4,
+      "claimViolations": 0,
       "thread": {
         "facts": [],
         "summary": "",
@@ -261,5 +262,5 @@
     }
   ],
   "llmCalls": 4,
-  "wallMs": 34479
+  "wallMs": 25821
 }

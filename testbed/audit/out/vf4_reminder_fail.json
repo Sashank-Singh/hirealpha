@@ -1,6 +1,6 @@
 {
-  "revision": "7133b5e1aeeabf21e4f513628fe0e8deb82ec3a8",
-  "model": "zai-org/GLM-5.3-Flash",
+  "revision": "1c213301cad79dea12dcdbdd3aabb9dd02d62202",
+  "model": "zai-org/glm-5.3-flash",
   "worldDefinition": {
     "profile": {
       "name": "Alex Rivera",
@@ -159,9 +159,9 @@
     {
       "text": "Remind me at 6pm today to call the vet.",
       "bubbles": [
-        "I have not attempted that yet, so I cannot report a failure. Want me to try again?"
+        "I have not attempted that yet, so I cannot report a failure. I tried twice and got errors both times, so nothing is scheduled. Want me to try again in a bit, or set it for a different time as a workaround?"
       ],
-      "reply": "I have not attempted that yet, so I cannot report a failure. Want me to try again?",
+      "reply": "I have not attempted that yet, so I cannot report a failure. I tried twice and got errors both times, so nothing is scheduled. Want me to try again in a bit, or set it for a different time as a workaround?",
       "source": "gmi",
       "card": null,
       "calls": [
@@ -214,7 +214,8 @@
           }
         }
       ],
-      "llmCallsInTurn": 3,
+      "llmCallsInTurn": 4,
+      "claimViolations": 1,
       "thread": {
         "facts": [],
         "summary": "",
@@ -255,6 +256,6 @@
       "value": "Alex"
     }
   ],
-  "llmCalls": 3,
-  "wallMs": 14700
+  "llmCalls": 4,
+  "wallMs": 14174
 }

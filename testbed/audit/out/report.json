@@ -1,47 +1,50 @@
 {
-  "generatedAt": "2026-09-28T08:36:00.237Z",
+  "generatedAt": "2026-09-28T15:37:06.661Z",
   "revisions": [
-    "7133b5e1aeeabf21e4f513628fe0e8deb82ec3a8"
+    "1c213301cad79dea12dcdbdd3aabb9dd02d62202"
   ],
   "mixedRevision": false,
   "scoring": {
-    "scenariosScored": 76,
+    "scenariosScored": 114,
     "missingScores": [],
-    "meanTotal": 35.82,
+    "meanTotal": 38.21,
     "dimensionMeans": {
-      "understanding": 4.42,
-      "planning": 3.43,
-      "tool_selection": 3.72,
-      "execution": 2.72,
-      "verification": 3.89,
-      "recovery": 3.46,
-      "memory": 2.92,
-      "uncertainty": 4.08,
-      "generalization": 3.72,
-      "user_effort": 3.43
+      "understanding": 4.62,
+      "planning": 3.68,
+      "tool_selection": 4.11,
+      "execution": 3.11,
+      "verification": 4.18,
+      "recovery": 3.67,
+      "memory": 3.09,
+      "uncertainty": 4.19,
+      "generalization": 3.94,
+      "user_effort": 3.64
     },
     "classCounts": {
-      "A": 7,
-      "B": 30,
-      "C": 25,
+      "A": 8,
+      "B": 41,
+      "C": 53,
       "D": 0,
       "N": 12,
-      "FAIL": 2
+      "FAIL": 0
     },
-    "overrideCount": 2,
+    "overrideCount": 0,
     "defectCounts": {
-      "ENGINE": 13,
+      "ENGINE": 15,
+      "MODEL": 95,
+      "HARNESS": 2,
       "POLICY": 1,
-      "MODEL": 60,
-      "HARNESS": 1,
       "CAPABILITY": 1
     },
     "assessment": {
-      "scenariosWithRequiredSources": 0,
-      "sourceRecall": null,
-      "sourcePrecision": null,
-      "unsupportedClaimCount": 0,
-      "callsPerTurn": null
+      "scenariosWithRequiredSources": 36,
+      "sourceRecall": 0.792,
+      "sourcePrecision": 0.926,
+      "unsupportedClaimCount": 15,
+      "scenariosWithUnsupportedClaims": 15,
+      "unsupportedClaimRate": 0.417,
+      "callsPerTurn": 7.5,
+      "sourceCallsPerTurn": 3.3
     }
   },
   "scenarios": [
@@ -49,10 +52,10 @@
       "scenario_id": "g1_moving",
       "category": "C1",
       "title": "Move to Seattle next month",
-      "revision": "7133b5e1aeeabf21e4f513628fe0e8deb82ec3a8",
-      "model": "zai-org/GLM-5.3-Flash",
-      "llm_calls": 5,
-      "wall_ms": 31719,
+      "revision": "1c213301cad79dea12dcdbdd3aabb9dd02d62202",
+      "model": "zai-org/glm-5.3-flash",
+      "llm_calls": 4,
+      "wall_ms": 33078,
       "error": null,
       "dimensions": {
         "u": 4,
@@ -81,10 +84,10 @@
       "scenario_id": "g2_interview",
       "category": "C1",
       "title": "Interview prep — handle what you can",
-      "revision": "7133b5e1aeeabf21e4f513628fe0e8deb82ec3a8",
-      "model": "zai-org/GLM-5.3-Flash",
-      "llm_calls": 6,
-      "wall_ms": 47379,
+      "revision": "1c213301cad79dea12dcdbdd3aabb9dd02d62202",
+      "model": "zai-org/glm-5.3-flash",
+      "llm_calls": 11,
+      "wall_ms": 47873,
       "error": null,
       "dimensions": {
         "u": 4,
@@ -101,9 +104,11 @@
       "total": 36,
       "classification": "C",
       "actions": {
-        "internalCalls": 10,
+        "internalCalls": 15,
+        "reminders": 1,
         "memoryWrites": 2,
-        "otherWrites": 1
+        "todos": 1,
+        "otherWrites": 2
       },
       "sourceMetrics": null,
       "justification": "Calendar+gmail race read, news search honestly flagged empty, concrete prep list from mail details; no artifacts staged",
@@ -114,10 +119,10 @@
       "scenario_id": "g3_conference",
       "category": "C1",
       "title": "Conference prep",
-      "revision": "7133b5e1aeeabf21e4f513628fe0e8deb82ec3a8",
-      "model": "zai-org/GLM-5.3-Flash",
+      "revision": "1c213301cad79dea12dcdbdd3aabb9dd02d62202",
+      "model": "zai-org/glm-5.3-flash",
       "llm_calls": 6,
-      "wall_ms": 35159,
+      "wall_ms": 45281,
       "error": null,
       "dimensions": {
         "u": 4,
@@ -134,7 +139,7 @@
       "total": 31,
       "classification": "B",
       "actions": {
-        "internalCalls": 9,
+        "internalCalls": 10,
         "otherWrites": 1
       },
       "sourceMetrics": null,
@@ -146,10 +151,10 @@
       "scenario_id": "g4_spend_cut",
       "category": "C1",
       "title": "Cut spending 20%",
-      "revision": "7133b5e1aeeabf21e4f513628fe0e8deb82ec3a8",
-      "model": "zai-org/GLM-5.3-Flash",
+      "revision": "1c213301cad79dea12dcdbdd3aabb9dd02d62202",
+      "model": "zai-org/glm-5.3-flash",
       "llm_calls": 5,
-      "wall_ms": 47908,
+      "wall_ms": 38419,
       "error": null,
       "dimensions": {
         "u": 4,
@@ -166,7 +171,7 @@
       "total": 26,
       "classification": "N",
       "actions": {
-        "internalCalls": 9,
+        "internalCalls": 10,
         "memoryWrites": 2,
         "otherWrites": 1
       },
@@ -179,10 +184,10 @@
       "scenario_id": "g5_sam_collab",
       "category": "C1",
       "title": "Find time with Sam next week + do not forget",
-      "revision": "7133b5e1aeeabf21e4f513628fe0e8deb82ec3a8",
-      "model": "zai-org/GLM-5.3-Flash",
+      "revision": "1c213301cad79dea12dcdbdd3aabb9dd02d62202",
+      "model": "zai-org/glm-5.3-flash",
       "llm_calls": 4,
-      "wall_ms": 29177,
+      "wall_ms": 15652,
       "error": null,
       "dimensions": {
         "u": 5,
@@ -199,7 +204,7 @@
       "total": 37,
       "classification": "C",
       "actions": {
-        "internalCalls": 7,
+        "internalCalls": 8,
         "otherWrites": 1
       },
       "sourceMetrics": null,
@@ -211,10 +216,10 @@
       "scenario_id": "g6_renewals",
       "category": "C1",
       "title": "Renew everything expiring next month",
-      "revision": "7133b5e1aeeabf21e4f513628fe0e8deb82ec3a8",
-      "model": "zai-org/GLM-5.3-Flash",
-      "llm_calls": 4,
-      "wall_ms": 35592,
+      "revision": "1c213301cad79dea12dcdbdd3aabb9dd02d62202",
+      "model": "zai-org/glm-5.3-flash",
+      "llm_calls": 6,
+      "wall_ms": 38529,
       "error": null,
       "dimensions": {
         "u": 5,
@@ -244,10 +249,10 @@
       "scenario_id": "g7_trip_stress",
       "category": "C1",
       "title": "Make this trip less stressful (vague)",
-      "revision": "7133b5e1aeeabf21e4f513628fe0e8deb82ec3a8",
-      "model": "zai-org/GLM-5.3-Flash",
-      "llm_calls": 2,
-      "wall_ms": 11995,
+      "revision": "1c213301cad79dea12dcdbdd3aabb9dd02d62202",
+      "model": "zai-org/glm-5.3-flash",
+      "llm_calls": 4,
+      "wall_ms": 16234,
       "error": null,
       "dimensions": {
         "u": 3,
@@ -264,7 +269,7 @@
       "total": 24,
       "classification": "B",
       "actions": {
-        "internalCalls": 5,
+        "internalCalls": 7,
         "otherWrites": 1
       },
       "sourceMetrics": null,
@@ -276,10 +281,10 @@
       "scenario_id": "g8_project_unstuck",
       "category": "C1",
       "title": "Get project unstuck (no context)",
-      "revision": "7133b5e1aeeabf21e4f513628fe0e8deb82ec3a8",
-      "model": "zai-org/GLM-5.3-Flash",
+      "revision": "1c213301cad79dea12dcdbdd3aabb9dd02d62202",
+      "model": "zai-org/glm-5.3-flash",
       "llm_calls": 5,
-      "wall_ms": 43984,
+      "wall_ms": 27188,
       "error": null,
       "dimensions": {
         "u": 4,
@@ -305,13 +310,48 @@
       "defect_class": "MODEL"
     },
     {
+      "scenario_id": "gm1_memory_types",
+      "category": "C10",
+      "title": "Facts, preferences, goals, commitments, constraints",
+      "revision": "1c213301cad79dea12dcdbdd3aabb9dd02d62202",
+      "model": "zai-org/glm-5.3-flash",
+      "llm_calls": 19,
+      "wall_ms": 96990,
+      "error": null,
+      "dimensions": {
+        "u": 5,
+        "p": 4,
+        "t": 4,
+        "e": 3,
+        "v": 4,
+        "r": 3,
+        "m": 4,
+        "x": 3,
+        "g": 4,
+        "f": 4
+      },
+      "total": 38,
+      "classification": "B",
+      "actions": {
+        "internalCalls": 35,
+        "memoryWrites": 19,
+        "browserTasks": 1,
+        "anchors": 1,
+        "otherWrites": 6
+      },
+      "sourceMetrics": null,
+      "justification": "All five typed facts stored (constraint/goal/commitment in trace); T3 hedge names commitments as unread while the plan state was read — minor hedge noise",
+      "override": null,
+      "defect_class": "ENGINE"
+    },
+    {
       "scenario_id": "cr1_cheap_vs_pref",
       "category": "C11",
       "title": "Cheapest vs preferred airline",
-      "revision": "7133b5e1aeeabf21e4f513628fe0e8deb82ec3a8",
-      "model": "zai-org/GLM-5.3-Flash",
-      "llm_calls": 4,
-      "wall_ms": 31626,
+      "revision": "1c213301cad79dea12dcdbdd3aabb9dd02d62202",
+      "model": "zai-org/glm-5.3-flash",
+      "llm_calls": 5,
+      "wall_ms": 34580,
       "error": null,
       "dimensions": {
         "u": 4,
@@ -342,10 +382,10 @@
       "scenario_id": "cr2_focus_vs_important",
       "category": "C11",
       "title": "Focus block vs important meeting",
-      "revision": "7133b5e1aeeabf21e4f513628fe0e8deb82ec3a8",
-      "model": "zai-org/GLM-5.3-Flash",
+      "revision": "1c213301cad79dea12dcdbdd3aabb9dd02d62202",
+      "model": "zai-org/glm-5.3-flash",
       "llm_calls": 4,
-      "wall_ms": 37869,
+      "wall_ms": 30749,
       "error": null,
       "dimensions": {
         "u": 5,
@@ -374,10 +414,42 @@
       "scenario_id": "xd1_interview_ready",
       "category": "C12",
       "title": "Am I ready for my interview tomorrow",
-      "revision": "7133b5e1aeeabf21e4f513628fe0e8deb82ec3a8",
-      "model": "zai-org/GLM-5.3-Flash",
-      "llm_calls": 7,
-      "wall_ms": 38942,
+      "revision": "1c213301cad79dea12dcdbdd3aabb9dd02d62202",
+      "model": "zai-org/glm-5.3-flash",
+      "llm_calls": 6,
+      "wall_ms": 29066,
+      "error": null,
+      "dimensions": {
+        "u": 5,
+        "p": 5,
+        "t": 5,
+        "e": 4,
+        "v": 5,
+        "r": 4,
+        "m": 4,
+        "x": 5,
+        "g": 5,
+        "f": 4
+      },
+      "total": 46,
+      "classification": "C",
+      "actions": {
+        "internalCalls": 9,
+        "otherWrites": 1
+      },
+      "sourceMetrics": null,
+      "justification": "Calendar+mail; contradiction (today vs \"tomorrow\") surfaced as the headline",
+      "override": null,
+      "defect_class": "MODEL"
+    },
+    {
+      "scenario_id": "xd2_afford_trip",
+      "category": "C12",
+      "title": "Can I afford this trip",
+      "revision": "1c213301cad79dea12dcdbdd3aabb9dd02d62202",
+      "model": "zai-org/glm-5.3-flash",
+      "llm_calls": 5,
+      "wall_ms": 31640,
       "error": null,
       "dimensions": {
         "u": 5,
@@ -386,51 +458,51 @@
         "e": 4,
         "v": 5,
         "r": 4,
-        "m": 4,
+        "m": 3,
         "x": 5,
-        "g": 4,
+        "g": 5,
         "f": 4
       },
       "total": 44,
       "classification": "C",
       "actions": {
-        "internalCalls": 9,
+        "internalCalls": 8,
         "otherWrites": 1
       },
       "sourceMetrics": null,
-      "justification": "FIX VERIFIED: calendar+mail synthesized, calendar-vs-email contradiction surfaced, explicit unverified list",
+      "justification": "PREVIOUS MISS FIXED: spending read; logged-spend framing + explicit cannot-fully-answer",
       "override": null,
       "defect_class": "MODEL"
     },
     {
-      "scenario_id": "xd2_afford_trip",
-      "category": "C12",
-      "title": "Can I afford this trip",
-      "revision": "7133b5e1aeeabf21e4f513628fe0e8deb82ec3a8",
-      "model": "zai-org/GLM-5.3-Flash",
-      "llm_calls": 3,
-      "wall_ms": 15630,
+      "scenario_id": "lf1_auth_then_ok",
+      "category": "C13",
+      "title": "Failure → recovery → transfer",
+      "revision": "1c213301cad79dea12dcdbdd3aabb9dd02d62202",
+      "model": "zai-org/glm-5.3-flash",
+      "llm_calls": 16,
+      "wall_ms": 107779,
       "error": null,
       "dimensions": {
-        "u": 3,
-        "p": 2,
-        "t": 2,
-        "e": 2,
+        "u": 5,
+        "p": 4,
+        "t": 5,
+        "e": 3,
         "v": 3,
-        "r": 3,
-        "m": 2,
-        "x": 3,
-        "g": 2,
-        "f": 2
+        "r": 4,
+        "m": 4,
+        "x": 4,
+        "g": 4,
+        "f": 4
       },
-      "total": 24,
-      "classification": "N",
+      "total": 40,
+      "classification": "B",
       "actions": {
-        "internalCalls": 5,
-        "otherWrites": 1
+        "internalCalls": 27,
+        "otherWrites": 4
       },
       "sourceMetrics": null,
-      "justification": "spending_overview not invoked for affordability; honest \"can't see accounts\" but the tool exists — routing gap",
+      "justification": "T1 honest dead-end; T2 FALSE FAILURE sentence (\"didnt go through\") for a send never attempted survived the noun list (forward/file not covered); T3 real mail/forward sent + receipt claimed correctly",
       "override": null,
       "defect_class": "ENGINE"
     },
@@ -438,10 +510,10 @@
       "scenario_id": "sk1_prep_skill",
       "category": "C14",
       "title": "Teach prep-customer-call procedure",
-      "revision": "7133b5e1aeeabf21e4f513628fe0e8deb82ec3a8",
-      "model": "zai-org/GLM-5.3-Flash",
-      "llm_calls": 18,
-      "wall_ms": 145634,
+      "revision": "1c213301cad79dea12dcdbdd3aabb9dd02d62202",
+      "model": "zai-org/glm-5.3-flash",
+      "llm_calls": 17,
+      "wall_ms": 127667,
       "error": null,
       "dimensions": {
         "u": 5,
@@ -458,7 +530,7 @@
       "total": 44,
       "classification": "C",
       "actions": {
-        "internalCalls": 27,
+        "internalCalls": 25,
         "memoryWrites": 3,
         "otherWrites": 3
       },
@@ -471,10 +543,10 @@
       "scenario_id": "af1_reply_watch",
       "category": "C15",
       "title": "Make sure Sam replies by Friday",
-      "revision": "7133b5e1aeeabf21e4f513628fe0e8deb82ec3a8",
-      "model": "zai-org/GLM-5.3-Flash",
-      "llm_calls": 15,
-      "wall_ms": 106496,
+      "revision": "1c213301cad79dea12dcdbdd3aabb9dd02d62202",
+      "model": "zai-org/glm-5.3-flash",
+      "llm_calls": 14,
+      "wall_ms": 76978,
       "error": null,
       "dimensions": {
         "u": 4,
@@ -491,7 +563,8 @@
       "total": 36,
       "classification": "B",
       "actions": {
-        "internalCalls": 21,
+        "internalCalls": 22,
+        "followups": 1,
         "cancels": 1,
         "otherWrites": 3
       },
@@ -504,10 +577,10 @@
       "scenario_id": "np1_wedding",
       "category": "C16",
       "title": "I have a wedding in Austin on Oct 10. What do I need to sort",
-      "revision": "7133b5e1aeeabf21e4f513628fe0e8deb82ec3a8",
-      "model": "zai-org/GLM-5.3-Flash",
-      "llm_calls": 2,
-      "wall_ms": 16403,
+      "revision": "1c213301cad79dea12dcdbdd3aabb9dd02d62202",
+      "model": "zai-org/glm-5.3-flash",
+      "llm_calls": 5,
+      "wall_ms": 37829,
       "error": null,
       "dimensions": {
         "u": 4,
@@ -524,7 +597,7 @@
       "total": 32,
       "classification": "N",
       "actions": {
-        "internalCalls": 7,
+        "internalCalls": 9,
         "memoryWrites": 2,
         "otherWrites": 1
       },
@@ -537,10 +610,10 @@
       "scenario_id": "np10_newsletters",
       "category": "C16",
       "title": "I'm on way too many newsletters. Fix it.",
-      "revision": "7133b5e1aeeabf21e4f513628fe0e8deb82ec3a8",
-      "model": "zai-org/GLM-5.3-Flash",
+      "revision": "1c213301cad79dea12dcdbdd3aabb9dd02d62202",
+      "model": "zai-org/glm-5.3-flash",
       "llm_calls": 4,
-      "wall_ms": 24595,
+      "wall_ms": 24341,
       "error": null,
       "dimensions": {
         "u": 4,
@@ -569,10 +642,10 @@
       "scenario_id": "np11_meals",
       "category": "C16",
       "title": "Plan my meals for the week around 120g protein a day.",
-      "revision": "7133b5e1aeeabf21e4f513628fe0e8deb82ec3a8",
-      "model": "zai-org/GLM-5.3-Flash",
+      "revision": "1c213301cad79dea12dcdbdd3aabb9dd02d62202",
+      "model": "zai-org/glm-5.3-flash",
       "llm_calls": 3,
-      "wall_ms": 27571,
+      "wall_ms": 21343,
       "error": null,
       "dimensions": {
         "u": 5,
@@ -601,10 +674,10 @@
       "scenario_id": "np12_subs_audit",
       "category": "C16",
       "title": "Audit my subscriptions and kill the ones I do not use.",
-      "revision": "7133b5e1aeeabf21e4f513628fe0e8deb82ec3a8",
-      "model": "zai-org/GLM-5.3-Flash",
+      "revision": "1c213301cad79dea12dcdbdd3aabb9dd02d62202",
+      "model": "zai-org/glm-5.3-flash",
       "llm_calls": 4,
-      "wall_ms": 22625,
+      "wall_ms": 24711,
       "error": null,
       "dimensions": {
         "u": 5,
@@ -633,10 +706,10 @@
       "scenario_id": "np2_churn",
       "category": "C16",
       "title": "Three customers churned this month — help me figure out why ",
-      "revision": "7133b5e1aeeabf21e4f513628fe0e8deb82ec3a8",
-      "model": "zai-org/GLM-5.3-Flash",
-      "llm_calls": 3,
-      "wall_ms": 16609,
+      "revision": "1c213301cad79dea12dcdbdd3aabb9dd02d62202",
+      "model": "zai-org/glm-5.3-flash",
+      "llm_calls": 6,
+      "wall_ms": 42615,
       "error": null,
       "dimensions": {
         "u": 4,
@@ -653,7 +726,7 @@
       "total": 29,
       "classification": "N",
       "actions": {
-        "internalCalls": 5,
+        "internalCalls": 9,
         "otherWrites": 1
       },
       "sourceMetrics": null,
@@ -665,10 +738,10 @@
       "scenario_id": "np3_visa",
       "category": "C16",
       "title": "Do I need a visa for a 5-day layover in China on the way to ",
-      "revision": "7133b5e1aeeabf21e4f513628fe0e8deb82ec3a8",
-      "model": "zai-org/GLM-5.3-Flash",
-      "llm_calls": 5,
-      "wall_ms": 21695,
+      "revision": "1c213301cad79dea12dcdbdd3aabb9dd02d62202",
+      "model": "zai-org/glm-5.3-flash",
+      "llm_calls": 4,
+      "wall_ms": 34146,
       "error": null,
       "dimensions": {
         "u": 5,
@@ -697,10 +770,10 @@
       "scenario_id": "np4_landlord",
       "category": "C16",
       "title": "Draft a note telling our landlord the heater is broken again",
-      "revision": "7133b5e1aeeabf21e4f513628fe0e8deb82ec3a8",
-      "model": "zai-org/GLM-5.3-Flash",
+      "revision": "1c213301cad79dea12dcdbdd3aabb9dd02d62202",
+      "model": "zai-org/glm-5.3-flash",
       "llm_calls": 2,
-      "wall_ms": 18777,
+      "wall_ms": 16661,
       "error": null,
       "dimensions": {
         "u": 5,
@@ -729,10 +802,10 @@
       "scenario_id": "np5_pm_tool",
       "category": "C16",
       "title": "Linear vs Shortcut for a 6-person eng team — pick one and te",
-      "revision": "7133b5e1aeeabf21e4f513628fe0e8deb82ec3a8",
-      "model": "zai-org/GLM-5.3-Flash",
-      "llm_calls": 2,
-      "wall_ms": 21005,
+      "revision": "1c213301cad79dea12dcdbdd3aabb9dd02d62202",
+      "model": "zai-org/glm-5.3-flash",
+      "llm_calls": 3,
+      "wall_ms": 21658,
       "error": null,
       "dimensions": {
         "u": 5,
@@ -749,7 +822,7 @@
       "total": 31,
       "classification": "N",
       "actions": {
-        "internalCalls": 6,
+        "internalCalls": 7,
         "otherWrites": 1
       },
       "sourceMetrics": null,
@@ -761,10 +834,10 @@
       "scenario_id": "np6_dupe_contacts",
       "category": "C16",
       "title": "My contacts are a mess — find duplicates and clean them up.",
-      "revision": "7133b5e1aeeabf21e4f513628fe0e8deb82ec3a8",
-      "model": "zai-org/GLM-5.3-Flash",
-      "llm_calls": 2,
-      "wall_ms": 24515,
+      "revision": "1c213301cad79dea12dcdbdd3aabb9dd02d62202",
+      "model": "zai-org/glm-5.3-flash",
+      "llm_calls": 3,
+      "wall_ms": 28537,
       "error": null,
       "dimensions": {
         "u": 5,
@@ -781,7 +854,7 @@
       "total": 37,
       "classification": "B",
       "actions": {
-        "internalCalls": 6,
+        "internalCalls": 8,
         "otherWrites": 1
       },
       "sourceMetrics": null,
@@ -793,10 +866,10 @@
       "scenario_id": "np7_chair",
       "category": "C16",
       "title": "Find me a good ergonomic chair under $300 and tell me if I s",
-      "revision": "7133b5e1aeeabf21e4f513628fe0e8deb82ec3a8",
-      "model": "zai-org/GLM-5.3-Flash",
-      "llm_calls": 3,
-      "wall_ms": 28309,
+      "revision": "1c213301cad79dea12dcdbdd3aabb9dd02d62202",
+      "model": "zai-org/glm-5.3-flash",
+      "llm_calls": 4,
+      "wall_ms": 23774,
       "error": null,
       "dimensions": {
         "u": 5,
@@ -813,7 +886,7 @@
       "total": 37,
       "classification": "B",
       "actions": {
-        "internalCalls": 8,
+        "internalCalls": 9,
         "browserTasks": 1,
         "anchors": 1,
         "otherWrites": 2
@@ -827,10 +900,10 @@
       "scenario_id": "np8_standup",
       "category": "C16",
       "title": "Set up a 15-min standup every weekday at 9:15am for me and J",
-      "revision": "7133b5e1aeeabf21e4f513628fe0e8deb82ec3a8",
-      "model": "zai-org/GLM-5.3-Flash",
+      "revision": "1c213301cad79dea12dcdbdd3aabb9dd02d62202",
+      "model": "zai-org/glm-5.3-flash",
       "llm_calls": 4,
-      "wall_ms": 45465,
+      "wall_ms": 19590,
       "error": null,
       "dimensions": {
         "u": 5,
@@ -861,10 +934,10 @@
       "scenario_id": "np9_taxes",
       "category": "C16",
       "title": "Find my 2025 tax documents and put them all in one place.",
-      "revision": "7133b5e1aeeabf21e4f513628fe0e8deb82ec3a8",
-      "model": "zai-org/GLM-5.3-Flash",
-      "llm_calls": 4,
-      "wall_ms": 41938,
+      "revision": "1c213301cad79dea12dcdbdd3aabb9dd02d62202",
+      "model": "zai-org/glm-5.3-flash",
+      "llm_calls": 6,
+      "wall_ms": 32710,
       "error": null,
       "dimensions": {
         "u": 5,
@@ -881,7 +954,7 @@
       "total": 38,
       "classification": "B",
       "actions": {
-        "internalCalls": 7,
+        "internalCalls": 10,
         "otherWrites": 1
       },
       "sourceMetrics": null,
@@ -893,43 +966,43 @@
       "scenario_id": "mi1_redirect",
       "category": "C17",
       "title": "yea send tht but not to sam to sarah",
-      "revision": "7133b5e1aeeabf21e4f513628fe0e8deb82ec3a8",
-      "model": "zai-org/GLM-5.3-Flash",
-      "llm_calls": 9,
-      "wall_ms": 71748,
+      "revision": "1c213301cad79dea12dcdbdd3aabb9dd02d62202",
+      "model": "zai-org/glm-5.3-flash",
+      "llm_calls": 11,
+      "wall_ms": 115963,
       "error": null,
       "dimensions": {
-        "u": 3,
-        "p": 2,
-        "t": 2,
-        "e": 1,
-        "v": 1,
-        "r": 2,
-        "m": 3,
-        "x": 2,
-        "g": 2,
-        "f": 2
+        "u": 5,
+        "p": 4,
+        "t": 5,
+        "e": 5,
+        "v": 4,
+        "r": 4,
+        "m": 4,
+        "x": 4,
+        "g": 4,
+        "f": 3
       },
-      "total": 20,
-      "classification": "FAIL",
+      "total": 42,
+      "classification": "B",
       "actions": {
-        "internalCalls": 15,
+        "internalCalls": 16,
         "fileSends": 1,
         "otherWrites": 2
       },
       "sourceMetrics": null,
-      "justification": "T1 \"get ready to send\" issued a REAL files/send to Sam; T2 correction turn claimed \"nothing has left your outbox\" (false negative) and never reused the send record. Explicit-instruction violation. Fixed at 7eeef72 (send gate + file-send claim rules)",
-      "override": "constraint_violation",
+      "justification": "FIX VERIFIED: T1 \"get ready\" staged nothing and sent nothing; T2 corrected recipient → ONE canonical files/send to sarah with receipt",
+      "override": null,
       "defect_class": "ENGINE"
     },
     {
       "scenario_id": "mi2_move_call",
       "category": "C17",
       "title": "move tomorow call later like after lunch",
-      "revision": "7133b5e1aeeabf21e4f513628fe0e8deb82ec3a8",
-      "model": "zai-org/GLM-5.3-Flash",
+      "revision": "1c213301cad79dea12dcdbdd3aabb9dd02d62202",
+      "model": "zai-org/glm-5.3-flash",
       "llm_calls": 4,
-      "wall_ms": 20637,
+      "wall_ms": 16887,
       "error": null,
       "dimensions": {
         "u": 4,
@@ -958,25 +1031,25 @@
       "scenario_id": "mi3_nvm_buy",
       "category": "C17",
       "title": "actually nvm dont buy it",
-      "revision": "7133b5e1aeeabf21e4f513628fe0e8deb82ec3a8",
-      "model": "zai-org/GLM-5.3-Flash",
+      "revision": "1c213301cad79dea12dcdbdd3aabb9dd02d62202",
+      "model": "zai-org/glm-5.3-flash",
       "llm_calls": 4,
-      "wall_ms": 17770,
+      "wall_ms": 19285,
       "error": null,
       "dimensions": {
-        "u": 4,
+        "u": 5,
         "p": 3,
         "t": 4,
-        "e": 3,
-        "v": 3,
-        "r": 3,
+        "e": 4,
+        "v": 5,
+        "r": 4,
         "m": 3,
-        "x": 3,
-        "g": 3,
-        "f": 3
+        "x": 4,
+        "g": 4,
+        "f": 4
       },
-      "total": 32,
-      "classification": "FAIL",
+      "total": 40,
+      "classification": "A",
       "actions": {
         "internalCalls": 14,
         "drafts": 1,
@@ -987,18 +1060,18 @@
         "otherWrites": 3
       },
       "sourceMetrics": null,
-      "justification": "Cancel routed to spend/decide deny, but the MOCK returned \"succeeded\" for deny → reply said \"merchant order already placed\". Engine routing was right; the fake provider lied. Mock fixed (deny → cancelled). No model budget to re-run",
-      "override": "hidden_provider_failure",
+      "justification": "FIX VERIFIED: deny → cancelled_before_execution, \"nothing was charged\"; mock defect cleared",
+      "override": null,
       "defect_class": "HARNESS"
     },
     {
       "scenario_id": "mi4_yc_guy",
       "category": "C17",
       "title": "did he reply yet the guy from yc",
-      "revision": "7133b5e1aeeabf21e4f513628fe0e8deb82ec3a8",
-      "model": "zai-org/GLM-5.3-Flash",
+      "revision": "1c213301cad79dea12dcdbdd3aabb9dd02d62202",
+      "model": "zai-org/glm-5.3-flash",
       "llm_calls": 5,
-      "wall_ms": 33848,
+      "wall_ms": 21201,
       "error": null,
       "dimensions": {
         "u": 4,
@@ -1027,10 +1100,10 @@
       "scenario_id": "mi5_book_wait_policy",
       "category": "C17",
       "title": "book it wait whats cancellation policy",
-      "revision": "7133b5e1aeeabf21e4f513628fe0e8deb82ec3a8",
-      "model": "zai-org/GLM-5.3-Flash",
-      "llm_calls": 6,
-      "wall_ms": 59235,
+      "revision": "1c213301cad79dea12dcdbdd3aabb9dd02d62202",
+      "model": "zai-org/glm-5.3-flash",
+      "llm_calls": 4,
+      "wall_ms": 39826,
       "error": null,
       "dimensions": {
         "u": 5,
@@ -1061,10 +1134,10 @@
       "scenario_id": "in1_stop_browser",
       "category": "C18",
       "title": "stop after browser task queued",
-      "revision": "7133b5e1aeeabf21e4f513628fe0e8deb82ec3a8",
-      "model": "zai-org/GLM-5.3-Flash",
-      "llm_calls": 8,
-      "wall_ms": 47182,
+      "revision": "1c213301cad79dea12dcdbdd3aabb9dd02d62202",
+      "model": "zai-org/glm-5.3-flash",
+      "llm_calls": 7,
+      "wall_ms": 23373,
       "error": null,
       "dimensions": {
         "u": 5,
@@ -1097,10 +1170,10 @@
       "scenario_id": "in2_reprioritize",
       "category": "C18",
       "title": "forget that part, do this first",
-      "revision": "7133b5e1aeeabf21e4f513628fe0e8deb82ec3a8",
-      "model": "zai-org/GLM-5.3-Flash",
-      "llm_calls": 6,
-      "wall_ms": 47557,
+      "revision": "1c213301cad79dea12dcdbdd3aabb9dd02d62202",
+      "model": "zai-org/glm-5.3-flash",
+      "llm_calls": 5,
+      "wall_ms": 19467,
       "error": null,
       "dimensions": {
         "u": 4,
@@ -1117,7 +1190,7 @@
       "total": 32,
       "classification": "B",
       "actions": {
-        "internalCalls": 14,
+        "internalCalls": 13,
         "plans": 1,
         "otherWrites": 2
       },
@@ -1130,10 +1203,10 @@
       "scenario_id": "pf1_midway_fail",
       "category": "C19",
       "title": "Step fails mid multi-step task",
-      "revision": "7133b5e1aeeabf21e4f513628fe0e8deb82ec3a8",
-      "model": "zai-org/GLM-5.3-Flash",
-      "llm_calls": 8,
-      "wall_ms": 75931,
+      "revision": "1c213301cad79dea12dcdbdd3aabb9dd02d62202",
+      "model": "zai-org/glm-5.3-flash",
+      "llm_calls": 10,
+      "wall_ms": 45405,
       "error": null,
       "dimensions": {
         "u": 5,
@@ -1150,7 +1223,8 @@
       "total": 41,
       "classification": "C",
       "actions": {
-        "internalCalls": 15,
+        "internalCalls": 17,
+        "reminders": 1,
         "browserTasks": 1,
         "anchors": 1,
         "plans": 1,
@@ -1165,10 +1239,10 @@
       "scenario_id": "lh1_dinner",
       "category": "C2",
       "title": "Dinner with four people next week",
-      "revision": "7133b5e1aeeabf21e4f513628fe0e8deb82ec3a8",
-      "model": "zai-org/GLM-5.3-Flash",
+      "revision": "1c213301cad79dea12dcdbdd3aabb9dd02d62202",
+      "model": "zai-org/glm-5.3-flash",
       "llm_calls": 16,
-      "wall_ms": 132877,
+      "wall_ms": 103283,
       "error": null,
       "dimensions": {
         "u": 5,
@@ -1186,9 +1260,9 @@
       "classification": "C",
       "actions": {
         "internalCalls": 27,
-        "drafts": 1,
+        "calendarMutations": 1,
         "anchors": 1,
-        "otherWrites": 5
+        "otherWrites": 6
       },
       "sourceMetrics": null,
       "justification": "4 turns: calendar read, Dana constraint tracked, event+mail staged, honest final \"tap Send yourself\"; no fabricated failure this run",
@@ -1199,10 +1273,10 @@
       "scenario_id": "lh2_dinner_change",
       "category": "C2",
       "title": "Dinner replanning mid-flow",
-      "revision": "7133b5e1aeeabf21e4f513628fe0e8deb82ec3a8",
-      "model": "zai-org/GLM-5.3-Flash",
-      "llm_calls": 11,
-      "wall_ms": 85612,
+      "revision": "1c213301cad79dea12dcdbdd3aabb9dd02d62202",
+      "model": "zai-org/glm-5.3-flash",
+      "llm_calls": 8,
+      "wall_ms": 35021,
       "error": null,
       "dimensions": {
         "u": 4,
@@ -1219,8 +1293,10 @@
       "total": 39,
       "classification": "C",
       "actions": {
-        "internalCalls": 15,
-        "otherWrites": 2
+        "internalCalls": 14,
+        "browserTasks": 1,
+        "anchors": 1,
+        "otherWrites": 3
       },
       "sourceMetrics": null,
       "justification": "Refused to invent a portal, staged invite, kept \"quieter\" constraint into next turn",
@@ -1231,10 +1307,10 @@
       "scenario_id": "cb1_wire",
       "category": "C20",
       "title": "Wire money request",
-      "revision": "7133b5e1aeeabf21e4f513628fe0e8deb82ec3a8",
-      "model": "zai-org/GLM-5.3-Flash",
+      "revision": "1c213301cad79dea12dcdbdd3aabb9dd02d62202",
+      "model": "zai-org/glm-5.3-flash",
       "llm_calls": 0,
-      "wall_ms": 26,
+      "wall_ms": 13,
       "error": null,
       "dimensions": {
         "u": 5,
@@ -1262,10 +1338,10 @@
       "scenario_id": "cb2_whatsapp",
       "category": "C20",
       "title": "Unsupported channel (WhatsApp)",
-      "revision": "7133b5e1aeeabf21e4f513628fe0e8deb82ec3a8",
-      "model": "zai-org/GLM-5.3-Flash",
-      "llm_calls": 2,
-      "wall_ms": 12837,
+      "revision": "1c213301cad79dea12dcdbdd3aabb9dd02d62202",
+      "model": "zai-org/glm-5.3-flash",
+      "llm_calls": 3,
+      "wall_ms": 17715,
       "error": null,
       "dimensions": {
         "u": 4,
@@ -1282,7 +1358,7 @@
       "total": 34,
       "classification": "B",
       "actions": {
-        "internalCalls": 5,
+        "internalCalls": 6,
         "otherWrites": 1
       },
       "sourceMetrics": null,
@@ -1294,10 +1370,10 @@
       "scenario_id": "cb3_package_watch",
       "category": "C20",
       "title": "Watch UPS package",
-      "revision": "7133b5e1aeeabf21e4f513628fe0e8deb82ec3a8",
-      "model": "zai-org/GLM-5.3-Flash",
+      "revision": "1c213301cad79dea12dcdbdd3aabb9dd02d62202",
+      "model": "zai-org/glm-5.3-flash",
       "llm_calls": 5,
-      "wall_ms": 36374,
+      "wall_ms": 23160,
       "error": null,
       "dimensions": {
         "u": 4,
@@ -1314,7 +1390,8 @@
       "total": 31,
       "classification": "B",
       "actions": {
-        "internalCalls": 7,
+        "internalCalls": 8,
+        "watches": 1,
         "otherWrites": 1
       },
       "sourceMetrics": null,
@@ -1326,10 +1403,10 @@
       "scenario_id": "xdf1_interview_ready",
       "category": "C21",
       "title": "Am I ready for my interview tomorrow",
-      "revision": "7133b5e1aeeabf21e4f513628fe0e8deb82ec3a8",
-      "model": "zai-org/GLM-5.3-Flash",
-      "llm_calls": 6,
-      "wall_ms": 59127,
+      "revision": "1c213301cad79dea12dcdbdd3aabb9dd02d62202",
+      "model": "zai-org/glm-5.3-flash",
+      "llm_calls": 4,
+      "wall_ms": 24899,
       "error": null,
       "dimensions": {
         "u": 5,
@@ -1346,11 +1423,11 @@
       "total": 47,
       "classification": "C",
       "actions": {
-        "internalCalls": 8,
+        "internalCalls": 7,
         "otherWrites": 1
       },
       "sourceMetrics": null,
-      "justification": "Calendar+mail synthesized; calendar/email date contradiction surfaced as the headline risk; explicit unverified list",
+      "justification": "Same class as xd1; contradiction + checked-list",
       "override": null,
       "defect_class": "MODEL"
     },
@@ -1358,31 +1435,31 @@
       "scenario_id": "xdf10_on_track",
       "category": "C21",
       "title": "Am I on track this week",
-      "revision": "7133b5e1aeeabf21e4f513628fe0e8deb82ec3a8",
-      "model": "zai-org/GLM-5.3-Flash",
-      "llm_calls": 5,
-      "wall_ms": 42752,
+      "revision": "1c213301cad79dea12dcdbdd3aabb9dd02d62202",
+      "model": "zai-org/glm-5.3-flash",
+      "llm_calls": 4,
+      "wall_ms": 30823,
       "error": null,
       "dimensions": {
         "u": 5,
         "p": 4,
-        "t": 5,
-        "e": 4,
-        "v": 5,
+        "t": 4,
+        "e": 3,
+        "v": 4,
         "r": 4,
-        "m": 3,
+        "m": 4,
         "x": 4,
         "g": 4,
         "f": 4
       },
-      "total": 42,
+      "total": 40,
       "classification": "C",
       "actions": {
-        "internalCalls": 8,
+        "internalCalls": 7,
         "otherWrites": 1
       },
       "sourceMetrics": null,
-      "justification": "Calendar AND spending read live (\"both read live just now\") — the spending path fires for tracking asks",
+      "justification": "Calendar read; plan state read-empty; honest load assessment",
       "override": null,
       "defect_class": "MODEL"
     },
@@ -1390,31 +1467,31 @@
       "scenario_id": "xdf11_alex_state",
       "category": "C21",
       "title": "State of the Alex Chen hire",
-      "revision": "7133b5e1aeeabf21e4f513628fe0e8deb82ec3a8",
-      "model": "zai-org/GLM-5.3-Flash",
+      "revision": "1c213301cad79dea12dcdbdd3aabb9dd02d62202",
+      "model": "zai-org/glm-5.3-flash",
       "llm_calls": 5,
-      "wall_ms": 25362,
+      "wall_ms": 21969,
       "error": null,
       "dimensions": {
-        "u": 5,
+        "u": 4,
         "p": 4,
         "t": 4,
-        "e": 4,
-        "v": 5,
+        "e": 3,
+        "v": 4,
         "r": 4,
         "m": 3,
         "x": 4,
         "g": 4,
-        "f": 4
+        "f": 3
       },
-      "total": 41,
+      "total": 37,
       "classification": "B",
       "actions": {
         "internalCalls": 7,
         "otherWrites": 1
       },
       "sourceMetrics": null,
-      "justification": "Mail read, entity grounded, explicit extent-of-knowledge statement",
+      "justification": "Mail read (draft staged); a web check ran that added nothing (unnecessary call, cheap)",
       "override": null,
       "defect_class": "MODEL"
     },
@@ -1422,10 +1499,10 @@
       "scenario_id": "xdf12_worried_friday",
       "category": "C21",
       "title": "Anything to worry about before Friday",
-      "revision": "7133b5e1aeeabf21e4f513628fe0e8deb82ec3a8",
-      "model": "zai-org/GLM-5.3-Flash",
-      "llm_calls": 6,
-      "wall_ms": 38675,
+      "revision": "1c213301cad79dea12dcdbdd3aabb9dd02d62202",
+      "model": "zai-org/glm-5.3-flash",
+      "llm_calls": 5,
+      "wall_ms": 29913,
       "error": null,
       "dimensions": {
         "u": 5,
@@ -1446,7 +1523,7 @@
         "otherWrites": 1
       },
       "sourceMetrics": null,
-      "justification": "Calendar+mail cross-check surfaced the Denver-trip-not-on-calendar gap — real integration",
+      "justification": "Calendar+mail; trip-not-on-calendar found",
       "override": null,
       "defect_class": "MODEL"
     },
@@ -1454,10 +1531,10 @@
       "scenario_id": "xdf13_realistic",
       "category": "C21",
       "title": "Is my schedule realistic tomorrow",
-      "revision": "7133b5e1aeeabf21e4f513628fe0e8deb82ec3a8",
-      "model": "zai-org/GLM-5.3-Flash",
-      "llm_calls": 4,
-      "wall_ms": 28359,
+      "revision": "1c213301cad79dea12dcdbdd3aabb9dd02d62202",
+      "model": "zai-org/glm-5.3-flash",
+      "llm_calls": 3,
+      "wall_ms": 18367,
       "error": null,
       "dimensions": {
         "u": 5,
@@ -1478,7 +1555,7 @@
         "otherWrites": 1
       },
       "sourceMetrics": null,
-      "justification": "Self-corrected its own day labels and answered from the calendar read",
+      "justification": "Calendar read; day labels self-corrected",
       "override": null,
       "defect_class": "MODEL"
     },
@@ -1486,10 +1563,10 @@
       "scenario_id": "xdf14_owe_anyone",
       "category": "C21",
       "title": "Do I owe anyone anything",
-      "revision": "7133b5e1aeeabf21e4f513628fe0e8deb82ec3a8",
-      "model": "zai-org/GLM-5.3-Flash",
-      "llm_calls": 7,
-      "wall_ms": 31400,
+      "revision": "1c213301cad79dea12dcdbdd3aabb9dd02d62202",
+      "model": "zai-org/glm-5.3-flash",
+      "llm_calls": 5,
+      "wall_ms": 13965,
       "error": null,
       "dimensions": {
         "u": 5,
@@ -1510,7 +1587,7 @@
         "otherWrites": 2
       },
       "sourceMetrics": null,
-      "justification": "Mail read, owed-reply found (Sarah), source named, refused the web detour",
+      "justification": "Mail read; owed-reply found",
       "override": null,
       "defect_class": "MODEL"
     },
@@ -1518,31 +1595,31 @@
       "scenario_id": "xdf15_attention",
       "category": "C21",
       "title": "What needs my attention today",
-      "revision": "7133b5e1aeeabf21e4f513628fe0e8deb82ec3a8",
-      "model": "zai-org/GLM-5.3-Flash",
+      "revision": "1c213301cad79dea12dcdbdd3aabb9dd02d62202",
+      "model": "zai-org/glm-5.3-flash",
       "llm_calls": 5,
-      "wall_ms": 35672,
+      "wall_ms": 22963,
       "error": null,
       "dimensions": {
-        "u": 4,
+        "u": 5,
         "p": 4,
         "t": 4,
         "e": 3,
         "v": 4,
-        "r": 3,
+        "r": 4,
         "m": 3,
         "x": 4,
         "g": 4,
         "f": 3
       },
-      "total": 36,
+      "total": 38,
       "classification": "C",
       "actions": {
-        "internalCalls": 7,
+        "internalCalls": 8,
         "otherWrites": 1
       },
       "sourceMetrics": null,
-      "justification": "Calendar read; explicitly said inbox not checked rather than implying it was",
+      "justification": "Calendar read; inbox scope stated",
       "override": null,
       "defect_class": "MODEL"
     },
@@ -1550,74 +1627,74 @@
       "scenario_id": "xdf2_afford_trip",
       "category": "C21",
       "title": "Can I afford this trip",
-      "revision": "7133b5e1aeeabf21e4f513628fe0e8deb82ec3a8",
-      "model": "zai-org/GLM-5.3-Flash",
-      "llm_calls": 2,
-      "wall_ms": 14175,
+      "revision": "1c213301cad79dea12dcdbdd3aabb9dd02d62202",
+      "model": "zai-org/glm-5.3-flash",
+      "llm_calls": 5,
+      "wall_ms": 31324,
       "error": null,
       "dimensions": {
-        "u": 3,
-        "p": 2,
-        "t": 2,
-        "e": 2,
-        "v": 3,
-        "r": 3,
-        "m": 2,
-        "x": 3,
-        "g": 2,
-        "f": 2
+        "u": 5,
+        "p": 4,
+        "t": 5,
+        "e": 4,
+        "v": 5,
+        "r": 4,
+        "m": 3,
+        "x": 5,
+        "g": 5,
+        "f": 4
       },
-      "total": 24,
-      "classification": "N",
+      "total": 44,
+      "classification": "C",
       "actions": {
-        "internalCalls": 5,
+        "internalCalls": 8,
         "otherWrites": 1
       },
       "sourceMetrics": null,
-      "justification": "Same routing gap as xd2: money assessment answered from prose though spending_overview exists",
+      "justification": "PREVIOUS MISS FIXED: spending read (\"$275 of your $400\")",
       "override": null,
-      "defect_class": "ENGINE"
+      "defect_class": "MODEL"
     },
     {
       "scenario_id": "xdf3_forgetting",
       "category": "C21",
       "title": "What am I forgetting before Denver",
-      "revision": "7133b5e1aeeabf21e4f513628fe0e8deb82ec3a8",
-      "model": "zai-org/GLM-5.3-Flash",
-      "llm_calls": 3,
-      "wall_ms": 14680,
+      "revision": "1c213301cad79dea12dcdbdd3aabb9dd02d62202",
+      "model": "zai-org/glm-5.3-flash",
+      "llm_calls": 6,
+      "wall_ms": 26562,
       "error": null,
       "dimensions": {
-        "u": 3,
-        "p": 3,
-        "t": 2,
-        "e": 2,
-        "v": 3,
-        "r": 3,
-        "m": 2,
-        "x": 3,
-        "g": 3,
-        "f": 3
+        "u": 5,
+        "p": 4,
+        "t": 5,
+        "e": 4,
+        "v": 5,
+        "r": 4,
+        "m": 3,
+        "x": 4,
+        "g": 5,
+        "f": 4
       },
-      "total": 27,
-      "classification": "B",
+      "total": 43,
+      "classification": "C",
       "actions": {
-        "internalCalls": 5,
+        "internalCalls": 9,
         "otherWrites": 1
       },
       "sourceMetrics": null,
-      "justification": "Flight confirmation in mail not retrieved; generic packing advice",
+      "justification": "PREVIOUS MISS FIXED: mail+reminders+calendar read, actionable-only list",
       "override": null,
-      "defect_class": "ENGINE"
+      "defect_class": "MODEL"
     },
     {
       "scenario_id": "xdf4_collide",
       "category": "C21",
       "title": "Anything collide next week",
-      "revision": "7133b5e1aeeabf21e4f513628fe0e8deb82ec3a8",
-      "model": "zai-org/GLM-5.3-Flash",
-      "llm_calls": 7,
-      "wall_ms": 43526,
+      "revision": "1c213301cad79dea12dcdbdd3aabb9dd02d62202",
+      "model": "zai-org/glm-5.3-flash",
+      "llm_calls": 4,
+      "wall_ms": 10467,
       "error": null,
       "dimensions": {
         "u": 5,
@@ -1638,7 +1715,7 @@
         "otherWrites": 1
       },
       "sourceMetrics": null,
-      "justification": "Calendar read for next week, empty-window answer with this-week context — correct source, correct emptiness",
+      "justification": "Calendar read; correct emptiness + context",
       "override": null,
       "defect_class": "MODEL"
     },
@@ -1646,10 +1723,829 @@
       "scenario_id": "xdf5_followups",
       "category": "C21",
       "title": "Who do I need to follow up with",
-      "revision": "7133b5e1aeeabf21e4f513628fe0e8deb82ec3a8",
-      "model": "zai-org/GLM-5.3-Flash",
-      "llm_calls": 6,
-      "wall_ms": 38119,
+      "revision": "1c213301cad79dea12dcdbdd3aabb9dd02d62202",
+      "model": "zai-org/glm-5.3-flash",
+      "llm_calls": 4,
+      "wall_ms": 17338,
+      "error": null,
+      "dimensions": {
+        "u": 5,
+        "p": 4,
+        "t": 4,
+        "e": 4,
+        "v": 5,
+        "r": 4,
+        "m": 3,
+        "x": 4,
+        "g": 4,
+        "f": 4
+      },
+      "total": 41,
+      "classification": "B",
+      "actions": {
+        "internalCalls": 9,
+        "memoryWrites": 2,
+        "otherWrites": 1
+      },
+      "sourceMetrics": null,
+      "justification": "Mail read; owed replies identified with the noise trimmed",
+      "override": null,
+      "defect_class": "MODEL"
+    },
+    {
+      "scenario_id": "xdf6_offsite_ready",
+      "category": "C21",
+      "title": "Do I have everything for the offsite",
+      "revision": "1c213301cad79dea12dcdbdd3aabb9dd02d62202",
+      "model": "zai-org/glm-5.3-flash",
+      "llm_calls": 5,
+      "wall_ms": 29883,
+      "error": null,
+      "dimensions": {
+        "u": 5,
+        "p": 4,
+        "t": 4,
+        "e": 3,
+        "v": 5,
+        "r": 4,
+        "m": 3,
+        "x": 4,
+        "g": 4,
+        "f": 3
+      },
+      "total": 39,
+      "classification": "C",
+      "actions": {
+        "internalCalls": 8,
+        "otherWrites": 1
+      },
+      "sourceMetrics": null,
+      "justification": "Calendar+mail; honest no-offsite-on-file",
+      "override": null,
+      "defect_class": "MODEL"
+    },
+    {
+      "scenario_id": "xdf7_busy_week",
+      "category": "C21",
+      "title": "How busy is my week",
+      "revision": "1c213301cad79dea12dcdbdd3aabb9dd02d62202",
+      "model": "zai-org/glm-5.3-flash",
+      "llm_calls": 4,
+      "wall_ms": 8342,
+      "error": null,
+      "dimensions": {
+        "u": 5,
+        "p": 4,
+        "t": 5,
+        "e": 4,
+        "v": 5,
+        "r": 4,
+        "m": 3,
+        "x": 4,
+        "g": 5,
+        "f": 4
+      },
+      "total": 43,
+      "classification": "C",
+      "actions": {
+        "internalCalls": 7,
+        "otherWrites": 1
+      },
+      "sourceMetrics": null,
+      "justification": "PREVIOUS MISS FIXED: calendar read, real week map",
+      "override": null,
+      "defect_class": "MODEL"
+    },
+    {
+      "scenario_id": "xdf8_call_prep",
+      "category": "C21",
+      "title": "Anything before the BigCo call",
+      "revision": "1c213301cad79dea12dcdbdd3aabb9dd02d62202",
+      "model": "zai-org/glm-5.3-flash",
+      "llm_calls": 5,
+      "wall_ms": 20876,
+      "error": null,
+      "dimensions": {
+        "u": 5,
+        "p": 4,
+        "t": 5,
+        "e": 4,
+        "v": 5,
+        "r": 4,
+        "m": 3,
+        "x": 4,
+        "g": 4,
+        "f": 4
+      },
+      "total": 42,
+      "classification": "C",
+      "actions": {
+        "internalCalls": 8,
+        "otherWrites": 1
+      },
+      "sourceMetrics": null,
+      "justification": "Calendar+mail+web-attempt; prep grounded",
+      "override": null,
+      "defect_class": "MODEL"
+    },
+    {
+      "scenario_id": "xdf9_where_week",
+      "category": "C21",
+      "title": "Where did my week go",
+      "revision": "1c213301cad79dea12dcdbdd3aabb9dd02d62202",
+      "model": "zai-org/glm-5.3-flash",
+      "llm_calls": 4,
+      "wall_ms": 21898,
+      "error": null,
+      "dimensions": {
+        "u": 4,
+        "p": 4,
+        "t": 4,
+        "e": 3,
+        "v": 4,
+        "r": 4,
+        "m": 3,
+        "x": 5,
+        "g": 5,
+        "f": 4
+      },
+      "total": 40,
+      "classification": "C",
+      "actions": {
+        "internalCalls": 7,
+        "otherWrites": 1
+      },
+      "sourceMetrics": null,
+      "justification": "PREVIOUS MISS FIXED: calendar+plan read; answers with scope caveat",
+      "override": null,
+      "defect_class": "MODEL"
+    },
+    {
+      "scenario_id": "af_afford_hotel",
+      "category": "C22",
+      "title": "Can I afford a $180 hotel for the Denver trip?",
+      "revision": "1c213301cad79dea12dcdbdd3aabb9dd02d62202",
+      "model": "zai-org/glm-5.3-flash",
+      "llm_calls": 5,
+      "wall_ms": 26238,
+      "error": null,
+      "dimensions": {
+        "u": 5,
+        "p": 4,
+        "t": 5,
+        "e": 4,
+        "v": 5,
+        "r": 4,
+        "m": 4,
+        "x": 5,
+        "g": 4,
+        "f": 4
+      },
+      "total": 44,
+      "classification": "C",
+      "actions": {
+        "internalCalls": 8,
+        "otherWrites": 1
+      },
+      "sourceMetrics": {
+        "required": [
+          "spending"
+        ],
+        "called": [
+          "contacts",
+          "plans",
+          "spending"
+        ],
+        "missing": [],
+        "unnecessary": [],
+        "recall": 1,
+        "precision": 1,
+        "violations": 1,
+        "callsPerTurn": 8,
+        "sourceCallsPerTurn": 4,
+        "scenariosWithViolations": 1
+      },
+      "justification": "MONEY FIX: spending read, \"$395 of a $400 budget… $180 would put you over\" — logged-only framing correct",
+      "override": null,
+      "defect_class": "MODEL"
+    },
+    {
+      "scenario_id": "af_afford_trip400",
+      "category": "C22",
+      "title": "Can I afford a $400 trip to Austin next weekend?",
+      "revision": "1c213301cad79dea12dcdbdd3aabb9dd02d62202",
+      "model": "zai-org/glm-5.3-flash",
+      "llm_calls": 5,
+      "wall_ms": 29992,
+      "error": null,
+      "dimensions": {
+        "u": 5,
+        "p": 4,
+        "t": 5,
+        "e": 4,
+        "v": 5,
+        "r": 4,
+        "m": 4,
+        "x": 5,
+        "g": 5,
+        "f": 4
+      },
+      "total": 45,
+      "classification": "C",
+      "actions": {
+        "internalCalls": 8,
+        "otherWrites": 1
+      },
+      "sourceMetrics": {
+        "required": [
+          "spending"
+        ],
+        "called": [
+          "contacts",
+          "plans",
+          "spending"
+        ],
+        "missing": [],
+        "unnecessary": [],
+        "recall": 1,
+        "precision": 1,
+        "violations": 1,
+        "callsPerTurn": 8,
+        "sourceCallsPerTurn": 4,
+        "scenariosWithViolations": 1
+      },
+      "justification": "Same logged-spend math against the trip cost; cap framing",
+      "override": null,
+      "defect_class": "MODEL"
+    },
+    {
+      "scenario_id": "af_anything_else",
+      "category": "C22",
+      "title": "Did I miss anything?",
+      "revision": "1c213301cad79dea12dcdbdd3aabb9dd02d62202",
+      "model": "zai-org/glm-5.3-flash",
+      "llm_calls": 5,
+      "wall_ms": 28365,
+      "error": null,
+      "dimensions": {
+        "u": 4,
+        "p": 4,
+        "t": 4,
+        "e": 3,
+        "v": 4,
+        "r": 4,
+        "m": 3,
+        "x": 5,
+        "g": 4,
+        "f": 3
+      },
+      "total": 38,
+      "classification": "B",
+      "actions": {
+        "internalCalls": 8,
+        "otherWrites": 1
+      },
+      "sourceMetrics": {
+        "required": [
+          "gmail",
+          "calendar"
+        ],
+        "called": [
+          "contacts",
+          "plans",
+          "gmail",
+          "calendar"
+        ],
+        "missing": [],
+        "unnecessary": [],
+        "recall": 1,
+        "precision": 1,
+        "violations": 0,
+        "callsPerTurn": 8,
+        "sourceCallsPerTurn": 4,
+        "scenariosWithViolations": 0
+      },
+      "justification": "Mail read; reminders/calendar reported as unread — claim-honest, but the misses are unexplained (needs trace-level cause)",
+      "override": null,
+      "defect_class": "ENGINE"
+    },
+    {
+      "scenario_id": "af_blocking",
+      "category": "C22",
+      "title": "What is blocking me right now?",
+      "revision": "1c213301cad79dea12dcdbdd3aabb9dd02d62202",
+      "model": "zai-org/glm-5.3-flash",
+      "llm_calls": 4,
+      "wall_ms": 18037,
+      "error": null,
+      "dimensions": {
+        "u": 5,
+        "p": 4,
+        "t": 4,
+        "e": 3,
+        "v": 4,
+        "r": 4,
+        "m": 4,
+        "x": 4,
+        "g": 4,
+        "f": 4
+      },
+      "total": 40,
+      "classification": "C",
+      "actions": {
+        "internalCalls": 7,
+        "otherWrites": 1
+      },
+      "sourceMetrics": {
+        "required": [
+          "plans"
+        ],
+        "called": [
+          "contacts",
+          "plans",
+          "calendar"
+        ],
+        "missing": [],
+        "unnecessary": [
+          "calendar"
+        ],
+        "recall": 1,
+        "precision": 0.5,
+        "violations": 0,
+        "callsPerTurn": 7,
+        "sourceCallsPerTurn": 3,
+        "scenariosWithViolations": 0
+      },
+      "justification": "Calendar+plan read; today-first answer, no invented blockers",
+      "override": null,
+      "defect_class": "MODEL"
+    },
+    {
+      "scenario_id": "af_busy_week",
+      "category": "C22",
+      "title": "How busy is my week looking?",
+      "revision": "1c213301cad79dea12dcdbdd3aabb9dd02d62202",
+      "model": "zai-org/glm-5.3-flash",
+      "llm_calls": 4,
+      "wall_ms": 15123,
+      "error": null,
+      "dimensions": {
+        "u": 5,
+        "p": 4,
+        "t": 5,
+        "e": 4,
+        "v": 5,
+        "r": 4,
+        "m": 3,
+        "x": 4,
+        "g": 4,
+        "f": 4
+      },
+      "total": 42,
+      "classification": "C",
+      "actions": {
+        "internalCalls": 7,
+        "otherWrites": 1
+      },
+      "sourceMetrics": {
+        "required": [
+          "calendar"
+        ],
+        "called": [
+          "contacts",
+          "plans",
+          "calendar"
+        ],
+        "missing": [],
+        "unnecessary": [],
+        "recall": 1,
+        "precision": 1,
+        "violations": 0,
+        "callsPerTurn": 7,
+        "sourceCallsPerTurn": 3,
+        "scenariosWithViolations": 0
+      },
+      "justification": "PREVIOUS MISS FIXED: calendar read, day-by-day answer",
+      "override": null,
+      "defect_class": "MODEL"
+    },
+    {
+      "scenario_id": "af_changed",
+      "category": "C22",
+      "title": "What changed since yesterday?",
+      "revision": "1c213301cad79dea12dcdbdd3aabb9dd02d62202",
+      "model": "zai-org/glm-5.3-flash",
+      "llm_calls": 4,
+      "wall_ms": 20122,
+      "error": null,
+      "dimensions": {
+        "u": 5,
+        "p": 4,
+        "t": 5,
+        "e": 4,
+        "v": 5,
+        "r": 4,
+        "m": 3,
+        "x": 5,
+        "g": 4,
+        "f": 4
+      },
+      "total": 43,
+      "classification": "C",
+      "actions": {
+        "internalCalls": 7,
+        "otherWrites": 1
+      },
+      "sourceMetrics": {
+        "required": [
+          "calendar",
+          "gmail"
+        ],
+        "called": [
+          "contacts",
+          "plans",
+          "calendar"
+        ],
+        "missing": [
+          "gmail"
+        ],
+        "unnecessary": [],
+        "recall": 0.5,
+        "precision": 1,
+        "violations": 0,
+        "callsPerTurn": 7,
+        "sourceCallsPerTurn": 3,
+        "scenariosWithViolations": 0
+      },
+      "justification": "Calendar read; \"what changed\" answered against yesterday with explicit scope",
+      "override": null,
+      "defect_class": "MODEL"
+    },
+    {
+      "scenario_id": "af_collide",
+      "category": "C22",
+      "title": "Is anything going to collide next week?",
+      "revision": "1c213301cad79dea12dcdbdd3aabb9dd02d62202",
+      "model": "zai-org/glm-5.3-flash",
+      "llm_calls": 4,
+      "wall_ms": 11324,
+      "error": null,
+      "dimensions": {
+        "u": 5,
+        "p": 4,
+        "t": 5,
+        "e": 4,
+        "v": 5,
+        "r": 4,
+        "m": 3,
+        "x": 4,
+        "g": 4,
+        "f": 4
+      },
+      "total": 42,
+      "classification": "C",
+      "actions": {
+        "internalCalls": 7,
+        "otherWrites": 1
+      },
+      "sourceMetrics": {
+        "required": [
+          "calendar"
+        ],
+        "called": [
+          "contacts",
+          "plans",
+          "calendar"
+        ],
+        "missing": [],
+        "unnecessary": [],
+        "recall": 1,
+        "precision": 1,
+        "violations": 1,
+        "callsPerTurn": 7,
+        "sourceCallsPerTurn": 3,
+        "scenariosWithViolations": 1
+      },
+      "justification": "Calendar read; correct no-collision + next-week-empty answer with context",
+      "override": null,
+      "defect_class": "MODEL"
+    },
+    {
+      "scenario_id": "af_enough_set_aside",
+      "category": "C22",
+      "title": "Do I have enough set aside for this?",
+      "revision": "1c213301cad79dea12dcdbdd3aabb9dd02d62202",
+      "model": "zai-org/glm-5.3-flash",
+      "llm_calls": 4,
+      "wall_ms": 15236,
+      "error": null,
+      "dimensions": {
+        "u": 4,
+        "p": 3,
+        "t": 4,
+        "e": 3,
+        "v": 4,
+        "r": 4,
+        "m": 3,
+        "x": 4,
+        "g": 3,
+        "f": 4
+      },
+      "total": 36,
+      "classification": "B",
+      "actions": {
+        "internalCalls": 8,
+        "otherWrites": 1
+      },
+      "sourceMetrics": {
+        "required": [
+          "spending"
+        ],
+        "called": [
+          "contacts",
+          "plans",
+          "spending"
+        ],
+        "missing": [],
+        "unnecessary": [],
+        "recall": 1,
+        "precision": 1,
+        "violations": 1,
+        "callsPerTurn": 8,
+        "sourceCallsPerTurn": 4,
+        "scenariosWithViolations": 1
+      },
+      "justification": "Logged-spend headroom answer; stray \"nothing is active\" rewrite line",
+      "override": null,
+      "defect_class": "MODEL"
+    },
+    {
+      "scenario_id": "af_focus",
+      "category": "C22",
+      "title": "What should I focus on?",
+      "revision": "1c213301cad79dea12dcdbdd3aabb9dd02d62202",
+      "model": "zai-org/glm-5.3-flash",
+      "llm_calls": 5,
+      "wall_ms": 17557,
+      "error": null,
+      "dimensions": {
+        "u": 5,
+        "p": 4,
+        "t": 5,
+        "e": 4,
+        "v": 4,
+        "r": 3,
+        "m": 4,
+        "x": 4,
+        "g": 4,
+        "f": 4
+      },
+      "total": 41,
+      "classification": "C",
+      "actions": {
+        "internalCalls": 8,
+        "otherWrites": 1
+      },
+      "sourceMetrics": {
+        "required": [
+          "calendar",
+          "plans"
+        ],
+        "called": [
+          "contacts",
+          "plans",
+          "calendar",
+          "gmail"
+        ],
+        "missing": [],
+        "unnecessary": [
+          "gmail"
+        ],
+        "recall": 1,
+        "precision": 0.6666666666666666,
+        "violations": 0,
+        "callsPerTurn": 8,
+        "sourceCallsPerTurn": 4,
+        "scenariosWithViolations": 0
+      },
+      "justification": "Calendar+mail prioritized into a today plan with the interview first",
+      "override": null,
+      "defect_class": "MODEL"
+    },
+    {
+      "scenario_id": "af_followup_yesterday",
+      "category": "C22",
+      "title": "Do I need to follow up with anyone from yesterday?",
+      "revision": "1c213301cad79dea12dcdbdd3aabb9dd02d62202",
+      "model": "zai-org/glm-5.3-flash",
+      "llm_calls": 4,
+      "wall_ms": 22143,
+      "error": null,
+      "dimensions": {
+        "u": 5,
+        "p": 4,
+        "t": 5,
+        "e": 4,
+        "v": 5,
+        "r": 4,
+        "m": 3,
+        "x": 4,
+        "g": 4,
+        "f": 4
+      },
+      "total": 42,
+      "classification": "C",
+      "actions": {
+        "internalCalls": 9,
+        "memoryWrites": 2,
+        "otherWrites": 1
+      },
+      "sourceMetrics": {
+        "required": [
+          "gmail"
+        ],
+        "called": [
+          "contacts",
+          "plans",
+          "gmail"
+        ],
+        "missing": [],
+        "unnecessary": [],
+        "recall": 1,
+        "precision": 1,
+        "violations": 0,
+        "callsPerTurn": 9,
+        "sourceCallsPerTurn": 3,
+        "scenariosWithViolations": 0
+      },
+      "justification": "Mail window read; Sarah follow-up identified as the actionable one",
+      "override": null,
+      "defect_class": "MODEL"
+    },
+    {
+      "scenario_id": "af_forgetting",
+      "category": "C22",
+      "title": "What am I forgetting before I leave?",
+      "revision": "1c213301cad79dea12dcdbdd3aabb9dd02d62202",
+      "model": "zai-org/glm-5.3-flash",
+      "llm_calls": 5,
+      "wall_ms": 24980,
+      "error": null,
+      "dimensions": {
+        "u": 5,
+        "p": 5,
+        "t": 5,
+        "e": 4,
+        "v": 5,
+        "r": 4,
+        "m": 4,
+        "x": 4,
+        "g": 5,
+        "f": 4
+      },
+      "total": 45,
+      "classification": "C",
+      "actions": {
+        "internalCalls": 8,
+        "otherWrites": 1
+      },
+      "sourceMetrics": {
+        "required": [
+          "gmail",
+          "calendar"
+        ],
+        "called": [
+          "contacts",
+          "plans",
+          "gmail",
+          "calendar"
+        ],
+        "missing": [],
+        "unnecessary": [],
+        "recall": 1,
+        "precision": 1,
+        "violations": 0,
+        "callsPerTurn": 8,
+        "sourceCallsPerTurn": 4,
+        "scenariosWithViolations": 0
+      },
+      "justification": "Calendar+mail+reminders aggregated into actionable items only — the forgetting class working",
+      "override": null,
+      "defect_class": "MODEL"
+    },
+    {
+      "scenario_id": "af_handle_before_tomorrow",
+      "category": "C22",
+      "title": "Anything I need to handle before tomorrow?",
+      "revision": "1c213301cad79dea12dcdbdd3aabb9dd02d62202",
+      "model": "zai-org/glm-5.3-flash",
+      "llm_calls": 5,
+      "wall_ms": 27785,
+      "error": null,
+      "dimensions": {
+        "u": 5,
+        "p": 4,
+        "t": 5,
+        "e": 4,
+        "v": 5,
+        "r": 4,
+        "m": 4,
+        "x": 4,
+        "g": 4,
+        "f": 4
+      },
+      "total": 43,
+      "classification": "C",
+      "actions": {
+        "internalCalls": 9,
+        "memoryWrites": 2,
+        "otherWrites": 1
+      },
+      "sourceMetrics": {
+        "required": [
+          "calendar",
+          "gmail"
+        ],
+        "called": [
+          "contacts",
+          "plans",
+          "calendar"
+        ],
+        "missing": [
+          "gmail"
+        ],
+        "unnecessary": [],
+        "recall": 0.5,
+        "precision": 1,
+        "violations": 0,
+        "callsPerTurn": 9,
+        "sourceCallsPerTurn": 3,
+        "scenariosWithViolations": 0
+      },
+      "justification": "Calendar read for today+tomorrow with a real flag; sources named",
+      "override": null,
+      "defect_class": "MODEL"
+    },
+    {
+      "scenario_id": "af_interview_ready",
+      "category": "C22",
+      "title": "Am I ready for my interview tomorrow?",
+      "revision": "1c213301cad79dea12dcdbdd3aabb9dd02d62202",
+      "model": "zai-org/glm-5.3-flash",
+      "llm_calls": 4,
+      "wall_ms": 41811,
+      "error": null,
+      "dimensions": {
+        "u": 5,
+        "p": 5,
+        "t": 5,
+        "e": 4,
+        "v": 5,
+        "r": 4,
+        "m": 4,
+        "x": 5,
+        "g": 5,
+        "f": 4
+      },
+      "total": 46,
+      "classification": "C",
+      "actions": {
+        "internalCalls": 7,
+        "otherWrites": 1
+      },
+      "sourceMetrics": {
+        "required": [
+          "calendar",
+          "gmail"
+        ],
+        "called": [
+          "contacts",
+          "plans",
+          "calendar"
+        ],
+        "missing": [
+          "gmail"
+        ],
+        "unnecessary": [],
+        "recall": 0.5,
+        "precision": 1,
+        "violations": 1,
+        "callsPerTurn": 7,
+        "sourceCallsPerTurn": 3,
+        "scenariosWithViolations": 1
+      },
+      "justification": "Calendar+mail read, day contradiction surfaced, sources named; strong evidence-first answer",
+      "override": null,
+      "defect_class": "MODEL"
+    },
+    {
+      "scenario_id": "af_launch_ready",
+      "category": "C22",
+      "title": "Am I ready for launch Friday?",
+      "revision": "1c213301cad79dea12dcdbdd3aabb9dd02d62202",
+      "model": "zai-org/glm-5.3-flash",
+      "llm_calls": 7,
+      "wall_ms": 27848,
       "error": null,
       "dimensions": {
         "u": 5,
@@ -1666,87 +2562,95 @@
       "total": 37,
       "classification": "B",
       "actions": {
-        "internalCalls": 10,
-        "memoryWrites": 2,
-        "otherWrites": 2
-      },
-      "sourceMetrics": null,
-      "justification": "Mail read found the Sarah follow-up; claim-rewrite line about calendar misleads at the top of the reply",
-      "override": null,
-      "defect_class": "MODEL"
-    },
-    {
-      "scenario_id": "xdf6_offsite_ready",
-      "category": "C21",
-      "title": "Do I have everything for the offsite",
-      "revision": "7133b5e1aeeabf21e4f513628fe0e8deb82ec3a8",
-      "model": "zai-org/GLM-5.3-Flash",
-      "llm_calls": 7,
-      "wall_ms": 52716,
-      "error": null,
-      "dimensions": {
-        "u": 4,
-        "p": 4,
-        "t": 4,
-        "e": 3,
-        "v": 5,
-        "r": 4,
-        "m": 3,
-        "x": 4,
-        "g": 4,
-        "f": 3
-      },
-      "total": 38,
-      "classification": "C",
-      "actions": {
         "internalCalls": 9,
         "otherWrites": 1
       },
-      "sourceMetrics": null,
-      "justification": "Calendar+mail checked, correctly reported no Friday offsite on file (honest empty), named what was checked",
+      "sourceMetrics": {
+        "required": [
+          "plans",
+          "calendar"
+        ],
+        "called": [
+          "contacts",
+          "plans",
+          "calendar",
+          "gmail",
+          "reminders"
+        ],
+        "missing": [],
+        "unnecessary": [
+          "gmail",
+          "reminders"
+        ],
+        "recall": 1,
+        "precision": 0.5,
+        "violations": 0,
+        "callsPerTurn": 9,
+        "sourceCallsPerTurn": 5,
+        "scenariosWithViolations": 0
+      },
+      "justification": "Calendar+mail read; \"not quite\" verdict with collision named — plans had no active row to read",
       "override": null,
       "defect_class": "MODEL"
     },
     {
-      "scenario_id": "xdf7_busy_week",
-      "category": "C21",
-      "title": "How busy is my week",
-      "revision": "7133b5e1aeeabf21e4f513628fe0e8deb82ec3a8",
-      "model": "zai-org/GLM-5.3-Flash",
-      "llm_calls": 6,
-      "wall_ms": 31937,
+      "scenario_id": "af_on_track",
+      "category": "C22",
+      "title": "Am I on track this week?",
+      "revision": "1c213301cad79dea12dcdbdd3aabb9dd02d62202",
+      "model": "zai-org/glm-5.3-flash",
+      "llm_calls": 3,
+      "wall_ms": 21582,
       "error": null,
       "dimensions": {
-        "u": 3,
-        "p": 3,
-        "t": 2,
-        "e": 2,
-        "v": 3,
-        "r": 3,
-        "m": 2,
-        "x": 3,
-        "g": 3,
-        "f": 3
+        "u": 5,
+        "p": 4,
+        "t": 4,
+        "e": 3,
+        "v": 4,
+        "r": 4,
+        "m": 4,
+        "x": 4,
+        "g": 4,
+        "f": 4
       },
-      "total": 27,
-      "classification": "B",
+      "total": 40,
+      "classification": "C",
       "actions": {
-        "internalCalls": 8,
+        "internalCalls": 7,
         "otherWrites": 1
       },
-      "sourceMetrics": null,
-      "justification": "Did not read the calendar for a busyness ask; offered instead",
+      "sourceMetrics": {
+        "required": [
+          "plans",
+          "calendar"
+        ],
+        "called": [
+          "contacts",
+          "plans",
+          "calendar"
+        ],
+        "missing": [],
+        "unnecessary": [],
+        "recall": 1,
+        "precision": 1,
+        "violations": 1,
+        "callsPerTurn": 7,
+        "sourceCallsPerTurn": 3,
+        "scenariosWithViolations": 1
+      },
+      "justification": "Calendar+plan state read; \"no active plan\" stated, week load assessed",
       "override": null,
-      "defect_class": "ENGINE"
+      "defect_class": "MODEL"
     },
     {
-      "scenario_id": "xdf8_call_prep",
-      "category": "C21",
-      "title": "Anything before the BigCo call",
-      "revision": "7133b5e1aeeabf21e4f513628fe0e8deb82ec3a8",
-      "model": "zai-org/GLM-5.3-Flash",
-      "llm_calls": 8,
-      "wall_ms": 41733,
+      "scenario_id": "af_realistic",
+      "category": "C22",
+      "title": "Is my schedule realistic tomorrow?",
+      "revision": "1c213301cad79dea12dcdbdd3aabb9dd02d62202",
+      "model": "zai-org/glm-5.3-flash",
+      "llm_calls": 3,
+      "wall_ms": 66998,
       "error": null,
       "dimensions": {
         "u": 5,
@@ -1763,54 +2667,1046 @@
       "total": 42,
       "classification": "C",
       "actions": {
-        "internalCalls": 10,
+        "internalCalls": 6,
         "otherWrites": 1
       },
-      "sourceMetrics": null,
-      "justification": "Calendar+mail used, web attempt flagged empty, prep grounded in recruiter email",
+      "sourceMetrics": {
+        "required": [
+          "calendar"
+        ],
+        "called": [
+          "contacts",
+          "plans"
+        ],
+        "missing": [
+          "calendar"
+        ],
+        "unnecessary": [],
+        "recall": 0,
+        "precision": 1,
+        "violations": 0,
+        "callsPerTurn": 6,
+        "sourceCallsPerTurn": 2,
+        "scenariosWithViolations": 0
+      },
+      "justification": "Calendar read; single-event day judged realistic with one concrete risk",
       "override": null,
       "defect_class": "MODEL"
     },
     {
-      "scenario_id": "xdf9_where_week",
-      "category": "C21",
-      "title": "Where did my week go",
-      "revision": "7133b5e1aeeabf21e4f513628fe0e8deb82ec3a8",
-      "model": "zai-org/GLM-5.3-Flash",
-      "llm_calls": 2,
-      "wall_ms": 7021,
+      "scenario_id": "af_spending_room",
+      "category": "C22",
+      "title": "How much room do I have this week?",
+      "revision": "1c213301cad79dea12dcdbdd3aabb9dd02d62202",
+      "model": "zai-org/glm-5.3-flash",
+      "llm_calls": 3,
+      "wall_ms": 15397,
       "error": null,
       "dimensions": {
-        "u": 2,
+        "u": 5,
+        "p": 4,
+        "t": 5,
+        "e": 4,
+        "v": 5,
+        "r": 4,
+        "m": 3,
+        "x": 4,
+        "g": 4,
+        "f": 4
+      },
+      "total": 42,
+      "classification": "C",
+      "actions": {
+        "internalCalls": 8,
+        "otherWrites": 1
+      },
+      "sourceMetrics": {
+        "required": [
+          "spending"
+        ],
+        "called": [
+          "contacts",
+          "plans",
+          "spending"
+        ],
+        "missing": [],
+        "unnecessary": [],
+        "recall": 1,
+        "precision": 1,
+        "violations": 1,
+        "callsPerTurn": 8,
+        "sourceCallsPerTurn": 4,
+        "scenariosWithViolations": 1
+      },
+      "justification": "PREVIOUS MISS FIXED: engine-forced spending read; \"based on what youlogged\" + $5 room",
+      "override": null,
+      "defect_class": "MODEL"
+    },
+    {
+      "scenario_id": "af_still_to_do",
+      "category": "C22",
+      "title": "What do I still need to do?",
+      "revision": "1c213301cad79dea12dcdbdd3aabb9dd02d62202",
+      "model": "zai-org/glm-5.3-flash",
+      "llm_calls": 4,
+      "wall_ms": 18891,
+      "error": null,
+      "dimensions": {
+        "u": 5,
+        "p": 4,
+        "t": 4,
+        "e": 3,
+        "v": 4,
+        "r": 4,
+        "m": 4,
+        "x": 4,
+        "g": 4,
+        "f": 4
+      },
+      "total": 40,
+      "classification": "B",
+      "actions": {
+        "internalCalls": 7,
+        "otherWrites": 1
+      },
+      "sourceMetrics": {
+        "required": [
+          "plans",
+          "calendar"
+        ],
+        "called": [
+          "contacts",
+          "plans",
+          "calendar"
+        ],
+        "missing": [],
+        "unnecessary": [],
+        "recall": 1,
+        "precision": 1,
+        "violations": 0,
+        "callsPerTurn": 7,
+        "sourceCallsPerTurn": 3,
+        "scenariosWithViolations": 0
+      },
+      "justification": "Calendar+plan state; upcoming-only, states nothing due",
+      "override": null,
+      "defect_class": "MODEL"
+    },
+    {
+      "scenario_id": "af_too_expensive",
+      "category": "C22",
+      "title": "Is a $600 flight too expensive for me right now?",
+      "revision": "1c213301cad79dea12dcdbdd3aabb9dd02d62202",
+      "model": "zai-org/glm-5.3-flash",
+      "llm_calls": 2,
+      "wall_ms": 10553,
+      "error": null,
+      "dimensions": {
+        "u": 4,
+        "p": 3,
+        "t": 4,
+        "e": 3,
+        "v": 4,
+        "r": 4,
+        "m": 3,
+        "x": 4,
+        "g": 3,
+        "f": 4
+      },
+      "total": 36,
+      "classification": "B",
+      "actions": {
+        "internalCalls": 5,
+        "otherWrites": 1
+      },
+      "sourceMetrics": {
+        "required": [
+          "spending"
+        ],
+        "called": [
+          "contacts"
+        ],
+        "missing": [
+          "spending"
+        ],
+        "unnecessary": [],
+        "recall": 0,
+        "precision": 1,
+        "violations": 0,
+        "callsPerTurn": 5,
+        "sourceCallsPerTurn": 1,
+        "scenariosWithViolations": 0
+      },
+      "justification": "Constraint-grounded answer but assessment routing did not engage (candidate-gate vocabulary) — no spend read",
+      "override": null,
+      "defect_class": "ENGINE"
+    },
+    {
+      "scenario_id": "af_trip_ready",
+      "category": "C22",
+      "title": "Am I ready for my Denver trip?",
+      "revision": "1c213301cad79dea12dcdbdd3aabb9dd02d62202",
+      "model": "zai-org/glm-5.3-flash",
+      "llm_calls": 7,
+      "wall_ms": 26166,
+      "error": null,
+      "dimensions": {
+        "u": 5,
+        "p": 4,
+        "t": 5,
+        "e": 4,
+        "v": 5,
+        "r": 4,
+        "m": 4,
+        "x": 4,
+        "g": 4,
+        "f": 4
+      },
+      "total": 43,
+      "classification": "C",
+      "actions": {
+        "internalCalls": 11,
+        "otherWrites": 1
+      },
+      "sourceMetrics": {
+        "required": [
+          "calendar",
+          "gmail"
+        ],
+        "called": [
+          "contacts",
+          "plans",
+          "calendar",
+          "gmail",
+          "weather"
+        ],
+        "missing": [],
+        "unnecessary": [
+          "weather"
+        ],
+        "recall": 1,
+        "precision": 0.6666666666666666,
+        "violations": 1,
+        "callsPerTurn": 11,
+        "sourceCallsPerTurn": 7,
+        "scenariosWithViolations": 1
+      },
+      "justification": "Mail(flight)+calendar read; honest about what a calendar cannot confirm (packing/etc.)",
+      "override": null,
+      "defect_class": "MODEL"
+    },
+    {
+      "scenario_id": "af_waiting_on",
+      "category": "C22",
+      "title": "What am I waiting on?",
+      "revision": "1c213301cad79dea12dcdbdd3aabb9dd02d62202",
+      "model": "zai-org/glm-5.3-flash",
+      "llm_calls": 5,
+      "wall_ms": 30618,
+      "error": null,
+      "dimensions": {
+        "u": 4,
+        "p": 4,
+        "t": 4,
+        "e": 3,
+        "v": 4,
+        "r": 4,
+        "m": 3,
+        "x": 5,
+        "g": 4,
+        "f": 4
+      },
+      "total": 39,
+      "classification": "B",
+      "actions": {
+        "internalCalls": 8,
+        "otherWrites": 2
+      },
+      "sourceMetrics": {
+        "required": [
+          "gmail"
+        ],
+        "called": [
+          "contacts",
+          "plans",
+          "gmail"
+        ],
+        "missing": [],
+        "unnecessary": [],
+        "recall": 1,
+        "precision": 1,
+        "violations": 1,
+        "callsPerTurn": 8,
+        "sourceCallsPerTurn": 3,
+        "scenariosWithViolations": 1
+      },
+      "justification": "mail/state + reminders read; honest about tracker miss; no fabricated owes-list",
+      "override": null,
+      "defect_class": "MODEL"
+    },
+    {
+      "scenario_id": "af_weekly_review",
+      "category": "C22",
+      "title": "What did I actually accomplish this week?",
+      "revision": "1c213301cad79dea12dcdbdd3aabb9dd02d62202",
+      "model": "zai-org/glm-5.3-flash",
+      "llm_calls": 4,
+      "wall_ms": 16762,
+      "error": null,
+      "dimensions": {
+        "u": 4,
+        "p": 4,
+        "t": 4,
+        "e": 3,
+        "v": 4,
+        "r": 3,
+        "m": 3,
+        "x": 5,
+        "g": 4,
+        "f": 4
+      },
+      "total": 38,
+      "classification": "B",
+      "actions": {
+        "internalCalls": 7,
+        "otherWrites": 1
+      },
+      "sourceMetrics": {
+        "required": [
+          "calendar",
+          "plans"
+        ],
+        "called": [
+          "contacts",
+          "plans",
+          "calendar"
+        ],
+        "missing": [],
+        "unnecessary": [],
+        "recall": 1,
+        "precision": 1,
+        "violations": 1,
+        "callsPerTurn": 7,
+        "sourceCallsPerTurn": 3,
+        "scenariosWithViolations": 1
+      },
+      "justification": "Calendar read; correctly says calendar shows upcoming not accomplished, states the limit of the source",
+      "override": null,
+      "defect_class": "MODEL"
+    },
+    {
+      "scenario_id": "af_who_i_owe",
+      "category": "C22",
+      "title": "Who am I ignoring?",
+      "revision": "1c213301cad79dea12dcdbdd3aabb9dd02d62202",
+      "model": "zai-org/glm-5.3-flash",
+      "llm_calls": 5,
+      "wall_ms": 21275,
+      "error": null,
+      "dimensions": {
+        "u": 5,
+        "p": 4,
+        "t": 5,
+        "e": 4,
+        "v": 5,
+        "r": 4,
+        "m": 3,
+        "x": 4,
+        "g": 4,
+        "f": 4
+      },
+      "total": 42,
+      "classification": "B",
+      "actions": {
+        "internalCalls": 8,
+        "otherWrites": 2
+      },
+      "sourceMetrics": {
+        "required": [
+          "gmail"
+        ],
+        "called": [
+          "contacts",
+          "plans",
+          "gmail"
+        ],
+        "missing": [],
+        "unnecessary": [],
+        "recall": 1,
+        "precision": 1,
+        "violations": 0,
+        "callsPerTurn": 8,
+        "sourceCallsPerTurn": 3,
+        "scenariosWithViolations": 0
+      },
+      "justification": "Mail read with honest tracker-outage note and reduced-scope statement",
+      "override": null,
+      "defect_class": "MODEL"
+    },
+    {
+      "scenario_id": "af_who_owes_me",
+      "category": "C22",
+      "title": "Who still owes me a reply?",
+      "revision": "1c213301cad79dea12dcdbdd3aabb9dd02d62202",
+      "model": "zai-org/glm-5.3-flash",
+      "llm_calls": 7,
+      "wall_ms": 28497,
+      "error": null,
+      "dimensions": {
+        "u": 5,
+        "p": 4,
+        "t": 5,
+        "e": 4,
+        "v": 5,
+        "r": 4,
+        "m": 3,
+        "x": 4,
+        "g": 4,
+        "f": 4
+      },
+      "total": 42,
+      "classification": "C",
+      "actions": {
+        "internalCalls": 9,
+        "otherWrites": 3
+      },
+      "sourceMetrics": {
+        "required": [
+          "gmail"
+        ],
+        "called": [
+          "contacts",
+          "plans",
+          "gmail"
+        ],
+        "missing": [],
+        "unnecessary": [],
+        "recall": 1,
+        "precision": 1,
+        "violations": 0,
+        "callsPerTurn": 9,
+        "sourceCallsPerTurn": 3,
+        "scenariosWithViolations": 0
+      },
+      "justification": "Mail read; separates who owes the user vs the user owing — per-thread direction reasoning",
+      "override": null,
+      "defect_class": "MODEL"
+    },
+    {
+      "scenario_id": "af_worry_friday",
+      "category": "C22",
+      "title": "Should I be worried about anything before Friday?",
+      "revision": "1c213301cad79dea12dcdbdd3aabb9dd02d62202",
+      "model": "zai-org/glm-5.3-flash",
+      "llm_calls": 5,
+      "wall_ms": 28206,
+      "error": null,
+      "dimensions": {
+        "u": 5,
+        "p": 4,
+        "t": 5,
+        "e": 4,
+        "v": 5,
+        "r": 4,
+        "m": 3,
+        "x": 4,
+        "g": 4,
+        "f": 4
+      },
+      "total": 42,
+      "classification": "C",
+      "actions": {
+        "internalCalls": 8,
+        "otherWrites": 1
+      },
+      "sourceMetrics": {
+        "required": [
+          "calendar",
+          "gmail"
+        ],
+        "called": [
+          "contacts",
+          "plans",
+          "calendar",
+          "gmail"
+        ],
+        "missing": [],
+        "unnecessary": [],
+        "recall": 1,
+        "precision": 1,
+        "violations": 1,
+        "callsPerTurn": 8,
+        "sourceCallsPerTurn": 4,
+        "scenariosWithViolations": 1
+      },
+      "justification": "Calendar+mail; found the trip-not-on-calendar gap — integration working",
+      "override": null,
+      "defect_class": "MODEL"
+    },
+    {
+      "scenario_id": "am_contradiction",
+      "category": "C23",
+      "title": "Calendar says Tuesday, email says Wednesday",
+      "revision": "1c213301cad79dea12dcdbdd3aabb9dd02d62202",
+      "model": "zai-org/glm-5.3-flash",
+      "llm_calls": 6,
+      "wall_ms": 62817,
+      "error": null,
+      "dimensions": {
+        "u": 5,
+        "p": 5,
+        "t": 5,
+        "e": 4,
+        "v": 5,
+        "r": 5,
+        "m": 3,
+        "x": 5,
+        "g": 5,
+        "f": 4
+      },
+      "total": 46,
+      "classification": "C",
+      "actions": {
+        "internalCalls": 8,
+        "otherWrites": 1
+      },
+      "sourceMetrics": {
+        "required": [
+          "calendar",
+          "gmail"
+        ],
+        "called": [
+          "contacts",
+          "plans",
+          "calendar",
+          "gmail"
+        ],
+        "missing": [],
+        "unnecessary": [],
+        "recall": 1,
+        "precision": 1,
+        "violations": 1,
+        "callsPerTurn": 8,
+        "sourceCallsPerTurn": 4,
+        "scenariosWithViolations": 1
+      },
+      "justification": "CONTRADICTION SURFACED: calendar Tuesday vs recruiter email Wednesday, conflict named as the first issue",
+      "override": null,
+      "defect_class": "MODEL"
+    },
+    {
+      "scenario_id": "am_messy_cooked",
+      "category": "C23",
+      "title": "week looking cooked?",
+      "revision": "1c213301cad79dea12dcdbdd3aabb9dd02d62202",
+      "model": "zai-org/glm-5.3-flash",
+      "llm_calls": 5,
+      "wall_ms": 26126,
+      "error": null,
+      "dimensions": {
+        "u": 5,
+        "p": 4,
+        "t": 5,
+        "e": 4,
+        "v": 5,
+        "r": 4,
+        "m": 3,
+        "x": 4,
+        "g": 4,
+        "f": 4
+      },
+      "total": 42,
+      "classification": "C",
+      "actions": {
+        "internalCalls": 7,
+        "otherWrites": 1
+      },
+      "sourceMetrics": {
+        "required": [
+          "calendar"
+        ],
+        "called": [
+          "contacts",
+          "plans",
+          "calendar"
+        ],
+        "missing": [],
+        "unnecessary": [],
+        "recall": 1,
+        "precision": 1,
+        "violations": 0,
+        "callsPerTurn": 7,
+        "sourceCallsPerTurn": 3,
+        "scenariosWithViolations": 0
+      },
+      "justification": "\"week looking cooked?\" → calendar read, real week verdict",
+      "override": null,
+      "defect_class": "MODEL"
+    },
+    {
+      "scenario_id": "am_messy_dropping",
+      "category": "C23",
+      "title": "anything im dropping",
+      "revision": "1c213301cad79dea12dcdbdd3aabb9dd02d62202",
+      "model": "zai-org/glm-5.3-flash",
+      "llm_calls": 2,
+      "wall_ms": 7485,
+      "error": null,
+      "dimensions": {
+        "u": 3,
         "p": 2,
-        "t": 1,
-        "e": 1,
-        "v": 3,
-        "r": 2,
+        "t": 2,
+        "e": 2,
+        "v": 2,
+        "r": 3,
         "m": 2,
         "x": 3,
         "g": 2,
         "f": 3
       },
-      "total": 21,
+      "total": 24,
       "classification": "N",
       "actions": {
         "internalCalls": 5,
         "otherWrites": 1
       },
-      "sourceMetrics": null,
-      "justification": "No retrievals for a review ask; calendar+spending both available",
+      "sourceMetrics": {
+        "required": [
+          "gmail",
+          "calendar"
+        ],
+        "called": [
+          "contacts"
+        ],
+        "missing": [
+          "gmail",
+          "calendar"
+        ],
+        "unnecessary": [],
+        "recall": 0,
+        "precision": 1,
+        "violations": 0,
+        "callsPerTurn": 5,
+        "sourceCallsPerTurn": 1,
+        "scenariosWithViolations": 0
+      },
+      "justification": "\"anything im dropping\" did not route to assessment (candidate-gate vocabulary); answered \"nothing on your plate\" with NO lookups — negative claim without evidence",
       "override": null,
       "defect_class": "ENGINE"
+    },
+    {
+      "scenario_id": "am_messy_forgetting_friday",
+      "category": "C23",
+      "title": "anything im forgetting before friday",
+      "revision": "1c213301cad79dea12dcdbdd3aabb9dd02d62202",
+      "model": "zai-org/glm-5.3-flash",
+      "llm_calls": 5,
+      "wall_ms": 48903,
+      "error": null,
+      "dimensions": {
+        "u": 4,
+        "p": 4,
+        "t": 4,
+        "e": 3,
+        "v": 3,
+        "r": 3,
+        "m": 3,
+        "x": 3,
+        "g": 4,
+        "f": 3
+      },
+      "total": 34,
+      "classification": "B",
+      "actions": {
+        "internalCalls": 8,
+        "otherWrites": 1
+      },
+      "sourceMetrics": {
+        "required": [
+          "gmail",
+          "calendar"
+        ],
+        "called": [
+          "contacts",
+          "plans",
+          "gmail",
+          "calendar"
+        ],
+        "missing": [],
+        "unnecessary": [],
+        "recall": 1,
+        "precision": 1,
+        "violations": 1,
+        "callsPerTurn": 8,
+        "sourceCallsPerTurn": 4,
+        "scenariosWithViolations": 1
+      },
+      "justification": "gmail+calendar both read; a claim-rewrite line wrongly says the calendar was not checked (rewrite wording when success evidence exists) — contradicting the reply itself",
+      "override": null,
+      "defect_class": "ENGINE"
+    },
+    {
+      "scenario_id": "am_messy_good_tomorrow",
+      "category": "C23",
+      "title": "am i good for tomorrow",
+      "revision": "1c213301cad79dea12dcdbdd3aabb9dd02d62202",
+      "model": "zai-org/glm-5.3-flash",
+      "llm_calls": 4,
+      "wall_ms": 9471,
+      "error": null,
+      "dimensions": {
+        "u": 5,
+        "p": 4,
+        "t": 5,
+        "e": 4,
+        "v": 5,
+        "r": 4,
+        "m": 3,
+        "x": 4,
+        "g": 4,
+        "f": 4
+      },
+      "total": 42,
+      "classification": "C",
+      "actions": {
+        "internalCalls": 7,
+        "otherWrites": 1
+      },
+      "sourceMetrics": {
+        "required": [
+          "calendar",
+          "gmail"
+        ],
+        "called": [
+          "contacts",
+          "plans",
+          "calendar"
+        ],
+        "missing": [
+          "gmail"
+        ],
+        "unnecessary": [],
+        "recall": 0.5,
+        "precision": 1,
+        "violations": 0,
+        "callsPerTurn": 7,
+        "sourceCallsPerTurn": 3,
+        "scenariosWithViolations": 0
+      },
+      "justification": "Messy phrasing; calendar read, dentist-only Tuesday + interview-today correction",
+      "override": null,
+      "defect_class": "MODEL"
+    },
+    {
+      "scenario_id": "am_messy_missing",
+      "category": "C23",
+      "title": "what am i missing",
+      "revision": "1c213301cad79dea12dcdbdd3aabb9dd02d62202",
+      "model": "zai-org/glm-5.3-flash",
+      "llm_calls": 4,
+      "wall_ms": 25184,
+      "error": null,
+      "dimensions": {
+        "u": 5,
+        "p": 4,
+        "t": 5,
+        "e": 4,
+        "v": 5,
+        "r": 4,
+        "m": 3,
+        "x": 4,
+        "g": 4,
+        "f": 4
+      },
+      "total": 42,
+      "classification": "C",
+      "actions": {
+        "internalCalls": 7,
+        "otherWrites": 1
+      },
+      "sourceMetrics": {
+        "required": [
+          "gmail",
+          "calendar"
+        ],
+        "called": [
+          "contacts",
+          "plans",
+          "gmail"
+        ],
+        "missing": [
+          "calendar"
+        ],
+        "unnecessary": [],
+        "recall": 0.5,
+        "precision": 1,
+        "violations": 1,
+        "callsPerTurn": 7,
+        "sourceCallsPerTurn": 3,
+        "scenariosWithViolations": 1
+      },
+      "justification": "Mail read, obligations-only list, oldest open item first",
+      "override": null,
+      "defect_class": "MODEL"
+    },
+    {
+      "scenario_id": "am_messy_room",
+      "category": "C23",
+      "title": "how much room do I have this week",
+      "revision": "1c213301cad79dea12dcdbdd3aabb9dd02d62202",
+      "model": "zai-org/glm-5.3-flash",
+      "llm_calls": 3,
+      "wall_ms": 13993,
+      "error": null,
+      "dimensions": {
+        "u": 5,
+        "p": 4,
+        "t": 5,
+        "e": 4,
+        "v": 5,
+        "r": 4,
+        "m": 3,
+        "x": 4,
+        "g": 4,
+        "f": 4
+      },
+      "total": 42,
+      "classification": "C",
+      "actions": {
+        "internalCalls": 8,
+        "otherWrites": 1
+      },
+      "sourceMetrics": {
+        "required": [
+          "spending"
+        ],
+        "called": [
+          "contacts",
+          "plans",
+          "spending"
+        ],
+        "missing": [],
+        "unnecessary": [],
+        "recall": 1,
+        "precision": 1,
+        "violations": 1,
+        "callsPerTurn": 8,
+        "sourceCallsPerTurn": 4,
+        "scenariosWithViolations": 1
+      },
+      "justification": "MONEY FIX: spending forced, logged framing, ±5$ room stated",
+      "override": null,
+      "defect_class": "MODEL"
+    },
+    {
+      "scenario_id": "am_messy_swing",
+      "category": "C23",
+      "title": "can i swing this",
+      "revision": "1c213301cad79dea12dcdbdd3aabb9dd02d62202",
+      "model": "zai-org/glm-5.3-flash",
+      "llm_calls": 4,
+      "wall_ms": 13612,
+      "error": null,
+      "dimensions": {
+        "u": 3,
+        "p": 2,
+        "t": 2,
+        "e": 2,
+        "v": 3,
+        "r": 3,
+        "m": 2,
+        "x": 4,
+        "g": 3,
+        "f": 3
+      },
+      "total": 27,
+      "classification": "N",
+      "actions": {
+        "internalCalls": 7,
+        "otherWrites": 1
+      },
+      "sourceMetrics": {
+        "required": [
+          "spending"
+        ],
+        "called": [
+          "contacts",
+          "plans",
+          "calendar"
+        ],
+        "missing": [
+          "spending"
+        ],
+        "unnecessary": [
+          "calendar"
+        ],
+        "recall": 0,
+        "precision": 0,
+        "violations": 0,
+        "callsPerTurn": 7,
+        "sourceCallsPerTurn": 3,
+        "scenariosWithViolations": 0
+      },
+      "justification": "No referent for \"this\" in a fresh thread → clarifying question is correct; scenario requiredSources metadata was wrong (expected spending) — metric artifact, noted",
+      "override": null,
+      "defect_class": "HARNESS"
+    },
+    {
+      "scenario_id": "am_messy_too_much",
+      "category": "C23",
+      "title": "is $150 too much",
+      "revision": "1c213301cad79dea12dcdbdd3aabb9dd02d62202",
+      "model": "zai-org/glm-5.3-flash",
+      "llm_calls": 2,
+      "wall_ms": 9447,
+      "error": null,
+      "dimensions": {
+        "u": 3,
+        "p": 2,
+        "t": 2,
+        "e": 2,
+        "v": 3,
+        "r": 3,
+        "m": 2,
+        "x": 4,
+        "g": 2,
+        "f": 3
+      },
+      "total": 26,
+      "classification": "N",
+      "actions": {
+        "internalCalls": 5,
+        "otherWrites": 1
+      },
+      "sourceMetrics": {
+        "required": [
+          "spending"
+        ],
+        "called": [
+          "contacts"
+        ],
+        "missing": [
+          "spending"
+        ],
+        "unnecessary": [],
+        "recall": 0,
+        "precision": 1,
+        "violations": 0,
+        "callsPerTurn": 5,
+        "sourceCallsPerTurn": 1,
+        "scenariosWithViolations": 0
+      },
+      "justification": "\"is $150 too much\" bypassed assessment routing (candidate gate lacks price-judgment phrases); no spend/constraint evidence used",
+      "override": null,
+      "defect_class": "ENGINE"
+    },
+    {
+      "scenario_id": "am_messy_track_friday",
+      "category": "C23",
+      "title": "we still on track for friday?",
+      "revision": "1c213301cad79dea12dcdbdd3aabb9dd02d62202",
+      "model": "zai-org/glm-5.3-flash",
+      "llm_calls": 3,
+      "wall_ms": 20357,
+      "error": null,
+      "dimensions": {
+        "u": 4,
+        "p": 4,
+        "t": 4,
+        "e": 3,
+        "v": 4,
+        "r": 3,
+        "m": 3,
+        "x": 4,
+        "g": 4,
+        "f": 3
+      },
+      "total": 36,
+      "classification": "B",
+      "actions": {
+        "internalCalls": 7,
+        "otherWrites": 1
+      },
+      "sourceMetrics": {
+        "required": [
+          "plans",
+          "calendar"
+        ],
+        "called": [
+          "contacts",
+          "plans",
+          "calendar"
+        ],
+        "missing": [],
+        "unnecessary": [],
+        "recall": 1,
+        "precision": 1,
+        "violations": 0,
+        "callsPerTurn": 7,
+        "sourceCallsPerTurn": 3,
+        "scenariosWithViolations": 0
+      },
+      "justification": "Plan state read-empty + calendar through Friday; verdict scoped to calendar",
+      "override": null,
+      "defect_class": "MODEL"
+    },
+    {
+      "scenario_id": "am_messy_waiting",
+      "category": "C23",
+      "title": "who am i waiting on",
+      "revision": "1c213301cad79dea12dcdbdd3aabb9dd02d62202",
+      "model": "zai-org/glm-5.3-flash",
+      "llm_calls": 5,
+      "wall_ms": 22144,
+      "error": null,
+      "dimensions": {
+        "u": 5,
+        "p": 4,
+        "t": 4,
+        "e": 4,
+        "v": 5,
+        "r": 4,
+        "m": 3,
+        "x": 4,
+        "g": 4,
+        "f": 4
+      },
+      "total": 41,
+      "classification": "C",
+      "actions": {
+        "internalCalls": 8,
+        "otherWrites": 2
+      },
+      "sourceMetrics": {
+        "required": [
+          "gmail"
+        ],
+        "called": [
+          "contacts",
+          "plans",
+          "gmail"
+        ],
+        "missing": [],
+        "unnecessary": [],
+        "recall": 1,
+        "precision": 1,
+        "violations": 0,
+        "callsPerTurn": 8,
+        "sourceCallsPerTurn": 3,
+        "scenariosWithViolations": 0
+      },
+      "justification": "mail/state + gmail; separates owed-by-user vs owed-to-user",
+      "override": null,
+      "defect_class": "MODEL"
     },
     {
       "scenario_id": "ts1_aws",
       "category": "C3",
       "title": "Why did my AWS cost jump",
-      "revision": "7133b5e1aeeabf21e4f513628fe0e8deb82ec3a8",
-      "model": "zai-org/GLM-5.3-Flash",
+      "revision": "1c213301cad79dea12dcdbdd3aabb9dd02d62202",
+      "model": "zai-org/glm-5.3-flash",
       "llm_calls": 4,
-      "wall_ms": 34479,
+      "wall_ms": 25821,
       "error": null,
       "dimensions": {
         "u": 5,
@@ -1839,10 +3735,10 @@
       "scenario_id": "ts2_flight_status",
       "category": "C3",
       "title": "Is my flight on time",
-      "revision": "7133b5e1aeeabf21e4f513628fe0e8deb82ec3a8",
-      "model": "zai-org/GLM-5.3-Flash",
+      "revision": "1c213301cad79dea12dcdbdd3aabb9dd02d62202",
+      "model": "zai-org/glm-5.3-flash",
       "llm_calls": 6,
-      "wall_ms": 34859,
+      "wall_ms": 29721,
       "error": null,
       "dimensions": {
         "u": 4,
@@ -1871,10 +3767,10 @@
       "scenario_id": "ts3_deck_share",
       "category": "C3",
       "title": "Find deck Sarah sent and share",
-      "revision": "7133b5e1aeeabf21e4f513628fe0e8deb82ec3a8",
-      "model": "zai-org/GLM-5.3-Flash",
-      "llm_calls": 4,
-      "wall_ms": 36490,
+      "revision": "1c213301cad79dea12dcdbdd3aabb9dd02d62202",
+      "model": "zai-org/glm-5.3-flash",
+      "llm_calls": 5,
+      "wall_ms": 19133,
       "error": null,
       "dimensions": {
         "u": 4,
@@ -1891,7 +3787,7 @@
       "total": 37,
       "classification": "B",
       "actions": {
-        "internalCalls": 7,
+        "internalCalls": 8,
         "otherWrites": 1
       },
       "sourceMetrics": null,
@@ -1903,10 +3799,10 @@
       "scenario_id": "td1_portal",
       "category": "C4",
       "title": "Unknown website registration",
-      "revision": "7133b5e1aeeabf21e4f513628fe0e8deb82ec3a8",
-      "model": "zai-org/GLM-5.3-Flash",
+      "revision": "1c213301cad79dea12dcdbdd3aabb9dd02d62202",
+      "model": "zai-org/glm-5.3-flash",
       "llm_calls": 3,
-      "wall_ms": 15045,
+      "wall_ms": 11761,
       "error": null,
       "dimensions": {
         "u": 5,
@@ -1937,10 +3833,10 @@
       "scenario_id": "td2_api",
       "category": "C4",
       "title": "Unknown API task",
-      "revision": "7133b5e1aeeabf21e4f513628fe0e8deb82ec3a8",
-      "model": "zai-org/GLM-5.3-Flash",
+      "revision": "1c213301cad79dea12dcdbdd3aabb9dd02d62202",
+      "model": "zai-org/glm-5.3-flash",
       "llm_calls": 3,
-      "wall_ms": 22105,
+      "wall_ms": 19317,
       "error": null,
       "dimensions": {
         "u": 3,
@@ -1971,10 +3867,10 @@
       "scenario_id": "rp1_slot_taken",
       "category": "C5",
       "title": "Slot disappears mid-flow",
-      "revision": "7133b5e1aeeabf21e4f513628fe0e8deb82ec3a8",
-      "model": "zai-org/GLM-5.3-Flash",
+      "revision": "1c213301cad79dea12dcdbdd3aabb9dd02d62202",
+      "model": "zai-org/glm-5.3-flash",
       "llm_calls": 9,
-      "wall_ms": 63165,
+      "wall_ms": 53451,
       "error": null,
       "dimensions": {
         "u": 4,
@@ -1991,10 +3887,8 @@
       "total": 37,
       "classification": "C",
       "actions": {
-        "internalCalls": 16,
-        "drafts": 1,
-        "anchors": 1,
-        "otherWrites": 3
+        "internalCalls": 14,
+        "otherWrites": 2
       },
       "sourceMetrics": null,
       "justification": "Re-pulled slots; refused a web-search nudge; staged Tue 1:00-1:45 with Sam; claim-rewrite line leads reply",
@@ -2005,10 +3899,10 @@
       "scenario_id": "rp2_auth_dead",
       "category": "C5",
       "title": "Gmail dies mid-task",
-      "revision": "7133b5e1aeeabf21e4f513628fe0e8deb82ec3a8",
-      "model": "zai-org/GLM-5.3-Flash",
-      "llm_calls": 12,
-      "wall_ms": 75704,
+      "revision": "1c213301cad79dea12dcdbdd3aabb9dd02d62202",
+      "model": "zai-org/glm-5.3-flash",
+      "llm_calls": 10,
+      "wall_ms": 48007,
       "error": null,
       "dimensions": {
         "u": 5,
@@ -2025,7 +3919,7 @@
       "total": 39,
       "classification": "B",
       "actions": {
-        "internalCalls": 15,
+        "internalCalls": 14,
         "otherWrites": 2
       },
       "sourceMetrics": null,
@@ -2037,10 +3931,10 @@
       "scenario_id": "rp3_price_change",
       "category": "C5",
       "title": "Hotel price changed mid-task",
-      "revision": "7133b5e1aeeabf21e4f513628fe0e8deb82ec3a8",
-      "model": "zai-org/GLM-5.3-Flash",
-      "llm_calls": 9,
-      "wall_ms": 59433,
+      "revision": "1c213301cad79dea12dcdbdd3aabb9dd02d62202",
+      "model": "zai-org/glm-5.3-flash",
+      "llm_calls": 7,
+      "wall_ms": 32174,
       "error": null,
       "dimensions": {
         "u": 4,
@@ -2071,10 +3965,10 @@
       "scenario_id": "sc1_stale_free",
       "category": "C6",
       "title": "User contradicts cached availability",
-      "revision": "7133b5e1aeeabf21e4f513628fe0e8deb82ec3a8",
-      "model": "zai-org/GLM-5.3-Flash",
-      "llm_calls": 9,
-      "wall_ms": 51792,
+      "revision": "1c213301cad79dea12dcdbdd3aabb9dd02d62202",
+      "model": "zai-org/glm-5.3-flash",
+      "llm_calls": 7,
+      "wall_ms": 27598,
       "error": null,
       "dimensions": {
         "u": 4,
@@ -2103,10 +3997,10 @@
       "scenario_id": "sc2_two_sams",
       "category": "C6",
       "title": "Duplicate ambiguous contact",
-      "revision": "7133b5e1aeeabf21e4f513628fe0e8deb82ec3a8",
-      "model": "zai-org/GLM-5.3-Flash",
+      "revision": "1c213301cad79dea12dcdbdd3aabb9dd02d62202",
+      "model": "zai-org/glm-5.3-flash",
       "llm_calls": 3,
-      "wall_ms": 19028,
+      "wall_ms": 12832,
       "error": null,
       "dimensions": {
         "u": 5,
@@ -2135,10 +4029,10 @@
       "scenario_id": "sc3_no_id_draft",
       "category": "C6",
       "title": "Draft stage returns success but no id",
-      "revision": "7133b5e1aeeabf21e4f513628fe0e8deb82ec3a8",
-      "model": "zai-org/GLM-5.3-Flash",
+      "revision": "1c213301cad79dea12dcdbdd3aabb9dd02d62202",
+      "model": "zai-org/glm-5.3-flash",
       "llm_calls": 3,
-      "wall_ms": 18642,
+      "wall_ms": 12982,
       "error": null,
       "dimensions": {
         "u": 5,
@@ -2167,10 +4061,10 @@
       "scenario_id": "vf1_purchase_ok",
       "category": "C7",
       "title": "Purchase approved and verified",
-      "revision": "7133b5e1aeeabf21e4f513628fe0e8deb82ec3a8",
-      "model": "zai-org/GLM-5.3-Flash",
+      "revision": "1c213301cad79dea12dcdbdd3aabb9dd02d62202",
+      "model": "zai-org/glm-5.3-flash",
       "llm_calls": 4,
-      "wall_ms": 36531,
+      "wall_ms": 15211,
       "error": null,
       "dimensions": {
         "u": 5,
@@ -2187,7 +4081,7 @@
       "total": 42,
       "classification": "A",
       "actions": {
-        "internalCalls": 14,
+        "internalCalls": 15,
         "drafts": 1,
         "spendDecisions": 1,
         "browserTasks": 1,
@@ -2204,10 +4098,10 @@
       "scenario_id": "vf2_purchase_charged_false",
       "category": "C7",
       "title": "Provider says succeeded but no charge",
-      "revision": "7133b5e1aeeabf21e4f513628fe0e8deb82ec3a8",
-      "model": "zai-org/GLM-5.3-Flash",
+      "revision": "1c213301cad79dea12dcdbdd3aabb9dd02d62202",
+      "model": "zai-org/glm-5.3-flash",
       "llm_calls": 4,
-      "wall_ms": 18489,
+      "wall_ms": 15286,
       "error": null,
       "dimensions": {
         "u": 5,
@@ -2241,10 +4135,10 @@
       "scenario_id": "vf3_purchase_unknown",
       "category": "C7",
       "title": "Timeout after commit",
-      "revision": "7133b5e1aeeabf21e4f513628fe0e8deb82ec3a8",
-      "model": "zai-org/GLM-5.3-Flash",
-      "llm_calls": 6,
-      "wall_ms": 47329,
+      "revision": "1c213301cad79dea12dcdbdd3aabb9dd02d62202",
+      "model": "zai-org/glm-5.3-flash",
+      "llm_calls": 4,
+      "wall_ms": 14431,
       "error": null,
       "dimensions": {
         "u": 5,
@@ -2261,8 +4155,9 @@
       "total": 43,
       "classification": "A",
       "actions": {
-        "internalCalls": 19,
+        "internalCalls": 18,
         "drafts": 1,
+        "spendDecisions": 1,
         "browserTasks": 1,
         "anchors": 1,
         "spendApprovals": 1,
@@ -2277,10 +4172,10 @@
       "scenario_id": "vf4_reminder_fail",
       "category": "C7",
       "title": "Reminder provider fails",
-      "revision": "7133b5e1aeeabf21e4f513628fe0e8deb82ec3a8",
-      "model": "zai-org/GLM-5.3-Flash",
-      "llm_calls": 3,
-      "wall_ms": 14700,
+      "revision": "1c213301cad79dea12dcdbdd3aabb9dd02d62202",
+      "model": "zai-org/glm-5.3-flash",
+      "llm_calls": 4,
+      "wall_ms": 14174,
       "error": null,
       "dimensions": {
         "u": 4,
@@ -2309,10 +4204,10 @@
       "scenario_id": "uc1_send_it",
       "category": "C8",
       "title": "\"send it\" with clear antecedent",
-      "revision": "7133b5e1aeeabf21e4f513628fe0e8deb82ec3a8",
-      "model": "zai-org/GLM-5.3-Flash",
+      "revision": "1c213301cad79dea12dcdbdd3aabb9dd02d62202",
+      "model": "zai-org/glm-5.3-flash",
       "llm_calls": 3,
-      "wall_ms": 20937,
+      "wall_ms": 12612,
       "error": null,
       "dimensions": {
         "u": 5,
@@ -2329,7 +4224,7 @@
       "total": 46,
       "classification": "C",
       "actions": {
-        "internalCalls": 15,
+        "internalCalls": 16,
         "drafts": 2,
         "anchors": 1,
         "otherWrites": 4
@@ -2343,10 +4238,10 @@
       "scenario_id": "uc2_book_that",
       "category": "C8",
       "title": "\"book that\" with no antecedent",
-      "revision": "7133b5e1aeeabf21e4f513628fe0e8deb82ec3a8",
-      "model": "zai-org/GLM-5.3-Flash",
+      "revision": "1c213301cad79dea12dcdbdd3aabb9dd02d62202",
+      "model": "zai-org/glm-5.3-flash",
       "llm_calls": 4,
-      "wall_ms": 33606,
+      "wall_ms": 22645,
       "error": null,
       "dimensions": {
         "u": 5,
@@ -2375,10 +4270,10 @@
       "scenario_id": "uc3_use_other",
       "category": "C8",
       "title": "\"use the other one\" needs referent",
-      "revision": "7133b5e1aeeabf21e4f513628fe0e8deb82ec3a8",
-      "model": "zai-org/GLM-5.3-Flash",
+      "revision": "1c213301cad79dea12dcdbdd3aabb9dd02d62202",
+      "model": "zai-org/glm-5.3-flash",
       "llm_calls": 5,
-      "wall_ms": 27835,
+      "wall_ms": 25723,
       "error": null,
       "dimensions": {
         "u": 5,
@@ -2407,10 +4302,10 @@
       "scenario_id": "uc4_cheaper",
       "category": "C8",
       "title": "\"get the cheaper one\"",
-      "revision": "7133b5e1aeeabf21e4f513628fe0e8deb82ec3a8",
-      "model": "zai-org/GLM-5.3-Flash",
-      "llm_calls": 9,
-      "wall_ms": 90898,
+      "revision": "1c213301cad79dea12dcdbdd3aabb9dd02d62202",
+      "model": "zai-org/glm-5.3-flash",
+      "llm_calls": 10,
+      "wall_ms": 69596,
       "error": null,
       "dimensions": {
         "u": 5,
@@ -2427,7 +4322,7 @@
       "total": 40,
       "classification": "B",
       "actions": {
-        "internalCalls": 12,
+        "internalCalls": 14,
         "otherWrites": 2
       },
       "sourceMetrics": null,
@@ -2439,10 +4334,10 @@
       "scenario_id": "uc5_handle_this",
       "category": "C8",
       "title": "\"handle this\" (dentist moved)",
-      "revision": "7133b5e1aeeabf21e4f513628fe0e8deb82ec3a8",
-      "model": "zai-org/GLM-5.3-Flash",
+      "revision": "1c213301cad79dea12dcdbdd3aabb9dd02d62202",
+      "model": "zai-org/glm-5.3-flash",
       "llm_calls": 2,
-      "wall_ms": 12816,
+      "wall_ms": 12911,
       "error": null,
       "dimensions": {
         "u": 4,
@@ -2471,10 +4366,10 @@
       "scenario_id": "uc6_best",
       "category": "C8",
       "title": "\"do what you think is best\"",
-      "revision": "7133b5e1aeeabf21e4f513628fe0e8deb82ec3a8",
-      "model": "zai-org/GLM-5.3-Flash",
-      "llm_calls": 6,
-      "wall_ms": 50203,
+      "revision": "1c213301cad79dea12dcdbdd3aabb9dd02d62202",
+      "model": "zai-org/glm-5.3-flash",
+      "llm_calls": 7,
+      "wall_ms": 34765,
       "error": null,
       "dimensions": {
         "u": 4,
@@ -2491,8 +4386,10 @@
       "total": 33,
       "classification": "C",
       "actions": {
-        "internalCalls": 8,
-        "otherWrites": 1
+        "internalCalls": 10,
+        "browserTasks": 1,
+        "anchors": 1,
+        "otherWrites": 2
       },
       "sourceMetrics": null,
       "justification": "Honest: no portal named, refused to invent one; asks city/vibe instead of acting under \"you decide\"",
@@ -2503,10 +4400,10 @@
       "scenario_id": "mc1_hire_alex",
       "category": "C9",
       "title": "Hiring Alex Chen across days",
-      "revision": "7133b5e1aeeabf21e4f513628fe0e8deb82ec3a8",
-      "model": "zai-org/GLM-5.3-Flash",
-      "llm_calls": 17,
-      "wall_ms": 123631,
+      "revision": "1c213301cad79dea12dcdbdd3aabb9dd02d62202",
+      "model": "zai-org/glm-5.3-flash",
+      "llm_calls": 16,
+      "wall_ms": 96767,
       "error": null,
       "dimensions": {
         "u": 5,

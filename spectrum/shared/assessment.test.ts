@@ -180,3 +180,16 @@ describe('assessment routing — evidence sufficiency levels', () => {
     expect(evidenceSufficiency(plan, [])).toBe('INSUFFICIENT')
   })
 })
+
+describe('assessment routing — post-battery gate vocabulary', () => {
+  test('price-judgment and contracted phrasings are candidates', () => {
+    expect(assessmentCandidates('is $150 too much')).toBe(true)
+    expect(assessmentCandidates('is that too expensive for me')).toBe(true)
+    expect(assessmentCandidates('anything im dropping')).toBe(true)
+    expect(assessmentCandidates("anything i'm forgetting")).toBe(true)
+  })
+
+  test('price-judgment asks infer the money domain', () => {
+    expect(inferAssessmentDomains('is $150 too much')).toContain('money')
+  })
+})

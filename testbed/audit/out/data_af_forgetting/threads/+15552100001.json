@@ -1,0 +1,16 @@
+{
+  "facts": [],
+  "summary": "",
+  "history": [
+    {
+      "role": "user",
+      "content": "What am I forgetting before I leave?",
+      "ts": 1790608736843
+    },
+    {
+      "role": "assistant",
+      "content": "Here's what I checked: your mail (last 2 days) and your calendar through Sunday. Before you leave for Denver, a few things: 1. Sarah is still waiting on the updated deck, that's the one open ask that travels badly if you don't send it before Thursday. 2. Sam said he'd have the contract reviewed by Friday, fine while you're away, but worth a read before you're on a plane. 3. Dana's panel email says \"tomorrow\" with a 45 min product case at 100 Main St, 9th floor, but your calendar shows the BigCo interview today at 2pm. Worth confirming which day that panel actually is; if it's tomorrow, you've got the dentist at 9am and that panel to prep for tonight. 4. Thursday: WN 2214, JFK→DEN, 3:40pm departure, Zephyr Lodge check in at 3pm. Nothing on your calendar conflicts, but you'll want to leave the city by early afternoon. What I haven't checked: your reminders list and anything in Drive you might need to pack or bring (deck drafts, contract copies). Want me to look?",
+      "ts": 1790608736843
+    }
+  ]
+}

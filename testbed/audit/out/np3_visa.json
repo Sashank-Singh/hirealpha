@@ -1,6 +1,6 @@
 {
-  "revision": "7133b5e1aeeabf21e4f513628fe0e8deb82ec3a8",
-  "model": "zai-org/GLM-5.3-Flash",
+  "revision": "1c213301cad79dea12dcdbdd3aabb9dd02d62202",
+  "model": "zai-org/glm-5.3-flash",
   "worldDefinition": {
     "profile": {
       "name": "Alex Rivera",
@@ -166,9 +166,9 @@
     {
       "text": "Do I need a visa for a 5-day layover in China on the way to Tokyo?",
       "bubbles": [
-        "Good news: likely no visa needed. China's visa free transit allows US passport holders up to 144 hours (6 days) at major airports like Shanghai PVG, and your 5 day layover fits inside that. The catch is the conditions: you need a confirmed onward ticket to a third country (Tokyo counts, since it's not where you came from), you have to stay within the city/region the transit covers, and you apply for the transit stamp on arrival rather than in advance. It's per designated airport, so confirm your layover city qualifies, tell me which airport and I'll double check. One honest caveat: rules like this shift, so verify with your airline before flying since they enforce it at check in. Want me to look up the specifics for your exact airport? https://source0.auditnews.example/page"
+        "Short answer: probably no visa needed, with caveats. Per what I found: China's visa free transit policy applies at major airports (including Shanghai PVG) for US passport holders who are transiting to a third country, with an onward ticket. Tokyo counts as a third country, and a 5 day layover fits inside the allowed transit window. The conditions that matter: You must enter and exit through designated ports (the major international airports qualify) You need a confirmed onward ticket to Tokyo You stay within the permitted area for transit travelers What I couldn't verify from this search: whether your specific layover airport is on the current designated list, and the exact current rules for 2026 (China has expanded and adjusted this policy several times). Before you book, I'd confirm with the airline or the Chinese embassy's site, airlines are strict about this at check in and can deny boarding without the right paperwork. Want me to dig into your specific layover city once you know the routing? https://source0.auditnews.example/page What I have not checked: calendar — so treat the above as partial until that is read."
       ],
-      "reply": "Good news: likely no visa needed. China's visa free transit allows US passport holders up to 144 hours (6 days) at major airports like Shanghai PVG, and your 5 day layover fits inside that. The catch is the conditions: you need a confirmed onward ticket to a third country (Tokyo counts, since it's not where you came from), you have to stay within the city/region the transit covers, and you apply for the transit stamp on arrival rather than in advance. It's per designated airport, so confirm your layover city qualifies, tell me which airport and I'll double check. One honest caveat: rules like this shift, so verify with your airline before flying since they enforce it at check in. Want me to look up the specifics for your exact airport? https://source0.auditnews.example/page",
+      "reply": "Short answer: probably no visa needed, with caveats. Per what I found: China's visa free transit policy applies at major airports (including Shanghai PVG) for US passport holders who are transiting to a third country, with an onward ticket. Tokyo counts as a third country, and a 5 day layover fits inside the allowed transit window. The conditions that matter: You must enter and exit through designated ports (the major international airports qualify) You need a confirmed onward ticket to Tokyo You stay within the permitted area for transit travelers What I couldn't verify from this search: whether your specific layover airport is on the current designated list, and the exact current rules for 2026 (China has expanded and adjusted this policy several times). Before you book, I'd confirm with the airline or the Chinese embassy's site, airlines are strict about this at check in and can deny boarding without the right paperwork. Want me to dig into your specific layover city once you know the routing? https://source0.auditnews.example/page What I have not checked: calendar — so treat the above as partial until that is read.",
       "source": "gmi",
       "card": null,
       "calls": [
@@ -214,7 +214,8 @@
           "body": {}
         }
       ],
-      "llmCallsInTurn": 5,
+      "llmCallsInTurn": 4,
+      "claimViolations": 0,
       "thread": {
         "facts": [],
         "summary": "",
@@ -255,6 +256,6 @@
       "value": "Alex"
     }
   ],
-  "llmCalls": 5,
-  "wallMs": 21695
+  "llmCalls": 4,
+  "wallMs": 34146
 }

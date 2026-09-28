@@ -1,0 +1,16 @@
+{
+  "facts": [],
+  "summary": "",
+  "history": [
+    {
+      "role": "user",
+      "content": "What did I actually accomplish this week?",
+      "ts": 1790608711863
+    },
+    {
+      "role": "assistant",
+      "content": "Honest answer: I checked your calendar for the week and there's not much \"accomplished\" data in it, everything on it is still ahead (BigCo interview today at 2, gym tonight, dentist tomorrow, standup and dinner with Dana Wednesday). The browser run is queued and pauses before any sensitive step — nothing is completed yet, and I will report back with a verified result. What I can say: your week is clearly oriented around the BigCo interview, which is today at 2 PM, if you've done prep for that, that's the week's real deliverable, but I have no record of it. If you want a fuller picture, I can read your mail from the last 7 days for sent threads and finished business, want me to?",
+      "ts": 1790608711863
+    }
+  ]
+}

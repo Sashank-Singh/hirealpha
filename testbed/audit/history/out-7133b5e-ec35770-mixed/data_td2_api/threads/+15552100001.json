@@ -1,0 +1,16 @@
+{
+  "facts": [],
+  "summary": "",
+  "history": [
+    {
+      "role": "user",
+      "content": "Pull my last 10 invoices from https://api.acme.dev/v1/invoices and put them in a doc.",
+      "ts": 1790578505972
+    },
+    {
+      "role": "assistant",
+      "content": "On it, the run's queued against that invoices endpoint and will pause before any sensitive step. Once it pulls the 10 invoices I'll drop them into a Drive doc and send it your way here. Launching Cloud Computer for this task: https://audit.internal/computer/job_1 — the session is active now, pauses automatically before any sensitive steps, and I'll report back here with the verified results.",
+      "ts": 1790578505972
+    }
+  ]
+}

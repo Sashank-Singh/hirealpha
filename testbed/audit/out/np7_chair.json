@@ -1,6 +1,6 @@
 {
-  "revision": "7133b5e1aeeabf21e4f513628fe0e8deb82ec3a8",
-  "model": "zai-org/GLM-5.3-Flash",
+  "revision": "1c213301cad79dea12dcdbdd3aabb9dd02d62202",
+  "model": "zai-org/glm-5.3-flash",
   "worldDefinition": {
     "profile": {
       "name": "Alex Rivera",
@@ -166,9 +166,9 @@
     {
       "text": "Find me a good ergonomic chair under $300 and tell me if I should buy it now.",
       "bubbles": [
-        "Two solid picks under $300, both in stock right now: 1. Branch Ergonomic Chair, $269. Named the best budget pick for 2026, adjustable lumbar and arms, no backorder. 2. Staples Hyken, $230. The classic value pick, mesh back, headrest, and it leaves $70 in your pocket. My take: if you sit long hours, the Branch at $269 is the one worth it. If you want the deal, the Hyken at $230 is genuinely good for the money. On \"buy it now\": these are evergreen models, not flash sales, so there's no price cliff you're missing by waiting a week. I'd only pull the trigger now if your current chair is actively hurting your back, that cost adds up faster than any discount. Want me to order one? Say which and I'll set it up for your approval. Launching Cloud Computer to stage your order: https://audit.internal/computer/job_1 — navigating to the merchant, selecting your options, and proceeding through checkout with your saved shipping address. I'll bring the verified approval card right here as soon as checkout is ready."
+        "Two solid picks under your cap, both in stock right now: 1. Branch Ergonomic Chair, $269. Named the best budget ergonomic pick of 2026, adjustable lumbar, 7 year warranty. 2. Staples Hyken, $230. The classic mesh value pick, adjustable arms and lumbar support. Should you buy now? Of what you've logged this week you're at $275 of a $400 budget, so either chair fits what's left ($125 for the Hyken, or $269 pushes you $144 over if the week's budget is the line you care about). The Branch is the one I'd take, real lumbar adjustability and a warranty the Hyken doesn't match, and it's only $39 more. Want me to set up the purchase for the Branch at $269? Launching Cloud Computer to stage your order: https://audit.internal/computer/job_1 — navigating to the merchant, selecting your options, and proceeding through checkout with your saved shipping address. I'll bring the verified approval card right here as soon as checkout is ready."
       ],
-      "reply": "Two solid picks under $300, both in stock right now: 1. Branch Ergonomic Chair, $269. Named the best budget pick for 2026, adjustable lumbar and arms, no backorder. 2. Staples Hyken, $230. The classic value pick, mesh back, headrest, and it leaves $70 in your pocket. My take: if you sit long hours, the Branch at $269 is the one worth it. If you want the deal, the Hyken at $230 is genuinely good for the money. On \"buy it now\": these are evergreen models, not flash sales, so there's no price cliff you're missing by waiting a week. I'd only pull the trigger now if your current chair is actively hurting your back, that cost adds up faster than any discount. Want me to order one? Say which and I'll set it up for your approval. Launching Cloud Computer to stage your order: https://audit.internal/computer/job_1 — navigating to the merchant, selecting your options, and proceeding through checkout with your saved shipping address. I'll bring the verified approval card right here as soon as checkout is ready.",
+      "reply": "Two solid picks under your cap, both in stock right now: 1. Branch Ergonomic Chair, $269. Named the best budget ergonomic pick of 2026, adjustable lumbar, 7 year warranty. 2. Staples Hyken, $230. The classic mesh value pick, adjustable arms and lumbar support. Should you buy now? Of what you've logged this week you're at $275 of a $400 budget, so either chair fits what's left ($125 for the Hyken, or $269 pushes you $144 over if the week's budget is the line you care about). The Branch is the one I'd take, real lumbar adjustability and a warranty the Hyken doesn't match, and it's only $39 more. Want me to set up the purchase for the Branch at $269? Launching Cloud Computer to stage your order: https://audit.internal/computer/job_1 — navigating to the merchant, selecting your options, and proceeding through checkout with your saved shipping address. I'll bring the verified approval card right here as soon as checkout is ready.",
       "source": "gmi",
       "card": null,
       "calls": [
@@ -209,6 +209,11 @@
           }
         },
         {
+          "method": "GET",
+          "path": "/api/internal/spending?phone=%2B15552100001",
+          "body": {}
+        },
+        {
           "method": "POST",
           "path": "/api/internal/propose",
           "body": {
@@ -236,7 +241,8 @@
           }
         }
       ],
-      "llmCallsInTurn": 3,
+      "llmCallsInTurn": 4,
+      "claimViolations": 0,
       "thread": {
         "facts": [],
         "summary": "",
@@ -277,8 +283,8 @@
           "url": "https://source0.auditnews.example/page",
           "sessionUrl": "https://audit.internal/computer/job_1"
         },
-        "createdAt": "2026-09-28T07:21:22.946Z",
-        "expiresAt": "2026-09-29T07:21:22.946Z"
+        "createdAt": "2026-09-28T15:03:24.645Z",
+        "expiresAt": "2026-09-29T15:03:24.645Z"
       }
     ],
     "plans": [],
@@ -310,6 +316,6 @@
       "value": "Alex"
     }
   ],
-  "llmCalls": 3,
-  "wallMs": 28309
+  "llmCalls": 4,
+  "wallMs": 23774
 }

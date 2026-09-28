@@ -1,0 +1,16 @@
+{
+  "facts": [],
+  "summary": "",
+  "history": [
+    {
+      "role": "user",
+      "content": "How much room do I have this week?",
+      "ts": 1790608882185
+    },
+    {
+      "role": "assistant",
+      "content": "Based on what you've logged, you're at $395 of your $400 budget this week, so about $5 of room. That's $275 dining and $120 Amazon. I have not actually checked your calendar yet, so I cannot say whether it is reachable. If anything's coming up this week, it'll likely tip you over, want to log anything else or adjust the budget?",
+      "ts": 1790608882185
+    }
+  ]
+}
