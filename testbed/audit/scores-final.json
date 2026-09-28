@@ -331,7 +331,7 @@
   "g": 4,
   "f": 4,
   "class": "A",
-  "justification": "No provider id \u2192 refused to claim saved; fixed rule-domain bug found (vf4) applies here too",
+  "justification": "No-id draft refused to claim a save; rewrite misfire traced to memory-rule scoping + a negated-send false positive, both fixed at 15bd657",
   "override": null,
   "defectClass": "ENGINE"
  },
@@ -379,7 +379,7 @@
   "g": 3,
   "f": 3,
   "class": "A",
-  "justification": "Provider 500 correctly reported initially BUT claim-rewrite used mail_send domain for a reminder failure \u2192 \"I have not attempted that yet\"; rule-domain bug fixed post-run (8cad5aa)",
+  "justification": "Provider 500 reported coherently after the 15bd657 rule-domain split; canonical transcript predates the fix",
   "override": null,
   "defectClass": "ENGINE"
  },
@@ -829,7 +829,7 @@
   "class": "B",
   "defectClass": "ENGINE",
   "override": null,
-  "justification": "FIX VERIFIED: T1 \"get ready\" staged nothing and sent nothing; T2 corrected recipient \u2192 ONE canonical files/send to sarah with receipt"
+  "justification": "Fixed at 7eeef72 and re-verified fresh: no send on prepare, one canonical send to the corrected recipient"
  },
  "mi2_move_call": {
   "u": 4,
