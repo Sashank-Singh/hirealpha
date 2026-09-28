@@ -45,6 +45,10 @@ export type BriefStory = {
   due: BriefDue[]
   later: string[]
   calendarConnected?: boolean
+  calendarFailed?: boolean
+  calendarStatus?: 'ok' | 'not_connected' | 'auth_expired' | 'timeout' | 'provider_error'
+  mailFailed?: boolean
+  mailStatus?: 'ok' | 'not_connected' | 'auth_expired' | 'timeout' | 'provider_error'
 }
 
 /** Chip copy for a scored mail's reasons. */

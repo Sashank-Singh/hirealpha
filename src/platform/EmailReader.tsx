@@ -68,9 +68,10 @@ interface EmailReaderProps {
   /** A generated reply to review: when present, a compose panel renders below the message. */
   draft?: ReplyDraft | null
   onClose: () => void
+  onSent?: () => void
 }
 
-export function EmailReader({ messageId, label, summary, auth, persona, onClose, draft }: EmailReaderProps) {
+export function EmailReader({ messageId, label, summary, auth, persona, onClose, onSent, draft }: EmailReaderProps) {
   const a = useStableAuth(auth)
   const [msg, setMsg] = useState<MailMessage | null>(null)
   const [loading, setLoading] = useState(true)
@@ -185,6 +186,7 @@ export function EmailReader({ messageId, label, summary, auth, persona, onClose,
         body,
       })
       if (!res.ok) throw new Error(res.error || 'Send failed. Reconnect Gmail with send access.')
+      onSent?.()
       onClose()
     } catch (err) {
       setComposeMsg(err instanceof Error ? err.message : 'Could not send.')

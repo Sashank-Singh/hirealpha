@@ -155,37 +155,136 @@ body:has(.conversation-tour), #root:has(.conversation-tour) { overflow-x: clip; 
   .conversation-tour__pet-card::before { right: 14px; top: auto; bottom: -9px; }
   .conversation-tour__pet-card::after { right: 7px; top: auto; bottom: -17px; }
 }
-.conversation-tour__pet-card { top: 58.5%; }
+@media (min-width: 701px) { .conversation-tour__pet-card { top: 58.5%; } }
 @media (max-width: 700px) {
   .conversation-tour__sticky { top: 64px; }
   .conversation-tour .phone { width: min(312px, calc(100vw - 40px), calc((100svh - 320px) * .4875)); }
 }
 .conversation-tour__figure { display: flex; flex-direction: column; align-items: center; width: 100%; }
-.conversation-tour__device { position: relative; width: fit-content; margin-inline: auto; isolation: isolate; }
-.conversation-tour__pet-flight {
-  position: absolute;
-  z-index: 5;
-  left: calc(100% - 19px);
-  top: 7%;
-  width: 46px;
-  height: 46px;
-  pointer-events: none;
-  filter: drop-shadow(0 5px 5px rgba(33, 28, 24, .2));
-  transform-origin: center;
-  animation: pip-phone-flight 13s ease-in-out infinite;
+.conversation-tour__pet-card {
+  width: 248px;
+  min-height: 70px;
+  align-items: center;
+  gap: 9px;
+  animation: pip-thought-float 3.6s ease-in-out infinite;
 }
-.conversation-tour__pet-flight svg { display: block; width: 100%; height: 100%; overflow: visible; }
-@keyframes pip-phone-flight {
-  0%, 5% { left: calc(100% - 19px); top: 7%; transform: rotate(14deg) scale(1); }
-  15% { left: calc(100% - 19px); top: 44%; transform: rotate(90deg) scale(.94); }
-  25%, 30% { left: calc(100% - 19px); top: 88%; transform: rotate(175deg) scale(1.04); }
-  40% { left: calc(50% - 23px); top: 94%; transform: rotate(205deg) scale(.94); }
-  50%, 55% { left: -27px; top: 82%; transform: rotate(270deg) scale(1); }
-  65% { left: -27px; top: 42%; transform: rotate(350deg) scale(.94); }
-  75%, 80% { left: -27px; top: 5%; transform: rotate(430deg) scale(1.04); }
-  90% { left: calc(50% - 23px); top: -25px; transform: rotate(480deg) scale(.94); }
-  100% { left: calc(100% - 19px); top: 7%; transform: rotate(554deg) scale(1); }
+.conversation-tour__pet { width: 38px; height: 38px; flex: 0 0 38px; animation: none; }
+.conversation-tour__pet svg { display: block; width: 100%; height: 100%; overflow: visible; }
+.conversation-tour__pet-speech { min-width: 0; }
+.conversation-tour__pet-speech p { margin: 0; }
+@keyframes pip-thought-float { 0%, 100% { transform: translateY(0) rotate(0); } 50% { transform: translateY(-10px) rotate(-1deg); } }
+@media (max-width: 700px) {
+  .conversation-tour__pet-card { top: auto; width: min(100%, 260px); min-height: 0; gap: 8px; }
+  .conversation-tour__pet { width: 30px; height: 30px; flex-basis: 30px; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .conversation-tour__pet-flight { animation: none; left: calc(100% - 19px); top: -24px; }
+  .conversation-tour__pet-card { animation: pip-thought-float-reduced 5s ease-in-out infinite; }
+  .conversation-tour__pet, .pet__tail { animation: none; }
 }
+@keyframes pip-thought-float-reduced { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-5px); } }
+
+/* Small app surfaces in the message thread, styled like real iOS mini-app cards. */
+.conversation-tour__app-card {
+  display: block;
+  align-self: flex-start;
+  width: min(92%, 252px);
+  padding: 4px;
+  border: 1px solid #d9dde5;
+  border-radius: 15px;
+  background: #fff;
+  box-shadow: 0 2px 5px #10182812;
+  color: #15171b;
+  text-decoration: none;
+  transition: border-color .18s ease, box-shadow .18s ease, transform .18s ease;
+}
+.conversation-tour__app-card:hover { border-color: #83b9ff; box-shadow: 0 4px 11px #1018281a; transform: translateY(-1px); }
+.tour-app {
+  --app-accent: #1685ee;
+  display: grid;
+  gap: 7px;
+  padding: 9px 10px 8px;
+  border-radius: 11px;
+  background: linear-gradient(145deg, #fff 0%, #f6f8fb 100%);
+  font: 10px/1.25 -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif;
+}
+.tour-app--pick_night { --app-accent: #7357c8; }
+.tour-app--nutrition { --app-accent: #24866f; }
+.tour-app--sleep_tracker { --app-accent: #5469cc; }
+.tour-app--habit_streak { --app-accent: #d37835; }
+.tour-app--artifact { --app-accent: #177e66; }
+.tour-app--tonight { --app-accent: #d3573c; }
+.tour-app--spending_snapshot { --app-accent: #39715e; }
+.tour-app--standup_paste { --app-accent: #315fc0; }
+.tour-app--decision_ledger { --app-accent: #9a633d; }
+.tour-app__top { display: flex; align-items: center; gap: 6px; color: #343943; font-size: 9px; font-weight: 650; }
+.tour-app__mark { width: 16px; height: 16px; flex: 0 0 16px; border-radius: 5px; background: var(--app-accent); box-shadow: inset 0 1px 0 #ffffff55; }
+.tour-app__top small { margin-left: auto; color: #8d929c; font-size: 7px; letter-spacing: .09em; }
+.tour-app__headline { font-size: 15px; letter-spacing: -.025em; }
+.tour-app__metrics { display: grid; grid-template-columns: repeat(3, 1fr); gap: 5px; }
+.tour-app__metrics > span { display: grid; gap: 2px; padding: 6px; border-radius: 8px; background: #f0f2f6; }
+.tour-app__metrics b { font-size: 13px; }
+.tour-app__metrics small, .tour-app__muted { color: #737986; font-size: 8px; }
+.tour-app__split { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 9px; }
+.tour-app__split > strong { font-size: 11px; }
+.tour-app__split > b { color: var(--app-accent); font-size: 9px; white-space: nowrap; }
+.tour-app__split > b small { font-size: 8px; }
+.tour-app__meter { height: 5px; overflow: hidden; border-radius: 5px; background: #e5e9ed; }
+.tour-app__meter i { display: block; height: 100%; border-radius: inherit; background: var(--app-accent); }
+.tour-app__tags { display: flex; gap: 4px; flex-wrap: wrap; color: #606774; font-size: 8px; }
+.tour-app__tags span { padding: 4px 5px; border-radius: 6px; background: #f0f2f6; }
+.tour-app__sleep-score { display: flex; align-items: baseline; justify-content: space-between; }
+.tour-app__sleep-score > strong { font-size: 20px; letter-spacing: -.05em; }
+.tour-app__sleep-score > span { color: var(--app-accent); }
+.tour-app__sleep-score > span b { font-size: 16px; }
+.tour-app__sleep-score > span small { font-size: 8px; }
+.tour-app__sleep-bars { display: flex; align-items: end; gap: 3px; height: 24px; padding: 3px 5px; border-radius: 6px; background: #f0f2f6; }
+.tour-app__sleep-bars i { flex: 1; height: 42%; border-radius: 3px; background: #c1caf5; }
+.tour-app__sleep-bars i:nth-child(3n) { height: 82%; background: var(--app-accent); }
+.tour-app__sleep-bars i:nth-child(4n) { height: 62%; }
+.tour-app__sleep-bars i:nth-child(7n) { height: 25%; background: #e0a24f; }
+.tour-app__habit { display: flex; align-items: center; gap: 6px; padding: 5px 6px; border-radius: 7px; background: #f3f5f7; font-size: 9px; }
+.tour-app__check { display: grid; width: 13px; height: 13px; place-items: center; border-radius: 50%; background: #dcefe5; color: #20734d; font-size: 9px; }
+.tour-app__habit > b { margin-left: auto; color: var(--app-accent); font-size: 8px; }
+.tour-app__flame { color: var(--app-accent); }
+.tour-app__game-head { display: flex; align-items: center; justify-content: space-between; }
+.tour-app__game-head > span:first-child { display: grid; gap: 2px; }
+.tour-app__game-head b { font-size: 11px; }
+.tour-app__game-head small { color: #747c82; font-size: 8px; }
+.tour-app__score { font-variant-numeric: tabular-nums; font-size: 10px; font-weight: 700; }
+.tour-app__game { position: relative; height: 55px; overflow: hidden; border: 1px solid #126e5c; border-radius: 7px; background: #23866d; }
+.tour-app__game::before { position: absolute; left: 50%; top: 0; height: 100%; border-left: 1px dashed #ffffff88; content: ''; }
+.tour-app__game i { position: absolute; left: 7px; top: 8px; width: 3px; height: 15px; border-radius: 3px; background: #fff; }
+.tour-app__game i:nth-child(2) { left: auto; top: auto; right: 7px; bottom: 8px; }
+.tour-app__game b { position: absolute; left: 58%; top: 56%; width: 6px; height: 6px; border-radius: 50%; background: #fff; box-shadow: 0 0 7px #fff9; }
+.tour-app__movie { display: flex; align-items: center; gap: 8px; padding: 7px; border-radius: 8px; background: #1d2531; color: #fff; }
+.tour-app__movie-mark { display: grid; width: 34px; height: 34px; place-items: center; border: 1px solid #ffffff66; border-radius: 6px; font-size: 16px; font-weight: 700; }
+.tour-app__movie-mark span { font-size: 7px; }
+.tour-app__movie > span:last-child { display: grid; gap: 3px; }
+.tour-app__movie strong { font-size: 12px; }
+.tour-app__movie small { color: #d5dae3; font-size: 8px; }
+.tour-app__ticket-row { display: flex; justify-content: space-between; font-size: 9px; }
+.tour-app__ticket-row b { color: var(--app-accent); }
+.tour-app__transaction { display: flex; align-items: center; gap: 6px; font-size: 9px; }
+.tour-app__transaction-dot { width: 15px; height: 15px; border-radius: 50%; background: #e8edf0; }
+.tour-app__transaction > span:nth-child(2) { display: grid; gap: 1px; }
+.tour-app__transaction small { color: #838894; font-size: 7px; }
+.tour-app__transaction > b { margin-left: auto; font-size: 9px; }
+.tour-app__transaction--flag .tour-app__transaction-dot { background: #ffe6d9; }
+.tour-app__transaction--flag small { color: #ba5933; }
+.tour-app__note { padding: 5px 6px; border-radius: 6px; background: #f0f2f6; color: #555d68; font-size: 8px; }
+.tour-app__standup-title { display: flex; align-items: baseline; justify-content: space-between; gap: 5px; }
+.tour-app__standup-title strong { font-size: 11px; }
+.tour-app__standup-title span { color: #858b95; font-size: 7px; }
+.tour-app__standup-row { display: grid; grid-template-columns: max-content 1fr; gap: 6px; align-items: start; }
+.tour-app__standup-row b { color: var(--app-accent); font-size: 7px; letter-spacing: .05em; white-space: nowrap; padding-top: 1px; }
+.tour-app__standup-row span { font-size: 8px; }
+.tour-app__decision { display: grid; gap: 5px; }
+.tour-app__decision > span { color: #858b95; font-size: 7px; letter-spacing: .08em; }
+.tour-app__decision > strong { font-size: 11px; }
+.tour-app__decision i { margin-right: 4px; padding: 3px 5px; border-radius: 5px; background: #f8e7df; color: #a14c2c; font-size: 7px; font-style: normal; letter-spacing: .06em; }
+@media (max-width: 700px) {
+  .conversation-tour__app-card { width: min(94%, 252px); padding: 3px; }
+  .tour-app { gap: 6px; padding: 7px 8px; }
+  .tour-app__game { height: 48px; }
+}
+@media (prefers-reduced-motion: reduce) { .conversation-tour__app-card { transition: none; } }

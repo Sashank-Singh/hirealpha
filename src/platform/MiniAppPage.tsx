@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useState, type CSSProperties } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
 import { Link, Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { AlphaFace, type AlphaFaceMood } from '../AlphaFace'
 import { AGENTS, getAgent } from '../agents'
@@ -63,11 +63,17 @@ const VaultApp = lazy(() => import('./VaultApp').then(m => ({ default: m.VaultAp
 
 interface DigestData {
   date?: string
+  generatedAt?: number
   calendar?: string[]
   emails?: string[]
   emailItems?: Array<{ id: string; label: string; snippet?: string }>
   mailGroups?: import('./briefStory').BriefMailGroup[]
   mailTally?: string
+  needsYou?: import('./briefStory').NeedsYouItem[]
+  mailStatus?: 'ok' | 'not_connected' | 'auth_expired' | 'timeout' | 'provider_error'
+  mailFailed?: boolean
+  calendarStatus?: 'ok' | 'not_connected' | 'auth_expired' | 'timeout' | 'provider_error'
+  calendarFailed?: boolean
   reminders?: Array<{ time?: string; text?: string }>
   events?: Array<{ id: string; label: string }>
   tomorrow?: string[]
@@ -93,7 +99,7 @@ interface DigestData {
 interface MiniSection {
   heading: string
   items: string[]
-  emailMeta?: Array<{ id: string; snippet?: string }>
+  emailMeta?: Array<{ id: string; snippet?: string; kind?: string }>
 }
 
 interface MiniPayload {
@@ -107,6 +113,8 @@ interface MiniPayload {
   habitsToday?: Array<{ id: string; name: string; emoji: string; done: boolean }>
   carryOver?: Array<{ id: string; title: string; dueLabel?: string }>
   mailGroups?: import('./briefStory').BriefMailGroup[]
+  mailStatus?: 'ok' | 'not_connected' | 'auth_expired' | 'timeout' | 'provider_error'
+  calendarStatus?: 'ok' | 'not_connected' | 'auth_expired' | 'timeout' | 'provider_error'
   error?: string
   /* Same contract as the morning brief: the evening one is heavy enough that the
    * server answers before it is built rather than holding the request open. */
@@ -246,7 +254,10 @@ export function MiniAppPage() {
   const [updatedAt, setUpdatedAt] = useState<number>(() => seed?.at ?? 0)
   const [fetching, setFetching] = useState(false)
   const [mini, setMini] = useState<MiniPayload | null>(() => (kind === 'digest' ? null : seed?.brief ?? null))
+  const currentBriefRef = useRef<BriefPayload | null>(null)
+  currentBriefRef.current = (kind === 'digest' ? data : mini) as BriefPayload | null
   const [loading, setLoading] = useState(!seed)
+  const [refreshError, setRefreshError] = useState('')
   const [briefTries, setBriefTries] = useState(0)
   const [expired, setExpired] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
@@ -290,6 +301,7 @@ export function MiniAppPage() {
   useEffect(() => {
     setSettingsOpen(false)
     setExpired(false)
+    setRefreshError('')
   }, [kind])
 
   /* The shell's inline script already painted the saved theme before React ran;
@@ -318,6 +330,7 @@ export function MiniAppPage() {
       return Promise.resolve()
     }
     setBriefTries(0)
+    setRefreshError('')
     /* The held copy is what makes a normal reopen instant: paint it, fetch over
      * the top. A manual refresh must NOT paint the held copy first — the user
      * asked for fresh data and showing them their stale copy while a request is
@@ -334,14 +347,14 @@ export function MiniAppPage() {
       // If we already have content on screen, do not show a blank loading spinner on background refresh
       if (isDigest) {
         setData((prev) => {
-          if (!prev?.calendar?.length && !prev?.emails?.length && !prev?.story) {
+          if (!opts?.force && !prev?.calendar?.length && !prev?.emails?.length && !prev?.story) {
             setLoading(true)
           }
           return prev
         })
       } else {
         setMini((prev) => {
-          if (!prev?.sections?.length && !prev?.mailGroups?.length) {
+          if (!opts?.force && !prev?.sections?.length && !prev?.mailGroups?.length) {
             setLoading(true)
           }
           return prev
@@ -367,13 +380,14 @@ export function MiniAppPage() {
       )
       .then((d) => {
         if (isDigest) {
-          setData((prev) => (d.pending && (prev?.calendar?.length || prev?.emails?.length || prev?.story) ? { ...prev, pending: true } : d))
+          setData((prev) => (d.pending && (prev?.calendar?.length || prev?.emails?.length || prev?.story || prev?.meetings?.length || prev?.mailGroups?.length) ? { ...prev, pending: true } : d))
         } else {
           setMini((prev) => (d.pending && (prev?.sections?.length || prev?.mailGroups?.length) ? { ...prev, pending: true } : d))
         }
         if (!d.pending) {
           saveBrief(persona || '', kind || '', token, d)
           setUpdatedAt(Date.now())
+          setRefreshError('')
         }
         setFetching(false)
       })
@@ -382,8 +396,11 @@ export function MiniAppPage() {
           setExpired(true)
           return
         }
-        // A held copy is better than an error over the top of it.
-        if (held) return
+        // A failed update must not erase a brief already on screen.
+        if (held || (currentBriefRef.current && !currentBriefRef.current.error)) {
+          setRefreshError('Could not update this brief. Showing the last good copy.')
+          return
+        }
         if (isDigest) setData({ error: "Couldn't load your brief right now." })
         else setMini({ error: "Couldn't load this right now." })
       })
@@ -416,7 +433,20 @@ export function MiniAppPage() {
     // than giving up — the screen must update on its own, never require the
     // user to leave and come back. Hard cap so a crashed build cannot spin.
     const wait = BRIEF_RETRY_MS[briefTries] ?? 4000
-    if (briefTries >= BRIEF_RETRY_MS.length + 30) return
+    if (briefTries >= BRIEF_RETRY_MS.length + 30) {
+      const message = 'This update is taking too long. Try refreshing again.'
+      if (isDigest) {
+        setData((prev) => prev?.story || prev?.calendar?.length || prev?.meetings?.length || prev?.mailGroups?.length
+          ? { ...prev, pending: false }
+          : { error: message })
+      } else {
+        setMini((prev) => prev?.sections?.length || prev?.mailGroups?.length
+          ? { ...prev, pending: false }
+          : { error: message })
+      }
+      setRefreshError(message)
+      return
+    }
     let cancelled = false
     const timer = setTimeout(() => {
       setBriefTries((n) => n + 1)
@@ -428,9 +458,20 @@ export function MiniAppPage() {
         .then((res) => (res.ok ? (res.json() as Promise<BriefPayload>) : Promise.reject(new Error('brief'))))
         .then((d) => {
           if (cancelled) return
-          if (isDigest) setData(d)
-          else setMini(d)
-          saveBrief(persona || '', kind || '', token, d)
+          if (isDigest) {
+            setData((prev) => d.pending && (prev?.story || prev?.calendar?.length || prev?.meetings?.length || prev?.mailGroups?.length)
+              ? { ...prev, pending: true }
+              : d)
+          } else {
+            setMini((prev) => d.pending && (prev?.sections?.length || prev?.mailGroups?.length)
+              ? { ...prev, pending: true }
+              : d)
+          }
+          if (!d.pending) {
+            saveBrief(persona || '', kind || '', token, d)
+            setUpdatedAt(Date.now())
+            setRefreshError('')
+          }
         })
         .catch(() => {})
     }, wait)
@@ -782,6 +823,7 @@ export function MiniAppPage() {
                 auth={{ persona: 'friend', email: email || undefined, token: token || undefined }}
                 updatedAt={updatedAt}
                 refreshing={fetching || !!data?.pending}
+                refreshError={refreshError}
                 onRefresh={() => refresh({ force: true })}
                 href={openHref}
                 onSettings={() => setSettingsOpen(true)}
@@ -885,6 +927,7 @@ export function MiniAppPage() {
                 auth={{ persona: 'friend', email: email || undefined, token: token || undefined }}
                 updatedAt={updatedAt}
                 refreshing={fetching || !!mini?.pending}
+                refreshError={refreshError}
                 onRefresh={() => refresh({ force: true })}
                 href={openHref}
                 onSettings={() => setSettingsOpen(true)}
@@ -1082,6 +1125,7 @@ export function MiniAppPage() {
           persona={(persona as AgentId) || 'friend'}
           draft={openDraft}
           onClose={closeMail}
+          onSent={() => { if (isDigest || isEveningBrief) void refresh({ force: true }) }}
         />
         </Suspense>
       )}

@@ -1046,7 +1046,7 @@ export function BriefApp({
   const whereTonight = eveSection('Where you are')
   const earlierToday = eveSection('Earlier today')
   const leftTonight = eveSection('Left this evening')
-  const mailSince = eveSection('Mail since this morning')
+  const mailSince = eveSection('Mail today') ?? eveSection('Mail since this morning')
   const tomorrowEve = eveSection('Tomorrow')
   // Placeholder strings ("No important mail") carry no meta id — they are not
   // mail, and PileRow renders them as fake senders with Done/Skip buttons.

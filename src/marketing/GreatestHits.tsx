@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { PhoneDemo, type AgentId } from '../PhoneDemo'
 import { HIGHLIGHTS } from '../data/highlights'
 import './conversation-tour.css'
@@ -27,6 +27,64 @@ const EXPLANATIONS = [
   'Keep the decision and its reasoning easy to find later.',
 ]
 
+function MiniAppPreview({ kind }: { kind: typeof EXAMPLES[number]['app'] }) {
+  const title = EXAMPLES.find((example) => example.app === kind)?.label ?? 'Alpha app'
+  return (
+    <div className={`tour-app tour-app--${kind}`}>
+      <div className="tour-app__top"><span className="tour-app__mark" aria-hidden="true" /><span>{title}</span><small>ALPHA</small></div>
+      {kind === 'pick_night' && <>
+        <strong className="tour-app__headline">Your day, wrapped.</strong>
+        <div className="tour-app__metrics"><span><b>6h</b><small>sleep</small></span><span><b>142g</b><small>protein</small></span><span><b>3</b><small>calls closed</small></span></div>
+        <div className="tour-app__note"><i /> 2 things to clear tonight</div>
+      </>}
+      {kind === 'nutrition' && <>
+        <div className="tour-app__split"><strong>Today’s nutrition</strong><b>+620 <small>kcal</small></b></div>
+        <div className="tour-app__meter"><i style={{ width: '75%' }} /></div>
+        <div className="tour-app__split tour-app__muted"><span>Protein <b>112 / 150g</b></span><span>48g added</span></div>
+        <div className="tour-app__tags"><span>Protein 48g</span><span>Carbs 42g</span><span>Fat 24g</span></div>
+      </>}
+      {kind === 'sleep_tracker' && <>
+        <div className="tour-app__sleep-score"><strong>5h 40m</strong><span><b>64</b><small> recovery</small></span></div>
+        <div className="tour-app__sleep-bars"><i /><i /><i /><i /><i /><i /><i /><i /><i /><i /><i /><i /></div>
+        <div className="tour-app__split tour-app__muted"><span>Woke twice</span><b>Strength moved · 6 PM</b></div>
+      </>}
+      {kind === 'habit_streak' && <>
+        <div className="tour-app__split"><strong>Today’s streaks</strong><b className="tour-app__flame">15 days</b></div>
+        <div className="tour-app__habit"><span className="tour-app__check">✓</span><span>Read for 20 minutes</span><b>Done</b></div>
+        <div className="tour-app__habit"><span className="tour-app__check">✓</span><span>No screens in bed</span><b>Day 15</b></div>
+        <div className="tour-app__note">Morning runs · 4 day streak</div>
+      </>}
+      {kind === 'artifact' && <>
+        <div className="tour-app__game-head"><span><b>Ping Pong</b><small>Made for you · just now</small></span><span className="tour-app__score">00 : 00</span></div>
+        <div className="tour-app__game"><i /><i /><b /></div>
+        <div className="tour-app__split tour-app__muted"><span>Touch controls</span><b>Ready to play ↗</b></div>
+      </>}
+      {kind === 'tonight' && <>
+        <div className="tour-app__movie"><span className="tour-app__movie-mark">70<span>mm</span></span><span><strong>Odyssey</strong><small>IMAX · Friday</small></span></div>
+        <div className="tour-app__ticket-row"><span>AMC Metreon 16</span><b>7:15 PM</b></div>
+        <div className="tour-app__split tour-app__muted"><span>Row F · 2 seats left</span><b>View tickets ↗</b></div>
+      </>}
+      {kind === 'spending_snapshot' && <>
+        <div className="tour-app__split"><strong>Chase · Recent activity</strong><b>Yesterday</b></div>
+        <div className="tour-app__transaction"><span className="tour-app__transaction-dot" /><span>Gym membership<small>Checking · posted</small></span><b>−$180</b></div>
+        <div className="tour-app__transaction tour-app__transaction--flag"><span className="tour-app__transaction-dot" /><span>Figma<small>Possible duplicate</small></span><b>−$29</b></div>
+        <div className="tour-app__note">Refund email drafted · review first</div>
+      </>}
+      {kind === 'standup_paste' && <>
+        <div className="tour-app__standup-title"><strong>Today’s standup</strong><span>From GitHub · just now</span></div>
+        <div className="tour-app__standup-row"><b>YESTERDAY</b><span>Auth refactor shipped · 3 fixes · DB review</span></div>
+        <div className="tour-app__standup-row"><b>TODAY</b><span>Stripe webhooks & checkout tests</span></div>
+        <div className="tour-app__split tour-app__muted"><span>Blockers · none</span><b>Copy standup ↗</b></div>
+      </>}
+      {kind === 'decision_ledger' && <>
+        <div className="tour-app__decision"><span>DECISION LOG · TODAY</span><strong><i>KILL</i> $12k/mo agency proposal</strong></div>
+        <div className="tour-app__note">Why: 5 enterprise pilots came from outbound.</div>
+        <div className="tour-app__split tour-app__muted"><span>Runway protected</span><b>11 months ↗</b></div>
+      </>}
+    </div>
+  )
+}
+
 export function GreatestHits() {
   const section = useRef<HTMLElement>(null)
   const [progress, setProgress] = useState(0)
@@ -54,26 +112,30 @@ export function GreatestHits() {
             {changedPersona && <p className="conversation-tour__handoff">New thread · {sample.title}</p>}
             <p className="thread-stamp">{sample.caption}</p>
             {bubbles.map((bubble, index) => (
-              <div
-                key={index}
-                className={[
-                  'bubble',
-                  `bubble--${bubble.from}`,
-                  bubble.card ? 'bubble--rich' : '',
-                  index > 0 && bubbles[index - 1].from === bubble.from ? 'bubble--stack-top' : '',
-                  index + 1 < bubbles.length && bubbles[index + 1].from === bubble.from ? 'bubble--stack-bottom' : '',
-                ].filter(Boolean).join(' ')}
-              >
-                {bubble.image && <img className="conversation-tour__image" src={bubble.image} alt="" />}
-                {bubble.app && <span className="conversation-tour__app-label">{bubble.app}</span>}
-                <span className="conversation-tour__sr">{bubble.from === 'me' ? 'You' : sample.title}: </span>{bubble.text}
-              </div>
+              <Fragment key={index}>
+                <div
+                  className={[
+                    'bubble',
+                    `bubble--${bubble.from}`,
+                    bubble.card ? 'bubble--rich' : '',
+                    index > 0 && bubbles[index - 1].from === bubble.from ? 'bubble--stack-top' : '',
+                    index + 1 < bubbles.length && bubbles[index + 1].from === bubble.from ? 'bubble--stack-bottom' : '',
+                  ].filter(Boolean).join(' ')}
+                >
+                  {bubble.image && <img className="conversation-tour__image" src={bubble.image} alt="" />}
+                  {bubble.app && <span className="conversation-tour__app-label">{bubble.app}</span>}
+                  <span className="conversation-tour__sr">{bubble.from === 'me' ? 'You' : sample.title}: </span>{bubble.text}
+                </div>
+                {cardBubble === bubble && (
+                  <a className="conversation-tour__app-card" href={appUrl} aria-label={`Open ${item.label} mini app`}>
+                    <MiniAppPreview kind={item.app} />
+                  </a>
+                )}
+              </Fragment>
             ))}
-            {cardBubble && (
-              <a className="conversation-tour__app-card" href={appUrl}>
-                <span>{item.label}</span>
-                <strong>{cardBubble.card?.title ?? cardBubble.linkPreview?.title ?? item.label}</strong>
-                <small>Open in Alpha ↗</small>
+            {cardBubble && !bubbles.includes(cardBubble) && (
+              <a className="conversation-tour__app-card" href={appUrl} aria-label={`Open ${item.label} mini app`}>
+                <MiniAppPreview kind={item.app} />
               </a>
             )}
           </section>
@@ -131,7 +193,11 @@ export function GreatestHits() {
         </div>
 
         <figure className="conversation-tour__figure">
-          <div className="conversation-tour__pet-card" aria-live="polite">
+          <div
+            className="conversation-tour__pet-card"
+            aria-live="polite"
+            style={{ translate: `${-8 + progress * 26}px 0` }}
+          >
             <div className="conversation-tour__pet" aria-hidden="true">
               <svg viewBox="0 0 64 64">
                 <path className="pet__tail" d="M47 43c12-2 13 8 8 13-1-5-4-6-9-5" />

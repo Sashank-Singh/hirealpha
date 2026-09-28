@@ -1073,8 +1073,8 @@ export type MailMessage = {
 
 export const apiGetMailMessage = (a: { email?: string; token?: string; messageId: string }) => {
   const qs = new URLSearchParams()
-  if (a.email) qs.set('email', a.email)
-  else if (a.token) qs.set('t', a.token)
+  if (a.token) qs.set('t', a.token)
+  else if (a.email) qs.set('email', a.email)
   return fetch(`/api/mail/${encodeURIComponent(a.messageId)}?${qs}`).then(async (res) => {
     const text = await res.text()
     try {
