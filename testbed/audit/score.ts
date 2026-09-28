@@ -119,10 +119,16 @@ function main() {
     },
     scenarios: rows.sort((a, b) => String(a.category).localeCompare(String(b.category)) || String(a.scenario_id).localeCompare(String(b.scenario_id))),
   }
-  writeFileSync(join(OUT, 'report.json'), JSON.stringify(report, null, 2))
   if (report.mixedRevision) {
-    console.warn(`WARNING: outputs span ${revisionList.length} revisions — label results per revision before comparing: ${revisionList.join(', ')}`)
+    if (process.env.ALLOW_MIXED !== '1') {
+      console.error(`REJECTED: transcripts span ${revisionList.length} revisions (${revisionList.join(', ')}). ` +
+        `Aggregation refuses to mix revisions. Re-run the battery at one SHA, or set ALLOW_MIXED=1 to emit a NON-CANONICAL report.`)
+      process.exit(2)
+    }
+    ;(report as { nonCanonical?: boolean }).nonCanonical = true
+    console.warn(`WARNING: NON-CANONICAL aggregate — transcripts span ${revisionList.length} revisions: ${revisionList.join(', ')}`)
   }
+  writeFileSync(join(OUT, 'report.json'), JSON.stringify(report, null, 2))
   if (missing.length) console.warn(`WARNING: ${missing.length} transcript(s) have no human score: ${missing.join(', ')}`)
   console.log(`revision(s): ${revisionList.join(', ')}  model: ${rows[0]?.model ?? '?'}`)
   console.log(`scenarios: ${scored}  mean: ${report.scoring.meanTotal}/50  classes: ${JSON.stringify(classCounts)}  overrides: ${overrides}`)

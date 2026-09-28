@@ -731,7 +731,48 @@ for (const [id, text, required, over] of ASSESS) {
   })
 }
 
+/* ================= C23 Assessment routing — messy phrasing + contradictions ================= */
+/* §10/§6: messy human phrasing must still route to evidence; contradictory
+ * calendar-vs-email sources must surface, not be silently resolved. */
+
+const contradictionWorld = (): W => base({
+  mail: [
+    { id: 'rec1', from: 'dana@bigco.com', subject: 'Interview moved to Wednesday', snippet: 'Quick update — the panel moved to Wednesday Sep 30, same 2pm. Sorry for the shuffle!' },
+  ],
+  events: [{ title: 'BigCo interview', when: 'Tue Sep 29, 2:00 PM' }],
+  freeSlots: xdWorld().freeSlots,
+})
+
+const MESSY: Array<[string, string, string[], Partial<W>?]> = [
+  ['am_messy_good_tomorrow', 'am i good for tomorrow', ['calendar', 'mail']],
+  ['am_messy_dropping', 'anything im dropping', ['mail', 'calendar']],
+  ['am_messy_swing', 'can i swing this', ['spending'], {}],
+  ['am_messy_cooked', 'week looking cooked?', ['calendar']],
+  ['am_messy_missing', 'what am i missing', ['mail', 'calendar']],
+  ['am_messy_track_friday', 'we still on track for friday?', ['plans', 'calendar']],
+  ['am_messy_too_much', 'is $150 too much', ['spending'], {}],
+  ['am_messy_room', 'how much room do I have this week', ['spending'], {}],
+  ['am_messy_waiting', 'who am i waiting on', ['gmail']],
+  ['am_messy_forgetting_friday', 'anything im forgetting before friday', ['mail', 'calendar']],
+]
+for (const [id, text, required, over] of MESSY) {
+  S.push({
+    id, cat: 'C23', title: text.slice(0, 60),
+    world: () => (required.includes('spending') ? moneyWorld(over as Partial<W>) : xdWorld((over || {}) as Partial<W>)),
+    turns: [{ text }],
+    requiredSources: required,
+  })
+}
+
+S.push({
+  id: 'am_contradiction', cat: 'C23', title: 'Calendar says Tuesday, email says Wednesday',
+  world: () => contradictionWorld(),
+  turns: [{ text: 'Am I ready for my interview?' }],
+  requiredSources: ['calendar', 'mail'],
+})
+
 /* ================= runner ================= */
+
 
 
 

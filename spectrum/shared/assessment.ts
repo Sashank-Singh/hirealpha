@@ -69,7 +69,7 @@ export function inferAssessmentDomains(text: string): AssessmentDomain[] {
   const t = text.toLowerCase()
   const domains = new Set<AssessmentDomain>()
 
-  const money = /\b(?:afford|cost|costs|expensive|budget|spend(?:ing)?|money|cash|price|prices|\$\d|cheaper|too much|room (?:this|left)|runway|set aside|savings|enough (?:for|to spend|left)|left over|overdraw|stretch(?:ing)? (?:to|for))\b/
+  const money = /\b(?:afford|cost|costs|expensive|budget|spend(?:ing)?|money|cash|price|prices|\$\d|cheaper|too much|runway|set aside|savings|enough (?:for|to spend|left)|left over|overdraw|stretch(?:ing)? (?:to|for))\b|\broom\b(?=[^.]{0,30}\b(?:have|left|spare|spend|budget|week|month)\b)/
   const schedule = /\b(?:ready|readiness|collide|conflict|double.?book|realistic|busy|week|day|schedule|calendar|tomorrow|tonight|today|morning|afternoon|free|timing|prepared|set for)\b/
   const obligations = /\b(?:forget(?:ting)?|forgot|missed|missing|miss anything|owe|owed|waiting on|waiting for|follow.?up|follow up|reply|replied|unanswered|behind on|owe anyone|dropped|slip(?:ping)?|forgotten|left)\b/
   const planState = /\b(?:on track|track|launch|project|milestone|deadline|blocking|blocked|behind|progress|accomplish(?:ed)?|done this|finish(?:ed)?|remaining|left to do|still need|next up|what'?s left)\b/
@@ -155,9 +155,10 @@ export function evidencePlanNote(plan: AssessmentPlan, ctx: EvidenceContext): st
   if (plan.domains.includes('money')) {
     const caps = (ctx.constraints || []).filter((c) => c.capDollars !== null)
     lines.push(
-      `Money: spending_overview carries ONLY what the user logged or approved with Alpha — never bank data. ` +
+      `Money — MONEY READ IS MANDATORY: you MUST call spending_overview before any affordability verdict, before stating anything about money or budget room, and before recommending a purchase. ` +
+      `spending_overview carries ONLY what the user logged or approved with Alpha — never bank data. ` +
       (caps.length ? `Standing constraints in force: ${caps.map((c) => `${c.value} (cap $${c.capDollars})`).join('; ')}. ` : '') +
-      'Any affordability statement must be phrased against logged spend and the standing budget ("based on what you\'ve logged…"), and must name what is missing (income, bank balances, upcoming bills) when that data is not available.',
+      'Any affordability statement must be phrased against logged spend and the standing budget ("based on what you\'ve logged…"), must name what is missing (income, bank balances, upcoming bills), and a standing cap must be enforced (never recommend spending above it).',
     )
   }
   if (plan.domains.includes('plans') || plan.domains.includes('commitments')) {
@@ -190,4 +191,27 @@ export function assessmentHedge(plan: AssessmentPlan, missing: AssessmentDomain[
  * be redundant. */
 export function replyAdmitsGap(reply: string): boolean {
   return /\b(?:haven'?t checked|have not checked|not checked|didn'?t check|did not check|based on what you'?ve logged|only what you logged|couldn'?t read|could not read|no visibility|can'?t see your|unverified|not verified)\b/i.test(reply)
+}
+
+
+/** True when an affordability/money verdict is part of this assessment — the
+ * engine then guarantees the spend read regardless of model choice. */
+export function moneyReadRequired(plan: AssessmentPlan): boolean {
+  return plan.assessment && plan.domains.includes('money')
+}
+
+export type EvidenceSufficiency = 'SUFFICIENT' | 'PARTIAL' | 'INSUFFICIENT'
+
+/** SUFFICIENT: every required domain read → answer directly.
+ *  PARTIAL: some non-critical evidence missing → answer only what is supported,
+ *           name what is missing.
+ *  INSUFFICIENT: critical evidence (money/plans) missing, or nothing read at
+ *           all → do not manufacture an assessment. */
+export function evidenceSufficiency(plan: AssessmentPlan, ran: AssessmentDomain[]): EvidenceSufficiency {
+  if (!plan.assessment) return 'SUFFICIENT'
+  const missing = plan.domains.filter((d) => !ran.includes(d))
+  if (!missing.length) return 'SUFFICIENT'
+  const critical: AssessmentDomain[] = ['money', 'plans']
+  if (missing.some((d) => critical.includes(d)) || ran.length === 0) return 'INSUFFICIENT'
+  return 'PARTIAL'
 }

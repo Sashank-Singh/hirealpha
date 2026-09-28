@@ -26,7 +26,7 @@ import {
 } from './toolLoop'
 import { isAffirmativeApprovalIntent, isCasualChitChat, isNegativeCancellationIntent } from './conversationalApproval'
 import { ClaimLedger, enforceClaimEvidence } from './claimEvidence'
-import { assessOffline, assessmentHedge, evidencePlanNote, minimumEvidenceCheck, replyAdmitsGap, type AssessmentDomain } from './assessment'
+import { assessOffline, assessmentHedge, evidencePlanNote, evidenceSufficiency, moneyReadRequired, replyAdmitsGap, type AssessmentDomain } from './assessment'
 import { constraintConflictNote, standingConstraints } from './memoryBlock'
 import { cancelWork } from './cancelWork'
 import { fetchActivePlan, patchPlan, planPromptBlock, detectMultiStepPlan, upsertPlan } from './plans'
@@ -1445,6 +1445,25 @@ export async function runConversationalFriend(input: {
       planBlock: planNote,
     })
     if (note) promptNotes.push(note)
+    /* Mandatory money evidence: the engine performs the spend read itself for
+     * money assessments, so "can I afford this?" can never be answered from a
+     * model choice not to look. The result rides the prompt like the maps
+     * block; a failed read is recorded as unverified, never as zero spending. */
+    if (moneyReadRequired(assessmentPlan)) {
+      try {
+        const spending = await fetchSpending(senderId)
+        const readable = spending.logs.length > 0 || spending.budget > 0
+        evidence.record('spend', readable ? 'verified_success' : 'verified_empty', { weekly: spending.weekly, budget: spending.budget })
+        promptNotes.push(
+          readable
+            ? `Logged spending (authoritative for what Alpha knows — it is NOT bank data): $${spending.weekly} logged this week against a $${spending.budget} budget. Recent: ${spending.logs.slice(0, 6).map((l) => `${l.description} $${l.amount}`).join('; ') || 'none'}.`
+            : 'The spending read returned no logged data and no budget. Say exactly that: nothing is known about their spending here, and logged data would not be bank history anyway.',
+        )
+      } catch {
+        evidence.record('spend', 'outcome_unknown', {})
+        promptNotes.push('The spending read failed this turn. Do NOT state or imply anything about affordability; say the spend data could not be read.')
+      }
+    }
   }
   let forcedReply: string | null = null
   const outcome = await runToolConversation({
@@ -1776,10 +1795,17 @@ ${JSON.stringify(context)}` },
     if (evidence.hasAny('plans')) ran.push('plans')
     if (evidence.hasAny('drive')) ran.push('drive')
     if (evidence.hasAny('reminder') || evidence.hasAny('followup') || evidence.hasAny('watch')) ran.push('commitments')
-    const check = minimumEvidenceCheck(assessmentPlan, ran)
-    if (check.missing.length && !replyAdmitsGap(reply)) {
-      const hedge = assessmentHedge(assessmentPlan, check.missing)
-      if (hedge) reply = `${reply}\n\n${hedge}`
+    const sufficiency = evidenceSufficiency(assessmentPlan, ran)
+    if (sufficiency !== 'SUFFICIENT') {
+      const missing = assessmentPlan.domains.filter((d) => !ran.includes(d))
+      if (!replyAdmitsGap(reply)) {
+        const hedge = assessmentHedge(assessmentPlan, missing)
+        if (hedge) reply = `${reply}\n\n${hedge}`
+      }
+      if (sufficiency === 'INSUFFICIENT') {
+        const names = missing.map((d) => (d === 'mail' ? 'your inbox' : d === 'money' ? 'your logged spending' : d === 'plans' ? 'your plan state' : d)).join(', ')
+        reply = `I can't give you a full assessment yet — I have not read ${names}. Nothing above should be treated as a verdict.\n\n${reply}`
+      }
     }
   }
   const claimAudit = enforceClaimEvidence(reply, evidence)

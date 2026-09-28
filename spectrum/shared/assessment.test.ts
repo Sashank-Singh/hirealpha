@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import {
   assessmentCandidates, assessOffline, assessmentHedge, evidencePlanNote,
   inferAssessmentDomains, minimumEvidenceCheck, replyAdmitsGap,
+  moneyReadRequired, evidenceSufficiency,
 } from './assessment'
 import { ClaimLedger, enforceClaimEvidence, claimViolationCount } from './claimEvidence'
 
@@ -130,5 +131,52 @@ describe('assessment routing — affordable claims stay evidence-backed', () => 
     const l = new ClaimLedger()
     l.record('spend', 'verified_success', {})
     expect(enforceClaimEvidence('You can afford it easily.', l).violations).toEqual([])
+  })
+})
+
+/** Remaining ENGINE gap: a money assessment may still answer without the
+ * spending read (observed: "How much room do I have this week?" read the
+ * calendar; "$600 too expensive?" used only the constraint). The plan must
+ * FORCE the spend read and the sufficiency level must gate the verdict. */
+describe('assessment routing — money read is mandatory', () => {
+  test('money asks must instruct an unconditional spending_overview call', () => {
+    const plan = assessOffline('How much room do I have this week?')
+    expect(plan.domains).toContain('money')
+    const note = evidencePlanNote(plan, { available: ['gmail', 'calendar', 'drive'] })
+    expect(note).toMatch(/MUST call spending_overview/i)
+    expect(note).toMatch(/before any affordability|before stating anything about money/i)
+  })
+
+  test('non-money asks do not carry the mandatory-money instruction', () => {
+    const note = evidencePlanNote(assessOffline('Is anything going to collide next week?'), { available: ['calendar'] })
+    expect(note).not.toMatch(/MUST call spending_overview/i)
+  })
+
+  test('moneyReadRequired reflects the domain set', () => {
+    expect(moneyReadRequired(assessOffline('Can I afford this?'))).toBe(true)
+    expect(moneyReadRequired(assessOffline('Where did my week go?'))).toBe(false)
+  })
+})
+
+describe('assessment routing — evidence sufficiency levels', () => {
+  test('SUFFICIENT when every required domain was read', () => {
+    const plan = assessOffline('Am I ready for my interview tomorrow?')
+    expect(evidenceSufficiency(plan, ['calendar', 'mail', 'commitments'])).toBe('SUFFICIENT')
+  })
+
+  test('PARTIAL when some non-critical evidence is missing', () => {
+    const plan = assessOffline('Am I ready for my interview tomorrow?')
+    expect(evidenceSufficiency(plan, ['calendar'])).toBe('PARTIAL')
+  })
+
+  test('INSUFFICIENT when critical (money/plans) evidence is missing', () => {
+    const plan = assessOffline('Can I afford this trip?')
+    expect(evidenceSufficiency(plan, ['calendar'])).toBe('INSUFFICIENT')
+    expect(evidenceSufficiency(plan, ['money'])).toBe('SUFFICIENT')
+  })
+
+  test('INSUFFICIENT when nothing at all could be read', () => {
+    const plan = assessOffline('Am I on track?')
+    expect(evidenceSufficiency(plan, [])).toBe('INSUFFICIENT')
   })
 })

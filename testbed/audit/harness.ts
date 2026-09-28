@@ -277,6 +277,13 @@ function handleInternal(w: World, method: string, url: string, body: Json): Resp
   if (p === '/api/internal/spend/decide') {
     const fx = w.fx.spendDecide || 'succeed'
     bucket<Json>(w, 'spendDecisions').push({ ...body })
+    /* A DENY is a cancellation, not a charge. The old mock returned the
+     * success shape for both decisions, which made mi3 report "merchant order
+     * already placed" for a cancelled request — a HARNESS defect. */
+    if (body.decision === 'deny') {
+      if (w.created.spendApprovals?.[0]) w.created.spendApprovals[0].state = 'cancelled'
+      return jres({ ok: true, state: 'cancelled', decision: 'denied' })
+    }
     if (w.created.spendApprovals?.[0]) {
       w.created.spendApprovals[0].state = fx === 'succeed' ? 'succeeded' : fx === 'charged_false' ? 'succeeded' : 'outcome_unknown'
     }
