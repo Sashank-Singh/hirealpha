@@ -1,0 +1,16 @@
+{
+  "facts": [],
+  "summary": "",
+  "history": [
+    {
+      "role": "user",
+      "content": "What am I forgetting before I leave?",
+      "ts": 1790585379138
+    },
+    {
+      "role": "assistant",
+      "content": "Checked your calendar, the last 2 days of mail, and your reminders. Here's what stands out: Today, the big one: BigCo interview at 2:00 PM, 100 Main St, 9th floor. Per Dana's email: panel of product + engineering leads, 45 minute product case, and bring questions. That's the thing most worth prepping before you walk out. Owed replies: 1. Sarah Kim · \"Deck?\", she's still waiting on the updated deck. If you can't send it today, a one line heads up would land well. 2. Sam Cohen · Contract, he says he'll review by Friday; no reply needed from you yet. Ahead: Dentist tomorrow 9:00 AM, dinner with Dana Wednesday 7:30 PM, and Denver Thursday, Southwest WN 2214, JFK 3:40 PM, Zephyr Lodge check in 3 PM. Check in opens 24h before, which I can't do for you, but I can set a reminder. Reminders list is empty, so nothing scheduled will catch any of this. Want me to set one for the 2 PM prep and the Thursday check in?",
+      "ts": 1790585379138
+    }
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "facts": [],
+  "summary": "",
+  "history": [
+    {
+      "role": "user",
+      "content": "How busy is my week looking?",
+      "ts": 1790585660371
+    },
+    {
+      "role": "assistant",
+      "content": "Light week, Alex. Per your calendar: Mon (today): BigCo interview 2 PM, gym 6:30 PM Tue: dentist 9 AM Wed: team standup 9:15 AM, dinner with Dana 7:30 PM Thu, Fri: nothing on the calendar So three busy ish days, then a wide open back half. Want me to check for conflicts around the interview, or see who you're waiting on replies from?",
+      "ts": 1790585660371
+    }
+  ]
+}

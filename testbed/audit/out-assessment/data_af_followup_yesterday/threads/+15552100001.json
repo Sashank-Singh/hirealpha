@@ -1,0 +1,23 @@
+{
+  "facts": [
+    {
+      "key": "goal:follow_up_with_anyone_fr",
+      "value": "Follow up with anyone from yesterday",
+      "ts": 1790585718244,
+      "lastSeen": 1790585718244
+    }
+  ],
+  "summary": "",
+  "history": [
+    {
+      "role": "user",
+      "content": "Do I need to follow up with anyone from yesterday?",
+      "ts": 1790585740322
+    },
+    {
+      "role": "assistant",
+      "content": "Checked your mail from the last 2 days (4 messages). Here's what stands out: 1. Sarah Kim · \"Deck?\" · still waiting on the updated deck from you. This is the one that needs a reply. 2. Dana Lee · panel details for tomorrow, 45 min product case, 100 Main St, 9th floor. No reply needed unless you have questions. 3. Sam Cohen · contract, he said he'll review by Friday, so that ball's in his court. 4. Southwest · flight confirmation, Thu Oct 1, WN 2214 JFK→DEN 3:40pm, Zephyr Lodge check in 3pm. Just a receipt. So: Sarah's the only one you owe. Want me to draft a reply to her about the deck? What I have not checked: commitments — so treat the above as partial until that is read.",
+      "ts": 1790585740322
+    }
+  ]
+}

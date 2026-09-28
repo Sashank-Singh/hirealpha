@@ -1,0 +1,16 @@
+{
+  "facts": [],
+  "summary": "",
+  "history": [
+    {
+      "role": "user",
+      "content": "Do I have everything I need for the offsite Friday?",
+      "ts": 1790585021260
+    },
+    {
+      "role": "assistant",
+      "content": "Checked your calendar for Friday, Oct 2: there's no offsite on it at all that day. The week shows a BigCo interview Monday 2 PM, gym Monday 6:30, dentist Tuesday 9 AM, standup Wednesday 9:15, and dinner with Dana Wednesday 7:30, nothing Friday. Two things I can't confirm yet: Whether the offsite is actually Friday, Oct 2, or a different Friday, it may not be on your calendar under that name. I didn't get a mail result back, so I haven't verified any offsite logistics email (location, agenda, what to bring). Want me to search your mail for \"offsite\" to find the details, or do you know the exact date so I can re check the calendar? What I have not checked: your inbox — so treat the above as partial until that is read.",
+      "ts": 1790585021260
+    }
+  ]
+}

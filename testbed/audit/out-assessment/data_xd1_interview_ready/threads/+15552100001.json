@@ -1,0 +1,16 @@
+{
+  "facts": [],
+  "summary": "",
+  "history": [
+    {
+      "role": "user",
+      "content": "Am I ready for my interview tomorrow?",
+      "ts": 1790584839157
+    },
+    {
+      "role": "assistant",
+      "content": "Quick heads up before anything else: your calendar has the BigCo interview at 2:00 PM today (Monday, Sep 28), but Dana's email says \"Tomorrow, panel details.\" One of those is off, and it's worth confirming with Dana which day it actually is before you prep for the wrong one. Here's what I checked: Calendar: \"BigCo interview, Mon Sep 28, 2:00 PM.\" Nothing else on the 28th or 29th either way, so no conflicts. Email (last 7 days): Dana's note says the panel is product + engineering leads, 45 min product case, 30 min technical, and to bring questions. What I haven't checked: whether you have prep materials in Drive, and any reminders set for it. If you confirm the real day, I can pull together a prep rundown, case practice topics, questions for the panel, the works. Want me to draft a quick confirmation reply to Dana?",
+      "ts": 1790584839157
+    }
+  ]
+}

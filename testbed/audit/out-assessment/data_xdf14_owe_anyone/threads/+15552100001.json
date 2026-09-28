@@ -1,0 +1,16 @@
+{
+  "facts": [],
+  "summary": "",
+  "history": [
+    {
+      "role": "user",
+      "content": "Do I owe anyone anything?",
+      "ts": 1790585206635
+    },
+    {
+      "role": "assistant",
+      "content": "Here's what I checked: Reminders: nothing scheduled, no commitments on the books. Reply tracking: the read on who owes whom a reply didn't come back, so I can't confirm that side yet, I won't guess. Want me to retry the mail check? That's the one place an unanswered thread could be hiding (Sam, Dana, or Sarah, for instance).",
+      "ts": 1790585206635
+    }
+  ]
+}

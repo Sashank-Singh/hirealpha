@@ -1,0 +1,16 @@
+{
+  "facts": [],
+  "summary": "",
+  "history": [
+    {
+      "role": "user",
+      "content": "Am I ready for my interview tomorrow?",
+      "ts": 1790585271056
+    },
+    {
+      "role": "assistant",
+      "content": "Heads up before anything else: your calendar has the BigCo interview today, Monday Sep 28 at 2:00 PM, not tomorrow. So \"ready\" is a today question, and you've got ~9 hours. What I can see: Today: interview 2 PM, gym 6:30 PM after. Tomorrow: dentist 9:00 AM, so a late interview prep night tonight still works, but don't stack it too late. Wednesday: standup 9:15 AM and dinner with Dana 7:30 PM, nothing colliding with the interview itself. What I haven't checked: your mail for any interview instructions or a confirmation from BigCo, your reminders, and the weather, those reads didn't come back just now, so I can't say whether there's a dress code, building info, or a video link waiting in your inbox. Want me to pull the last few days of mail to check?",
+      "ts": 1790585271056
+    }
+  ]
+}

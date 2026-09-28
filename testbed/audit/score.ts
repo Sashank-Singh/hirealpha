@@ -13,8 +13,8 @@
 import { readdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 
-const OUT = join(import.meta.dir, 'out')
-const SCORES = join(import.meta.dir, 'scores.json')
+const OUT = join(import.meta.dir, process.env.OUT_DIR || 'out')
+const SCORES = join(import.meta.dir, process.env.SCORES_FILE || 'scores.json')
 
 type DimensionKey = 'u' | 'p' | 't' | 'e' | 'v' | 'r' | 'm' | 'x' | 'g' | 'f'
 const DIMENSIONS: DimensionKey[] = ['u', 'p', 't', 'e', 'v', 'r', 'm', 'x', 'g', 'f']
@@ -90,6 +90,9 @@ function main() {
   const violationsTotal = rows.reduce((a, r2) => a + Number((r2.sourceMetrics as { violations?: number } | null)?.violations || 0), 0)
   const callsPerTurnMean = assessmentRows.length
     ? assessmentRows.reduce((a, r2) => a + ((r2.sourceMetrics as { callsPerTurn: number }).callsPerTurn), 0) / assessmentRows.length : null
+  const sourceCallsMean = assessmentRows.length
+    ? assessmentRows.reduce((a, r2) => a + ((r2.sourceMetrics as { sourceCallsPerTurn?: number }).sourceCallsPerTurn || 0), 0) / assessmentRows.length : null
+  const scenariosWithViolations = assessmentRows.reduce((a, r2) => a + Number((r2.sourceMetrics as { scenariosWithViolations?: number }).scenariosWithViolations || 0), 0)
   const revisionList = [...revisions]
   const report = {
     generatedAt: new Date().toISOString(),
@@ -108,7 +111,10 @@ function main() {
         sourceRecall: recallMean === null ? null : Number(recallMean.toFixed(3)),
         sourcePrecision: precisionMean === null ? null : Number(precisionMean.toFixed(3)),
         unsupportedClaimCount: violationsTotal,
+        scenariosWithUnsupportedClaims: scenariosWithViolations,
+        unsupportedClaimRate: assessmentRows.length ? Number((scenariosWithViolations / assessmentRows.length).toFixed(3)) : null,
         callsPerTurn: callsPerTurnMean === null ? null : Number(callsPerTurnMean.toFixed(1)),
+        sourceCallsPerTurn: sourceCallsMean === null ? null : Number(sourceCallsMean.toFixed(1)),
       },
     },
     scenarios: rows.sort((a, b) => String(a.category).localeCompare(String(b.category)) || String(a.scenario_id).localeCompare(String(b.scenario_id))),
@@ -165,12 +171,19 @@ function sourceMetrics(r: Record<string, unknown>) {
   const housekeeping = new Set(['plans', 'contacts'])
   const unnecessary = called.filter((s) => !required.includes(s) && !housekeeping.has(s))
   const hits = required.filter((s) => calledSet.has(s)).length
+  /* Precision over the NON-housekeeping called set: a plans/contacts row read
+   * on every turn by design must not count against a scenario that did not
+   * ask about them. */
+  const effectiveCalled = called.filter((s) => required.includes(s) || !housekeeping.has(s))
+  const sourceCalls = turns.reduce((a, t) => a + (t.calls || []).filter((c) => callSources(c).length).length, 0)
   return {
     required, called, missing, unnecessary,
     recall: required.length ? hits / required.length : 1,
-    precision: called.length ? hits / called.length : 1,
+    precision: effectiveCalled.length ? hits / effectiveCalled.length : 1,
     violations,
     callsPerTurn: turns.length ? turns.reduce((a, t) => a + (t.calls?.length || 0), 0) / turns.length : 0,
+    sourceCallsPerTurn: turns.length ? sourceCalls / turns.length : 0,
+    scenariosWithViolations: violations > 0 ? 1 : 0,
   }
 }
 

@@ -1,0 +1,16 @@
+{
+  "facts": [],
+  "summary": "",
+  "history": [
+    {
+      "role": "user",
+      "content": "Who still owes me a reply?",
+      "ts": 1790585695896
+    },
+    {
+      "role": "assistant",
+      "content": "From the last two weeks of mail, here's who's waiting on you vs. who owes you: 1. Sam Cohen · \"Contract\" · He said he'd review by Friday, that's on him now, so he owes you the follow up. One where the ball's in your court: 2. Sarah Kim · \"Deck?\" · She's still waiting on the updated deck from you. Dana's panel details and the Southwest flight confirmation are informational, nothing to chase. (This is from a live mail read, not the per thread tracker, that read failed twice, so treat it as the last two weeks only.) Want me to nudge Sam on the contract, or draft the deck reply to Sarah? I have not checked a fresh web check this turn, so I can't confirm anything that depends on it.",
+      "ts": 1790585695896
+    }
+  ]
+}

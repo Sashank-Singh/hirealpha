@@ -1,0 +1,168 @@
+
+### af_afford_hotel [C22] Can I afford a $180 hotel for the Denver trip? — llm=4 ms=42990
+  USER> Can I afford a $180 hotel for the Denver trip?
+  ALPHA> Here's what I can actually see, Alex: of what you've logged with me this week, you're at $395 of a $400 budget, $275 dining and $120 Amazon. So the week's log is essentially maxed, and a $180 hotel would put you over that
+
+### af_afford_trip400 [C22] Can I afford a $400 trip to Austin next weekend? — llm=5 ms=34907
+  USER> Can I afford a $400 trip to Austin next weekend?
+  ALPHA> Here's what I can actually see, Alex: of what you've logged with me this week, you're at $395 of a $400 budget, $275 dining and $120 Amazon. So by your own logged numbers, you're essentially at your cap, and a $400 trip w
+
+### af_anything_else [C22] Did I miss anything? — llm=4 ms=27823
+  USER> Did I miss anything?
+  ALPHA> Here's what I checked, mail came back, but I couldn't get a read on your reminders or calendar just now, so those are unchecked. From the last 2 days of mail, four things: 1. Sarah Kim · "Deck?" · she's still waiting on
+
+### af_blocking [C22] What is blocking me right now? — llm=6 ms=31488
+  USER> What is blocking me right now?
+  ALPHA> Here's what I can actually see, Alex: Today's the big one: your BigCo interview at 2:00 PM today (it's 5 AM now, so you've got time). Gym at 6:30 after. Then dentist tomorrow 9 AM, standup and dinner with Dana Wednesday. 
+
+### af_busy_week [C22] How busy is my week looking? — llm=4 ms=16773
+  USER> How busy is my week looking?
+  ALPHA> Light week, Alex. Per your calendar: Mon (today): BigCo interview 2 PM, gym 6:30 PM Tue: dentist 9 AM Wed: team standup 9:15 AM, dinner with Dana 7:30 PM Thu, Fri: nothing on the calendar So three busy ish days, then a wi
+
+### af_changed [C22] What changed since yesterday? — llm=4 ms=11738
+  USER> What changed since yesterday?
+  ALPHA> Checked two things: Calendar: nothing was scheduled for yesterday (Sun Sep 27). The new stuff starts today: BigCo interview today at 2 PM, gym 6:30 PM, dentist tomorrow 9 AM, then standup Wed 9:15 and dinner with Dana Wed
+
+### af_collide [C22] Is anything going to collide next week? — llm=4 ms=27570
+  USER> Is anything going to collide next week?
+  ALPHA> Checked your calendar. Nothing collides, and next week itself (Oct 5, 11) has nothing on the books at all. The events that did come back all fall this week, and they don't overlap either: Mon Sep 28, BigCo interview 2:00 
+
+### af_enough_set_aside [C22] Do I have enough set aside for this? — llm=4 ms=13711
+  USER> Do I have enough set aside for this?
+  ALPHA> Quick answer from what you've logged with Alpha: you're at $395 of your $400 weekly budget ($275 dining, $120 Amazon), so about $5 of headroom this week. Nothing is active as far as this thread records, but I have not re-
+
+### af_focus [C22] What should I focus on? — llm=5 ms=14128
+  USER> What should I focus on?
+  ALPHA> Your Monday, in priority order: 1. BigCo interview, today 2 PM. Dana's email (yesterday) confirms it's a 45 min product case in front of product + engineering leads, bring questions, 100 Main St, 9th floor. That's the one
+
+### af_followup_yesterday [C22] Do I need to follow up with anyone from yesterday? — llm=4 ms=22094
+  USER> Do I need to follow up with anyone from yesterday?
+  ALPHA> Checked your mail from the last 2 days (4 messages). Here's what stands out: 1. Sarah Kim · "Deck?" · still waiting on the updated deck from you. This is the one that needs a reply. 2. Dana Lee · panel details for tomo
+
+### af_forgetting [C22] What am I forgetting before I leave? — llm=6 ms=28064
+  USER> What am I forgetting before I leave?
+  ALPHA> Checked your calendar, the last 2 days of mail, and your reminders. Here's what stands out: Today, the big one: BigCo interview at 2:00 PM, 100 Main St, 9th floor. Per Dana's email: panel of product + engineering leads, 4
+
+### af_handle_before_tomorrow [C22] Anything I need to handle before tomorrow? — llm=4 ms=10385
+  USER> Anything I need to handle before tomorrow?
+  ALPHA> Checked your calendar for today and tomorrow. Here's what's on it: Today (Mon): BigCo interview at 2:00 PM, gym at 6:30 PM. Tomorrow (Tue): Dentist at 9:00 AM, that's the only thing, so an easy day. One thing worth noting
+
+### af_interview_ready [C22] Am I ready for my interview tomorrow? — llm=4 ms=21201
+  USER> Am I ready for my interview tomorrow?
+  ALPHA> Heads up before anything else: your calendar has the BigCo interview today, Monday Sep 28 at 2:00 PM, not tomorrow. So "ready" is a today question, and you've got ~9 hours. What I can see: Today: interview 2 PM, gym 6:30 
+
+### af_launch_ready [C22] Am I ready for launch Friday? — llm=5 ms=36075
+  USER> Am I ready for launch Friday?
+  ALPHA> Here's what I checked, calendar (Sep 28, Oct 4) and the last 7 days of mail. Short answer: not quite, and one thing may collide. Calendar shows a light week: BigCo interview Mon 2pm, gym Mon 6:30, dentist Tue 9, standup W
+
+### af_on_track [C22] Am I on track this week? — llm=3 ms=36122
+  USER> Am I on track this week?
+  ALPHA> Here's what I checked, Alex. Calendar for this week (Sep 28, Oct 4) shows five commitments: BigCo interview, today (Mon) 2:00 PM Gym, today 6:30 PM Dentist, Tue 9:00 AM Team standup, Wed 9:15 AM Dinner with Dana, Wed 7:30
+
+### af_realistic [C22] Is my schedule realistic tomorrow? — llm=4 ms=58849
+  USER> Is my schedule realistic tomorrow?
+  ALPHA> Pulled tomorrow (Tuesday, Sep 29) from your calendar: it's just the dentist at 9:00 AM. Nothing else on the books, so yes, very realistic. The only risk is sleeping through a 9 AM appointment, and I can set a reminder the
+
+### af_spending_room [C22] How much room do I have this week? — llm=3 ms=21702
+  USER> How much room do I have this week?
+  ALPHA> Checked your calendar for Mon Sep 28 through Sun Oct 4. Here's what's on it: BigCo interview, Mon 2:00 PM Gym, Mon 6:30 PM Dentist, Tue 9:00 AM Team standup, Wed 9:15 AM Dinner with Dana, Wed 7:30 PM So the week is genuin
+
+### af_still_to_do [C22] What do I still need to do? — llm=4 ms=27313
+  USER> What do I still need to do?
+  ALPHA> Here's what I checked and what it shows: Calendar, next week out: BigCo interview Mon Sep 28 at 2 PM, gym that evening, dentist Tue 9 AM, team standup Wed 9:15 AM, dinner with Dana Wed 7:30 PM. Nothing on the calendar loo
+
+### af_too_expensive [C22] Is a $600 flight too expensive for me right now? — llm=2 ms=12381
+  USER> Is a $600 flight too expensive for me right now?
+  ALPHA> Short answer: I can't say yes for you, but per your own rule, anything over $500 needs a check in with you first, and this is that check in. A few things worth weighing: is this a trip you actually need or want (and how b
+
+### af_trip_ready [C22] Am I ready for my Denver trip? — llm=5 ms=16920
+  USER> Am I ready for my Denver trip?
+  ALPHA> Mostly yes. Here's what I checked: Travel, per Southwest's confirmation email: WN 2214 JFK→DEN, Thu Oct 1, 3:40pm departure, and Zephyr Lodge with 3pm check in. That is staged as a draft for your confirmation — the ca
+
+### af_waiting_on [C22] What am I waiting on? — llm=5 ms=34099
+  USER> What am I waiting on?
+  ALPHA> Here's what I could check: Nothing is active as far as this thread records, but I have not re-checked durable state this turn. Mail: my read of your tracked threads for who owes you a reply didn't come back just now, so I
+
+### af_weekly_review [C22] What did I actually accomplish this week? — llm=4 ms=27019
+  USER> What did I actually accomplish this week?
+  ALPHA> Straight answer: your calendar doesn't show much accomplished last week, everything on it is actually upcoming. Between Sep 21 and today, the only entries are: BigCo interview, today, 2:00 PM Gym, today, 6:30 PM Dentist, 
+
+### af_who_i_owe [C22] Who am I ignoring? — llm=6 ms=22331
+  USER> Who am I ignoring?
+  ALPHA> Quick honesty note first: my per thread reply tracker didn't answer just now, so this is from your actual mail, newest 30 in the last 7 days, not the whole mailbox. Looks like you're sitting on three: 1. Sarah Kim · "Dec
+
+### af_who_owes_me [C22] Who still owes me a reply? — llm=7 ms=35523
+  USER> Who still owes me a reply?
+  ALPHA> From the last two weeks of mail, here's who's waiting on you vs. who owes you: 1. Sam Cohen · "Contract" · He said he'd review by Friday, that's on him now, so he owes you the follow up. One where the ball's in your cou
+
+### af_worry_friday [C22] Should I be worried about anything before Friday? — llm=5 ms=25796
+  USER> Should I be worried about anything before Friday?
+  ALPHA> Checked your calendar through Friday and the last week of mail. Three things actually need attention: 1. Your Denver trip isn't on your calendar. Southwest confirmation shows WN 2214 JFK→DEN Thursday Oct 1, 3:40pm, plus
+
+### xd1_interview_ready [C12] Am I ready for my interview tomorrow — llm=7 ms=45121
+  USER> Am I ready for my interview tomorrow?
+  ALPHA> Quick heads up before anything else: your calendar has the BigCo interview at 2:00 PM today (Monday, Sep 28), but Dana's email says "Tomorrow, panel details." One of those is off, and it's worth confirming with Dana which
+
+### xd2_afford_trip [C12] Can I afford this trip — llm=4 ms=24031
+  USER> Can I afford a $900 trip to Austin next weekend?
+  ALPHA> Short answer: I can't fully answer that from what I can see, but here's what I do know. Based on what you've logged with me, you're at $275 of your $400 weekly budget, so about $125 of headroom left this week. A $900 trip
+
+### xdf10_on_track [C21] Am I on track this week — llm=3 ms=33033
+  USER> Am I on track this week?
+  ALPHA> Here's what I actually checked: your calendar for this week. It shows a light, manageable load, BigCo interview today (Mon) at 2 PM, gym tonight at 6:30, dentist Tuesday 9 AM, team standup Wednesday 9:15, dinner with Dana
+
+### xdf11_alex_state [C21] State of the Alex Chen hire — llm=7 ms=20089
+  USER> What's the state of the Alex Chen hire?
+  ALPHA> Quick web check came back empty, nothing public on an Alex Chen in a backend role, so there's no outside info to add. The email is drafted for your review — nothing has been sent yet. Nothing is on your calendar with hi
+
+### xdf12_worried_friday [C21] Anything to worry about before Friday — llm=5 ms=20006
+  USER> Should I be worried about anything before Friday?
+  ALPHA> Checked your calendar through Friday and the last 5 days of mail. A few things worth a beat: 1. Today's the BigCo interview, 2:00 PM. Dana's email has the details: panel is product + engineering leads, 45 min product case
+
+### xdf13_realistic [C21] Is my schedule realistic tomorrow — llm=3 ms=19761
+  USER> Is my schedule realistic tomorrow?
+  ALPHA> I pulled tomorrow's calendar (Tuesday, Sept 29) for a conflict check, but the read came back empty, no event details were returned, so I can't tell you what's on it or whether it's realistic. That could mean the day is ge
+
+### xdf14_owe_anyone [C21] Do I owe anyone anything — llm=5 ms=23272
+  USER> Do I owe anyone anything?
+  ALPHA> Here's what I checked: Reminders: nothing scheduled, no commitments on the books. Reply tracking: the read on who owes whom a reply didn't come back, so I can't confirm that side yet, I won't guess. Want me to retry the m
+
+### xdf15_attention [C21] What needs my attention today — llm=6 ms=43215
+  USER> What needs my attention today?
+  ALPHA> Morning Alex. Here's what needs you today: Today (Mon) BigCo interview, 2:00 PM. The email is drafted for your review — nothing has been sent yet. It's at 100 Main St, 9th floor. Gym, 6:30 PM. Mail needing you (4 unread
+
+### xdf1_interview_ready [C21] Am I ready for my interview tomorrow — llm=6 ms=29098
+  USER> Am I ready for my interview tomorrow?
+  ALPHA> Quick flag before anything else: your calendar has the BigCo interview at 2:00 PM today, Monday Sep 28, not tomorrow. If that's right, you've got about nine hours. What I checked: Calendar: Interview today 2 PM, gym 6:30 
+
+### xdf2_afford_trip [C21] Can I afford this trip — llm=4 ms=28373
+  USER> Can I afford a $400 trip to Austin next weekend?
+  ALPHA> Short answer: based on what you've logged, you're right at the line, so a $400 trip isn't clearly affordable from what I can see. Here's what I checked: your logged spending this week is $395 against a $400 budget (dining
+
+### xdf3_forgetting [C21] What am I forgetting before Denver — llm=6 ms=32968
+  USER> What am I forgetting before I leave for Denver Thursday?
+  ALPHA> Here's what I checked and what it shows: The trip itself (per the Southwest confirmation email): WN 2214 JFK→DEN, departs 3:40 PM Thu Oct 1, hotel is Zephyr Lodge with 3 PM check in. Two things stand out: The flight and
+
+### xdf4_collide [C21] Anything collide next week — llm=4 ms=18959
+  USER> Is anything going to collide next week?
+  ALPHA> Checked your calendar for next week (Mon Oct 5, Sun Oct 11): nothing is scheduled, so no collisions there. What the calendar does show is all this week, BigCo interview today at 2 PM, gym tonight, dentist Tue 9 AM, standu
+
+### xdf5_followups [C21] Who do I need to follow up with — llm=4 ms=20517
+  USER> Do I need to follow up with anyone from yesterday?
+  ALPHA> From mail in the last 2 days, two people are waiting on you: 1. Sarah Kim · "Deck?" · she's still waiting on the updated deck from you. 2. Sam Cohen · "Contract" · he said he'll review by Friday, nothing for you to do
+
+### xdf6_offsite_ready [C21] Do I have everything for the offsite — llm=4 ms=28148
+  USER> Do I have everything I need for the offsite Friday?
+  ALPHA> Checked your calendar for Friday, Oct 2: there's no offsite on it at all that day. The week shows a BigCo interview Monday 2 PM, gym Monday 6:30, dentist Tuesday 9 AM, standup Wednesday 9:15, and dinner with Dana Wednesda
+
+### xdf7_busy_week [C21] How busy is my week — llm=4 ms=12938
+  USER> How busy is my week looking?
+  ALPHA> Pretty light week, honestly. Five things on the calendar: Mon (today): BigCo interview at 2 PM, gym at 6:30 Tue: dentist at 9 AM Wed: standup at 9:15, dinner with Dana at 7:30 Thu and Fri are completely open. The only tig
+
+### xdf8_call_prep [C21] Anything before the BigCo call — llm=4 ms=37946
+  USER> Anything I should know before the BigCo call?
+  ALPHA> Here's what I checked: Calendar: your BigCo interview is today, Monday Sep 28 at 2:00 PM. Nothing sits right before it, so you've got the morning free, and the gym at 6:30 gives you a clean buffer after. Mail: I ran two s
+
+### xdf9_where_week [C21] Where did my week go — llm=4 ms=18315
+  USER> Where did my week go?
+  ALPHA> Checked your calendar for the week (Mon Sep 21 through today). Honest answer: it was nearly empty. The only things on it are all today and forward: BigCo interview, today, 2:00 PM Gym, today, 6:30 PM Dentist, tomorrow, 9:

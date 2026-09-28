@@ -1,0 +1,16 @@
+{
+  "facts": [],
+  "summary": "",
+  "history": [
+    {
+      "role": "user",
+      "content": "Can I afford a $900 trip to Austin next weekend?",
+      "ts": 1790584863190
+    },
+    {
+      "role": "assistant",
+      "content": "Short answer: I can't fully answer that from what I can see, but here's what I do know. Based on what you've logged with me, you're at $275 of your $400 weekly budget, so about $125 of headroom left this week. A $900 trip doesn't fit inside that alone. I have not actually checked your calendar yet, so I cannot say whether it is reachable. If you want, I can check flights and hotels for next weekend in Austin to see if $900 is realistic for the trip itself, and we can figure out funding from there. Want me to pull options?",
+      "ts": 1790584863190
+    }
+  ]
+}

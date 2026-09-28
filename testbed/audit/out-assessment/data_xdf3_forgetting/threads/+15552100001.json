@@ -1,0 +1,16 @@
+{
+  "facts": [],
+  "summary": "",
+  "history": [
+    {
+      "role": "user",
+      "content": "What am I forgetting before I leave for Denver Thursday?",
+      "ts": 1790584953632
+    },
+    {
+      "role": "assistant",
+      "content": "Here's what I checked and what it shows: The trip itself (per the Southwest confirmation email): WN 2214 JFK→DEN, departs 3:40 PM Thu Oct 1, hotel is Zephyr Lodge with 3 PM check in. Two things stand out: The flight and hotel aren't on your calendar at all. Thursday has zero events, so nothing blocks the airport run, but also nothing reminds you. Want me to add the flight and check in as calendar events? You have no reminders set, the list is completely empty. Nothing is armed for packing, check in, or anything else. Loose ends that follow you onto the plane: 1. Sarah Kim is still waiting on the updated deck, no reply from you in the thread. 2. Sam Cohen's contract: he said he'd review by Friday, which is day one of your trip. Worth reading before you fly. Also this week, pre trip: BigCo interview today 2 PM (the panel email says 45 min product case, 100 Main St 9th floor, that's the \"tomorrow\" panel, i.e. today), dentist Tue 9 AM, and dinner with Dana Wed 7:30 PM. What I haven't checked: Denver weather for your dates and anything in Drive you might need for the interview. Say the word and I'll pull both.",
+      "ts": 1790584953632
+    }
+  ]
+}

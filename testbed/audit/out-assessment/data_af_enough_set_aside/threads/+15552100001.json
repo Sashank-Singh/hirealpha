@@ -1,0 +1,16 @@
+{
+  "facts": [],
+  "summary": "",
+  "history": [
+    {
+      "role": "user",
+      "content": "Do I have enough set aside for this?",
+      "ts": 1790585557175
+    },
+    {
+      "role": "assistant",
+      "content": "Quick answer from what you've logged with Alpha: you're at $395 of your $400 weekly budget ($275 dining, $120 Amazon), so about $5 of headroom this week. Nothing is active as far as this thread records, but I have not re-checked durable state this turn. What are you looking to cover?",
+      "ts": 1790585557175
+    }
+  ]
+}

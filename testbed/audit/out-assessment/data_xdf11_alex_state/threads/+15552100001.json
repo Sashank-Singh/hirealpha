@@ -1,0 +1,16 @@
+{
+  "facts": [],
+  "summary": "",
+  "history": [
+    {
+      "role": "user",
+      "content": "What's the state of the Alex Chen hire?",
+      "ts": 1790585143591
+    },
+    {
+      "role": "assistant",
+      "content": "I’m checking the sources for this.\n\nQuick web check came back empty, nothing public on an Alex Chen in a backend role, so there's no outside info to add. The email is drafted for your review — nothing has been sent yet. Nothing is on your calendar with him yet, so the ball's in your court to schedule that panel. Want me to pull your free slots next week and draft the scheduling email to him? https://audit-none.example/search",
+      "ts": 1790585143591
+    }
+  ]
+}

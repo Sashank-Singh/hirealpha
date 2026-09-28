@@ -1,0 +1,16 @@
+{
+  "facts": [],
+  "summary": "",
+  "history": [
+    {
+      "role": "user",
+      "content": "What am I waiting on?",
+      "ts": 1790585774421
+    },
+    {
+      "role": "assistant",
+      "content": "Here's what I could check: Nothing is active as far as this thread records, but I have not re-checked durable state this turn. Mail: my read of your tracked threads for who owes you a reply didn't come back just now, so I can't say yet whether anyone's waiting on you there. Want me to retry it?",
+      "ts": 1790585774421
+    }
+  ]
+}

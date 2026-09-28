@@ -1,0 +1,16 @@
+{
+  "facts": [],
+  "summary": "",
+  "history": [
+    {
+      "role": "user",
+      "content": "Am I ready for launch Friday?",
+      "ts": 1790585324054
+    },
+    {
+      "role": "assistant",
+      "content": "Here's what I checked, calendar (Sep 28, Oct 4) and the last 7 days of mail. Short answer: not quite, and one thing may collide. Calendar shows a light week: BigCo interview Mon 2pm, gym Mon 6:30, dentist Tue 9, standup Wed 9:15, dinner with Dana Wed 7:30. Mail raises four gaps: 1. Dana (BigCo), panel details, but the panel isn't on your calendar. Also worth noting the mail describes a 45 min product case and says to bring questions; no prep block exists for that yet. 2. Sarah Kim, still waiting on the updated deck. That's an open ask aimed at you with no reply tracked, and Friday's launch is exactly the deadline she'll feel. 3. Southwest, flight to Denver Thu Oct 1, 3:40pm out of JFK, plus Zephyr Lodge check in. Neither is on your calendar, and Thursday is the day before launch Friday. JFK at 3:40pm means leaving Manhattan well before 1pm. 4. Sam Cohen, he says he'll have the contract reviewed by Friday. That's on him, but it may land the same day as launch. I have not actually checked your calendar yet, so I cannot say whether it is reachable. Want me to add the panel, flight, and hotel to your calendar and nudge Sarah with a draft?",
+      "ts": 1790585324054
+    }
+  ]
+}

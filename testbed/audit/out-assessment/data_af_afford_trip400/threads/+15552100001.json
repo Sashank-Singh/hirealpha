@@ -1,0 +1,16 @@
+{
+  "facts": [],
+  "summary": "",
+  "history": [
+    {
+      "role": "user",
+      "content": "Can I afford a $400 trip to Austin next weekend?",
+      "ts": 1790585509378
+    },
+    {
+      "role": "assistant",
+      "content": "Here's what I can actually see, Alex: of what you've logged with me this week, you're at $395 of a $400 budget, $275 dining and $120 Amazon. So by your own logged numbers, you're essentially at your cap, and a $400 trip would put the week at ~$795. I have not actually checked your calendar yet, so I cannot say whether it is reachable. If you want, I can check flights/hotels for Austin next weekend and see what the real total would be, or we treat it as next month's spend instead. Which way?",
+      "ts": 1790585509378
+    }
+  ]
+}

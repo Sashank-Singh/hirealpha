@@ -1,0 +1,16 @@
+{
+  "facts": [],
+  "summary": "",
+  "history": [
+    {
+      "role": "user",
+      "content": "Is my schedule realistic tomorrow?",
+      "ts": 1790585643596
+    },
+    {
+      "role": "assistant",
+      "content": "Pulled tomorrow (Tuesday, Sep 29) from your calendar: it's just the dentist at 9:00 AM. Nothing else on the books, so yes, very realistic. The only risk is sleeping through a 9 AM appointment, and I can set a reminder the night before if you want. For context, today still has the BigCo interview at 2:00 PM and the gym at 6:30 PM.",
+      "ts": 1790585643596
+    }
+  ]
+}

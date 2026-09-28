@@ -1,0 +1,16 @@
+{
+  "facts": [],
+  "summary": "",
+  "history": [
+    {
+      "role": "user",
+      "content": "Is anything going to collide next week?",
+      "ts": 1790584972593
+    },
+    {
+      "role": "assistant",
+      "content": "Checked your calendar for next week (Mon Oct 5, Sun Oct 11): nothing is scheduled, so no collisions there. What the calendar does show is all this week, BigCo interview today at 2 PM, gym tonight, dentist Tue 9 AM, standup Wed 9:15 AM, and dinner with Dana Wed 7:30 PM. Those look clean too, no overlaps. Two caveats: I only read your calendar, not your mail, so I haven't checked for invites or new obligations sitting in your inbox, want me to scan the last few days of mail for anything that would land next week?",
+      "ts": 1790584972593
+    }
+  ]
+}

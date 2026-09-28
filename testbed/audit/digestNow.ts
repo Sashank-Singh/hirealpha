@@ -1,6 +1,6 @@
 import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
-const OUT = join(import.meta.dir, 'out')
+const OUT = join(import.meta.dir, process.env.OUT_DIR || 'out')
 for (const f of readdirSync(OUT).filter((f) => f.endsWith('.json') && !f.startsWith('data_')).sort()) {
   const r = JSON.parse(readFileSync(join(OUT, f), 'utf8'))
   const lines: string[] = []

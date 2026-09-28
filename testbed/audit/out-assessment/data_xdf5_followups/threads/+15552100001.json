@@ -1,0 +1,23 @@
+{
+  "facts": [
+    {
+      "key": "goal:follow_up_with_anyone_fr",
+      "value": "Follow up with anyone from yesterday",
+      "ts": 1790584972602,
+      "lastSeen": 1790584972602
+    }
+  ],
+  "summary": "",
+  "history": [
+    {
+      "role": "user",
+      "content": "Do I need to follow up with anyone from yesterday?",
+      "ts": 1790584993111
+    },
+    {
+      "role": "assistant",
+      "content": "From mail in the last 2 days, two people are waiting on you: 1. Sarah Kim · \"Deck?\" · she's still waiting on the updated deck from you. 2. Sam Cohen · \"Contract\" · he said he'll review by Friday, nothing for you to do unless you want to confirm receipt. Dana's \"Tomorrow, panel details\" is info, not a reply owed: panel tomorrow at 100 Main St, 9th floor, 45 min product case, bring questions. And Southwest confirmed your Denver flight Thursday (WN 2214, JFK 3:40pm) with Zephyr Lodge check in at 3pm. I checked mail only, I haven't read your reminders or tracked threads, so anything outside the last 2 days isn't covered here. Want me to draft the deck note to Sarah? What I have not checked: commitments — so treat the above as partial until that is read.",
+      "ts": 1790584993111
+    }
+  ]
+}

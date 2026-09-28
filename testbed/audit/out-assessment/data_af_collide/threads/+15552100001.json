@@ -1,0 +1,16 @@
+{
+  "facts": [],
+  "summary": "",
+  "history": [
+    {
+      "role": "user",
+      "content": "Is anything going to collide next week?",
+      "ts": 1790585584746
+    },
+    {
+      "role": "assistant",
+      "content": "Checked your calendar. Nothing collides, and next week itself (Oct 5, 11) has nothing on the books at all. The events that did come back all fall this week, and they don't overlap either: Mon Sep 28, BigCo interview 2:00 PM, gym 6:30 PM Tue Sep 29, dentist 9:00 AM Wed Sep 30, team standup 9:15 AM, dinner with Dana 7:30 PM Closest squeeze is Wednesday: standup in the morning, dinner in the evening, plenty of air between. If something's supposed to be on the calendar for next week and isn't showing, tell me and I'll add it.",
+      "ts": 1790585584746
+    }
+  ]
+}

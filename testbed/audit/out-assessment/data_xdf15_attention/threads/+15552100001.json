@@ -1,0 +1,16 @@
+{
+  "facts": [],
+  "summary": "",
+  "history": [
+    {
+      "role": "user",
+      "content": "What needs my attention today?",
+      "ts": 1790585249854
+    },
+    {
+      "role": "assistant",
+      "content": "Morning Alex. Here's what needs you today: Today (Mon) BigCo interview, 2:00 PM. The email is drafted for your review — nothing has been sent yet. It's at 100 Main St, 9th floor. Gym, 6:30 PM. Mail needing you (4 unread in the last 2 days) 1. Dana Whitfield · Panel details for tomorrow's BigCo interview · worth a read before 2 PM, it changes your prep. 2. Sarah Kim · \"Deck?\" · she's still waiting on the updated deck. This is the oldest open ask. 3. The email is drafted for your review — nothing has been sent yet. No action yet. 4. Southwest · Flight to Denver Thu Oct 1 · WN 2214 JFK→DEN, 3:40 PM departure; Zephyr Lodge check in 3 PM. Check in opens 24h before, Wednesday ~3:40 PM, I can't do airline check in for you, but I can set a reminder. Want me to draft the reply to Sarah about the deck, or set that flight check in reminder?",
+      "ts": 1790585249854
+    }
+  ]
+}

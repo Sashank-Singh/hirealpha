@@ -1,0 +1,16 @@
+{
+  "facts": [],
+  "summary": "",
+  "history": [
+    {
+      "role": "user",
+      "content": "Is my schedule realistic tomorrow?",
+      "ts": 1790585183360
+    },
+    {
+      "role": "assistant",
+      "content": "I pulled tomorrow's calendar (Tuesday, Sept 29) for a conflict check, but the read came back empty, no event details were returned, so I can't tell you what's on it or whether it's realistic. That could mean the day is genuinely clear, or the calendar connection didn't hand over the events. Can you reconnect or confirm the calendar grant is full (not read only)? Once I can see the actual blocks, I'll flag overlaps, back to backs with no breathing room, and anything that needs travel time.",
+      "ts": 1790585183360
+    }
+  ]
+}

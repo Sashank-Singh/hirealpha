@@ -1,0 +1,16 @@
+{
+  "facts": [],
+  "summary": "",
+  "history": [
+    {
+      "role": "user",
+      "content": "How busy is my week looking?",
+      "ts": 1790585034200
+    },
+    {
+      "role": "assistant",
+      "content": "Pretty light week, honestly. Five things on the calendar: Mon (today): BigCo interview at 2 PM, gym at 6:30 Tue: dentist at 9 AM Wed: standup at 9:15, dinner with Dana at 7:30 Thu and Fri are completely open. The only tight spot is Wednesday morning to evening is fine but today's interview plus gym is your busiest day. Want me to check anything specific, like free slots for a meeting?",
+      "ts": 1790585034200
+    }
+  ]
+}
