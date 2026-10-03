@@ -166,7 +166,7 @@ describe('State-changing tool and endpoint idempotency', () => {
       if (q.includes('FROM hire_users')) {
         return [{ id: 'user-nut-1', phone_e164: '+15550002222' }]
       }
-      if (q.includes('SELECT id, description, calories FROM hire_nutrition_logs')) {
+      if (q.includes('SELECT id, description, calories, protein, carbs, fat FROM hire_nutrition_logs')) {
         if (insertedNutrition.length > 0) {
           return [insertedNutrition[0]]
         }

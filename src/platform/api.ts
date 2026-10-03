@@ -542,6 +542,11 @@ export const apiAnalyzeNutrition = (a: { email?: string; token?: string; descrip
     ok: boolean; needsKey?: boolean; calories?: number; protein?: number; carbs?: number; fat?: number
     guess?: string; error?: string
   }>('/api/nutrition/analyze', { ...authParams(a), description: a.description, imageBase64: a.imageBase64 })
+export const apiRetryNutritionEstimate = (a: { email?: string; token?: string; id: string }) =>
+  featurePost<{
+    ok: boolean; error?: string; id?: string; description?: string
+    calories?: number; protein?: number; carbs?: number; fat?: number
+  }>(`/api/nutrition/${encodeURIComponent(a.id)}/estimate`, authParams(a))
 export const apiLogNutritionPhoto = (a: {
   email?: string; token?: string; description?: string; imageBase64: string
 }) =>

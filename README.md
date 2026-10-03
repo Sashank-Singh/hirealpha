@@ -283,6 +283,15 @@ npm run lint
 
 ---
 
+### Nutrition estimate recovery
+
+Nutrition uses the configured GLM 5.3 Flash provider, including Novita and
+OpenRouter model identifiers. Complete macro responses are required; failed
+estimates can be retried without creating another log. Open a saved meal and
+choose **Retry estimate** to update its macros in place, including older entries
+marked “estimate pending.” Chat saves the description when estimation is
+unavailable and reports that state explicitly.
+
 ## 🚢 Production Deployment
 
 Production is deployed on [Coolify](https://coolify.io/) with isolated container boundaries:
