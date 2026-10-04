@@ -3,7 +3,7 @@ import { describe, expect, it } from 'bun:test'
 // Verify gmiChat retries 429 with backoff instead of surfacing a canned failure.
 describe('gmi 429 backoff', () => {
   it('retries a rate limit once, after a wait long enough to clear the window', async () => {
-    const { gmiChat } = await import('/Users/sashanksingh/Projects/HireAlpha/spectrum/shared/gmi')
+    const { gmiChat } = await import('../spectrum/shared/gmi')
     const realFetch = globalThis.fetch
     const times: number[] = []
     let calls = 0
@@ -27,7 +27,7 @@ describe('gmi 429 backoff', () => {
   }, 30_000)
 
   it('stops retrying when the deadline cannot fit another attempt', async () => {
-    const { gmiChat } = await import('/Users/sashanksingh/Projects/HireAlpha/spectrum/shared/gmi')
+    const { gmiChat } = await import('../spectrum/shared/gmi')
     const realFetch = globalThis.fetch
     let calls = 0
     globalThis.fetch = (async () => { calls++; return new Response('{}', { status: 429 }) }) as unknown as typeof fetch
@@ -45,7 +45,7 @@ describe('gmi 429 backoff', () => {
 
 describe('gmi 400-body rate limits', () => {
   it('retries a 400 whose body says Rate limit exceeded', async () => {
-    const { gmiChat } = await import('/Users/sashanksingh/Projects/HireAlpha/spectrum/shared/gmi')
+    const { gmiChat } = await import('../spectrum/shared/gmi')
     const realFetch = globalThis.fetch
     let calls = 0
     globalThis.fetch = (async () => {
@@ -64,7 +64,7 @@ describe('gmi 400-body rate limits', () => {
   }, 30_000)
 
   it('does not retry an unrelated 400', async () => {
-    const { gmiChat } = await import('/Users/sashanksingh/Projects/HireAlpha/spectrum/shared/gmi')
+    const { gmiChat } = await import('../spectrum/shared/gmi')
     const realFetch = globalThis.fetch
     let calls = 0
     globalThis.fetch = (async () => {
@@ -86,7 +86,7 @@ describe('gmi empty completion', () => {
    * with reasoning_effort 'none', which this backend 400s outright — a second
    * request that could never answer. It now walks down the effort ladder. */
   it('retries an empty completion at a lower thinking effort', async () => {
-    const { gmiChat } = await import('/Users/sashanksingh/Projects/HireAlpha/spectrum/shared/gmi')
+    const { gmiChat } = await import('../spectrum/shared/gmi')
     const realFetch = globalThis.fetch
     const efforts: Array<string | undefined> = []
     globalThis.fetch = (async (_url: string, init: RequestInit) => {
@@ -108,7 +108,7 @@ describe('gmi empty completion', () => {
   }, 30_000)
 
   it('keeps walking the ladder when a backend rejects low effort', async () => {
-    const { gmiChat } = await import('/Users/sashanksingh/Projects/HireAlpha/spectrum/shared/gmi')
+    const { gmiChat } = await import('../spectrum/shared/gmi')
     const realFetch = globalThis.fetch
     const efforts: Array<string | undefined> = []
     globalThis.fetch = (async (_url: string, init: RequestInit) => {

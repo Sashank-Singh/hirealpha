@@ -472,6 +472,33 @@ export async function handleHabitRoutes(
     return json({ ok: true, id, imageUrl, estimated: estimate.ok, needsKey: estimate.needsKey === true })
   }
 
+  const retryMeal = path.match(/^\/api\/nutrition\/([^/]+)\/estimate$/)
+  if (retryMeal && req.method === 'POST') {
+    const body = (await req.json().catch(() => ({}))) as { token?: string; session?: string; email?: string }
+    const { user, error } = await resolveAuthedUser(sql, body)
+    if (error) return error
+    const rows = await sql`
+      SELECT id, description, image_url AS "imageUrl" FROM hire_nutrition_logs
+      WHERE id = ${retryMeal[1]} AND user_id = ${user!.id} LIMIT 1
+    `
+    const meal = rows[0] as { id: string; description: string; imageUrl: string | null } | undefined
+    if (!meal) return json({ error: 'Meal not found' }, 404)
+    const description = meal.description.replace(/\s*\(estimate pending\)$/, '')
+    // Use stored inline photos only; never fetch a user-controlled URL server-side.
+    const imageBase64 = meal.imageUrl?.match(/^data:image\/[^;]+;base64,(.+)$/)?.[1] || ''
+    const estimate = await estimateNutrition(description, imageBase64)
+    if (!estimate.ok) return json({ ...estimate, error: estimate.error || 'Nutrition estimates are temporarily unavailable. Please try again.' })
+    const updated = await sql`
+      UPDATE hire_nutrition_logs
+      SET description = ${description}, calories = ${clampNum(estimate.calories)},
+          protein = ${clampNum(estimate.protein)}, carbs = ${clampNum(estimate.carbs)}, fat = ${clampNum(estimate.fat)}
+      WHERE id = ${meal.id} AND user_id = ${user!.id}
+      RETURNING id
+    `
+    if (!updated[0]) return json({ error: 'Meal no longer exists' }, 404)
+    return json({ ...estimate, id: meal.id, description })
+  }
+
   if (path.startsWith('/api/nutrition/') && req.method === 'POST') {
     const body = (await req.json().catch(() => ({}))) as { token?: string; email?: string; _delete?: boolean }
     if (!body._delete) return json({ error: 'Not found' }, 404)
@@ -506,11 +533,11 @@ export async function handleHabitRoutes(
 
     const { result } = await withIdempotency(idempotencyKey, async () => {
       const existing = (await sql`
-        SELECT id, description, calories FROM hire_nutrition_logs
+        SELECT id, description, calories, protein, carbs, fat FROM hire_nutrition_logs
         WHERE user_id = ${user.id} AND description LIKE ${`${description.slice(0, 50)}%`}
           AND eaten_at > now() - interval '10 minutes'
         ORDER BY eaten_at DESC LIMIT 1
-      `) as Array<{ id: string; description: string; calories: number | null }>
+      `) as Array<{ id: string; description: string; calories: number | null; protein: number | null; carbs: number | null; fat: number | null }>
 
       if (existing[0]) {
         return {
@@ -519,6 +546,12 @@ export async function handleHabitRoutes(
           deduplicated: true,
           id: existing[0].id,
           guess: existing[0].description,
+          estimated: !existing[0].description.endsWith('(estimate pending)') &&
+            [existing[0].calories, existing[0].protein, existing[0].carbs, existing[0].fat].some((n) => Number(n) > 0),
+          calories: clampNum(existing[0].calories),
+          protein: clampNum(existing[0].protein),
+          carbs: clampNum(existing[0].carbs),
+          fat: clampNum(existing[0].fat),
         }
       }
 
@@ -537,7 +570,7 @@ export async function handleHabitRoutes(
         VALUES (${id}, ${user.id}, ${saved}, NULL,
           ${clampNum(estimate.calories)}, ${clampNum(estimate.protein)}, ${clampNum(estimate.carbs)}, ${clampNum(estimate.fat)}, now())
       `
-      return { ok: true, logged: true, id, estimated: estimate.ok, needsKey: estimate.needsKey === true, guess: estimate.guess || undefined }
+      return { ok: true, logged: true, id, estimated: estimate.ok, needsKey: estimate.needsKey === true, guess: estimate.guess || saved, calories: clampNum(estimate.calories), protein: clampNum(estimate.protein), carbs: clampNum(estimate.carbs), fat: clampNum(estimate.fat) }
     })
 
     return json(result)

@@ -1857,7 +1857,7 @@ export async function runHireTurn(input: {
     if (nutrition?.logged) {
       extras.push(
         nutrition.estimated === false
-          ? `Nutrition was automatically logged as ${nutrition.guess || input.userText}. The macro estimate is pending (the estimator did not answer), so do not state calorie/protein numbers — say the meal is logged and the macros will fill in.`
+          ? `Nutrition was automatically logged as ${nutrition.guess || input.userText}. The macro estimate is pending (the estimator did not answer), so do not state calorie/protein numbers — say the meal description was saved but the macro estimate is unavailable. Do not promise it will fill in automatically or log the meal again.`
           : `Nutrition was automatically logged as ${nutrition.guess || input.userText} (${nutrition.calories || 0} calories, ${nutrition.protein || 0}g protein, ${nutrition.carbs || 0}g carbs, ${nutrition.fat || 0}g fat). Confirm the log briefly in the reply; do not ask them to log it again.`,
       )
     } else if (nutrition?.error) {

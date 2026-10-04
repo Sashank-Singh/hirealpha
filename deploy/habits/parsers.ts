@@ -1,4 +1,4 @@
-import { extractJsonObject, extractNumericFields, modelReplyText } from '../modelJson'
+import { extractJsonObject, extractNumericFields, stripReasoning } from '../modelJson'
 
 export function isClock(v: string): boolean {
   return /^\d{1,2}:\d{2}$/.test(v.trim()) && (() => {
@@ -218,8 +218,8 @@ export const CALORIE_FOOD_RE = /\b(food|meal|diet|snack|lunch|dinner|breakfast|s
 
 export function nutritionModelConfig() {
   const apiKey =
-    process.env.GMI_API_KEY ||
     process.env.NUTRITION_API_KEY ||
+    process.env.GMI_API_KEY ||
     process.env.HIREALPHA_API_KEY
   if (!apiKey) return null
   const baseUrl = (
@@ -229,7 +229,15 @@ export function nutritionModelConfig() {
   ).replace(/\/$/, '')
   const textModel = process.env.NUTRITION_MODEL || process.env.GMI_MODEL || 'zai-org/GLM-5.3-Flash'
   const visionModel = process.env.NUTRITION_VISION_MODEL || 'zai-org/GLM-5.3-Flash'
-  return { apiKey, baseUrl, textModel, visionModel }
+  // Provider IDs are case-sensitive even when they name the same model.
+  const providerModel = (model: string) => {
+    if (model.toLowerCase() !== 'zai-org/glm-5.3-flash') return model
+    const host = new URL(baseUrl).hostname
+    if (host === 'api.novita.ai') return 'zai-org/glm-5.3-flash'
+    if (host === 'openrouter.ai') return 'z-ai/glm-5.3-flash'
+    return model
+  }
+  return { apiKey, baseUrl, textModel: providerModel(textModel), visionModel: providerModel(visionModel) }
 }
 
 export function imageMimeFromBase64(base64: string): string {
@@ -253,7 +261,7 @@ export function isDecodableImage(mime: string): boolean {
 
 export function salvageMacros(text: string): { calories: number; protein: number; carbs: number; fat: number } | null {
   const nums = extractNumericFields(text, ['calories', 'protein', 'carbs', 'fat'])
-  if (!('calories' in nums)) return null
+  if (!['calories', 'protein', 'carbs', 'fat'].every((key) => Number.isFinite(nums[key]) && nums[key]! >= 0)) return null
   return { calories: nums.calories!, protein: nums.protein ?? 0, carbs: nums.carbs ?? 0, fat: nums.fat ?? 0 }
 }
 
@@ -276,18 +284,18 @@ export async function estimateNutrition(
 
   const mime = imageBase64 ? imageMimeFromBase64(imageBase64) : ''
   const decodable = !imageBase64 || isDecodableImage(mime)
-  if (imageBase64 && !decodable && !description.trim()) {
+  if (imageBase64 && !decodable && (!description.trim() || /^(meal from photo|estimate the macros.*)$/i.test(description.trim()))) {
     return { ok: false, error: 'Photo format (e.g. HEIC) needs a caption — tell me what it was.' }
   }
 
   const system =
     'You are an expert nutrition and macronutrient estimator. ' +
-    'Estimate realistic single-serving macronutrients of the described or pictured meal. ' +
+    'Estimate total macronutrients for ALL foods and portions described or pictured. Use one serving only when no portion is provided. ' +
     'Reply with JSON ONLY in this format: {"guess":"<short dish name>","calories":N,"protein":N,"carbs":N,"fat":N}. ' +
     'protein/carbs/fat are in grams, calories is in kcal. ' +
     'Guidelines: ' +
     '1. guess: Clean, specific, appetizing name (e.g. "Chicken and Rice Bowl", "2 Scrambled Eggs with Toast"). Never output placeholders like "meal" or "meal from photo". ' +
-    '2. ALL FOUR fields (guess, calories, protein, carbs, fat) MUST be present with non-negative numbers. ' +
+    '2. All five fields MUST be present: guess is a string; calories, protein, carbs, and fat are non-negative numbers. ' +
     '3. Total calories must be approximately consistent with macros: (protein * 4) + (carbs * 4) + (fat * 9). ' +
     '4. NEVER report 0 protein for dishes with meat, poultry, fish, eggs, dairy, beans, or tofu. ' +
     '5. NEVER report 0 fat unless the item is genuinely fat-free (e.g. black coffee, plain apple, diet soda). ' +
@@ -309,11 +317,15 @@ export async function estimateNutrition(
   const visionCandidates = Array.from(new Set([cfg.visionModel])).filter((m): m is string => Boolean(m))
   const textCandidates = Array.from(new Set([cfg.textModel])).filter((m): m is string => Boolean(m))
 
+  // Bound the entire estimate below the caller's 25-second timeout.
+  const signal = AbortSignal.timeout(20_000)
   const attempt = async (m: string, parts: unknown[]) => {
+    let lowReasoning = /glm-5\.3-flash/i.test(m)
     for (let tryCount = 0; tryCount < 2; tryCount++) {
       try {
         const res = await fetch(`${cfg.baseUrl}/chat/completions`, {
           method: 'POST',
+          signal,
           headers: {
             'Content-Type': 'application/json',
             Authorization: `Bearer ${cfg.apiKey}`,
@@ -323,7 +335,10 @@ export async function estimateNutrition(
           body: JSON.stringify({
             model: m,
             temperature: 0,
-            max_tokens: 1200,
+            ...(lowReasoning ? new URL(cfg.baseUrl).hostname === 'openrouter.ai'
+              ? { reasoning: { effort: 'low' } }
+              : { reasoning_effort: 'low' } : {}),
+            max_tokens: tryCount === 0 ? 4096 : 8192,
             messages: [
               { role: 'system', content: system },
               { role: 'user', content: parts },
@@ -331,6 +346,10 @@ export async function estimateNutrition(
           }),
         })
         if (!res.ok) {
+          if (res.status === 400 && lowReasoning && tryCount === 0) {
+            lowReasoning = false
+            continue
+          }
           if ((res.status === 429 || res.status >= 500) && tryCount === 0) {
             await new Promise((r) => setTimeout(r, 600))
             continue
@@ -341,9 +360,12 @@ export async function estimateNutrition(
         const data = (await res.json()) as {
           choices?: Array<{ message?: { content?: string; reasoning_content?: string } }>
         }
-        const content = modelReplyText(data.choices?.[0]?.message)
-        const parsed = extractJsonObject(content, ['calories'])
-        const rawMacros = parsed
+        // Never count the model's unfinished scratchpad as a final estimate.
+        const content = stripReasoning(data.choices?.[0]?.message?.content || '')
+        const parsed = extractJsonObject(content, ['calories', 'protein', 'carbs', 'fat'])
+        const rawMacros = parsed && ['calories', 'protein', 'carbs', 'fat'].every((key) =>
+          (typeof parsed[key] === 'number' || (typeof parsed[key] === 'string' && String(parsed[key]).trim() !== '')) &&
+          Number.isFinite(Number(parsed[key])) && Number(parsed[key]) >= 0)
           ? {
               calories: clampNum(parsed.calories),
               protein: clampNum(parsed.protein),
@@ -351,10 +373,14 @@ export async function estimateNutrition(
               fat: clampNum(parsed.fat),
             }
           : salvageMacros(content)
-        if (!rawMacros) return null
+        if (!rawMacros) {
+          // Empty/truncated reasoning completions are retryable too.
+          if (tryCount === 0 && !signal.aborted) continue
+          return null
+        }
         return { macros: rawMacros, guess: String(parsed?.guess || '').trim() }
       } catch (err) {
-        if (tryCount === 0) {
+        if (tryCount === 0 && !signal.aborted) {
           await new Promise((r) => setTimeout(r, 600))
           continue
         }
@@ -374,7 +400,7 @@ export async function estimateNutrition(
     }
   }
 
-  if (!hit) {
+  if (!hit && (!imageBase64 || !isGenericDesc)) {
     const textParts = [{ type: 'text', text: promptText }]
     for (const tm of textCandidates) {
       hit = await attempt(tm, textParts)
@@ -383,7 +409,7 @@ export async function estimateNutrition(
   }
 
   if (!hit) {
-    return { ok: false, error: 'Could not read the estimate. Try naming the food and the portion.' }
+    return { ok: false, error: 'The nutrition estimator could not return a complete estimate. Please try again.' }
   }
 
   let { calories, protein, carbs, fat } = hit.macros

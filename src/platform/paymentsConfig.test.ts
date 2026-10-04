@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'bun:test'
-import { paymentsEnabled, resetPaymentsCache } from '/Users/sashanksingh/Projects/HireAlpha/src/platform/paymentsConfig'
+import { paymentsEnabled, resetPaymentsCache } from './paymentsConfig'
 
 const realFetch = globalThis.fetch
 afterEach(() => {

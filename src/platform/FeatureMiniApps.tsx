@@ -14,6 +14,7 @@ import {
   apiAddNetwork,
   apiAddRelationship,
   apiAnalyzeNutrition,
+  apiRetryNutritionEstimate,
   apiDayEvents,
   apiDeleteHabit,
   apiDeleteMeeting,
@@ -1420,10 +1421,7 @@ export function NutritionApp({ auth }: { auth: FeatureAuth }) {
     try {
       const est = await apiAnalyzeNutrition({ ...a, description: desc.trim() })
       if (est.needsKey) {
-        await apiLogNutrition({ ...a, description: desc.trim() })
-        setMsg('Logged. Add a model key to auto-estimate macros.')
-        setDesc('')
-        load()
+        setMsg('Nutrition estimates are temporarily unavailable. Your description is ready to retry.')
       } else if (est.ok) {
         setPending({
           description: est.guess || desc.trim(),
@@ -1434,13 +1432,34 @@ export function NutritionApp({ auth }: { auth: FeatureAuth }) {
         })
         setMsg('Confirm macros, then log.')
       } else {
-        await apiLogNutrition({ ...a, description: desc.trim() })
-        setMsg(est.error || 'Logged without a macro estimate.')
-        setDesc('')
-        load()
+        setMsg(est.error || 'Could not estimate that meal. Please try again.')
       }
     } catch {
       setMsg('Could not log that.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function retryEstimate(meal: NutritionLog) {
+    if (busy) return
+    setBusy(true)
+    setMsg('Estimating saved meal…')
+    try {
+      const result = await apiRetryNutritionEstimate({ ...a, id: meal.id })
+      if (!result.ok) {
+        setMsg(result.error || 'Could not estimate that meal. Please try again.')
+        return
+      }
+      setSelectedMeal((current) => current?.id === meal.id ? {
+        ...current, description: result.description || current.description,
+        calories: result.calories ?? 0, protein: result.protein ?? 0,
+        carbs: result.carbs ?? 0, fat: result.fat ?? 0,
+      } : current)
+      setMsg('Meal estimate updated.')
+      load()
+    } catch {
+      setMsg('Could not estimate that meal. Please try again.')
     } finally {
       setBusy(false)
     }
@@ -1761,7 +1780,7 @@ export function NutritionApp({ auth }: { auth: FeatureAuth }) {
                 <div className="nutr-meal-info">
                   <span className="nutr-meal-name">{l.description}</span>
                   <span className="nutr-meal-macros">
-                    {Math.round(l.calories)} cal
+                    {l.description.endsWith('(estimate pending)') ? 'Estimate unavailable' : `${Math.round(l.calories)} cal`}
                     {l.protein || l.carbs || l.fat
                       ? ` · ${Math.round(l.protein)}p · ${Math.round(l.carbs)}c · ${Math.round(l.fat)}f`
                       : ''}
@@ -1792,7 +1811,7 @@ export function NutritionApp({ auth }: { auth: FeatureAuth }) {
                     <div className="nutr-meal-info">
                       <span className="nutr-meal-name">{l.description}</span>
                       <span className="nutr-meal-macros">
-                        {Math.round(l.calories)} cal · {Math.round(l.protein)}p · {Math.round(l.carbs)}c · {Math.round(l.fat)}f
+                        {l.description.endsWith('(estimate pending)') ? 'Estimate unavailable' : `${Math.round(l.calories)} cal · ${Math.round(l.protein)}p · ${Math.round(l.carbs)}c · ${Math.round(l.fat)}f`}
                       </span>
                     </div>
                     <button className="nutr-meal-delete" type="button" onClick={(e) => { e.stopPropagation(); void deleteMeal(l.id) }} title="Remove">
@@ -1814,6 +1833,11 @@ export function NutritionApp({ auth }: { auth: FeatureAuth }) {
             {selectedMeal.imageUrl ? <img src={selectedMeal.imageUrl} alt="" className="nutr-modal-img" /> : null}
             <h3>{selectedMeal.description}</h3>
             <span className="nutr-modal-time">{mealTime(selectedMeal.eatenAt)}</span>
+            {selectedMeal.description.endsWith('(estimate pending)') && <p className="mini__hint">Macro estimate unavailable. Retry to update this meal.</p>}
+            <button className="ma-btn" type="button" disabled={busy} onClick={() => void retryEstimate(selectedMeal)}>
+              {busy ? 'Estimating…' : 'Retry estimate'}
+            </button>
+            {msg && <p className="mini__hint" role="status">{msg}</p>}
             <div className="nutr-modal-macros">
               <div className="nutr-modal-macro">
                 <span className="nutr-modal-macro-val">{Math.round(selectedMeal.calories)}</span>

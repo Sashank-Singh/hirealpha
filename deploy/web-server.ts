@@ -45,7 +45,7 @@ const DATABASE_URL = process.env.DATABASE_URL || ''
  * the "meal logged at 11 PM never reached Home" bug stayed invisible for weeks.
  * All day/week windows are computed as UTC instants; this is the belt behind
  * the suspenders. */
-const sql = DATABASE_URL
+const sql = import.meta.main && DATABASE_URL
   ? new SQL(DATABASE_URL, {
       // A single Home open fans out 24 independent queries in one Promise.all,
       // so a 12-connection pool had one request queueing behind itself; under
@@ -887,7 +887,8 @@ async function handleAnalyticsProxy(req: Request, url: URL): Promise<Response | 
   return null
 }
 
-Bun.serve<LiveProxyData>({
+// Importing route helpers in tests must not bind a port or start production jobs.
+if (import.meta.main) Bun.serve<LiveProxyData>({
   port: PORT,
   hostname: '0.0.0.0',
   idleTimeout: 120,
@@ -966,4 +967,4 @@ Bun.serve<LiveProxyData>({
   },
 })
 
-console.log(`[web] listening on :${PORT} root=${ROOT} compression=${BROTLI_OK ? 'br+gzip' : 'gzip'}`)
+if (import.meta.main) console.log(`[web] listening on :${PORT} root=${ROOT} compression=${BROTLI_OK ? 'br+gzip' : 'gzip'}`)

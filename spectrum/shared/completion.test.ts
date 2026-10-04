@@ -239,5 +239,3 @@ describe('exactly-once primitives', () => {
     expect(a).not.toBe(completionKey('+15550002', 'friend', 'subscription_cancel', 'spotify'))
   })
 })
-
-import { completionKey } from './completion'

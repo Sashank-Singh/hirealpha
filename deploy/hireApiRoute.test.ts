@@ -58,6 +58,30 @@ afterAll(() => {
 })
 
 describe('/api/internal/nutrition', () => {
+  it('returns the saved estimate status and macros when reusing a meal', async () => {
+    process.env.HIREALPHA_INTERNAL_KEY = 'test-key'
+    for (const pending of [true, false]) {
+      const { sql, queries } = fakeSql((text) => {
+        if (/FROM hire_nutrition_logs/i.test(text)) return [{
+          id: 'existing', description: pending ? 'waffles (estimate pending)' : 'waffles',
+          calories: pending ? 0 : 300, protein: pending ? 0 : 15,
+          carbs: pending ? 0 : 45, fat: pending ? 0 : 7,
+        }]
+        return rowsForUsers(text)
+      })
+      const res = await handleHireApi(new Request('https://hirealpha.chat/api/internal/nutrition', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer test-key' },
+        body: JSON.stringify({ phone: USER.phone, persona: 'friend', description: 'waffles', idempotencyKey: `estimate-status-${pending}` }),
+      }), sql as never)
+      const data = await res!.json()
+      expect(data.estimated).toBe(!pending)
+      expect(data.calories).toBe(pending ? 0 : 300)
+      expect(data.protein).toBe(pending ? 0 : 15)
+      expect(queries.some((q) => /INSERT INTO hire_nutrition_logs/.test(q.text))).toBe(false)
+    }
+  })
+
   it('logs the meal even when the estimator has no answer', async () => {
     process.env.HIREALPHA_INTERNAL_KEY = 'test-key'
     const { sql, queries } = fakeSql(rowsForUsers)
@@ -77,6 +101,54 @@ describe('/api/internal/nutrition', () => {
     expect(insert).toBeTruthy()
     // The meal is kept, marked pending rather than dropped.
     expect(insert!.values.map(String).join(' ')).toContain('estimate pending')
+  })
+})
+
+describe('/api/nutrition/:id/estimate', () => {
+  it('updates a saved meal in place and scopes every query to its owner', async () => {
+    const previousFetch = globalThis.fetch
+    process.env.NUTRITION_API_KEY = 'test'
+    globalThis.fetch = (async () => Response.json({ choices: [{ message: { content: JSON.stringify({
+      guess: 'Waffles', calories: 300, protein: 15, carbs: 45, fat: 7,
+    }) } }] })) as typeof fetch
+    try {
+      const { sql, queries } = fakeSql((text) => {
+        if (/SELECT id, description, image_url/.test(text)) return [{ id: 'meal-1', description: '2 waffles (estimate pending)', imageUrl: null }]
+        if (/UPDATE hire_nutrition_logs/.test(text)) return [{ id: 'meal-1' }]
+        return rowsForUsers(text)
+      })
+      const res = await handleHireApi(new Request('https://hirealpha.chat/api/nutrition/meal-1/estimate', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: USER.email }),
+      }), sql as never)
+      expect(await res!.json()).toMatchObject({ ok: true, id: 'meal-1', calories: 300, description: '2 waffles' })
+      const mealQueries = queries.filter((q) => /hire_nutrition_logs/.test(q.text))
+      expect(mealQueries).toHaveLength(2)
+      expect(mealQueries.every((q) => q.values.includes(USER.id))).toBe(true)
+      expect(mealQueries.some((q) => /INSERT/.test(q.text))).toBe(false)
+    } finally {
+      globalThis.fetch = previousFetch
+      delete process.env.NUTRITION_API_KEY
+    }
+  })
+
+  it('leaves saved data intact if the estimate is unavailable', async () => {
+    const { sql, queries } = fakeSql((text) => /SELECT id, description, image_url/.test(text)
+      ? [{ id: 'meal-2', description: 'Paneer parathas (estimate pending)', imageUrl: null }]
+      : rowsForUsers(text))
+    const res = await handleHireApi(new Request('https://hirealpha.chat/api/nutrition/meal-2/estimate', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: USER.email }),
+    }), sql as never)
+    expect((await res!.json()).ok).toBe(false)
+    expect(queries.some((q) => /UPDATE hire_nutrition_logs|INSERT INTO hire_nutrition_logs/.test(q.text))).toBe(false)
+  })
+
+  it('does not estimate or modify a meal that is absent from the caller account', async () => {
+    const { sql, queries } = fakeSql(rowsForUsers)
+    const res = await handleHireApi(new Request('https://hirealpha.chat/api/nutrition/not-owned/estimate', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: USER.email }),
+    }), sql as never)
+    expect(res!.status).toBe(404)
+    expect(queries.some((q) => /UPDATE hire_nutrition_logs/.test(q.text))).toBe(false)
   })
 })
 
