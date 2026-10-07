@@ -1319,6 +1319,18 @@ function groupNutritionHistory(logs: NutritionLog[]): Array<{ day: string; label
   })
 }
 
+/** A meal with no macros at all was logged while the estimator was down — it is
+ * not a zero-calorie meal. Both the explicit "(estimate pending)" rows and the
+ * older rows that were saved with bare zeroes read the same way to the reader. */
+function mealMacrosMissing(meal: Pick<NutritionLog, 'description' | 'calories' | 'protein' | 'carbs' | 'fat'>): boolean {
+  if (meal.description.endsWith('(estimate pending)')) return true
+  return meal.calories <= 0 && meal.protein <= 0 && meal.carbs <= 0 && meal.fat <= 0
+}
+
+function mealName(description: string): string {
+  return description.replace(/\s*\(estimate pending\)$/, '')
+}
+
 export function NutritionApp({ auth }: { auth: FeatureAuth }) {
   const a = useAuthed(auth)
   const [goals, setGoals] = useState<NutritionGoals | null>(null)
@@ -1345,21 +1357,42 @@ export function NutritionApp({ auth }: { auth: FeatureAuth }) {
     imageBase64?: string
   } | null>(null)
 
+  const repairTried = useRef<Set<string>>(new Set())
+
+  const applySnapshot = useCallback((d: Awaited<ReturnType<typeof apiNutritionToday>>) => {
+    setGoals(d.goals)
+    setLogs(d.logs)
+    setHistory(d.history || [])
+    setTotals(d.totals)
+    if (d.goals) {
+      setGoalInput({
+        calories: d.goals.calorieGoal,
+        protein: d.goals.proteinGoal,
+        carbs: d.goals.carbsGoal,
+        fat: d.goals.fatGoal,
+      })
+    }
+  }, [])
+
+  /** Meals logged while the estimator was down carry no macros. Refill a few per
+   * open, once each, so old zero rows heal without the reader tapping every one. */
+  const repairMissing = useCallback(async (meals: NutritionLog[]) => {
+    const todo = meals.filter((m) => mealMacrosMissing(m) && !repairTried.current.has(m.id)).slice(0, 3)
+    if (!todo.length) return
+    for (const meal of todo) repairTried.current.add(meal.id)
+    let repaired = false
+    for (const meal of todo) {
+      const result = await apiRetryNutritionEstimate({ ...a, id: meal.id }).catch(() => null)
+      if (result?.ok) repaired = true
+    }
+    if (repaired) await apiNutritionToday(a).then(applySnapshot).catch(() => undefined)
+  }, [a, applySnapshot])
+
   const load = useCallback(() => {
     apiNutritionToday(a)
       .then((d) => {
-        setGoals(d.goals)
-        setLogs(d.logs)
-        setHistory(d.history || [])
-        setTotals(d.totals)
-        if (d.goals) {
-          setGoalInput({
-            calories: d.goals.calorieGoal,
-            protein: d.goals.proteinGoal,
-            carbs: d.goals.carbsGoal,
-            fat: d.goals.fatGoal,
-          })
-        }
+        applySnapshot(d)
+        void repairMissing([...d.logs, ...(d.history || [])])
       })
       .catch(() => setMsg('Could not load today.'))
     apiGetMiniPrefs(a)
@@ -1369,7 +1402,7 @@ export function NutritionApp({ auth }: { auth: FeatureAuth }) {
         setWeightInput((w) => ({ current: w.current || (next.currentWeightLb ? String(next.currentWeightLb) : ''), target: w.target || (next.targetWeightLb ? String(next.targetWeightLb) : '') }))
       })
       .catch(() => undefined)
-  }, [a])
+  }, [a, applySnapshot, repairMissing])
 
   useEffect(() => { load() }, [load])
 
@@ -1778,10 +1811,10 @@ export function NutritionApp({ auth }: { auth: FeatureAuth }) {
                 <div className="nutr-meal-time">{mealTime(l.eatenAt)}</div>
                 {l.imageUrl ? <img src={l.imageUrl} alt="" className="nutr-meal-thumb" loading="lazy" /> : null}
                 <div className="nutr-meal-info">
-                  <span className="nutr-meal-name">{l.description}</span>
+                  <span className="nutr-meal-name">{mealName(l.description)}</span>
                   <span className="nutr-meal-macros">
-                    {l.description.endsWith('(estimate pending)') ? 'Estimate unavailable' : `${Math.round(l.calories)} cal`}
-                    {l.protein || l.carbs || l.fat
+                    {mealMacrosMissing(l) ? 'Macros missing · tap to estimate' : `${Math.round(l.calories)} cal`}
+                    {!mealMacrosMissing(l) && (l.protein || l.carbs || l.fat)
                       ? ` · ${Math.round(l.protein)}p · ${Math.round(l.carbs)}c · ${Math.round(l.fat)}f`
                       : ''}
                   </span>
@@ -1809,9 +1842,11 @@ export function NutritionApp({ auth }: { auth: FeatureAuth }) {
                     <div className="nutr-meal-time">{mealTime(l.eatenAt)}</div>
                     {l.imageUrl ? <img src={l.imageUrl} alt="" className="nutr-meal-thumb" loading="lazy" /> : null}
                     <div className="nutr-meal-info">
-                      <span className="nutr-meal-name">{l.description}</span>
+                      <span className="nutr-meal-name">{mealName(l.description)}</span>
                       <span className="nutr-meal-macros">
-                        {l.description.endsWith('(estimate pending)') ? 'Estimate unavailable' : `${Math.round(l.calories)} cal · ${Math.round(l.protein)}p · ${Math.round(l.carbs)}c · ${Math.round(l.fat)}f`}
+                        {mealMacrosMissing(l)
+                          ? 'Macros missing · tap to estimate'
+                          : `${Math.round(l.calories)} cal · ${Math.round(l.protein)}p · ${Math.round(l.carbs)}c · ${Math.round(l.fat)}f`}
                       </span>
                     </div>
                     <button className="nutr-meal-delete" type="button" onClick={(e) => { e.stopPropagation(); void deleteMeal(l.id) }} title="Remove">
@@ -1831,14 +1866,14 @@ export function NutritionApp({ auth }: { auth: FeatureAuth }) {
           <div className="nutr-modal" onClick={(e) => e.stopPropagation()}>
             <button className="nutr-modal-close" type="button" onClick={() => setSelectedMeal(null)}>×</button>
             {selectedMeal.imageUrl ? <img src={selectedMeal.imageUrl} alt="" className="nutr-modal-img" /> : null}
-            <h3>{selectedMeal.description}</h3>
+            <h3>{mealName(selectedMeal.description)}</h3>
             <span className="nutr-modal-time">{mealTime(selectedMeal.eatenAt)}</span>
-            {selectedMeal.description.endsWith('(estimate pending)') && <p className="mini__hint">Macro estimate unavailable. Retry to update this meal.</p>}
+            {mealMacrosMissing(selectedMeal) && <p className="mini__hint">This meal was saved without macros. Estimate them to fill it in.</p>}
             <button className="ma-btn" type="button" disabled={busy} onClick={() => void retryEstimate(selectedMeal)}>
-              {busy ? 'Estimating…' : 'Retry estimate'}
+              {busy ? 'Estimating…' : mealMacrosMissing(selectedMeal) ? 'Estimate macros' : 'Retry estimate'}
             </button>
             {msg && <p className="mini__hint" role="status">{msg}</p>}
-            <div className="nutr-modal-macros">
+            {!mealMacrosMissing(selectedMeal) && <div className="nutr-modal-macros">
               <div className="nutr-modal-macro">
                 <span className="nutr-modal-macro-val">{Math.round(selectedMeal.calories)}</span>
                 <span className="nutr-modal-macro-label">Calories</span>
@@ -1855,7 +1890,7 @@ export function NutritionApp({ auth }: { auth: FeatureAuth }) {
                 <span className="nutr-modal-macro-val">{Math.round(selectedMeal.fat)}g</span>
                 <span className="nutr-modal-macro-label">Fat</span>
               </div>
-            </div>
+            </div>}
             <div className="nutr-modal-bar">
               {(() => {
                 const total = selectedMeal.protein + selectedMeal.carbs + selectedMeal.fat
