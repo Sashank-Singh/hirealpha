@@ -6,6 +6,7 @@ import { isPersona } from '../personas'
 import { nextReminderAt } from '../timezones'
 import { computeIdempotencyKey, withIdempotency } from '../utils/idempotency'
 import { readGmailThreadExact } from '../connectors/hub'
+import { proactiveDeliveryAllowed } from '../nudges/gating'
 
 export interface ReminderRouteOptions {
   internalOk: (r: Request) => boolean
@@ -250,7 +251,12 @@ export async function handleReminderRoutes(
       SELECT r.id, r.user_id AS "userId", u.phone_e164 AS phone, r.text, r.scheduled_at AS "scheduledAt", r.recurrence, r.timezone
       FROM hire_reminders r
       JOIN hire_users u ON u.id = r.user_id
+      LEFT JOIN hire_context ON hire_context.user_id = r.user_id AND hire_context.persona = r.persona
       WHERE r.persona = ${persona} AND r.status = 'pending' AND r.scheduled_at <= now()
+        AND (
+          NOT (r.text LIKE ANY (ARRAY['[judge]%', '[digest]%', '[renewal]%', '[poke]%']))
+          OR (${proactiveDeliveryAllowed(sql)})
+        )
       ORDER BY r.scheduled_at ASC
       LIMIT 25
     `

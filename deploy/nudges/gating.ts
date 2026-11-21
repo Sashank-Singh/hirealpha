@@ -1,3 +1,4 @@
+import type { SQL } from 'bun'
 import { localDateStrInTz } from '../timezones'
 import { inQuietHours } from '../../spectrum/shared/judgment'
 
@@ -61,6 +62,30 @@ export function shouldEmitNudgeSkip(
 
 export const nudgeSkipLogMemo = new Map<string, NudgeSkipRecord>()
 
+export function proactiveModeBlock(context: Record<string, string>): 'proactive off' | 'paused' | null {
+  const mode = (context.proactive || 'on').toLowerCase()
+  if (mode === 'off') return 'proactive off'
+  if (mode !== 'paused') return null
+  const pausedUntil = new Date(context.paused_until || '').getTime()
+  return pausedUntil < Date.now() ? null : 'paused'
+}
+
+/** Apply the same preference before limiting a due queue joined to hire_context.
+ * The preference route stores timed pauses as UTC ISO timestamps. */
+export function proactiveDeliveryAllowed(sql: SQL) {
+  return sql`
+    CASE lower(hire_context.fields->>'proactive')
+      WHEN 'off' THEN FALSE
+      WHEN 'paused' THEN COALESCE(
+        hire_context.fields->>'paused_until' ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}[.][0-9]{3}Z$'
+        AND hire_context.fields->>'paused_until' < ${new Date().toISOString()},
+        FALSE
+      )
+      ELSE TRUE
+    END
+  `
+}
+
 export function outboundNudgeBlock(
   context: Record<string, string>,
   lastInboundAt: Date | string | null,
@@ -71,14 +96,9 @@ export function outboundNudgeBlock(
    * flight departing within hours). Nothing else may break quiet hours. */
   imminent = false,
 ): string | null {
+  const modeBlock = proactiveModeBlock(context)
+  if (modeBlock) return modeBlock
   const { today, localTime } = localClock(timezone)
-  const pausedUntil = String(context.paused_until || '')
-  let proactive = String(context.proactive || 'on').toLowerCase()
-  if (proactive === 'paused' && pausedUntil && new Date(pausedUntil).getTime() < Date.now()) {
-    proactive = 'on'
-  }
-  if (proactive === 'off') return 'proactive off'
-  if (proactive === 'paused') return 'paused'
   // Quiet hours were stored and never checked here, so an urgent flag could
   // also text at 3 AM. Urgency buys a skip of the shared send-budget caps, not
   // of the person's night: only a genuinely imminent item passes quiet hours.
