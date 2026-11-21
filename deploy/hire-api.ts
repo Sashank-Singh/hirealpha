@@ -137,6 +137,8 @@ import {
   shouldEmitNudgeSkip,
   nudgeSkipLogMemo,
   outboundNudgeBlock,
+  proactiveDeliveryAllowed,
+  proactiveModeBlock,
 } from './nudges/gating'
 import {
   type FlightEventHit,
@@ -3450,6 +3452,7 @@ async function armPokes(
   persona: Persona,
   context: Record<string, string>,
 ) {
+  if (proactiveModeBlock(context)) return
   const tz = context.timezone || user.timezone || 'America/Los_Angeles'
 
   // Renewal radar (A7): once a day, scan live mail for recurring charges and
@@ -3609,6 +3612,7 @@ const DIGEST_BRIEF_TEXT = '[digest]Daily brief'
  * so the person can never receive two briefs at the same hour. */
 async function armMorningBrief(sql: SQL, user: { id: string; timezone: string | null }, persona: Persona) {
   try {
+    if (proactiveModeBlock(await loadContext(sql, user.id, persona))) return
     const existing = await sql`
       SELECT id FROM hire_reminders
       WHERE user_id = ${user.id} AND persona = ${persona}
@@ -3891,6 +3895,7 @@ async function collectEventNudgesForUser(
   if (!user.phone) return null
   const tz = user.timezone || 'America/Los_Angeles'
   const context = await loadContext(sql, user.id, persona)
+  if (proactiveModeBlock(context)) return null
   const inbound = await sql`
     SELECT last_inbound_at AS "lastInboundAt" FROM hire_roster
     WHERE user_id = ${user.id} AND persona = ${persona} LIMIT 1
@@ -4254,11 +4259,12 @@ async function dueEventNudges(sql: SQL, persona: Persona): Promise<EventNudge[]>
   // Claim with SKIP LOCKED so overlapping poll cycles can never double-send.
   const inbox = (await sql`
     SELECT i.id, i.user_id, i.topic, i.key, i.text, i.urgent, u.phone_e164 AS phone, u.timezone,
-           c.fields->>'quiet_hours' AS "quietHours"
+           hire_context.fields->>'quiet_hours' AS "quietHours"
     FROM hire_event_inbox i
     JOIN hire_users u ON u.id = i.user_id
-    LEFT JOIN hire_context c ON c.user_id = i.user_id AND c.persona = i.persona
+    LEFT JOIN hire_context ON hire_context.user_id = i.user_id AND hire_context.persona = i.persona
     WHERE i.persona = ${persona} AND i.status = 'pending' AND u.phone_e164 IS NOT NULL
+      AND (${proactiveDeliveryAllowed(sql)})
     ORDER BY i.created_at ASC
     LIMIT 8
     FOR UPDATE OF i SKIP LOCKED

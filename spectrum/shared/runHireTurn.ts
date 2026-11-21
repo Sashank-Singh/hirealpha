@@ -593,7 +593,7 @@ export function buildMemoryBlock(
 function looksLikeProactiveControl(text: string): boolean {
   const t = foldQuotes(text)
   return (
-    /\b(stop|pause|resume|enable|disable)\b.{0,40}\b(proactive|check[- ]?ins?|pokes?|outreach|reaching out)\b/i.test(t) ||
+    /\b(stop|pause|resume|enable|disable|turn\s+off)\b.{0,40}\b(proactive|proactivity|check[- ]?ins?|pokes?|outreach|reaching out)\b/i.test(t) ||
     /\bproactive\b.{0,24}\b(off|on|pause|stop|resume)\b/i.test(t) ||
     /\b(turn everything off|pause for today|kill switch)\b/i.test(t) ||
     /\b(stop|don't) texting me first\b/i.test(t) ||

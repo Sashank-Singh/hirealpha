@@ -14,6 +14,7 @@ let claims = 0
 let reverts = 0
 let sends = 0
 let stop = false
+let stopScheduler: (() => void) | undefined
 
 beforeAll(() => {
   process.env.HIREALPHA_API_URL = 'http://reminders-backoff.test'
@@ -29,6 +30,7 @@ afterAll(() => {
 })
 
 afterEach(() => {
+  stopScheduler?.()
   globalThis.fetch = savedFetch
 })
 
@@ -64,7 +66,7 @@ describe('a failing reminder send does not hammer the send budget', () => {
       return new Response(JSON.stringify({ ok: true }), { status: 200 })
     }) as typeof fetch
 
-    startReminderScheduler({
+    stopScheduler = startReminderScheduler({
       persona: 'friend',
       pollMs: 25,
       send: async () => {
