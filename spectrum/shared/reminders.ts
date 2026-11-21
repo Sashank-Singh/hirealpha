@@ -822,6 +822,7 @@ export function startReminderScheduler(opts: {
   }, pollMs)
   timer.unref?.()
   console.log(`[reminders:${opts.persona}] scheduler started every ${pollMs / 1000}s`)
+  return () => clearInterval(timer)
 }
 
 /** Which brief a tick text carries: "morning" for [digest]/[judge]morning,
